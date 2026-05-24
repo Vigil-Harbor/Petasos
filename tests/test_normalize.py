@@ -13,6 +13,11 @@ class TestNFKC:
         result = normalize("\U0001d400")  # mathematical bold A
         assert result.normalized == "A"
 
+    def test_nfkc_only_does_not_set_confusables(self) -> None:
+        result = normalize("ａ")  # fullwidth a — NFKC normalizes, no homoglyph
+        assert result.normalized == "a"
+        assert result.confusables_normalized is False
+
 
 class TestInvisibleCharStripping:
     def test_zero_width_space(self) -> None:

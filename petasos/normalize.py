@@ -102,8 +102,8 @@ def normalize(text: str) -> NormalizedText:
     if text_after_homoglyph != text_after_nfkc:
         transforms.append("homoglyph_mapped")
 
-    # confusables_normalized: true if text after steps 3+4 differs from text after step 2
-    confusables = text_after_homoglyph != text_after_strip
+    # confusables_normalized: true only when homoglyph mapping changed the text
+    confusables = text_after_homoglyph != text_after_nfkc
 
     return NormalizedText(
         original=original,
