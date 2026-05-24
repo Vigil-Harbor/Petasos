@@ -130,9 +130,7 @@ class TestPipelineResult:
 
 class TestNormalizedText:
     def test_frozen(self) -> None:
-        n = NormalizedText(
-            original="hello", normalized="hello", transformations_applied=()
-        )
+        n = NormalizedText(original="hello", normalized="hello", transformations_applied=())
         with pytest.raises(dataclasses.FrozenInstanceError):
             n.normalized = "other"  # type: ignore[misc]
 

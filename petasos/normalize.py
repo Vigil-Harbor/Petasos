@@ -4,62 +4,68 @@ import unicodedata
 
 from petasos._types import NormalizedText
 
-RTL_OVERRIDES = frozenset([
-    "‪",  # LRE
-    "‫",  # RLE
-    "‬",  # PDF
-    "‭",  # LRO
-    "‮",  # RLO
-    "⁦",  # LRI
-    "⁧",  # RLI
-    "⁨",  # FSI
-    "⁩",  # PDI
-])
+RTL_OVERRIDES = frozenset(
+    [
+        "‪",  # LRE
+        "‫",  # RLE
+        "‬",  # PDF
+        "‭",  # LRO
+        "‮",  # RLO
+        "⁦",  # LRI
+        "⁧",  # RLI
+        "⁨",  # FSI
+        "⁩",  # PDI
+    ]
+)
 
-INVISIBLE_CHARS = frozenset([
-    "­",  # soft hyphen
-    "​",  # zero-width space
-    "‌",  # ZWNJ
-    "‍",  # ZWJ
-    "‎",  # LRM
-    "‏",  # RLM
-    "‪",  # LRE
-    "‫",  # RLE
-    "‬",  # PDF
-    "‭",  # LRO
-    "‮",  # RLO
-    " ",  # narrow no-break space
-    "⁠",  # word joiner
-    "⁡",  # function application
-    "⁢",  # invisible times
-    "⁣",  # invisible separator
-    "⁤",  # invisible plus
-    "⁦",  # LRI
-    "⁧",  # RLI
-    "⁨",  # FSI
-    "⁩",  # PDI
-    "﻿",  # BOM / ZWNBSP
-])
+INVISIBLE_CHARS = frozenset(
+    [
+        "­",  # soft hyphen
+        "​",  # zero-width space
+        "‌",  # ZWNJ
+        "‍",  # ZWJ
+        "‎",  # LRM
+        "‏",  # RLM
+        "‪",  # LRE
+        "‫",  # RLE
+        "‬",  # PDF
+        "‭",  # LRO
+        "‮",  # RLO
+        " ",  # narrow no-break space
+        "⁠",  # word joiner
+        "⁡",  # function application
+        "⁢",  # invisible times
+        "⁣",  # invisible separator
+        "⁤",  # invisible plus
+        "⁦",  # LRI
+        "⁧",  # RLI
+        "⁨",  # FSI
+        "⁩",  # PDI
+        "﻿",  # BOM / ZWNBSP
+    ]
+)
 
-_HOMOGLYPH_TABLE = str.maketrans({
-    "а": "a",  # Cyrillic a
-    "е": "e",  # Cyrillic e
-    "о": "o",  # Cyrillic o
-    "р": "p",  # Cyrillic p
-    "с": "c",  # Cyrillic c
-    "у": "y",  # Cyrillic y
-    "і": "i",  # Cyrillic i
-    "ѕ": "s",  # Cyrillic s
-    "α": "a",  # Greek alpha
-    "ε": "e",  # Greek epsilon
-    "ο": "o",  # Greek omicron
-    "ρ": "p",  # Greek rho
-    "κ": "k",  # Greek kappa
-    "ι": "i",  # Greek iota
-    "ν": "v",  # Greek nu
-    "ı": "i",  # Latin dotless i
-    "ɡ": "g",  # IPA g
-})
+_HOMOGLYPH_TABLE = str.maketrans(
+    {
+        "а": "a",  # Cyrillic a
+        "е": "e",  # Cyrillic e
+        "о": "o",  # Cyrillic o
+        "р": "p",  # Cyrillic p
+        "с": "c",  # Cyrillic c
+        "у": "y",  # Cyrillic y
+        "і": "i",  # Cyrillic i
+        "ѕ": "s",  # Cyrillic s
+        "α": "a",  # Greek alpha
+        "ε": "e",  # Greek epsilon
+        "ο": "o",  # Greek omicron
+        "ρ": "p",  # Greek rho
+        "κ": "k",  # Greek kappa
+        "ι": "i",  # Greek iota
+        "ν": "v",  # Greek nu
+        "ı": "i",  # Latin dotless i
+        "ɡ": "g",  # IPA g
+    }
+)
 
 
 def normalize(text: str) -> NormalizedText:
