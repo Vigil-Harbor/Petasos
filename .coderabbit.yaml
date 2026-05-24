@@ -1,0 +1,15 @@
+language: en
+reviews:
+  auto_review:
+    enabled: true
+    drafts: false
+  request_changes_workflow: true
+  path_instructions:
+    - path: "petasos/**"
+      instructions: "Security-sensitive content scanning library. Flag bypasses, unhandled edge cases, or places where unsanitized content could leak through. Pipeline must never throw — errors are returned in PipelineResult. Structural rules cannot be suppressed."
+    - path: "petasos/scanners/**"
+      instructions: "Scanner implementations behind the Scanner protocol. Verify scan() is async, returns ScanResult (never throws), and respects direction/session_id kwargs. MinimalScanner has zero external deps — flag any added imports."
+    - path: "petasos/premium/**"
+      instructions: "License-gated premium features. Verify premium code is unreachable without valid JWT. Tier 3 escalation cannot be disabled — flag any config override that would allow it."
+    - path: "tests/**"
+      instructions: "pytest + anyio. Tests must not mock the scanner protocol boundary — use real scanner instances. Verify frozen dataclass assertions use dataclasses.FrozenInstanceError, not AttributeError."
