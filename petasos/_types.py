@@ -1,0 +1,128 @@
+from __future__ import annotations
+
+import enum
+from dataclasses import dataclass
+from typing import Any, Literal, Protocol, runtime_checkable
+
+Direction = Literal["inbound", "outbound"]
+
+
+class Severity(enum.Enum):
+    CRITICAL = "critical"
+    HIGH = "high"
+    MEDIUM = "medium"
+    LOW = "low"
+    INFO = "info"
+
+
+@dataclass(frozen=True)
+class Position:
+    start: int
+    end: int
+
+
+@dataclass(frozen=True)
+class ScanFinding:
+    rule_id: str
+    finding_type: str
+    severity: Severity
+    confidence: float
+    message: str
+    scanner_name: str
+    position: Position | None = None
+    matched_text: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {
+            "rule_id": self.rule_id,
+            "finding_type": self.finding_type,
+            "severity": self.severity.value,
+            "confidence": self.confidence,
+            "message": self.message,
+            "scanner_name": self.scanner_name,
+        }
+        if self.position is not None:
+            d["position"] = {"start": self.position.start, "end": self.position.end}
+        else:
+            d["position"] = None
+        d["matched_text"] = self.matched_text
+        return d
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ScanFinding:
+        pos = data.get("position")
+        position = Position(**pos) if pos is not None else None
+        return cls(
+            rule_id=data["rule_id"],
+            finding_type=data["finding_type"],
+            severity=Severity(data["severity"]),
+            confidence=data["confidence"],
+            message=data["message"],
+            scanner_name=data["scanner_name"],
+            position=position,
+            matched_text=data.get("matched_text"),
+        )
+
+
+@dataclass(frozen=True)
+class ScanResult:
+    scanner_name: str
+    findings: tuple[ScanFinding, ...]
+    duration_ms: float = 0.0
+    error: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "scanner_name": self.scanner_name,
+            "findings": [f.to_dict() for f in self.findings],
+            "duration_ms": self.duration_ms,
+            "error": self.error,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ScanResult:
+        return cls(
+            scanner_name=data["scanner_name"],
+            findings=tuple(ScanFinding.from_dict(f) for f in data["findings"]),
+            duration_ms=data.get("duration_ms", 0.0),
+            error=data.get("error"),
+        )
+
+
+@runtime_checkable
+class Scanner(Protocol):
+    @property
+    def name(self) -> str: ...
+
+    async def scan(
+        self,
+        text: str,
+        *,
+        direction: Direction = "inbound",
+        session_id: str | None = None,
+    ) -> ScanResult: ...
+
+
+@dataclass(frozen=True)
+class NormalizedText:
+    original: str
+    normalized: str
+    transformations_applied: tuple[str, ...]
+    invisible_chars_stripped: int = 0
+    confusables_normalized: bool = False
+    rtl_overrides_detected: bool = False
+
+
+@dataclass(frozen=True)
+class PipelineResult:
+    """Aggregate result from pipeline execution.
+
+    PET-6 extends this with premium fields (escalation_tier, session_score,
+    premium_features). The base definition here covers OSS-tier fields only.
+    """
+
+    safe: bool
+    findings: tuple[ScanFinding, ...]
+    sanitized_content: str | None = None
+    scanner_results: tuple[ScanResult, ...] = ()
+    errors: tuple[str, ...] = ()

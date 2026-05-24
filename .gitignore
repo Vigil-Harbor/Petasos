@@ -47,5 +47,8 @@ Thumbs.db
 # Hatch
 .hatch/
 
+# Research artifacts (drafts, diagrams — not shipped)
+docs/research/
+
 # Claude Code
 .claude/
