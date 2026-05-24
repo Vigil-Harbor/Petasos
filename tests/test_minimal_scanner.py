@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import pytest
-
-from petasos._types import ScanResult, Scanner, Severity
+from petasos._types import Scanner, ScanResult, Severity
 from petasos.scanners.minimal import RULE_TAXONOMY, MinimalScanner
 
 
@@ -154,23 +152,17 @@ class TestScannerMeta:
         assert _find(r, "petasos.syntactic.structural.excessive-depth")
 
     async def test_exception_guard(self) -> None:
+        from unittest.mock import patch
+
         scanner = MinimalScanner()
-        # Patch normalize to raise
-        import petasos.scanners.minimal as mod
-
-        original = mod.normalize
-
-        def bad_normalize(text: str) -> None:
-            raise RuntimeError("boom")
-
-        mod.normalize = bad_normalize  # type: ignore[assignment]
-        try:
+        with patch(
+            "petasos.scanners.minimal.normalize",
+            side_effect=RuntimeError("boom"),
+        ):
             r = await scanner.scan("anything")
             assert r.error is not None
             assert "boom" in r.error
             assert r.findings == ()
-        finally:
-            mod.normalize = original
 
     async def test_homoglyph_fires_unconditionally_d6(self) -> None:
         r = await MinimalScanner().scan("а")  # Cyrillic a, no injection

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import enum
-from dataclasses import dataclass, fields
+from dataclasses import dataclass
 from typing import Any, Literal, Protocol, runtime_checkable
 
 Direction = Literal["inbound", "outbound"]

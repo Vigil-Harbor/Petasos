@@ -10,8 +10,8 @@ from petasos._types import (
     PipelineResult,
     Position,
     ScanFinding,
-    ScanResult,
     Scanner,
+    ScanResult,
     Severity,
 )
 

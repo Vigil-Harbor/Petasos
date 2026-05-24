@@ -166,7 +166,10 @@ class MinimalScanner:
                 finding_type="structural",
                 severity=Severity.CRITICAL,
                 confidence=1.0,
-                message=f"Payload size {payload_size} bytes exceeds limit {self._max_payload_bytes}",
+                message=(
+                    f"Payload size {payload_size} bytes exceeds limit "
+                    f"{self._max_payload_bytes}"
+                ),
                 scanner_name=self.name,
             ))
 
@@ -207,7 +210,8 @@ class MinimalScanner:
                 if depth > max_depth:
                     max_depth = depth
             elif ch in ("}", "]"):
-                depth -= 1
+                if depth > 0:
+                    depth -= 1
         if not has_brackets:
             return 0
         return max_depth
