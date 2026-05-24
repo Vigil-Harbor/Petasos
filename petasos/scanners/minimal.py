@@ -343,9 +343,12 @@ class MinimalScanner:
                     )
                 )
 
-        # Homoglyph substitution (unconditional per D6)
+        # Homoglyph substitution (unconditional per D6 — fires without injection)
         homo_rule = "petasos.syntactic.encoding.homoglyph-substitution"
-        if homo_rule not in self._suppress_rules and normalized.confusables_normalized:
+        if (
+            homo_rule not in self._suppress_rules
+            and "homoglyph_mapped" in normalized.transformations_applied
+        ):
             findings.append(
                 ScanFinding(
                     rule_id=homo_rule,
