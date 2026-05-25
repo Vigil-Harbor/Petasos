@@ -1,0 +1,55 @@
+﻿All checks passed!
+---RUFF-CHECK-OK---
+
+12 files already formatted
+---RUFF-FORMAT-OK---
+
+Success: no issues found in 12 source files
+---MYPY-OK---
+
+============================= test session starts =============================
+platform win32 -- Python 3.14.4, pytest-9.0.2, pluggy-1.6.0 -- C:\Users\zioni\Documents\GitHub\openclaw\Python\pythoncore-3.14-64\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\zioni\Documents\Vigil-Harbor\PET-4-worktree
+configfile: pyproject.toml
+plugins: anyio-4.12.1, asyncio-1.3.0, cov-7.1.0, typeguard-4.5.1
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 34 items
+
+tests/test_llama_firewall_scanner.py::TestUnit::test_name PASSED         [  2%]
+tests/test_llama_firewall_scanner.py::TestUnit::test_protocol_conformance PASSED [  5%]
+tests/test_llama_firewall_scanner.py::TestUnit::test_import_failure_returns_error PASSED [  8%]
+tests/test_llama_firewall_scanner.py::TestUnit::test_import_failure_message PASSED [ 11%]
+tests/test_llama_firewall_scanner.py::TestUnit::test_init_failure_returns_error PASSED [ 14%]
+tests/test_llama_firewall_scanner.py::TestUnit::test_no_components_enabled PASSED [ 17%]
+tests/test_llama_firewall_scanner.py::TestUnit::test_default_constructor PASSED [ 20%]
+tests/test_llama_firewall_scanner.py::TestUnit::test_thread_safety PASSED [ 23%]
+tests/test_llama_firewall_scanner.py::TestUnit::test_duration_tracking PASSED [ 26%]
+tests/test_llama_firewall_scanner.py::TestUnit::test_exception_in_scan_returns_error PASSED [ 29%]
+tests/test_llama_firewall_scanner.py::TestUnit::test_empty_string PASSED [ 32%]
+tests/test_llama_firewall_scanner.py::TestMockFunctional::test_block_produces_finding PASSED [ 35%]
+tests/test_llama_firewall_scanner.py::TestMockFunctional::test_allow_no_finding PASSED [ 38%]
+tests/test_llama_firewall_scanner.py::TestMockFunctional::test_confidence_clamped_high PASSED [ 41%]
+tests/test_llama_firewall_scanner.py::TestMockFunctional::test_confidence_clamped_low PASSED [ 44%]
+tests/test_llama_firewall_scanner.py::TestMockFunctional::test_direction_inbound_uses_user_message PASSED [ 47%]
+tests/test_llama_firewall_scanner.py::TestMockFunctional::test_direction_outbound_uses_assistant_message PASSED [ 50%]
+tests/test_llama_firewall_scanner.py::TestMockFunctional::test_multiple_components PASSED [ 52%]
+tests/test_llama_firewall_scanner.py::TestMockFunctional::test_partial_failure_preserves_findings PASSED [ 55%]
+tests/test_llama_firewall_scanner.py::TestMockFunctional::test_non_allow_decision_produces_finding PASSED [ 58%]
+tests/test_llama_firewall_scanner.py::TestMockFunctional::test_none_score_defaults_to_one PASSED [ 61%]
+tests/test_llama_firewall_scanner.py::TestMockFunctional::test_fail_once_semantics PASSED [ 64%]
+tests/test_llama_firewall_scanner.py::TestIntegration::test_prompt_guard_detects_jailbreak SKIPPED [ 67%]
+tests/test_llama_firewall_scanner.py::TestIntegration::test_prompt_guard_clean_message SKIPPED [ 70%]
+tests/test_llama_firewall_scanner.py::TestIntegration::test_code_shield_detects_unsafe SKIPPED [ 73%]
+tests/test_llama_firewall_scanner.py::TestIntegration::test_alignment_check_cot SKIPPED [ 76%]
+tests/test_llama_firewall_scanner.py::TestIntegration::test_direction_inbound SKIPPED [ 79%]
+tests/test_llama_firewall_scanner.py::TestIntegration::test_direction_outbound SKIPPED [ 82%]
+tests/test_llama_firewall_scanner.py::TestIntegration::test_multiple_components_enabled SKIPPED [ 85%]
+tests/test_llama_firewall_scanner.py::TestIntegration::test_finding_field_completeness SKIPPED [ 88%]
+tests/test_llama_firewall_scanner.py::TestIntegration::test_backend_exception_partial_findings SKIPPED [ 91%]
+tests/test_llama_firewall_scanner.py::TestIntegration::test_confidence_range SKIPPED [ 94%]
+tests/test_llama_firewall_scanner.py::TestIntegration::test_corpus SKIPPED [ 97%]
+tests/test_llama_firewall_scanner.py::TestIntegration::test_async_correctness SKIPPED [100%]
+
+======================= 22 passed, 12 skipped in 0.06s ========================
+---PYTEST-OK---
