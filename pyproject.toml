@@ -32,3 +32,23 @@ asyncio_mode = "auto"
 [tool.mypy]
 strict = true
 python_version = "3.11"
+
+[[tool.mypy.overrides]]
+module = [
+    "presidio_analyzer",
+    "presidio_analyzer.*",
+    "presidio_anonymizer",
+    "presidio_anonymizer.*",
+    "spacy",
+    "spacy.*",
+    "llm_guard",
+    "llm_guard.*",
+    "llamafirewall",
+    "llamafirewall.*",
+]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "petasos.scanners.presidio"
+warn_unused_ignores = false
+disallow_subclassing_any = false
