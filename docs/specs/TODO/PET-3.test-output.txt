@@ -1,0 +1,37 @@
+============================= test session starts =============================
+platform win32 -- Python 3.14.3, pytest-9.0.2, pluggy-1.6.0 -- C:\Python314\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\zioni\Documents\Vigil-Harbor\PET-3-worktree
+configfile: pyproject.toml
+plugins: anyio-4.12.1, asyncio-1.3.0, cov-7.1.0, typeguard-4.5.1
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 26 items
+
+tests/test_llm_guard_scanner.py::TestScannerProtocolCompliance::test_isinstance_scanner PASSED [  3%]
+tests/test_llm_guard_scanner.py::TestScannerProtocolCompliance::test_scan_is_coroutine PASSED [  7%]
+tests/test_llm_guard_scanner.py::TestNameProperty::test_name_returns_llm_guard PASSED [ 11%]
+tests/test_llm_guard_scanner.py::TestLazyLoadFailure::test_missing_llm_guard_returns_errored_result PASSED [ 15%]
+tests/test_llm_guard_scanner.py::TestLazyLoadOnlyOnce::test_second_scan_does_not_reimport PASSED [ 19%]
+tests/test_llm_guard_scanner.py::TestRuntimeExceptionGuard::test_sub_scanner_raise_returns_errored_result PASSED [ 23%]
+tests/test_llm_guard_scanner.py::TestPerSubScannerErrorIsolation::test_one_fails_others_still_run PASSED [ 26%]
+tests/test_llm_guard_scanner.py::TestDurationTracking::test_duration_ms_is_positive PASSED [ 30%]
+tests/test_llm_guard_scanner.py::TestDefaultEnableFlags::test_only_two_scanners_by_default PASSED [ 34%]
+tests/test_llm_guard_scanner.py::TestAllEnableFlags::test_all_five_scanners_enabled PASSED [ 38%]
+tests/test_llm_guard_scanner.py::TestBanTopicsRequiresFlag::test_ban_topics_without_flag_does_not_activate PASSED [ 42%]
+tests/test_llm_guard_scanner.py::TestEnableBanTopicsWithoutList::test_enable_ban_topics_none_raises PASSED [ 46%]
+tests/test_llm_guard_scanner.py::TestEnableBanTopicsWithoutList::test_enable_ban_topics_empty_raises PASSED [ 50%]
+tests/test_llm_guard_scanner.py::TestThreadSafety::test_ensure_loaded_executes_once PASSED [ 53%]
+tests/test_llm_guard_scanner.py::TestCachedLoadFailure::test_cached_error_no_retry_then_reset PASSED [ 57%]
+tests/test_llm_guard_scanner.py::TestModelInstantiationFailure::test_model_init_failure_cached PASSED [ 61%]
+tests/test_llm_guard_scanner.py::TestIntegrationCleanInput::test_clean_input SKIPPED [ 65%]
+tests/test_llm_guard_scanner.py::TestIntegrationPromptInjection::test_prompt_injection_detected SKIPPED [ 69%]
+tests/test_llm_guard_scanner.py::TestIntegrationInvisibleText::test_invisible_text_detected SKIPPED [ 73%]
+tests/test_llm_guard_scanner.py::TestIntegrationToxicity::test_toxicity_detected SKIPPED [ 76%]
+tests/test_llm_guard_scanner.py::TestIntegrationSecrets::test_secrets_detected SKIPPED [ 80%]
+tests/test_llm_guard_scanner.py::TestIntegrationBanTopics::test_ban_topics_detected SKIPPED [ 84%]
+tests/test_llm_guard_scanner.py::TestIntegrationConfidenceMapping::test_confidence_is_float_in_range SKIPPED [ 88%]
+tests/test_llm_guard_scanner.py::TestIntegrationPositionAndMatchedText::test_position_and_matched_text_none SKIPPED [ 92%]
+tests/test_llm_guard_scanner.py::TestIntegrationThresholdParameter::test_high_threshold_reduces_sensitivity SKIPPED [ 96%]
+tests/test_llm_guard_scanner.py::TestIntegrationDirectionParameter::test_outbound_direction_works SKIPPED [100%]
+
+======================= 16 passed, 10 skipped in 0.10s ========================
