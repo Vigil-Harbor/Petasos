@@ -1,0 +1,14 @@
+{
+  "name": "admin",
+  "suppress_rules": [],
+  "severity_overrides": {},
+  "confidence_floor": 0.0,
+  "tier_thresholds": {
+    "tier1": 10,
+    "tier2": 20,
+    "tier3": 35
+  },
+  "pii_entities_extra": ["PERSON", "EMAIL", "PHONE_NUMBER", "CREDIT_CARD", "IBAN_CODE"],
+  "tool_exempt_list": [],
+  "tool_alias_map": {}
+}

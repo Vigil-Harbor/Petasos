@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import time
+from dataclasses import replace
 from types import MappingProxyType
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from petasos._types import (
     PipelineResult,
@@ -14,6 +15,7 @@ from petasos._types import (
 from petasos.config import PetasosConfig
 from petasos.normalize import normalize
 from petasos.premium.frequency import FrequencyTracker, FrequencyUpdateResult
+from petasos.premium.profiles import ProfileResolver, ResolvedProfile
 from petasos.scanners.minimal import MinimalScanner
 
 if TYPE_CHECKING:
@@ -145,6 +147,7 @@ class Pipeline:
         scanners: Sequence[Scanner] = (),
         *,
         config: PetasosConfig | None = None,
+        profile: str | ResolvedProfile | None = None,
     ) -> None:
         self._config = config.copy() if config is not None else PetasosConfig()
         self._premium_active = False
@@ -166,6 +169,12 @@ class Pipeline:
             self._minimal_scanner = MinimalScanner()
 
         self._frequency_tracker = FrequencyTracker(self._config)
+        self._profile_resolver = ProfileResolver()
+        self._default_profile: ResolvedProfile | None = self._resolve_profile(profile)
+
+    @property
+    def config(self) -> PetasosConfig:
+        return self._config
 
     def activate(self) -> None:
         self._premium_active = True
@@ -173,8 +182,22 @@ class Pipeline:
     def deactivate(self) -> None:
         self._premium_active = False
 
+    def is_premium_active(self, feature_name: str) -> bool:
+        return self._check_premium(feature_name)
+
     def _check_premium(self, feature_name: str) -> bool:
         return self._premium_active
+
+    def _resolve_profile(
+        self, profile: str | ResolvedProfile | None
+    ) -> ResolvedProfile | None:
+        if isinstance(profile, ResolvedProfile):
+            return profile
+        if isinstance(profile, str):
+            return self._profile_resolver.resolve(profile)
+        if self._config.profile_name:
+            return self._profile_resolver.resolve(self._config.profile_name)
+        return None
 
     def _build_premium_features(self) -> MappingProxyType[str, str]:
         active = self._premium_active
@@ -184,8 +207,8 @@ class Pipeline:
                 "escalation": "unlocked"
                 if active and self._config.escalation_enabled
                 else "locked",
-                "profiles": "locked",
-                "tool_guard": "locked",
+                "profiles": "unlocked" if active and self._default_profile is not None else "locked",
+                "tool_guard": "unlocked" if active and self._config.tool_guard_enabled else "locked",
                 "audit": "locked",
                 "alerting": "locked",
             }
@@ -219,14 +242,25 @@ class Pipeline:
         *,
         direction: Direction | None = None,
         session_id: str | None = None,
+        profile: str | ResolvedProfile | dict[str, Any] | None = None,
     ) -> PipelineResult:
         resolved_direction: Direction = (
             direction if direction is not None else self._config.direction
         )
 
+        active_profile = self._default_profile
+        if profile is not None:
+            if isinstance(profile, ResolvedProfile):
+                active_profile = profile
+            elif isinstance(profile, (str, dict)):
+                active_profile = self._profile_resolver.resolve(profile)
+
         try:
             return await self._inspect_inner(
-                text, direction=resolved_direction, session_id=session_id
+                text,
+                direction=resolved_direction,
+                session_id=session_id,
+                active_profile=active_profile,
             )
         except Exception as exc:
             return PipelineResult(
@@ -241,6 +275,7 @@ class Pipeline:
         *,
         direction: Direction,
         session_id: str | None,
+        active_profile: ResolvedProfile | None,
     ) -> PipelineResult:
         freq_result: FrequencyUpdateResult | None = None
         escalation_tier: str | None = None
@@ -259,9 +294,11 @@ class Pipeline:
             norm_result = normalize(text)
             normalized_text = norm_result.normalized
 
+        # Stage 1b: Profile hook → effective scanner
+        effective_scanner = await self._premium_profile_hook(active_profile)
+
         # Stage 2: Syntactic pre-filter (raw text)
-        assert self._minimal_scanner is not None
-        minimal_result = await self._minimal_scanner.scan(
+        minimal_result = await effective_scanner.scan(
             text, direction=direction, session_id=session_id
         )
 
@@ -289,6 +326,31 @@ class Pipeline:
 
         # Stage 5: Merge findings
         merged = merge_findings(all_results)
+
+        # Stage 5b: Confidence floor filtering
+        if (
+            active_profile is not None
+            and self._check_premium("profiles")
+            and active_profile.confidence_floor > 0.0
+        ):
+            merged = tuple(
+                f for f in merged if f.confidence >= active_profile.confidence_floor
+            )
+
+        # Stage 5c: Severity overrides
+        if (
+            active_profile is not None
+            and self._check_premium("profiles")
+            and active_profile.severity_overrides
+        ):
+            overridden: list[ScanFinding] = []
+            for f in merged:
+                override = active_profile.severity_overrides.get(f.rule_id)
+                if override is not None:
+                    overridden.append(replace(f, severity=Severity(override)))
+                else:
+                    overridden.append(f)
+            merged = tuple(overridden)
 
         # Stage 6: Premium frequency hook
         try:
@@ -361,6 +423,19 @@ class Pipeline:
                 escalation_tier=escalation_tier,
             )
         return result
+
+    async def _premium_profile_hook(
+        self,
+        profile: ResolvedProfile | None,
+    ) -> MinimalScanner:
+        assert self._minimal_scanner is not None
+        if profile is None:
+            return self._minimal_scanner
+        if not self._check_premium("profiles"):
+            return self._minimal_scanner
+        if not profile.suppress_rules:
+            return self._minimal_scanner
+        return self._minimal_scanner.with_suppress_rules(profile.suppress_rules)
 
     async def _premium_frequency_hook(
         self, findings: tuple[ScanFinding, ...], session_id: str | None

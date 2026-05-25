@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from petasos.config import PetasosConfig
 
-TIER3_FLOOR: float = 30.0
+from petasos.config import TIER3_FLOOR as TIER3_FLOOR
 
 _TIER_ACTIONS: dict[str, str] = {
     "none": "none",

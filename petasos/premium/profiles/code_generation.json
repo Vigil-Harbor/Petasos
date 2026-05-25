@@ -1,0 +1,15 @@
+{
+  "name": "code_generation",
+  "suppress_rules": [
+    "petasos.syntactic.encoding.invisible-chars",
+    "petasos.syntactic.encoding.base64-in-text",
+    "petasos.syntactic.encoding.homoglyph-substitution",
+    "petasos.syntactic.encoding.rtl-override"
+  ],
+  "severity_overrides": {},
+  "confidence_floor": 0.6,
+  "tier_thresholds": null,
+  "pii_entities_extra": [],
+  "tool_exempt_list": [],
+  "tool_alias_map": {}
+}
