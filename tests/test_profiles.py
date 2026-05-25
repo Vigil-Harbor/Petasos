@@ -4,16 +4,13 @@ from types import MappingProxyType
 
 import pytest
 
-from petasos.config import TIER3_FLOOR, _validate_tier_thresholds
+from petasos.config import TIER3_FLOOR
 from petasos.premium.profiles import (
+    _BUILTIN_NAMES,
     ProfileResolver,
     ResolvedProfile,
     TierThresholds,
-    _BUILTIN_NAMES,
-    _merge_with_base,
-    _parse_profile,
 )
-
 
 # ---------------------------------------------------------------------------
 # TierThresholds validation

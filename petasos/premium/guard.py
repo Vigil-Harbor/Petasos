@@ -6,10 +6,10 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
-from petasos._types import ScanFinding, Severity
 from petasos.premium.escalation import evaluate_tier
 
 if TYPE_CHECKING:
+    from petasos._types import ScanFinding
     from petasos.config import PetasosConfig
     from petasos.pipeline import Pipeline
     from petasos.premium.frequency import FrequencyTracker

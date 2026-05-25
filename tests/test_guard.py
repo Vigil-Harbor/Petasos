@@ -5,16 +5,15 @@ from types import MappingProxyType
 
 import pytest
 
-from petasos._types import ScanFinding, ScanResult, Severity
+from petasos._types import ScanFinding, Severity
 from petasos.config import PetasosConfig
 from petasos.pipeline import Pipeline
 from petasos.premium.frequency import FrequencyTracker, SessionState
 from petasos.premium.guard import (
-    DEFAULT_TOOL_ALIASES,
-    GuardResult,
-    ToolCallGuard,
     _NAMESPACE_PREFIX_RE,
     _PREMIUM_INACTIVE,
+    GuardResult,
+    ToolCallGuard,
 )
 from petasos.premium.profiles import ResolvedProfile, TierThresholds
 

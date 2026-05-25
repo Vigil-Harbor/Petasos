@@ -207,8 +207,12 @@ class Pipeline:
                 "escalation": "unlocked"
                 if active and self._config.escalation_enabled
                 else "locked",
-                "profiles": "unlocked" if active and self._default_profile is not None else "locked",
-                "tool_guard": "unlocked" if active and self._config.tool_guard_enabled else "locked",
+                "profiles": "unlocked"
+                if active and self._default_profile is not None
+                else "locked",
+                "tool_guard": "unlocked"
+                if active and self._config.tool_guard_enabled
+                else "locked",
                 "audit": "locked",
                 "alerting": "locked",
             }

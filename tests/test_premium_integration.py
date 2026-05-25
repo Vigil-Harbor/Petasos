@@ -9,7 +9,7 @@ import pytest
 from petasos._types import PipelineResult, Severity
 from petasos.config import PetasosConfig
 from petasos.pipeline import Pipeline
-from petasos.premium.frequency import FrequencyTracker, SessionState
+from petasos.premium.frequency import FrequencyTracker
 from petasos.premium.guard import ToolCallGuard
 from petasos.premium.profiles import ProfileResolver, ResolvedProfile
 
@@ -273,7 +273,10 @@ class TestProfilePipelineIntegration:
         inactive_rules = {f.rule_id for f in result_inactive.findings}
         active_rules = {f.rule_id for f in result_active.findings}
 
-        assert "petasos.syntactic.encoding.invisible-chars" in inactive_rules or len(inactive_rules) >= len(active_rules)
+        assert (
+            "petasos.syntactic.encoding.invisible-chars" in inactive_rules
+            or len(inactive_rules) >= len(active_rules)
+        )
 
     async def test_code_gen_suppresses_encoding_not_injection(self) -> None:
         pipe = Pipeline(config=_cfg(), profile="code_generation")

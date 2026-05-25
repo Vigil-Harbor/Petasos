@@ -69,7 +69,7 @@ def _parse_profile(data: dict[str, Any]) -> ResolvedProfile:
         )
 
     alias_map = data.get("tool_alias_map", {})
-    for k, v in alias_map.items():
+    for _k, v in alias_map.items():
         if not v:
             raise ValueError("tool_alias_map values must be non-empty")
 
@@ -150,7 +150,7 @@ def _merge_with_base(
         val = overrides["tool_alias_map"]
         if not isinstance(val, dict):
             raise ValueError("tool_alias_map must be a dict")
-        for k, v in val.items():
+        for _k, v in val.items():
             if not v:
                 raise ValueError("tool_alias_map values must be non-empty")
         alias.update(val)
