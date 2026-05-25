@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import copy
 import time
 from types import MappingProxyType
 from typing import TYPE_CHECKING
@@ -147,7 +146,7 @@ class Pipeline:
         *,
         config: PetasosConfig | None = None,
     ) -> None:
-        self._config = copy.deepcopy(config) if config is not None else PetasosConfig()
+        self._config = config.copy() if config is not None else PetasosConfig()
         self._premium_active = False
 
         scanner_list = list(scanners)

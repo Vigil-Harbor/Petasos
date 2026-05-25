@@ -174,7 +174,15 @@ class FrequencyTracker:
         )
 
     def get_state(self, session_id: str) -> SessionState | None:
-        return self._sessions.get(session_id)
+        state = self._sessions.get(session_id)
+        if state is None:
+            return None
+        return SessionState(
+            last_score=state.last_score,
+            last_update=state.last_update,
+            rolling_findings=deque(state.rolling_findings),
+            terminated=state.terminated,
+        )
 
     def reset(self, session_id: str) -> None:
         self._sessions.pop(session_id, None)

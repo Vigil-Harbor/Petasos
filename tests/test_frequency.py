@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import math
-import time
 from unittest.mock import patch
 
 import pytest
@@ -12,8 +10,6 @@ from petasos.premium.frequency import (
     DISABLED_RESULT,
     RATE_LIMITED_RESULT,
     FrequencyTracker,
-    FrequencyUpdateResult,
-    SessionState,
 )
 
 
@@ -295,10 +291,8 @@ class TestSessionEviction:
         with patch("petasos.premium.frequency.time.monotonic", return_value=t0 + 1):
             tracker.update("s2", ["r"])
 
-        # Terminate s1
-        state = tracker.get_state("s1")
-        assert state is not None
-        state.terminated = True
+        # Terminate s1 via internal state (get_state returns a copy)
+        tracker._sessions["s1"].terminated = True
 
         with patch("petasos.premium.frequency.time.monotonic", return_value=t0 + 2):
             tracker.update("s3", ["r"])
@@ -324,7 +318,7 @@ class TestSessionEviction:
         with patch("petasos.premium.frequency.time.monotonic", return_value=t0 + 1):
             tracker.update("s2", ["r"])
         with patch("petasos.premium.frequency.time.monotonic", return_value=t0 + 2):
-            result = tracker.update("s3", ["r"])
+            tracker.update("s3", ["r"])
 
         assert tracker.get_state("s3") is not None
         assert tracker.size == 2

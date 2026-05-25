@@ -5,7 +5,6 @@ import pytest
 from petasos.config import PetasosConfig
 from petasos.premium.escalation import (
     TIER3_FLOOR,
-    EscalationResult,
     evaluate_escalation,
     evaluate_tier,
 )

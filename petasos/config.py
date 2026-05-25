@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import copy
 import math
 from dataclasses import dataclass, fields
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
@@ -125,12 +125,18 @@ class PetasosConfig:
             )
         if self.frequency_weights is not None:
             for k, v in self.frequency_weights.items():
+                if not isinstance(k, str) or not k:
+                    raise ValueError(
+                        f"frequency_weights keys must be non-empty strings, got {k!r}"
+                    )
                 if v < 0 or not math.isfinite(v):
                     raise ValueError(
                         f"frequency_weights values must be non-negative and finite, "
                         f"got {k!r}: {v!r}"
                     )
-            object.__setattr__(self, "frequency_weights", dict(self.frequency_weights))
+            object.__setattr__(
+                self, "frequency_weights", MappingProxyType(dict(self.frequency_weights))
+            )
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {}
@@ -138,6 +144,8 @@ class PetasosConfig:
             val = getattr(self, f.name)
             if isinstance(val, tuple):
                 val = list(val)
+            elif isinstance(val, MappingProxyType):
+                val = dict(val)
             d[f.name] = val
         return d
 
@@ -150,4 +158,4 @@ class PetasosConfig:
         return cls(**filtered)
 
     def copy(self) -> PetasosConfig:
-        return copy.deepcopy(self)
+        return self.from_dict(self.to_dict())
