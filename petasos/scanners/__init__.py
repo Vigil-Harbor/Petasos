@@ -18,6 +18,6 @@ try:
 
     __all__.append("LlamaFirewallScanner")
 except ImportError as _exc:
-    if "llama_firewall" not in str(_exc):
+    if getattr(_exc, "name", None) not in ("llamafirewall", "llama_firewall"):
         raise
     del _exc
