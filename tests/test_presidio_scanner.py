@@ -8,17 +8,46 @@ import pytest
 from petasos._types import (
     Position,
     ScanFinding,
-    ScanResult,
     Scanner,
     Severity,
 )
 from petasos.scanners.presidio import (
-    PresidioScanner,
     _SEVERITY_MAP,
+    PresidioScanner,
     _recover_entity_type,
     anonymize,
 )
 
+# ---------------------------------------------------------------------------
+# Skip markers for optional-dependency tests
+# ---------------------------------------------------------------------------
+
+_presidio_available = True
+try:
+    import presidio_analyzer  # noqa: F401
+    import presidio_anonymizer  # noqa: F401
+except ImportError:
+    _presidio_available = False
+
+_spacy_model_available = False
+if _presidio_available:
+    try:
+        import spacy
+
+        spacy.load("en_core_web_lg")
+        _spacy_model_available = True
+    except (ImportError, OSError):
+        pass
+
+requires_presidio_libs = pytest.mark.skipif(
+    not _presidio_available,
+    reason="presidio-analyzer + presidio-anonymizer required",
+)
+
+requires_presidio = pytest.mark.skipif(
+    not (_presidio_available and _spacy_model_available),
+    reason="presidio + spaCy model required",
+)
 
 # ---------------------------------------------------------------------------
 # Unit tests — no Presidio dependency required
@@ -101,7 +130,8 @@ class TestLazyLoadFailure:
 
         scanner._load_error = None
         scanner._loaded = False
-        with patch.object(scanner, "_ensure_loaded", side_effect=OSError("Can't find model 'en_core_web_lg'")):
+        err = OSError("Can't find model 'en_core_web_lg'")
+        with patch.object(scanner, "_ensure_loaded", side_effect=err):
             result = asyncio.get_event_loop().run_until_complete(scanner.scan("test"))
             assert result.error is not None
             assert "spaCy model" in result.error
@@ -165,6 +195,7 @@ class TestAnonymizeEmptyInputs:
         assert anonymize("John is here", [finding]) == "John is here"
 
 
+@requires_presidio_libs
 class TestAnonymizeRedact:
     def test_single_entity_redacted(self) -> None:
         text = "Call John Smith please"
@@ -207,6 +238,7 @@ class TestAnonymizeReplace:
         assert r1 == r2
 
 
+@requires_presidio_libs
 class TestAnonymizeHash:
     def test_hmac_deterministic(self) -> None:
         text = "John Smith lives here"
@@ -253,7 +285,7 @@ class TestAnonymizeMask:
             "petasos.presidio.date_time", 4, 6, matched_text="25"
         )
         result = anonymize(text, [finding], mode="mask")
-        assert "Age ** here" == result
+        assert result == "Age ** here"
 
     def test_mask_matched_text_none_fallback(self) -> None:
         text = "SSN 123-45-6789"
@@ -300,6 +332,7 @@ class TestAnonymizeUnsortedFindings:
         assert "<PERSON_2>" in result
 
 
+@requires_presidio_libs
 class TestAnonymizeMixedPositioned:
     def test_unpositioned_findings_skipped(self) -> None:
         text = "John is at john@test.com"
@@ -324,29 +357,6 @@ class TestAnonymizeMixedPositioned:
 # ---------------------------------------------------------------------------
 # Integration tests — require presidio-analyzer + presidio-anonymizer + spaCy
 # ---------------------------------------------------------------------------
-
-presidio_available = True
-try:
-    import presidio_analyzer  # noqa: F401
-    import presidio_anonymizer  # noqa: F401
-except ImportError:
-    presidio_available = False
-
-spacy_model_available = False
-if presidio_available:
-    try:
-        import spacy
-
-        spacy.load("en_core_web_lg")
-        spacy_model_available = True
-    except (ImportError, OSError):
-        pass
-
-requires_presidio = pytest.mark.skipif(
-    not (presidio_available and spacy_model_available),
-    reason="presidio + spaCy model required",
-)
-
 
 @requires_presidio
 class TestPresidioScannerIntegration:
