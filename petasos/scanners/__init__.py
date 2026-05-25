@@ -9,9 +9,10 @@ try:
 
     __all__.append("LlmGuardScanner")
 except ImportError as _exc:
-    if "llm_guard" not in str(_exc):
+    _name = getattr(_exc, "name", None) or ""
+    if _name.split(".")[0] != "llm_guard":
         raise
-    del _exc
+    del _exc, _name
 
 try:
     from petasos.scanners.presidio import PresidioScanner, anonymize
@@ -21,3 +22,4 @@ except ImportError as exc:
     _name = getattr(exc, "name", None) or ""
     if _name.split(".")[0] not in ("presidio_analyzer", "presidio_anonymizer"):
         raise
+    del exc, _name
