@@ -17,5 +17,7 @@ try:
     from petasos.scanners.llama_firewall import LlamaFirewallScanner  # noqa: F401
 
     __all__.append("LlamaFirewallScanner")
-except ImportError:
-    pass
+except ImportError as _exc:
+    if "llama_firewall" not in str(_exc):
+        raise
+    del _exc
