@@ -466,6 +466,46 @@ class TestFailModeClosed:
         assert not called  # ML scanner should not have been called
 
     @pytest.mark.asyncio
+    async def test_early_exit_still_runs_premium_hooks(self) -> None:
+        hook_calls: list[str] = []
+
+        class TrackingScanner:
+            @property
+            def name(self) -> str:
+                return "tracker"
+
+            async def scan(
+                self, text: str, *, direction: Direction = "inbound", session_id: str | None = None
+            ) -> ScanResult:
+                return ScanResult(scanner_name="tracker", findings=())
+
+        p = Pipeline(
+            scanners=[TrackingScanner()],
+            config=PetasosConfig(fail_mode="closed"),
+        )
+
+        async def _freq(findings: tuple[ScanFinding, ...], sid: str | None) -> None:
+            hook_calls.append("frequency")
+
+        async def _esc(findings: tuple[ScanFinding, ...], sid: str | None) -> None:
+            hook_calls.append("escalation")
+
+        async def _audit(result: PipelineResult, sid: str | None) -> None:
+            hook_calls.append("audit")
+
+        async def _alert(result: PipelineResult, sid: str | None) -> None:
+            hook_calls.append("alert")
+
+        p._premium_frequency_hook = _freq  # type: ignore[assignment]
+        p._premium_escalation_hook = _esc  # type: ignore[assignment]
+        p._premium_audit_hook = _audit  # type: ignore[assignment]
+        p._premium_alert_hook = _alert  # type: ignore[assignment]
+
+        result = await p.inspect("hello\x01world")
+        assert result.safe is False
+        assert hook_calls == ["frequency", "escalation", "audit", "alert"]
+
+    @pytest.mark.asyncio
     async def test_no_findings_no_errors_safe(self) -> None:
         ml = MockScanner()
         p = Pipeline(scanners=[ml], config=PetasosConfig(fail_mode="closed"))

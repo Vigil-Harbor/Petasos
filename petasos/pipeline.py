@@ -214,25 +214,23 @@ class Pipeline:
             text, direction=direction, session_id=session_id
         )
 
-        # Stage 3: Early exit (closed mode)
+        # Stage 3: Early exit (closed mode) — skip ML fan-out but still
+        # run premium hooks so audit/alerting sees critical findings.
+        early_exit = False
         if self._config.fail_mode == "closed":
             has_critical = any(f.severity == Severity.CRITICAL for f in minimal_result.findings)
             if has_critical:
-                return PipelineResult(
-                    safe=False,
-                    findings=minimal_result.findings,
-                    scanner_results=(minimal_result,),
-                    sanitized_content=None,
-                    errors=(),
-                )
+                early_exit = True
 
         # Stage 4: Fan-out scan
-        if self._ml_scanners:
+        if early_exit:
+            ml_results: list[ScanResult] = []
+        elif self._ml_scanners:
             tasks = [
                 _scan_one(s, normalized_text, direction=direction, session_id=session_id)
                 for s in self._ml_scanners
             ]
-            ml_results: list[ScanResult] = list(await asyncio.gather(*tasks))
+            ml_results = list(await asyncio.gather(*tasks))
         else:
             ml_results = []
 
@@ -248,7 +246,7 @@ class Pipeline:
         await self._premium_escalation_hook(merged, session_id)
 
         # Stage 8: Fail-mode enforcement
-        safe = _compute_safe(merged, all_results, self._config.fail_mode)
+        safe = False if early_exit else _compute_safe(merged, all_results, self._config.fail_mode)
 
         # Stage 9: Anonymize
         sanitized_content: str | None = None
