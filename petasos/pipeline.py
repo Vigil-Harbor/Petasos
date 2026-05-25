@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import time
+from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 from petasos._types import (
@@ -13,6 +14,7 @@ from petasos._types import (
 )
 from petasos.config import PetasosConfig
 from petasos.normalize import normalize
+from petasos.premium.frequency import FrequencyTracker, FrequencyUpdateResult
 from petasos.scanners.minimal import MinimalScanner
 
 if TYPE_CHECKING:
@@ -164,6 +166,54 @@ class Pipeline:
         if self._minimal_scanner is None:
             self._minimal_scanner = MinimalScanner()
 
+        self._frequency_tracker = FrequencyTracker(self._config)
+        self._last_freq_result: FrequencyUpdateResult | None = None
+        self._last_escalation_tier: str | None = None
+
+    def activate(self) -> None:
+        self._premium_active = True
+
+    def deactivate(self) -> None:
+        self._premium_active = False
+
+    def _check_premium(self, feature_name: str) -> bool:
+        return self._premium_active
+
+    def _build_premium_features(self) -> MappingProxyType[str, str]:
+        active = self._premium_active
+        return MappingProxyType({
+            "frequency": "unlocked" if active and self._config.frequency_enabled else "locked",
+            "escalation": "unlocked" if active and self._config.escalation_enabled else "locked",
+            "profiles": "locked",
+            "tool_guard": "locked",
+            "audit": "locked",
+            "alerting": "locked",
+        })
+
+    def _build_result(
+        self,
+        *,
+        safe: bool,
+        findings: tuple[ScanFinding, ...],
+        sanitized_content: str | None,
+        scanner_results: tuple[ScanResult, ...],
+        errors: tuple[str, ...],
+    ) -> PipelineResult:
+        return PipelineResult(
+            safe=safe,
+            findings=findings,
+            sanitized_content=sanitized_content,
+            scanner_results=scanner_results,
+            errors=errors,
+            escalation_tier=self._last_escalation_tier,
+            session_score=(
+                self._last_freq_result.current_score
+                if self._last_freq_result is not None
+                else None
+            ),
+            premium_features=self._build_premium_features(),
+        )
+
     async def inspect(
         self,
         text: str,
@@ -193,6 +243,8 @@ class Pipeline:
         direction: Direction,
         session_id: str | None,
     ) -> PipelineResult:
+        self._last_freq_result = None
+        self._last_escalation_tier = None
         errors: list[str] = []
 
         # Stage 1: Normalize
@@ -276,7 +328,7 @@ class Pipeline:
         scanner_results = tuple(all_results)
         pre_hook_error_count = len(errors)
 
-        result = PipelineResult(
+        result = self._build_result(
             safe=safe,
             findings=merged,
             sanitized_content=sanitized_content,
@@ -298,7 +350,7 @@ class Pipeline:
 
         # Stage 12: Return (rebuild if post-construction hooks added errors)
         if len(errors) > pre_hook_error_count:
-            result = PipelineResult(
+            result = self._build_result(
                 safe=safe,
                 findings=merged,
                 sanitized_content=sanitized_content,
@@ -310,12 +362,25 @@ class Pipeline:
     async def _premium_frequency_hook(
         self, findings: tuple[ScanFinding, ...], session_id: str | None
     ) -> None:
-        pass
+        if not self._check_premium("frequency"):
+            return
+        if not self._config.frequency_enabled:
+            return
+        if session_id is None:
+            return
+        rule_ids = [f.rule_id for f in findings]
+        self._last_freq_result = self._frequency_tracker.update(session_id, rule_ids)
 
     async def _premium_escalation_hook(
         self, findings: tuple[ScanFinding, ...], session_id: str | None
     ) -> None:
-        pass
+        if not self._check_premium("escalation"):
+            return
+        if not self._config.escalation_enabled:
+            return
+        if self._last_freq_result is None:
+            return
+        self._last_escalation_tier = self._last_freq_result.tier
 
     async def _premium_audit_hook(self, result: PipelineResult, session_id: str | None) -> None:
         pass
