@@ -216,9 +216,7 @@ class Pipeline:
 
         # Stage 3: Early exit (closed mode)
         if self._config.fail_mode == "closed":
-            has_critical = any(
-                f.severity == Severity.CRITICAL for f in minimal_result.findings
-            )
+            has_critical = any(f.severity == Severity.CRITICAL for f in minimal_result.findings)
             if has_critical:
                 return PipelineResult(
                     safe=False,
@@ -300,12 +298,8 @@ class Pipeline:
     ) -> None:
         pass
 
-    async def _premium_audit_hook(
-        self, result: PipelineResult, session_id: str | None
-    ) -> None:
+    async def _premium_audit_hook(self, result: PipelineResult, session_id: str | None) -> None:
         pass
 
-    async def _premium_alert_hook(
-        self, result: PipelineResult, session_id: str | None
-    ) -> None:
+    async def _premium_alert_hook(self, result: PipelineResult, session_id: str | None) -> None:
         pass

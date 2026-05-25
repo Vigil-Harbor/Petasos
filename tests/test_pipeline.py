@@ -20,6 +20,7 @@ from petasos.pipeline import Pipeline
 # Mock scanners
 # ---------------------------------------------------------------------------
 
+
 class MockScanner:
     def __init__(
         self,
@@ -88,6 +89,7 @@ def _injection_finding(
 # Construction (5 tests)
 # ===================================================================
 
+
 class TestPipelineConstruction:
     def test_no_scanners_uses_minimal_only(self) -> None:
         p = Pipeline()
@@ -96,6 +98,7 @@ class TestPipelineConstruction:
 
     def test_explicit_minimal_not_duplicated(self) -> None:
         from petasos.scanners.minimal import MinimalScanner
+
         ms = MinimalScanner()
         p = Pipeline(scanners=[ms])
         assert p._minimal_scanner is ms
@@ -123,6 +126,7 @@ class TestPipelineConstruction:
 # ===================================================================
 # Normalization stage (3 tests)
 # ===================================================================
+
 
 class TestNormalization:
     @pytest.mark.asyncio
@@ -179,6 +183,7 @@ class TestNormalization:
 # Syntactic pre-filter (3 tests)
 # ===================================================================
 
+
 class TestSyntacticPreFilter:
     @pytest.mark.asyncio
     async def test_minimal_always_runs(self) -> None:
@@ -206,6 +211,7 @@ class TestSyntacticPreFilter:
 # ===================================================================
 # Fan-out scan (6 tests)
 # ===================================================================
+
 
 class TestFanOutScan:
     @pytest.mark.asyncio
@@ -245,6 +251,7 @@ class TestFanOutScan:
     @pytest.mark.asyncio
     async def test_scanner_timeout(self) -> None:
         from petasos import pipeline as _mod
+
         original = _mod._SCANNER_TIMEOUT
         _mod._SCANNER_TIMEOUT = 0.05
         try:
@@ -277,6 +284,7 @@ class TestFanOutScan:
 # Finding merge (3 tests) — pipeline-level integration
 # ===================================================================
 
+
 class TestFindingMergeIntegration:
     @pytest.mark.asyncio
     async def test_minimal_and_ml_merged(self) -> None:
@@ -304,8 +312,11 @@ class TestFindingMergeIntegration:
         s2 = MockScanner("scanner-b", findings=(f2,))
         p = Pipeline(scanners=[s1, s2])
         result = await p.inspect("clean text")
-        positioned = [f for f in result.findings if f.position is not None
-                      and f.scanner_name in ("scanner-a", "scanner-b")]
+        positioned = [
+            f
+            for f in result.findings
+            if f.position is not None and f.scanner_name in ("scanner-a", "scanner-b")
+        ]
         assert len(positioned) == 1
         assert positioned[0].severity == Severity.HIGH
 
@@ -329,6 +340,7 @@ class TestFindingMergeIntegration:
 # ===================================================================
 # Fail-mode: degraded (5 tests)
 # ===================================================================
+
 
 class TestFailModeDegraded:
     @pytest.mark.asyncio
@@ -381,6 +393,7 @@ class TestFailModeDegraded:
 # Fail-mode: open (3 tests)
 # ===================================================================
 
+
 class TestFailModeOpen:
     @pytest.mark.asyncio
     async def test_partial_ml_failure_safe(self) -> None:
@@ -409,6 +422,7 @@ class TestFailModeOpen:
 # ===================================================================
 # Fail-mode: closed (4 tests)
 # ===================================================================
+
 
 class TestFailModeClosed:
     @pytest.mark.asyncio
@@ -462,6 +476,7 @@ class TestFailModeClosed:
 # ===================================================================
 # Anonymization (5 tests)
 # ===================================================================
+
 
 class TestAnonymization:
     @pytest.mark.asyncio
@@ -538,6 +553,7 @@ class TestAnonymization:
 # Pipeline never throws (4 tests)
 # ===================================================================
 
+
 class TestPipelineNeverThrows:
     @pytest.mark.asyncio
     async def test_broken_scanner_returns_result(self) -> None:
@@ -582,18 +598,15 @@ class TestPipelineNeverThrows:
 # Premium hooks (2 tests)
 # ===================================================================
 
+
 class TestPremiumHooks:
     @pytest.mark.asyncio
     async def test_hooks_callable(self) -> None:
         p = Pipeline()
         await p._premium_frequency_hook((), None)
         await p._premium_escalation_hook((), None)
-        await p._premium_audit_hook(
-            PipelineResult(safe=True, findings=()), None
-        )
-        await p._premium_alert_hook(
-            PipelineResult(safe=True, findings=()), None
-        )
+        await p._premium_audit_hook(PipelineResult(safe=True, findings=()), None)
+        await p._premium_alert_hook(PipelineResult(safe=True, findings=()), None)
 
     @pytest.mark.asyncio
     async def test_hooks_are_noops(self) -> None:
@@ -607,6 +620,7 @@ class TestPremiumHooks:
 # ===================================================================
 # Direction parameter (2 tests)
 # ===================================================================
+
 
 class TestDirection:
     @pytest.mark.asyncio

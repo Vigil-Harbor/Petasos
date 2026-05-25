@@ -38,9 +38,7 @@ class PetasosConfig:
         if not isinstance(self.pii_entities, tuple):
             object.__setattr__(self, "pii_entities", tuple(self.pii_entities))
         if self.direction not in ("inbound", "outbound"):
-            raise ValueError(
-                f"direction must be 'inbound' or 'outbound', got {self.direction!r}"
-            )
+            raise ValueError(f"direction must be 'inbound' or 'outbound', got {self.direction!r}")
         if self.fail_mode not in ("open", "closed", "degraded"):
             raise ValueError(
                 f"fail_mode must be 'open', 'closed', or 'degraded', got {self.fail_mode!r}"
