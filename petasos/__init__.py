@@ -8,13 +8,17 @@ from petasos._types import (
     ScanResult,
     Severity,
 )
+from petasos.config import PetasosConfig
 from petasos.normalize import normalize
+from petasos.pipeline import Pipeline
 from petasos.scanners.minimal import RULE_TAXONOMY, MinimalScanner
 
 __all__ = [
     "Direction",
     "MinimalScanner",
     "NormalizedText",
+    "PetasosConfig",
+    "Pipeline",
     "PipelineResult",
     "Position",
     "RULE_TAXONOMY",
