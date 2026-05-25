@@ -60,7 +60,7 @@ class LlamaFirewallScanner:
                 return self._load_error is None
             self._loaded = True
             try:
-                from llamafirewall import (  # type: ignore[import-not-found]
+                from llamafirewall import (
                     AssistantMessage,
                     LlamaFirewall,
                     Role,

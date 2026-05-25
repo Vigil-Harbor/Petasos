@@ -48,7 +48,7 @@ class LlmGuardScanner:
             if self._load_error is not None:
                 return
             try:
-                from llm_guard.input_scanners import (  # type: ignore[import-not-found]
+                from llm_guard.input_scanners import (
                     InvisibleText,
                     PromptInjection,
                 )

@@ -19,7 +19,7 @@ from petasos.scanners.llama_firewall import LlamaFirewallScanner
 # ---- Backend availability ----
 
 try:
-    import llamafirewall as _real_lf  # type: ignore[import-not-found]  # noqa: F401
+    import llamafirewall as _real_lf  # noqa: F401
 
     _has_llamafirewall = True
 except ImportError:

@@ -1,0 +1,139 @@
+﻿============================= test session starts =============================
+platform win32 -- Python 3.10.6, pytest-9.0.3, pluggy-1.6.0 -- C:\python310\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\zioni\Documents\Vigil-Harbor\PET-5-worktree
+configfile: pyproject.toml
+plugins: anyio-4.13.0
+collecting ... collected 47 items
+
+tests/test_presidio_scanner.py::TestSeverityMapping::test_critical_entities PASSED [  2%]
+tests/test_presidio_scanner.py::TestSeverityMapping::test_high_entities PASSED [  4%]
+tests/test_presidio_scanner.py::TestSeverityMapping::test_medium_entities PASSED [  6%]
+tests/test_presidio_scanner.py::TestSeverityMapping::test_unknown_defaults_to_low PASSED [  8%]
+tests/test_presidio_scanner.py::TestEntityTypeRecovery::test_presidio_prefix PASSED [ 10%]
+tests/test_presidio_scanner.py::TestEntityTypeRecovery::test_presidio_prefix_with_hyphen PASSED [ 12%]
+tests/test_presidio_scanner.py::TestEntityTypeRecovery::test_non_presidio_rule PASSED [ 14%]
+tests/test_presidio_scanner.py::TestEntityTypeRecovery::test_simple_dotted PASSED [ 17%]
+tests/test_presidio_scanner.py::TestScannerProtocol::test_satisfies_protocol PASSED [ 19%]
+tests/test_presidio_scanner.py::TestScannerProtocol::test_name_property PASSED [ 21%]
+tests/test_presidio_scanner.py::TestLazyLoadFailure::test_import_error_returns_errored_result PASSED [ 23%]
+tests/test_presidio_scanner.py::TestLazyLoadFailure::test_spacy_model_missing PASSED [ 25%]
+tests/test_presidio_scanner.py::TestLazyLoadFailure::test_backend_exception_during_analyze PASSED [ 27%]
+tests/test_presidio_scanner.py::TestAnonymizeEmptyInputs::test_empty_findings_returns_original PASSED [ 29%]
+tests/test_presidio_scanner.py::TestAnonymizeEmptyInputs::test_empty_text_returns_empty PASSED [ 31%]
+tests/test_presidio_scanner.py::TestAnonymizeEmptyInputs::test_all_unpositioned_findings_returns_original PASSED [ 34%]
+tests/test_presidio_scanner.py::TestAnonymizeRedact::test_single_entity_redacted PASSED [ 36%]
+tests/test_presidio_scanner.py::TestAnonymizeRedact::test_multiple_entity_types PASSED [ 38%]
+tests/test_presidio_scanner.py::TestAnonymizeReplace::test_counter_based_labels PASSED [ 40%]
+tests/test_presidio_scanner.py::TestAnonymizeReplace::test_counter_resets_across_calls PASSED [ 42%]
+tests/test_presidio_scanner.py::TestAnonymizeHash::test_hmac_deterministic PASSED [ 44%]
+tests/test_presidio_scanner.py::TestAnonymizeHash::test_different_keys_produce_different_hashes PASSED [ 46%]
+tests/test_presidio_scanner.py::TestAnonymizeHash::test_hash_without_key_uses_sha256 PASSED [ 48%]
+tests/test_presidio_scanner.py::TestAnonymizeMask::test_mask_hides_leading PASSED [ 51%]
+tests/test_presidio_scanner.py::TestAnonymizeMask::test_mask_short_value_fully_masked PASSED [ 53%]
+tests/test_presidio_scanner.py::TestAnonymizeMask::test_mask_matched_text_none_fallback PASSED [ 55%]
+tests/test_presidio_scanner.py::TestAnonymizeOverlap::test_overlapping_manual_path_deduplicates PASSED [ 57%]
+tests/test_presidio_scanner.py::TestAnonymizeOverlap::test_overlapping_higher_confidence_wins PASSED [ 59%]
+tests/test_presidio_scanner.py::TestAnonymizeUnsortedFindings::test_reverse_order_input_handled PASSED [ 61%]
+tests/test_presidio_scanner.py::TestAnonymizeMixedPositioned::test_unpositioned_findings_skipped PASSED [ 63%]
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_detect_email PASSED [ 65%]
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_detect_phone PASSED [ 68%]
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_detect_person PASSED [ 70%]
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_detect_credit_card PASSED [ 72%]
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_no_pii_clean PASSED [ 74%]
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_empty_text PASSED [ 76%]
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_position_accuracy PASSED [ 78%]
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_confidence_range PASSED [ 80%]
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_duration_tracked PASSED [ 82%]
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_score_threshold_filtering PASSED [ 85%]
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_custom_entities_filter PASSED [ 87%]
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_multi_finding_message PASSED [ 89%]
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_scanner_name_in_findings PASSED [ 91%]
+tests/test_presidio_scanner.py::TestAnonymizeIntegration::test_redact_removes_pii PASSED [ 93%]
+tests/test_presidio_scanner.py::TestAnonymizeIntegration::test_replace_with_counters PASSED [ 95%]
+tests/test_presidio_scanner.py::TestAnonymizeIntegration::test_hash_with_key_deterministic PASSED [ 97%]
+tests/test_presidio_scanner.py::TestAnonymizeIntegration::test_mask_shows_trailing PASSED [100%]
+
+============================== warnings summary ===============================
+..\..\..\..\..\python310\lib\site-packages\_pytest\config\__init__.py:1434
+  C:\python310\lib\site-packages\_pytest\config\__init__.py:1434: PytestConfigWarning: Unknown config option: asyncio_mode
+  
+    self._warn_or_fail_if_strict(f"Unknown config option: {key}\n")
+
+tests/test_presidio_scanner.py::TestLazyLoadFailure::test_import_error_returns_errored_result
+  C:\Users\zioni\Documents\Vigil-Harbor\PET-5-worktree\tests\test_presidio_scanner.py:91: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(scanner.scan("test"))
+
+tests/test_presidio_scanner.py::TestLazyLoadFailure::test_spacy_model_missing
+  C:\Users\zioni\Documents\Vigil-Harbor\PET-5-worktree\tests\test_presidio_scanner.py:105: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(scanner.scan("test"))
+
+tests/test_presidio_scanner.py::TestLazyLoadFailure::test_backend_exception_during_analyze
+  C:\Users\zioni\Documents\Vigil-Harbor\PET-5-worktree\tests\test_presidio_scanner.py:118: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(scanner.scan("test"))
+
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_detect_email
+  C:\Users\zioni\Documents\Vigil-Harbor\PET-5-worktree\tests\test_presidio_scanner.py:358: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(
+
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_detect_phone
+  C:\Users\zioni\Documents\Vigil-Harbor\PET-5-worktree\tests\test_presidio_scanner.py:370: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(
+
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_detect_person
+  C:\Users\zioni\Documents\Vigil-Harbor\PET-5-worktree\tests\test_presidio_scanner.py:378: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(
+
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_detect_credit_card
+  C:\Users\zioni\Documents\Vigil-Harbor\PET-5-worktree\tests\test_presidio_scanner.py:386: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(
+
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_no_pii_clean
+  C:\Users\zioni\Documents\Vigil-Harbor\PET-5-worktree\tests\test_presidio_scanner.py:395: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(
+
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_empty_text
+  C:\Users\zioni\Documents\Vigil-Harbor\PET-5-worktree\tests\test_presidio_scanner.py:402: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(scanner.scan(""))
+
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_position_accuracy
+  C:\Users\zioni\Documents\Vigil-Harbor\PET-5-worktree\tests\test_presidio_scanner.py:408: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(scanner.scan(text))
+
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_confidence_range
+  C:\Users\zioni\Documents\Vigil-Harbor\PET-5-worktree\tests\test_presidio_scanner.py:414: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(
+
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_duration_tracked
+  C:\Users\zioni\Documents\Vigil-Harbor\PET-5-worktree\tests\test_presidio_scanner.py:421: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(
+
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_score_threshold_filtering
+  C:\Users\zioni\Documents\Vigil-Harbor\PET-5-worktree\tests\test_presidio_scanner.py:428: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(
+
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_custom_entities_filter
+  C:\Users\zioni\Documents\Vigil-Harbor\PET-5-worktree\tests\test_presidio_scanner.py:437: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(
+
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_multi_finding_message
+  C:\Users\zioni\Documents\Vigil-Harbor\PET-5-worktree\tests\test_presidio_scanner.py:445: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(
+
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_scanner_name_in_findings
+  C:\Users\zioni\Documents\Vigil-Harbor\PET-5-worktree\tests\test_presidio_scanner.py:454: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(
+
+tests/test_presidio_scanner.py::TestAnonymizeIntegration::test_redact_removes_pii
+tests/test_presidio_scanner.py::TestAnonymizeIntegration::test_replace_with_counters
+tests/test_presidio_scanner.py::TestAnonymizeIntegration::test_hash_with_key_deterministic
+tests/test_presidio_scanner.py::TestAnonymizeIntegration::test_hash_with_key_deterministic
+  C:\Users\zioni\Documents\Vigil-Harbor\PET-5-worktree\tests\test_presidio_scanner.py:470: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(scanner.scan(text))
+
+tests/test_presidio_scanner.py::TestAnonymizeIntegration::test_mask_shows_trailing
+  C:\Users\zioni\Documents\Vigil-Harbor\PET-5-worktree\tests\test_presidio_scanner.py:499: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(scanner.scan(text))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+====================== 47 passed, 22 warnings in 24.61s =======================
