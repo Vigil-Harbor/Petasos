@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-import copy
 import time
-from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -17,7 +15,6 @@ from petasos._types import (
 )
 from petasos.config import PetasosConfig
 from petasos.pipeline import Pipeline
-
 
 # ---------------------------------------------------------------------------
 # Mock scanners
@@ -502,29 +499,18 @@ class TestAnonymization:
         cfg = PetasosConfig(anonymize=True, redaction_mode="redact")
         p = Pipeline(scanners=[ml], config=cfg)
 
-        with patch(
-            "petasos.pipeline._scan_one",
-            side_effect=lambda s, t, **kw: asyncio.coroutine(
-                lambda: ScanResult(scanner_name=s.name, findings=(pii,))
-            )(),
-        ):
-            pass
+        import builtins
+        import sys
 
-        # For redact mode, if presidio_anonymizer is not installed, we get an error.
-        # We'll patch the import to simulate ImportError.
-        original_import = __builtins__.__import__ if hasattr(__builtins__, '__import__') else __import__
+        old_import = builtins.__import__
 
         def mock_import(name: str, *args: object, **kwargs: object) -> object:
             if name == "petasos.scanners.presidio":
                 raise ImportError("No module named 'presidio_anonymizer'")
-            return original_import(name, *args, **kwargs)  # type: ignore[operator]
+            return old_import(name, *args, **kwargs)  # type: ignore[arg-type]
 
-        import builtins
-        old = builtins.__import__
         builtins.__import__ = mock_import  # type: ignore[assignment]
         try:
-            # Clear the module from cache to force re-import
-            import sys
             mod = sys.modules.pop("petasos.scanners.presidio", None)
             try:
                 result = await p.inspect("Alice says hello")
@@ -534,7 +520,7 @@ class TestAnonymization:
                 if mod is not None:
                     sys.modules["petasos.scanners.presidio"] = mod
         finally:
-            builtins.__import__ = old
+            builtins.__import__ = old_import
 
     @pytest.mark.asyncio
     async def test_mask_mode_deterministic(self) -> None:
@@ -572,7 +558,7 @@ class TestPipelineNeverThrows:
     async def test_internal_error_returns_result(self) -> None:
         p = Pipeline()
         # Force an internal error by corrupting the minimal scanner
-        p._minimal_scanner = None  # type: ignore[assignment]
+        p._minimal_scanner = None
         result = await p.inspect("test")
         assert isinstance(result, PipelineResult)
         assert result.safe is False
@@ -587,7 +573,7 @@ class TestPipelineNeverThrows:
         ) -> PipelineResult:
             raise SystemExit(1)
 
-        p._inspect_inner = _raise_system_exit  # type: ignore[assignment]
+        p._inspect_inner = _raise_system_exit  # type: ignore[method-assign]
         with pytest.raises(SystemExit):
             await p.inspect("test")
 

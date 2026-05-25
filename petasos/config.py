@@ -35,6 +35,8 @@ class PetasosConfig:
     alert_enabled: bool = False
 
     def __post_init__(self) -> None:
+        if not isinstance(self.pii_entities, tuple):
+            object.__setattr__(self, "pii_entities", tuple(self.pii_entities))
         if self.direction not in ("inbound", "outbound"):
             raise ValueError(
                 f"direction must be 'inbound' or 'outbound', got {self.direction!r}"
