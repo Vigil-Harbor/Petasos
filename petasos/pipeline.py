@@ -166,8 +166,6 @@ class Pipeline:
             self._minimal_scanner = MinimalScanner()
 
         self._frequency_tracker = FrequencyTracker(self._config)
-        self._last_freq_result: FrequencyUpdateResult | None = None
-        self._last_escalation_tier: str | None = None
 
     def activate(self) -> None:
         self._premium_active = True
@@ -180,14 +178,18 @@ class Pipeline:
 
     def _build_premium_features(self) -> MappingProxyType[str, str]:
         active = self._premium_active
-        return MappingProxyType({
-            "frequency": "unlocked" if active and self._config.frequency_enabled else "locked",
-            "escalation": "unlocked" if active and self._config.escalation_enabled else "locked",
-            "profiles": "locked",
-            "tool_guard": "locked",
-            "audit": "locked",
-            "alerting": "locked",
-        })
+        return MappingProxyType(
+            {
+                "frequency": "unlocked" if active and self._config.frequency_enabled else "locked",
+                "escalation": "unlocked"
+                if active and self._config.escalation_enabled
+                else "locked",
+                "profiles": "locked",
+                "tool_guard": "locked",
+                "audit": "locked",
+                "alerting": "locked",
+            }
+        )
 
     def _build_result(
         self,
@@ -197,6 +199,8 @@ class Pipeline:
         sanitized_content: str | None,
         scanner_results: tuple[ScanResult, ...],
         errors: tuple[str, ...],
+        freq_result: FrequencyUpdateResult | None,
+        escalation_tier: str | None,
     ) -> PipelineResult:
         return PipelineResult(
             safe=safe,
@@ -204,12 +208,8 @@ class Pipeline:
             sanitized_content=sanitized_content,
             scanner_results=scanner_results,
             errors=errors,
-            escalation_tier=self._last_escalation_tier,
-            session_score=(
-                self._last_freq_result.current_score
-                if self._last_freq_result is not None
-                else None
-            ),
+            escalation_tier=escalation_tier,
+            session_score=(freq_result.current_score if freq_result is not None else None),
             premium_features=self._build_premium_features(),
         )
 
@@ -242,8 +242,8 @@ class Pipeline:
         direction: Direction,
         session_id: str | None,
     ) -> PipelineResult:
-        self._last_freq_result = None
-        self._last_escalation_tier = None
+        freq_result: FrequencyUpdateResult | None = None
+        escalation_tier: str | None = None
         errors: list[str] = []
 
         # Stage 1: Normalize
@@ -292,13 +292,13 @@ class Pipeline:
 
         # Stage 6: Premium frequency hook
         try:
-            await self._premium_frequency_hook(merged, session_id)
+            freq_result = await self._premium_frequency_hook(merged, session_id)
         except Exception as exc:
             errors.append(f"frequency hook: {exc}")
 
         # Stage 7: Premium escalation hook
         try:
-            await self._premium_escalation_hook(merged, session_id)
+            escalation_tier = await self._premium_escalation_hook(freq_result, session_id)
         except Exception as exc:
             errors.append(f"escalation hook: {exc}")
 
@@ -333,6 +333,8 @@ class Pipeline:
             sanitized_content=sanitized_content,
             scanner_results=scanner_results,
             errors=tuple(errors),
+            freq_result=freq_result,
+            escalation_tier=escalation_tier,
         )
 
         # Stage 10: Premium audit hook
@@ -355,31 +357,35 @@ class Pipeline:
                 sanitized_content=sanitized_content,
                 scanner_results=scanner_results,
                 errors=tuple(errors),
+                freq_result=freq_result,
+                escalation_tier=escalation_tier,
             )
         return result
 
     async def _premium_frequency_hook(
         self, findings: tuple[ScanFinding, ...], session_id: str | None
-    ) -> None:
+    ) -> FrequencyUpdateResult | None:
         if not self._check_premium("frequency"):
-            return
+            return None
         if not self._config.frequency_enabled:
-            return
+            return None
         if session_id is None:
-            return
+            return None
         rule_ids = [f.rule_id for f in findings]
-        self._last_freq_result = self._frequency_tracker.update(session_id, rule_ids)
+        return self._frequency_tracker.update(session_id, rule_ids)
 
     async def _premium_escalation_hook(
-        self, findings: tuple[ScanFinding, ...], session_id: str | None
-    ) -> None:
+        self,
+        freq_result: FrequencyUpdateResult | None,
+        session_id: str | None,
+    ) -> str | None:
         if not self._check_premium("escalation"):
-            return
+            return None
         if not self._config.escalation_enabled:
-            return
-        if self._last_freq_result is None:
-            return
-        self._last_escalation_tier = self._last_freq_result.tier
+            return None
+        if freq_result is None:
+            return None
+        return freq_result.tier
 
     async def _premium_audit_hook(self, result: PipelineResult, session_id: str | None) -> None:
         pass

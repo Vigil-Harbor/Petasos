@@ -108,10 +108,12 @@ class TestDecayMath:
 
 class TestWeightMatching:
     def test_exact_match_takes_priority_over_glob(self) -> None:
-        cfg = _cfg(frequency_weights={
-            "petasos.syntactic.injection.role-switch": 20.0,
-            "petasos.syntactic.injection.*": 10.0,
-        })
+        cfg = _cfg(
+            frequency_weights={
+                "petasos.syntactic.injection.role-switch": 20.0,
+                "petasos.syntactic.injection.*": 10.0,
+            }
+        )
         tracker = FrequencyTracker(cfg)
 
         t0 = 1000.0
@@ -120,10 +122,12 @@ class TestWeightMatching:
         assert result.current_score == 20.0
 
     def test_glob_match_longest_prefix_wins(self) -> None:
-        cfg = _cfg(frequency_weights={
-            "petasos.syntactic.*": 1.0,
-            "petasos.syntactic.injection.*": 10.0,
-        })
+        cfg = _cfg(
+            frequency_weights={
+                "petasos.syntactic.*": 1.0,
+                "petasos.syntactic.injection.*": 10.0,
+            }
+        )
         tracker = FrequencyTracker(cfg)
 
         t0 = 1000.0
@@ -141,18 +145,23 @@ class TestWeightMatching:
         assert result.current_score == 0.0
 
     def test_multiple_rule_ids_weights_summed(self) -> None:
-        cfg = _cfg(frequency_weights={
-            "petasos.syntactic.injection.*": 10.0,
-            "petasos.syntactic.structural.*": 5.0,
-        })
+        cfg = _cfg(
+            frequency_weights={
+                "petasos.syntactic.injection.*": 10.0,
+                "petasos.syntactic.structural.*": 5.0,
+            }
+        )
         tracker = FrequencyTracker(cfg)
 
         t0 = 1000.0
         with patch("petasos.premium.frequency.time.monotonic", return_value=t0):
-            result = tracker.update("s1", [
-                "petasos.syntactic.injection.test",
-                "petasos.syntactic.structural.test",
-            ])
+            result = tracker.update(
+                "s1",
+                [
+                    "petasos.syntactic.injection.test",
+                    "petasos.syntactic.structural.test",
+                ],
+            )
         assert result.current_score == 15.0
 
     def test_empty_rule_ids_only_decays(self) -> None:
@@ -291,8 +300,7 @@ class TestSessionEviction:
         with patch("petasos.premium.frequency.time.monotonic", return_value=t0 + 1):
             tracker.update("s2", ["r"])
 
-        # Terminate s1 via internal state (get_state returns a copy)
-        tracker._sessions["s1"].terminated = True
+        tracker.terminate_session("s1")
 
         with patch("petasos.premium.frequency.time.monotonic", return_value=t0 + 2):
             tracker.update("s3", ["r"])

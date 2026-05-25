@@ -6,6 +6,8 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from petasos._types import Direction
 
 _TIER3_FLOOR: float = 30.0
@@ -39,7 +41,7 @@ class PetasosConfig:
 
     # Frequency tracking
     frequency_half_life_seconds: float = 60.0
-    frequency_weights: dict[str, float] | None = None
+    frequency_weights: Mapping[str, float] | None = None
     rolling_window_seconds: float = 300.0
     rolling_threshold: int = 10
 
@@ -74,9 +76,8 @@ class PetasosConfig:
                 raise ValueError(f"pii_entities entries must be non-empty strings, got {entity!r}")
 
         # Premium field validation
-        if (
-            self.frequency_half_life_seconds <= 0
-            or not math.isfinite(self.frequency_half_life_seconds)
+        if self.frequency_half_life_seconds <= 0 or not math.isfinite(
+            self.frequency_half_life_seconds
         ):
             raise ValueError(
                 f"frequency_half_life_seconds must be positive and finite, "

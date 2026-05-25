@@ -89,7 +89,8 @@ class FrequencyTracker:
 
         # Step 1: Passive TTL eviction
         stale = [
-            sid for sid, state in self._sessions.items()
+            sid
+            for sid, state in self._sessions.items()
             if now - state.last_update > self._session_ttl
         ]
         for sid in stale:
@@ -138,9 +139,7 @@ class FrequencyTracker:
         # Step 6: Decay previous score
         elapsed = max(0.0, now - state.last_update)
         if elapsed > 0 and state.last_score > 0:
-            decayed = state.last_score * math.exp(
-                (-elapsed * math.log(2)) / self._half_life
-            )
+            decayed = state.last_score * math.exp((-elapsed * math.log(2)) / self._half_life)
         else:
             decayed = state.last_score
 
@@ -183,6 +182,11 @@ class FrequencyTracker:
             rolling_findings=deque(state.rolling_findings),
             terminated=state.terminated,
         )
+
+    def terminate_session(self, session_id: str) -> None:
+        state = self._sessions.get(session_id)
+        if state is not None:
+            state.terminated = True
 
     def reset(self, session_id: str) -> None:
         self._sessions.pop(session_id, None)

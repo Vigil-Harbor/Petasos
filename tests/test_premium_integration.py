@@ -65,9 +65,7 @@ class TestPipelineHooks:
         pipe = Pipeline(config=cfg)
         pipe.activate()
 
-        with patch.object(
-            pipe._frequency_tracker, "update", side_effect=RuntimeError("boom")
-        ):
+        with patch.object(pipe._frequency_tracker, "update", side_effect=RuntimeError("boom")):
             result = await pipe.inspect("test", session_id="s1")
 
         assert any("frequency hook" in e for e in result.errors)
