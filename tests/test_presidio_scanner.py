@@ -199,9 +199,7 @@ class TestAnonymizeEmptyInputs:
 class TestAnonymizeRedact:
     def test_single_entity_redacted(self) -> None:
         text = "Call John Smith please"
-        finding = _make_finding(
-            "petasos.presidio.person", 5, 15, matched_text="John Smith"
-        )
+        finding = _make_finding("petasos.presidio.person", 5, 15, matched_text="John Smith")
         result = anonymize(text, [finding], mode="redact")
         assert "<PERSON>" in result
         assert "John Smith" not in result
@@ -211,9 +209,7 @@ class TestAnonymizeRedact:
         f1 = _make_finding(
             "petasos.presidio.email_address", 6, 22, matched_text="john@example.com"
         )
-        f2 = _make_finding(
-            "petasos.presidio.phone_number", 31, 39, matched_text="555-1234"
-        )
+        f2 = _make_finding("petasos.presidio.phone_number", 31, 39, matched_text="555-1234")
         result = anonymize(text, [f1, f2], mode="redact")
         assert "<EMAIL_ADDRESS>" in result
         assert "<PHONE_NUMBER>" in result
@@ -242,9 +238,7 @@ class TestAnonymizeReplace:
 class TestAnonymizeHash:
     def test_hmac_deterministic(self) -> None:
         text = "John Smith lives here"
-        finding = _make_finding(
-            "petasos.presidio.person", 0, 10, matched_text="John Smith"
-        )
+        finding = _make_finding("petasos.presidio.person", 0, 10, matched_text="John Smith")
         r1 = anonymize(text, [finding], mode="hash", hash_key="secret")
         r2 = anonymize(text, [finding], mode="hash", hash_key="secret")
         assert r1 == r2
@@ -252,18 +246,14 @@ class TestAnonymizeHash:
 
     def test_different_keys_produce_different_hashes(self) -> None:
         text = "John Smith lives here"
-        finding = _make_finding(
-            "petasos.presidio.person", 0, 10, matched_text="John Smith"
-        )
+        finding = _make_finding("petasos.presidio.person", 0, 10, matched_text="John Smith")
         r1 = anonymize(text, [finding], mode="hash", hash_key="key1")
         r2 = anonymize(text, [finding], mode="hash", hash_key="key2")
         assert r1 != r2
 
     def test_hash_without_key_uses_sha256(self) -> None:
         text = "John Smith lives here"
-        finding = _make_finding(
-            "petasos.presidio.person", 0, 10, matched_text="John Smith"
-        )
+        finding = _make_finding("petasos.presidio.person", 0, 10, matched_text="John Smith")
         result = anonymize(text, [finding], mode="hash")
         assert "John Smith" not in result
 
@@ -271,9 +261,7 @@ class TestAnonymizeHash:
 class TestAnonymizeMask:
     def test_mask_hides_leading(self) -> None:
         text = "SSN 123-45-6789"
-        finding = _make_finding(
-            "petasos.presidio.us_ssn", 4, 15, matched_text="123-45-6789"
-        )
+        finding = _make_finding("petasos.presidio.us_ssn", 4, 15, matched_text="123-45-6789")
         result = anonymize(text, [finding], mode="mask")
         assert "123-45-6789" not in result
         assert "6789" in result
@@ -281,17 +269,13 @@ class TestAnonymizeMask:
 
     def test_mask_short_value_fully_masked(self) -> None:
         text = "Age 25 here"
-        finding = _make_finding(
-            "petasos.presidio.date_time", 4, 6, matched_text="25"
-        )
+        finding = _make_finding("petasos.presidio.date_time", 4, 6, matched_text="25")
         result = anonymize(text, [finding], mode="mask")
         assert result == "Age ** here"
 
     def test_mask_matched_text_none_fallback(self) -> None:
         text = "SSN 123-45-6789"
-        finding = _make_finding(
-            "petasos.presidio.us_ssn", 4, 15, matched_text=None
-        )
+        finding = _make_finding("petasos.presidio.us_ssn", 4, 15, matched_text=None)
         result = anonymize(text, [finding], mode="mask")
         assert "123-45-6789" not in result
         assert "6789" in result
@@ -336,9 +320,7 @@ class TestAnonymizeUnsortedFindings:
 class TestAnonymizeMixedPositioned:
     def test_unpositioned_findings_skipped(self) -> None:
         text = "John is at john@test.com"
-        positioned = _make_finding(
-            "petasos.presidio.person", 0, 4, matched_text="John"
-        )
+        positioned = _make_finding("petasos.presidio.person", 0, 4, matched_text="John")
         unpositioned = ScanFinding(
             rule_id="petasos.syntactic.injection.ignore-previous",
             finding_type="injection",
@@ -357,6 +339,7 @@ class TestAnonymizeMixedPositioned:
 # ---------------------------------------------------------------------------
 # Integration tests — require presidio-analyzer + presidio-anonymizer + spaCy
 # ---------------------------------------------------------------------------
+
 
 @requires_presidio
 class TestPresidioScannerIntegration:
@@ -428,9 +411,7 @@ class TestPresidioScannerIntegration:
             assert 0.0 < f.confidence <= 1.0
 
     def test_duration_tracked(self, scanner: PresidioScanner) -> None:
-        result = asyncio.get_event_loop().run_until_complete(
-            scanner.scan("john@example.com")
-        )
+        result = asyncio.get_event_loop().run_until_complete(scanner.scan("john@example.com"))
         assert result.duration_ms > 0
 
     def test_score_threshold_filtering(self) -> None:
@@ -453,17 +434,13 @@ class TestPresidioScannerIntegration:
 
     def test_multi_finding_message(self, scanner: PresidioScanner) -> None:
         result = asyncio.get_event_loop().run_until_complete(
-            scanner.scan(
-                "Contact John Smith at john@example.com or 555-123-4567"
-            )
+            scanner.scan("Contact John Smith at john@example.com or 555-123-4567")
         )
         assert result.error is None
         assert len(result.findings) >= 2
 
     def test_scanner_name_in_findings(self, scanner: PresidioScanner) -> None:
-        result = asyncio.get_event_loop().run_until_complete(
-            scanner.scan("john@example.com")
-        )
+        result = asyncio.get_event_loop().run_until_complete(scanner.scan("john@example.com"))
         for f in result.findings:
             assert f.scanner_name == "presidio"
 
