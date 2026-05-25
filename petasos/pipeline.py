@@ -240,10 +240,16 @@ class Pipeline:
         merged = merge_findings(all_results)
 
         # Stage 6: Premium frequency hook
-        await self._premium_frequency_hook(merged, session_id)
+        try:
+            await self._premium_frequency_hook(merged, session_id)
+        except Exception as exc:
+            errors.append(f"frequency hook: {exc}")
 
         # Stage 7: Premium escalation hook
-        await self._premium_escalation_hook(merged, session_id)
+        try:
+            await self._premium_escalation_hook(merged, session_id)
+        except Exception as exc:
+            errors.append(f"escalation hook: {exc}")
 
         # Stage 8: Fail-mode enforcement
         safe = False if early_exit else _compute_safe(merged, all_results, self._config.fail_mode)
@@ -268,6 +274,7 @@ class Pipeline:
                     errors.append(str(exc))
 
         scanner_results = tuple(all_results)
+        pre_hook_error_count = len(errors)
 
         result = PipelineResult(
             safe=safe,
@@ -278,12 +285,26 @@ class Pipeline:
         )
 
         # Stage 10: Premium audit hook
-        await self._premium_audit_hook(result, session_id)
+        try:
+            await self._premium_audit_hook(result, session_id)
+        except Exception as exc:
+            errors.append(f"audit hook: {exc}")
 
         # Stage 11: Premium alert hook
-        await self._premium_alert_hook(result, session_id)
+        try:
+            await self._premium_alert_hook(result, session_id)
+        except Exception as exc:
+            errors.append(f"alert hook: {exc}")
 
-        # Stage 12: Return
+        # Stage 12: Return (rebuild if post-construction hooks added errors)
+        if len(errors) > pre_hook_error_count:
+            result = PipelineResult(
+                safe=safe,
+                findings=merged,
+                sanitized_content=sanitized_content,
+                scanner_results=scanner_results,
+                errors=tuple(errors),
+            )
         return result
 
     async def _premium_frequency_hook(
