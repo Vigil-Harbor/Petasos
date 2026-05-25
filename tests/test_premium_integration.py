@@ -347,7 +347,7 @@ class TestProfilePipelineIntegration:
 
 class TestGuardPipelineIntegration:
     async def test_guard_uses_pipeline_for_param_scan(self) -> None:
-        cfg = _cfg()
+        cfg = _cfg(tool_guard_enabled=True)
         pipe = Pipeline(config=cfg)
         pipe.activate()
         tracker = FrequencyTracker(cfg)
@@ -361,7 +361,7 @@ class TestGuardPipelineIntegration:
         assert result.findings
 
     async def test_guard_with_profile_exempt(self) -> None:
-        cfg = _cfg()
+        cfg = _cfg(tool_guard_enabled=True)
         pipe = Pipeline(config=cfg)
         pipe.activate()
         tracker = FrequencyTracker(cfg)

@@ -4,7 +4,7 @@ import asyncio
 import time
 from dataclasses import replace
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from petasos._types import (
     PipelineResult,
@@ -185,8 +185,19 @@ class Pipeline:
     def is_premium_active(self, feature_name: str) -> bool:
         return self._check_premium(feature_name)
 
+    _FEATURE_GATES: ClassVar[dict[str, str]] = {
+        "frequency": "frequency_enabled",
+        "escalation": "escalation_enabled",
+        "tool_guard": "tool_guard_enabled",
+    }
+
     def _check_premium(self, feature_name: str) -> bool:
-        return self._premium_active
+        if not self._premium_active:
+            return False
+        attr = self._FEATURE_GATES.get(feature_name)
+        if attr is not None:
+            return bool(getattr(self._config, attr, True))
+        return True
 
     def _resolve_profile(
         self, profile: str | ResolvedProfile | None
@@ -252,14 +263,14 @@ class Pipeline:
             direction if direction is not None else self._config.direction
         )
 
-        active_profile = self._default_profile
-        if profile is not None:
-            if isinstance(profile, ResolvedProfile):
-                active_profile = profile
-            elif isinstance(profile, (str, dict)):
-                active_profile = self._profile_resolver.resolve(profile)
-
         try:
+            active_profile = self._default_profile
+            if profile is not None:
+                if isinstance(profile, ResolvedProfile):
+                    active_profile = profile
+                elif isinstance(profile, (str, dict)):
+                    active_profile = self._profile_resolver.resolve(profile)
+
             return await self._inspect_inner(
                 text,
                 direction=resolved_direction,
