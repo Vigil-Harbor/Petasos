@@ -9,7 +9,7 @@ try:
 
     __all__.append("LlmGuardScanner")
 except ImportError as _exc:
-    if "llm_guard" not in str(_exc):
+    if getattr(_exc, "name", None) != "llm_guard":
         raise
     del _exc
 
