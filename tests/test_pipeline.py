@@ -644,7 +644,7 @@ class TestPremiumHooks:
     async def test_hooks_callable(self) -> None:
         p = Pipeline()
         await p._premium_frequency_hook((), None)
-        await p._premium_escalation_hook((), None)
+        await p._premium_escalation_hook(None, None)
         await p._premium_audit_hook(PipelineResult(safe=True, findings=()), None)
         await p._premium_alert_hook(PipelineResult(safe=True, findings=()), None)
 

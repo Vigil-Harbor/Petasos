@@ -11,10 +11,13 @@ from petasos._types import (
 from petasos.config import PetasosConfig
 from petasos.normalize import normalize
 from petasos.pipeline import Pipeline
+from petasos.premium.frequency import FrequencyTracker, FrequencyUpdateResult
 from petasos.scanners.minimal import RULE_TAXONOMY, MinimalScanner
 
 __all__ = [
     "Direction",
+    "FrequencyTracker",
+    "FrequencyUpdateResult",
     "MinimalScanner",
     "NormalizedText",
     "PetasosConfig",

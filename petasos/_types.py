@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import enum
 from dataclasses import dataclass
-from typing import Any, Literal, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
+
+if TYPE_CHECKING:
+    from types import MappingProxyType
 
 Direction = Literal["inbound", "outbound"]
 
@@ -115,14 +118,13 @@ class NormalizedText:
 
 @dataclass(frozen=True)
 class PipelineResult:
-    """Aggregate result from pipeline execution.
-
-    PET-6 extends this with premium fields (escalation_tier, session_score,
-    premium_features). The base definition here covers OSS-tier fields only.
-    """
+    """Aggregate result from pipeline execution."""
 
     safe: bool
     findings: tuple[ScanFinding, ...]
     sanitized_content: str | None = None
     scanner_results: tuple[ScanResult, ...] = ()
     errors: tuple[str, ...] = ()
+    escalation_tier: str | None = None
+    session_score: float | None = None
+    premium_features: MappingProxyType[str, str] | None = None

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-import copy
 import time
+from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 from petasos._types import (
@@ -13,6 +13,7 @@ from petasos._types import (
 )
 from petasos.config import PetasosConfig
 from petasos.normalize import normalize
+from petasos.premium.frequency import FrequencyTracker, FrequencyUpdateResult
 from petasos.scanners.minimal import MinimalScanner
 
 if TYPE_CHECKING:
@@ -145,7 +146,7 @@ class Pipeline:
         *,
         config: PetasosConfig | None = None,
     ) -> None:
-        self._config = copy.deepcopy(config) if config is not None else PetasosConfig()
+        self._config = config.copy() if config is not None else PetasosConfig()
         self._premium_active = False
 
         scanner_list = list(scanners)
@@ -163,6 +164,54 @@ class Pipeline:
 
         if self._minimal_scanner is None:
             self._minimal_scanner = MinimalScanner()
+
+        self._frequency_tracker = FrequencyTracker(self._config)
+
+    def activate(self) -> None:
+        self._premium_active = True
+
+    def deactivate(self) -> None:
+        self._premium_active = False
+
+    def _check_premium(self, feature_name: str) -> bool:
+        return self._premium_active
+
+    def _build_premium_features(self) -> MappingProxyType[str, str]:
+        active = self._premium_active
+        return MappingProxyType(
+            {
+                "frequency": "unlocked" if active and self._config.frequency_enabled else "locked",
+                "escalation": "unlocked"
+                if active and self._config.escalation_enabled
+                else "locked",
+                "profiles": "locked",
+                "tool_guard": "locked",
+                "audit": "locked",
+                "alerting": "locked",
+            }
+        )
+
+    def _build_result(
+        self,
+        *,
+        safe: bool,
+        findings: tuple[ScanFinding, ...],
+        sanitized_content: str | None,
+        scanner_results: tuple[ScanResult, ...],
+        errors: tuple[str, ...],
+        freq_result: FrequencyUpdateResult | None,
+        escalation_tier: str | None,
+    ) -> PipelineResult:
+        return PipelineResult(
+            safe=safe,
+            findings=findings,
+            sanitized_content=sanitized_content,
+            scanner_results=scanner_results,
+            errors=errors,
+            escalation_tier=escalation_tier,
+            session_score=(freq_result.current_score if freq_result is not None else None),
+            premium_features=self._build_premium_features(),
+        )
 
     async def inspect(
         self,
@@ -193,6 +242,8 @@ class Pipeline:
         direction: Direction,
         session_id: str | None,
     ) -> PipelineResult:
+        freq_result: FrequencyUpdateResult | None = None
+        escalation_tier: str | None = None
         errors: list[str] = []
 
         # Stage 1: Normalize
@@ -241,13 +292,13 @@ class Pipeline:
 
         # Stage 6: Premium frequency hook
         try:
-            await self._premium_frequency_hook(merged, session_id)
+            freq_result = await self._premium_frequency_hook(merged, session_id)
         except Exception as exc:
             errors.append(f"frequency hook: {exc}")
 
         # Stage 7: Premium escalation hook
         try:
-            await self._premium_escalation_hook(merged, session_id)
+            escalation_tier = await self._premium_escalation_hook(freq_result, session_id)
         except Exception as exc:
             errors.append(f"escalation hook: {exc}")
 
@@ -276,12 +327,14 @@ class Pipeline:
         scanner_results = tuple(all_results)
         pre_hook_error_count = len(errors)
 
-        result = PipelineResult(
+        result = self._build_result(
             safe=safe,
             findings=merged,
             sanitized_content=sanitized_content,
             scanner_results=scanner_results,
             errors=tuple(errors),
+            freq_result=freq_result,
+            escalation_tier=escalation_tier,
         )
 
         # Stage 10: Premium audit hook
@@ -298,24 +351,41 @@ class Pipeline:
 
         # Stage 12: Return (rebuild if post-construction hooks added errors)
         if len(errors) > pre_hook_error_count:
-            result = PipelineResult(
+            result = self._build_result(
                 safe=safe,
                 findings=merged,
                 sanitized_content=sanitized_content,
                 scanner_results=scanner_results,
                 errors=tuple(errors),
+                freq_result=freq_result,
+                escalation_tier=escalation_tier,
             )
         return result
 
     async def _premium_frequency_hook(
         self, findings: tuple[ScanFinding, ...], session_id: str | None
-    ) -> None:
-        pass
+    ) -> FrequencyUpdateResult | None:
+        if not self._check_premium("frequency"):
+            return None
+        if not self._config.frequency_enabled:
+            return None
+        if session_id is None:
+            return None
+        rule_ids = [f.rule_id for f in findings]
+        return self._frequency_tracker.update(session_id, rule_ids)
 
     async def _premium_escalation_hook(
-        self, findings: tuple[ScanFinding, ...], session_id: str | None
-    ) -> None:
-        pass
+        self,
+        freq_result: FrequencyUpdateResult | None,
+        session_id: str | None,
+    ) -> str | None:
+        if not self._check_premium("escalation"):
+            return None
+        if not self._config.escalation_enabled:
+            return None
+        if freq_result is None:
+            return None
+        return freq_result.tier
 
     async def _premium_audit_hook(self, result: PipelineResult, session_id: str | None) -> None:
         pass
