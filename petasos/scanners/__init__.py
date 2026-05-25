@@ -1,6 +1,17 @@
 from __future__ import annotations
 
-__all__: list[str] = []
+from petasos.scanners.minimal import MinimalScanner
+
+__all__: list[str] = ["MinimalScanner"]
+
+try:
+    from petasos.scanners.llm_guard import LlmGuardScanner  # noqa: F401
+
+    __all__.append("LlmGuardScanner")
+except ImportError as _exc:
+    if "llm_guard" not in str(_exc):
+        raise
+    del _exc
 
 try:
     from petasos.scanners.presidio import PresidioScanner, anonymize
