@@ -316,12 +316,9 @@ class TestModelInstantiationFailure:
 
 
 def _has_llm_guard() -> bool:
-    try:
-        import llm_guard  # noqa: F401
+    import importlib.util
 
-        return True
-    except ImportError:
-        return False
+    return importlib.util.find_spec("llm_guard") is not None
 
 
 _skip_no_llm_guard = pytest.mark.skipif(
