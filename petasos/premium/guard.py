@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
 from petasos.premium.escalation import evaluate_tier
+
+_logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from petasos._types import ScanFinding
@@ -210,7 +213,11 @@ class ToolCallGuard:
         )
 
         if result.errors and not result.findings:
-            return (), False
+            _logger.warning(
+                "param scan errored without findings, marking unsafe: %s",
+                result.errors,
+            )
+            return (), True
 
         param_scan_unsafe = not result.safe
         findings = result.findings
