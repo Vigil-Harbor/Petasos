@@ -214,8 +214,8 @@ class ToolCallGuard:
 
         if result.errors and not result.findings:
             _logger.warning(
-                "param scan errored without findings, marking unsafe: %s",
-                result.errors,
+                "param scan errored without findings, marking unsafe; error_count=%d",
+                len(result.errors),
             )
             return (), True
 
