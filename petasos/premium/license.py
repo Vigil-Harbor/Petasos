@@ -4,7 +4,7 @@ import enum
 import importlib.resources
 import re
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Any
 
 import jwt
@@ -67,8 +67,8 @@ class LicenseValidator:
         claims = LicenseClaims(
             tier=str(payload.get("tier", "standard")),
             customer_id=str(payload.get("customer_id", "")),
-            expiry=datetime.fromtimestamp(payload["exp"], tz=timezone.utc),
-            issued_at=datetime.fromtimestamp(payload["iat"], tz=timezone.utc),
+            expiry=datetime.fromtimestamp(payload["exp"], tz=datetime.UTC),
+            issued_at=datetime.fromtimestamp(payload["iat"], tz=datetime.UTC),
             features=frozenset(payload.get("features", [])),
         )
         return (LicenseState.VALID, claims)

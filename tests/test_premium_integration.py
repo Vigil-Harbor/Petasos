@@ -9,9 +9,9 @@ import pytest
 from petasos._types import Alert, AuditEvent, PipelineResult, Severity
 from petasos.config import PetasosConfig
 from petasos.pipeline import Pipeline
-from petasos.premium.license import LicenseState
 from petasos.premium.frequency import FrequencyTracker
 from petasos.premium.guard import ToolCallGuard
+from petasos.premium.license import LicenseState
 from petasos.premium.profiles import ProfileResolver, ResolvedProfile
 
 
@@ -179,8 +179,8 @@ class TestActivateDeactivate:
     def test_activate_enables_premium(self, valid_key: str) -> None:
         pipe = Pipeline(config=_cfg())
         assert pipe._license_state == LicenseState.INACTIVE
-        pipe.activate(valid_key)
-        assert pipe._license_state == LicenseState.VALID
+        state = pipe.activate(valid_key)
+        assert state == LicenseState.VALID
 
     def test_deactivate_disables_premium(self, valid_key: str) -> None:
         pipe = Pipeline(config=_cfg())
@@ -335,7 +335,9 @@ class TestProfilePipelineIntegration:
         assert result.premium_features is not None
         assert result.premium_features["tool_guard"] == "available"
 
-    async def test_premium_features_tool_guard_disabled_when_toggled_off(self, valid_key: str) -> None:
+    async def test_premium_features_tool_guard_disabled_when_toggled_off(
+        self, valid_key: str
+    ) -> None:
         cfg = _cfg(tool_guard_enabled=False)
         pipe = Pipeline(config=cfg)
         pipe.activate(valid_key)

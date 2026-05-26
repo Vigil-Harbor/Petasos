@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import pathlib
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 import jwt as pyjwt
 import pytest
@@ -21,7 +21,7 @@ def _make_token(
     algorithm: str = "EdDSA",
     key: bytes | None = None,
 ) -> str:
-    now = datetime.now(tz=timezone.utc)
+    now = datetime.now(tz=datetime.UTC)
     payload: dict[str, object] = {
         "sub": "petasos-license",
         "exp": now + exp_delta,

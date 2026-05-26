@@ -14,7 +14,7 @@ from petasos._types import (
 )
 from petasos.config import PetasosConfig
 from petasos.pipeline import Pipeline
-from petasos.premium.license import LicenseClaims, LicenseState
+from petasos.premium.license import LicenseClaims
 from petasos.premium.profiles import ProfileResolver
 from petasos.scanners.minimal import RULE_TAXONOMY
 
@@ -68,13 +68,13 @@ class TestFrozenDataclasses:
             a.message = "hacked"  # type: ignore[misc]
 
     def test_license_claims_frozen(self) -> None:
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         c = LicenseClaims(
             tier="pro",
             customer_id="c1",
-            expiry=datetime.now(tz=timezone.utc),
-            issued_at=datetime.now(tz=timezone.utc),
+            expiry=datetime.now(tz=datetime.UTC),
+            issued_at=datetime.now(tz=datetime.UTC),
             features=frozenset(),
         )
         with pytest.raises(AttributeError):

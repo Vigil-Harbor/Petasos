@@ -5,7 +5,6 @@ from datetime import timedelta
 import pytest
 
 from petasos.premium.license import (
-    LicenseClaims,
     LicenseState,
     LicenseValidator,
     validate_license,
@@ -70,7 +69,7 @@ class TestLicenseValidator:
 
         token = pyjwt.encode(
             {"sub": "test", "exp": 9999999999, "iat": 1000000000},
-            "secret",
+            "this-is-a-test-key-with-32-bytes!",
             algorithm="HS256",
         )
         v = LicenseValidator()
@@ -123,6 +122,7 @@ class TestLicenseValidator:
 
     def test_missing_required_claims_exp(self) -> None:
         import jwt as pyjwt
+
         from tests.conftest import _PRIVATE_KEY
 
         payload = {"sub": "test", "iat": 1000000000}
@@ -133,6 +133,7 @@ class TestLicenseValidator:
 
     def test_missing_required_claims_iat(self) -> None:
         import jwt as pyjwt
+
         from tests.conftest import _PRIVATE_KEY
 
         payload = {"sub": "test", "exp": 9999999999}
