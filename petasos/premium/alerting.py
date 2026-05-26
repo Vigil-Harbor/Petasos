@@ -327,20 +327,20 @@ class AlertManager:
             del self._rule_cooldowns[k]
 
         stale_minute_keys: list[str] = []
-        for k, d in self._per_minute_timestamps.items():
-            self._evict_old(d, now, 60.0)
-            if not d:
-                stale_minute_keys.append(k)
-        for k in stale_minute_keys:
-            del self._per_minute_timestamps[k]
+        for mk, md in self._per_minute_timestamps.items():
+            self._evict_old(md, now, 60.0)
+            if not md:
+                stale_minute_keys.append(mk)
+        for mk in stale_minute_keys:
+            del self._per_minute_timestamps[mk]
 
         stale_hour_keys: list[str] = []
-        for k, d in self._per_hour_timestamps.items():
-            self._evict_old(d, now, 3600.0)
-            if not d:
-                stale_hour_keys.append(k)
-        for k in stale_hour_keys:
-            del self._per_hour_timestamps[k]
+        for hk, hd in self._per_hour_timestamps.items():
+            self._evict_old(hd, now, 3600.0)
+            if not hd:
+                stale_hour_keys.append(hk)
+        for hk in stale_hour_keys:
+            del self._per_hour_timestamps[hk]
 
         ring_ttl = max(
             self._config.alert_rapid_fire_window_seconds,
@@ -348,8 +348,8 @@ class AlertManager:
             self._config.alert_pii_volume_window_seconds,
         )
         stale_ring_keys: list[str] = []
-        for k, buf in self._ring_buffers.items():
+        for rk, buf in self._ring_buffers.items():
             if not buf or (now - buf[-1][0]) > ring_ttl:
-                stale_ring_keys.append(k)
-        for k in stale_ring_keys:
-            del self._ring_buffers[k]
+                stale_ring_keys.append(rk)
+        for rk in stale_ring_keys:
+            del self._ring_buffers[rk]
