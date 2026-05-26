@@ -7,6 +7,8 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from petasos._types import (
+    Alert,
+    AuditEvent,
     PipelineResult,
     ScanFinding,
     ScanResult,
@@ -14,12 +16,14 @@ from petasos._types import (
 )
 from petasos.config import PetasosConfig
 from petasos.normalize import normalize
+from petasos.premium.alerting import AlertManager
+from petasos.premium.audit import AuditEmitter
 from petasos.premium.frequency import FrequencyTracker, FrequencyUpdateResult
 from petasos.premium.profiles import ProfileResolver, ResolvedProfile
 from petasos.scanners.minimal import MinimalScanner
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
 
     from petasos._types import Direction, Scanner
 
@@ -148,6 +152,8 @@ class Pipeline:
         *,
         config: PetasosConfig | None = None,
         profile: str | ResolvedProfile | None = None,
+        on_audit: Callable[[AuditEvent], None] | None = None,
+        on_alert: Callable[[Alert], None] | None = None,
     ) -> None:
         self._config = config.copy() if config is not None else PetasosConfig()
         self._premium_active = False
@@ -171,6 +177,8 @@ class Pipeline:
         self._frequency_tracker = FrequencyTracker(self._config)
         self._profile_resolver = ProfileResolver()
         self._default_profile: ResolvedProfile | None = self._resolve_profile(profile)
+        self._audit_emitter = AuditEmitter(self._config, on_audit=on_audit)
+        self._alert_manager = AlertManager(self._config, on_alert=on_alert)
 
     @property
     def config(self) -> PetasosConfig:
@@ -189,6 +197,8 @@ class Pipeline:
         "frequency": "frequency_enabled",
         "escalation": "escalation_enabled",
         "tool_guard": "tool_guard_enabled",
+        "audit": "audit_enabled",
+        "alerting": "alert_enabled",
     }
 
     def _check_premium(self, feature_name: str) -> bool:
@@ -222,8 +232,8 @@ class Pipeline:
                 "tool_guard": "unlocked"
                 if active and self._config.tool_guard_enabled
                 else "locked",
-                "audit": "locked",
-                "alerting": "locked",
+                "audit": "unlocked" if active and self._config.audit_enabled else "locked",
+                "alerting": "unlocked" if active and self._config.alert_enabled else "locked",
             }
         )
 
@@ -412,13 +422,13 @@ class Pipeline:
 
         # Stage 10: Premium audit hook
         try:
-            await self._premium_audit_hook(result, session_id)
+            await self._premium_audit_hook(result, session_id, freq_result)
         except Exception as exc:
             errors.append(f"audit hook: {exc}")
 
         # Stage 11: Premium alert hook
         try:
-            await self._premium_alert_hook(result, session_id)
+            await self._premium_alert_hook(result, session_id, freq_result)
         except Exception as exc:
             errors.append(f"alert hook: {exc}")
 
@@ -473,8 +483,26 @@ class Pipeline:
             return None
         return freq_result.tier
 
-    async def _premium_audit_hook(self, result: PipelineResult, session_id: str | None) -> None:
-        pass
+    async def _premium_audit_hook(
+        self,
+        result: PipelineResult,
+        session_id: str | None,
+        freq_result: FrequencyUpdateResult | None,
+    ) -> None:
+        if not self._check_premium("audit"):
+            return
+        if not self._config.audit_enabled:
+            return
+        self._audit_emitter.emit(result, session_id, freq_result)
 
-    async def _premium_alert_hook(self, result: PipelineResult, session_id: str | None) -> None:
-        pass
+    async def _premium_alert_hook(
+        self,
+        result: PipelineResult,
+        session_id: str | None,
+        freq_result: FrequencyUpdateResult | None,
+    ) -> None:
+        if not self._check_premium("alerting"):
+            return
+        if not self._config.alert_enabled:
+            return
+        self._alert_manager.evaluate(result, session_id, freq_result)
