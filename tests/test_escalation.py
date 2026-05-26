@@ -62,7 +62,7 @@ class TestEvaluateTier:
 
 class TestTier3Floor:
     def test_tier3_below_floor_raises(self) -> None:
-        with pytest.raises(ValueError, match="tier3_threshold"):
+        with pytest.raises(ValueError, match="tier3 must be"):
             _cfg(tier3_threshold=29.0, tier2_threshold=20.0)
 
     def test_tier3_at_floor_accepted(self) -> None:

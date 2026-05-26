@@ -10,7 +10,16 @@ if TYPE_CHECKING:
 
     from petasos._types import Direction
 
-_TIER3_FLOOR: float = 30.0
+TIER3_FLOOR: float = 30.0
+
+
+def _validate_tier_thresholds(tier1: float, tier2: float, tier3: float) -> None:
+    if not all(math.isfinite(v) for v in (tier1, tier2, tier3)):
+        raise ValueError(f"thresholds must be finite, got {tier1}, {tier2}, {tier3}")
+    if not (tier1 < tier2 < tier3):
+        raise ValueError(f"thresholds must be strictly ascending: {tier1} < {tier2} < {tier3}")
+    if tier3 < TIER3_FLOOR:
+        raise ValueError(f"tier3 must be >= {TIER3_FLOOR}, got {tier3}")
 
 
 @dataclass(frozen=True)
@@ -92,23 +101,7 @@ class PetasosConfig:
             raise ValueError(
                 f"rolling_threshold must be a positive integer, got {self.rolling_threshold!r}"
             )
-        for _tname, _tval in (
-            ("tier1_threshold", self.tier1_threshold),
-            ("tier2_threshold", self.tier2_threshold),
-            ("tier3_threshold", self.tier3_threshold),
-        ):
-            if not math.isfinite(_tval):
-                raise ValueError(f"{_tname} must be finite, got {_tval!r}")
-        if not (self.tier1_threshold < self.tier2_threshold < self.tier3_threshold):
-            raise ValueError(
-                f"thresholds must be strictly ascending: "
-                f"tier1={self.tier1_threshold} < tier2={self.tier2_threshold} "
-                f"< tier3={self.tier3_threshold}"
-            )
-        if self.tier3_threshold < _TIER3_FLOOR:
-            raise ValueError(
-                f"tier3_threshold must be >= {_TIER3_FLOOR}, got {self.tier3_threshold}"
-            )
+        _validate_tier_thresholds(self.tier1_threshold, self.tier2_threshold, self.tier3_threshold)
         if not isinstance(self.max_sessions, int) or self.max_sessions <= 0:
             raise ValueError(f"max_sessions must be a positive integer, got {self.max_sessions!r}")
         if self.session_ttl_seconds <= 0 or not math.isfinite(self.session_ttl_seconds):
