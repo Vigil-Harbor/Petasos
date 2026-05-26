@@ -1,3 +1,6 @@
+from petasos._types import Alert, AuditEvent
+from petasos.premium.alerting import AlertManager
+from petasos.premium.audit import AuditEmitter
 from petasos.premium.escalation import (
     TIER3_FLOOR,
     EscalationResult,
@@ -13,6 +16,10 @@ from petasos.premium.profiles import (
 )
 
 __all__ = [
+    "Alert",
+    "AlertManager",
+    "AuditEmitter",
+    "AuditEvent",
     "EscalationResult",
     "FrequencyTracker",
     "FrequencyUpdateResult",

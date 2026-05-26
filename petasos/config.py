@@ -48,6 +48,22 @@ class PetasosConfig:
     audit_enabled: bool = False
     alert_enabled: bool = False
 
+    # Alerting thresholds
+    alert_cooldown_seconds: float = 60.0
+    alert_per_minute_cap: int = 5
+    alert_per_hour_cap: int = 20
+    alert_high_severity_threshold: Literal["critical", "high", "medium", "low", "info"] = "high"
+    alert_rapid_fire_count: int = 10
+    alert_rapid_fire_window_seconds: float = 60.0
+    alert_cross_session_burst_count: int = 3
+    alert_cross_session_burst_window_seconds: float = 60.0
+    alert_pii_volume_threshold: int = 20
+    alert_pii_volume_window_seconds: float = 300.0
+    alert_ring_buffer_capacity: int = 1000
+
+    # Audit
+    audit_verbosity: Literal["minimal", "standard", "verbose"] = "standard"
+
     # Frequency tracking
     frequency_half_life_seconds: float = 60.0
     frequency_weights: Mapping[str, float] | None = None
@@ -130,6 +146,116 @@ class PetasosConfig:
                     )
             object.__setattr__(
                 self, "frequency_weights", MappingProxyType(dict(self.frequency_weights))
+            )
+
+        # Alerting field validation
+        if self.alert_cooldown_seconds <= 0 or not math.isfinite(self.alert_cooldown_seconds):
+            raise ValueError(
+                f"alert_cooldown_seconds must be positive and finite, "
+                f"got {self.alert_cooldown_seconds!r}"
+            )
+        if (
+            not isinstance(self.alert_per_minute_cap, int)
+            or isinstance(self.alert_per_minute_cap, bool)
+            or self.alert_per_minute_cap <= 0
+        ):
+            raise ValueError(
+                f"alert_per_minute_cap must be a positive integer, "
+                f"got {self.alert_per_minute_cap!r}"
+            )
+        if (
+            not isinstance(self.alert_per_hour_cap, int)
+            or isinstance(self.alert_per_hour_cap, bool)
+            or self.alert_per_hour_cap <= 0
+        ):
+            raise ValueError(
+                f"alert_per_hour_cap must be a positive integer, got {self.alert_per_hour_cap!r}"
+            )
+        if self.alert_high_severity_threshold not in (
+            "critical",
+            "high",
+            "medium",
+            "low",
+            "info",
+        ):
+            raise ValueError(
+                f"alert_high_severity_threshold must be one of "
+                f"'critical', 'high', 'medium', 'low', 'info', "
+                f"got {self.alert_high_severity_threshold!r}"
+            )
+        if (
+            not isinstance(self.alert_rapid_fire_count, int)
+            or isinstance(self.alert_rapid_fire_count, bool)
+            or self.alert_rapid_fire_count <= 0
+        ):
+            raise ValueError(
+                f"alert_rapid_fire_count must be a positive integer, "
+                f"got {self.alert_rapid_fire_count!r}"
+            )
+        if self.alert_rapid_fire_window_seconds <= 0 or not math.isfinite(
+            self.alert_rapid_fire_window_seconds
+        ):
+            raise ValueError(
+                f"alert_rapid_fire_window_seconds must be positive and finite, "
+                f"got {self.alert_rapid_fire_window_seconds!r}"
+            )
+        if (
+            not isinstance(self.alert_cross_session_burst_count, int)
+            or isinstance(self.alert_cross_session_burst_count, bool)
+            or self.alert_cross_session_burst_count <= 0
+        ):
+            raise ValueError(
+                f"alert_cross_session_burst_count must be a positive integer, "
+                f"got {self.alert_cross_session_burst_count!r}"
+            )
+        if self.alert_cross_session_burst_window_seconds <= 0 or not math.isfinite(
+            self.alert_cross_session_burst_window_seconds
+        ):
+            raise ValueError(
+                f"alert_cross_session_burst_window_seconds must be positive and finite, "
+                f"got {self.alert_cross_session_burst_window_seconds!r}"
+            )
+        if (
+            not isinstance(self.alert_pii_volume_threshold, int)
+            or isinstance(self.alert_pii_volume_threshold, bool)
+            or self.alert_pii_volume_threshold <= 0
+        ):
+            raise ValueError(
+                f"alert_pii_volume_threshold must be a positive integer, "
+                f"got {self.alert_pii_volume_threshold!r}"
+            )
+        if self.alert_pii_volume_window_seconds <= 0 or not math.isfinite(
+            self.alert_pii_volume_window_seconds
+        ):
+            raise ValueError(
+                f"alert_pii_volume_window_seconds must be positive and finite, "
+                f"got {self.alert_pii_volume_window_seconds!r}"
+            )
+        if (
+            not isinstance(self.alert_ring_buffer_capacity, int)
+            or isinstance(self.alert_ring_buffer_capacity, bool)
+            or self.alert_ring_buffer_capacity <= 0
+        ):
+            raise ValueError(
+                f"alert_ring_buffer_capacity must be a positive integer, "
+                f"got {self.alert_ring_buffer_capacity!r}"
+            )
+        if self.alert_rapid_fire_count > self.alert_ring_buffer_capacity:
+            raise ValueError(
+                f"alert_rapid_fire_count ({self.alert_rapid_fire_count}) must be "
+                f"<= alert_ring_buffer_capacity ({self.alert_ring_buffer_capacity})"
+            )
+        if self.alert_cross_session_burst_count > self.alert_ring_buffer_capacity:
+            raise ValueError(
+                f"alert_cross_session_burst_count "
+                f"({self.alert_cross_session_burst_count}) must be "
+                f"<= alert_ring_buffer_capacity "
+                f"({self.alert_ring_buffer_capacity})"
+            )
+        if self.audit_verbosity not in ("minimal", "standard", "verbose"):
+            raise ValueError(
+                f"audit_verbosity must be 'minimal', 'standard', or 'verbose', "
+                f"got {self.audit_verbosity!r}"
             )
 
     def to_dict(self) -> dict[str, Any]:

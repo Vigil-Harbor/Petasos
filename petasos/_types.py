@@ -117,6 +117,27 @@ class NormalizedText:
 
 
 @dataclass(frozen=True)
+class AuditEvent:
+    event_id: str
+    timestamp: float
+    session_id: str | None
+    event_type: str
+    payload: MappingProxyType[str, Any]
+    sequence_number: int
+
+
+@dataclass(frozen=True)
+class Alert:
+    alert_id: str
+    timestamp: float
+    rule_id: str
+    severity: str
+    session_id: str | None
+    message: str
+    context: MappingProxyType[str, Any]
+
+
+@dataclass(frozen=True)
 class PipelineResult:
     """Aggregate result from pipeline execution."""
 
