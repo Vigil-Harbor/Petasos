@@ -154,12 +154,20 @@ class PetasosConfig:
                 f"alert_cooldown_seconds must be positive and finite, "
                 f"got {self.alert_cooldown_seconds!r}"
             )
-        if not isinstance(self.alert_per_minute_cap, int) or self.alert_per_minute_cap <= 0:
+        if (
+            not isinstance(self.alert_per_minute_cap, int)
+            or isinstance(self.alert_per_minute_cap, bool)
+            or self.alert_per_minute_cap <= 0
+        ):
             raise ValueError(
                 f"alert_per_minute_cap must be a positive integer, "
                 f"got {self.alert_per_minute_cap!r}"
             )
-        if not isinstance(self.alert_per_hour_cap, int) or self.alert_per_hour_cap <= 0:
+        if (
+            not isinstance(self.alert_per_hour_cap, int)
+            or isinstance(self.alert_per_hour_cap, bool)
+            or self.alert_per_hour_cap <= 0
+        ):
             raise ValueError(
                 f"alert_per_hour_cap must be a positive integer, got {self.alert_per_hour_cap!r}"
             )
@@ -175,7 +183,11 @@ class PetasosConfig:
                 f"'critical', 'high', 'medium', 'low', 'info', "
                 f"got {self.alert_high_severity_threshold!r}"
             )
-        if not isinstance(self.alert_rapid_fire_count, int) or self.alert_rapid_fire_count <= 0:
+        if (
+            not isinstance(self.alert_rapid_fire_count, int)
+            or isinstance(self.alert_rapid_fire_count, bool)
+            or self.alert_rapid_fire_count <= 0
+        ):
             raise ValueError(
                 f"alert_rapid_fire_count must be a positive integer, "
                 f"got {self.alert_rapid_fire_count!r}"
@@ -189,6 +201,7 @@ class PetasosConfig:
             )
         if (
             not isinstance(self.alert_cross_session_burst_count, int)
+            or isinstance(self.alert_cross_session_burst_count, bool)
             or self.alert_cross_session_burst_count <= 0
         ):
             raise ValueError(
@@ -204,6 +217,7 @@ class PetasosConfig:
             )
         if (
             not isinstance(self.alert_pii_volume_threshold, int)
+            or isinstance(self.alert_pii_volume_threshold, bool)
             or self.alert_pii_volume_threshold <= 0
         ):
             raise ValueError(
@@ -219,6 +233,7 @@ class PetasosConfig:
             )
         if (
             not isinstance(self.alert_ring_buffer_capacity, int)
+            or isinstance(self.alert_ring_buffer_capacity, bool)
             or self.alert_ring_buffer_capacity <= 0
         ):
             raise ValueError(

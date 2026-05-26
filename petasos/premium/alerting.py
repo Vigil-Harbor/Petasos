@@ -24,7 +24,7 @@ _SEVERITY_RANK: dict[Severity, int] = {
     Severity.INFO: 4,
 }
 
-_NONE_KEY = "__none__"
+_NONE_SENTINEL: object = object()
 
 
 class AlertManager:
@@ -36,7 +36,7 @@ class AlertManager:
     ) -> None:
         self._config = config
         self._on_alert = on_alert
-        self._rule_cooldowns: dict[str, float] = {}
+        self._rule_cooldowns: dict[tuple[str, str | None], float] = {}
         self._per_minute_timestamps: dict[str, deque[float]] = {}
         self._per_hour_timestamps: dict[str, deque[float]] = {}
         self._ring_buffers: dict[str, deque[tuple[float, str]]] = {}
@@ -95,8 +95,7 @@ class AlertManager:
             is_critical = candidate.severity == "critical"
 
             if not is_critical:
-                session_key = session_id if session_id is not None else _NONE_KEY
-                dedup_key = f"{candidate.rule_id}|{session_key}"
+                dedup_key = (candidate.rule_id, session_id)
 
                 last_fire = self._rule_cooldowns.get(dedup_key)
                 cooldown = self._config.alert_cooldown_seconds
@@ -342,3 +341,15 @@ class AlertManager:
                 stale_hour_keys.append(k)
         for k in stale_hour_keys:
             del self._per_hour_timestamps[k]
+
+        ring_ttl = max(
+            self._config.alert_rapid_fire_window_seconds,
+            self._config.alert_cross_session_burst_window_seconds,
+            self._config.alert_pii_volume_window_seconds,
+        )
+        stale_ring_keys: list[str] = []
+        for k, buf in self._ring_buffers.items():
+            if not buf or (now - buf[-1][0]) > ring_ttl:
+                stale_ring_keys.append(k)
+        for k in stale_ring_keys:
+            del self._ring_buffers[k]

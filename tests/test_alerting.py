@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import time
 from types import MappingProxyType
 from unittest.mock import patch
@@ -75,7 +76,7 @@ class TestAlertConstruction:
             message="msg",
             context=MappingProxyType({}),
         )
-        with pytest.raises(AttributeError):
+        with pytest.raises(dataclasses.FrozenInstanceError):
             alert.alert_id = "xyz"  # type: ignore[misc]
 
     def test_all_fields_populated(self) -> None:

@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from petasos.config import PetasosConfig
     from petasos.premium.frequency import FrequencyUpdateResult
 
-_NONE_KEY = "__none__"
+_NONE_SENTINEL: object = object()
 
 
 class AuditEmitter:
@@ -26,8 +26,8 @@ class AuditEmitter:
     ) -> None:
         self._config = config
         self._on_audit = on_audit
-        self._sequence_counters: dict[str, int] = {}
-        self._last_emit_time: dict[str, float] = {}
+        self._sequence_counters: dict[object, int] = {}
+        self._last_emit_time: dict[object, float] = {}
 
     def emit(
         self,
@@ -38,7 +38,7 @@ class AuditEmitter:
         now_mono = time.monotonic()
         self._prune_stale(now_mono)
 
-        session_key = session_id if session_id is not None else _NONE_KEY
+        session_key: object = session_id if session_id is not None else _NONE_SENTINEL
         seq = self._sequence_counters.get(session_key, 0)
 
         payload = self._build_payload(result, freq_result)

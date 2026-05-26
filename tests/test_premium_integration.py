@@ -428,10 +428,12 @@ class TestAuditAlertingIntegration:
 
     async def test_premium_inactive_no_events(self) -> None:
         events: list[AuditEvent] = []
+        fired: list[Alert] = []
         cfg = _cfg(audit_enabled=True, alert_enabled=True)
-        pipe = Pipeline(config=cfg, on_audit=events.append)
+        pipe = Pipeline(config=cfg, on_audit=events.append, on_alert=fired.append)
         await pipe.inspect("hello", session_id="s1")
         assert len(events) == 0
+        assert len(fired) == 0
 
     async def test_manifest_shows_audit_unlocked(self) -> None:
         cfg = _cfg(audit_enabled=True)
