@@ -9,6 +9,7 @@ from petasos.premium.escalation import (
 )
 from petasos.premium.frequency import FrequencyTracker, FrequencyUpdateResult
 from petasos.premium.guard import GuardResult, ToolCallGuard
+from petasos.premium.license import LicenseClaims, LicenseState, LicenseValidator, validate_license
 from petasos.premium.profiles import (
     ProfileResolver,
     ResolvedProfile,
@@ -24,6 +25,9 @@ __all__ = [
     "FrequencyTracker",
     "FrequencyUpdateResult",
     "GuardResult",
+    "LicenseClaims",
+    "LicenseState",
+    "LicenseValidator",
     "ProfileResolver",
     "ResolvedProfile",
     "TIER3_FLOOR",
@@ -31,4 +35,5 @@ __all__ = [
     "ToolCallGuard",
     "evaluate_escalation",
     "evaluate_tier",
+    "validate_license",
 ]

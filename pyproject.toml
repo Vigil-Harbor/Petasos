@@ -8,7 +8,7 @@ version = "0.0.1"
 requires-python = ">=3.11"
 license = "MIT"
 description = "Pluggable, session-aware content security pipeline for Python AI agents"
-dependencies = []
+dependencies = ["pyjwt[crypto]>=2.8,<3"]
 
 [project.optional-dependencies]
 llm-guard = ["llm-guard>=0.3.16,<0.4"]
@@ -41,6 +41,8 @@ module = [
     "presidio_anonymizer.*",
     "spacy",
     "spacy.*",
+    "jwt",
+    "jwt.*",
     "llm_guard",
     "llm_guard.*",
     "llamafirewall",

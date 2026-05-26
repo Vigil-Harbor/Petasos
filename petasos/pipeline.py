@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 from dataclasses import replace
+from datetime import datetime, timezone
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, ClassVar
 
@@ -19,6 +21,7 @@ from petasos.normalize import normalize
 from petasos.premium.alerting import AlertManager
 from petasos.premium.audit import AuditEmitter
 from petasos.premium.frequency import FrequencyTracker, FrequencyUpdateResult
+from petasos.premium.license import LicenseClaims, LicenseState, LicenseValidator
 from petasos.premium.profiles import ProfileResolver, ResolvedProfile
 from petasos.scanners.minimal import MinimalScanner
 
@@ -156,7 +159,9 @@ class Pipeline:
         on_alert: Callable[[Alert], None] | None = None,
     ) -> None:
         self._config = config.copy() if config is not None else PetasosConfig()
-        self._premium_active = False
+        self._license_validator = LicenseValidator()
+        self._license_state = LicenseState.INACTIVE
+        self._license_claims: LicenseClaims | None = None
 
         scanner_list = list(scanners)
         self._minimal_scanner: MinimalScanner | None = None
@@ -180,15 +185,23 @@ class Pipeline:
         self._audit_emitter = AuditEmitter(self._config, on_audit=on_audit)
         self._alert_manager = AlertManager(self._config, on_alert=on_alert)
 
+        env_key = os.environ.get("PETASOS_LICENSE_KEY")
+        if env_key:
+            self.activate(env_key)
+
     @property
     def config(self) -> PetasosConfig:
         return self._config
 
-    def activate(self) -> None:
-        self._premium_active = True
+    def activate(self, key: str) -> LicenseState:
+        state, claims = self._license_validator.validate(key)
+        self._license_state = state
+        self._license_claims = claims if state == LicenseState.VALID else None
+        return state
 
     def deactivate(self) -> None:
-        self._premium_active = False
+        self._license_state = LicenseState.INACTIVE
+        self._license_claims = None
 
     def is_premium_active(self, feature_name: str) -> bool:
         return self._check_premium(feature_name)
@@ -202,8 +215,18 @@ class Pipeline:
     }
 
     def _check_premium(self, feature_name: str) -> bool:
-        if not self._premium_active:
+        if self._license_state != LicenseState.VALID:
             return False
+
+        if self._license_claims is None:
+            self._license_state = LicenseState.INVALID
+            return False
+
+        if self._license_claims.expiry <= datetime.now(tz=timezone.utc):
+            self._license_state = LicenseState.EXPIRED
+            self._license_claims = None
+            return False
+
         attr = self._FEATURE_GATES.get(feature_name)
         if attr is not None:
             return bool(getattr(self._config, attr, True))
@@ -219,21 +242,25 @@ class Pipeline:
         return None
 
     def _build_premium_features(self) -> MappingProxyType[str, str]:
-        active = self._premium_active
+        licensed = self._license_state == LicenseState.VALID
+
+        def _status(config_attr: str) -> str:
+            if not licensed:
+                return "locked"
+            if not getattr(self._config, config_attr, True):
+                return "disabled"
+            return "available"
+
         return MappingProxyType(
             {
-                "frequency": "unlocked" if active and self._config.frequency_enabled else "locked",
-                "escalation": "unlocked"
-                if active and self._config.escalation_enabled
-                else "locked",
-                "profiles": "unlocked"
-                if active and self._default_profile is not None
-                else "locked",
-                "tool_guard": "unlocked"
-                if active and self._config.tool_guard_enabled
-                else "locked",
-                "audit": "unlocked" if active and self._config.audit_enabled else "locked",
-                "alerting": "unlocked" if active and self._config.alert_enabled else "locked",
+                "frequency": _status("frequency_enabled"),
+                "escalation": _status("escalation_enabled"),
+                "profiles": "available"
+                if licensed and self._default_profile is not None
+                else ("disabled" if licensed else "locked"),
+                "tool_guard": _status("tool_guard_enabled"),
+                "audit": _status("audit_enabled"),
+                "alerting": _status("alert_enabled"),
             }
         )
 
