@@ -199,9 +199,7 @@ class Pipeline:
             return bool(getattr(self._config, attr, True))
         return True
 
-    def _resolve_profile(
-        self, profile: str | ResolvedProfile | None
-    ) -> ResolvedProfile | None:
+    def _resolve_profile(self, profile: str | ResolvedProfile | None) -> ResolvedProfile | None:
         if isinstance(profile, ResolvedProfile):
             return profile
         if isinstance(profile, str):
@@ -348,9 +346,7 @@ class Pipeline:
             and self._check_premium("profiles")
             and active_profile.confidence_floor > 0.0
         ):
-            merged = tuple(
-                f for f in merged if f.confidence >= active_profile.confidence_floor
-            )
+            merged = tuple(f for f in merged if f.confidence >= active_profile.confidence_floor)
 
         # Stage 5c: Severity overrides
         if (

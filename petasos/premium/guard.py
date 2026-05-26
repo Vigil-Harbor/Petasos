@@ -15,18 +15,20 @@ if TYPE_CHECKING:
     from petasos.premium.frequency import FrequencyTracker
     from petasos.premium.profiles import ResolvedProfile
 
-DEFAULT_TOOL_ALIASES: MappingProxyType[str, str] = MappingProxyType({
-    "bash": "exec",
-    "shell": "exec",
-    "terminal": "exec",
-    "file_read": "read",
-    "read_file": "read",
-    "file_write": "write",
-    "write_file": "write",
-    "web_fetch": "browser",
-    "web_search": "browser",
-    "http_request": "browser",
-})
+DEFAULT_TOOL_ALIASES: MappingProxyType[str, str] = MappingProxyType(
+    {
+        "bash": "exec",
+        "shell": "exec",
+        "terminal": "exec",
+        "file_read": "read",
+        "read_file": "read",
+        "file_write": "write",
+        "write_file": "write",
+        "web_fetch": "browser",
+        "web_search": "browser",
+        "http_request": "browser",
+    }
+)
 
 _NAMESPACE_PREFIX_RE = re.compile(r"^(?:mcp__[a-zA-Z0-9_]+?__|hermes__)")
 
@@ -116,9 +118,7 @@ class ToolCallGuard:
             )
 
         # Step 5: Scan params
-        findings, param_scan_unsafe = await self._scan_params(
-            tool_params, session_id
-        )
+        findings, param_scan_unsafe = await self._scan_params(tool_params, session_id)
 
         # Step 6: Tier 2 → block
         if tier == "tier2":

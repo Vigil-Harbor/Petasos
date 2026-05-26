@@ -625,7 +625,10 @@ class TestPipelineNeverThrows:
         p = Pipeline()
 
         async def _raise_system_exit(
-            text: str, *, direction: Direction, session_id: str | None,
+            text: str,
+            *,
+            direction: Direction,
+            session_id: str | None,
             active_profile: object = None,
         ) -> PipelineResult:
             raise SystemExit(1)

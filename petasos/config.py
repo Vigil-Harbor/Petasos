@@ -101,9 +101,7 @@ class PetasosConfig:
             raise ValueError(
                 f"rolling_threshold must be a positive integer, got {self.rolling_threshold!r}"
             )
-        _validate_tier_thresholds(
-            self.tier1_threshold, self.tier2_threshold, self.tier3_threshold
-        )
+        _validate_tier_thresholds(self.tier1_threshold, self.tier2_threshold, self.tier3_threshold)
         if not isinstance(self.max_sessions, int) or self.max_sessions <= 0:
             raise ValueError(f"max_sessions must be a positive integer, got {self.max_sessions!r}")
         if self.session_ttl_seconds <= 0 or not math.isfinite(self.session_ttl_seconds):

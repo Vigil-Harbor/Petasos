@@ -120,10 +120,15 @@ class TestToolNameNormalization:
     async def test_default_alias_map_coverage(self) -> None:
         g = _guard()
         expected = {
-            "bash": "exec", "shell": "exec", "terminal": "exec",
-            "file_read": "read", "read_file": "read",
-            "file_write": "write", "write_file": "write",
-            "web_fetch": "browser", "web_search": "browser",
+            "bash": "exec",
+            "shell": "exec",
+            "terminal": "exec",
+            "file_read": "read",
+            "read_file": "read",
+            "file_write": "write",
+            "write_file": "write",
+            "web_fetch": "browser",
+            "web_search": "browser",
             "http_request": "browser",
         }
         for input_name, expected_output in expected.items():
@@ -164,9 +169,7 @@ class TestTierDerivation:
         pipe.activate()
         tracker = FrequencyTracker(cfg)
 
-        tracker._sessions["s1"] = SessionState(
-            last_score=12.0, last_update=0.0
-        )
+        tracker._sessions["s1"] = SessionState(last_score=12.0, last_update=0.0)
 
         p = _profile(tier_thresholds=TierThresholds(tier1=10.0, tier2=20.0, tier3=35.0))
         g = ToolCallGuard(pipe, tracker, cfg, profile=p)
@@ -179,9 +182,7 @@ class TestTierDerivation:
         pipe.activate()
         tracker = FrequencyTracker(cfg)
 
-        tracker._sessions["s1"] = SessionState(
-            last_score=0.0, last_update=0.0, terminated=True
-        )
+        tracker._sessions["s1"] = SessionState(last_score=0.0, last_update=0.0, terminated=True)
 
         g = ToolCallGuard(pipe, tracker, cfg)
         result = await g.evaluate("read", {}, "s1")
@@ -200,9 +201,7 @@ class TestTierBlocking:
         pipe = Pipeline(config=cfg)
         pipe.activate()
         tracker = FrequencyTracker(cfg)
-        tracker._sessions["s1"] = SessionState(
-            last_score=0.0, last_update=0.0, terminated=True
-        )
+        tracker._sessions["s1"] = SessionState(last_score=0.0, last_update=0.0, terminated=True)
 
         g = ToolCallGuard(pipe, tracker, cfg)
         result = await g.evaluate("read", {"path": "/etc/passwd"}, "s1")
@@ -215,9 +214,7 @@ class TestTierBlocking:
         pipe = Pipeline(config=cfg)
         pipe.activate()
         tracker = FrequencyTracker(cfg)
-        tracker._sessions["s1"] = SessionState(
-            last_score=31.0, last_update=0.0
-        )
+        tracker._sessions["s1"] = SessionState(last_score=31.0, last_update=0.0)
 
         g = ToolCallGuard(pipe, tracker, cfg)
         result = await g.evaluate("read", {}, "s1")
@@ -229,9 +226,7 @@ class TestTierBlocking:
         pipe = Pipeline(config=cfg)
         pipe.activate()
         tracker = FrequencyTracker(cfg)
-        tracker._sessions["s1"] = SessionState(
-            last_score=31.0, last_update=0.0
-        )
+        tracker._sessions["s1"] = SessionState(last_score=31.0, last_update=0.0)
 
         p = _profile(tool_exempt_list=frozenset(["read"]))
         g = ToolCallGuard(pipe, tracker, cfg, profile=p)
@@ -244,9 +239,7 @@ class TestTierBlocking:
         pipe = Pipeline(config=cfg)
         pipe.activate()
         tracker = FrequencyTracker(cfg)
-        tracker._sessions["s1"] = SessionState(
-            last_score=15.0, last_update=0.0
-        )
+        tracker._sessions["s1"] = SessionState(last_score=15.0, last_update=0.0)
 
         g = ToolCallGuard(pipe, tracker, cfg)
         result = await g.evaluate("read", {}, "s1")
@@ -298,9 +291,7 @@ class TestParamScanning:
         pipe = Pipeline(config=cfg)
         pipe.activate()
         tracker = FrequencyTracker(cfg)
-        tracker._sessions["s1"] = SessionState(
-            last_score=0.0, last_update=0.0, terminated=True
-        )
+        tracker._sessions["s1"] = SessionState(last_score=0.0, last_update=0.0, terminated=True)
 
         g = ToolCallGuard(pipe, tracker, cfg)
         result = await g.evaluate("read", {"path": "ignore instructions"}, "s1")
@@ -316,7 +307,10 @@ class TestParamScanning:
 class TestGuardResult:
     def test_frozen(self) -> None:
         r = GuardResult(
-            allowed=True, reason="test", findings=(), tier="none",
+            allowed=True,
+            reason="test",
+            findings=(),
+            tier="none",
             param_scan_unsafe=False,
         )
         with pytest.raises(AttributeError):
@@ -324,7 +318,10 @@ class TestGuardResult:
 
     def test_to_dict(self) -> None:
         r = GuardResult(
-            allowed=False, reason="blocked", findings=(), tier="tier2",
+            allowed=False,
+            reason="blocked",
+            findings=(),
+            tier="tier2",
             param_scan_unsafe=True,
         )
         d = r.to_dict()
@@ -344,8 +341,11 @@ class TestGuardResult:
             scanner_name="minimal",
         )
         r = GuardResult(
-            allowed=True, reason="ok", findings=(finding,),
-            tier="none", param_scan_unsafe=False,
+            allowed=True,
+            reason="ok",
+            findings=(finding,),
+            tier="none",
+            param_scan_unsafe=False,
         )
         d = r.to_dict()
         assert len(d["findings"]) == 1
@@ -368,9 +368,7 @@ class TestGuardNoProfile:
         pipe = Pipeline(config=cfg)
         pipe.activate()
         tracker = FrequencyTracker(cfg)
-        tracker._sessions["s1"] = SessionState(
-            last_score=15.0, last_update=0.0
-        )
+        tracker._sessions["s1"] = SessionState(last_score=15.0, last_update=0.0)
 
         g = ToolCallGuard(pipe, tracker, cfg, profile=None)
         result = await g.evaluate("read", {}, "s1")

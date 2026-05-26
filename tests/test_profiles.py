@@ -208,9 +208,7 @@ class TestDictMerge:
 
     def test_tier_thresholds_override(self) -> None:
         resolver = ProfileResolver()
-        p = resolver.resolve({
-            "tier_thresholds": {"tier1": 5.0, "tier2": 15.0, "tier3": 35.0}
-        })
+        p = resolver.resolve({"tier_thresholds": {"tier1": 5.0, "tier2": 15.0, "tier3": 35.0}})
         assert p.tier_thresholds is not None
         assert p.tier_thresholds.tier1 == 5.0
 

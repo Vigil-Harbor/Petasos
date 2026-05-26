@@ -37,9 +37,11 @@ class ResolvedProfile:
             "severity_overrides": dict(self.severity_overrides),
             "confidence_floor": self.confidence_floor,
             "tier_thresholds": (
-                {"tier1": self.tier_thresholds.tier1,
-                 "tier2": self.tier_thresholds.tier2,
-                 "tier3": self.tier_thresholds.tier3}
+                {
+                    "tier1": self.tier_thresholds.tier1,
+                    "tier2": self.tier_thresholds.tier2,
+                    "tier3": self.tier_thresholds.tier3,
+                }
                 if self.tier_thresholds is not None
                 else None
             ),
@@ -80,9 +82,7 @@ def _parse_profile(data: dict[str, Any]) -> ResolvedProfile:
         confidence_floor=float(data.get("confidence_floor", 0.0)),
         tier_thresholds=tier_thresholds,
         pii_entities_extra=tuple(data.get("pii_entities_extra", [])),
-        tool_exempt_list=frozenset(
-            s.lower() for s in data.get("tool_exempt_list", [])
-        ),
+        tool_exempt_list=frozenset(s.lower() for s in data.get("tool_exempt_list", [])),
         tool_alias_map=MappingProxyType(alias_map),
     )
 
@@ -120,9 +120,7 @@ def _merge_with_base(
         elif isinstance(val, dict):
             required = {"tier1", "tier2", "tier3"}
             if not required.issubset(val.keys()):
-                raise ValueError(
-                    "tier_thresholds requires all three keys: tier1, tier2, tier3"
-                )
+                raise ValueError("tier_thresholds requires all three keys: tier1, tier2, tier3")
             tier_thresholds = TierThresholds(
                 tier1=float(val["tier1"]),
                 tier2=float(val["tier2"]),
@@ -186,15 +184,12 @@ class ProfileResolver:
                 return self._profiles[name_or_dict]
             except KeyError:
                 raise KeyError(
-                    f"Unknown profile '{name_or_dict}'. "
-                    f"Available: {sorted(self._profiles.keys())}"
+                    f"Unknown profile '{name_or_dict}'. Available: {sorted(self._profiles.keys())}"
                 ) from None
         if isinstance(name_or_dict, dict):
             base = self._profiles["general"]
             return _merge_with_base(base, name_or_dict)
-        raise TypeError(
-            f"name_or_dict must be str or dict, got {type(name_or_dict).__name__}"
-        )
+        raise TypeError(f"name_or_dict must be str or dict, got {type(name_or_dict).__name__}")
 
     def register(self, name: str, profile: ResolvedProfile) -> None:
         self._profiles[name] = profile
