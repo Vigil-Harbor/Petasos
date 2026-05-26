@@ -111,6 +111,13 @@ class MinimalScanner:
         # Structural rules cannot be suppressed — silently ignore them
         self._suppress_rules = suppress_rules - _STRUCTURAL_RULE_IDS
 
+    def with_suppress_rules(self, additional: frozenset[str]) -> MinimalScanner:
+        return MinimalScanner(
+            max_payload_bytes=self._max_payload_bytes,
+            max_json_depth=self._max_json_depth,
+            suppress_rules=self._suppress_rules | additional,
+        )
+
     @property
     def name(self) -> str:
         return "minimal"

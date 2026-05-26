@@ -1,0 +1,20 @@
+{
+  "name": "research",
+  "suppress_rules": [
+    "petasos.syntactic.encoding.invisible-chars",
+    "petasos.syntactic.encoding.base64-in-text",
+    "petasos.syntactic.encoding.homoglyph-substitution",
+    "petasos.syntactic.encoding.rtl-override",
+    "petasos.syntactic.injection.inst-delimiter"
+  ],
+  "severity_overrides": {},
+  "confidence_floor": 0.7,
+  "tier_thresholds": {
+    "tier1": 25,
+    "tier2": 45,
+    "tier3": 70
+  },
+  "pii_entities_extra": [],
+  "tool_exempt_list": [],
+  "tool_alias_map": {}
+}

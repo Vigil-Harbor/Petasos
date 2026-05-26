@@ -1,0 +1,10 @@
+{
+  "name": "general",
+  "suppress_rules": [],
+  "severity_overrides": {},
+  "confidence_floor": 0.0,
+  "tier_thresholds": null,
+  "pii_entities_extra": [],
+  "tool_exempt_list": [],
+  "tool_alias_map": {}
+}
