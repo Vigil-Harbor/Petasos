@@ -110,34 +110,31 @@ class TestScannerProtocol:
 
 
 class TestLazyLoadFailure:
-    def test_import_error_returns_errored_result(self) -> None:
+    async def test_import_error_returns_errored_result(self) -> None:
         scanner = PresidioScanner()
         with patch.dict("sys.modules", {"presidio_analyzer": None}):
             scanner._loaded = False
             scanner._load_error = None
             scanner._analyzer = None
             scanner._anonymizer = None
-            result = asyncio.get_event_loop().run_until_complete(scanner.scan("test"))
+            result = await scanner.scan("test")
             assert result.error is not None
             assert "presidio not installed" in result.error
             assert result.findings == ()
 
-    def test_spacy_model_missing(self) -> None:
+    async def test_spacy_model_missing(self) -> None:
         scanner = PresidioScanner()
-
-        def raise_model_error() -> None:
-            raise OSError("Can't find model 'en_core_web_lg'")
 
         scanner._load_error = None
         scanner._loaded = False
         err = OSError("Can't find model 'en_core_web_lg'")
         with patch.object(scanner, "_ensure_loaded", side_effect=err):
-            result = asyncio.get_event_loop().run_until_complete(scanner.scan("test"))
+            result = await scanner.scan("test")
             assert result.error is not None
             assert "spaCy model" in result.error
             assert result.findings == ()
 
-    def test_backend_exception_during_analyze(self) -> None:
+    async def test_backend_exception_during_analyze(self) -> None:
         scanner = PresidioScanner()
         scanner._loaded = True
         scanner._analyzer = type(
@@ -145,7 +142,7 @@ class TestLazyLoadFailure:
             (),
             {"analyze": lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("boom"))},
         )()
-        result = asyncio.get_event_loop().run_until_complete(scanner.scan("test"))
+        result = await scanner.scan("test")
         assert result.error is not None
         assert result.findings == ()
 
