@@ -4,7 +4,7 @@ import asyncio
 import os
 import time
 from dataclasses import replace
-from datetime import datetime
+from datetime import datetime, timezone
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, ClassVar
 
@@ -222,7 +222,7 @@ class Pipeline:
             self._license_state = LicenseState.INVALID
             return False
 
-        if self._license_claims.expiry <= datetime.now(tz=datetime.UTC):
+        if self._license_claims.expiry <= datetime.now(tz=timezone.utc):
             self._license_state = LicenseState.EXPIRED
             self._license_claims = None
             return False

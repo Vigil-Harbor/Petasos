@@ -68,13 +68,13 @@ class TestFrozenDataclasses:
             a.message = "hacked"  # type: ignore[misc]
 
     def test_license_claims_frozen(self) -> None:
-        from datetime import datetime
+        from datetime import datetime, timezone
 
         c = LicenseClaims(
             tier="pro",
             customer_id="c1",
-            expiry=datetime.now(tz=datetime.UTC),
-            issued_at=datetime.now(tz=datetime.UTC),
+            expiry=datetime.now(tz=timezone.utc),
+            issued_at=datetime.now(tz=timezone.utc),
             features=frozenset(),
         )
         with pytest.raises(AttributeError):
