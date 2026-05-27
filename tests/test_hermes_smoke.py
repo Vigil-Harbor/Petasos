@@ -24,9 +24,10 @@ def _hermes_deps_available() -> bool:
 )
 class TestHermesSmoke:
     async def test_import_coexistence(self) -> None:
-        import petasos  # noqa: F811
         import spacy  # noqa: F811
         import transformers  # noqa: F811
+
+        import petasos  # noqa: F811
 
         assert petasos is not None
         assert spacy is not None

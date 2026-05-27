@@ -48,6 +48,8 @@ module = [
     "llm_guard.*",
     "llamafirewall",
     "llamafirewall.*",
+    "transformers",
+    "transformers.*",
     "pytest_benchmark",
     "pytest_benchmark.*",
 ]
