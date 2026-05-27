@@ -21,6 +21,7 @@ all = ["petasos[llm-guard,llamafirewall,presidio]"]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
+    "pytest-benchmark>=5.0,<6",
     "pytest-cov>=5.0",
     "mypy>=1.10",
     "ruff>=0.4",
@@ -47,6 +48,10 @@ module = [
     "llm_guard.*",
     "llamafirewall",
     "llamafirewall.*",
+    "transformers",
+    "transformers.*",
+    "pytest_benchmark",
+    "pytest_benchmark.*",
 ]
 ignore_missing_imports = true
 
