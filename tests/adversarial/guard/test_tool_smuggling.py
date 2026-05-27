@@ -21,10 +21,6 @@ def _guard_with_profile(profile: ResolvedProfile) -> ToolCallGuard:
 
 def test_whitespace_stripped_after_alias_lookup() -> None:
     """GUARD-02: ' bash ' does not map to exec alias (strip is last)."""
-    g = ToolCallGuard.__new__(ToolCallGuard)
-    g._profile = None
-    g._normalize_tool_name = ToolCallGuard._normalize_tool_name.__get__(g, ToolCallGuard)  # type: ignore[method-assign]
-    # direct call pattern
     from petasos.config import PetasosConfig
     from petasos.pipeline import Pipeline
     from petasos.premium.frequency import FrequencyTracker
