@@ -132,9 +132,7 @@ class TestE2EHappyPath:
         )
         pipe.activate(valid_key)
 
-        result = await pipe.inspect(
-            _HAPPY_INPUT, session_id="e2e-happy", direction="inbound"
-        )
+        result = await pipe.inspect(_HAPPY_INPUT, session_id="e2e-happy", direction="inbound")
 
         assert isinstance(result, PipelineResult)
 
@@ -148,9 +146,7 @@ class TestE2EHappyPath:
         minimal_findings = [f for f in result.findings if f.scanner_name == "minimal"]
         assert len(minimal_findings) >= 2
 
-        injection_found = any(
-            "injection" in f.rule_id for f in minimal_findings
-        )
+        injection_found = any("injection" in f.rule_id for f in minimal_findings)
         assert injection_found, "Expected injection finding from MinimalScanner"
 
         # Stage 6: Frequency — session_score populated
@@ -198,9 +194,7 @@ class TestE2EHappyPath:
         )
         pipe.activate(valid_key)
 
-        result = await pipe.inspect(
-            _HAPPY_INPUT, session_id="e2e-safe", direction="inbound"
-        )
+        result = await pipe.inspect(_HAPPY_INPUT, session_id="e2e-safe", direction="inbound")
 
         assert result.safe is False
 
@@ -217,9 +211,7 @@ class TestE2EHappyPath:
         )
         pipe.activate(valid_key)
 
-        result = await pipe.inspect(
-            _HAPPY_INPUT, session_id="e2e-results", direction="inbound"
-        )
+        result = await pipe.inspect(_HAPPY_INPUT, session_id="e2e-results", direction="inbound")
 
         scanner_result_names = {r.scanner_name for r in result.scanner_results}
         assert "minimal" in scanner_result_names
@@ -242,9 +234,7 @@ class TestE2EHappyPath:
         )
         pipe.activate(valid_key)
 
-        result = await pipe.inspect(
-            _HAPPY_INPUT, session_id="e2e-errors", direction="inbound"
-        )
+        result = await pipe.inspect(_HAPPY_INPUT, session_id="e2e-errors", direction="inbound")
 
         assert result.errors == ()
 
@@ -261,9 +251,7 @@ class TestE2EHappyPath:
         )
         pipe.activate(valid_key)
 
-        result = await pipe.inspect(
-            _HAPPY_INPUT, session_id="e2e-freq", direction="inbound"
-        )
+        result = await pipe.inspect(_HAPPY_INPUT, session_id="e2e-freq", direction="inbound")
 
         # injection.ignore-previous → 20.0, mock.ml.threat → 10.0, others → 0.0
         assert result.session_score == pytest.approx(30.0)
@@ -327,9 +315,7 @@ class TestE2EFailurePath:
         pipe = Pipeline(scanners=[mock1, mock2], config=config)
         pipe.activate(valid_key)
 
-        result = await pipe.inspect(
-            "test input", session_id="e2e-attr", direction="inbound"
-        )
+        result = await pipe.inspect("test input", session_id="e2e-attr", direction="inbound")
 
         results_by_name = {r.scanner_name: r for r in result.scanner_results}
         assert results_by_name["mock_ml_1"].error is not None
@@ -482,9 +468,7 @@ class TestDegradedModeVariants:
 
         assert result.safe is True
 
-    async def test_fail_mode_closed_blocks_on_partial_ml_error(
-        self, valid_key: str
-    ) -> None:
+    async def test_fail_mode_closed_blocks_on_partial_ml_error(self, valid_key: str) -> None:
         config = PetasosConfig(fail_mode="closed")
         mock_ok = MockMLScanner(name="mock_ok")
         mock_err = MockMLScanner(name="mock_err", error=RuntimeError("down"))
@@ -500,9 +484,7 @@ class TestDegradedModeVariants:
 
         assert result.safe is False
 
-    async def test_fail_mode_closed_blocks_on_all_ml_error(
-        self, valid_key: str
-    ) -> None:
+    async def test_fail_mode_closed_blocks_on_all_ml_error(self, valid_key: str) -> None:
         config = PetasosConfig(fail_mode="closed")
         mock1 = MockMLScanner(name="mock_ml_1", error=RuntimeError("down"))
         mock2 = MockMLScanner(name="mock_ml_2", error=RuntimeError("down"))
