@@ -45,6 +45,21 @@ INVISIBLE_CHARS = frozenset(
     ]
 )
 
+_STRIP_CATEGORIES: frozenset[str] = frozenset({"Cf"})
+
+_EXTRA_INVISIBLE: frozenset[str] = frozenset(
+    [
+        chr(0x2800),  # BRAILLE PATTERN BLANK (So)
+        chr(0x202F),  # NARROW NO-BREAK SPACE (Zs)
+        chr(0x180E),  # MONGOLIAN VOWEL SEPARATOR (Cf — belt-and-suspenders)
+    ]
+)
+
+
+def _is_strippable(ch: str) -> bool:
+    return unicodedata.category(ch) in _STRIP_CATEGORIES or ch in _EXTRA_INVISIBLE
+
+
 _HOMOGLYPH_TABLE = str.maketrans(
     {
         "а": "a",  # Cyrillic a
@@ -84,10 +99,10 @@ def normalize(text: str) -> NormalizedText:
     if rtl_detected:
         transforms.append("rtl_override_detected")
 
-    # Step 2: Invisible character stripping
-    stripped_count = sum(1 for ch in text if ch in INVISIBLE_CHARS)
+    # Step 2: Invisible character stripping (category-based)
+    stripped_count = sum(1 for ch in text if _is_strippable(ch))
     if stripped_count > 0:
-        text_after_strip = "".join(ch for ch in text if ch not in INVISIBLE_CHARS)
+        text_after_strip = "".join(ch for ch in text if not _is_strippable(ch))
         transforms.append("invisible_chars_stripped")
     else:
         text_after_strip = text
