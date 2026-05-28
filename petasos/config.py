@@ -126,8 +126,8 @@ class PetasosConfig:
                 f"redaction_mode must be 'redact', 'replace', 'hash', or 'mask', "
                 f"got {self.redaction_mode!r}"
             )
-        if self.anonymize and self.redaction_mode == "hash" and self.hash_key is None:
-            raise ValueError("hash_key is required when redaction_mode='hash' and anonymize=True")
+        if self.anonymize and self.redaction_mode == "hash" and not self.hash_key:
+            raise ValueError("hash_key is required and must be non-empty when redaction_mode='hash' and anonymize=True")
         for entity in self.pii_entities:
             if not isinstance(entity, str) or not entity:
                 raise ValueError(f"pii_entities entries must be non-empty strings, got {entity!r}")

@@ -51,6 +51,10 @@ class TestConfigValidation:
         with pytest.raises(ValueError, match="hash_key"):
             PetasosConfig(anonymize=True, redaction_mode="hash")
 
+    def test_rejects_empty_hash_key_for_hash_mode(self) -> None:
+        with pytest.raises(ValueError, match="hash_key"):
+            PetasosConfig(anonymize=True, redaction_mode="hash", hash_key="")
+
     def test_hash_mode_without_anonymize_ok(self) -> None:
         cfg = PetasosConfig(anonymize=False, redaction_mode="hash")
         assert cfg.redaction_mode == "hash"
