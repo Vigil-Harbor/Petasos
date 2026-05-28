@@ -3,14 +3,14 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, fields
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Final, Literal
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from petasos._types import Direction
 
-TIER3_FLOOR: float = 30.0
+TIER3_FLOOR: Final[float] = 30.0
 
 _BOOL_FIELDS: frozenset[str] = frozenset(
     {
@@ -40,7 +40,7 @@ def _validate_tier_thresholds(tier1: float, tier2: float, tier3: float) -> None:
 _SECRET_FIELDS: frozenset[str] = frozenset({"hash_key"})
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class PetasosConfig:
     # Normalization toggles
     normalize_nfkc: bool = True

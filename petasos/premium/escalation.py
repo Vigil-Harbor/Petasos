@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -8,6 +9,8 @@ if TYPE_CHECKING:
     from petasos.config import PetasosConfig
 
 from petasos.config import TIER3_FLOOR as TIER3_FLOOR
+
+_logger = logging.getLogger(__name__)
 
 _TIER_ACTIONS: dict[str, str] = {
     "none": "none",
@@ -37,6 +40,12 @@ def derive_tier(score: float, tier1: float, tier2: float, tier3: float) -> str:
 
 
 def evaluate_tier(score: float, config: PetasosConfig) -> str:
+    if not math.isfinite(config.tier3_threshold) or config.tier3_threshold < TIER3_FLOOR:
+        _logger.warning(
+            "tier3_threshold %r is invalid (non-finite or below floor); returning tier3 fail-secure",
+            config.tier3_threshold,
+        )
+        return "tier3"
     return derive_tier(
         score, config.tier1_threshold, config.tier2_threshold, config.tier3_threshold
     )
