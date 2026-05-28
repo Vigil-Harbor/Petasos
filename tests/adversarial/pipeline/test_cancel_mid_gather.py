@@ -126,8 +126,7 @@ async def test_inspect_catches_cancelled_error() -> None:
     assert result.safe is False
     errors_joined = " ".join(result.errors)
     assert "CancelledError" in errors_joined or any(
-        sr.error is not None and "CancelledError" in sr.error
-        for sr in result.scanner_results
+        sr.error is not None and "CancelledError" in sr.error for sr in result.scanner_results
     )
 
 
@@ -135,9 +134,7 @@ async def test_inspect_catches_cancelled_error() -> None:
 async def test_scan_one_isolates_cancelled_scanner() -> None:
     # Regression for PET-48: _scan_one must catch BaseException
     scanner = _CancellingScanner()
-    result = await _scan_one(
-        scanner, "test", direction="inbound", session_id=None
-    )
+    result = await _scan_one(scanner, "test", direction="inbound", session_id=None)
     assert isinstance(result, ScanResult)
     assert result.error is not None
     assert "CancelledError" in result.error
@@ -153,7 +150,8 @@ async def test_gather_return_exceptions_isolates_failure() -> None:
     assert any(f.rule_id == "healthy.rule" for f in result.findings)
     # Cancelled scanner's error should be recorded in scanner_results
     cancelled_results = [
-        sr for sr in result.scanner_results
+        sr
+        for sr in result.scanner_results
         if sr.error is not None and "CancelledError" in sr.error
     ]
     assert len(cancelled_results) >= 1
