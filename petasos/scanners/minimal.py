@@ -32,7 +32,7 @@ _INJECTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("you-are-now", re.compile(r"you are now", re.IGNORECASE)),
     ("new-instructions", re.compile(r"new instructions\s*:", re.IGNORECASE)),
     ("system-override", re.compile(r"system override", re.IGNORECASE)),
-    ("system-prefix", re.compile(r"^SYSTEM:", re.MULTILINE)),
+    ("system-prefix", re.compile(r"^SYSTEM:", re.MULTILINE | re.IGNORECASE)),
     ("inst-delimiter", re.compile(r"\[INST\]|</INST>", re.IGNORECASE)),
 ]
 
