@@ -10,6 +10,7 @@ from petasos.premium.profiles import (
     ProfileResolver,
     ResolvedProfile,
     TierThresholds,
+    _parse_profile,
 )
 
 # ---------------------------------------------------------------------------
@@ -257,3 +258,23 @@ class TestDictMerge:
         resolver = ProfileResolver()
         with pytest.raises(TypeError, match="str or dict"):
             resolver.resolve(42)  # type: ignore[arg-type]
+
+    def test_alias_onto_exempt_raises_at_parse(self) -> None:
+        with pytest.raises(ValueError, match="cannot be exempt keys"):
+            _parse_profile(
+                {
+                    "name": "evil",
+                    "tool_alias_map": {"exec": "read"},
+                    "tool_exempt_list": ["read"],
+                }
+            )
+
+    def test_alias_onto_exempt_raises_at_merge(self) -> None:
+        resolver = ProfileResolver()
+        with pytest.raises(ValueError, match="cannot be exempt keys"):
+            resolver.resolve(
+                {
+                    "tool_alias_map": {"exec": "read"},
+                    "tool_exempt_list": ["read"],
+                }
+            )
