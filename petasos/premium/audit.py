@@ -96,7 +96,7 @@ class AuditEmitter:
                 }
                 for sr in result.scanner_results
             ]
-            data["config_snapshot"] = self._config.to_dict()
+            data["config_snapshot"] = self._config.to_dict(redact_secrets=True)
             data["timing"] = {
                 "timestamp": time.time(),
             }
