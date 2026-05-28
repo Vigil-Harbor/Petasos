@@ -105,3 +105,60 @@ def test_whitespace_alias_onto_exempt_runtime_fallback() -> None:
     )
     guard = _guard_with_profile(profile)
     assert guard._normalize_tool_name("exec") == "exec"
+
+
+# ---------------------------------------------------------------------------
+# GUARD-05: circular / deep / large params (PET-38)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_circular_dict_no_crash(monkeypatch: pytest.MonkeyPatch) -> None:
+    """GUARD-05: circular dict in tool_params does not crash evaluate()."""
+    from petasos.pipeline import Pipeline
+    from petasos.premium.frequency import FrequencyTracker
+
+    cfg = PetasosConfig(tool_guard_enabled=True, frequency_enabled=True)
+    pipe = Pipeline(config=cfg)
+    monkeypatch.setattr(pipe, "is_premium_active", lambda _feature: True)
+    guard = ToolCallGuard(pipe, FrequencyTracker(cfg), cfg)
+
+    circular: dict[str, object] = {"key": "value"}
+    circular["self"] = circular
+
+    result = await guard.evaluate("read", circular, "s1")
+    assert hasattr(result, "allowed")
+
+
+@pytest.mark.asyncio
+async def test_deeply_nested_dict_no_crash(monkeypatch: pytest.MonkeyPatch) -> None:
+    """GUARD-05: 500-level nested dict does not raise RecursionError."""
+    from petasos.pipeline import Pipeline
+    from petasos.premium.frequency import FrequencyTracker
+
+    cfg = PetasosConfig(tool_guard_enabled=True, frequency_enabled=True)
+    pipe = Pipeline(config=cfg)
+    monkeypatch.setattr(pipe, "is_premium_active", lambda _feature: True)
+    guard = ToolCallGuard(pipe, FrequencyTracker(cfg), cfg)
+
+    nested: dict[str, object] = {"leaf": True}
+    for _ in range(500):
+        nested = {"child": nested}
+
+    result = await guard.evaluate("read", nested, "s1")
+    assert hasattr(result, "allowed")
+
+
+@pytest.mark.asyncio
+async def test_large_params_truncated(monkeypatch: pytest.MonkeyPatch) -> None:
+    """GUARD-05: 2 MB string param is scanned without timeout/OOM."""
+    from petasos.pipeline import Pipeline
+    from petasos.premium.frequency import FrequencyTracker
+
+    cfg = PetasosConfig(tool_guard_enabled=True, frequency_enabled=True)
+    pipe = Pipeline(config=cfg)
+    monkeypatch.setattr(pipe, "is_premium_active", lambda _feature: True)
+    guard = ToolCallGuard(pipe, FrequencyTracker(cfg), cfg)
+
+    result = await guard.evaluate("read", {"data": "x" * 2_000_000}, "s1")
+    assert hasattr(result, "allowed")
