@@ -72,12 +72,14 @@ class ResolvedProfile:
         }
 
 
-_BUILTIN_NAMES: tuple[str, ...] = (
-    "general",
-    "customer_service",
-    "code_generation",
-    "research",
-    "admin",
+_BUILTIN_NAMES: frozenset[str] = frozenset(
+    {
+        "general",
+        "customer_service",
+        "code_generation",
+        "research",
+        "admin",
+    }
 )
 
 
@@ -252,4 +254,6 @@ class ProfileResolver:
         raise TypeError(f"name_or_dict must be str or dict, got {type(name_or_dict).__name__}")
 
     def register(self, name: str, profile: ResolvedProfile) -> None:
+        if name in _BUILTIN_NAMES:
+            raise ValueError(f"Cannot overwrite built-in profile '{name}'")
         self._profiles[name] = profile

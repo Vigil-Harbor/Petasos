@@ -74,11 +74,14 @@ class ToolCallGuard:
         frequency_tracker: FrequencyTracker,
         config: PetasosConfig,
         profile: ResolvedProfile | None = None,
+        *,
+        exempt_param_scan: bool = True,
     ) -> None:
         self._pipeline = pipeline
         self._frequency_tracker = frequency_tracker
         self._config = config
         self._profile = profile
+        self._exempt_param_scan = exempt_param_scan
 
     async def evaluate(
         self,
@@ -116,12 +119,21 @@ class ToolCallGuard:
 
         # Step 4: Exempt check
         if self._profile and normalized_name in self._profile.tool_exempt_list:
+            if not self._exempt_param_scan:
+                return GuardResult(
+                    allowed=True,
+                    reason="tool exempt per profile",
+                    findings=(),
+                    tier=tier,
+                    param_scan_unsafe=False,
+                )
+            findings, param_scan_unsafe = await self._scan_params(tool_params, session_id)
             return GuardResult(
                 allowed=True,
-                reason="tool exempt per profile",
-                findings=(),
+                reason="exempt-with-scan",
+                findings=findings,
                 tier=tier,
-                param_scan_unsafe=False,
+                param_scan_unsafe=param_scan_unsafe,
             )
 
         # Step 5: Scan params
