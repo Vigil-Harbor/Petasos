@@ -12,6 +12,21 @@ if TYPE_CHECKING:
 
 TIER3_FLOOR: float = 30.0
 
+_BOOL_FIELDS: frozenset[str] = frozenset(
+    {
+        "normalize_nfkc",
+        "strip_zero_width",
+        "map_homoglyphs",
+        "detect_rtl_override",
+        "anonymize",
+        "frequency_enabled",
+        "escalation_enabled",
+        "tool_guard_enabled",
+        "audit_enabled",
+        "alert_enabled",
+    }
+)
+
 
 def _validate_tier_thresholds(tier1: float, tier2: float, tier3: float) -> None:
     if not all(math.isfinite(v) for v in (tier1, tier2, tier3)):
@@ -20,6 +35,9 @@ def _validate_tier_thresholds(tier1: float, tier2: float, tier3: float) -> None:
         raise ValueError(f"thresholds must be strictly ascending: {tier1} < {tier2} < {tier3}")
     if tier3 < TIER3_FLOOR:
         raise ValueError(f"tier3 must be >= {TIER3_FLOOR}, got {tier3}")
+
+
+_SECRET_FIELDS: frozenset[str] = frozenset({"hash_key"})
 
 
 @dataclass(frozen=True)
@@ -52,6 +70,7 @@ class PetasosConfig:
     alert_cooldown_seconds: float = 60.0
     alert_per_minute_cap: int = 5
     alert_per_hour_cap: int = 20
+    alert_critical_per_minute_cap: int = 20
     alert_high_severity_threshold: Literal["critical", "high", "medium", "low", "info"] = "high"
     alert_rapid_fire_count: int = 10
     alert_rapid_fire_window_seconds: float = 60.0
@@ -60,6 +79,8 @@ class PetasosConfig:
     alert_pii_volume_threshold: int = 20
     alert_pii_volume_window_seconds: float = 300.0
     alert_ring_buffer_capacity: int = 1000
+    alert_per_session_contribution_cap: int = 2
+    alert_max_session_contribution_entries: int = 10_000
 
     # Audit
     audit_verbosity: Literal["minimal", "standard", "verbose"] = "standard"
@@ -84,6 +105,10 @@ class PetasosConfig:
     session_secret: bytes | None = None
 
     def __post_init__(self) -> None:
+        for fname in _BOOL_FIELDS:
+            val = getattr(self, fname)
+            if not isinstance(val, bool):
+                raise TypeError(f"{fname} must be a bool, got {val!r}")
         if not isinstance(self.pii_entities, tuple):
             object.__setattr__(self, "pii_entities", tuple(self.pii_entities))
         if self.direction not in ("inbound", "outbound"):
@@ -178,6 +203,15 @@ class PetasosConfig:
             raise ValueError(
                 f"alert_per_hour_cap must be a positive integer, got {self.alert_per_hour_cap!r}"
             )
+        if (
+            not isinstance(self.alert_critical_per_minute_cap, int)
+            or isinstance(self.alert_critical_per_minute_cap, bool)
+            or self.alert_critical_per_minute_cap <= 0
+        ):
+            raise ValueError(
+                f"alert_critical_per_minute_cap must be a positive integer, "
+                f"got {self.alert_critical_per_minute_cap!r}"
+            )
         if self.alert_high_severity_threshold not in (
             "critical",
             "high",
@@ -259,18 +293,44 @@ class PetasosConfig:
                 f"<= alert_ring_buffer_capacity "
                 f"({self.alert_ring_buffer_capacity})"
             )
+        if (
+            not isinstance(self.alert_per_session_contribution_cap, int)
+            or isinstance(self.alert_per_session_contribution_cap, bool)
+            or self.alert_per_session_contribution_cap <= 0
+        ):
+            raise ValueError(
+                f"alert_per_session_contribution_cap must be a positive integer, "
+                f"got {self.alert_per_session_contribution_cap!r}"
+            )
+        if (
+            not isinstance(self.alert_max_session_contribution_entries, int)
+            or isinstance(self.alert_max_session_contribution_entries, bool)
+            or self.alert_max_session_contribution_entries <= 0
+        ):
+            raise ValueError(
+                f"alert_max_session_contribution_entries must be a positive integer, "
+                f"got {self.alert_max_session_contribution_entries!r}"
+            )
+        if self.alert_per_session_contribution_cap > self.alert_per_minute_cap:
+            raise ValueError(
+                f"alert_per_session_contribution_cap ({self.alert_per_session_contribution_cap}) "
+                f"must be <= alert_per_minute_cap ({self.alert_per_minute_cap})"
+            )
         if self.audit_verbosity not in ("minimal", "standard", "verbose"):
             raise ValueError(
                 f"audit_verbosity must be 'minimal', 'standard', or 'verbose', "
                 f"got {self.audit_verbosity!r}"
             )
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self, *, redact_secrets: bool = False) -> dict[str, Any]:
         d: dict[str, Any] = {}
         for f in fields(self):
             if f.name == "session_secret":
                 continue
             val = getattr(self, f.name)
+            if redact_secrets and f.name in _SECRET_FIELDS:
+                d[f.name] = "[REDACTED]" if val is not None else None
+                continue
             if isinstance(val, tuple):
                 val = list(val)
             elif isinstance(val, MappingProxyType):
@@ -291,6 +351,9 @@ class PetasosConfig:
                 filtered["session_secret"] = base64.b64decode(filtered["session_secret"])
             except Exception:
                 raise ValueError("session_secret must be valid base64") from None
+        for key in _BOOL_FIELDS:
+            if key in filtered and not isinstance(filtered[key], bool):
+                raise TypeError(f"{key} must be a bool, got {filtered[key]!r}")
         return cls(**filtered)
 
     def copy(self) -> PetasosConfig:

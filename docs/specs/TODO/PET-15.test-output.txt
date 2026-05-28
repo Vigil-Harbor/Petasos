@@ -1,0 +1,16 @@
+============================= test session starts =============================
+platform win32 -- Python 3.10.6, pytest-9.0.3, pluggy-1.6.0 -- C:\python310\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\zioni\Documents\Vigil-Harbor\PET-15-worktree
+configfile: pyproject.toml
+plugins: anyio-4.13.0, asyncio-1.3.0
+asyncio: mode=auto, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 5 items
+
+tests/adversarial/pipeline/test_rt075_chain.py::test_rt075_chain_pre_fix_baseline XPASS [ 20%]
+tests/adversarial/pipeline/test_rt075_chain.py::test_rt075_chain_norm01_breaks_link1 XFAIL [ 40%]
+tests/adversarial/pipeline/test_rt075_chain.py::test_rt075_chain_syn08_breaks_link2 XFAIL [ 60%]
+tests/adversarial/pipeline/test_rt075_chain.py::test_rt075_chain_pipe02_breaks_link3 XFAIL [ 80%]
+tests/adversarial/pipeline/test_rt075_chain.py::test_rt075_chain_all_fixed XFAIL [100%]
+
+======================== 4 xfailed, 1 xpassed in 0.14s ========================
