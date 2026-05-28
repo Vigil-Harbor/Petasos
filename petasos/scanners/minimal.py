@@ -32,7 +32,7 @@ _INJECTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("you-are-now", re.compile(r"you\s+are\s+now", re.IGNORECASE)),
     ("new-instructions", re.compile(r"new\s+instructions\s*:", re.IGNORECASE)),
     ("system-override", re.compile(r"system\s+override", re.IGNORECASE)),
-    ("system-prefix", re.compile(r"^SYSTEM:", re.MULTILINE)),
+    ("system-prefix", re.compile(r"^SYSTEM:", re.MULTILINE | re.IGNORECASE)),
     ("inst-delimiter", re.compile(r"\[INST\]|</INST>", re.IGNORECASE)),
 ]
 
@@ -97,6 +97,8 @@ RULE_TAXONOMY: frozenset[str] = (
 
 _ALL_INJECTION_IDS = _INJECTION_RULE_IDS | _ROLE_SWITCH_RULE_IDS
 
+_UNSUPPRESSIBLE_RULE_IDS = _STRUCTURAL_RULE_IDS | _ALL_INJECTION_IDS
+
 
 class MinimalScanner:
     def __init__(
@@ -108,8 +110,7 @@ class MinimalScanner:
     ) -> None:
         self._max_payload_bytes = max_payload_bytes
         self._max_json_depth = max_json_depth
-        # Structural rules cannot be suppressed — silently ignore them
-        self._suppress_rules = suppress_rules - _STRUCTURAL_RULE_IDS
+        self._suppress_rules = suppress_rules - _UNSUPPRESSIBLE_RULE_IDS
 
     def with_suppress_rules(self, additional: frozenset[str]) -> MinimalScanner:
         return MinimalScanner(

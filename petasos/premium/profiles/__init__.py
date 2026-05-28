@@ -9,11 +9,10 @@ from typing import Any
 
 from petasos._types import Severity
 from petasos.config import _validate_tier_thresholds
-from petasos.scanners.minimal import _ALL_INJECTION_IDS, _STRUCTURAL_RULE_IDS
+from petasos.scanners.minimal import _STRUCTURAL_RULE_IDS
+from petasos.scanners.minimal import _UNSUPPRESSIBLE_RULE_IDS as _UNSUPPRESSIBLE_RULE_IDS
 
 _logger = logging.getLogger(__name__)
-
-_UNSUPPRESSIBLE_RULE_IDS: frozenset[str] = _ALL_INJECTION_IDS | _STRUCTURAL_RULE_IDS
 
 
 def _validate_suppress_rules(suppress: frozenset[str]) -> frozenset[str]:
@@ -130,12 +129,12 @@ def _parse_profile(data: dict[str, Any]) -> ResolvedProfile:
     return ResolvedProfile(
         name=data["name"],
         suppress_rules=_validate_suppress_rules(frozenset(data.get("suppress_rules", []))),
-        severity_overrides=MappingProxyType(sev_overrides),
+        severity_overrides=MappingProxyType(dict(sev_overrides)),
         confidence_floor=float(data.get("confidence_floor", 0.0)),
         tier_thresholds=tier_thresholds,
         pii_entities_extra=tuple(data.get("pii_entities_extra", [])),
         tool_exempt_list=exempt_set,
-        tool_alias_map=MappingProxyType(alias_map),
+        tool_alias_map=MappingProxyType(dict(alias_map)),
     )
 
 

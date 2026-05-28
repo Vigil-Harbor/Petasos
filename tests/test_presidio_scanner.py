@@ -14,6 +14,7 @@ from petasos._types import (
 from petasos.scanners.presidio import (
     _SEVERITY_MAP,
     PresidioScanner,
+    _make_hmac_operator_class,
     _recover_entity_type,
     anonymize,
 )
@@ -248,11 +249,42 @@ class TestAnonymizeHash:
         r2 = anonymize(text, [finding], mode="hash", hash_key="key2")
         assert r1 != r2
 
-    def test_hash_without_key_uses_sha256(self) -> None:
+    def test_hash_without_key_raises(self) -> None:
         text = "John Smith lives here"
         finding = _make_finding("petasos.presidio.person", 0, 10, matched_text="John Smith")
-        result = anonymize(text, [finding], mode="hash")
+        with pytest.raises(ValueError, match="hash_key"):
+            anonymize(text, [finding], mode="hash")
+
+    def test_hash_mode_rejects_empty_key(self) -> None:
+        text = "John Smith lives here"
+        finding = _make_finding("petasos.presidio.person", 0, 10, matched_text="John Smith")
+        with pytest.raises(ValueError, match="hash_key"):
+            anonymize(text, [finding], mode="hash", hash_key="")
+
+    def test_hash_mode_with_valid_key_works(self) -> None:
+        text = "John Smith lives here"
+        finding = _make_finding("petasos.presidio.person", 0, 10, matched_text="John Smith")
+        result = anonymize(text, [finding], mode="hash", hash_key="secret")
         assert "John Smith" not in result
+
+    def test_hmac_operator_rejects_empty_key(self) -> None:
+        cls = _make_hmac_operator_class()
+        op = cls()
+        with pytest.raises(ValueError, match="non-empty"):
+            op.validate({"hmac_key": ""})
+
+    def test_hmac_operator_rejects_missing_key(self) -> None:
+        cls = _make_hmac_operator_class()
+        op = cls()
+        with pytest.raises(ValueError):
+            op.validate({})
+
+    def test_redact_mode_ignores_hash_key(self) -> None:
+        text = "John Smith lives here"
+        finding = _make_finding("petasos.presidio.person", 0, 10, matched_text="John Smith")
+        result = anonymize(text, [finding], mode="redact", hash_key=None)
+        assert "John Smith" not in result
+        assert "<PERSON>" in result
 
 
 class TestAnonymizeMask:
