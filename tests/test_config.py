@@ -4,7 +4,7 @@ import dataclasses
 
 import pytest
 
-from petasos.config import PetasosConfig
+from petasos.config import _SECRET_FIELDS, PetasosConfig
 
 
 class TestConfigDefaults:
@@ -90,6 +90,31 @@ class TestConfigSerialization:
     def test_empty_pii_entities_valid(self) -> None:
         cfg = PetasosConfig(pii_entities=())
         assert cfg.pii_entities == ()
+
+
+class TestSecretRedaction:
+    def test_to_dict_redact_secrets_masks_hash_key(self) -> None:
+        cfg = PetasosConfig(anonymize=True, redaction_mode="hash", hash_key="my-secret-key")
+        d = cfg.to_dict(redact_secrets=True)
+        assert d["hash_key"] == "[REDACTED]"
+
+    def test_to_dict_redact_secrets_none_stays_none(self) -> None:
+        cfg = PetasosConfig()
+        assert cfg.hash_key is None
+        d = cfg.to_dict(redact_secrets=True)
+        assert d["hash_key"] is None
+
+    def test_to_dict_default_preserves_hash_key(self) -> None:
+        cfg = PetasosConfig(anonymize=True, redaction_mode="hash", hash_key="my-secret-key")
+        d = cfg.to_dict()
+        assert d["hash_key"] == "my-secret-key"
+
+    def test_secret_fields_subset_of_config_fields(self) -> None:
+        config_field_names = {f.name for f in dataclasses.fields(PetasosConfig)}
+        for name in _SECRET_FIELDS:
+            assert name in config_field_names, (
+                f"_SECRET_FIELDS contains '{name}' which is not a PetasosConfig field"
+            )
 
 
 class TestConfigFrozen:
