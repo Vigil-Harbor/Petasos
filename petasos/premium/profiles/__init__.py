@@ -129,12 +129,12 @@ def _parse_profile(data: dict[str, Any]) -> ResolvedProfile:
     return ResolvedProfile(
         name=data["name"],
         suppress_rules=_validate_suppress_rules(frozenset(data.get("suppress_rules", []))),
-        severity_overrides=MappingProxyType(sev_overrides),
+        severity_overrides=MappingProxyType(dict(sev_overrides)),
         confidence_floor=float(data.get("confidence_floor", 0.0)),
         tier_thresholds=tier_thresholds,
         pii_entities_extra=tuple(data.get("pii_entities_extra", [])),
         tool_exempt_list=exempt_set,
-        tool_alias_map=MappingProxyType(alias_map),
+        tool_alias_map=MappingProxyType(dict(alias_map)),
     )
 
 
