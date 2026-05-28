@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-import asyncio
 from collections import deque
 from unittest.mock import patch
-
-import pytest
 
 from petasos.config import PetasosConfig
 from petasos.pipeline import Pipeline

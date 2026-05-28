@@ -270,7 +270,7 @@ class TestConfigMaxTerminatedTombstonesValidation:
 
     def test_bool_raises(self) -> None:
         with pytest.raises(ValueError, match="max_terminated_tombstones"):
-            PetasosConfig(max_terminated_tombstones=True)  # type: ignore[arg-type]
+            PetasosConfig(max_terminated_tombstones=True)
 
     def test_string_raises(self) -> None:
         with pytest.raises(
