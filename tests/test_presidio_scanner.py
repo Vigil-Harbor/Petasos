@@ -377,9 +377,7 @@ class TestPresidioScannerIntegration:
         return PresidioScanner()
 
     def test_detect_email(self, scanner: PresidioScanner) -> None:
-        result = asyncio.run(
-            scanner.scan("Contact us at john@example.com for details")
-        )
+        result = asyncio.run(scanner.scan("Contact us at john@example.com for details"))
         assert result.error is None
         assert len(result.findings) > 0
         emails = [f for f in result.findings if "email" in f.rule_id]
@@ -389,34 +387,26 @@ class TestPresidioScannerIntegration:
         assert f.matched_text == "john@example.com"
 
     def test_detect_phone(self, scanner: PresidioScanner) -> None:
-        result = asyncio.run(
-            scanner.scan("Call me at 555-123-4567")
-        )
+        result = asyncio.run(scanner.scan("Call me at 555-123-4567"))
         assert result.error is None
         phone_findings = [f for f in result.findings if "phone" in f.rule_id]
         assert len(phone_findings) > 0
 
     def test_detect_person(self, scanner: PresidioScanner) -> None:
-        result = asyncio.run(
-            scanner.scan("My name is John Smith and I live in New York")
-        )
+        result = asyncio.run(scanner.scan("My name is John Smith and I live in New York"))
         assert result.error is None
         persons = [f for f in result.findings if "person" in f.rule_id]
         assert len(persons) > 0
 
     def test_detect_credit_card(self, scanner: PresidioScanner) -> None:
-        result = asyncio.run(
-            scanner.scan("My credit card is 4111-1111-1111-1111")
-        )
+        result = asyncio.run(scanner.scan("My credit card is 4111-1111-1111-1111"))
         assert result.error is None
         cc = [f for f in result.findings if "credit_card" in f.rule_id]
         assert len(cc) > 0
         assert cc[0].severity == Severity.CRITICAL
 
     def test_no_pii_clean(self, scanner: PresidioScanner) -> None:
-        result = asyncio.run(
-            scanner.scan("The weather is nice today")
-        )
+        result = asyncio.run(scanner.scan("The weather is nice today"))
         assert result.error is None
         assert len(result.findings) == 0
 
@@ -433,9 +423,7 @@ class TestPresidioScannerIntegration:
                 assert text[f.position.start : f.position.end] == f.matched_text
 
     def test_confidence_range(self, scanner: PresidioScanner) -> None:
-        result = asyncio.run(
-            scanner.scan("john@example.com, 555-1234, John Smith")
-        )
+        result = asyncio.run(scanner.scan("john@example.com, 555-1234, John Smith"))
         for f in result.findings:
             assert 0.0 < f.confidence <= 1.0
 
@@ -445,18 +433,14 @@ class TestPresidioScannerIntegration:
 
     def test_score_threshold_filtering(self) -> None:
         scanner = PresidioScanner(score_threshold=0.9)
-        result = asyncio.run(
-            scanner.scan("Maybe John from somewhere")
-        )
+        result = asyncio.run(scanner.scan("Maybe John from somewhere"))
         assert result.error is None
         for f in result.findings:
             assert f.confidence >= 0.9
 
     def test_custom_entities_filter(self) -> None:
         scanner = PresidioScanner(entities=["EMAIL_ADDRESS"])
-        result = asyncio.run(
-            scanner.scan("John at john@example.com")
-        )
+        result = asyncio.run(scanner.scan("John at john@example.com"))
         assert result.error is None
         for f in result.findings:
             assert "email" in f.rule_id
