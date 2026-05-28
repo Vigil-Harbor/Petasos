@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import time
 from dataclasses import replace
@@ -24,6 +25,8 @@ from petasos.premium.frequency import FrequencyTracker, FrequencyUpdateResult
 from petasos.premium.license import LicenseClaims, LicenseState, LicenseValidator
 from petasos.premium.profiles import ProfileResolver, ResolvedProfile
 from petasos.scanners.minimal import MinimalScanner
+
+_logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -140,14 +143,28 @@ async def _scan_one(
             scanner.scan(normalized_text, direction=direction, session_id=session_id),
             timeout=_SCANNER_TIMEOUT,
         )
-    except Exception as exc:
+    except BaseException as exc:
         elapsed = (time.perf_counter() - t0) * 1000
         return ScanResult(
             scanner_name=sname,
             findings=(),
             duration_ms=elapsed,
-            error=str(exc),
+            error=f"{type(exc).__name__}: {exc}" if str(exc) else type(exc).__name__,
         )
+
+
+def _normalize_gather_result(
+    result: ScanResult | BaseException,
+    scanner_name: str,
+) -> ScanResult:
+    if isinstance(result, BaseException):
+        return ScanResult(
+            scanner_name=scanner_name,
+            findings=(),
+            duration_ms=0.0,
+            error=f"{type(result).__name__}: {result}" if str(result) else type(result).__name__,
+        )
+    return result
 
 
 class Pipeline:
@@ -324,11 +341,18 @@ class Pipeline:
                 session_id=session_id,
                 active_profile=active_profile,
             )
-        except Exception as exc:
+        except BaseException as exc:
+            if not isinstance(exc, Exception):
+                _logger.warning(
+                    "Non-Exception caught at inspect() boundary: %s: %s",
+                    type(exc).__name__,
+                    exc,
+                )
+            error_msg = f"{type(exc).__name__}: {exc}" if str(exc) else type(exc).__name__
             return PipelineResult(
                 safe=False,
                 findings=(),
-                errors=(str(exc),),
+                errors=(error_msg,),
             )
 
     async def _inspect_inner(
@@ -380,7 +404,11 @@ class Pipeline:
                 _scan_one(s, normalized_text, direction=direction, session_id=session_id)
                 for s in self._ml_scanners
             ]
-            ml_results = list(await asyncio.gather(*tasks))
+            raw_results = await asyncio.gather(*tasks, return_exceptions=True)
+            ml_results = [
+                _normalize_gather_result(r, getattr(s, "name", "unknown"))
+                for r, s in zip(raw_results, self._ml_scanners, strict=True)
+            ]
         else:
             ml_results = []
 
