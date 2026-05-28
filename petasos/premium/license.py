@@ -55,7 +55,7 @@ class LicenseValidator:
         if valid_tiers is not None and not _VALID_TIERS.issubset(valid_tiers):
             missing = _VALID_TIERS - valid_tiers
             raise ValueError(f"valid_tiers must include all built-in tiers, missing: {missing}")
-        self._valid_tiers = valid_tiers if valid_tiers is not None else _VALID_TIERS
+        self._valid_tiers = frozenset(valid_tiers) if valid_tiers is not None else _VALID_TIERS
         self._key: Any = None
         try:
             pkg = importlib.resources.files("petasos.premium._keys")
