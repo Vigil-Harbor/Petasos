@@ -92,6 +92,38 @@ class TestConfigSerialization:
         assert cfg.pii_entities == ()
 
 
+class TestSessionContributionCapValidation:
+    def test_alert_per_session_contribution_cap_rejects_zero(self) -> None:
+        with pytest.raises(ValueError, match="alert_per_session_contribution_cap"):
+            PetasosConfig(alert_per_session_contribution_cap=0)
+
+    def test_alert_per_session_contribution_cap_rejects_negative(self) -> None:
+        with pytest.raises(ValueError, match="alert_per_session_contribution_cap"):
+            PetasosConfig(alert_per_session_contribution_cap=-1)
+
+    def test_alert_per_session_contribution_cap_rejects_bool(self) -> None:
+        with pytest.raises(ValueError, match="alert_per_session_contribution_cap"):
+            PetasosConfig(alert_per_session_contribution_cap=True)
+
+    def test_alert_max_session_contribution_entries_rejects_zero(self) -> None:
+        with pytest.raises(ValueError, match="alert_max_session_contribution_entries"):
+            PetasosConfig(alert_max_session_contribution_entries=0)
+
+    def test_alert_max_session_contribution_entries_rejects_negative(self) -> None:
+        with pytest.raises(ValueError, match="alert_max_session_contribution_entries"):
+            PetasosConfig(alert_max_session_contribution_entries=-1)
+
+    def test_alert_max_session_contribution_entries_rejects_bool(self) -> None:
+        with pytest.raises(ValueError, match="alert_max_session_contribution_entries"):
+            PetasosConfig(alert_max_session_contribution_entries=True)
+
+    def test_cross_field_validation_cap_gt_per_minute(self) -> None:
+        with pytest.raises(ValueError, match="must be <= alert_per_minute_cap"):
+            PetasosConfig(alert_per_session_contribution_cap=10, alert_per_minute_cap=5)
+        cfg = PetasosConfig(alert_per_session_contribution_cap=5, alert_per_minute_cap=5)
+        assert cfg.alert_per_session_contribution_cap == 5
+
+
 class TestConfigFrozen:
     def test_frozen_prevents_mutation(self) -> None:
         cfg = PetasosConfig()
