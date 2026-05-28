@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import uuid
 from types import MappingProxyType
-from unittest.mock import patch
 
 import pytest
 
@@ -182,23 +181,23 @@ class TestSequenceNumbers:
         events = [emitter.emit(_result(), "s1", None) for _ in range(5)]
         assert [e.sequence_number for e in events] == [0, 1, 2, 3, 4]
 
-    def test_different_sessions_independent(self) -> None:
+    def test_different_sessions_global_sequence(self) -> None:
         emitter = AuditEmitter(_cfg())
         e1 = emitter.emit(_result(), "s1", None)
         e2 = emitter.emit(_result(), "s2", None)
         e3 = emitter.emit(_result(), "s1", None)
         assert e1.sequence_number == 0
-        assert e2.sequence_number == 0
-        assert e3.sequence_number == 1
+        assert e2.sequence_number == 1
+        assert e3.sequence_number == 2
 
-    def test_none_session_uses_dedicated_counter(self) -> None:
+    def test_none_session_shares_global_counter(self) -> None:
         emitter = AuditEmitter(_cfg())
         e1 = emitter.emit(_result(), None, None)
         e2 = emitter.emit(_result(), "s1", None)
         e3 = emitter.emit(_result(), None, None)
         assert e1.sequence_number == 0
-        assert e2.sequence_number == 0
-        assert e3.sequence_number == 1
+        assert e2.sequence_number == 1
+        assert e3.sequence_number == 2
 
     def test_no_gaps_across_100_emits(self) -> None:
         emitter = AuditEmitter(_cfg())
@@ -224,21 +223,26 @@ class TestCallbackBehavior:
         assert len(received) == 1
         assert received[0] is event
 
-    def test_callback_raises_valueerror_wrapped_as_runtime(self) -> None:
+    def test_callback_raises_valueerror_swallowed(self) -> None:
         def bad_cb(e: AuditEvent) -> None:
             raise ValueError("bad")
 
         emitter = AuditEmitter(_cfg(), on_audit=bad_cb)
-        with pytest.raises(RuntimeError, match="on_audit callback failed"):
-            emitter.emit(_result(), "s1", None)
+        event = emitter.emit(_result(), "s1", None)
+        assert event is not None
+        assert emitter.last_callback_error is not None
+        assert "ValueError" in emitter.last_callback_error
+        assert "bad" in emitter.last_callback_error
 
-    def test_callback_raises_generic_exception_wrapped(self) -> None:
+    def test_callback_raises_generic_exception_swallowed(self) -> None:
         def bad_cb(e: AuditEvent) -> None:
             raise Exception("generic")
 
         emitter = AuditEmitter(_cfg(), on_audit=bad_cb)
-        with pytest.raises(RuntimeError, match="on_audit callback failed"):
-            emitter.emit(_result(), "s1", None)
+        event = emitter.emit(_result(), "s1", None)
+        assert event is not None
+        assert emitter.last_callback_error is not None
+        assert "generic" in emitter.last_callback_error
 
 
 # ---------------------------------------------------------------------------
@@ -270,16 +274,16 @@ class TestEdgeCases:
         assert event.payload["session_score"] is None
         assert event.payload["escalation_tier"] is None
 
-    def test_multiple_sessions_interleaved(self) -> None:
+    def test_multiple_sessions_interleaved_global(self) -> None:
         emitter = AuditEmitter(_cfg())
         seq: dict[str, list[int]] = {"s1": [], "s2": [], "s3": []}
         for _ in range(3):
             for sid in ("s1", "s2", "s3"):
                 e = emitter.emit(_result(), sid, None)
                 seq[sid].append(e.sequence_number)
-        assert seq["s1"] == [0, 1, 2]
-        assert seq["s2"] == [0, 1, 2]
-        assert seq["s3"] == [0, 1, 2]
+        assert seq["s1"] == [0, 3, 6]
+        assert seq["s2"] == [1, 4, 7]
+        assert seq["s3"] == [2, 5, 8]
 
     def test_payload_is_immutable(self) -> None:
         emitter = AuditEmitter(_cfg(audit_verbosity="minimal"))
@@ -311,18 +315,12 @@ class TestEdgeCases:
         event = emitter.emit(_result(), "s1", _freq_result())
         assert raw_key not in str(event.payload)
 
-    def test_stale_session_pruning(self) -> None:
-        cfg = _cfg(session_ttl_seconds=1.0)
-        emitter = AuditEmitter(cfg)
-
-        with patch("petasos.premium.audit.time") as mock_time:
-            mock_time.monotonic.return_value = 100.0
-            mock_time.time.return_value = 100.0
-            emitter.emit(_result(), "old_session", None)
-
-            mock_time.monotonic.return_value = 200.0
-            mock_time.time.return_value = 200.0
-            emitter.emit(_result(), "new_session", None)
-
-        assert "old_session" not in emitter._sequence_counters
-        assert "new_session" in emitter._sequence_counters
+    def test_global_sequence_continues_across_sessions(self) -> None:
+        emitter = AuditEmitter(_cfg())
+        e1 = emitter.emit(_result(), "s1", None)
+        e2 = emitter.emit(_result(), "s2", None)
+        e3 = emitter.emit(_result(), "s1", None)
+        assert e1.sequence_number == 0
+        assert e2.sequence_number == 1
+        assert e3.sequence_number == 2
+        assert emitter._global_sequence == 3

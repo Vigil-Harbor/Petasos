@@ -529,13 +529,16 @@ class Pipeline:
 
         # Stage 10: Premium audit hook
         try:
-            await self._premium_audit_hook(result, session_id, freq_result)
+            audit_cb_error = await self._premium_audit_hook(result, session_id, freq_result)
+            if audit_cb_error is not None:
+                errors.append(audit_cb_error)
         except Exception as exc:
             errors.append(f"audit hook: {exc}")
 
         # Stage 11: Premium alert hook
         try:
-            await self._premium_alert_hook(result, session_id, freq_result)
+            alert_cb_errors = await self._premium_alert_hook(result, session_id, freq_result)
+            errors.extend(alert_cb_errors)
         except Exception as exc:
             errors.append(f"alert hook: {exc}")
 
@@ -603,21 +606,23 @@ class Pipeline:
         result: PipelineResult,
         session_id: str | None,
         freq_result: FrequencyUpdateResult | None,
-    ) -> None:
+    ) -> str | None:
         if not self._check_premium("audit"):
-            return
+            return None
         if not self._config.audit_enabled:
-            return
+            return None
         self._audit_emitter.emit(result, session_id, freq_result)
+        return self._audit_emitter.last_callback_error
 
     async def _premium_alert_hook(
         self,
         result: PipelineResult,
         session_id: str | None,
         freq_result: FrequencyUpdateResult | None,
-    ) -> None:
+    ) -> tuple[str, ...]:
         if not self._check_premium("alerting"):
-            return
+            return ()
         if not self._config.alert_enabled:
-            return
+            return ()
         self._alert_manager.evaluate(result, session_id, freq_result)
+        return self._alert_manager.callback_errors
