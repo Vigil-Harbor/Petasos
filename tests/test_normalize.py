@@ -144,9 +144,7 @@ class TestCategoryBasedStripping:
     def test_tag_block_range_stripped(self) -> None:
         # Regression for PET-43: all Cf chars in the Tags block are stripped
         cf_tags = [
-            chr(cp)
-            for cp in range(0xE0001, 0xE0080)
-            if unicodedata.category(chr(cp)) == "Cf"
+            chr(cp) for cp in range(0xE0001, 0xE0080) if unicodedata.category(chr(cp)) == "Cf"
         ]
         assert len(cf_tags) > 0
         payload = "a" + "".join(cf_tags) + "b"
@@ -168,16 +166,12 @@ class TestCategoryBasedStripping:
 
     def test_existing_invisible_chars_still_stripped(self) -> None:
         for ch in INVISIBLE_CHARS:
-            assert _is_strippable(ch), (
-                f"INVISIBLE_CHARS member U+{ord(ch):04X} not stripped"
-            )
+            assert _is_strippable(ch), f"INVISIBLE_CHARS member U+{ord(ch):04X} not stripped"
 
     def test_printable_ascii_not_stripped(self) -> None:
         for cp in range(0x20, 0x7F):
             ch = chr(cp)
-            assert not _is_strippable(ch), (
-                f"ASCII U+{cp:04X} ({ch!r}) should not be stripped"
-            )
+            assert not _is_strippable(ch), f"ASCII U+{cp:04X} ({ch!r}) should not be stripped"
 
     def test_cjk_not_stripped(self) -> None:
         for ch in "一丁丂":
