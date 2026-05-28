@@ -4,7 +4,7 @@ import dataclasses
 
 import pytest
 
-from petasos.config import _BOOL_FIELDS, PetasosConfig
+from petasos.config import _BOOL_FIELDS, _SECRET_FIELDS, PetasosConfig
 
 
 class TestConfigDefaults:
@@ -58,6 +58,18 @@ class TestConfigValidation:
     def test_rejects_empty_pii_entity(self) -> None:
         with pytest.raises(ValueError, match="pii_entities"):
             PetasosConfig(pii_entities=("PERSON", ""))
+
+    def test_rejects_critical_per_minute_cap_zero(self) -> None:
+        with pytest.raises(ValueError, match="alert_critical_per_minute_cap"):
+            PetasosConfig(alert_critical_per_minute_cap=0)
+
+    def test_rejects_critical_per_minute_cap_bool(self) -> None:
+        with pytest.raises(ValueError, match="alert_critical_per_minute_cap"):
+            PetasosConfig(alert_critical_per_minute_cap=True)
+
+    def test_rejects_critical_per_minute_cap_negative(self) -> None:
+        with pytest.raises(ValueError, match="alert_critical_per_minute_cap"):
+            PetasosConfig(alert_critical_per_minute_cap=-1)
 
 
 class TestConfigSerialization:
@@ -126,6 +138,31 @@ class TestBoolFieldsCoverage:
     def test_all_bool_fields_covered(self) -> None:
         annotated_bools = {f.name for f in dataclasses.fields(PetasosConfig) if f.type == "bool"}
         assert annotated_bools == _BOOL_FIELDS
+
+
+class TestSecretRedaction:
+    def test_to_dict_redact_secrets_masks_hash_key(self) -> None:
+        cfg = PetasosConfig(anonymize=True, redaction_mode="hash", hash_key="my-secret-key")
+        d = cfg.to_dict(redact_secrets=True)
+        assert d["hash_key"] == "[REDACTED]"
+
+    def test_to_dict_redact_secrets_none_stays_none(self) -> None:
+        cfg = PetasosConfig()
+        assert cfg.hash_key is None
+        d = cfg.to_dict(redact_secrets=True)
+        assert d["hash_key"] is None
+
+    def test_to_dict_default_preserves_hash_key(self) -> None:
+        cfg = PetasosConfig(anonymize=True, redaction_mode="hash", hash_key="my-secret-key")
+        d = cfg.to_dict()
+        assert d["hash_key"] == "my-secret-key"
+
+    def test_secret_fields_subset_of_config_fields(self) -> None:
+        config_field_names = {f.name for f in dataclasses.fields(PetasosConfig)}
+        for name in _SECRET_FIELDS:
+            assert name in config_field_names, (
+                f"_SECRET_FIELDS contains '{name}' which is not a PetasosConfig field"
+            )
 
 
 class TestConfigFrozen:
