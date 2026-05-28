@@ -143,10 +143,15 @@ def _validate_scanner(obj: Any) -> None:
         ) from exc
 
     params = sig.parameters
+    param_names = set(params.keys())
+    has_var_positional = any(p.kind == inspect.Parameter.VAR_POSITIONAL for p in params.values())
     has_var_keyword = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values())
+
+    if "text" not in param_names and not has_var_positional:
+        raise TypeError(f"Scanner {type(obj).__name__!r}.scan() missing 'text' parameter")
+
     if not has_var_keyword:
-        param_names = set(params.keys())
-        for required in ("text", "direction", "session_id"):
+        for required in ("direction", "session_id"):
             if required not in param_names:
                 raise TypeError(
                     f"Scanner {type(obj).__name__!r}.scan() missing '{required}' parameter"

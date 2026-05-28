@@ -160,6 +160,18 @@ class TestValidateScanner:
 
         _validate_scanner(KwargsScanner())
 
+    def test_validate_scanner_rejects_scan_without_text(self) -> None:
+        class KwargsOnlyScanner:
+            @property
+            def name(self) -> str:
+                return "kwargs_only"
+
+            async def scan(self, **kwargs: object) -> ScanResult:
+                return ScanResult(scanner_name="kwargs_only", findings=())
+
+        with pytest.raises(TypeError, match="missing 'text' parameter"):
+            _validate_scanner(KwargsOnlyScanner())
+
     def test_pipeline_rejects_invalid_scanner(self) -> None:
         class BadObj:
             pass
