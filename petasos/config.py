@@ -52,6 +52,7 @@ class PetasosConfig:
     alert_cooldown_seconds: float = 60.0
     alert_per_minute_cap: int = 5
     alert_per_hour_cap: int = 20
+    alert_critical_per_minute_cap: int = 20
     alert_high_severity_threshold: Literal["critical", "high", "medium", "low", "info"] = "high"
     alert_rapid_fire_count: int = 10
     alert_rapid_fire_window_seconds: float = 60.0
@@ -170,6 +171,15 @@ class PetasosConfig:
         ):
             raise ValueError(
                 f"alert_per_hour_cap must be a positive integer, got {self.alert_per_hour_cap!r}"
+            )
+        if (
+            not isinstance(self.alert_critical_per_minute_cap, int)
+            or isinstance(self.alert_critical_per_minute_cap, bool)
+            or self.alert_critical_per_minute_cap <= 0
+        ):
+            raise ValueError(
+                f"alert_critical_per_minute_cap must be a positive integer, "
+                f"got {self.alert_critical_per_minute_cap!r}"
             )
         if self.alert_high_severity_threshold not in (
             "critical",
