@@ -39,6 +39,7 @@ class AlertManager:
         self._rule_cooldowns: dict[tuple[str, str | None], float] = {}
         self._per_minute_timestamps: dict[str, deque[float]] = {}
         self._per_hour_timestamps: dict[str, deque[float]] = {}
+        self._critical_per_minute_timestamps: dict[str, deque[float]] = {}
         self._ring_buffers: dict[str, deque[tuple[float, str]]] = {}
         self._pii_ring_buffer: deque[tuple[float, int]] = deque(
             maxlen=config.alert_ring_buffer_capacity
@@ -94,7 +95,16 @@ class AlertManager:
         for candidate in candidates:
             is_critical = candidate.severity == "critical"
 
-            if not is_critical:
+            if is_critical:
+                crit_deque = self._critical_per_minute_timestamps.setdefault(
+                    candidate.rule_id, deque()
+                )
+                self._evict_old(crit_deque, now, 60.0)
+                if len(crit_deque) >= self._config.alert_critical_per_minute_cap:
+                    self._rate_limited_count += 1
+                    continue
+                crit_deque.append(now)
+            else:
                 dedup_key = (candidate.rule_id, session_id)
 
                 last_fire = self._rule_cooldowns.get(dedup_key)
@@ -341,6 +351,14 @@ class AlertManager:
                 stale_hour_keys.append(hk)
         for hk in stale_hour_keys:
             del self._per_hour_timestamps[hk]
+
+        stale_crit_keys: list[str] = []
+        for ck, cd in self._critical_per_minute_timestamps.items():
+            self._evict_old(cd, now, 60.0)
+            if not cd:
+                stale_crit_keys.append(ck)
+        for ck in stale_crit_keys:
+            del self._critical_per_minute_timestamps[ck]
 
         ring_ttl = max(
             self._config.alert_rapid_fire_window_seconds,

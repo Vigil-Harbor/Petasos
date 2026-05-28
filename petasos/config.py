@@ -37,6 +37,9 @@ def _validate_tier_thresholds(tier1: float, tier2: float, tier3: float) -> None:
         raise ValueError(f"tier3 must be >= {TIER3_FLOOR}, got {tier3}")
 
 
+_SECRET_FIELDS: frozenset[str] = frozenset({"hash_key"})
+
+
 @dataclass(frozen=True)
 class PetasosConfig:
     # Normalization toggles
@@ -67,6 +70,7 @@ class PetasosConfig:
     alert_cooldown_seconds: float = 60.0
     alert_per_minute_cap: int = 5
     alert_per_hour_cap: int = 20
+    alert_critical_per_minute_cap: int = 20
     alert_high_severity_threshold: Literal["critical", "high", "medium", "low", "info"] = "high"
     alert_rapid_fire_count: int = 10
     alert_rapid_fire_window_seconds: float = 60.0
@@ -190,6 +194,15 @@ class PetasosConfig:
             raise ValueError(
                 f"alert_per_hour_cap must be a positive integer, got {self.alert_per_hour_cap!r}"
             )
+        if (
+            not isinstance(self.alert_critical_per_minute_cap, int)
+            or isinstance(self.alert_critical_per_minute_cap, bool)
+            or self.alert_critical_per_minute_cap <= 0
+        ):
+            raise ValueError(
+                f"alert_critical_per_minute_cap must be a positive integer, "
+                f"got {self.alert_critical_per_minute_cap!r}"
+            )
         if self.alert_high_severity_threshold not in (
             "critical",
             "high",
@@ -277,10 +290,13 @@ class PetasosConfig:
                 f"got {self.audit_verbosity!r}"
             )
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self, *, redact_secrets: bool = False) -> dict[str, Any]:
         d: dict[str, Any] = {}
         for f in fields(self):
             val = getattr(self, f.name)
+            if redact_secrets and f.name in _SECRET_FIELDS:
+                d[f.name] = "[REDACTED]" if val is not None else None
+                continue
             if isinstance(val, tuple):
                 val = list(val)
             elif isinstance(val, MappingProxyType):

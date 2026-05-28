@@ -162,7 +162,23 @@ class ToolCallGuard:
             combined = {**DEFAULT_TOOL_ALIASES, **self._profile.tool_alias_map}
         else:
             combined = dict(DEFAULT_TOOL_ALIASES)
-        name = combined.get(name, name)
+        pre_alias = name
+        resolved = combined.get(name, name)
+        # GUARD-03: a PROFILE-INTRODUCED alias must not redirect onto an exempt key.
+        # Default aliases (bash->exec) onto an operator-exempted target stay legal (D8).
+        if (
+            resolved != pre_alias
+            and self._profile
+            and name in self._profile.tool_alias_map
+            and resolved.strip().lower() in self._profile.tool_exempt_list
+        ):
+            _logger.warning(
+                "profile alias %r -> %r blocked: target is exempt (GUARD-03)",
+                pre_alias,
+                resolved,
+            )
+            resolved = pre_alias
+        name = resolved
         # 1d. Strip whitespace
         name = name.strip()
         return name
