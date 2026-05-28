@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import os
 import time
@@ -45,6 +46,13 @@ _SEVERITY_RANK: dict[Severity, int] = {
 _SCANNER_TIMEOUT = 30.0
 
 _STRUCTURAL_RULE_PREFIX = "petasos.syntactic.structural."
+
+_STANDALONE_TIER3_CRITICAL_COUNT = 3
+
+
+def _standalone_tier3_check(findings: tuple[ScanFinding, ...]) -> bool:
+    critical_count = sum(1 for f in findings if f.severity == Severity.CRITICAL)
+    return critical_count >= _STANDALONE_TIER3_CRITICAL_COUNT
 
 
 def merge_findings(results: Sequence[ScanResult]) -> tuple[ScanFinding, ...]:
@@ -427,6 +435,9 @@ class Pipeline:
         # Stage 5: Merge findings
         merged = merge_findings(all_results)
 
+        # Stage 5a: Standalone tier-3 safety net (ESC-01)
+        standalone_tier3 = _standalone_tier3_check(merged)
+
         # Stage 5b: Confidence floor filtering
         if (
             active_profile is not None
@@ -477,6 +488,12 @@ class Pipeline:
 
         # Stage 8: Fail-mode enforcement
         safe = False if early_exit else _compute_safe(merged, all_results, self._config.fail_mode)
+
+        # Stage 8b: Apply standalone tier-3 if triggered
+        if standalone_tier3:
+            safe = False
+            if escalation_tier != "tier3":
+                escalation_tier = "tier3"
 
         # Stage 9: Anonymize
         sanitized_content: str | None = None
@@ -560,8 +577,13 @@ class Pipeline:
         rule_ids = [f.rule_id for f in findings]
         if self._config.session_secret is not None:
             token = self._frequency_tracker.mint_token(session_id, self._host_id)
-            return self._frequency_tracker.update(token, rule_ids)
-        return self._frequency_tracker.update(session_id, rule_ids)
+            result = self._frequency_tracker.update(token, rule_ids)
+        else:
+            result = self._frequency_tracker.update(session_id, rule_ids)
+        if result.rate_limited:
+            sid_fp = hashlib.sha256((session_id or "").encode()).hexdigest()[:8]
+            _logger.info("session %s... rate-limited (frequency cap reached)", sid_fp)
+        return result
 
     async def _premium_escalation_hook(
         self,
