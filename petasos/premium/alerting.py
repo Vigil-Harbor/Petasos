@@ -27,6 +27,7 @@ _SEVERITY_RANK: dict[Severity, int] = {
     Severity.INFO: 4,
 }
 
+
 class AlertManager:
     def __init__(
         self,
@@ -331,9 +332,7 @@ class AlertManager:
                 rule_id="cross_session_burst",
                 severity="high",
                 session_id=session_id,
-                message=(
-                    f"Cross-session burst: {distinct_count} distinct sessions in {window}s"
-                ),
+                message=(f"Cross-session burst: {distinct_count} distinct sessions in {window}s"),
                 context=MappingProxyType(
                     {
                         "distinct_sessions": distinct_count,
@@ -435,9 +434,7 @@ class AlertManager:
 
         burst_window = self._config.alert_cross_session_burst_window_seconds
         stale_tracker_keys = [
-            sid
-            for sid, ts in self._cross_session_tracker.items()
-            if (now - ts) > burst_window
+            sid for sid, ts in self._cross_session_tracker.items() if (now - ts) > burst_window
         ]
         for sid in stale_tracker_keys:
             del self._cross_session_tracker[sid]
