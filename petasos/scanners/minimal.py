@@ -97,6 +97,8 @@ RULE_TAXONOMY: frozenset[str] = (
 
 _ALL_INJECTION_IDS = _INJECTION_RULE_IDS | _ROLE_SWITCH_RULE_IDS
 
+_UNSUPPRESSIBLE_RULE_IDS = _STRUCTURAL_RULE_IDS | _ALL_INJECTION_IDS
+
 
 class MinimalScanner:
     def __init__(
@@ -108,8 +110,7 @@ class MinimalScanner:
     ) -> None:
         self._max_payload_bytes = max_payload_bytes
         self._max_json_depth = max_json_depth
-        # Structural rules cannot be suppressed — silently ignore them
-        self._suppress_rules = suppress_rules - _STRUCTURAL_RULE_IDS
+        self._suppress_rules = suppress_rules - _UNSUPPRESSIBLE_RULE_IDS
 
     def with_suppress_rules(self, additional: frozenset[str]) -> MinimalScanner:
         return MinimalScanner(
