@@ -10,4 +10,4 @@ def test_json_depth_brackets_in_string() -> None:
     scanner = MinimalScanner()
     text = '{"data": "[[[[[[[[[["}'
     depth = scanner._check_json_depth(text)
-    assert depth <= scanner._max_json_depth
+    assert depth == 1
