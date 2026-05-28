@@ -22,6 +22,9 @@ def _validate_tier_thresholds(tier1: float, tier2: float, tier3: float) -> None:
         raise ValueError(f"tier3 must be >= {TIER3_FLOOR}, got {tier3}")
 
 
+_SECRET_FIELDS: frozenset[str] = frozenset({"hash_key"})
+
+
 @dataclass(frozen=True)
 class PetasosConfig:
     # Normalization toggles
@@ -268,10 +271,13 @@ class PetasosConfig:
                 f"got {self.audit_verbosity!r}"
             )
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self, *, redact_secrets: bool = False) -> dict[str, Any]:
         d: dict[str, Any] = {}
         for f in fields(self):
             val = getattr(self, f.name)
+            if redact_secrets and f.name in _SECRET_FIELDS:
+                d[f.name] = "[REDACTED]" if val is not None else None
+                continue
             if isinstance(val, tuple):
                 val = list(val)
             elif isinstance(val, MappingProxyType):
