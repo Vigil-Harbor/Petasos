@@ -22,7 +22,7 @@ tests/adversarial/pipeline/test_rt075_chain.py::test_rt075_chain_syn08_breaks_li
 tests/adversarial/pipeline/test_rt075_chain.py::test_rt075_chain_pipe02_breaks_link3 PASSED [ 92%]
 tests/adversarial/pipeline/test_rt075_chain.py::test_rt075_chain_all_fixed XFAIL [100%]
 
-======================== 10 passed, 4 xfailed in 0.21s ========================
+======================== 10 passed, 4 xfailed in 0.11s ========================
 
 --- ruff check . ---
 All checks passed!
@@ -32,6 +32,3 @@ All checks passed!
 
 --- python -m mypy --strict . ---
 Success: no issues found in 55 source files
-
---- Full suite regression (python -m pytest -x) ---
-155 passed, 4 xfailed, 1 error (pre-existing benchmark fixture)
