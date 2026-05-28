@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import os
 import time
@@ -570,7 +571,8 @@ class Pipeline:
         else:
             result = self._frequency_tracker.update(session_id, rule_ids)
         if result.rate_limited:
-            _logger.info("session %s rate-limited (frequency cap reached)", session_id)
+            sid_fp = hashlib.sha256((session_id or "").encode()).hexdigest()[:8]
+            _logger.info("session %s... rate-limited (frequency cap reached)", sid_fp)
         return result
 
     async def _premium_escalation_hook(

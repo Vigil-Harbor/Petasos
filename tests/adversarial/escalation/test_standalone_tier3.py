@@ -28,7 +28,7 @@ def _payload_3_critical() -> str:
     return binary + depth + padding
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_tier3_fires_without_frequency() -> None:
     scanner = MinimalScanner(max_payload_bytes=100, max_json_depth=5)
     cfg = _cfg(frequency_enabled=False, escalation_enabled=False)
@@ -40,7 +40,7 @@ async def test_tier3_fires_without_frequency() -> None:
     assert result.safe is False
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_tier3_fires_without_premium() -> None:
     scanner = MinimalScanner(max_payload_bytes=100, max_json_depth=5)
     cfg = _cfg()
@@ -50,7 +50,7 @@ async def test_tier3_fires_without_premium() -> None:
     assert result.safe is False
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_below_threshold_no_tier3(valid_key: str) -> None:
     scanner = MinimalScanner(max_payload_bytes=100, max_json_depth=5)
     cfg = _cfg(frequency_enabled=False, escalation_enabled=True)
@@ -62,7 +62,7 @@ async def test_below_threshold_no_tier3(valid_key: str) -> None:
     assert result.escalation_tier is None
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_standalone_idempotent_with_frequency(valid_key: str) -> None:
     scanner = MinimalScanner(max_payload_bytes=100, max_json_depth=5)
     cfg = _cfg(
@@ -78,7 +78,7 @@ async def test_standalone_idempotent_with_frequency(valid_key: str) -> None:
     assert result.safe is False
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_standalone_survives_severity_override(valid_key: str) -> None:
     from petasos.premium.profiles import ResolvedProfile
 

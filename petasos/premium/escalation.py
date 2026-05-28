@@ -27,7 +27,7 @@ class EscalationResult:
 def derive_tier(score: float, tier1: float, tier2: float, tier3: float) -> str:
     if not math.isfinite(score):
         return "tier3"
-    if score >= tier3:
+    if score >= max(tier3, TIER3_FLOOR):
         return "tier3"
     if score >= tier2:
         return "tier2"
