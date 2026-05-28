@@ -24,15 +24,89 @@ class _CleanScanner:
         return ScanResult(scanner_name=self.name, findings=())
 
 
+class _HighFindingScanner:
+    name = "mock_ml_high"
+
+    async def scan(self, text: str, **kwargs: object) -> ScanResult:
+        return ScanResult(
+            scanner_name=self.name,
+            findings=(
+                ScanFinding(
+                    rule_id="mock.high",
+                    finding_type="test",
+                    severity=Severity.HIGH,
+                    confidence=1.0,
+                    message="mock high finding",
+                    scanner_name=self.name,
+                ),
+            ),
+        )
+
+
 @pytest.mark.asyncio
-async def test_degraded_partial_ml_failure_still_safe() -> None:
-    """PIPE-02: partial ML failure in degraded mode still passes when minimal is clean."""
+async def test_degraded_partial_ml_failure_blocks() -> None:
+    """PIPE-02: partial ML failure in degraded mode blocks content."""
     pipe = Pipeline(
         [MinimalScanner(), _ErrorScanner(), _CleanScanner()],
         config=PetasosConfig(fail_mode="degraded"),
     )
     result = await pipe.inspect("hello world")
+    assert result.safe is False
+
+
+@pytest.mark.asyncio
+async def test_degraded_all_ml_failure_blocks() -> None:
+    """PIPE-02: total ML failure in degraded mode blocks content."""
+    pipe = Pipeline(
+        [MinimalScanner(), _ErrorScanner(), _ErrorScanner()],
+        config=PetasosConfig(fail_mode="degraded"),
+    )
+    result = await pipe.inspect("hello world")
+    assert result.safe is False
+
+
+@pytest.mark.asyncio
+async def test_degraded_no_ml_failure_passes() -> None:
+    """PIPE-02: all ML scanners healthy + clean in degraded mode passes content."""
+    pipe = Pipeline(
+        [MinimalScanner(), _CleanScanner(), _CleanScanner()],
+        config=PetasosConfig(fail_mode="degraded"),
+    )
+    result = await pipe.inspect("hello world")
     assert result.safe is True
+
+
+@pytest.mark.asyncio
+async def test_degraded_partial_ml_failure_with_findings_blocks() -> None:
+    """PIPE-02: partial ML failure + HIGH finding in degraded mode blocks content."""
+    pipe = Pipeline(
+        [MinimalScanner(), _ErrorScanner(), _HighFindingScanner()],
+        config=PetasosConfig(fail_mode="degraded"),
+    )
+    result = await pipe.inspect("hello world")
+    assert result.safe is False
+
+
+@pytest.mark.asyncio
+async def test_open_partial_ml_failure_passes() -> None:
+    """PIPE-02: partial ML failure in open mode passes content (risk accepted)."""
+    pipe = Pipeline(
+        [MinimalScanner(), _ErrorScanner(), _CleanScanner()],
+        config=PetasosConfig(fail_mode="open"),
+    )
+    result = await pipe.inspect("hello world")
+    assert result.safe is True
+
+
+@pytest.mark.asyncio
+async def test_closed_partial_ml_failure_blocks() -> None:
+    """PIPE-02: partial ML failure in closed mode blocks content."""
+    pipe = Pipeline(
+        [MinimalScanner(), _ErrorScanner(), _CleanScanner()],
+        config=PetasosConfig(fail_mode="closed"),
+    )
+    result = await pipe.inspect("hello world")
+    assert result.safe is False
 
 
 def test_merge_drops_lower_confidence_critical() -> None:

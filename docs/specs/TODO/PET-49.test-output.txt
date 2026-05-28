@@ -1,0 +1,34 @@
+﻿============================= test session starts =============================
+platform win32 -- Python 3.10.6, pytest-9.0.3, pluggy-1.6.0 -- C:\python310\python.exe
+cachedir: .pytest_cache
+rootdir: <workspace>
+configfile: pyproject.toml
+plugins: anyio-4.13.0, asyncio-1.3.0
+asyncio: mode=auto, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 14 items
+
+tests/adversarial/pipeline/test_degraded_fail_open.py::test_degraded_partial_ml_failure_blocks PASSED [  7%]
+tests/adversarial/pipeline/test_degraded_fail_open.py::test_degraded_all_ml_failure_blocks PASSED [ 14%]
+tests/adversarial/pipeline/test_degraded_fail_open.py::test_degraded_no_ml_failure_passes PASSED [ 21%]
+tests/adversarial/pipeline/test_degraded_fail_open.py::test_degraded_partial_ml_failure_with_findings_blocks PASSED [ 28%]
+tests/adversarial/pipeline/test_degraded_fail_open.py::test_open_partial_ml_failure_passes PASSED [ 35%]
+tests/adversarial/pipeline/test_degraded_fail_open.py::test_closed_partial_ml_failure_blocks PASSED [ 42%]
+tests/adversarial/pipeline/test_degraded_fail_open.py::test_merge_drops_lower_confidence_critical PASSED [ 50%]
+tests/adversarial/pipeline/test_degraded_fail_open.py::test_normalization_toggle_all_or_nothing PASSED [ 57%]
+tests/adversarial/pipeline/test_degraded_fail_open.py::test_from_dict_rejects_normalize_nfkc_falsy_zero PASSED [ 64%]
+tests/adversarial/pipeline/test_rt075_chain.py::test_rt075_chain_pre_fix_baseline XFAIL [ 71%]
+tests/adversarial/pipeline/test_rt075_chain.py::test_rt075_chain_norm01_breaks_link1 XFAIL [ 78%]
+tests/adversarial/pipeline/test_rt075_chain.py::test_rt075_chain_syn08_breaks_link2 XFAIL [ 85%]
+tests/adversarial/pipeline/test_rt075_chain.py::test_rt075_chain_pipe02_breaks_link3 PASSED [ 92%]
+tests/adversarial/pipeline/test_rt075_chain.py::test_rt075_chain_all_fixed XFAIL [100%]
+
+======================== 10 passed, 4 xfailed in 0.11s ========================
+
+--- ruff check . ---
+All checks passed!
+
+--- ruff format --check . ---
+55 files already formatted
+
+--- python -m mypy --strict . ---
+Success: no issues found in 55 source files

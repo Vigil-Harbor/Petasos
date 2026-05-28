@@ -50,6 +50,9 @@ class PetasosConfig:
 
     # Scanning
     direction: Direction = "inbound"
+    # open: ML failures ignored (pass-through)
+    # degraded: partial or total ML failure → safe=False
+    # closed: same as degraded + early-exit on CRITICAL from syntactic pre-filter
     fail_mode: Literal["open", "closed", "degraded"] = "degraded"
 
     # Anonymization
