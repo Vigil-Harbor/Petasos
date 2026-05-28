@@ -16,6 +16,7 @@ from petasos._types import (
     ScanFinding,
     ScanResult,
     Severity,
+    _validate_scanner,
 )
 from petasos.config import PetasosConfig
 from petasos.normalize import normalize
@@ -189,6 +190,9 @@ class Pipeline:
         self._license_claims: LicenseClaims | None = None
 
         scanner_list = list(scanners)
+        for s in scanner_list:
+            _validate_scanner(s)
+
         self._minimal_scanner: MinimalScanner | None = None
         self._ml_scanners: list[Scanner] = []
 
