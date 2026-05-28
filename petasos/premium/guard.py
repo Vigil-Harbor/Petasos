@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 from petasos.normalize import _HOMOGLYPH_TABLE
 from petasos.premium._safe_json import safe_json_dumps
-from petasos.premium.escalation import evaluate_tier
+from petasos.premium.escalation import derive_tier, evaluate_tier
 
 _logger = logging.getLogger(__name__)
 
@@ -196,13 +196,7 @@ class ToolCallGuard:
             return "none"
         if self._profile and self._profile.tier_thresholds:
             t = self._profile.tier_thresholds
-            if state.last_score >= t.tier3:
-                return "tier3"
-            if state.last_score >= t.tier2:
-                return "tier2"
-            if state.last_score >= t.tier1:
-                return "tier1"
-            return "none"
+            return derive_tier(state.last_score, t.tier1, t.tier2, t.tier3)
         return evaluate_tier(state.last_score, self._config)
 
     async def _scan_params(

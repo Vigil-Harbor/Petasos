@@ -4,6 +4,7 @@ from petasos.premium.audit import AuditEmitter
 from petasos.premium.escalation import (
     TIER3_FLOOR,
     EscalationResult,
+    derive_tier,
     evaluate_escalation,
     evaluate_tier,
 )
@@ -23,6 +24,7 @@ __all__ = [
     "AuditEvent",
     "EscalationResult",
     "FrequencyTracker",
+    "derive_tier",
     "FrequencyUpdateResult",
     "GuardResult",
     "LicenseClaims",
