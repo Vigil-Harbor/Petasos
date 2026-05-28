@@ -1,0 +1,188 @@
+============================= test session starts =============================
+platform win32 -- Python 3.10.6, pytest-9.0.3, pluggy-1.6.0 -- C:\python310\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\zioni\Documents\Vigil-Harbor\PET-66-worktree
+configfile: pyproject.toml
+plugins: anyio-4.13.0, asyncio-1.3.0
+asyncio: mode=auto, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 54 items
+
+tests/adversarial/syntactic/test_injection_evasion.py::test_system_prefix_case_variant PASSED [  1%]
+tests/adversarial/syntactic/test_injection_evasion.py::test_nul_byte_not_flagged_by_binary_pattern PASSED [  3%]
+tests/adversarial/syntactic/test_injection_evasion.py::test_json_depth_counts_brackets_inside_strings PASSED [  5%]
+tests/adversarial/syntactic/test_injection_evasion.py::test_suppress_all_injection_leaves_only_structural PASSED [  7%]
+tests/adversarial/syntactic/test_injection_evasion.py::test_redos_patterns_bounded PASSED [  9%]
+tests/adversarial/syntactic/test_injection_evasion.py::test_scanner_internal_error_fail_open PASSED [ 11%]
+tests/adversarial/syntactic/test_injection_evasion.py::test_double_space_ignore_previous PASSED [ 12%]
+tests/adversarial/syntactic/test_injection_evasion.py::test_tab_between_trigger_words PASSED [ 14%]
+tests/adversarial/syntactic/test_injection_evasion.py::test_newline_between_trigger_words PASSED [ 16%]
+tests/adversarial/syntactic/test_injection_evasion.py::test_mixed_whitespace_disregard PASSED [ 18%]
+tests/adversarial/syntactic/test_injection_evasion.py::test_mixed_whitespace_system_override PASSED [ 20%]
+tests/adversarial/syntactic/test_injection_evasion.py::test_role_switch_double_space PASSED [ 22%]
+tests/adversarial/syntactic/test_injection_evasion.py::test_role_grant_double_space PASSED [ 24%]
+tests/adversarial/syntactic/test_injection_evasion.py::test_role_trigger_only_double_space PASSED [ 25%]
+tests/adversarial/syntactic/test_injection_evasion.py::test_single_space_still_matches PASSED [ 27%]
+tests/adversarial/syntactic/test_injection_evasion.py::test_redos_with_flexible_whitespace PASSED [ 29%]
+tests/adversarial/normalization/test_unicode_bypass.py::test_tag_char_u_e0001_splits_ignore_previous PASSED [ 31%]
+tests/adversarial/normalization/test_unicode_bypass.py::test_double_space_evasion_between_trigger_words PASSED [ 33%]
+tests/adversarial/normalization/test_unicode_bypass.py::test_nbsp_u00a0_not_in_invisible_set_but_nfkc_collapses PASSED [ 35%]
+tests/adversarial/normalization/test_unicode_bypass.py::test_nfkc_can_reintroduce_strippable_after_strip PASSED [ 37%]
+tests/adversarial/normalization/test_unicode_bypass.py::test_cyrillic_homoglyph_k_not_mapped PASSED [ 38%]
+tests/adversarial/normalization/test_unicode_bypass.py::test_combining_mark_between_letters PASSED [ 40%]
+tests/adversarial/normalization/test_unicode_bypass.py::test_normalize_idempotent PASSED [ 42%]
+tests/test_minimal_scanner.py::TestInjectionPatterns::test_ignore_previous PASSED [ 44%]
+tests/test_minimal_scanner.py::TestInjectionPatterns::test_ignore_all PASSED [ 46%]
+tests/test_minimal_scanner.py::TestInjectionPatterns::test_disregard PASSED [ 48%]
+tests/test_minimal_scanner.py::TestInjectionPatterns::test_you_are_now PASSED [ 50%]
+tests/test_minimal_scanner.py::TestInjectionPatterns::test_new_instructions PASSED [ 51%]
+tests/test_minimal_scanner.py::TestInjectionPatterns::test_system_override PASSED [ 53%]
+tests/test_minimal_scanner.py::TestInjectionPatterns::test_system_prefix PASSED [ 55%]
+tests/test_minimal_scanner.py::TestInjectionPatterns::test_inst_delimiter PASSED [ 57%]
+tests/test_minimal_scanner.py::TestRoleSwitch::test_role_switch_capability PASSED [ 59%]
+tests/test_minimal_scanner.py::TestRoleSwitch::test_role_switch_only PASSED [ 61%]
+tests/test_minimal_scanner.py::TestRoleSwitch::test_grant_without_trigger_no_finding PASSED [ 62%]
+tests/test_minimal_scanner.py::TestStructuralChecks::test_oversized_payload PASSED [ 64%]
+tests/test_minimal_scanner.py::TestStructuralChecks::test_excessive_depth PASSED [ 66%]
+tests/test_minimal_scanner.py::TestStructuralChecks::test_binary_content PASSED [ 68%]
+tests/test_minimal_scanner.py::TestEncodingDetection::test_base64_detected PASSED [ 70%]
+tests/test_minimal_scanner.py::TestEncodingDetection::test_invisible_chars PASSED [ 72%]
+tests/test_minimal_scanner.py::TestEncodingDetection::test_homoglyph_substitution PASSED [ 74%]
+tests/test_minimal_scanner.py::TestEncodingDetection::test_rtl_override PASSED [ 75%]
+tests/test_minimal_scanner.py::TestEscalation::test_invisible_plus_injection_escalates PASSED [ 77%]
+tests/test_minimal_scanner.py::TestSuppression::test_suppressed_injection_no_finding PASSED [ 79%]
+tests/test_minimal_scanner.py::TestSuppression::test_structural_cannot_be_suppressed PASSED [ 81%]
+tests/test_minimal_scanner.py::TestScannerMeta::test_clean_input_no_findings PASSED [ 83%]
+tests/test_minimal_scanner.py::TestScannerMeta::test_name PASSED         [ 85%]
+tests/test_minimal_scanner.py::TestScannerMeta::test_satisfies_protocol PASSED [ 87%]
+tests/test_minimal_scanner.py::TestScannerMeta::test_custom_max_payload_bytes PASSED [ 88%]
+tests/test_minimal_scanner.py::TestScannerMeta::test_custom_max_json_depth PASSED [ 90%]
+tests/test_minimal_scanner.py::TestScannerMeta::test_exception_guard PASSED [ 92%]
+tests/test_minimal_scanner.py::TestScannerMeta::test_homoglyph_fires_unconditionally_d6 PASSED [ 94%]
+tests/test_minimal_scanner.py::TestScannerMeta::test_deep_nesting_no_recursion_error PASSED [ 96%]
+tests/test_minimal_scanner.py::TestRuleTaxonomy::test_17_rules PASSED    [ 98%]
+tests/test_minimal_scanner.py::TestRuleTaxonomy::test_all_prefixed PASSED [100%]
+
+============================= 54 passed in 0.12s ==============================
+--- FULL SUITE ---
+============================= test session starts =============================
+platform win32 -- Python 3.10.6, pytest-9.0.3, pluggy-1.6.0
+rootdir: C:\Users\zioni\Documents\Vigil-Harbor\PET-66-worktree
+configfile: pyproject.toml
+plugins: anyio-4.13.0, asyncio-1.3.0
+asyncio: mode=auto, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 744 items
+
+tests\adversarial\config\test_bool_coercion.py ....................      [  2%]
+tests\adversarial\config\test_config_poisoning.py ....                   [  3%]
+tests\adversarial\frequency\test_session_spoofing.py .....               [  3%]
+tests\adversarial\frequency\test_terminated_state_loss.py .........      [  5%]
+tests\adversarial\guard\test_tool_smuggling.py ............              [  6%]
+tests\adversarial\license\test_jwt_attacks.py ...                        [  7%]
+tests\adversarial\normalization\test_unicode_bypass.py .......           [  8%]
+tests\adversarial\pipeline\test_degraded_fail_open.py .................. [ 10%]
+......                                                                   [ 11%]
+tests\adversarial\pipeline\test_rt075_chain.py xxx.x                     [ 11%]
+tests\adversarial\profiles\test_suppress_bypass.py .                     [ 12%]
+tests\adversarial\syntactic\test_injection_evasion.py ................   [ 14%]
+tests\test_alerting.py ................................................. [ 20%]
+...........                                                              [ 22%]
+tests\test_audit.py ...........................                          [ 25%]
+tests\test_config.py .......................................             [ 31%]
+tests\test_escalation.py ...............                                 [ 33%]
+tests\test_finding_merge.py ............                                 [ 34%]
+tests\test_frequency.py .................................                [ 39%]
+tests\test_frequency_tombstone.py .................                      [ 41%]
+tests\test_guard.py ................................................     [ 47%]
+tests\test_hardening.py ..............                                   [ 49%]
+tests\test_hermes_smoke.py ssss..                                        [ 50%]
+tests\test_integration_e2e.py ..................                         [ 53%]
+tests\test_license.py ....................                               [ 55%]
+tests\test_llama_firewall_scanner.py .........................ssssssssss [ 60%]
+ss                                                                       [ 60%]
+tests\test_llm_guard_scanner.py ................ssssssssss               [ 64%]
+tests\test_minimal_scanner.py ...............................            [ 68%]
+tests\test_normalize.py ......................                           [ 71%]
+tests\test_pipeline.py ................................................. [ 77%]
+...                                                                      [ 78%]
+tests\test_premium_integration.py ...................................... [ 83%]
+......                                                                   [ 84%]
+tests\test_presidio_scanner.py ......................................... [ 89%]
+......                                                                   [ 90%]
+tests\test_profiles.py ......................................            [ 95%]
+tests\test_profiles_suppress.py .......                                  [ 96%]
+tests\test_safe_json.py .........                                        [ 97%]
+tests\test_types.py ................                                     [100%]
+
+============================== warnings summary ===============================
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_detect_email
+  C:\Users\zioni\Documents\Vigil-Harbor\PET-66-worktree\tests\test_presidio_scanner.py:348: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(
+
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_detect_phone
+  C:\Users\zioni\Documents\Vigil-Harbor\PET-66-worktree\tests\test_presidio_scanner.py:360: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(
+
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_detect_person
+  C:\Users\zioni\Documents\Vigil-Harbor\PET-66-worktree\tests\test_presidio_scanner.py:368: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(
+
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_detect_credit_card
+  C:\Users\zioni\Documents\Vigil-Harbor\PET-66-worktree\tests\test_presidio_scanner.py:376: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(
+
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_no_pii_clean
+  C:\Users\zioni\Documents\Vigil-Harbor\PET-66-worktree\tests\test_presidio_scanner.py:385: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(
+
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_empty_text
+  C:\Users\zioni\Documents\Vigil-Harbor\PET-66-worktree\tests\test_presidio_scanner.py:392: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(scanner.scan(""))
+
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_position_accuracy
+  C:\Users\zioni\Documents\Vigil-Harbor\PET-66-worktree\tests\test_presidio_scanner.py:398: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(scanner.scan(text))
+
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_confidence_range
+  C:\Users\zioni\Documents\Vigil-Harbor\PET-66-worktree\tests\test_presidio_scanner.py:404: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(
+
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_duration_tracked
+  C:\Users\zioni\Documents\Vigil-Harbor\PET-66-worktree\tests\test_presidio_scanner.py:411: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(scanner.scan("john@example.com"))
+
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_score_threshold_filtering
+  C:\Users\zioni\Documents\Vigil-Harbor\PET-66-worktree\tests\test_presidio_scanner.py:416: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(
+
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_custom_entities_filter
+  C:\Users\zioni\Documents\Vigil-Harbor\PET-66-worktree\tests\test_presidio_scanner.py:425: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(
+
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_multi_finding_message
+  C:\Users\zioni\Documents\Vigil-Harbor\PET-66-worktree\tests\test_presidio_scanner.py:433: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(
+
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_scanner_name_in_findings
+  C:\Users\zioni\Documents\Vigil-Harbor\PET-66-worktree\tests\test_presidio_scanner.py:440: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(scanner.scan("john@example.com"))
+
+tests/test_presidio_scanner.py::TestAnonymizeIntegration::test_redact_removes_pii
+tests/test_presidio_scanner.py::TestAnonymizeIntegration::test_replace_with_counters
+tests/test_presidio_scanner.py::TestAnonymizeIntegration::test_hash_with_key_deterministic
+tests/test_presidio_scanner.py::TestAnonymizeIntegration::test_hash_with_key_deterministic
+  C:\Users\zioni\Documents\Vigil-Harbor\PET-66-worktree\tests\test_presidio_scanner.py:454: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(scanner.scan(text))
+
+tests/test_presidio_scanner.py::TestAnonymizeIntegration::test_mask_shows_trailing
+  C:\Users\zioni\Documents\Vigil-Harbor\PET-66-worktree\tests\test_presidio_scanner.py:483: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(scanner.scan(text))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+========== 714 passed, 26 skipped, 4 xfailed, 18 warnings in 33.28s ===========
+--- LINT ---
+All checks passed!
+ruff check: OK
+59 files already formatted
+ruff format: OK
+--- MYPY ---
+Success: no issues found in 59 source files
