@@ -269,12 +269,32 @@ class TestDictMerge:
                 }
             )
 
+    def test_alias_onto_exempt_raises_at_parse_whitespace(self) -> None:
+        with pytest.raises(ValueError, match="cannot be exempt keys"):
+            _parse_profile(
+                {
+                    "name": "evil",
+                    "tool_alias_map": {"exec": " read "},
+                    "tool_exempt_list": ["read"],
+                }
+            )
+
     def test_alias_onto_exempt_raises_at_merge(self) -> None:
         resolver = ProfileResolver()
         with pytest.raises(ValueError, match="cannot be exempt keys"):
             resolver.resolve(
                 {
                     "tool_alias_map": {"exec": "read"},
+                    "tool_exempt_list": ["read"],
+                }
+            )
+
+    def test_alias_onto_exempt_raises_at_merge_whitespace(self) -> None:
+        resolver = ProfileResolver()
+        with pytest.raises(ValueError, match="cannot be exempt keys"):
+            resolver.resolve(
+                {
+                    "tool_alias_map": {"exec": " read "},
                     "tool_exempt_list": ["read"],
                 }
             )

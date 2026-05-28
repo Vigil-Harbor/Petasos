@@ -170,7 +170,7 @@ class ToolCallGuard:
             resolved != pre_alias
             and self._profile
             and name in self._profile.tool_alias_map
-            and resolved.lower() in {e.lower() for e in self._profile.tool_exempt_list}
+            and resolved.strip().lower() in self._profile.tool_exempt_list
         ):
             _logger.warning(
                 "profile alias %r -> %r blocked: target is exempt (GUARD-03)",
