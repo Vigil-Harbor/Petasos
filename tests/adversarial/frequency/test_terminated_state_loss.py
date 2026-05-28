@@ -235,6 +235,48 @@ class TestTombstonedUpdateNoSpuriousAlert:
 # ---------------------------------------------------------------------------
 
 
+class TestTtlEvictionDefensiveTombstone:
+    def test_ttl_eviction_defensive_tombstone(self) -> None:
+        """PET-34 D7: FIFO-evict tombstone, then TTL-expire — defensive write restores it."""
+        cfg = _cfg(
+            max_terminated_tombstones=2,
+            session_ttl_seconds=100.0,
+            tier3_threshold=50.0,
+        )
+        tracker = FrequencyTracker(cfg)
+
+        t0 = 1000.0
+        # Terminate s1 — tombstone written (slot 1/2)
+        with patch("petasos.premium.frequency.time.monotonic", return_value=t0):
+            tracker.update("s1", ["petasos.syntactic.injection.a"] * 6)
+
+        assert tracker.is_terminated("s1") is True
+        assert tracker.tombstone_count == 1
+
+        # Fill tombstone cap with phantoms to evict s1's tombstone
+        tracker.terminate_session("phantom1")
+        tracker.terminate_session("phantom2")
+        assert tracker.tombstone_count == 2
+        # s1's tombstone FIFO-evicted but session still in _sessions
+        assert "s1" in tracker._sessions
+        assert tracker._sessions["s1"].terminated is True
+        assert "s1" not in tracker._terminated_ids
+
+        # Advance past TTL — s1 expires
+        with patch("petasos.premium.frequency.time.monotonic", return_value=t0 + 200.0):
+            tracker.update("s3", [])
+
+        # s1 evicted from _sessions by TTL
+        assert tracker.get_state("s1") is None
+        # Defensive tombstone should have been written during TTL eviction
+        assert tracker.is_terminated("s1") is True
+
+
+# ---------------------------------------------------------------------------
+# Test 7: Defensive tombstone write in _evict_one
+# ---------------------------------------------------------------------------
+
+
 class TestEvictOneDefensiveTombstone:
     def test_evict_one_defensive_tombstone_write(self) -> None:
         cfg = _cfg(max_sessions=2, tier3_threshold=50.0, session_ttl_seconds=9999.0)
