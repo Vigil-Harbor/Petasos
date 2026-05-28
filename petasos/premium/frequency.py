@@ -146,6 +146,10 @@ class FrequencyTracker:
             if now - state.last_update > self._session_ttl
         ]
         for sid in stale:
+            state = self._sessions[sid]
+            if state.terminated and sid not in self._terminated_ids:
+                self._terminated_ids[sid] = None
+                self._enforce_tombstone_cap()
             del self._sessions[sid]
 
         # Step 1.5: Tombstone early-return
