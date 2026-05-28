@@ -6,15 +6,15 @@ from petasos._types import NormalizedText
 
 RTL_OVERRIDES = frozenset(
     [
-        "‪",  # LRE
-        "‫",  # RLE
-        "‬",  # PDF
-        "‭",  # LRO
-        "‮",  # RLO
-        "⁦",  # LRI
-        "⁧",  # RLI
-        "⁨",  # FSI
-        "⁩",  # PDI
+        chr(0x202A),  # LRE
+        chr(0x202B),  # RLE
+        chr(0x202C),  # PDF
+        chr(0x202D),  # LRO
+        chr(0x202E),  # RLO
+        chr(0x2066),  # LRI
+        chr(0x2067),  # RLI
+        chr(0x2068),  # FSI
+        chr(0x2069),  # PDI
     ]
 )
 
@@ -62,23 +62,55 @@ def _is_strippable(ch: str) -> bool:
 
 _HOMOGLYPH_TABLE = str.maketrans(
     {
-        "а": "a",  # Cyrillic a
-        "е": "e",  # Cyrillic e
-        "о": "o",  # Cyrillic o
-        "р": "p",  # Cyrillic p
-        "с": "c",  # Cyrillic c
-        "у": "y",  # Cyrillic y
-        "і": "i",  # Cyrillic i
-        "ѕ": "s",  # Cyrillic s
-        "α": "a",  # Greek alpha
-        "ε": "e",  # Greek epsilon
-        "ο": "o",  # Greek omicron
-        "ρ": "p",  # Greek rho
-        "κ": "k",  # Greek kappa
-        "ι": "i",  # Greek iota
-        "ν": "v",  # Greek nu
-        "ı": "i",  # Latin dotless i
-        "ɡ": "g",  # IPA g
+        # Cyrillic lowercase
+        "а": "a",
+        "е": "e",
+        "о": "o",
+        "р": "p",
+        "с": "c",
+        "у": "y",
+        "і": "i",
+        "ѕ": "s",
+        "к": "k",
+        "х": "x",
+        "н": "h",
+        "т": "t",
+        "м": "m",
+        # Cyrillic uppercase
+        "А": "A",
+        "Е": "E",
+        "О": "O",
+        "Р": "P",
+        "С": "C",
+        "К": "K",
+        "Х": "X",
+        "Н": "H",
+        "Т": "T",
+        "М": "M",
+        # Greek lowercase
+        "α": "a",
+        "ε": "e",
+        "ο": "o",
+        "ρ": "p",
+        "κ": "k",
+        "ι": "i",
+        "ν": "v",
+        "τ": "t",
+        "η": "n",
+        "μ": "u",
+        # Greek uppercase
+        "Α": "A",
+        "Ε": "E",
+        "Ο": "O",
+        "Ρ": "P",
+        "Κ": "K",
+        "Ι": "I",
+        "Ν": "N",
+        "Τ": "T",
+        "Η": "H",
+        # Latin / IPA
+        "ı": "i",
+        "ɡ": "g",
     }
 )
 
@@ -112,13 +144,31 @@ def normalize(text: str) -> NormalizedText:
     if text_after_nfkc != text_after_strip:
         transforms.append("nfkc_normalized")
 
-    # Step 4: Homoglyph mapping
-    text_after_homoglyph = text_after_nfkc.translate(_HOMOGLYPH_TABLE)
-    if text_after_homoglyph != text_after_nfkc:
+    # Step 4: Re-strip after NFKC (NORM-02)
+    restrip_count = sum(1 for ch in text_after_nfkc if _is_strippable(ch))
+    if restrip_count > 0:
+        text_after_restrip = "".join(ch for ch in text_after_nfkc if not _is_strippable(ch))
+        stripped_count += restrip_count
+        transforms.append("nfkc_restrip_applied")
+    else:
+        text_after_restrip = text_after_nfkc
+
+    # Step 5: Combining mark removal (NORM-04)
+    text_nfd = unicodedata.normalize("NFD", text_after_restrip)
+    mn_count = sum(1 for ch in text_nfd if unicodedata.category(ch) == "Mn")
+    if mn_count > 0:
+        text_stripped_mn = "".join(ch for ch in text_nfd if unicodedata.category(ch) != "Mn")
+        text_after_mn = unicodedata.normalize("NFC", text_stripped_mn)
+        transforms.append("combining_marks_stripped")
+    else:
+        text_after_mn = text_after_restrip
+
+    # Step 6: Homoglyph mapping (expanded table, NORM-03)
+    text_after_homoglyph = text_after_mn.translate(_HOMOGLYPH_TABLE)
+    if text_after_homoglyph != text_after_mn:
         transforms.append("homoglyph_mapped")
 
-    # confusables_normalized: true only when homoglyph mapping changed the text
-    confusables = text_after_homoglyph != text_after_nfkc
+    confusables = text_after_homoglyph != text_after_mn
 
     return NormalizedText(
         original=original,
