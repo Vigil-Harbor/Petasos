@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import enum
+import inspect
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
-
-if TYPE_CHECKING:
-    from types import MappingProxyType
+from types import MappingProxyType
+from typing import Any, Literal, Protocol, runtime_checkable
 
 Direction = Literal["inbound", "outbound"]
 
@@ -23,6 +22,12 @@ class Position:
     start: int
     end: int
 
+    def __post_init__(self) -> None:
+        if self.start < 0:
+            raise ValueError(f"Position.start must be >= 0, got {self.start}")
+        if self.end < self.start:
+            raise ValueError(f"Position.end ({self.end}) must be >= Position.start ({self.start})")
+
 
 @dataclass(frozen=True)
 class ScanFinding:
@@ -34,6 +39,12 @@ class ScanFinding:
     scanner_name: str
     position: Position | None = None
     matched_text: str | None = None
+
+    def __post_init__(self) -> None:
+        if not (0.0 <= self.confidence <= 1.0):
+            raise ValueError(
+                f"ScanFinding.confidence must be in [0.0, 1.0], got {self.confidence}"
+            )
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -106,6 +117,47 @@ class Scanner(Protocol):
     ) -> ScanResult: ...
 
 
+def _validate_scanner(obj: Any) -> None:
+    """Structural validation beyond @runtime_checkable isinstance check."""
+    try:
+        has_name = hasattr(obj, "name")
+    except Exception as exc:
+        raise TypeError(
+            f"Scanner {type(obj).__name__!r}: accessing 'name' raised {type(exc).__name__}: {exc}"
+        ) from exc
+    if not has_name:
+        raise TypeError(f"Scanner object {type(obj).__name__!r} missing 'name' attribute")
+
+    scan = getattr(obj, "scan", None)
+    if scan is None or not callable(scan):
+        raise TypeError(f"Scanner object {type(obj).__name__!r} missing callable 'scan' method")
+
+    if not inspect.iscoroutinefunction(scan):
+        raise TypeError(f"Scanner {type(obj).__name__!r}.scan() must be async")
+
+    try:
+        sig = inspect.signature(scan)
+    except (ValueError, TypeError) as exc:
+        raise TypeError(
+            f"Scanner {type(obj).__name__!r}.scan(): cannot introspect signature: {exc}"
+        ) from exc
+
+    params = sig.parameters
+    param_names = set(params.keys())
+    has_var_positional = any(p.kind == inspect.Parameter.VAR_POSITIONAL for p in params.values())
+    has_var_keyword = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values())
+
+    if "text" not in param_names and not has_var_positional:
+        raise TypeError(f"Scanner {type(obj).__name__!r}.scan() missing 'text' parameter")
+
+    if not has_var_keyword:
+        for required in ("direction", "session_id"):
+            if required not in param_names:
+                raise TypeError(
+                    f"Scanner {type(obj).__name__!r}.scan() missing '{required}' parameter"
+                )
+
+
 @dataclass(frozen=True)
 class NormalizedText:
     original: str
@@ -149,3 +201,8 @@ class PipelineResult:
     escalation_tier: str | None = None
     session_score: float | None = None
     premium_features: MappingProxyType[str, str] | None = None
+
+    def __post_init__(self) -> None:
+        pf = self.premium_features
+        if pf is not None and not isinstance(pf, MappingProxyType):
+            object.__setattr__(self, "premium_features", MappingProxyType(dict(pf)))
