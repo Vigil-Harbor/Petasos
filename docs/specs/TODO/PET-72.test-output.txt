@@ -1,0 +1,38 @@
+============================= test session starts =============================
+platform win32 -- Python 3.13.13, pytest-9.0.3, pluggy-1.6.0
+rootdir: C:\Users\zioni\Documents\Vigil-Harbor\PET-72-worktree
+configfile: pyproject.toml
+
+--- Targeted tests (18/18 pass) ---
+
+tests/adversarial/types/test_type_validation.py::TestPipelineResultImmutability::test_pipeline_result_dict_wrapped_as_proxy PASSED
+tests/adversarial/types/test_type_validation.py::TestPipelineResultImmutability::test_pipeline_result_proxy_mutation_raises PASSED
+tests/adversarial/types/test_type_validation.py::TestPipelineResultImmutability::test_pipeline_result_none_stays_none PASSED
+tests/adversarial/types/test_type_validation.py::TestPipelineResultImmutability::test_pipeline_result_proxy_not_double_wrapped PASSED
+tests/adversarial/types/test_type_validation.py::TestPositionValidation::test_position_inverted_raises PASSED
+tests/adversarial/types/test_type_validation.py::TestPositionValidation::test_position_negative_start_raises PASSED
+tests/adversarial/types/test_type_validation.py::TestPositionValidation::test_position_zero_length_accepted PASSED
+tests/adversarial/types/test_type_validation.py::TestConfidenceValidation::test_confidence_above_one_raises PASSED
+tests/adversarial/types/test_type_validation.py::TestConfidenceValidation::test_confidence_below_zero_raises PASSED
+tests/adversarial/types/test_type_validation.py::TestConfidenceValidation::test_confidence_nan_raises PASSED
+tests/adversarial/types/test_type_validation.py::TestConfidenceValidation::test_confidence_inf_raises PASSED
+tests/adversarial/types/test_type_validation.py::TestValidateScanner::test_validate_scanner_accepts_valid PASSED
+tests/adversarial/types/test_type_validation.py::TestValidateScanner::test_validate_scanner_missing_name PASSED
+tests/adversarial/types/test_type_validation.py::TestValidateScanner::test_validate_scanner_missing_scan PASSED
+tests/adversarial/types/test_type_validation.py::TestValidateScanner::test_validate_scanner_sync_scan_rejected PASSED
+tests/adversarial/types/test_type_validation.py::TestValidateScanner::test_validate_scanner_accepts_kwargs_scan PASSED
+tests/adversarial/types/test_type_validation.py::TestValidateScanner::test_pipeline_rejects_invalid_scanner PASSED
+tests/adversarial/types/test_type_validation.py::TestRoundtripValidation::test_from_dict_roundtrip_preserves_validation PASSED
+
+--- Full suite (749 passed, 56 skipped, 1 xfailed, 1 xpassed) ---
+
+749 passed, 56 skipped, 1 xfailed, 1 xpassed in 2.58s
+
+--- ruff check . ---
+All checks passed!
+
+--- ruff format --check . ---
+63 files already formatted
+
+--- mypy --strict . ---
+Success: no issues found in 63 source files
