@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from petasos.premium.profiles import _parse_profile
 
 
 def test_severity_overrides_not_mutated_by_caller() -> None:
-    data: dict = {
+    data: dict[str, Any] = {
         "name": "test",
         "severity_overrides": {"SYN-001": "high"},
     }
@@ -18,7 +20,7 @@ def test_severity_overrides_not_mutated_by_caller() -> None:
 
 
 def test_tool_alias_map_not_mutated_by_caller() -> None:
-    data: dict = {
+    data: dict[str, Any] = {
         "name": "test",
         "tool_alias_map": {"read_file": "file_read"},
     }
@@ -30,8 +32,8 @@ def test_tool_alias_map_not_mutated_by_caller() -> None:
 
 
 def test_empty_overrides_not_shared() -> None:
-    data_a: dict = {"name": "a"}
-    data_b: dict = {"name": "b"}
+    data_a: dict[str, Any] = {"name": "a"}
+    data_b: dict[str, Any] = {"name": "b"}
     prof_a = _parse_profile(data_a)
     prof_b = _parse_profile(data_b)
     assert prof_a.severity_overrides is not prof_b.severity_overrides
