@@ -492,3 +492,28 @@ class TestFullEscalationFlow:
         r3 = await g.evaluate("read", {}, "s1")
         assert r3.tier == "tier3"
         assert r3.allowed is False
+
+
+# ---------------------------------------------------------------------------
+# GUARD-05: catch-all (PET-38)
+# ---------------------------------------------------------------------------
+
+
+class TestScanParamsCatchAll:
+    async def test_scan_params_exception_returns_unsafe(
+        self, valid_key: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """_scan_params catch-all: Pipeline.inspect raising returns ((), True)."""
+        cfg = _cfg()
+        pipe = Pipeline(config=cfg)
+        pipe.activate(valid_key)
+        tracker = FrequencyTracker(cfg)
+        g = ToolCallGuard(pipe, tracker, cfg)
+
+        async def _boom(*args: object, **kwargs: object) -> None:
+            raise RuntimeError("simulated pipeline failure")
+
+        monkeypatch.setattr(pipe, "inspect", _boom)
+        result = await g.evaluate("read", {"path": "/etc/passwd"}, "s1")
+        assert result.param_scan_unsafe is True
+        assert result.findings == ()

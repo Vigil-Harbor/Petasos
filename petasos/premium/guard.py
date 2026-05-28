@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import json
 import logging
 import re
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
+from petasos.premium._safe_json import safe_json_dumps
 from petasos.premium.escalation import evaluate_tier
 
 _logger = logging.getLogger(__name__)
@@ -34,6 +34,8 @@ DEFAULT_TOOL_ALIASES: MappingProxyType[str, str] = MappingProxyType(
 )
 
 _NAMESPACE_PREFIX_RE = re.compile(r"^(?:mcp__[a-zA-Z0-9_]+?__|hermes__)")
+
+_MAX_PARAM_TEXT_LEN = 1_000_000
 
 
 @dataclass(frozen=True)
@@ -209,36 +211,46 @@ class ToolCallGuard:
         tool_params: dict[str, Any],
         session_id: str,
     ) -> tuple[tuple[ScanFinding, ...], bool]:
-        if not tool_params:
-            return (), False
+        try:
+            if not tool_params:
+                return (), False
 
-        parts: list[str] = []
-        for value in tool_params.values():
-            if value is None:
-                continue
-            if isinstance(value, str):
-                parts.append(value)
-            else:
-                try:
-                    parts.append(json.dumps(value))
-                except TypeError:
-                    parts.append(str(value))
+            parts: list[str] = []
+            for value in tool_params.values():
+                if value is None:
+                    continue
+                if isinstance(value, str):
+                    parts.append(value)
+                else:
+                    parts.append(safe_json_dumps(value))
 
-        param_text = "\n".join(parts)
-        if not param_text:
-            return (), False
+            param_text = "\n".join(parts)
+            if not param_text:
+                return (), False
 
-        result = await self._pipeline.inspect(
-            param_text, direction="outbound", session_id=session_id
-        )
+            if len(param_text) > _MAX_PARAM_TEXT_LEN:
+                _logger.warning(
+                    "param text exceeds length cap (%d > %d chars), truncating; session=%s",
+                    len(param_text),
+                    _MAX_PARAM_TEXT_LEN,
+                    session_id,
+                )
+                param_text = param_text[:_MAX_PARAM_TEXT_LEN]
 
-        if result.errors and not result.findings:
-            _logger.warning(
-                "param scan errored without findings, marking unsafe; error_count=%d",
-                len(result.errors),
+            result = await self._pipeline.inspect(
+                param_text, direction="outbound", session_id=session_id
             )
-            return (), True
 
-        param_scan_unsafe = not result.safe
-        findings = result.findings
-        return findings, param_scan_unsafe
+            if result.errors and not result.findings:
+                _logger.warning(
+                    "param scan errored without findings, marking unsafe; error_count=%d",
+                    len(result.errors),
+                )
+                return (), True
+
+            param_scan_unsafe = not result.safe
+            findings = result.findings
+            return findings, param_scan_unsafe
+        except Exception:
+            _logger.exception("_scan_params failed unexpectedly, marking unsafe")
+            return (), True
