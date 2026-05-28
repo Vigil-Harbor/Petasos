@@ -4,8 +4,7 @@
     "petasos.syntactic.encoding.invisible-chars",
     "petasos.syntactic.encoding.base64-in-text",
     "petasos.syntactic.encoding.homoglyph-substitution",
-    "petasos.syntactic.encoding.rtl-override",
-    "petasos.syntactic.injection.inst-delimiter"
+    "petasos.syntactic.encoding.rtl-override"
   ],
   "severity_overrides": {},
   "confidence_floor": 0.7,

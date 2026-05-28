@@ -1,0 +1,54 @@
+============================= test session starts =============================
+platform win32 -- Python 3.10.6, pytest-9.0.3, pluggy-1.6.0 -- C:\python310\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\zioni\Documents\Vigil-Harbor\PET-59-worktree
+configfile: pyproject.toml
+plugins: anyio-4.13.0, asyncio-1.3.0
+asyncio: mode=auto, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 43 items
+
+tests/test_profiles_suppress.py::TestParseProfileStrips::test_parse_profile_strips_injection_rules PASSED [  2%]
+tests/test_profiles_suppress.py::TestParseProfileStrips::test_parse_profile_strips_structural_rules PASSED [  4%]
+tests/test_profiles_suppress.py::TestMergeStrips::test_merge_strips_injection_rules PASSED [  6%]
+tests/test_profiles_suppress.py::TestEncodingStillSuppressible::test_encoding_rules_still_suppressible PASSED [  9%]
+tests/test_profiles_suppress.py::TestEncodingStillSuppressible::test_mixed_suppress_keeps_allowed PASSED [ 11%]
+tests/test_profiles_suppress.py::TestDirectConstructionStrips::test_direct_resolved_profile_strips PASSED [ 13%]
+tests/test_profiles_suppress.py::TestBuiltinProfilesClean::test_builtin_profiles_no_unsuppressible PASSED [ 16%]
+tests/adversarial/profiles/test_suppress_bypass.py::test_suppress_all_rules_adversarial PASSED [ 18%]
+tests/test_profiles.py::TestTierThresholds::test_valid_ascending PASSED  [ 20%]
+tests/test_profiles.py::TestTierThresholds::test_non_ascending_raises PASSED [ 23%]
+tests/test_profiles.py::TestTierThresholds::test_tier3_below_floor_raises PASSED [ 25%]
+tests/test_profiles.py::TestTierThresholds::test_non_finite_raises PASSED [ 27%]
+tests/test_profiles.py::TestTierThresholds::test_frozen PASSED           [ 30%]
+tests/test_profiles.py::TestProfileResolverLoading::test_all_builtins_load PASSED [ 32%]
+tests/test_profiles.py::TestProfileResolverLoading::test_general_profile_is_identity PASSED [ 34%]
+tests/test_profiles.py::TestProfileResolverLoading::test_resolve_unknown_raises_keyerror PASSED [ 37%]
+tests/test_profiles.py::TestProfileResolverLoading::test_admin_profile_values PASSED [ 39%]
+tests/test_profiles.py::TestProfileResolverLoading::test_research_profile_suppress_rules PASSED [ 41%]
+tests/test_profiles.py::TestProfileResolverLoading::test_code_generation_profile PASSED [ 44%]
+tests/test_profiles.py::TestProfileResolverLoading::test_customer_service_severity_overrides PASSED [ 46%]
+tests/test_profiles.py::TestProfileFrozenAndSerialization::test_profile_is_frozen PASSED [ 48%]
+tests/test_profiles.py::TestProfileFrozenAndSerialization::test_to_dict_roundtrip PASSED [ 51%]
+tests/test_profiles.py::TestProfileFrozenAndSerialization::test_general_to_dict_null_thresholds PASSED [ 53%]
+tests/test_profiles.py::TestProfileFrozenAndSerialization::test_empty_suppress_rules_roundtrip PASSED [ 55%]
+tests/test_profiles.py::TestProfileRegister::test_register_custom_profile PASSED [ 58%]
+tests/test_profiles.py::TestProfileRegister::test_register_overwrites_existing PASSED [ 60%]
+tests/test_profiles.py::TestDictMerge::test_dict_merge_inherits_from_general PASSED [ 62%]
+tests/test_profiles.py::TestDictMerge::test_suppress_rules_union PASSED  [ 65%]
+tests/test_profiles.py::TestDictMerge::test_severity_overrides_merge PASSED [ 67%]
+tests/test_profiles.py::TestDictMerge::test_tier_thresholds_override PASSED [ 69%]
+tests/test_profiles.py::TestDictMerge::test_tier_thresholds_partial_raises PASSED [ 72%]
+tests/test_profiles.py::TestDictMerge::test_tier_thresholds_none_override PASSED [ 74%]
+tests/test_profiles.py::TestDictMerge::test_pii_entities_union PASSED    [ 76%]
+tests/test_profiles.py::TestDictMerge::test_tool_exempt_list_replace PASSED [ 79%]
+tests/test_profiles.py::TestDictMerge::test_tool_alias_map_merge PASSED  [ 81%]
+tests/test_profiles.py::TestDictMerge::test_tool_alias_map_empty_value_raises PASSED [ 83%]
+tests/test_profiles.py::TestDictMerge::test_confidence_floor_type_error PASSED [ 86%]
+tests/test_profiles.py::TestDictMerge::test_suppress_rules_type_error PASSED [ 88%]
+tests/test_profiles.py::TestDictMerge::test_resolve_invalid_type_raises PASSED [ 90%]
+tests/test_profiles.py::TestDictMerge::test_alias_onto_exempt_raises_at_parse PASSED [ 93%]
+tests/test_profiles.py::TestDictMerge::test_alias_onto_exempt_raises_at_parse_whitespace PASSED [ 95%]
+tests/test_profiles.py::TestDictMerge::test_alias_onto_exempt_raises_at_merge PASSED [ 97%]
+tests/test_profiles.py::TestDictMerge::test_alias_onto_exempt_raises_at_merge_whitespace PASSED [100%]
+
+============================= 43 passed in 0.07s ==============================
