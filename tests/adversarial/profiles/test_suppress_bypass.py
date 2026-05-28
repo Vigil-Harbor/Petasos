@@ -29,3 +29,104 @@ async def test_suppress_all_rules_adversarial(valid_key: str) -> None:
     assert len(injection_findings) > 0, (
         "Pipeline should detect injection despite suppress-all profile"
     )
+
+
+# ---------------------------------------------------------------------------
+# PROF-03: built-in profile name protection (PET-58)
+# ---------------------------------------------------------------------------
+
+
+def test_register_general_raises() -> None:
+    """PROF-03: register('general', ...) raises ValueError."""
+    from types import MappingProxyType
+
+    from petasos.premium.profiles import ProfileResolver, ResolvedProfile
+
+    resolver = ProfileResolver()
+    evil = ResolvedProfile(
+        name="general",
+        suppress_rules=frozenset(),
+        severity_overrides=MappingProxyType({}),
+        confidence_floor=0.0,
+        tier_thresholds=None,
+        pii_entities_extra=(),
+        tool_exempt_list=frozenset(),
+        tool_alias_map=MappingProxyType({}),
+    )
+    with pytest.raises(ValueError, match="Cannot overwrite built-in profile"):
+        resolver.register("general", evil)
+
+
+def test_register_all_builtins_raises() -> None:
+    """PROF-03: all five built-in names are protected."""
+    from types import MappingProxyType
+
+    from petasos.premium.profiles import _BUILTIN_NAMES, ProfileResolver, ResolvedProfile
+
+    resolver = ProfileResolver()
+    fake = ResolvedProfile(
+        name="evil",
+        suppress_rules=frozenset(),
+        severity_overrides=MappingProxyType({}),
+        confidence_floor=0.0,
+        tier_thresholds=None,
+        pii_entities_extra=(),
+        tool_exempt_list=frozenset(),
+        tool_alias_map=MappingProxyType({}),
+    )
+    for name in _BUILTIN_NAMES:
+        with pytest.raises(ValueError, match="Cannot overwrite built-in profile"):
+            resolver.register(name, fake)
+
+
+def test_register_custom_name_succeeds() -> None:
+    """PROF-03: custom names are allowed."""
+    from types import MappingProxyType
+
+    from petasos.premium.profiles import ProfileResolver, ResolvedProfile
+
+    resolver = ProfileResolver()
+    custom = ResolvedProfile(
+        name="my_custom",
+        suppress_rules=frozenset(),
+        severity_overrides=MappingProxyType({}),
+        confidence_floor=0.0,
+        tier_thresholds=None,
+        pii_entities_extra=(),
+        tool_exempt_list=frozenset(),
+        tool_alias_map=MappingProxyType({}),
+    )
+    resolver.register("my_custom", custom)
+    assert resolver.resolve("my_custom").name == "my_custom"
+
+
+def test_register_overwrite_custom_allowed() -> None:
+    """PROF-03: overwriting a previously-registered custom profile is allowed."""
+    from types import MappingProxyType
+
+    from petasos.premium.profiles import ProfileResolver, ResolvedProfile
+
+    resolver = ProfileResolver()
+    v1 = ResolvedProfile(
+        name="custom",
+        suppress_rules=frozenset(),
+        severity_overrides=MappingProxyType({}),
+        confidence_floor=0.5,
+        tier_thresholds=None,
+        pii_entities_extra=(),
+        tool_exempt_list=frozenset(),
+        tool_alias_map=MappingProxyType({}),
+    )
+    v2 = ResolvedProfile(
+        name="custom",
+        suppress_rules=frozenset(),
+        severity_overrides=MappingProxyType({}),
+        confidence_floor=0.9,
+        tier_thresholds=None,
+        pii_entities_extra=(),
+        tool_exempt_list=frozenset(),
+        tool_alias_map=MappingProxyType({}),
+    )
+    resolver.register("custom", v1)
+    resolver.register("custom", v2)
+    assert resolver.resolve("custom").confidence_floor == 0.9

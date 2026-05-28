@@ -165,7 +165,7 @@ class TestProfileRegister:
         assert resolved is custom
         assert resolved.name == "custom_test"
 
-    def test_register_overwrites_existing(self) -> None:
+    def test_register_builtin_raises(self) -> None:
         resolver = ProfileResolver()
         custom = ResolvedProfile(
             name="general",
@@ -177,8 +177,8 @@ class TestProfileRegister:
             tool_exempt_list=frozenset(),
             tool_alias_map=MappingProxyType({}),
         )
-        resolver.register("general", custom)
-        assert resolver.resolve("general").confidence_floor == 0.99
+        with pytest.raises(ValueError, match="Cannot overwrite built-in profile"):
+            resolver.register("general", custom)
 
 
 # ---------------------------------------------------------------------------
