@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import hmac as _hmac
 import math
 import time
 from collections import OrderedDict, deque
@@ -38,6 +40,13 @@ class FrequencyUpdateResult:
     terminated: bool
 
 
+@dataclass(frozen=True)
+class SessionToken:
+    session_id: str
+    host_id: str
+    hmac_digest: str
+
+
 DISABLED_RESULT = FrequencyUpdateResult(
     previous_score=0.0, current_score=0.0, tier="none", terminated=False
 )
@@ -55,6 +64,7 @@ class FrequencyTracker:
         self._session_ttl = config.session_ttl_seconds
         self._max_new_per_minute = config.max_new_sessions_per_minute
         self._config = config
+        self._session_secret: bytes | None = config.session_secret
 
         raw_weights = (
             config.frequency_weights
@@ -86,7 +96,47 @@ class FrequencyTracker:
         self._terminated_ids: OrderedDict[str, None] = OrderedDict()
         self._max_terminated: int = config.max_terminated_tombstones
 
-    def update(self, session_id: str, rule_ids: Sequence[str]) -> FrequencyUpdateResult:
+    @property
+    def requires_token(self) -> bool:
+        return self._session_secret is not None
+
+    def mint_token(self, session_id: str, host_id: str) -> SessionToken:
+        if self._session_secret is None:
+            raise ValueError("cannot mint token: no session_secret configured")
+        if not session_id:
+            raise ValueError("session_id must be non-empty")
+        if not host_id:
+            raise ValueError("host_id must be non-empty")
+        if "\x00" in session_id or "\x00" in host_id:
+            raise ValueError("session_id and host_id must not contain null bytes")
+        digest = _hmac.new(
+            self._session_secret,
+            session_id.encode() + b"\x00" + host_id.encode(),
+            hashlib.sha256,
+        ).hexdigest()
+        return SessionToken(session_id=session_id, host_id=host_id, hmac_digest=digest)
+
+    def _resolve_session_id(self, session: str | SessionToken) -> str:
+        if isinstance(session, str):
+            if self._session_secret is not None:
+                raise ValueError(
+                    "session_secret is configured: pass a SessionToken, not a bare string"
+                )
+            return session
+        if self._session_secret is not None:
+            expected = _hmac.new(
+                self._session_secret,
+                session.session_id.encode() + b"\x00" + session.host_id.encode(),
+                hashlib.sha256,
+            ).hexdigest()
+            if not _hmac.compare_digest(expected, session.hmac_digest):
+                raise ValueError("invalid session token: HMAC verification failed")
+        return session.session_id
+
+    def update(
+        self, session: str | SessionToken, rule_ids: Sequence[str]
+    ) -> FrequencyUpdateResult:
+        session_id = self._resolve_session_id(session)
         now = time.monotonic()
 
         # Step 1: Passive TTL eviction
@@ -185,7 +235,8 @@ class FrequencyTracker:
             terminated=state.terminated,
         )
 
-    def get_state(self, session_id: str) -> SessionState | None:
+    def get_state(self, session: str | SessionToken) -> SessionState | None:
+        session_id = self._resolve_session_id(session)
         state = self._sessions.get(session_id)
         if state is None:
             return None
@@ -202,13 +253,15 @@ class FrequencyTracker:
             return state.terminated
         return session_id in self._terminated_ids
 
-    def terminate_session(self, session_id: str) -> None:
+    def terminate_session(self, session: str | SessionToken) -> None:
+        session_id = self._resolve_session_id(session)
         state = self._sessions.get(session_id)
         if state is not None:
             state.terminated = True
         self._add_tombstone(session_id)
 
-    def reset(self, session_id: str) -> None:
+    def reset(self, session: str | SessionToken) -> None:
+        session_id = self._resolve_session_id(session)
         self._sessions.pop(session_id, None)
 
     def force_reset(self, session_id: str) -> None:
