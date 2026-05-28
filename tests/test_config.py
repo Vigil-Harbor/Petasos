@@ -4,7 +4,7 @@ import dataclasses
 
 import pytest
 
-from petasos.config import PetasosConfig
+from petasos.config import _BOOL_FIELDS, PetasosConfig
 
 
 class TestConfigDefaults:
@@ -90,6 +90,44 @@ class TestConfigSerialization:
     def test_empty_pii_entities_valid(self) -> None:
         cfg = PetasosConfig(pii_entities=())
         assert cfg.pii_entities == ()
+
+
+class TestBoolCoercion:
+    def test_from_dict_rejects_int_zero_for_bool(self) -> None:
+        with pytest.raises(TypeError, match="normalize_nfkc must be a bool"):
+            PetasosConfig.from_dict({"normalize_nfkc": 0})
+
+    def test_from_dict_rejects_int_one_for_bool(self) -> None:
+        with pytest.raises(TypeError, match="escalation_enabled must be a bool"):
+            PetasosConfig.from_dict({"escalation_enabled": 1})
+
+    def test_from_dict_rejects_string_for_bool(self) -> None:
+        with pytest.raises(TypeError, match="audit_enabled must be a bool"):
+            PetasosConfig.from_dict({"audit_enabled": "true"})
+
+    def test_from_dict_rejects_none_for_bool(self) -> None:
+        with pytest.raises(TypeError, match="strip_zero_width must be a bool"):
+            PetasosConfig.from_dict({"strip_zero_width": None})
+
+    def test_from_dict_accepts_true_bool(self) -> None:
+        cfg = PetasosConfig.from_dict({"normalize_nfkc": True})
+        assert cfg.normalize_nfkc is True
+
+    def test_from_dict_accepts_false_bool(self) -> None:
+        cfg = PetasosConfig.from_dict({"normalize_nfkc": False})
+        assert cfg.normalize_nfkc is False
+
+    def test_direct_constructor_rejects_int_for_bool(self) -> None:
+        with pytest.raises(TypeError, match="normalize_nfkc must be a bool"):
+            PetasosConfig(normalize_nfkc=0)  # type: ignore[arg-type]
+
+
+class TestBoolFieldsCoverage:
+    def test_all_bool_fields_covered(self) -> None:
+        annotated_bools = {
+            f.name for f in dataclasses.fields(PetasosConfig) if f.type == "bool"
+        }
+        assert annotated_bools == _BOOL_FIELDS
 
 
 class TestConfigFrozen:
