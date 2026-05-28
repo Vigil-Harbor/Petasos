@@ -97,10 +97,10 @@ def _parse_profile(data: dict[str, Any]) -> ResolvedProfile:
             raise ValueError("tool_alias_map values must be non-empty strings")
     alias_map = {k: v.strip() for k, v in alias_map.items()}
 
-    exempt_set = frozenset(s.strip().lower() for s in data.get("tool_exempt_list", []))
+    exempt_set = frozenset(s.strip().casefold() for s in data.get("tool_exempt_list", []))
 
     # GUARD-03: a profile alias may not target one of its own exempt keys
-    collisions = {v.lower() for v in alias_map.values()} & exempt_set
+    collisions = {v.casefold() for v in alias_map.values()} & exempt_set
     if collisions:
         raise ValueError(
             f"profile {data.get('name', '?')!r}: tool_alias_map targets "
@@ -173,7 +173,7 @@ def _merge_with_base(
         val = overrides["tool_exempt_list"]
         if not isinstance(val, (list, set, frozenset)):
             raise ValueError("tool_exempt_list must be a list")
-        exempt = frozenset(s.strip().lower() for s in val)
+        exempt = frozenset(s.strip().casefold() for s in val)
 
     alias = dict(base.tool_alias_map)
     if "tool_alias_map" in overrides:
@@ -186,7 +186,7 @@ def _merge_with_base(
         alias.update({k: v.strip() for k, v in val.items()})
 
     # GUARD-03: a profile alias may not target one of its own exempt keys
-    collisions = {v.lower() for v in alias.values()} & exempt
+    collisions = {v.casefold() for v in alias.values()} & exempt
     if collisions:
         raise ValueError(
             f"profile 'custom': tool_alias_map targets cannot be exempt keys: {sorted(collisions)}"

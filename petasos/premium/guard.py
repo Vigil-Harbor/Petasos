@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import logging
 import re
+import unicodedata
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
+from petasos.normalize import _HOMOGLYPH_TABLE
 from petasos.premium._safe_json import safe_json_dumps
 from petasos.premium.escalation import evaluate_tier
 
@@ -155,11 +157,11 @@ class ToolCallGuard:
         )
 
     def _normalize_tool_name(self, tool_name: str) -> str:
-        # 1a. Case-fold
-        name = tool_name.lower()
-        # 1b. Strip namespace prefix
+        name = tool_name.strip()
+        name = unicodedata.normalize("NFKC", name)
+        name = name.translate(_HOMOGLYPH_TABLE)
+        name = name.casefold()
         name = _NAMESPACE_PREFIX_RE.sub("", name)
-        # 1c. Map aliases
         if self._profile and self._profile.tool_alias_map:
             combined = {**DEFAULT_TOOL_ALIASES, **self._profile.tool_alias_map}
         else:
@@ -172,7 +174,7 @@ class ToolCallGuard:
             resolved != pre_alias
             and self._profile
             and name in self._profile.tool_alias_map
-            and resolved.strip().lower() in self._profile.tool_exempt_list
+            and resolved.strip().casefold() in self._profile.tool_exempt_list
         ):
             _logger.warning(
                 "profile alias %r -> %r blocked: target is exempt (GUARD-03)",
@@ -180,10 +182,7 @@ class ToolCallGuard:
                 resolved,
             )
             resolved = pre_alias
-        name = resolved
-        # 1d. Strip whitespace
-        name = name.strip()
-        return name
+        return resolved.strip().casefold()
 
     def _derive_tier(self, session_id: str) -> str:
         if self._frequency_tracker.is_terminated(session_id):

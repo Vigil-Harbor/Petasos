@@ -21,16 +21,59 @@ def _guard_with_profile(profile: ResolvedProfile) -> ToolCallGuard:
     return ToolCallGuard(pipe, FrequencyTracker(cfg), cfg, profile=profile)
 
 
-def test_whitespace_stripped_after_alias_lookup() -> None:
-    """GUARD-02: ' bash ' does not map to exec alias (strip is last)."""
+def test_whitespace_stripped_before_alias_resolves() -> None:
+    """GUARD-02: ' bash ' resolves to exec alias (strip runs before alias lookup)."""
     from petasos.config import PetasosConfig
     from petasos.pipeline import Pipeline
     from petasos.premium.frequency import FrequencyTracker
 
     cfg = PetasosConfig()
     guard = ToolCallGuard(Pipeline(config=cfg), FrequencyTracker(cfg), cfg)
-    assert guard._normalize_tool_name(" bash ") == "bash"
-    assert guard._normalize_tool_name(" bash ") != "exec"
+    assert guard._normalize_tool_name(" bash ") == "exec"
+
+
+def test_cyrillic_a_in_bash_normalizes() -> None:
+    """GUARD-02: Cyrillic а (U+0430) in 'bаsh' maps to 'exec' via homoglyph table."""
+    from petasos.config import PetasosConfig
+    from petasos.pipeline import Pipeline
+    from petasos.premium.frequency import FrequencyTracker
+
+    cfg = PetasosConfig()
+    guard = ToolCallGuard(Pipeline(config=cfg), FrequencyTracker(cfg), cfg)
+    assert guard._normalize_tool_name("bаsh") == "exec"
+
+
+def test_fullwidth_bash_normalizes() -> None:
+    """GUARD-02: fullwidth 'ｂａｓｈ' normalizes to 'exec' via NFKC + alias."""
+    from petasos.config import PetasosConfig
+    from petasos.pipeline import Pipeline
+    from petasos.premium.frequency import FrequencyTracker
+
+    cfg = PetasosConfig()
+    guard = ToolCallGuard(Pipeline(config=cfg), FrequencyTracker(cfg), cfg)
+    assert guard._normalize_tool_name("ｂａｓｈ") == "exec"
+
+
+def test_mixed_script_shell_normalizes() -> None:
+    """GUARD-02: Cyrillic ѕ (U+0455) in 'ѕhell' maps to 'exec' via homoglyph table."""
+    from petasos.config import PetasosConfig
+    from petasos.pipeline import Pipeline
+    from petasos.premium.frequency import FrequencyTracker
+
+    cfg = PetasosConfig()
+    guard = ToolCallGuard(Pipeline(config=cfg), FrequencyTracker(cfg), cfg)
+    assert guard._normalize_tool_name("ѕhell") == "exec"
+
+
+def test_invisible_chars_not_stripped() -> None:
+    """GUARD-02 boundary: zero-width space is NOT stripped (out of scope)."""
+    from petasos.config import PetasosConfig
+    from petasos.pipeline import Pipeline
+    from petasos.premium.frequency import FrequencyTracker
+
+    cfg = PetasosConfig()
+    guard = ToolCallGuard(Pipeline(config=cfg), FrequencyTracker(cfg), cfg)
+    assert guard._normalize_tool_name("ba​sh") != "exec"
 
 
 def test_profile_alias_maps_exec_to_read_exempt() -> None:
