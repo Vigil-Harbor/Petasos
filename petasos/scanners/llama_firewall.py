@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import threading
 import time
 from types import MappingProxyType
 from typing import Any
 
 from petasos._types import Direction, ScanFinding, ScanResult, Severity
+
+_logger = logging.getLogger(__name__)
 
 _COMPONENT_TAXONOMY: MappingProxyType[str, tuple[str, str, Severity]] = MappingProxyType(
     {
@@ -91,6 +94,11 @@ class LlamaFirewallScanner:
                                 Role.ASSISTANT: [scanner_type],
                             }
                         )
+                if not self._components:
+                    _logger.warning(
+                        "LlamaFirewallScanner: all components disabled — "
+                        "scan() will return error, not clean"
+                    )
                 return True
             except ImportError:
                 self._components.clear()
@@ -164,6 +172,7 @@ class LlamaFirewallScanner:
                     scanner_name=self.name,
                     findings=(),
                     duration_ms=elapsed,
+                    error="all components disabled — no ML inspection performed",
                 )
 
             findings, errors = await asyncio.to_thread(self._scan_sync, text, direction)

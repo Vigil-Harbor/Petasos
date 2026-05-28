@@ -191,6 +191,7 @@ class TestUnit:
             assert "GPU not found" in r.error
 
     async def test_no_components_enabled(self) -> None:
+        # Regression for PET-62: empty-components must return error, not clean
         with _injected_mock():
             scanner = LlamaFirewallScanner(
                 enable_prompt_guard=False,
@@ -199,7 +200,36 @@ class TestUnit:
             )
             r = await scanner.scan("test")
             assert r.findings == ()
-            assert r.error is None
+            assert r.error is not None
+            assert "all components disabled" in r.error
+
+    async def test_no_components_duration_tracked(self) -> None:
+        with _injected_mock():
+            scanner = LlamaFirewallScanner(
+                enable_prompt_guard=False,
+                enable_alignment_check=False,
+                enable_code_shield=False,
+            )
+            r = await scanner.scan("test")
+            assert r.duration_ms > 0
+
+    async def test_single_component_enabled_no_error(self) -> None:
+        with _injected_mock():
+            for flag in ("enable_prompt_guard", "enable_alignment_check", "enable_code_shield"):
+                scanner = LlamaFirewallScanner(**{flag: True})  # type: ignore[arg-type]
+                r = await scanner.scan("test")
+                assert r.error is None, f"unexpected error with {flag}=True: {r.error}"
+
+    async def test_all_disabled_warns_on_load(self, caplog: pytest.LogCaptureFixture) -> None:
+        with _injected_mock():
+            scanner = LlamaFirewallScanner(
+                enable_prompt_guard=False,
+                enable_alignment_check=False,
+                enable_code_shield=False,
+            )
+            with caplog.at_level("WARNING", logger="petasos.scanners.llama_firewall"):
+                await scanner.scan("test")
+            assert any("all components disabled" in rec.message for rec in caplog.records)
 
     def test_default_constructor(self) -> None:
         scanner = LlamaFirewallScanner()
