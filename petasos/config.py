@@ -12,6 +12,19 @@ if TYPE_CHECKING:
 
 TIER3_FLOOR: float = 30.0
 
+_BOOL_FIELDS: frozenset[str] = frozenset({
+    "normalize_nfkc",
+    "strip_zero_width",
+    "map_homoglyphs",
+    "detect_rtl_override",
+    "anonymize",
+    "frequency_enabled",
+    "escalation_enabled",
+    "tool_guard_enabled",
+    "audit_enabled",
+    "alert_enabled",
+})
+
 
 def _validate_tier_thresholds(tier1: float, tier2: float, tier3: float) -> None:
     if not all(math.isfinite(v) for v in (tier1, tier2, tier3)):
@@ -81,6 +94,10 @@ class PetasosConfig:
     max_new_sessions_per_minute: int = 60
 
     def __post_init__(self) -> None:
+        for fname in _BOOL_FIELDS:
+            val = getattr(self, fname)
+            if not isinstance(val, bool):
+                raise TypeError(f"{fname} must be a bool, got {val!r}")
         if not isinstance(self.pii_entities, tuple):
             object.__setattr__(self, "pii_entities", tuple(self.pii_entities))
         if self.direction not in ("inbound", "outbound"):
@@ -275,6 +292,9 @@ class PetasosConfig:
         filtered = {k: v for k, v in data.items() if k in known}
         if "pii_entities" in filtered and isinstance(filtered["pii_entities"], list):
             filtered["pii_entities"] = tuple(filtered["pii_entities"])
+        for key in _BOOL_FIELDS:
+            if key in filtered and not isinstance(filtered[key], bool):
+                raise TypeError(f"{key} must be a bool, got {filtered[key]!r}")
         return cls(**filtered)
 
     def copy(self) -> PetasosConfig:
