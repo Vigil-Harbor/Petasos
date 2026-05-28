@@ -757,3 +757,59 @@ class TestPipelineProfile:
         assert p.is_premium_active("profiles") is False
         p.activate(valid_key)
         assert p.is_premium_active("profiles") is True
+
+
+class TestMinimalScannerError:
+    """PET-70 / SYN-07: MinimalScanner error propagation in _compute_safe."""
+
+    @pytest.mark.asyncio
+    async def test_minimal_error_degraded_unsafe(self) -> None:
+        # Regression for PET-70: MinimalScanner error in degraded -> safe=False
+        from petasos.scanners.minimal import MinimalScanner
+
+        scanner = MinimalScanner()
+
+        def boom(_text: str) -> list[ScanFinding]:
+            raise RuntimeError("boom")
+
+        scanner._scan_impl = boom  # type: ignore[method-assign,assignment]
+        pipe = Pipeline(
+            [scanner],
+            config=PetasosConfig(fail_mode="degraded"),
+        )
+        result = await pipe.inspect("hello world")
+        assert result.safe is False
+
+    @pytest.mark.asyncio
+    async def test_minimal_error_open_passthrough(self) -> None:
+        from petasos.scanners.minimal import MinimalScanner
+
+        scanner = MinimalScanner()
+
+        def boom(_text: str) -> list[ScanFinding]:
+            raise RuntimeError("boom")
+
+        scanner._scan_impl = boom  # type: ignore[method-assign,assignment]
+        pipe = Pipeline(
+            [scanner],
+            config=PetasosConfig(fail_mode="open"),
+        )
+        result = await pipe.inspect("hello world")
+        assert result.safe is True
+
+    @pytest.mark.asyncio
+    async def test_minimal_error_closed_unsafe(self) -> None:
+        from petasos.scanners.minimal import MinimalScanner
+
+        scanner = MinimalScanner()
+
+        def boom(_text: str) -> list[ScanFinding]:
+            raise RuntimeError("boom")
+
+        scanner._scan_impl = boom  # type: ignore[method-assign,assignment]
+        pipe = Pipeline(
+            [scanner],
+            config=PetasosConfig(fail_mode="closed"),
+        )
+        result = await pipe.inspect("hello world")
+        assert result.safe is False

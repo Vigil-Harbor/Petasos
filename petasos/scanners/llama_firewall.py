@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import threading
 import time
 from types import MappingProxyType
@@ -129,7 +130,9 @@ class LlamaFirewallScanner:
                 if result.decision != self._allow_decision:
                     rule_id, finding_type, severity = _COMPONENT_TAXONOMY[comp_name]
                     raw_score = result.score if result.score is not None else 1.0
-                    confidence = max(0.0, min(1.0, raw_score))
+                    confidence = (
+                        0.0 if not math.isfinite(raw_score) else max(0.0, min(1.0, raw_score))
+                    )
                     findings.append(
                         ScanFinding(
                             rule_id=rule_id,

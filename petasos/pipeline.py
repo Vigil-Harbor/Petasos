@@ -103,14 +103,20 @@ def _compute_safe(
             safe = False
             break
 
+    syntactic_error = False
     ml_total = 0
     ml_errored = 0
     for r in scanner_results:
         if r.scanner_name == "minimal":
+            if r.error is not None:
+                syntactic_error = True
             continue
         ml_total += 1
         if r.error is not None:
             ml_errored += 1
+
+    if syntactic_error and fail_mode in ("degraded", "closed"):
+        safe = False
 
     if ml_total == 0:
         return safe

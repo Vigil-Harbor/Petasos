@@ -1,0 +1,271 @@
+[1m============================= test session starts =============================[0m
+platform win32 -- Python 3.10.6, pytest-9.0.3, pluggy-1.6.0 -- C:\python310\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\zioni\Documents\Vigil-Harbor\PET-60-worktree
+configfile: pyproject.toml
+plugins: anyio-4.13.0, asyncio-1.3.0
+asyncio: mode=auto, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+[1mcollecting ... [0mcollected 195 items
+
+tests/test_minimal_scanner.py::TestInjectionPatterns::test_ignore_previous [32mPASSED[0m[32m [  0%][0m
+tests/test_minimal_scanner.py::TestInjectionPatterns::test_ignore_all [32mPASSED[0m[32m [  1%][0m
+tests/test_minimal_scanner.py::TestInjectionPatterns::test_disregard [32mPASSED[0m[32m [  1%][0m
+tests/test_minimal_scanner.py::TestInjectionPatterns::test_you_are_now [32mPASSED[0m[32m [  2%][0m
+tests/test_minimal_scanner.py::TestInjectionPatterns::test_new_instructions [32mPASSED[0m[32m [  2%][0m
+tests/test_minimal_scanner.py::TestInjectionPatterns::test_system_override [32mPASSED[0m[32m [  3%][0m
+tests/test_minimal_scanner.py::TestInjectionPatterns::test_system_prefix [32mPASSED[0m[32m [  3%][0m
+tests/test_minimal_scanner.py::TestInjectionPatterns::test_system_prefix_case_insensitive [32mPASSED[0m[32m [  4%][0m
+tests/test_minimal_scanner.py::TestInjectionPatterns::test_inst_delimiter [32mPASSED[0m[32m [  4%][0m
+tests/test_minimal_scanner.py::TestRoleSwitch::test_role_switch_capability [32mPASSED[0m[32m [  5%][0m
+tests/test_minimal_scanner.py::TestRoleSwitch::test_role_switch_only [32mPASSED[0m[32m [  5%][0m
+tests/test_minimal_scanner.py::TestRoleSwitch::test_grant_without_trigger_no_finding [32mPASSED[0m[32m [  6%][0m
+tests/test_minimal_scanner.py::TestStructuralChecks::test_oversized_payload [32mPASSED[0m[32m [  6%][0m
+tests/test_minimal_scanner.py::TestStructuralChecks::test_excessive_depth [32mPASSED[0m[32m [  7%][0m
+tests/test_minimal_scanner.py::TestStructuralChecks::test_binary_content [32mPASSED[0m[32m [  7%][0m
+tests/test_minimal_scanner.py::TestEncodingDetection::test_base64_detected [32mPASSED[0m[32m [  8%][0m
+tests/test_minimal_scanner.py::TestEncodingDetection::test_invisible_chars [32mPASSED[0m[32m [  8%][0m
+tests/test_minimal_scanner.py::TestEncodingDetection::test_homoglyph_substitution [32mPASSED[0m[32m [  9%][0m
+tests/test_minimal_scanner.py::TestEncodingDetection::test_rtl_override [32mPASSED[0m[32m [  9%][0m
+tests/test_minimal_scanner.py::TestEscalation::test_invisible_plus_injection_escalates [32mPASSED[0m[32m [ 10%][0m
+tests/test_minimal_scanner.py::TestSuppression::test_injection_suppression_ignored [32mPASSED[0m[32m [ 10%][0m
+tests/test_minimal_scanner.py::TestSuppression::test_structural_cannot_be_suppressed [32mPASSED[0m[32m [ 11%][0m
+tests/test_minimal_scanner.py::TestScannerMeta::test_clean_input_no_findings [32mPASSED[0m[32m [ 11%][0m
+tests/test_minimal_scanner.py::TestScannerMeta::test_name [32mPASSED[0m[32m         [ 12%][0m
+tests/test_minimal_scanner.py::TestScannerMeta::test_satisfies_protocol [32mPASSED[0m[32m [ 12%][0m
+tests/test_minimal_scanner.py::TestScannerMeta::test_custom_max_payload_bytes [32mPASSED[0m[32m [ 13%][0m
+tests/test_minimal_scanner.py::TestScannerMeta::test_custom_max_json_depth [32mPASSED[0m[32m [ 13%][0m
+tests/test_minimal_scanner.py::TestScannerMeta::test_exception_guard [32mPASSED[0m[32m [ 14%][0m
+tests/test_minimal_scanner.py::TestScannerMeta::test_homoglyph_fires_unconditionally_d6 [32mPASSED[0m[32m [ 14%][0m
+tests/test_minimal_scanner.py::TestScannerMeta::test_deep_nesting_no_recursion_error [32mPASSED[0m[32m [ 15%][0m
+tests/test_minimal_scanner.py::TestBinaryPattern::test_binary_nul_byte_detected [32mPASSED[0m[32m [ 15%][0m
+tests/test_minimal_scanner.py::TestBinaryPattern::test_binary_del_byte_detected [32mPASSED[0m[32m [ 16%][0m
+tests/test_minimal_scanner.py::TestBinaryPattern::test_binary_tab_not_flagged [32mPASSED[0m[32m [ 16%][0m
+tests/test_minimal_scanner.py::TestJsonDepth::test_json_depth_string_literal_brackets [32mPASSED[0m[32m [ 17%][0m
+tests/test_minimal_scanner.py::TestJsonDepth::test_json_depth_escaped_quote [32mPASSED[0m[32m [ 17%][0m
+tests/test_minimal_scanner.py::TestJsonDepth::test_json_depth_consecutive_backslash [32mPASSED[0m[32m [ 18%][0m
+tests/test_minimal_scanner.py::TestJsonDepth::test_json_depth_nested_objects [32mPASSED[0m[32m [ 18%][0m
+tests/test_minimal_scanner.py::TestJsonDepth::test_json_depth_no_brackets [32mPASSED[0m[32m [ 19%][0m
+tests/test_minimal_scanner.py::TestJsonDepth::test_json_depth_unmatched_quote [32mPASSED[0m[32m [ 20%][0m
+tests/test_minimal_scanner.py::TestRuleTaxonomy::test_17_rules [32mPASSED[0m[32m    [ 20%][0m
+tests/test_minimal_scanner.py::TestRuleTaxonomy::test_all_prefixed [32mPASSED[0m[32m [ 21%][0m
+tests/test_pipeline.py::TestPipelineConstruction::test_no_scanners_uses_minimal_only [32mPASSED[0m[32m [ 21%][0m
+tests/test_pipeline.py::TestPipelineConstruction::test_explicit_minimal_not_duplicated [32mPASSED[0m[32m [ 22%][0m
+tests/test_pipeline.py::TestPipelineConstruction::test_ml_scanners_separated [32mPASSED[0m[32m [ 22%][0m
+tests/test_pipeline.py::TestPipelineConstruction::test_none_config_uses_defaults [32mPASSED[0m[32m [ 23%][0m
+tests/test_pipeline.py::TestPipelineConstruction::test_config_defensive_copy [32mPASSED[0m[32m [ 23%][0m
+tests/test_pipeline.py::TestNormalization::test_input_normalized_before_ml_scan [32mPASSED[0m[32m [ 24%][0m
+tests/test_pipeline.py::TestNormalization::test_normalization_disabled_uses_raw [32mPASSED[0m[32m [ 24%][0m
+tests/test_pipeline.py::TestNormalization::test_empty_string_safe [32mPASSED[0m[32m [ 25%][0m
+tests/test_pipeline.py::TestSyntacticPreFilter::test_minimal_always_runs [32mPASSED[0m[32m [ 25%][0m
+tests/test_pipeline.py::TestSyntacticPreFilter::test_minimal_findings_included [32mPASSED[0m[32m [ 26%][0m
+tests/test_pipeline.py::TestSyntacticPreFilter::test_minimal_error_recorded [32mPASSED[0m[32m [ 26%][0m
+tests/test_pipeline.py::TestFanOutScan::test_single_ml_scanner [32mPASSED[0m[32m    [ 27%][0m
+tests/test_pipeline.py::TestFanOutScan::test_concurrent_execution [32mPASSED[0m[32m [ 27%][0m
+tests/test_pipeline.py::TestFanOutScan::test_scanner_exception_isolated [32mPASSED[0m[32m [ 28%][0m
+tests/test_pipeline.py::TestFanOutScan::test_scanner_timeout [32mPASSED[0m[32m      [ 28%][0m
+tests/test_pipeline.py::TestFanOutScan::test_scanner_empty_findings [32mPASSED[0m[32m [ 29%][0m
+tests/test_pipeline.py::TestFanOutScan::test_all_scanners_empty_safe [32mPASSED[0m[32m [ 29%][0m
+tests/test_pipeline.py::TestFindingMergeIntegration::test_minimal_and_ml_merged [32mPASSED[0m[32m [ 30%][0m
+tests/test_pipeline.py::TestFindingMergeIntegration::test_overlapping_deduplicated [32mPASSED[0m[32m [ 30%][0m
+tests/test_pipeline.py::TestFindingMergeIntegration::test_aggregate_severity_highest [32mPASSED[0m[32m [ 31%][0m
+tests/test_pipeline.py::TestFailModeDegraded::test_no_ml_failures_findings_only [32mPASSED[0m[32m [ 31%][0m
+tests/test_pipeline.py::TestFailModeDegraded::test_partial_ml_failure_blocks [32mPASSED[0m[32m [ 32%][0m
+tests/test_pipeline.py::TestFailModeDegraded::test_all_ml_failure_blocks [32mPASSED[0m[32m [ 32%][0m
+tests/test_pipeline.py::TestFailModeDegraded::test_no_ml_scanners_failmode_not_applied [32mPASSED[0m[32m [ 33%][0m
+tests/test_pipeline.py::TestFailModeDegraded::test_critical_finding_unsafe [32mPASSED[0m[32m [ 33%][0m
+tests/test_pipeline.py::TestFailModeOpen::test_partial_ml_failure_safe [32mPASSED[0m[32m [ 34%][0m
+tests/test_pipeline.py::TestFailModeOpen::test_all_ml_failure_safe [32mPASSED[0m[32m [ 34%][0m
+tests/test_pipeline.py::TestFailModeOpen::test_findings_still_determine_safe [32mPASSED[0m[32m [ 35%][0m
+tests/test_pipeline.py::TestFailModeClosed::test_partial_ml_failure_blocks [32mPASSED[0m[32m [ 35%][0m
+tests/test_pipeline.py::TestFailModeClosed::test_all_ml_failure_blocks [32mPASSED[0m[32m [ 36%][0m
+tests/test_pipeline.py::TestFailModeClosed::test_early_exit_critical_minimal [32mPASSED[0m[32m [ 36%][0m
+tests/test_pipeline.py::TestFailModeClosed::test_early_exit_still_runs_premium_hooks [32mPASSED[0m[32m [ 37%][0m
+tests/test_pipeline.py::TestFailModeClosed::test_no_findings_no_errors_safe [32mPASSED[0m[32m [ 37%][0m
+tests/test_pipeline.py::TestAnonymization::test_pii_findings_anonymize_true [32mPASSED[0m[32m [ 38%][0m
+tests/test_pipeline.py::TestAnonymization::test_no_pii_findings_no_sanitization [32mPASSED[0m[32m [ 38%][0m
+tests/test_pipeline.py::TestAnonymization::test_anonymize_false_no_sanitization [32mPASSED[0m[32m [ 39%][0m
+tests/test_pipeline.py::TestAnonymization::test_presidio_not_installed_error [32mPASSED[0m[32m [ 40%][0m
+tests/test_pipeline.py::TestAnonymization::test_mask_mode_deterministic [32mPASSED[0m[32m [ 40%][0m
+tests/test_pipeline.py::TestPipelineNeverThrows::test_broken_scanner_returns_result [32mPASSED[0m[32m [ 41%][0m
+tests/test_pipeline.py::TestPipelineNeverThrows::test_non_string_input_returns_result [32mPASSED[0m[32m [ 41%][0m
+tests/test_pipeline.py::TestPipelineNeverThrows::test_internal_error_returns_result [32mPASSED[0m[32m [ 42%][0m
+tests/test_pipeline.py::TestPipelineNeverThrows::test_base_exception_caught_at_boundary [32mPASSED[0m[32m [ 42%][0m
+tests/test_pipeline.py::TestPremiumHooks::test_hooks_callable [32mPASSED[0m[32m     [ 43%][0m
+tests/test_pipeline.py::TestPremiumHooks::test_hooks_are_noops [32mPASSED[0m[32m    [ 43%][0m
+tests/test_pipeline.py::TestDirection::test_direction_override [32mPASSED[0m[32m    [ 44%][0m
+tests/test_pipeline.py::TestDirection::test_direction_default_from_config [32mPASSED[0m[32m [ 44%][0m
+tests/test_pipeline.py::TestPipelineProfile::test_init_with_profile_string [32mPASSED[0m[32m [ 45%][0m
+tests/test_pipeline.py::TestPipelineProfile::test_init_with_invalid_profile_raises [32mPASSED[0m[32m [ 45%][0m
+tests/test_pipeline.py::TestPipelineProfile::test_inspect_profile_override_dict [32mPASSED[0m[32m [ 46%][0m
+tests/test_pipeline.py::TestPipelineProfile::test_inspect_profile_override_string [32mPASSED[0m[32m [ 46%][0m
+tests/test_pipeline.py::TestPipelineProfile::test_config_property_accessible [32mPASSED[0m[32m [ 47%][0m
+tests/test_pipeline.py::TestPipelineProfile::test_is_premium_active_public [32mPASSED[0m[32m [ 47%][0m
+tests/test_pipeline.py::TestMinimalScannerError::test_minimal_error_degraded_unsafe [32mPASSED[0m[32m [ 48%][0m
+tests/test_pipeline.py::TestMinimalScannerError::test_minimal_error_open_passthrough [32mPASSED[0m[32m [ 48%][0m
+tests/test_pipeline.py::TestMinimalScannerError::test_minimal_error_closed_unsafe [32mPASSED[0m[32m [ 49%][0m
+tests/test_llm_guard_scanner.py::TestScannerProtocolCompliance::test_isinstance_scanner [32mPASSED[0m[32m [ 49%][0m
+tests/test_llm_guard_scanner.py::TestScannerProtocolCompliance::test_scan_is_coroutine [32mPASSED[0m[32m [ 50%][0m
+tests/test_llm_guard_scanner.py::TestNameProperty::test_name_returns_llm_guard [32mPASSED[0m[32m [ 50%][0m
+tests/test_llm_guard_scanner.py::TestLazyLoadFailure::test_missing_llm_guard_returns_errored_result [32mPASSED[0m[32m [ 51%][0m
+tests/test_llm_guard_scanner.py::TestLazyLoadOnlyOnce::test_second_scan_does_not_reimport [32mPASSED[0m[32m [ 51%][0m
+tests/test_llm_guard_scanner.py::TestRuntimeExceptionGuard::test_sub_scanner_raise_returns_errored_result [32mPASSED[0m[32m [ 52%][0m
+tests/test_llm_guard_scanner.py::TestPerSubScannerErrorIsolation::test_one_fails_others_still_run [32mPASSED[0m[32m [ 52%][0m
+tests/test_llm_guard_scanner.py::TestDurationTracking::test_duration_ms_is_positive [32mPASSED[0m[32m [ 53%][0m
+tests/test_llm_guard_scanner.py::TestDefaultEnableFlags::test_only_two_scanners_by_default [32mPASSED[0m[32m [ 53%][0m
+tests/test_llm_guard_scanner.py::TestAllEnableFlags::test_all_five_scanners_enabled [32mPASSED[0m[32m [ 54%][0m
+tests/test_llm_guard_scanner.py::TestBanTopicsRequiresFlag::test_ban_topics_without_flag_does_not_activate [32mPASSED[0m[32m [ 54%][0m
+tests/test_llm_guard_scanner.py::TestEnableBanTopicsWithoutList::test_enable_ban_topics_none_raises [32mPASSED[0m[32m [ 55%][0m
+tests/test_llm_guard_scanner.py::TestEnableBanTopicsWithoutList::test_enable_ban_topics_empty_raises [32mPASSED[0m[32m [ 55%][0m
+tests/test_llm_guard_scanner.py::TestThreadSafety::test_ensure_loaded_executes_once [32mPASSED[0m[32m [ 56%][0m
+tests/test_llm_guard_scanner.py::TestCachedLoadFailure::test_cached_error_no_retry_then_reset [32mPASSED[0m[32m [ 56%][0m
+tests/test_llm_guard_scanner.py::TestModelInstantiationFailure::test_model_init_failure_cached [32mPASSED[0m[32m [ 57%][0m
+tests/test_llm_guard_scanner.py::TestIntegrationCleanInput::test_clean_input [33mSKIPPED[0m[32m [ 57%][0m
+tests/test_llm_guard_scanner.py::TestIntegrationPromptInjection::test_prompt_injection_detected [33mSKIPPED[0m[32m [ 58%][0m
+tests/test_llm_guard_scanner.py::TestIntegrationInvisibleText::test_invisible_text_detected [33mSKIPPED[0m[32m [ 58%][0m
+tests/test_llm_guard_scanner.py::TestIntegrationToxicity::test_toxicity_detected [33mSKIPPED[0m[32m [ 59%][0m
+tests/test_llm_guard_scanner.py::TestIntegrationSecrets::test_secrets_detected [33mSKIPPED[0m[32m [ 60%][0m
+tests/test_llm_guard_scanner.py::TestIntegrationBanTopics::test_ban_topics_detected [33mSKIPPED[0m[32m [ 60%][0m
+tests/test_llm_guard_scanner.py::TestIntegrationConfidenceMapping::test_confidence_is_float_in_range [33mSKIPPED[0m[32m [ 61%][0m
+tests/test_llm_guard_scanner.py::TestIntegrationPositionAndMatchedText::test_position_and_matched_text_none [33mSKIPPED[0m[32m [ 61%][0m
+tests/test_llm_guard_scanner.py::TestIntegrationThresholdParameter::test_high_threshold_reduces_sensitivity [33mSKIPPED[0m[32m [ 62%][0m
+tests/test_llm_guard_scanner.py::TestIntegrationDirectionParameter::test_outbound_direction_works [33mSKIPPED[0m[32m [ 62%][0m
+tests/test_presidio_scanner.py::TestSeverityMapping::test_critical_entities [32mPASSED[0m[32m [ 63%][0m
+tests/test_presidio_scanner.py::TestSeverityMapping::test_high_entities [32mPASSED[0m[32m [ 63%][0m
+tests/test_presidio_scanner.py::TestSeverityMapping::test_medium_entities [32mPASSED[0m[32m [ 64%][0m
+tests/test_presidio_scanner.py::TestSeverityMapping::test_unknown_defaults_to_low [32mPASSED[0m[32m [ 64%][0m
+tests/test_presidio_scanner.py::TestEntityTypeRecovery::test_presidio_prefix [32mPASSED[0m[32m [ 65%][0m
+tests/test_presidio_scanner.py::TestEntityTypeRecovery::test_presidio_prefix_with_hyphen [32mPASSED[0m[32m [ 65%][0m
+tests/test_presidio_scanner.py::TestEntityTypeRecovery::test_non_presidio_rule [32mPASSED[0m[32m [ 66%][0m
+tests/test_presidio_scanner.py::TestEntityTypeRecovery::test_simple_dotted [32mPASSED[0m[32m [ 66%][0m
+tests/test_presidio_scanner.py::TestScannerProtocol::test_satisfies_protocol [32mPASSED[0m[32m [ 67%][0m
+tests/test_presidio_scanner.py::TestScannerProtocol::test_name_property [32mPASSED[0m[32m [ 67%][0m
+tests/test_presidio_scanner.py::TestLazyLoadFailure::test_import_error_returns_errored_result [32mPASSED[0m[32m [ 68%][0m
+tests/test_presidio_scanner.py::TestLazyLoadFailure::test_spacy_model_missing [32mPASSED[0m[32m [ 68%][0m
+tests/test_presidio_scanner.py::TestLazyLoadFailure::test_backend_exception_during_analyze [32mPASSED[0m[32m [ 69%][0m
+tests/test_presidio_scanner.py::TestAnonymizeEmptyInputs::test_empty_findings_returns_original [32mPASSED[0m[32m [ 69%][0m
+tests/test_presidio_scanner.py::TestAnonymizeEmptyInputs::test_empty_text_returns_empty [32mPASSED[0m[32m [ 70%][0m
+tests/test_presidio_scanner.py::TestAnonymizeEmptyInputs::test_all_unpositioned_findings_returns_original [32mPASSED[0m[32m [ 70%][0m
+tests/test_presidio_scanner.py::TestAnonymizeRedact::test_single_entity_redacted [32mPASSED[0m[32m [ 71%][0m
+tests/test_presidio_scanner.py::TestAnonymizeRedact::test_multiple_entity_types [32mPASSED[0m[32m [ 71%][0m
+tests/test_presidio_scanner.py::TestAnonymizeReplace::test_counter_based_labels [32mPASSED[0m[32m [ 72%][0m
+tests/test_presidio_scanner.py::TestAnonymizeReplace::test_counter_resets_across_calls [32mPASSED[0m[32m [ 72%][0m
+tests/test_presidio_scanner.py::TestAnonymizeHash::test_hmac_deterministic [32mPASSED[0m[32m [ 73%][0m
+tests/test_presidio_scanner.py::TestAnonymizeHash::test_different_keys_produce_different_hashes [32mPASSED[0m[32m [ 73%][0m
+tests/test_presidio_scanner.py::TestAnonymizeHash::test_hash_without_key_raises [32mPASSED[0m[32m [ 74%][0m
+tests/test_presidio_scanner.py::TestAnonymizeHash::test_hash_mode_rejects_empty_key [32mPASSED[0m[32m [ 74%][0m
+tests/test_presidio_scanner.py::TestAnonymizeHash::test_hash_mode_with_valid_key_works [32mPASSED[0m[32m [ 75%][0m
+tests/test_presidio_scanner.py::TestAnonymizeHash::test_hmac_operator_rejects_empty_key [32mPASSED[0m[32m [ 75%][0m
+tests/test_presidio_scanner.py::TestAnonymizeHash::test_hmac_operator_rejects_missing_key [32mPASSED[0m[32m [ 76%][0m
+tests/test_presidio_scanner.py::TestAnonymizeHash::test_redact_mode_ignores_hash_key [32mPASSED[0m[32m [ 76%][0m
+tests/test_presidio_scanner.py::TestAnonymizeMask::test_mask_hides_leading [32mPASSED[0m[32m [ 77%][0m
+tests/test_presidio_scanner.py::TestAnonymizeMask::test_mask_short_value_fully_masked [32mPASSED[0m[32m [ 77%][0m
+tests/test_presidio_scanner.py::TestAnonymizeMask::test_mask_matched_text_none_fallback [32mPASSED[0m[32m [ 78%][0m
+tests/test_presidio_scanner.py::TestAnonymizeOverlap::test_overlapping_manual_path_deduplicates [32mPASSED[0m[32m [ 78%][0m
+tests/test_presidio_scanner.py::TestAnonymizeOverlap::test_overlapping_higher_confidence_wins [32mPASSED[0m[32m [ 79%][0m
+tests/test_presidio_scanner.py::TestAnonymizeUnsortedFindings::test_reverse_order_input_handled [32mPASSED[0m[32m [ 80%][0m
+tests/test_presidio_scanner.py::TestAnonymizeMixedPositioned::test_unpositioned_findings_skipped [32mPASSED[0m[32m [ 80%][0m
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_detect_email [32mPASSED[0m[32m [ 81%][0m
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_detect_phone [32mPASSED[0m[33m [ 81%][0m
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_detect_person [32mPASSED[0m[33m [ 82%][0m
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_detect_credit_card [32mPASSED[0m[33m [ 82%][0m
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_no_pii_clean [32mPASSED[0m[33m [ 83%][0m
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_empty_text [32mPASSED[0m[33m [ 83%][0m
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_position_accuracy [32mPASSED[0m[33m [ 84%][0m
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_confidence_range [32mPASSED[0m[33m [ 84%][0m
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_duration_tracked [32mPASSED[0m[33m [ 85%][0m
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_score_threshold_filtering [32mPASSED[0m[33m [ 85%][0m
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_custom_entities_filter [32mPASSED[0m[33m [ 86%][0m
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_multi_finding_message [32mPASSED[0m[33m [ 86%][0m
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_scanner_name_in_findings [32mPASSED[0m[33m [ 87%][0m
+tests/test_presidio_scanner.py::TestAnonymizeIntegration::test_redact_removes_pii [32mPASSED[0m[33m [ 87%][0m
+tests/test_presidio_scanner.py::TestAnonymizeIntegration::test_replace_with_counters [32mPASSED[0m[33m [ 88%][0m
+tests/test_presidio_scanner.py::TestAnonymizeIntegration::test_hash_with_key_deterministic [32mPASSED[0m[33m [ 88%][0m
+tests/test_presidio_scanner.py::TestAnonymizeIntegration::test_mask_shows_trailing [32mPASSED[0m[33m [ 89%][0m
+tests/adversarial/syntactic/test_binary_nul.py::test_nul_byte_in_injection_payload [32mPASSED[0m[33m [ 89%][0m
+tests/adversarial/syntactic/test_injection_evasion.py::test_system_prefix_case_variant [32mPASSED[0m[33m [ 90%][0m
+tests/adversarial/syntactic/test_injection_evasion.py::test_nul_byte_flagged_by_binary_pattern [32mPASSED[0m[33m [ 90%][0m
+tests/adversarial/syntactic/test_injection_evasion.py::test_json_depth_skips_brackets_inside_strings [32mPASSED[0m[33m [ 91%][0m
+tests/adversarial/syntactic/test_injection_evasion.py::test_suppress_all_injection_still_detects [32mPASSED[0m[33m [ 91%][0m
+tests/adversarial/syntactic/test_injection_evasion.py::test_suppress_encoding_rules_allowed [32mPASSED[0m[33m [ 92%][0m
+tests/adversarial/syntactic/test_injection_evasion.py::test_suppress_mixed_set_filters_correctly [32mPASSED[0m[33m [ 92%][0m
+tests/adversarial/syntactic/test_injection_evasion.py::test_with_suppress_rules_inherits_guard [32mPASSED[0m[33m [ 93%][0m
+tests/adversarial/syntactic/test_injection_evasion.py::test_redos_patterns_bounded [32mPASSED[0m[33m [ 93%][0m
+tests/adversarial/syntactic/test_injection_evasion.py::test_scanner_internal_error_fail_open [32mPASSED[0m[33m [ 94%][0m
+tests/adversarial/syntactic/test_injection_evasion.py::test_double_space_ignore_previous [32mPASSED[0m[33m [ 94%][0m
+tests/adversarial/syntactic/test_injection_evasion.py::test_tab_between_trigger_words [32mPASSED[0m[33m [ 95%][0m
+tests/adversarial/syntactic/test_injection_evasion.py::test_newline_between_trigger_words [32mPASSED[0m[33m [ 95%][0m
+tests/adversarial/syntactic/test_injection_evasion.py::test_mixed_whitespace_disregard [32mPASSED[0m[33m [ 96%][0m
+tests/adversarial/syntactic/test_injection_evasion.py::test_mixed_whitespace_system_override [32mPASSED[0m[33m [ 96%][0m
+tests/adversarial/syntactic/test_injection_evasion.py::test_role_switch_double_space [32mPASSED[0m[33m [ 97%][0m
+tests/adversarial/syntactic/test_injection_evasion.py::test_role_grant_double_space [32mPASSED[0m[33m [ 97%][0m
+tests/adversarial/syntactic/test_injection_evasion.py::test_role_trigger_only_double_space [32mPASSED[0m[33m [ 98%][0m
+tests/adversarial/syntactic/test_injection_evasion.py::test_single_space_still_matches [32mPASSED[0m[33m [ 98%][0m
+tests/adversarial/syntactic/test_injection_evasion.py::test_redos_with_flexible_whitespace [32mPASSED[0m[33m [ 99%][0m
+tests/adversarial/syntactic/test_json_depth_strings.py::test_json_depth_brackets_in_string [32mPASSED[0m[33m [100%][0m
+
+[33m============================== warnings summary ===============================[0m
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_detect_email
+  C:\Users\zioni\Documents\Vigil-Harbor\PET-60-worktree\tests\test_presidio_scanner.py:380: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(
+
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_detect_phone
+  C:\Users\zioni\Documents\Vigil-Harbor\PET-60-worktree\tests\test_presidio_scanner.py:392: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(
+
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_detect_person
+  C:\Users\zioni\Documents\Vigil-Harbor\PET-60-worktree\tests\test_presidio_scanner.py:400: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(
+
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_detect_credit_card
+  C:\Users\zioni\Documents\Vigil-Harbor\PET-60-worktree\tests\test_presidio_scanner.py:408: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(
+
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_no_pii_clean
+  C:\Users\zioni\Documents\Vigil-Harbor\PET-60-worktree\tests\test_presidio_scanner.py:417: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(
+
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_empty_text
+  C:\Users\zioni\Documents\Vigil-Harbor\PET-60-worktree\tests\test_presidio_scanner.py:424: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(scanner.scan(""))
+
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_position_accuracy
+  C:\Users\zioni\Documents\Vigil-Harbor\PET-60-worktree\tests\test_presidio_scanner.py:430: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(scanner.scan(text))
+
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_confidence_range
+  C:\Users\zioni\Documents\Vigil-Harbor\PET-60-worktree\tests\test_presidio_scanner.py:436: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(
+
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_duration_tracked
+  C:\Users\zioni\Documents\Vigil-Harbor\PET-60-worktree\tests\test_presidio_scanner.py:443: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(scanner.scan("john@example.com"))
+
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_score_threshold_filtering
+  C:\Users\zioni\Documents\Vigil-Harbor\PET-60-worktree\tests\test_presidio_scanner.py:448: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(
+
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_custom_entities_filter
+  C:\Users\zioni\Documents\Vigil-Harbor\PET-60-worktree\tests\test_presidio_scanner.py:457: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(
+
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_multi_finding_message
+  C:\Users\zioni\Documents\Vigil-Harbor\PET-60-worktree\tests\test_presidio_scanner.py:465: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(
+
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_scanner_name_in_findings
+  C:\Users\zioni\Documents\Vigil-Harbor\PET-60-worktree\tests\test_presidio_scanner.py:472: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(scanner.scan("john@example.com"))
+
+tests/test_presidio_scanner.py::TestAnonymizeIntegration::test_redact_removes_pii
+tests/test_presidio_scanner.py::TestAnonymizeIntegration::test_replace_with_counters
+tests/test_presidio_scanner.py::TestAnonymizeIntegration::test_hash_with_key_deterministic
+tests/test_presidio_scanner.py::TestAnonymizeIntegration::test_hash_with_key_deterministic
+  C:\Users\zioni\Documents\Vigil-Harbor\PET-60-worktree\tests\test_presidio_scanner.py:486: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(scanner.scan(text))
+
+tests/test_presidio_scanner.py::TestAnonymizeIntegration::test_mask_shows_trailing
+  C:\Users\zioni\Documents\Vigil-Harbor\PET-60-worktree\tests\test_presidio_scanner.py:515: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(scanner.scan(text))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+[33m================ [32m185 passed[0m, [33m[1m10 skipped[0m, [33m[1m18 warnings[0m[33m in 39.30s[0m[33m ================[0m
