@@ -116,7 +116,7 @@ class TestToolNameNormalization:
 
     async def test_whitespace_stripped(self, valid_key: str) -> None:
         g = _guard(key=valid_key)
-        assert g._normalize_tool_name("  read_file  ") == "read_file"
+        assert g._normalize_tool_name("  read_file  ") == "read"
 
     async def test_default_alias_map_coverage(self, valid_key: str) -> None:
         g = _guard(key=valid_key)
@@ -144,6 +144,26 @@ class TestToolNameNormalization:
         g = _guard(profile=p, key=valid_key)
         assert g._normalize_tool_name("custom_tool") == "mapped"
         assert g._normalize_tool_name("bash") == "exec"
+
+    async def test_casefold_not_just_lower(self, valid_key: str) -> None:
+        g = _guard(key=valid_key)
+        assert g._normalize_tool_name("BASH") == "exec"
+
+    async def test_namespace_prefix_with_cyrillic(self, valid_key: str) -> None:
+        g = _guard(key=valid_key)
+        assert g._normalize_tool_name("mcp__server__bаsh") == "exec"
+
+    async def test_plain_ascii_no_regression(self, valid_key: str) -> None:
+        g = _guard(key=valid_key)
+        assert g._normalize_tool_name("bash") == "exec"
+
+    async def test_empty_string_normalizes(self, valid_key: str) -> None:
+        g = _guard(key=valid_key)
+        assert g._normalize_tool_name("") == ""
+
+    async def test_whitespace_only_normalizes(self, valid_key: str) -> None:
+        g = _guard(key=valid_key)
+        assert g._normalize_tool_name("   ") == ""
 
     async def test_empty_after_normalization_blocks(self, valid_key: str) -> None:
         g = _guard(key=valid_key)
