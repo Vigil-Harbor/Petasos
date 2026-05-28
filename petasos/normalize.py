@@ -147,9 +147,7 @@ def normalize(text: str) -> NormalizedText:
     # Step 4: Re-strip after NFKC (NORM-02)
     restrip_count = sum(1 for ch in text_after_nfkc if _is_strippable(ch))
     if restrip_count > 0:
-        text_after_restrip = "".join(
-            ch for ch in text_after_nfkc if not _is_strippable(ch)
-        )
+        text_after_restrip = "".join(ch for ch in text_after_nfkc if not _is_strippable(ch))
         stripped_count += restrip_count
         transforms.append("nfkc_restrip_applied")
     else:
@@ -157,13 +155,9 @@ def normalize(text: str) -> NormalizedText:
 
     # Step 5: Combining mark removal (NORM-04)
     text_nfd = unicodedata.normalize("NFD", text_after_restrip)
-    mn_count = sum(
-        1 for ch in text_nfd if unicodedata.category(ch) == "Mn"
-    )
+    mn_count = sum(1 for ch in text_nfd if unicodedata.category(ch) == "Mn")
     if mn_count > 0:
-        text_stripped_mn = "".join(
-            ch for ch in text_nfd if unicodedata.category(ch) != "Mn"
-        )
+        text_stripped_mn = "".join(ch for ch in text_nfd if unicodedata.category(ch) != "Mn")
         text_after_mn = unicodedata.normalize("NFC", text_stripped_mn)
         transforms.append("combining_marks_stripped")
     else:

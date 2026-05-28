@@ -207,9 +207,7 @@ class TestReStripAfterNFKC:
     def test_nfkc_restrip_wiring(self) -> None:
         for cp in [0x200B, 0x200C, 0x200D, 0xFEFF, 0x202A]:
             ch = chr(cp)
-            assert _is_strippable(ch), (
-                f"U+{cp:04X} should be strippable by re-strip filter"
-            )
+            assert _is_strippable(ch), f"U+{cp:04X} should be strippable by re-strip filter"
 
 
 class TestCombiningMarkStrip:
@@ -249,16 +247,20 @@ class TestExpandedHomoglyph:
 
     def test_homoglyph_uppercase_cyrillic(self) -> None:
         pairs = [
-            (0x0410, "A"), (0x0415, "E"), (0x041E, "O"),
-            (0x0420, "P"), (0x0421, "C"), (0x041A, "K"),
-            (0x0425, "X"), (0x041D, "H"), (0x0422, "T"),
+            (0x0410, "A"),
+            (0x0415, "E"),
+            (0x041E, "O"),
+            (0x0420, "P"),
+            (0x0421, "C"),
+            (0x041A, "K"),
+            (0x0425, "X"),
+            (0x041D, "H"),
+            (0x0422, "T"),
             (0x041C, "M"),
         ]
         for cp, expected in pairs:
             result = normalize(chr(cp))
-            assert result.normalized == expected, (
-                f"U+{cp:04X} should map to {expected!r}"
-            )
+            assert result.normalized == expected, f"U+{cp:04X} should map to {expected!r}"
 
     def test_homoglyph_greek_tau_mapped(self) -> None:
         result = normalize(chr(0x03C4))
@@ -266,15 +268,19 @@ class TestExpandedHomoglyph:
 
     def test_homoglyph_greek_uppercase(self) -> None:
         pairs = [
-            (0x0391, "A"), (0x0395, "E"), (0x039F, "O"),
-            (0x03A1, "P"), (0x039A, "K"), (0x0399, "I"),
-            (0x039D, "N"), (0x03A4, "T"), (0x0397, "H"),
+            (0x0391, "A"),
+            (0x0395, "E"),
+            (0x039F, "O"),
+            (0x03A1, "P"),
+            (0x039A, "K"),
+            (0x0399, "I"),
+            (0x039D, "N"),
+            (0x03A4, "T"),
+            (0x0397, "H"),
         ]
         for cp, expected in pairs:
             result = normalize(chr(cp))
-            assert result.normalized == expected, (
-                f"U+{cp:04X} should map to {expected!r}"
-            )
+            assert result.normalized == expected, f"U+{cp:04X} should map to {expected!r}"
 
     def test_homoglyph_greek_mu(self) -> None:
         # U+03BC (Greek mu) -> "u"
@@ -289,17 +295,27 @@ class TestExpandedHomoglyph:
 
     def test_all_original_17_homoglyphs_preserved(self) -> None:
         original_17 = {
-            "а": "a", "е": "e", "о": "o", "р": "p",
-            "с": "c", "у": "y", "і": "i", "ѕ": "s",
-            "α": "a", "ε": "e", "ο": "o", "ρ": "p",
-            "κ": "k", "ι": "i", "ν": "v",
-            "ı": "i", "ɡ": "g",
+            "а": "a",
+            "е": "e",
+            "о": "o",
+            "р": "p",
+            "с": "c",
+            "у": "y",
+            "і": "i",
+            "ѕ": "s",
+            "α": "a",
+            "ε": "e",
+            "ο": "o",
+            "ρ": "p",
+            "κ": "k",
+            "ι": "i",
+            "ν": "v",
+            "ı": "i",
+            "ɡ": "g",
         }
         for src, expected in original_17.items():
             result = normalize(src)
-            assert result.normalized == expected, (
-                f"Original mapping {src!r}->{expected!r} broken"
-            )
+            assert result.normalized == expected, f"Original mapping {src!r}->{expected!r} broken"
 
 
 class TestRTLOverrides:
@@ -307,9 +323,7 @@ class TestRTLOverrides:
 
     def test_rtl_overrides_all_strippable(self) -> None:
         for ch in RTL_OVERRIDES:
-            assert _is_strippable(ch), (
-                f"RTL_OVERRIDES member U+{ord(ch):04X} not strippable"
-            )
+            assert _is_strippable(ch), f"RTL_OVERRIDES member U+{ord(ch):04X} not strippable"
 
     def test_rtl_overrides_count_unchanged(self) -> None:
         assert len(RTL_OVERRIDES) == 9
