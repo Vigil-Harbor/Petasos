@@ -245,7 +245,7 @@ class TestFanOutScan:
         bad_results = [r for r in result.scanner_results if r.scanner_name == "bad"]
         assert len(good_results) == 1
         assert len(bad_results) == 1
-        assert bad_results[0].error == "boom"
+        assert bad_results[0].error == "RuntimeError: boom"
         assert len(good_results[0].findings) == 1
 
     @pytest.mark.asyncio
@@ -621,7 +621,8 @@ class TestPipelineNeverThrows:
         assert len(result.errors) > 0
 
     @pytest.mark.asyncio
-    async def test_base_exception_propagates(self) -> None:
+    async def test_base_exception_caught_at_boundary(self) -> None:
+        # PET-48: BaseException (including SystemExit) is now caught by inspect()
         p = Pipeline()
 
         async def _raise_system_exit(
@@ -634,8 +635,10 @@ class TestPipelineNeverThrows:
             raise SystemExit(1)
 
         p._inspect_inner = _raise_system_exit  # type: ignore[method-assign]
-        with pytest.raises(SystemExit):
-            await p.inspect("test")
+        result = await p.inspect("test")
+        assert isinstance(result, PipelineResult)
+        assert result.safe is False
+        assert any("SystemExit" in e for e in result.errors)
 
 
 # ===================================================================
