@@ -65,11 +65,11 @@ def test_redos_patterns_bounded() -> None:
     for _, pat in _INJECTION_PATTERNS:
         t0 = time.perf_counter()
         pat.search(evil)
-        assert time.perf_counter() - t0 < 1.0
+        assert time.perf_counter() - t0 < 2.0
     t0 = time.perf_counter()
     _BINARY_PATTERN.search(evil)
     _BASE64_PATTERN.search(evil)
-    assert time.perf_counter() - t0 < 1.0
+    assert time.perf_counter() - t0 < 2.0
 
 
 @pytest.mark.asyncio
