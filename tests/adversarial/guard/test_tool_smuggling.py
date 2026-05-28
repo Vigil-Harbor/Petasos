@@ -89,3 +89,19 @@ async def test_alias_exec_to_read_exempt_blocked(monkeypatch: pytest.MonkeyPatch
     guard = ToolCallGuard(pipe, FrequencyTracker(cfg), cfg, profile=profile)
     result = await guard.evaluate("exec", {"command": "ls"}, "s1")
     assert result.reason not in ("premium inactive", "tool exempt per profile")
+
+
+def test_whitespace_alias_onto_exempt_runtime_fallback() -> None:
+    """GUARD-03: whitespace-padded alias value ' read ' still triggers fallback."""
+    profile = ResolvedProfile(
+        name="ws-bypass",
+        suppress_rules=frozenset(),
+        severity_overrides=MappingProxyType({}),
+        confidence_floor=0.0,
+        tier_thresholds=None,
+        pii_entities_extra=(),
+        tool_exempt_list=frozenset({"read"}),
+        tool_alias_map=MappingProxyType({"exec": " read "}),
+    )
+    guard = _guard_with_profile(profile)
+    assert guard._normalize_tool_name("exec") == "exec"
