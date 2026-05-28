@@ -462,6 +462,108 @@ class TestCriticalExemption:
 
 
 # ---------------------------------------------------------------------------
+# Critical cap (PET-16)
+# ---------------------------------------------------------------------------
+
+
+class TestCriticalCap:
+    def test_critical_cap_bounds_fanout(self) -> None:
+        mgr = AlertManager(_cfg(alert_critical_per_minute_cap=5))
+        fr = _freq(previous_score=35.0, current_score=55.0, tier="tier3")
+        all_critical: list[Alert] = []
+        for i in range(100):
+            alerts = mgr.evaluate(_result(), f"s{i}", fr)
+            all_critical.extend(
+                a for a in alerts if a.rule_id == "tier_escalation" and a.severity == "critical"
+            )
+        assert len(all_critical) <= 5
+
+    def test_critical_cap_default_allows_legitimate_burst(self) -> None:
+        mgr = AlertManager(_cfg())
+        fr = _freq(previous_score=35.0, current_score=55.0, tier="tier3")
+        all_critical: list[Alert] = []
+        for i in range(10):
+            alerts = mgr.evaluate(_result(), f"s{i}", fr)
+            all_critical.extend(
+                a for a in alerts if a.rule_id == "tier_escalation" and a.severity == "critical"
+            )
+        assert len(all_critical) == 10
+
+    def test_critical_cap_per_rule_id_isolation(self) -> None:
+        mgr = AlertManager(_cfg(alert_critical_per_minute_cap=1))
+        fr = _freq(previous_score=35.0, current_score=55.0, tier="tier3")
+        alerts1 = mgr.evaluate(_result(), "s1", fr)
+        t1 = [a for a in alerts1 if a.rule_id == "tier_escalation" and a.severity == "critical"]
+        assert len(t1) == 1
+        alerts2 = mgr.evaluate(_result(), "s2", fr)
+        t2 = [a for a in alerts2 if a.rule_id == "tier_escalation" and a.severity == "critical"]
+        assert len(t2) == 0
+        assert "tier_escalation" in mgr._critical_per_minute_timestamps
+        assert mgr._critical_per_minute_timestamps.get("other_rule") is None
+
+    def test_critical_cap_resets_after_window(self) -> None:
+        base = time.monotonic()
+        mgr = AlertManager(_cfg(alert_critical_per_minute_cap=2))
+        fr = _freq(previous_score=35.0, current_score=55.0, tier="tier3")
+
+        with patch("petasos.premium.alerting.time") as mock_time:
+            mock_time.time.return_value = 1000.0
+
+            mock_time.monotonic.return_value = base
+            mgr.evaluate(_result(), "s1", fr)
+            mgr.evaluate(_result(), "s2", fr)
+
+            mock_time.monotonic.return_value = base + 0.5
+            alerts_capped = mgr.evaluate(_result(), "s3", fr)
+            capped = [
+                a
+                for a in alerts_capped
+                if a.rule_id == "tier_escalation" and a.severity == "critical"
+            ]
+            assert len(capped) == 0
+
+            mock_time.monotonic.return_value = base + 61.0
+            alerts_after = mgr.evaluate(_result(), "s4", fr)
+            after = [
+                a
+                for a in alerts_after
+                if a.rule_id == "tier_escalation" and a.severity == "critical"
+            ]
+            assert len(after) == 1
+
+    def test_tier3_bypasses_noncritical_caps(self) -> None:
+        mgr = AlertManager(
+            _cfg(
+                alert_per_minute_cap=1,
+                alert_per_hour_cap=1,
+                alert_cooldown_seconds=9999.0,
+            )
+        )
+        fr = _freq(previous_score=35.0, current_score=55.0, tier="tier3")
+        all_critical: list[Alert] = []
+        for _ in range(3):
+            alerts = mgr.evaluate(_result(), "s1", fr)
+            all_critical.extend(
+                a for a in alerts if a.rule_id == "tier_escalation" and a.severity == "critical"
+            )
+        assert len(all_critical) == 3
+
+    def test_critical_fanout_callback_bounded(self) -> None:
+        received: list[Alert] = []
+        mgr = AlertManager(
+            _cfg(alert_critical_per_minute_cap=10),
+            on_alert=received.append,
+        )
+        fr = _freq(previous_score=35.0, current_score=55.0, tier="tier3")
+        for i in range(200):
+            mgr.evaluate(_result(), f"s{i}", fr)
+        critical_callbacks = [
+            a for a in received if a.rule_id == "tier_escalation" and a.severity == "critical"
+        ]
+        assert len(critical_callbacks) <= 10
+
+
+# ---------------------------------------------------------------------------
 # Ring buffer
 # ---------------------------------------------------------------------------
 
