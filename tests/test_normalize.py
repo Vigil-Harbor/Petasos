@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from petasos.normalize import normalize
+import unicodedata
+
+from petasos.normalize import INVISIBLE_CHARS, _is_strippable, normalize
 
 
 class TestNFKC:
@@ -126,3 +128,64 @@ class TestEdgeCases:
         original = "​hello"
         result = normalize(original)
         assert result.original == original
+
+
+class TestCategoryBasedStripping:
+    """PET-43 / NORM-01: category-based invisible character stripping."""
+
+    def test_tag_char_stripped_by_category(self) -> None:
+        # Regression for PET-43: U+E0001 must be stripped via Cf category
+        tag = chr(0xE0001)
+        assert _is_strippable(tag)
+        result = normalize(f"hello{tag}world")
+        assert tag not in result.normalized
+        assert result.invisible_chars_stripped >= 1
+
+    def test_tag_block_range_stripped(self) -> None:
+        # Regression for PET-43: all Cf chars in the Tags block are stripped
+        cf_tags = [
+            chr(cp) for cp in range(0xE0001, 0xE0080) if unicodedata.category(chr(cp)) == "Cf"
+        ]
+        assert len(cf_tags) > 0
+        payload = "a" + "".join(cf_tags) + "b"
+        result = normalize(payload)
+        assert result.normalized == "ab"
+        assert result.invisible_chars_stripped == len(cf_tags)
+
+    def test_braille_blank_stripped(self) -> None:
+        braille = chr(0x2800)
+        assert _is_strippable(braille)
+        result = normalize(f"hello{braille}world")
+        assert braille not in result.normalized
+
+    def test_mongolian_separator_stripped(self) -> None:
+        mvs = chr(0x180E)
+        assert _is_strippable(mvs)
+        result = normalize(f"hello{mvs}world")
+        assert mvs not in result.normalized
+
+    def test_existing_invisible_chars_still_stripped(self) -> None:
+        for ch in INVISIBLE_CHARS:
+            assert _is_strippable(ch), f"INVISIBLE_CHARS member U+{ord(ch):04X} not stripped"
+
+    def test_printable_ascii_not_stripped(self) -> None:
+        for cp in range(0x20, 0x7F):
+            ch = chr(cp)
+            assert not _is_strippable(ch), f"ASCII U+{cp:04X} ({ch!r}) should not be stripped"
+
+    def test_cjk_not_stripped(self) -> None:
+        for ch in "一丁丂":
+            assert unicodedata.category(ch) == "Lo"
+            assert not _is_strippable(ch)
+
+    def test_whitespace_preserved(self) -> None:
+        assert not _is_strippable(" ")
+        assert not _is_strippable("\t")
+        assert not _is_strippable("\n")
+
+    def test_normalize_idempotent_after_fix(self) -> None:
+        tag = chr(0xE0001)
+        payload = f"test{tag}ignore previous"
+        once = normalize(payload).normalized
+        twice = normalize(once).normalized
+        assert once == twice
