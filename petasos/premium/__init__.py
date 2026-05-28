@@ -7,7 +7,7 @@ from petasos.premium.escalation import (
     evaluate_escalation,
     evaluate_tier,
 )
-from petasos.premium.frequency import FrequencyTracker, FrequencyUpdateResult
+from petasos.premium.frequency import FrequencyTracker, FrequencyUpdateResult, SessionToken
 from petasos.premium.guard import GuardResult, ToolCallGuard
 from petasos.premium.license import LicenseClaims, LicenseState, LicenseValidator, validate_license
 from petasos.premium.profiles import (
@@ -30,6 +30,7 @@ __all__ = [
     "LicenseValidator",
     "ProfileResolver",
     "ResolvedProfile",
+    "SessionToken",
     "TIER3_FLOOR",
     "TierThresholds",
     "ToolCallGuard",

@@ -301,6 +301,24 @@ class TestParamScanning:
 
 
 # ---------------------------------------------------------------------------
+# Session token (FREQ-03)
+# ---------------------------------------------------------------------------
+
+
+class TestSessionTokenGuard:
+    def test_guard_derive_tier_with_session_secret(self) -> None:
+        secret = b"test-secret-key-32-bytes-long!!!"
+        cfg = _cfg(session_secret=secret)
+        pipe = Pipeline(config=cfg, host_id="test-host")
+        tracker = FrequencyTracker(cfg)
+        token = tracker.mint_token("s1", "test-host")
+        tracker.update(token, [])
+        g = ToolCallGuard(pipe, tracker, cfg)
+        tier = g._derive_tier("s1")
+        assert tier in ("none", "tier1", "tier2", "tier3")
+
+
+# ---------------------------------------------------------------------------
 # GuardResult
 # ---------------------------------------------------------------------------
 

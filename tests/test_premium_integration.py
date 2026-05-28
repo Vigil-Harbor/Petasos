@@ -169,6 +169,10 @@ class TestPremiumConfigValidation:
                 tier3_threshold=float("inf"),
             )
 
+    def test_pipeline_rejects_secret_without_host_id(self) -> None:
+        with pytest.raises(ValueError, match="host_id is required"):
+            Pipeline(config=PetasosConfig(session_secret=b"key"))
+
 
 # ---------------------------------------------------------------------------
 # Activate / deactivate
