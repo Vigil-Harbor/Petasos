@@ -60,6 +60,8 @@ class PetasosConfig:
     alert_pii_volume_threshold: int = 20
     alert_pii_volume_window_seconds: float = 300.0
     alert_ring_buffer_capacity: int = 1000
+    alert_per_session_contribution_cap: int = 2
+    alert_max_session_contribution_entries: int = 10_000
 
     # Audit
     audit_verbosity: Literal["minimal", "standard", "verbose"] = "standard"
@@ -251,6 +253,29 @@ class PetasosConfig:
                 f"({self.alert_cross_session_burst_count}) must be "
                 f"<= alert_ring_buffer_capacity "
                 f"({self.alert_ring_buffer_capacity})"
+            )
+        if (
+            not isinstance(self.alert_per_session_contribution_cap, int)
+            or isinstance(self.alert_per_session_contribution_cap, bool)
+            or self.alert_per_session_contribution_cap <= 0
+        ):
+            raise ValueError(
+                f"alert_per_session_contribution_cap must be a positive integer, "
+                f"got {self.alert_per_session_contribution_cap!r}"
+            )
+        if (
+            not isinstance(self.alert_max_session_contribution_entries, int)
+            or isinstance(self.alert_max_session_contribution_entries, bool)
+            or self.alert_max_session_contribution_entries <= 0
+        ):
+            raise ValueError(
+                f"alert_max_session_contribution_entries must be a positive integer, "
+                f"got {self.alert_max_session_contribution_entries!r}"
+            )
+        if self.alert_per_session_contribution_cap > self.alert_per_minute_cap:
+            raise ValueError(
+                f"alert_per_session_contribution_cap ({self.alert_per_session_contribution_cap}) "
+                f"must be <= alert_per_minute_cap ({self.alert_per_minute_cap})"
             )
         if self.audit_verbosity not in ("minimal", "standard", "verbose"):
             raise ValueError(

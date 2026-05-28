@@ -428,7 +428,7 @@ class TestCriticalExemption:
         assert len(t2) == 1
 
     def test_tier3_bypasses_per_minute_cap(self) -> None:
-        mgr = AlertManager(_cfg(alert_per_minute_cap=1))
+        mgr = AlertManager(_cfg(alert_per_minute_cap=1, alert_per_session_contribution_cap=1))
         fr = _freq(previous_score=35.0, current_score=55.0, tier="tier3")
         all_critical: list[Alert] = []
         for _ in range(5):
@@ -539,6 +539,7 @@ class TestAlertStats:
         mgr = AlertManager(
             _cfg(
                 alert_per_minute_cap=1,
+                alert_per_session_contribution_cap=1,
                 alert_cooldown_seconds=0.001,
             )
         )
@@ -547,3 +548,265 @@ class TestAlertStats:
         mgr.evaluate(r, "s2", None)
         mgr.evaluate(r, "s3", None)
         assert mgr.rate_limited_count >= 2
+
+
+# ---------------------------------------------------------------------------
+# Session contribution cap (PET-17)
+# ---------------------------------------------------------------------------
+
+
+class TestSessionContributionCap:
+    def test_session_contribution_cap_limits_single_session(self) -> None:
+        base = time.monotonic()
+        with patch("petasos.premium.alerting.time") as mock_time:
+            mock_time.time.return_value = 1000.0
+            mgr = AlertManager(
+                _cfg(
+                    alert_per_minute_cap=10,
+                    alert_per_session_contribution_cap=2,
+                    alert_cooldown_seconds=0.001,
+                )
+            )
+            r = _result(findings=(_finding(severity=Severity.HIGH),))
+            all_hsf: list[Alert] = []
+            for i in range(10):
+                mock_time.monotonic.return_value = base + i * 0.01
+                alerts = mgr.evaluate(r, "s1", None)
+                all_hsf.extend(a for a in alerts if a.rule_id == "high_severity_finding")
+            assert len(all_hsf) <= 2
+            assert mgr.session_rate_limited_count >= 1
+
+    def test_throwaway_sessions_cannot_exhaust_rule_cap(self) -> None:
+        base = time.monotonic()
+        with patch("petasos.premium.alerting.time") as mock_time:
+            mock_time.time.return_value = 1000.0
+            mock_time.monotonic.return_value = base
+
+            mgr = AlertManager(
+                _cfg(
+                    alert_per_minute_cap=10,
+                    alert_per_session_contribution_cap=1,
+                    alert_cooldown_seconds=0.001,
+                )
+            )
+            r = _result(findings=(_finding(severity=Severity.HIGH),))
+            for i in range(100):
+                mgr.evaluate(r, f"throwaway-{i}", None)
+
+            mock_time.monotonic.return_value = base + 61.0
+            alerts = mgr.evaluate(r, "legit-session", None)
+            hsf = [a for a in alerts if a.rule_id == "high_severity_finding"]
+            assert len(hsf) == 1
+
+    def test_session_contribution_independent_across_rules(self) -> None:
+        base = time.monotonic()
+        with patch("petasos.premium.alerting.time") as mock_time:
+            mock_time.time.return_value = 1000.0
+            mgr = AlertManager(
+                _cfg(
+                    alert_per_minute_cap=10,
+                    alert_per_session_contribution_cap=1,
+                    alert_cooldown_seconds=0.001,
+                    alert_rapid_fire_count=3,
+                )
+            )
+            r = _result(findings=(_finding(severity=Severity.HIGH),))
+            mock_time.monotonic.return_value = base
+            a1 = mgr.evaluate(r, "s1", None)
+            assert len([a for a in a1 if a.rule_id == "high_severity_finding"]) == 1
+            assert len([a for a in a1 if a.rule_id == "rapid_fire"]) == 0
+
+            mock_time.monotonic.return_value = base + 0.01
+            a2 = mgr.evaluate(r, "s1", None)
+            assert len([a for a in a2 if a.rule_id == "high_severity_finding"]) == 0
+
+            mock_time.monotonic.return_value = base + 0.02
+            a3 = mgr.evaluate(r, "s1", None)
+            rf = [a for a in a3 if a.rule_id == "rapid_fire"]
+            assert len(rf) == 1
+
+    def test_session_contribution_window_resets(self) -> None:
+        base = time.monotonic()
+        with patch("petasos.premium.alerting.time") as mock_time:
+            mock_time.time.return_value = 1000.0
+
+            mgr = AlertManager(
+                _cfg(
+                    alert_per_minute_cap=10,
+                    alert_per_session_contribution_cap=1,
+                    alert_cooldown_seconds=0.001,
+                )
+            )
+            r = _result(findings=(_finding(severity=Severity.HIGH),))
+
+            mock_time.monotonic.return_value = base
+            mgr.evaluate(r, "s1", None)
+            alerts_blocked = mgr.evaluate(r, "s1", None)
+            hsf_blocked = [a for a in alerts_blocked if a.rule_id == "high_severity_finding"]
+            assert len(hsf_blocked) == 0
+
+            mock_time.monotonic.return_value = base + 61.0
+            alerts_after = mgr.evaluate(r, "s1", None)
+            hsf_after = [a for a in alerts_after if a.rule_id == "high_severity_finding"]
+            assert len(hsf_after) == 1
+
+    def test_session_none_uses_none_key(self) -> None:
+        base = time.monotonic()
+        with patch("petasos.premium.alerting.time") as mock_time:
+            mock_time.time.return_value = 1000.0
+            mgr = AlertManager(
+                _cfg(
+                    alert_per_minute_cap=10,
+                    alert_per_session_contribution_cap=1,
+                    alert_cooldown_seconds=0.001,
+                )
+            )
+            r = _result(findings=(_finding(severity=Severity.HIGH),))
+            mock_time.monotonic.return_value = base
+            mgr.evaluate(r, None, None)
+            mock_time.monotonic.return_value = base + 0.01
+            alerts = mgr.evaluate(r, None, None)
+            hsf = [a for a in alerts if a.rule_id == "high_severity_finding"]
+            assert len(hsf) == 0
+            assert mgr.session_rate_limited_count >= 1
+
+    def test_per_session_deque_pruned(self) -> None:
+        base = time.monotonic()
+        with patch("petasos.premium.alerting.time") as mock_time:
+            mock_time.time.return_value = 1000.0
+            mock_time.monotonic.return_value = base
+
+            mgr = AlertManager(
+                _cfg(
+                    alert_per_minute_cap=10,
+                    alert_per_session_contribution_cap=2,
+                    alert_cooldown_seconds=0.001,
+                )
+            )
+            r = _result(findings=(_finding(severity=Severity.HIGH),))
+            mgr.evaluate(r, "s1", None)
+            assert len(mgr._per_session_minute_timestamps) >= 1
+
+            mock_time.monotonic.return_value = base + 61.0
+            mgr.evaluate(r, "s2", None)
+            assert ("high_severity_finding", "s1") not in mgr._per_session_minute_timestamps
+
+    def test_memory_bound_rejects_new_sessions(self) -> None:
+        mgr = AlertManager(
+            _cfg(
+                alert_per_minute_cap=500,
+                alert_per_hour_cap=500,
+                alert_per_session_contribution_cap=2,
+                alert_cooldown_seconds=0.001,
+                alert_max_session_contribution_entries=100,
+            )
+        )
+        r = _result(findings=(_finding(severity=Severity.HIGH),))
+        for i in range(200):
+            mgr.evaluate(r, f"s{i}", None)
+        mgr.evaluate(_result(), "trigger-prune", None)
+        assert len(mgr._per_session_minute_timestamps) <= 105
+        assert mgr.session_rate_limited_count >= 1
+
+    def test_cap_1_suppresses_reentry(self) -> None:
+        base = time.monotonic()
+        with patch("petasos.premium.alerting.time") as mock_time:
+            mock_time.time.return_value = 1000.0
+            mock_time.monotonic.return_value = base
+
+            mgr = AlertManager(
+                _cfg(
+                    alert_per_minute_cap=10,
+                    alert_per_session_contribution_cap=1,
+                    alert_cooldown_seconds=0.001,
+                )
+            )
+            r = _result(findings=(_finding(severity=Severity.HIGH),))
+            alerts1 = mgr.evaluate(r, "s1", None)
+            assert len([a for a in alerts1 if a.rule_id == "high_severity_finding"]) == 1
+
+            mock_time.monotonic.return_value = base + 30.0
+            alerts2 = mgr.evaluate(r, "s1", None)
+            assert len([a for a in alerts2 if a.rule_id == "high_severity_finding"]) == 0
+            assert mgr.session_rate_limited_count >= 1
+
+    def test_three_gate_composition(self) -> None:
+        base = time.monotonic()
+        with patch("petasos.premium.alerting.time") as mock_time:
+            mock_time.time.return_value = 1000.0
+
+            mgr = AlertManager(
+                _cfg(
+                    alert_cooldown_seconds=10.0,
+                    alert_per_session_contribution_cap=2,
+                    alert_per_minute_cap=5,
+                )
+            )
+            r = _result(findings=(_finding(severity=Severity.HIGH),))
+
+            mock_time.monotonic.return_value = base
+            a1 = mgr.evaluate(r, "s1", None)
+            assert len([a for a in a1 if a.rule_id == "high_severity_finding"]) == 1
+
+            mock_time.monotonic.return_value = base + 5.0
+            a2 = mgr.evaluate(r, "s1", None)
+            assert len([a for a in a2 if a.rule_id == "high_severity_finding"]) == 0
+            assert mgr.suppressed_count >= 1
+
+            mock_time.monotonic.return_value = base + 11.0
+            a3 = mgr.evaluate(r, "s1", None)
+            assert len([a for a in a3 if a.rule_id == "high_severity_finding"]) == 1
+
+            mock_time.monotonic.return_value = base + 22.0
+            a4 = mgr.evaluate(r, "s1", None)
+            assert len([a for a in a4 if a.rule_id == "high_severity_finding"]) == 0
+            assert mgr.session_rate_limited_count >= 1
+
+    def test_session_rate_limited_count_separate(self) -> None:
+        base = time.monotonic()
+        with patch("petasos.premium.alerting.time") as mock_time:
+            mock_time.time.return_value = 1000.0
+            mgr = AlertManager(
+                _cfg(
+                    alert_per_minute_cap=10,
+                    alert_per_session_contribution_cap=1,
+                    alert_cooldown_seconds=0.001,
+                )
+            )
+            r = _result(findings=(_finding(severity=Severity.HIGH),))
+            mock_time.monotonic.return_value = base
+            mgr.evaluate(r, "s1", None)
+            mock_time.monotonic.return_value = base + 0.01
+            mgr.evaluate(r, "s1", None)
+            assert mgr.session_rate_limited_count >= 1
+            assert mgr.rate_limited_count == 0
+
+    def test_cross_field_validation_cap_gt_per_minute(self) -> None:
+        with pytest.raises(ValueError, match="must be <= alert_per_minute_cap"):
+            _cfg(alert_per_session_contribution_cap=10, alert_per_minute_cap=5)
+        _cfg(alert_per_session_contribution_cap=5, alert_per_minute_cap=5)
+
+    def test_memory_bound_recovery_after_expiry(self) -> None:
+        base = time.monotonic()
+        with patch("petasos.premium.alerting.time") as mock_time:
+            mock_time.time.return_value = 1000.0
+            mock_time.monotonic.return_value = base
+
+            mgr = AlertManager(
+                _cfg(
+                    alert_per_minute_cap=500,
+                    alert_per_hour_cap=500,
+                    alert_per_session_contribution_cap=2,
+                    alert_cooldown_seconds=0.001,
+                    alert_max_session_contribution_entries=50,
+                )
+            )
+            r = _result(findings=(_finding(severity=Severity.HIGH),))
+            for i in range(100):
+                mgr.evaluate(r, f"s{i}", None)
+            assert mgr.session_rate_limited_count >= 1
+
+            mock_time.monotonic.return_value = base + 61.0
+            alerts = mgr.evaluate(r, "fresh-session", None)
+            hsf = [a for a in alerts if a.rule_id == "high_severity_finding"]
+            assert len(hsf) == 1
