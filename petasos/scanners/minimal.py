@@ -26,12 +26,12 @@ class SyntacticRule:
 # --- Injection patterns (8 rules) ---
 
 _INJECTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
-    ("ignore-previous", re.compile(r"ignore previous instructions", re.IGNORECASE)),
-    ("ignore-all", re.compile(r"ignore all instructions", re.IGNORECASE)),
-    ("disregard", re.compile(r"disregard your", re.IGNORECASE)),
-    ("you-are-now", re.compile(r"you are now", re.IGNORECASE)),
-    ("new-instructions", re.compile(r"new instructions\s*:", re.IGNORECASE)),
-    ("system-override", re.compile(r"system override", re.IGNORECASE)),
+    ("ignore-previous", re.compile(r"ignore\s+previous\s+instructions", re.IGNORECASE)),
+    ("ignore-all", re.compile(r"ignore\s+all\s+instructions", re.IGNORECASE)),
+    ("disregard", re.compile(r"disregard\s+your", re.IGNORECASE)),
+    ("you-are-now", re.compile(r"you\s+are\s+now", re.IGNORECASE)),
+    ("new-instructions", re.compile(r"new\s+instructions\s*:", re.IGNORECASE)),
+    ("system-override", re.compile(r"system\s+override", re.IGNORECASE)),
     ("system-prefix", re.compile(r"^SYSTEM:", re.MULTILINE)),
     ("inst-delimiter", re.compile(r"\[INST\]|</INST>", re.IGNORECASE)),
 ]
@@ -39,18 +39,18 @@ _INJECTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
 # --- Role-switch detection ---
 
 _ROLE_TRIGGERS: list[re.Pattern[str]] = [
-    re.compile(r"you are a", re.IGNORECASE),
-    re.compile(r"act as", re.IGNORECASE),
-    re.compile(r"pretend you are", re.IGNORECASE),
-    re.compile(r"roleplay as", re.IGNORECASE),
+    re.compile(r"you\s+are\s+a", re.IGNORECASE),
+    re.compile(r"act\s+as", re.IGNORECASE),
+    re.compile(r"pretend\s+you\s+are", re.IGNORECASE),
+    re.compile(r"roleplay\s+as", re.IGNORECASE),
 ]
 
 _ROLE_GRANTS: list[re.Pattern[str]] = [
-    re.compile(r"no restrictions", re.IGNORECASE),
-    re.compile(r"no limits", re.IGNORECASE),
-    re.compile(r"without filters", re.IGNORECASE),
-    re.compile(r"DAN mode", re.IGNORECASE),
-    re.compile(r"developer mode", re.IGNORECASE),
+    re.compile(r"no\s+restrictions", re.IGNORECASE),
+    re.compile(r"no\s+limits", re.IGNORECASE),
+    re.compile(r"without\s+filters", re.IGNORECASE),
+    re.compile(r"DAN\s+mode", re.IGNORECASE),
+    re.compile(r"developer\s+mode", re.IGNORECASE),
 ]
 
 # --- Structural checks ---
