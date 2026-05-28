@@ -491,3 +491,49 @@ class TestWeightValidation:
         tracker = FrequencyTracker(cfg)
         assert tracker._exact_weights == {}
         assert len(tracker._glob_weights) == len(DEFAULT_FREQUENCY_WEIGHTS)
+
+
+# ---------------------------------------------------------------------------
+# Session token (FREQ-03)
+# ---------------------------------------------------------------------------
+
+_SECRET = b"test-secret-key-32-bytes-long!!!"
+
+
+class TestSessionToken:
+    def test_backward_compat_no_secret(self) -> None:
+        cfg = _cfg()
+        tracker = FrequencyTracker(cfg)
+        with patch("petasos.premium.frequency.time.monotonic", return_value=1000.0):
+            tracker.update("s1", [])
+        assert tracker.get_state("s1") is not None
+        tracker.terminate_session("s1")
+        state = tracker.get_state("s1")
+        assert state is not None and state.terminated
+        tracker.reset("s1")
+        assert tracker.get_state("s1") is None
+
+    def test_valid_token_accepted(self) -> None:
+        cfg = _cfg(session_secret=_SECRET)
+        tracker = FrequencyTracker(cfg)
+        token = tracker.mint_token("s1", "host-a")
+        with patch("petasos.premium.frequency.time.monotonic", return_value=1000.0):
+            result = tracker.update(token, ["petasos.syntactic.injection.ignore-previous"])
+        assert result.current_score > 0
+        state = tracker.get_state(token)
+        assert state is not None
+        assert state.last_score == result.current_score
+
+    def test_mint_token_without_secret_raises(self) -> None:
+        cfg = _cfg()
+        tracker = FrequencyTracker(cfg)
+        with pytest.raises(ValueError, match="no session_secret configured"):
+            tracker.mint_token("s1", "host")
+
+    def test_mint_token_rejects_null_bytes(self) -> None:
+        cfg = _cfg(session_secret=_SECRET)
+        tracker = FrequencyTracker(cfg)
+        with pytest.raises(ValueError, match="null bytes"):
+            tracker.mint_token("\x00abc", "host")
+        with pytest.raises(ValueError, match="null bytes"):
+            tracker.mint_token("s1", "host\x00evil")

@@ -92,6 +92,21 @@ class TestConfigSerialization:
         assert cfg.pii_entities == ()
 
 
+class TestSessionSecret:
+    def test_from_dict_session_secret_base64(self) -> None:
+        import base64
+
+        secret = b"my-secret"
+        encoded = base64.b64encode(secret).decode()
+        cfg = PetasosConfig.from_dict({"session_secret": encoded})
+        assert cfg.session_secret == secret
+
+    def test_to_dict_excludes_session_secret(self) -> None:
+        cfg = PetasosConfig(session_secret=b"key")
+        d = cfg.to_dict()
+        assert "session_secret" not in d
+
+
 class TestConfigFrozen:
     def test_frozen_prevents_mutation(self) -> None:
         cfg = PetasosConfig()

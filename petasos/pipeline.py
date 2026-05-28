@@ -157,8 +157,14 @@ class Pipeline:
         profile: str | ResolvedProfile | None = None,
         on_audit: Callable[[AuditEvent], None] | None = None,
         on_alert: Callable[[Alert], None] | None = None,
+        host_id: str = "",
     ) -> None:
         self._config = config.copy() if config is not None else PetasosConfig()
+        if config is not None and config.session_secret is not None:
+            object.__setattr__(self._config, "session_secret", config.session_secret)
+        self._host_id = host_id
+        if self._config.session_secret is not None and not host_id:
+            raise ValueError("host_id is required when session_secret is configured")
         self._license_validator = LicenseValidator()
         self._license_state = LicenseState.INACTIVE
         self._license_claims: LicenseClaims | None = None
@@ -202,6 +208,10 @@ class Pipeline:
     def deactivate(self) -> None:
         self._license_state = LicenseState.INACTIVE
         self._license_claims = None
+
+    @property
+    def host_id(self) -> str:
+        return self._host_id
 
     def is_premium_active(self, feature_name: str) -> bool:
         return self._check_premium(feature_name)
@@ -495,6 +505,9 @@ class Pipeline:
         if session_id is None:
             return None
         rule_ids = [f.rule_id for f in findings]
+        if self._config.session_secret is not None:
+            token = self._frequency_tracker.mint_token(session_id, self._host_id)
+            return self._frequency_tracker.update(token, rule_ids)
         return self._frequency_tracker.update(session_id, rule_ids)
 
     async def _premium_escalation_hook(

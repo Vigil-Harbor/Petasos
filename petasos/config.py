@@ -80,6 +80,9 @@ class PetasosConfig:
     session_ttl_seconds: float = 3600.0
     max_new_sessions_per_minute: int = 60
 
+    # Session token binding (FREQ-03 defense)
+    session_secret: bytes | None = None
+
     def __post_init__(self) -> None:
         if not isinstance(self.pii_entities, tuple):
             object.__setattr__(self, "pii_entities", tuple(self.pii_entities))
@@ -132,6 +135,10 @@ class PetasosConfig:
             raise ValueError(
                 f"max_new_sessions_per_minute must be a positive integer, "
                 f"got {self.max_new_sessions_per_minute!r}"
+            )
+        if self.session_secret is not None and not isinstance(self.session_secret, bytes):
+            raise ValueError(
+                f"session_secret must be bytes or None, got {type(self.session_secret).__name__}"
             )
         if self.frequency_weights is not None:
             for k, v in self.frequency_weights.items():
@@ -261,6 +268,8 @@ class PetasosConfig:
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {}
         for f in fields(self):
+            if f.name == "session_secret":
+                continue
             val = getattr(self, f.name)
             if isinstance(val, tuple):
                 val = list(val)
@@ -275,6 +284,13 @@ class PetasosConfig:
         filtered = {k: v for k, v in data.items() if k in known}
         if "pii_entities" in filtered and isinstance(filtered["pii_entities"], list):
             filtered["pii_entities"] = tuple(filtered["pii_entities"])
+        if "session_secret" in filtered and isinstance(filtered["session_secret"], str):
+            import base64
+
+            try:
+                filtered["session_secret"] = base64.b64decode(filtered["session_secret"])
+            except Exception:
+                raise ValueError("session_secret must be valid base64") from None
         return cls(**filtered)
 
     def copy(self) -> PetasosConfig:
