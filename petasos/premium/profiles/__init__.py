@@ -9,11 +9,10 @@ from typing import Any
 
 from petasos._types import Severity
 from petasos.config import _validate_tier_thresholds
-from petasos.scanners.minimal import _ALL_INJECTION_IDS, _STRUCTURAL_RULE_IDS
+from petasos.scanners.minimal import _STRUCTURAL_RULE_IDS
+from petasos.scanners.minimal import _UNSUPPRESSIBLE_RULE_IDS as _UNSUPPRESSIBLE_RULE_IDS
 
 _logger = logging.getLogger(__name__)
-
-_UNSUPPRESSIBLE_RULE_IDS: frozenset[str] = _ALL_INJECTION_IDS | _STRUCTURAL_RULE_IDS
 
 
 def _validate_suppress_rules(suppress: frozenset[str]) -> frozenset[str]:
