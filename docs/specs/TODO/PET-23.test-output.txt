@@ -1,0 +1,216 @@
+============================= test session starts =============================
+platform win32 -- Python 3.10.6, pytest-9.0.3, pluggy-1.6.0 -- C:\python310\python.exe
+cachedir: .pytest_cache
+rootdir: .
+configfile: pyproject.toml
+plugins: anyio-4.13.0, asyncio-1.3.0
+asyncio: mode=auto, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 119 items
+
+tests/adversarial/config/test_config_poisoning.py::test_frozen_config_bypass_via_setattr PASSED [  0%]
+tests/adversarial/config/test_config_poisoning.py::test_anonymize_truthy_non_bool_rejected PASSED [  1%]
+tests/adversarial/config/test_config_poisoning.py::test_tier3_floor_module_global_mutable PASSED [  2%]
+tests/adversarial/config/test_config_poisoning.py::test_tier3_below_floor_rejected PASSED [  3%]
+tests/adversarial/config/test_config_poisoning.py::test_slots_no_dict PASSED [  4%]
+tests/adversarial/config/test_config_poisoning.py::test_slots_no_new_attr PASSED [  5%]
+tests/adversarial/config/test_config_poisoning.py::test_object_setattr_on_defined_field_residual PASSED [  5%]
+tests/adversarial/config/test_config_poisoning.py::test_evaluate_tier_failsecure_on_low_tier3 PASSED [  6%]
+tests/adversarial/config/test_config_poisoning.py::test_evaluate_tier_ignores_module_mutation PASSED [  7%]
+tests/adversarial/config/test_config_poisoning.py::test_pipeline_config_isolation PASSED [  8%]
+tests/adversarial/config/test_config_poisoning.py::test_pipeline_replace_preserves_session_secret PASSED [  9%]
+tests/adversarial/config/test_config_poisoning.py::test_compute_safe_fallback_on_invalid_fail_mode PASSED [ 10%]
+tests/test_config.py::TestConfigDefaults::test_default_construction PASSED [ 10%]
+tests/test_config.py::TestConfigDefaults::test_premium_stubs_default_disabled PASSED [ 11%]
+tests/test_config.py::TestConfigDefaults::test_normalization_toggles_default_true PASSED [ 12%]
+tests/test_config.py::TestConfigValidation::test_rejects_invalid_direction PASSED [ 13%]
+tests/test_config.py::TestConfigValidation::test_rejects_invalid_fail_mode PASSED [ 14%]
+tests/test_config.py::TestConfigValidation::test_rejects_invalid_redaction_mode PASSED [ 15%]
+tests/test_config.py::TestConfigValidation::test_requires_hash_key_for_hash_mode PASSED [ 15%]
+tests/test_config.py::TestConfigValidation::test_rejects_empty_hash_key_for_hash_mode PASSED [ 16%]
+tests/test_config.py::TestConfigValidation::test_hash_mode_without_anonymize_ok PASSED [ 17%]
+tests/test_config.py::TestConfigValidation::test_rejects_empty_pii_entity PASSED [ 18%]
+tests/test_config.py::TestConfigValidation::test_rejects_critical_per_minute_cap_zero PASSED [ 19%]
+tests/test_config.py::TestConfigValidation::test_rejects_critical_per_minute_cap_bool PASSED [ 20%]
+tests/test_config.py::TestConfigValidation::test_rejects_critical_per_minute_cap_negative PASSED [ 21%]
+tests/test_config.py::TestConfigSerialization::test_round_trip PASSED    [ 21%]
+tests/test_config.py::TestConfigSerialization::test_to_dict_converts_tuples_to_lists PASSED [ 22%]
+tests/test_config.py::TestConfigSerialization::test_from_dict_partial_fills_defaults PASSED [ 23%]
+tests/test_config.py::TestConfigSerialization::test_from_dict_ignores_extra_keys PASSED [ 24%]
+tests/test_config.py::TestConfigSerialization::test_empty_pii_entities_valid PASSED [ 25%]
+tests/test_config.py::TestSessionSecret::test_from_dict_session_secret_base64 PASSED [ 26%]
+tests/test_config.py::TestSessionSecret::test_to_dict_excludes_session_secret PASSED [ 26%]
+tests/test_config.py::TestSessionContributionCapValidation::test_alert_per_session_contribution_cap_rejects_zero PASSED [ 27%]
+tests/test_config.py::TestSessionContributionCapValidation::test_alert_per_session_contribution_cap_rejects_negative PASSED [ 28%]
+tests/test_config.py::TestSessionContributionCapValidation::test_alert_per_session_contribution_cap_rejects_bool PASSED [ 29%]
+tests/test_config.py::TestSessionContributionCapValidation::test_alert_max_session_contribution_entries_rejects_zero PASSED [ 30%]
+tests/test_config.py::TestSessionContributionCapValidation::test_alert_max_session_contribution_entries_rejects_negative PASSED [ 31%]
+tests/test_config.py::TestSessionContributionCapValidation::test_alert_max_session_contribution_entries_rejects_bool PASSED [ 31%]
+tests/test_config.py::TestSessionContributionCapValidation::test_cross_field_validation_cap_gt_per_minute PASSED [ 32%]
+tests/test_config.py::TestBoolCoercion::test_from_dict_rejects_int_zero_for_bool PASSED [ 33%]
+tests/test_config.py::TestBoolCoercion::test_from_dict_rejects_int_one_for_bool PASSED [ 34%]
+tests/test_config.py::TestBoolCoercion::test_from_dict_rejects_string_for_bool PASSED [ 35%]
+tests/test_config.py::TestBoolCoercion::test_from_dict_rejects_none_for_bool PASSED [ 36%]
+tests/test_config.py::TestBoolCoercion::test_from_dict_accepts_true_bool PASSED [ 36%]
+tests/test_config.py::TestBoolCoercion::test_from_dict_accepts_false_bool PASSED [ 37%]
+tests/test_config.py::TestBoolCoercion::test_direct_constructor_rejects_int_for_bool PASSED [ 38%]
+tests/test_config.py::TestBoolFieldsCoverage::test_all_bool_fields_covered PASSED [ 39%]
+tests/test_config.py::TestSecretRedaction::test_to_dict_redact_secrets_masks_hash_key PASSED [ 40%]
+tests/test_config.py::TestSecretRedaction::test_to_dict_redact_secrets_none_stays_none PASSED [ 41%]
+tests/test_config.py::TestSecretRedaction::test_to_dict_default_preserves_hash_key PASSED [ 42%]
+tests/test_config.py::TestSecretRedaction::test_secret_fields_subset_of_config_fields PASSED [ 42%]
+tests/test_config.py::TestConfigFrozen::test_frozen_prevents_mutation PASSED [ 43%]
+tests/test_pipeline.py::TestPipelineConstruction::test_no_scanners_uses_minimal_only PASSED [ 44%]
+tests/test_pipeline.py::TestPipelineConstruction::test_explicit_minimal_not_duplicated PASSED [ 45%]
+tests/test_pipeline.py::TestPipelineConstruction::test_ml_scanners_separated PASSED [ 46%]
+tests/test_pipeline.py::TestPipelineConstruction::test_none_config_uses_defaults PASSED [ 47%]
+tests/test_pipeline.py::TestPipelineConstruction::test_config_defensive_copy PASSED [ 47%]
+tests/test_pipeline.py::TestNormalization::test_input_normalized_before_ml_scan PASSED [ 48%]
+tests/test_pipeline.py::TestNormalization::test_normalization_disabled_uses_raw PASSED [ 49%]
+tests/test_pipeline.py::TestNormalization::test_empty_string_safe PASSED [ 50%]
+tests/test_pipeline.py::TestSyntacticPreFilter::test_minimal_always_runs PASSED [ 51%]
+tests/test_pipeline.py::TestSyntacticPreFilter::test_minimal_findings_included PASSED [ 52%]
+tests/test_pipeline.py::TestSyntacticPreFilter::test_minimal_error_recorded PASSED [ 52%]
+tests/test_pipeline.py::TestFanOutScan::test_single_ml_scanner PASSED    [ 53%]
+tests/test_pipeline.py::TestFanOutScan::test_concurrent_execution PASSED [ 54%]
+tests/test_pipeline.py::TestFanOutScan::test_scanner_exception_isolated PASSED [ 55%]
+tests/test_pipeline.py::TestFanOutScan::test_scanner_timeout PASSED      [ 56%]
+tests/test_pipeline.py::TestFanOutScan::test_scanner_empty_findings PASSED [ 57%]
+tests/test_pipeline.py::TestFanOutScan::test_all_scanners_empty_safe PASSED [ 57%]
+tests/test_pipeline.py::TestFindingMergeIntegration::test_minimal_and_ml_merged PASSED [ 58%]
+tests/test_pipeline.py::TestFindingMergeIntegration::test_overlapping_deduplicated PASSED [ 59%]
+tests/test_pipeline.py::TestFindingMergeIntegration::test_aggregate_severity_highest PASSED [ 60%]
+tests/test_pipeline.py::TestFailModeDegraded::test_no_ml_failures_findings_only PASSED [ 61%]
+tests/test_pipeline.py::TestFailModeDegraded::test_partial_ml_failure_blocks PASSED [ 62%]
+tests/test_pipeline.py::TestFailModeDegraded::test_all_ml_failure_blocks PASSED [ 63%]
+tests/test_pipeline.py::TestFailModeDegraded::test_no_ml_scanners_failmode_not_applied PASSED [ 63%]
+tests/test_pipeline.py::TestFailModeDegraded::test_critical_finding_unsafe PASSED [ 64%]
+tests/test_pipeline.py::TestFailModeOpen::test_partial_ml_failure_safe PASSED [ 65%]
+tests/test_pipeline.py::TestFailModeOpen::test_all_ml_failure_safe PASSED [ 66%]
+tests/test_pipeline.py::TestFailModeOpen::test_findings_still_determine_safe PASSED [ 67%]
+tests/test_pipeline.py::TestFailModeClosed::test_partial_ml_failure_blocks PASSED [ 68%]
+tests/test_pipeline.py::TestFailModeClosed::test_all_ml_failure_blocks PASSED [ 68%]
+tests/test_pipeline.py::TestFailModeClosed::test_early_exit_critical_minimal PASSED [ 69%]
+tests/test_pipeline.py::TestFailModeClosed::test_early_exit_still_runs_premium_hooks PASSED [ 70%]
+tests/test_pipeline.py::TestFailModeClosed::test_no_findings_no_errors_safe PASSED [ 71%]
+tests/test_pipeline.py::TestAnonymization::test_pii_findings_anonymize_true PASSED [ 72%]
+tests/test_pipeline.py::TestAnonymization::test_no_pii_findings_no_sanitization PASSED [ 73%]
+tests/test_pipeline.py::TestAnonymization::test_anonymize_false_no_sanitization PASSED [ 73%]
+tests/test_pipeline.py::TestAnonymization::test_presidio_not_installed_error PASSED [ 74%]
+tests/test_pipeline.py::TestAnonymization::test_mask_mode_deterministic PASSED [ 75%]
+tests/test_pipeline.py::TestPipelineNeverThrows::test_broken_scanner_returns_result PASSED [ 76%]
+tests/test_pipeline.py::TestPipelineNeverThrows::test_non_string_input_returns_result PASSED [ 77%]
+tests/test_pipeline.py::TestPipelineNeverThrows::test_internal_error_returns_result PASSED [ 78%]
+tests/test_pipeline.py::TestPipelineNeverThrows::test_base_exception_caught_at_boundary PASSED [ 78%]
+tests/test_pipeline.py::TestPremiumHooks::test_hooks_callable PASSED     [ 79%]
+tests/test_pipeline.py::TestPremiumHooks::test_hooks_are_noops PASSED    [ 80%]
+tests/test_pipeline.py::TestDirection::test_direction_override PASSED    [ 81%]
+tests/test_pipeline.py::TestDirection::test_direction_default_from_config PASSED [ 82%]
+tests/test_pipeline.py::TestPipelineProfile::test_init_with_profile_string PASSED [ 83%]
+tests/test_pipeline.py::TestPipelineProfile::test_init_with_invalid_profile_raises PASSED [ 84%]
+tests/test_pipeline.py::TestPipelineProfile::test_inspect_profile_override_dict PASSED [ 84%]
+tests/test_pipeline.py::TestPipelineProfile::test_inspect_profile_override_string PASSED [ 85%]
+tests/test_pipeline.py::TestPipelineProfile::test_config_property_accessible PASSED [ 86%]
+tests/test_pipeline.py::TestPipelineProfile::test_is_premium_active_public PASSED [ 87%]
+tests/test_escalation.py::TestEvaluateTier::test_below_tier1_returns_none PASSED [ 88%]
+tests/test_escalation.py::TestEvaluateTier::test_at_tier1_returns_tier1 PASSED [ 89%]
+tests/test_escalation.py::TestEvaluateTier::test_between_tier1_and_tier2_returns_tier1 PASSED [ 89%]
+tests/test_escalation.py::TestEvaluateTier::test_at_tier2_returns_tier2 PASSED [ 90%]
+tests/test_escalation.py::TestEvaluateTier::test_between_tier2_and_tier3_returns_tier2 PASSED [ 91%]
+tests/test_escalation.py::TestEvaluateTier::test_at_tier3_returns_tier3 PASSED [ 92%]
+tests/test_escalation.py::TestEvaluateTier::test_above_tier3_returns_tier3 PASSED [ 93%]
+tests/test_escalation.py::TestTier3Floor::test_tier3_below_floor_raises PASSED [ 94%]
+tests/test_escalation.py::TestTier3Floor::test_tier3_at_floor_accepted PASSED [ 94%]
+tests/test_escalation.py::TestTier3Floor::test_floor_constant_is_30 PASSED [ 95%]
+tests/test_escalation.py::TestEvaluateEscalation::test_tier1_action_is_deep_inspect PASSED [ 96%]
+tests/test_escalation.py::TestEvaluateEscalation::test_tier2_action_is_enhanced_scrutiny PASSED [ 97%]
+tests/test_escalation.py::TestEvaluateEscalation::test_tier3_action_is_terminate PASSED [ 98%]
+tests/test_escalation.py::TestEvaluateEscalation::test_no_escalation_action_is_none PASSED [ 99%]
+tests/test_escalation.py::TestEvaluateEscalation::test_escalation_result_is_frozen PASSED [100%]
+
+============================= 119 passed in 0.51s =============================
+--- FULL SUITE ---
+........................................................................ [  9%]
+............................x...X....................................... [ 18%]
+........................................................................ [ 27%]
+........................................................................ [ 36%]
+........................................................................ [ 45%]
+...............................ssss..................................... [ 54%]
+............................ssssssssssss................ssssssssss...... [ 63%]
+........................................................................ [ 72%]
+........................................................................ [ 81%]
+........................................................................ [ 90%]
+........................................................................ [ 99%]
+.                                                                        [100%]
+============================== warnings summary ===============================
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_detect_email
+  .\tests\test_presidio_scanner.py:380: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(
+
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_detect_phone
+  .\tests\test_presidio_scanner.py:392: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(
+
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_detect_person
+  .\tests\test_presidio_scanner.py:400: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(
+
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_detect_credit_card
+  .\tests\test_presidio_scanner.py:408: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(
+
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_no_pii_clean
+  .\tests\test_presidio_scanner.py:417: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(
+
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_empty_text
+  .\tests\test_presidio_scanner.py:424: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(scanner.scan(""))
+
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_position_accuracy
+  .\tests\test_presidio_scanner.py:430: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(scanner.scan(text))
+
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_confidence_range
+  .\tests\test_presidio_scanner.py:436: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(
+
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_duration_tracked
+  .\tests\test_presidio_scanner.py:443: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(scanner.scan("john@example.com"))
+
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_score_threshold_filtering
+  .\tests\test_presidio_scanner.py:448: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(
+
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_custom_entities_filter
+  .\tests\test_presidio_scanner.py:457: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(
+
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_multi_finding_message
+  .\tests\test_presidio_scanner.py:465: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(
+
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_scanner_name_in_findings
+  .\tests\test_presidio_scanner.py:472: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(scanner.scan("john@example.com"))
+
+tests/test_presidio_scanner.py::TestAnonymizeIntegration::test_redact_removes_pii
+tests/test_presidio_scanner.py::TestAnonymizeIntegration::test_replace_with_counters
+tests/test_presidio_scanner.py::TestAnonymizeIntegration::test_hash_with_key_deterministic
+tests/test_presidio_scanner.py::TestAnonymizeIntegration::test_hash_with_key_deterministic
+  .\tests\test_presidio_scanner.py:486: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(scanner.scan(text))
+
+tests/test_presidio_scanner.py::TestAnonymizeIntegration::test_mask_shows_trailing
+  .\tests\test_presidio_scanner.py:515: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(scanner.scan(text))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+765 passed, 26 skipped, 1 xfailed, 1 xpassed, 18 warnings in 44.75s
+--- LINT ---
+All checks passed!
+ruff check: OK
+62 files already formatted
+ruff format: OK
+--- MYPY ---
+Success: no issues found in 3 source files

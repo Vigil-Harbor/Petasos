@@ -106,6 +106,9 @@ def _compute_safe(
     scanner_results: Sequence[ScanResult],
     fail_mode: str,
 ) -> bool:
+    if fail_mode not in ("open", "closed", "degraded"):
+        _logger.warning("fail_mode %r is invalid, falling back to 'degraded'", fail_mode)
+        fail_mode = "degraded"
     safe = True
     for f in findings:
         if f.severity in (Severity.CRITICAL, Severity.HIGH):
@@ -193,9 +196,7 @@ class Pipeline:
         on_alert: Callable[[Alert], None] | None = None,
         host_id: str = "",
     ) -> None:
-        self._config = config.copy() if config is not None else PetasosConfig()
-        if config is not None and config.session_secret is not None:
-            object.__setattr__(self._config, "session_secret", config.session_secret)
+        self._config = replace(config) if config is not None else PetasosConfig()
         self._host_id = host_id
         if self._config.session_secret is not None and not host_id:
             raise ValueError("host_id is required when session_secret is configured")
