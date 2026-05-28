@@ -264,6 +264,9 @@ class FrequencyTracker:
 
         if terminated_candidate is not None:
             sid = terminated_candidate[0]
+            # Intentionally not using _add_tombstone(): that calls move_to_end()
+            # for existing keys, which would refresh the FIFO position and make
+            # the tombstone appear younger than it is.
             if sid not in self._terminated_ids:
                 self._terminated_ids[sid] = None
                 self._enforce_tombstone_cap()
