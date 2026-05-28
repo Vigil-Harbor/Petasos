@@ -608,14 +608,16 @@ class TestAlertCallbackBehavior:
         alerts = mgr.evaluate(r, "s1", None)
         assert len(received) == len(alerts)
 
-    def test_callback_exception_raises_runtime(self) -> None:
+    def test_callback_exception_swallowed(self) -> None:
         def bad_cb(a: Alert) -> None:
             raise ValueError("boom")
 
         mgr = AlertManager(_cfg(), on_alert=bad_cb)
         r = _result(findings=(_finding(severity=Severity.HIGH),))
-        with pytest.raises(RuntimeError, match="on_alert callback failed"):
-            mgr.evaluate(r, "s1", None)
+        alerts = mgr.evaluate(r, "s1", None)
+        assert len(alerts) >= 1
+        assert len(mgr.callback_errors) >= 1
+        assert "ValueError" in mgr.callback_errors[0]
 
 
 # ---------------------------------------------------------------------------

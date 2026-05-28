@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import time
 import uuid
 from types import MappingProxyType
@@ -7,14 +8,14 @@ from typing import TYPE_CHECKING, Any
 
 from petasos._types import AuditEvent
 
+_logger = logging.getLogger(__name__)
+
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from petasos._types import PipelineResult
     from petasos.config import PetasosConfig
     from petasos.premium.frequency import FrequencyUpdateResult
-
-_NONE_SENTINEL: object = object()
 
 
 class AuditEmitter:
@@ -26,8 +27,12 @@ class AuditEmitter:
     ) -> None:
         self._config = config
         self._on_audit = on_audit
-        self._sequence_counters: dict[object, int] = {}
-        self._last_emit_time: dict[object, float] = {}
+        self._global_sequence: int = 0
+        self._last_callback_error: str | None = None
+
+    @property
+    def last_callback_error(self) -> str | None:
+        return self._last_callback_error
 
     def emit(
         self,
@@ -35,11 +40,8 @@ class AuditEmitter:
         session_id: str | None,
         freq_result: FrequencyUpdateResult | None,
     ) -> AuditEvent:
-        now_mono = time.monotonic()
-        self._prune_stale(now_mono)
-
-        session_key: object = session_id if session_id is not None else _NONE_SENTINEL
-        seq = self._sequence_counters.get(session_key, 0)
+        self._last_callback_error = None
+        seq = self._global_sequence
 
         payload = self._build_payload(result, freq_result)
 
@@ -52,14 +54,18 @@ class AuditEmitter:
             sequence_number=seq,
         )
 
-        self._sequence_counters[session_key] = seq + 1
-        self._last_emit_time[session_key] = now_mono
+        self._global_sequence = seq + 1
 
         if self._on_audit is not None:
             try:
                 self._on_audit(event)
-            except Exception as exc:
-                raise RuntimeError(f"on_audit callback failed: {exc}") from exc
+            except BaseException as exc:
+                _logger.error("on_audit callback failed: %s", exc, exc_info=True)
+                self._last_callback_error = (
+                    f"on_audit callback ({type(exc).__name__}): {exc}"
+                    if str(exc)
+                    else f"on_audit callback ({type(exc).__name__})"
+                )
 
         return event
 
@@ -102,10 +108,3 @@ class AuditEmitter:
             }
 
         return MappingProxyType(data)
-
-    def _prune_stale(self, now: float) -> None:
-        ttl = self._config.session_ttl_seconds
-        stale_keys = [k for k, t in self._last_emit_time.items() if (now - t) > ttl]
-        for k in stale_keys:
-            del self._last_emit_time[k]
-            self._sequence_counters.pop(k, None)

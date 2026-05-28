@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import time
 import uuid
 from collections import deque
@@ -8,6 +9,8 @@ from typing import TYPE_CHECKING
 
 from petasos._types import Alert, Severity
 from petasos.premium.escalation import evaluate_tier
+
+_logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -23,9 +26,6 @@ _SEVERITY_RANK: dict[Severity, int] = {
     Severity.LOW: 3,
     Severity.INFO: 4,
 }
-
-_NONE_SENTINEL: object = object()
-
 
 class AlertManager:
     def __init__(
@@ -49,6 +49,12 @@ class AlertManager:
         self._suppressed_count: int = 0
         self._rate_limited_count: int = 0
         self._session_rate_limited_count: int = 0
+        self._cross_session_tracker: dict[str, float] = {}
+        self._callback_errors: list[str] = []
+
+    @property
+    def callback_errors(self) -> tuple[str, ...]:
+        return tuple(self._callback_errors)
 
     @property
     def alert_count(self) -> int:
@@ -74,6 +80,7 @@ class AlertManager:
     ) -> list[Alert]:
         now = time.monotonic()
         self._prune_stale(now)
+        self._callback_errors = []
 
         candidates: list[Alert] = []
 
@@ -159,8 +166,16 @@ class AlertManager:
             if self._on_alert is not None:
                 try:
                     self._on_alert(candidate)
-                except Exception as exc:
-                    raise RuntimeError(f"on_alert callback failed: {exc}") from exc
+                except BaseException as exc:
+                    _logger.exception(
+                        "on_alert callback failed for rule_id=%s",
+                        candidate.rule_id,
+                    )
+                    self._callback_errors.append(
+                        f"on_alert callback ({candidate.rule_id}, {type(exc).__name__}): {exc}"
+                        if str(exc)
+                        else f"on_alert callback ({candidate.rule_id}, {type(exc).__name__})"
+                    )
 
         return surviving
 
@@ -292,10 +307,24 @@ class AlertManager:
         )
         buf.append((now, session_id))
 
+        self._cross_session_tracker[session_id] = now
         window = self._config.alert_cross_session_burst_window_seconds
-        recent_sessions = {sid for ts, sid in buf if (now - ts) <= window}
+        stale_sids = [
+            sid for sid, ts in self._cross_session_tracker.items() if (now - ts) > window
+        ]
+        for sid in stale_sids:
+            del self._cross_session_tracker[sid]
+        tracker_cap = max(
+            2 * self._config.alert_ring_buffer_capacity,
+            self._config.alert_cross_session_burst_count,
+        )
+        if len(self._cross_session_tracker) > tracker_cap:
+            sorted_entries = sorted(self._cross_session_tracker.items(), key=lambda x: x[1])
+            for sid, _ in sorted_entries[: len(self._cross_session_tracker) - tracker_cap]:
+                del self._cross_session_tracker[sid]
 
-        if len(recent_sessions) >= self._config.alert_cross_session_burst_count:
+        distinct_count = len(self._cross_session_tracker)
+        if distinct_count >= self._config.alert_cross_session_burst_count:
             return Alert(
                 alert_id=uuid.uuid4().hex,
                 timestamp=time.time(),
@@ -303,11 +332,11 @@ class AlertManager:
                 severity="high",
                 session_id=session_id,
                 message=(
-                    f"Cross-session burst: {len(recent_sessions)} distinct sessions in {window}s"
+                    f"Cross-session burst: {distinct_count} distinct sessions in {window}s"
                 ),
                 context=MappingProxyType(
                     {
-                        "distinct_sessions": len(recent_sessions),
+                        "distinct_sessions": distinct_count,
                         "window_seconds": window,
                         "threshold": self._config.alert_cross_session_burst_count,
                     }
@@ -403,3 +432,12 @@ class AlertManager:
                 stale_ring_keys.append(rk)
         for rk in stale_ring_keys:
             del self._ring_buffers[rk]
+
+        burst_window = self._config.alert_cross_session_burst_window_seconds
+        stale_tracker_keys = [
+            sid
+            for sid, ts in self._cross_session_tracker.items()
+            if (now - ts) > burst_window
+        ]
+        for sid in stale_tracker_keys:
+            del self._cross_session_tracker[sid]
