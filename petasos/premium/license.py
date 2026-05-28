@@ -52,8 +52,9 @@ class LicenseValidator:
         if clock_skew_seconds > 300:
             raise ValueError(f"clock_skew_seconds must be <= 300, got {clock_skew_seconds}")
         self._clock_skew = timedelta(seconds=clock_skew_seconds)
-        if valid_tiers is not None and len(valid_tiers) == 0:
-            raise ValueError("valid_tiers must not be empty")
+        if valid_tiers is not None and not _VALID_TIERS.issubset(valid_tiers):
+            missing = _VALID_TIERS - valid_tiers
+            raise ValueError(f"valid_tiers must include all built-in tiers, missing: {missing}")
         self._valid_tiers = valid_tiers if valid_tiers is not None else _VALID_TIERS
         self._key: Any = None
         try:

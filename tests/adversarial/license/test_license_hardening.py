@@ -161,7 +161,8 @@ def test_missing_tier_defaults_to_standard() -> None:
 
 
 def test_custom_valid_tiers() -> None:
-    v = LicenseValidator(valid_tiers=frozenset({"custom"}))
+    custom = frozenset({"custom", "free", "standard", "pro", "enterprise"})
+    v = LicenseValidator(valid_tiers=custom)
     token_custom = _make_token(tier="custom")
     state, claims = v.validate(token_custom)
     assert state == LicenseState.VALID
@@ -170,12 +171,17 @@ def test_custom_valid_tiers() -> None:
 
     token_pro = _make_token(tier="pro")
     state, claims = v.validate(token_pro)
-    assert state == LicenseState.INVALID
-    assert claims is None
+    assert state == LicenseState.VALID
+    assert claims is not None
+
+
+def test_custom_tiers_missing_builtins_rejected() -> None:
+    with pytest.raises(ValueError, match="must include all built-in tiers"):
+        LicenseValidator(valid_tiers=frozenset({"custom"}))
 
 
 def test_empty_valid_tiers_rejected() -> None:
-    with pytest.raises(ValueError, match="valid_tiers must not be empty"):
+    with pytest.raises(ValueError, match="must include all built-in tiers"):
         LicenseValidator(valid_tiers=frozenset())
 
 
