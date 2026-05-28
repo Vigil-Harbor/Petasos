@@ -58,7 +58,6 @@ async def test_rt075_chain_pre_fix_baseline() -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.xfail(reason="Requires PET-43 (NORM-01) fix in normalize.py")
 async def test_rt075_chain_norm01_breaks_link1() -> None:
     pipe = Pipeline(
         [MinimalScanner(), _FlakyMLScanner(), _CleanMLScanner()],
