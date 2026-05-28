@@ -2,11 +2,27 @@ from __future__ import annotations
 
 import importlib.resources
 import json
+import logging
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any
 
 from petasos.config import _validate_tier_thresholds
+from petasos.scanners.minimal import _ALL_INJECTION_IDS, _STRUCTURAL_RULE_IDS
+
+_logger = logging.getLogger(__name__)
+
+_UNSUPPRESSIBLE_RULE_IDS: frozenset[str] = _ALL_INJECTION_IDS | _STRUCTURAL_RULE_IDS
+
+
+def _validate_suppress_rules(suppress: frozenset[str]) -> frozenset[str]:
+    blocked = suppress & _UNSUPPRESSIBLE_RULE_IDS
+    if blocked:
+        _logger.warning(
+            "suppress_rules attempted to suppress unsuppressible rules (stripped): %s",
+            sorted(blocked),
+        )
+    return suppress - _UNSUPPRESSIBLE_RULE_IDS
 
 
 @dataclass(frozen=True)
@@ -29,6 +45,11 @@ class ResolvedProfile:
     pii_entities_extra: tuple[str, ...]
     tool_exempt_list: frozenset[str]
     tool_alias_map: MappingProxyType[str, str]
+
+    def __post_init__(self) -> None:
+        cleaned = _validate_suppress_rules(self.suppress_rules)
+        if cleaned != self.suppress_rules:
+            object.__setattr__(self, "suppress_rules", cleaned)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -88,7 +109,7 @@ def _parse_profile(data: dict[str, Any]) -> ResolvedProfile:
 
     return ResolvedProfile(
         name=data["name"],
-        suppress_rules=frozenset(data.get("suppress_rules", [])),
+        suppress_rules=_validate_suppress_rules(frozenset(data.get("suppress_rules", []))),
         severity_overrides=MappingProxyType(data.get("severity_overrides", {})),
         confidence_floor=float(data.get("confidence_floor", 0.0)),
         tier_thresholds=tier_thresholds,
@@ -107,7 +128,7 @@ def _merge_with_base(
         val = overrides["suppress_rules"]
         if not isinstance(val, (list, set, frozenset)):
             raise ValueError("suppress_rules must be a list")
-        suppress = suppress | frozenset(val)
+        suppress = _validate_suppress_rules(suppress | frozenset(val))
 
     severity = dict(base.severity_overrides)
     if "severity_overrides" in overrides:

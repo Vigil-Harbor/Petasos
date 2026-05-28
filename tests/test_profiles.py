@@ -86,7 +86,7 @@ class TestProfileResolverLoading:
         resolver = ProfileResolver()
         p = resolver.resolve("research")
         assert "petasos.syntactic.encoding.invisible-chars" in p.suppress_rules
-        assert "petasos.syntactic.injection.inst-delimiter" in p.suppress_rules
+        assert "petasos.syntactic.injection.inst-delimiter" not in p.suppress_rules
         assert p.confidence_floor == 0.7
         assert p.tier_thresholds is not None
         assert p.tier_thresholds.tier1 == 25.0
