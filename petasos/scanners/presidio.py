@@ -68,6 +68,8 @@ def _make_hmac_operator_class() -> type:
         def validate(self, params: dict[str, Any] | None = None) -> None:
             if not params or not isinstance(params.get("hmac_key"), str):
                 raise ValueError("hmac_key (str) is required")
+            if not params["hmac_key"]:
+                raise ValueError("hmac_key must be non-empty")
 
         def operate(self, text: str, params: dict[str, Any] | None = None) -> str:
             if not params or "hmac_key" not in params:
@@ -220,6 +222,12 @@ def anonymize(
     mode: Literal["redact", "replace", "hash", "mask"] = "redact",
     hash_key: str | None = None,
 ) -> str:
+    if mode == "hash" and not hash_key:
+        raise ValueError(
+            "hash_key is required and must be non-empty for mode='hash'. "
+            "Unkeyed hashing is reversible on low-entropy PII."
+        )
+
     positioned = [(f, _recover_entity_type(f.rule_id)) for f in findings if f.position is not None]
     if not positioned:
         return text
@@ -261,12 +269,10 @@ def _anonymize_engine_path(
         for et in entity_types_seen:
             operators[et] = OperatorConfig("replace", {"new_value": f"<{et}>"})
     elif mode == "hash":
-        if hash_key is not None:
-            for et in entity_types_seen:
-                operators[et] = OperatorConfig("hmac_sha256", {"hmac_key": hash_key})
-        else:
-            for et in entity_types_seen:
-                operators[et] = OperatorConfig("hash", {"hash_type": "sha256"})
+        if not hash_key:
+            raise ValueError("hash_key must be non-empty (enforced by anonymize())")
+        for et in entity_types_seen:
+            operators[et] = OperatorConfig("hmac_sha256", {"hmac_key": hash_key})
 
     result = engine.anonymize(
         text=text,
