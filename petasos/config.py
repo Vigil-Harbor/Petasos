@@ -79,6 +79,7 @@ class PetasosConfig:
     max_sessions: int = 10_000
     session_ttl_seconds: float = 3600.0
     max_new_sessions_per_minute: int = 60
+    max_terminated_tombstones: int = 10_000
 
     def __post_init__(self) -> None:
         if not isinstance(self.pii_entities, tuple):
@@ -132,6 +133,15 @@ class PetasosConfig:
             raise ValueError(
                 f"max_new_sessions_per_minute must be a positive integer, "
                 f"got {self.max_new_sessions_per_minute!r}"
+            )
+        if (
+            not isinstance(self.max_terminated_tombstones, int)
+            or isinstance(self.max_terminated_tombstones, bool)
+            or self.max_terminated_tombstones <= 0
+        ):
+            raise ValueError(
+                f"max_terminated_tombstones must be a positive integer, "
+                f"got {self.max_terminated_tombstones!r}"
             )
         if self.frequency_weights is not None:
             for k, v in self.frequency_weights.items():
