@@ -301,6 +301,39 @@ class TestParamScanning:
 
 
 # ---------------------------------------------------------------------------
+# GUARD-03: alias→exempt defense
+# ---------------------------------------------------------------------------
+
+
+class TestGuard03AliasExempt:
+    def test_default_alias_onto_exempt_still_allowed(self) -> None:
+        """D8: profile exempts a DEFAULT alias target — default alias NOT suppressed."""
+        p = _profile(tool_exempt_list=frozenset({"exec"}))
+        g = _guard(profile=p, premium_active=False)
+        assert g._normalize_tool_name("bash") == "exec"
+
+    def test_default_aliases_not_in_builtin_exempt(self) -> None:
+        """Structural tripwire: no default alias target collides with built-in exempt."""
+        from petasos.premium.guard import DEFAULT_TOOL_ALIASES
+        from petasos.premium.profiles import ProfileResolver
+
+        resolver = ProfileResolver()
+        alias_targets = {v.lower() for v in DEFAULT_TOOL_ALIASES.values()}
+        for name in ("general", "customer_service", "code_generation", "research", "admin"):
+            profile = resolver.resolve(name)
+            collisions = alias_targets & profile.tool_exempt_list
+            assert collisions == set(), (
+                f"built-in {name!r} exempt keys collide with default alias targets: {collisions}"
+            )
+
+    def test_valid_alias_still_works(self) -> None:
+        """A benign profile alias to a non-exempt target still resolves normally."""
+        p = _profile(tool_alias_map=MappingProxyType({"myshell": "exec"}))
+        g = _guard(profile=p, premium_active=False)
+        assert g._normalize_tool_name("myshell") == "exec"
+
+
+# ---------------------------------------------------------------------------
 # GuardResult
 # ---------------------------------------------------------------------------
 

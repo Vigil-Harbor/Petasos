@@ -72,8 +72,19 @@ def _parse_profile(data: dict[str, Any]) -> ResolvedProfile:
 
     alias_map = data.get("tool_alias_map", {})
     for _k, v in alias_map.items():
-        if not v:
-            raise ValueError("tool_alias_map values must be non-empty")
+        if not isinstance(v, str) or not v.strip():
+            raise ValueError("tool_alias_map values must be non-empty strings")
+    alias_map = {k: v.strip() for k, v in alias_map.items()}
+
+    exempt_set = frozenset(s.strip().lower() for s in data.get("tool_exempt_list", []))
+
+    # GUARD-03: a profile alias may not target one of its own exempt keys
+    collisions = {v.lower() for v in alias_map.values()} & exempt_set
+    if collisions:
+        raise ValueError(
+            f"profile {data.get('name', '?')!r}: tool_alias_map targets "
+            f"cannot be exempt keys: {sorted(collisions)}"
+        )
 
     return ResolvedProfile(
         name=data["name"],
@@ -82,7 +93,7 @@ def _parse_profile(data: dict[str, Any]) -> ResolvedProfile:
         confidence_floor=float(data.get("confidence_floor", 0.0)),
         tier_thresholds=tier_thresholds,
         pii_entities_extra=tuple(data.get("pii_entities_extra", [])),
-        tool_exempt_list=frozenset(s.lower() for s in data.get("tool_exempt_list", [])),
+        tool_exempt_list=exempt_set,
         tool_alias_map=MappingProxyType(alias_map),
     )
 
@@ -141,7 +152,7 @@ def _merge_with_base(
         val = overrides["tool_exempt_list"]
         if not isinstance(val, (list, set, frozenset)):
             raise ValueError("tool_exempt_list must be a list")
-        exempt = frozenset(s.lower() for s in val)
+        exempt = frozenset(s.strip().lower() for s in val)
 
     alias = dict(base.tool_alias_map)
     if "tool_alias_map" in overrides:
@@ -149,9 +160,16 @@ def _merge_with_base(
         if not isinstance(val, dict):
             raise ValueError("tool_alias_map must be a dict")
         for _k, v in val.items():
-            if not v:
-                raise ValueError("tool_alias_map values must be non-empty")
-        alias.update(val)
+            if not isinstance(v, str) or not v.strip():
+                raise ValueError("tool_alias_map values must be non-empty strings")
+        alias.update({k: v.strip() for k, v in val.items()})
+
+    # GUARD-03: a profile alias may not target one of its own exempt keys
+    collisions = {v.lower() for v in alias.values()} & exempt
+    if collisions:
+        raise ValueError(
+            f"profile 'custom': tool_alias_map targets cannot be exempt keys: {sorted(collisions)}"
+        )
 
     return ResolvedProfile(
         name="custom",
