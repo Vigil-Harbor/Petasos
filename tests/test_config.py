@@ -59,6 +59,18 @@ class TestConfigValidation:
         with pytest.raises(ValueError, match="pii_entities"):
             PetasosConfig(pii_entities=("PERSON", ""))
 
+    def test_rejects_critical_per_minute_cap_zero(self) -> None:
+        with pytest.raises(ValueError, match="alert_critical_per_minute_cap"):
+            PetasosConfig(alert_critical_per_minute_cap=0)
+
+    def test_rejects_critical_per_minute_cap_bool(self) -> None:
+        with pytest.raises(ValueError, match="alert_critical_per_minute_cap"):
+            PetasosConfig(alert_critical_per_minute_cap=True)
+
+    def test_rejects_critical_per_minute_cap_negative(self) -> None:
+        with pytest.raises(ValueError, match="alert_critical_per_minute_cap"):
+            PetasosConfig(alert_critical_per_minute_cap=-1)
+
 
 class TestConfigSerialization:
     def test_round_trip(self) -> None:
