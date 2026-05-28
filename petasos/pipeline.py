@@ -69,14 +69,14 @@ def merge_findings(results: Sequence[ScanResult]) -> tuple[ScanFinding, ...]:
         assert current.position is not None
         assert nxt.position is not None
         if nxt.position.start < current.position.end:
-            if nxt.confidence > current.confidence:
+            nxt_rank = _SEVERITY_RANK.get(nxt.severity, 999)
+            cur_rank = _SEVERITY_RANK.get(current.severity, 999)
+            if nxt_rank < cur_rank:
                 current = nxt
-            elif nxt.confidence == current.confidence:
-                nxt_rank = _SEVERITY_RANK.get(nxt.severity, 999)
-                cur_rank = _SEVERITY_RANK.get(current.severity, 999)
-                if nxt_rank < cur_rank:
+            elif nxt_rank == cur_rank:
+                if nxt.confidence > current.confidence:
                     current = nxt
-                elif nxt_rank == cur_rank:
+                elif nxt.confidence == current.confidence:
                     surviving.append(current)
                     current = nxt
         else:

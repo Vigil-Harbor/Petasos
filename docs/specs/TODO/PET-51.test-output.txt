@@ -1,0 +1,22 @@
+﻿============================= test session starts =============================
+platform win32 -- Python 3.10.6, pytest-9.0.3, pluggy-1.6.0 -- C:\python310\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\zioni\Documents\Vigil-Harbor\PET-51-worktree
+configfile: pyproject.toml
+plugins: anyio-4.13.0, asyncio-1.3.0
+asyncio: mode=auto, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 11 items
+
+tests/adversarial/pipeline/test_degraded_fail_open.py::test_degraded_partial_ml_failure_still_safe PASSED [  9%]
+tests/adversarial/pipeline/test_degraded_fail_open.py::test_merge_critical_survives_over_high_conf_info PASSED [ 18%]
+tests/adversarial/pipeline/test_degraded_fail_open.py::test_merge_same_severity_higher_conf_wins PASSED [ 27%]
+tests/adversarial/pipeline/test_degraded_fail_open.py::test_merge_same_severity_same_conf_keeps_both PASSED [ 36%]
+tests/adversarial/pipeline/test_degraded_fail_open.py::test_merge_non_overlapping_preserved PASSED [ 45%]
+tests/adversarial/pipeline/test_degraded_fail_open.py::test_merge_high_beats_medium_regardless_of_conf PASSED [ 54%]
+tests/adversarial/pipeline/test_degraded_fail_open.py::test_merge_unpositioned_always_kept PASSED [ 63%]
+tests/adversarial/pipeline/test_degraded_fail_open.py::test_merge_critical_as_nxt_beats_earlier_info PASSED [ 72%]
+tests/adversarial/pipeline/test_degraded_fail_open.py::test_pipeline_critical_low_conf_still_blocks PASSED [ 81%]
+tests/adversarial/pipeline/test_degraded_fail_open.py::test_normalization_toggle_all_or_nothing PASSED [ 90%]
+tests/adversarial/pipeline/test_degraded_fail_open.py::test_from_dict_rejects_normalize_nfkc_falsy_zero PASSED [100%]
+
+============================= 11 passed in 0.03s ==============================

@@ -109,8 +109,8 @@ async def test_closed_partial_ml_failure_blocks() -> None:
     assert result.safe is False
 
 
-def test_merge_drops_lower_confidence_critical() -> None:
-    """PIPE-04: overlapping findings — higher confidence wins over CRITICAL severity."""
+def test_merge_critical_survives_over_high_conf_info() -> None:
+    """Regression for PET-51: CRITICAL at low confidence survives over INFO at high confidence."""
     low_crit = ScanFinding(
         rule_id="a",
         finding_type="t",
@@ -135,8 +135,216 @@ def test_merge_drops_lower_confidence_critical() -> None:
             ScanResult("y", (high_info,)),
         ]
     )
-    assert low_crit not in merged
-    assert high_info in merged
+    assert low_crit in merged
+    assert high_info not in merged
+
+
+def test_merge_same_severity_higher_conf_wins() -> None:
+    """Same severity: higher confidence wins the tiebreaker."""
+    low_conf = ScanFinding(
+        rule_id="a",
+        finding_type="t",
+        severity=Severity.HIGH,
+        confidence=0.5,
+        message="",
+        scanner_name="x",
+        position=Position(0, 10),
+    )
+    high_conf = ScanFinding(
+        rule_id="b",
+        finding_type="t",
+        severity=Severity.HIGH,
+        confidence=0.9,
+        message="",
+        scanner_name="x",
+        position=Position(5, 15),
+    )
+    merged = merge_findings(
+        [
+            ScanResult("x", (low_conf,)),
+            ScanResult("y", (high_conf,)),
+        ]
+    )
+    assert high_conf in merged
+    assert low_conf not in merged
+
+
+def test_merge_same_severity_same_conf_keeps_both() -> None:
+    """Same severity, same confidence: both survive."""
+    a = ScanFinding(
+        rule_id="a",
+        finding_type="t",
+        severity=Severity.HIGH,
+        confidence=0.8,
+        message="",
+        scanner_name="x",
+        position=Position(0, 10),
+    )
+    b = ScanFinding(
+        rule_id="b",
+        finding_type="t",
+        severity=Severity.HIGH,
+        confidence=0.8,
+        message="",
+        scanner_name="y",
+        position=Position(5, 15),
+    )
+    merged = merge_findings(
+        [
+            ScanResult("x", (a,)),
+            ScanResult("y", (b,)),
+        ]
+    )
+    assert a in merged
+    assert b in merged
+
+
+def test_merge_non_overlapping_preserved() -> None:
+    """Non-overlapping findings all survive regardless of severity."""
+    crit = ScanFinding(
+        rule_id="a",
+        finding_type="t",
+        severity=Severity.CRITICAL,
+        confidence=0.3,
+        message="",
+        scanner_name="x",
+        position=Position(0, 5),
+    )
+    info = ScanFinding(
+        rule_id="b",
+        finding_type="t",
+        severity=Severity.INFO,
+        confidence=0.99,
+        message="",
+        scanner_name="y",
+        position=Position(10, 20),
+    )
+    merged = merge_findings(
+        [
+            ScanResult("x", (crit,)),
+            ScanResult("y", (info,)),
+        ]
+    )
+    assert crit in merged
+    assert info in merged
+
+
+def test_merge_high_beats_medium_regardless_of_conf() -> None:
+    """Higher severity wins even when lower severity has much higher confidence."""
+    high = ScanFinding(
+        rule_id="a",
+        finding_type="t",
+        severity=Severity.HIGH,
+        confidence=0.3,
+        message="",
+        scanner_name="x",
+        position=Position(0, 10),
+    )
+    medium = ScanFinding(
+        rule_id="b",
+        finding_type="t",
+        severity=Severity.MEDIUM,
+        confidence=0.99,
+        message="",
+        scanner_name="y",
+        position=Position(5, 15),
+    )
+    merged = merge_findings(
+        [
+            ScanResult("x", (high,)),
+            ScanResult("y", (medium,)),
+        ]
+    )
+    assert high in merged
+    assert medium not in merged
+    assert len(merged) == 1
+
+
+def test_merge_unpositioned_always_kept() -> None:
+    """Unpositioned findings pass through regardless of overlap logic."""
+    positioned = ScanFinding(
+        rule_id="a",
+        finding_type="t",
+        severity=Severity.CRITICAL,
+        confidence=0.9,
+        message="",
+        scanner_name="x",
+        position=Position(0, 10),
+    )
+    unpositioned = ScanFinding(
+        rule_id="b",
+        finding_type="t",
+        severity=Severity.INFO,
+        confidence=0.1,
+        message="",
+        scanner_name="y",
+    )
+    merged = merge_findings(
+        [
+            ScanResult("x", (positioned,)),
+            ScanResult("y", (unpositioned,)),
+        ]
+    )
+    assert positioned in merged
+    assert unpositioned in merged
+
+
+def test_merge_critical_as_nxt_beats_earlier_info() -> None:
+    """CRITICAL arriving as nxt (later start) still beats earlier INFO via nxt_rank < cur_rank."""
+    info_first = ScanFinding(
+        rule_id="a",
+        finding_type="t",
+        severity=Severity.INFO,
+        confidence=0.99,
+        message="",
+        scanner_name="x",
+        position=Position(0, 10),
+    )
+    crit_second = ScanFinding(
+        rule_id="b",
+        finding_type="t",
+        severity=Severity.CRITICAL,
+        confidence=0.5,
+        message="",
+        scanner_name="y",
+        position=Position(5, 15),
+    )
+    merged = merge_findings(
+        [
+            ScanResult("x", (info_first,)),
+            ScanResult("y", (crit_second,)),
+        ]
+    )
+    assert crit_second in merged
+    assert info_first not in merged
+
+
+@pytest.mark.asyncio
+async def test_pipeline_critical_low_conf_still_blocks() -> None:
+    """Full pipeline: CRITICAL at any confidence produces safe=False."""
+
+    class _CritScanner:
+        name = "crit_inject"
+
+        async def scan(self, text: str, **kwargs: object) -> ScanResult:
+            return ScanResult(
+                scanner_name=self.name,
+                findings=(
+                    ScanFinding(
+                        rule_id="synth",
+                        finding_type="test",
+                        severity=Severity.CRITICAL,
+                        confidence=0.1,
+                        message="synthetic critical",
+                        scanner_name=self.name,
+                        position=Position(0, 5),
+                    ),
+                ),
+            )
+
+    pipe = Pipeline([_CritScanner()], config=PetasosConfig())
+    result = await pipe.inspect("hello")
+    assert result.safe is False
 
 
 class _CapturingScanner:
