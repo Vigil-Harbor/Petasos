@@ -179,6 +179,54 @@ class TestScannerMeta:
         assert r.error is None
 
 
+class TestBinaryPattern:
+    """PET-68 / SYN-04: NUL and DEL byte detection."""
+
+    async def test_binary_nul_byte_detected(self) -> None:
+        # Regression for PET-68: NUL must trigger binary-content
+        r = await MinimalScanner().scan("hello\x00world")
+        assert _find(r, "petasos.syntactic.structural.binary-content")
+
+    async def test_binary_del_byte_detected(self) -> None:
+        # Regression for PET-68: DEL must trigger binary-content
+        r = await MinimalScanner().scan("hello\x7fworld")
+        assert _find(r, "petasos.syntactic.structural.binary-content")
+
+    async def test_binary_tab_not_flagged(self) -> None:
+        r = await MinimalScanner().scan("hello\tworld")
+        assert not _find(r, "petasos.syntactic.structural.binary-content")
+
+
+class TestJsonDepth:
+    """PET-69 / SYN-05: string-aware JSON depth counting."""
+
+    def test_json_depth_string_literal_brackets(self) -> None:
+        # Regression for PET-69: brackets in string literals
+        scanner = MinimalScanner()
+        assert scanner._check_json_depth('{"key": "[[["}') == 1
+
+    def test_json_depth_escaped_quote(self) -> None:
+        scanner = MinimalScanner()
+        assert scanner._check_json_depth('{"k": "val\\"[[["}') == 1
+
+    def test_json_depth_consecutive_backslash(self) -> None:
+        scanner = MinimalScanner()
+        assert scanner._check_json_depth('{"k": "\\\\"}') == 1
+        assert scanner._check_json_depth('{"k": "\\\\\\"[[["}') == 1
+
+    def test_json_depth_nested_objects(self) -> None:
+        scanner = MinimalScanner()
+        assert scanner._check_json_depth('{"a": {"b": {"c": 1}}}') == 3
+
+    def test_json_depth_no_brackets(self) -> None:
+        scanner = MinimalScanner()
+        assert scanner._check_json_depth("hello world") == 0
+
+    def test_json_depth_unmatched_quote(self) -> None:
+        scanner = MinimalScanner()
+        assert scanner._check_json_depth('"[[[[[') == 0
+
+
 class TestRuleTaxonomy:
     def test_17_rules(self) -> None:
         assert len(RULE_TAXONOMY) == 17
