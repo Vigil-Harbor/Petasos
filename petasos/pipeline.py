@@ -40,6 +40,8 @@ _SEVERITY_RANK: dict[Severity, int] = {
 
 _SCANNER_TIMEOUT = 30.0
 
+_STRUCTURAL_RULE_PREFIX = "petasos.syntactic.structural."
+
 
 def merge_findings(results: Sequence[ScanResult]) -> tuple[ScanFinding, ...]:
     all_findings: list[ScanFinding] = []
@@ -395,7 +397,7 @@ class Pipeline:
         ):
             merged = tuple(f for f in merged if f.confidence >= active_profile.confidence_floor)
 
-        # Stage 5c: Severity overrides
+        # Stage 5c: Severity overrides (PIPE-07 guards)
         if (
             active_profile is not None
             and self._check_premium("profiles")
@@ -405,7 +407,20 @@ class Pipeline:
             for f in merged:
                 override = active_profile.severity_overrides.get(f.rule_id)
                 if override is not None:
-                    overridden.append(replace(f, severity=Severity(override)))
+                    if f.rule_id.startswith(_STRUCTURAL_RULE_PREFIX):
+                        overridden.append(f)
+                        continue
+                    try:
+                        override_sev = Severity(override)
+                    except ValueError:
+                        overridden.append(f)
+                        continue
+                    override_rank = _SEVERITY_RANK.get(override_sev, 999)
+                    current_rank = _SEVERITY_RANK.get(f.severity, 999)
+                    if override_rank > current_rank:
+                        overridden.append(f)
+                    else:
+                        overridden.append(replace(f, severity=override_sev))
                 else:
                     overridden.append(f)
             merged = tuple(overridden)

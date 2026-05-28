@@ -1,0 +1,61 @@
+============================= test session starts =============================
+platform win32 -- Python 3.10.6, pytest-9.0.3, pluggy-1.6.0 -- C:\python310\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\zioni\Documents\Vigil-Harbor\PET-54-worktree
+configfile: pyproject.toml
+plugins: anyio-4.13.0, asyncio-1.3.0
+asyncio: mode=auto, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 50 items
+
+tests/adversarial/pipeline/test_degraded_fail_open.py::test_degraded_partial_ml_failure_still_safe PASSED [  2%]
+tests/adversarial/pipeline/test_degraded_fail_open.py::test_merge_drops_lower_confidence_critical PASSED [  4%]
+tests/adversarial/pipeline/test_degraded_fail_open.py::test_normalization_toggle_all_or_nothing PASSED [  6%]
+tests/adversarial/pipeline/test_degraded_fail_open.py::test_from_dict_rejects_normalize_nfkc_falsy_zero PASSED [  8%]
+tests/adversarial/pipeline/test_degraded_fail_open.py::test_override_cannot_downgrade_critical_to_info PASSED [ 10%]
+tests/adversarial/pipeline/test_degraded_fail_open.py::test_override_cannot_downgrade_high_to_low PASSED [ 12%]
+tests/adversarial/pipeline/test_degraded_fail_open.py::test_override_can_upgrade_medium_to_critical PASSED [ 14%]
+tests/adversarial/pipeline/test_degraded_fail_open.py::test_override_same_severity_accepted PASSED [ 16%]
+tests/adversarial/pipeline/test_degraded_fail_open.py::test_structural_rule_override_skipped_at_runtime PASSED [ 18%]
+tests/adversarial/pipeline/test_degraded_fail_open.py::test_suppress_rules_does_not_affect_ml_findings PASSED [ 20%]
+tests/adversarial/pipeline/test_degraded_fail_open.py::test_dict_profile_override_critical_blocked PASSED [ 22%]
+tests/adversarial/pipeline/test_degraded_fail_open.py::test_invalid_severity_override_value_skipped PASSED [ 24%]
+tests/test_profiles.py::TestTierThresholds::test_valid_ascending PASSED  [ 26%]
+tests/test_profiles.py::TestTierThresholds::test_non_ascending_raises PASSED [ 28%]
+tests/test_profiles.py::TestTierThresholds::test_tier3_below_floor_raises PASSED [ 30%]
+tests/test_profiles.py::TestTierThresholds::test_non_finite_raises PASSED [ 32%]
+tests/test_profiles.py::TestTierThresholds::test_frozen PASSED           [ 34%]
+tests/test_profiles.py::TestProfileResolverLoading::test_all_builtins_load PASSED [ 36%]
+tests/test_profiles.py::TestProfileResolverLoading::test_general_profile_is_identity PASSED [ 38%]
+tests/test_profiles.py::TestProfileResolverLoading::test_resolve_unknown_raises_keyerror PASSED [ 40%]
+tests/test_profiles.py::TestProfileResolverLoading::test_admin_profile_values PASSED [ 42%]
+tests/test_profiles.py::TestProfileResolverLoading::test_research_profile_suppress_rules PASSED [ 44%]
+tests/test_profiles.py::TestProfileResolverLoading::test_code_generation_profile PASSED [ 46%]
+tests/test_profiles.py::TestProfileResolverLoading::test_customer_service_severity_overrides PASSED [ 48%]
+tests/test_profiles.py::TestProfileFrozenAndSerialization::test_profile_is_frozen PASSED [ 50%]
+tests/test_profiles.py::TestProfileFrozenAndSerialization::test_to_dict_roundtrip PASSED [ 52%]
+tests/test_profiles.py::TestProfileFrozenAndSerialization::test_general_to_dict_null_thresholds PASSED [ 54%]
+tests/test_profiles.py::TestProfileFrozenAndSerialization::test_empty_suppress_rules_roundtrip PASSED [ 56%]
+tests/test_profiles.py::TestProfileRegister::test_register_custom_profile PASSED [ 58%]
+tests/test_profiles.py::TestProfileRegister::test_register_overwrites_existing PASSED [ 60%]
+tests/test_profiles.py::TestDictMerge::test_dict_merge_inherits_from_general PASSED [ 62%]
+tests/test_profiles.py::TestDictMerge::test_suppress_rules_union PASSED  [ 64%]
+tests/test_profiles.py::TestDictMerge::test_severity_overrides_merge PASSED [ 66%]
+tests/test_profiles.py::TestDictMerge::test_tier_thresholds_override PASSED [ 68%]
+tests/test_profiles.py::TestDictMerge::test_tier_thresholds_partial_raises PASSED [ 70%]
+tests/test_profiles.py::TestDictMerge::test_tier_thresholds_none_override PASSED [ 72%]
+tests/test_profiles.py::TestDictMerge::test_pii_entities_union PASSED    [ 74%]
+tests/test_profiles.py::TestDictMerge::test_tool_exempt_list_replace PASSED [ 76%]
+tests/test_profiles.py::TestDictMerge::test_tool_alias_map_merge PASSED  [ 78%]
+tests/test_profiles.py::TestDictMerge::test_tool_alias_map_empty_value_raises PASSED [ 80%]
+tests/test_profiles.py::TestDictMerge::test_confidence_floor_type_error PASSED [ 82%]
+tests/test_profiles.py::TestDictMerge::test_suppress_rules_type_error PASSED [ 84%]
+tests/test_profiles.py::TestDictMerge::test_resolve_invalid_type_raises PASSED [ 86%]
+tests/test_profiles.py::TestDictMerge::test_alias_onto_exempt_raises_at_parse PASSED [ 88%]
+tests/test_profiles.py::TestDictMerge::test_alias_onto_exempt_raises_at_parse_whitespace PASSED [ 90%]
+tests/test_profiles.py::TestDictMerge::test_alias_onto_exempt_raises_at_merge PASSED [ 92%]
+tests/test_profiles.py::TestDictMerge::test_alias_onto_exempt_raises_at_merge_whitespace PASSED [ 94%]
+tests/test_profiles.py::TestStructuralOverrideProtection::test_structural_rule_override_rejected_at_parse PASSED [ 96%]
+tests/test_profiles.py::TestStructuralOverrideProtection::test_structural_rule_override_rejected_at_merge PASSED [ 98%]
+tests/test_profiles.py::TestStructuralOverrideProtection::test_structural_rule_ids_match_prefix PASSED [100%]
+
+============================= 50 passed in 0.17s ==============================

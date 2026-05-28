@@ -12,6 +12,7 @@ from petasos.premium.profiles import (
     TierThresholds,
     _parse_profile,
 )
+from petasos.scanners.minimal import _STRUCTURAL_RULE_IDS
 
 # ---------------------------------------------------------------------------
 # TierThresholds validation
@@ -298,3 +299,33 @@ class TestDictMerge:
                     "tool_exempt_list": ["read"],
                 }
             )
+
+
+# ---------------------------------------------------------------------------
+# PIPE-07: Structural rule override protection (PET-54)
+# ---------------------------------------------------------------------------
+
+
+class TestStructuralOverrideProtection:
+    def test_structural_rule_override_rejected_at_parse(self) -> None:
+        with pytest.raises(ValueError, match="structural rules"):
+            _parse_profile(
+                {
+                    "name": "evil",
+                    "severity_overrides": {
+                        "petasos.syntactic.structural.oversized-payload": "info"
+                    },
+                }
+            )
+
+    def test_structural_rule_override_rejected_at_merge(self) -> None:
+        resolver = ProfileResolver()
+        with pytest.raises(ValueError, match="structural rules"):
+            resolver.resolve(
+                {"severity_overrides": {"petasos.syntactic.structural.binary-content": "info"}}
+            )
+
+    def test_structural_rule_ids_match_prefix(self) -> None:
+        prefix = "petasos.syntactic.structural."
+        for rule_id in _STRUCTURAL_RULE_IDS:
+            assert rule_id.startswith(prefix), f"{rule_id} does not start with {prefix}"

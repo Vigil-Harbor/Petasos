@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any
 
+from petasos._types import Severity
 from petasos.config import _validate_tier_thresholds
 from petasos.scanners.minimal import _ALL_INJECTION_IDS, _STRUCTURAL_RULE_IDS
 
@@ -81,6 +82,21 @@ _BUILTIN_NAMES: tuple[str, ...] = (
 )
 
 
+def _check_structural_overrides(severity_overrides: dict[str, str]) -> None:
+    structural = [k for k in severity_overrides if k in _STRUCTURAL_RULE_IDS]
+    if structural:
+        raise ValueError(
+            f"severity_overrides cannot target structural rules: {sorted(structural)}"
+        )
+
+
+def _check_severity_values(severity_overrides: dict[str, str]) -> None:
+    valid = {s.value for s in Severity}
+    invalid = [f"{k}={v!r}" for k, v in severity_overrides.items() if v not in valid]
+    if invalid:
+        raise ValueError(f"invalid severity override values: {invalid}")
+
+
 def _parse_profile(data: dict[str, Any]) -> ResolvedProfile:
     tt_raw = data.get("tier_thresholds")
     tier_thresholds: TierThresholds | None = None
@@ -107,10 +123,14 @@ def _parse_profile(data: dict[str, Any]) -> ResolvedProfile:
             f"cannot be exempt keys: {sorted(collisions)}"
         )
 
+    sev_overrides = data.get("severity_overrides", {})
+    _check_structural_overrides(sev_overrides)
+    _check_severity_values(sev_overrides)
+
     return ResolvedProfile(
         name=data["name"],
         suppress_rules=_validate_suppress_rules(frozenset(data.get("suppress_rules", []))),
-        severity_overrides=MappingProxyType(data.get("severity_overrides", {})),
+        severity_overrides=MappingProxyType(sev_overrides),
         confidence_floor=float(data.get("confidence_floor", 0.0)),
         tier_thresholds=tier_thresholds,
         pii_entities_extra=tuple(data.get("pii_entities_extra", [])),
@@ -136,6 +156,8 @@ def _merge_with_base(
         if not isinstance(val, dict):
             raise ValueError("severity_overrides must be a dict")
         severity.update(val)
+    _check_structural_overrides(severity)
+    _check_severity_values(severity)
 
     confidence = base.confidence_floor
     if "confidence_floor" in overrides:
