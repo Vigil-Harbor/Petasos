@@ -306,10 +306,11 @@ class TestParamScanning:
 
 
 class TestSessionTokenGuard:
-    def test_guard_derive_tier_with_session_secret(self) -> None:
+    def test_guard_derive_tier_with_session_secret(self, valid_key: str) -> None:
         secret = b"test-secret-key-32-bytes-long!!!"
         cfg = _cfg(session_secret=secret)
         pipe = Pipeline(config=cfg, host_id="test-host")
+        pipe.activate(valid_key)
         tracker = FrequencyTracker(cfg)
         token = tracker.mint_token("s1", "test-host")
         tracker.update(token, [])
