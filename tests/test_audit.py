@@ -287,6 +287,30 @@ class TestEdgeCases:
         with pytest.raises(TypeError):
             event.payload["injected"] = True  # type: ignore[index]
 
+    def test_verbose_payload_redacts_hash_key(self) -> None:
+        cfg = _cfg(
+            audit_verbosity="verbose",
+            anonymize=True,
+            redaction_mode="hash",
+            hash_key="super-secret-hmac-key-for-test",
+        )
+        emitter = AuditEmitter(cfg)
+        event = emitter.emit(_result(), "s1", _freq_result())
+        snapshot = event.payload["config_snapshot"]
+        assert snapshot["hash_key"] == "[REDACTED]"
+
+    def test_verbose_payload_no_raw_secret_in_str(self) -> None:
+        raw_key = "super-secret-hmac-key-for-test"
+        cfg = _cfg(
+            audit_verbosity="verbose",
+            anonymize=True,
+            redaction_mode="hash",
+            hash_key=raw_key,
+        )
+        emitter = AuditEmitter(cfg)
+        event = emitter.emit(_result(), "s1", _freq_result())
+        assert raw_key not in str(event.payload)
+
     def test_stale_session_pruning(self) -> None:
         cfg = _cfg(session_ttl_seconds=1.0)
         emitter = AuditEmitter(cfg)

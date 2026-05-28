@@ -15,11 +15,10 @@ def test_frozen_config_bypass_via_setattr() -> None:
     assert cfg.fail_mode == "open"
 
 
-def test_anonymize_truthy_non_bool_without_bool_check() -> None:
-    """CFG-02: int 1 enables anonymize path without isinstance(bool) guard."""
-    cfg = PetasosConfig(anonymize=1)  # type: ignore[arg-type]
-    assert cfg.anonymize == 1
-    assert bool(cfg.anonymize) is True
+def test_anonymize_truthy_non_bool_rejected() -> None:
+    """CFG-02: int 1 for anonymize is now rejected by __post_init__."""
+    with pytest.raises(TypeError, match="anonymize must be a bool"):
+        PetasosConfig(anonymize=1)  # type: ignore[arg-type]
 
 
 def test_tier3_floor_module_global_mutable() -> None:

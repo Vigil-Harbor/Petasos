@@ -97,8 +97,7 @@ async def test_normalization_toggle_all_or_nothing() -> None:
     assert zwsp in cap_off.seen  # all-or-nothing: the zero-width survived
 
 
-@pytest.mark.asyncio
-async def test_from_dict_disables_normalization_via_falsy_zero() -> None:
-    """CFG-03 / PIPE-05: normalize_nfkc=0 in from_dict."""
-    cfg = PetasosConfig.from_dict({"normalize_nfkc": 0})
-    assert not cfg.normalize_nfkc  # int 0 is falsy; disables normalize path
+def test_from_dict_rejects_normalize_nfkc_falsy_zero() -> None:
+    """CFG-03 / PIPE-05: normalize_nfkc=0 in from_dict now rejected."""
+    with pytest.raises(TypeError, match="normalize_nfkc must be a bool"):
+        PetasosConfig.from_dict({"normalize_nfkc": 0})

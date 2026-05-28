@@ -4,7 +4,7 @@ import dataclasses
 
 import pytest
 
-from petasos.config import PetasosConfig
+from petasos.config import _BOOL_FIELDS, _SECRET_FIELDS, PetasosConfig
 
 
 class TestConfigDefaults:
@@ -59,6 +59,18 @@ class TestConfigValidation:
         with pytest.raises(ValueError, match="pii_entities"):
             PetasosConfig(pii_entities=("PERSON", ""))
 
+    def test_rejects_critical_per_minute_cap_zero(self) -> None:
+        with pytest.raises(ValueError, match="alert_critical_per_minute_cap"):
+            PetasosConfig(alert_critical_per_minute_cap=0)
+
+    def test_rejects_critical_per_minute_cap_bool(self) -> None:
+        with pytest.raises(ValueError, match="alert_critical_per_minute_cap"):
+            PetasosConfig(alert_critical_per_minute_cap=True)
+
+    def test_rejects_critical_per_minute_cap_negative(self) -> None:
+        with pytest.raises(ValueError, match="alert_critical_per_minute_cap"):
+            PetasosConfig(alert_critical_per_minute_cap=-1)
+
 
 class TestConfigSerialization:
     def test_round_trip(self) -> None:
@@ -105,6 +117,99 @@ class TestSessionSecret:
         cfg = PetasosConfig(session_secret=b"key")
         d = cfg.to_dict()
         assert "session_secret" not in d
+
+
+class TestSessionContributionCapValidation:
+    def test_alert_per_session_contribution_cap_rejects_zero(self) -> None:
+        with pytest.raises(ValueError, match="alert_per_session_contribution_cap"):
+            PetasosConfig(alert_per_session_contribution_cap=0)
+
+    def test_alert_per_session_contribution_cap_rejects_negative(self) -> None:
+        with pytest.raises(ValueError, match="alert_per_session_contribution_cap"):
+            PetasosConfig(alert_per_session_contribution_cap=-1)
+
+    def test_alert_per_session_contribution_cap_rejects_bool(self) -> None:
+        with pytest.raises(ValueError, match="alert_per_session_contribution_cap"):
+            PetasosConfig(alert_per_session_contribution_cap=True)
+
+    def test_alert_max_session_contribution_entries_rejects_zero(self) -> None:
+        with pytest.raises(ValueError, match="alert_max_session_contribution_entries"):
+            PetasosConfig(alert_max_session_contribution_entries=0)
+
+    def test_alert_max_session_contribution_entries_rejects_negative(self) -> None:
+        with pytest.raises(ValueError, match="alert_max_session_contribution_entries"):
+            PetasosConfig(alert_max_session_contribution_entries=-1)
+
+    def test_alert_max_session_contribution_entries_rejects_bool(self) -> None:
+        with pytest.raises(ValueError, match="alert_max_session_contribution_entries"):
+            PetasosConfig(alert_max_session_contribution_entries=True)
+
+    def test_cross_field_validation_cap_gt_per_minute(self) -> None:
+        with pytest.raises(ValueError, match="must be <= alert_per_minute_cap"):
+            PetasosConfig(alert_per_session_contribution_cap=10, alert_per_minute_cap=5)
+        cfg = PetasosConfig(alert_per_session_contribution_cap=5, alert_per_minute_cap=5)
+        assert cfg.alert_per_session_contribution_cap == 5
+
+
+class TestBoolCoercion:
+    def test_from_dict_rejects_int_zero_for_bool(self) -> None:
+        with pytest.raises(TypeError, match="normalize_nfkc must be a bool"):
+            PetasosConfig.from_dict({"normalize_nfkc": 0})
+
+    def test_from_dict_rejects_int_one_for_bool(self) -> None:
+        with pytest.raises(TypeError, match="escalation_enabled must be a bool"):
+            PetasosConfig.from_dict({"escalation_enabled": 1})
+
+    def test_from_dict_rejects_string_for_bool(self) -> None:
+        with pytest.raises(TypeError, match="audit_enabled must be a bool"):
+            PetasosConfig.from_dict({"audit_enabled": "true"})
+
+    def test_from_dict_rejects_none_for_bool(self) -> None:
+        with pytest.raises(TypeError, match="strip_zero_width must be a bool"):
+            PetasosConfig.from_dict({"strip_zero_width": None})
+
+    def test_from_dict_accepts_true_bool(self) -> None:
+        cfg = PetasosConfig.from_dict({"normalize_nfkc": True})
+        assert cfg.normalize_nfkc is True
+
+    def test_from_dict_accepts_false_bool(self) -> None:
+        cfg = PetasosConfig.from_dict({"normalize_nfkc": False})
+        assert cfg.normalize_nfkc is False
+
+    def test_direct_constructor_rejects_int_for_bool(self) -> None:
+        with pytest.raises(TypeError, match="normalize_nfkc must be a bool"):
+            PetasosConfig(normalize_nfkc=0)  # type: ignore[arg-type]
+
+
+class TestBoolFieldsCoverage:
+    def test_all_bool_fields_covered(self) -> None:
+        annotated_bools = {f.name for f in dataclasses.fields(PetasosConfig) if f.type == "bool"}
+        assert annotated_bools == _BOOL_FIELDS
+
+
+class TestSecretRedaction:
+    def test_to_dict_redact_secrets_masks_hash_key(self) -> None:
+        cfg = PetasosConfig(anonymize=True, redaction_mode="hash", hash_key="my-secret-key")
+        d = cfg.to_dict(redact_secrets=True)
+        assert d["hash_key"] == "[REDACTED]"
+
+    def test_to_dict_redact_secrets_none_stays_none(self) -> None:
+        cfg = PetasosConfig()
+        assert cfg.hash_key is None
+        d = cfg.to_dict(redact_secrets=True)
+        assert d["hash_key"] is None
+
+    def test_to_dict_default_preserves_hash_key(self) -> None:
+        cfg = PetasosConfig(anonymize=True, redaction_mode="hash", hash_key="my-secret-key")
+        d = cfg.to_dict()
+        assert d["hash_key"] == "my-secret-key"
+
+    def test_secret_fields_subset_of_config_fields(self) -> None:
+        config_field_names = {f.name for f in dataclasses.fields(PetasosConfig)}
+        for name in _SECRET_FIELDS:
+            assert name in config_field_names, (
+                f"_SECRET_FIELDS contains '{name}' which is not a PetasosConfig field"
+            )
 
 
 class TestConfigFrozen:
