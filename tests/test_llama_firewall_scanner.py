@@ -216,7 +216,7 @@ class TestUnit:
     async def test_single_component_enabled_no_error(self) -> None:
         with _injected_mock():
             for flag in ("enable_prompt_guard", "enable_alignment_check", "enable_code_shield"):
-                scanner = LlamaFirewallScanner(**{flag: True})  # type: ignore[arg-type]
+                scanner = LlamaFirewallScanner(**{flag: True})
                 r = await scanner.scan("test")
                 assert r.error is None, f"unexpected error with {flag}=True: {r.error}"
 
