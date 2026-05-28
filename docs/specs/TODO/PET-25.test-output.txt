@@ -1,0 +1,62 @@
+============================= test session starts =============================
+platform win32 -- Python 3.10.6, pytest-9.0.3, pluggy-1.6.0 -- C:\python310\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\zioni\Documents\Vigil-Harbor\PET-25-worktree
+configfile: pyproject.toml
+plugins: anyio-4.13.0, asyncio-1.3.0
+asyncio: mode=auto, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 51 items
+
+tests/test_config.py::TestConfigDefaults::test_default_construction PASSED [  1%]
+tests/test_config.py::TestConfigDefaults::test_premium_stubs_default_disabled PASSED [  3%]
+tests/test_config.py::TestConfigDefaults::test_normalization_toggles_default_true PASSED [  5%]
+tests/test_config.py::TestConfigValidation::test_rejects_invalid_direction PASSED [  7%]
+tests/test_config.py::TestConfigValidation::test_rejects_invalid_fail_mode PASSED [  9%]
+tests/test_config.py::TestConfigValidation::test_rejects_invalid_redaction_mode PASSED [ 11%]
+tests/test_config.py::TestConfigValidation::test_requires_hash_key_for_hash_mode PASSED [ 13%]
+tests/test_config.py::TestConfigValidation::test_hash_mode_without_anonymize_ok PASSED [ 15%]
+tests/test_config.py::TestConfigValidation::test_rejects_empty_pii_entity PASSED [ 17%]
+tests/test_config.py::TestConfigSerialization::test_round_trip PASSED    [ 19%]
+tests/test_config.py::TestConfigSerialization::test_to_dict_converts_tuples_to_lists PASSED [ 21%]
+tests/test_config.py::TestConfigSerialization::test_from_dict_partial_fills_defaults PASSED [ 23%]
+tests/test_config.py::TestConfigSerialization::test_from_dict_ignores_extra_keys PASSED [ 25%]
+tests/test_config.py::TestConfigSerialization::test_empty_pii_entities_valid PASSED [ 27%]
+tests/test_config.py::TestBoolCoercion::test_from_dict_rejects_int_zero_for_bool PASSED [ 29%]
+tests/test_config.py::TestBoolCoercion::test_from_dict_rejects_int_one_for_bool PASSED [ 31%]
+tests/test_config.py::TestBoolCoercion::test_from_dict_rejects_string_for_bool PASSED [ 33%]
+tests/test_config.py::TestBoolCoercion::test_from_dict_rejects_none_for_bool PASSED [ 35%]
+tests/test_config.py::TestBoolCoercion::test_from_dict_accepts_true_bool PASSED [ 37%]
+tests/test_config.py::TestBoolCoercion::test_from_dict_accepts_false_bool PASSED [ 39%]
+tests/test_config.py::TestBoolCoercion::test_direct_constructor_rejects_int_for_bool PASSED [ 41%]
+tests/test_config.py::TestBoolFieldsCoverage::test_all_bool_fields_covered PASSED [ 43%]
+tests/test_config.py::TestConfigFrozen::test_frozen_prevents_mutation PASSED [ 45%]
+tests/adversarial/config/test_bool_coercion.py::test_from_dict_all_toggles_falsy_int[alert_enabled] PASSED [ 47%]
+tests/adversarial/config/test_bool_coercion.py::test_from_dict_all_toggles_falsy_int[anonymize] PASSED [ 49%]
+tests/adversarial/config/test_bool_coercion.py::test_from_dict_all_toggles_falsy_int[audit_enabled] PASSED [ 50%]
+tests/adversarial/config/test_bool_coercion.py::test_from_dict_all_toggles_falsy_int[detect_rtl_override] PASSED [ 52%]
+tests/adversarial/config/test_bool_coercion.py::test_from_dict_all_toggles_falsy_int[escalation_enabled] PASSED [ 54%]
+tests/adversarial/config/test_bool_coercion.py::test_from_dict_all_toggles_falsy_int[frequency_enabled] PASSED [ 56%]
+tests/adversarial/config/test_bool_coercion.py::test_from_dict_all_toggles_falsy_int[map_homoglyphs] PASSED [ 58%]
+tests/adversarial/config/test_bool_coercion.py::test_from_dict_all_toggles_falsy_int[normalize_nfkc] PASSED [ 60%]
+tests/adversarial/config/test_bool_coercion.py::test_from_dict_all_toggles_falsy_int[strip_zero_width] PASSED [ 62%]
+tests/adversarial/config/test_bool_coercion.py::test_from_dict_all_toggles_falsy_int[tool_guard_enabled] PASSED [ 64%]
+tests/adversarial/config/test_bool_coercion.py::test_from_dict_all_toggles_truthy_non_bool[alert_enabled] PASSED [ 66%]
+tests/adversarial/config/test_bool_coercion.py::test_from_dict_all_toggles_truthy_non_bool[anonymize] PASSED [ 68%]
+tests/adversarial/config/test_bool_coercion.py::test_from_dict_all_toggles_truthy_non_bool[audit_enabled] PASSED [ 70%]
+tests/adversarial/config/test_bool_coercion.py::test_from_dict_all_toggles_truthy_non_bool[detect_rtl_override] PASSED [ 72%]
+tests/adversarial/config/test_bool_coercion.py::test_from_dict_all_toggles_truthy_non_bool[escalation_enabled] PASSED [ 74%]
+tests/adversarial/config/test_bool_coercion.py::test_from_dict_all_toggles_truthy_non_bool[frequency_enabled] PASSED [ 76%]
+tests/adversarial/config/test_bool_coercion.py::test_from_dict_all_toggles_truthy_non_bool[map_homoglyphs] PASSED [ 78%]
+tests/adversarial/config/test_bool_coercion.py::test_from_dict_all_toggles_truthy_non_bool[normalize_nfkc] PASSED [ 80%]
+tests/adversarial/config/test_bool_coercion.py::test_from_dict_all_toggles_truthy_non_bool[strip_zero_width] PASSED [ 82%]
+tests/adversarial/config/test_bool_coercion.py::test_from_dict_all_toggles_truthy_non_bool[tool_guard_enabled] PASSED [ 84%]
+tests/adversarial/config/test_config_poisoning.py::test_frozen_config_bypass_via_setattr PASSED [ 86%]
+tests/adversarial/config/test_config_poisoning.py::test_anonymize_truthy_non_bool_rejected PASSED [ 88%]
+tests/adversarial/config/test_config_poisoning.py::test_tier3_floor_module_global_mutable PASSED [ 90%]
+tests/adversarial/config/test_config_poisoning.py::test_tier3_below_floor_rejected PASSED [ 92%]
+tests/adversarial/pipeline/test_degraded_fail_open.py::test_degraded_partial_ml_failure_still_safe PASSED [ 94%]
+tests/adversarial/pipeline/test_degraded_fail_open.py::test_merge_drops_lower_confidence_critical PASSED [ 96%]
+tests/adversarial/pipeline/test_degraded_fail_open.py::test_normalization_toggle_all_or_nothing PASSED [ 98%]
+tests/adversarial/pipeline/test_degraded_fail_open.py::test_from_dict_rejects_normalize_nfkc_falsy_zero PASSED [100%]
+
+============================= 51 passed in 0.07s ==============================
