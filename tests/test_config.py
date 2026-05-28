@@ -124,9 +124,7 @@ class TestBoolCoercion:
 
 class TestBoolFieldsCoverage:
     def test_all_bool_fields_covered(self) -> None:
-        annotated_bools = {
-            f.name for f in dataclasses.fields(PetasosConfig) if f.type == "bool"
-        }
+        annotated_bools = {f.name for f in dataclasses.fields(PetasosConfig) if f.type == "bool"}
         assert annotated_bools == _BOOL_FIELDS
 
 

@@ -12,18 +12,20 @@ if TYPE_CHECKING:
 
 TIER3_FLOOR: float = 30.0
 
-_BOOL_FIELDS: frozenset[str] = frozenset({
-    "normalize_nfkc",
-    "strip_zero_width",
-    "map_homoglyphs",
-    "detect_rtl_override",
-    "anonymize",
-    "frequency_enabled",
-    "escalation_enabled",
-    "tool_guard_enabled",
-    "audit_enabled",
-    "alert_enabled",
-})
+_BOOL_FIELDS: frozenset[str] = frozenset(
+    {
+        "normalize_nfkc",
+        "strip_zero_width",
+        "map_homoglyphs",
+        "detect_rtl_override",
+        "anonymize",
+        "frequency_enabled",
+        "escalation_enabled",
+        "tool_guard_enabled",
+        "audit_enabled",
+        "alert_enabled",
+    }
+)
 
 
 def _validate_tier_thresholds(tier1: float, tier2: float, tier3: float) -> None:
