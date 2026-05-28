@@ -99,7 +99,7 @@ petasos/
 ## Key Design Invariants
 
 - **Pipeline never throws** — all errors caught and returned in `PipelineResult`.
-- **Fail-mode defaults to `degraded`** — partial scanner failure passes content; all ML scanners down blocks content; syntactic pre-filter (zero deps) always runs. Configurable to `open` or `closed`.
+- **Fail-mode defaults to `degraded`** — partial or total ML scanner failure blocks content; syntactic pre-filter (zero deps) always runs. Configurable to `open` or `closed`.
 - **Zero required ML deps at base install** — scanner backends are pip extras, not hard deps. `pip install petasos` is lightweight; `pip install petasos[all]` is ~300MB.
 - **Frozen exports** — built-in profiles, rules, and default configs must be immutable (defensive copies, frozen dataclasses).
 - **Tier 3 escalation cannot be disabled** — hardcoded floor, no config override.
