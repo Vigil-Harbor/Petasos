@@ -1,7 +1,7 @@
 ============================= test session starts =============================
-platform win32 -- Python 3.10.6, pytest-9.0.3, pluggy-1.6.0 -- C:\python310\python.exe
+platform win32 -- Python 3.10.6, pytest-9.0.3, pluggy-1.6.0 -- python
 cachedir: .pytest_cache
-rootdir: C:\Users\zioni\Documents\Vigil-Harbor\PET-66-worktree
+rootdir: .
 configfile: pyproject.toml
 plugins: anyio-4.13.0, asyncio-1.3.0
 asyncio: mode=auto, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
@@ -62,11 +62,11 @@ tests/test_minimal_scanner.py::TestScannerMeta::test_deep_nesting_no_recursion_e
 tests/test_minimal_scanner.py::TestRuleTaxonomy::test_17_rules PASSED    [ 98%]
 tests/test_minimal_scanner.py::TestRuleTaxonomy::test_all_prefixed PASSED [100%]
 
-============================= 54 passed in 0.12s ==============================
+============================= 54 passed in 0.15s ==============================
 --- FULL SUITE ---
 ============================= test session starts =============================
 platform win32 -- Python 3.10.6, pytest-9.0.3, pluggy-1.6.0
-rootdir: C:\Users\zioni\Documents\Vigil-Harbor\PET-66-worktree
+rootdir: .
 configfile: pyproject.toml
 plugins: anyio-4.13.0, asyncio-1.3.0
 asyncio: mode=auto, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
@@ -115,70 +115,70 @@ tests\test_types.py ................                                     [100%]
 
 ============================== warnings summary ===============================
 tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_detect_email
-  C:\Users\zioni\Documents\Vigil-Harbor\PET-66-worktree\tests\test_presidio_scanner.py:348: DeprecationWarning: There is no current event loop
+  .\tests\test_presidio_scanner.py:348: DeprecationWarning: There is no current event loop
     result = asyncio.get_event_loop().run_until_complete(
 
 tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_detect_phone
-  C:\Users\zioni\Documents\Vigil-Harbor\PET-66-worktree\tests\test_presidio_scanner.py:360: DeprecationWarning: There is no current event loop
+  .\tests\test_presidio_scanner.py:360: DeprecationWarning: There is no current event loop
     result = asyncio.get_event_loop().run_until_complete(
 
 tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_detect_person
-  C:\Users\zioni\Documents\Vigil-Harbor\PET-66-worktree\tests\test_presidio_scanner.py:368: DeprecationWarning: There is no current event loop
+  .\tests\test_presidio_scanner.py:368: DeprecationWarning: There is no current event loop
     result = asyncio.get_event_loop().run_until_complete(
 
 tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_detect_credit_card
-  C:\Users\zioni\Documents\Vigil-Harbor\PET-66-worktree\tests\test_presidio_scanner.py:376: DeprecationWarning: There is no current event loop
+  .\tests\test_presidio_scanner.py:376: DeprecationWarning: There is no current event loop
     result = asyncio.get_event_loop().run_until_complete(
 
 tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_no_pii_clean
-  C:\Users\zioni\Documents\Vigil-Harbor\PET-66-worktree\tests\test_presidio_scanner.py:385: DeprecationWarning: There is no current event loop
+  .\tests\test_presidio_scanner.py:385: DeprecationWarning: There is no current event loop
     result = asyncio.get_event_loop().run_until_complete(
 
 tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_empty_text
-  C:\Users\zioni\Documents\Vigil-Harbor\PET-66-worktree\tests\test_presidio_scanner.py:392: DeprecationWarning: There is no current event loop
+  .\tests\test_presidio_scanner.py:392: DeprecationWarning: There is no current event loop
     result = asyncio.get_event_loop().run_until_complete(scanner.scan(""))
 
 tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_position_accuracy
-  C:\Users\zioni\Documents\Vigil-Harbor\PET-66-worktree\tests\test_presidio_scanner.py:398: DeprecationWarning: There is no current event loop
+  .\tests\test_presidio_scanner.py:398: DeprecationWarning: There is no current event loop
     result = asyncio.get_event_loop().run_until_complete(scanner.scan(text))
 
 tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_confidence_range
-  C:\Users\zioni\Documents\Vigil-Harbor\PET-66-worktree\tests\test_presidio_scanner.py:404: DeprecationWarning: There is no current event loop
+  .\tests\test_presidio_scanner.py:404: DeprecationWarning: There is no current event loop
     result = asyncio.get_event_loop().run_until_complete(
 
 tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_duration_tracked
-  C:\Users\zioni\Documents\Vigil-Harbor\PET-66-worktree\tests\test_presidio_scanner.py:411: DeprecationWarning: There is no current event loop
+  .\tests\test_presidio_scanner.py:411: DeprecationWarning: There is no current event loop
     result = asyncio.get_event_loop().run_until_complete(scanner.scan("john@example.com"))
 
 tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_score_threshold_filtering
-  C:\Users\zioni\Documents\Vigil-Harbor\PET-66-worktree\tests\test_presidio_scanner.py:416: DeprecationWarning: There is no current event loop
+  .\tests\test_presidio_scanner.py:416: DeprecationWarning: There is no current event loop
     result = asyncio.get_event_loop().run_until_complete(
 
 tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_custom_entities_filter
-  C:\Users\zioni\Documents\Vigil-Harbor\PET-66-worktree\tests\test_presidio_scanner.py:425: DeprecationWarning: There is no current event loop
+  .\tests\test_presidio_scanner.py:425: DeprecationWarning: There is no current event loop
     result = asyncio.get_event_loop().run_until_complete(
 
 tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_multi_finding_message
-  C:\Users\zioni\Documents\Vigil-Harbor\PET-66-worktree\tests\test_presidio_scanner.py:433: DeprecationWarning: There is no current event loop
+  .\tests\test_presidio_scanner.py:433: DeprecationWarning: There is no current event loop
     result = asyncio.get_event_loop().run_until_complete(
 
 tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_scanner_name_in_findings
-  C:\Users\zioni\Documents\Vigil-Harbor\PET-66-worktree\tests\test_presidio_scanner.py:440: DeprecationWarning: There is no current event loop
+  .\tests\test_presidio_scanner.py:440: DeprecationWarning: There is no current event loop
     result = asyncio.get_event_loop().run_until_complete(scanner.scan("john@example.com"))
 
 tests/test_presidio_scanner.py::TestAnonymizeIntegration::test_redact_removes_pii
 tests/test_presidio_scanner.py::TestAnonymizeIntegration::test_replace_with_counters
 tests/test_presidio_scanner.py::TestAnonymizeIntegration::test_hash_with_key_deterministic
 tests/test_presidio_scanner.py::TestAnonymizeIntegration::test_hash_with_key_deterministic
-  C:\Users\zioni\Documents\Vigil-Harbor\PET-66-worktree\tests\test_presidio_scanner.py:454: DeprecationWarning: There is no current event loop
+  .\tests\test_presidio_scanner.py:454: DeprecationWarning: There is no current event loop
     result = asyncio.get_event_loop().run_until_complete(scanner.scan(text))
 
 tests/test_presidio_scanner.py::TestAnonymizeIntegration::test_mask_shows_trailing
-  C:\Users\zioni\Documents\Vigil-Harbor\PET-66-worktree\tests\test_presidio_scanner.py:483: DeprecationWarning: There is no current event loop
+  .\tests\test_presidio_scanner.py:483: DeprecationWarning: There is no current event loop
     result = asyncio.get_event_loop().run_until_complete(scanner.scan(text))
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-========== 714 passed, 26 skipped, 4 xfailed, 18 warnings in 33.28s ===========
+========== 714 passed, 26 skipped, 4 xfailed, 18 warnings in 34.50s ===========
 --- LINT ---
 All checks passed!
 ruff check: OK

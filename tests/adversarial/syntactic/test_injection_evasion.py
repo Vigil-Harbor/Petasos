@@ -11,6 +11,8 @@ from petasos.scanners.minimal import (
     _BASE64_PATTERN,
     _BINARY_PATTERN,
     _INJECTION_PATTERNS,
+    _ROLE_GRANTS,
+    _ROLE_TRIGGERS,
     MinimalScanner,
 )
 
@@ -180,6 +182,14 @@ def test_redos_with_flexible_whitespace() -> None:
     """SYN-02: \\s+ patterns complete quickly on adversarial whitespace input."""
     evil = " " * 5000 + "ignore" + " " * 5000 + "previous"
     for _, pat in _INJECTION_PATTERNS:
+        t0 = time.perf_counter()
+        pat.search(evil)
+        assert time.perf_counter() - t0 < 1.0
+    for pat in _ROLE_TRIGGERS:
+        t0 = time.perf_counter()
+        pat.search(evil)
+        assert time.perf_counter() - t0 < 1.0
+    for pat in _ROLE_GRANTS:
         t0 = time.perf_counter()
         pat.search(evil)
         assert time.perf_counter() - t0 < 1.0
