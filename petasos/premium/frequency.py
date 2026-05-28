@@ -4,7 +4,7 @@ import hashlib
 import hmac as _hmac
 import math
 import time
-from collections import deque
+from collections import OrderedDict, deque
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -93,6 +93,8 @@ class FrequencyTracker:
 
         self._sessions: dict[str, SessionState] = {}
         self._creation_timestamps: deque[float] = deque()
+        self._terminated_ids: OrderedDict[str, None] = OrderedDict()
+        self._max_terminated: int = config.max_terminated_tombstones
 
     @property
     def requires_token(self) -> bool:
@@ -145,6 +147,16 @@ class FrequencyTracker:
         ]
         for sid in stale:
             del self._sessions[sid]
+
+        # Step 1.5: Tombstone early-return
+        if session_id not in self._sessions and session_id in self._terminated_ids:
+            sentinel = self._config.tier3_threshold
+            return FrequencyUpdateResult(
+                previous_score=sentinel,
+                current_score=sentinel,
+                tier="tier3",
+                terminated=True,
+            )
 
         # Step 2: Get or create session
         is_new = session_id not in self._sessions
@@ -213,6 +225,7 @@ class FrequencyTracker:
         state.last_update = now
         if tier == "tier3":
             state.terminated = True
+            self._add_tombstone(session_id)
 
         # Step 11: Return
         return FrequencyUpdateResult(
@@ -234,23 +247,39 @@ class FrequencyTracker:
             terminated=state.terminated,
         )
 
+    def is_terminated(self, session_id: str) -> bool:
+        state = self._sessions.get(session_id)
+        if state is not None:
+            return state.terminated
+        return session_id in self._terminated_ids
+
     def terminate_session(self, session: str | SessionToken) -> None:
         session_id = self._resolve_session_id(session)
         state = self._sessions.get(session_id)
         if state is not None:
             state.terminated = True
+        self._add_tombstone(session_id)
 
     def reset(self, session: str | SessionToken) -> None:
         session_id = self._resolve_session_id(session)
         self._sessions.pop(session_id, None)
 
+    def force_reset(self, session_id: str) -> None:
+        self._sessions.pop(session_id, None)
+        self._terminated_ids.pop(session_id, None)
+
     def clear(self) -> None:
         self._sessions.clear()
         self._creation_timestamps.clear()
+        self._terminated_ids.clear()
 
     @property
     def size(self) -> int:
         return len(self._sessions)
+
+    @property
+    def tombstone_count(self) -> int:
+        return len(self._terminated_ids)
 
     def _match_weight(self, finding_type: str) -> float:
         w = self._exact_weights.get(finding_type)
@@ -260,6 +289,17 @@ class FrequencyTracker:
             if finding_type.startswith(prefix + "."):
                 return weight
         return 0.0
+
+    def _add_tombstone(self, session_id: str) -> None:
+        if session_id in self._terminated_ids:
+            self._terminated_ids.move_to_end(session_id)
+        else:
+            self._terminated_ids[session_id] = None
+        self._enforce_tombstone_cap()
+
+    def _enforce_tombstone_cap(self) -> None:
+        while len(self._terminated_ids) > self._max_terminated:
+            self._terminated_ids.popitem(last=False)
 
     def _evict_one(self, protect_id: str) -> None:
         terminated_candidate: tuple[str, float] | None = None
@@ -276,6 +316,13 @@ class FrequencyTracker:
                 oldest_candidate = (sid, state.last_update)
 
         if terminated_candidate is not None:
-            del self._sessions[terminated_candidate[0]]
+            sid = terminated_candidate[0]
+            # Intentionally not using _add_tombstone(): that calls move_to_end()
+            # for existing keys, which would refresh the FIFO position and make
+            # the tombstone appear younger than it is.
+            if sid not in self._terminated_ids:
+                self._terminated_ids[sid] = None
+                self._enforce_tombstone_cap()
+            del self._sessions[sid]
         elif oldest_candidate is not None:
             del self._sessions[oldest_candidate[0]]

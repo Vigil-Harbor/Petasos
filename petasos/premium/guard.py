@@ -184,6 +184,8 @@ class ToolCallGuard:
         return name
 
     def _derive_tier(self, session_id: str) -> str:
+        if self._frequency_tracker.is_terminated(session_id):
+            return "tier3"
         if self._config.session_secret is not None:
             token = self._frequency_tracker.mint_token(session_id, self._pipeline.host_id)
             state = self._frequency_tracker.get_state(token)
@@ -191,8 +193,6 @@ class ToolCallGuard:
             state = self._frequency_tracker.get_state(session_id)
         if state is None:
             return "none"
-        if state.terminated:
-            return "tier3"
         if self._profile and self._profile.tier_thresholds:
             t = self._profile.tier_thresholds
             if state.last_score >= t.tier3:
