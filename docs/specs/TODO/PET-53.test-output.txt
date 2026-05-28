@@ -1,0 +1,127 @@
+============================= test session starts =============================
+platform win32 -- Python 3.10.6, pytest-9.0.3, pluggy-1.6.0 -- C:\python310\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\zioni\Documents\Vigil-Harbor\PET-53-worktree
+configfile: pyproject.toml
+plugins: anyio-4.13.0, asyncio-1.3.0
+asyncio: mode=auto, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 102 items
+
+tests/adversarial/pipeline/test_callback_isolation.py::TestAuditCallbackIsolation::test_audit_callback_runtime_error_swallowed PASSED [  0%]
+tests/adversarial/pipeline/test_callback_isolation.py::TestAuditCallbackIsolation::test_audit_callback_base_exception_swallowed PASSED [  1%]
+tests/adversarial/pipeline/test_callback_isolation.py::TestAuditCallbackIsolation::test_audit_callback_error_logged PASSED [  2%]
+tests/adversarial/pipeline/test_callback_isolation.py::TestAlertCallbackIsolation::test_alert_callback_runtime_error_in_errors PASSED [  3%]
+tests/adversarial/pipeline/test_callback_isolation.py::TestAlertCallbackIsolation::test_alert_callback_base_exception_swallowed PASSED [  4%]
+tests/adversarial/pipeline/test_callback_isolation.py::TestAlertCallbackIsolation::test_alert_callback_error_logged PASSED [  5%]
+tests/adversarial/pipeline/test_callback_isolation.py::TestPipelineCallbackPropagation::test_audit_error_reaches_pipeline_result PASSED [  6%]
+tests/adversarial/pipeline/test_callback_isolation.py::TestPipelineCallbackPropagation::test_alert_error_reaches_pipeline_result PASSED [  7%]
+tests/adversarial/pipeline/test_callback_isolation.py::TestPipelineCallbackPropagation::test_both_callbacks_fail_both_errors_in_result PASSED [  8%]
+tests/adversarial/pipeline/test_callback_isolation.py::TestCrossSessionBurstTracker::test_cross_session_burst_accurate_under_eviction PASSED [  9%]
+tests/adversarial/pipeline/test_callback_isolation.py::TestCrossSessionBurstTracker::test_cross_session_tracker_time_window_eviction PASSED [ 10%]
+tests/adversarial/pipeline/test_callback_isolation.py::TestCrossSessionBurstTracker::test_cross_session_tracker_cap_bounds_memory PASSED [ 11%]
+tests/adversarial/pipeline/test_callback_isolation.py::TestGlobalMonotonicSequence::test_sequence_continues_after_ttl_prune_boundary PASSED [ 12%]
+tests/adversarial/pipeline/test_callback_isolation.py::TestGlobalMonotonicSequence::test_sequence_global_monotonic_across_sessions PASSED [ 13%]
+tests/adversarial/pipeline/test_callback_isolation.py::TestGlobalMonotonicSequence::test_sequence_never_zero_after_first_emit PASSED [ 14%]
+tests/test_audit.py::TestAuditEventConstruction::test_frozen_dataclass_raises_on_mutation PASSED [ 15%]
+tests/test_audit.py::TestAuditEventConstruction::test_all_fields_populated PASSED [ 16%]
+tests/test_audit.py::TestAuditEventConstruction::test_event_id_is_valid_uuid4_hex PASSED [ 17%]
+tests/test_audit.py::TestVerbosityLevels::test_minimal_payload_keys PASSED [ 18%]
+tests/test_audit.py::TestVerbosityLevels::test_standard_payload_keys PASSED [ 19%]
+tests/test_audit.py::TestVerbosityLevels::test_verbose_payload_keys PASSED [ 20%]
+tests/test_audit.py::TestVerbosityLevels::test_minimal_no_extra_keys PASSED [ 21%]
+tests/test_audit.py::TestVerbosityLevels::test_standard_findings_content PASSED [ 22%]
+tests/test_audit.py::TestVerbosityLevels::test_verbose_scanner_results_content PASSED [ 23%]
+tests/test_audit.py::TestVerbosityLevels::test_verbose_config_snapshot_is_dict PASSED [ 24%]
+tests/test_audit.py::TestSequenceNumbers::test_first_emit_sequence_zero PASSED [ 25%]
+tests/test_audit.py::TestSequenceNumbers::test_sequential_emits_monotonic PASSED [ 26%]
+tests/test_audit.py::TestSequenceNumbers::test_different_sessions_global_sequence PASSED [ 27%]
+tests/test_audit.py::TestSequenceNumbers::test_none_session_shares_global_counter PASSED [ 28%]
+tests/test_audit.py::TestSequenceNumbers::test_no_gaps_across_100_emits PASSED [ 29%]
+tests/test_audit.py::TestCallbackBehavior::test_no_callback_completes_without_error PASSED [ 30%]
+tests/test_audit.py::TestCallbackBehavior::test_callback_receives_exact_event PASSED [ 31%]
+tests/test_audit.py::TestCallbackBehavior::test_callback_raises_valueerror_swallowed PASSED [ 32%]
+tests/test_audit.py::TestCallbackBehavior::test_callback_raises_generic_exception_swallowed PASSED [ 33%]
+tests/test_audit.py::TestEventTypes::test_event_type_is_scan_complete PASSED [ 34%]
+tests/test_audit.py::TestEdgeCases::test_empty_findings_zero_count PASSED [ 35%]
+tests/test_audit.py::TestEdgeCases::test_freq_result_none_standard_payload PASSED [ 36%]
+tests/test_audit.py::TestEdgeCases::test_multiple_sessions_interleaved_global PASSED [ 37%]
+tests/test_audit.py::TestEdgeCases::test_payload_is_immutable PASSED     [ 38%]
+tests/test_audit.py::TestEdgeCases::test_verbose_payload_redacts_hash_key PASSED [ 39%]
+tests/test_audit.py::TestEdgeCases::test_verbose_payload_no_raw_secret_in_str PASSED [ 40%]
+tests/test_audit.py::TestEdgeCases::test_global_sequence_continues_across_sessions PASSED [ 41%]
+tests/test_alerting.py::TestAlertConstruction::test_frozen_dataclass PASSED [ 42%]
+tests/test_alerting.py::TestAlertConstruction::test_all_fields_populated PASSED [ 43%]
+tests/test_alerting.py::TestTierEscalation::test_none_to_tier1_fires_warning PASSED [ 44%]
+tests/test_alerting.py::TestTierEscalation::test_tier1_to_tier2_fires_high PASSED [ 45%]
+tests/test_alerting.py::TestTierEscalation::test_tier2_to_tier3_fires_critical PASSED [ 46%]
+tests/test_alerting.py::TestTierEscalation::test_same_tier_does_not_fire PASSED [ 47%]
+tests/test_alerting.py::TestTierEscalation::test_freq_result_none_does_not_fire PASSED [ 48%]
+tests/test_alerting.py::TestTierEscalation::test_decay_re_entry_fires PASSED [ 49%]
+tests/test_alerting.py::TestTierEscalation::test_stable_tier1_no_decay_does_not_fire PASSED [ 50%]
+tests/test_alerting.py::TestHighSeverityFinding::test_high_finding_fires PASSED [ 50%]
+tests/test_alerting.py::TestHighSeverityFinding::test_medium_finding_does_not_fire_default PASSED [ 51%]
+tests/test_alerting.py::TestHighSeverityFinding::test_critical_finding_fires PASSED [ 52%]
+tests/test_alerting.py::TestHighSeverityFinding::test_configurable_threshold_medium PASSED [ 53%]
+tests/test_alerting.py::TestRapidFire::test_below_threshold_does_not_fire PASSED [ 54%]
+tests/test_alerting.py::TestRapidFire::test_at_threshold_fires PASSED    [ 55%]
+tests/test_alerting.py::TestRapidFire::test_session_scoped_no_cross_contamination PASSED [ 56%]
+tests/test_alerting.py::TestRapidFire::test_skipped_when_session_none PASSED [ 57%]
+tests/test_alerting.py::TestRapidFire::test_outside_window_does_not_fire PASSED [ 58%]
+tests/test_alerting.py::TestCrossSessionBurst::test_below_threshold_does_not_fire PASSED [ 59%]
+tests/test_alerting.py::TestCrossSessionBurst::test_at_threshold_fires PASSED [ 60%]
+tests/test_alerting.py::TestCrossSessionBurst::test_duplicate_sessions_count_as_one PASSED [ 61%]
+tests/test_alerting.py::TestCrossSessionBurst::test_none_session_excluded PASSED [ 62%]
+tests/test_alerting.py::TestPiiVolumeSpike::test_below_threshold_does_not_fire PASSED [ 63%]
+tests/test_alerting.py::TestPiiVolumeSpike::test_at_threshold_fires PASSED [ 64%]
+tests/test_alerting.py::TestPiiVolumeSpike::test_window_expiry PASSED    [ 65%]
+tests/test_alerting.py::TestRateLimiting::test_cooldown_suppresses_same_key PASSED [ 66%]
+tests/test_alerting.py::TestRateLimiting::test_per_minute_cap PASSED     [ 67%]
+tests/test_alerting.py::TestRateLimiting::test_per_hour_cap PASSED       [ 68%]
+tests/test_alerting.py::TestRateLimiting::test_100_rapid_triggers_bounded PASSED [ 69%]
+tests/test_alerting.py::TestRateLimiting::test_suppressed_and_rate_limited_counts PASSED [ 70%]
+tests/test_alerting.py::TestCriticalExemption::test_tier3_bypasses_cooldown PASSED [ 71%]
+tests/test_alerting.py::TestCriticalExemption::test_tier3_bypasses_per_minute_cap PASSED [ 72%]
+tests/test_alerting.py::TestCriticalExemption::test_tier3_bypasses_per_hour_cap PASSED [ 73%]
+tests/test_alerting.py::TestCriticalExemption::test_non_critical_still_rate_limited PASSED [ 74%]
+tests/test_alerting.py::TestCriticalCap::test_critical_cap_bounds_fanout PASSED [ 75%]
+tests/test_alerting.py::TestCriticalCap::test_critical_cap_default_allows_legitimate_burst PASSED [ 76%]
+tests/test_alerting.py::TestCriticalCap::test_critical_cap_per_rule_id_isolation PASSED [ 77%]
+tests/test_alerting.py::TestCriticalCap::test_critical_cap_resets_after_window PASSED [ 78%]
+tests/test_alerting.py::TestCriticalCap::test_tier3_bypasses_noncritical_caps PASSED [ 79%]
+tests/test_alerting.py::TestCriticalCap::test_critical_fanout_callback_bounded PASSED [ 80%]
+tests/test_alerting.py::TestRingBuffer::test_buffer_respects_maxlen PASSED [ 81%]
+tests/test_alerting.py::TestRingBuffer::test_buffer_entries_correct_shape PASSED [ 82%]
+tests/test_alerting.py::TestAlertCallbackBehavior::test_no_callback_returns_alerts PASSED [ 83%]
+tests/test_alerting.py::TestAlertCallbackBehavior::test_callback_receives_each_alert PASSED [ 84%]
+tests/test_alerting.py::TestAlertCallbackBehavior::test_callback_exception_swallowed PASSED [ 85%]
+tests/test_alerting.py::TestAlertStats::test_alert_count_reflects_fired PASSED [ 86%]
+tests/test_alerting.py::TestAlertStats::test_suppressed_count_reflects_dedup PASSED [ 87%]
+tests/test_alerting.py::TestAlertStats::test_rate_limited_count_reflects_caps PASSED [ 88%]
+tests/test_alerting.py::TestSessionContributionCap::test_session_contribution_cap_limits_single_session PASSED [ 89%]
+tests/test_alerting.py::TestSessionContributionCap::test_throwaway_sessions_cannot_exhaust_rule_cap PASSED [ 90%]
+tests/test_alerting.py::TestSessionContributionCap::test_session_contribution_independent_across_rules PASSED [ 91%]
+tests/test_alerting.py::TestSessionContributionCap::test_session_contribution_window_resets PASSED [ 92%]
+tests/test_alerting.py::TestSessionContributionCap::test_session_none_uses_none_key PASSED [ 93%]
+tests/test_alerting.py::TestSessionContributionCap::test_per_session_deque_pruned PASSED [ 94%]
+tests/test_alerting.py::TestSessionContributionCap::test_memory_bound_rejects_new_sessions PASSED [ 95%]
+tests/test_alerting.py::TestSessionContributionCap::test_cap_1_suppresses_reentry PASSED [ 96%]
+tests/test_alerting.py::TestSessionContributionCap::test_three_gate_composition PASSED [ 97%]
+tests/test_alerting.py::TestSessionContributionCap::test_session_rate_limited_count_separate PASSED [ 98%]
+tests/test_alerting.py::TestSessionContributionCap::test_cross_field_validation_cap_gt_per_minute PASSED [ 99%]
+tests/test_alerting.py::TestSessionContributionCap::test_memory_bound_recovery_after_expiry PASSED [100%]
+
+============================== warnings summary ===============================
+tests/adversarial/pipeline/test_callback_isolation.py::TestPipelineCallbackPropagation::test_audit_error_reaches_pipeline_result
+  C:\Users\zioni\Documents\Vigil-Harbor\PET-53-worktree\tests\adversarial\pipeline\test_callback_isolation.py:196: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(
+
+tests/adversarial/pipeline/test_callback_isolation.py::TestPipelineCallbackPropagation::test_alert_error_reaches_pipeline_result
+  C:\Users\zioni\Documents\Vigil-Harbor\PET-53-worktree\tests\adversarial\pipeline\test_callback_isolation.py:206: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(
+
+tests/adversarial/pipeline/test_callback_isolation.py::TestPipelineCallbackPropagation::test_both_callbacks_fail_both_errors_in_result
+  C:\Users\zioni\Documents\Vigil-Harbor\PET-53-worktree\tests\adversarial\pipeline\test_callback_isolation.py:220: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================= 102 passed, 3 warnings in 0.23s =======================
