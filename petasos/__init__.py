@@ -15,7 +15,7 @@ from petasos.normalize import normalize
 from petasos.pipeline import Pipeline
 from petasos.premium.alerting import AlertManager
 from petasos.premium.audit import AuditEmitter
-from petasos.premium.frequency import FrequencyTracker, FrequencyUpdateResult
+from petasos.premium.frequency import FrequencyTracker, FrequencyUpdateResult, SessionToken
 from petasos.premium.guard import GuardResult, ToolCallGuard
 from petasos.premium.license import LicenseClaims, LicenseState, LicenseValidator, validate_license
 from petasos.premium.profiles import ProfileResolver, ResolvedProfile, TierThresholds
@@ -42,6 +42,7 @@ __all__ = [
     "ProfileResolver",
     "RULE_TAXONOMY",
     "ResolvedProfile",
+    "SessionToken",
     "ScanFinding",
     "ScanResult",
     "Scanner",
