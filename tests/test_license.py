@@ -92,13 +92,12 @@ class TestLicenseValidator:
         assert claims.expiry.tzinfo is not None
         assert claims.issued_at.tzinfo is not None
 
-    def test_default_tier_when_missing(self) -> None:
+    def test_null_tier_rejected_by_allowlist(self) -> None:
         token = _make_token(extra_claims={"tier": None})
         v = LicenseValidator()
         state, claims = v.validate(token)
-        assert state == LicenseState.VALID
-        assert claims is not None
-        assert claims.tier == "None"
+        assert state == LicenseState.INVALID
+        assert claims is None
 
     def test_claims_frozen(self) -> None:
         token = _make_token()
