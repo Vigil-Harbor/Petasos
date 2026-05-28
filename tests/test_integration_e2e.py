@@ -500,7 +500,7 @@ class TestDegradedModeVariants:
 
         assert result.safe is False
 
-    async def test_degraded_safe_when_partial_ml_error(self, valid_key: str) -> None:
+    async def test_degraded_blocks_when_partial_ml_error(self, valid_key: str) -> None:
         config = PetasosConfig(fail_mode="degraded")
         mock_ok = MockMLScanner(name="mock_ok")
         mock_err = MockMLScanner(name="mock_err", error=RuntimeError("down"))
@@ -514,4 +514,4 @@ class TestDegradedModeVariants:
             direction="inbound",
         )
 
-        assert result.safe is True
+        assert result.safe is False

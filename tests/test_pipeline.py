@@ -351,12 +351,12 @@ class TestFailModeDegraded:
         assert result.safe is True
 
     @pytest.mark.asyncio
-    async def test_partial_ml_failure_safe_unchanged(self) -> None:
+    async def test_partial_ml_failure_blocks(self) -> None:
         good = MockScanner("good", findings=())
         bad = MockScanner("bad", error=RuntimeError("down"))
         p = Pipeline(scanners=[good, bad], config=PetasosConfig(fail_mode="degraded"))
         result = await p.inspect("hello")
-        assert result.safe is True
+        assert result.safe is False
 
     @pytest.mark.asyncio
     async def test_all_ml_failure_blocks(self) -> None:

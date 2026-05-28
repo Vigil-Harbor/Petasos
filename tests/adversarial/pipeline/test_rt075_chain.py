@@ -92,7 +92,6 @@ async def test_rt075_chain_syn08_breaks_link2() -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.xfail(reason="Requires PET-49 (PIPE-02) fix in pipeline.py")
 async def test_rt075_chain_pipe02_breaks_link3() -> None:
     pipe = Pipeline(
         [MinimalScanner(), _FlakyMLScanner(), _CleanMLScanner()],

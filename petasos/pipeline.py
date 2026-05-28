@@ -114,7 +114,7 @@ def _compute_safe(
     all_ml_failure = ml_errored == ml_total
 
     if fail_mode == "degraded":
-        if all_ml_failure:
+        if partial_failure or all_ml_failure:
             safe = False
     elif fail_mode == "open":
         pass
