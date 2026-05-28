@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import threading
 import time
 from typing import Any
@@ -170,12 +171,15 @@ class LlmGuardScanner:
             try:
                 _sanitized, is_valid, risk_score = sub_scanner.scan(text)
                 if not is_valid:
+                    _clamped = (
+                        0.0 if not math.isfinite(risk_score) else max(0.0, min(1.0, risk_score))
+                    )
                     findings.append(
                         ScanFinding(
                             rule_id=rule_id,
                             finding_type=finding_type,
                             severity=severity,
-                            confidence=risk_score,
+                            confidence=_clamped,
                             message=f"LLM Guard {finding_type} detection triggered",
                             scanner_name="llm_guard",
                             position=None,

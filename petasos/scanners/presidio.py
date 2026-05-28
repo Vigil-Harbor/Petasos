@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import hmac
+import math
 import threading
 import time
 from collections import defaultdict
@@ -34,6 +35,14 @@ _SEVERITY_MAP: dict[str, Severity] = {
     "LOCATION": Severity.MEDIUM,
     "DATE_TIME": Severity.MEDIUM,
     "NRP": Severity.MEDIUM,
+}
+
+_SEVERITY_RANK: dict[Severity, int] = {
+    Severity.CRITICAL: 0,
+    Severity.HIGH: 1,
+    Severity.MEDIUM: 2,
+    Severity.LOW: 3,
+    Severity.INFO: 4,
 }
 
 _module_anonymizer: Any = None
@@ -171,12 +180,13 @@ class PresidioScanner:
         for r in results:
             entity_type: str = r.entity_type
             severity = _SEVERITY_MAP.get(entity_type, Severity.LOW)
+            _clamped = 0.0 if not math.isfinite(r.score) else max(0.0, min(1.0, r.score))
             findings.append(
                 ScanFinding(
                     rule_id=f"petasos.presidio.{entity_type.lower()}",
                     finding_type="pii",
                     severity=severity,
-                    confidence=r.score,
+                    confidence=_clamped,
                     message=f"PII detected: {entity_type}",
                     scanner_name=self.name,
                     position=Position(start=r.start, end=r.end),
@@ -204,10 +214,10 @@ def _resolve_overlaps(
         assert prev_finding.position is not None
         assert current_finding.position is not None
         if current_finding.position.start < prev_finding.position.end:
-            prev_span = prev_finding.position.end - prev_finding.position.start
-            curr_span = current_finding.position.end - current_finding.position.start
-            if current_finding.confidence > prev_finding.confidence or (
-                current_finding.confidence == prev_finding.confidence and curr_span > prev_span
+            cur_sev = _SEVERITY_RANK.get(current_finding.severity, 999)
+            prev_sev = _SEVERITY_RANK.get(prev_finding.severity, 999)
+            if cur_sev < prev_sev or (
+                cur_sev == prev_sev and current_finding.confidence > prev_finding.confidence
             ):
                 result[-1] = (current_finding, current_entity)
         else:

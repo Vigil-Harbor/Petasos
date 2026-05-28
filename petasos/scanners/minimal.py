@@ -55,7 +55,7 @@ _ROLE_GRANTS: list[re.Pattern[str]] = [
 
 # --- Structural checks ---
 
-_BINARY_PATTERN = re.compile(r"[\x01-\x08\x0e-\x1f]")
+_BINARY_PATTERN = re.compile(r"[\x00-\x08\x0e-\x1f\x7f]")
 
 # --- Encoding detection ---
 
@@ -223,7 +223,18 @@ class MinimalScanner:
         depth = 0
         max_depth = 0
         has_brackets = False
+        in_string = False
+        prev_backslash = False
         for ch in text:
+            if in_string:
+                if ch == '"' and not prev_backslash:
+                    in_string = False
+                prev_backslash = ch == "\\" and not prev_backslash
+                continue
+            if ch == '"':
+                in_string = True
+                prev_backslash = False
+                continue
             if ch in ("{", "["):
                 has_brackets = True
                 depth += 1

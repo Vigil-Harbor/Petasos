@@ -34,19 +34,21 @@ async def test_system_prefix_case_variant() -> None:
 
 
 @pytest.mark.asyncio
-async def test_nul_byte_not_flagged_by_binary_pattern() -> None:
-    """SYN-04: NUL \\x00 outside binary regex range."""
+async def test_nul_byte_flagged_by_binary_pattern() -> None:
+    """SYN-04 (fixed): NUL \\x00 now included in binary regex range."""
+    # Regression for PET-68: NUL must trigger binary-content
     scanner = MinimalScanner()
     result = await scanner.scan("hello\x00world")
-    assert not any("binary-content" in f.rule_id for f in result.findings)
+    assert any("binary-content" in f.rule_id for f in result.findings)
 
 
-def test_json_depth_counts_brackets_inside_strings() -> None:
-    """SYN-05: naive bracket depth flags string literals."""
+def test_json_depth_skips_brackets_inside_strings() -> None:
+    """SYN-05 (fixed): string-aware depth counting ignores brackets in string literals."""
+    # Regression for PET-69: brackets in JSON strings must not inflate depth
     scanner = MinimalScanner()
     text = '{"a": "[[[[[[[[[[[]]]]]]]]]]]"}'
     depth = scanner._check_json_depth(text)
-    assert depth > 10
+    assert depth == 1
 
 
 @pytest.mark.asyncio
