@@ -122,10 +122,7 @@ class AlertManager:
                     session_minute_key, deque()
                 )
                 self._evict_old(session_minute_deque, now, 60.0)
-                if (
-                    len(session_minute_deque)
-                    >= self._config.alert_per_session_contribution_cap
-                ):
+                if len(session_minute_deque) >= self._config.alert_per_session_contribution_cap:
                     self._session_rate_limited_count += 1
                     continue
 
