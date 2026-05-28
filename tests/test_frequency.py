@@ -469,11 +469,13 @@ class TestStaticResults:
         assert DISABLED_RESULT.current_score == 0.0
         assert DISABLED_RESULT.tier == "none"
         assert DISABLED_RESULT.terminated is False
+        assert DISABLED_RESULT.rate_limited is False
 
     def test_rate_limited_result_is_frozen(self) -> None:
         assert RATE_LIMITED_RESULT.current_score == 0.0
         assert RATE_LIMITED_RESULT.tier == "none"
         assert RATE_LIMITED_RESULT.terminated is False
+        assert RATE_LIMITED_RESULT.rate_limited is True
 
 
 # ---------------------------------------------------------------------------

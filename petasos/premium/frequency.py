@@ -38,6 +38,7 @@ class FrequencyUpdateResult:
     current_score: float
     tier: str
     terminated: bool
+    rate_limited: bool = False
 
 
 @dataclass(frozen=True)
@@ -51,7 +52,7 @@ DISABLED_RESULT = FrequencyUpdateResult(
     previous_score=0.0, current_score=0.0, tier="none", terminated=False
 )
 RATE_LIMITED_RESULT = FrequencyUpdateResult(
-    previous_score=0.0, current_score=0.0, tier="none", terminated=False
+    previous_score=0.0, current_score=0.0, tier="none", terminated=False, rate_limited=True
 )
 
 
@@ -95,6 +96,7 @@ class FrequencyTracker:
         self._creation_timestamps: deque[float] = deque()
         self._terminated_ids: OrderedDict[str, None] = OrderedDict()
         self._max_terminated: int = config.max_terminated_tombstones
+        self._ttl_deque: deque[tuple[float, str]] = deque()
 
     @property
     def requires_token(self) -> bool:
@@ -139,18 +141,22 @@ class FrequencyTracker:
         session_id = self._resolve_session_id(session)
         now = time.monotonic()
 
-        # Step 1: Passive TTL eviction
-        stale = [
-            sid
-            for sid, state in self._sessions.items()
-            if now - state.last_update > self._session_ttl
-        ]
-        for sid in stale:
-            state = self._sessions[sid]
-            if state.terminated and sid not in self._terminated_ids:
+        # Step 1: Passive TTL eviction (O(k) amortized via sorted deque)
+        while self._ttl_deque and self._ttl_deque[0][0] <= now:
+            _, sid = self._ttl_deque.popleft()
+            if sid not in self._sessions:
+                continue
+            state_ev = self._sessions[sid]
+            if state_ev.last_update + self._session_ttl > now:
+                continue
+            if state_ev.terminated and sid not in self._terminated_ids:
                 self._terminated_ids[sid] = None
                 self._enforce_tombstone_cap()
             del self._sessions[sid]
+
+        # Step 1b: Deque compaction
+        if len(self._ttl_deque) > 2 * self._max_sessions:
+            self._compact_ttl_deque(now)
 
         # Step 1.5: Tombstone early-return
         if session_id not in self._sessions and session_id in self._terminated_ids:
@@ -227,6 +233,7 @@ class FrequencyTracker:
         # Step 10: Update state
         state.last_score = current_score
         state.last_update = now
+        self._ttl_deque.append((now + self._session_ttl, session_id))
         if tier == "tier3":
             state.terminated = True
             self._add_tombstone(session_id)
@@ -276,6 +283,7 @@ class FrequencyTracker:
         self._sessions.clear()
         self._creation_timestamps.clear()
         self._terminated_ids.clear()
+        self._ttl_deque.clear()
 
     @property
     def size(self) -> int:
@@ -284,6 +292,15 @@ class FrequencyTracker:
     @property
     def tombstone_count(self) -> int:
         return len(self._terminated_ids)
+
+    def _compact_ttl_deque(self, now: float) -> None:
+        entries: list[tuple[float, str]] = []
+        for sid, state in self._sessions.items():
+            expiry = state.last_update + self._session_ttl
+            if expiry > now:
+                entries.append((expiry, sid))
+        entries.sort()
+        self._ttl_deque = deque(entries)
 
     def _match_weight(self, finding_type: str) -> float:
         w = self._exact_weights.get(finding_type)

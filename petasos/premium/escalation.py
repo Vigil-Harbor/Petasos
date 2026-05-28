@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -23,14 +24,22 @@ class EscalationResult:
     threshold_crossed: float | None
 
 
-def evaluate_tier(score: float, config: PetasosConfig) -> str:
-    if score >= config.tier3_threshold:
+def derive_tier(score: float, tier1: float, tier2: float, tier3: float) -> str:
+    if not math.isfinite(score):
         return "tier3"
-    if score >= config.tier2_threshold:
+    if score >= max(tier3, TIER3_FLOOR):
+        return "tier3"
+    if score >= tier2:
         return "tier2"
-    if score >= config.tier1_threshold:
+    if score >= tier1:
         return "tier1"
     return "none"
+
+
+def evaluate_tier(score: float, config: PetasosConfig) -> str:
+    return derive_tier(
+        score, config.tier1_threshold, config.tier2_threshold, config.tier3_threshold
+    )
 
 
 def evaluate_escalation(score: float, config: PetasosConfig) -> EscalationResult:
