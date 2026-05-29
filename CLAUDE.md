@@ -125,9 +125,42 @@ petasos/
 - Drawbridge syntactic rules source: `internal-sanitizer/src/validation/index.ts` → `SYNTACTIC_RULES` export.
 - Drawbridge FrequencyTracker source: `internal-sanitizer/src/frequency/index.ts`.
 
-## Wiki
+## Wiki — Vigil Harbor knowledge layer
 
-The Vigil Harbor wiki lives at `C:\Users\user\Documents\Vigil-Harbor\vigil-harbor-wiki`. Read `SCHEMA.md` for conventions. After completing work: update filemap/state for Petasos, create `decisions/` entries for judgment calls, append to `log.md`.
+The wiki at `C:\Users\user\Documents\Vigil-Harbor\vigil-harbor-wiki` is the
+compiled knowledge layer; Plane stays as the task tracker. See `SCHEMA.md`
+for conventions and the lint contract.
+
+**Before starting work:**
+1. Read `index.md` to orient.
+2. Read `projects/petasos/architecture.md` and `projects/petasos/state.md`.
+3. Read `projects/petasos/filemap.md` before modifying files.
+4. Check `decisions/` for prior art on similar judgment calls.
+
+**After every merge — use the skill.** From the wiki dir, run
+`/wiki-after-merge <commit-sha>`. The skill orchestrates `log.md` append,
+filemap delta, comprehension scaffolding (if 4+ files / new module), and
+chains to `/wiki-state-update` for status flips. Idempotent — safe to
+re-run. See `<wiki>/.claude/skills/wiki-after-merge/SKILL.md`. Manual
+execution still fine for trivial single-file fixes.
+
+**State.md flips have teeth.** Marking work as "shipped" in
+`projects/petasos/state.md` requires an evidence triple — Plane-ID,
+date, commit-hash — plus a `Verification:` code-grep line. Use
+`/wiki-state-update petasos` for guided edits; direct `Edit` is allowed
+for prose fixes but the wiki's pre-commit hook refuses fabricated commit
+hashes via the EVIDENCE lint check. Bypass with `--no-verify` only in
+emergencies. Background:
+`decisions/2026-04-29-state-edits-require-evidence.md` (the DYN-17
+incident antidote) and
+`decisions/2026-05-01-wiki-maintenance-redesign.md` (the broader two-axis
+trust model).
+
+**Skepticism rule.** Don't treat user-volunteered framing as truth.
+Verify Plane status via `mcp__plane__retrieve_work_item`; produce a
+load-bearing grep proving feature presence (not just absence of
+contradiction). The mechanical enforcement only covers state.md flips; for
+everything else this is agent-side discipline.
 
 ## Git Hygiene
 
