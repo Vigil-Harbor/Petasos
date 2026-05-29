@@ -608,16 +608,25 @@ class TestAlertCallbackBehavior:
         alerts = mgr.evaluate(r, "s1", None)
         assert len(received) == len(alerts)
 
-    def test_callback_exception_swallowed(self) -> None:
+    def test_callback_exception_logs_and_continues(self, caplog: pytest.LogCaptureFixture) -> None:
+        call_count = 0
+
         def bad_cb(a: Alert) -> None:
+            nonlocal call_count
+            call_count += 1
             raise ValueError("boom")
 
         mgr = AlertManager(_cfg(), on_alert=bad_cb)
         r = _result(findings=(_finding(severity=Severity.HIGH),))
-        alerts = mgr.evaluate(r, "s1", None)
+        import logging
+
+        with caplog.at_level(logging.ERROR):
+            alerts = mgr.evaluate(r, "s1", None)
         assert len(alerts) >= 1
+        assert call_count > 0
         assert len(mgr.callback_errors) >= 1
         assert "ValueError" in mgr.callback_errors[0]
+        assert "boom" in caplog.text
 
 
 # ---------------------------------------------------------------------------
