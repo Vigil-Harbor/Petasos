@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from types import MappingProxyType
+from unittest.mock import patch
 
 import pytest
 
@@ -9,6 +10,15 @@ from petasos._types import AuditEvent, PipelineResult, ScanFinding, ScanResult, 
 from petasos.config import PetasosConfig
 from petasos.premium.audit import AuditEmitter
 from petasos.premium.frequency import FrequencyUpdateResult
+
+
+class _AuditCallbackKill(BaseException):
+    """A BaseException (not an Exception) raised by a callback.
+
+    Used to prove emit() isolates BaseException subclasses, not just Exception —
+    the pre-fix code caught only ``Exception`` and re-raised, so this would have
+    propagated straight through inspect().
+    """
 
 
 def _cfg(**overrides: object) -> PetasosConfig:
@@ -324,3 +334,128 @@ class TestEdgeCases:
         assert e2.sequence_number == 1
         assert e3.sequence_number == 2
         assert emitter._global_sequence == 3
+
+
+# ---------------------------------------------------------------------------
+# AUD-01 (PET-20) — sequence chain survives session churn / TTL prune
+#
+# Regression for: "Reuse session_id after TTL prune -> sequence_number resets
+# to 0". The pre-fix emitter kept a per-session counter pruned on TTL, so a
+# reconnecting session restarted at 0 and the cross-session sequence had
+# duplicate values. The global monotonic counter is immune. Each test below
+# FAILS against the pre-fix per-session implementation and PASSES post-fix.
+# ---------------------------------------------------------------------------
+
+
+class TestSequenceAdversarial:
+    def test_reconnect_after_session_churn_no_reset(self) -> None:
+        emitter = AuditEmitter(_cfg())
+        first = emitter.emit(_result(), "agent-A", None)
+        for i in range(50):
+            emitter.emit(_result(), f"churn-{i}", None)
+        again = emitter.emit(_result(), "agent-A", None)
+
+        assert first.sequence_number == 0
+        # Pre-fix (per-session counter) would give agent-A its own seq == 1 here.
+        assert again.sequence_number == 51
+        assert again.sequence_number > first.sequence_number
+
+    def test_sequence_globally_unique_under_session_reuse(self) -> None:
+        emitter = AuditEmitter(_cfg())
+        seqs: list[int] = []
+        for _ in range(4):
+            for sid in ("a", "b", "c"):
+                seqs.append(emitter.emit(_result(), sid, None).sequence_number)
+
+        # Pre-fix per-session counters produce duplicates ([0,0,0,1,1,1,...]).
+        assert len(set(seqs)) == len(seqs)
+        assert seqs == sorted(seqs)
+        assert seqs == list(range(12))
+
+    def test_sequence_does_not_reset_after_ttl_prune(self) -> None:
+        # Literal AUD-01 attack: let a session's TTL elapse (which pre-fix would
+        # prune), churn other sessions, then reconnect the original session_id.
+        emitter = AuditEmitter(_cfg(session_ttl_seconds=10.0))
+        with patch("petasos.premium.audit.time") as mock_time:
+            mock_time.time.return_value = 2000.0
+
+            mock_time.monotonic.return_value = 1000.0
+            first = emitter.emit(_result(), "agent-A", None)
+
+            # Advance well past the TTL while other sessions emit.
+            mock_time.monotonic.return_value = 1000.0 + 100.0
+            for i in range(5):
+                emitter.emit(_result(), f"churn-{i}", None)
+
+            # agent-A reconnects after its counter would have been pruned.
+            again = emitter.emit(_result(), "agent-A", None)
+
+        assert first.sequence_number == 0
+        # Pre-fix: pruned counter -> reconnect restarts at 0.
+        assert again.sequence_number == 6
+        assert again.sequence_number > first.sequence_number
+
+
+# ---------------------------------------------------------------------------
+# AUD-02 (PET-21) — on_audit callback failures never reach the pipeline
+#
+# Regression for: "on_audit raises RuntimeError -> propagates to pipeline,
+# breaking the never-throws invariant". The pre-fix emit() re-raised as
+# RuntimeError (and caught only Exception, so BaseException escaped entirely).
+# Post-fix swallows BaseException, logs with exc_info, and records the error
+# in last_callback_error for the pipeline hook to fold into PipelineResult.errors.
+# ---------------------------------------------------------------------------
+
+
+class TestCallbackIsolationAdversarial:
+    def test_emit_does_not_raise_on_runtimeerror_callback(self) -> None:
+        def bad_cb(_: AuditEvent) -> None:
+            raise RuntimeError("on_audit boom")
+
+        emitter = AuditEmitter(_cfg(), on_audit=bad_cb)
+        # Pre-fix this call raised RuntimeError; the assertions below were never
+        # reached. Post-fix it returns normally.
+        event = emitter.emit(_result(), "s1", None)
+        assert event is not None
+        assert emitter.last_callback_error is not None
+        assert "RuntimeError" in emitter.last_callback_error
+        assert "on_audit boom" in emitter.last_callback_error
+
+    def test_emit_swallows_baseexception_subclass(self) -> None:
+        def bad_cb(_: AuditEvent) -> None:
+            raise _AuditCallbackKill("base-level kill")
+
+        emitter = AuditEmitter(_cfg(), on_audit=bad_cb)
+        # Pre-fix caught only Exception, so this BaseException propagated.
+        event = emitter.emit(_result(), "s1", None)
+        assert event is not None
+        assert emitter.last_callback_error is not None
+        assert "_AuditCallbackKill" in emitter.last_callback_error
+
+    def test_callback_error_cleared_on_next_success(self) -> None:
+        state = {"fail": True}
+
+        def cb(_: AuditEvent) -> None:
+            if state["fail"]:
+                raise RuntimeError("first emit fails")
+
+        emitter = AuditEmitter(_cfg(), on_audit=cb)
+        emitter.emit(_result(), "s1", None)
+        assert emitter.last_callback_error is not None
+
+        state["fail"] = False
+        emitter.emit(_result(), "s1", None)
+        # A clean emit must not carry the prior error into PipelineResult.errors.
+        assert emitter.last_callback_error is None
+
+    def test_sequence_advances_despite_callback_failure(self) -> None:
+        def bad_cb(_: AuditEvent) -> None:
+            raise RuntimeError("always boom")
+
+        emitter = AuditEmitter(_cfg(), on_audit=bad_cb)
+        e1 = emitter.emit(_result(), "s1", None)
+        e2 = emitter.emit(_result(), "s1", None)
+        # The event is still fully formed and the chain advances even though the
+        # callback failed on every emit.
+        assert e1.sequence_number == 0
+        assert e2.sequence_number == 1

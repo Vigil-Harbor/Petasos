@@ -13,6 +13,15 @@ from petasos.premium.alerting import AlertManager
 from petasos.premium.frequency import FrequencyUpdateResult
 
 
+class _AlertCallbackKill(BaseException):
+    """A BaseException (not an Exception) raised by an on_alert callback.
+
+    Proves evaluate() isolates BaseException subclasses, not just Exception —
+    the pre-fix code caught only ``Exception`` and re-raised, so this would have
+    propagated straight through inspect().
+    """
+
+
 def _cfg(**overrides: object) -> PetasosConfig:
     defaults: dict[str, object] = {
         "alert_enabled": True,
@@ -924,3 +933,173 @@ class TestSessionContributionCap:
             alerts = mgr.evaluate(r, "fresh-session", None)
             hsf = [a for a in alerts if a.rule_id == "high_severity_finding"]
             assert len(hsf) == 1
+
+
+# ---------------------------------------------------------------------------
+# ALRT-03 (PET-18) — cross_session_burst counts distinct sessions accurately
+# even when the ring buffer evicts entries under flood.
+#
+# The pre-fix detector counted distinct sessions from the maxlen ring buffer
+# (`recent_sessions = {sid for ts, sid in buf ...}`), so padding the buffer with
+# duplicate sessions evicted the distinct ones and the count fell below the
+# threshold (or reported a truncated count). The fix tracks session -> last_seen
+# in a separate LRU-capped dict. Each test FAILS pre-fix / PASSES post-fix.
+#
+# Note: config enforces alert_cross_session_burst_count <= alert_ring_buffer_capacity,
+# so these tests stay within that invariant and exploit eviction directly.
+# ---------------------------------------------------------------------------
+
+
+class TestCrossSessionBurstAdversarial:
+    def test_burst_survives_ring_eviction_padding(self) -> None:
+        # ring capacity == threshold == 3. Interleave a repeated padding session
+        # so that no single evaluate ever holds 3 distinct sessions in the ring,
+        # yet 4 distinct sessions (s1, pad, s2, s3) appear within the window.
+        mgr = AlertManager(
+            _cfg(
+                alert_ring_buffer_capacity=3,
+                alert_cross_session_burst_count=3,
+                alert_cross_session_burst_window_seconds=600.0,
+                alert_rapid_fire_count=3,
+                alert_cooldown_seconds=0.001,
+                alert_per_minute_cap=50,
+                alert_per_hour_cap=50,
+                alert_per_session_contribution_cap=50,
+            )
+        )
+        r = _result(findings=(_finding(severity=Severity.LOW),))
+        sequence = ["s1", "pad", "pad", "s2", "pad", "pad", "s3"]
+        fired: list[Alert] = []
+        for sid in sequence:
+            alerts = mgr.evaluate(r, sid, None)
+            fired.extend(a for a in alerts if a.rule_id == "cross_session_burst")
+
+        # Pre-fix: ring-only count never reaches 3 -> no burst -> fired == [].
+        assert len(fired) >= 1
+        assert fired[0].context["distinct_sessions"] >= 3
+
+    def test_burst_reports_accurate_count_under_flood(self) -> None:
+        # 100 distinct sessions, ring capacity 60 (< 100). Pre-fix would report
+        # at most 60 distinct (ring maxlen); the fix reports the true 100.
+        mgr = AlertManager(
+            _cfg(
+                alert_ring_buffer_capacity=60,
+                alert_cross_session_burst_count=50,
+                alert_cross_session_burst_window_seconds=600.0,
+                alert_cooldown_seconds=0.001,
+                alert_per_minute_cap=500,
+                alert_per_hour_cap=500,
+                alert_per_session_contribution_cap=500,
+            )
+        )
+        r = _result(findings=(_finding(severity=Severity.LOW),))
+        last_burst: Alert | None = None
+        for i in range(100):
+            alerts = mgr.evaluate(r, f"sess-{i}", None)
+            for a in alerts:
+                if a.rule_id == "cross_session_burst":
+                    last_burst = a
+
+        assert last_burst is not None
+        # Pre-fix ring-only count is capped at maxlen (60); fix reports 100.
+        assert last_burst.context["distinct_sessions"] == 100
+
+    def test_cross_session_tracker_lru_capped(self) -> None:
+        # Flood far more distinct sessions than the tracker bound; the dict must
+        # stay capped at max(2 * ring_capacity, burst_count) and not grow O(n).
+        cap = 60
+        mgr = AlertManager(
+            _cfg(
+                alert_ring_buffer_capacity=cap,
+                alert_cross_session_burst_count=50,
+                alert_cross_session_burst_window_seconds=600.0,
+                alert_cooldown_seconds=0.001,
+                alert_per_minute_cap=500,
+                alert_per_hour_cap=500,
+                alert_per_session_contribution_cap=500,
+            )
+        )
+        r = _result(findings=(_finding(severity=Severity.LOW),))
+        for i in range(1000):
+            mgr.evaluate(r, f"flood-{i}", None)
+
+        # Pre-fix: no _cross_session_tracker attribute (AttributeError).
+        expected_cap = max(2 * cap, 50)
+        assert len(mgr._cross_session_tracker) <= expected_cap
+
+
+# ---------------------------------------------------------------------------
+# ALRT-04 (PET-19) — on_alert callback failures never reach the pipeline,
+# including under a critical-tier flood.
+#
+# The pre-fix evaluate() re-raised callback failures as RuntimeError (and caught
+# only Exception, so BaseException escaped). Post-fix swallows BaseException,
+# logs with exc_info, and accumulates the error in callback_errors for the
+# pipeline hook to fold into PipelineResult.errors. Each test FAILS pre-fix.
+# ---------------------------------------------------------------------------
+
+
+class TestAlertCallbackIsolationAdversarial:
+    def test_evaluate_swallows_baseexception_subclass(self) -> None:
+        def bad_cb(_: Alert) -> None:
+            raise _AlertCallbackKill("base-level kill")
+
+        mgr = AlertManager(_cfg(), on_alert=bad_cb)
+        r = _result(findings=(_finding(severity=Severity.HIGH),))
+        # Pre-fix caught only Exception, so this BaseException propagated.
+        alerts = mgr.evaluate(r, "s1", None)
+        assert len(alerts) >= 1
+        assert len(mgr.callback_errors) >= 1
+        assert "_AlertCallbackKill" in mgr.callback_errors[0]
+
+    def test_evaluate_never_raises_under_critical_flood(self) -> None:
+        call_count = 0
+
+        def bad_cb(_: Alert) -> None:
+            nonlocal call_count
+            call_count += 1
+            raise RuntimeError("on_alert boom under flood")
+
+        mgr = AlertManager(_cfg(alert_critical_per_minute_cap=100), on_alert=bad_cb)
+        fr = _freq(previous_score=35.0, current_score=55.0, tier="tier3")
+        total_errors = 0
+        for i in range(50):
+            # Pre-fix: the first surviving critical alert re-raises and this
+            # loop blows up. Post-fix: every callback failure is contained.
+            alerts = mgr.evaluate(_result(), f"s{i}", fr)
+            total_errors += len(mgr.callback_errors)
+            assert all(a.rule_id == "tier_escalation" for a in alerts)
+        assert call_count > 0
+        assert total_errors > 0
+
+    def test_callback_errors_reset_per_evaluate(self) -> None:
+        state = {"fail": True}
+
+        def cb(_: Alert) -> None:
+            if state["fail"]:
+                raise RuntimeError("first evaluate fails")
+
+        mgr = AlertManager(_cfg(alert_cooldown_seconds=0.001), on_alert=cb)
+        r = _result(findings=(_finding(severity=Severity.HIGH),))
+        mgr.evaluate(r, "s1", None)
+        assert len(mgr.callback_errors) >= 1
+
+        state["fail"] = False
+        mgr.evaluate(r, "s2", None)
+        # A clean evaluate must not carry the prior call's errors forward.
+        assert mgr.callback_errors == ()
+
+    def test_surviving_alerts_unaffected_by_callback_failure(self) -> None:
+        def raising_cb(_: Alert) -> None:
+            raise RuntimeError("on_alert always fails")
+
+        good_received: list[Alert] = []
+        good = AlertManager(_cfg(), on_alert=good_received.append)
+        bad = AlertManager(_cfg(), on_alert=raising_cb)
+        r = _result(findings=(_finding(severity=Severity.HIGH),))
+
+        good_alerts = good.evaluate(r, "s1", None)
+        bad_alerts = bad.evaluate(r, "s1", None)
+        # The returned alert set is identical whether or not the callback raised.
+        assert [a.rule_id for a in bad_alerts] == [a.rule_id for a in good_alerts]
+        assert len(bad.callback_errors) == len(good_alerts)
