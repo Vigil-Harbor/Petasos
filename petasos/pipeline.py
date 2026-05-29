@@ -631,16 +631,21 @@ class Pipeline:
         threshold = self._config.scanner_circuit_breaker_threshold
 
         open_until = self._breaker_open_until.get(sname)
-        if open_until is not None and time.monotonic() < open_until:
-            return ScanResult(
-                scanner_name=sname,
-                findings=(),
-                duration_ms=0.0,
-                error=(
-                    f"{_BREAKER_OPEN_ERROR_PREFIX}: short-circuited after "
-                    f"{threshold} consecutive timeouts"
-                ),
-            )
+        if open_until is not None:
+            if time.monotonic() < open_until:
+                return ScanResult(
+                    scanner_name=sname,
+                    findings=(),
+                    duration_ms=0.0,
+                    error=(
+                        f"{_BREAKER_OPEN_ERROR_PREFIX}: short-circuited after "
+                        f"{threshold} consecutive timeouts"
+                    ),
+                )
+            # Cooldown expired — clear the old streak so the scanner must
+            # accumulate a fresh consecutive-timeout run to reopen the breaker.
+            self._breaker_consecutive_timeouts.pop(sname, None)
+            self._breaker_open_until.pop(sname, None)
 
         result = await _scan_one(
             scanner,

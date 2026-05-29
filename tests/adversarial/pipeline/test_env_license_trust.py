@@ -31,11 +31,12 @@ def _all_premium_config() -> PetasosConfig:
 
 
 def test_valid_env_key_auto_activates(monkeypatch: pytest.MonkeyPatch, valid_token: str) -> None:
-    # PET-10 (a): a valid env key auto-activates premium at construction.
+    # PET-10 (a): a valid env key auto-activates all premium features at construction.
     monkeypatch.setenv("PETASOS_LICENSE_KEY", valid_token)
     pipe = Pipeline([MinimalScanner()], config=_all_premium_config())
     assert pipe._license_state == LicenseState.VALID
-    assert pipe.is_premium_active("frequency") is True
+    for feature in _ALL_FEATURES:
+        assert pipe.is_premium_active(feature) is True, f"expected {feature!r} to be active"
 
 
 def test_invalid_env_key_unlocks_nothing(monkeypatch: pytest.MonkeyPatch) -> None:

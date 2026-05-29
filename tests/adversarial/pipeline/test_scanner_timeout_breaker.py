@@ -137,6 +137,44 @@ async def test_circuit_breaker_trips_after_threshold() -> None:
 
 
 @pytest.mark.asyncio
+async def test_circuit_breaker_streak_clears_after_cooldown() -> None:
+    """Cooldown expiry resets the consecutive-timeout count.
+
+    After the breaker opens and the cooldown elapses, the scanner must be
+    re-invoked (not short-circuited) and must accumulate a fresh streak to
+    reopen — a single timeout post-cooldown must not immediately re-trip.
+    """
+    cfg = PetasosConfig(
+        fail_mode="degraded",
+        scanner_timeout_seconds=0.05,
+        scanner_circuit_breaker_threshold=2,
+        scanner_circuit_breaker_cooldown_seconds=0.05,
+    )
+    scanner = _HangingScanner(delay=5.0)
+    pipe = Pipeline([MinimalScanner(), scanner], config=cfg)
+
+    await pipe.inspect("x")  # timeout 1 (count=1)
+    await pipe.inspect("x")  # timeout 2 → breaker opens (count=2)
+
+    # Wait for the cooldown to expire.
+    await asyncio.sleep(0.1)
+
+    calls_before = scanner.calls
+    result = await pipe.inspect("x")  # cooldown expired → scanner re-invoked
+
+    # The scanner must have been called again (not short-circuited).
+    assert scanner.calls > calls_before
+
+    # The error is a fresh timeout, not a circuit-open error, because the
+    # streak was cleared — the single timeout post-cooldown did not re-trip.
+    sr = next(s for s in result.scanner_results if s.scanner_name == "hanging")
+    assert sr.error is not None
+    assert sr.error.startswith("ScannerTimeout"), (
+        f"Expected fresh ScannerTimeout after cooldown reset, got: {sr.error!r}"
+    )
+
+
+@pytest.mark.asyncio
 async def test_circuit_breaker_resets_on_success() -> None:
     cfg = PetasosConfig(
         fail_mode="degraded",

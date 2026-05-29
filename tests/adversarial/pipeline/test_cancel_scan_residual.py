@@ -63,13 +63,10 @@ async def test_cancel_frees_loop_and_pipeline_reusable() -> None:
 
     t0 = time.perf_counter()
     task.cancel()
-    # inspect() catches BaseException (PET-48) and returns a PipelineResult
-    # rather than raising; either way it must resolve promptly.
-    try:
-        first = await task
-        assert isinstance(first, PipelineResult)
-    except asyncio.CancelledError:
-        pass
+    # inspect() catches BaseException (PET-48) and must return a PipelineResult,
+    # not propagate CancelledError.
+    first = await task
+    assert isinstance(first, PipelineResult)
     elapsed = time.perf_counter() - t0
 
     # The event loop was freed without waiting the full worker sleep.
