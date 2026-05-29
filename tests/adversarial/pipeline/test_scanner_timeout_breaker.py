@@ -160,7 +160,7 @@ async def test_circuit_breaker_streak_clears_after_cooldown() -> None:
     await asyncio.sleep(0.1)
 
     calls_before = scanner.calls
-    result = await pipe.inspect("x")  # cooldown expired → scanner re-invoked
+    result = await pipe.inspect("x")  # cooldown expired → scanner re-invoked (streak=1)
 
     # The scanner must have been called again (not short-circuited).
     assert scanner.calls > calls_before
@@ -171,6 +171,20 @@ async def test_circuit_breaker_streak_clears_after_cooldown() -> None:
     assert sr.error is not None
     assert sr.error.startswith("ScannerTimeout"), (
         f"Expected fresh ScannerTimeout after cooldown reset, got: {sr.error!r}"
+    )
+
+    # Second immediate post-cooldown call: streak=1 < threshold=2, so the
+    # breaker is still closed and the scanner must be invoked again. If the
+    # old stale-streak bug were present the breaker would already be open and
+    # this call would be short-circuited (ScannerCircuitOpen), failing both
+    # assertions below.
+    calls_before2 = scanner.calls
+    result2 = await pipe.inspect("x")  # streak hits threshold on this call, breaker re-opens
+    assert scanner.calls > calls_before2, "scanner was not invoked on second post-cooldown call"
+    sr2 = next(s for s in result2.scanner_results if s.scanner_name == "hanging")
+    assert sr2.error is not None
+    assert sr2.error.startswith("ScannerTimeout"), (
+        f"Expected ScannerTimeout on second post-cooldown call, got: {sr2.error!r}"
     )
 
 
