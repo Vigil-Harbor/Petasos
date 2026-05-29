@@ -165,7 +165,15 @@ class TestNormalization:
                 received.append(text)
                 return ScanResult(scanner_name="capturing", findings=())
 
-        cfg = PetasosConfig(normalize_nfkc=False)
+        # PIPE-05: with all normalization stages disabled, the ML path gets raw
+        # text. (Disabling only normalize_nfkc would still map the homoglyph,
+        # since stages are now independent.)
+        cfg = PetasosConfig(
+            normalize_nfkc=False,
+            strip_zero_width=False,
+            map_homoglyphs=False,
+            detect_rtl_override=False,
+        )
         p = Pipeline(scanners=[CapturingScanner()], config=cfg)
         raw = "hеllo"  # Cyrillic е
         await p.inspect(raw)
@@ -250,19 +258,16 @@ class TestFanOutScan:
 
     @pytest.mark.asyncio
     async def test_scanner_timeout(self) -> None:
-        from petasos import pipeline as _mod
-
-        original = _mod._SCANNER_TIMEOUT
-        _mod._SCANNER_TIMEOUT = 0.05
-        try:
-            slow = MockScanner("slow", delay=1.0)
-            p = Pipeline(scanners=[slow])
-            result = await p.inspect("test")
-            slow_results = [r for r in result.scanner_results if r.scanner_name == "slow"]
-            assert len(slow_results) == 1
-            assert slow_results[0].error is not None
-        finally:
-            _mod._SCANNER_TIMEOUT = original
+        # PIPE-03: the per-scanner timeout is config-driven (scanner_timeout_seconds),
+        # not the module global. A scanner that hangs past it returns a counted
+        # error ScanResult rather than blocking inspect().
+        slow = MockScanner("slow", delay=1.0)
+        p = Pipeline(scanners=[slow], config=PetasosConfig(scanner_timeout_seconds=0.05))
+        result = await p.inspect("test")
+        slow_results = [r for r in result.scanner_results if r.scanner_name == "slow"]
+        assert len(slow_results) == 1
+        assert slow_results[0].error is not None
+        assert slow_results[0].error.startswith("ScannerTimeout")
 
     @pytest.mark.asyncio
     async def test_scanner_empty_findings(self) -> None:

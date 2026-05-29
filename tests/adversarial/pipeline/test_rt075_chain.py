@@ -97,8 +97,11 @@ async def test_rt075_chain_pipe02_breaks_link3() -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.xfail(reason="Requires PET-43 (NORM-01) fix in normalize.py")
 async def test_rt075_chain_all_fixed() -> None:
+    # PET-15: NORM-01 (PET-43) shipped in Brief 1, so the baseline xfail is
+    # stale. The full RT-075 chain is now defended end-to-end — tag-char
+    # stripping (NORM-01) + injection detection through suppression (SYN-08) +
+    # degraded-mode ML-failure blocking (PIPE-02) together close the bypass.
     pipe = Pipeline(
         [MinimalScanner(), _FlakyMLScanner(), _CleanMLScanner()],
         config=PetasosConfig(fail_mode="degraded"),

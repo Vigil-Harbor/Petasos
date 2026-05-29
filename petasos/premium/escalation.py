@@ -30,7 +30,10 @@ class EscalationResult:
 def derive_tier(score: float, tier1: float, tier2: float, tier3: float) -> str:
     if not math.isfinite(score):
         return "tier3"
-    if score >= max(tier3, TIER3_FLOOR):
+    # PET-23: the floor is an inline literal, NOT the imported TIER3_FLOOR name.
+    # Rebinding escalation.TIER3_FLOOR (in-process) must not lower the enforced
+    # floor; the named constant is retained only for config-validation messaging.
+    if score >= max(tier3, 30.0):
         return "tier3"
     if score >= tier2:
         return "tier2"
