@@ -22,6 +22,20 @@ Plane auto-assigns sequence IDs. PET-2 is a parent container; PET-3/4/5 are its 
 | PET-10 | JWT License Validation + Premium Wiring | 7a |
 | PET-11 | Integration Testing + Performance Benchmarks | 7b |
 | PET-12 | Wiki + Docs + PyPI Release | 8 |
+| PET-13 | Petasos Console — Config & Observability Surface | 9 |
+| PET-14 | Red-team security review (instruction set + cross-model pass) | — |
+| PET-15–74 | Red-team remediation (1:1 with finding IDs; child of PET-14, each blocks PET-12) | — |
+
+## PET-14 remediation backlog (PET-15–74)
+
+Posted from `docs/security/red-team-findings.md` after Bucket B cross-model review (2026-05-26). **60 work items**, one per refuted/confirmed finding; parent **PET-14**; each **blocks PET-12** (release).
+
+| Priority | Findings | Plane |
+|----------|----------|-------|
+| Urgent | RT-075, FREQ-03, GUARD-03 | PET-15, PET-43, PET-48 |
+| High | SYN-02/08, PIPE-02/04/07, CFG-03, SCAN-04/05/07, FREQ-02, GUARD-01/02/05, AUD-03, ALRT-01/02, PROF-04 | see `docs/security/plane-remediation-index.md` |
+
+Full index: `docs/security/plane-remediation-posted.json`.
 
 ## Platform Impact Map
 
@@ -37,6 +51,7 @@ Hermes Desktop ships on macOS and Windows (.exe). The macOS path is well-documen
 | PET-9 | §14 | No dedicated security alert UI channel — block reasons flow inline in chat. Audit events need a separate surface if frontend wants them outside the conversation. |
 | PET-10 | §6, §13 | `PETASOS_LICENSE_KEY` matches Hermes's `*_KEY` sanitization pattern (free Unicode stripping). Must be added to env blocklist so it doesn't leak into terminal subprocesses. |
 | PET-11 | §4c, §5, §9 | Integration tests must cover Windows/Git Bash path. Hook script shebangs resolve differently under MINGW64. Process lifecycle tests need both signal models. |
+| PET-13 | §2, §3, §14 | Config editor writes to `petasos:` namespace (§2). Session-restart notice on config changes (§3). Console provides the dedicated alert/observability surface Hermes lacks (§14). |
 
 ## Reference Sources
 
@@ -465,6 +480,62 @@ NFR-2 (latency budget), NFR-5 (test coverage), Phase 7 gates
 ### Spec traceability
 
 Phase 8 gates, DC-1 (uncoupled from Drawbridge — documented)
+
+---
+
+## PET-13 · Petasos Console — Config & Observability Surface
+
+**Phase:** 9 (Post-core)
+**Blocked by:** PET-10 (JWT/premium wiring — Console needs premium_features manifest to render CTAs)
+**Blocks:** PET-12 (Wiki/docs should cover Console)
+**Spec:** `petasos-console-spec.md`
+**Footgun §§:** §2, §3, §14
+
+### Scope
+
+Ship **Petasos Console** as `petasos[console]` pip extra — a lightweight FastAPI + vanilla HTML/JS web application providing:
+
+1. **Config Editor** (OSS) — interactive form generated from `PetasosConfig` field metadata. All sections render; premium fields are visible but disabled without a license, with inline activation CTAs. Session-restart notice on config changes (§3).
+
+2. **Scan Playground** (OSS) — text input + direction toggle + optional session ID. Returns full `PipelineResult`: normalized diff, per-scanner findings, merged findings, anonymized output, latency breakdown. Premium users also see frequency score, escalation tier, profile applied.
+
+3. **Observability Dashboard** (split OSS/Premium):
+   - OSS: scan history (last N scans), scanner health (loaded/failed/unavailable, latency)
+   - Premium: audit log viewer (filterable by session/severity/type), escalation timeline, frequency heatmap, alert feed, session inspector
+
+### Architecture
+
+- **Backend:** FastAPI (optional dep), in-process alongside Pipeline. Endpoints: `GET/PUT /api/config`, `POST /api/scan`, `GET /api/events` (SSE stream), `GET /api/health`.
+- **Frontend:** Single-page vanilla HTML/JS/CSS, no build step, ships as Python package data.
+- **Real-time:** SSE for audit/alert streaming. Console hooks `on_audit` and `on_alert` callbacks.
+- **Embedding:** Hermes Desktop webview → `http://localhost:{port}/`. Binds `127.0.0.1` only. Port via `PETASOS_CONSOLE_PORT` or constructor arg.
+
+### Design decisions
+
+1. **No React / no build step** — vanilla HTML/JS as package data. `pip install petasos[console]` is self-contained; no node/npm needed.
+2. **In-process server, not sidecar** — hooks callbacks directly, no IPC overhead. Consumer calls `serve()` explicitly; Console never auto-starts.
+3. **SSE over WebSocket** — one-way event stream, auto-reconnects, proxy-friendly.
+4. **Premium visible but disabled** — users discover features organically, activate inline without page reload.
+5. **Reference implementation** — consumers with their own UI can ignore Console and consume the same APIs (JSON config, callbacks, `premium_features` manifest).
+
+### Gate criteria
+
+- [ ] `petasos[console]` installs FastAPI + uvicorn as optional deps
+- [ ] `petasos.console.serve(pipeline)` starts server on localhost
+- [ ] Config editor renders all `PetasosConfig` fields with correct types and constraints
+- [ ] Config PUT validates and applies changes (with session-restart notice)
+- [ ] Scan playground accepts text and displays full `PipelineResult`
+- [ ] SSE stream delivers audit events and alerts in real time
+- [ ] Scan history and scanner health panels functional (OSS)
+- [ ] Premium sections render disabled with activation CTA
+- [ ] Inline activation accepts JWT and unlocks without reload
+- [ ] Audit log viewer, alert feed, frequency heatmap functional (Premium)
+- [ ] Embeddable in Hermes Desktop webview (localhost binding, theme support)
+- [ ] Zero added latency to pipeline scan path
+
+### Spec traceability
+
+`petasos-console-spec.md` — full spec with landscape analysis, architecture diagram, API surface, OSS/Premium boundary table, Hermes Desktop constraint mitigations
 
 ---
 
