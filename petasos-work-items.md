@@ -449,7 +449,7 @@ NFR-2 (latency budget), NFR-5 (test coverage), Phase 7 gates
 ## PET-12 · Wiki + Docs + PyPI Release
 
 **Phase:** 8
-**Blocked by:** PET-11
+**Blocked by:** PET-11, PET-13, PET-15–74
 **Blocks:** nothing — final item
 
 ### Scope
@@ -553,8 +553,11 @@ PET-1 (Foundation)
                                                 │         └─→ PET-9 (Audit + Alerting)  ─┤
                                                 │                                        │
                                                 └───────────────────────────────────────→ PET-10 (JWT + Hardening)
-                                                                                               │
-                                                                                         PET-11 (Integration + Benchmarks)
+                                                                                               ├────────────────────────────────→ PET-13 (Console)  ─┐
+                                                                                               │                                                     │
+                                                                                         PET-11 (Integration + Benchmarks)                           │
+                                                                                               │                                                     │
+              PET-14 (Red-team review) ─→ PET-15..74 (Remediations)  ──────────────────────────┴─────────────────────────────────────────────────────┘
                                                                                                │
                                                                                          PET-12 (Wiki + Docs + Release)
 ```
