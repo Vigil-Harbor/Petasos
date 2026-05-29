@@ -55,6 +55,16 @@ class PetasosConfig:
     # closed: same as degraded + early-exit on CRITICAL from syntactic pre-filter
     fail_mode: Literal["open", "closed", "degraded"] = "degraded"
 
+    # Per-scanner timeout + circuit breaker (PIPE-03). The 10s default is a
+    # generous deadlock backstop for cold-start model loads while bounding the
+    # latency-DoS window; the full-pipeline budget is < 250ms (CPU). The breaker
+    # is advisory — after N consecutive timeouts a scanner is short-circuited to
+    # an error ScanResult for a cooldown window; it never throws and never
+    # bypasses the zero-dep syntactic pre-filter.
+    scanner_timeout_seconds: float = 10.0
+    scanner_circuit_breaker_threshold: int = 3
+    scanner_circuit_breaker_cooldown_seconds: float = 30.0
+
     # Anonymization
     anonymize: bool = False
     pii_entities: tuple[str, ...] = ()
@@ -134,6 +144,33 @@ class PetasosConfig:
         for entity in self.pii_entities:
             if not isinstance(entity, str) or not entity:
                 raise ValueError(f"pii_entities entries must be non-empty strings, got {entity!r}")
+
+        # Scanner timeout + circuit breaker validation (PIPE-03)
+        if self.scanner_timeout_seconds <= 0 or not math.isfinite(self.scanner_timeout_seconds):
+            raise ValueError(
+                f"scanner_timeout_seconds must be positive and finite, "
+                f"got {self.scanner_timeout_seconds!r}"
+            )
+        if self.scanner_timeout_seconds > 60.0:
+            raise ValueError(
+                f"scanner_timeout_seconds must be <= 60, got {self.scanner_timeout_seconds!r}"
+            )
+        if (
+            not isinstance(self.scanner_circuit_breaker_threshold, int)
+            or isinstance(self.scanner_circuit_breaker_threshold, bool)
+            or self.scanner_circuit_breaker_threshold <= 0
+        ):
+            raise ValueError(
+                f"scanner_circuit_breaker_threshold must be a positive integer, "
+                f"got {self.scanner_circuit_breaker_threshold!r}"
+            )
+        if self.scanner_circuit_breaker_cooldown_seconds <= 0 or not math.isfinite(
+            self.scanner_circuit_breaker_cooldown_seconds
+        ):
+            raise ValueError(
+                f"scanner_circuit_breaker_cooldown_seconds must be positive and finite, "
+                f"got {self.scanner_circuit_breaker_cooldown_seconds!r}"
+            )
 
         # Premium field validation
         if self.frequency_half_life_seconds <= 0 or not math.isfinite(

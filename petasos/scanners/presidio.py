@@ -139,6 +139,14 @@ class PresidioScanner:
         direction: Direction = "inbound",
         session_id: str | None = None,
     ) -> ScanResult:
+        """Scan ``text`` for PII and return a ScanResult (never raises).
+
+        Cancellation residual (SCAN-03): analysis runs in a worker thread via
+        ``asyncio.to_thread``. Cancelling the awaiting task frees the event loop
+        promptly, but the worker thread runs to completion on the default
+        executor — cancellation does not interrupt in-flight analysis. A
+        cancellable-executor path is future work.
+        """
         start_time = time.perf_counter()
         try:
             self._ensure_loaded()
@@ -232,6 +240,20 @@ def anonymize(
     mode: Literal["redact", "replace", "hash", "mask"] = "redact",
     hash_key: str | None = None,
 ) -> str:
+    """Anonymize PII spans in ``text`` using positioned findings.
+
+    Contract (PET-60 / SCAN-06): ``findings`` must already be overlap-resolved by
+    the pipeline's ``merge_findings()`` before being passed here — this function
+    does not re-run the pipeline's overlap resolution. The engine path
+    (``redact``/``hash``) defers to Presidio's own span handling; the manual path
+    (``replace``/``mask``) applies a severity-first tiebreaker via
+    ``_resolve_overlaps`` for any residual overlaps (higher severity wins; on a
+    severity tie, higher confidence wins). Callers invoking ``anonymize()``
+    directly should call ``merge_findings()`` first.
+
+    ``mode='hash'`` requires a non-empty ``hash_key`` — unkeyed hashing is
+    reversible on low-entropy PII — and raises ``ValueError`` otherwise.
+    """
     if mode == "hash" and not hash_key:
         raise ValueError(
             "hash_key is required and must be non-empty for mode='hash'. "

@@ -43,7 +43,16 @@ _SEVERITY_RANK: dict[Severity, int] = {
     Severity.INFO: 4,
 }
 
-_SCANNER_TIMEOUT = 30.0
+# Default per-scanner timeout (PIPE-03). Lowered from 30s; overridable per
+# Pipeline via PetasosConfig.scanner_timeout_seconds. Kept as the _scan_one
+# default so callers/tests that omit a timeout still get a bounded wait.
+_SCANNER_TIMEOUT = 10.0
+
+# Error-string prefixes used to classify scanner failures for the circuit
+# breaker (PIPE-03). A timeout increments the per-scanner consecutive-timeout
+# counter; any other error (or success) resets it.
+_TIMEOUT_ERROR_PREFIX = "ScannerTimeout"
+_BREAKER_OPEN_ERROR_PREFIX = "ScannerCircuitOpen"
 
 _STRUCTURAL_RULE_PREFIX = "petasos.syntactic.structural."
 
@@ -153,13 +162,28 @@ async def _scan_one(
     *,
     direction: Direction,
     session_id: str | None,
+    timeout: float = _SCANNER_TIMEOUT,
 ) -> ScanResult:
     sname = getattr(scanner, "name", "unknown")
     t0 = time.perf_counter()
     try:
         return await asyncio.wait_for(
             scanner.scan(normalized_text, direction=direction, session_id=session_id),
-            timeout=_SCANNER_TIMEOUT,
+            timeout=timeout,
+        )
+    except asyncio.TimeoutError:  # noqa: UP041
+        # Classified separately from other failures so the circuit breaker can
+        # count consecutive timeouts. asyncio.TimeoutError (not the builtin) is
+        # what wait_for raises on Python <3.11; on 3.11+ it is an alias of the
+        # builtin TimeoutError, so this catches both. The UP041 rewrite to the
+        # bare builtin is suppressed because it breaks on 3.10. CancelledError is
+        # a BaseException, not a TimeoutError, so it falls through below (PET-48).
+        elapsed = (time.perf_counter() - t0) * 1000
+        return ScanResult(
+            scanner_name=sname,
+            findings=(),
+            duration_ms=elapsed,
+            error=f"{_TIMEOUT_ERROR_PREFIX}: scanner exceeded {timeout}s",
         )
     except BaseException as exc:
         elapsed = (time.perf_counter() - t0) * 1000
@@ -229,6 +253,13 @@ class Pipeline:
         self._audit_emitter = AuditEmitter(self._config, on_audit=on_audit)
         self._alert_manager = AlertManager(self._config, on_alert=on_alert)
 
+        # Per-scanner circuit-breaker state (PIPE-03). Single-threaded asyncio
+        # access only — same threading contract as license state (see activate()).
+        self._breaker_consecutive_timeouts: dict[str, int] = {}
+        self._breaker_open_until: dict[str, float] = {}
+
+        # Trust boundary (PIPE-08): auto-activation from the process environment.
+        # See activate() — env access is part of the premium trust boundary.
         env_key = os.environ.get("PETASOS_LICENSE_KEY")
         if env_key:
             self.activate(env_key)
@@ -238,12 +269,33 @@ class Pipeline:
         return self._config
 
     def activate(self, key: str) -> LicenseState:
+        """Validate a license key and unlock premium features if VALID.
+
+        Trust boundary (PIPE-08): the Pipeline also auto-activates from the
+        ``PETASOS_LICENSE_KEY`` environment variable at construction. The process
+        environment is therefore part of the premium trust boundary — anyone who
+        can set the environment can attempt unlock, so treat env access as
+        equivalent to code access. An INVALID key (whether passed here or via the
+        env var) unlocks nothing and leaves ``_license_state`` non-VALID;
+        validation is local against a bundled public key, with no network call.
+
+        Threading (PIPE-10): license state is mutated non-atomically. Petasos is
+        single-threaded asyncio; do not call ``activate``/``deactivate`` from a
+        thread other than the one driving the event loop while a scan is in
+        flight, or a concurrent ``_check_premium`` read may tear. Accepted
+        residual — no lock.
+        """
         state, claims = self._license_validator.validate(key)
         self._license_state = state
         self._license_claims = claims if state == LicenseState.VALID else None
         return state
 
     def deactivate(self) -> None:
+        """Reset license state to INACTIVE, re-locking premium features.
+
+        Threading (PIPE-10): not synchronized — see ``activate``. Do not call
+        from a thread other than the event-loop thread during an in-flight scan.
+        """
         self._license_state = LicenseState.INACTIVE
         self._license_claims = None
 
@@ -386,18 +438,18 @@ class Pipeline:
         escalation_tier: str | None = None
         errors: list[str] = []
 
-        # Stage 1: Normalize
-        any_toggle_off = not (
-            self._config.normalize_nfkc
-            and self._config.strip_zero_width
-            and self._config.map_homoglyphs
-            and self._config.detect_rtl_override
+        # Stage 1: Normalize — each config toggle is honored independently
+        # (PIPE-05). The old all-or-nothing guard skipped *all* normalization if
+        # any single toggle was off; now disabling one stage leaves the rest
+        # running.
+        norm_result = normalize(
+            text,
+            nfkc=self._config.normalize_nfkc,
+            strip_zero_width=self._config.strip_zero_width,
+            map_homoglyphs=self._config.map_homoglyphs,
+            detect_rtl=self._config.detect_rtl_override,
         )
-        if any_toggle_off:
-            normalized_text = text
-        else:
-            norm_result = normalize(text)
-            normalized_text = norm_result.normalized
+        normalized_text = norm_result.normalized
 
         # Stage 1b: Profile hook → effective scanner
         effective_scanner = await self._premium_profile_hook(active_profile)
@@ -420,7 +472,9 @@ class Pipeline:
             ml_results: list[ScanResult] = []
         elif self._ml_scanners:
             tasks = [
-                _scan_one(s, normalized_text, direction=direction, session_id=session_id)
+                self._scan_with_breaker(
+                    s, normalized_text, direction=direction, session_id=session_id
+                )
                 for s in self._ml_scanners
             ]
             raw_results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -554,6 +608,65 @@ class Pipeline:
                 freq_result=freq_result,
                 escalation_tier=escalation_tier,
             )
+        return result
+
+    async def _scan_with_breaker(
+        self,
+        scanner: Scanner,
+        normalized_text: str,
+        *,
+        direction: Direction,
+        session_id: str | None,
+    ) -> ScanResult:
+        """Run one ML scanner under the consecutive-timeout circuit breaker (PIPE-03).
+
+        Advisory only: while a scanner's breaker is open it is short-circuited to
+        an error ScanResult for the cooldown window instead of being re-awaited.
+        This never throws and never bypasses the syntactic pre-filter, so the
+        never-throws and fail-mode invariants hold — in degraded mode a tripped
+        breaker still blocks content (the error counts toward _compute_safe).
+        Single-threaded asyncio access only (see activate() threading contract).
+        """
+        sname = getattr(scanner, "name", "unknown")
+        threshold = self._config.scanner_circuit_breaker_threshold
+
+        open_until = self._breaker_open_until.get(sname)
+        if open_until is not None:
+            if time.monotonic() < open_until:
+                return ScanResult(
+                    scanner_name=sname,
+                    findings=(),
+                    duration_ms=0.0,
+                    error=(
+                        f"{_BREAKER_OPEN_ERROR_PREFIX}: short-circuited after "
+                        f"{threshold} consecutive timeouts"
+                    ),
+                )
+            # Cooldown expired — clear the old streak so the scanner must
+            # accumulate a fresh consecutive-timeout run to reopen the breaker.
+            self._breaker_consecutive_timeouts.pop(sname, None)
+            self._breaker_open_until.pop(sname, None)
+
+        result = await _scan_one(
+            scanner,
+            normalized_text,
+            direction=direction,
+            session_id=session_id,
+            timeout=self._config.scanner_timeout_seconds,
+        )
+
+        if result.error is not None and result.error.startswith(_TIMEOUT_ERROR_PREFIX):
+            count = self._breaker_consecutive_timeouts.get(sname, 0) + 1
+            self._breaker_consecutive_timeouts[sname] = count
+            if count >= threshold:
+                self._breaker_open_until[sname] = (
+                    time.monotonic() + self._config.scanner_circuit_breaker_cooldown_seconds
+                )
+        else:
+            # Any non-timeout outcome (success or a different error) breaks the
+            # consecutive-timeout streak and re-closes the breaker.
+            self._breaker_consecutive_timeouts.pop(sname, None)
+            self._breaker_open_until.pop(sname, None)
         return result
 
     async def _premium_profile_hook(
