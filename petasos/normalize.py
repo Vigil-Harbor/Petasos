@@ -115,7 +115,24 @@ _HOMOGLYPH_TABLE = str.maketrans(
 )
 
 
-def normalize(text: str) -> NormalizedText:
+def normalize(
+    text: str,
+    *,
+    nfkc: bool = True,
+    strip_zero_width: bool = True,
+    map_homoglyphs: bool = True,
+    detect_rtl: bool = True,
+) -> NormalizedText:
+    """Normalize text for pattern matching.
+
+    Each stage is independently gated (PIPE-05): disabling one toggle (e.g.
+    ``nfkc=False``) does not suppress the others, and ``transformations_applied``
+    reflects only the stages that actually ran. The four flags map 1:1 to the
+    ``normalize_nfkc`` / ``strip_zero_width`` / ``map_homoglyphs`` /
+    ``detect_rtl_override`` config toggles. The post-NFKC re-strip (NORM-02)
+    rides on ``strip_zero_width`` and combining-mark removal (NORM-04) rides on
+    ``nfkc``, since each is only meaningful when its parent stage runs.
+    """
     if not text:
         return NormalizedText(
             original=text,
@@ -127,46 +144,63 @@ def normalize(text: str) -> NormalizedText:
     transforms: list[str] = []
 
     # Step 1: RTL override detection (before stripping)
-    rtl_detected = bool(RTL_OVERRIDES & set(text))
+    rtl_detected = detect_rtl and bool(RTL_OVERRIDES & set(text))
     if rtl_detected:
         transforms.append("rtl_override_detected")
 
     # Step 2: Invisible character stripping (category-based)
-    stripped_count = sum(1 for ch in text if _is_strippable(ch))
-    if stripped_count > 0:
-        text_after_strip = "".join(ch for ch in text if not _is_strippable(ch))
-        transforms.append("invisible_chars_stripped")
+    stripped_count = 0
+    if strip_zero_width:
+        stripped_count = sum(1 for ch in text if _is_strippable(ch))
+        if stripped_count > 0:
+            text_after_strip = "".join(ch for ch in text if not _is_strippable(ch))
+            transforms.append("invisible_chars_stripped")
+        else:
+            text_after_strip = text
     else:
         text_after_strip = text
 
     # Step 3: NFKC normalization
-    text_after_nfkc = unicodedata.normalize("NFKC", text_after_strip)
-    if text_after_nfkc != text_after_strip:
-        transforms.append("nfkc_normalized")
+    if nfkc:
+        text_after_nfkc = unicodedata.normalize("NFKC", text_after_strip)
+        if text_after_nfkc != text_after_strip:
+            transforms.append("nfkc_normalized")
+    else:
+        text_after_nfkc = text_after_strip
 
-    # Step 4: Re-strip after NFKC (NORM-02)
-    restrip_count = sum(1 for ch in text_after_nfkc if _is_strippable(ch))
-    if restrip_count > 0:
-        text_after_restrip = "".join(ch for ch in text_after_nfkc if not _is_strippable(ch))
-        stripped_count += restrip_count
-        transforms.append("nfkc_restrip_applied")
+    # Step 4: Re-strip after NFKC (NORM-02) — only when both stripping and NFKC
+    # ran, since NFKC is what can reintroduce a strippable char.
+    if strip_zero_width and nfkc:
+        restrip_count = sum(1 for ch in text_after_nfkc if _is_strippable(ch))
+        if restrip_count > 0:
+            text_after_restrip = "".join(ch for ch in text_after_nfkc if not _is_strippable(ch))
+            stripped_count += restrip_count
+            transforms.append("nfkc_restrip_applied")
+        else:
+            text_after_restrip = text_after_nfkc
     else:
         text_after_restrip = text_after_nfkc
 
-    # Step 5: Combining mark removal (NORM-04)
-    text_nfd = unicodedata.normalize("NFD", text_after_restrip)
-    mn_count = sum(1 for ch in text_nfd if unicodedata.category(ch) == "Mn")
-    if mn_count > 0:
-        text_stripped_mn = "".join(ch for ch in text_nfd if unicodedata.category(ch) != "Mn")
-        text_after_mn = unicodedata.normalize("NFC", text_stripped_mn)
-        transforms.append("combining_marks_stripped")
+    # Step 5: Combining mark removal (NORM-04) — normalization-family, gated on nfkc
+    if nfkc:
+        text_nfd = unicodedata.normalize("NFD", text_after_restrip)
+        mn_count = sum(1 for ch in text_nfd if unicodedata.category(ch) == "Mn")
+        if mn_count > 0:
+            text_stripped_mn = "".join(ch for ch in text_nfd if unicodedata.category(ch) != "Mn")
+            text_after_mn = unicodedata.normalize("NFC", text_stripped_mn)
+            transforms.append("combining_marks_stripped")
+        else:
+            text_after_mn = text_after_restrip
     else:
         text_after_mn = text_after_restrip
 
     # Step 6: Homoglyph mapping (expanded table, NORM-03)
-    text_after_homoglyph = text_after_mn.translate(_HOMOGLYPH_TABLE)
-    if text_after_homoglyph != text_after_mn:
-        transforms.append("homoglyph_mapped")
+    if map_homoglyphs:
+        text_after_homoglyph = text_after_mn.translate(_HOMOGLYPH_TABLE)
+        if text_after_homoglyph != text_after_mn:
+            transforms.append("homoglyph_mapped")
+    else:
+        text_after_homoglyph = text_after_mn
 
     confusables = text_after_homoglyph != text_after_mn
 

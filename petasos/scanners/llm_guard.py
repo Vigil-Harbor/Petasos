@@ -136,6 +136,14 @@ class LlmGuardScanner:
         direction: Direction = "inbound",
         session_id: str | None = None,
     ) -> ScanResult:
+        """Scan ``text`` and return a ScanResult (never raises).
+
+        Cancellation residual (SCAN-03): inference runs in a worker thread via
+        ``asyncio.to_thread``. Cancelling the awaiting task frees the event loop
+        promptly, but the worker thread runs to completion on the default
+        executor — cancellation does not interrupt in-flight ML inference. A
+        cancellable-executor path is future work.
+        """
         start = time.perf_counter()
         try:
             self._ensure_loaded()
