@@ -1,0 +1,107 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 200" width="800" height="200">
+  <defs>
+    <linearGradient id="cap-main" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f5c842"/>
+      <stop offset="40%" stop-color="#e8a820"/>
+      <stop offset="100%" stop-color="#c48a10"/>
+    </linearGradient>
+    <linearGradient id="cap-shine" x1="0.3" y1="0" x2="0.7" y2="1">
+      <stop offset="0%" stop-color="#fff566" stop-opacity="0.7"/>
+      <stop offset="100%" stop-color="#f5c842" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="brim" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#d4960e"/>
+      <stop offset="100%" stop-color="#a06e08"/>
+    </linearGradient>
+    <linearGradient id="wing-fill" x1="0" y1="1" x2="0.2" y2="0">
+      <stop offset="0%" stop-color="#c8c8c8"/>
+      <stop offset="40%" stop-color="#e8e8e8"/>
+      <stop offset="100%" stop-color="#ffffff"/>
+    </linearGradient>
+    <linearGradient id="text-grad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f5c842"/>
+      <stop offset="100%" stop-color="#c48a10"/>
+    </linearGradient>
+  </defs>
+
+  <g transform="translate(108, 100)">
+    <!-- === LEFT WING === -->
+    <g transform="translate(-12, 8)">
+      <!-- Back feathers (longest) -->
+      <path d="M -8,-10 Q -30,-38 -62,-62 Q -68,-56 -42,-32 Z" fill="url(#wing-fill)" stroke="#999" stroke-width="1"/>
+      <path d="M -10,-8 Q -36,-40 -72,-68 Q -78,-60 -48,-34 Z" fill="url(#wing-fill)" stroke="#999" stroke-width="1"/>
+      <path d="M -10,-4 Q -40,-38 -78,-60 Q -82,-52 -50,-28 Z" fill="url(#wing-fill)" stroke="#999" stroke-width="1"/>
+      <!-- Mid feathers -->
+      <path d="M -8,0 Q -38,-30 -70,-48 Q -72,-40 -44,-20 Z" fill="url(#wing-fill)" stroke="#aaa" stroke-width="0.8"/>
+      <path d="M -6,4 Q -32,-20 -58,-36 Q -60,-28 -36,-12 Z" fill="url(#wing-fill)" stroke="#aaa" stroke-width="0.8"/>
+      <path d="M -4,8 Q -26,-12 -48,-24 Q -48,-16 -28,-4 Z" fill="url(#wing-fill)" stroke="#aaa" stroke-width="0.8"/>
+      <!-- Front small feathers -->
+      <path d="M -2,10 Q -18,-2 -36,-12 Q -34,-6 -18,4 Z" fill="url(#wing-fill)" stroke="#bbb" stroke-width="0.6"/>
+      <path d="M 0,12 Q -12,2 -26,-4 Q -24,0 -12,8 Z" fill="url(#wing-fill)" stroke="#bbb" stroke-width="0.6"/>
+      <!-- Wing base curl -->
+      <ellipse cx="-4" cy="6" rx="10" ry="14" fill="#ddd" stroke="#aaa" stroke-width="1"/>
+      <ellipse cx="-2" cy="6" rx="6" ry="10" fill="#eee" stroke="#bbb" stroke-width="0.6"/>
+    </g>
+
+    <!-- === RIGHT WING === -->
+    <g transform="translate(12, 8) scale(-1,1)">
+      <path d="M -8,-10 Q -30,-38 -62,-62 Q -68,-56 -42,-32 Z" fill="url(#wing-fill)" stroke="#999" stroke-width="1"/>
+      <path d="M -10,-8 Q -36,-40 -72,-68 Q -78,-60 -48,-34 Z" fill="url(#wing-fill)" stroke="#999" stroke-width="1"/>
+      <path d="M -10,-4 Q -40,-38 -78,-60 Q -82,-52 -50,-28 Z" fill="url(#wing-fill)" stroke="#999" stroke-width="1"/>
+      <path d="M -8,0 Q -38,-30 -70,-48 Q -72,-40 -44,-20 Z" fill="url(#wing-fill)" stroke="#aaa" stroke-width="0.8"/>
+      <path d="M -6,4 Q -32,-20 -58,-36 Q -60,-28 -36,-12 Z" fill="url(#wing-fill)" stroke="#aaa" stroke-width="0.8"/>
+      <path d="M -4,8 Q -26,-12 -48,-24 Q -48,-16 -28,-4 Z" fill="url(#wing-fill)" stroke="#aaa" stroke-width="0.8"/>
+      <path d="M -2,10 Q -18,-2 -36,-12 Q -34,-6 -18,4 Z" fill="url(#wing-fill)" stroke="#bbb" stroke-width="0.6"/>
+      <path d="M 0,12 Q -12,2 -26,-4 Q -24,0 -12,8 Z" fill="url(#wing-fill)" stroke="#bbb" stroke-width="0.6"/>
+      <ellipse cx="-4" cy="6" rx="10" ry="14" fill="#ddd" stroke="#aaa" stroke-width="1"/>
+      <ellipse cx="-2" cy="6" rx="6" ry="10" fill="#eee" stroke="#bbb" stroke-width="0.6"/>
+    </g>
+
+    <!-- === HELMET CAP — wide low profile === -->
+    <!-- Main cap body — wide arc, not tall -->
+    <path d="M -50,12 Q -52,-8 -40,-24 Q -24,-40 0,-44 Q 24,-40 40,-24 Q 52,-8 50,12 Z"
+          fill="url(#cap-main)" stroke="#a06e08" stroke-width="2"/>
+
+    <!-- Shine/highlight on cap -->
+    <path d="M -20,-10 Q -10,-34 10,-34 Q 26,-30 30,-14 Q 16,-24 0,-26 Q -14,-24 -20,-10 Z"
+          fill="url(#cap-shine)"/>
+
+    <!-- Vertical bars on dome (like reference 2) -->
+    <path d="M 0,-44 L 0,12" fill="none" stroke="#b8880e" stroke-width="1.5" opacity="0.4"/>
+    <path d="M -16,-38 Q -16,-14 -16,12" fill="none" stroke="#b8880e" stroke-width="1" opacity="0.3"/>
+    <path d="M 16,-38 Q 16,-14 16,12" fill="none" stroke="#b8880e" stroke-width="1" opacity="0.3"/>
+    <path d="M -32,-28 Q -34,-8 -34,12" fill="none" stroke="#b8880e" stroke-width="1" opacity="0.2"/>
+    <path d="M 32,-28 Q 34,-8 34,12" fill="none" stroke="#b8880e" stroke-width="1" opacity="0.2"/>
+
+    <!-- Wide brim -->
+    <path d="M -62,12 Q -60,6 -50,12 L 50,12 Q 60,6 62,12 Q 62,22 50,24 Q 20,28 0,28 Q -20,28 -50,24 Q -62,22 -62,12 Z"
+          fill="url(#brim)" stroke="#a06e08" stroke-width="1.5"/>
+
+    <!-- Brim edge highlight -->
+    <path d="M -58,14 Q 0,10 58,14" fill="none" stroke="#f5c842" stroke-width="1" opacity="0.5"/>
+
+    <!-- Rivets on brim -->
+    <circle cx="-40" cy="18" r="2.5" fill="#d4960e" stroke="#a06e08" stroke-width="0.8"/>
+    <circle cx="-40" cy="18" r="1" fill="#f5c842" opacity="0.6"/>
+    <circle cx="-20" cy="20" r="2.5" fill="#d4960e" stroke="#a06e08" stroke-width="0.8"/>
+    <circle cx="-20" cy="20" r="1" fill="#f5c842" opacity="0.6"/>
+    <circle cx="0" cy="21" r="2.5" fill="#d4960e" stroke="#a06e08" stroke-width="0.8"/>
+    <circle cx="0" cy="21" r="1" fill="#f5c842" opacity="0.6"/>
+    <circle cx="20" cy="20" r="2.5" fill="#d4960e" stroke="#a06e08" stroke-width="0.8"/>
+    <circle cx="20" cy="20" r="1" fill="#f5c842" opacity="0.6"/>
+    <circle cx="40" cy="18" r="2.5" fill="#d4960e" stroke="#a06e08" stroke-width="0.8"/>
+    <circle cx="40" cy="18" r="1" fill="#f5c842" opacity="0.6"/>
+  </g>
+
+  <!-- Title text -->
+  <text x="310" y="82" font-family="Georgia, 'Times New Roman', serif" font-size="64" font-weight="bold" fill="url(#text-grad)" letter-spacing="6">PETASOS</text>
+
+  <!-- Subtitle -->
+  <text x="312" y="118" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="18" fill="#8a8a8a" letter-spacing="4" font-weight="300">HERMES SECURITY PLUGIN</text>
+
+  <!-- Decorative line -->
+  <line x1="310" y1="130" x2="640" y2="130" stroke="#e8a820" stroke-width="1" opacity="0.4"/>
+
+  <!-- Tagline -->
+  <text x="312" y="154" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" fill="#666" letter-spacing="1" font-style="italic">Swift protection for the messenger god's domain</text>
+</svg>
