@@ -1,4 +1,6 @@
-# Petasos
+<p align="center">
+  <img src="assets/petasos-banner.svg" alt="Petasos" width="800"/>
+</p>
 
 Pluggable, session-aware content security pipeline for Python AI agents.
 
