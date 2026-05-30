@@ -1,7 +1,7 @@
 # Reconciliation Report: PET-11
 
 > Date: 2026-05-28
-> Spec: docs/specs/TODO/PET-11.spec.md
+> Spec: docs/specs/DONE/PET-11/spec.md
 > Merge: #10 (3b80fcc)
 > Plane state: Done (group: completed)
 

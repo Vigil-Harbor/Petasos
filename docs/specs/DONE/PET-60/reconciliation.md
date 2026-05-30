@@ -1,7 +1,7 @@
 # Reconciliation Report: PET-60
 
 > Date: 2026-05-28
-> Spec: docs/specs/TODO/PET-60.spec.md
+> Spec: docs/specs/DONE/PET-60/spec.md
 > Merge: PR #39 (06e58c2)
 > Plane state: Done (group: completed)
 
