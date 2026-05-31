@@ -7,6 +7,7 @@ production Hermes Desktop deployment, per the PET-11 integration brief.
 from __future__ import annotations
 
 import base64
+from types import MappingProxyType
 
 import pytest
 
@@ -19,15 +20,9 @@ from petasos._types import (
 )
 from petasos.config import PetasosConfig
 from petasos.pipeline import Pipeline
-from petasos.premium.frequency import FrequencyTracker, SessionState
-from petasos.premium.guard import GuardResult, ToolCallGuard
-from petasos.premium.profiles import ResolvedProfile, TierThresholds
-
-try:
-    from types import MappingProxyType
-except ImportError:  # pragma: no cover
-    pass
-
+from petasos.premium.frequency import FrequencyTracker
+from petasos.premium.guard import ToolCallGuard
+from petasos.premium.profiles import ResolvedProfile
 
 # ---------------------------------------------------------------------------
 # Shared mock scanner
@@ -274,9 +269,7 @@ class TestGuardAllowedWithParamUnsafe:
         pipe = Pipeline(config=hermes_production_config, host_id="hermes-test-01")
         pipe.activate(valid_key)
         tracker = FrequencyTracker(hermes_production_config)
-        tracker._sessions["hermes-s1"] = SessionState(
-            last_score=0.0, last_update=0.0, terminated=True
-        )
+        tracker.terminate_session("hermes-s1")
 
         guard = ToolCallGuard(pipe, tracker, hermes_production_config)
 
@@ -393,15 +386,18 @@ class TestConfigFromDictRoundTrip:
         assert cfg.session_secret == raw_secret
 
     def test_session_secret_invalid_base64_raises(self) -> None:
+        invalid_b64 = "not!valid!b64!!!"
         with pytest.raises(ValueError, match="base64"):
-            PetasosConfig.from_dict({**_PRODUCTION_CONFIG_DICT, "session_secret": "not!valid!b64!!!"})
+            PetasosConfig.from_dict({**_PRODUCTION_CONFIG_DICT, "session_secret": invalid_b64})
 
     def test_unknown_keys_silently_dropped(self) -> None:
-        cfg = PetasosConfig.from_dict({
-            **_PRODUCTION_CONFIG_DICT,
-            "enabled": True,
-            "scanners": ["llm_guard", "presidio"],
-        })
+        cfg = PetasosConfig.from_dict(
+            {
+                **_PRODUCTION_CONFIG_DICT,
+                "enabled": True,
+                "scanners": ["llm_guard", "presidio"],
+            }
+        )
         assert cfg.fail_mode == "closed"
         assert not hasattr(cfg, "enabled")
 
