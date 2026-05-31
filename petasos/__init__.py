@@ -15,6 +15,11 @@ from petasos.normalize import normalize
 from petasos.pipeline import Pipeline
 from petasos.premium.alerting import AlertManager
 from petasos.premium.audit import AuditEmitter
+from petasos.premium.formatting import (
+    format_block_message,
+    format_pipeline_block_message,
+    shorten_rule_id,
+)
 from petasos.premium.frequency import FrequencyTracker, FrequencyUpdateResult, SessionToken
 from petasos.premium.guard import GuardResult, ToolCallGuard
 from petasos.premium.license import LicenseClaims, LicenseState, LicenseValidator, validate_license
@@ -30,6 +35,8 @@ __all__ = [
     "FrequencyTracker",
     "FrequencyUpdateResult",
     "GuardResult",
+    "format_block_message",
+    "format_pipeline_block_message",
     "LicenseClaims",
     "LicenseState",
     "LicenseValidator",
@@ -50,6 +57,7 @@ __all__ = [
     "TierThresholds",
     "ToolCallGuard",
     "normalize",
+    "shorten_rule_id",
     "validate_license",
 ]
 
