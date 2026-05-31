@@ -8,6 +8,11 @@ from petasos.premium.escalation import (
     evaluate_escalation,
     evaluate_tier,
 )
+from petasos.premium.formatting import (
+    format_block_message,
+    format_pipeline_block_message,
+    shorten_rule_id,
+)
 from petasos.premium.frequency import FrequencyTracker, FrequencyUpdateResult, SessionToken
 from petasos.premium.guard import GuardResult, ToolCallGuard
 from petasos.premium.license import LicenseClaims, LicenseState, LicenseValidator, validate_license
@@ -27,6 +32,8 @@ __all__ = [
     "derive_tier",
     "FrequencyUpdateResult",
     "GuardResult",
+    "format_block_message",
+    "format_pipeline_block_message",
     "LicenseClaims",
     "LicenseState",
     "LicenseValidator",
@@ -38,5 +45,6 @@ __all__ = [
     "ToolCallGuard",
     "evaluate_escalation",
     "evaluate_tier",
+    "shorten_rule_id",
     "validate_license",
 ]

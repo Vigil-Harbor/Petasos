@@ -1,0 +1,31 @@
+============================= test session starts =============================
+platform win32 -- Python 3.10.6, pytest-9.0.3, pluggy-1.6.0 -- C:\python310\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\zioni\Documents\Vigil-Harbor\PET-77-worktree
+configfile: pyproject.toml
+plugins: anyio-4.13.0, asyncio-1.3.0
+asyncio: mode=auto, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 20 items
+
+tests/test_formatting.py::TestTier3BlockMessage::test_tier3_block_message PASSED [  5%]
+tests/test_formatting.py::TestTier2BlockMessage::test_tier2_block_message PASSED [ 10%]
+tests/test_formatting.py::TestInvalidToolNameBlockMessage::test_invalid_tool_name_block_message PASSED [ 15%]
+tests/test_formatting.py::TestParamScanUnsafe::test_param_scan_unsafe_block_message PASSED [ 20%]
+tests/test_formatting.py::TestParamScanUnsafe::test_param_scan_unsafe_allowed_true PASSED [ 25%]
+tests/test_formatting.py::TestCatchAllBlock::test_catch_all_block_unknown_reason PASSED [ 30%]
+tests/test_formatting.py::TestPipelineBlockMessage::test_pipeline_block_message PASSED [ 35%]
+tests/test_formatting.py::TestPipelineBlockMessage::test_pipeline_safe_returns_empty PASSED [ 40%]
+tests/test_formatting.py::TestNoBlockReturnsEmpty::test_allowed_no_unsafe_returns_empty PASSED [ 45%]
+tests/test_formatting.py::TestNoBlockReturnsEmpty::test_tier1_no_unsafe_returns_empty PASSED [ 50%]
+tests/test_formatting.py::TestShortenRuleId::test_strips_prefix PASSED   [ 55%]
+tests/test_formatting.py::TestShortenRuleId::test_passthrough PASSED     [ 60%]
+tests/test_formatting.py::TestTopFindingSelection::test_selects_highest_severity PASSED [ 65%]
+tests/test_formatting.py::TestTopFindingSelection::test_additional_findings_count_plural PASSED [ 70%]
+tests/test_formatting.py::TestTopFindingSelection::test_additional_findings_count_singular PASSED [ 75%]
+tests/test_formatting.py::TestTopFindingSelection::test_no_findings_no_clause PASSED [ 80%]
+tests/test_formatting.py::TestInternalReasonStrings::test_internal_reason_strings_not_in_output PASSED [ 85%]
+tests/test_formatting.py::TestMessageLimits::test_worst_case_under_200_words PASSED [ 90%]
+tests/test_formatting.py::TestMessageLimits::test_long_finding_message_truncated PASSED [ 95%]
+tests/test_formatting.py::TestMessageLimits::test_severity_displayed_uppercase PASSED [100%]
+
+============================= 20 passed in 0.04s ==============================
