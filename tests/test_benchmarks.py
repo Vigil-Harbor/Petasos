@@ -9,6 +9,11 @@ from petasos.config import PetasosConfig
 from petasos.pipeline import Pipeline
 from petasos.scanners.minimal import MinimalScanner
 
+pytestmark = pytest.mark.skipif(
+    not importlib.util.find_spec("pytest_benchmark"),
+    reason="pytest-benchmark not installed — pip install petasos[dev]",
+)
+
 
 def _llm_guard_available() -> bool:
     try:
