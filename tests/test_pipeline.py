@@ -501,10 +501,10 @@ class TestFailModeClosed:
         async def _alert(result: PipelineResult, sid: str | None, freq: object = None) -> None:
             hook_calls.append("alert")
 
-        p._premium_frequency_hook = _freq  # type: ignore[assignment]
-        p._premium_escalation_hook = _esc  # type: ignore[assignment]
-        p._premium_audit_hook = _audit  # type: ignore[assignment]
-        p._premium_alert_hook = _alert  # type: ignore[assignment]
+        p._frequency_hook = _freq  # type: ignore[assignment]
+        p._escalation_hook = _esc  # type: ignore[assignment]
+        p._audit_hook = _audit  # type: ignore[assignment]
+        p._alert_hook = _alert  # type: ignore[assignment]
 
         result = await p.inspect("hello\x01world")
         assert result.safe is False
@@ -655,10 +655,10 @@ class TestPremiumHooks:
     @pytest.mark.asyncio
     async def test_hooks_callable(self) -> None:
         p = Pipeline()
-        await p._premium_frequency_hook((), None)
-        await p._premium_escalation_hook(None, None)
-        await p._premium_audit_hook(PipelineResult(safe=True, findings=()), None, None)
-        await p._premium_alert_hook(PipelineResult(safe=True, findings=()), None, None)
+        await p._frequency_hook((), None)
+        await p._escalation_hook(None, None)
+        await p._audit_hook(PipelineResult(safe=True, findings=()), None, None)
+        await p._alert_hook(PipelineResult(safe=True, findings=()), None, None)
 
     @pytest.mark.asyncio
     async def test_hooks_are_noops(self) -> None:
@@ -757,11 +757,12 @@ class TestPipelineProfile:
         assert p.config.fail_mode == "closed"
 
     @pytest.mark.asyncio
-    async def test_is_premium_active_public(self, valid_key: str) -> None:
+    async def test_is_feature_enabled_public(self, valid_key: str) -> None:
         p = Pipeline(config=PetasosConfig())
-        assert p.is_premium_active("profiles") is False
+        assert p.is_feature_enabled("frequency") is True
+        assert p.is_feature_enabled("profiles") is True
         p.activate(valid_key)
-        assert p.is_premium_active("profiles") is True
+        assert p.is_feature_enabled("profiles") is True
 
 
 class TestMinimalScannerError:

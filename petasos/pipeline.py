@@ -6,7 +6,6 @@ import logging
 import os
 import time
 from dataclasses import replace
-from datetime import datetime, timezone
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, ClassVar
 
@@ -21,12 +20,12 @@ from petasos._types import (
 )
 from petasos.config import PetasosConfig
 from petasos.normalize import normalize
-from petasos.premium.alerting import AlertManager
-from petasos.premium.audit import AuditEmitter
-from petasos.premium.frequency import FrequencyTracker, FrequencyUpdateResult
-from petasos.premium.license import LicenseClaims, LicenseState, LicenseValidator
-from petasos.premium.profiles import ProfileResolver, ResolvedProfile
 from petasos.scanners.minimal import MinimalScanner
+from petasos.session.alerting import AlertManager
+from petasos.session.audit import AuditEmitter
+from petasos.session.frequency import FrequencyTracker, FrequencyUpdateResult
+from petasos.session.license import LicenseClaims, LicenseState, LicenseValidator
+from petasos.session.profiles import ProfileResolver, ResolvedProfile
 
 _logger = logging.getLogger(__name__)
 
@@ -258,8 +257,8 @@ class Pipeline:
         self._breaker_consecutive_timeouts: dict[str, int] = {}
         self._breaker_open_until: dict[str, float] = {}
 
-        # Trust boundary (PIPE-08): auto-activation from the process environment.
-        # See activate() — env access is part of the premium trust boundary.
+        # Auto-activation from the process environment for supporter/compliance
+        # recognition. License state is tracked but does not gate features.
         env_key = os.environ.get("PETASOS_LICENSE_KEY")
         if env_key:
             self.activate(env_key)
@@ -269,21 +268,16 @@ class Pipeline:
         return self._config
 
     def activate(self, key: str) -> LicenseState:
-        """Validate a license key and unlock premium features if VALID.
+        """Validate a license key for supporter/compliance recognition.
 
-        Trust boundary (PIPE-08): the Pipeline also auto-activates from the
-        ``PETASOS_LICENSE_KEY`` environment variable at construction. The process
-        environment is therefore part of the premium trust boundary — anyone who
-        can set the environment can attempt unlock, so treat env access as
-        equivalent to code access. An INVALID key (whether passed here or via the
-        env var) unlocks nothing and leaves ``_license_state`` non-VALID;
-        validation is local against a bundled public key, with no network call.
+        License state is tracked but does not gate feature execution — all
+        features are controlled by config toggles. The key serves as a
+        supporter token or future compliance tier marker.
 
         Threading (PIPE-10): license state is mutated non-atomically. Petasos is
         single-threaded asyncio; do not call ``activate``/``deactivate`` from a
         thread other than the one driving the event loop while a scan is in
-        flight, or a concurrent ``_check_premium`` read may tear. Accepted
-        residual — no lock.
+        flight. Accepted residual — no lock.
         """
         state, claims = self._license_validator.validate(key)
         self._license_state = state
@@ -291,10 +285,10 @@ class Pipeline:
         return state
 
     def deactivate(self) -> None:
-        """Reset license state to INACTIVE, re-locking premium features.
+        """Reset license state to INACTIVE.
 
-        Threading (PIPE-10): not synchronized — see ``activate``. Do not call
-        from a thread other than the event-loop thread during an in-flight scan.
+        Does not affect feature availability — features are controlled by
+        config toggles. Threading: not synchronized — see ``activate``.
         """
         self._license_state = LicenseState.INACTIVE
         self._license_claims = None
@@ -303,8 +297,8 @@ class Pipeline:
     def host_id(self) -> str:
         return self._host_id
 
-    def is_premium_active(self, feature_name: str) -> bool:
-        return self._check_premium(feature_name)
+    def is_feature_enabled(self, feature_name: str) -> bool:
+        return self._is_enabled(feature_name)
 
     _FEATURE_GATES: ClassVar[dict[str, str]] = {
         "frequency": "frequency_enabled",
@@ -314,19 +308,7 @@ class Pipeline:
         "alerting": "alert_enabled",
     }
 
-    def _check_premium(self, feature_name: str) -> bool:
-        if self._license_state != LicenseState.VALID:
-            return False
-
-        if self._license_claims is None:
-            self._license_state = LicenseState.INVALID
-            return False
-
-        if self._license_claims.expiry <= datetime.now(tz=timezone.utc):
-            self._license_state = LicenseState.EXPIRED
-            self._license_claims = None
-            return False
-
+    def _is_enabled(self, feature_name: str) -> bool:
         attr = self._FEATURE_GATES.get(feature_name)
         if attr is not None:
             return bool(getattr(self._config, attr, True))
@@ -341,23 +323,17 @@ class Pipeline:
             return self._profile_resolver.resolve(self._config.profile_name)
         return None
 
-    def _build_premium_features(self) -> MappingProxyType[str, str]:
-        licensed = self._license_state == LicenseState.VALID
-
+    def _build_feature_status(self) -> MappingProxyType[str, str]:
         def _status(config_attr: str) -> str:
-            if not licensed:
-                return "locked"
-            if not getattr(self._config, config_attr, True):
-                return "disabled"
-            return "available"
+            return "enabled" if getattr(self._config, config_attr, True) else "disabled"
 
         return MappingProxyType(
             {
                 "frequency": _status("frequency_enabled"),
                 "escalation": _status("escalation_enabled"),
-                "profiles": "available"
-                if licensed and self._default_profile is not None
-                else ("disabled" if licensed else "locked"),
+                "profiles": "enabled"
+                if self._default_profile is not None
+                else "disabled",
                 "tool_guard": _status("tool_guard_enabled"),
                 "audit": _status("audit_enabled"),
                 "alerting": _status("alert_enabled"),
@@ -383,7 +359,7 @@ class Pipeline:
             errors=errors,
             escalation_tier=escalation_tier,
             session_score=(freq_result.current_score if freq_result is not None else None),
-            premium_features=self._build_premium_features(),
+            feature_status=self._build_feature_status(),
         )
 
     async def inspect(
@@ -452,7 +428,7 @@ class Pipeline:
         normalized_text = norm_result.normalized
 
         # Stage 1b: Profile hook → effective scanner
-        effective_scanner = await self._premium_profile_hook(active_profile)
+        effective_scanner = await self._profile_hook(active_profile)
 
         # Stage 2: Syntactic pre-filter (raw text)
         minimal_result = await effective_scanner.scan(
@@ -460,7 +436,7 @@ class Pipeline:
         )
 
         # Stage 3: Early exit (closed mode) — skip ML fan-out but still
-        # run premium hooks so audit/alerting sees critical findings.
+        # run session hooks so audit/alerting sees critical findings.
         early_exit = False
         if self._config.fail_mode == "closed":
             has_critical = any(f.severity == Severity.CRITICAL for f in minimal_result.findings)
@@ -496,7 +472,7 @@ class Pipeline:
         # Stage 5b: Confidence floor filtering
         if (
             active_profile is not None
-            and self._check_premium("profiles")
+            and active_profile is not None
             and active_profile.confidence_floor > 0.0
         ):
             merged = tuple(f for f in merged if f.confidence >= active_profile.confidence_floor)
@@ -504,7 +480,7 @@ class Pipeline:
         # Stage 5c: Severity overrides (PIPE-07 guards)
         if (
             active_profile is not None
-            and self._check_premium("profiles")
+            and active_profile is not None
             and active_profile.severity_overrides
         ):
             overridden: list[ScanFinding] = []
@@ -529,15 +505,15 @@ class Pipeline:
                     overridden.append(f)
             merged = tuple(overridden)
 
-        # Stage 6: Premium frequency hook
+        # Stage 6: Frequency hook
         try:
-            freq_result = await self._premium_frequency_hook(merged, session_id)
+            freq_result = await self._frequency_hook(merged, session_id)
         except Exception as exc:
             errors.append(f"frequency hook: {exc}")
 
-        # Stage 7: Premium escalation hook
+        # Stage 7: Escalation hook
         try:
-            escalation_tier = await self._premium_escalation_hook(freq_result, session_id)
+            escalation_tier = await self._escalation_hook(freq_result, session_id)
         except Exception as exc:
             errors.append(f"escalation hook: {exc}")
 
@@ -582,17 +558,17 @@ class Pipeline:
             escalation_tier=escalation_tier,
         )
 
-        # Stage 10: Premium audit hook
+        # Stage 10: Audit hook
         try:
-            audit_cb_error = await self._premium_audit_hook(result, session_id, freq_result)
+            audit_cb_error = await self._audit_hook(result, session_id, freq_result)
             if audit_cb_error is not None:
                 errors.append(audit_cb_error)
         except Exception as exc:
             errors.append(f"audit hook: {exc}")
 
-        # Stage 11: Premium alert hook
+        # Stage 11: Alert hook
         try:
-            alert_cb_errors = await self._premium_alert_hook(result, session_id, freq_result)
+            alert_cb_errors = await self._alert_hook(result, session_id, freq_result)
             errors.extend(alert_cb_errors)
         except Exception as exc:
             errors.append(f"alert hook: {exc}")
@@ -669,25 +645,21 @@ class Pipeline:
             self._breaker_open_until.pop(sname, None)
         return result
 
-    async def _premium_profile_hook(
+    async def _profile_hook(
         self,
         profile: ResolvedProfile | None,
     ) -> MinimalScanner:
         assert self._minimal_scanner is not None
         if profile is None:
             return self._minimal_scanner
-        if not self._check_premium("profiles"):
-            return self._minimal_scanner
         if not profile.suppress_rules:
             return self._minimal_scanner
         return self._minimal_scanner.with_suppress_rules(profile.suppress_rules)
 
-    async def _premium_frequency_hook(
+    async def _frequency_hook(
         self, findings: tuple[ScanFinding, ...], session_id: str | None
     ) -> FrequencyUpdateResult | None:
-        if not self._check_premium("frequency"):
-            return None
-        if not self._config.frequency_enabled:
+        if not self._is_enabled("frequency"):
             return None
         if session_id is None:
             return None
@@ -702,41 +674,35 @@ class Pipeline:
             _logger.info("session %s... rate-limited (frequency cap reached)", sid_fp)
         return result
 
-    async def _premium_escalation_hook(
+    async def _escalation_hook(
         self,
         freq_result: FrequencyUpdateResult | None,
         session_id: str | None,
     ) -> str | None:
-        if not self._check_premium("escalation"):
-            return None
-        if not self._config.escalation_enabled:
+        if not self._is_enabled("escalation"):
             return None
         if freq_result is None:
             return None
         return freq_result.tier
 
-    async def _premium_audit_hook(
+    async def _audit_hook(
         self,
         result: PipelineResult,
         session_id: str | None,
         freq_result: FrequencyUpdateResult | None,
     ) -> str | None:
-        if not self._check_premium("audit"):
-            return None
-        if not self._config.audit_enabled:
+        if not self._is_enabled("audit"):
             return None
         self._audit_emitter.emit(result, session_id, freq_result)
         return self._audit_emitter.last_callback_error
 
-    async def _premium_alert_hook(
+    async def _alert_hook(
         self,
         result: PipelineResult,
         session_id: str | None,
         freq_result: FrequencyUpdateResult | None,
     ) -> tuple[str, ...]:
-        if not self._check_premium("alerting"):
-            return ()
-        if not self._config.alert_enabled:
+        if not self._is_enabled("alerting"):
             return ()
         self._alert_manager.evaluate(result, session_id, freq_result)
         return self._alert_manager.callback_errors

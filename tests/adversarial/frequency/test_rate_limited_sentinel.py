@@ -5,7 +5,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 from petasos.config import PetasosConfig
-from petasos.premium.frequency import (
+from petasos.session.frequency import (
     DISABLED_RESULT,
     RATE_LIMITED_RESULT,
     FrequencyTracker,
@@ -46,11 +46,11 @@ class TestRateLimitedSentinel:
         tracker = FrequencyTracker(cfg)
         t0 = 1000.0
 
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0):
             tracker.update("s1", [])
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0 + 0.1):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0 + 0.1):
             tracker.update("s2", [])
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0 + 0.2):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0 + 0.2):
             result = tracker.update("s3", [])
 
         assert result.rate_limited is True

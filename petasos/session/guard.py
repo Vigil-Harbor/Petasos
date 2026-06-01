@@ -8,8 +8,8 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
 from petasos.normalize import _HOMOGLYPH_TABLE
-from petasos.premium._safe_json import safe_json_dumps
-from petasos.premium.escalation import derive_tier, evaluate_tier
+from petasos.session._safe_json import safe_json_dumps
+from petasos.session.escalation import derive_tier, evaluate_tier
 
 _logger = logging.getLogger(__name__)
 
@@ -17,8 +17,8 @@ if TYPE_CHECKING:
     from petasos._types import ScanFinding
     from petasos.config import PetasosConfig
     from petasos.pipeline import Pipeline
-    from petasos.premium.frequency import FrequencyTracker
-    from petasos.premium.profiles import ResolvedProfile
+    from petasos.session.frequency import FrequencyTracker
+    from petasos.session.profiles import ResolvedProfile
 
 DEFAULT_TOOL_ALIASES: MappingProxyType[str, str] = MappingProxyType(
     {
@@ -58,9 +58,9 @@ class GuardResult:
         }
 
 
-_PREMIUM_INACTIVE = GuardResult(
+_FEATURE_DISABLED = GuardResult(
     allowed=True,
-    reason="premium inactive",
+    reason="feature disabled",
     findings=(),
     tier="none",
     param_scan_unsafe=False,
@@ -89,9 +89,9 @@ class ToolCallGuard:
         tool_params: dict[str, Any],
         session_id: str,
     ) -> GuardResult:
-        # Step 0: Premium gate
-        if not self._pipeline.is_premium_active("tool_guard"):
-            return _PREMIUM_INACTIVE
+        # Step 0: Feature gate
+        if not self._pipeline.is_feature_enabled("tool_guard"):
+            return _FEATURE_DISABLED
 
         # Step 1: Normalize tool name
         normalized_name = self._normalize_tool_name(tool_name)

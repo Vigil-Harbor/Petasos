@@ -37,28 +37,28 @@ class TestPipelineResultImmutability:
         r = PipelineResult(
             safe=True,
             findings=(),
-            premium_features={"frequency": "available"},  # type: ignore[arg-type]
+            feature_status={"frequency": "available"},  # type: ignore[arg-type]
         )
-        assert isinstance(r.premium_features, MappingProxyType)
+        assert isinstance(r.feature_status, MappingProxyType)
 
     def test_pipeline_result_proxy_mutation_raises(self) -> None:
         r = PipelineResult(
             safe=True,
             findings=(),
-            premium_features={"frequency": "available"},  # type: ignore[arg-type]
+            feature_status={"frequency": "available"},  # type: ignore[arg-type]
         )
-        assert r.premium_features is not None
+        assert r.feature_status is not None
         with pytest.raises(TypeError):
-            r.premium_features["frequency"] = "evil"  # type: ignore[index]
+            r.feature_status["frequency"] = "evil"  # type: ignore[index]
 
     def test_pipeline_result_none_stays_none(self) -> None:
         r = PipelineResult(safe=True, findings=())
-        assert r.premium_features is None
+        assert r.feature_status is None
 
     def test_pipeline_result_proxy_not_double_wrapped(self) -> None:
         proxy = MappingProxyType({"frequency": "available"})
-        r = PipelineResult(safe=True, findings=(), premium_features=proxy)
-        assert r.premium_features is proxy
+        r = PipelineResult(safe=True, findings=(), feature_status=proxy)
+        assert r.feature_status is proxy
 
 
 # ---------------------------------------------------------------------------

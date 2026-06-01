@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import jwt
 
-from petasos.premium.license import LicenseState, LicenseValidator
+from petasos.session.license import LicenseState, LicenseValidator
 
 _CLAIMS = {"exp": 9999999999, "iat": 1, "tier": "admin"}
 _HS256_KEY = "x" * 48  # >= 32 bytes to avoid pyjwt's InsecureKeyLengthWarning

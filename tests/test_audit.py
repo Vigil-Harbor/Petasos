@@ -8,8 +8,8 @@ import pytest
 
 from petasos._types import AuditEvent, PipelineResult, ScanFinding, ScanResult, Severity
 from petasos.config import PetasosConfig
-from petasos.premium.audit import AuditEmitter
-from petasos.premium.frequency import FrequencyUpdateResult
+from petasos.session.audit import AuditEmitter
+from petasos.session.frequency import FrequencyUpdateResult
 
 
 class _AuditCallbackKill(BaseException):
@@ -376,7 +376,7 @@ class TestSequenceAdversarial:
         # Literal AUD-01 attack: let a session's TTL elapse (which pre-fix would
         # prune), churn other sessions, then reconnect the original session_id.
         emitter = AuditEmitter(_cfg(session_ttl_seconds=10.0))
-        with patch("petasos.premium.audit.time") as mock_time:
+        with patch("petasos.session.audit.time") as mock_time:
             mock_time.time.return_value = 2000.0
 
             mock_time.monotonic.return_value = 1000.0

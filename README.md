@@ -18,14 +18,9 @@ pip install petasos[all]               # all scanner backends
 
 Requires Python 3.11+.
 
-## What ships at each tier
+## All features ship free
 
-| Tier | What you get |
-|------|-------------|
-| **OSS** (free) | Scanner protocol, pluggable backends, 17-rule syntactic pre-filter, Unicode normalization, PII anonymization |
-| **Premium** (license-gated) | Frequency tracking, 3-tier escalation, profiles, tool call guard, audit trails, alerting |
-
-Premium unlocks at runtime via `petasos.activate(key)` or `PETASOS_LICENSE_KEY` env var. JWT validated locally — no network calls at runtime.
+No license key required. Frequency tracking, 3-tier escalation, profiles, tool call guard, audit trails, and alerting are all available out of the box.
 
 ## Scanner protocol
 
@@ -50,9 +45,9 @@ Input → Normalize (NFKC, zero-width, homoglyph, RTL)
   → Syntactic pre-filter (17 rules, always runs)
   → Fan-out to N scanners (asyncio.gather)
   → Merge findings (dedup overlapping positions)
-  → [Premium] Frequency → Escalation
+  → Frequency → Escalation
   → Anonymize (if PII + enabled)
-  → [Premium] Audit → Alerting
+  → Audit → Alerting
   → PipelineResult
 ```
 
