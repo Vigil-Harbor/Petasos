@@ -14,9 +14,9 @@ from petasos._types import (
 )
 from petasos.config import PetasosConfig
 from petasos.pipeline import Pipeline
-from petasos.premium.license import LicenseClaims
-from petasos.premium.profiles import ProfileResolver
 from petasos.scanners.minimal import RULE_TAXONOMY
+from petasos.session.license import LicenseClaims
+from petasos.session.profiles import ProfileResolver
 
 
 class TestFrozenDataclasses:
@@ -99,10 +99,10 @@ class TestDefensiveCopies:
         r = PipelineResult(safe=True, findings=(), errors=())
         assert isinstance(r.errors, tuple)
 
-    def test_premium_features_is_mapping_proxy(self, valid_key: str) -> None:
+    def test_feature_status_is_mapping_proxy(self, valid_key: str) -> None:
         p = Pipeline(config=PetasosConfig(frequency_enabled=True))
         p.activate(valid_key)
-        result_sync = p._build_premium_features()
+        result_sync = p._build_feature_status()
         assert isinstance(result_sync, MappingProxyType)
         with pytest.raises(TypeError):
             result_sync["frequency"] = "hacked"  # type: ignore[index]

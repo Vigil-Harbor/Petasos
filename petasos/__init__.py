@@ -13,18 +13,18 @@ from petasos._types import (
 from petasos.config import PetasosConfig
 from petasos.normalize import normalize
 from petasos.pipeline import Pipeline
-from petasos.premium.alerting import AlertManager
-from petasos.premium.audit import AuditEmitter
-from petasos.premium.formatting import (
+from petasos.scanners.minimal import RULE_TAXONOMY, MinimalScanner
+from petasos.session.alerting import AlertManager
+from petasos.session.audit import AuditEmitter
+from petasos.session.formatting import (
     format_block_message,
     format_pipeline_block_message,
     shorten_rule_id,
 )
-from petasos.premium.frequency import FrequencyTracker, FrequencyUpdateResult, SessionToken
-from petasos.premium.guard import GuardResult, ToolCallGuard
-from petasos.premium.license import LicenseClaims, LicenseState, LicenseValidator, validate_license
-from petasos.premium.profiles import ProfileResolver, ResolvedProfile, TierThresholds
-from petasos.scanners.minimal import RULE_TAXONOMY, MinimalScanner
+from petasos.session.frequency import FrequencyTracker, FrequencyUpdateResult, SessionToken
+from petasos.session.guard import GuardResult, ToolCallGuard
+from petasos.session.license import LicenseClaims, LicenseState, LicenseValidator, validate_license
+from petasos.session.profiles import ProfileResolver, ResolvedProfile, TierThresholds
 
 __all__ = [
     "Alert",

@@ -5,7 +5,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 from petasos.config import PetasosConfig
-from petasos.premium.frequency import FrequencyTracker
+from petasos.session.frequency import FrequencyTracker
 
 
 def _cfg(**overrides: object) -> PetasosConfig:
@@ -24,12 +24,12 @@ class TestTtlEviction:
         t0 = 1000.0
 
         for i in range(100):
-            with patch("petasos.premium.frequency.time.monotonic", return_value=t0 + i * 0.01):
+            with patch("petasos.session.frequency.time.monotonic", return_value=t0 + i * 0.01):
                 tracker.update(f"s{i}", [])
 
         assert tracker.size == 100
 
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0 + 200.0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0 + 200.0):
             tracker.update("trigger", [])
 
         assert tracker.size == 1
@@ -42,13 +42,13 @@ class TestTtlEviction:
         tracker = FrequencyTracker(cfg)
         t0 = 1000.0
 
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0):
             tracker.update("s1", [])
 
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0 + 80.0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0 + 80.0):
             tracker.update("s1", [])
 
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0 + 110.0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0 + 110.0):
             tracker.update("s2", [])
 
         assert tracker.get_state("s1") is not None
@@ -59,7 +59,7 @@ class TestTtlEviction:
         t0 = 1000.0
 
         for i in range(3):
-            with patch("petasos.premium.frequency.time.monotonic", return_value=t0 + i * 0.01):
+            with patch("petasos.session.frequency.time.monotonic", return_value=t0 + i * 0.01):
                 tracker.update(f"s{i}", [])
 
         assert len(tracker._ttl_deque) == 3
@@ -67,7 +67,7 @@ class TestTtlEviction:
         for cycle in range(10):
             for i in range(3):
                 with patch(
-                    "petasos.premium.frequency.time.monotonic",
+                    "petasos.session.frequency.time.monotonic",
                     return_value=t0 + 1.0 + cycle + i * 0.01,
                 ):
                     tracker.update(f"s{i}", [])
@@ -82,7 +82,7 @@ class TestTtlEviction:
         tracker = FrequencyTracker(cfg)
         t0 = 1000.0
 
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0):
             tracker.update("s1", [])
 
         assert len(tracker._ttl_deque) > 0

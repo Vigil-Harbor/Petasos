@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 from petasos._types import PipelineResult, ScanFinding, Severity
 
 if TYPE_CHECKING:
-    from petasos.premium.guard import GuardResult
+    from petasos.session.guard import GuardResult
 
 _SEVERITY_RANK: dict[Severity, int] = {
     Severity.CRITICAL: 0,

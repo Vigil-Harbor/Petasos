@@ -41,9 +41,9 @@ Build backend is Hatch (`pyproject.toml`).
 
 ## Architecture
 
-### OSS / Premium Split
+### All Features Free
 
-Detection is free, session intelligence is paid. OSS tier: scanner protocol + pluggable backends + syntactic pre-filter + normalization + PII anonymization. Premium tier (license-gated via signed JWT, hot-unlock): frequency tracking, escalation tiers, profiles, tool call guard, audit trails, alerting.
+All features ship free and keyless. Detection (scanner protocol, pluggable backends, syntactic pre-filter, normalization, PII anonymization) and session intelligence (frequency tracking, escalation tiers, profiles, tool call guard, audit trails, alerting) are both available out of the box. License machinery (`LicenseValidator`, `activate`/`deactivate`) is preserved for future supporter-token or compliance-tier use but does not gate any feature.
 
 ### Scanner Protocol
 
@@ -66,9 +66,9 @@ Input → Normalize (NFKC, zero-width, homoglyph, RTL)
   → Syntactic pre-filter (17 rules, always runs)
   → Fan-out to N scanners (asyncio.gather)
   → Merge findings (dedup overlapping positions)
-  → [Premium] Frequency update → Escalation check
+  → Frequency update → Escalation check
   → Anonymize (if PII + enabled)
-  → [Premium] Audit → Alerting
+  → Audit → Alerting
   → PipelineResult
 ```
 
@@ -86,14 +86,14 @@ petasos/
 │   ├── llm_guard.py     # LlmGuardScanner (extras: llm-guard)
 │   ├── llama_firewall.py # LlamaFirewallScanner (extras: llamafirewall)
 │   └── presidio.py      # PresidioScanner + anonymization (extras: presidio)
-├── premium/
+├── session/
 │   ├── frequency.py     # FrequencyTracker (exp decay + rolling window)
 │   ├── escalation.py    # 3-tier escalation (Tier 3 cannot be disabled)
 │   ├── profiles.py      # 5 built-in + custom profiles
 │   ├── guard.py         # ToolCallGuard
 │   ├── audit.py         # AuditEmitter (verbosity-gated)
 │   ├── alerting.py      # AlertManager (5 rules + rate limiting)
-│   └── license.py       # JWT validation (local, no network)
+│   └── license.py       # JWT validation (local, parked for future use)
 ```
 
 ## Key Design Invariants
@@ -103,7 +103,7 @@ petasos/
 - **Zero required ML deps at base install** — scanner backends are pip extras, not hard deps. `pip install petasos` is lightweight; `pip install petasos[all]` is ~300MB.
 - **Frozen exports** — built-in profiles, rules, and default configs must be immutable (defensive copies, frozen dataclasses).
 - **Tier 3 escalation cannot be disabled** — hardcoded floor, no config override.
-- **Premium enforcement is hot-unlock** — `petasos.activate(key)` or `PETASOS_LICENSE_KEY` env var. JWT validated locally (bundled public key), no network at runtime. Pipeline never reconstructed on key change.
+- **License machinery is parked** — `activate()` validates and stores JWT state for future supporter/compliance recognition but does not gate any feature. All features are controlled by config toggles.
 
 ## Test Standards
 

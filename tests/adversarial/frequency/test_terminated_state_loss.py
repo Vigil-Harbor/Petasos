@@ -7,8 +7,8 @@ from unittest.mock import patch
 
 from petasos.config import PetasosConfig
 from petasos.pipeline import Pipeline
-from petasos.premium.frequency import FrequencyTracker, SessionState
-from petasos.premium.guard import ToolCallGuard
+from petasos.session.frequency import FrequencyTracker, SessionState
+from petasos.session.guard import ToolCallGuard
 
 
 def _cfg(**overrides: object) -> PetasosConfig:
@@ -32,7 +32,7 @@ class TestTerminatedSurvivesTtlEviction:
         tracker = FrequencyTracker(cfg)
 
         t0 = 1000.0
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0):
             tracker.update("s1", ["petasos.syntactic.injection.a"] * 6)
 
         state = tracker.get_state("s1")
@@ -41,7 +41,7 @@ class TestTerminatedSurvivesTtlEviction:
         assert tracker.is_terminated("s1") is True
 
         # Advance past TTL and trigger eviction via update on a different session
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0 + 200.0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0 + 200.0):
             tracker.update("s2", [])
 
         # Session state evicted
@@ -61,17 +61,17 @@ class TestTerminatedSurvivesLruEviction:
         tracker = FrequencyTracker(cfg)
 
         t0 = 1000.0
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0):
             tracker.update("s1", ["petasos.syntactic.injection.a"] * 6)
 
         assert tracker.is_terminated("s1") is True
 
         # Flood with new sessions to trigger _evict_one
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0 + 1.0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0 + 1.0):
             tracker.update("s2", [])
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0 + 2.0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0 + 2.0):
             tracker.update("s3", [])
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0 + 3.0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0 + 3.0):
             tracker.update("s4", [])
 
         # s1 should be evicted from _sessions (terminated sessions evicted first)
@@ -94,11 +94,11 @@ class TestGuardBlocksAfterTtlEviction:
         guard = ToolCallGuard(pipe, tracker, cfg)
 
         t0 = 1000.0
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0):
             tracker.update("s1", ["petasos.syntactic.injection.a"] * 6)
 
         # Evict via TTL
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0 + 200.0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0 + 200.0):
             tracker.update("s2", [])
 
         assert tracker.get_state("s1") is None
@@ -122,15 +122,15 @@ class TestGuardBlocksAfterLruEviction:
         guard = ToolCallGuard(pipe, tracker, cfg)
 
         t0 = 1000.0
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0):
             tracker.update("s1", ["petasos.syntactic.injection.a"] * 6)
 
         # Flood to trigger LRU eviction of s1
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0 + 1.0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0 + 1.0):
             tracker.update("s2", [])
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0 + 2.0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0 + 2.0):
             tracker.update("s3", [])
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0 + 3.0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0 + 3.0):
             tracker.update("s4", [])
 
         assert tracker.get_state("s1") is None
@@ -154,7 +154,7 @@ class TestResetDoesNotResurrect:
         guard = ToolCallGuard(pipe, tracker, cfg)
 
         t0 = 1000.0
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0):
             tracker.update("s1", ["petasos.syntactic.injection.a"] * 6)
 
         tracker.reset("s1")
@@ -177,17 +177,17 @@ class TestUpdateReturnsTier3ForTombstoned:
         tracker = FrequencyTracker(cfg)
 
         t0 = 1000.0
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0):
             tracker.update("s1", ["petasos.syntactic.injection.a"] * 6)
 
         # Evict via TTL
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0 + 200.0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0 + 200.0):
             tracker.update("s2", [])
 
         assert tracker.get_state("s1") is None
 
         # Call update with non-empty rule_ids on tombstoned session
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0 + 201.0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0 + 201.0):
             result = tracker.update("s1", ["petasos.syntactic.injection.a"])
 
         assert result.tier == "tier3"
@@ -208,20 +208,20 @@ class TestTombstonedUpdateNoSpuriousAlert:
         tracker = FrequencyTracker(cfg)
 
         t0 = 1000.0
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0):
             result = tracker.update("s1", ["petasos.syntactic.injection.a"] * 6)
 
         assert result.tier == "tier3"
 
         # Evict via TTL
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0 + 200.0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0 + 200.0):
             tracker.update("s2", [])
 
         # Tombstone early-return: both scores should be tier3_threshold
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0 + 201.0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0 + 201.0):
             result = tracker.update("s1", [])
 
-        from petasos.premium.escalation import evaluate_tier
+        from petasos.session.escalation import evaluate_tier
 
         previous_tier = evaluate_tier(result.previous_score, cfg)
         current_tier = evaluate_tier(result.current_score, cfg)
@@ -247,7 +247,7 @@ class TestTtlEvictionDefensiveTombstone:
 
         t0 = 1000.0
         # Terminate s1 — tombstone written (slot 1/2)
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0):
             tracker.update("s1", ["petasos.syntactic.injection.a"] * 6)
 
         assert tracker.is_terminated("s1") is True
@@ -263,7 +263,7 @@ class TestTtlEvictionDefensiveTombstone:
         assert "s1" not in tracker._terminated_ids
 
         # Advance past TTL — s1 expires
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0 + 200.0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0 + 200.0):
             tracker.update("s3", [])
 
         # s1 evicted from _sessions by TTL
@@ -294,9 +294,9 @@ class TestEvictOneDefensiveTombstone:
         assert "injected" not in tracker._terminated_ids
 
         # Add sessions to trigger _evict_one
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0 + 1.0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0 + 1.0):
             tracker.update("s2", [])
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0 + 2.0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0 + 2.0):
             tracker.update("s3", [])
 
         # injected should be evicted from _sessions (terminated preferred)

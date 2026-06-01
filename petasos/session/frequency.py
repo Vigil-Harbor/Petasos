@@ -8,7 +8,7 @@ from collections import OrderedDict, deque
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from petasos.premium.escalation import evaluate_tier
+from petasos.session.escalation import evaluate_tier
 
 if TYPE_CHECKING:
     from collections.abc import Sequence

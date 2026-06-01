@@ -9,8 +9,8 @@ import pytest
 from petasos._types import Position, ScanFinding, ScanResult, Severity
 from petasos.config import PetasosConfig
 from petasos.pipeline import Pipeline, merge_findings
-from petasos.premium.profiles import ResolvedProfile
 from petasos.scanners.minimal import MinimalScanner
+from petasos.session.profiles import ResolvedProfile
 
 
 class _ErrorScanner:

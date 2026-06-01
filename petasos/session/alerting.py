@@ -8,7 +8,7 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 from petasos._types import Alert, Severity
-from petasos.premium.escalation import evaluate_tier
+from petasos.session.escalation import evaluate_tier
 
 _logger = logging.getLogger(__name__)
 
@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
     from petasos._types import PipelineResult
     from petasos.config import PetasosConfig
-    from petasos.premium.frequency import FrequencyUpdateResult
+    from petasos.session.frequency import FrequencyUpdateResult
 
 _SEVERITY_RANK: dict[Severity, int] = {
     Severity.CRITICAL: 0,
