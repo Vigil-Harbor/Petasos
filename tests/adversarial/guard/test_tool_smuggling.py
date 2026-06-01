@@ -17,7 +17,7 @@ def _guard_with_profile(profile: ResolvedProfile) -> ToolCallGuard:
 
     cfg = PetasosConfig(tool_guard_enabled=True, frequency_enabled=True)
     pipe = Pipeline(config=cfg)
-    # feature disabled without license — test normalization only
+    # tool_guard_enabled=True, frequency_enabled=True — test normalization
     return ToolCallGuard(pipe, FrequencyTracker(cfg), cfg, profile=profile)
 
 

@@ -331,9 +331,7 @@ class Pipeline:
             {
                 "frequency": _status("frequency_enabled"),
                 "escalation": _status("escalation_enabled"),
-                "profiles": "enabled"
-                if self._default_profile is not None
-                else "disabled",
+                "profiles": "enabled" if self._default_profile is not None else "disabled",
                 "tool_guard": _status("tool_guard_enabled"),
                 "audit": _status("audit_enabled"),
                 "alerting": _status("alert_enabled"),
@@ -470,19 +468,11 @@ class Pipeline:
         standalone_tier3 = _standalone_tier3_check(merged)
 
         # Stage 5b: Confidence floor filtering
-        if (
-            active_profile is not None
-            and active_profile is not None
-            and active_profile.confidence_floor > 0.0
-        ):
+        if active_profile is not None and active_profile.confidence_floor > 0.0:
             merged = tuple(f for f in merged if f.confidence >= active_profile.confidence_floor)
 
         # Stage 5c: Severity overrides (PIPE-07 guards)
-        if (
-            active_profile is not None
-            and active_profile is not None
-            and active_profile.severity_overrides
-        ):
+        if active_profile is not None and active_profile.severity_overrides:
             overridden: list[ScanFinding] = []
             for f in merged:
                 override = active_profile.severity_overrides.get(f.rule_id)

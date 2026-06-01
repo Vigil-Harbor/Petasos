@@ -177,7 +177,7 @@ class TestE2EHappyPath:
         pf = result.feature_status
         for feature in ("frequency", "escalation", "profiles", "tool_guard", "audit", "alerting"):
             assert pf[feature] == "enabled", (
-                f"Expected {feature} to be 'available', got '{pf[feature]}'"
+                f"Expected {feature} to be 'enabled', got '{pf[feature]}'"
             )
 
     async def test_safe_is_false_due_to_high_findings(
