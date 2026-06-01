@@ -200,9 +200,9 @@ class PipelineResult:
     errors: tuple[str, ...] = ()
     escalation_tier: str | None = None
     session_score: float | None = None
-    premium_features: MappingProxyType[str, str] | None = None
+    feature_status: MappingProxyType[str, str] | None = None
 
     def __post_init__(self) -> None:
-        pf = self.premium_features
+        pf = self.feature_status
         if pf is not None and not isinstance(pf, MappingProxyType):
-            object.__setattr__(self, "premium_features", MappingProxyType(dict(pf)))
+            object.__setattr__(self, "feature_status", MappingProxyType(dict(pf)))

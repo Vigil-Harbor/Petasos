@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
     from petasos._types import PipelineResult
     from petasos.config import PetasosConfig
-    from petasos.premium.frequency import FrequencyUpdateResult
+    from petasos.session.frequency import FrequencyUpdateResult
 
 
 class AuditEmitter:

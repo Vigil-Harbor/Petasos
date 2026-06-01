@@ -7,7 +7,7 @@ from unittest.mock import patch
 import pytest
 
 from petasos.config import PetasosConfig
-from petasos.premium.frequency import FrequencyTracker
+from petasos.session.frequency import FrequencyTracker
 
 
 def _cfg(**overrides: object) -> PetasosConfig:
@@ -30,7 +30,7 @@ class TestTerminateSessionSetsTombstone:
         tracker = FrequencyTracker(cfg)
 
         t0 = 1000.0
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0):
             tracker.update("s1", [])
 
         tracker.terminate_session("s1")
@@ -64,7 +64,7 @@ class TestTier3UpdateSetsTombstone:
         tracker = FrequencyTracker(cfg)
 
         t0 = 1000.0
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0):
             result = tracker.update("s1", ["petasos.syntactic.injection.a"] * 6)
 
         assert result.tier == "tier3"
@@ -84,7 +84,7 @@ class TestResetPreservesTombstone:
         tracker = FrequencyTracker(cfg)
 
         t0 = 1000.0
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0):
             tracker.update("s1", [])
 
         tracker.terminate_session("s1")
@@ -105,7 +105,7 @@ class TestForceResetClearsTombstone:
         tracker = FrequencyTracker(cfg)
 
         t0 = 1000.0
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0):
             tracker.update("s1", [])
 
         tracker.terminate_session("s1")
@@ -201,7 +201,7 @@ class TestIsTerminatedTrueForLiveTerminated:
         tracker = FrequencyTracker(cfg)
 
         t0 = 1000.0
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0):
             tracker.update("s1", [])
 
         tracker.terminate_session("s1")

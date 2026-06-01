@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from petasos.config import PetasosConfig
-from petasos.premium.frequency import FrequencyTracker, SessionToken
+from petasos.session.frequency import FrequencyTracker, SessionToken
 
 _SECRET = b"test-secret-key-32-bytes-long!!!"
 _HOST = "host-a"

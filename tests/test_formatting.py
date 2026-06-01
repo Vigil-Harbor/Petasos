@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from petasos._types import PipelineResult, ScanFinding, Severity
-from petasos.premium.formatting import (
+from petasos.session.formatting import (
     format_block_message,
     format_pipeline_block_message,
     shorten_rule_id,
 )
-from petasos.premium.guard import GuardResult
+from petasos.session.guard import GuardResult
 
 _PREFIX = "[BLOCKED by Petasos]"
 
@@ -18,7 +18,7 @@ _INTERNAL_REASONS = [
     "tool exempt per profile",
     "tier1: allowed with warnings",
     "allowed",
-    "premium inactive",
+    "feature disabled",
 ]
 
 

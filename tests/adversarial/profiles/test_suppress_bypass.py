@@ -5,8 +5,8 @@ from __future__ import annotations
 import pytest
 
 from petasos.pipeline import Pipeline
-from petasos.premium.profiles import _UNSUPPRESSIBLE_RULE_IDS
 from petasos.scanners.minimal import RULE_TAXONOMY
+from petasos.session.profiles import _UNSUPPRESSIBLE_RULE_IDS
 
 
 @pytest.mark.asyncio
@@ -40,7 +40,7 @@ def test_register_general_raises() -> None:
     """PROF-03: register('general', ...) raises ValueError."""
     from types import MappingProxyType
 
-    from petasos.premium.profiles import ProfileResolver, ResolvedProfile
+    from petasos.session.profiles import ProfileResolver, ResolvedProfile
 
     resolver = ProfileResolver()
     evil = ResolvedProfile(
@@ -61,7 +61,7 @@ def test_register_all_builtins_raises() -> None:
     """PROF-03: all five built-in names are protected."""
     from types import MappingProxyType
 
-    from petasos.premium.profiles import _BUILTIN_NAMES, ProfileResolver, ResolvedProfile
+    from petasos.session.profiles import _BUILTIN_NAMES, ProfileResolver, ResolvedProfile
 
     resolver = ProfileResolver()
     fake = ResolvedProfile(
@@ -83,7 +83,7 @@ def test_register_custom_name_succeeds() -> None:
     """PROF-03: custom names are allowed."""
     from types import MappingProxyType
 
-    from petasos.premium.profiles import ProfileResolver, ResolvedProfile
+    from petasos.session.profiles import ProfileResolver, ResolvedProfile
 
     resolver = ProfileResolver()
     custom = ResolvedProfile(
@@ -104,7 +104,7 @@ def test_register_overwrite_custom_allowed() -> None:
     """PROF-03: overwriting a previously-registered custom profile is allowed."""
     from types import MappingProxyType
 
-    from petasos.premium.profiles import ProfileResolver, ResolvedProfile
+    from petasos.session.profiles import ProfileResolver, ResolvedProfile
 
     resolver = ProfileResolver()
     v1 = ResolvedProfile(

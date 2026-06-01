@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from petasos.premium.profiles import _parse_profile
+from petasos.session.profiles import _parse_profile
 
 
 def test_severity_overrides_not_mutated_by_caller() -> None:

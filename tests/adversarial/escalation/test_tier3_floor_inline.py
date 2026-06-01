@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import petasos.premium.escalation as escalation
-from petasos.premium.escalation import derive_tier
+import petasos.session.escalation as escalation
+from petasos.session.escalation import derive_tier
 
 if TYPE_CHECKING:
     import pytest

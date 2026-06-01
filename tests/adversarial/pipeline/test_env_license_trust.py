@@ -11,8 +11,8 @@ from typing import TYPE_CHECKING
 
 from petasos.config import PetasosConfig
 from petasos.pipeline import Pipeline
-from petasos.premium.license import LicenseState
 from petasos.scanners.minimal import MinimalScanner
+from petasos.session.license import LicenseState
 
 if TYPE_CHECKING:
     import pytest
@@ -36,22 +36,20 @@ def test_valid_env_key_auto_activates(monkeypatch: pytest.MonkeyPatch, valid_tok
     pipe = Pipeline([MinimalScanner()], config=_all_premium_config())
     assert pipe._license_state == LicenseState.VALID
     for feature in _ALL_FEATURES:
-        assert pipe.is_premium_active(feature) is True, f"expected {feature!r} to be active"
+        assert pipe.is_feature_enabled(feature) is True, f"expected {feature!r} to be active"
 
 
-def test_invalid_env_key_unlocks_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
-    # PIPE-08 / PET-10 (b): an invalid env key unlocks no feature and leaves
-    # state non-VALID.
+def test_invalid_env_key_does_not_gate_features(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PETASOS_LICENSE_KEY", "not-a-valid-jwt")
     pipe = Pipeline([MinimalScanner()], config=_all_premium_config())
     assert pipe._license_state != LicenseState.VALID
     for feature in _ALL_FEATURES:
-        assert pipe.is_premium_active(feature) is False
+        assert pipe.is_feature_enabled(feature) is True
 
 
-def test_no_env_key_leaves_inactive(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_no_env_key_features_still_active(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("PETASOS_LICENSE_KEY", raising=False)
     pipe = Pipeline([MinimalScanner()], config=_all_premium_config())
     assert pipe._license_state == LicenseState.INACTIVE
     for feature in _ALL_FEATURES:
-        assert pipe.is_premium_active(feature) is False
+        assert pipe.is_feature_enabled(feature) is True

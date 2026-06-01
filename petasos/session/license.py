@@ -58,7 +58,7 @@ class LicenseValidator:
         self._valid_tiers = frozenset(valid_tiers) if valid_tiers is not None else _VALID_TIERS
         self._key: Any = None
         try:
-            pkg = importlib.resources.files("petasos.premium._keys")
+            pkg = importlib.resources.files("petasos.session._keys")
             raw = pkg.joinpath("public.pem").read_bytes()
             normalized = raw.replace(b"\r\n", b"\n")
             if hashlib.sha256(normalized).hexdigest() != _EXPECTED_KEY_FINGERPRINT:

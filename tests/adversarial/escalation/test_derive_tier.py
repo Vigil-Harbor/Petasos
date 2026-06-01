@@ -9,10 +9,10 @@ import pytest
 
 from petasos.config import PetasosConfig
 from petasos.pipeline import Pipeline
-from petasos.premium.escalation import derive_tier, evaluate_tier
-from petasos.premium.frequency import FrequencyTracker
-from petasos.premium.guard import ToolCallGuard
-from petasos.premium.profiles import ResolvedProfile, TierThresholds
+from petasos.session.escalation import derive_tier, evaluate_tier
+from petasos.session.frequency import FrequencyTracker
+from petasos.session.guard import ToolCallGuard
+from petasos.session.profiles import ResolvedProfile, TierThresholds
 
 
 def _cfg(**overrides: object) -> PetasosConfig:
@@ -73,7 +73,7 @@ class TestGuardDeriveTier:
         guard = ToolCallGuard(pipe, tracker, cfg, profile=profile)
 
         t0 = 1000.0
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0):
             tracker.update("s1", ["petasos.syntactic.injection.a"] * 2)
 
         result = await guard.evaluate("bash", {}, "s1")
@@ -88,7 +88,7 @@ class TestGuardDeriveTier:
         guard = ToolCallGuard(pipe, tracker, cfg)
 
         t0 = 1000.0
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0):
             tracker.update("s1", ["petasos.syntactic.injection.a"] * 2)
 
         state = tracker.get_state("s1")

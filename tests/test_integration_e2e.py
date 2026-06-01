@@ -173,11 +173,11 @@ class TestE2EHappyPath:
         assert len(tier_alerts) >= 1
 
         # Premium features manifest — all available
-        assert result.premium_features is not None
-        pf = result.premium_features
+        assert result.feature_status is not None
+        pf = result.feature_status
         for feature in ("frequency", "escalation", "profiles", "tool_guard", "audit", "alerting"):
-            assert pf[feature] == "available", (
-                f"Expected {feature} to be 'available', got '{pf[feature]}'"
+            assert pf[feature] == "enabled", (
+                f"Expected {feature} to be 'enabled', got '{pf[feature]}'"
             )
 
     async def test_safe_is_false_due_to_high_findings(

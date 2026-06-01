@@ -9,8 +9,8 @@ import pytest
 
 from petasos._types import Alert, PipelineResult, ScanFinding, Severity
 from petasos.config import PetasosConfig
-from petasos.premium.alerting import AlertManager
-from petasos.premium.frequency import FrequencyUpdateResult
+from petasos.session.alerting import AlertManager
+from petasos.session.frequency import FrequencyUpdateResult
 
 
 class _AlertCallbackKill(BaseException):
@@ -242,7 +242,7 @@ class TestRapidFire:
             )
         )
         base = time.monotonic()
-        with patch("petasos.premium.alerting.time") as mock_time:
+        with patch("petasos.session.alerting.time") as mock_time:
             mock_time.time.return_value = base
             for i in range(3):
                 mock_time.monotonic.return_value = base + i * 2.0
@@ -338,7 +338,7 @@ class TestPiiVolumeSpike:
         r = _result(findings=findings)
 
         base = time.monotonic()
-        with patch("petasos.premium.alerting.time") as mock_time:
+        with patch("petasos.session.alerting.time") as mock_time:
             mock_time.time.return_value = 1000.0
             mock_time.monotonic.return_value = base
             mgr.evaluate(r, "s1", None)
@@ -515,7 +515,7 @@ class TestCriticalCap:
         mgr = AlertManager(_cfg(alert_critical_per_minute_cap=2))
         fr = _freq(previous_score=35.0, current_score=55.0, tier="tier3")
 
-        with patch("petasos.premium.alerting.time") as mock_time:
+        with patch("petasos.session.alerting.time") as mock_time:
             mock_time.time.return_value = 1000.0
 
             mock_time.monotonic.return_value = base
@@ -681,7 +681,7 @@ class TestAlertStats:
 class TestSessionContributionCap:
     def test_session_contribution_cap_limits_single_session(self) -> None:
         base = time.monotonic()
-        with patch("petasos.premium.alerting.time") as mock_time:
+        with patch("petasos.session.alerting.time") as mock_time:
             mock_time.time.return_value = 1000.0
             mgr = AlertManager(
                 _cfg(
@@ -701,7 +701,7 @@ class TestSessionContributionCap:
 
     def test_throwaway_sessions_cannot_exhaust_rule_cap(self) -> None:
         base = time.monotonic()
-        with patch("petasos.premium.alerting.time") as mock_time:
+        with patch("petasos.session.alerting.time") as mock_time:
             mock_time.time.return_value = 1000.0
             mock_time.monotonic.return_value = base
 
@@ -723,7 +723,7 @@ class TestSessionContributionCap:
 
     def test_session_contribution_independent_across_rules(self) -> None:
         base = time.monotonic()
-        with patch("petasos.premium.alerting.time") as mock_time:
+        with patch("petasos.session.alerting.time") as mock_time:
             mock_time.time.return_value = 1000.0
             mgr = AlertManager(
                 _cfg(
@@ -750,7 +750,7 @@ class TestSessionContributionCap:
 
     def test_session_contribution_window_resets(self) -> None:
         base = time.monotonic()
-        with patch("petasos.premium.alerting.time") as mock_time:
+        with patch("petasos.session.alerting.time") as mock_time:
             mock_time.time.return_value = 1000.0
 
             mgr = AlertManager(
@@ -775,7 +775,7 @@ class TestSessionContributionCap:
 
     def test_session_none_uses_none_key(self) -> None:
         base = time.monotonic()
-        with patch("petasos.premium.alerting.time") as mock_time:
+        with patch("petasos.session.alerting.time") as mock_time:
             mock_time.time.return_value = 1000.0
             mgr = AlertManager(
                 _cfg(
@@ -795,7 +795,7 @@ class TestSessionContributionCap:
 
     def test_per_session_deque_pruned(self) -> None:
         base = time.monotonic()
-        with patch("petasos.premium.alerting.time") as mock_time:
+        with patch("petasos.session.alerting.time") as mock_time:
             mock_time.time.return_value = 1000.0
             mock_time.monotonic.return_value = base
 
@@ -833,7 +833,7 @@ class TestSessionContributionCap:
 
     def test_cap_1_suppresses_reentry(self) -> None:
         base = time.monotonic()
-        with patch("petasos.premium.alerting.time") as mock_time:
+        with patch("petasos.session.alerting.time") as mock_time:
             mock_time.time.return_value = 1000.0
             mock_time.monotonic.return_value = base
 
@@ -855,7 +855,7 @@ class TestSessionContributionCap:
 
     def test_three_gate_composition(self) -> None:
         base = time.monotonic()
-        with patch("petasos.premium.alerting.time") as mock_time:
+        with patch("petasos.session.alerting.time") as mock_time:
             mock_time.time.return_value = 1000.0
 
             mgr = AlertManager(
@@ -887,7 +887,7 @@ class TestSessionContributionCap:
 
     def test_session_rate_limited_count_separate(self) -> None:
         base = time.monotonic()
-        with patch("petasos.premium.alerting.time") as mock_time:
+        with patch("petasos.session.alerting.time") as mock_time:
             mock_time.time.return_value = 1000.0
             mgr = AlertManager(
                 _cfg(
@@ -911,7 +911,7 @@ class TestSessionContributionCap:
 
     def test_memory_bound_recovery_after_expiry(self) -> None:
         base = time.monotonic()
-        with patch("petasos.premium.alerting.time") as mock_time:
+        with patch("petasos.session.alerting.time") as mock_time:
             mock_time.time.return_value = 1000.0
             mock_time.monotonic.return_value = base
 
