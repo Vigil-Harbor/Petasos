@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from petasos.premium._safe_json import safe_json_dumps
+from petasos.session._safe_json import safe_json_dumps
 
 
 class TestSafeJsonDumps:

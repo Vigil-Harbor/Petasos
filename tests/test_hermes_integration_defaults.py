@@ -20,9 +20,9 @@ from petasos._types import (
 )
 from petasos.config import PetasosConfig
 from petasos.pipeline import Pipeline
-from petasos.premium.frequency import FrequencyTracker
-from petasos.premium.guard import ToolCallGuard
-from petasos.premium.profiles import ResolvedProfile
+from petasos.session.frequency import FrequencyTracker
+from petasos.session.guard import ToolCallGuard
+from petasos.session.profiles import ResolvedProfile
 
 # ---------------------------------------------------------------------------
 # Shared mock scanner
@@ -294,7 +294,7 @@ class TestHermesProductionPipeline:
     ) -> None:
         """All 5 premium features must be available after activation."""
         for feature in ("frequency", "escalation", "tool_guard", "audit", "alerting"):
-            assert hermes_pipeline.is_premium_active(feature), f"{feature} not available"
+            assert hermes_pipeline.is_feature_enabled(feature), f"{feature} not available"
 
     async def test_production_pipeline_fail_mode_closed(
         self,
@@ -422,7 +422,7 @@ class TestConfigFromDictRoundTrip:
 
         assert stock.fail_mode == "degraded", "stock default is degraded"
         assert production.fail_mode == "closed", "production overrides to closed"
-        assert stock.frequency_enabled is False, "stock: premium off"
-        assert production.frequency_enabled is True, "production: premium on"
+        assert stock.frequency_enabled is True, "stock: session features on"
+        assert production.frequency_enabled is True, "production: session features on"
         assert stock.anonymize is False, "stock: anonymization off"
         assert production.anonymize is True, "production: anonymization on"

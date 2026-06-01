@@ -5,7 +5,7 @@ from unittest.mock import patch
 import pytest
 
 from petasos.config import PetasosConfig
-from petasos.premium.frequency import (
+from petasos.session.frequency import (
     DEFAULT_FREQUENCY_WEIGHTS,
     DISABLED_RESULT,
     RATE_LIMITED_RESULT,
@@ -33,10 +33,10 @@ class TestDecayMath:
         tracker = FrequencyTracker(cfg)
 
         t0 = 1000.0
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0):
             tracker.update("s1", ["petasos.syntactic.injection.test"])
 
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0 + 10.0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0 + 10.0):
             result = tracker.update("s1", [])
 
         assert abs(result.previous_score - 5.0) < 1e-9
@@ -46,10 +46,10 @@ class TestDecayMath:
         tracker = FrequencyTracker(cfg)
 
         t0 = 1000.0
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0):
             tracker.update("s1", ["petasos.syntactic.injection.test"])
 
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0 + 500.0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0 + 500.0):
             result = tracker.update("s1", [])
 
         assert result.current_score < 1e-6
@@ -59,10 +59,10 @@ class TestDecayMath:
         tracker = FrequencyTracker(cfg)
 
         t0 = 1000.0
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0):
             r1 = tracker.update("s1", ["petasos.syntactic.injection.test"])
 
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0):
             r2 = tracker.update("s1", ["petasos.syntactic.injection.test"])
 
         assert r2.previous_score == r1.current_score
@@ -72,10 +72,10 @@ class TestDecayMath:
         tracker = FrequencyTracker(cfg)
 
         t0 = 1000.0
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0):
             tracker.update("s1", [])
 
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0 + 10.0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0 + 10.0):
             result = tracker.update("s1", [])
 
         assert result.current_score == 0.0
@@ -88,15 +88,15 @@ class TestDecayMath:
         tracker = FrequencyTracker(cfg)
 
         t0 = 1000.0
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0):
             r1 = tracker.update("s1", ["test.rule"])
         assert r1.current_score == 10.0
 
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0 + 10.0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0 + 10.0):
             r2 = tracker.update("s1", ["test.rule"])
         assert abs(r2.current_score - 15.0) < 1e-9
 
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0 + 20.0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0 + 20.0):
             r3 = tracker.update("s1", [])
         assert abs(r3.current_score - 7.5) < 1e-9
 
@@ -117,7 +117,7 @@ class TestWeightMatching:
         tracker = FrequencyTracker(cfg)
 
         t0 = 1000.0
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0):
             result = tracker.update("s1", ["petasos.syntactic.injection.role-switch"])
         assert result.current_score == 20.0
 
@@ -131,7 +131,7 @@ class TestWeightMatching:
         tracker = FrequencyTracker(cfg)
 
         t0 = 1000.0
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0):
             result = tracker.update("s1", ["petasos.syntactic.injection.test"])
         assert result.current_score == 10.0
 
@@ -140,7 +140,7 @@ class TestWeightMatching:
         tracker = FrequencyTracker(cfg)
 
         t0 = 1000.0
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0):
             result = tracker.update("s1", ["unknown.rule.test"])
         assert result.current_score == 0.0
 
@@ -154,7 +154,7 @@ class TestWeightMatching:
         tracker = FrequencyTracker(cfg)
 
         t0 = 1000.0
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0):
             result = tracker.update(
                 "s1",
                 [
@@ -172,10 +172,10 @@ class TestWeightMatching:
         tracker = FrequencyTracker(cfg)
 
         t0 = 1000.0
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0):
             tracker.update("s1", ["test.rule"])
 
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0 + 10.0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0 + 10.0):
             result = tracker.update("s1", [])
         assert abs(result.current_score - 5.0) < 1e-9
 
@@ -196,7 +196,7 @@ class TestRollingWindow:
 
         t0 = 1000.0
         for i in range(3):
-            with patch("petasos.premium.frequency.time.monotonic", return_value=t0 + i):
+            with patch("petasos.session.frequency.time.monotonic", return_value=t0 + i):
                 tracker.update("s1", ["r"])
 
         state = tracker.get_state("s1")
@@ -212,10 +212,10 @@ class TestRollingWindow:
         tracker = FrequencyTracker(cfg)
 
         t0 = 1000.0
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0):
             tracker.update("s1", ["r"])
 
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0 + 20.0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0 + 20.0):
             tracker.update("s1", ["r"])
 
         state = tracker.get_state("s1")
@@ -235,7 +235,7 @@ class TestRollingWindow:
 
         t0 = 1000.0
         for i in range(3):
-            with patch("petasos.premium.frequency.time.monotonic", return_value=t0 + i):
+            with patch("petasos.session.frequency.time.monotonic", return_value=t0 + i):
                 result = tracker.update("s1", ["r"])
 
         assert result.tier == "tier1"
@@ -250,10 +250,10 @@ class TestRollingWindow:
         tracker = FrequencyTracker(cfg)
 
         t0 = 1000.0
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0):
             tracker.update("s1", ["r"])
 
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0 + 10.0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0 + 10.0):
             tracker.update("s1", [])
 
         state = tracker.get_state("s1")
@@ -276,10 +276,10 @@ class TestSessionEviction:
         tracker = FrequencyTracker(cfg)
 
         t0 = 1000.0
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0):
             tracker.update("stale", ["r"])
 
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0 + 20.0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0 + 20.0):
             tracker.update("fresh", ["r"])
 
         assert tracker.get_state("stale") is None
@@ -295,18 +295,18 @@ class TestSessionEviction:
         tracker = FrequencyTracker(cfg)
 
         t0 = 1000.0
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0):
             tracker.update("s1", ["r"])
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0 + 1):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0 + 1):
             tracker.update("s2", ["r"])
 
         tracker.terminate_session("s1")
 
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0 + 2):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0 + 2):
             tracker.update("s3", ["r"])
 
         # s1 (terminated) should have been evicted when s4 joins
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0 + 3):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0 + 3):
             tracker.update("s4", ["r"])
 
         assert tracker.get_state("s1") is None
@@ -321,11 +321,11 @@ class TestSessionEviction:
         tracker = FrequencyTracker(cfg)
 
         t0 = 1000.0
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0):
             tracker.update("s1", ["r"])
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0 + 1):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0 + 1):
             tracker.update("s2", ["r"])
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0 + 2):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0 + 2):
             tracker.update("s3", ["r"])
 
         assert tracker.get_state("s3") is not None
@@ -340,7 +340,7 @@ class TestSessionEviction:
         tracker = FrequencyTracker(cfg)
 
         t0 = 1000.0
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0):
             for i in range(1100):
                 tracker.update(f"s{i}", ["r"])
 
@@ -362,7 +362,7 @@ class TestRateLimiting:
         tracker = FrequencyTracker(cfg)
 
         t0 = 1000.0
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0):
             tracker.update("s1", ["r"])
             tracker.update("s2", ["r"])
             result = tracker.update("s3", ["r"])
@@ -378,7 +378,7 @@ class TestRateLimiting:
         tracker = FrequencyTracker(cfg)
 
         t0 = 1000.0
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0):
             result = tracker.update("s1", ["r"])
 
         assert result is not RATE_LIMITED_RESULT
@@ -393,14 +393,14 @@ class TestRateLimiting:
         tracker = FrequencyTracker(cfg)
 
         t0 = 1000.0
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0):
             tracker.update("s1", ["r"])
             tracker.update("s2", ["r"])
             rate_limited = tracker.update("s3", ["r"])
         assert rate_limited is RATE_LIMITED_RESULT
 
         # After 61 seconds the creation timestamps have expired
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0 + 61):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0 + 61):
             result = tracker.update("s3", ["r"])
         assert result is not RATE_LIMITED_RESULT
 
@@ -416,12 +416,12 @@ class TestEdgeCases:
         tracker = FrequencyTracker(cfg)
 
         t0 = 1000.0
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0):
             r1 = tracker.update("s1", ["r"])
         assert r1.tier == "tier3"
         assert r1.terminated
 
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0 + 1):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0 + 1):
             r2 = tracker.update("s1", ["r"])
         assert r2.tier == "tier3"
         assert r2.terminated
@@ -437,7 +437,7 @@ class TestEdgeCases:
         tracker = FrequencyTracker(cfg)
 
         t0 = 1000.0
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0):
             tracker.update("s1", ["r"])
         assert tracker.get_state("s1") is not None
 
@@ -449,7 +449,7 @@ class TestEdgeCases:
         tracker = FrequencyTracker(cfg)
 
         t0 = 1000.0
-        with patch("petasos.premium.frequency.time.monotonic", return_value=t0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0):
             tracker.update("s1", ["r"])
             tracker.update("s2", ["r"])
         assert tracker.size == 2
@@ -506,7 +506,7 @@ class TestSessionToken:
     def test_backward_compat_no_secret(self) -> None:
         cfg = _cfg()
         tracker = FrequencyTracker(cfg)
-        with patch("petasos.premium.frequency.time.monotonic", return_value=1000.0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=1000.0):
             tracker.update("s1", [])
         assert tracker.get_state("s1") is not None
         tracker.terminate_session("s1")
@@ -519,7 +519,7 @@ class TestSessionToken:
         cfg = _cfg(session_secret=_SECRET)
         tracker = FrequencyTracker(cfg)
         token = tracker.mint_token("s1", "host-a")
-        with patch("petasos.premium.frequency.time.monotonic", return_value=1000.0):
+        with patch("petasos.session.frequency.time.monotonic", return_value=1000.0):
             result = tracker.update(token, ["petasos.syntactic.injection.ignore-previous"])
         assert result.current_score > 0
         state = tracker.get_state(token)

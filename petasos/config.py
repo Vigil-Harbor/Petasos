@@ -71,13 +71,13 @@ class PetasosConfig:
     redaction_mode: Literal["redact", "replace", "hash", "mask"] = "redact"
     hash_key: str | None = None
 
-    # Premium feature toggles
-    frequency_enabled: bool = False
-    escalation_enabled: bool = False
+    # Session feature toggles
+    frequency_enabled: bool = True
+    escalation_enabled: bool = True
     profile_name: str | None = None
-    tool_guard_enabled: bool = False
-    audit_enabled: bool = False
-    alert_enabled: bool = False
+    tool_guard_enabled: bool = True
+    audit_enabled: bool = True
+    alert_enabled: bool = True
 
     # Alerting thresholds
     alert_cooldown_seconds: float = 60.0

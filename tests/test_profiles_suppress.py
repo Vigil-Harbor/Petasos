@@ -2,18 +2,18 @@ from __future__ import annotations
 
 from types import MappingProxyType
 
-from petasos.premium.profiles import (
+from petasos.scanners.minimal import (
+    _ALL_INJECTION_IDS,
+    _ENCODING_RULE_IDS,
+    _STRUCTURAL_RULE_IDS,
+)
+from petasos.session.profiles import (
     _BUILTIN_NAMES,
     _UNSUPPRESSIBLE_RULE_IDS,
     ProfileResolver,
     ResolvedProfile,
     _merge_with_base,
     _parse_profile,
-)
-from petasos.scanners.minimal import (
-    _ALL_INJECTION_IDS,
-    _ENCODING_RULE_IDS,
-    _STRUCTURAL_RULE_IDS,
 )
 
 

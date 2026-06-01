@@ -9,7 +9,7 @@ from typing import Any
 import jwt as pyjwt
 import pytest
 
-from petasos.premium.license import LicenseState, LicenseValidator
+from petasos.session.license import LicenseState, LicenseValidator
 from tests.conftest import _PRIVATE_KEY, _make_token
 
 # ---------------------------------------------------------------------------

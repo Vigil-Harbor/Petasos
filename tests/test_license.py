@@ -4,7 +4,7 @@ from datetime import timedelta
 
 import pytest
 
-from petasos.premium.license import (
+from petasos.session.license import (
     LicenseState,
     LicenseValidator,
     validate_license,
@@ -160,7 +160,7 @@ class TestResilientKeyLoading:
         original_files = importlib.resources.files
 
         def _broken_files(pkg: str) -> object:
-            if pkg == "petasos.premium._keys":
+            if pkg == "petasos.session._keys":
                 raise FileNotFoundError("simulated missing package")
             return original_files(pkg)
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from petasos.config import PetasosConfig
-from petasos.premium.escalation import (
+from petasos.session.escalation import (
     TIER3_FLOOR,
     evaluate_escalation,
     evaluate_tier,

@@ -233,7 +233,7 @@ class ProfileResolver:
         self._load_builtins()
 
     def _load_builtins(self) -> None:
-        pkg = importlib.resources.files("petasos.premium.profiles")
+        pkg = importlib.resources.files("petasos.session.profiles")
         for name in _BUILTIN_NAMES:
             traversable = pkg.joinpath(f"{name}.json")
             raw = traversable.read_text(encoding="utf-8")

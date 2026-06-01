@@ -17,14 +17,14 @@ class TestConfigDefaults:
         assert cfg.redaction_mode == "redact"
         assert cfg.hash_key is None
 
-    def test_premium_stubs_default_disabled(self) -> None:
+    def test_session_features_default_enabled(self) -> None:
         cfg = PetasosConfig()
-        assert cfg.frequency_enabled is False
-        assert cfg.escalation_enabled is False
+        assert cfg.frequency_enabled is True
+        assert cfg.escalation_enabled is True
         assert cfg.profile_name is None
-        assert cfg.tool_guard_enabled is False
-        assert cfg.audit_enabled is False
-        assert cfg.alert_enabled is False
+        assert cfg.tool_guard_enabled is True
+        assert cfg.audit_enabled is True
+        assert cfg.alert_enabled is True
 
     def test_normalization_toggles_default_true(self) -> None:
         cfg = PetasosConfig()

@@ -8,14 +8,14 @@ import pytest
 from petasos._types import ScanFinding, Severity
 from petasos.config import PetasosConfig
 from petasos.pipeline import Pipeline
-from petasos.premium.frequency import FrequencyTracker, SessionState
-from petasos.premium.guard import (
+from petasos.session.frequency import FrequencyTracker, SessionState
+from petasos.session.guard import (
+    _FEATURE_DISABLED,
     _NAMESPACE_PREFIX_RE,
-    _PREMIUM_INACTIVE,
     GuardResult,
     ToolCallGuard,
 )
-from petasos.premium.profiles import ResolvedProfile, TierThresholds
+from petasos.session.profiles import ResolvedProfile, TierThresholds
 
 
 def _cfg(**overrides: object) -> PetasosConfig:
@@ -62,21 +62,28 @@ def _guard(
 
 
 # ---------------------------------------------------------------------------
-# Premium gate
+# Feature gate
 # ---------------------------------------------------------------------------
 
 
-class TestPremiumGate:
-    async def test_premium_inactive_returns_allowed(self) -> None:
-        g = _guard(premium_active=False)
+class TestFeatureGate:
+    async def test_feature_disabled_returns_allowed(self) -> None:
+        cfg = _cfg(tool_guard_enabled=False)
+        g = _guard(config=cfg)
         result = await g.evaluate("bash", {}, "s1")
         assert result.allowed is True
-        assert result.reason == "premium inactive"
+        assert result.reason == "feature disabled"
 
-    async def test_premium_inactive_is_singleton(self) -> None:
-        g = _guard(premium_active=False)
+    async def test_feature_disabled_is_singleton(self) -> None:
+        cfg = _cfg(tool_guard_enabled=False)
+        g = _guard(config=cfg)
         result = await g.evaluate("anything", {"key": "value"}, "s1")
-        assert result is _PREMIUM_INACTIVE
+        assert result is _FEATURE_DISABLED
+
+    async def test_feature_enabled_does_not_skip(self) -> None:
+        g = _guard()
+        result = await g.evaluate("bash", {}, "s1")
+        assert result is not _FEATURE_DISABLED
 
 
 # ---------------------------------------------------------------------------
@@ -334,8 +341,8 @@ class TestGuard03AliasExempt:
 
     def test_default_aliases_not_in_builtin_exempt(self) -> None:
         """Structural tripwire: no default alias target collides with built-in exempt."""
-        from petasos.premium.guard import DEFAULT_TOOL_ALIASES
-        from petasos.premium.profiles import ProfileResolver
+        from petasos.session.guard import DEFAULT_TOOL_ALIASES
+        from petasos.session.profiles import ProfileResolver
 
         resolver = ProfileResolver()
         alias_targets = {v.lower() for v in DEFAULT_TOOL_ALIASES.values()}

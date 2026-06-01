@@ -15,11 +15,11 @@ from petasos._types import (
 )
 from petasos.config import PetasosConfig
 from petasos.pipeline import Pipeline
-from petasos.premium.alerting import AlertManager
-from petasos.premium.audit import AuditEmitter
-from petasos.premium.frequency import FrequencyUpdateResult
-from petasos.premium.license import LicenseClaims, LicenseState
 from petasos.scanners.minimal import MinimalScanner
+from petasos.session.alerting import AlertManager
+from petasos.session.audit import AuditEmitter
+from petasos.session.frequency import FrequencyUpdateResult
+from petasos.session.license import LicenseClaims, LicenseState
 
 
 def _cfg(**overrides: object) -> PetasosConfig:
@@ -131,7 +131,7 @@ class TestAuditCallbackIsolation:
             raise ValueError("bad")
 
         emitter = AuditEmitter(_cfg(), on_audit=bad_cb)
-        with patch("petasos.premium.audit._logger") as mock_logger:
+        with patch("petasos.session.audit._logger") as mock_logger:
             emitter.emit(_pipeline_result(), "s1", None)
             mock_logger.error.assert_called_once()
             call_kwargs = mock_logger.error.call_args
@@ -173,7 +173,7 @@ class TestAlertCallbackIsolation:
 
         mgr = AlertManager(_cfg(alert_cooldown_seconds=0.001), on_alert=bad_cb)
         r = _pipeline_result(findings=(_finding(severity=Severity.HIGH),))
-        with patch("petasos.premium.alerting._logger") as mock_logger:
+        with patch("petasos.session.alerting._logger") as mock_logger:
             mgr.evaluate(r, "s1", None)
             mock_logger.exception.assert_called()
 
@@ -234,7 +234,7 @@ class TestCrossSessionBurstTracker:
         )
         r = _pipeline_result(findings=(_finding(),))
         base = 1000.0
-        with patch("petasos.premium.alerting.time") as mock_time:
+        with patch("petasos.session.alerting.time") as mock_time:
             mock_time.time.return_value = base
             for i in range(6):
                 mock_time.monotonic.return_value = base + i * 0.1
@@ -257,7 +257,7 @@ class TestCrossSessionBurstTracker:
             )
         )
         r = _pipeline_result(findings=(_finding(),))
-        with patch("petasos.premium.alerting.time") as mock_time:
+        with patch("petasos.session.alerting.time") as mock_time:
             mock_time.time.return_value = base_time
             mock_time.monotonic.return_value = base_time
             for i in range(3):

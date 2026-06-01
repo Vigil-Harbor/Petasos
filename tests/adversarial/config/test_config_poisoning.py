@@ -8,7 +8,7 @@ import petasos.config as config_mod
 from petasos._types import ScanResult
 from petasos.config import PetasosConfig
 from petasos.pipeline import Pipeline, _compute_safe
-from petasos.premium.escalation import evaluate_tier
+from petasos.session.escalation import evaluate_tier
 
 
 def test_frozen_config_bypass_via_setattr() -> None:
