@@ -14,31 +14,63 @@ Hermes Desktop agent. Covers both macOS and Windows.
 Install Petasos into Hermes's Python environment — not system Python, not
 WSL Python. On Windows the venv lives inside the Hermes install directory.
 
-```bash
-# macOS
-~/.hermes/hermes-agent/venv/bin/pip install petasos
+**macOS:**
 
-# Windows (from Git Bash or PowerShell)
+```bash
+~/.hermes/hermes-agent/venv/bin/pip install petasos
+```
+
+**Windows (PowerShell / cmd):**
+
+```powershell
 %LOCALAPPDATA%\hermes\hermes-agent\venv\Scripts\python.exe -m pip install petasos
+```
+
+**Windows (Git Bash):**
+
+```bash
+/c/Users/$USER/AppData/Local/hermes/hermes-agent/venv/Scripts/python.exe -m pip install petasos
 ```
 
 For ML scanner backends (LLM Guard, LlamaFirewall, Presidio), install the
 `all` extra. This adds ~300MB of models. The plugin degrades gracefully
 to syntactic-only if these aren't installed.
 
+**macOS:**
+
 ```bash
-pip install "petasos[all]"
+~/.hermes/hermes-agent/venv/bin/pip install "petasos[all]"
 ```
 
-Verify:
+**Windows (PowerShell / cmd):**
+
+```powershell
+%LOCALAPPDATA%\hermes\hermes-agent\venv\Scripts\python.exe -m pip install "petasos[all]"
+```
+
+**Windows (Git Bash):**
 
 ```bash
-python -c "from petasos import Pipeline; from petasos.scanners import MinimalScanner; print('OK')"
+/c/Users/$USER/AppData/Local/hermes/hermes-agent/venv/Scripts/python.exe -m pip install "petasos[all]"
+```
+
+Verify the install:
+
+**macOS:**
+
+```bash
+~/.hermes/hermes-agent/venv/bin/python -c "from petasos import Pipeline; from petasos.scanners import MinimalScanner; print('OK')"
+```
+
+**Windows (PowerShell / cmd):**
+
+```powershell
+%LOCALAPPDATA%\hermes\hermes-agent\venv\Scripts\python.exe -c "from petasos import Pipeline; from petasos.scanners import MinimalScanner; print('OK')"
 ```
 
 ## 2. Generate credentials
 
-Three env vars, all generated once per deployment.
+Two env vars, generated once per deployment.
 
 ```bash
 # Session secret (HMAC session binding — prevents session spoofing)
@@ -48,8 +80,9 @@ python -c "import secrets, base64; print(base64.b64encode(secrets.token_bytes(32
 python -c "import secrets; print(secrets.token_hex(32))"
 ```
 
-The license key is a signed JWT. If you have the Ed25519 private key
-(paired with `petasos/premium/_keys/public.pem`):
+License activation is optional — for supporter/compliance recognition only.
+Features are not gated by it. If you have an Ed25519 private key
+(paired with `petasos/session/_keys/public.pem`):
 
 ```python
 import jwt, time
@@ -68,15 +101,15 @@ token = jwt.encode({
 print(token)
 ```
 
-Add all three to Hermes's `.env` file:
+Add credentials to Hermes's `.env` file:
 
 ```bash
 # macOS: ~/.hermes/.env
 # Windows: %LOCALAPPDATA%\hermes\.env
 
-PETASOS_LICENSE_KEY=eyJhbG...
 PETASOS_SESSION_SECRET=<base64 output>
 PETASOS_HASH_KEY=<hex output>
+# PETASOS_LICENSE_KEY is optional — supporter/compliance recognition only
 ```
 
 These match `*_KEY` / `*_SECRET` patterns so Hermes automatically strips
@@ -90,7 +123,7 @@ a code fork. The plugin runs in-process with zero subprocess overhead.
 
 Create the plugin directory:
 
-```
+```text
 # macOS
 ~/.hermes/plugins/petasos/
 
@@ -134,10 +167,9 @@ Key architectural decisions in the plugin:
   Everything not in that set is treated as dangerous for
   `param_scan_unsafe` enforcement.
 
-- **Graceful degradation.** Missing `PETASOS_LICENSE_KEY` → OSS-only
-  (MinimalScanner, no premium). Missing `PETASOS_SESSION_SECRET` →
-  HMAC binding disabled. Missing config section → defaults (all
-  features disabled). Plugin never crashes Hermes.
+- **Graceful degradation.** Missing `PETASOS_SESSION_SECRET` → HMAC
+  binding disabled. Missing config section → defaults apply (all
+  features enabled as of PET-78). Plugin never crashes Hermes.
 
 ## 4. Enable the plugin
 
@@ -175,7 +207,7 @@ petasos:
   pii_entities: ["PERSON", "EMAIL_ADDRESS", "PHONE_NUMBER", "CREDIT_CARD"]
   redaction_mode: "hash"
 
-  # Premium features (all require valid license)
+  # Session features (all default true — no license required)
   frequency_enabled: true
   escalation_enabled: true
   tool_guard_enabled: true
@@ -191,14 +223,14 @@ petasos:
 | `fail_mode` | `"degraded"` | `"closed"` | Degraded is too permissive — blocks on total ML failure but passes on partial |
 | `host_id` | `""` | Set to stable ID | HMAC session binding requires non-empty host_id. Changing it invalidates all session tokens |
 | `anonymize` | `false` | `true` | PII detection + hash anonymization for audit correlation |
-| `frequency_enabled` | `false` | `true` | Per-session frequency tracking and escalation |
-| `tool_guard_enabled` | `false` | `true` | ToolCallGuard evaluation on every tool dispatch |
-| `audit_enabled` | `false` | `true` | Structured audit events to Hermes logger |
 
 ### What stays at defaults
 
 | Key | Default | Why it's fine |
 |-----|---------|---------------|
+| `frequency_enabled` | `true` | Enabled out of the box |
+| `tool_guard_enabled` | `true` | Enabled out of the box |
+| `audit_enabled` | `true` | Enabled out of the box |
 | `scanner_timeout_seconds` | 10.0 | Generous for cold-start, capped at 60 |
 | `tier1_threshold` / `tier2_threshold` | 15.0 / 30.0 | Battle-tested from Drawbridge |
 | `tier3_threshold` | 50.0 | Floor hardcoded at 30.0 — can't go lower |
@@ -213,12 +245,11 @@ close Hermes Desktop entirely and reopen.
 
 Check `agent.log` for the initialization sequence:
 
-```
+```text
 INFO  petasos.plugin: Petasos plugin registered — hooks active, scanner init in background
 INFO  petasos.plugin: LLM Guard scanner loaded
 INFO  petasos.plugin: LlamaFirewall scanner loaded
 INFO  petasos.plugin: Presidio scanner loaded
-INFO  petasos.plugin: Petasos premium activated (enterprise)
 INFO  petasos.plugin: Petasos initialized: scanners=['minimal', 'llm_guard', ...], fail_mode=closed, host_id=...
 INFO  petasos.plugin: PETASOS_SESSION_START — Petasos content security active
 ```
@@ -226,13 +257,20 @@ INFO  petasos.plugin: PETASOS_SESSION_START — Petasos content security active
 A standalone verification script (`verify.py` in the plugin directory)
 checks all components:
 
+**macOS:**
+
 ```bash
-python plugins/petasos/verify.py
+~/.hermes/hermes-agent/venv/bin/python plugins/petasos/verify.py
 ```
 
-Expected output: 7 checks, all PASS (scanner imports, plugin files,
-config validation, env vars, license, premium activation, injection
-detection).
+**Windows (PowerShell / cmd):**
+
+```powershell
+%LOCALAPPDATA%\hermes\hermes-agent\venv\Scripts\python.exe plugins/petasos/verify.py
+```
+
+Expected output: checks for scanner imports, plugin files, config
+validation, env vars, and injection detection — all PASS.
 
 ## 7. What's enforced
 
@@ -284,7 +322,7 @@ Check `agent.log` for `Skipping 'petasos'`:
 
 ### Scanner import failures
 
-```
+```text
 INFO petasos.plugin: LLM Guard not installed — syntactic-only for that backend
 ```
 
@@ -294,12 +332,13 @@ still runs without ML.
 
 ### License invalid
 
-```
+```text
 WARNING petasos.plugin: Petasos license invalid (state=LicenseState.EXPIRED)
 ```
 
-Mint a new JWT. Check that `PETASOS_LICENSE_KEY` in `.env` has no trailing
-whitespace or newlines.
+License is optional — features are not gated by it. If you want
+supporter/compliance recognition, mint a new JWT. Check that
+`PETASOS_LICENSE_KEY` in `.env` has no trailing whitespace or newlines.
 
 ### Config section wiped
 
@@ -309,7 +348,7 @@ update that overwrote the file.
 
 ### ToolCallGuard constructor error
 
-```
+```text
 ERROR petasos.plugin: ToolCallGuard.__init__() missing 2 required positional arguments
 ```
 
