@@ -177,6 +177,16 @@ class AuditEvent:
     payload: MappingProxyType[str, Any]
     sequence_number: int
 
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "event_id": self.event_id,
+            "timestamp": self.timestamp,
+            "session_id": self.session_id,
+            "event_type": self.event_type,
+            "payload": _deep_unproxy(self.payload),
+            "sequence_number": self.sequence_number,
+        }
+
 
 @dataclass(frozen=True)
 class Alert:
@@ -187,6 +197,17 @@ class Alert:
     session_id: str | None
     message: str
     context: MappingProxyType[str, Any]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "alert_id": self.alert_id,
+            "timestamp": self.timestamp,
+            "rule_id": self.rule_id,
+            "severity": self.severity,
+            "session_id": self.session_id,
+            "message": self.message,
+            "context": _deep_unproxy(self.context),
+        }
 
 
 @dataclass(frozen=True)
@@ -206,3 +227,28 @@ class PipelineResult:
         pf = self.feature_status
         if pf is not None and not isinstance(pf, MappingProxyType):
             object.__setattr__(self, "feature_status", MappingProxyType(dict(pf)))
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "safe": self.safe,
+            "findings": [f.to_dict() for f in self.findings],
+            "sanitized_content": self.sanitized_content,
+            "scanner_results": [sr.to_dict() for sr in self.scanner_results],
+            "errors": list(self.errors),
+            "escalation_tier": self.escalation_tier,
+            "session_score": self.session_score,
+            "feature_status": dict(self.feature_status) if self.feature_status is not None else None,
+        }
+
+
+def _deep_unproxy(obj: Any) -> Any:
+    """Recursively convert MappingProxyType to dict for JSON serialization."""
+    if isinstance(obj, MappingProxyType):
+        return {k: _deep_unproxy(v) for k, v in obj.items()}
+    if isinstance(obj, dict):
+        return {k: _deep_unproxy(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_deep_unproxy(item) for item in obj]
+    if isinstance(obj, Severity):
+        return obj.value
+    return obj

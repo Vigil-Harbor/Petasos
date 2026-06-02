@@ -1,0 +1,14 @@
+{
+    "name": "petasos",
+    "label": "Petasos",
+    "description": "Content security pipeline — scan, monitor, configure",
+    "icon": "Shield",
+    "version": "0.1.0",
+    "tab": {
+        "path": "/petasos",
+        "position": "after:skills"
+    },
+    "entry": "dist/petasos-plugin.js",
+    "css": "dist/petasos.css",
+    "api": "plugin_api.py"
+}

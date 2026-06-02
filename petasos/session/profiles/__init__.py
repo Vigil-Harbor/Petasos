@@ -253,6 +253,10 @@ class ProfileResolver:
             return _merge_with_base(base, name_or_dict)
         raise TypeError(f"name_or_dict must be str or dict, got {type(name_or_dict).__name__}")
 
+    def list_profiles(self) -> list[dict[str, Any]]:
+        """Return all loaded profiles as dicts."""
+        return [p.to_dict() for p in self._profiles.values()]
+
     def register(self, name: str, profile: ResolvedProfile) -> None:
         if name in _BUILTIN_NAMES:
             raise ValueError(f"Cannot overwrite built-in profile '{name}'")
