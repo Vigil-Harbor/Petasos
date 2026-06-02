@@ -4,11 +4,28 @@ build-backend = "hatchling.build"
 
 [project]
 name = "petasos"
-version = "0.0.1"
+version = "0.1.0"
 requires-python = ">=3.11"
 license = "MIT"
 description = "Pluggable, session-aware content security pipeline for Python AI agents"
+readme = "README.md"
 dependencies = ["pyjwt[crypto]>=2.8,<3"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Topic :: Security",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "License :: OSI Approved :: MIT License",
+    "Typing :: Typed",
+]
+
+[project.urls]
+Repository = "https://github.com/Vigil-Harbor/Petasos"
+Changelog = "https://github.com/Vigil-Harbor/Petasos/blob/master/CHANGELOG.md"
+"Bug Tracker" = "https://github.com/Vigil-Harbor/Petasos/issues"
 
 [project.optional-dependencies]
 llm-guard = ["llm-guard>=0.3.16,<0.4"]
