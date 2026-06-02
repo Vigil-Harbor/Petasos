@@ -16,7 +16,7 @@ Petasos is Drawbridge-*inspired* but fully uncoupled — own repo, own ticket pr
 
 ## Status
 
-Greenfield project. The active spec is `petasos-spec.md`; work items are in `petasos-work-items.md`. The file `petasos-project-spec-DRAFT-PARKED.md` is a superseded earlier draft preserved for reference — it proposed Drawbridge coupling that was explicitly rejected.
+Work items tracked in Plane (PET project). The file `petasos-project-spec-DRAFT-PARKED.md` is a superseded earlier draft preserved for reference — it proposed Drawbridge coupling that was explicitly rejected.
 
 ## Build & Run
 
@@ -120,7 +120,7 @@ petasos/
 ## Project Management
 
 - Petasos tracks under the `PET` project in Plane (UUID `5bff6316-84ea-4103-b9e2-4861ac9c226a`).
-- Work items PET-1 through PET-12 are defined in `petasos-work-items.md` with a dependency graph. PET-2 is a parent container; PET-3/4/5 are its children (scanner wrappers).
+- PET-2 is a parent container; PET-3/4/5 are its children (scanner wrappers).
 - When creating Plane work items, set `description_html` (the canonical field).
 - Drawbridge syntactic rules source: `clawmoat-drawbridge-sanitizer/src/validation/index.ts` → `SYNTACTIC_RULES` export.
 - Drawbridge FrequencyTracker source: `clawmoat-drawbridge-sanitizer/src/frequency/index.ts`.
