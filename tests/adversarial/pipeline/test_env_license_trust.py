@@ -1,7 +1,7 @@
 """PIPE-08 / PET-10: PETASOS_LICENSE_KEY env auto-activation trust boundary.
 
-The process environment is part of the premium trust boundary: a valid env key
-auto-activates premium at construction; an invalid one unlocks nothing and
+The process environment is part of the license trust boundary: a valid env key
+auto-activates features at construction; an invalid one unlocks nothing and
 leaves license state non-VALID. See Pipeline.activate() docstring.
 """
 
@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 _ALL_FEATURES = ("frequency", "escalation", "tool_guard", "audit", "alerting")
 
 
-def _all_premium_config() -> PetasosConfig:
+def _all_features_config() -> PetasosConfig:
     return PetasosConfig(
         frequency_enabled=True,
         escalation_enabled=True,
@@ -31,9 +31,9 @@ def _all_premium_config() -> PetasosConfig:
 
 
 def test_valid_env_key_auto_activates(monkeypatch: pytest.MonkeyPatch, valid_token: str) -> None:
-    # PET-10 (a): a valid env key auto-activates all premium features at construction.
+    # PET-10 (a): a valid env key auto-activates all features at construction.
     monkeypatch.setenv("PETASOS_LICENSE_KEY", valid_token)
-    pipe = Pipeline([MinimalScanner()], config=_all_premium_config())
+    pipe = Pipeline([MinimalScanner()], config=_all_features_config())
     assert pipe._license_state == LicenseState.VALID
     for feature in _ALL_FEATURES:
         assert pipe.is_feature_enabled(feature) is True, f"expected {feature!r} to be active"
@@ -41,7 +41,7 @@ def test_valid_env_key_auto_activates(monkeypatch: pytest.MonkeyPatch, valid_tok
 
 def test_invalid_env_key_does_not_gate_features(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PETASOS_LICENSE_KEY", "not-a-valid-jwt")
-    pipe = Pipeline([MinimalScanner()], config=_all_premium_config())
+    pipe = Pipeline([MinimalScanner()], config=_all_features_config())
     assert pipe._license_state != LicenseState.VALID
     for feature in _ALL_FEATURES:
         assert pipe.is_feature_enabled(feature) is True
@@ -49,7 +49,7 @@ def test_invalid_env_key_does_not_gate_features(monkeypatch: pytest.MonkeyPatch)
 
 def test_no_env_key_features_still_active(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("PETASOS_LICENSE_KEY", raising=False)
-    pipe = Pipeline([MinimalScanner()], config=_all_premium_config())
+    pipe = Pipeline([MinimalScanner()], config=_all_features_config())
     assert pipe._license_state == LicenseState.INACTIVE
     for feature in _ALL_FEATURES:
         assert pipe.is_feature_enabled(feature) is True

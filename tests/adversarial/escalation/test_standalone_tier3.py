@@ -1,4 +1,4 @@
-"""PET-75 ESC-01: Standalone tier-3 safety net fires regardless of premium/frequency state."""
+"""PET-75 ESC-01: Standalone tier-3 safety net fires regardless of license/frequency state."""
 
 from __future__ import annotations
 
@@ -41,7 +41,7 @@ async def test_tier3_fires_without_frequency() -> None:
 
 
 @pytest.mark.anyio
-async def test_tier3_fires_without_premium() -> None:
+async def test_tier3_fires_without_license() -> None:
     scanner = MinimalScanner(max_payload_bytes=100, max_json_depth=5)
     cfg = _cfg()
     pipe = Pipeline(scanners=[scanner], config=cfg)

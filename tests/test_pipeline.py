@@ -471,7 +471,7 @@ class TestFailModeClosed:
         assert not called  # ML scanner should not have been called
 
     @pytest.mark.asyncio
-    async def test_early_exit_still_runs_premium_hooks(self) -> None:
+    async def test_early_exit_still_runs_session_hooks(self) -> None:
         hook_calls: list[str] = []
 
         class TrackingScanner:
@@ -647,11 +647,11 @@ class TestPipelineNeverThrows:
 
 
 # ===================================================================
-# Premium hooks (2 tests)
+# Session hooks (2 tests)
 # ===================================================================
 
 
-class TestPremiumHooks:
+class TestSessionHooks:
     @pytest.mark.asyncio
     async def test_hooks_callable(self) -> None:
         p = Pipeline()

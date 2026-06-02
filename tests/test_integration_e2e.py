@@ -172,7 +172,7 @@ class TestE2EHappyPath:
         tier_alerts = [a for a in alert_events if a.rule_id == "tier_escalation"]
         assert len(tier_alerts) >= 1
 
-        # Premium features manifest — all available
+        # Feature status manifest — all available
         assert result.feature_status is not None
         pf = result.feature_status
         for feature in ("frequency", "escalation", "profiles", "tool_guard", "audit", "alerting"):

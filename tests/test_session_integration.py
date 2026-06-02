@@ -37,7 +37,7 @@ class TestPipelineHooks:
         assert result.escalation_tier is not None
         assert result.session_score is not None
 
-    async def test_premium_active_frequency_populates_score(self, valid_key: str) -> None:
+    async def test_frequency_populates_score(self, valid_key: str) -> None:
         cfg = _cfg()
         pipe = Pipeline(config=cfg)
         pipe.activate(valid_key)
@@ -46,7 +46,7 @@ class TestPipelineHooks:
         assert result.session_score is not None
         assert result.session_score >= 0.0
 
-    async def test_premium_active_escalation_populates_tier(self, valid_key: str) -> None:
+    async def test_escalation_populates_tier(self, valid_key: str) -> None:
         cfg = _cfg()
         pipe = Pipeline(config=cfg)
         pipe.activate(valid_key)
@@ -130,16 +130,16 @@ class TestPipelineResultFields:
 
 
 # ---------------------------------------------------------------------------
-# Config validation for premium fields
+# Config validation for session fields
 # ---------------------------------------------------------------------------
 
 
-class TestPremiumConfigValidation:
+class TestSessionConfigValidation:
     def test_thresholds_not_ascending_raises(self) -> None:
         with pytest.raises(ValueError, match="strictly ascending"):
             PetasosConfig(tier1_threshold=50.0, tier2_threshold=30.0, tier3_threshold=100.0)
 
-    def test_valid_premium_fields_accepted(self) -> None:
+    def test_valid_session_fields_accepted(self) -> None:
         cfg = PetasosConfig(
             frequency_half_life_seconds=30.0,
             rolling_window_seconds=120.0,
@@ -180,13 +180,13 @@ class TestPremiumConfigValidation:
 
 
 class TestActivateDeactivate:
-    def test_activate_enables_premium(self, valid_key: str) -> None:
+    def test_activate_enables_features(self, valid_key: str) -> None:
         pipe = Pipeline(config=_cfg())
         assert pipe._license_state == LicenseState.INACTIVE
         state = pipe.activate(valid_key)
         assert state == LicenseState.VALID
 
-    def test_deactivate_disables_premium(self, valid_key: str) -> None:
+    def test_deactivate_disables_features(self, valid_key: str) -> None:
         pipe = Pipeline(config=_cfg())
         pipe.activate(valid_key)
         pipe.deactivate()
@@ -213,7 +213,7 @@ class TestActivateDeactivate:
 
 
 class TestOuterExceptionHandler:
-    async def test_outer_handler_returns_none_premium_fields(self, valid_key: str) -> None:
+    async def test_outer_handler_returns_none_feature_fields(self, valid_key: str) -> None:
         cfg = _cfg()
         pipe = Pipeline(config=cfg)
         pipe.activate(valid_key)
@@ -270,7 +270,7 @@ class TestProfilePipelineIntegration:
         assert result.feature_status is not None
         assert result.feature_status["profiles"] == "enabled"
 
-    async def test_profile_hook_gated_by_premium(self, valid_key: str) -> None:
+    async def test_profile_hook_gated_by_feature_config(self, valid_key: str) -> None:
         pipe = Pipeline(config=_cfg(), profile="research")
 
         text = "​ hello"
