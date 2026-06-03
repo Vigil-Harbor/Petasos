@@ -73,20 +73,16 @@ class ConsoleHandlers:
         try:
             from petasos.config import PetasosConfig
 
-            PetasosConfig.from_dict(merged)
+            validated = PetasosConfig.from_dict(merged)
         except (ValueError, TypeError) as exc:
             msg = str(exc)
             field = _extract_field_from_error(msg, body)
             return None, [{"field": field, "message": msg}]
-        redacted = {
-            k: v for k, v in merged.items() if k != "session_secret"
-        }
-        from petasos.config import _SECRET_FIELDS
-
-        for sf in _SECRET_FIELDS:
-            if sf in redacted and redacted[sf] is not None:
-                redacted[sf] = "[REDACTED]"
-        return {"config": redacted, "fields": generate_config_metadata()}, None
+        self.pipeline._config = validated
+        return {
+            "config": validated.to_dict(redact_secrets=True),
+            "fields": generate_config_metadata(),
+        }, None
 
     async def run_scan(
         self,
@@ -114,9 +110,7 @@ class ConsoleHandlers:
             "scan_id": scan_id,
             "safe": result.safe,
             "finding_count": len(result.findings),
-            "duration_ms": sum(
-                (sr.duration_ms or 0.0) for sr in result.scanner_results
-            ),
+            "duration_ms": sum((sr.duration_ms or 0.0) for sr in result.scanner_results),
             "direction": direction,
             "timestamp": time.time(),
         }
@@ -132,9 +126,7 @@ class ConsoleHandlers:
     async def get_health(self) -> dict[str, Any]:
         cfg = self.pipeline.config
         config_hash = hashlib.sha256(
-            json.dumps(
-                cfg.to_dict(redact_secrets=True), sort_keys=True, default=str
-            ).encode()
+            json.dumps(cfg.to_dict(redact_secrets=True), sort_keys=True, default=str).encode()
         ).hexdigest()[:16]
 
         return {
@@ -163,8 +155,7 @@ class ConsoleHandlers:
             "repo_url": "https://github.com/Vigil-Harbor/Petasos",
             "license": "MIT",
             "description": (
-                "Pluggable, session-aware content security pipeline"
-                " for Python AI agents"
+                "Pluggable, session-aware content security pipeline for Python AI agents"
             ),
             "donation": {
                 "message": (

@@ -65,6 +65,14 @@ class SSEBroadcaster:
 
     async def shutdown(self) -> None:
         for q in list(self._subscribers):
-            with contextlib.suppress(Exception):
-                await q.put(_SENTINEL)
+            try:
+                q.put_nowait(_SENTINEL)
+            except asyncio.QueueFull:
+                while not q.empty():
+                    try:
+                        q.get_nowait()
+                    except asyncio.QueueEmpty:
+                        break
+                with contextlib.suppress(asyncio.QueueFull):
+                    q.put_nowait(_SENTINEL)
         self._subscribers.clear()

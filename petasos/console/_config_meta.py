@@ -21,6 +21,7 @@ def _get_hints() -> dict[str, Any]:
 
         import petasos._types as _types_mod
         import petasos.config as _config_mod
+
         ns = {**vars(_types_mod), **vars(_config_mod), "Mapping": collections.abc.Mapping}
         try:
             _RESOLVED_HINTS.update(get_type_hints(PetasosConfig, globalns=ns))
@@ -29,6 +30,7 @@ def _get_hints() -> dict[str, Any]:
             for f in dataclasses.fields(PetasosConfig):
                 _RESOLVED_HINTS[f.name] = f.type
     return _RESOLVED_HINTS
+
 
 _FIELD_META: dict[str, dict[str, Any]] = {
     "normalize_nfkc": {
@@ -49,8 +51,7 @@ _FIELD_META: dict[str, dict[str, Any]] = {
     },
     "direction": {
         "description": (
-            "Default scan direction: inbound (user to agent)"
-            " or outbound (agent to user)."
+            "Default scan direction: inbound (user to agent) or outbound (agent to user)."
         ),
         "section": "scanning",
     },

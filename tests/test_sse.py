@@ -16,7 +16,7 @@ async def test_subscribe_and_broadcast() -> None:
     msg = q.get_nowait()
     assert "event: test_event" in msg
     data_line = [line for line in msg.split("\n") if line.startswith("data:")][0]
-    payload = json.loads(data_line[len("data: "):])
+    payload = json.loads(data_line[len("data: ") :])
     assert payload["key"] == "value"
     assert "seq" in payload
 

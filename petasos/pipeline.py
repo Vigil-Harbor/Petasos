@@ -308,12 +308,14 @@ class Pipeline:
 
         result: list[dict[str, Any]] = []
         if self._minimal_scanner is not None:
-            result.append({
-                "name": "minimal",
-                "status": "healthy",
-                "last_ms": self._last_scan_durations.get("minimal"),
-                "consecutive_timeouts": 0,
-            })
+            result.append(
+                {
+                    "name": "minimal",
+                    "status": "healthy",
+                    "last_ms": self._last_scan_durations.get("minimal"),
+                    "consecutive_timeouts": 0,
+                }
+            )
         for s in self._ml_scanners:
             sname = s.name
             open_until = self._breaker_open_until.get(sname, 0.0)
@@ -324,12 +326,14 @@ class Pipeline:
                 status = "errored"
             else:
                 status = "healthy"
-            result.append({
-                "name": sname,
-                "status": status,
-                "last_ms": self._last_scan_durations.get(sname),
-                "consecutive_timeouts": timeouts,
-            })
+            result.append(
+                {
+                    "name": sname,
+                    "status": status,
+                    "last_ms": self._last_scan_durations.get(sname),
+                    "consecutive_timeouts": timeouts,
+                }
+            )
         return result
 
     def list_profiles(self) -> list[dict[str, Any]]:
