@@ -237,7 +237,9 @@ class PipelineResult:
             "errors": list(self.errors),
             "escalation_tier": self.escalation_tier,
             "session_score": self.session_score,
-            "feature_status": dict(self.feature_status) if self.feature_status is not None else None,
+            "feature_status": (
+                dict(self.feature_status) if self.feature_status is not None else None
+            ),
         }
 
 

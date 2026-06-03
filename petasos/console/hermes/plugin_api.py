@@ -14,9 +14,10 @@ if TYPE_CHECKING:
 try:
     from fastapi import APIRouter, HTTPException
 
-    router = APIRouter()
+    router: APIRouter | None = APIRouter()
 except ImportError:
-    router = None  # type: ignore[assignment]
+    HTTPException = None  # type: ignore[assignment,misc]
+    router = None
 
 _handlers: Any = None
 
@@ -33,10 +34,12 @@ def init_handlers(pipeline: Any) -> None:
 
 def _require_handlers() -> Any:
     if _handlers is None:
-        raise HTTPException(
-            status_code=503,
-            detail="plugin API not initialized — call init_handlers(pipeline) first",
-        )
+        if HTTPException is not None:
+            raise HTTPException(
+                status_code=503,
+                detail="plugin API not initialized — call init_handlers(pipeline) first",
+            )
+        raise RuntimeError("plugin API not initialized")
     return _handlers
 
 

@@ -95,7 +95,9 @@ class ConsoleHandlers:
         session_id: str | None = None,
     ) -> dict[str, Any]:
         result = await self.pipeline.inspect(
-            text, direction=direction, session_id=session_id
+            text,
+            direction=direction,  # type: ignore[arg-type]  # validated upstream
+            session_id=session_id,
         )
 
         cfg = self.pipeline.config

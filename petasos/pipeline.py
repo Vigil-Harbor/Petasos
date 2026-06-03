@@ -5,9 +5,9 @@ import hashlib
 import logging
 import os
 import time
+from collections.abc import Callable
 from dataclasses import replace
 from types import MappingProxyType
-from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from petasos._types import (
