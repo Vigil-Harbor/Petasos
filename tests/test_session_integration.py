@@ -180,13 +180,13 @@ class TestSessionConfigValidation:
 
 
 class TestActivateDeactivate:
-    def test_activate_enables_features(self, valid_key: str) -> None:
+    def test_activate_sets_license_state_valid(self, valid_key: str) -> None:
         pipe = Pipeline(config=_cfg())
         assert pipe._license_state == LicenseState.INACTIVE
         state = pipe.activate(valid_key)
         assert state == LicenseState.VALID
 
-    def test_deactivate_disables_features(self, valid_key: str) -> None:
+    def test_deactivate_sets_license_state_inactive(self, valid_key: str) -> None:
         pipe = Pipeline(config=_cfg())
         pipe.activate(valid_key)
         pipe.deactivate()

@@ -1,8 +1,9 @@
 """PIPE-08 / PET-10: PETASOS_LICENSE_KEY env auto-activation trust boundary.
 
 The process environment is part of the license trust boundary: a valid env key
-auto-activates features at construction; an invalid one unlocks nothing and
-leaves license state non-VALID. See Pipeline.activate() docstring.
+sets license state to VALID at construction; an invalid one leaves license state
+non-VALID. Feature availability is controlled by config toggles, not license
+state. See Pipeline.activate() docstring.
 """
 
 from __future__ import annotations
