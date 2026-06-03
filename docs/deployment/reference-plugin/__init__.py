@@ -121,8 +121,12 @@ def _load_config() -> dict[str, Any]:
 def _deferred_init() -> None:
     global _pipeline, _guard, _initialized, _init_error
 
+    with _init_lock:
+        if _initialized or _init_error:
+            return
+
     try:
-        from petasos import Pipeline, PetasosConfig, ToolCallGuard
+        from petasos import PetasosConfig, Pipeline, ToolCallGuard
         from petasos.scanners import MinimalScanner
 
         raw_config = _config or {}
@@ -227,8 +231,7 @@ def _deferred_init() -> None:
         logger.info("Petasos initialized: scanners=%s, fail_mode=%s, "
                     "host_id=%s", scanner_names, config.fail_mode, host_id)
 
-        with _init_lock:
-            _initialized = True
+        _initialized = True
 
     except Exception as exc:
         _init_error = str(exc)
@@ -254,9 +257,7 @@ def _ensure_initialized() -> bool:
         return True
     if _init_error:
         return False
-    with _init_lock:
-        if not _initialized and not _init_error:
-            _deferred_init()
+    _deferred_init()
     return _initialized
 
 
