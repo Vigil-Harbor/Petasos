@@ -141,128 +141,136 @@ def _deferred_init() -> None:
         if _initialized or _init_error:
             return
 
-    try:
-        from petasos import PetasosConfig, Pipeline, ToolCallGuard
-        from petasos.scanners import MinimalScanner
-
-        raw_config = _config or {}
-
-        host_id = raw_config.pop("host_id", "hermes-gavin-01")
-        enabled = raw_config.pop("enabled", True)
-
-        if not enabled:
-            logger.info("Petasos disabled via config (enabled: false)")
-            _init_error = "disabled"
-            return
-
-        session_secret_b64 = os.environ.get("PETASOS_SESSION_SECRET")
-        session_secret = None
-        if session_secret_b64:
-            try:
-                session_secret = base64.b64decode(session_secret_b64)
-            except Exception:
-                logger.warning(
-                    "PETASOS_SESSION_SECRET is not valid base64 — HMAC session binding disabled"
-                )
-        else:
-            logger.warning("PETASOS_SESSION_SECRET not set — HMAC session binding disabled")
-
-        hash_key = os.environ.get("PETASOS_HASH_KEY")
-        if not hash_key and raw_config.get("redaction_mode") == "hash":
-            logger.warning(
-                "PETASOS_HASH_KEY not set but redaction_mode=hash "
-                "— PII anonymization will fail. Set PETASOS_HASH_KEY "
-                "or change redaction_mode."
-            )
-            raw_config["anonymize"] = False
-
-        if session_secret is not None:
-            raw_config["session_secret"] = session_secret
-        if hash_key:
-            raw_config["hash_key"] = hash_key
-
         try:
-            config = PetasosConfig.from_dict(raw_config)
-        except (TypeError, ValueError) as exc:
-            logger.error("PetasosConfig validation failed: %s — using defaults", exc)
-            config = PetasosConfig()
+            from petasos import PetasosConfig, Pipeline, ToolCallGuard
+            from petasos.scanners import MinimalScanner
 
-        scanners = [MinimalScanner()]
-        try:
-            from petasos.scanners import LlmGuardScanner
+            raw_config = _config or {}
 
-            scanners.append(LlmGuardScanner())
-            logger.info("LLM Guard scanner loaded")
-        except ImportError:
-            logger.info("LLM Guard not installed — syntactic-only for that backend")
-        except Exception as exc:
-            logger.warning("LLM Guard failed to load: %s", exc)
+            host_id = raw_config.pop("host_id", "hermes-gavin-01")
+            enabled = raw_config.pop("enabled", True)
 
-        try:
-            from petasos.scanners import LlamaFirewallScanner
+            if not enabled:
+                logger.info("Petasos disabled via config (enabled: false)")
+                _init_error = "disabled"
+                return
 
-            scanners.append(LlamaFirewallScanner())
-            logger.info("LlamaFirewall scanner loaded")
-        except ImportError:
-            logger.info("LlamaFirewall not installed — skipped")
-        except Exception as exc:
-            logger.warning("LlamaFirewall failed to load: %s", exc)
-
-        try:
-            from petasos.scanners import PresidioScanner
-
-            scanners.append(PresidioScanner())
-            logger.info("Presidio scanner loaded")
-        except ImportError:
-            logger.info("Presidio not installed — PII detection unavailable")
-        except Exception as exc:
-            logger.warning("Presidio failed to load: %s", exc)
-
-        _pipeline = Pipeline(
-            config=config,
-            scanners=scanners,
-            host_id=host_id,
-            on_audit=_handle_audit,
-            on_alert=_handle_alert,
-        )
-
-        license_key = os.environ.get("PETASOS_LICENSE_KEY")
-        if license_key:
-            from petasos import LicenseState
-
-            state = _pipeline.activate(license_key)
-            if state == LicenseState.VALID:
-                logger.info("Petasos license validated (enterprise)")
-                for feat in ("frequency", "escalation", "tool_guard", "audit", "alerting"):
-                    if not _pipeline.is_feature_enabled(feat):
-                        logger.warning(
-                            "Premium feature '%s' not available despite valid license", feat
-                        )
+            session_secret_b64 = os.environ.get("PETASOS_SESSION_SECRET")
+            session_secret = None
+            if session_secret_b64:
+                try:
+                    session_secret = base64.b64decode(session_secret_b64)
+                except Exception:
+                    logger.warning(
+                        "PETASOS_SESSION_SECRET is not valid base64"
+                        " — HMAC session binding disabled"
+                    )
             else:
-                logger.warning("Petasos license invalid (state=%s) — running OSS-only", state)
-        else:
-            logger.info(
-                "PETASOS_LICENSE_KEY not set — all features available (license is optional)"
+                logger.warning("PETASOS_SESSION_SECRET not set — HMAC session binding disabled")
+
+            hash_key = os.environ.get("PETASOS_HASH_KEY")
+            if not hash_key and raw_config.get("redaction_mode") == "hash":
+                logger.warning(
+                    "PETASOS_HASH_KEY not set but redaction_mode=hash "
+                    "— PII anonymization will fail. Set PETASOS_HASH_KEY "
+                    "or change redaction_mode."
+                )
+                raw_config["anonymize"] = False
+
+            if session_secret is not None:
+                raw_config["session_secret"] = session_secret
+            if hash_key:
+                raw_config["hash_key"] = hash_key
+
+            try:
+                config = PetasosConfig.from_dict(raw_config)
+            except (TypeError, ValueError) as exc:
+                logger.error("PetasosConfig validation failed: %s — using defaults", exc)
+                config = PetasosConfig()
+
+            scanners = [MinimalScanner()]
+            try:
+                from petasos.scanners import LlmGuardScanner
+
+                scanners.append(LlmGuardScanner())
+                logger.info("LLM Guard scanner loaded")
+            except ImportError:
+                logger.info("LLM Guard not installed — syntactic-only for that backend")
+            except Exception as exc:
+                logger.warning("LLM Guard failed to load: %s", exc)
+
+            try:
+                from petasos.scanners import LlamaFirewallScanner
+
+                scanners.append(LlamaFirewallScanner())
+                logger.info("LlamaFirewall scanner loaded")
+            except ImportError:
+                logger.info("LlamaFirewall not installed — skipped")
+            except Exception as exc:
+                logger.warning("LlamaFirewall failed to load: %s", exc)
+
+            try:
+                from petasos.scanners import PresidioScanner
+
+                scanners.append(PresidioScanner())
+                logger.info("Presidio scanner loaded")
+            except ImportError:
+                logger.info("Presidio not installed — PII detection unavailable")
+            except Exception as exc:
+                logger.warning("Presidio failed to load: %s", exc)
+
+            _pipeline = Pipeline(
+                config=config,
+                scanners=scanners,
+                host_id=host_id,
+                on_audit=_handle_audit,
+                on_alert=_handle_alert,
             )
 
-        from petasos import FrequencyTracker
+            license_key = os.environ.get("PETASOS_LICENSE_KEY")
+            if license_key:
+                from petasos import LicenseState
 
-        tracker = FrequencyTracker(config)
-        _guard = ToolCallGuard(_pipeline, tracker, config)
+                state = _pipeline.activate(license_key)
+                if state == LicenseState.VALID:
+                    logger.info("Petasos license validated (enterprise)")
+                    for feat in (
+                        "frequency",
+                        "escalation",
+                        "tool_guard",
+                        "audit",
+                        "alerting",
+                    ):
+                        if not _pipeline.is_feature_enabled(feat):
+                            logger.warning(
+                                "Premium feature '%s' not available despite valid license",
+                                feat,
+                            )
+                else:
+                    logger.warning("Petasos license invalid (state=%s) — running OSS-only", state)
+            else:
+                logger.info(
+                    "PETASOS_LICENSE_KEY not set — all features available (license is optional)"
+                )
 
-        scanner_names = [s.name for s in scanners]
-        logger.info(
-            "Petasos initialized: scanners=%s, fail_mode=%s, host_id=%s",
-            scanner_names,
-            config.fail_mode,
-            host_id,
-        )
+            from petasos import FrequencyTracker
 
-        _initialized = True
+            tracker = FrequencyTracker(config)
+            _guard = ToolCallGuard(_pipeline, tracker, config)
 
-    except Exception as exc:
-        _init_error = str(exc)
-        logger.error("Petasos initialization failed: %s", exc, exc_info=True)
+            scanner_names = [s.name for s in scanners]
+            logger.info(
+                "Petasos initialized: scanners=%s, fail_mode=%s, host_id=%s",
+                scanner_names,
+                config.fail_mode,
+                host_id,
+            )
+
+            _initialized = True
+
+        except Exception as exc:
+            _init_error = str(exc)
+            logger.error("Petasos initialization failed: %s", exc, exc_info=True)
 
 
 _fallback_scanner = None
