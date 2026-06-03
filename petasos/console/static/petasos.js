@@ -192,6 +192,7 @@
           var data = JSON.parse(e.data);
           Pet.state.scanHistory.unshift(data);
           if (Pet.state.scanHistory.length > 500) Pet.state.scanHistory.length = 500;
+          if (Pet.state.tab === "obs" && _container) Pet.renderDashboard(_container);
         });
         self.source.addEventListener("audit", function (e) {
           var data = JSON.parse(e.data);
@@ -221,6 +222,7 @@
         if (!d.error) {
           Pet.state.scannerHealth = d.scanners || [];
           Pet.state.pipelineHealth = d.pipeline || null;
+          if (Pet.state.tab === "obs" && _container) Pet.renderDashboard(_container);
         }
       });
     }, 10000);
@@ -437,11 +439,19 @@
           var val = d.config[f.name];
           var control;
           if (f.type === "boolean") {
-            var sw = Pet.h("div", { className: "switch" + (val ? " on" : ""), onClick: function () {
+            var toggleFn = function () {
               val = !val;
               sw.className = "switch" + (val ? " on" : "");
               Pet.state.configDirty[f.name] = val;
-            } });
+            };
+            var sw = Pet.h("button", {
+              className: "switch" + (val ? " on" : ""),
+              type: "button",
+              onClick: toggleFn,
+            });
+            sw.addEventListener("keydown", function (e) {
+              if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleFn(); }
+            });
             control = sw;
           } else if (f.type === "enum" && f.constraints && f.constraints.values) {
             var seg = Pet.h("div", { className: "seg" });

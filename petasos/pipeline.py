@@ -473,9 +473,11 @@ class Pipeline:
         effective_scanner = await self._profile_hook(active_profile)
 
         # Stage 2: Syntactic pre-filter (raw text)
+        _t0 = time.monotonic()
         minimal_result = await effective_scanner.scan(
             text, direction=direction, session_id=session_id
         )
+        self._last_scan_durations["minimal"] = (time.monotonic() - _t0) * 1000
 
         # Stage 3: Early exit (closed mode) — skip ML fan-out but still
         # run session hooks so audit/alerting sees critical findings.
@@ -657,6 +659,7 @@ class Pipeline:
             self._breaker_consecutive_timeouts.pop(sname, None)
             self._breaker_open_until.pop(sname, None)
 
+        _t0 = time.monotonic()
         result = await _scan_one(
             scanner,
             normalized_text,
@@ -664,6 +667,7 @@ class Pipeline:
             session_id=session_id,
             timeout=self._config.scanner_timeout_seconds,
         )
+        self._last_scan_durations[sname] = (time.monotonic() - _t0) * 1000
 
         if result.error is not None and result.error.startswith(_TIMEOUT_ERROR_PREFIX):
             count = self._breaker_consecutive_timeouts.get(sname, 0) + 1

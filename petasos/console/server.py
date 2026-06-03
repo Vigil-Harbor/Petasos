@@ -9,21 +9,20 @@ import time
 import uuid
 from typing import TYPE_CHECKING, Any
 
-from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, StreamingResponse
-from fastapi.staticfiles import StaticFiles
-
 from petasos.console._config_meta import generate_config_metadata
 from petasos.console._ring_buffer import RingBuffer
 from petasos.console._sse import SSEBroadcaster
 from petasos.normalize import normalize
 
 if TYPE_CHECKING:
+    from fastapi import FastAPI
+
     from petasos.pipeline import Pipeline
 
 _logger = logging.getLogger(__name__)
 
 _MAX_SCAN_TEXT_LEN = 100_000
+_VALID_DIRECTIONS = frozenset({"inbound", "outbound"})
 
 
 class ConsoleHandlers:
@@ -65,7 +64,9 @@ class ConsoleHandlers:
         fields = generate_config_metadata()
         return {"config": config_dict, "fields": fields}
 
-    async def update_config(self, body: dict[str, Any]) -> tuple[dict[str, Any] | None, list[dict[str, str]] | None]:
+    async def update_config(
+        self, body: dict[str, Any]
+    ) -> tuple[dict[str, Any] | None, list[dict[str, str]] | None]:
         current = self.pipeline.config.to_dict()
         current.pop("session_secret", None)
         merged = {**current, **body}
@@ -77,10 +78,25 @@ class ConsoleHandlers:
             msg = str(exc)
             field = _extract_field_from_error(msg, body)
             return None, [{"field": field, "message": msg}]
-        return {"config": merged, "fields": generate_config_metadata()}, None
+        redacted = {
+            k: v for k, v in merged.items() if k != "session_secret"
+        }
+        from petasos.config import _SECRET_FIELDS
 
-    async def run_scan(self, text: str, direction: str = "inbound", session_id: str | None = None) -> dict[str, Any]:
-        result = await self.pipeline.inspect(text, direction=direction, session_id=session_id)
+        for sf in _SECRET_FIELDS:
+            if sf in redacted and redacted[sf] is not None:
+                redacted[sf] = "[REDACTED]"
+        return {"config": redacted, "fields": generate_config_metadata()}, None
+
+    async def run_scan(
+        self,
+        text: str,
+        direction: str = "inbound",
+        session_id: str | None = None,
+    ) -> dict[str, Any]:
+        result = await self.pipeline.inspect(
+            text, direction=direction, session_id=session_id
+        )
 
         cfg = self.pipeline.config
         normalized_text = normalize(
@@ -92,7 +108,7 @@ class ConsoleHandlers:
         ).normalized
 
         scan_id = f"s-{uuid.uuid4().hex[:6]}"
-        summary = {
+        summary: dict[str, Any] = {
             "scan_id": scan_id,
             "safe": result.safe,
             "finding_count": len(result.findings),
@@ -114,7 +130,9 @@ class ConsoleHandlers:
     async def get_health(self) -> dict[str, Any]:
         cfg = self.pipeline.config
         config_hash = hashlib.sha256(
-            json.dumps(cfg.to_dict(redact_secrets=True), sort_keys=True, default=str).encode()
+            json.dumps(
+                cfg.to_dict(redact_secrets=True), sort_keys=True, default=str
+            ).encode()
         ).hexdigest()[:16]
 
         return {
@@ -142,12 +160,22 @@ class ConsoleHandlers:
             "version": getattr(petasos, "__version__", "0.1.0"),
             "repo_url": "https://github.com/Vigil-Harbor/Petasos",
             "license": "MIT",
-            "description": "Pluggable, session-aware content security pipeline for Python AI agents",
+            "description": (
+                "Pluggable, session-aware content security pipeline"
+                " for Python AI agents"
+            ),
             "donation": {
-                "message": "Did Petasos prevent a disaster? Every feature is free, forever. If this saved your team from a bad day, a coffee keeps the lights on.",
+                "message": (
+                    "Did Petasos prevent a disaster? Every feature is"
+                    " free, forever. If this saved your team from a"
+                    " bad day, a coffee keeps the lights on."
+                ),
                 "url": "https://github.com/sponsors/Vigil-Harbor",
             },
-            "credits": ["Vigil Harbor — maintainer", "Built with FastAPI, Python, vanilla JS"],
+            "credits": [
+                "Vigil Harbor — maintainer",
+                "Built with FastAPI, Python, vanilla JS",
+            ],
         }
 
 
@@ -162,16 +190,20 @@ def build_app(pipeline: Pipeline) -> FastAPI:
     """Build the complete FastAPI application."""
     import importlib.resources
 
-    app = FastAPI(title="Petasos Console", version="0.1.0")
+    from fastapi import FastAPI as _FastAPI
+    from fastapi import Request
+    from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+    from fastapi.staticfiles import StaticFiles
+
+    app = _FastAPI(title="Petasos Console", version="0.1.0")
     handlers = ConsoleHandlers(pipeline)
 
     static_dir = importlib.resources.files("petasos.console") / "static"
-
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
     @app.on_event("shutdown")
     async def _shutdown() -> None:
-        handlers.sse.shutdown()
+        await handlers.sse.shutdown()
 
     @app.get("/", response_class=HTMLResponse)
     async def index() -> HTMLResponse:
@@ -184,9 +216,18 @@ def build_app(pipeline: Pipeline) -> FastAPI:
 
     @app.put("/api/config")
     async def api_update_config(request: Request) -> Any:
-        from fastapi.responses import JSONResponse
-
-        body = await request.json()
+        try:
+            body = await request.json()
+        except Exception:
+            return JSONResponse(
+                status_code=422,
+                content={"detail": [{"field": "body", "message": "Invalid JSON"}]},
+            )
+        if not isinstance(body, dict):
+            return JSONResponse(
+                status_code=422,
+                content={"detail": [{"field": "body", "message": "Expected JSON object"}]},
+            )
         result, errors = await handlers.update_config(body)
         if errors is not None:
             return JSONResponse(status_code=422, content={"detail": errors})
@@ -194,16 +235,34 @@ def build_app(pipeline: Pipeline) -> FastAPI:
 
     @app.post("/api/scan")
     async def api_run_scan(request: Request) -> Any:
-        from fastapi.responses import JSONResponse
-
-        body = await request.json()
+        try:
+            body = await request.json()
+        except Exception:
+            return JSONResponse(
+                status_code=422,
+                content={"detail": [{"field": "body", "message": "Invalid JSON"}]},
+            )
+        if not isinstance(body, dict):
+            return JSONResponse(
+                status_code=422,
+                content={"detail": [{"field": "body", "message": "Expected JSON object"}]},
+            )
         text = body.get("text", "")
-        if not text or not text.strip():
-            return JSONResponse(status_code=422, content={"detail": [{"field": "text", "message": "Text must not be empty"}]})
+        if not isinstance(text, str) or not text.strip():
+            err = {"field": "text", "message": "Text must be a non-empty string"}
+            return JSONResponse(status_code=422, content={"detail": [err]})
         if len(text) > _MAX_SCAN_TEXT_LEN:
-            return JSONResponse(status_code=422, content={"detail": [{"field": "text", "message": f"Text exceeds {_MAX_SCAN_TEXT_LEN} character limit"}]})
+            msg = f"Text exceeds {_MAX_SCAN_TEXT_LEN} character limit"
+            err = {"field": "text", "message": msg}
+            return JSONResponse(status_code=422, content={"detail": [err]})
         direction = body.get("direction", "inbound")
+        if not isinstance(direction, str) or direction not in _VALID_DIRECTIONS:
+            err = {"field": "direction", "message": "Must be 'inbound' or 'outbound'"}
+            return JSONResponse(status_code=422, content={"detail": [err]})
         session_id = body.get("session_id")
+        if session_id is not None and not isinstance(session_id, str):
+            err = {"field": "session_id", "message": "Must be a string or null"}
+            return JSONResponse(status_code=422, content={"detail": [err]})
         return await handlers.run_scan(text, direction=direction, session_id=session_id)
 
     @app.get("/api/health")

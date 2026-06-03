@@ -48,11 +48,17 @@ _FIELD_META: dict[str, dict[str, Any]] = {
         "section": "normalization",
     },
     "direction": {
-        "description": "Default scan direction: inbound (user to agent) or outbound (agent to user).",
+        "description": (
+            "Default scan direction: inbound (user to agent)"
+            " or outbound (agent to user)."
+        ),
         "section": "scanning",
     },
     "fail_mode": {
-        "description": "What happens if a scanner breaks: open = allow, closed = block, degraded = best-effort.",
+        "description": (
+            "What happens if a scanner breaks: open = allow,"
+            " closed = block, degraded = best-effort."
+        ),
         "section": "fail_mode",
         "constraints": {"values": ["open", "closed", "degraded"]},
     },

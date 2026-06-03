@@ -20,6 +20,11 @@ class RingBuffer(Generic[T]):
         self._buf.append(item)
 
     def to_list(self, limit: int | None = None) -> list[T]:
+        if limit is not None:
+            if limit < 0:
+                raise ValueError(f"limit must be non-negative, got {limit}")
+            if limit == 0:
+                return []
         items = list(self._buf)
         if limit is not None and limit < len(items):
             return items[-limit:]

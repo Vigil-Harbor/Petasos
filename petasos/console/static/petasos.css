@@ -4,7 +4,9 @@
    neutrals, severity neon, monospace data. Scoped under .pet.
    ============================================================ */
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+/* No external font fetches — works in air-gapped / egress-restricted installs.
+   Inter and JetBrains Mono use system-font fallback stacks.
+   Arcade font is vendored locally. */
 
 @font-face {
   font-family: 'Arcade';

@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
-from typing import Any, AsyncIterator
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
 
 _logger = logging.getLogger(__name__)
 
@@ -29,20 +33,16 @@ class SSEBroadcaster:
         return q
 
     def unsubscribe(self, q: asyncio.Queue[Any]) -> None:
-        try:
+        with contextlib.suppress(ValueError):
             self._subscribers.remove(q)
-        except ValueError:
-            pass
 
     async def broadcast(self, event_type: str, data: dict[str, Any]) -> None:
         self._seq += 1
         payload = {**data, "seq": self._seq}
         msg = f"event: {event_type}\ndata: {json.dumps(payload)}\n\n"
         for q in list(self._subscribers):
-            try:
+            with contextlib.suppress(asyncio.QueueFull):
                 q.put_nowait(msg)
-            except asyncio.QueueFull:
-                _logger.debug("SSE subscriber queue full, dropping event seq=%d", self._seq)
 
     async def stream(self, q: asyncio.Queue[Any]) -> AsyncIterator[str]:
         """Yield SSE-formatted lines. Sends keepalive every 15s."""
@@ -54,7 +54,7 @@ class SSEBroadcaster:
                     if msg is _SENTINEL:
                         return
                     yield msg
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     if first_keepalive:
                         yield "retry: 5000\n:keepalive\n\n"
                         first_keepalive = False
@@ -63,10 +63,8 @@ class SSEBroadcaster:
         finally:
             self.unsubscribe(q)
 
-    def shutdown(self) -> None:
+    async def shutdown(self) -> None:
         for q in list(self._subscribers):
-            try:
-                q.put_nowait(_SENTINEL)
-            except asyncio.QueueFull:
-                pass
+            with contextlib.suppress(Exception):
+                await q.put(_SENTINEL)
         self._subscribers.clear()

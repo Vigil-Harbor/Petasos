@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 __all__ = ["create_app", "serve"]
 
 
-def create_app(pipeline: Pipeline) -> "FastAPI":  # type: ignore[name-defined]  # noqa: F821
+def create_app(pipeline: Pipeline) -> FastAPI:  # type: ignore[name-defined]  # noqa: F821
     """Build a FastAPI app wired to *pipeline* for the console dashboard."""
     from petasos.console.server import build_app
 
