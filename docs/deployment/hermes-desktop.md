@@ -148,7 +148,7 @@ hooks:
 ### `__init__.py`
 
 The reference implementation is maintained at
-[`docs/deployment/reference-plugin/`](reference-plugin/) in this repo.
+[`docs/deployment/reference_plugin/`](reference_plugin/) in this repo.
 
 Key architectural decisions in the plugin:
 
