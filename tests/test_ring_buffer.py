@@ -1,0 +1,61 @@
+"""Tests for petasos.console._ring_buffer."""
+
+import pytest
+
+from petasos.console._ring_buffer import RingBuffer
+
+
+def test_push_within_capacity() -> None:
+    buf = RingBuffer[int](maxlen=5)
+    for i in range(5):
+        buf.push(i)
+    assert buf.to_list() == [0, 1, 2, 3, 4]
+    assert len(buf) == 5
+
+
+def test_push_beyond_capacity_drops_oldest() -> None:
+    buf = RingBuffer[int](maxlen=3)
+    for i in range(6):
+        buf.push(i)
+    assert buf.to_list() == [3, 4, 5]
+    assert len(buf) == 3
+
+
+def test_to_list_with_limit() -> None:
+    buf = RingBuffer[int](maxlen=10)
+    for i in range(10):
+        buf.push(i)
+    assert buf.to_list(limit=3) == [7, 8, 9]
+
+
+def test_to_list_limit_larger_than_buffer() -> None:
+    buf = RingBuffer[int](maxlen=5)
+    buf.push(1)
+    buf.push(2)
+    assert buf.to_list(limit=10) == [1, 2]
+
+
+def test_empty_buffer() -> None:
+    buf = RingBuffer[str](maxlen=10)
+    assert buf.to_list() == []
+    assert len(buf) == 0
+
+
+def test_to_list_no_limit() -> None:
+    buf = RingBuffer[int](maxlen=5)
+    for i in range(3):
+        buf.push(i)
+    assert buf.to_list() == [0, 1, 2]
+
+
+def test_to_list_limit_zero() -> None:
+    buf = RingBuffer[int](maxlen=5)
+    buf.push(1)
+    assert buf.to_list(limit=0) == []
+
+
+def test_to_list_negative_limit_raises() -> None:
+    buf = RingBuffer[int](maxlen=5)
+    buf.push(1)
+    with pytest.raises(ValueError, match="non-negative"):
+        buf.to_list(limit=-1)

@@ -29,6 +29,7 @@ class AuditEmitter:
         self._on_audit = on_audit
         self._global_sequence: int = 0
         self._last_callback_error: str | None = None
+        self._listeners: list[Callable[[AuditEvent], None]] = []
 
     @property
     def last_callback_error(self) -> str | None:
@@ -67,7 +68,22 @@ class AuditEmitter:
                     else f"on_audit callback ({type(exc).__name__})"
                 )
 
+        for listener in list(self._listeners):
+            try:
+                listener(event)
+            except BaseException as exc:
+                _logger.error("audit listener failed: %s", exc, exc_info=True)
+                self._last_callback_error = (
+                    f"audit listener ({type(exc).__name__}): {exc}"
+                    if str(exc)
+                    else f"audit listener ({type(exc).__name__})"
+                )
+
         return event
+
+    def add_listener(self, callback: Callable[[AuditEvent], None]) -> None:
+        """Register an additional audit event listener (fires after on_audit)."""
+        self._listeners.append(callback)
 
     def _build_payload(
         self,

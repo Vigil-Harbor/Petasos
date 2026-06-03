@@ -1,0 +1,51 @@
+============================= test session starts =============================
+platform win32 -- Python 3.13.13, pytest-9.0.3, pluggy-1.6.0 -- <PYTHON_EXECUTABLE_PATH>
+cachedir: .pytest_cache
+benchmark: 5.2.3 (defaults: timer=time.perf_counter disable_gc=False min_rounds=5 min_time=0.000005 max_time=1.0 calibration_precision=10 warmup=False warmup_iterations=100000)
+rootdir: <ROOT_WORKTREE_PATH>
+configfile: pyproject.toml
+plugins: anyio-4.12.1, asyncio-1.3.0, benchmark-5.2.3, cov-7.1.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 39 items
+
+tests/test_ring_buffer.py::test_push_within_capacity PASSED              [  2%]
+tests/test_ring_buffer.py::test_push_beyond_capacity_drops_oldest PASSED [  5%]
+tests/test_ring_buffer.py::test_to_list_with_limit PASSED                [  7%]
+tests/test_ring_buffer.py::test_to_list_limit_larger_than_buffer PASSED  [ 10%]
+tests/test_ring_buffer.py::test_empty_buffer PASSED                      [ 12%]
+tests/test_ring_buffer.py::test_to_list_no_limit PASSED                  [ 15%]
+tests/test_sse.py::test_subscribe_and_broadcast PASSED                   [ 17%]
+tests/test_sse.py::test_unsubscribe_removes_queue PASSED                 [ 20%]
+tests/test_sse.py::test_full_queue_silently_dropped PASSED               [ 23%]
+tests/test_sse.py::test_subscriber_limit PASSED                          [ 25%]
+tests/test_sse.py::test_shutdown_sends_sentinel PASSED                   [ 28%]
+tests/test_sse.py::test_broadcast_includes_monotonic_seq PASSED          [ 30%]
+tests/test_sse.py::test_multiple_subscribers_receive PASSED              [ 33%]
+tests/test_config_meta.py::test_every_field_present PASSED               [ 35%]
+tests/test_config_meta.py::test_session_secret_excluded PASSED           [ 38%]
+tests/test_config_meta.py::test_bool_type_derivation PASSED              [ 41%]
+tests/test_config_meta.py::test_number_type_derivation PASSED            [ 43%]
+tests/test_config_meta.py::test_enum_type_derivation PASSED              [ 46%]
+tests/test_config_meta.py::test_array_type_derivation PASSED             [ 48%]
+tests/test_config_meta.py::test_nullable_string PASSED                   [ 51%]
+tests/test_config_meta.py::test_mapping_type PASSED                      [ 53%]
+tests/test_config_meta.py::test_secret_fields_marked_redacted PASSED     [ 56%]
+tests/test_config_meta.py::test_sections_assigned PASSED                 [ 58%]
+tests/test_config_meta.py::test_descriptions_present PASSED              [ 61%]
+tests/test_console_handlers.py::test_get_config_returns_fields PASSED    [ 64%]
+tests/test_console_handlers.py::test_get_config_redacts_secrets PASSED   [ 66%]
+tests/test_console_handlers.py::test_update_config_valid PASSED          [ 69%]
+tests/test_console_handlers.py::test_update_config_invalid PASSED        [ 71%]
+tests/test_console_handlers.py::test_run_scan PASSED                     [ 74%]
+tests/test_console_handlers.py::test_run_scan_with_injection PASSED      [ 76%]
+tests/test_console_handlers.py::test_get_health PASSED                   [ 79%]
+tests/test_console_handlers.py::test_get_scan_history_empty PASSED       [ 82%]
+tests/test_console_handlers.py::test_get_scan_history_after_scan PASSED  [ 84%]
+tests/test_console_handlers.py::test_get_profiles PASSED                 [ 87%]
+tests/test_console_handlers.py::test_get_about PASSED                    [ 89%]
+tests/test_console_handlers.py::test_scan_history_limit PASSED           [ 92%]
+tests/test_console_handlers.py::test_pipeline_scanner_health PASSED      [ 94%]
+tests/test_console_handlers.py::test_pipeline_list_profiles PASSED       [ 97%]
+tests/test_console_handlers.py::test_pipeline_result_to_dict PASSED      [100%]
+
+============================= 39 passed in 0.22s ==============================
