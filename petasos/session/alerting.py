@@ -37,6 +37,7 @@ class AlertManager:
     ) -> None:
         self._config = config
         self._on_alert = on_alert
+        self._listeners: list[Callable[[Alert], None]] = []
         self._rule_cooldowns: dict[tuple[str, str | None], float] = {}
         self._per_minute_timestamps: dict[str, deque[float]] = {}
         self._per_hour_timestamps: dict[str, deque[float]] = {}
@@ -72,6 +73,10 @@ class AlertManager:
     @property
     def session_rate_limited_count(self) -> int:
         return self._session_rate_limited_count
+
+    def add_listener(self, callback: Callable[[Alert], None]) -> None:
+        """Register an additional alert listener (fires after on_alert)."""
+        self._listeners.append(callback)
 
     def evaluate(
         self,
@@ -176,6 +181,20 @@ class AlertManager:
                         f"on_alert callback ({candidate.rule_id}, {type(exc).__name__}): {exc}"
                         if str(exc)
                         else f"on_alert callback ({candidate.rule_id}, {type(exc).__name__})"
+                    )
+
+            for listener in list(self._listeners):
+                try:
+                    listener(candidate)
+                except BaseException as exc:
+                    _logger.exception(
+                        "alert listener failed for rule_id=%s",
+                        candidate.rule_id,
+                    )
+                    self._callback_errors.append(
+                        f"alert listener ({candidate.rule_id}, {type(exc).__name__}): {exc}"
+                        if str(exc)
+                        else f"alert listener ({candidate.rule_id}, {type(exc).__name__})"
                     )
 
         return surviving

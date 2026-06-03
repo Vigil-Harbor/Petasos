@@ -5,6 +5,7 @@ import hashlib
 import logging
 import os
 import time
+from collections.abc import Callable
 from dataclasses import replace
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, ClassVar
@@ -256,6 +257,7 @@ class Pipeline:
         # access only — same threading contract as license state (see activate()).
         self._breaker_consecutive_timeouts: dict[str, int] = {}
         self._breaker_open_until: dict[str, float] = {}
+        self._last_scan_durations: dict[str, float] = {}
 
         # Auto-activation from the process environment for supporter/compliance
         # recognition. License state is tracked but does not gate features.
@@ -299,6 +301,52 @@ class Pipeline:
 
     def is_feature_enabled(self, feature_name: str) -> bool:
         return self._is_enabled(feature_name)
+
+    def scanner_health(self) -> list[dict[str, Any]]:
+        """Return per-scanner health status for the console dashboard."""
+        import time as _time
+
+        result: list[dict[str, Any]] = []
+        if self._minimal_scanner is not None:
+            result.append(
+                {
+                    "name": "minimal",
+                    "status": "healthy",
+                    "last_ms": self._last_scan_durations.get("minimal"),
+                    "consecutive_timeouts": 0,
+                }
+            )
+        for s in self._ml_scanners:
+            sname = s.name
+            open_until = self._breaker_open_until.get(sname, 0.0)
+            timeouts = self._breaker_consecutive_timeouts.get(sname, 0)
+            if open_until > _time.monotonic():
+                status = "circuit_open"
+            elif timeouts > 0:
+                status = "errored"
+            else:
+                status = "healthy"
+            result.append(
+                {
+                    "name": sname,
+                    "status": status,
+                    "last_ms": self._last_scan_durations.get(sname),
+                    "consecutive_timeouts": timeouts,
+                }
+            )
+        return result
+
+    def list_profiles(self) -> list[dict[str, Any]]:
+        """Return all loaded scanner profiles."""
+        return sorted(self._profile_resolver.list_profiles(), key=lambda p: p["name"])
+
+    def add_audit_listener(self, callback: Callable[[AuditEvent], None]) -> None:
+        """Register an additional audit event listener."""
+        self._audit_emitter.add_listener(callback)
+
+    def add_alert_listener(self, callback: Callable[[Alert], None]) -> None:
+        """Register an additional alert listener."""
+        self._alert_manager.add_listener(callback)
 
     _FEATURE_GATES: ClassVar[dict[str, str]] = {
         "frequency": "frequency_enabled",
@@ -429,9 +477,11 @@ class Pipeline:
         effective_scanner = await self._profile_hook(active_profile)
 
         # Stage 2: Syntactic pre-filter (raw text)
+        _t0 = time.monotonic()
         minimal_result = await effective_scanner.scan(
             text, direction=direction, session_id=session_id
         )
+        self._last_scan_durations["minimal"] = (time.monotonic() - _t0) * 1000
 
         # Stage 3: Early exit (closed mode) — skip ML fan-out but still
         # run session hooks so audit/alerting sees critical findings.
@@ -613,6 +663,7 @@ class Pipeline:
             self._breaker_consecutive_timeouts.pop(sname, None)
             self._breaker_open_until.pop(sname, None)
 
+        _t0 = time.monotonic()
         result = await _scan_one(
             scanner,
             normalized_text,
@@ -620,6 +671,7 @@ class Pipeline:
             session_id=session_id,
             timeout=self._config.scanner_timeout_seconds,
         )
+        self._last_scan_durations[sname] = (time.monotonic() - _t0) * 1000
 
         if result.error is not None and result.error.startswith(_TIMEOUT_ERROR_PREFIX):
             count = self._breaker_consecutive_timeouts.get(sname, 0) + 1
