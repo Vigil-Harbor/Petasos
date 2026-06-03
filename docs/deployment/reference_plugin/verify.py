@@ -15,8 +15,11 @@ import base64
 import os
 import platform
 import sys
-from collections.abc import Callable
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 PASS = "PASS"
 FAIL = "FAIL"
@@ -59,12 +62,17 @@ def check_scanner_imports() -> CheckResult:
         pass
 
     if len(available) == 1:
-        return WARN, "Only MinimalScanner available (syntactic-only). Install petasos[all] for ML backends."
+        return (
+            WARN,
+            "Only MinimalScanner available (syntactic-only)."
+            " Install petasos[all] for ML backends.",
+        )
     return PASS, f"{len(available)} scanners: {', '.join(available)}"
 
 
 def check_config() -> CheckResult:
     import yaml
+
     from petasos import PetasosConfig
 
     if platform.system() == "Windows":
@@ -88,10 +96,10 @@ def check_config() -> CheckResult:
         clean["hash_key"] = hash_key
     session_secret_b64 = os.environ.get("PETASOS_SESSION_SECRET")
     if session_secret_b64:
-        try:
+        import contextlib
+
+        with contextlib.suppress(Exception):
             clean["session_secret"] = base64.b64decode(session_secret_b64)
-        except Exception:
-            pass
     config = PetasosConfig.from_dict(clean)
     return PASS, f"fail_mode={config.fail_mode}, anonymize={config.anonymize}"
 
