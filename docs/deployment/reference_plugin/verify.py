@@ -189,9 +189,7 @@ def check_injection_scan() -> CheckResult:
 
 def check_plugin_files() -> CheckResult:
     if platform.system() == "Windows":
-        plugin_dir = (
-            Path(os.environ.get("LOCALAPPDATA", "")) / "hermes" / "plugins" / "petasos"
-        )
+        plugin_dir = Path(os.environ.get("LOCALAPPDATA", "")) / "hermes" / "plugins" / "petasos"
     else:
         plugin_dir = Path.home() / ".hermes" / "plugins" / "petasos"
 

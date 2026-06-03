@@ -40,15 +40,27 @@ _session_ids: dict[int, str] = {}
 _async_loop: asyncio.AbstractEventLoop | None = None
 _async_thread: threading.Thread | None = None
 
-READ_ONLY_TOOLS = frozenset({
-    "read_file", "search", "list_directory", "session_search",
-    "web_search", "web_extract", "vision_analyze",
-    "mcp_vigil_harbor_memory_search", "mcp_vigil_harbor_memory_fetch",
-    "mcp_vigil_harbor_memory_list", "mcp_vigil_harbor_memory_query",
-    "mcp_vigil_harbor_memory_sources", "mcp_vigil_harbor_memory_status",
-    "mcp_plane_list_work_items", "mcp_plane_retrieve_work_item",
-    "mcp_plane_retrieve_work_item_by_identifier", "mcp_plane_list_projects",
-})
+READ_ONLY_TOOLS = frozenset(
+    {
+        "read_file",
+        "search",
+        "list_directory",
+        "session_search",
+        "web_search",
+        "web_extract",
+        "vision_analyze",
+        "mcp_vigil_harbor_memory_search",
+        "mcp_vigil_harbor_memory_fetch",
+        "mcp_vigil_harbor_memory_list",
+        "mcp_vigil_harbor_memory_query",
+        "mcp_vigil_harbor_memory_sources",
+        "mcp_vigil_harbor_memory_status",
+        "mcp_plane_list_work_items",
+        "mcp_plane_retrieve_work_item",
+        "mcp_plane_retrieve_work_item_by_identifier",
+        "mcp_plane_list_projects",
+    }
+)
 
 
 def _is_dangerous(tool_name: str) -> bool:
@@ -58,6 +70,7 @@ def _is_dangerous(tool_name: str) -> bool:
 # ---------------------------------------------------------------------------
 # Async bridge — dedicated event loop in a background thread
 # ---------------------------------------------------------------------------
+
 
 def _start_async_loop() -> None:
     global _async_loop
@@ -70,7 +83,9 @@ def _ensure_async_loop() -> None:
     global _async_thread
     if _async_thread is None or not _async_thread.is_alive():
         _async_thread = threading.Thread(
-            target=_start_async_loop, daemon=True, name="petasos-async",
+            target=_start_async_loop,
+            daemon=True,
+            name="petasos-async",
         )
         _async_thread.start()
         while _async_loop is None:
@@ -87,19 +102,18 @@ def _run_async(coro):
 # Config loading
 # ---------------------------------------------------------------------------
 
+
 def _load_config() -> dict[str, Any]:
     """Read petasos: section from Hermes config.yaml."""
     import yaml
 
     if platform.system() == "Windows":
-        config_path = Path(os.environ.get(
-            "LOCALAPPDATA", "")) / "hermes" / "config.yaml"
+        config_path = Path(os.environ.get("LOCALAPPDATA", "")) / "hermes" / "config.yaml"
     else:
         config_path = Path.home() / ".hermes" / "config.yaml"
 
     if not config_path.exists():
-        logger.warning(
-            "Hermes config not found at %s — using Petasos defaults", config_path)
+        logger.warning("Hermes config not found at %s — using Petasos defaults", config_path)
         return {}
 
     with open(config_path, encoding="utf-8") as f:
@@ -110,13 +124,15 @@ def _load_config() -> dict[str, Any]:
         logger.warning(
             "No 'petasos:' section in config.yaml — Petasos running with "
             "defaults (all features disabled). Add a petasos: section to "
-            "enable enforcement.")
+            "enable enforcement."
+        )
     return petasos_section
 
 
 # ---------------------------------------------------------------------------
 # Deferred initialization — runs in background thread from register()
 # ---------------------------------------------------------------------------
+
 
 def _deferred_init() -> None:
     global _pipeline, _guard, _initialized, _init_error
@@ -145,17 +161,19 @@ def _deferred_init() -> None:
             try:
                 session_secret = base64.b64decode(session_secret_b64)
             except Exception:
-                logger.warning("PETASOS_SESSION_SECRET is not valid base64 "
-                               "— HMAC session binding disabled")
+                logger.warning(
+                    "PETASOS_SESSION_SECRET is not valid base64 — HMAC session binding disabled"
+                )
         else:
-            logger.warning("PETASOS_SESSION_SECRET not set — HMAC session "
-                           "binding disabled")
+            logger.warning("PETASOS_SESSION_SECRET not set — HMAC session binding disabled")
 
         hash_key = os.environ.get("PETASOS_HASH_KEY")
         if not hash_key and raw_config.get("redaction_mode") == "hash":
-            logger.warning("PETASOS_HASH_KEY not set but redaction_mode=hash "
-                           "— PII anonymization will fail. Set PETASOS_HASH_KEY "
-                           "or change redaction_mode.")
+            logger.warning(
+                "PETASOS_HASH_KEY not set but redaction_mode=hash "
+                "— PII anonymization will fail. Set PETASOS_HASH_KEY "
+                "or change redaction_mode."
+            )
             raw_config["anonymize"] = False
 
         if session_secret is not None:
@@ -172,6 +190,7 @@ def _deferred_init() -> None:
         scanners = [MinimalScanner()]
         try:
             from petasos.scanners import LlmGuardScanner
+
             scanners.append(LlmGuardScanner())
             logger.info("LLM Guard scanner loaded")
         except ImportError:
@@ -181,6 +200,7 @@ def _deferred_init() -> None:
 
         try:
             from petasos.scanners import LlamaFirewallScanner
+
             scanners.append(LlamaFirewallScanner())
             logger.info("LlamaFirewall scanner loaded")
         except ImportError:
@@ -190,6 +210,7 @@ def _deferred_init() -> None:
 
         try:
             from petasos.scanners import PresidioScanner
+
             scanners.append(PresidioScanner())
             logger.info("Presidio scanner loaded")
         except ImportError:
@@ -208,28 +229,34 @@ def _deferred_init() -> None:
         license_key = os.environ.get("PETASOS_LICENSE_KEY")
         if license_key:
             from petasos import LicenseState
+
             state = _pipeline.activate(license_key)
             if state == LicenseState.VALID:
                 logger.info("Petasos license validated (enterprise)")
-                for feat in ("frequency", "escalation", "tool_guard",
-                             "audit", "alerting"):
+                for feat in ("frequency", "escalation", "tool_guard", "audit", "alerting"):
                     if not _pipeline.is_feature_enabled(feat):
-                        logger.warning("Premium feature '%s' not available "
-                                       "despite valid license", feat)
+                        logger.warning(
+                            "Premium feature '%s' not available despite valid license", feat
+                        )
             else:
-                logger.warning("Petasos license invalid (state=%s) — "
-                               "running OSS-only", state)
+                logger.warning("Petasos license invalid (state=%s) — running OSS-only", state)
         else:
-            logger.info("PETASOS_LICENSE_KEY not set — all features "
-                        "available (license is optional)")
+            logger.info(
+                "PETASOS_LICENSE_KEY not set — all features available (license is optional)"
+            )
 
         from petasos import FrequencyTracker
+
         tracker = FrequencyTracker(config)
         _guard = ToolCallGuard(_pipeline, tracker, config)
 
         scanner_names = [s.name for s in scanners]
-        logger.info("Petasos initialized: scanners=%s, fail_mode=%s, "
-                    "host_id=%s", scanner_names, config.fail_mode, host_id)
+        logger.info(
+            "Petasos initialized: scanners=%s, fail_mode=%s, host_id=%s",
+            scanner_names,
+            config.fail_mode,
+            host_id,
+        )
 
         _initialized = True
 
@@ -248,6 +275,7 @@ def _get_fallback_scanner():
         with _fallback_lock:
             if _fallback_scanner is None:
                 from petasos.scanners import MinimalScanner
+
                 _fallback_scanner = MinimalScanner()
     return _fallback_scanner
 
@@ -265,20 +293,30 @@ def _ensure_initialized() -> bool:
 # Audit / alert callbacks
 # ---------------------------------------------------------------------------
 
+
 def _handle_audit(event) -> None:
-    logger.info("PETASOS_AUDIT session=%s seq=%s type=%s",
-                event.session_id, event.sequence_number, event.event_type)
+    logger.info(
+        "PETASOS_AUDIT session=%s seq=%s type=%s",
+        event.session_id,
+        event.sequence_number,
+        event.event_type,
+    )
 
 
 def _handle_alert(alert) -> None:
-    logger.warning("PETASOS_ALERT rule=%s tier=%s session=%s: %s",
-                   alert.rule_id, getattr(alert, "tier", "n/a"),
-                   alert.session_id, getattr(alert, "message", ""))
+    logger.warning(
+        "PETASOS_ALERT rule=%s tier=%s session=%s: %s",
+        alert.rule_id,
+        getattr(alert, "tier", "n/a"),
+        alert.session_id,
+        getattr(alert, "message", ""),
+    )
 
 
 # ---------------------------------------------------------------------------
 # Hook callbacks
 # ---------------------------------------------------------------------------
+
 
 def _derive_session_id(task_id: str, kwargs: dict) -> str:
     if task_id:
@@ -292,36 +330,41 @@ def _derive_session_id(task_id: str, kwargs: dict) -> str:
     return f"anon-{uuid.uuid4().hex[:8]}"
 
 
-def _fallback_pre_tool_call(tool_name: str, args: dict, task_id: str,
-                            **kwargs) -> dict[str, str] | None:
+def _fallback_pre_tool_call(
+    tool_name: str, args: dict, task_id: str, **kwargs
+) -> dict[str, str] | None:
     """Syntactic-only guard during init window. Scans tool params through
     MinimalScanner. Blocks if injection patterns found in dangerous tools."""
     if not _is_dangerous(tool_name):
         return None
     try:
         import json
+
         scanner = _get_fallback_scanner()
         param_text = json.dumps(args, default=str)[:100_000]
         result = _run_async(scanner.scan(param_text, direction="inbound"))
         if result.findings:
             from petasos._types import Severity
+
             worst = max(result.findings, key=lambda f: f.severity.value)
             if worst.severity.value >= Severity.HIGH.value:
                 logger.warning(
-                    "PETASOS_FALLBACK_BLOCK tool=%s — init in progress, "
-                    "syntactic scan found: %s", tool_name, worst.rule_id)
+                    "PETASOS_FALLBACK_BLOCK tool=%s — init in progress, syntactic scan found: %s",
+                    tool_name,
+                    worst.rule_id,
+                )
                 return {
                     "action": "block",
-                    "message": (f"Security scan (init in progress): "
-                                f"{worst.message}"),
+                    "message": (f"Security scan (init in progress): {worst.message}"),
                 }
     except Exception as exc:
         logger.debug("Fallback scan failed: %s — allowing", exc)
     return None
 
 
-def _pre_tool_call(tool_name: str, args: dict, task_id: str = "",
-                   **kwargs) -> dict[str, str] | None:
+def _pre_tool_call(
+    tool_name: str, args: dict, task_id: str = "", **kwargs
+) -> dict[str, str] | None:
     if not _ensure_initialized():
         if _init_error == "disabled":
             return None
@@ -343,23 +386,27 @@ def _pre_tool_call(tool_name: str, args: dict, task_id: str = "",
 
     if result.tier == "tier3":
         logger.critical(
-            "PETASOS_TIER3 tool=%s session=%s — all tool calls blocked",
-            tool_name, session_id)
+            "PETASOS_TIER3 tool=%s session=%s — all tool calls blocked", tool_name, session_id
+        )
         return {
             "action": "block",
-            "message": ("All tool calls blocked for this session by security "
-                        "policy (Tier 3 escalation)."),
+            "message": (
+                "All tool calls blocked for this session by security policy (Tier 3 escalation)."
+            ),
         }
 
     if not result.allowed:
-        logger.warning("PETASOS_BLOCK tool=%s session=%s reason=%s",
-                       tool_name, session_id, result.reason)
+        logger.warning(
+            "PETASOS_BLOCK tool=%s session=%s reason=%s", tool_name, session_id, result.reason
+        )
         return {"action": "block", "message": result.reason}
 
     if result.param_scan_unsafe and _is_dangerous(tool_name):
         logger.warning(
-            "PETASOS_QUARANTINE tool=%s session=%s — param scan unsafe on "
-            "non-read-only tool", tool_name, session_id)
+            "PETASOS_QUARANTINE tool=%s session=%s — param scan unsafe on non-read-only tool",
+            tool_name,
+            session_id,
+        )
         return {
             "action": "block",
             "message": f"Parameter scan flagged unsafe content: {result.reason}",
@@ -367,27 +414,30 @@ def _pre_tool_call(tool_name: str, args: dict, task_id: str = "",
 
     if result.findings and _is_dangerous(tool_name):
         from petasos._types import Severity
+
         worst = max(result.findings, key=lambda f: f.severity.value)
         if worst.severity.value >= Severity.HIGH.value:
             logger.warning(
                 "PETASOS_QUARANTINE tool=%s session=%s — %s finding: %s",
-                tool_name, session_id, worst.severity.name,
-                worst.message)
+                tool_name,
+                session_id,
+                worst.severity.name,
+                worst.message,
+            )
             return {
                 "action": "block",
-                "message": (f"Security finding ({worst.severity.name}): "
-                            f"{worst.message}"),
+                "message": (f"Security finding ({worst.severity.name}): {worst.message}"),
             }
 
     return None
 
 
-def _post_tool_call(tool_name: str, args: dict, result: str = "",
-                    task_id: str = "", duration_ms: int = 0, **kwargs) -> None:
+def _post_tool_call(
+    tool_name: str, args: dict, result: str = "", task_id: str = "", duration_ms: int = 0, **kwargs
+) -> None:
     if not _initialized:
         return
-    logger.debug("PETASOS_TOOL_COMPLETE tool=%s duration_ms=%d",
-                 tool_name, duration_ms)
+    logger.debug("PETASOS_TOOL_COMPLETE tool=%s duration_ms=%d", tool_name, duration_ms)
 
 
 def _on_session_start(**kwargs) -> None:
@@ -397,6 +447,7 @@ def _on_session_start(**kwargs) -> None:
 # ---------------------------------------------------------------------------
 # Plugin registration — called by Hermes plugin loader
 # ---------------------------------------------------------------------------
+
 
 def register(ctx) -> None:
     global _config
@@ -412,9 +463,10 @@ def register(ctx) -> None:
     ctx.register_hook("on_session_start", _on_session_start)
 
     init_thread = threading.Thread(
-        target=_deferred_init, daemon=True, name="petasos-init",
+        target=_deferred_init,
+        daemon=True,
+        name="petasos-init",
     )
     init_thread.start()
 
-    logger.info("Petasos plugin registered — hooks active, "
-                "scanner init in background")
+    logger.info("Petasos plugin registered — hooks active, scanner init in background")

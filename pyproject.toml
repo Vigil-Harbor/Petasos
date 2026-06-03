@@ -75,6 +75,7 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = "petasos.scanners.presidio"
 warn_unused_ignores = false
+disallow_subclassing_any = false
 
 [[tool.mypy.overrides]]
 module = ["reference_plugin", "reference_plugin.*"]
