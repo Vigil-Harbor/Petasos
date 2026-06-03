@@ -288,11 +288,11 @@ class TestHermesProductionPipeline:
     """Validates that the production pipeline fixture represents a properly
     configured Hermes Desktop deployment."""
 
-    async def test_production_pipeline_all_premium_active(
+    async def test_production_pipeline_all_features_enabled(
         self,
         hermes_pipeline: Pipeline,
     ) -> None:
-        """All 5 premium features must be available after activation."""
+        """All 5 session features must be enabled after activation."""
         for feature in ("frequency", "escalation", "tool_guard", "audit", "alerting"):
             assert hermes_pipeline.is_feature_enabled(feature), f"{feature} not available"
 

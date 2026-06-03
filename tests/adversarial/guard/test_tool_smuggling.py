@@ -111,7 +111,7 @@ def test_alias_onto_exempt_runtime_fallback() -> None:
 
 @pytest.mark.asyncio
 async def test_alias_exec_to_read_exempt_blocked(monkeypatch: pytest.MonkeyPatch) -> None:
-    """GUARD-03 end-to-end: with premium active, exec->read + exempt read
+    """GUARD-03 end-to-end: with features enabled, exec->read + exempt read
     does NOT short-circuit as exempt — params are scanned under true identity."""
     from petasos.pipeline import Pipeline
     from petasos.session.frequency import FrequencyTracker
