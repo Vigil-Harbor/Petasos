@@ -50,12 +50,12 @@ def _guard(
     *,
     config: PetasosConfig | None = None,
     profile: ResolvedProfile | None = None,
-    premium_active: bool = True,
+    feature_active: bool = True,
     key: str | None = None,
 ) -> ToolCallGuard:
     cfg = config or _cfg()
     pipe = Pipeline(config=cfg)
-    if premium_active and key is not None:
+    if feature_active and key is not None:
         pipe.activate(key)
     tracker = FrequencyTracker(cfg)
     return ToolCallGuard(pipe, tracker, cfg, profile=profile)
@@ -336,7 +336,7 @@ class TestGuard03AliasExempt:
     def test_default_alias_onto_exempt_still_allowed(self) -> None:
         """D8: profile exempts a DEFAULT alias target — default alias NOT suppressed."""
         p = _profile(tool_exempt_list=frozenset({"exec"}))
-        g = _guard(profile=p, premium_active=False)
+        g = _guard(profile=p, feature_active=False)
         assert g._normalize_tool_name("bash") == "exec"
 
     def test_default_aliases_not_in_builtin_exempt(self) -> None:
@@ -356,7 +356,7 @@ class TestGuard03AliasExempt:
     def test_valid_alias_still_works(self) -> None:
         """A benign profile alias to a non-exempt target still resolves normally."""
         p = _profile(tool_alias_map=MappingProxyType({"myshell": "exec"}))
-        g = _guard(profile=p, premium_active=False)
+        g = _guard(profile=p, feature_active=False)
         assert g._normalize_tool_name("myshell") == "exec"
 
 
