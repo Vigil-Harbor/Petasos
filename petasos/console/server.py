@@ -7,6 +7,7 @@ import json
 import logging
 import time
 import uuid
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from petasos.console._config_meta import generate_config_metadata
@@ -23,6 +24,66 @@ _logger = logging.getLogger(__name__)
 
 _MAX_SCAN_TEXT_LEN = 100_000
 _VALID_DIRECTIONS = frozenset({"inbound", "outbound"})
+
+
+def _hermes_config_path() -> Path:
+    import os
+    import platform
+
+    if platform.system() == "Windows":
+        return Path(os.environ.get("LOCALAPPDATA", "")) / "hermes" / "config.yaml"
+    return Path.home() / ".hermes" / "config.yaml"
+
+
+def _persist_config(validated_config: Any) -> bool:
+    """Write the petasos: section back to Hermes config.yaml.
+
+    Returns True on success, False on failure.
+    """
+    import os
+    import tempfile
+
+    import yaml
+
+    config_path = _hermes_config_path()
+    if not config_path.exists():
+        _logger.warning("Cannot persist config — %s not found", config_path)
+        return False
+
+    try:
+        with open(config_path, encoding="utf-8") as f:
+            raw = f.read()
+
+        full = yaml.safe_load(raw)
+        if not isinstance(full, dict):
+            full = {}
+        export = validated_config.to_dict(redact_secrets=False)
+        export.pop("session_secret", None)
+        export.pop("hash_key", None)
+        full["petasos"] = export
+
+        fd, tmp_path = tempfile.mkstemp(
+            dir=str(config_path.parent),
+            suffix=".tmp",
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                yaml.safe_dump(full, f, default_flow_style=False, sort_keys=False)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, str(config_path))
+        except BaseException:
+            import contextlib
+
+            with contextlib.suppress(OSError):
+                os.unlink(tmp_path)
+            raise
+
+        _logger.info("Petasos config persisted to %s", config_path)
+        return True
+    except Exception as exc:
+        _logger.error("Failed to persist config: %s", exc)
+        return False
 
 
 class ConsoleHandlers:
@@ -79,10 +140,14 @@ class ConsoleHandlers:
             field = _extract_field_from_error(msg, body)
             return None, [{"field": field, "message": msg}]
         self.pipeline._config = validated
-        return {
+        persisted = _persist_config(validated)
+        result = {
             "config": validated.to_dict(redact_secrets=True),
             "fields": generate_config_metadata(),
-        }, None
+        }
+        if not persisted:
+            result["warning"] = "Config applied in memory but failed to persist to disk"
+        return result, None
 
     async def run_scan(
         self,

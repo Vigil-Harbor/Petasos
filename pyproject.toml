@@ -72,6 +72,8 @@ module = [
     "transformers.*",
     "pytest_benchmark",
     "pytest_benchmark.*",
+    "yaml",
+    "yaml.*",
 ]
 ignore_missing_imports = true
 
