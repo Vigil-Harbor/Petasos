@@ -63,8 +63,8 @@ async def test_sse_frame_format_for_fetch_reader() -> None:
 
     assert msg.endswith("\n\n"), "SSE frame must end with \\n\\n"
     lines = msg.strip().split("\n")
-    event_line = [l for l in lines if l.startswith("event:")]
-    data_line = [l for l in lines if l.startswith("data:")]
+    event_line = [line for line in lines if line.startswith("event:")]
+    data_line = [line for line in lines if line.startswith("data:")]
     assert len(event_line) == 1
     assert len(data_line) == 1
     assert event_line[0] == "event: scan_result"
@@ -127,7 +127,7 @@ def test_health_endpoint_for_polling(client: TestClient) -> None:
 
 
 def test_polling_and_sse_return_same_scan(client: TestClient) -> None:
-    """A scan result appears in both SSE broadcast and polling history."""
+    """A scan result appears in both SSE broadcast and polling history with matching payload."""
     import petasos.console.hermes.plugin_api as mod
 
     handlers = mod._handlers
@@ -142,7 +142,15 @@ def test_polling_and_sse_return_same_scan(client: TestClient) -> None:
     msg = sse_q.get_nowait()
     assert "scan_result" in msg
 
+    data_line = [line for line in msg.strip().split("\n") if line.startswith("data: ")]
+    assert len(data_line) == 1
+    sse_payload = json.loads(data_line[0][len("data: "):])
+
     history = client.get("/scan-history?limit=1").json()
     assert len(history["entries"]) >= 1
+    poll_payload = history["entries"][0]
+
+    assert sse_payload["safe"] == poll_payload["safe"]
+    assert sse_payload["direction"] == poll_payload["direction"]
 
     handlers.sse.unsubscribe(sse_q)

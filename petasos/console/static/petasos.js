@@ -254,8 +254,19 @@
           var buf = "";
           function pump() {
             reader.read().then(function (r) {
-              if (r.done) { self._enableFallback(); return; }
-              buf += dec.decode(r.value, { stream: true });
+              if (r.done) {
+                if (buf.trim()) {
+                  var evType = null, evData = null;
+                  buf.replace(/\r\n/g, "\n").split("\n").forEach(function (line) {
+                    if (line.indexOf("event: ") === 0) evType = line.slice(7);
+                    else if (line.indexOf("data: ") === 0) evData = line.slice(6);
+                  });
+                  if (evType && evData) self._dispatch(evType, evData);
+                }
+                self._enableFallback();
+                return;
+              }
+              buf += dec.decode(r.value, { stream: true }).replace(/\r\n/g, "\n");
               var frames = buf.split("\n\n");
               buf = frames.pop();
               frames.forEach(function (frame) {
@@ -332,19 +343,28 @@
 
   function startFallbackPolling() {
     if (_fallbackPollInterval) return;
-    var fetchData = function () {
-      Pet.api.getScanHistory(100).then(function (d) {
-        if (!d.error && d.entries && Array.isArray(d.entries)) {
-          Pet.state.scanHistory = d.entries;
-          if (Pet.state.tab === "obs" && _container) Pet.renderDashboard(_container);
-        }
-      });
-    };
-    fetchData();
-    _fallbackPollInterval = setInterval(fetchData, 10000);
+    function schedule() {
+      _fallbackPollInterval = setTimeout(function () {
+        Pet.api.getScanHistory(100).then(function (d) {
+          if (!d.error && d.entries && Array.isArray(d.entries)) {
+            Pet.state.scanHistory = d.entries;
+            if (Pet.state.tab === "obs" && _container) Pet.renderDashboard(_container);
+          }
+        }).then(function () {
+          if (_fallbackPollInterval) schedule();
+        });
+      }, 10000);
+    }
+    Pet.api.getScanHistory(100).then(function (d) {
+      if (!d.error && d.entries && Array.isArray(d.entries)) {
+        Pet.state.scanHistory = d.entries;
+        if (Pet.state.tab === "obs" && _container) Pet.renderDashboard(_container);
+      }
+    });
+    schedule();
   }
   function stopFallbackPolling() {
-    if (_fallbackPollInterval) { clearInterval(_fallbackPollInterval); _fallbackPollInterval = null; }
+    if (_fallbackPollInterval) { clearTimeout(_fallbackPollInterval); _fallbackPollInterval = null; }
   }
 
   // ── Surface renderers ──
