@@ -15,37 +15,43 @@
 }
 
 .pet {
-  --bg-app:      #16181c;
-  --bg-panel:    #1c1f24;
-  --bg-raised:   #23262d;
-  --bg-input:    #121419;
-  --bg-hover:    #20242b;
-  --bg-active:   #2b2f37;
+  /* ── Structural backgrounds — inherit Hermes theme, fall back for standalone ── */
+  --bg-app:    var(--background-base, #16181c);
+  --bg-panel:  var(--color-card, #1c1f24);
+  --bg-raised: color-mix(in srgb, var(--color-card, #23262d) 88%, var(--color-card-foreground, #fff));
+  --bg-input:  color-mix(in srgb, var(--background-base, #121419) 92%, black);
+  --bg-hover:  color-mix(in srgb, var(--color-card, #20242b) 90%, var(--color-card-foreground, #fff));
+  --bg-active: color-mix(in srgb, var(--color-card, #2b2f37) 82%, var(--color-card-foreground, #fff));
 
-  --border:        #2a2e35;
-  --border-soft:   #202329;
-  --border-strong: #363b44;
+  /* ── Borders ── */
+  --border:        var(--color-border, #2a2e35);
+  --border-soft:   color-mix(in srgb, var(--color-border, #202329) 60%, transparent);
+  --border-strong: color-mix(in srgb, var(--color-border, #363b44) 80%, var(--color-card-foreground, #fff));
 
-  --tx-bright: #f2f3f5;
-  --tx:        #c4cad2;
-  --tx-mut:    #99a0a8;
-  --tx-faint:  #6b7178;
-  --tx-ghost:  #4a5059;
+  /* ── Text ── */
+  --tx-bright: var(--color-card-foreground, #f2f3f5);
+  --tx:        color-mix(in srgb, var(--color-card-foreground, #c4cad2) 78%, var(--color-muted-foreground, #99a0a8));
+  --tx-mut:    var(--color-muted-foreground, #99a0a8);
+  --tx-faint:  color-mix(in srgb, var(--color-muted-foreground, #6b7178) 65%, transparent);
+  --tx-ghost:  color-mix(in srgb, var(--color-muted-foreground, #4a5059) 45%, transparent);
 
-  --acc:        #2563eb;
-  --acc-bright: #5b9dff;
-  --acc-hover:  #1d4fd0;
-  --acc-soft:   rgba(37,99,235,.15);
-  --acc-line:   rgba(37,99,235,.4);
+  /* ── Accent — follows theme primary ── */
+  --acc:        var(--color-primary, #2563eb);
+  --acc-bright: color-mix(in srgb, var(--color-primary, #5b9dff) 75%, white);
+  --acc-hover:  color-mix(in srgb, var(--color-primary, #1d4fd0) 80%, black);
+  --acc-soft:   color-mix(in srgb, var(--color-primary, #2563eb) 15%, transparent);
+  --acc-line:   color-mix(in srgb, var(--color-primary, #2563eb) 40%, transparent);
 
+  /* ── Status — follows theme semantic colors ── */
+  --ok:      var(--color-success, #3fb950);
+  --warn:    var(--color-warning, #e8b13a);
+  --err:     var(--color-destructive, #ed4245);
+  --ok-soft: color-mix(in srgb, var(--color-success, #3fb950) 14%, transparent);
+
+  /* ── Severity — intentionally fixed (security semantics, not cosmetic) ── */
   --amber:        #e8901c;
   --amber-bright: #f4a836;
   --amber-soft:   rgba(232,144,28,.14);
-
-  --ok:    #3fb950;
-  --warn:  #e8b13a;
-  --err:   #ed4245;
-  --ok-soft: rgba(63,185,80,.14);
 
   --crit: #ed4245;
   --high: #ff7b3d;
@@ -58,13 +64,14 @@
   --low-soft:  rgba(87,201,122,.14);
   --info-soft: rgba(91,157,255,.14);
 
+  /* ── Radii & typography — inherit theme ── */
   --r-chip: 5px;
-  --r-card: 8px;
-  --r-panel: 10px;
+  --r-card: var(--radius, 8px);
+  --r-panel: var(--radius, 10px);
 
   --font-display: 'Arcade', 'Press Start 2P', monospace;
-  --font-ui:   'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --font-ui:   var(--theme-font-sans, 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif);
+  --font-mono: var(--theme-font-mono, 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace);
 
   position: relative;
   width: 100%;
@@ -161,7 +168,7 @@
 /* ── BUTTONS / INPUTS ── */
 .pet .btn { display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 14px; border-radius: var(--r-card); border: 1px solid transparent; cursor: pointer; font-family: var(--font-ui); font-size: 12.5px; font-weight: 600; line-height: 1; transition: background .14s, border-color .14s, color .14s; }
 .pet .btn svg { width: 15px; height: 15px; }
-.pet .btn-primary { background: var(--acc); color: #fff; }
+.pet .btn-primary { background: var(--acc); color: var(--color-primary-foreground, #fff); }
 .pet .btn-primary:hover { background: var(--acc-hover); }
 .pet .btn-ghost { background: transparent; color: var(--tx-mut); border-color: var(--border-strong); }
 .pet .btn-ghost:hover { background: var(--bg-hover); color: var(--tx-bright); }
@@ -174,7 +181,7 @@
 
 .pet .seg { display: inline-flex; background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--r-card); padding: 2px; gap: 2px; }
 .pet .seg button { height: 26px; padding: 0 14px; border: none; background: transparent; cursor: pointer; font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: var(--tx-mut); border-radius: 5px; transition: background .12s, color .12s; }
-.pet .seg button.on { background: var(--acc); color: #fff; }
+.pet .seg button.on { background: var(--acc); color: var(--color-primary-foreground, #fff); }
 
 .pet .switch { width: 38px; height: 22px; border-radius: 11px; background: var(--bg-active); position: relative; flex: 0 0 38px; transition: background .15s; cursor: pointer; }
 .pet .switch.on { background: var(--acc); }
@@ -226,14 +233,16 @@
 .pet .help { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 14px; color: var(--tx-ghost); cursor: help; flex: 0 0 14px; outline: none; }
 .pet .help svg.i { width: 14px; height: 14px; }
 .pet .help:hover, .pet .help:focus { color: var(--acc-bright); }
+.pet .help:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; border-radius: 2px; }
 .pet .tip {
-  position: absolute; top: calc(100% + 8px);
-  background: #0a0b0e; border: 1px solid var(--border-strong); border-radius: 8px;
+  position: fixed;
+  min-width: 220px; max-width: 320px;
+  background: var(--color-popover, #0a0b0e); border: 1px solid var(--border-strong); border-radius: var(--r-card);
   padding: 9px 11px; font-family: var(--font-ui); font-size: 11.5px; font-weight: 400;
   line-height: 1.55; letter-spacing: 0; text-transform: none; white-space: normal;
-  color: var(--tx); box-shadow: 0 10px 30px rgba(0,0,0,.55); text-align: left;
-  opacity: 0; pointer-events: none; transform: translateY(-4px); transition: opacity .14s, transform .14s; z-index: 60;
+  color: var(--color-popover-foreground, var(--tx)); box-shadow: 0 10px 30px rgba(0,0,0,.55); text-align: left;
+  opacity: 0; pointer-events: none; transform: translateY(-4px); transition: opacity .14s, transform .14s; z-index: 9999;
 }
-.pet .help:hover .tip, .pet .help:focus .tip { opacity: 1; transform: translateY(0); }
-.pet .tip b { color: var(--tx-bright); font-weight: 600; }
+.pet .help:hover .tip, .pet .help:focus .tip { opacity: 1; pointer-events: auto; transform: translateY(0); }
+.pet .tip b { color: var(--color-popover-foreground, var(--tx-bright)); font-weight: 600; }
 .pet .tip code, .pet .tip .m { font-family: var(--font-mono); font-size: 10.5px; color: var(--amber); background: rgba(232,144,28,.1); padding: 0 3px; border-radius: 3px; }

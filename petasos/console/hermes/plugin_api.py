@@ -1,7 +1,10 @@
 """Hermes Dashboard plugin backend — APIRouter delegating to ConsoleHandlers.
 
 Routes mount at /api/plugins/petasos/ via Hermes's plugin discovery.
-The Pipeline instance is obtained from the Hermes plugin context at init time.
+
+The dashboard process is separate from the agent process, so we cannot
+rely on a shared Pipeline reference. Instead, _require_handlers() builds
+its own read-only Pipeline from config.yaml on first API call.
 
 This module requires fastapi at runtime (Hermes installs it).
 The petasos.console.* mypy override suppresses import-not-found
@@ -10,12 +13,18 @@ so CI typecheck passes without the console extra installed.
 
 from __future__ import annotations
 
+import logging
+import os
+import platform
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, HTTPException
 
 if TYPE_CHECKING:
     from fastapi import Request
+
+logger = logging.getLogger("petasos.dashboard")
 
 router = APIRouter()
 
@@ -25,18 +34,112 @@ _VALID_DIRECTIONS = frozenset({"inbound", "outbound"})
 
 
 def init_handlers(pipeline: Any) -> None:
-    """Called by the Hermes plugin init hook to wire the Pipeline."""
+    """Wire a Pipeline instance into the dashboard API."""
     global _handlers  # noqa: PLW0603
     from petasos.console.server import ConsoleHandlers
 
     _handlers = ConsoleHandlers(pipeline)
 
 
+def _load_config() -> dict[str, Any]:
+    """Read petasos: section from Hermes config.yaml."""
+    import yaml
+
+    if platform.system() == "Windows":
+        config_path = Path(os.environ.get("LOCALAPPDATA", "")) / "hermes" / "config.yaml"
+    else:
+        config_path = Path.home() / ".hermes" / "config.yaml"
+
+    if not config_path.exists():
+        return {}
+
+    with open(config_path, encoding="utf-8") as f:
+        full_config = yaml.safe_load(f)
+
+    if not isinstance(full_config, dict):
+        return {}
+
+    petasos_section: dict[str, Any] = full_config.get("petasos", {})
+    return petasos_section
+
+
+def _self_init() -> None:
+    """Build a standalone Pipeline for the dashboard process."""
+    import base64
+
+    from petasos import PetasosConfig, Pipeline
+    from petasos.scanners import MinimalScanner
+
+    raw_config = _load_config()
+    raw_config.pop("host_id", None)
+    raw_config.pop("enabled", None)
+
+    session_secret_b64 = os.environ.get("PETASOS_SESSION_SECRET")
+    if session_secret_b64:
+        try:
+            raw_config["session_secret"] = base64.b64decode(session_secret_b64)
+        except Exception as exc:
+            logger.warning(
+                "PETASOS_SESSION_SECRET is not valid base64 — session binding disabled: %s",
+                exc,
+            )
+
+    hash_key = os.environ.get("PETASOS_HASH_KEY")
+    if hash_key:
+        raw_config["hash_key"] = hash_key
+
+    try:
+        config = PetasosConfig.from_dict(raw_config)
+    except (TypeError, ValueError):
+        config = PetasosConfig()
+
+    scanners = [MinimalScanner()]
+    for name, cls_path in [
+        ("LLM Guard", "petasos.scanners.LlmGuardScanner"),
+        ("LlamaFirewall", "petasos.scanners.LlamaFirewallScanner"),
+        ("Presidio", "petasos.scanners.PresidioScanner"),
+    ]:
+        try:
+            mod, cls = cls_path.rsplit(".", 1)
+            import importlib
+
+            m = importlib.import_module(mod)
+            scanners.append(getattr(m, cls)())
+            logger.info("Dashboard loaded scanner: %s", name)
+        except ImportError:
+            pass
+        except Exception as exc:
+            logger.warning("Dashboard scanner %s failed: %s", name, exc)
+
+    pipeline = Pipeline(config=config, scanners=scanners, host_id="dashboard")
+
+    license_key = os.environ.get("PETASOS_LICENSE_KEY")
+    if license_key:
+        pipeline.activate(license_key)
+
+    init_handlers(pipeline)
+    logger.info("Dashboard self-initialized pipeline: scanners=%s", [s.name for s in scanners])
+
+
 def _require_handlers() -> Any:
+    global _handlers
+    if _handlers is None:
+        try:
+            import petasos.console as _console
+
+            if _console._shared_pipeline is not None:
+                init_handlers(_console._shared_pipeline)
+        except Exception:
+            pass
+    if _handlers is None:
+        try:
+            _self_init()
+        except Exception as exc:
+            logger.error("Dashboard self-init failed: %s", exc, exc_info=True)
     if _handlers is None:
         raise HTTPException(
             status_code=503,
-            detail="plugin API not initialized — call init_handlers(pipeline) first",
+            detail="plugin API not initialized — pipeline not yet ready",
         )
     return _handlers
 
@@ -136,3 +239,9 @@ async def events() -> Any:
 @router.get("/about")
 async def get_about() -> Any:
     return await _require_handlers().get_about()
+
+
+@router.get("/diag")
+async def get_diag() -> Any:
+    """Debug endpoint — pipeline wiring diagnostics."""
+    return {"handlers_ready": _handlers is not None}

@@ -21,6 +21,8 @@ if TYPE_CHECKING:
 
 __all__ = ["create_app", "serve"]
 
+_shared_pipeline: Pipeline | None = None
+
 
 def create_app(pipeline: Pipeline) -> FastAPI:  # type: ignore[name-defined]  # noqa: F821
     """Build a FastAPI app wired to *pipeline* for the console dashboard."""

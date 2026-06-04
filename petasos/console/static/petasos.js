@@ -104,6 +104,30 @@
     info: { cls: "sev-info", col: "var(--info)", short: "INFO" },
   };
 
+  Pet.HelpTip = function (html) {
+    var btn = Pet.h("span", { className: "help", tabIndex: "0" });
+    btn.appendChild(Pet.Icon("q"));
+    var tip = Pet.h("span", { className: "tip" });
+    tip.innerHTML = html;
+    btn.appendChild(tip);
+    var position = function () {
+      var r = btn.getBoundingClientRect();
+      tip.style.position = "fixed";
+      tip.style.left = r.left + "px";
+      tip.style.top = (r.bottom + 6) + "px";
+      var tRect = tip.getBoundingClientRect();
+      if (tRect.bottom > window.innerHeight - 8) {
+        tip.style.top = (r.top - tRect.height - 6) + "px";
+      }
+      if (tRect.right > window.innerWidth - 8) {
+        tip.style.left = (window.innerWidth - tRect.width - 8) + "px";
+      }
+    };
+    btn.addEventListener("mouseenter", position);
+    btn.addEventListener("focus", position);
+    return btn;
+  };
+
   Pet.SevBadge = function (sev) {
     var v = SEV[sev] || SEV.info;
     var badge = Pet.h("span", { className: "badge " + v.cls }, v.short);
@@ -157,20 +181,25 @@
   // ── API client ──
   Pet.api = {
     baseUrl: "/api",
-    _get: function (path) {
-      return fetch(this.baseUrl + path).then(function (r) { return r.json(); }).catch(function (e) { return { error: e.message }; });
+    _req: function (path, opts) {
+      var url = this.baseUrl + path;
+      return fetch(url, opts).then(function (r) {
+        return r.json().then(function (data) {
+          if (!r.ok) data._status = r.status;
+          return data;
+        }).catch(function () {
+          return { error: r.status + " " + r.statusText, _status: r.status };
+        });
+      }).catch(function (e) {
+        return { error: e.message };
+      });
     },
+    _get: function (path) { return this._req(path); },
     _post: function (path, body) {
-      return fetch(this.baseUrl + path, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      }).then(function (r) { return r.json(); }).catch(function (e) { return { error: e.message }; });
+      return this._req(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     },
     _put: function (path, body) {
-      return fetch(this.baseUrl + path, {
-        method: "PUT", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      }).then(function (r) { return r.json(); }).catch(function (e) { return { error: e.message }; });
+      return this._req(path, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     },
     getConfig: function () { return this._get("/config"); },
     putConfig: function (patch) { return this._put("/config", patch); },
@@ -187,20 +216,31 @@
     connect: function () {
       var self = this;
       try {
-        self.source = new EventSource(Pet.api.baseUrl + "/events");
+        var url = Pet.api.baseUrl + "/events";
+        self.source = new EventSource(url);
+        var errorCount = 0;
+        self.source.addEventListener("open", function () { errorCount = 0; });
+        self.source.onerror = function () {
+          errorCount++;
+          if (errorCount >= 3) {
+            self.source.close();
+            self.source = null;
+            console.warn("Petasos SSE: 3 consecutive errors, disabling live updates");
+          }
+        };
         self.source.addEventListener("scan_result", function (e) {
-          var data = JSON.parse(e.data);
+          try { var data = JSON.parse(e.data); } catch (_) { return; }
           Pet.state.scanHistory.unshift(data);
           if (Pet.state.scanHistory.length > 500) Pet.state.scanHistory.length = 500;
           if (Pet.state.tab === "obs" && _container) Pet.renderDashboard(_container);
         });
         self.source.addEventListener("audit", function (e) {
-          var data = JSON.parse(e.data);
+          try { var data = JSON.parse(e.data); } catch (_) { return; }
           Pet.state.auditLog.unshift(data);
           if (Pet.state.auditLog.length > 1000) Pet.state.auditLog.length = 1000;
         });
         self.source.addEventListener("alert", function (e) {
-          var data = JSON.parse(e.data);
+          try { var data = JSON.parse(e.data); } catch (_) { return; }
           Pet.state.alerts.unshift(data);
           if (Pet.state.alerts.length > 200) Pet.state.alerts.length = 200;
         });
@@ -250,7 +290,8 @@
 
     // Scanner health
     var healthPanel = Pet.Panel({
-      icon: "radar", title: "scanner health", place: "the dry dock", flush: true,
+      icon: "radar", title: "scanner health", place: "loaded backends", flush: true,
+      help: Pet.HelpTip("<b>Scanner Health</b> — status of each loaded scanner backend (MinimalScanner, LLM Guard, Presidio, etc). <code>ready</code> means the scanner is initialized and processing."),
       content: Pet.h("div", { style: { padding: "12px" } },
         Pet.h("div", { className: "mono", style: { color: "var(--tx-faint)", fontSize: "12px" } }, "Loading scanner status...")
       ),
@@ -259,7 +300,8 @@
 
     // Scan history
     var historyPanel = Pet.Panel({
-      icon: "list", title: "scan history", place: "score tower", flush: true,
+      icon: "list", title: "scan history", place: "recent evaluations", flush: true,
+      help: Pet.HelpTip("<b>Scan History</b> — recent pipeline scans with severity, direction, and timing. Each row is one <code>Pipeline.evaluate()</code> call."),
       content: Pet.h("div", { style: { padding: "12px" } },
         Pet.h("div", { className: "mono", style: { color: "var(--tx-faint)", fontSize: "12px" } }, "No scans recorded yet.")
       ),
@@ -328,7 +370,8 @@
         // Findings
         if (r.findings.length > 0) {
           var findingsPanel = Pet.Panel({
-            icon: "radar", title: "findings", place: "threat scope",
+            icon: "radar", title: "findings", place: "detections by scanner",
+            help: Pet.HelpTip("<b>Findings</b> — individual detections from each scanner. Severity ranges from <code>INFO</code> to <code>CRITICAL</code>. High+ on dangerous tools triggers a block."),
             content: Pet.h("div", { className: "vlist", style: { gap: "8px" } },
               r.findings.map(function (f) {
                 var v = SEV[f.severity] || SEV.info;
@@ -355,7 +398,7 @@
         // Normalized diff
         if (d.normalized_text && d.normalized_text !== text) {
           resultArea.appendChild(Pet.Panel({
-            icon: "trending", title: "normalization", place: "diff",
+            icon: "trending", title: "normalization", place: "before → after",
             content: Pet.h("div", { className: "mono", style: { fontSize: "11.5px", lineHeight: "1.7" } },
               Pet.h("div", { style: { color: "var(--tx-ghost)" } }, "raw: ", Pet.h("span", { style: { color: "var(--tx-mut)" } }, text)),
               Pet.h("div", { style: { color: "var(--tx-ghost)" } }, "norm: ", Pet.h("span", { style: { color: "var(--tx)" } }, d.normalized_text))
@@ -366,7 +409,7 @@
         // Anonymized output
         if (r.sanitized_content) {
           resultArea.appendChild(Pet.Panel({
-            icon: "shieldCheck", title: "anonymized output", place: "sanitized_content",
+            icon: "shieldCheck", title: "anonymized output", place: "PII redacted",
             content: Pet.h("div", { className: "mono", style: { fontSize: "12px", color: "var(--tx-mut)", lineHeight: "1.7" } }, r.sanitized_content),
           }));
         }
@@ -386,7 +429,7 @@
               Pet.h("div", { className: "num", style: { fontSize: "18px", fontWeight: "700", color: "var(--crit)" } }, r.escalation_tier)
             ));
           }
-          resultArea.appendChild(Pet.Panel({ icon: "user", title: "session overlay", place: "frequency + escalation", content: stats }));
+          resultArea.appendChild(Pet.Panel({ icon: "user", title: "session overlay", place: "frequency + escalation", help: Pet.HelpTip("<b>Session Overlay</b> — cumulative session risk score and escalation tier. Score rises with repeated violations; tier thresholds trigger progressively stricter enforcement."), content: stats }));
         }
       });
     } });
@@ -396,7 +439,8 @@
     var controls = Pet.h("div", { style: { display: "flex", alignItems: "center", gap: "10px" } }, dirToggle, sessionInput, scanBtn);
 
     var inspectPanel = Pet.Panel({
-      icon: "beaker", title: "inspect", place: "Pipeline.inspect()",
+      icon: "beaker", title: "inspect", place: "scan playground",
+      help: Pet.HelpTip("<b>Scan Playground</b> — paste text and run it through the full pipeline. Choose <code>inbound</code> (user→agent) or <code>outbound</code> (agent→user) direction. Optionally bind to a session ID for frequency tracking."),
       content: Pet.h("div", { style: { display: "flex", flexDirection: "column", gap: "10px" } }, textArea, controls),
     });
 
@@ -411,7 +455,7 @@
 
     var notice = Pet.h("div", { className: "notice", style: { flex: "0 0 auto" } },
       Pet.Icon("warn"),
-      Pet.h("span", {}, Pet.h("b", {}, "Changes apply to new sessions."), " Restart your agent session to pick up this config.")
+      Pet.h("span", {}, Pet.h("b", {}, "Changes are saved to config.yaml."), " Active agent sessions use the previous config until restarted.")
     );
     wrapper.appendChild(notice);
 
@@ -422,7 +466,12 @@
     container.appendChild(wrapper);
 
     Pet.api.getConfig().then(function (d) {
-      if (d.error) return;
+      if (d.error || !d.config || !d.fields) {
+        formArea.innerHTML = "";
+        formArea.appendChild(Pet.h("div", { style: { padding: "20px", color: "var(--err)", fontSize: "12px", fontFamily: "var(--font-mono)" } },
+          d.error ? "Config unavailable: " + d.error : "Unexpected response from API"));
+        return;
+      }
       Pet.state.config = d.config;
       Pet.state.configFields = d.fields;
       formArea.innerHTML = "";
@@ -483,12 +532,12 @@
             control = inp2;
           }
 
-          return Pet.h("div", { style: { display: "flex", alignItems: "flex-start", gap: "14px", padding: "12px 0", borderBottom: "1px solid var(--border-soft)" } },
+          return Pet.h("div", { dataset: { field: f.name }, style: { display: "flex", alignItems: "flex-start", gap: "14px", padding: "12px 0", borderBottom: "1px solid var(--border-soft)" } },
             Pet.h("div", { style: { flex: "1" } },
               Pet.h("div", { className: "mono", style: { fontSize: "12.5px", fontWeight: "600", color: "var(--tx-bright)" } }, f.name),
               Pet.h("div", { style: { fontSize: "11.5px", color: "var(--tx-faint)", marginTop: "3px" } }, f.description)
             ),
-            Pet.h("div", { style: { flex: "0 0 auto" } }, control)
+            Pet.h("div", { className: "pet-ctrl-wrap", style: { flex: "0 0 auto", display: "flex", flexDirection: "column" } }, control)
           );
         });
 
@@ -504,17 +553,51 @@
           Pet.state.configDirty = {};
           Pet.renderConfig(container);
         } }, "Discard"),
-        Pet.h("button", { className: "btn btn-primary", onClick: function () {
-          if (Object.keys(Pet.state.configDirty).length === 0) return;
-          Pet.api.putConfig(Pet.state.configDirty).then(function (d) {
-            if (d.detail) {
-              alert("Validation error: " + JSON.stringify(d.detail));
-            } else {
+        (function () {
+          var applyBtn = Pet.h("button", { className: "btn btn-primary", onClick: function () {
+            if (Object.keys(Pet.state.configDirty).length === 0) return;
+            formArea.querySelectorAll(".pet-field-err").forEach(function (el) { el.remove(); });
+            applyBtn.disabled = true;
+            Pet.api.putConfig(Pet.state.configDirty).then(function (d) {
+              if (d._status && d.detail) {
+                if (Array.isArray(d.detail)) {
+                  d.detail.forEach(function (err) {
+                    if (!err || !err.field) return;
+                    var fieldEl = null;
+                    formArea.querySelectorAll("[data-field]").forEach(function (el) {
+                      if (el.dataset.field === err.field) fieldEl = el;
+                    });
+                    if (fieldEl) {
+                      var wrapper = fieldEl.querySelector(".pet-ctrl-wrap");
+                      (wrapper || fieldEl).appendChild(Pet.h("div", {
+                        className: "pet-field-err",
+                        style: { color: "var(--err)", fontSize: "11px", marginTop: "4px" }
+                      }, err.message));
+                    }
+                  });
+                }
+                if (!formArea.querySelector(".pet-field-err")) {
+                  var msg = Array.isArray(d.detail)
+                    ? d.detail.map(function (e) { return (e.field || "?") + ": " + (e.message || String(e)); }).join("; ")
+                    : String(d.detail);
+                  formArea.insertBefore(Pet.h("div", {
+                    className: "pet-field-err",
+                    style: { color: "var(--err)", fontSize: "12px", padding: "8px 12px", background: "var(--bg-raised)", borderRadius: "var(--r-card)", marginBottom: "8px" }
+                  }, msg), formArea.firstChild);
+                }
+                return;
+              }
+              if (d.error) {
+                alert("Save failed: " + d.error);
+                return;
+              }
+              Pet.state.config = d.config || Pet.state.config;
               Pet.state.configDirty = {};
               Pet.renderConfig(container);
-            }
-          });
-        } }, Pet.Icon("check"), " Apply config")
+            }).then(function () { applyBtn.disabled = false; }, function () { applyBtn.disabled = false; });
+          } }, Pet.Icon("check"), " Apply config");
+          return applyBtn;
+        })()
       );
       formArea.appendChild(saveBar);
     });
@@ -546,6 +629,7 @@
     // Donation
     wrapper.appendChild(Pet.Panel({
       icon: "caduceus", title: "Support",
+      help: Pet.HelpTip("<b>Support</b> — Petasos is free and open source (MIT). Sponsorship helps fund continued development but unlocks nothing — every feature is available to everyone."),
       style: { border: "1px solid rgba(232,144,28,.3)" },
       bodyStyle: { background: "rgba(232,144,28,.06)" },
       content: Pet.h("div", { style: { textAlign: "center", padding: "12px 0" } },
