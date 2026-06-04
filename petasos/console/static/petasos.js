@@ -574,11 +574,15 @@
             formArea.querySelectorAll(".pet-field-err").forEach(function (el) { el.remove(); });
             applyBtn.disabled = true;
             Pet.api.putConfig(Pet.state.configDirty).then(function (d) {
-              console.log("[petasos] putConfig response:", d);
               if (d._status && d.detail) {
-                var details = Array.isArray(d.detail) ? d.detail : [d.detail];
+                var raw = Array.isArray(d.detail) ? d.detail : [d.detail];
+                var details = raw.map(function (el) {
+                  if (typeof el === "string") return { field: "?", message: el };
+                  if (!el || typeof el !== "object") return { field: "?", message: String(el) };
+                  return { field: el.field || el.name || el.path || "?", message: el.message || el.msg || el.detail || String(el) };
+                });
                 details.forEach(function (err) {
-                  if (!err || typeof err !== "object" || !err.field) return;
+                  if (err.field === "?") return;
                   var fieldEl = null;
                   formArea.querySelectorAll("[data-field]").forEach(function (el) {
                     if (el.dataset.field === err.field) fieldEl = el;
@@ -588,16 +592,11 @@
                     (wrapper || fieldEl).appendChild(Pet.h("div", {
                       className: "pet-field-err",
                       style: { color: "var(--err)", fontSize: "11px", marginTop: "4px" }
-                    }, err.message || String(err)));
+                    }, err.message));
                   }
                 });
                 if (!formArea.querySelector(".pet-field-err")) {
-                  var msg = typeof d.detail === "string" ? d.detail
-                    : Array.isArray(d.detail) ? d.detail.map(function (e) {
-                        if (typeof e === "string") return e;
-                        return (e.field || "?") + ": " + (e.message || e.msg || JSON.stringify(e));
-                      }).join("; ")
-                    : JSON.stringify(d.detail);
+                  var msg = details.map(function (e) { return e.field + ": " + e.message; }).join("; ");
                   formArea.insertBefore(Pet.h("div", {
                     className: "pet-field-err",
                     style: { color: "var(--err)", fontSize: "12px", padding: "8px 12px", background: "var(--bg-raised)", borderRadius: "var(--r-card)", marginBottom: "8px" }
