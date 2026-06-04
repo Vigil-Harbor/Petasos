@@ -7,6 +7,7 @@ import json
 import logging
 import time
 import uuid
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from petasos.console._config_meta import generate_config_metadata
@@ -23,6 +24,42 @@ _logger = logging.getLogger(__name__)
 
 _MAX_SCAN_TEXT_LEN = 100_000
 _VALID_DIRECTIONS = frozenset({"inbound", "outbound"})
+
+
+def _hermes_config_path() -> Path:
+    import os
+    import platform
+
+    if platform.system() == "Windows":
+        return Path(os.environ.get("LOCALAPPDATA", "")) / "hermes" / "config.yaml"
+    return Path.home() / ".hermes" / "config.yaml"
+
+
+def _persist_config(validated_config: Any) -> None:
+    """Write the petasos: section back to Hermes config.yaml."""
+    try:
+        import yaml
+
+        config_path = _hermes_config_path()
+        if not config_path.exists():
+            _logger.warning("Cannot persist config — %s not found", config_path)
+            return
+
+        with open(config_path, encoding="utf-8") as f:
+            raw = f.read()
+
+        full = yaml.safe_load(raw) or {}
+        export = validated_config.to_dict(redact_secrets=False)
+        export.pop("session_secret", None)
+        export.pop("hash_key", None)
+        full["petasos"] = export
+
+        with open(config_path, "w", encoding="utf-8") as f:
+            yaml.safe_dump(full, f, default_flow_style=False, sort_keys=False)
+
+        _logger.info("Petasos config persisted to %s", config_path)
+    except Exception as exc:
+        _logger.error("Failed to persist config: %s", exc)
 
 
 class ConsoleHandlers:
@@ -79,6 +116,7 @@ class ConsoleHandlers:
             field = _extract_field_from_error(msg, body)
             return None, [{"field": field, "message": msg}]
         self.pipeline._config = validated
+        _persist_config(validated)
         return {
             "config": validated.to_dict(redact_secrets=True),
             "fields": generate_config_metadata(),
