@@ -60,7 +60,8 @@ def _load_config() -> dict[str, Any]:
     if not isinstance(full_config, dict):
         return {}
 
-    return full_config.get("petasos", {})
+    petasos_section: dict[str, Any] = full_config.get("petasos", {})
+    return petasos_section
 
 
 def _self_init() -> None:
