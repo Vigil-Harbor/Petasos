@@ -55,7 +55,10 @@ def _load_config() -> dict[str, Any]:
         return {}
 
     with open(config_path, encoding="utf-8") as f:
-        full_config = yaml.safe_load(f) or {}
+        full_config = yaml.safe_load(f)
+
+    if not isinstance(full_config, dict):
+        return {}
 
     return full_config.get("petasos", {})
 
@@ -75,8 +78,11 @@ def _self_init() -> None:
     if session_secret_b64:
         try:
             raw_config["session_secret"] = base64.b64decode(session_secret_b64)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(
+                "PETASOS_SESSION_SECRET is not valid base64 — session binding "
+                "disabled: %s", exc,
+            )
 
     hash_key = os.environ.get("PETASOS_HASH_KEY")
     if hash_key:

@@ -537,7 +537,7 @@
               Pet.h("div", { className: "mono", style: { fontSize: "12.5px", fontWeight: "600", color: "var(--tx-bright)" } }, f.name),
               Pet.h("div", { style: { fontSize: "11.5px", color: "var(--tx-faint)", marginTop: "3px" } }, f.description)
             ),
-            Pet.h("div", { style: { flex: "0 0 auto" } }, control)
+            Pet.h("div", { className: "pet-ctrl-wrap", style: { flex: "0 0 auto", display: "flex", flexDirection: "column" } }, control)
           );
         });
 
@@ -560,23 +560,30 @@
             applyBtn.disabled = true;
             Pet.api.putConfig(Pet.state.configDirty).then(function (d) {
               if (d._status && d.detail) {
-                d.detail.forEach(function (err) {
-                  var fieldEl = null;
-                  formArea.querySelectorAll("[data-field]").forEach(function (el) {
-                    if (el.dataset.field === err.field) fieldEl = el;
+                if (Array.isArray(d.detail)) {
+                  d.detail.forEach(function (err) {
+                    if (!err || !err.field) return;
+                    var fieldEl = null;
+                    formArea.querySelectorAll("[data-field]").forEach(function (el) {
+                      if (el.dataset.field === err.field) fieldEl = el;
+                    });
+                    if (fieldEl) {
+                      var wrapper = fieldEl.querySelector(".pet-ctrl-wrap");
+                      (wrapper || fieldEl).appendChild(Pet.h("div", {
+                        className: "pet-field-err",
+                        style: { color: "var(--err)", fontSize: "11px", marginTop: "4px" }
+                      }, err.message));
+                    }
                   });
-                  if (fieldEl) {
-                    fieldEl.appendChild(Pet.h("div", {
-                      className: "pet-field-err",
-                      style: { color: "var(--err)", fontSize: "11px", marginTop: "4px" }
-                    }, err.message));
-                  }
-                });
+                }
                 if (!formArea.querySelector(".pet-field-err")) {
+                  var msg = Array.isArray(d.detail)
+                    ? d.detail.map(function (e) { return (e.field || "?") + ": " + (e.message || String(e)); }).join("; ")
+                    : String(d.detail);
                   formArea.insertBefore(Pet.h("div", {
                     className: "pet-field-err",
                     style: { color: "var(--err)", fontSize: "12px", padding: "8px 12px", background: "var(--bg-raised)", borderRadius: "var(--r-card)", marginBottom: "8px" }
-                  }, d.detail.map(function (e) { return e.field + ": " + e.message; }).join("; ")), formArea.firstChild);
+                  }, msg), formArea.firstChild);
                 }
                 return;
               }

@@ -233,6 +233,7 @@
 .pet .help { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 14px; color: var(--tx-ghost); cursor: help; flex: 0 0 14px; outline: none; }
 .pet .help svg.i { width: 14px; height: 14px; }
 .pet .help:hover, .pet .help:focus { color: var(--acc-bright); }
+.pet .help:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; border-radius: 2px; }
 .pet .tip {
   position: fixed;
   min-width: 220px; max-width: 320px;
