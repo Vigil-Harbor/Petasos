@@ -68,7 +68,7 @@ async def test_sse_frame_format_for_fetch_reader() -> None:
     assert len(event_line) == 1
     assert len(data_line) == 1
     assert event_line[0] == "event: scan_result"
-    payload = json.loads(data_line[0][len("data: "):])
+    payload = json.loads(data_line[0][len("data: ") :])
     assert payload["safe"] is False
     assert "seq" in payload
 
@@ -144,7 +144,7 @@ def test_polling_and_sse_return_same_scan(client: TestClient) -> None:
 
     data_line = [line for line in msg.strip().split("\n") if line.startswith("data: ")]
     assert len(data_line) == 1
-    sse_payload = json.loads(data_line[0][len("data: "):])
+    sse_payload = json.loads(data_line[0][len("data: ") :])
 
     history = client.get("/scan-history?limit=1").json()
     assert len(history["entries"]) >= 1
