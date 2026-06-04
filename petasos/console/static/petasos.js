@@ -225,51 +225,106 @@
     getAbout: function () { return this._get("/about"); },
   };
 
-  // ── SSE client ──
+  // ── SSE client (fetch-based for auth header support) ──
   Pet.sse = {
-    source: null,
+    _reader: null,
+    _abortCtrl: null,
+    _usingFallback: false,
+
     connect: function () {
       var self = this;
-      try {
-        var url = Pet.api.baseUrl + "/events";
-        self.source = new EventSource(url);
-        var errorCount = 0;
-        self.source.addEventListener("open", function () { errorCount = 0; });
-        self.source.onerror = function () {
-          errorCount++;
-          if (errorCount >= 3) {
-            self.source.close();
-            self.source = null;
-            console.warn("Petasos SSE: 3 consecutive errors, disabling live updates");
+      if (self._abortCtrl) self.disconnect();
+      var url = Pet.api.baseUrl + "/events";
+      var headers = { "Accept": "text/event-stream" };
+      var token = window.__HERMES_SESSION_TOKEN__;
+      if (token) headers["X-Hermes-Session-Token"] = token;
+
+      self._abortCtrl = new AbortController();
+      fetch(url, {
+        headers: headers,
+        signal: self._abortCtrl.signal,
+        credentials: "same-origin",
+      })
+        .then(function (resp) {
+          if (!resp.ok) throw new Error(resp.status);
+          if (!resp.body) throw new Error("no response body");
+          var reader = resp.body.getReader();
+          var dec = new TextDecoder();
+          self._reader = reader;
+          var buf = "";
+          function pump() {
+            reader.read().then(function (r) {
+              if (r.done) {
+                if (buf.trim()) {
+                  var evType = null, evData = null;
+                  buf.replace(/\r\n/g, "\n").split("\n").forEach(function (line) {
+                    if (line.indexOf("event: ") === 0) evType = line.slice(7);
+                    else if (line.indexOf("data: ") === 0) evData = line.slice(6);
+                  });
+                  if (evType && evData) self._dispatch(evType, evData);
+                }
+                self._enableFallback();
+                return;
+              }
+              buf += dec.decode(r.value, { stream: true }).replace(/\r\n/g, "\n");
+              var frames = buf.split("\n\n");
+              buf = frames.pop();
+              frames.forEach(function (frame) {
+                var evType = null, evData = null;
+                frame.split("\n").forEach(function (line) {
+                  if (line.indexOf("event: ") === 0) evType = line.slice(7);
+                  else if (line.indexOf("data: ") === 0) evData = line.slice(6);
+                });
+                if (evType && evData) self._dispatch(evType, evData);
+              });
+              pump();
+            }).catch(function (e) {
+              if (e.name !== "AbortError") self._enableFallback();
+            });
           }
-        };
-        self.source.addEventListener("scan_result", function (e) {
-          try { var data = JSON.parse(e.data); } catch (_) { return; }
-          Pet.state.scanHistory.unshift(data);
-          if (Pet.state.scanHistory.length > 500) Pet.state.scanHistory.length = 500;
-          if (Pet.state.tab === "obs" && _container) Pet.renderDashboard(_container);
+          pump();
+        })
+        .catch(function (e) {
+          if (e.name !== "AbortError") {
+            console.warn("Petasos SSE: " + e.message + ", using polling fallback");
+            self._enableFallback();
+          }
         });
-        self.source.addEventListener("audit", function (e) {
-          try { var data = JSON.parse(e.data); } catch (_) { return; }
-          Pet.state.auditLog.unshift(data);
-          if (Pet.state.auditLog.length > 1000) Pet.state.auditLog.length = 1000;
-        });
-        self.source.addEventListener("alert", function (e) {
-          try { var data = JSON.parse(e.data); } catch (_) { return; }
-          Pet.state.alerts.unshift(data);
-          if (Pet.state.alerts.length > 200) Pet.state.alerts.length = 200;
-        });
-      } catch (err) {
-        // SSE not available (e.g., server not running)
+    },
+
+    _dispatch: function (evType, dataStr) {
+      try { var d = JSON.parse(dataStr); } catch (_) { return; }
+      if (evType === "scan_result") {
+        Pet.state.scanHistory.unshift(d);
+        if (Pet.state.scanHistory.length > 500) Pet.state.scanHistory.length = 500;
+        if (Pet.state.tab === "obs" && _container) Pet.renderDashboard(_container);
+      } else if (evType === "audit") {
+        Pet.state.auditLog.unshift(d);
+        if (Pet.state.auditLog.length > 1000) Pet.state.auditLog.length = 1000;
+      } else if (evType === "alert") {
+        Pet.state.alerts.unshift(d);
+        if (Pet.state.alerts.length > 200) Pet.state.alerts.length = 200;
       }
     },
+
+    _enableFallback: function () {
+      if (this._usingFallback) return;
+      this._usingFallback = true;
+      startFallbackPolling();
+    },
+
     disconnect: function () {
-      if (this.source) { this.source.close(); this.source = null; }
+      if (this._abortCtrl) { this._abortCtrl.abort(); this._abortCtrl = null; }
+      this._reader = null;
+      this._usingFallback = false;
+      stopFallbackPolling();
     },
   };
 
-  // ── Polling ──
+  // ── Polling (health: always, scan/alert data: fallback when SSE unavailable) ──
   var _pollInterval = null;
+  var _fallbackPollInterval = null;
+
   function startPolling() {
     if (_pollInterval) return;
     _pollInterval = setInterval(function () {
@@ -284,6 +339,32 @@
   }
   function stopPolling() {
     if (_pollInterval) { clearInterval(_pollInterval); _pollInterval = null; }
+  }
+
+  function startFallbackPolling() {
+    if (_fallbackPollInterval) return;
+    function schedule() {
+      _fallbackPollInterval = setTimeout(function () {
+        Pet.api.getScanHistory(100).then(function (d) {
+          if (!d.error && d.entries && Array.isArray(d.entries)) {
+            Pet.state.scanHistory = d.entries;
+            if (Pet.state.tab === "obs" && _container) Pet.renderDashboard(_container);
+          }
+        }).then(function () {
+          if (_fallbackPollInterval) schedule();
+        });
+      }, 10000);
+    }
+    Pet.api.getScanHistory(100).then(function (d) {
+      if (!d.error && d.entries && Array.isArray(d.entries)) {
+        Pet.state.scanHistory = d.entries;
+        if (Pet.state.tab === "obs" && _container) Pet.renderDashboard(_container);
+      }
+    });
+    schedule();
+  }
+  function stopFallbackPolling() {
+    if (_fallbackPollInterval) { clearTimeout(_fallbackPollInterval); _fallbackPollInterval = null; }
   }
 
   // ── Surface renderers ──
