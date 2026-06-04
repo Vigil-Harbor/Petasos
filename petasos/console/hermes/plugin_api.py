@@ -17,12 +17,9 @@ import logging
 import os
 import platform
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-from fastapi import APIRouter, HTTPException
-
-if TYPE_CHECKING:
-    from fastapi import Request
+from fastapi import APIRouter, HTTPException, Request
 
 logger = logging.getLogger("petasos.dashboard")
 
