@@ -183,6 +183,21 @@
     baseUrl: "/api",
     _req: function (path, opts) {
       var url = this.baseUrl + path;
+      var sdk = window.__HERMES_PLUGIN_SDK__;
+      if (sdk && sdk.fetchJSON) {
+        return sdk.fetchJSON(url, opts)
+          .then(function (r) { return r; })
+          .catch(function (e) {
+            var msg = e.message || "";
+            var match = msg.match(/^(\d+):\s*([\s\S]*)/);
+            if (match) {
+              var status = parseInt(match[1], 10);
+              try { var body = JSON.parse(match[2]); body._status = status; return body; } catch (_) {}
+              return { error: match[2], _status: status };
+            }
+            return { error: msg };
+          });
+      }
       return fetch(url, opts).then(function (r) {
         return r.json().then(function (data) {
           if (!r.ok) data._status = r.status;
@@ -560,26 +575,28 @@
             applyBtn.disabled = true;
             Pet.api.putConfig(Pet.state.configDirty).then(function (d) {
               if (d._status && d.detail) {
-                if (Array.isArray(d.detail)) {
-                  d.detail.forEach(function (err) {
-                    if (!err || !err.field) return;
-                    var fieldEl = null;
-                    formArea.querySelectorAll("[data-field]").forEach(function (el) {
-                      if (el.dataset.field === err.field) fieldEl = el;
-                    });
-                    if (fieldEl) {
-                      var wrapper = fieldEl.querySelector(".pet-ctrl-wrap");
-                      (wrapper || fieldEl).appendChild(Pet.h("div", {
-                        className: "pet-field-err",
-                        style: { color: "var(--err)", fontSize: "11px", marginTop: "4px" }
-                      }, err.message));
-                    }
+                var raw = Array.isArray(d.detail) ? d.detail : [d.detail];
+                var details = raw.map(function (el) {
+                  if (typeof el === "string") return { field: "?", message: el };
+                  if (!el || typeof el !== "object") return { field: "?", message: String(el) };
+                  return { field: el.field || el.name || el.path || "?", message: el.message || el.msg || el.detail || String(el) };
+                });
+                details.forEach(function (err) {
+                  if (err.field === "?") return;
+                  var fieldEl = null;
+                  formArea.querySelectorAll("[data-field]").forEach(function (el) {
+                    if (el.dataset.field === err.field) fieldEl = el;
                   });
-                }
+                  if (fieldEl) {
+                    var wrapper = fieldEl.querySelector(".pet-ctrl-wrap");
+                    (wrapper || fieldEl).appendChild(Pet.h("div", {
+                      className: "pet-field-err",
+                      style: { color: "var(--err)", fontSize: "11px", marginTop: "4px" }
+                    }, err.message));
+                  }
+                });
                 if (!formArea.querySelector(".pet-field-err")) {
-                  var msg = Array.isArray(d.detail)
-                    ? d.detail.map(function (e) { return (e.field || "?") + ": " + (e.message || String(e)); }).join("; ")
-                    : String(d.detail);
+                  var msg = details.map(function (e) { return e.field + ": " + e.message; }).join("; ");
                   formArea.insertBefore(Pet.h("div", {
                     className: "pet-field-err",
                     style: { color: "var(--err)", fontSize: "12px", padding: "8px 12px", background: "var(--bg-raised)", borderRadius: "var(--r-card)", marginBottom: "8px" }
