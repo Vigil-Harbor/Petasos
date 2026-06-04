@@ -145,3 +145,28 @@ async def test_pipeline_result_to_dict(pipeline: Pipeline) -> None:
     assert isinstance(d["errors"], list)
     if d["feature_status"] is not None:
         assert isinstance(d["feature_status"], dict)
+
+
+async def test_config_persist_writes_yaml(
+    handlers: ConsoleHandlers, tmp_path,
+) -> None:
+    """Config updates persist to config.yaml's petasos: section."""
+    import yaml
+    from unittest.mock import patch
+
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        "model:\n  default: test\npetasos:\n  anonymize: false\n",
+        encoding="utf-8",
+    )
+
+    with patch("petasos.console.server._hermes_config_path", return_value=config_file):
+        result, errors = await handlers.update_config({"anonymize": True})
+
+    assert errors is None
+    assert result is not None
+    assert result["config"]["anonymize"] is True
+
+    persisted = yaml.safe_load(config_file.read_text(encoding="utf-8"))
+    assert persisted["petasos"]["anonymize"] is True
+    assert persisted["model"]["default"] == "test"

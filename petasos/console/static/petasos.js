@@ -183,13 +183,16 @@
     baseUrl: "/api",
     _req: function (path, opts) {
       var url = this.baseUrl + path;
-      var sdk = window.__HERMES_PLUGIN_SDK__;
-      if (sdk && sdk.fetchJSON) {
-        return sdk.fetchJSON(url, opts)
-          .then(function (r) { return r; })
-          .catch(function (e) { return { error: e.message }; });
-      }
-      return fetch(url, opts).then(function (r) { return r.json(); }).catch(function (e) { return { error: e.message }; });
+      return fetch(url, opts).then(function (r) {
+        return r.json().then(function (data) {
+          if (!r.ok) data._status = r.status;
+          return data;
+        }).catch(function () {
+          return { error: r.status + " " + r.statusText, _status: r.status };
+        });
+      }).catch(function (e) {
+        return { error: e.message };
+      });
     },
     _get: function (path) { return this._req(path); },
     _post: function (path, body) {
@@ -213,20 +216,31 @@
     connect: function () {
       var self = this;
       try {
-        self.source = new EventSource(Pet.api.baseUrl + "/events");
+        var url = Pet.api.baseUrl + "/events";
+        self.source = new EventSource(url);
+        var errorCount = 0;
+        self.source.addEventListener("open", function () { errorCount = 0; });
+        self.source.onerror = function () {
+          errorCount++;
+          if (errorCount >= 3) {
+            self.source.close();
+            self.source = null;
+            console.warn("Petasos SSE: 3 consecutive errors, disabling live updates");
+          }
+        };
         self.source.addEventListener("scan_result", function (e) {
-          var data = JSON.parse(e.data);
+          try { var data = JSON.parse(e.data); } catch (_) { return; }
           Pet.state.scanHistory.unshift(data);
           if (Pet.state.scanHistory.length > 500) Pet.state.scanHistory.length = 500;
           if (Pet.state.tab === "obs" && _container) Pet.renderDashboard(_container);
         });
         self.source.addEventListener("audit", function (e) {
-          var data = JSON.parse(e.data);
+          try { var data = JSON.parse(e.data); } catch (_) { return; }
           Pet.state.auditLog.unshift(data);
           if (Pet.state.auditLog.length > 1000) Pet.state.auditLog.length = 1000;
         });
         self.source.addEventListener("alert", function (e) {
-          var data = JSON.parse(e.data);
+          try { var data = JSON.parse(e.data); } catch (_) { return; }
           Pet.state.alerts.unshift(data);
           if (Pet.state.alerts.length > 200) Pet.state.alerts.length = 200;
         });
@@ -518,7 +532,7 @@
             control = inp2;
           }
 
-          return Pet.h("div", { style: { display: "flex", alignItems: "flex-start", gap: "14px", padding: "12px 0", borderBottom: "1px solid var(--border-soft)" } },
+          return Pet.h("div", { dataset: { field: f.name }, style: { display: "flex", alignItems: "flex-start", gap: "14px", padding: "12px 0", borderBottom: "1px solid var(--border-soft)" } },
             Pet.h("div", { style: { flex: "1" } },
               Pet.h("div", { className: "mono", style: { fontSize: "12.5px", fontWeight: "600", color: "var(--tx-bright)" } }, f.name),
               Pet.h("div", { style: { fontSize: "11.5px", color: "var(--tx-faint)", marginTop: "3px" } }, f.description)
@@ -539,20 +553,44 @@
           Pet.state.configDirty = {};
           Pet.renderConfig(container);
         } }, "Discard"),
-        Pet.h("button", { className: "btn btn-primary", onClick: function () {
-          if (Object.keys(Pet.state.configDirty).length === 0) return;
-          Pet.api.putConfig(Pet.state.configDirty).then(function (d) {
-            if (d.error) {
-              alert("Save failed: " + d.error);
-            } else if (d.detail) {
-              alert("Validation error: " + JSON.stringify(d.detail));
-            } else {
+        (function () {
+          var applyBtn = Pet.h("button", { className: "btn btn-primary", onClick: function () {
+            if (Object.keys(Pet.state.configDirty).length === 0) return;
+            formArea.querySelectorAll(".pet-field-err").forEach(function (el) { el.remove(); });
+            applyBtn.disabled = true;
+            Pet.api.putConfig(Pet.state.configDirty).then(function (d) {
+              if (d._status && d.detail) {
+                d.detail.forEach(function (err) {
+                  var fieldEl = null;
+                  formArea.querySelectorAll("[data-field]").forEach(function (el) {
+                    if (el.dataset.field === err.field) fieldEl = el;
+                  });
+                  if (fieldEl) {
+                    fieldEl.appendChild(Pet.h("div", {
+                      className: "pet-field-err",
+                      style: { color: "var(--err)", fontSize: "11px", marginTop: "4px" }
+                    }, err.message));
+                  }
+                });
+                if (!formArea.querySelector(".pet-field-err")) {
+                  formArea.insertBefore(Pet.h("div", {
+                    className: "pet-field-err",
+                    style: { color: "var(--err)", fontSize: "12px", padding: "8px 12px", background: "var(--bg-raised)", borderRadius: "var(--r-card)", marginBottom: "8px" }
+                  }, d.detail.map(function (e) { return e.field + ": " + e.message; }).join("; ")), formArea.firstChild);
+                }
+                return;
+              }
+              if (d.error) {
+                alert("Save failed: " + d.error);
+                return;
+              }
               Pet.state.config = d.config || Pet.state.config;
               Pet.state.configDirty = {};
               Pet.renderConfig(container);
-            }
-          });
-        } }, Pet.Icon("check"), " Apply config")
+            }).then(function () { applyBtn.disabled = false; }, function () { applyBtn.disabled = false; });
+          } }, Pet.Icon("check"), " Apply config");
+          return applyBtn;
+        })()
       );
       formArea.appendChild(saveBar);
     });
