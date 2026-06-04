@@ -150,7 +150,8 @@ async def test_pipeline_result_to_dict(pipeline: Pipeline) -> None:
 
 
 async def test_config_persist_writes_yaml(
-    handlers: ConsoleHandlers, tmp_path: Path,
+    handlers: ConsoleHandlers,
+    tmp_path: Path,
 ) -> None:
     """Config updates persist to config.yaml's petasos: section."""
     from unittest.mock import patch

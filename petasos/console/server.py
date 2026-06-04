@@ -63,7 +63,8 @@ def _persist_config(validated_config: Any) -> bool:
         full["petasos"] = export
 
         fd, tmp_path = tempfile.mkstemp(
-            dir=str(config_path.parent), suffix=".tmp",
+            dir=str(config_path.parent),
+            suffix=".tmp",
         )
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as f:

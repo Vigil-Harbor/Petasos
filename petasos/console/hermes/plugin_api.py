@@ -46,8 +46,7 @@ def _load_config() -> dict[str, Any]:
     import yaml
 
     if platform.system() == "Windows":
-        config_path = Path(os.environ.get(
-            "LOCALAPPDATA", "")) / "hermes" / "config.yaml"
+        config_path = Path(os.environ.get("LOCALAPPDATA", "")) / "hermes" / "config.yaml"
     else:
         config_path = Path.home() / ".hermes" / "config.yaml"
 
@@ -81,8 +80,8 @@ def _self_init() -> None:
             raw_config["session_secret"] = base64.b64decode(session_secret_b64)
         except Exception as exc:
             logger.warning(
-                "PETASOS_SESSION_SECRET is not valid base64 — session binding "
-                "disabled: %s", exc,
+                "PETASOS_SESSION_SECRET is not valid base64 — session binding disabled: %s",
+                exc,
             )
 
     hash_key = os.environ.get("PETASOS_HASH_KEY")
@@ -103,6 +102,7 @@ def _self_init() -> None:
         try:
             mod, cls = cls_path.rsplit(".", 1)
             import importlib
+
             m = importlib.import_module(mod)
             scanners.append(getattr(m, cls)())
             logger.info("Dashboard loaded scanner: %s", name)
@@ -118,8 +118,7 @@ def _self_init() -> None:
         pipeline.activate(license_key)
 
     init_handlers(pipeline)
-    logger.info("Dashboard self-initialized pipeline: scanners=%s",
-                [s.name for s in scanners])
+    logger.info("Dashboard self-initialized pipeline: scanners=%s", [s.name for s in scanners])
 
 
 def _require_handlers() -> Any:
@@ -127,6 +126,7 @@ def _require_handlers() -> Any:
     if _handlers is None:
         try:
             import petasos.console as _console
+
             if _console._shared_pipeline is not None:
                 init_handlers(_console._shared_pipeline)
         except Exception:
