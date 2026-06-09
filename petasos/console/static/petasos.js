@@ -104,11 +104,57 @@
     info: { cls: "sev-info", col: "var(--info)", short: "INFO" },
   };
 
+  // Parses a restricted markup subset into a DocumentFragment of real DOM nodes.
+  // Recognized (opening + closing, any case): <b> <code> <em>.
+  // Every other "<" is treated as a literal character and escaped to a text node.
+  // No HTML string is ever constructed; no innerHTML/DOMParser is ever used.
+  // NOTE: ALLOWED must never gain a "g" flag — RegExp.exec with /g is stateful
+  // (lastIndex persists across calls) and would make richText non-deterministic.
+  Pet.richText = function (markup) {
+    var frag = document.createDocumentFragment();
+    if (markup == null) return frag;
+    markup = String(markup);
+    var ALLOWED = /^<(\/?)(b|code|em)>$/i;
+    var stack = [frag];
+    var buf = "";
+    var i = 0;
+    var flush = function () {
+      if (buf) {
+        stack[stack.length - 1].appendChild(document.createTextNode(buf));
+        buf = "";
+      }
+    };
+    while (i < markup.length) {
+      if (markup[i] === "<") {
+        var close = markup.indexOf(">", i);
+        if (close !== -1) {
+          var m = ALLOWED.exec(markup.substring(i, close + 1));
+          if (m) {
+            flush();
+            if (m[1] === "/") {
+              if (stack.length > 1) stack.pop();
+            } else {
+              var el = document.createElement(m[2].toLowerCase());
+              stack[stack.length - 1].appendChild(el);
+              stack.push(el);
+            }
+            i = close + 1;
+            continue;
+          }
+        }
+      }
+      buf += markup[i];
+      i++;
+    }
+    flush();
+    return frag;
+  };
+
   Pet.HelpTip = function (html) {
     var btn = Pet.h("span", { className: "help", tabIndex: "0" });
     btn.appendChild(Pet.Icon("q"));
     var tip = Pet.h("span", { className: "tip" });
-    tip.innerHTML = html;
+    tip.appendChild(Pet.richText(html));
     btn.appendChild(tip);
     var position = function () {
       var r = btn.getBoundingClientRect();

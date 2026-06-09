@@ -1,0 +1,28 @@
+✔ loader: petasos.js exports Pet.richText (0.5703ms)
+✔ #1 <b> renders a B element (0.2474ms)
+✔ #2 <code> renders a CODE element (0.3981ms)
+✔ #3 <em> is allow-listed (0.0947ms)
+✔ #4 nested tags build a nested tree (0.0978ms)
+✔ #5 uppercase tags are honored (case-insensitive) (0.1065ms)
+✔ #6 <script> is escaped to text, no element (0.2121ms)
+✔ #7 <img onerror> is escaped to text, no element (0.1094ms)
+✔ #8 <b class=...> degrades to text; </b> swallowed (0.0928ms)
+✔ #9 mis-nested tags pop by position (0.1073ms)
+✔ #10 truncated < is literal text (0.0646ms)
+✔ #11 lone </b> yields an empty fragment, no throw (0.0581ms)
+✔ #12 unclosed <b> still wraps trailing text (0.0491ms)
+✔ #13 null/undefined/empty return an empty fragment (0.0295ms)
+✔ #14 number input coerces to text (0.0438ms)
+✔ #15 plain text becomes a single text node (0.0305ms)
+✔ #16 whitespace and stray angle brackets (0.0533ms)
+✔ #17 astral characters survive intact (0.0993ms)
+✔ #18 security sweep: only b/code/em can become elements (0.0969ms)
+✔ #19 current caller strings render identically (structural) (0.2147ms)
+ℹ tests 20
+ℹ suites 0
+ℹ pass 20
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 56.5514
