@@ -136,22 +136,24 @@ test("#7 <img onerror> is escaped to text, no element", () => {
   assert.equal(f.textContent, input);
 });
 
-// #8 attribute-bearing allowed tag is NOT honored (most error-prone assertion)
-test("#8 <b class=...> degrades to text; </b> swallowed", () => {
+// #8 attribute-bearing allowed tag is NOT honored
+test("#8 <b class=...> degrades to literal text", () => {
   const f = Pet.richText('<b class="x">y</b>');
   assert.deepEqual(tagNames(f), []);
-  // Neither the full input nor tags-stripped: the </b> is consumed by the
-  // guarded pop, leaving the open-tag-with-attributes as literal text.
-  assert.equal(f.textContent, '<b class="x">y');
+  // The open-tag-with-attributes never opens a B, so the trailing </b> has no
+  // matching element and is also literal: the whole input round-trips to text.
+  assert.equal(f.textContent, '<b class="x">y</b>');
 });
 
-// #9 mis-nested: positional pop (documented non-adoption-agency behavior)
-test("#9 mis-nested tags pop by position", () => {
-  const f = Pet.richText("<b><code>x</b></code>");
-  assert.deepEqual(tagNames(f), ["B", "CODE"]);
-  assert.equal(f.textContent, "x");
+// #9 mismatched closer is treated as literal text (structural rule not suppressed)
+test("#9 mismatched </b> does not close the wrong element", () => {
+  const f = Pet.richText("<b><em>x</b>");
+  // </b> does not match the open <em>, so it is literal text, not a close.
+  assert.deepEqual(tagNames(f), ["B", "EM"]);
+  assert.equal(f.textContent, "x</b>");
   assert.equal(f.childNodes[0].tagName, "B");
-  assert.equal(f.childNodes[0].childNodes[0].tagName, "CODE");
+  assert.equal(f.childNodes[0].childNodes[0].tagName, "EM");
+  assert.equal(f.childNodes[0].childNodes[0].textContent, "x</b>");
 });
 
 // #10 truncated "<"
@@ -161,10 +163,11 @@ test("#10 truncated < is literal text", () => {
   assert.equal(f.textContent, "<b");
 });
 
-// #11 lone close tag
-test("#11 lone </b> yields an empty fragment, no throw", () => {
+// #11 lone close tag has no matching element → literal text
+test("#11 lone </b> is literal text, no throw", () => {
   const f = Pet.richText("</b>");
-  assert.equal(f.childNodes.length, 0);
+  assert.deepEqual(tagNames(f), []);
+  assert.equal(f.textContent, "</b>");
 });
 
 // #12 unclosed open tag
