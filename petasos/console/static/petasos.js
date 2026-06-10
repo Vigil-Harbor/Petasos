@@ -435,6 +435,7 @@
     dirToggle.appendChild(outBtn);
 
     var sessionInput = Pet.h("input", { className: "input mono", style: { width: "120px", height: "30px", fontSize: "12px" }, placeholder: "session_id" });
+    sessionInput.maxLength = 128; // mirrors _MAX_SESSION_ID_LEN; server check is authoritative (PET-85)
 
     var scanBtn = Pet.h("button", { className: "btn btn-primary btn-sm", onClick: function () {
       var text = textArea.value;
