@@ -21,6 +21,8 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 
+from petasos.console._validation import SessionIdError, sanitize_session_id
+
 logger = logging.getLogger("petasos.dashboard")
 
 router = APIRouter()
@@ -198,9 +200,10 @@ async def run_scan(request: Request) -> Any:
     if not isinstance(direction, str) or direction not in _VALID_DIRECTIONS:
         err = {"field": "direction", "message": "Must be 'inbound' or 'outbound'"}
         return JSONResponse(status_code=422, content={"detail": [err]})
-    session_id = body.get("session_id")
-    if session_id is not None and not isinstance(session_id, str):
-        err = {"field": "session_id", "message": "Must be a string or null"}
+    try:
+        session_id = sanitize_session_id(body.get("session_id"))
+    except SessionIdError as exc:
+        err = {"field": "session_id", "message": str(exc)}
         return JSONResponse(status_code=422, content={"detail": [err]})
     return await h.run_scan(text, direction=direction, session_id=session_id)
 
