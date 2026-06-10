@@ -40,3 +40,14 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - run: pip install -e ".[dev]"
       - run: pytest tests/ -v --tb=short
+
+  # PET-82: console frontend unit test (zero npm deps; node:test built-in
+  # runner). First non-Python job — no npm install, no cache (no lockfile).
+  js-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: node --test tests/js/richtext.test.mjs
