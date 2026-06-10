@@ -26,7 +26,12 @@ class SyntacticRule:
 # --- Injection patterns (8 rules) ---
 
 _INJECTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
-    ("ignore-previous", re.compile(r"ignore\s+previous\s+instructions", re.IGNORECASE)),
+    (
+        "ignore-previous",
+        # Optional determiner so "ignore all previous instructions" doesn't
+        # fall between this rule and ignore-all (PET-91).
+        re.compile(r"ignore\s+(?:(?:all|any|your|the)\s+)?previous\s+instructions", re.IGNORECASE),
+    ),
     ("ignore-all", re.compile(r"ignore\s+all\s+instructions", re.IGNORECASE)),
     ("disregard", re.compile(r"disregard\s+your", re.IGNORECASE)),
     ("you-are-now", re.compile(r"you\s+are\s+now", re.IGNORECASE)),
