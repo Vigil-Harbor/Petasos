@@ -1,6 +1,13 @@
-"""FastAPI app factory and route handlers for the Petasos Console."""
+"""FastAPI app factory and route handlers for the Petasos Console.
 
-from __future__ import annotations
+No ``from __future__ import annotations`` here: build_app's nested route
+signatures (``request: Request``) must evaluate eagerly in build_app's local
+scope, where the function-local fastapi imports live. With string annotations
+FastAPI resolves against module globals, misses ``Request``, and silently
+treats the parameter as a required query param — every standalone POST/PUT
+422s (pre-existing defect surfaced by the PET-85 route-parity tests).
+TYPE_CHECKING-only names in module-level signatures are quoted instead.
+"""
 
 import hashlib
 import json
@@ -13,6 +20,7 @@ from typing import TYPE_CHECKING, Any
 from petasos.console._config_meta import generate_config_metadata
 from petasos.console._ring_buffer import RingBuffer
 from petasos.console._sse import SSEBroadcaster
+from petasos.console._validation import SessionIdError, sanitize_session_id
 from petasos.normalize import normalize
 
 if TYPE_CHECKING:
@@ -89,7 +97,7 @@ def _persist_config(validated_config: Any) -> bool:
 class ConsoleHandlers:
     """Shared route handlers used by both standalone and Hermes plugin modes."""
 
-    def __init__(self, pipeline: Pipeline) -> None:
+    def __init__(self, pipeline: "Pipeline") -> None:
         self.pipeline = pipeline
         self.scan_history = RingBuffer[dict[str, Any]](maxlen=500)
         self.sse = SSEBroadcaster()
@@ -186,6 +194,7 @@ class ConsoleHandlers:
             "result": result.to_dict(),
             "normalized_text": normalized_text,
             "scan_id": scan_id,
+            "session_id": session_id,
         }
 
     async def get_health(self) -> dict[str, Any]:
@@ -244,7 +253,7 @@ def _extract_field_from_error(msg: str, body: dict[str, Any]) -> str:
     return "unknown"
 
 
-def build_app(pipeline: Pipeline) -> FastAPI:
+def build_app(pipeline: "Pipeline") -> "FastAPI":
     """Build the complete FastAPI application."""
     import importlib.resources
 
@@ -317,9 +326,10 @@ def build_app(pipeline: Pipeline) -> FastAPI:
         if not isinstance(direction, str) or direction not in _VALID_DIRECTIONS:
             err = {"field": "direction", "message": "Must be 'inbound' or 'outbound'"}
             return JSONResponse(status_code=422, content={"detail": [err]})
-        session_id = body.get("session_id")
-        if session_id is not None and not isinstance(session_id, str):
-            err = {"field": "session_id", "message": "Must be a string or null"}
+        try:
+            session_id = sanitize_session_id(body.get("session_id"))
+        except SessionIdError as exc:
+            err = {"field": "session_id", "message": str(exc)}
             return JSONResponse(status_code=422, content={"detail": [err]})
         return await handlers.run_scan(text, direction=direction, session_id=session_id)
 

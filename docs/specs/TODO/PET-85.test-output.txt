@@ -1,0 +1,134 @@
+=== PET-85 test gate — Python 3.11.14 ===
+
+$ python -m pytest tests/test_console_validation.py tests/test_console_handlers.py tests/test_plugin_api_sse.py -v
+============================= test session starts =============================
+platform win32 -- Python 3.11.14, pytest-9.0.2, pluggy-1.6.0 -- C:\Users\zioni\AppData\Local\hermes\hermes-agent\venv\Scripts\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\zioni\Documents\Vigil-Harbor\PET-85-worktree
+configfile: pyproject.toml
+plugins: anyio-4.13.0, asyncio-1.3.0, timeout-2.4.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 81 items
+
+tests/test_console_validation.py::test_null_session_id_passes[standalone] PASSED [  1%]
+tests/test_console_validation.py::test_null_session_id_passes[plugin] PASSED [  2%]
+tests/test_console_validation.py::test_non_string_rejected[standalone-123] PASSED [  3%]
+tests/test_console_validation.py::test_non_string_rejected[standalone-bad1] PASSED [  4%]
+tests/test_console_validation.py::test_non_string_rejected[plugin-123] PASSED [  6%]
+tests/test_console_validation.py::test_non_string_rejected[plugin-bad1] PASSED [  7%]
+tests/test_console_validation.py::test_empty_string_rejected[standalone] PASSED [  8%]
+tests/test_console_validation.py::test_empty_string_rejected[plugin] PASSED [  9%]
+tests/test_console_validation.py::test_whitespace_only_rejected[standalone] PASSED [ 11%]
+tests/test_console_validation.py::test_whitespace_only_rejected[plugin] PASSED [ 12%]
+tests/test_console_validation.py::test_oversize_rejected[standalone] PASSED [ 13%]
+tests/test_console_validation.py::test_oversize_rejected[plugin] PASSED  [ 14%]
+tests/test_console_validation.py::test_control_chars_rejected[standalone-abc\ndef] PASSED [ 16%]
+tests/test_console_validation.py::test_control_chars_rejected[standalone-abc\x00def] PASSED [ 17%]
+tests/test_console_validation.py::test_control_chars_rejected[plugin-abc\ndef] PASSED [ 18%]
+tests/test_console_validation.py::test_control_chars_rejected[plugin-abc\x00def] PASSED [ 19%]
+tests/test_console_validation.py::test_trailing_newline_trimmed[standalone] PASSED [ 20%]
+tests/test_console_validation.py::test_trailing_newline_trimmed[plugin] PASSED [ 22%]
+tests/test_console_validation.py::test_zero_width_rejected[standalone-sess\u200bion] PASSED [ 23%]
+tests/test_console_validation.py::test_zero_width_rejected[standalone-\u202esession] PASSED [ 24%]
+tests/test_console_validation.py::test_zero_width_rejected[plugin-sess\u200bion] PASSED [ 25%]
+tests/test_console_validation.py::test_zero_width_rejected[plugin-\u202esession] PASSED [ 27%]
+tests/test_console_validation.py::test_invisible_printable_rejected[standalone-U+2800] PASSED [ 28%]
+tests/test_console_validation.py::test_invisible_printable_rejected[standalone-U+3164] PASSED [ 29%]
+tests/test_console_validation.py::test_invisible_printable_rejected[standalone-U+FFA0] PASSED [ 30%]
+tests/test_console_validation.py::test_invisible_printable_rejected[standalone-U+115F] PASSED [ 32%]
+tests/test_console_validation.py::test_invisible_printable_rejected[standalone-U+1160] PASSED [ 33%]
+tests/test_console_validation.py::test_invisible_printable_rejected[standalone-U+034F] PASSED [ 34%]
+tests/test_console_validation.py::test_invisible_printable_rejected[standalone-U+180F] PASSED [ 35%]
+tests/test_console_validation.py::test_invisible_printable_rejected[standalone-U+17B4] PASSED [ 37%]
+tests/test_console_validation.py::test_invisible_printable_rejected[standalone-U+17B5] PASSED [ 38%]
+tests/test_console_validation.py::test_invisible_printable_rejected[standalone-U+FE0F] PASSED [ 39%]
+tests/test_console_validation.py::test_invisible_printable_rejected[standalone-U+16FE4] PASSED [ 40%]
+tests/test_console_validation.py::test_invisible_printable_rejected[standalone-U+1BC9D] PASSED [ 41%]
+tests/test_console_validation.py::test_invisible_printable_rejected[plugin-U+2800] PASSED [ 43%]
+tests/test_console_validation.py::test_invisible_printable_rejected[plugin-U+3164] PASSED [ 44%]
+tests/test_console_validation.py::test_invisible_printable_rejected[plugin-U+FFA0] PASSED [ 45%]
+tests/test_console_validation.py::test_invisible_printable_rejected[plugin-U+115F] PASSED [ 46%]
+tests/test_console_validation.py::test_invisible_printable_rejected[plugin-U+1160] PASSED [ 48%]
+tests/test_console_validation.py::test_invisible_printable_rejected[plugin-U+034F] PASSED [ 49%]
+tests/test_console_validation.py::test_invisible_printable_rejected[plugin-U+180F] PASSED [ 50%]
+tests/test_console_validation.py::test_invisible_printable_rejected[plugin-U+17B4] PASSED [ 51%]
+tests/test_console_validation.py::test_invisible_printable_rejected[plugin-U+17B5] PASSED [ 53%]
+tests/test_console_validation.py::test_invisible_printable_rejected[plugin-U+FE0F] PASSED [ 54%]
+tests/test_console_validation.py::test_invisible_printable_rejected[plugin-U+16FE4] PASSED [ 55%]
+tests/test_console_validation.py::test_invisible_printable_rejected[plugin-U+1BC9D] PASSED [ 56%]
+tests/test_console_validation.py::test_default_ignorable_rejected PASSED [ 58%]
+tests/test_console_validation.py::test_leading_combining_mark_rejected[\xa8] PASSED [ 59%]
+tests/test_console_validation.py::test_leading_combining_mark_rejected[\u0301abc] PASSED [ 60%]
+tests/test_console_validation.py::test_leading_combining_mark_rejected[\u093fabc] PASSED [ 61%]
+tests/test_console_validation.py::test_leading_combining_mark_rejected[\u20ddx] PASSED [ 62%]
+tests/test_console_validation.py::test_spacing_accent_accepted_visibly PASSED [ 64%]
+tests/test_console_validation.py::test_homoglyph_canonicalized PASSED    [ 65%]
+tests/test_console_validation.py::test_fullwidth_canonicalized PASSED    [ 66%]
+tests/test_console_validation.py::test_response_echoes_canonical_session_id[standalone] PASSED [ 67%]
+tests/test_console_validation.py::test_response_echoes_canonical_session_id[plugin] PASSED [ 69%]
+tests/test_console_validation.py::test_nfkc_expansion_capped PASSED      [ 70%]
+tests/test_console_validation.py::test_plain_ascii_unchanged PASSED      [ 71%]
+tests/test_console_validation.py::test_visible_unicode_id_accepted PASSED [ 72%]
+tests/test_console_handlers.py::test_get_config_returns_fields PASSED    [ 74%]
+tests/test_console_handlers.py::test_get_config_redacts_secrets PASSED   [ 75%]
+tests/test_console_handlers.py::test_update_config_valid PASSED          [ 76%]
+tests/test_console_handlers.py::test_update_config_invalid PASSED        [ 77%]
+tests/test_console_handlers.py::test_run_scan PASSED                     [ 79%]
+tests/test_console_handlers.py::test_run_scan_with_injection PASSED      [ 80%]
+tests/test_console_handlers.py::test_get_health PASSED                   [ 81%]
+tests/test_console_handlers.py::test_get_scan_history_empty PASSED       [ 82%]
+tests/test_console_handlers.py::test_get_scan_history_after_scan PASSED  [ 83%]
+tests/test_console_handlers.py::test_get_profiles PASSED                 [ 85%]
+tests/test_console_handlers.py::test_get_about PASSED                    [ 86%]
+tests/test_console_handlers.py::test_scan_history_limit PASSED           [ 87%]
+tests/test_console_handlers.py::test_pipeline_scanner_health PASSED      [ 88%]
+tests/test_console_handlers.py::test_pipeline_list_profiles PASSED       [ 90%]
+tests/test_console_handlers.py::test_pipeline_result_to_dict PASSED      [ 91%]
+tests/test_console_handlers.py::test_config_persist_writes_yaml PASSED   [ 92%]
+tests/test_plugin_api_sse.py::test_sse_frame_format_for_fetch_reader PASSED [ 93%]
+tests/test_plugin_api_sse.py::test_sse_auth_header_passthrough PASSED    [ 95%]
+tests/test_plugin_api_sse.py::test_scan_history_polling_path PASSED      [ 96%]
+tests/test_plugin_api_sse.py::test_scan_history_populated_after_scan PASSED [ 97%]
+tests/test_plugin_api_sse.py::test_health_endpoint_for_polling PASSED    [ 98%]
+tests/test_plugin_api_sse.py::test_polling_and_sse_return_same_scan PASSED [100%]
+
+============================== warnings summary ===============================
+tests/test_console_validation.py: 24 warnings
+  C:\Users\zioni\Documents\Vigil-Harbor\PET-85-worktree\petasos\console\server.py:271: DeprecationWarning: 
+          on_event is deprecated, use lifespan event handlers instead.
+  
+          Read more about it in the
+          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+          
+    @app.on_event("shutdown")
+
+tests/test_console_validation.py: 24 warnings
+  C:\Users\zioni\AppData\Local\hermes\hermes-agent\venv\Lib\site-packages\fastapi\applications.py:4599: DeprecationWarning: 
+          on_event is deprecated, use lifespan event handlers instead.
+  
+          Read more about it in the
+          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+          
+    return self.router.on_event(event_type)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================= 81 passed, 48 warnings in 0.60s =======================
+EXIT: 0
+
+$ python -m pytest
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+========== 1052 passed, 58 skipped, 1 xfailed, 48 warnings in 6.85s ===========
+EXIT: 0
+
+$ python -m ruff check .
+All checks passed!
+EXIT: 0
+
+$ python -m ruff format --check .
+95 files already formatted
+EXIT: 0
+
+$ python -m mypy --strict .
+Success: no issues found in 95 source files
+EXIT: 0
