@@ -104,11 +104,68 @@
     info: { cls: "sev-info", col: "var(--info)", short: "INFO" },
   };
 
+  // Parses a restricted markup subset into a DocumentFragment of real DOM nodes.
+  // Recognized (opening + closing, any case): <b> <code> <em>.
+  // Every other "<" is treated as a literal character and escaped to a text node.
+  // A closing tag that does not match the current open element is treated as
+  // literal text — mismatched/unbalanced structure is never silently suppressed.
+  // No HTML string is ever constructed; no innerHTML/DOMParser is ever used.
+  // NOTE: ALLOWED must never gain a "g" flag — RegExp.exec with /g is stateful
+  // (lastIndex persists across calls) and would make richText non-deterministic.
+  Pet.richText = function (markup) {
+    var frag = document.createDocumentFragment();
+    if (markup == null) return frag;
+    markup = String(markup);
+    var ALLOWED = /^<(\/?)(b|code|em)>$/i;
+    var stack = [frag];
+    var buf = "";
+    var i = 0;
+    var flush = function () {
+      if (buf) {
+        stack[stack.length - 1].appendChild(document.createTextNode(buf));
+        buf = "";
+      }
+    };
+    while (i < markup.length) {
+      if (markup[i] === "<") {
+        var close = markup.indexOf(">", i);
+        if (close !== -1) {
+          var m = ALLOWED.exec(markup.substring(i, close + 1));
+          if (m) {
+            if (m[1] === "/") {
+              // Closing tag: only pop when it matches the current open element.
+              var closing = m[2].toLowerCase();
+              var top = stack[stack.length - 1];
+              if (stack.length > 1 && top.tagName && top.tagName.toLowerCase() === closing) {
+                flush();
+                stack.pop();
+                i = close + 1;
+                continue;
+              }
+              // Mismatched/unbalanced closer — fall through to literal text.
+            } else {
+              flush();
+              var el = document.createElement(m[2].toLowerCase());
+              stack[stack.length - 1].appendChild(el);
+              stack.push(el);
+              i = close + 1;
+              continue;
+            }
+          }
+        }
+      }
+      buf += markup[i];
+      i++;
+    }
+    flush();
+    return frag;
+  };
+
   Pet.HelpTip = function (html) {
     var btn = Pet.h("span", { className: "help", tabIndex: "0" });
     btn.appendChild(Pet.Icon("q"));
     var tip = Pet.h("span", { className: "tip" });
-    tip.innerHTML = html;
+    tip.appendChild(Pet.richText(html));
     btn.appendChild(tip);
     var position = function () {
       var r = btn.getBoundingClientRect();
