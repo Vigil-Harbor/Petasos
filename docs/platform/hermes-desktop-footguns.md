@@ -346,6 +346,45 @@ flows back into the model context.
 
 ---
 
+## 15. Profile Homes Orphan Plugins on Upgrade
+
+Hermes v0.16 introduced per-profile homes (`profiles/<active>/`). The
+config migration copies config keys — including `petasos:` — into the
+profile home, but it does **not** copy plugin files. After a Hermes
+major or minor upgrade:
+
+- The dashboard shows the `petasos:` config section (it reads config
+  from the profile home) — enforcement *appears* configured.
+- But the plugin files (`__init__.py`, `plugin.yaml`) are still in the
+  v0.15 root `plugins/petasos/` directory, not the profile's.
+- Hermes's plugin discovery scans the profile home's `plugins/`
+  directory. No plugin files there → the plugin isn't loaded →
+  enforcement is **silently off**.
+
+This is the worst failure mode for a security plugin: everything looks
+configured, nothing is enforced, and there is no error in the logs.
+
+**Platform paths:**
+
+| Location | macOS | Windows |
+|----------|-------|---------|
+| v0.15 root plugins | `~/.hermes/plugins/petasos/` | `%LOCALAPPDATA%\hermes\plugins\petasos\` |
+| v0.16 profile plugins | `~/.hermes/profiles/<active>/plugins/petasos/` | `%LOCALAPPDATA%\hermes\profiles\<active>\plugins\petasos\` |
+
+**Impact:** Silent enforcement loss after any Hermes upgrade that
+introduces or changes profile home semantics.
+
+**Mitigation:**
+
+1. The `loading config from ... [tier=...]` INFO line (PET-86) in
+   `agent.log` confirms which config was resolved.
+2. `verify.py` checks plugin files at the resolved location and detects
+   root/profile config split-brain.
+3. After upgrading Hermes: re-copy plugin files to the profile home and
+   restart. See `hermes-desktop.md` § "Upgrading Hermes orphans plugins."
+
+---
+
 ## Summary: Integration Surface Ranking
 
 | Surface | Difficulty | Platform Risk | Recommended |
@@ -356,6 +395,7 @@ flows back into the model context.
 | Tool guardrails extension | High | Low | No — fork maintenance burden |
 | Custom MCP server | Medium | Low | Maybe — for session-aware state |
 | Docker image customization | Medium | Medium (image pull time) | No — unnecessary coupling |
+| Profile home plugin files | Low | **High** (silent enforcement loss) | Yes — verify after every Hermes upgrade |
 
 ---
 
