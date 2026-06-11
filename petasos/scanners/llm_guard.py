@@ -49,7 +49,7 @@ class LlmGuardScanner:
         """Cheap backend-presence probe. Never imports the backend."""
         if self._load_error is not None and not self._load_error_retryable:
             return (False, self._load_error)
-        for pkg in _REQUIRED_PACKAGES:
+        for pkg in (*_REQUIRED_PACKAGES, "llm_guard.input_scanners"):
             if pkg in sys.modules and sys.modules[pkg] is not None:
                 continue
             try:

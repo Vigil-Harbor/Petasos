@@ -8,10 +8,12 @@ import os
 import sys
 import threading
 import time
-from collections.abc import Iterator
 from contextlib import contextmanager
 from types import MappingProxyType
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 from petasos._types import Direction, ScanFinding, ScanResult, Severity
 
@@ -187,6 +189,8 @@ class LlamaFirewallScanner:
                 else:
                     avail, _reason = self.availability()
                     if not avail:
+                        if _reason is not None:
+                            self._load_error = _reason
                         return False
                     self._load_error = None
                     self._load_error_retryable = False

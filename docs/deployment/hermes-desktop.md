@@ -274,7 +274,7 @@ The LlamaFirewall PromptGuard component uses the gated Hugging Face model
    The model will be cached under `HF_HOME` (default `~/.cache/huggingface`).
 
 If PromptGuard prerequisites are missing, Petasos fails fast with:
-```
+```text
 PromptGuard model unavailable — set HF_TOKEN from a Hugging Face account
 that has accepted the meta-llama/Llama-Prompt-Guard-2-86M license, or
 pre-download the model; see docs/deployment/hermes-desktop.md

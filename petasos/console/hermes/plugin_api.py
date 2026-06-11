@@ -121,8 +121,10 @@ def _self_init() -> None:
             else:
                 logger.info("Dashboard scanner %s: backend verified", name)
         except ImportError:
+            unavailable.append(name)
             logger.warning("Dashboard scanner %s: import failed", name)
         except Exception as exc:
+            unavailable.append(name)
             logger.warning("Dashboard scanner %s failed: %s", name, exc)
 
     pipeline = Pipeline(config=config, scanners=scanners, host_id="dashboard")

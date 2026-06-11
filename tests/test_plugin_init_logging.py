@@ -11,7 +11,6 @@ from __future__ import annotations
 import importlib
 import importlib.util
 import logging
-from collections.abc import Iterator
 from pathlib import Path
 from typing import TYPE_CHECKING
 from unittest.mock import patch
@@ -20,6 +19,7 @@ import pytest
 
 if TYPE_CHECKING:
     import types
+    from collections.abc import Iterator
 
 # ---------------------------------------------------------------------------
 # reference_plugin import via file path
@@ -124,6 +124,9 @@ class TestReferencePluginInitLogging:
         assert not any("scanner loaded" in m.lower() for m in messages), (
             f"Should not see old 'scanner loaded' wording: {messages}"
         )
+        assert any("backend verified" in m for m in messages), (
+            f"Expected 'backend verified' in logs, got: {messages}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -131,9 +134,10 @@ class TestReferencePluginInitLogging:
 # ---------------------------------------------------------------------------
 
 
-pytest.importorskip("fastapi")
-
-
+@pytest.mark.skipif(
+    not importlib.util.find_spec("fastapi"),
+    reason="fastapi not installed",
+)
 class TestPluginApiInitLogging:
     def test_backend_missing_logs_probe_verdict(
         self, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
@@ -168,4 +172,7 @@ class TestPluginApiInitLogging:
         messages = [r.message for r in caplog.records]
         assert not any("Dashboard loaded scanner" in m for m in messages), (
             f"Old wording 'Dashboard loaded scanner' should not appear: {messages}"
+        )
+        assert any("backend verified" in m for m in messages), (
+            f"Expected 'backend verified' in logs, got: {messages}"
         )

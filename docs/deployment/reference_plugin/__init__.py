@@ -206,8 +206,10 @@ def _deferred_init() -> None:
                         reason,
                     )
             except ImportError:
+                unavailable.append("llm_guard")
                 logger.info("LLM Guard not installed — syntactic-only for that backend")
             except Exception as exc:
+                unavailable.append("llm_guard")
                 logger.warning("LLM Guard failed to load: %s", exc)
 
             try:
@@ -226,8 +228,10 @@ def _deferred_init() -> None:
                         reason,
                     )
             except ImportError:
+                unavailable.append("llama_firewall")
                 logger.info("LlamaFirewall not installed — skipped")
             except Exception as exc:
+                unavailable.append("llama_firewall")
                 logger.warning("LlamaFirewall failed to load: %s", exc)
 
             try:
@@ -246,8 +250,10 @@ def _deferred_init() -> None:
                         reason,
                     )
             except ImportError:
+                unavailable.append("presidio")
                 logger.info("Presidio not installed — PII detection unavailable")
             except Exception as exc:
+                unavailable.append("presidio")
                 logger.warning("Presidio failed to load: %s", exc)
 
             _pipeline = Pipeline(

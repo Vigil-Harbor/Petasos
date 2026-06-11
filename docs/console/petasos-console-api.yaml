@@ -246,6 +246,7 @@ paths:
           in: query
           schema:
             type: integer
+            minimum: 1
             default: 100
             maximum: 1000
       responses:
@@ -337,7 +338,7 @@ components:
 
     PipelineResult:
       type: object
-      required: [safe, findings]
+      required: [safe, findings, escalation_tier, session_score, premium_features]
       properties:
         safe:
           type: boolean

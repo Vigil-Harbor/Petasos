@@ -11,7 +11,7 @@ This document carries the narrative the OpenAPI spec can't hold: auth model, rea
 
 ## 1. Architecture at a Glance
 
-The Console is a single-page vanilla HTML/JS/CSS app served as static package data by a FastAPI backend running in-process alongside the Petasos Pipeline. No React, no npm, no build step. The frontend talks to four REST endpoints and one SSE stream, all on `127.0.0.1:{port}`.
+The Console is a single-page vanilla HTML/JS/CSS app served as static package data by a FastAPI backend running in-process alongside the Petasos Pipeline. No React, no npm, no build step. The frontend talks to seven REST endpoints and one SSE stream, all on `127.0.0.1:{port}`.
 
 ```
 Browser ──┬── GET/PUT /api/config     (Config Editor)

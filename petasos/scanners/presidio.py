@@ -136,7 +136,11 @@ class PresidioScanner:
     @staticmethod
     def _load_error_message(exc: BaseException) -> str:
         if isinstance(exc, ImportError):
-            return _INSTALL_HINT
+            from petasos.scanners import _is_missing_package
+
+            if _is_missing_package(exc, set(_REQUIRED_PACKAGES)):
+                return _INSTALL_HINT
+            return str(exc)
         msg = str(exc)
         if "spacy" in msg.lower() or "model" in msg.lower():
             return "spaCy model not found. Run: python -m spacy download en_core_web_lg"
