@@ -2,6 +2,18 @@
 
 All notable changes to Petasos are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Fixed
+- **Profile-aware config resolution** — Petasos config readers now resolve
+  Hermes v0.16+ per-profile homes (`HERMES_HOME` → `active_profile` pointer →
+  v0.15 root fallback) via a shared resolver, fixing the silent enforcement loss
+  and dashboard split-brain observed when Hermes upgraded to profile-based config
+  homes (PET-86)
+- **Deployment verification** — `verify.py` gains orphaned-plugin and config
+  split-brain detection, checking plugin files and config sections at the
+  resolved profile home rather than hardcoded root paths
+
 ## [0.1.0] — 2026-06-01
 
 First public release. All features ship free and keyless.
