@@ -247,12 +247,42 @@ Check `agent.log` for the initialization sequence:
 
 ```text
 INFO  petasos.plugin: Petasos plugin registered — hooks active, scanner init in background
-INFO  petasos.plugin: LLM Guard scanner loaded
-INFO  petasos.plugin: LlamaFirewall scanner loaded
-INFO  petasos.plugin: Presidio scanner loaded
-INFO  petasos.plugin: Petasos initialized: scanners=['minimal', 'llm_guard', ...], fail_mode=closed, host_id=...
+INFO  petasos.plugin: LLM Guard backend verified — scanner active
+INFO  petasos.plugin: LlamaFirewall backend verified — scanner active
+INFO  petasos.plugin: Presidio backend verified — scanner active
+INFO  petasos.plugin: Petasos initialized: scanners=['minimal', 'llm_guard', ...], unavailable=[], fail_mode=closed, host_id=...
 INFO  petasos.plugin: PETASOS_SESSION_START — Petasos content security active
 ```
+
+If a backend is not installed, you will see `backend missing` instead of `backend verified`.
+
+## PromptGuard model prerequisites
+
+The LlamaFirewall PromptGuard component uses the gated Hugging Face model
+`meta-llama/Llama-Prompt-Guard-2-86M`. To use it:
+
+1. **Accept the license** — visit [the model page](https://huggingface.co/meta-llama/Llama-Prompt-Guard-2-86M) and accept the Meta license from the Hugging Face account you will use.
+2. **Set `HF_TOKEN`** — export the token for the gateway/dashboard process:
+   ```bash
+   export HF_TOKEN=hf_your_token_here
+   ```
+   Alternatively, place the token in `~/.cache/huggingface/token` or set `HF_TOKEN_PATH`.
+3. **Or pre-download the model** — on a machine with the token set:
+   ```bash
+   huggingface-cli download meta-llama/Llama-Prompt-Guard-2-86M
+   ```
+   The model will be cached under `HF_HOME` (default `~/.cache/huggingface`).
+
+If PromptGuard prerequisites are missing, Petasos fails fast with:
+```
+PromptGuard model unavailable — set HF_TOKEN from a Hugging Face account
+that has accepted the meta-llama/Llama-Prompt-Guard-2-86M license, or
+pre-download the model; see docs/deployment/hermes-desktop.md
+```
+
+Petasos never prompts interactively for credentials — upstream's `huggingface_hub.login()` stdin prompt is intercepted and converted to an actionable error.
+
+**Note:** install Petasos scanner extras while the gateway is stopped, or restart after installing. A scan landing mid-`pip install` can latch a terminal load error until restart.
 
 A standalone verification script (`verify.py` in the plugin directory)
 checks all components:

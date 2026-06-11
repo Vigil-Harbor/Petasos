@@ -311,6 +311,87 @@ class TestModelInstantiationFailure:
 
 
 # ---------------------------------------------------------------------------
+# Availability probe tests (PET-87)
+# ---------------------------------------------------------------------------
+
+
+class TestAvailabilityProbe:
+    """PET-87: availability() backend-presence probe."""
+
+    async def test_unavailable_when_blocked(self) -> None:
+        scanner = LlmGuardScanner()
+        with patch.dict("sys.modules", _BLOCKED_MODULES):
+            avail, reason = scanner.availability()
+        assert avail is False
+        assert reason is not None
+        assert "pip install" in reason
+
+    async def test_available_with_mock_modules(self) -> None:
+        scanner = LlmGuardScanner()
+        mock_module = MagicMock()
+        with patch.dict("sys.modules", _fake_modules(mock_module)):
+            avail, reason = scanner.availability()
+        assert avail is True
+        assert reason is None
+
+    async def test_terminal_error_returns_unavailable(self) -> None:
+        scanner = LlmGuardScanner()
+        scanner._load_error = "model corrupted"
+        scanner._load_error_retryable = False
+        avail, reason = scanner.availability()
+        assert avail is False
+        assert reason == "model corrupted"
+
+    async def test_retryable_error_still_probes(self) -> None:
+        scanner = LlmGuardScanner()
+        scanner._load_error = "some retryable"
+        scanner._load_error_retryable = True
+        with patch.dict("sys.modules", _BLOCKED_MODULES):
+            avail, reason = scanner.availability()
+        assert avail is False
+
+    async def test_normalized_error_message_on_import_failure(self) -> None:
+        scanner = LlmGuardScanner()
+        with patch.dict("sys.modules", _BLOCKED_MODULES):
+            result = await scanner.scan("test")
+        assert result.error is not None
+        assert "llm_guard not installed" in result.error
+        assert "pip install petasos[llm-guard]" in result.error
+
+
+class TestRetryableRecovery:
+    """PET-87 D7: retryable load errors auto-recover."""
+
+    async def test_recovery_after_backend_appears(self) -> None:
+        scanner = LlmGuardScanner()
+        with patch.dict("sys.modules", _BLOCKED_MODULES):
+            r1 = await scanner.scan("first")
+        assert r1.error is not None
+        assert scanner._load_error_retryable is True
+
+        mock_sub = MagicMock()
+        mock_sub.scan.return_value = ("clean", True, 0.0)
+        mock_module = MagicMock()
+        mock_module.PromptInjection = MagicMock(return_value=mock_sub)
+        mock_module.InvisibleText = MagicMock(return_value=mock_sub)
+        with patch.dict("sys.modules", _fake_modules(mock_module)):
+            r2 = await scanner.scan("after install")
+        assert r2.error is None
+
+    async def test_transitive_dep_failure_is_terminal(self) -> None:
+        scanner = LlmGuardScanner()
+        mock_module = MagicMock()
+        mock_module.PromptInjection.side_effect = ImportError("No module named 'torch'")
+        mock_module.PromptInjection.side_effect.name = "torch"
+        mock_module.InvisibleText = MagicMock()
+
+        with patch.dict("sys.modules", _fake_modules(mock_module)):
+            r1 = await scanner.scan("first")
+        assert r1.error is not None
+        assert scanner._load_error_retryable is False
+
+
+# ---------------------------------------------------------------------------
 # Integration tests (15-24) — require llm-guard installed
 # ---------------------------------------------------------------------------
 

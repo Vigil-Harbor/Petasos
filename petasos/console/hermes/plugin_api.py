@@ -93,6 +93,7 @@ def _self_init() -> None:
         config = PetasosConfig()
 
     scanners = [MinimalScanner()]
+    unavailable: list[str] = []
     for name, cls_path in [
         ("LLM Guard", "petasos.scanners.LlmGuardScanner"),
         ("LlamaFirewall", "petasos.scanners.LlamaFirewallScanner"),
@@ -103,10 +104,24 @@ def _self_init() -> None:
             import importlib
 
             m = importlib.import_module(mod)
-            scanners.append(getattr(m, cls)())
-            logger.info("Dashboard loaded scanner: %s", name)
+            instance = getattr(m, cls)()
+            scanners.append(instance)
+            probe = getattr(instance, "availability", None)
+            if probe is not None:
+                avail, reason = probe()
+                if avail:
+                    logger.info("Dashboard scanner %s: backend verified", name)
+                else:
+                    unavailable.append(name)
+                    logger.warning(
+                        "Dashboard scanner %s: backend missing — registered degraded: %s",
+                        name,
+                        reason,
+                    )
+            else:
+                logger.info("Dashboard scanner %s: backend verified", name)
         except ImportError:
-            pass
+            logger.warning("Dashboard scanner %s: import failed", name)
         except Exception as exc:
             logger.warning("Dashboard scanner %s failed: %s", name, exc)
 
@@ -117,7 +132,11 @@ def _self_init() -> None:
         pipeline.activate(license_key)
 
     init_handlers(pipeline)
-    logger.info("Dashboard self-initialized pipeline: scanners=%s", [s.name for s in scanners])
+    logger.info(
+        "Dashboard self-initialized pipeline: scanners=%s, unavailable=%s",
+        [s.name for s in scanners],
+        unavailable,
+    )
 
 
 def _require_handlers() -> Any:

@@ -1,12 +1,18 @@
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 import math
+import sys
 import threading
 import time
 from typing import Any
 
 from petasos._types import Direction, ScanFinding, ScanResult, Severity
+
+_REQUIRED_PACKAGES: tuple[str, ...] = ("llm_guard",)
+
+_INSTALL_HINT = "llm_guard not installed. pip install petasos[llm-guard]"
 
 
 class LlmGuardScanner:
@@ -31,6 +37,7 @@ class LlmGuardScanner:
 
         self._loaded: bool = False
         self._load_error: str | None = None
+        self._load_error_retryable: bool = False
         self._lock: threading.Lock = threading.Lock()
         self._scanners: list[tuple[str, str, Severity, Any]] = []
 
@@ -38,82 +45,128 @@ class LlmGuardScanner:
     def name(self) -> str:
         return "llm_guard"
 
+    def availability(self) -> tuple[bool, str | None]:
+        """Cheap backend-presence probe. Never imports the backend."""
+        if self._load_error is not None and not self._load_error_retryable:
+            return (False, self._load_error)
+        for pkg in _REQUIRED_PACKAGES:
+            if pkg in sys.modules and sys.modules[pkg] is not None:
+                continue
+            try:
+                spec = importlib.util.find_spec(pkg)
+            except Exception:
+                return (False, _INSTALL_HINT)
+            if spec is None or spec.origin is None:
+                return (False, _INSTALL_HINT)
+        return (True, None)
+
     def _ensure_loaded(self) -> None:
         if self._loaded:
             return
         if self._load_error is not None:
+            if not self._load_error_retryable:
+                return
+            with self._lock:
+                if self._loaded:
+                    return
+                if self._load_error is not None and not self._load_error_retryable:
+                    return
+                if self._load_error is not None and self._load_error_retryable:
+                    avail, _reason = self.availability()
+                    if not avail:
+                        return
+                    self._load_error = None
+                    self._load_error_retryable = False
+                    self._loaded = False
+                    self._scanners = []
+                self._do_load()
             return
         with self._lock:
             if self._loaded:
                 return
             if self._load_error is not None:
                 return
-            try:
-                from llm_guard.input_scanners import (
-                    InvisibleText,
-                    PromptInjection,
+            self._do_load()
+
+    def _do_load(self) -> None:
+        try:
+            from llm_guard.input_scanners import (
+                InvisibleText,
+                PromptInjection,
+            )
+
+            self._scanners = []
+
+            self._scanners.append(
+                (
+                    "petasos.llmguard.injection",
+                    "injection",
+                    Severity.HIGH,
+                    PromptInjection(threshold=self._threshold),
+                )
+            )
+
+            if self._enable_invisible_text:
+                self._scanners.append(
+                    (
+                        "petasos.llmguard.invisible-text",
+                        "encoding",
+                        Severity.MEDIUM,
+                        InvisibleText(),
+                    )
                 )
 
-                self._scanners = []
+            if self._enable_toxicity:
+                from llm_guard.input_scanners import Toxicity
 
                 self._scanners.append(
                     (
-                        "petasos.llmguard.injection",
-                        "injection",
-                        Severity.HIGH,
-                        PromptInjection(threshold=self._threshold),
+                        "petasos.llmguard.toxicity",
+                        "toxicity",
+                        Severity.MEDIUM,
+                        Toxicity(),
                     )
                 )
 
-                if self._enable_invisible_text:
-                    self._scanners.append(
-                        (
-                            "petasos.llmguard.invisible-text",
-                            "encoding",
-                            Severity.MEDIUM,
-                            InvisibleText(),
-                        )
+            if self._enable_ban_topics:
+                from llm_guard.input_scanners import BanTopics
+
+                self._scanners.append(
+                    (
+                        "petasos.llmguard.ban-topics",
+                        "policy",
+                        Severity.MEDIUM,
+                        BanTopics(topics=self._ban_topics),
                     )
+                )
 
-                if self._enable_toxicity:
-                    from llm_guard.input_scanners import Toxicity
+            if self._enable_secrets:
+                from llm_guard.input_scanners import Secrets
 
-                    self._scanners.append(
-                        (
-                            "petasos.llmguard.toxicity",
-                            "toxicity",
-                            Severity.MEDIUM,
-                            Toxicity(),
-                        )
+                self._scanners.append(
+                    (
+                        "petasos.llmguard.secrets",
+                        "credential",
+                        Severity.HIGH,
+                        Secrets(),
                     )
+                )
 
-                if self._enable_ban_topics:
-                    from llm_guard.input_scanners import BanTopics
+            self._loaded = True
+        except Exception as exc:
+            from petasos.scanners import _is_missing_package
 
-                    self._scanners.append(
-                        (
-                            "petasos.llmguard.ban-topics",
-                            "policy",
-                            Severity.MEDIUM,
-                            BanTopics(topics=self._ban_topics),
-                        )
-                    )
-
-                if self._enable_secrets:
-                    from llm_guard.input_scanners import Secrets
-
-                    self._scanners.append(
-                        (
-                            "petasos.llmguard.secrets",
-                            "credential",
-                            Severity.HIGH,
-                            Secrets(),
-                        )
-                    )
-
-                self._loaded = True
-            except Exception as exc:
-                self._load_error = str(exc)
+            if isinstance(exc, ImportError) and _is_missing_package(exc, set(_REQUIRED_PACKAGES)):
+                self._load_error = _INSTALL_HINT
+                self._load_error_retryable = True
+            else:
+                avail, avail_reason = self.availability()
+                if avail:
+                    self._load_error = str(exc)
+                    self._load_error_retryable = False
+                else:
+                    self._load_error = avail_reason or str(exc)
+                    self._load_error_retryable = True
 
     def reset(self) -> None:
         """Clear cached load error to allow re-attempt (e.g., after pip install).
@@ -126,6 +179,7 @@ class LlmGuardScanner:
         """
         with self._lock:
             self._load_error = None
+            self._load_error_retryable = False
             self._loaded = False
             self._scanners = []
 
