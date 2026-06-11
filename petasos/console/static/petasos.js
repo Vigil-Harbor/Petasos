@@ -727,7 +727,10 @@
           return Pet.h("div", { dataset: { field: f.name }, style: { display: "flex", alignItems: "flex-start", gap: "14px", padding: "12px 0", borderBottom: "1px solid var(--border-soft)" } },
             Pet.h("div", { style: { flex: "1" } },
               Pet.h("div", { className: "mono", style: { fontSize: "12.5px", fontWeight: "600", color: "var(--tx-bright)" } }, f.name),
-              Pet.h("div", { style: { fontSize: "11.5px", color: "var(--tx-faint)", marginTop: "3px" } }, f.description)
+              Pet.h("div", { style: { fontSize: "11.5px", color: "var(--tx)", marginTop: "3px" } }, f.help_plain || f.description),
+              (f.help_plain && f.help_plain !== f.description)
+                ? Pet.h("div", { className: "mono", style: { fontSize: "10.5px", color: "var(--tx-faint)", marginTop: "2px" } }, f.description)
+                : null
             ),
             Pet.h("div", { className: "pet-ctrl-wrap", style: { flex: "0 0 auto", display: "flex", flexDirection: "column" } }, control)
           );
