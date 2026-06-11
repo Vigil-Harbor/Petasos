@@ -37,6 +37,15 @@ async def test_get_config_returns_fields(handlers: ConsoleHandlers) -> None:
     assert "session_secret" not in result["config"]
 
 
+async def test_metadata_endpoint_carries_help_plain(handlers: ConsoleHandlers) -> None:
+    # Regression for PET-88: config metadata carries plain-language help text
+    # alongside the technical description for every field.
+    result = await handlers.get_config()
+    for field in result["fields"]:
+        assert field.get("description"), f"Field {field['name']} missing description"
+        assert field.get("help_plain"), f"Field {field['name']} missing help_plain"
+
+
 async def test_get_config_redacts_secrets() -> None:
     h = ConsoleHandlers(
         Pipeline(

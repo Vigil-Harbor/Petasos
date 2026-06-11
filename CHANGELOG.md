@@ -4,6 +4,9 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Added
+- **Plain-language config help** — every Config Editor field carries a `help_plain` text alongside the technical `description`; the plain line renders primary in the UI with the technical line beneath, the metadata endpoint guarantees `help_plain` is never empty via a server-side fallback, and a guard-rail test blocks future config fields from shipping without one (PET-88)
+
 ### Fixed
 - **Scanner init logs now tell the truth** — init surfaces (reference plugin, dashboard) log "backend verified" or "backend missing" based on a real availability probe instead of claiming "loaded" on instantiation (PET-87)
 - **Health endpoint reflects scan-time reality** — `scanner_health()` status enum corrected to `healthy | degraded | circuit_open | unavailable` with a `last_error` field; scanners whose backend is absent report `unavailable` instead of `healthy` (PET-87)
