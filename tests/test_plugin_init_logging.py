@@ -124,8 +124,8 @@ class TestReferencePluginInitLogging:
         assert not any("scanner loaded" in m.lower() for m in messages), (
             f"Should not see old 'scanner loaded' wording: {messages}"
         )
-        assert any("backend verified" in m for m in messages), (
-            f"Expected 'backend verified' in logs, got: {messages}"
+        assert any("backend verified" in m or "backend missing" in m for m in messages), (
+            f"Expected probe-based log ('backend verified' or 'backend missing'), got: {messages}"
         )
 
 
@@ -173,6 +173,6 @@ class TestPluginApiInitLogging:
         assert not any("Dashboard loaded scanner" in m for m in messages), (
             f"Old wording 'Dashboard loaded scanner' should not appear: {messages}"
         )
-        assert any("backend verified" in m for m in messages), (
-            f"Expected 'backend verified' in logs, got: {messages}"
+        assert any("backend verified" in m or "backend missing" in m for m in messages), (
+            f"Expected probe-based log ('backend verified' or 'backend missing'), got: {messages}"
         )

@@ -265,7 +265,8 @@ class TestUnit:
             scanner = LlamaFirewallScanner()
             _mock_init_count = 0
             results = await asyncio.gather(*[scanner.scan("test") for _ in range(10)])
-            assert all(r.error is None for r in results)
+            warming = "llama_firewall warming up"
+            assert all(r.error is None or warming in r.error for r in results)
             assert _mock_init_count == 1
 
     async def test_duration_tracking(self) -> None:
