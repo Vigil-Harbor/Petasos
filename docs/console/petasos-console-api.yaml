@@ -46,8 +46,8 @@ paths:
       summary: Read current PetasosConfig
       description: |
         Returns the full PetasosConfig as JSON, including field metadata
-        (type, default, description, tier, constraints) so the Config Editor
-        can generate forms without hardcoding the schema.
+        (type, default, description, help_plain, tier, constraints) so the
+        Config Editor can generate forms without hardcoding the schema.
 
         Secret fields (e.g. `hash_key`) are redacted in the response.
         `session_secret` is excluded entirely.
@@ -416,6 +416,13 @@ components:
           description: Default value (type varies by field)
         description:
           type: string
+        help_plain:
+          type: string
+          description: |
+            Plain-language help text for non-specialist operators. Always present:
+            the server falls back to `description` when a field has no dedicated
+            plain text. Rendered as the primary per-field line in the Config
+            Editor, with `description` shown beneath it.
         tier:
           type: string
           enum: [oss, premium]
