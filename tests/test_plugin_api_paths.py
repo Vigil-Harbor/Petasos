@@ -17,6 +17,7 @@ import pytest
 import petasos.console._paths as paths_mod
 from petasos.console._paths import (
     read_petasos_section,
+    resolve_active_profile_dir,
     resolve_hermes_config_path,
 )
 
@@ -156,10 +157,10 @@ def test_load_config_no_pointer_falls_back_to_root(
     assert res.warning is None
 
 
-def test_load_config_profile_without_config_warns(
+def test_load_config_profile_without_config_returns_empty(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Profile dir exists but has no config.yaml → tier=profile, caller warns."""
+    """Profile dir exists but has no config.yaml → tier=profile, section={}."""
     monkeypatch.delenv("HERMES_HOME", raising=False)
     root = _setup_root(tmp_path, monkeypatch, system="Windows")
 
@@ -174,6 +175,21 @@ def test_load_config_profile_without_config_warns(
 
     section = read_petasos_section(res)
     assert section == {}
+
+
+@pytest.mark.parametrize("traversal_name", ["../../../etc", "..\\..\\secret", "/absolute/path"])
+def test_resolve_active_profile_dir_rejects_traversal(
+    tmp_path: Path, traversal_name: str
+) -> None:
+    """Crafted active_profile with path traversal → warning, not resolved."""
+    root = tmp_path / "hermes"
+    root.mkdir()
+    (root / "active_profile").write_text(traversal_name)
+
+    result, warning = resolve_active_profile_dir(root)
+    assert result is None
+    assert warning is not None
+    assert "escapes" in warning
 
 
 @pytest.mark.parametrize("system", ["Windows", "Linux", "Darwin"])
@@ -456,5 +472,4 @@ def test_reference_plugin_parity_missing_config(
     ref_mod = _load_reference_plugin_module(project_root)
     ref_result = ref_mod._load_config()
 
-    assert plugin_result == {} or plugin_result == ref_result
-    assert isinstance(ref_result, dict)
+    assert plugin_result == ref_result == {}

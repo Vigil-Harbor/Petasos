@@ -1,8 +1,9 @@
 """Hermes config-path resolver — shared by plugin_api and reference_plugin.
 
 Resolves the effective config.yaml path across Hermes v0.15 (root) and
-v0.16+ (per-profile home) layouts.  Pure stdlib + pathlib; no logging,
-no YAML, no fastapi.  The resolver never raises (D3).
+v0.16+ (per-profile home) layouts.  Uses stdlib (pathlib, os, platform)
+and PyYAML for config parsing; no logging, no fastapi.  The resolver
+never raises (D3).
 """
 
 from __future__ import annotations
@@ -83,12 +84,24 @@ def resolve_active_profile_dir(
     name = read_active_profile(root)
     if name is None:
         return None, None
-    profile_dir = root / "profiles" / name
-    if profile_dir.is_dir():
-        return profile_dir, None
+    try:
+        root_profiles = (root / "profiles").resolve(strict=False)
+        candidate = (root_profiles / name).resolve(strict=False)
+    except (OSError, RuntimeError):
+        return None, (
+            f"active_profile {name!r} could not be resolved — "
+            f"falling back to root config"
+        )
+    if not candidate.is_relative_to(root_profiles):
+        return None, (
+            f"active_profile {name!r} resolves to {candidate} which "
+            f"escapes {root_profiles} — falling back to root config"
+        )
+    if candidate.is_dir():
+        return candidate, None
     return None, (
         f"active_profile points to {name!r} but "
-        f"{profile_dir} is not an existing directory — "
+        f"{candidate} is not an existing directory — "
         f"falling back to root config"
     )
 
