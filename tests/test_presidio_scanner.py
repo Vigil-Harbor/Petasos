@@ -50,9 +50,36 @@ requires_presidio = pytest.mark.skipif(
     reason="presidio + spaCy model required",
 )
 
+_BLOCKED_PRESIDIO_MODULES: dict[str, None] = {
+    "presidio_analyzer": None,
+    "presidio_anonymizer": None,
+}
+
+
 # ---------------------------------------------------------------------------
 # Unit tests — no Presidio dependency required
 # ---------------------------------------------------------------------------
+
+
+class TestAvailabilityProbe:
+    """PET-87: availability() backend-presence probe."""
+
+    def test_unavailable_when_blocked(self) -> None:
+        scanner = PresidioScanner()
+        with patch.dict("sys.modules", _BLOCKED_PRESIDIO_MODULES):
+            avail, reason = scanner.availability()
+        assert avail is False
+        assert reason is not None
+        assert "pip install" in reason
+
+    def test_terminal_error_returns_unavailable(self) -> None:
+        scanner = PresidioScanner()
+        scanner._load_error = RuntimeError("broken")
+        scanner._load_error_retryable = False
+        avail, reason = scanner.availability()
+        assert avail is False
+        assert reason is not None
+        assert "broken" in reason
 
 
 class TestSeverityMapping:

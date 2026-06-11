@@ -1,0 +1,803 @@
+openapi: 3.1.0
+info:
+  title: Petasos Console API
+  version: 0.1.0
+  description: |
+    API contract for the Petasos Console — the vanilla HTML/JS frontend
+    shipped inside `petasos[console]`.
+
+    **Audience:** Frontend implementor building the Console SPA.
+    **Backend:** FastAPI, in-process with the Pipeline. Binds 127.0.0.1 only.
+    **Companion doc:** `petasos-console-frontend-handoff.md` (narrative, sequencing, boundary rules).
+
+    ### OSS / Premium boundary
+
+    Every response that includes premium data gates it behind the
+    `premium_features` manifest on `PipelineResult` or `/api/health`.
+    The frontend renders premium sections as disabled + CTA when the
+    feature value is `"locked"`. When `"available"`, render fully.
+    When `"disabled"`, render as available-but-toggled-off.
+
+servers:
+  - url: http://127.0.0.1:{port}
+    description: Local console server
+    variables:
+      port:
+        default: "8384"
+        description: Configurable via PETASOS_CONSOLE_PORT or serve(port=...)
+
+paths:
+  /:
+    get:
+      operationId: getConsole
+      summary: Serve the single-page frontend
+      description: Returns the static HTML/JS/CSS Console application.
+      responses:
+        "200":
+          description: HTML page
+          content:
+            text/html:
+              schema:
+                type: string
+
+  /api/config:
+    get:
+      operationId: getConfig
+      summary: Read current PetasosConfig
+      description: |
+        Returns the full PetasosConfig as JSON, including field metadata
+        (type, default, description, tier, constraints) so the Config Editor
+        can generate forms without hardcoding the schema.
+
+        Secret fields (e.g. `hash_key`) are redacted in the response.
+        `session_secret` is excluded entirely.
+      responses:
+        "200":
+          description: Current config with field metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigResponse"
+
+    put:
+      operationId: updateConfig
+      summary: Apply a partial config update
+      description: |
+        Accepts a partial PetasosConfig object. Validates every field
+        against the dataclass constraints (types, ranges, cross-field
+        rules like tier threshold ordering). Returns the updated config
+        on success, or 422 with per-field errors.
+
+        **Important:** The frontend must display a session-restart notice
+        after a successful PUT: "Changes apply to new sessions. Restart
+        your agent session to pick up this config."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfigUpdate"
+      responses:
+        "200":
+          description: Updated config
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigResponse"
+        "422":
+          description: Validation errors
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
+
+  /api/scan:
+    post:
+      operationId: runScan
+      summary: Scan playground — run text through the live pipeline
+      description: |
+        Submits text to `Pipeline.inspect()` and returns the full
+        PipelineResult. The playground displays: normalized diff,
+        per-scanner findings, merged findings, anonymized output,
+        and latency breakdown.
+
+        Premium fields (`session_score`, `escalation_tier`,
+        `premium_features`) are always present in the response but
+        will be null/locked when premium is inactive.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScanRequest"
+      responses:
+        "200":
+          description: Pipeline scan result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PipelineResult"
+
+  /api/events:
+    get:
+      operationId: streamEvents
+      summary: SSE event stream (audit events + alerts)
+      description: |
+        Server-Sent Events stream. The Console Server hooks the Pipeline's
+        `on_audit` and `on_alert` callbacks and broadcasts each event to
+        all connected SSE clients.
+
+        Event types: `audit`, `alert`, `scan_result`.
+
+        The stream auto-reconnects (standard SSE behavior). No client-side
+        heartbeat needed; the server sends periodic `:keepalive` comments.
+
+        **Premium gate:** `audit` and `alert` events only flow when the
+        corresponding premium features are active. `scan_result` events
+        (lightweight summaries for the scan history panel) are OSS.
+      responses:
+        "200":
+          description: SSE stream
+          content:
+            text/event-stream:
+              schema:
+                $ref: "#/components/schemas/SSEStream"
+
+  /api/health:
+    get:
+      operationId: getHealth
+      summary: Scanner status + pipeline state + premium manifest
+      description: |
+        Returns the health status of each configured scanner, the
+        pipeline's current state, and the premium feature manifest.
+        Used by the dashboard's scanner health panel.
+      responses:
+        "200":
+          description: Health status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+  /api/activate:
+    post:
+      operationId: activateLicense
+      summary: Activate a premium license key
+      description: |
+        Accepts a JWT license key and calls `pipeline.activate(key)`.
+        Returns the resulting license state. On success (state=valid),
+        premium features unlock immediately — the frontend should
+        re-render premium sections as enabled without a page reload.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [key]
+              properties:
+                key:
+                  type: string
+                  description: JWT license key
+      responses:
+        "200":
+          description: Activation result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActivationResult"
+
+  /api/deactivate:
+    post:
+      operationId: deactivateLicense
+      summary: Deactivate the current license
+      description: |
+        Calls `pipeline.deactivate()`. Premium features revert to
+        locked state. Frontend should re-render premium sections
+        as disabled + CTA.
+      responses:
+        "200":
+          description: Deactivation confirmed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActivationResult"
+
+  /api/profiles:
+    get:
+      operationId: listProfiles
+      summary: List available profiles
+      description: |
+        Returns the 5 built-in profiles plus any registered custom profiles.
+        Each profile includes its full configuration. Premium-gated: when
+        the profiles feature is locked, returns the list but marks each
+        as locked.
+      responses:
+        "200":
+          description: Profile list
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [profiles, active_profile, premium_status]
+                properties:
+                  profiles:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ResolvedProfile"
+                  active_profile:
+                    type: string
+                    nullable: true
+                    description: Name of the currently active profile, or null
+                  premium_status:
+                    type: string
+                    enum: [available, disabled, locked]
+
+  /api/scan-history:
+    get:
+      operationId: getScanHistory
+      summary: Recent scan results (OSS)
+      description: |
+        Returns the last N scan results from an in-memory ring buffer.
+        OSS feature — always available. Used by the scan history panel
+        on the observability dashboard.
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 100
+            maximum: 1000
+      responses:
+        "200":
+          description: Scan history
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [scans, total]
+                properties:
+                  scans:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ScanHistoryEntry"
+                  total:
+                    type: integer
+
+components:
+  schemas:
+    # ── Core types ──
+
+    Severity:
+      type: string
+      enum: [critical, high, medium, low, info]
+
+    Direction:
+      type: string
+      enum: [inbound, outbound]
+
+    Position:
+      type: object
+      required: [start, end]
+      properties:
+        start:
+          type: integer
+          minimum: 0
+        end:
+          type: integer
+          minimum: 0
+
+    ScanFinding:
+      type: object
+      required: [rule_id, finding_type, severity, confidence, message, scanner_name]
+      properties:
+        rule_id:
+          type: string
+          description: 'Dotted rule identifier, e.g. "petasos.syntactic.injection.role_switch"'
+        finding_type:
+          type: string
+          description: 'Category: "injection", "pii", "toxicity", etc.'
+        severity:
+          $ref: "#/components/schemas/Severity"
+        confidence:
+          type: number
+          format: float
+          minimum: 0.0
+          maximum: 1.0
+        message:
+          type: string
+        scanner_name:
+          type: string
+          description: 'Which scanner produced this finding: "minimal", "llm_guard", etc.'
+        position:
+          oneOf:
+            - $ref: "#/components/schemas/Position"
+            - type: "null"
+        matched_text:
+          type: string
+          nullable: true
+
+    ScanResult:
+      type: object
+      required: [scanner_name, findings, duration_ms]
+      properties:
+        scanner_name:
+          type: string
+        findings:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScanFinding"
+        duration_ms:
+          type: number
+          format: float
+        error:
+          type: string
+          nullable: true
+          description: Non-null when the scanner errored. Prefix conventions — "ScannerTimeout:" for timeouts, "ScannerCircuitOpen:" for tripped circuit breaker.
+
+    PipelineResult:
+      type: object
+      required: [safe, findings, escalation_tier, session_score, premium_features]
+      properties:
+        safe:
+          type: boolean
+          description: "true = content passed all checks. false = blocked or degraded."
+        findings:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScanFinding"
+        sanitized_content:
+          type: string
+          nullable: true
+          description: PII-anonymized text (when anonymization is enabled and PII was found)
+        scanner_results:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScanResult"
+          description: Per-scanner breakdown for the playground's latency view
+        errors:
+          type: array
+          items:
+            type: string
+          description: Non-fatal pipeline errors (scanner failures, hook errors)
+        escalation_tier:
+          type: string
+          nullable: true
+          enum: [tier1, tier2, tier3, null]
+          description: "Premium. Current session escalation tier after this scan."
+        session_score:
+          type: number
+          format: float
+          nullable: true
+          description: "Premium. Current frequency score for this session."
+        premium_features:
+          $ref: "#/components/schemas/PremiumFeatureManifest"
+
+    PremiumFeatureManifest:
+      type: object
+      nullable: true
+      description: |
+        Feature-name → status. The frontend uses this to decide what to
+        render as enabled vs. disabled vs. locked+CTA.
+      required: [frequency, escalation, profiles, tool_guard, audit, alerting]
+      properties:
+        frequency:
+          type: string
+          enum: [available, disabled, locked]
+        escalation:
+          type: string
+          enum: [available, disabled, locked]
+        profiles:
+          type: string
+          enum: [available, disabled, locked]
+        tool_guard:
+          type: string
+          enum: [available, disabled, locked]
+        audit:
+          type: string
+          enum: [available, disabled, locked]
+        alerting:
+          type: string
+          enum: [available, disabled, locked]
+
+    # ── Config ──
+
+    ConfigFieldMeta:
+      type: object
+      required: [name, type, default, tier]
+      properties:
+        name:
+          type: string
+        type:
+          type: string
+          description: 'JSON type hint: "boolean", "number", "string", "array", "enum"'
+        default:
+          description: Default value (type varies by field)
+        description:
+          type: string
+        tier:
+          type: string
+          enum: [oss, premium]
+          description: Which tier this field belongs to — drives the disabled/CTA rendering
+        constraints:
+          type: object
+          description: |
+            Validation rules for the field. Shape varies:
+            - For numbers: {min, max, finite: true}
+            - For enums: {values: ["open", "closed", "degraded"]}
+            - For cross-field: {requires: "hash_key", when: {redaction_mode: "hash"}}
+          additionalProperties: true
+        section:
+          type: string
+          description: 'Config editor section grouping: "normalization", "scanning", "fail_mode", "anonymization", "frequency", "escalation", "profiles", "tool_guard", "audit", "alerting", "session"'
+
+    ConfigResponse:
+      type: object
+      required: [config, fields]
+      properties:
+        config:
+          type: object
+          description: |
+            Current PetasosConfig as a flat JSON object. Field names match
+            the Python dataclass exactly. Secret fields are redacted.
+            `session_secret` is excluded.
+          additionalProperties: true
+        fields:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConfigFieldMeta"
+          description: Ordered list of field metadata for form generation
+
+    ConfigUpdate:
+      type: object
+      description: |
+        Partial config update. Only include fields being changed.
+        Field names and value types must match PetasosConfig exactly.
+        Unknown fields are silently ignored.
+      additionalProperties: true
+
+    ValidationError:
+      type: object
+      required: [detail]
+      properties:
+        detail:
+          type: array
+          items:
+            type: object
+            required: [field, message]
+            properties:
+              field:
+                type: string
+                description: Config field name that failed validation
+              message:
+                type: string
+                description: Human-readable error
+
+    # ── Scan request ──
+
+    ScanRequest:
+      type: object
+      required: [text]
+      properties:
+        text:
+          type: string
+          description: Text to scan through the pipeline
+        direction:
+          $ref: "#/components/schemas/Direction"
+          default: inbound
+        session_id:
+          type: string
+          nullable: true
+          description: Optional session ID for frequency/escalation tracking
+
+    # ── SSE events ──
+
+    SSEStream:
+      description: |
+        Server-Sent Events. Each event has `event:` (type) and `data:` (JSON payload).
+
+        ### Event types
+
+        **`scan_result`** (OSS) — emitted after every pipeline scan.
+        ```
+        event: scan_result
+        data: {"scan_id": "...", "safe": true, "finding_count": 0, "duration_ms": 3.2, "timestamp": 1716000000.0}
+        ```
+
+        **`audit`** (Premium) — emitted when audit is enabled.
+        ```
+        event: audit
+        data: <AuditEvent JSON>
+        ```
+
+        **`alert`** (Premium) — emitted when alerting is enabled.
+        ```
+        event: alert
+        data: <Alert JSON>
+        ```
+
+        **`:keepalive`** — SSE comment, no data. Sent every 15s.
+
+    AuditEvent:
+      type: object
+      required: [event_id, timestamp, session_id, event_type, payload, sequence_number]
+      properties:
+        event_id:
+          type: string
+          description: UUID hex string
+        timestamp:
+          type: number
+          format: double
+          description: Unix epoch seconds
+        session_id:
+          type: string
+          nullable: true
+        event_type:
+          type: string
+          description: Currently always "scan_complete"
+        payload:
+          $ref: "#/components/schemas/AuditPayload"
+        sequence_number:
+          type: integer
+          description: Monotonically increasing, global (not per-session)
+
+    AuditPayload:
+      type: object
+      description: |
+        Shape depends on `audit_verbosity` config:
+        - **minimal:** `{safe, finding_count}`
+        - **standard:** adds `{findings, escalation_tier, session_score}`
+        - **verbose:** adds `{scanner_results, config_snapshot, timing}`
+      required: [safe, finding_count]
+      properties:
+        safe:
+          type: boolean
+        finding_count:
+          type: integer
+        findings:
+          type: array
+          description: "Standard+. Abbreviated finding objects: {rule_id, severity, confidence}"
+          items:
+            type: object
+            properties:
+              rule_id:
+                type: string
+              severity:
+                type: string
+              confidence:
+                type: number
+        escalation_tier:
+          type: string
+          nullable: true
+          description: "Standard+."
+        session_score:
+          type: number
+          nullable: true
+          description: "Standard+."
+        scanner_results:
+          type: array
+          description: "Verbose only."
+          items:
+            type: object
+            properties:
+              scanner_name:
+                type: string
+              finding_count:
+                type: integer
+              duration_ms:
+                type: number
+              error:
+                type: string
+                nullable: true
+        config_snapshot:
+          type: object
+          description: "Verbose only. Full PetasosConfig with secrets redacted."
+          additionalProperties: true
+        timing:
+          type: object
+          description: "Verbose only."
+          properties:
+            timestamp:
+              type: number
+
+    Alert:
+      type: object
+      required: [alert_id, timestamp, rule_id, severity, session_id, message, context]
+      properties:
+        alert_id:
+          type: string
+          description: UUID hex string
+        timestamp:
+          type: number
+          format: double
+          description: Unix epoch seconds
+        rule_id:
+          type: string
+          description: |
+            Which alert rule fired. Known values:
+            - `tier_escalation`
+            - `high_severity_finding`
+            - `rapid_fire`
+            - `cross_session_burst`
+            - `pii_volume_spike`
+        severity:
+          type: string
+          description: Alert severity (not finding severity)
+        session_id:
+          type: string
+          nullable: true
+        message:
+          type: string
+          description: Human-readable alert description
+        context:
+          type: object
+          description: Rule-specific metadata (threshold, count, window, etc.)
+          additionalProperties: true
+
+    # ── Health ──
+
+    HealthResponse:
+      type: object
+      required: [scanners, pipeline_state, premium_features]
+      properties:
+        scanners:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScannerHealth"
+        pipeline_state:
+          type: object
+          required: [fail_mode, scanner_count, config_hash]
+          properties:
+            fail_mode:
+              type: string
+              enum: [open, closed, degraded]
+            scanner_count:
+              type: integer
+              description: Total configured scanners (minimal + ML)
+            config_hash:
+              type: string
+              description: SHA256 of serialized config — use to detect config drift
+        premium_features:
+          $ref: "#/components/schemas/PremiumFeatureManifest"
+        license_state:
+          type: string
+          enum: [inactive, valid, expired, invalid]
+
+    ScannerHealth:
+      type: object
+      required: [name, status]
+      properties:
+        name:
+          type: string
+          description: Scanner name ("minimal", "llm_guard", "llama_firewall", "presidio")
+        status:
+          type: string
+          enum: [healthy, degraded, circuit_open, unavailable]
+          description: |
+            - healthy: last scan succeeded
+            - degraded: last scan errored or timeout streak in progress
+            - circuit_open: consecutive timeout breaker is open (PIPE-03)
+            - unavailable: backend not installed, prerequisites missing, or terminal load error
+        last_ms:
+          type: number
+          format: float
+          nullable: true
+        consecutive_timeouts:
+          type: integer
+          description: Current consecutive timeout count (0 when healthy)
+        last_error:
+          type: string
+          nullable: true
+          description: Most recent scan error or probe reason, null when healthy
+
+    # ── Activation ──
+
+    ActivationResult:
+      type: object
+      required: [state, premium_features]
+      properties:
+        state:
+          type: string
+          enum: [inactive, valid, expired, invalid]
+        premium_features:
+          $ref: "#/components/schemas/PremiumFeatureManifest"
+        claims:
+          $ref: "#/components/schemas/LicenseClaims"
+
+    LicenseClaims:
+      type: object
+      nullable: true
+      description: Present only when state=valid
+      properties:
+        tier:
+          type: string
+          enum: [free, standard, pro, enterprise]
+        customer_id:
+          type: string
+        expiry:
+          type: string
+          format: date-time
+        issued_at:
+          type: string
+          format: date-time
+        features:
+          type: array
+          items:
+            type: string
+
+    # ── Profiles ──
+
+    ResolvedProfile:
+      type: object
+      required: [name, suppress_rules, severity_overrides, confidence_floor, tier_thresholds, pii_entities_extra, tool_exempt_list, tool_alias_map]
+      properties:
+        name:
+          type: string
+          description: 'Profile name. Built-ins: "general", "customer_service", "code_generation", "research", "admin"'
+        suppress_rules:
+          type: array
+          items:
+            type: string
+          description: Rule IDs suppressed by this profile (sorted)
+        severity_overrides:
+          type: object
+          additionalProperties:
+            type: string
+          description: "rule_id → severity override. Cannot target structural rules."
+        confidence_floor:
+          type: number
+          format: float
+          description: Findings below this confidence are filtered out
+        tier_thresholds:
+          type: object
+          nullable: true
+          properties:
+            tier1:
+              type: number
+            tier2:
+              type: number
+            tier3:
+              type: number
+        pii_entities_extra:
+          type: array
+          items:
+            type: string
+        tool_exempt_list:
+          type: array
+          items:
+            type: string
+          description: Tool names exempt from guard blocking (sorted)
+        tool_alias_map:
+          type: object
+          additionalProperties:
+            type: string
+          description: Tool name aliases (e.g. "bash" → "exec")
+
+    # ── Scan history ──
+
+    ScanHistoryEntry:
+      type: object
+      required: [scan_id, timestamp, safe, finding_count, duration_ms, direction]
+      properties:
+        scan_id:
+          type: string
+        timestamp:
+          type: number
+          format: double
+        safe:
+          type: boolean
+        finding_count:
+          type: integer
+        duration_ms:
+          type: number
+          format: float
+        direction:
+          $ref: "#/components/schemas/Direction"
+        session_id:
+          type: string
+          nullable: true
+        escalation_tier:
+          type: string
+          nullable: true
+          description: "Premium. null when premium inactive."
