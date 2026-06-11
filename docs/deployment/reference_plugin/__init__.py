@@ -4,8 +4,11 @@ Wires the Petasos pipeline and ToolCallGuard into Hermes via the plugin
 hook system. All tool calls pass through pre_tool_call enforcement;
 audit and alert events route to Hermes's standard logger.
 
-Deploy: copy this directory to ~/.hermes/plugins/petasos/
-Config: add a top-level `petasos:` section to ~/.hermes/config.yaml
+Deploy: copy this directory to the active Hermes profile's plugin dir:
+        v0.16+  profiles/<active>/plugins/petasos/
+        v0.15   ~/.hermes/plugins/petasos/  (macOS)
+                %LOCALAPPDATA%\\hermes\\plugins\\petasos\\  (Windows)
+Config: add a top-level ``petasos:`` section to the profile's config.yaml
 Env:    PETASOS_LICENSE_KEY, PETASOS_SESSION_SECRET, PETASOS_HASH_KEY
 """
 
@@ -15,10 +18,8 @@ import asyncio
 import base64
 import logging
 import os
-import platform
 import threading
 import uuid
-from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger("petasos.plugin")
@@ -104,29 +105,24 @@ def _run_async(coro):
 
 
 def _load_config() -> dict[str, Any]:
-    """Read petasos: section from Hermes config.yaml."""
-    import yaml
+    """Read petasos: section from the resolved Hermes config.yaml."""
+    from petasos.console._paths import read_petasos_section, resolve_hermes_config_path
 
-    if platform.system() == "Windows":
-        config_path = Path(os.environ.get("LOCALAPPDATA", "")) / "hermes" / "config.yaml"
-    else:
-        config_path = Path.home() / ".hermes" / "config.yaml"
-
-    if not config_path.exists():
-        logger.warning("Hermes config not found at %s — using Petasos defaults", config_path)
+    res = resolve_hermes_config_path()
+    logger.info("loading config from %s [tier=%s]", res.path, res.tier)
+    if res.warning:
+        logger.warning("Hermes profile resolution: %s", res.warning)
+    if not res.path.is_file():
+        logger.warning("Hermes config not found at %s — using Petasos defaults", res.path)
         return {}
-
-    with open(config_path, encoding="utf-8") as f:
-        full_config = yaml.safe_load(f) or {}
-
-    petasos_section = full_config.get("petasos", {})
-    if not petasos_section:
+    section = read_petasos_section(res)
+    if not section:
         logger.warning(
             "No 'petasos:' section in config.yaml — Petasos running with "
             "defaults (all features disabled). Add a petasos: section to "
             "enable enforcement."
         )
-    return petasos_section
+    return section
 
 
 # ---------------------------------------------------------------------------
@@ -189,34 +185,71 @@ def _deferred_init() -> None:
                 config = PetasosConfig()
 
             scanners = [MinimalScanner()]
+            unavailable: list[str] = []
             try:
                 from petasos.scanners import LlmGuardScanner
 
-                scanners.append(LlmGuardScanner())
-                logger.info("LLM Guard scanner loaded")
+                instance = LlmGuardScanner()
+                scanners.append(instance)
+                avail, reason = instance.availability()
+                if avail:
+                    logger.info("LLM Guard backend verified — scanner active")
+                else:
+                    unavailable.append("llm_guard")
+                    logger.warning(
+                        "LLM Guard backend missing — scanner registered degraded "
+                        "(every scan will error): %s",
+                        reason,
+                    )
             except ImportError:
+                unavailable.append("llm_guard")
                 logger.info("LLM Guard not installed — syntactic-only for that backend")
             except Exception as exc:
+                unavailable.append("llm_guard")
                 logger.warning("LLM Guard failed to load: %s", exc)
 
             try:
                 from petasos.scanners import LlamaFirewallScanner
 
-                scanners.append(LlamaFirewallScanner())
-                logger.info("LlamaFirewall scanner loaded")
+                instance = LlamaFirewallScanner()
+                scanners.append(instance)
+                avail, reason = instance.availability()
+                if avail:
+                    logger.info("LlamaFirewall backend verified — scanner active")
+                else:
+                    unavailable.append("llama_firewall")
+                    logger.warning(
+                        "LlamaFirewall backend missing — scanner registered degraded "
+                        "(every scan will error): %s",
+                        reason,
+                    )
             except ImportError:
+                unavailable.append("llama_firewall")
                 logger.info("LlamaFirewall not installed — skipped")
             except Exception as exc:
+                unavailable.append("llama_firewall")
                 logger.warning("LlamaFirewall failed to load: %s", exc)
 
             try:
                 from petasos.scanners import PresidioScanner
 
-                scanners.append(PresidioScanner())
-                logger.info("Presidio scanner loaded")
+                instance = PresidioScanner()
+                scanners.append(instance)
+                avail, reason = instance.availability()
+                if avail:
+                    logger.info("Presidio backend verified — scanner active")
+                else:
+                    unavailable.append("presidio")
+                    logger.warning(
+                        "Presidio backend missing — scanner registered degraded "
+                        "(every scan will error): %s",
+                        reason,
+                    )
             except ImportError:
+                unavailable.append("presidio")
                 logger.info("Presidio not installed — PII detection unavailable")
             except Exception as exc:
+                unavailable.append("presidio")
                 logger.warning("Presidio failed to load: %s", exc)
 
             _pipeline = Pipeline(
@@ -260,8 +293,9 @@ def _deferred_init() -> None:
 
             scanner_names = [s.name for s in scanners]
             logger.info(
-                "Petasos initialized: scanners=%s, fail_mode=%s, host_id=%s",
+                "Petasos initialized: scanners=%s, unavailable=%s, fail_mode=%s, host_id=%s",
                 scanner_names,
+                unavailable,
                 config.fail_mode,
                 host_id,
             )

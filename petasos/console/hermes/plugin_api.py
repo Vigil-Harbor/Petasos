@@ -15,12 +15,11 @@ from __future__ import annotations
 
 import logging
 import os
-import platform
-from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 
+from petasos.console._paths import read_petasos_section, resolve_hermes_config_path
 from petasos.console._validation import SessionIdError, sanitize_session_id
 
 logger = logging.getLogger("petasos.dashboard")
@@ -41,25 +40,15 @@ def init_handlers(pipeline: Any) -> None:
 
 
 def _load_config() -> dict[str, Any]:
-    """Read petasos: section from Hermes config.yaml."""
-    import yaml
-
-    if platform.system() == "Windows":
-        config_path = Path(os.environ.get("LOCALAPPDATA", "")) / "hermes" / "config.yaml"
-    else:
-        config_path = Path.home() / ".hermes" / "config.yaml"
-
-    if not config_path.exists():
-        return {}
-
-    with open(config_path, encoding="utf-8") as f:
-        full_config = yaml.safe_load(f)
-
-    if not isinstance(full_config, dict):
-        return {}
-
-    petasos_section: dict[str, Any] = full_config.get("petasos", {})
-    return petasos_section
+    """Read petasos: section from the resolved Hermes config.yaml."""
+    res = resolve_hermes_config_path()
+    logger.info("loading config from %s [tier=%s]", res.path, res.tier)
+    if res.warning:
+        logger.warning("Hermes profile resolution: %s", res.warning)
+    section = read_petasos_section(res)
+    if not res.path.is_file():
+        logger.warning("Hermes config not found at %s — using Petasos defaults", res.path)
+    return section
 
 
 def _self_init() -> None:
@@ -93,6 +82,7 @@ def _self_init() -> None:
         config = PetasosConfig()
 
     scanners = [MinimalScanner()]
+    unavailable: list[str] = []
     for name, cls_path in [
         ("LLM Guard", "petasos.scanners.LlmGuardScanner"),
         ("LlamaFirewall", "petasos.scanners.LlamaFirewallScanner"),
@@ -103,11 +93,27 @@ def _self_init() -> None:
             import importlib
 
             m = importlib.import_module(mod)
-            scanners.append(getattr(m, cls)())
-            logger.info("Dashboard loaded scanner: %s", name)
+            instance = getattr(m, cls)()
+            scanners.append(instance)
+            probe = getattr(instance, "availability", None)
+            if probe is not None:
+                avail, reason = probe()
+                if avail:
+                    logger.info("Dashboard scanner %s: backend verified", name)
+                else:
+                    unavailable.append(name)
+                    logger.warning(
+                        "Dashboard scanner %s: backend missing — registered degraded: %s",
+                        name,
+                        reason,
+                    )
+            else:
+                logger.info("Dashboard scanner %s: backend verified", name)
         except ImportError:
-            pass
+            unavailable.append(name)
+            logger.warning("Dashboard scanner %s: import failed", name)
         except Exception as exc:
+            unavailable.append(name)
             logger.warning("Dashboard scanner %s failed: %s", name, exc)
 
     pipeline = Pipeline(config=config, scanners=scanners, host_id="dashboard")
@@ -117,7 +123,11 @@ def _self_init() -> None:
         pipeline.activate(license_key)
 
     init_handlers(pipeline)
-    logger.info("Dashboard self-initialized pipeline: scanners=%s", [s.name for s in scanners])
+    logger.info(
+        "Dashboard self-initialized pipeline: scanners=%s, unavailable=%s",
+        [s.name for s in scanners],
+        unavailable,
+    )
 
 
 def _require_handlers() -> Any:

@@ -6,6 +6,7 @@ import pytest
 
 pytest.importorskip("fastapi")
 
+from petasos._types import ScanResult  # noqa: E402
 from petasos.config import PetasosConfig  # noqa: E402
 from petasos.console.server import ConsoleHandlers  # noqa: E402
 from petasos.pipeline import Pipeline  # noqa: E402
@@ -186,3 +187,139 @@ async def test_config_persist_writes_yaml(
     assert persisted["model"]["default"] == "test"
     assert "session_secret" not in persisted["petasos"]
     assert "hash_key" not in persisted["petasos"]
+
+
+# ---------------------------------------------------------------------------
+# PET-87: Health surfaces scan errors, unavailable status, recovery
+# ---------------------------------------------------------------------------
+
+
+class _StubScanner:
+    """ML scanner stub for health tests."""
+
+    def __init__(self, name: str, *, error: str | None = None) -> None:
+        self._name = name
+        self._error = error
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    async def scan(
+        self,
+        text: str,
+        *,
+        direction: str = "inbound",
+        session_id: str | None = None,
+    ) -> ScanResult:
+        return ScanResult(
+            scanner_name=self._name,
+            findings=(),
+            duration_ms=1.0,
+            error=self._error,
+        )
+
+
+class _UnavailableScanner(_StubScanner):
+    def availability(self) -> tuple[bool, str | None]:
+        return (False, "test backend missing")
+
+
+class _AvailableScanner(_StubScanner):
+    def availability(self) -> tuple[bool, str | None]:
+        return (True, None)
+
+
+async def test_health_surfaces_scan_errors() -> None:
+    """After a scan error, scanner_health reports degraded with last_error."""
+    stub = _StubScanner("test_ml", error="model exploded")
+    pipe = Pipeline(
+        scanners=[MinimalScanner(), stub],
+        config=PetasosConfig(fail_mode="open"),
+    )
+    await pipe.inspect("test")
+    health = pipe.scanner_health()
+    ml_entry = [h for h in health if h["name"] == "test_ml"][0]
+    assert ml_entry["status"] == "degraded"
+    assert ml_entry["last_error"] == "model exploded"
+
+
+async def test_health_unavailable_status() -> None:
+    """A scanner with availability() -> (False, ...) reports unavailable."""
+    stub = _UnavailableScanner("test_ml")
+    pipe = Pipeline(
+        scanners=[MinimalScanner(), stub],
+        config=PetasosConfig(fail_mode="open"),
+    )
+    health = pipe.scanner_health()
+    ml_entry = [h for h in health if h["name"] == "test_ml"][0]
+    assert ml_entry["status"] == "unavailable"
+    assert ml_entry["last_error"] == "test backend missing"
+
+
+async def test_health_recovery_to_healthy() -> None:
+    """A clean scan pops last_error and returns healthy."""
+    stub = _AvailableScanner("test_ml", error=None)
+    pipe = Pipeline(
+        scanners=[MinimalScanner(), stub],
+        config=PetasosConfig(fail_mode="open"),
+    )
+    pipe._last_scan_errors["test_ml"] = "old error"
+    await pipe.inspect("test")
+    health = pipe.scanner_health()
+    ml_entry = [h for h in health if h["name"] == "test_ml"][0]
+    assert ml_entry["status"] == "healthy"
+    assert ml_entry["last_error"] is None
+
+
+async def test_health_unavailable_wins_over_breaker() -> None:
+    """Unavailable status takes precedence over circuit_open."""
+    import time as _time
+
+    stub = _UnavailableScanner("test_ml")
+    pipe = Pipeline(
+        scanners=[MinimalScanner(), stub],
+        config=PetasosConfig(fail_mode="open"),
+    )
+    pipe._breaker_open_until["test_ml"] = _time.monotonic() + 999
+    pipe._breaker_consecutive_timeouts["test_ml"] = 5
+    health = pipe.scanner_health()
+    ml_entry = [h for h in health if h["name"] == "test_ml"][0]
+    assert ml_entry["status"] == "unavailable"
+
+
+async def test_minimal_never_unavailable() -> None:
+    """The minimal scanner entry is never unavailable."""
+    pipe = Pipeline(
+        scanners=[MinimalScanner()],
+        config=PetasosConfig(fail_mode="open"),
+    )
+    health = pipe.scanner_health()
+    minimal = [h for h in health if h["name"] == "minimal"][0]
+    assert minimal["status"] == "healthy"
+    assert "last_error" in minimal
+
+
+async def test_health_has_last_error_field() -> None:
+    """All health entries include last_error (even when None)."""
+    pipe = Pipeline(
+        scanners=[MinimalScanner()],
+        config=PetasosConfig(fail_mode="open"),
+    )
+    health = pipe.scanner_health()
+    for entry in health:
+        assert "last_error" in entry
+
+
+async def test_idle_recovery_transition() -> None:
+    """After unblocking backend with no scan, health reads degraded not unavailable."""
+    stub = _AvailableScanner("test_ml", error=None)
+    pipe = Pipeline(
+        scanners=[MinimalScanner(), stub],
+        config=PetasosConfig(fail_mode="open"),
+    )
+    pipe._last_scan_errors["test_ml"] = "stale error from before"
+    health = pipe.scanner_health()
+    ml_entry = [h for h in health if h["name"] == "test_ml"][0]
+    assert ml_entry["status"] == "degraded"
+    assert ml_entry["last_error"] == "stale error from before"

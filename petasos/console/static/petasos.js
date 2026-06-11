@@ -426,6 +426,35 @@
 
   // ── Surface renderers ──
 
+  Pet.scannerHealthRows = function (scanners) {
+    if (!scanners || !scanners.length) {
+      return Pet.h("div", { className: "mono", style: { color: "var(--tx-faint)", fontSize: "12px" } }, "scanner status unavailable — health fetch failed");
+    }
+    var table = Pet.h("div", { style: { display: "flex", flexDirection: "column", gap: "4px" } });
+    for (var i = 0; i < scanners.length; i++) {
+      var s = scanners[i];
+      var pillColor;
+      if (s.status === "healthy") pillColor = "var(--green, #22c55e)";
+      else if (s.status === "degraded") pillColor = "var(--amber, #f59e0b)";
+      else if (s.status === "unavailable" || s.status === "circuit_open") pillColor = "var(--red, #ef4444)";
+      else pillColor = "var(--tx-faint, #888)";
+      var pill = Pet.h("span", { className: "mono", style: { display: "inline-block", padding: "1px 8px", borderRadius: "9999px", fontSize: "11px", color: "#fff", background: pillColor } }, s.status || "unknown");
+      var nameEl = Pet.h("span", { className: "mono", style: { fontSize: "12px", color: "var(--tx)", minWidth: "120px", display: "inline-block" } }, s.name);
+      var latency = Pet.h("span", { className: "mono", style: { fontSize: "11px", color: "var(--tx-faint)", minWidth: "60px", display: "inline-block" } }, s.last_ms != null ? (s.last_ms.toFixed(1) + "ms") : "—");
+      var row = Pet.h("div", { style: { display: "flex", alignItems: "center", gap: "8px" } });
+      row.appendChild(nameEl);
+      row.appendChild(pill);
+      row.appendChild(latency);
+      if (s.last_error) {
+        var errEl = Pet.h("span", { className: "mono", title: s.last_error, style: { fontSize: "11px", color: "var(--tx-faint)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "250px", display: "inline-block" } });
+        errEl.textContent = s.last_error;
+        row.appendChild(errEl);
+      }
+      table.appendChild(row);
+    }
+    return table;
+  };
+
   Pet.renderDashboard = function (container) {
     container.innerHTML = "";
     var wrapper = Pet.h("div", { style: { display: "flex", flexDirection: "column", gap: "12px", height: "100%" } });
@@ -444,7 +473,7 @@
     // Scanner health
     var healthPanel = Pet.Panel({
       icon: "radar", title: "scanner health", place: "loaded backends", flush: true,
-      help: Pet.HelpTip("<b>Scanner Health</b> — status of each loaded scanner backend (MinimalScanner, LLM Guard, Presidio, etc). <code>ready</code> means the scanner is initialized and processing."),
+      help: Pet.HelpTip("<b>Scanner Health</b> — per-scanner backend status. <code>healthy</code>: last scan succeeded. <code>degraded</code>: last scan errored or timeout streak. <code>circuit_open</code>: consecutive timeout breaker tripped. <code>unavailable</code>: backend not installed or prerequisites missing."),
       content: Pet.h("div", { style: { padding: "12px" } },
         Pet.h("div", { className: "mono", style: { color: "var(--tx-faint)", fontSize: "12px" } }, "Loading scanner status...")
       ),
@@ -463,11 +492,20 @@
 
     container.appendChild(wrapper);
 
-    // Fetch initial data
+    // Fetch initial data and render scanner health
     Pet.api.getHealth().then(function (d) {
       if (!d.error) {
         Pet.state.scannerHealth = d.scanners || [];
         Pet.state.pipelineHealth = d.pipeline || null;
+        var rows = Pet.scannerHealthRows(Pet.state.scannerHealth);
+        var contentEl = healthPanel.querySelector("[style*='padding: 12px']") || healthPanel.querySelector("div > div");
+        if (contentEl) { contentEl.innerHTML = ""; contentEl.appendChild(rows); }
+      } else {
+        var contentEl = healthPanel.querySelector("[style*='padding: 12px']") || healthPanel.querySelector("div > div");
+        if (contentEl) {
+          contentEl.innerHTML = "";
+          contentEl.appendChild(Pet.h("div", { className: "mono", style: { color: "var(--tx-faint)", fontSize: "12px" } }, "scanner status unavailable — health fetch failed"));
+        }
       }
     });
   };

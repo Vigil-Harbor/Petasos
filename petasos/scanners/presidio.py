@@ -3,7 +3,9 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import hmac
+import importlib.util
 import math
+import sys
 import threading
 import time
 from collections import defaultdict
@@ -19,6 +21,10 @@ from petasos._types import (
     ScanResult,
     Severity,
 )
+
+_REQUIRED_PACKAGES: tuple[str, ...] = ("presidio_analyzer", "presidio_anonymizer")
+
+_INSTALL_HINT = "presidio not installed. pip install petasos[presidio]"
 
 _SEVERITY_MAP: dict[str, Severity] = {
     "CREDIT_CARD": Severity.CRITICAL,
@@ -104,33 +110,93 @@ class PresidioScanner:
         self._anonymizer: Any = None
         self._loaded = False
         self._load_error: BaseException | None = None
+        self._load_error_retryable: bool = False
         self._load_lock = threading.Lock()
 
     @property
     def name(self) -> str:
         return "presidio"
 
+    def availability(self) -> tuple[bool, str | None]:
+        """Cheap backend-presence probe. Never imports the backend."""
+        if self._load_error is not None and not self._load_error_retryable:
+            msg = self._load_error_message(self._load_error)
+            return (False, msg)
+        for pkg in _REQUIRED_PACKAGES:
+            if pkg in sys.modules and sys.modules[pkg] is not None:
+                continue
+            try:
+                spec = importlib.util.find_spec(pkg)
+            except Exception:
+                return (False, _INSTALL_HINT)
+            if spec is None or spec.origin is None:
+                return (False, _INSTALL_HINT)
+        return (True, None)
+
+    @staticmethod
+    def _load_error_message(exc: BaseException) -> str:
+        if isinstance(exc, ImportError):
+            from petasos.scanners import _is_missing_package
+
+            if _is_missing_package(exc, set(_REQUIRED_PACKAGES)):
+                return _INSTALL_HINT
+            return str(exc)
+        msg = str(exc)
+        if "spacy" in msg.lower() or "model" in msg.lower():
+            return "spaCy model not found. Run: python -m spacy download en_core_web_lg"
+        return msg
+
     def _ensure_loaded(self) -> None:
         if self._loaded:
             return
         if self._load_error is not None:
-            raise self._load_error
+            if not self._load_error_retryable:
+                raise self._load_error
+            with self._load_lock:
+                if self._loaded:
+                    return
+                if self._load_error is not None and not self._load_error_retryable:
+                    raise self._load_error
+                if self._load_error is not None and self._load_error_retryable:
+                    avail, _reason = self.availability()
+                    if not avail:
+                        raise self._load_error
+                    self._load_error = None
+                    self._load_error_retryable = False
+                    self._loaded = False
+                self._do_load()
+            return
         with self._load_lock:
             if self._loaded:
                 return
             if self._load_error is not None:
                 raise self._load_error
-            try:
-                from presidio_analyzer import AnalyzerEngine
-                from presidio_anonymizer import AnonymizerEngine
+            self._do_load()
 
-                self._analyzer = AnalyzerEngine()
-                self._anonymizer = AnonymizerEngine()  # type: ignore[no-untyped-call]
-                self._anonymizer.add_anonymizer(_make_hmac_operator_class())
-                self._loaded = True
-            except Exception as exc:
+    def _do_load(self) -> None:
+        try:
+            from presidio_analyzer import AnalyzerEngine
+            from presidio_anonymizer import AnonymizerEngine
+
+            self._analyzer = AnalyzerEngine()
+            self._anonymizer = AnonymizerEngine()  # type: ignore[no-untyped-call]
+            self._anonymizer.add_anonymizer(_make_hmac_operator_class())
+            self._loaded = True
+        except Exception as exc:
+            from petasos.scanners import _is_missing_package
+
+            if isinstance(exc, ImportError) and _is_missing_package(exc, set(_REQUIRED_PACKAGES)):
                 self._load_error = exc
-                raise
+                self._load_error_retryable = True
+            else:
+                avail, _ = self.availability()
+                if avail:
+                    self._load_error = exc
+                    self._load_error_retryable = False
+                else:
+                    self._load_error = exc
+                    self._load_error_retryable = True
+            raise
 
     async def scan(
         self,

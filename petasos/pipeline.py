@@ -258,6 +258,7 @@ class Pipeline:
         self._breaker_consecutive_timeouts: dict[str, int] = {}
         self._breaker_open_until: dict[str, float] = {}
         self._last_scan_durations: dict[str, float] = {}
+        self._last_scan_errors: dict[str, str] = {}
 
         # Auto-activation from the process environment for supporter/compliance
         # recognition. License state is tracked but does not gate features.
@@ -308,30 +309,51 @@ class Pipeline:
 
         result: list[dict[str, Any]] = []
         if self._minimal_scanner is not None:
+            minimal_err = self._last_scan_errors.get("minimal")
             result.append(
                 {
                     "name": "minimal",
-                    "status": "healthy",
+                    "status": "degraded" if minimal_err else "healthy",
                     "last_ms": self._last_scan_durations.get("minimal"),
                     "consecutive_timeouts": 0,
+                    "last_error": minimal_err,
                 }
             )
         for s in self._ml_scanners:
             sname = s.name
             open_until = self._breaker_open_until.get(sname, 0.0)
             timeouts = self._breaker_consecutive_timeouts.get(sname, 0)
-            if open_until > _time.monotonic():
+            scan_err = self._last_scan_errors.get(sname)
+
+            probe_fn = getattr(s, "availability", None)
+            probe_ok = True
+            probe_reason: str | None = None
+            if probe_fn is not None:
+                import contextlib
+
+                with contextlib.suppress(Exception):
+                    probe_ok, probe_reason = probe_fn()
+
+            if not probe_ok:
+                status = "unavailable"
+                last_error = probe_reason or scan_err
+            elif open_until > _time.monotonic():
                 status = "circuit_open"
-            elif timeouts > 0:
-                status = "errored"
+                last_error = scan_err
+            elif timeouts > 0 or scan_err:
+                status = "degraded"
+                last_error = scan_err
             else:
                 status = "healthy"
+                last_error = None
+
             result.append(
                 {
                     "name": sname,
                     "status": status,
                     "last_ms": self._last_scan_durations.get(sname),
                     "consecutive_timeouts": timeouts,
+                    "last_error": last_error,
                 }
             )
         return result
@@ -482,6 +504,10 @@ class Pipeline:
             text, direction=direction, session_id=session_id
         )
         self._last_scan_durations["minimal"] = (time.monotonic() - _t0) * 1000
+        if minimal_result.error is not None:
+            self._last_scan_errors["minimal"] = minimal_result.error
+        else:
+            self._last_scan_errors.pop("minimal", None)
 
         # Stage 3: Early exit (closed mode) — skip ML fan-out but still
         # run session hooks so audit/alerting sees critical findings.
@@ -649,14 +675,16 @@ class Pipeline:
         open_until = self._breaker_open_until.get(sname)
         if open_until is not None:
             if time.monotonic() < open_until:
+                err = (
+                    f"{_BREAKER_OPEN_ERROR_PREFIX}: short-circuited after "
+                    f"{threshold} consecutive timeouts"
+                )
+                self._last_scan_errors[sname] = err
                 return ScanResult(
                     scanner_name=sname,
                     findings=(),
                     duration_ms=0.0,
-                    error=(
-                        f"{_BREAKER_OPEN_ERROR_PREFIX}: short-circuited after "
-                        f"{threshold} consecutive timeouts"
-                    ),
+                    error=err,
                 )
             # Cooldown expired — clear the old streak so the scanner must
             # accumulate a fresh consecutive-timeout run to reopen the breaker.
@@ -672,6 +700,10 @@ class Pipeline:
             timeout=self._config.scanner_timeout_seconds,
         )
         self._last_scan_durations[sname] = (time.monotonic() - _t0) * 1000
+        if result.error is not None:
+            self._last_scan_errors[sname] = result.error
+        else:
+            self._last_scan_errors.pop(sname, None)
 
         if result.error is not None and result.error.startswith(_TIMEOUT_ERROR_PREFIX):
             count = self._breaker_consecutive_timeouts.get(sname, 0) + 1
