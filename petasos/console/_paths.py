@@ -89,8 +89,7 @@ def resolve_active_profile_dir(
         candidate = (root_profiles / name).resolve(strict=False)
     except (OSError, RuntimeError):
         return None, (
-            f"active_profile {name!r} could not be resolved — "
-            f"falling back to root config"
+            f"active_profile {name!r} could not be resolved — falling back to root config"
         )
     if not candidate.is_relative_to(root_profiles):
         return None, (

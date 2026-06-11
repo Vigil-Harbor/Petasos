@@ -177,10 +177,21 @@ def test_load_config_profile_without_config_returns_empty(
     assert section == {}
 
 
-@pytest.mark.parametrize("traversal_name", ["../../../etc", "..\\..\\secret", "/absolute/path"])
-def test_resolve_active_profile_dir_rejects_traversal(
-    tmp_path: Path, traversal_name: str
-) -> None:
+@pytest.mark.parametrize(
+    "traversal_name",
+    [
+        "../../../etc",
+        pytest.param(
+            "..\\..\\secret",
+            marks=pytest.mark.skipif(
+                __import__("sys").platform != "win32",
+                reason="backslash is a literal filename char on POSIX",
+            ),
+        ),
+        "/absolute/path",
+    ],
+)
+def test_resolve_active_profile_dir_rejects_traversal(tmp_path: Path, traversal_name: str) -> None:
     """Crafted active_profile with path traversal → warning, not resolved."""
     root = tmp_path / "hermes"
     root.mkdir()
