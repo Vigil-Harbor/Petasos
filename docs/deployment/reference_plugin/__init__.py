@@ -4,8 +4,11 @@ Wires the Petasos pipeline and ToolCallGuard into Hermes via the plugin
 hook system. All tool calls pass through pre_tool_call enforcement;
 audit and alert events route to Hermes's standard logger.
 
-Deploy: copy this directory to ~/.hermes/plugins/petasos/
-Config: add a top-level `petasos:` section to ~/.hermes/config.yaml
+Deploy: copy this directory to the active Hermes profile's plugin dir:
+        v0.16+  profiles/<active>/plugins/petasos/
+        v0.15   ~/.hermes/plugins/petasos/  (macOS)
+                %LOCALAPPDATA%\\hermes\\plugins\\petasos\\  (Windows)
+Config: add a top-level ``petasos:`` section to the profile's config.yaml
 Env:    PETASOS_LICENSE_KEY, PETASOS_SESSION_SECRET, PETASOS_HASH_KEY
 """
 
@@ -15,10 +18,8 @@ import asyncio
 import base64
 import logging
 import os
-import platform
 import threading
 import uuid
-from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger("petasos.plugin")
@@ -104,29 +105,24 @@ def _run_async(coro):
 
 
 def _load_config() -> dict[str, Any]:
-    """Read petasos: section from Hermes config.yaml."""
-    import yaml
+    """Read petasos: section from the resolved Hermes config.yaml."""
+    from petasos.console._paths import read_petasos_section, resolve_hermes_config_path
 
-    if platform.system() == "Windows":
-        config_path = Path(os.environ.get("LOCALAPPDATA", "")) / "hermes" / "config.yaml"
-    else:
-        config_path = Path.home() / ".hermes" / "config.yaml"
-
-    if not config_path.exists():
-        logger.warning("Hermes config not found at %s — using Petasos defaults", config_path)
+    res = resolve_hermes_config_path()
+    logger.info("loading config from %s [tier=%s]", res.path, res.tier)
+    if res.warning:
+        logger.warning("Hermes profile resolution: %s", res.warning)
+    if not res.path.is_file():
+        logger.warning("Hermes config not found at %s — using Petasos defaults", res.path)
         return {}
-
-    with open(config_path, encoding="utf-8") as f:
-        full_config = yaml.safe_load(f) or {}
-
-    petasos_section = full_config.get("petasos", {})
-    if not petasos_section:
+    section = read_petasos_section(res)
+    if not section:
         logger.warning(
             "No 'petasos:' section in config.yaml — Petasos running with "
             "defaults (all features disabled). Add a petasos: section to "
             "enable enforcement."
         )
-    return petasos_section
+    return section
 
 
 # ---------------------------------------------------------------------------
