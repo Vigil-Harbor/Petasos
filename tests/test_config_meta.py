@@ -2,8 +2,10 @@
 
 import dataclasses
 
+import pytest
+
 from petasos.config import _SECRET_FIELDS, PetasosConfig
-from petasos.console._config_meta import generate_config_metadata
+from petasos.console._config_meta import _FIELD_META, generate_config_metadata
 
 
 def test_every_field_present() -> None:
@@ -90,3 +92,43 @@ def test_descriptions_present() -> None:
         assert desc != "No description available.", (
             f"Field {m['name']} has placeholder description"
         )
+
+
+def test_all_fields_have_help_plain() -> None:
+    # Regression for PET-88: every config field ships with a real plain-language
+    # help text — distinct from the technical description, never whitespace-only.
+    for name, entry_meta in _FIELD_META.items():
+        help_plain = entry_meta.get("help_plain", "")
+        assert help_plain.strip(), f"Field {name!r} missing help_plain in _FIELD_META"
+        assert help_plain.strip() != entry_meta["description"].strip(), (
+            f"Field {name!r} help_plain duplicates its description"
+        )
+    for m in generate_config_metadata():
+        help_plain = m.get("help_plain", "")
+        assert help_plain.strip(), f"Field {m['name']} missing help_plain in metadata"
+        assert help_plain != "No description available.", (
+            f"Field {m['name']} has placeholder help_plain"
+        )
+
+
+def test_help_plain_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Regression for PET-88: a _FIELD_META entry without help_plain falls back
+    # to its description in the generated metadata.
+    monkeypatch.setitem(
+        _FIELD_META,
+        "normalize_nfkc",
+        {"description": "Technical text only.", "section": "normalization"},
+    )
+    by_name = {m["name"]: m for m in generate_config_metadata()}
+    assert by_name["normalize_nfkc"]["help_plain"] == "Technical text only."
+    assert by_name["normalize_nfkc"]["help_plain"]
+
+    # Regression for PET-88: an empty-string help_plain falls back too, rather
+    # than propagating an empty tip to the UI.
+    monkeypatch.setitem(
+        _FIELD_META,
+        "normalize_nfkc",
+        {"description": "Technical text only.", "help_plain": "", "section": "normalization"},
+    )
+    by_name = {m["name"]: m for m in generate_config_metadata()}
+    assert by_name["normalize_nfkc"]["help_plain"] == "Technical text only."

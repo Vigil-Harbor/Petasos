@@ -1,0 +1,188 @@
+=== PET-88 test gate — Python 3.11.14 ===
+
+GATE DEVIATION (documented): the full-suite step deselects
+tests/test_llama_firewall_scanner.py::TestIntegration (12 tests deselected --
+the whole class; 7 of them fail without the gated Hugging Face model
+meta-llama/Llama-Prompt-Guard-2-86M, the other 5 passed in the pre-deviation
+run and are deselected only as part of the class).
+This machine's HF token receives 'GatedRepoError: 401 - access restricted'
+(the account has not accepted the model license), so PromptGuard falls back
+to an interactive login and the tests fail on ANY branch. Control run on
+untouched master (84330ce) fails identically:
+  FAILED tests/test_llama_firewall_scanner.py::TestIntegration::test_prompt_guard_detects_jailbreak
+  error='prompt_guard: pytest: reading from stdin while output is captured!'
+Pre-existing environment gap (llamafirewall extras were installed into the
+venv after the PET-85 gate, which skipped these tests), unrelated to PET-88.
+To restore the full unmodified gate: accept the license at
+https://huggingface.co/meta-llama/Llama-Prompt-Guard-2-86M with the account
+behind the gibson-profile HF token, then re-run: python -m pytest
+
+$ python -m pytest tests/test_config_meta.py tests/test_console_handlers.py -v
+============================= test session starts =============================
+platform win32 -- Python 3.11.14, pytest-9.0.2, pluggy-1.6.0 -- C:\Users\zioni\AppData\Local\hermes\hermes-agent\venv\Scripts\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\zioni\Documents\Vigil-Harbor\PET-88-worktree
+configfile: pyproject.toml
+plugins: anyio-4.13.0, Faker-37.12.0, asyncio-1.3.0, timeout-2.4.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 30 items
+
+tests/test_config_meta.py::test_every_field_present PASSED               [  3%]
+tests/test_config_meta.py::test_session_secret_excluded PASSED           [  6%]
+tests/test_config_meta.py::test_bool_type_derivation PASSED              [ 10%]
+tests/test_config_meta.py::test_number_type_derivation PASSED            [ 13%]
+tests/test_config_meta.py::test_enum_type_derivation PASSED              [ 16%]
+tests/test_config_meta.py::test_array_type_derivation PASSED             [ 20%]
+tests/test_config_meta.py::test_nullable_string PASSED                   [ 23%]
+tests/test_config_meta.py::test_mapping_type PASSED                      [ 26%]
+tests/test_config_meta.py::test_secret_fields_marked_redacted PASSED     [ 30%]
+tests/test_config_meta.py::test_sections_assigned PASSED                 [ 33%]
+tests/test_config_meta.py::test_descriptions_present PASSED              [ 36%]
+tests/test_config_meta.py::test_all_fields_have_help_plain PASSED        [ 40%]
+tests/test_config_meta.py::test_help_plain_fallback PASSED               [ 43%]
+tests/test_console_handlers.py::test_get_config_returns_fields PASSED    [ 46%]
+tests/test_console_handlers.py::test_metadata_endpoint_carries_help_plain PASSED [ 50%]
+tests/test_console_handlers.py::test_get_config_redacts_secrets PASSED   [ 53%]
+tests/test_console_handlers.py::test_update_config_valid PASSED          [ 56%]
+tests/test_console_handlers.py::test_update_config_invalid PASSED        [ 60%]
+tests/test_console_handlers.py::test_run_scan PASSED                     [ 63%]
+tests/test_console_handlers.py::test_run_scan_with_injection PASSED      [ 66%]
+tests/test_console_handlers.py::test_get_health PASSED                   [ 70%]
+tests/test_console_handlers.py::test_get_scan_history_empty PASSED       [ 73%]
+tests/test_console_handlers.py::test_get_scan_history_after_scan PASSED  [ 76%]
+tests/test_console_handlers.py::test_get_profiles PASSED                 [ 80%]
+tests/test_console_handlers.py::test_get_about PASSED                    [ 83%]
+tests/test_console_handlers.py::test_scan_history_limit PASSED           [ 86%]
+tests/test_console_handlers.py::test_pipeline_scanner_health PASSED      [ 90%]
+tests/test_console_handlers.py::test_pipeline_list_profiles PASSED       [ 93%]
+tests/test_console_handlers.py::test_pipeline_result_to_dict PASSED      [ 96%]
+tests/test_console_handlers.py::test_config_persist_writes_yaml PASSED   [100%]
+
+============================= 30 passed in 0.29s ==============================
+EXIT: 0
+
+$ python -m pytest --deselect tests/test_llama_firewall_scanner.py::TestIntegration
+============================= test session starts =============================
+platform win32 -- Python 3.11.14, pytest-9.0.2, pluggy-1.6.0
+rootdir: C:\Users\zioni\Documents\Vigil-Harbor\PET-88-worktree
+configfile: pyproject.toml
+plugins: anyio-4.13.0, Faker-37.12.0, asyncio-1.3.0, timeout-2.4.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 1116 items / 12 deselected / 1104 selected
+
+tests\adversarial\config\test_bool_coercion.py .......................   [  2%]
+tests\adversarial\config\test_config_poisoning.py ............           [  3%]
+tests\adversarial\escalation\test_derive_tier.py ......                  [  3%]
+tests\adversarial\escalation\test_standalone_tier3.py .....              [  4%]
+tests\adversarial\escalation\test_tier3_floor_inline.py ..               [  4%]
+tests\adversarial\frequency\test_rate_limited_sentinel.py ....           [  4%]
+tests\adversarial\frequency\test_session_spoofing.py .....               [  5%]
+tests\adversarial\frequency\test_terminated_state_loss.py .........      [  5%]
+tests\adversarial\frequency\test_ttl_eviction.py ....                    [  6%]
+tests\adversarial\guard\test_tool_smuggling.py ................          [  7%]
+tests\adversarial\license\test_jwt_attacks.py ...                        [  8%]
+tests\adversarial\license\test_license_hardening.py .................... [  9%]
+...                                                                      [ 10%]
+tests\adversarial\normalization\test_unicode_bypass.py ..........        [ 11%]
+tests\adversarial\pipeline\test_callback_isolation.py ...............    [ 12%]
+tests\adversarial\pipeline\test_cancel_mid_gather.py ......              [ 12%]
+tests\adversarial\pipeline\test_cancel_scan_residual.py .                [ 13%]
+tests\adversarial\pipeline\test_degraded_fail_open.py .................. [ 14%]
+......                                                                   [ 15%]
+tests\adversarial\pipeline\test_env_license_trust.py ...                 [ 15%]
+tests\adversarial\pipeline\test_rt075_chain.py x....                     [ 15%]
+tests\adversarial\pipeline\test_scanner_timeout_breaker.py ............. [ 17%]
+.....                                                                    [ 17%]
+tests\adversarial\profiles\test_suppress_bypass.py .....                 [ 18%]
+tests\adversarial\scanner\test_confidence_clamp.py ......                [ 18%]
+tests\adversarial\syntactic\test_binary_nul.py .                         [ 18%]
+tests\adversarial\syntactic\test_injection_evasion.py .................. [ 20%]
+.                                                                        [ 20%]
+tests\adversarial\syntactic\test_json_depth_strings.py .                 [ 20%]
+tests\adversarial\types\test_type_validation.py ...................      [ 22%]
+tests\test_alerting.py ................................................. [ 26%]
+..................                                                       [ 28%]
+tests\test_audit.py ..................................                   [ 31%]
+tests\test_benchmarks.py ssss                                            [ 31%]
+tests\test_config.py ........................................            [ 35%]
+tests\test_config_meta.py .............                                  [ 36%]
+tests\test_console_handlers.py .................                         [ 38%]
+tests\test_console_validation.py ....................................... [ 41%]
+....................                                                     [ 43%]
+tests\test_escalation.py ...............                                 [ 44%]
+tests\test_finding_merge.py ............                                 [ 45%]
+tests\test_formatting.py ....................                            [ 47%]
+tests\test_frequency.py .................................                [ 50%]
+tests\test_frequency_tombstone.py .................                      [ 52%]
+tests\test_guard.py .................................................    [ 56%]
+tests\test_hardening.py ..............                                   [ 57%]
+tests\test_hermes_integration_defaults.py .................              [ 59%]
+tests\test_hermes_smoke.py ......                                        [ 59%]
+tests\test_integration_e2e.py ..................                         [ 61%]
+tests\test_license.py ....................                               [ 63%]
+tests\test_llama_firewall_scanner.py .........................           [ 65%]
+tests\test_llm_guard_scanner.py ..........................               [ 68%]
+tests\test_minimal_scanner.py .......................................... [ 71%]
+.                                                                        [ 71%]
+tests\test_normalize.py ................................................ [ 76%]
+.                                                                        [ 76%]
+tests\test_pipeline.py ................................................. [ 80%]
+......                                                                   [ 81%]
+tests\test_plugin_api_sse.py ......                                      [ 81%]
+tests\test_presidio_scanner.py ......................................... [ 85%]
+...........                                                              [ 86%]
+tests\test_profiles.py ......................................            [ 90%]
+tests\test_profiles_retained_ref.py ...                                  [ 90%]
+tests\test_profiles_suppress.py .......                                  [ 90%]
+tests\test_ring_buffer.py ........                                       [ 91%]
+tests\test_safe_json.py .........                                        [ 92%]
+tests\test_scanner_init.py ...........                                   [ 93%]
+tests\test_session_integration.py ...................................... [ 96%]
+...........                                                              [ 97%]
+tests\test_sse.py .......                                                [ 98%]
+tests\test_types.py ................                                     [100%]
+
+============================== warnings summary ===============================
+tests/test_console_validation.py: 24 warnings
+  C:\Users\zioni\Documents\Vigil-Harbor\PET-88-worktree\petasos\console\server.py:271: DeprecationWarning: 
+          on_event is deprecated, use lifespan event handlers instead.
+  
+          Read more about it in the
+          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+          
+    @app.on_event("shutdown")
+
+tests/test_console_validation.py: 24 warnings
+  C:\Users\zioni\AppData\Local\hermes\hermes-agent\venv\Lib\site-packages\fastapi\applications.py:4599: DeprecationWarning: 
+          on_event is deprecated, use lifespan event handlers instead.
+  
+          Read more about it in the
+          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+          
+    return self.router.on_event(event_type)
+
+tests/test_llm_guard_scanner.py::TestIntegrationCleanInput::test_clean_input
+tests/test_llm_guard_scanner.py::TestIntegrationCleanInput::test_clean_input
+tests/test_llm_guard_scanner.py::TestIntegrationCleanInput::test_clean_input
+tests/test_llm_guard_scanner.py::TestIntegrationCleanInput::test_clean_input
+tests/test_llm_guard_scanner.py::TestIntegrationCleanInput::test_clean_input
+tests/test_llm_guard_scanner.py::TestIntegrationCleanInput::test_clean_input
+tests/test_llm_guard_scanner.py::TestIntegrationCleanInput::test_clean_input
+  C:\Users\zioni\AppData\Local\hermes\hermes-agent\venv\Lib\site-packages\torch\jit\_script.py:1488: DeprecationWarning: `torch.jit.script` is deprecated. Please switch to `torch.compile` or `torch.export`.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=== 1099 passed, 4 skipped, 12 deselected, 1 xfailed, 55 warnings in 25.76s ===
+EXIT: 0
+
+$ python -m ruff check .
+All checks passed!
+EXIT: 0
+
+$ python -m ruff format --check .
+95 files already formatted
+EXIT: 0
+
+$ python -m mypy --strict .
+Success: no issues found in 95 source files
+EXIT: 0
