@@ -1,0 +1,221 @@
+============================= test session starts =============================
+platform win32 -- Python 3.11.14, pytest-9.0.2, pluggy-1.6.0 -- C:\Users\zioni\AppData\Local\hermes\hermes-agent\venv\Scripts\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\zioni\Documents\Vigil-Harbor\PET-87-worktree
+configfile: pyproject.toml
+plugins: anyio-4.13.0, Faker-37.12.0, asyncio-1.3.0, timeout-2.4.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 166 items
+
+tests/test_llm_guard_scanner.py::TestScannerProtocolCompliance::test_isinstance_scanner PASSED [  0%]
+tests/test_llm_guard_scanner.py::TestScannerProtocolCompliance::test_scan_is_coroutine PASSED [  1%]
+tests/test_llm_guard_scanner.py::TestNameProperty::test_name_returns_llm_guard PASSED [  1%]
+tests/test_llm_guard_scanner.py::TestLazyLoadFailure::test_missing_llm_guard_returns_errored_result PASSED [  2%]
+tests/test_llm_guard_scanner.py::TestLazyLoadOnlyOnce::test_second_scan_does_not_reimport PASSED [  3%]
+tests/test_llm_guard_scanner.py::TestRuntimeExceptionGuard::test_sub_scanner_raise_returns_errored_result PASSED [  3%]
+tests/test_llm_guard_scanner.py::TestPerSubScannerErrorIsolation::test_one_fails_others_still_run PASSED [  4%]
+tests/test_llm_guard_scanner.py::TestDurationTracking::test_duration_ms_is_positive PASSED [  4%]
+tests/test_llm_guard_scanner.py::TestDefaultEnableFlags::test_only_two_scanners_by_default PASSED [  5%]
+tests/test_llm_guard_scanner.py::TestAllEnableFlags::test_all_five_scanners_enabled PASSED [  6%]
+tests/test_llm_guard_scanner.py::TestBanTopicsRequiresFlag::test_ban_topics_without_flag_does_not_activate PASSED [  6%]
+tests/test_llm_guard_scanner.py::TestEnableBanTopicsWithoutList::test_enable_ban_topics_none_raises PASSED [  7%]
+tests/test_llm_guard_scanner.py::TestEnableBanTopicsWithoutList::test_enable_ban_topics_empty_raises PASSED [  7%]
+tests/test_llm_guard_scanner.py::TestThreadSafety::test_ensure_loaded_executes_once PASSED [  8%]
+tests/test_llm_guard_scanner.py::TestCachedLoadFailure::test_cached_error_no_retry_then_reset PASSED [  9%]
+tests/test_llm_guard_scanner.py::TestModelInstantiationFailure::test_model_init_failure_cached PASSED [  9%]
+tests/test_llm_guard_scanner.py::TestAvailabilityProbe::test_unavailable_when_blocked PASSED [ 10%]
+tests/test_llm_guard_scanner.py::TestAvailabilityProbe::test_available_with_mock_modules PASSED [ 10%]
+tests/test_llm_guard_scanner.py::TestAvailabilityProbe::test_terminal_error_returns_unavailable PASSED [ 11%]
+tests/test_llm_guard_scanner.py::TestAvailabilityProbe::test_retryable_error_still_probes PASSED [ 12%]
+tests/test_llm_guard_scanner.py::TestAvailabilityProbe::test_normalized_error_message_on_import_failure PASSED [ 12%]
+tests/test_llm_guard_scanner.py::TestRetryableRecovery::test_recovery_after_backend_appears PASSED [ 13%]
+tests/test_llm_guard_scanner.py::TestRetryableRecovery::test_transitive_dep_failure_is_terminal PASSED [ 13%]
+tests/test_llm_guard_scanner.py::TestIntegrationCleanInput::test_clean_input PASSED [ 14%]
+tests/test_llm_guard_scanner.py::TestIntegrationPromptInjection::test_prompt_injection_detected PASSED [ 15%]
+tests/test_llm_guard_scanner.py::TestIntegrationInvisibleText::test_invisible_text_detected PASSED [ 15%]
+tests/test_llm_guard_scanner.py::TestIntegrationToxicity::test_toxicity_detected PASSED [ 16%]
+tests/test_llm_guard_scanner.py::TestIntegrationSecrets::test_secrets_detected PASSED [ 16%]
+tests/test_llm_guard_scanner.py::TestIntegrationBanTopics::test_ban_topics_detected PASSED [ 17%]
+tests/test_llm_guard_scanner.py::TestIntegrationConfidenceMapping::test_confidence_is_float_in_range PASSED [ 18%]
+tests/test_llm_guard_scanner.py::TestIntegrationPositionAndMatchedText::test_position_and_matched_text_none PASSED [ 18%]
+tests/test_llm_guard_scanner.py::TestIntegrationThresholdParameter::test_high_threshold_reduces_sensitivity PASSED [ 19%]
+tests/test_llm_guard_scanner.py::TestIntegrationDirectionParameter::test_outbound_direction_works PASSED [ 19%]
+tests/test_llama_firewall_scanner.py::TestUnit::test_name PASSED         [ 20%]
+tests/test_llama_firewall_scanner.py::TestUnit::test_protocol_conformance PASSED [ 21%]
+tests/test_llama_firewall_scanner.py::TestUnit::test_import_failure_returns_error PASSED [ 21%]
+tests/test_llama_firewall_scanner.py::TestUnit::test_import_failure_message PASSED [ 22%]
+tests/test_llama_firewall_scanner.py::TestUnit::test_init_failure_returns_error PASSED [ 22%]
+tests/test_llama_firewall_scanner.py::TestUnit::test_no_components_enabled PASSED [ 23%]
+tests/test_llama_firewall_scanner.py::TestUnit::test_no_components_duration_tracked PASSED [ 24%]
+tests/test_llama_firewall_scanner.py::TestUnit::test_single_component_enabled_no_error PASSED [ 24%]
+tests/test_llama_firewall_scanner.py::TestUnit::test_all_disabled_warns_on_load PASSED [ 25%]
+tests/test_llama_firewall_scanner.py::TestUnit::test_default_constructor PASSED [ 25%]
+tests/test_llama_firewall_scanner.py::TestUnit::test_thread_safety PASSED [ 26%]
+tests/test_llama_firewall_scanner.py::TestUnit::test_duration_tracking PASSED [ 27%]
+tests/test_llama_firewall_scanner.py::TestUnit::test_exception_in_scan_returns_error PASSED [ 27%]
+tests/test_llama_firewall_scanner.py::TestUnit::test_empty_string PASSED [ 28%]
+tests/test_llama_firewall_scanner.py::TestAvailabilityProbe::test_unavailable_when_blocked PASSED [ 28%]
+tests/test_llama_firewall_scanner.py::TestAvailabilityProbe::test_available_with_mock PASSED [ 29%]
+tests/test_llama_firewall_scanner.py::TestAvailabilityProbe::test_terminal_error_returns_unavailable PASSED [ 30%]
+tests/test_llama_firewall_scanner.py::TestPromptGuardPrereqPredicate::test_disabled_returns_none PASSED [ 30%]
+tests/test_llama_firewall_scanner.py::TestPromptGuardPrereqPredicate::test_model_present_returns_none PASSED [ 31%]
+tests/test_llama_firewall_scanner.py::TestPromptGuardPrereqPredicate::test_token_via_env_returns_none PASSED [ 31%]
+tests/test_llama_firewall_scanner.py::TestPromptGuardPrereqPredicate::test_token_via_file_returns_none PASSED [ 32%]
+tests/test_llama_firewall_scanner.py::TestPromptGuardPrereqPredicate::test_no_model_no_token_returns_error PASSED [ 33%]
+tests/test_llama_firewall_scanner.py::TestPromptGuardPrereqPredicate::test_empty_token_treated_as_absent PASSED [ 33%]
+tests/test_llama_firewall_scanner.py::TestFailFast::test_no_token_fails_fast PASSED [ 34%]
+tests/test_llama_firewall_scanner.py::TestStdinTripwire::test_scan_window_catches_input PASSED [ 34%]
+tests/test_llama_firewall_scanner.py::TestStdinTripwire::test_construction_window_catches_input PASSED [ 35%]
+tests/test_llama_firewall_scanner.py::TestStdinTripwire::test_nonblocking_guard_returns_warming_up PASSED [ 36%]
+tests/test_llama_firewall_scanner.py::TestStdinTripwire::test_warm_trigger_regression PASSED [ 36%]
+tests/test_llama_firewall_scanner.py::TestCrossAxisRecovery::test_blocked_to_prereq_to_healthy PASSED [ 37%]
+tests/test_llama_firewall_scanner.py::TestMockFunctional::test_block_produces_finding PASSED [ 37%]
+tests/test_llama_firewall_scanner.py::TestMockFunctional::test_allow_no_finding PASSED [ 38%]
+tests/test_llama_firewall_scanner.py::TestMockFunctional::test_confidence_clamped_high PASSED [ 39%]
+tests/test_llama_firewall_scanner.py::TestMockFunctional::test_confidence_clamped_low PASSED [ 39%]
+tests/test_llama_firewall_scanner.py::TestMockFunctional::test_direction_inbound_uses_user_message PASSED [ 40%]
+tests/test_llama_firewall_scanner.py::TestMockFunctional::test_direction_outbound_uses_assistant_message PASSED [ 40%]
+tests/test_llama_firewall_scanner.py::TestMockFunctional::test_multiple_components PASSED [ 41%]
+tests/test_llama_firewall_scanner.py::TestMockFunctional::test_partial_failure_preserves_findings PASSED [ 42%]
+tests/test_llama_firewall_scanner.py::TestMockFunctional::test_non_allow_decision_produces_finding PASSED [ 42%]
+tests/test_llama_firewall_scanner.py::TestMockFunctional::test_none_score_defaults_to_one PASSED [ 43%]
+tests/test_llama_firewall_scanner.py::TestMockFunctional::test_fail_once_semantics PASSED [ 43%]
+tests/test_llama_firewall_scanner.py::TestIntegration::test_prompt_guard_detects_jailbreak SKIPPED [ 44%]
+tests/test_llama_firewall_scanner.py::TestIntegration::test_prompt_guard_clean_message SKIPPED [ 45%]
+tests/test_llama_firewall_scanner.py::TestIntegration::test_code_shield_detects_unsafe SKIPPED [ 45%]
+tests/test_llama_firewall_scanner.py::TestIntegration::test_alignment_check_cot SKIPPED [ 46%]
+tests/test_llama_firewall_scanner.py::TestIntegration::test_direction_inbound SKIPPED [ 46%]
+tests/test_llama_firewall_scanner.py::TestIntegration::test_direction_outbound SKIPPED [ 47%]
+tests/test_llama_firewall_scanner.py::TestIntegration::test_multiple_components_enabled SKIPPED [ 48%]
+tests/test_llama_firewall_scanner.py::TestIntegration::test_finding_field_completeness SKIPPED [ 48%]
+tests/test_llama_firewall_scanner.py::TestIntegration::test_backend_exception_partial_findings SKIPPED [ 49%]
+tests/test_llama_firewall_scanner.py::TestIntegration::test_confidence_range SKIPPED [ 50%]
+tests/test_llama_firewall_scanner.py::TestIntegration::test_corpus SKIPPED [ 50%]
+tests/test_llama_firewall_scanner.py::TestIntegration::test_async_correctness SKIPPED [ 51%]
+tests/test_presidio_scanner.py::TestAvailabilityProbe::test_unavailable_when_blocked PASSED [ 51%]
+tests/test_presidio_scanner.py::TestAvailabilityProbe::test_terminal_error_returns_unavailable PASSED [ 52%]
+tests/test_presidio_scanner.py::TestSeverityMapping::test_critical_entities PASSED [ 53%]
+tests/test_presidio_scanner.py::TestSeverityMapping::test_high_entities PASSED [ 53%]
+tests/test_presidio_scanner.py::TestSeverityMapping::test_medium_entities PASSED [ 54%]
+tests/test_presidio_scanner.py::TestSeverityMapping::test_unknown_defaults_to_low PASSED [ 54%]
+tests/test_presidio_scanner.py::TestEntityTypeRecovery::test_presidio_prefix PASSED [ 55%]
+tests/test_presidio_scanner.py::TestEntityTypeRecovery::test_presidio_prefix_with_hyphen PASSED [ 56%]
+tests/test_presidio_scanner.py::TestEntityTypeRecovery::test_non_presidio_rule PASSED [ 56%]
+tests/test_presidio_scanner.py::TestEntityTypeRecovery::test_simple_dotted PASSED [ 57%]
+tests/test_presidio_scanner.py::TestScannerProtocol::test_satisfies_protocol PASSED [ 57%]
+tests/test_presidio_scanner.py::TestScannerProtocol::test_name_property PASSED [ 58%]
+tests/test_presidio_scanner.py::TestLazyLoadFailure::test_import_error_returns_errored_result PASSED [ 59%]
+tests/test_presidio_scanner.py::TestLazyLoadFailure::test_spacy_model_missing PASSED [ 59%]
+tests/test_presidio_scanner.py::TestLazyLoadFailure::test_backend_exception_during_analyze PASSED [ 60%]
+tests/test_presidio_scanner.py::TestAnonymizeEmptyInputs::test_empty_findings_returns_original PASSED [ 60%]
+tests/test_presidio_scanner.py::TestAnonymizeEmptyInputs::test_empty_text_returns_empty PASSED [ 61%]
+tests/test_presidio_scanner.py::TestAnonymizeEmptyInputs::test_all_unpositioned_findings_returns_original PASSED [ 62%]
+tests/test_presidio_scanner.py::TestAnonymizeRedact::test_single_entity_redacted PASSED [ 62%]
+tests/test_presidio_scanner.py::TestAnonymizeRedact::test_multiple_entity_types PASSED [ 63%]
+tests/test_presidio_scanner.py::TestAnonymizeReplace::test_counter_based_labels PASSED [ 63%]
+tests/test_presidio_scanner.py::TestAnonymizeReplace::test_counter_resets_across_calls PASSED [ 64%]
+tests/test_presidio_scanner.py::TestAnonymizeHash::test_hmac_deterministic PASSED [ 65%]
+tests/test_presidio_scanner.py::TestAnonymizeHash::test_different_keys_produce_different_hashes PASSED [ 65%]
+tests/test_presidio_scanner.py::TestAnonymizeHash::test_hash_without_key_raises PASSED [ 66%]
+tests/test_presidio_scanner.py::TestAnonymizeHash::test_hash_mode_rejects_empty_key PASSED [ 66%]
+tests/test_presidio_scanner.py::TestAnonymizeHash::test_hash_mode_with_valid_key_works PASSED [ 67%]
+tests/test_presidio_scanner.py::TestAnonymizeHash::test_hmac_operator_rejects_empty_key PASSED [ 68%]
+tests/test_presidio_scanner.py::TestAnonymizeHash::test_hmac_operator_rejects_missing_key PASSED [ 68%]
+tests/test_presidio_scanner.py::TestAnonymizeHash::test_redact_mode_ignores_hash_key PASSED [ 69%]
+tests/test_presidio_scanner.py::TestAnonymizeMask::test_mask_hides_leading PASSED [ 69%]
+tests/test_presidio_scanner.py::TestAnonymizeMask::test_mask_short_value_fully_masked PASSED [ 70%]
+tests/test_presidio_scanner.py::TestAnonymizeMask::test_mask_matched_text_none_fallback PASSED [ 71%]
+tests/test_presidio_scanner.py::TestAnonymizeOverlap::test_overlapping_manual_path_deduplicates PASSED [ 71%]
+tests/test_presidio_scanner.py::TestAnonymizeOverlap::test_overlapping_higher_confidence_wins PASSED [ 72%]
+tests/test_presidio_scanner.py::TestAnonymizeUnsortedFindings::test_reverse_order_input_handled PASSED [ 72%]
+tests/test_presidio_scanner.py::TestAnonymizeMixedPositioned::test_unpositioned_findings_skipped PASSED [ 73%]
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_detect_email PASSED [ 74%]
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_detect_phone PASSED [ 74%]
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_detect_person PASSED [ 75%]
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_detect_credit_card PASSED [ 75%]
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_no_pii_clean PASSED [ 76%]
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_empty_text PASSED [ 77%]
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_position_accuracy PASSED [ 77%]
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_confidence_range PASSED [ 78%]
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_duration_tracked PASSED [ 78%]
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_score_threshold_filtering PASSED [ 79%]
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_custom_entities_filter PASSED [ 80%]
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_multi_finding_message PASSED [ 80%]
+tests/test_presidio_scanner.py::TestPresidioScannerIntegration::test_scanner_name_in_findings PASSED [ 81%]
+tests/test_presidio_scanner.py::TestAnonymizeIntegration::test_redact_removes_pii PASSED [ 81%]
+tests/test_presidio_scanner.py::TestAnonymizeIntegration::test_replace_with_counters PASSED [ 82%]
+tests/test_presidio_scanner.py::TestAnonymizeIntegration::test_hash_with_key_deterministic PASSED [ 83%]
+tests/test_presidio_scanner.py::TestAnonymizeIntegration::test_mask_shows_trailing PASSED [ 83%]
+tests/test_console_handlers.py::test_get_config_returns_fields PASSED    [ 84%]
+tests/test_console_handlers.py::test_get_config_redacts_secrets PASSED   [ 84%]
+tests/test_console_handlers.py::test_update_config_valid PASSED          [ 85%]
+tests/test_console_handlers.py::test_update_config_invalid PASSED        [ 86%]
+tests/test_console_handlers.py::test_run_scan PASSED                     [ 86%]
+tests/test_console_handlers.py::test_run_scan_with_injection PASSED      [ 87%]
+tests/test_console_handlers.py::test_get_health PASSED                   [ 87%]
+tests/test_console_handlers.py::test_get_scan_history_empty PASSED       [ 88%]
+tests/test_console_handlers.py::test_get_scan_history_after_scan PASSED  [ 89%]
+tests/test_console_handlers.py::test_get_profiles PASSED                 [ 89%]
+tests/test_console_handlers.py::test_get_about PASSED                    [ 90%]
+tests/test_console_handlers.py::test_scan_history_limit PASSED           [ 90%]
+tests/test_console_handlers.py::test_pipeline_scanner_health PASSED      [ 91%]
+tests/test_console_handlers.py::test_pipeline_list_profiles PASSED       [ 92%]
+tests/test_console_handlers.py::test_pipeline_result_to_dict PASSED      [ 92%]
+tests/test_console_handlers.py::test_config_persist_writes_yaml PASSED   [ 93%]
+tests/test_console_handlers.py::test_health_surfaces_scan_errors PASSED  [ 93%]
+tests/test_console_handlers.py::test_health_unavailable_status PASSED    [ 94%]
+tests/test_console_handlers.py::test_health_recovery_to_healthy PASSED   [ 95%]
+tests/test_console_handlers.py::test_health_unavailable_wins_over_breaker PASSED [ 95%]
+tests/test_console_handlers.py::test_minimal_never_unavailable PASSED    [ 96%]
+tests/test_console_handlers.py::test_health_has_last_error_field PASSED  [ 96%]
+tests/test_console_handlers.py::test_idle_recovery_transition PASSED     [ 97%]
+tests/test_plugin_init_logging.py::TestReferencePluginInitLogging::test_backend_missing_logs_probe_verdict PASSED [ 98%]
+tests/test_plugin_init_logging.py::TestReferencePluginInitLogging::test_backend_available_logs_verified PASSED [ 98%]
+tests/test_plugin_init_logging.py::TestPluginApiInitLogging::test_backend_missing_logs_probe_verdict PASSED [ 99%]
+tests/test_plugin_init_logging.py::TestPluginApiInitLogging::test_backend_available_logs_verified PASSED [100%]
+
+====================== 154 passed, 12 skipped in 18.84s =======================
+---
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+========== 1131 passed, 16 skipped, 1 xfailed, 55 warnings in 26.97s ==========
+---
+TC003 Move standard library import `collections.abc.Iterator` into a type-checking block
+  --> petasos\scanners\llama_firewall.py:11:29
+   |
+ 9 | import threading
+10 | import time
+11 | from collections.abc import Iterator
+   |                             ^^^^^^^^
+12 | from contextlib import contextmanager
+13 | from types import MappingProxyType
+   |
+help: Move into type-checking block
+
+TC003 Move standard library import `collections.abc.Iterator` into a type-checking block
+  --> tests\test_plugin_init_logging.py:14:29
+   |
+12 | import importlib.util
+13 | import logging
+14 | from collections.abc import Iterator
+   |                             ^^^^^^^^
+15 | from pathlib import Path
+16 | from typing import TYPE_CHECKING
+   |
+help: Move into type-checking block
+
+Found 2 errors.
+No fixes available (2 hidden fixes can be enabled with the `--unsafe-fixes` option).
+---
+96 files already formatted
+---
+Success: no issues found in 96 source files
+---
+ℹ tests 20
+ℹ suites 0
+ℹ pass 20
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 49.9019

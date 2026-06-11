@@ -3,10 +3,13 @@ from __future__ import annotations
 import asyncio
 import builtins
 import enum
+import os
 import sys
+import time
 import types
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
+from unittest.mock import patch
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -14,7 +17,11 @@ if TYPE_CHECKING:
 import pytest
 
 from petasos._types import Scanner, ScanResult, Severity
-from petasos.scanners.llama_firewall import LlamaFirewallScanner
+from petasos.scanners.llama_firewall import (
+    _STDIN_GUARD,
+    LlamaFirewallScanner,
+    _prompt_guard_prereq_error,
+)
 
 # ---- Backend availability ----
 
@@ -25,8 +32,13 @@ try:
 except ImportError:
     _has_llamafirewall = False
 
+_has_prompt_guard_prereqs = False
+if _has_llamafirewall:
+    _has_prompt_guard_prereqs = _prompt_guard_prereq_error(True) is None
+
 _skip_integration = pytest.mark.skipif(
-    not _has_llamafirewall, reason="llamafirewall not installed"
+    not _has_llamafirewall or not _has_prompt_guard_prereqs,
+    reason="llamafirewall not installed or PromptGuard prerequisites missing",
 )
 
 
@@ -107,7 +119,9 @@ def _build_mock_module(*, fw_cls: type[Any] | None = None) -> types.ModuleType:
 
 
 @contextmanager
-def _injected_mock(*, fw_cls: type[Any] | None = None) -> Iterator[types.ModuleType]:
+def _injected_mock(
+    *, fw_cls: type[Any] | None = None, set_hf_token: bool = True
+) -> Iterator[types.ModuleType]:
     global _mock_init_count  # noqa: PLW0603
     _mock_init_count = 0
     mod = _build_mock_module(fw_cls=fw_cls)
@@ -116,9 +130,17 @@ def _injected_mock(*, fw_cls: type[Any] | None = None) -> Iterator[types.ModuleT
         if key == "llamafirewall" or key.startswith("llamafirewall."):
             saved[key] = sys.modules.pop(key)
     sys.modules["llamafirewall"] = mod
+    old_token = os.environ.get("HF_TOKEN")
+    if set_hf_token and "HF_TOKEN" not in os.environ:
+        os.environ["HF_TOKEN"] = "test_fake_token"
     try:
         yield mod
     finally:
+        if set_hf_token:
+            if old_token is None:
+                os.environ.pop("HF_TOKEN", None)
+            else:
+                os.environ["HF_TOKEN"] = old_token
         for key in list(sys.modules):
             if key == "llamafirewall" or key.startswith("llamafirewall."):
                 del sys.modules[key]
@@ -170,7 +192,7 @@ class TestUnit:
             assert r.findings == ()
 
     async def test_import_failure_message(self) -> None:
-        with _blocked_import():
+        with patch.dict("sys.modules", {"llamafirewall": None}):
             scanner = LlamaFirewallScanner()
             r = await scanner.scan("test")
             assert r.error is not None
@@ -243,7 +265,8 @@ class TestUnit:
             scanner = LlamaFirewallScanner()
             _mock_init_count = 0
             results = await asyncio.gather(*[scanner.scan("test") for _ in range(10)])
-            assert all(r.error is None for r in results)
+            warming = "llama_firewall warming up"
+            assert all(r.error is None or warming in r.error for r in results)
             assert _mock_init_count == 1
 
     async def test_duration_tracking(self) -> None:
@@ -272,6 +295,284 @@ class TestUnit:
             r = await scanner.scan("")
             assert r.findings == ()
             assert r.error is None
+
+
+# ==============================================================
+# PET-87: availability, prereq predicate, stdin tripwire, recovery
+# ==============================================================
+
+
+class TestAvailabilityProbe:
+    def test_unavailable_when_blocked(self) -> None:
+        with patch.dict("sys.modules", {"llamafirewall": None}):
+            scanner = LlamaFirewallScanner()
+            avail, reason = scanner.availability()
+        assert avail is False
+        assert reason is not None
+        assert "pip install" in reason
+
+    def test_available_with_mock(self, tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("HF_TOKEN", "hf_fake_token")
+        with _injected_mock():
+            scanner = LlamaFirewallScanner()
+            avail, reason = scanner.availability()
+        assert avail is True
+        assert reason is None
+
+    def test_terminal_error_returns_unavailable(self) -> None:
+        scanner = LlamaFirewallScanner()
+        scanner._load_error = "GPU corrupted"
+        scanner._load_error_retryable = False
+        avail, reason = scanner.availability()
+        assert avail is False
+        assert reason == "GPU corrupted"
+
+
+class TestPromptGuardPrereqPredicate:
+    def test_disabled_returns_none(self) -> None:
+        assert _prompt_guard_prereq_error(False) is None
+
+    def test_model_present_returns_none(
+        self, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        hf_home = str(tmp_path / "hf")
+        model_dir = os.path.join(hf_home, "hub", "models--meta-llama--Llama-Prompt-Guard-2-86M")
+        os.makedirs(model_dir)
+        monkeypatch.setenv("HF_HOME", hf_home)
+        monkeypatch.delenv("HF_TOKEN", raising=False)
+        monkeypatch.delenv("HUGGING_FACE_HUB_TOKEN", raising=False)
+        monkeypatch.delenv("HF_TOKEN_PATH", raising=False)
+        assert _prompt_guard_prereq_error(True) is None
+
+    def test_token_via_env_returns_none(
+        self, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("HF_HOME", str(tmp_path))
+        monkeypatch.setenv("HF_TOKEN", "hf_test_token_123")
+        assert _prompt_guard_prereq_error(True) is None
+
+    def test_token_via_file_returns_none(
+        self, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        hf_home = str(tmp_path / "hf")
+        os.makedirs(hf_home, exist_ok=True)
+        token_file = os.path.join(hf_home, "token")
+        with open(token_file, "w") as f:
+            f.write("hf_file_token_456")
+        monkeypatch.setenv("HF_HOME", hf_home)
+        monkeypatch.delenv("HF_TOKEN", raising=False)
+        monkeypatch.delenv("HUGGING_FACE_HUB_TOKEN", raising=False)
+        monkeypatch.delenv("HF_TOKEN_PATH", raising=False)
+        assert _prompt_guard_prereq_error(True) is None
+
+    def test_no_model_no_token_returns_error(
+        self, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("HF_HOME", str(tmp_path))
+        monkeypatch.delenv("HF_TOKEN", raising=False)
+        monkeypatch.delenv("HUGGING_FACE_HUB_TOKEN", raising=False)
+        monkeypatch.delenv("HF_TOKEN_PATH", raising=False)
+        result = _prompt_guard_prereq_error(True)
+        assert result is not None
+        assert "PromptGuard model unavailable" in result
+
+    def test_empty_token_treated_as_absent(
+        self, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("HF_HOME", str(tmp_path))
+        monkeypatch.setenv("HF_TOKEN", "   ")
+        monkeypatch.delenv("HUGGING_FACE_HUB_TOKEN", raising=False)
+        monkeypatch.delenv("HF_TOKEN_PATH", raising=False)
+        result = _prompt_guard_prereq_error(True)
+        assert result is not None
+
+
+class TestFailFast:
+    async def test_no_token_fails_fast(
+        self, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("HF_HOME", str(tmp_path))
+        monkeypatch.delenv("HF_TOKEN", raising=False)
+        monkeypatch.delenv("HUGGING_FACE_HUB_TOKEN", raising=False)
+        monkeypatch.delenv("HF_TOKEN_PATH", raising=False)
+
+        login_called = False
+
+        class MockHFHub:
+            @staticmethod
+            def login() -> None:
+                nonlocal login_called
+                login_called = True
+
+        hf_mod = types.ModuleType("huggingface_hub")
+        hf_mod.login = MockHFHub.login  # type: ignore[attr-defined]
+
+        class PromptingFW:
+            def __init__(self, *, scanners: dict[Any, Any]) -> None:
+                MockHFHub.login()
+
+            def scan(self, message: Any) -> _MockFWResult:
+                return _MockFWResult()
+
+        with _injected_mock(fw_cls=PromptingFW, set_hf_token=False):
+            sys.modules["huggingface_hub"] = hf_mod
+            try:
+                scanner = LlamaFirewallScanner()
+                start = time.perf_counter()
+                r = await scanner.scan("test")
+                elapsed = time.perf_counter() - start
+            finally:
+                sys.modules.pop("huggingface_hub", None)
+
+        assert r.error is not None
+        assert "PromptGuard model unavailable" in r.error
+        assert elapsed < 1.0
+        assert not login_called
+
+
+class TestStdinTripwire:
+    async def test_scan_window_catches_input(
+        self, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("HF_HOME", str(tmp_path))
+        monkeypatch.setenv("HF_TOKEN", "hf_fake_token")
+
+        class InputCallingFW:
+            def __init__(self, *, scanners: dict[Any, Any]) -> None:
+                pass
+
+            def scan(self, message: Any) -> _MockFWResult:
+                input("login: ")
+                return _MockFWResult()
+
+        with _injected_mock(fw_cls=InputCallingFW):
+            scanner = LlamaFirewallScanner()
+            r = await scanner.scan("test")
+
+        assert r.error is not None
+        assert sys.stdin is not None
+
+    async def test_construction_window_catches_input(
+        self, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("HF_HOME", str(tmp_path))
+        monkeypatch.setenv("HF_TOKEN", "hf_fake_token")
+
+        init_entered = 0
+
+        class InputInInitFW:
+            def __init__(self, *, scanners: dict[Any, Any]) -> None:
+                nonlocal init_entered
+                init_entered += 1
+                input("login: ")
+
+            def scan(self, message: Any) -> _MockFWResult:
+                return _MockFWResult()
+
+        with _injected_mock(fw_cls=InputInInitFW):
+            scanner = LlamaFirewallScanner()
+            start = time.perf_counter()
+            r = await scanner.scan("test")
+            elapsed = time.perf_counter() - start
+
+        assert r.error is not None
+        assert elapsed < 1.0
+        assert init_entered > 0
+        assert sys.stdin is not None
+
+    async def test_nonblocking_guard_returns_warming_up(
+        self, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("HF_HOME", str(tmp_path))
+        monkeypatch.setenv("HF_TOKEN", "hf_fake_token")
+
+        component_scan_called = False
+
+        class SimpleFW:
+            def __init__(self, *, scanners: dict[Any, Any]) -> None:
+                pass
+
+            def scan(self, message: Any) -> _MockFWResult:
+                nonlocal component_scan_called
+                component_scan_called = True
+                return _MockFWResult()
+
+        with _injected_mock(fw_cls=SimpleFW):
+            scanner = LlamaFirewallScanner()
+            await scanner.scan("warmup to load")
+
+            scanner._warmed = False
+
+            _STDIN_GUARD.acquire()
+            try:
+                r = await scanner.scan("contended")
+            finally:
+                _STDIN_GUARD.release()
+
+        assert r.error is not None
+        assert "warming up" in r.error
+
+    async def test_warm_trigger_regression(
+        self, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("HF_HOME", str(tmp_path))
+        monkeypatch.setenv("HF_TOKEN", "hf_fake_token")
+
+        call_count = 0
+
+        class FailThenInputFW:
+            def __init__(self, *, scanners: dict[Any, Any]) -> None:
+                pass
+
+            def scan(self, message: Any) -> _MockFWResult:
+                nonlocal call_count
+                call_count += 1
+                if call_count == 1:
+                    raise RuntimeError("prompt_guard setup error")
+                input("login: ")
+                return _MockFWResult()
+
+        with _injected_mock(fw_cls=FailThenInputFW):
+            scanner = LlamaFirewallScanner()
+            r1 = await scanner.scan("first pass — pg fails with RuntimeError")
+            assert r1.error is not None
+            assert not scanner._warmed
+
+            r2 = await scanner.scan("second pass — pg calls input()")
+            assert r2.error is not None
+            assert not scanner._warmed
+
+
+class TestCrossAxisRecovery:
+    async def test_blocked_to_prereq_to_healthy(
+        self, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        with _blocked_import():
+            scanner = LlamaFirewallScanner()
+            r1 = await scanner.scan("first")
+        assert r1.error is not None
+        assert scanner._load_error_retryable is True
+
+        monkeypatch.setenv("HF_HOME", str(tmp_path))
+        monkeypatch.delenv("HF_TOKEN", raising=False)
+        monkeypatch.delenv("HUGGING_FACE_HUB_TOKEN", raising=False)
+        monkeypatch.delenv("HF_TOKEN_PATH", raising=False)
+
+        with _injected_mock(set_hf_token=False):
+            r2 = await scanner.scan("after install, no token")
+        assert r2.error is not None
+        assert "PromptGuard model unavailable" in r2.error
+        assert scanner._load_error_retryable is True
+
+        model_dir = os.path.join(
+            str(tmp_path), "hub", "models--meta-llama--Llama-Prompt-Guard-2-86M"
+        )
+        os.makedirs(model_dir)
+        monkeypatch.setenv("HF_TOKEN", "hf_fake_token")
+
+        with _injected_mock(set_hf_token=False):
+            r3 = await scanner.scan("after token and model")
+        assert r3.error is None
 
 
 # ==============================================================

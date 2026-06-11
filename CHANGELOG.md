@@ -5,6 +5,9 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
 ## [Unreleased]
 
 ### Fixed
+- **Scanner init logs now tell the truth** — init surfaces (reference plugin, dashboard) log "backend verified" or "backend missing" based on a real availability probe instead of claiming "loaded" on instantiation (PET-87)
+- **Health endpoint reflects scan-time reality** — `scanner_health()` status enum corrected to `healthy | degraded | circuit_open | unavailable` with a `last_error` field; scanners whose backend is absent report `unavailable` instead of `healthy` (PET-87)
+- **LlamaFirewall no longer hangs on missing HF token** — fail-fast prerequisite check and stdin tripwire prevent upstream's interactive `huggingface_hub.login()` from blocking the event loop (PET-87)
 - **Profile-aware config resolution** — Petasos config readers now resolve
   Hermes v0.16+ per-profile homes (`HERMES_HOME` → `active_profile` pointer →
   v0.15 root fallback) via a shared resolver, fixing the silent enforcement loss

@@ -185,34 +185,71 @@ def _deferred_init() -> None:
                 config = PetasosConfig()
 
             scanners = [MinimalScanner()]
+            unavailable: list[str] = []
             try:
                 from petasos.scanners import LlmGuardScanner
 
-                scanners.append(LlmGuardScanner())
-                logger.info("LLM Guard scanner loaded")
+                instance = LlmGuardScanner()
+                scanners.append(instance)
+                avail, reason = instance.availability()
+                if avail:
+                    logger.info("LLM Guard backend verified — scanner active")
+                else:
+                    unavailable.append("llm_guard")
+                    logger.warning(
+                        "LLM Guard backend missing — scanner registered degraded "
+                        "(every scan will error): %s",
+                        reason,
+                    )
             except ImportError:
+                unavailable.append("llm_guard")
                 logger.info("LLM Guard not installed — syntactic-only for that backend")
             except Exception as exc:
+                unavailable.append("llm_guard")
                 logger.warning("LLM Guard failed to load: %s", exc)
 
             try:
                 from petasos.scanners import LlamaFirewallScanner
 
-                scanners.append(LlamaFirewallScanner())
-                logger.info("LlamaFirewall scanner loaded")
+                instance = LlamaFirewallScanner()
+                scanners.append(instance)
+                avail, reason = instance.availability()
+                if avail:
+                    logger.info("LlamaFirewall backend verified — scanner active")
+                else:
+                    unavailable.append("llama_firewall")
+                    logger.warning(
+                        "LlamaFirewall backend missing — scanner registered degraded "
+                        "(every scan will error): %s",
+                        reason,
+                    )
             except ImportError:
+                unavailable.append("llama_firewall")
                 logger.info("LlamaFirewall not installed — skipped")
             except Exception as exc:
+                unavailable.append("llama_firewall")
                 logger.warning("LlamaFirewall failed to load: %s", exc)
 
             try:
                 from petasos.scanners import PresidioScanner
 
-                scanners.append(PresidioScanner())
-                logger.info("Presidio scanner loaded")
+                instance = PresidioScanner()
+                scanners.append(instance)
+                avail, reason = instance.availability()
+                if avail:
+                    logger.info("Presidio backend verified — scanner active")
+                else:
+                    unavailable.append("presidio")
+                    logger.warning(
+                        "Presidio backend missing — scanner registered degraded "
+                        "(every scan will error): %s",
+                        reason,
+                    )
             except ImportError:
+                unavailable.append("presidio")
                 logger.info("Presidio not installed — PII detection unavailable")
             except Exception as exc:
+                unavailable.append("presidio")
                 logger.warning("Presidio failed to load: %s", exc)
 
             _pipeline = Pipeline(
@@ -256,8 +293,9 @@ def _deferred_init() -> None:
 
             scanner_names = [s.name for s in scanners]
             logger.info(
-                "Petasos initialized: scanners=%s, fail_mode=%s, host_id=%s",
+                "Petasos initialized: scanners=%s, unavailable=%s, fail_mode=%s, host_id=%s",
                 scanner_names,
+                unavailable,
                 config.fail_mode,
                 host_id,
             )
