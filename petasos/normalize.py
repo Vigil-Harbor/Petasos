@@ -18,6 +18,7 @@ RTL_OVERRIDES = frozenset(
     ]
 )
 
+# vestigial: superseded by INVISIBLE_NON_CF for stripping; retained only for test imports
 INVISIBLE_CHARS = frozenset(
     [
         "­",  # soft hyphen
@@ -47,17 +48,54 @@ INVISIBLE_CHARS = frozenset(
 
 _STRIP_CATEGORIES: frozenset[str] = frozenset({"Cf"})
 
-_EXTRA_INVISIBLE: frozenset[str] = frozenset(
-    [
+# Canonical enumeration of invisible non-Cf code points (PET-90; relocated from
+# petasos/console/_validation.py where PET-85 introduced it as
+# _INVISIBLE_PRINTABLE). Invisible/zero-width code points that
+# str.isprintable() returns True for and NFKC does not remove. Enumerated, not
+# predicate-derived: CPython's unicodedata exposes no
+# Default_Ignorable_Code_Point accessor (only category()), and the residue
+# spans Mn/Lo/So, so no single category test isolates it — contrast NORM-01
+# (PET-43) where category()=="Cf" WAS the semantic predicate. Three groups:
+#   1. The assigned-non-Cf Default_Ignorable residue (isprintable() already
+#      rejects every Cf and unassigned-Cn Default_Ignorable, leaving only this
+#      small, slow-growing set). Source: DerivedCoreProperties.txt (Unicode 14+).
+#      U+180F (FVS4) is unassigned (Cn) before Unicode 14.0; included by code
+#      point, stripped regardless of UCD version.
+#   2. Non-DI zero-glyph fillers Unicode chose not to mark Default_Ignorable
+#      but which still render no glyph (PET-85 round-3 finding).
+#   3. Zero-glyph/space renderers formerly enumerated here as _EXTRA_INVISIBLE.
+#      U+180E is intentionally triply covered (Cf category test + group-1
+#      Mongolian range + this group) — do not "clean up" the dup; the console
+#      set-identity guarantee depends on verbatim membership.
+# Extend a group if a future Unicode version adds a member;
+# test_default_ignorable_sweep_normalize and test_default_ignorable_rejected
+# (independently derived) guard group 1.
+INVISIBLE_NON_CF: frozenset[str] = frozenset(
+    {
+        # Group 1 — assigned-non-Cf Default_Ignorable residue
+        chr(0x034F),  # COMBINING GRAPHEME JOINER (Mn)
+        chr(0x115F),  # HANGUL CHOSEONG FILLER (Lo)
+        chr(0x1160),  # HANGUL JUNGSEONG FILLER (Lo)
+        chr(0x17B4),  # KHMER VOWEL INHERENT AQ (Mn)
+        chr(0x17B5),  # KHMER VOWEL INHERENT AA (Mn)
+        chr(0x3164),  # HANGUL FILLER (Lo; NFKC → U+1160)
+        chr(0xFFA0),  # HALFWIDTH HANGUL FILLER (Lo; NFKC → U+1160)
+        # Group 2 — non-DI zero-glyph fillers
+        chr(0x16FE4),  # KHITAN SMALL SCRIPT FILLER (Mn; non-DI zero-glyph)
+        chr(0x1BC9D),  # DUPLOYAN THICK LETTER SELECTOR (Mn; non-DI zero-glyph)
+        # Group 3 — zero-glyph/space renderers (former _EXTRA_INVISIBLE)
         chr(0x2800),  # BRAILLE PATTERN BLANK (So)
         chr(0x202F),  # NARROW NO-BREAK SPACE (Zs)
         chr(0x180E),  # MONGOLIAN VOWEL SEPARATOR (Cf — belt-and-suspenders)
-    ]
+    }
+    | {chr(c) for c in range(0x180B, 0x1810)}  # MONGOLIAN FVS1–4 (180E is Cf; harmless dup)
+    | {chr(c) for c in range(0xFE00, 0xFE10)}  # VARIATION SELECTORS 1–16 (Mn)
+    | {chr(c) for c in range(0xE0100, 0xE01F0)}  # VARIATION SELECTORS SUPPLEMENT 17–256 (Mn)
 )
 
 
 def _is_strippable(ch: str) -> bool:
-    return unicodedata.category(ch) in _STRIP_CATEGORIES or ch in _EXTRA_INVISIBLE
+    return unicodedata.category(ch) in _STRIP_CATEGORIES or ch in INVISIBLE_NON_CF
 
 
 _HOMOGLYPH_TABLE = str.maketrans(
