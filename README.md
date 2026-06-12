@@ -303,6 +303,8 @@ Petasos imports in-process as a Python library — no sidecar, no REST endpoint,
 
 Custom integrations implement the same pattern: construct a `Pipeline`, call `await pipeline.inspect()` on every message, and enforce `GuardResult` from `ToolCallGuard.evaluate()` before tool execution.
 
+Before deploying, read the [deployment hardening checklist](docs/deployment/hardening.md) — Petasos is a detection layer, not a security boundary, and the checklist covers what to pair it with (console binding, secrets handling, fail-mode, OS-level isolation).
+
 ## License
 
 [MIT](LICENSE)
