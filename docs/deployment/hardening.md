@@ -72,7 +72,7 @@ Leak resistance is built in — and worth knowing the exact shape of:
 - [ ] Source both from env or a secret manager; never write them into
       `config.yaml`.
 - [ ] Generate them with real entropy (see
-      [hermes-desktop.md §2](hermes-desktop.md) for one-liners).
+      [hermes-desktop.md §2](hermes-desktop.md#2-generate-credentials) for one-liners).
 - [ ] If you set `PETASOS_SESSION_SECRET`, also configure `host_id` —
       the pipeline requires it when a session secret is present
       (`petasos/pipeline.py:225-226`).
