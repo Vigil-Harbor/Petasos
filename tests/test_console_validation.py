@@ -177,8 +177,9 @@ def test_invisible_printable_rejected(client: tuple[TestClient, str], ch: str) -
 
 # Default_Ignorable_Code_Point ranges transcribed directly from Unicode 14.0.0
 # DerivedCoreProperties.txt — deliberately NOT derived from the production
-# _INVISIBLE_PRINTABLE set, so this sweep fails if that set ever omits an
-# assigned-non-Cf class member (the round-1 FVS4/Khmer failure mode).
+# INVISIBLE_NON_CF set (petasos.normalize, canonical since PET-90), so this
+# sweep fails if that set ever omits an assigned-non-Cf class member (the
+# round-1 FVS4/Khmer failure mode).
 _DEFAULT_IGNORABLE_RANGES: list[tuple[int, int]] = [
     (0x00AD, 0x00AD),  # SOFT HYPHEN (Cf)
     (0x034F, 0x034F),  # COMBINING GRAPHEME JOINER (Mn)
@@ -208,6 +209,19 @@ _DEFAULT_IGNORABLE_RANGES: list[tuple[int, int]] = [
     (0xE0100, 0xE01EF),  # VARIATION SELECTORS 17-256 (Mn)
     (0xE01F0, 0xE0FFF),  # reserved (Cn)
 ]
+
+
+def test_console_consumes_canonical_set() -> None:
+    """The console consumes the canonical INVISIBLE_NON_CF set via
+    _is_strippable — no second drift-prone copy of the enumeration."""
+    # Regression for PET-90: enumeration centralized in petasos.normalize
+    import petasos.console._validation as _validation
+    from petasos.normalize import INVISIBLE_NON_CF
+
+    assert not hasattr(_validation, "_INVISIBLE_PRINTABLE")
+    for ch in INVISIBLE_NON_CF:
+        with pytest.raises(SessionIdError):
+            sanitize_session_id(f"a{ch}b")
 
 
 def test_default_ignorable_rejected() -> None:
