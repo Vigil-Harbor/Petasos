@@ -92,7 +92,6 @@
 .pet ::selection { background: var(--acc-soft); }
 
 .pet svg.i { width: 16px; height: 16px; flex: 0 0 auto; }
-.pet .pane-mark svg.i { width: 18px; height: 18px; }
 .pet .badge svg.i { width: 11px; height: 11px; }
 .pet .pill svg.i { width: 12px; height: 12px; }
 .pet .dir svg.i { width: 12px; height: 12px; }
@@ -110,10 +109,12 @@
 }
 .pet .pane-titlerow { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
 .pet .pane-mark {
-  width: 30px; height: 30px; border-radius: 8px;
-  background: linear-gradient(150deg, #2f6bf0, #7b3df0);
-  display: flex; align-items: center; justify-content: center; color: #fff;
-  box-shadow: 0 2px 10px rgba(47,107,240,.4);
+  width: 38px; height: 32px;
+  display: flex; align-items: center; justify-content: center;
+}
+.pet .pane-mark img {
+  width: 100%; height: 100%; object-fit: contain;
+  filter: drop-shadow(0 2px 8px rgba(0,0,0,.55));
 }
 .pet .pane-name { font-size: 16px; font-weight: 700; color: var(--tx-bright); letter-spacing: -.2px; }
 .pet .pane-sub { font-size: 11px; color: var(--tx-faint); font-family: var(--font-mono); }
@@ -250,3 +251,11 @@
 .pet .help:hover .tip, .pet .help:focus .tip { opacity: 1; pointer-events: auto; transform: translateY(0); }
 .pet .tip b { color: var(--color-popover-foreground, var(--tx-bright)); font-weight: 600; }
 .pet .tip code, .pet .tip .m { font-family: var(--font-mono); font-size: 10.5px; color: var(--amber); background: rgba(232,144,28,.1); padding: 0 3px; border-radius: 3px; }
+
+/* ── ABOUT / SUPPORT ── */
+.pet .support-coffee {
+  display: block; width: 112px; height: 112px; margin: 0 auto 14px;
+  border-radius: 12px; object-fit: cover;
+  border: 1px solid rgba(232,144,28,.35);
+  box-shadow: 0 4px 16px rgba(0,0,0,.4);
+}
