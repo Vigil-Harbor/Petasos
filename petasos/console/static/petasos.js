@@ -4,6 +4,13 @@
   "use strict";
   var Pet = {};
 
+  // Static assets live next to this script (/static/ standalone,
+  // /dashboard-plugins/petasos/dist/ inside Hermes) — resolve from the
+  // script URL, captured now because currentScript is null in callbacks.
+  var _scriptSrc = document.currentScript && document.currentScript.src;
+  var _assetBase = _scriptSrc ? _scriptSrc.slice(0, _scriptSrc.lastIndexOf("/") + 1) : "/static/";
+  Pet.asset = function (path) { return _assetBase + path; };
+
   // ── DOM helpers ──
 
   Pet.h = function (tag, attrs) {
@@ -19,6 +26,8 @@
       if (attrs.href) el.href = attrs.href;
       if (attrs.target) el.target = attrs.target;
       if (attrs.rel) el.rel = attrs.rel;
+      if (attrs.src) el.src = attrs.src;
+      if (attrs.alt != null) el.alt = attrs.alt;
       if (attrs.dataset) Object.assign(el.dataset, attrs.dataset);
       Object.keys(attrs).forEach(function (k) {
         if (k.indexOf("on") === 0 && typeof attrs[k] === "function") {
@@ -830,6 +839,7 @@
       style: { border: "1px solid rgba(232,144,28,.3)" },
       bodyStyle: { background: "rgba(232,144,28,.06)" },
       content: Pet.h("div", { style: { textAlign: "center", padding: "12px 0" } },
+        Pet.h("img", { className: "support-coffee", src: Pet.asset("img/coffee.webp"), alt: "A robot enjoying a hot cup of coffee" }),
         Pet.h("div", { style: { fontSize: "15px", fontWeight: "700", color: "var(--tx-bright)", marginBottom: "8px" } }, "Did Petasos prevent a disaster?"),
         Pet.h("div", { style: { fontSize: "12.5px", color: "var(--tx-mut)", lineHeight: "1.6", maxWidth: "400px", margin: "0 auto 16px" } },
           "Every feature is free, forever. If this saved your team from a bad day, a coffee keeps the lights on."
@@ -893,7 +903,9 @@
 
     // Pane header
     var titleRow = Pet.h("div", { className: "pane-titlerow" },
-      Pet.h("div", { className: "pane-mark" }, Pet.Icon("shieldCheck")),
+      Pet.h("div", { className: "pane-mark" },
+        Pet.h("img", { src: Pet.asset("img/petasos-helmet.png"), alt: "Petasos winged helmet" })
+      ),
       Pet.h("div", {},
         Pet.h("div", { className: "pane-name" }, "Petasos"),
         Pet.h("div", { className: "pane-sub" }, "guardrail pipeline")
