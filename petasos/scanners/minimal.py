@@ -24,21 +24,99 @@ class SyntacticRule:
 
 
 # --- Injection patterns (8 rules) ---
+#
+# PET-93 phrasing audit verdicts (one line per rule; full rationale in
+# docs/specs/TODO/PET-93.spec.md):
+#   ignore-previous   WIDENED  determiner stack {0,3} + adjective synonyms
+#                              (previous|prior|above|earlier|preceding).
+#                              INTENTIONAL: paraphrase nouns ("ignore previous
+#                              guidance"), bare "ignore the/your/these
+#                              instructions" (benign-prose twin of disregard's
+#                              bare form).
+#   ignore-all        WIDENED  (all|any) + optional (of) determiner slot —
+#                              catches the in-the-wild DAN opener "Ignore all
+#                              the instructions you got before". Disjoint from
+#                              ignore-previous by construction: no adjective
+#                              slot here, adjective required there.
+#   disregard         WIDENED  now the disregard/forget verb-class rule (verb
+#                              partition keeps it disjoint from the ignore-*
+#                              rules); adjective-required and all/any branches
+#                              mirror the two ignore rules; legacy
+#                              "disregard your" branch kept verbatim.
+#                              INTENTIONAL: bare "disregard/forget the
+#                              instructions" (common benign technical prose).
+#   you-are-now       WIDENED  contraction branch (you're / curly / U+02BC).
+#   new-instructions  WIDENED-THEN-RETREATED  "your new instructions are" +
+#                              legacy colon form. The "(your|the)" variant was
+#                              retreated to "your" only after the D6 benign
+#                              corpus flagged "The new instructions are in the
+#                              README" as a new FP (spec row 5's pre-committed
+#                              fallback). INTENTIONAL: bare "new instructions"
+#                              mid-sentence, "the new instructions are ...".
+#   system-override   WIDENED  word-order variant "override (the) system
+#                              prompt". INTENTIONAL: bare "override the
+#                              system" (benign in systems prose).
+#   system-prefix     WIDENED  pre-colon tolerance only ([ \t]*). Leading-
+#                              whitespace tolerance REJECTED: ^\s* under
+#                              MULTILINE is O(n^2) on newline floods (measured
+#                              19s at 80 KB) and FPs on indented YAML system:
+#                              keys. INTENTIONAL: indented SYSTEM:, lone-\r
+#                              line endings (MULTILINE ^ anchors after \n
+#                              only), other speaker tags (ASSISTANT:, USER:).
+#   inst-delimiter    WIDENED  symmetric [/?INST] / </?INST> pairs + Llama-2
+#                              <<SYS>>/<</SYS>> (same template-delimiter rule).
+#   structural (3)    SWEPT-CLEAN  mechanically defined thresholds/classes.
+#   encoding (4)      SWEPT-CLEAN  normalize()-driven + base64 regex (PET-1
+#                              heritage thresholds untouched).
 
 _INJECTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     (
         "ignore-previous",
-        # Optional determiner so "ignore all previous instructions" doesn't
-        # fall between this rule and ignore-all (PET-91).
-        re.compile(r"ignore\s+(?:(?:all|any|your|the)\s+)?previous\s+instructions", re.IGNORECASE),
+        # Determiner stack so "ignore all of your previous instructions"
+        # doesn't fall between rules (PET-91 fixed the single-determiner
+        # case; PET-93 widened to stacks and adjective synonyms).
+        re.compile(
+            r"ignore\s+(?:(?:all|any|your|the|my|of|these|those)\s+){0,3}"
+            r"(?:previous|prior|above|earlier|preceding)\s+instructions",
+            re.IGNORECASE,
+        ),
     ),
-    ("ignore-all", re.compile(r"ignore\s+all\s+instructions", re.IGNORECASE)),
-    ("disregard", re.compile(r"disregard\s+your", re.IGNORECASE)),
-    ("you-are-now", re.compile(r"you\s+are\s+now", re.IGNORECASE)),
-    ("new-instructions", re.compile(r"new\s+instructions\s*:", re.IGNORECASE)),
-    ("system-override", re.compile(r"system\s+override", re.IGNORECASE)),
-    ("system-prefix", re.compile(r"^SYSTEM:", re.MULTILINE | re.IGNORECASE)),
-    ("inst-delimiter", re.compile(r"\[INST\]|</INST>", re.IGNORECASE)),
+    (
+        "ignore-all",
+        re.compile(
+            r"ignore\s+(?:all|any)\s+(?:(?:of\s+)?(?:the|your|my|these|those)\s+)?instructions",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "disregard",
+        re.compile(
+            r"(?:disregard|forget)\s+(?:(?:all|any|your|the|my|of|these|those)\s+){0,3}"
+            r"(?:previous|prior|above|earlier|preceding)\s+instructions"
+            r"|(?:disregard|forget)\s+(?:all|any)\s+(?:(?:of\s+)?(?:the|your|my|these|those)\s+)?instructions"
+            r"|disregard\s+your",
+            re.IGNORECASE,
+        ),
+    ),
+    ("you-are-now", re.compile(r"you(?:\s+are|['’ʼ]re)\s+now", re.IGNORECASE)),
+    (
+        "new-instructions",
+        # "the new instructions are ..." retreated to "your ..." only: the
+        # benign corpus flagged "The new instructions are in the README" as a
+        # new FP (PET-93 D6 guard), exactly the spec's pre-committed fallback.
+        re.compile(
+            r"your\s+new\s+instructions\s+are\b|new\s+instructions\s*:",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "system-override",
+        re.compile(r"system\s+override|override\s+(?:the\s+)?system\s+prompt", re.IGNORECASE),
+    ),
+    # [ \t] (not \s) is load-bearing: \s* under MULTILINE backtracks
+    # quadratically across newline floods and would match indented YAML keys.
+    ("system-prefix", re.compile(r"^SYSTEM[ \t]*:", re.MULTILINE | re.IGNORECASE)),
+    ("inst-delimiter", re.compile(r"\[/?INST\]|</?INST>|<</?SYS>>", re.IGNORECASE)),
 ]
 
 # --- Role-switch detection ---
@@ -48,6 +126,12 @@ _ROLE_TRIGGERS: list[re.Pattern[str]] = [
     re.compile(r"act\s+as", re.IGNORECASE),
     re.compile(r"pretend\s+you\s+are", re.IGNORECASE),
     re.compile(r"roleplay\s+as", re.IGNORECASE),
+    # PET-93 additions: contraction and from-now-on forms. The [,;]? admits
+    # the canonical comma form ("From now on, you will be DAN"); other
+    # punctuation separators are documented INTENTIONAL.
+    re.compile(r"pretend\s+to\s+be", re.IGNORECASE),
+    re.compile(r"you['’ʼ]re\s+an?\b", re.IGNORECASE),
+    re.compile(r"from\s+now\s+on[,;]?\s+you(?:['’ʼ]re|\s+(?:are|will\s+be))", re.IGNORECASE),
 ]
 
 _ROLE_GRANTS: list[re.Pattern[str]] = [
@@ -56,6 +140,11 @@ _ROLE_GRANTS: list[re.Pattern[str]] = [
     re.compile(r"without\s+filters", re.IGNORECASE),
     re.compile(r"DAN\s+mode", re.IGNORECASE),
     re.compile(r"developer\s+mode", re.IGNORECASE),
+    # PET-93 additions (mirrored in benign_corpus.SANCTIONED_NEW_GRANTS for
+    # the MIGRATED attribution check).
+    re.compile(r"without\s+(?:restrictions|limits)", re.IGNORECASE),
+    re.compile(r"no\s+filters", re.IGNORECASE),
+    re.compile(r"jailbreak\s+mode", re.IGNORECASE),
 ]
 
 # --- Structural checks ---
