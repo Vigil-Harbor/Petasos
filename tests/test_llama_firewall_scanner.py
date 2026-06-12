@@ -3,8 +3,11 @@ from __future__ import annotations
 import asyncio
 import builtins
 import enum
+import importlib.util
 import os
+import shutil
 import sys
+import tempfile
 import time
 import types
 from contextlib import contextmanager
@@ -43,6 +46,10 @@ _skip_integration = pytest.mark.skipif(
 
 
 # ---- Helpers ----
+
+# HF hub cache directory name for the PromptGuard model — the exact path
+# _prompt_guard_prereq_error probes (llama_firewall.py model_dir_name).
+_PROMPT_GUARD_MODEL_DIR = "models--meta-llama--Llama-Prompt-Guard-2-86M"
 
 
 def _find(result: ScanResult, rule_id: str) -> bool:
@@ -149,27 +156,56 @@ def _injected_mock(
 
 @contextmanager
 def _blocked_import() -> Iterator[None]:
+    """Simulate 'backend not installed' authoritatively: blocks __import__,
+    blanks find_spec, and neutralizes PromptGuard prereq env reads so real
+    venv/cache state cannot leak past the staged axis (PET-96)."""
+    # Fallible setup (mkdtemp) runs before any process-global mutation, so a
+    # failure here leaves sys.modules and the patches untouched.
+    hermetic_home = tempfile.mkdtemp(prefix="petasos-hermetic-hf-")
+    saved_env: dict[str, str | None] = {
+        k: os.environ.get(k)
+        for k in ("HF_HOME", "HF_TOKEN", "HUGGING_FACE_HUB_TOKEN", "HF_TOKEN_PATH")
+    }
+
     saved: dict[str, types.ModuleType] = {}
     for key in list(sys.modules):
         if key == "llamafirewall" or key.startswith("llamafirewall."):
             saved[key] = sys.modules.pop(key)
 
     real_import = builtins.__import__
+    real_find_spec = importlib.util.find_spec
 
     def blocking(name: str, *args: Any, **kwargs: Any) -> Any:
         if name == "llamafirewall" or name.startswith("llamafirewall."):
-            raise ImportError(f"blocked: {name}")
+            raise ImportError(f"blocked: {name}", name=name)
         return real_import(name, *args, **kwargs)
 
+    def blank_find_spec(name: str, *args: Any, **kwargs: Any) -> Any:
+        if name == "llamafirewall" or name.startswith("llamafirewall."):
+            return None
+        return real_find_spec(name, *args, **kwargs)
+
+    os.environ["HF_HOME"] = hermetic_home
+    for k in ("HF_TOKEN", "HUGGING_FACE_HUB_TOKEN", "HF_TOKEN_PATH"):
+        os.environ.pop(k, None)
+
     builtins.__import__ = blocking
+    importlib.util.find_spec = blank_find_spec
     try:
         yield
     finally:
         builtins.__import__ = real_import
+        importlib.util.find_spec = real_find_spec
+        for k, v in saved_env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
         for key in list(sys.modules):
             if key == "llamafirewall" or key.startswith("llamafirewall."):
                 del sys.modules[key]
         sys.modules.update(saved)
+        shutil.rmtree(hermetic_home, ignore_errors=True)
 
 
 # ==============================================================
@@ -298,7 +334,8 @@ class TestUnit:
 
 
 # ==============================================================
-# PET-87: availability, prereq predicate, stdin tripwire, recovery
+# PET-87 / PET-96: availability, prereq predicate, stdin tripwire,
+# recovery, probe isolation
 # ==============================================================
 
 
@@ -328,6 +365,28 @@ class TestAvailabilityProbe:
         assert reason == "GPU corrupted"
 
 
+class TestProbeIsolation:
+    async def test_probe_isolation_hermetic(
+        self, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Regression for PET-96: fixture-controlled probe verdicts beat real
+        # venv/cache state. Fabricate the worst-case leak-bait environment
+        # (model dir cached + token set), then assert the blocked axis wins.
+        bait_home = str(tmp_path)
+        os.makedirs(os.path.join(bait_home, "hub", _PROMPT_GUARD_MODEL_DIR))
+        monkeypatch.setenv("HF_HOME", bait_home)
+        monkeypatch.setenv("HF_TOKEN", "hf_fake_token")
+
+        with _blocked_import():
+            scanner = LlamaFirewallScanner()
+            avail, reason = scanner.availability()
+            assert avail is False
+            assert reason is not None and "pip install" in reason
+            r = await scanner.scan("probe")
+            assert r.error is not None
+            assert scanner._load_error_retryable is True
+
+
 class TestPromptGuardPrereqPredicate:
     def test_disabled_returns_none(self) -> None:
         assert _prompt_guard_prereq_error(False) is None
@@ -336,7 +395,7 @@ class TestPromptGuardPrereqPredicate:
         self, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         hf_home = str(tmp_path / "hf")
-        model_dir = os.path.join(hf_home, "hub", "models--meta-llama--Llama-Prompt-Guard-2-86M")
+        model_dir = os.path.join(hf_home, "hub", _PROMPT_GUARD_MODEL_DIR)
         os.makedirs(model_dir)
         monkeypatch.setenv("HF_HOME", hf_home)
         monkeypatch.delenv("HF_TOKEN", raising=False)
@@ -564,9 +623,7 @@ class TestCrossAxisRecovery:
         assert "PromptGuard model unavailable" in r2.error
         assert scanner._load_error_retryable is True
 
-        model_dir = os.path.join(
-            str(tmp_path), "hub", "models--meta-llama--Llama-Prompt-Guard-2-86M"
-        )
+        model_dir = os.path.join(str(tmp_path), "hub", _PROMPT_GUARD_MODEL_DIR)
         os.makedirs(model_dir)
         monkeypatch.setenv("HF_TOKEN", "hf_fake_token")
 
