@@ -1,22 +1,17 @@
-=== PET-97 test gate (refreshed 2026-06-12 after HF gated-model access verified) ===
-Interpreter: Hermes venv python 3.11; cwd=worktree (petasos resolves to worktree — verified).
-HF_HOME pre-set (expanded) for the run: llamafirewall pollutes os.environ HF_HOME with a literal
-unexpanded '~/.cache/huggingface' after the first PromptGuard load, which false-negatives Petasos'
-prereq probe (no expanduser) for every later scanner construction in-process. Filed as follow-up.
+=== PET-97 test gate (refreshed 2026-06-12 — anchor-gate latency fix, CodeRabbit #73) ===
+Interpreter: Hermes venv python 3.11; cwd=worktree; HF_HOME expanded (PET-100 pollution workaround).
+2 deselects: CodeShield-only, upstream codeshield broken on native Windows (PET-101).
 
 --- cmd 1: targeted suite (spec Test command) ---
   Outliers: 1 Standard Deviation from Mean; 1.5 IQR (InterQuartile Range) from 1st Quartile and 3rd Quartile.
   OPS: Operations Per Second, computed as 1 / Mean
-213 passed, 7 warnings in 10.26s
+216 passed, 7 warnings in 11.49s
 cmd 1 exit: 0
 
---- cmd 2: full suite. PromptGuard TestIntegration now ACTIVE (HF model downloaded + login cached).
-Only 2 deselects remain — CodeShield-dependent tests, blocked by upstream codeshield on native
-Windows (semgrep-core locator lacks .exe suffix handling; osemgrep os.symlink at import needs
-Developer Mode). Unrelated to this change; fails identically on base. ---
+--- cmd 2: full suite ---
   Outliers: 1 Standard Deviation from Mean; 1.5 IQR (InterQuartile Range) from 1st Quartile and 3rd Quartile.
   OPS: Operations Per Second, computed as 1 / Mean
-1285 passed, 2 deselected, 1 xfailed, 57 warnings in 41.99s
+1288 passed, 2 deselected, 1 xfailed, 57 warnings in 43.65s
 cmd 2 exit: 0
 
 --- cmd 3: ruff check . ---

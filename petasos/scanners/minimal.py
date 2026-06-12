@@ -156,6 +156,21 @@ _BINARY_PATTERN = re.compile(r"[\x00-\x08\x0e-\x1f\x7f]")
 
 _BASE64_PATTERN = re.compile(r"[A-Za-z0-9+/]{40,}={0,2}")
 
+# Cheap necessary-condition gate for the injection battery (PET-97 latency).
+# Every _INJECTION_PATTERNS match contains one of these literal substrings:
+#   inst   — "instructions" (ignore-*, disregard A/B, new-instructions),
+#            "[INST]"/"<INST>" (inst-delimiter)
+#   sys    — "system" (system-override, system-prefix), "<<SYS>>" (inst-delimiter)
+#   disregard — "disregard your" (disregard branch C, the lone no-"inst" branch)
+#   now    — "you are/'re now" (you-are-now)
+# so a candidate matching none cannot match any pattern and skips the 8-pattern
+# scan. This collapses the digit-dense worst case (8 patterns x up to 3 leet
+# candidates) to one membership pass per candidate, holding the <5ms syntactic
+# budget. MUST remain a superset of the pattern anchors if a rule is added or
+# widened — test_injection_anchor_is_sound pins it and the full detection suite
+# guards it (any dropped anchor reds an existing positive).
+_INJECTION_ANCHOR = re.compile(r"inst|sys|disregard|now", re.IGNORECASE)
+
 # --- Rule taxonomy ---
 
 _INJECTION_RULE_IDS = frozenset(
@@ -343,25 +358,38 @@ class MinimalScanner:
         return max_depth
 
     def _check_injection(self, normalized: NormalizedText, findings: list[ScanFinding]) -> bool:
-        # Plain text first, then the leet-decoded views (PET-97). The fold is
-        # 1:1 length-preserving, so a match span on a view is a valid span in
+        # Plain text plus the leet-decoded views (PET-97). The fold is 1:1
+        # length-preserving, so a match span on a view is a valid span in
         # `normalized` — matched_text shows the original (leet) attack bytes
         # while the decoded form is named in the message. Role-switch triggers
         # deliberately never see the views (PET-97 Decision 2: decode FPs).
-        texts = (normalized.normalized, *normalized.leet_views)
+        #
+        # Gate each candidate by the cheap anchor first: a candidate matching no
+        # injection-pattern anchor cannot match any pattern, so it skips the
+        # 8-pattern battery entirely (PET-97 latency — see _INJECTION_ANCHOR).
+        candidates = [
+            (text, is_view)
+            for text, is_view in (
+                (normalized.normalized, False),
+                *((v, True) for v in normalized.leet_views),
+            )
+            if _INJECTION_ANCHOR.search(text)
+        ]
+        if not candidates:
+            return False
         any_matched = False
         for slug, pattern in _INJECTION_PATTERNS:
             rule_id = f"petasos.syntactic.injection.{slug}"
             if rule_id in self._suppress_rules:
                 continue
-            for idx, candidate in enumerate(texts):
-                m = pattern.search(candidate)
+            for text, is_view in candidates:
+                m = pattern.search(text)
                 if m is None:
                     continue
                 any_matched = True
                 # Truncated: \s+ runs make m.group() attacker-inflatable
                 # (cf. the base64-in-text [:50] cap).
-                decoded = f" (leet-decoded: {m.group()[:80]!r})" if idx > 0 else ""
+                decoded = f" (leet-decoded: {m.group()[:80]!r})" if is_view else ""
                 findings.append(
                     ScanFinding(
                         rule_id=rule_id,
