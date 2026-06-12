@@ -13,12 +13,14 @@ from petasos.scanners.llm_guard import LlmGuardScanner
 def _fake_modules(mock_module: MagicMock) -> dict[str, MagicMock | None]:
     return {
         "llm_guard": MagicMock(),
+        "llm_guard.util": MagicMock(),
         "llm_guard.input_scanners": mock_module,
     }
 
 
 _BLOCKED_MODULES: dict[str, None] = {
     "llm_guard": None,
+    "llm_guard.util": None,
     "llm_guard.input_scanners": None,
 }
 
