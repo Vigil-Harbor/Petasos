@@ -399,11 +399,14 @@ line dies with `TypeError: cannot create weak reference to '_SafeWriter'
 object` (PET-92; the scanner then reports the cached error on every
 scan).
 
-Petasos neutralizes this in `LlmGuardScanner`'s deferred init: it calls
-`llm_guard.util.configure_logger` with a petasos-owned weakref-able
-passthrough proxy that late-binds the *current* `sys.stdout` at write
-time. Never write to raw `sys.__stdout__` in-process — swallowed broken
-pipes are exactly what `_SafeWriter` exists to prevent.
+Petasos neutralizes this in `LlmGuardScanner`'s deferred init
+(`petasos/scanners/llm_guard.py` — see `_WeakrefableStdout`,
+`_STDOUT_PROXY`, `_SHIELD_LOCK`): it calls
+`llm_guard.util.configure_logger(stream=_STDOUT_PROXY)` with a
+petasos-owned weakref-able passthrough proxy that late-binds the
+*current* `sys.stdout` at write time. Never write to raw
+`sys.__stdout__` in-process — swallowed broken pipes are precisely what
+`_SafeWriter` exists to prevent.
 
 **Documented residuals:**
 
