@@ -170,15 +170,18 @@ class LlmGuardScanner:
                         for name in ("llm_guard", "llm_guard.util")
                     )
                 )
-                if module_absent:
-                    _logger.debug("llm-guard logging shield skipped: %s", exc)
-                else:
-                    _logger.warning(
-                        "llm-guard logging shield failed (%s: %s); scans may "
-                        "fail with weakref errors under wrapped stdio",
-                        type(exc).__name__,
-                        exc,
-                    )
+                try:
+                    if module_absent:
+                        _logger.debug("llm-guard logging shield skipped: %s", exc)
+                    else:
+                        _logger.warning(
+                            "llm-guard logging shield failed (%s: %s); scans may "
+                            "fail with weakref errors under wrapped stdio",
+                            type(exc).__name__,
+                            exc,
+                        )
+                except Exception:
+                    pass
 
             from llm_guard.input_scanners import (
                 InvisibleText,
