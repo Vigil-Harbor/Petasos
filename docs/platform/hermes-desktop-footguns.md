@@ -385,6 +385,66 @@ introduces or changes profile home semantics.
 
 ---
 
+## 16. In-Process Stdio Contract (_SafeWriter) and ML Scanner Logging
+
+Hermes wraps `sys.stdout`/`sys.stderr` with `_SafeWriter`
+(`agent/process_bootstrap.py:63`) — a slots-only class with **no
+`__weakref__`** — at process start, on both the gateway and dashboard
+processes. Any in-process library that takes a weak reference to the
+stream it writes to explodes on it. Concretely: structlog's `PrintLogger`
+keys a per-file write-lock registry by weakref
+(`structlog/_output.py`, `WRITE_LOCKS`), and structlog's default factory
+captures `sys.stdout` at import time — so llm-guard's first emitted log
+line dies with `TypeError: cannot create weak reference to '_SafeWriter'
+object` (PET-92; the scanner then reports the cached error on every
+scan).
+
+Petasos neutralizes this in `LlmGuardScanner`'s deferred init
+(`petasos/scanners/llm_guard.py` — see `_WeakrefableStdout`,
+`_STDOUT_PROXY`, `_SHIELD_LOCK`): it calls
+`llm_guard.util.configure_logger(stream=_STDOUT_PROXY)` with a
+petasos-owned weakref-able passthrough proxy that late-binds the
+*current* `sys.stdout` at write time. Never write to raw
+`sys.__stdout__` in-process — swallowed broken pipes are precisely what
+`_SafeWriter` exists to prevent.
+
+**Documented residuals:**
+
+- `configure_logger` calls `logging.basicConfig(...)` — a no-op under a
+  configured host (Hermes), but in a logging-unconfigured embedder the
+  first scan attaches a root StreamHandler and other libraries' INFO
+  logs start appearing on stdout.
+- The `transformers` and `presidio-analyzer` stdlib loggers are forced
+  to WARNING process-wide (upstream `configure_logger` behavior) —
+  sibling scanners' backend log verbosity drops; findings unaffected.
+- The host's structlog configuration, if any, is replaced (llm-guard's
+  logging is process-global by upstream design).
+- Any later in-process `configure_logger()` call with a default stream
+  (host code, a second llm-guard embedder, a notebook) re-binds structlog
+  to raw wrapped stdio and re-introduces the crash; scans degrade to
+  `ScanResult.error` (never throw) until `LlmGuardScanner.reset()`
+  re-applies the shield on the next scan. `reset()` is
+  maintenance-window-only — quiesce scans first; calling it under live
+  traffic can yield empty findings with no error.
+- On Windows, *any* `configure_logger` call (including external ones)
+  also triggers colorama to globally swap `sys.stdout`/`sys.stderr` to
+  `ansitowin32.StreamWrapper` — Petasos snapshots and restores stdio
+  around its own call, but cannot undo a swap performed by an external
+  caller, and `reset()` does not recover stdio identity.
+- ANSI color codes from llm-guard's console renderer pass through
+  uninterpreted after the restore (garbled escapes on legacy conhost;
+  cosmetic only).
+
+**Impact:** Without the shield, LLM Guard is dead in-process while
+reporting healthy (pre-PET-87) or `unavailable` (post-PET-87).
+
+**Mitigation:** ships in Petasos (PET-92); regression-tested in
+`tests/test_llm_guard_wrapper.py` with a slots-only stand-in. If a
+sibling ML backend ever logs through a stream-weakref path, apply the
+same proxy pattern.
+
+---
+
 ## Summary: Integration Surface Ranking
 
 | Surface | Difficulty | Platform Risk | Recommended |
@@ -396,6 +456,7 @@ introduces or changes profile home semantics.
 | Custom MCP server | Medium | Low | Maybe — for session-aware state |
 | Docker image customization | Medium | Medium (image pull time) | No — unnecessary coupling |
 | Profile home plugin files | Low | **High** (silent enforcement loss) | Yes — verify after every Hermes upgrade |
+| In-process stdio contract (`_SafeWriter`) | Low | **High** (ML scanner dead in-process) | Yes — shield ships in Petasos (PET-92) |
 
 ---
 
