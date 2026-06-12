@@ -492,6 +492,7 @@ class Pipeline:
             strip_zero_width=self._config.strip_zero_width,
             map_homoglyphs=self._config.map_homoglyphs,
             detect_rtl=self._config.detect_rtl_override,
+            fold_leet=self._config.fold_leet,
         )
         normalized_text = norm_result.normalized
 

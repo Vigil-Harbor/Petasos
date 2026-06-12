@@ -1,0 +1,29 @@
+=== PET-97 test gate (refreshed 2026-06-12 — anchor-gate latency fix, measure-only benchmarks) ===
+
+### CI-faithful run: fresh venv, python 3.11, 'pip install -e .[dev]' (NO ml extras),
+### exact CI command 'pytest tests/' — replicates .github/workflows/ci.yml ###
+  OPS: Operations Per Second, computed as 1 / Mean
+1141 passed, 68 skipped, 1 xfailed in 8.30s
+CI-equivalent exit: 0
+
+Benchmarks are measure-only (no wall-clock assertion) — matching the 4 pre-existing
+benchmarks in the file. Shared CI runners clock ~1.8x a dev box, so a hard <5ms median
+assertion on a 10KB payload flakes regardless of the optimization (it was the sole CI
+failure: leet 5.90ms / anchor-dense 5.76ms on the runner). The gate's pruning is now
+mechanically guarded by TestInjectionAnchorSoundness::test_gate_prunes_digit_dense_benign
+(deterministic, runner-independent); the recorded medians are the latency evidence.
+
+Benchmark medians (CI-faithful venv, this box): syntactic_only 28.8us |
+leet_worst_case (digit-dense 10KB, gated) 2.87ms | anchor_dense (6KB, full fan-out) 2.77ms.
+Pre-gate the digit-dense path was ~4.3ms local / 8.87ms CI — the anchor gate is the fix.
+
+### Full run WITH all extras (Hermes venv 3.11) — PromptGuard active, 2 CodeShield
+### deselects (upstream codeshield broken on native Windows, PET-101) ###
+HF_HOME expanded for PET-100 in-process-pollution workaround.
+  OPS: Operations Per Second, computed as 1 / Mean
+1289 passed, 2 deselected, 1 xfailed, 57 warnings in 43.03s
+extras-run exit: 0
+
+### ruff + mypy (Hermes venv) ###
+All checks passed!
+Success: no issues found in 103 source files

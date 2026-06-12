@@ -176,6 +176,7 @@ class ConsoleHandlers:
             strip_zero_width=cfg.strip_zero_width,
             map_homoglyphs=cfg.map_homoglyphs,
             detect_rtl=cfg.detect_rtl_override,
+            fold_leet=cfg.fold_leet,
         ).normalized
 
         scan_id = f"s-{uuid.uuid4().hex[:6]}"

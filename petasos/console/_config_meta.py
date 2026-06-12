@@ -71,6 +71,20 @@ _FIELD_META: dict[str, dict[str, Any]] = {
         ),
         "section": "normalization",
     },
+    "fold_leet": {
+        "description": (
+            "Decode common leetspeak substitutions (1→i/l, 3→e, @→a, …) for rule matching."
+        ),
+        "help_plain": (
+            'Adds a decoded copy of leetspeak text (like "1gn0r3" for "ignore") for the'
+            " injection rules to check. The original text is never altered — the decoded"
+            " copy is used only for matching, so version numbers and code stay intact."
+            " Note: the built-in syntactic scanner always decodes leetspeak regardless of"
+            " this setting; this toggle affects only direct normalize() callers, so"
+            " turning it off does not disable leet detection."
+        ),
+        "section": "normalization",
+    },
     "direction": {
         "description": (
             "Default scan direction: inbound (user to agent) or outbound (agent to user)."

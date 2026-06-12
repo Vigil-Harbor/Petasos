@@ -18,6 +18,7 @@ _BOOL_FIELDS: frozenset[str] = frozenset(
         "strip_zero_width",
         "map_homoglyphs",
         "detect_rtl_override",
+        "fold_leet",
         "anonymize",
         "frequency_enabled",
         "escalation_enabled",
@@ -47,6 +48,7 @@ class PetasosConfig:
     strip_zero_width: bool = True
     map_homoglyphs: bool = True
     detect_rtl_override: bool = True
+    fold_leet: bool = True
 
     # Scanning
     direction: Direction = "inbound"
