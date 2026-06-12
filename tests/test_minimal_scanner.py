@@ -307,6 +307,27 @@ class TestInjectionAnchorSoundness:
                 "would drop this detection; widen the anchor"
             )
 
+    def test_gate_prunes_digit_dense_benign(self) -> None:
+        # Regression for PET-97 perf: the deterministic, runner-independent
+        # guard that the anchor gate actually engages (the wall-clock benchmark
+        # can't assert on CI). For the realistic high-frequency payload —
+        # digit/number/symbol-dense text with no trigger words — NO candidate
+        # (plain or leet view) contains an anchor, so the 8-pattern battery is
+        # skipped entirely. If a future change reintroduced the fan-out, an
+        # anchor would have to survive here.
+        for benign in (
+            "log line 42: retry 1 of 3 at 07:45, code 8 $tatus !dle",
+            "version 1.5.3 built 2026-06-12, sha 7f71a43, port 8080",
+            "p4ssw0rd rotation @ 90 days, $5 fee, 100% uptime!",
+        ):
+            norm = normalize(benign)
+            candidates = (norm.normalized, *norm.leet_views)
+            assert all(_INJECTION_ANCHOR.search(c) is None for c in candidates), (
+                f"{benign!r} unexpectedly carries an injection anchor in some candidate "
+                f"{[c for c in candidates if _INJECTION_ANCHOR.search(c)]} — the gate "
+                "would no longer prune this high-frequency case"
+            )
+
     async def test_gated_results_identical_to_ungated(self) -> None:
         # Regression for PET-97 perf gate: gating must not change findings on a
         # corpus spanning attacks, leet variants, and benign digit/symbol text.
