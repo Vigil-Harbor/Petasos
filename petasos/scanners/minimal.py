@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from petasos._types import (
     Direction,
+    NormalizedText,
     Position,
     ScanFinding,
     ScanResult,
@@ -251,8 +252,8 @@ class MinimalScanner:
         # Step 2: Normalize
         normalized = normalize(text)
 
-        # Step 3: Injection patterns on normalized text
-        injection_matched = self._check_injection(normalized.normalized, findings)
+        # Step 3: Injection patterns on normalized text + leet views (PET-97)
+        injection_matched = self._check_injection(normalized, findings)
 
         # Step 4: Role-switch detection on normalized text
         self._check_role_switch(normalized.normalized, findings)
@@ -341,27 +342,39 @@ class MinimalScanner:
             return 0
         return max_depth
 
-    def _check_injection(self, normalized_text: str, findings: list[ScanFinding]) -> bool:
+    def _check_injection(self, normalized: NormalizedText, findings: list[ScanFinding]) -> bool:
+        # Plain text first, then the leet-decoded views (PET-97). The fold is
+        # 1:1 length-preserving, so a match span on a view is a valid span in
+        # `normalized` — matched_text shows the original (leet) attack bytes
+        # while the decoded form is named in the message. Role-switch triggers
+        # deliberately never see the views (PET-97 Decision 2: decode FPs).
+        texts = (normalized.normalized, *normalized.leet_views)
         any_matched = False
         for slug, pattern in _INJECTION_PATTERNS:
             rule_id = f"petasos.syntactic.injection.{slug}"
             if rule_id in self._suppress_rules:
                 continue
-            m = pattern.search(normalized_text)
-            if m:
+            for idx, candidate in enumerate(texts):
+                m = pattern.search(candidate)
+                if m is None:
+                    continue
                 any_matched = True
+                # Truncated: \s+ runs make m.group() attacker-inflatable
+                # (cf. the base64-in-text [:50] cap).
+                decoded = f" (leet-decoded: {m.group()[:80]!r})" if idx > 0 else ""
                 findings.append(
                     ScanFinding(
                         rule_id=rule_id,
                         finding_type="injection",
                         severity=Severity.HIGH,
                         confidence=1.0,
-                        message=f"Injection pattern matched: {slug}",
+                        message=f"Injection pattern matched: {slug}{decoded}",
                         scanner_name=self.name,
                         position=Position(start=m.start(), end=m.end()),
-                        matched_text=m.group(),
+                        matched_text=normalized.normalized[m.start() : m.end()],
                     )
                 )
+                break
         return any_matched
 
     def _check_role_switch(self, normalized_text: str, findings: list[ScanFinding]) -> None:

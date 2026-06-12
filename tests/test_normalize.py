@@ -435,3 +435,38 @@ class TestPipelineIntegration:
         once = normalize(text).normalized
         twice = normalize(once).normalized
         assert once == twice
+
+
+class TestLeetFold:
+    """PET-97: leet-fold side views — match-only; `normalized` untouched."""
+
+    def test_fold_leet_flag_independent(self) -> None:
+        # Regression for PET-97: PIPE-05 — fold_leet=False disables only the
+        # fold; other stages and transformations_applied are unaffected (the
+        # fold never records a transform entry).
+        text = "1gn0r3 th3 z" + chr(0x200B) + "one"  # leet chars + a zwsp
+        on = normalize(text)
+        off = normalize(text, fold_leet=False)
+        assert on.leet_views != ()
+        assert off.leet_views == ()
+        assert off.normalized == on.normalized
+        assert off.transformations_applied == on.transformations_applied
+        assert "invisible_chars_stripped" in off.transformations_applied  # strip still ran
+
+    def test_leet_views_dedup_and_empty(self) -> None:
+        # Regression for PET-97: no foldable chars -> no views (zero-cost on
+        # clean text); foldable but no '1' -> single deduped view; '1' present
+        # -> both variants, i-view first.
+        assert normalize("hello world").leet_views == ()
+        assert normalize("p4ssword").leet_views == ("password",)
+        assert normalize("a11 0f").leet_views == ("aii of", "all of")
+
+    def test_normalize_idempotent_with_leet(self) -> None:
+        # Regression for PET-97: the fold writes a side view — normalized and
+        # original stay byte-identical to pre-change behavior for leet input.
+        text = "1gn0r3 4ll pr3v10u5 1n57ruc710n5"
+        once = normalize(text)
+        assert once.original == text
+        assert once.normalized == text
+        twice = normalize(once.normalized)
+        assert twice.normalized == once.normalized

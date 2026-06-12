@@ -152,6 +152,28 @@ _HOMOGLYPH_TABLE = str.maketrans(
     }
 )
 
+# Leet-fold tables (PET-97). Common ASCII digit/symbol→letter substitutions,
+# decoded onto match-only candidate views — never onto ``normalized`` itself:
+# digits are ubiquitous in benign text, so folding in place would corrupt the
+# canonical output for every downstream consumer (ML input, PII spans, audit).
+# ``1`` is ambiguous ("i" in 1gn0r3, "l" in 411) and str.translate is
+# one-to-one, so two variant tables produce a candidate set instead of
+# guessing.
+_LEET_COMMON = {
+    ord("0"): "o",
+    ord("3"): "e",
+    ord("4"): "a",
+    ord("5"): "s",
+    ord("7"): "t",
+    ord("8"): "b",
+    ord("9"): "g",
+    ord("@"): "a",
+    ord("$"): "s",
+    ord("!"): "i",
+}
+_LEET_TABLE_I = str.maketrans({**_LEET_COMMON, ord("1"): "i"})
+_LEET_TABLE_L = str.maketrans({**_LEET_COMMON, ord("1"): "l"})
+
 
 def normalize(
     text: str,
@@ -160,16 +182,25 @@ def normalize(
     strip_zero_width: bool = True,
     map_homoglyphs: bool = True,
     detect_rtl: bool = True,
+    fold_leet: bool = True,
 ) -> NormalizedText:
     """Normalize text for pattern matching.
 
     Each stage is independently gated (PIPE-05): disabling one toggle (e.g.
     ``nfkc=False``) does not suppress the others, and ``transformations_applied``
-    reflects only the stages that actually ran. The four flags map 1:1 to the
+    reflects only the stages that actually ran. The five flags map 1:1 to the
     ``normalize_nfkc`` / ``strip_zero_width`` / ``map_homoglyphs`` /
-    ``detect_rtl_override`` config toggles. The post-NFKC re-strip (NORM-02)
-    rides on ``strip_zero_width`` and combining-mark removal (NORM-04) rides on
-    ``nfkc``, since each is only meaningful when its parent stage runs.
+    ``detect_rtl_override`` / ``fold_leet`` config toggles. The post-NFKC
+    re-strip (NORM-02) rides on ``strip_zero_width`` and combining-mark removal
+    (NORM-04) rides on ``nfkc``, since each is only meaningful when its parent
+    stage runs.
+
+    The leet fold (PET-97) is a side channel, not a transform: it emits
+    length-preserving decoded candidate views into ``leet_views`` for the
+    injection pass to match against, leaves ``normalized`` untouched, and
+    records no ``transformations_applied`` entry (digit-bearing benign text
+    would flag on every input — the observability carrier is the injection
+    finding's message instead).
     """
     if not text:
         return NormalizedText(
@@ -242,6 +273,18 @@ def normalize(
 
     confusables = text_after_homoglyph != text_after_mn
 
+    # Step 7: Leet fold (PET-97) — match-only candidate views. Runs on the
+    # final normalized text so homoglyph+leet compositions decode correctly.
+    # ``view_l`` can only differ from the base when ``view_i`` does (both
+    # tables map the identical character set), so the equality check below
+    # doubles as the no-foldable-chars early-out.
+    leet_views: tuple[str, ...] = ()
+    if fold_leet:
+        view_i = text_after_homoglyph.translate(_LEET_TABLE_I)
+        if view_i != text_after_homoglyph:
+            view_l = text_after_homoglyph.translate(_LEET_TABLE_L)
+            leet_views = (view_i,) if view_l == view_i else (view_i, view_l)
+
     return NormalizedText(
         original=original,
         normalized=text_after_homoglyph,
@@ -249,4 +292,5 @@ def normalize(
         invisible_chars_stripped=stripped_count,
         confusables_normalized=confusables,
         rtl_overrides_detected=rtl_detected,
+        leet_views=leet_views,
     )

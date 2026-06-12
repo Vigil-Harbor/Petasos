@@ -400,3 +400,17 @@ def test_redos_newline_flood_growth_ratio() -> None:
     t1 = _best_of(pattern, "\n" * n)
     t4 = _best_of(pattern, "\n" * (4 * n))
     assert t4 <= 10 * max(t1, 1e-4), f"growth ratio {t4 / max(t1, 1e-9):.1f}x exceeds 10x"
+
+
+@pytest.mark.asyncio
+async def test_role_trigger_not_leet_folded() -> None:
+    """PET-97 Decision 2: role-switch triggers match plain normalized text
+    only — the leet views never reach _check_role_switch. Folding them was
+    measured FP-prone: 'react 450ms render' decodes to 'react asoms render',
+    which contains 'act as'."""
+    # Regression for PET-97: decode FP guard — role triggers stay unfolded
+    scanner = MinimalScanner()
+    for snippet in ("react 450ms render", "she will interact 45 minutes daily"):
+        result = await scanner.scan(snippet)
+        role_hits = [f.rule_id for f in result.findings if "role-switch" in f.rule_id]
+        assert role_hits == [], f"{snippet!r} fired role rules {role_hits}"

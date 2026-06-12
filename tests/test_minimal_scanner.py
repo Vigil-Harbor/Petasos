@@ -354,3 +354,37 @@ class TestBenignCorpusGuard:
                 f"MIGRATED snippet {snippet!r} matches no sanctioned new grant — "
                 "this is a regression, not a migration"
             )
+
+
+# Digit/symbol-bearing benign pins added to BENIGN_CORPUS by PET-97.
+_LEET_FOLD_PINS: tuple[str, ...] = (
+    "react 450ms render",
+    "version 1.5.3",
+    "commit 5e4134c",
+    "SHA 7f71a43",
+    "QmVuaWduIGJhc2U2NCBwYXlsb2FkIGZvciBQRVQtOTcgcGlubmluZyB0ZXN0cw==",
+    "the fix costs $5 and ships Friday!",
+    "email support@vigilharbor.com with the trace",
+    "run echo $HOME && ls -la!",
+)
+
+
+class TestLeetFoldCorpusGuard:
+    """PET-97: named wrapper over the TestBenignCorpusGuard contract for the
+    leet-fold pins. The generic guard already covers every BENIGN_CORPUS
+    snippet; this exists for PET-97 traceability and a sharper failure
+    message on the fold-specific FP surface."""
+
+    async def test_benign_corpus_no_new_findings_with_leet(self) -> None:
+        # Regression for PET-97: digit/symbol-bearing benign text must not
+        # flip to an injection match via the leet-decoded views (the fold maps
+        # 0-9/@/$/! across the whole text).
+        scanner = MinimalScanner()
+        for snippet in _LEET_FOLD_PINS:
+            assert snippet in BENIGN_CORPUS, f"pin {snippet!r} missing from BENIGN_CORPUS"
+            result = await scanner.scan(snippet)
+            assert result.error is None
+            injection = [f.rule_id for f in result.findings if f.finding_type == "injection"]
+            assert injection == [], (
+                f"benign leet-fold pin {snippet!r} fired injection rules {injection}"
+            )

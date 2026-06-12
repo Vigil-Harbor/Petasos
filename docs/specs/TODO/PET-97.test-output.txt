@@ -1,0 +1,35 @@
+=== PET-97 test gate — 2026-06-12, worktree @ fix/pet-97-leet-fold-normalize (base 3ef41f3) ===
+Interpreter: Hermes venv python 3.11 (only env with all scanner extras); cwd=worktree so petasos resolves to the worktree tree (verified).
+
+--- cmd 1: targeted suite (spec Test command) ---
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+test_benchmark_syntactic_only                    26.3000 (1.0)         106.2000 (1.38)         30.2840 (1.0)         11.3739 (3.06)         27.9500 (1.0)          2.2000 (1.0)           2;3  33,020.7382 (1.0)          50           1
+test_benchmark_full_pipeline                     60.7000 (2.31)         76.8000 (1.0)          64.0700 (2.12)         3.7208 (1.0)          62.6500 (2.24)         2.4000 (1.09)          4;4  15,607.9286 (0.47)         30           1
+test_benchmark_single_ml_llama_firewall         291.0000 (11.06)     6,421.5000 (83.61)     1,027.3000 (33.92)    1,898.3998 (510.21)      433.6500 (15.52)      144.4000 (65.64)         1;1     973.4255 (0.03)         10           1
+test_benchmark_syntactic_leet_worst_case      4,229.8000 (160.83)    4,752.7000 (61.88)     4,309.4620 (142.30)     114.5981 (30.80)     4,269.8000 (152.77)      47.4000 (21.55)         5;7     232.0475 (0.01)         50           1
+test_benchmark_single_ml_llm_guard           45,292.7000 (>1000.0)  65,582.2000 (853.93)   50,385.9000 (>1000.0)  5,582.5918 (>1000.0)  49,081.0000 (>1000.0)  1,861.6000 (846.18)        1;1      19.8468 (0.00)         10           1
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+Legend:
+  Outliers: 1 Standard Deviation from Mean; 1.5 IQR (InterQuartile Range) from 1st Quartile and 3rd Quartile.
+  OPS: Operations Per Second, computed as 1 / Mean
+213 passed, 8 warnings in 4.09s
+cmd 1 exit: 0
+
+--- cmd 2: full suite. NOTE: tests/test_llama_firewall_scanner.py::TestIntegration (7 tests) deselected ---
+Those 7 fail identically on the clean base (verified via git stash round-trip): PromptGuard HF gated-model
+not downloadable in this environment (known issue; HF access approved 2026-06-11, model fetch pending).
+Error: 'prompt_guard: PromptGuard ... accept the Llama-Guard-2-86M license, or pre-download the model'
+Legend:
+  Outliers: 1 Standard Deviation from Mean; 1.5 IQR (InterQuartile Range) from 1st Quartile and 3rd Quartile.
+  OPS: Operations Per Second, computed as 1 / Mean
+1275 passed, 12 deselected, 1 xfailed, 56 warnings in 29.74s
+cmd 2 exit: 0
+
+--- cmd 3: ruff check . ---
+All checks passed!
+cmd 3 exit: 0
+
+--- cmd 4: mypy --strict . ---
+Success: no issues found in 103 source files
+cmd 4 exit: 0
