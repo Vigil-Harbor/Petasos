@@ -166,6 +166,10 @@ class NormalizedText:
     invisible_chars_stripped: int = 0
     confusables_normalized: bool = False
     rtl_overrides_detected: bool = False
+    # Match-only leet-decoded candidate views (PET-97): length-preserving
+    # folds of `normalized`, consumed by the injection pass only. Empty when
+    # no foldable character is present or fold_leet=False.
+    leet_views: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

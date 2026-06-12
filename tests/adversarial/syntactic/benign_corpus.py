@@ -128,6 +128,19 @@ BENIGN_CORPUS: tuple[str, ...] = (
     "Roleplay night is Thursday; bring dice.",
     "He will act as interim lead until June.",
     "ASSISTANT: is a common prefix in chat-log exports.",
+    # --- digit/symbol-bearing lines (PET-97 leet-fold FP guard) ---
+    # The leet fold maps 0-9/@/$/! across the whole text on match-only views;
+    # none of these may flip to an injection match. The base64 line keeps
+    # firing exactly encoding.base64-in-text (encoding type, not injection —
+    # outside the guard's filter).
+    "react 450ms render",
+    "version 1.5.3",
+    "commit 5e4134c",
+    "SHA 7f71a43",
+    "QmVuaWduIGJhc2U2NCBwYXlsb2FkIGZvciBQRVQtOTcgcGlubmluZyB0ZXN0cw==",
+    "the fix costs $5 and ships Friday!",
+    "email support@vigilharbor.com with the trace",
+    "run echo $HOME && ls -la!",
 )
 
 # ---------------------------------------------------------------------------
