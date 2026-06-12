@@ -1,0 +1,19 @@
+# PET-96: weekly lane with the real llamafirewall extra installed, so
+# "real package present" stops being a local-only configuration.
+# TestIntegration self-skips via _skip_integration (no HF token/model in CI).
+name: extras-llamafirewall
+on:
+  schedule:
+    - cron: "23 6 * * 1" # Mondays 06:23 UTC — off-peak, off-minute
+  workflow_dispatch:
+jobs:
+  scanner-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e ".[llamafirewall,dev]"
+      - run: pytest tests/test_llama_firewall_scanner.py -v --tb=short

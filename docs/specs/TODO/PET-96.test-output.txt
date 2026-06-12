@@ -1,0 +1,12 @@
+.........................................                                [100%]
+41 passed, 12 deselected in 0.15s
+--- ruff check ---
+All checks passed!
+--- ruff format --check ---
+102 files already formatted
+--- mypy --strict ---
+Success: no issues found in 102 source files
+--- full suite (reduced deviation set: TestIntegration only, was 8 now 7) ---
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+1239 passed, 4 skipped, 12 deselected, 1 xfailed, 55 warnings in 28.15s
