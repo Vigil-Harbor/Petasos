@@ -1,0 +1,49 @@
+PET-92 test gate — 2026-06-11
+Branch: fix/pet-92-llmguard-stdio-weakref-shield (cut from origin/master 71515ab)
+Interpreter: C:/Users/zioni/AppData/Local/hermes/hermes-agent/venv/Scripts/python.exe
+(module-form pytest from worktree root; worktree shadows the venv's editable install)
+
+=== 1. Targeted files (spec Test command, line 1) ===
+$ python -m pytest tests/test_llm_guard_wrapper.py tests/test_llm_guard_scanner.py -q
+40 passed in 7.83s
+  - tests/test_llm_guard_wrapper.py: 7/7 (unit 1-4 extras-free; integration 5-7 ran
+    against real llm-guard under slots-only stdio — NOT skipped)
+  - tests/test_llm_guard_scanner.py: 33/33 (incl. the two mock-dict additions)
+
+=== 2. Lint / format / types ===
+$ python -m ruff check .            -> All checks passed!
+$ python -m ruff format --check .   -> 100 files already formatted
+$ python -m mypy --strict .         -> Success: no issues found in 100 source files
+
+=== 3. Full suite, unmodified ===
+$ python -m pytest -q
+8 failed, 1196 passed, 4 skipped, 1 xfailed, 56 warnings in 28.31s
+
+DEVIATION (documented per spec § Test command note — none of the 8 touch the
+changed surface; all reproduce on untouched master):
+
+  a) tests/test_llama_firewall_scanner.py::TestIntegration — 7 failures.
+     Cause: ENVIRONMENTAL. PET-87's fail-fast prerequisite check fires
+     (error='prompt_guard: PromptGuard ... license, or pre-download the model',
+     ~5ms — no token, no download attempt). The machine's HF token line is
+     commented out and empty (profiles/gibson/.env:107 `# HF_TOKEN=`). The HF
+     gated-model access application was approved 2026-06-11, but no token is
+     installed, so approval is unverifiable from this box. Pre-existing on any
+     branch (control run on master 84330ce, 2026-06-10).
+     Action for repo owner: install a token at profiles/gibson/.env:107, then
+     re-run TestIntegration and drop this deviation for good.
+
+  b) tests/test_llama_firewall_scanner.py::TestCrossAxisRecovery::
+     test_blocked_to_prereq_to_healthy — 1 failure. Pre-existing, ticketed as
+     PET-96. New evidence from this gate: the failure is ORDER-DEPENDENT —
+     the same test PASSES when the class runs in isolation
+     (TestIntegration+TestCrossAxisRecovery selection: "7 failed, 6 passed",
+     CrossAxis green) and fails only in the full-suite ordering. Recorded for
+     the PET-96 spec.
+
+=== 4. Full suite, documented deviations deselected (precedent: PET-88 / PR #65) ===
+$ python -m pytest -q \
+    --deselect tests/test_llama_firewall_scanner.py::TestIntegration \
+    --deselect tests/test_llama_firewall_scanner.py::TestCrossAxisRecovery::test_blocked_to_prereq_to_healthy
+1191 passed, 4 skipped, 13 deselected, 1 xfailed, 55 warnings in 27.60s
+EXIT=0

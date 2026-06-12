@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
+import logging
 import math
 import sys
 import threading
@@ -13,6 +14,51 @@ from petasos._types import Direction, ScanFinding, ScanResult, Severity
 _REQUIRED_PACKAGES: tuple[str, ...] = ("llm_guard",)
 
 _INSTALL_HINT = "llm_guard not installed. pip install petasos[llm-guard]"
+
+_logger = logging.getLogger(__name__)
+
+# Serializes the logging-shield's stdio snapshot/restore window across scanner
+# instances: self._lock is per-instance, but sys.stdout/sys.stderr are
+# process-global — unserialized, two concurrent loads could interleave their
+# windows and strand colorama's wrapper as the final global (PET-92, D9).
+_SHIELD_LOCK = threading.Lock()
+
+
+class _WeakrefableStdout:
+    """Weakref-able passthrough to the *current* ``sys.stdout``.
+
+    structlog's PrintLogger registers its output stream as a weak key in a
+    module-level lock registry (``structlog._output.WRITE_LOCKS``). Host
+    processes (Hermes) install slots-only stdio wrappers that do not support
+    weak references, so handing structlog the raw ``sys.stdout`` crashes every
+    log emission. This proxy supports weak references and delegates each call
+    to whatever ``sys.stdout`` is at call time — output still flows through the
+    host's crash-resistant wrapper, and the proxy keeps working if the host
+    rebinds stdio after init. A ``None`` stdout (pythonw / detached console)
+    swallows writes; a self-referential rebinding (``sys.stdout`` set to this
+    proxy) short-circuits instead of recursing.
+    """
+
+    def write(self, s: str) -> int:
+        stream = sys.stdout
+        if stream is None or stream is self:
+            return len(s)
+        return stream.write(s) or len(s)
+
+    def flush(self) -> None:
+        stream = sys.stdout
+        if stream is not None and stream is not self:
+            stream.flush()
+
+    def isatty(self) -> bool:
+        stream = sys.stdout
+        try:
+            return stream is not None and stream is not self and bool(stream.isatty())
+        except Exception:
+            return False
+
+
+_STDOUT_PROXY = _WeakrefableStdout()
 
 
 class LlmGuardScanner:
@@ -90,6 +136,50 @@ class LlmGuardScanner:
 
     def _do_load(self) -> None:
         try:
+            # PET-92 logging shield: configure llm-guard's structlog output to
+            # the weakref-able proxy before importing/instantiating scanners.
+            # structlog's default factory captures sys.stdout at import time;
+            # under a slots-only host wrapper (_SafeWriter) the first emitted
+            # log dies on a weakref. Failures here must never block the load —
+            # they degrade to a log line and the import below stays
+            # authoritative for _load_error classification.
+            try:
+                from llm_guard.util import configure_logger
+
+                # configure_logger constructs structlog.dev.ConsoleRenderer,
+                # which lets colorama globally swap sys.stdout/sys.stderr on
+                # Windows — snapshot and restore so the host's stdio wrappers
+                # keep their identity (D9). _SHIELD_LOCK serializes the window
+                # across instances; stdio is process-global.
+                with _SHIELD_LOCK:
+                    saved_out, saved_err = sys.stdout, sys.stderr
+                    try:
+                        configure_logger(stream=_STDOUT_PROXY)
+                    finally:
+                        sys.stdout, sys.stderr = saved_out, saved_err
+            except Exception as exc:
+                # Suppress the breadcrumb only for true module absence (base
+                # install / blocked import) — the input_scanners import below
+                # sets the authoritative _load_error one statement later. A
+                # "cannot import name" ImportError from an importable
+                # llm_guard.util IS the API-drift tripwire and must warn.
+                module_absent = isinstance(exc, ModuleNotFoundError) or (
+                    isinstance(exc, ImportError)
+                    and any(
+                        sys.modules.get(name, True) is None
+                        for name in ("llm_guard", "llm_guard.util")
+                    )
+                )
+                if module_absent:
+                    _logger.debug("llm-guard logging shield skipped: %s", exc)
+                else:
+                    _logger.warning(
+                        "llm-guard logging shield failed (%s: %s); scans may "
+                        "fail with weakref errors under wrapped stdio",
+                        type(exc).__name__,
+                        exc,
+                    )
+
             from llm_guard.input_scanners import (
                 InvisibleText,
                 PromptInjection,
