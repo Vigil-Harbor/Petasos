@@ -1,0 +1,12 @@
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+128 passed, 48 warnings in 0.55s
+--- ruff check ---
+All checks passed!
+--- ruff format --check ---
+102 files already formatted
+--- mypy --strict ---
+Success: no issues found in 102 source files
+--- full suite (8 documented environmental deselects) ---
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+1247 passed, 4 skipped, 13 deselected, 1 xfailed, 55 warnings in 33.60s
