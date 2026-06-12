@@ -1,0 +1,63 @@
+PET-93 test gate — 2026-06-11
+Branch: fix/pet-93-syntactic-phrasing-audit (cut from origin/master 71515ab)
+Interpreter: C:/Users/zioni/AppData/Local/hermes/hermes-agent/venv/Scripts/python.exe
+(module-form pytest from worktree root)
+
+=== 1. Targeted files (spec Test command, line 1) ===
+$ python -m pytest tests/test_minimal_scanner.py tests/adversarial/syntactic/ -q
+117 passed in 0.28s
+  - 53 new PET-93 tests: 21 pattern-rule variants, 11 role-switch variants,
+    sibling-disjointness sweep, 16 intentional-noncoverage pins, 2 benign-corpus
+    guard tests, 2 ReDoS growth-ratio shape tests (determiner flood, newline
+    flood) — all ran, none skipped.
+  - Existing tests unchanged and green, incl. the PET-91 pin
+    (test_ignore_all_previous) and TestRuleTaxonomy::test_17_rules.
+
+=== 2. Lint / format / types ===
+$ python -m ruff check .            -> All checks passed!
+$ python -m ruff format --check .   -> 102 files already formatted
+$ python -m mypy --strict .         -> Success: no issues found in 102 source files
+
+=== 3. D8 latency budget (binding, <5ms syntactic-only) ===
+pytest-benchmark is not installed in this venv (the suite's 4 perpetual skips
+are tests/test_benchmarks.py) — equivalent direct measurement used instead:
+median of 50 timed MinimalScanner().scan("ignore previous instructions") runs
+after 5 warmups, identical methodology to the benchmark's pedantic config:
+  BEFORE (master 71515ab):    median=0.0264ms  mean=0.0276ms  max=0.0522ms
+  AFTER  (widened patterns):  median=0.0264ms  mean=0.0277ms  max=0.0518ms
+Delta: none measurable. Both ~190x under the 5ms budget. PASS.
+
+=== 4. D6 FP guard (zero unsanctioned new injection FPs) ===
+HEAD-baseline capture (pre-widening, scripted): 7 snippets fired -> 6 pinned
+PRE_EXISTING + 1 later MIGRATED. Post-widening capture: 11 snippets fired.
+Delta classification:
+  - 4 ACCEPTED_CLASS (rows 4/9-10 sanctioned class extensions, pinned)
+  - 1 MIGRATED (role-switch-only -> capability via the new "without limits"
+    grant; snippet matches SANCTIONED_NEW_GRANTS — attribution verified)
+  - 1 UNSANCTIONED: "The new instructions are in the README somewhere."
+    fired new-instructions via the "(your|the)" widening -> spec row 5's
+    pre-committed RETREAT applied (pattern narrowed to "your new instructions
+    are"); snippet now fires nothing. Recorded in the D4 verdict block.
+Final guard state: every corpus snippet's firing set == pinned union. PASS.
+
+=== 5. Full suite, unmodified ===
+$ python -m pytest -q
+8 failed, 1242 passed, 4 skipped, 1 xfailed, 56 warnings in 26.60s
+
+DEVIATION (same 8 as the PET-92 gate, all pre-existing on any branch, none in
+the changed surface):
+  a) tests/test_llama_firewall_scanner.py::TestIntegration — 7 failures,
+     ENVIRONMENTAL: HF token absent on this machine (profiles/gibson/.env:107
+     is commented out); PET-87's fail-fast prerequisite check fires in ~5ms.
+  b) TestCrossAxisRecovery::test_blocked_to_prereq_to_healthy — PET-96
+     (ticketed; order-dependent — passes in class isolation).
+Collected-count sanity (spec Scope, __init__.py repackaging): 1242 passed =
+master baseline 1189 + 53 new tests; no existing test lost to the
+module-identity re-rooting.
+
+=== 6. Full suite, documented deviations deselected ===
+$ python -m pytest -q \
+    --deselect tests/test_llama_firewall_scanner.py::TestIntegration \
+    --deselect tests/test_llama_firewall_scanner.py::TestCrossAxisRecovery::test_blocked_to_prereq_to_healthy
+1237 passed, 4 skipped, 13 deselected, 1 xfailed, 55 warnings in 25.69s
+EXIT=0
