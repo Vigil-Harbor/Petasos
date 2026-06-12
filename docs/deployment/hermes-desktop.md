@@ -3,6 +3,11 @@
 How to go from `pip install petasos` (zero enforcement) to a locked-down
 Hermes Desktop agent. Covers both macOS and Windows.
 
+> **Before you start:** read the [deployment hardening checklist](hardening.md)
+> for where Petasos sits in your security model — it is a detection layer,
+> not a boundary, and the checklist covers console binding, secrets, fail-mode,
+> and the OS-level isolation to pair it with.
+
 **Hermes version:** v0.15.0+ (v0.16.0+ recommended — profile-aware)  
 **Petasos version:** 0.1.0+  
 **Time:** ~15 minutes (plus ML model download on first scan)
