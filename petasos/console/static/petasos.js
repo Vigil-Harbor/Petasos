@@ -486,6 +486,7 @@
     var table = Pet.h("div", { style: { display: "flex", flexDirection: "column", gap: "4px" } });
     for (var i = 0; i < hist.length; i++) {
       var e = hist[i];
+      if (!e || typeof e !== "object") continue; // never-throw: skip a malformed entry (e.g. JSON null from a bad SSE frame) rather than aborting the synchronous re-render
       var isBlocked = (e.safe === false); // strict ===false; truthy-but-not-false is not "blocked"
       var badge = Pet.h("span", { className: "mono", style: { display: "inline-block", padding: "1px 8px", borderRadius: "9999px", fontSize: "11px", color: "#fff", minWidth: "52px", textAlign: "center", background: isBlocked ? "var(--red, #ef4444)" : "var(--green, #22c55e)" } }, isBlocked ? "blocked" : "safe");
 
@@ -528,6 +529,7 @@
     var sessionSet = new Set(); // ES6 runtime API, already relied on elsewhere (AbortController/TextDecoder)
     for (var i = 0; i < hist.length; i++) {
       var e = hist[i];
+      if (!e || typeof e !== "object") continue; // never-throw: skip a malformed entry (e.g. JSON null from a bad SSE frame)
       if (e.safe === false) blocked++; // strict ===false (Decision 6)
       latencySum += (Number(e.duration_ms) || 0); // missing/non-numeric counts as 0; never throws
       var sid = e.session_id;
