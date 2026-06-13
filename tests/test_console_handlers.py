@@ -538,3 +538,54 @@ async def test_availability_returns_cause_discriminator(
     ok, _reason, cause = pres.availability()
     assert ok is False
     assert cause == "absent", f"presidio import-at-load: {cause!r}"
+
+
+# ---------------------------------------------------------------------------
+# PET-102: run_scan summary carries the field set the Observability tiles read
+# ---------------------------------------------------------------------------
+
+
+async def test_scan_summary_carries_tile_contract(handlers: ConsoleHandlers) -> None:
+    # Regression for PET-102: the Observability tiles (scans / blocked / avg
+    # latency / sessions) are computed client-side from the scan-history buffer,
+    # so every summary entry must carry the full field set the tiles read. We
+    # assert through get_scan_history — the public seed surface the frontend
+    # consumes on first render.
+    #
+    # LOAD-BEARING (do not weaken): run_scan pushes ONE summary object to the
+    # ring buffer and broadcasts that SAME object over SSE
+    # (server.py: self.scan_history.push(summary) then
+    # self.sse.broadcast("scan_result", summary)). The live *sessions* tile
+    # depends on the SSE path; this test only inspects get_scan_history. Because
+    # both read the identical object, asserting the seed surface also locks the
+    # SSE payload. A future refactor that builds a separate broadcast payload
+    # would silently break the SSE path — this comment marks that risk so it is
+    # flagged rather than passing unnoticed. (Stronger form: stub SSEBroadcaster
+    # and inspect the broadcast summary — Deferred P3.)
+    await handlers.run_scan("contract probe text for tile fields", session_id="sess-xyz")
+    result = await handlers.get_scan_history()
+    entry = result["entries"][0]  # newest-first; fresh handlers fixture → only entry
+    for key in (
+        "scan_id",
+        "safe",
+        "finding_count",
+        "duration_ms",
+        "direction",
+        "session_id",
+        "timestamp",
+    ):
+        assert key in entry, f"summary entry missing tile-contract key: {key!r}"
+    assert entry["session_id"] == "sess-xyz"
+
+
+async def test_scan_summary_session_id_present_when_omitted(
+    handlers: ConsoleHandlers,
+) -> None:
+    # Regression for PET-102: session_id must ALWAYS be present in the summary
+    # (None when the caller supplied none), so the *sessions* aggregation always
+    # has its input field rather than reading an undefined key.
+    await handlers.run_scan("scan with no session id supplied")
+    result = await handlers.get_scan_history()
+    entry = result["entries"][0]
+    assert "session_id" in entry
+    assert entry["session_id"] is None
