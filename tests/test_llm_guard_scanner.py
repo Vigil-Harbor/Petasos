@@ -323,7 +323,7 @@ class TestAvailabilityProbe:
     async def test_unavailable_when_blocked(self) -> None:
         scanner = LlmGuardScanner()
         with patch.dict("sys.modules", _BLOCKED_MODULES):
-            avail, reason = scanner.availability()
+            avail, reason, _cause = scanner.availability()
         assert avail is False
         assert reason is not None
         assert "pip install" in reason
@@ -332,7 +332,7 @@ class TestAvailabilityProbe:
         scanner = LlmGuardScanner()
         mock_module = MagicMock()
         with patch.dict("sys.modules", _fake_modules(mock_module)):
-            avail, reason = scanner.availability()
+            avail, reason, _cause = scanner.availability()
         assert avail is True
         assert reason is None
 
@@ -340,7 +340,7 @@ class TestAvailabilityProbe:
         scanner = LlmGuardScanner()
         scanner._load_error = "model corrupted"
         scanner._load_error_retryable = False
-        avail, reason = scanner.availability()
+        avail, reason, _cause = scanner.availability()
         assert avail is False
         assert reason == "model corrupted"
 
@@ -349,7 +349,7 @@ class TestAvailabilityProbe:
         scanner._load_error = "some retryable"
         scanner._load_error_retryable = True
         with patch.dict("sys.modules", _BLOCKED_MODULES):
-            avail, reason = scanner.availability()
+            avail, reason, _cause = scanner.availability()
         assert avail is False
 
     async def test_normalized_error_message_on_import_failure(self) -> None:

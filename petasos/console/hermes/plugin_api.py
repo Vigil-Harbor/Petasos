@@ -97,7 +97,12 @@ def _self_init() -> None:
             scanners.append(instance)
             probe = getattr(instance, "availability", None)
             if probe is not None:
-                avail, reason = probe()
+                # PET-103 D4: arity-tolerant extraction — availability() is
+                # duck-typed here (getattr), so tolerate both the legacy 2-tuple
+                # and the widened 3-tuple (ok, reason, cause).
+                probe_result = probe()
+                avail = bool(probe_result[0])
+                reason = probe_result[1] if len(probe_result) > 1 else None
                 if avail:
                     logger.info("Dashboard scanner %s: backend verified", name)
                 else:

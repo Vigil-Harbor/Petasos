@@ -11,6 +11,7 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from petasos._types import (
+    AVAILABILITY_CAUSE_LOAD_FAILED,
     Alert,
     AuditEvent,
     PipelineResult,
@@ -29,6 +30,16 @@ from petasos.session.license import LicenseClaims, LicenseState, LicenseValidato
 from petasos.session.profiles import ProfileResolver, ResolvedProfile
 
 _logger = logging.getLogger(__name__)
+
+# PET-103: scanner-health status names as module-level constants (D8) so the
+# pipeline and its tests cannot drift on the spelling. ``error`` (load-time
+# crash) is distinct from ``degraded`` (run-time error) and from ``unavailable``
+# (genuinely not installed / prerequisites missing).
+_HEALTH_STATUS_HEALTHY = "healthy"
+_HEALTH_STATUS_DEGRADED = "degraded"
+_HEALTH_STATUS_CIRCUIT_OPEN = "circuit_open"
+_HEALTH_STATUS_UNAVAILABLE = "unavailable"
+_HEALTH_STATUS_ERROR = "error"
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -313,7 +324,7 @@ class Pipeline:
             result.append(
                 {
                     "name": "minimal",
-                    "status": "degraded" if minimal_err else "healthy",
+                    "status": _HEALTH_STATUS_DEGRADED if minimal_err else _HEALTH_STATUS_HEALTHY,
                     "last_ms": self._last_scan_durations.get("minimal"),
                     "consecutive_timeouts": 0,
                     "last_error": minimal_err,
@@ -328,23 +339,42 @@ class Pipeline:
             probe_fn = getattr(s, "availability", None)
             probe_ok = True
             probe_reason: str | None = None
+            probe_cause: str | None = None
             if probe_fn is not None:
                 import contextlib
 
+                # PET-103 D4: arity-tolerant, fail-safe extraction. ``probe_result``
+                # is ``Any`` (``availability()`` is duck-typed) and MUST stay ``Any``
+                # — annotating it as a fixed-arity tuple makes the ``len`` guards
+                # statically dead and ``probe_result[2]`` a mypy error. A legacy 2-tuple
+                # leaves ``probe_cause`` None → the non-``load_failed`` branch →
+                # ``unavailable`` (backward compatible). A short/non-indexable or
+                # throwing return is suppressed, leaving ``probe_ok`` True →
+                # ``healthy`` (pre-existing PET-87 behavior, unchanged here).
                 with contextlib.suppress(Exception):
-                    probe_ok, probe_reason = probe_fn()
+                    probe_result = probe_fn()
+                    probe_ok = bool(probe_result[0])
+                    probe_reason = probe_result[1] if len(probe_result) > 1 else None
+                    probe_cause = probe_result[2] if len(probe_result) > 2 else None
 
             if not probe_ok:
-                status = "unavailable"
-                last_error = probe_reason or scan_err
+                if probe_cause == AVAILABILITY_CAUSE_LOAD_FAILED:
+                    status = _HEALTH_STATUS_ERROR
+                else:
+                    status = _HEALTH_STATUS_UNAVAILABLE
+                # Provenance is load-bearing for ``error``: an operator told the
+                # backend crashed on load must see the crash message, not a stale
+                # ``scan_err``. ``is not None`` (not ``or``) preserves an
+                # explicitly-empty crash reason. (PET-103)
+                last_error = probe_reason if probe_reason is not None else scan_err
             elif open_until > _time.monotonic():
-                status = "circuit_open"
+                status = _HEALTH_STATUS_CIRCUIT_OPEN
                 last_error = scan_err
             elif timeouts > 0 or scan_err:
-                status = "degraded"
+                status = _HEALTH_STATUS_DEGRADED
                 last_error = scan_err
             else:
-                status = "healthy"
+                status = _HEALTH_STATUS_HEALTHY
                 last_error = None
 
             result.append(

@@ -191,7 +191,7 @@ def _deferred_init() -> None:
 
                 instance = LlmGuardScanner()
                 scanners.append(instance)
-                avail, reason = instance.availability()
+                avail, reason, _cause = instance.availability()
                 if avail:
                     logger.info("LLM Guard backend verified — scanner active")
                 else:
@@ -213,7 +213,7 @@ def _deferred_init() -> None:
 
                 instance = LlamaFirewallScanner()
                 scanners.append(instance)
-                avail, reason = instance.availability()
+                avail, reason, _cause = instance.availability()
                 if avail:
                     logger.info("LlamaFirewall backend verified — scanner active")
                 else:
@@ -235,7 +235,7 @@ def _deferred_init() -> None:
 
                 instance = PresidioScanner()
                 scanners.append(instance)
-                avail, reason = instance.availability()
+                avail, reason, _cause = instance.availability()
                 if avail:
                     logger.info("Presidio backend verified — scanner active")
                 else:

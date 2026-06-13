@@ -257,7 +257,7 @@ test("#18 security sweep: only b/code/em can become elements", () => {
 // B/CODE elements and text identical to the tags-stripped string.
 test("#19 current caller strings render identically (structural)", () => {
   const callers = [
-    "<b>Scanner Health</b> — per-scanner backend status. <code>healthy</code>: last scan succeeded. <code>degraded</code>: last scan errored or timeout streak. <code>circuit_open</code>: consecutive timeout breaker tripped. <code>unavailable</code>: backend not installed or prerequisites missing.",
+    "<b>Scanner Health</b> — per-scanner backend status. <code>healthy</code>: last scan succeeded. <code>degraded</code>: last scan errored or timeout streak. <code>circuit_open</code>: consecutive timeout breaker tripped. <code>unavailable</code>: backend not installed or prerequisites missing. <code>error</code>: backend installed but failed to load — see the error detail.",
     "<b>Scan History</b> — recent pipeline scans with severity, direction, and timing. Each row is one <code>Pipeline.evaluate()</code> call.",
     "<b>Findings</b> — individual detections from each scanner. Severity ranges from <code>INFO</code> to <code>CRITICAL</code>. High+ on dangerous tools triggers a block.",
     "<b>Session Overlay</b> — cumulative session risk score and escalation tier. Score rises with repeated violations; tier thresholds trigger progressively stricter enforcement.",

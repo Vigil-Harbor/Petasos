@@ -9,7 +9,15 @@ import threading
 import time
 from typing import Any
 
-from petasos._types import Direction, ScanFinding, ScanResult, Severity
+from petasos._types import (
+    AVAILABILITY_CAUSE_ABSENT,
+    AVAILABILITY_CAUSE_LOAD_FAILED,
+    AvailabilityCause,
+    Direction,
+    ScanFinding,
+    ScanResult,
+    Severity,
+)
 
 _REQUIRED_PACKAGES: tuple[str, ...] = ("llm_guard",)
 
@@ -91,20 +99,27 @@ class LlmGuardScanner:
     def name(self) -> str:
         return "llm_guard"
 
-    def availability(self) -> tuple[bool, str | None]:
-        """Cheap backend-presence probe. Never imports the backend."""
+    def availability(self) -> tuple[bool, str | None, AvailabilityCause | None]:
+        """Cheap backend-presence probe. Never imports the backend.
+
+        Returns ``(ok, reason, cause)`` (PET-103). A terminal (non-retryable)
+        ``_load_error`` is a genuine load crash — the missing-package case is
+        caught earlier by the ``find_spec`` probe and the load path marks it
+        retryable, so it never reaches this branch — hence ``load_failed``.
+        ``find_spec`` misses are ``absent``.
+        """
         if self._load_error is not None and not self._load_error_retryable:
-            return (False, self._load_error)
+            return (False, self._load_error, AVAILABILITY_CAUSE_LOAD_FAILED)
         for pkg in (*_REQUIRED_PACKAGES, "llm_guard.input_scanners"):
             if pkg in sys.modules and sys.modules[pkg] is not None:
                 continue
             try:
                 spec = importlib.util.find_spec(pkg)
             except Exception:
-                return (False, _INSTALL_HINT)
+                return (False, _INSTALL_HINT, AVAILABILITY_CAUSE_ABSENT)
             if spec is None or spec.origin is None:
-                return (False, _INSTALL_HINT)
-        return (True, None)
+                return (False, _INSTALL_HINT, AVAILABILITY_CAUSE_ABSENT)
+        return (True, None, None)
 
     def _ensure_loaded(self) -> None:
         if self._loaded:
@@ -118,7 +133,7 @@ class LlmGuardScanner:
                 if self._load_error is not None and not self._load_error_retryable:
                     return
                 if self._load_error is not None and self._load_error_retryable:
-                    avail, _reason = self.availability()
+                    avail, _reason, _cause = self.availability()
                     if not avail:
                         return
                     self._load_error = None
@@ -253,7 +268,7 @@ class LlmGuardScanner:
                 self._load_error = _INSTALL_HINT
                 self._load_error_retryable = True
             else:
-                avail, avail_reason = self.availability()
+                avail, avail_reason, _cause = self.availability()
                 if avail:
                     self._load_error = str(exc)
                     self._load_error_retryable = False

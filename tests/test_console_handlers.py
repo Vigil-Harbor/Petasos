@@ -1,6 +1,7 @@
 """Tests for petasos.console.server.ConsoleHandlers."""
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -10,7 +11,10 @@ from petasos._types import ScanResult  # noqa: E402
 from petasos.config import PetasosConfig  # noqa: E402
 from petasos.console.server import ConsoleHandlers  # noqa: E402
 from petasos.pipeline import Pipeline  # noqa: E402
+from petasos.scanners.llama_firewall import LlamaFirewallScanner  # noqa: E402
+from petasos.scanners.llm_guard import LlmGuardScanner  # noqa: E402
 from petasos.scanners.minimal import MinimalScanner  # noqa: E402
+from petasos.scanners.presidio import PresidioScanner  # noqa: E402
 
 pytestmark = pytest.mark.asyncio
 
@@ -230,6 +234,42 @@ class _AvailableScanner(_StubScanner):
         return (True, None)
 
 
+# PET-103: protocol stubs returning the widened 3-tuple (ok, reason, cause).
+class _LoadFailedScanner(_StubScanner):
+    """Installed-but-load-crashed: availability() carries the load_failed cause."""
+
+    def __init__(self, name: str, *, reason: str) -> None:
+        super().__init__(name)
+        self._reason = reason
+
+    def availability(self) -> tuple[bool, str | None, str | None]:
+        return (False, self._reason, "load_failed")
+
+
+class _AbsentScanner(_StubScanner):
+    """Genuinely absent: availability() carries the absent cause."""
+
+    def availability(self) -> tuple[bool, str | None, str | None]:
+        return (False, "backend not installed. pip install petasos[example]", "absent")
+
+
+class _LegacyTwoTupleScanner(_StubScanner):
+    """Legacy / third-party implementer returning the pre-PET-103 2-tuple (no cause)."""
+
+    def availability(self) -> tuple[bool, str | None]:
+        return (False, "legacy probe: no cause element")
+
+
+class _RetryableLoadScanner(_StubScanner):
+    """Retryable load failure: availability() reports available (True) — the
+    terminal-_load_error branch's guard is `not retryable`, so a retryable load
+    error falls through to (True, None, None). The failed scan that set it is
+    what surfaces as degraded (PET-104 D5 boundary)."""
+
+    def availability(self) -> tuple[bool, str | None, str | None]:
+        return (True, None, None)
+
+
 async def test_health_surfaces_scan_errors() -> None:
     """After a scan error, scanner_health reports degraded with last_error."""
     stub = _StubScanner("test_ml", error="model exploded")
@@ -323,6 +363,181 @@ async def test_idle_recovery_transition() -> None:
     ml_entry = [h for h in health if h["name"] == "test_ml"][0]
     assert ml_entry["status"] == "degraded"
     assert ml_entry["last_error"] == "stale error from before"
+
+
+# ---------------------------------------------------------------------------
+# PET-103: distinct `error` status for installed-but-load-crashed backends,
+# narrowed `unavailable`, fail-safe arity tolerance, and the PET-104 D5 boundary
+# ---------------------------------------------------------------------------
+
+
+async def test_health_load_failed_distinct_from_unavailable() -> None:
+    """Installed-but-load-crashed → status 'error' (not 'unavailable'); full crash msg."""
+    crash = (
+        "TypeError: cannot create weak reference to 'BoundMethodWeakref'\n"
+        '  File "llm_guard/input_scanners/prompt_injection.py", line 412, in _load\n'
+        '  File "transformers/pipelines/__init__.py", line 906, in pipeline\n'
+        "  ...full multi-line traceback tail an operator must be able to read..."
+    )
+    stub = _LoadFailedScanner("test_ml", reason=crash)
+    pipe = Pipeline(
+        scanners=[MinimalScanner(), stub],
+        config=PetasosConfig(fail_mode="open"),
+    )
+    health = pipe.scanner_health()
+    ml_entry = [h for h in health if h["name"] == "test_ml"][0]
+    assert ml_entry["status"] == "error"
+    assert ml_entry["status"] != "unavailable"
+    assert ml_entry["last_error"] == crash
+
+
+async def test_health_unavailable_means_absent() -> None:
+    """A genuinely-absent backend ('absent' cause) still maps to 'unavailable'.
+
+    Pins the narrowed meaning so 'error' and 'unavailable' cannot silently
+    re-merge.
+    """
+    stub = _AbsentScanner("test_ml")
+    pipe = Pipeline(
+        scanners=[MinimalScanner(), stub],
+        config=PetasosConfig(fail_mode="open"),
+    )
+    health = pipe.scanner_health()
+    ml_entry = [h for h in health if h["name"] == "test_ml"][0]
+    assert ml_entry["status"] == "unavailable"
+    assert ml_entry["status"] != "error"
+
+
+async def test_health_unavailable_legacy_2tuple() -> None:
+    """A legacy 2-tuple availability() (no cause element) maps to 'unavailable'.
+
+    Backward-compat / fail-safe default per D4: a short-but-indexable return
+    leaves probe_cause None → the non-'load_failed' branch → 'unavailable'.
+    """
+    stub = _LegacyTwoTupleScanner("test_ml")
+    pipe = Pipeline(
+        scanners=[MinimalScanner(), stub],
+        config=PetasosConfig(fail_mode="open"),
+    )
+    health = pipe.scanner_health()
+    ml_entry = [h for h in health if h["name"] == "test_ml"][0]
+    assert ml_entry["status"] == "unavailable"
+    assert ml_entry["last_error"] == "legacy probe: no cause element"
+
+
+async def test_health_retryable_load_failure_is_degraded() -> None:
+    """PET-104 D5 boundary: a retryable load failure surfaces as 'degraded', not 'error'.
+
+    The retryable-load stub reports available (availability() → (True, None,
+    None)); the recorded scan error from the failed scan is what yields
+    'degraded'. The scan-error seeding is mandatory — without it the stub is
+    'healthy' (the acknowledged pre-scan window, D5).
+    """
+    stub = _RetryableLoadScanner("test_ml")
+    pipe = Pipeline(
+        scanners=[MinimalScanner(), stub],
+        config=PetasosConfig(fail_mode="open"),
+    )
+    pipe._last_scan_errors["test_ml"] = "retryable load failure: weakref shield miss"
+    health = pipe.scanner_health()
+    ml_entry = [h for h in health if h["name"] == "test_ml"][0]
+    assert ml_entry["status"] == "degraded"
+    assert ml_entry["status"] != "error"
+    assert ml_entry["last_error"] == "retryable load failure: weakref shield miss"
+
+
+async def test_health_error_last_error_is_crash_reason() -> None:
+    """An explicitly-empty 'error' crash reason is shown, never the stale scan_err.
+
+    Pins the `probe_reason if probe_reason is not None else scan_err` change:
+    under the old `or` an empty crash reason would silently fall back to a
+    run-time scan error while the status still read 'error'.
+    """
+    stub = _LoadFailedScanner("test_ml", reason="")
+    pipe = Pipeline(
+        scanners=[MinimalScanner(), stub],
+        config=PetasosConfig(fail_mode="open"),
+    )
+    pipe._last_scan_errors["test_ml"] = "stale run-time scan error from before"
+    health = pipe.scanner_health()
+    ml_entry = [h for h in health if h["name"] == "test_ml"][0]
+    assert ml_entry["status"] == "error"
+    assert ml_entry["last_error"] == ""
+
+
+async def test_availability_returns_cause_discriminator(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Each real ML scanner's availability() carries the cause element.
+
+    Uses real scanner instances (dependency-free constructors; availability() is
+    a find_spec probe that never imports the backend) and monkeypatches
+    _load_error / find_spec — the established PET-87/PET-96 probe-test idiom, no
+    ML extras required.
+    """
+    import importlib.util
+    import sys
+    import types as _t
+
+    fake_spec = _t.SimpleNamespace(origin="/fake/origin")
+
+    # scanner typed Any so the heterogeneous _load_error assignment (str on
+    # llm_guard/llama_firewall, BaseException on presidio) stays type-clean.
+    llm: Any = LlmGuardScanner()
+    llama: Any = LlamaFirewallScanner(enable_prompt_guard=False)
+    pres: Any = PresidioScanner()
+    cases: list[tuple[Any, tuple[str, ...], object]] = [
+        (
+            llm,
+            ("llm_guard", "llm_guard.input_scanners"),
+            "TypeError: weakref (llm_guard load crash)",
+        ),
+        (
+            llama,
+            ("llamafirewall",),
+            "EOFError: tripwire model truncated (llamafirewall load crash)",
+        ),
+        (
+            pres,
+            ("presidio_analyzer", "presidio_anonymizer"),
+            RuntimeError("weakref load crash in presidio"),
+        ),
+    ]
+
+    for scanner, pkgs, load_err in cases:
+        # load_failed: a terminal (non-retryable) _load_error is a genuine crash.
+        scanner._load_error = load_err
+        scanner._load_error_retryable = False
+        ok, _reason, cause = scanner.availability()
+        assert ok is False, scanner.name
+        assert cause == "load_failed", f"{scanner.name}: {cause!r}"
+        scanner._load_error = None
+
+        # absent: force the find_spec branch. availability() short-circuits on
+        # `pkg in sys.modules` before find_spec, so delitem each required package
+        # (raising=False) — otherwise an extras-present venv never reaches the
+        # monkeypatched probe and the result would be environment-dependent.
+        for pkg in pkgs:
+            monkeypatch.delitem(sys.modules, pkg, raising=False)
+        monkeypatch.setattr(importlib.util, "find_spec", lambda _name: None)
+        ok, _reason, cause = scanner.availability()
+        assert ok is False, scanner.name
+        assert cause == "absent", f"{scanner.name}: {cause!r}"
+
+        # available: a present package and no load error → (True, None, None).
+        monkeypatch.setattr(importlib.util, "find_spec", lambda _name: fake_spec)
+        ok, _reason, cause = scanner.availability()
+        assert ok is True, scanner.name
+        assert cause is None, f"{scanner.name}: {cause!r}"
+
+    # presidio sub-case: a terminal _load_error that is itself a missing-package
+    # ImportError is classified 'absent' (the scanner owns the classification via
+    # identity against its own _INSTALL_HINT) — not 'load_failed'.
+    pres._load_error = ImportError("No module named 'presidio_analyzer'", name="presidio_analyzer")
+    pres._load_error_retryable = False
+    ok, _reason, cause = pres.availability()
+    assert ok is False
+    assert cause == "absent", f"presidio import-at-load: {cause!r}"
 
 
 # ---------------------------------------------------------------------------

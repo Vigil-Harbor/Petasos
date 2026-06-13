@@ -8,6 +8,17 @@ from typing import Any, Literal, Protocol, runtime_checkable
 
 Direction = Literal["inbound", "outbound"]
 
+# PET-103: cause discriminator carried as the 3rd element of the duck-typed
+# ``availability()`` return. Distinguishes a backend that is genuinely absent
+# ("absent") from one that is installed but crashed on load ("load_failed").
+# Single source of truth for the two spellings, consumed by the three ML
+# scanners' ``availability()`` and by ``Pipeline.scanner_health()`` — so the
+# scanners and the pipeline cannot drift on the spelling. Not on the Scanner
+# Protocol; ``availability()`` stays duck-typed.
+AvailabilityCause = Literal["absent", "load_failed"]
+AVAILABILITY_CAUSE_ABSENT: AvailabilityCause = "absent"
+AVAILABILITY_CAUSE_LOAD_FAILED: AvailabilityCause = "load_failed"
+
 
 class Severity(enum.Enum):
     CRITICAL = "critical"

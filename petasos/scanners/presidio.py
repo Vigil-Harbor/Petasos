@@ -15,6 +15,9 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
 from petasos._types import (
+    AVAILABILITY_CAUSE_ABSENT,
+    AVAILABILITY_CAUSE_LOAD_FAILED,
+    AvailabilityCause,
     Direction,
     Position,
     ScanFinding,
@@ -117,21 +120,36 @@ class PresidioScanner:
     def name(self) -> str:
         return "presidio"
 
-    def availability(self) -> tuple[bool, str | None]:
-        """Cheap backend-presence probe. Never imports the backend."""
+    def availability(self) -> tuple[bool, str | None, AvailabilityCause | None]:
+        """Cheap backend-presence probe. Never imports the backend.
+
+        Returns ``(ok, reason, cause)`` (PET-103). presidio's ``_load_error`` is
+        a ``BaseException`` that may itself be a missing-package ``ImportError``
+        surfaced at load; the owning scanner classifies that sub-case as
+        ``absent`` by comparing the formatted message against its own
+        ``_INSTALL_HINT`` constant (this is the scanner classifying its own
+        state, not the pipeline reaching into privates). Every other terminal
+        ``_load_error`` is a genuine load crash → ``load_failed``. ``find_spec``
+        misses are ``absent``.
+        """
         if self._load_error is not None and not self._load_error_retryable:
             msg = self._load_error_message(self._load_error)
-            return (False, msg)
+            cause: AvailabilityCause = (
+                AVAILABILITY_CAUSE_ABSENT
+                if msg == _INSTALL_HINT
+                else AVAILABILITY_CAUSE_LOAD_FAILED
+            )
+            return (False, msg, cause)
         for pkg in _REQUIRED_PACKAGES:
             if pkg in sys.modules and sys.modules[pkg] is not None:
                 continue
             try:
                 spec = importlib.util.find_spec(pkg)
             except Exception:
-                return (False, _INSTALL_HINT)
+                return (False, _INSTALL_HINT, AVAILABILITY_CAUSE_ABSENT)
             if spec is None or spec.origin is None:
-                return (False, _INSTALL_HINT)
-        return (True, None)
+                return (False, _INSTALL_HINT, AVAILABILITY_CAUSE_ABSENT)
+        return (True, None, None)
 
     @staticmethod
     def _load_error_message(exc: BaseException) -> str:
@@ -158,7 +176,7 @@ class PresidioScanner:
                 if self._load_error is not None and not self._load_error_retryable:
                     raise self._load_error
                 if self._load_error is not None and self._load_error_retryable:
-                    avail, _reason = self.availability()
+                    avail, _reason, _cause = self.availability()
                     if not avail:
                         raise self._load_error
                     self._load_error = None
@@ -189,7 +207,7 @@ class PresidioScanner:
                 self._load_error = exc
                 self._load_error_retryable = True
             else:
-                avail, _ = self.availability()
+                avail, _, _ = self.availability()
                 if avail:
                     self._load_error = exc
                     self._load_error_retryable = False

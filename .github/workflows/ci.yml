@@ -50,4 +50,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - run: node --test tests/js/richtext.test.mjs
+      # PET-103: glob so every tests/js/*.test.mjs file runs (richtext + the new
+      # scanner-health suite). node --test treats each glob match as a test file,
+      # so any non-test helper added under tests/js/ must NOT carry .test.mjs.
+      - run: node --test tests/js/*.test.mjs
