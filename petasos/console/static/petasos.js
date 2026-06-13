@@ -435,6 +435,19 @@
 
   // ── Surface renderers ──
 
+  // PET-103 D9: the Scanner Health help string lives in one named constant so
+  // the JS test can assert its status definitions directly (without rendering
+  // the whole dashboard) and so the label and help text cannot drift. Restricted
+  // markup only (<b>/<code> + plain prose) — kept valid for Pet.richText and for
+  // the richtext.test #19 tripwire (no `&`, no stray angle brackets).
+  Pet.SCANNER_HEALTH_HELP =
+    "<b>Scanner Health</b> — per-scanner backend status. " +
+    "<code>healthy</code>: last scan succeeded. " +
+    "<code>degraded</code>: last scan errored or timeout streak. " +
+    "<code>circuit_open</code>: consecutive timeout breaker tripped. " +
+    "<code>unavailable</code>: backend not installed or prerequisites missing. " +
+    "<code>error</code>: backend installed but failed to load — see the error detail.";
+
   Pet.scannerHealthRows = function (scanners) {
     if (!scanners || !scanners.length) {
       return Pet.h("div", { className: "mono", style: { color: "var(--tx-faint)", fontSize: "12px" } }, "scanner status unavailable — health fetch failed");
@@ -446,6 +459,9 @@
       if (s.status === "healthy") pillColor = "var(--green, #22c55e)";
       else if (s.status === "degraded") pillColor = "var(--amber, #f59e0b)";
       else if (s.status === "unavailable" || s.status === "circuit_open") pillColor = "var(--red, #ef4444)";
+      // PET-103 D7: `error` (installed-but-load-crashed) is a failure state —
+      // color it red, never let it fall through to the grey "unknown" else.
+      else if (s.status === "error") pillColor = "var(--red, #ef4444)";
       else pillColor = "var(--tx-faint, #888)";
       var pill = Pet.h("span", { className: "mono", style: { display: "inline-block", padding: "1px 8px", borderRadius: "9999px", fontSize: "11px", color: "#fff", background: pillColor } }, s.status || "unknown");
       var nameEl = Pet.h("span", { className: "mono", style: { fontSize: "12px", color: "var(--tx)", minWidth: "120px", display: "inline-block" } }, s.name);
@@ -454,12 +470,29 @@
       row.appendChild(nameEl);
       row.appendChild(pill);
       row.appendChild(latency);
+      // PET-103 D6: the per-scanner entry is a column so a multi-line error sits
+      // on its own line beneath the name/pill/latency row without breaking their
+      // alignment.
+      var cell = Pet.h("div", { style: { display: "flex", flexDirection: "column", gap: "2px" } });
+      cell.appendChild(row);
       if (s.last_error) {
-        var errEl = Pet.h("span", { className: "mono", title: s.last_error, style: { fontSize: "11px", color: "var(--tx-faint)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "250px", display: "inline-block" } });
-        errEl.textContent = s.last_error;
-        row.appendChild(errEl);
+        // PET-103 D6/D10: render the full message as a real `Pet.h` text-node
+        // child (selectable, machine-readable, present in textContent) — wrapped
+        // (`pre-wrap`) and height-bounded with scroll instead of clipped to a
+        // single-line 250px ellipsis. `title=` is kept as a secondary hover only.
+        var errEl = Pet.h("div", {
+          className: "mono",
+          title: s.last_error,
+          style: {
+            fontSize: "11px", color: "var(--tx-faint)",
+            whiteSpace: "pre-wrap", wordBreak: "break-word",
+            maxHeight: "120px", overflowY: "auto", marginTop: "2px",
+            userSelect: "text", cursor: "text"
+          }
+        }, s.last_error);
+        cell.appendChild(errEl);
       }
-      table.appendChild(row);
+      table.appendChild(cell);
     }
     return table;
   };
@@ -482,7 +515,7 @@
     // Scanner health
     var healthPanel = Pet.Panel({
       icon: "radar", title: "scanner health", place: "loaded backends", flush: true,
-      help: Pet.HelpTip("<b>Scanner Health</b> — per-scanner backend status. <code>healthy</code>: last scan succeeded. <code>degraded</code>: last scan errored or timeout streak. <code>circuit_open</code>: consecutive timeout breaker tripped. <code>unavailable</code>: backend not installed or prerequisites missing."),
+      help: Pet.HelpTip(Pet.SCANNER_HEALTH_HELP),
       content: Pet.h("div", { style: { padding: "12px" } },
         Pet.h("div", { className: "mono", style: { color: "var(--tx-faint)", fontSize: "12px" } }, "Loading scanner status...")
       ),

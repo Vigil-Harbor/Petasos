@@ -15,7 +15,15 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-from petasos._types import Direction, ScanFinding, ScanResult, Severity
+from petasos._types import (
+    AVAILABILITY_CAUSE_ABSENT,
+    AVAILABILITY_CAUSE_LOAD_FAILED,
+    AvailabilityCause,
+    Direction,
+    ScanFinding,
+    ScanResult,
+    Severity,
+)
 
 _logger = logging.getLogger(__name__)
 
@@ -159,24 +167,32 @@ class LlamaFirewallScanner:
     def name(self) -> str:
         return "llama_firewall"
 
-    def availability(self) -> tuple[bool, str | None]:
-        """Cheap backend-presence probe. Never imports the backend."""
+    def availability(self) -> tuple[bool, str | None, AvailabilityCause | None]:
+        """Cheap backend-presence probe. Never imports the backend.
+
+        Returns ``(ok, reason, cause)`` (PET-103). A terminal ``_load_error`` is
+        reached only after the prereq probe has passed (the ``EOFError`` /
+        tripwire arm in ``_ensure_loaded`` runs post-prereq), so it is a genuine
+        load crash → ``load_failed``. ``find_spec`` misses and a missing
+        PromptGuard prerequisite are ``absent`` (a missing prerequisite is
+        absence, not a crash).
+        """
         if self._load_error is not None and not self._load_error_retryable:
-            return (False, self._load_error)
+            return (False, self._load_error, AVAILABILITY_CAUSE_LOAD_FAILED)
         for pkg in _REQUIRED_PACKAGES:
             if pkg in sys.modules and sys.modules[pkg] is not None:
                 continue
             try:
                 spec = importlib.util.find_spec(pkg)
             except Exception:
-                return (False, _INSTALL_HINT)
+                return (False, _INSTALL_HINT, AVAILABILITY_CAUSE_ABSENT)
             if spec is None or spec.origin is None:
-                return (False, _INSTALL_HINT)
+                return (False, _INSTALL_HINT, AVAILABILITY_CAUSE_ABSENT)
         if self._enable_prompt_guard and not self._components:
             prereq = _prompt_guard_prereq_error(self._enable_prompt_guard)
             if prereq is not None:
-                return (False, prereq)
-        return (True, None)
+                return (False, prereq, AVAILABILITY_CAUSE_ABSENT)
+        return (True, None, None)
 
     def _ensure_loaded(self) -> bool:
         if self._loaded:
@@ -197,7 +213,7 @@ class LlamaFirewallScanner:
                     self._load_error_retryable = False
                     self._loaded = False
                 else:
-                    avail, _reason = self.availability()
+                    avail, _reason, _cause = self.availability()
                     if not avail:
                         if _reason is not None:
                             self._load_error = _reason
@@ -271,7 +287,7 @@ class LlamaFirewallScanner:
                 self._load_error = _INSTALL_HINT
                 self._load_error_retryable = True
             else:
-                avail_ok, avail_reason = self.availability()
+                avail_ok, avail_reason, _cause = self.availability()
                 if avail_ok:
                     self._loaded = True
                     self._load_error = str(exc)
@@ -287,7 +303,7 @@ class LlamaFirewallScanner:
                 self._load_error = prereq or _TRIPWIRE_FALLBACK_MSG
             else:
                 self._load_error = f"llamafirewall init failed: {exc}"
-            avail_ok, _ = self.availability()
+            avail_ok, _, _ = self.availability()
             if avail_ok:
                 self._loaded = True
                 self._load_error_retryable = False

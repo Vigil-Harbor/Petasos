@@ -67,7 +67,7 @@ class TestAvailabilityProbe:
     def test_unavailable_when_blocked(self) -> None:
         scanner = PresidioScanner()
         with patch.dict("sys.modules", _BLOCKED_PRESIDIO_MODULES):
-            avail, reason = scanner.availability()
+            avail, reason, _cause = scanner.availability()
         assert avail is False
         assert reason is not None
         assert "pip install" in reason
@@ -76,7 +76,7 @@ class TestAvailabilityProbe:
         scanner = PresidioScanner()
         scanner._load_error = RuntimeError("broken")
         scanner._load_error_retryable = False
-        avail, reason = scanner.availability()
+        avail, reason, _cause = scanner.availability()
         assert avail is False
         assert reason is not None
         assert "broken" in reason

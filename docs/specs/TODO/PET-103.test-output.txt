@@ -1,0 +1,93 @@
+# PET-103 test output — captured 2026-06-13T23:10:41Z
+# interpreter: py -3.13 (Python 3.13); node v25.6.1
+
+## python -m pytest tests/test_console_handlers.py -v
+============================= test session starts =============================
+platform win32 -- Python 3.13.13, pytest-9.0.3, pluggy-1.6.0 -- C:\Users\zioni\AppData\Local\Microsoft\WindowsApps\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\python.exe
+cachedir: .pytest_cache
+benchmark: 5.2.3 (defaults: timer=time.perf_counter disable_gc=False min_rounds=5 min_time=0.000005 max_time=1.0 calibration_precision=10 warmup=False warmup_iterations=100000)
+rootdir: C:\Users\zioni\Documents\Vigil-Harbor\PET-103-worktree
+configfile: pyproject.toml
+plugins: anyio-4.12.1, asyncio-1.3.0, benchmark-5.2.3, cov-7.1.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 30 items
+
+tests/test_console_handlers.py::test_get_config_returns_fields PASSED    [  3%]
+tests/test_console_handlers.py::test_metadata_endpoint_carries_help_plain PASSED [  6%]
+tests/test_console_handlers.py::test_get_config_redacts_secrets PASSED   [ 10%]
+tests/test_console_handlers.py::test_update_config_valid PASSED          [ 13%]
+tests/test_console_handlers.py::test_update_config_invalid PASSED        [ 16%]
+tests/test_console_handlers.py::test_run_scan PASSED                     [ 20%]
+tests/test_console_handlers.py::test_run_scan_with_injection PASSED      [ 23%]
+tests/test_console_handlers.py::test_get_health PASSED                   [ 26%]
+tests/test_console_handlers.py::test_get_scan_history_empty PASSED       [ 30%]
+tests/test_console_handlers.py::test_get_scan_history_after_scan PASSED  [ 33%]
+tests/test_console_handlers.py::test_get_profiles PASSED                 [ 36%]
+tests/test_console_handlers.py::test_get_about PASSED                    [ 40%]
+tests/test_console_handlers.py::test_scan_history_limit PASSED           [ 43%]
+tests/test_console_handlers.py::test_pipeline_scanner_health PASSED      [ 46%]
+tests/test_console_handlers.py::test_pipeline_list_profiles PASSED       [ 50%]
+tests/test_console_handlers.py::test_pipeline_result_to_dict PASSED      [ 53%]
+tests/test_console_handlers.py::test_config_persist_writes_yaml PASSED   [ 56%]
+tests/test_console_handlers.py::test_health_surfaces_scan_errors PASSED  [ 60%]
+tests/test_console_handlers.py::test_health_unavailable_status PASSED    [ 63%]
+tests/test_console_handlers.py::test_health_recovery_to_healthy PASSED   [ 66%]
+tests/test_console_handlers.py::test_health_unavailable_wins_over_breaker PASSED [ 70%]
+tests/test_console_handlers.py::test_minimal_never_unavailable PASSED    [ 73%]
+tests/test_console_handlers.py::test_health_has_last_error_field PASSED  [ 76%]
+tests/test_console_handlers.py::test_idle_recovery_transition PASSED     [ 80%]
+tests/test_console_handlers.py::test_health_load_failed_distinct_from_unavailable PASSED [ 83%]
+tests/test_console_handlers.py::test_health_unavailable_means_absent PASSED [ 86%]
+tests/test_console_handlers.py::test_health_unavailable_legacy_2tuple PASSED [ 90%]
+tests/test_console_handlers.py::test_health_retryable_load_failure_is_degraded PASSED [ 93%]
+tests/test_console_handlers.py::test_health_error_last_error_is_crash_reason PASSED [ 96%]
+tests/test_console_handlers.py::test_availability_returns_cause_discriminator PASSED [100%]
+
+============================= 30 passed in 0.26s ==============================
+
+## node --test tests/js/scanner-health.test.mjs tests/js/richtext.test.mjs
+✔ loader: petasos.js exports Pet.richText (0.5ms)
+✔ #1 <b> renders a B element (0.2228ms)
+✔ #2 <code> renders a CODE element (0.3769ms)
+✔ #3 <em> is allow-listed (0.0892ms)
+✔ #4 nested tags build a nested tree (0.0952ms)
+✔ #5 uppercase tags are honored (case-insensitive) (0.0709ms)
+✔ #6 <script> is escaped to text, no element (0.3949ms)
+✔ #7 <img onerror> is escaped to text, no element (0.0618ms)
+✔ #8 <b class=...> degrades to literal text (0.0692ms)
+✔ #9 mismatched </b> does not close the wrong element (0.1251ms)
+✔ #10 truncated < is literal text (0.0728ms)
+✔ #11 lone </b> is literal text, no throw (0.0578ms)
+✔ #12 unclosed <b> still wraps trailing text (0.068ms)
+✔ #13 null/undefined/empty return an empty fragment (0.0475ms)
+✔ #14 number input coerces to text (0.0449ms)
+✔ #15 plain text becomes a single text node (0.044ms)
+✔ #16 whitespace and stray angle brackets (0.1328ms)
+✔ #17 astral characters survive intact (0.079ms)
+✔ #18 security sweep: only b/code/em can become elements (0.1332ms)
+✔ #19 current caller strings render identically (structural) (0.3975ms)
+✔ loader: petasos.js exports scannerHealthRows + SCANNER_HEALTH_HELP (0.4031ms)
+✔ shim: textContent setter throws (D10 tripwire is armed) (0.3145ms)
+✔ test_scanner_health_rows_render_full_error (0.3919ms)
+✔ test_scanner_health_pill_color_for_error_status (0.2174ms)
+✔ test_help_text_status_definitions_agree (0.1027ms)
+✔ existing statuses keep their established pill colors (0.1858ms)
+ℹ tests 26
+ℹ suites 0
+ℹ pass 26
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 59.2661
+
+## Full pre-merge gate
+### python -m pytest (full suite)
+1245 passed, 59 skipped, 1 xfailed, 49 warnings in 9.60s
+### node --test tests/js/*.test.mjs (CI glob)
+### ruff check .
+All checks passed!
+### ruff format --check .
+103 files already formatted
+### mypy --strict .
+Success: no issues found in 103 source files
