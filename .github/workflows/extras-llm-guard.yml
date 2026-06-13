@@ -1,0 +1,29 @@
+# PET-104: non-skipping lane with the real llm-guard extra installed, so the
+# "loads under a non-weakref-able host stdio wrapper" path (PET-92 shield) is
+# exercised by passing CI instead of silently self-skipping. Runs on the
+# shipping PR (path-filtered) — not cron-only — so a future shield change can't
+# merge green without running the path (spec D2). PETASOS_REQUIRE_LLM_GUARD=1
+# arms the collection-time fail-loud guard in tests/conftest.py (spec D3): with
+# the extra present, TestIntegrationWrappedStdio must run, never skip.
+name: extras-llm-guard
+on:
+  pull_request:
+    paths:
+      - "petasos/scanners/llm_guard.py"
+      - "tests/test_llm_guard_wrapper.py"
+  schedule:
+    - cron: "47 5 * * 1" # Mondays 05:47 UTC — off-peak, off-minute, distinct from extras-llamafirewall
+  workflow_dispatch:
+jobs:
+  scanner-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PETASOS_REQUIRE_LLM_GUARD: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e ".[llm-guard,dev]"
+      - run: pytest tests/test_llm_guard_wrapper.py -v --tb=short

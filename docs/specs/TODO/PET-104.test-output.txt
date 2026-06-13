@@ -1,0 +1,51 @@
+PET-104 — local test gate (interpreter: C:\python310\python.exe, Python 3.10.6)
+NOTE: llm-guard extra is NOT installed locally, so the 4 TestIntegrationWrappedStdio
+rows (incl. the new test_no_weakref_error_during_scanner_construction) self-skip here.
+Authoritative verification of those rows is the extras-llm-guard CI lane on this PR
+(pip install -e .[llm-guard,dev] + PETASOS_REQUIRE_LLM_GUARD=1 arms the fail-loud guard).
+
+===================================================================================
+$ pytest tests/test_llm_guard_wrapper.py -v --tb=short
+===================================================================================
+============================= test session starts =============================
+platform win32 -- Python 3.10.6, pytest-9.0.3, pluggy-1.6.0 -- C:\python310\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\zioni\Documents\Vigil-Harbor\PET-104-worktree
+configfile: pyproject.toml
+plugins: anyio-4.13.0, asyncio-1.3.0
+asyncio: mode=auto, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 8 items
+
+tests/test_llm_guard_wrapper.py::TestSlotsWriterRejectsWeakref::test_slots_writer_rejects_weakref PASSED [ 12%]
+tests/test_llm_guard_wrapper.py::TestProxySupportsWeakref::test_proxy_supports_weakref PASSED [ 25%]
+tests/test_llm_guard_wrapper.py::TestProxyDelegation::test_proxy_write_delegates_to_current_stdout PASSED [ 37%]
+tests/test_llm_guard_wrapper.py::TestProxyNoneStdout::test_proxy_handles_none_stdout PASSED [ 50%]
+tests/test_llm_guard_wrapper.py::TestIntegrationWrappedStdio::test_scan_with_wrapped_stdout SKIPPED [ 62%]
+tests/test_llm_guard_wrapper.py::TestIntegrationWrappedStdio::test_wrapped_stdout_restored_after_init SKIPPED [ 75%]
+tests/test_llm_guard_wrapper.py::TestIntegrationWrappedStdio::test_no_weakref_requirement_on_stdio SKIPPED [ 87%]
+tests/test_llm_guard_wrapper.py::TestIntegrationWrappedStdio::test_no_weakref_error_during_scanner_construction SKIPPED [100%]
+
+======================== 4 passed, 4 skipped in 0.04s =========================
+
+===================================================================================
+$ PETASOS_REQUIRE_LLM_GUARD=1 pytest tests/test_llm_guard_wrapper.py --collect-only  (guard fail-loud evidence; llm-guard absent locally -> ERROR by design)
+===================================================================================
+ERROR: extras-llm-guard lane requires the real llm-guard extra, but importing `llm_guard.input_scanners` (the symbol LlmGuardScanner._do_load loads) failed: No module named 'llm_guard'. Install with: pip install -e ".[llm-guard,dev]".
+(exit 4 = pytest UsageError raised by the conftest collection guard)
+
+===================================================================================
+$ pytest   (full suite)
+===================================================================================
+........................................................................ [ 95%]
+.....................................................                    [100%]
+1162 passed, 45 skipped, 1 xfailed in 22.17s
+
+===================================================================================
+$ ruff check .
+===================================================================================
+All checks passed!
+
+===================================================================================
+$ mypy --strict .
+===================================================================================
+Success: no issues found in 103 source files
