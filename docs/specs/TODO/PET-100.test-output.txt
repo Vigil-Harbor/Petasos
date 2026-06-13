@@ -1,0 +1,22 @@
+=== PET-100 test gate — 2026-06-12, worktree @ fix/pet-100-prereq-hf-home-expanduser (base 3ef41f3) ===
+HF_HOME deliberately UNSET for the run — the in-process pollution scenario (first PromptGuard load
+sets a literal '~/.cache/huggingface') is exercised live by TestIntegration ordering and now passes.
+2 deselects: CodeShield-only tests, upstream codeshield broken on native Windows (PET-101).
+
+--- cmd 1: scanner test file ---
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+53 passed, 2 deselected, 9 warnings in 8.71s
+exit: 0
+
+--- cmd 2: full suite ---
+  OPS: Operations Per Second, computed as 1 / Mean
+1272 passed, 2 deselected, 1 xfailed, 57 warnings in 42.45s
+exit: 0
+
+--- cmd 3: ruff check . ---
+All checks passed!
+exit: 0
+
+--- cmd 4: mypy --strict . ---
+Success: no issues found in 103 source files
+exit: 0

@@ -84,12 +84,22 @@ def _prompt_guard_prereq_error(enable_prompt_guard: bool) -> str | None:
         hf_home = os.environ.get("HF_HOME", "")
         if not hf_home:
             hf_home = os.path.join(os.path.expanduser("~"), ".cache", "huggingface")
+        # llamafirewall sets HF_HOME to a literal "~/.cache/huggingface" after
+        # its first PromptGuard load (promptguard_utils, unexpanded), so every
+        # later probe in the process would isdir() a literal "~" path and
+        # false-negative. Expand to survive that in-process pollution (PET-100).
+        hf_home = os.path.expanduser(hf_home)
 
         model_id = "meta-llama/Llama-Prompt-Guard-2-86M"
         model_dir_name = model_id.replace("/", "--")
-        model_path = os.path.join(hf_home, "hub", f"models--{model_dir_name}")
+        # Two cache layouts satisfy the prerequisite: the HF hub cache
+        # (hub/models--…, written by snapshot_download/from_pretrained) and
+        # llamafirewall's own save_pretrained dir (HF_HOME/meta-llama--…, the
+        # path it actually loads from) (PET-100).
+        hub_path = os.path.join(hf_home, "hub", f"models--{model_dir_name}")
+        local_path = os.path.join(hf_home, model_dir_name)
 
-        if os.path.isdir(model_path):
+        if os.path.isdir(hub_path) or os.path.isdir(local_path):
             return None
 
         token = os.environ.get("HF_TOKEN", "").strip()
