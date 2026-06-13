@@ -11,6 +11,7 @@ on:
     paths:
       - "petasos/scanners/llm_guard.py"
       - "tests/test_llm_guard_wrapper.py"
+      - "tests/conftest.py" # home of the fail-loud collection guard this lane arms
   schedule:
     - cron: "47 5 * * 1" # Mondays 05:47 UTC — off-peak, off-minute, distinct from extras-llamafirewall
   workflow_dispatch:

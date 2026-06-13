@@ -100,11 +100,16 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
             f"{lane} lane: {target} (tests/test_llm_guard_wrapper.py) was not "
             f"collected. The non-weakref-able stdio path must run, not vanish."
         )
-    would_skip = [
-        item
-        for item in in_class
-        if any(mark.args and mark.args[0] for mark in item.iter_markers(name="skipif"))
-    ]
+
+    def _would_skip(item: pytest.Item) -> bool:
+        # A plain @pytest.mark.skip (unconditional) is not a skipif and would
+        # otherwise sail past the guard, skipping the class despite llm-guard
+        # being importable — exactly what this lane must catch.
+        if item.get_closest_marker("skip") is not None:
+            return True
+        return any(mark.args and bool(mark.args[0]) for mark in item.iter_markers(name="skipif"))
+
+    would_skip = [item for item in in_class if _would_skip(item)]
     if would_skip:
         raise pytest.UsageError(
             f"{lane} lane: {target} is collected but {len(would_skip)} item(s) "
