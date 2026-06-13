@@ -464,19 +464,88 @@
     return table;
   };
 
+  // PET-102: history rows derived from the in-memory scan-history buffer.
+  // Mirrors Pet.scannerHealthRows. Must NEVER throw — the SSE _dispatch calls
+  // renderDashboard synchronously (petasos.js scan_result handler), so an
+  // exception out of the row build would abort the live re-render. Every
+  // caller-influenceable field is coerced/guarded. No innerHTML (PET-82): cells
+  // are built with Pet.h + .textContent (title= for the truncated session id).
+  Pet.scanHistoryRows = function (hist) {
+    if (!hist || !hist.length) {
+      // Honest empty state — never the "..." loading ellipsis (Decision 4).
+      return Pet.h("div", { className: "mono", style: { color: "var(--tx-faint)", fontSize: "12px" } }, "no scans yet");
+    }
+    function pad2(n) { return (n < 10 ? "0" : "") + n; }
+    function fmtTime(ts) {
+      var n = Number(ts);
+      if (ts == null || isNaN(n)) return "—";
+      var dt = new Date(n * 1000); // server timestamps are time.time() seconds
+      if (isNaN(dt.getTime())) return "—"; // guard against Invalid Date
+      return pad2(dt.getHours()) + ":" + pad2(dt.getMinutes()) + ":" + pad2(dt.getSeconds());
+    }
+    var table = Pet.h("div", { style: { display: "flex", flexDirection: "column", gap: "4px" } });
+    for (var i = 0; i < hist.length; i++) {
+      var e = hist[i];
+      var isBlocked = (e.safe === false); // strict ===false; truthy-but-not-false is not "blocked"
+      var badge = Pet.h("span", { className: "mono", style: { display: "inline-block", padding: "1px 8px", borderRadius: "9999px", fontSize: "11px", color: "#fff", minWidth: "52px", textAlign: "center", background: isBlocked ? "var(--red, #ef4444)" : "var(--green, #22c55e)" } }, isBlocked ? "blocked" : "safe");
+
+      var dirEl = Pet.h("span", { className: "mono", style: { fontSize: "11px", color: "var(--tx-faint)", minWidth: "64px", display: "inline-block" } });
+      dirEl.textContent = (e.direction != null && e.direction !== "") ? String(e.direction) : "—";
+
+      var findEl = Pet.h("span", { className: "mono", style: { fontSize: "11px", color: "var(--tx-faint)", minWidth: "78px", display: "inline-block" } });
+      findEl.textContent = (Number(e.finding_count) || 0) + " findings";
+
+      var latEl = Pet.h("span", { className: "mono", style: { fontSize: "11px", color: "var(--tx-faint)", minWidth: "56px", display: "inline-block" } });
+      latEl.textContent = (Number(e.duration_ms) || 0).toFixed(1) + "ms"; // never e.duration_ms.toFixed — would throw on missing/non-numeric
+
+      var sidStr = (e.session_id == null || e.session_id === "") ? "" : String(e.session_id);
+      var sidEl = Pet.h("span", { className: "mono", title: sidStr, style: { fontSize: "11px", color: "var(--tx-faint)", maxWidth: "120px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "inline-block" } });
+      sidEl.textContent = sidStr ? (sidStr.length > 12 ? sidStr.slice(0, 12) + "…" : sidStr) : "—";
+
+      var timeEl = Pet.h("span", { className: "mono", style: { fontSize: "11px", color: "var(--tx-faint)", marginLeft: "auto", display: "inline-block" } });
+      timeEl.textContent = fmtTime(e.timestamp);
+
+      var row = Pet.h("div", { style: { display: "flex", alignItems: "center", gap: "8px" } }, badge, dirEl, findEl, latEl, sidEl, timeEl);
+      table.appendChild(row);
+    }
+    return table;
+  };
+
   Pet.renderDashboard = function (container) {
     container.innerHTML = "";
     var wrapper = Pet.h("div", { style: { display: "flex", flexDirection: "column", gap: "12px", height: "100%" } });
 
-    // Loading state or metrics
+    // ── Metric tiles, computed from the in-memory scan-history buffer ──
+    // (PET-102) The SSE scan_result handler maintains Pet.state.scanHistory and
+    // re-renders this dashboard on every event, so deriving the tiles from that
+    // array keeps tiles + history consistent on every recompute. Semantics are
+    // buffer-scoped (Decision 6): each tile describes the current ≤500-entry
+    // buffer, not lifetime totals.
+    var hist = Pet.state.scanHistory || [];
+    var scans = hist.length;
+    var blocked = 0;
+    var latencySum = 0;
+    var sessionSet = new Set(); // ES6 runtime API, already relied on elsewhere (AbortController/TextDecoder)
+    for (var i = 0; i < hist.length; i++) {
+      var e = hist[i];
+      if (e.safe === false) blocked++; // strict ===false (Decision 6)
+      latencySum += (Number(e.duration_ms) || 0); // missing/non-numeric counts as 0; never throws
+      var sid = e.session_id;
+      if (sid !== null && sid !== undefined && sid !== "") sessionSet.add(sid); // distinct truthy session ids
+    }
+    // avg over an empty buffer is undefined → dash (honest, distinct from "..."
+    // loading and from a true zero count); counts render literal 0 (Decision 4).
+    var avgLatency = hist.length > 0 ? ((latencySum / hist.length).toFixed(1) + "ms") : "—";
+    var sessions = sessionSet.size;
+
     var metricsRow = Pet.h("div", { style: { display: "flex", gap: "12px" } });
-    var loadingTile = function (label) {
-      return Pet.Panel({ icon: "activity", title: label, content: Pet.h("div", { className: "num", style: { fontSize: "24px", color: "var(--tx-bright)" } }, "...") });
+    var valueTile = function (label, value) {
+      return Pet.Panel({ icon: "activity", title: label, content: Pet.h("div", { className: "num", style: { fontSize: "24px", color: "var(--tx-bright)" } }, String(value)) });
     };
-    metricsRow.appendChild(loadingTile("scans"));
-    metricsRow.appendChild(loadingTile("blocked"));
-    metricsRow.appendChild(loadingTile("avg latency"));
-    metricsRow.appendChild(loadingTile("sessions"));
+    metricsRow.appendChild(valueTile("scans", scans));
+    metricsRow.appendChild(valueTile("blocked", blocked));
+    metricsRow.appendChild(valueTile("avg latency", avgLatency));
+    metricsRow.appendChild(valueTile("sessions", sessions));
     wrapper.appendChild(metricsRow);
 
     // Scanner health
@@ -489,13 +558,11 @@
     });
     wrapper.appendChild(healthPanel);
 
-    // Scan history
+    // Scan history — rows derived from the same buffer (already most-recent-first).
     var historyPanel = Pet.Panel({
       icon: "list", title: "scan history", place: "recent evaluations", flush: true,
       help: Pet.HelpTip("<b>Scan History</b> — recent pipeline scans with severity, direction, and timing. Each row is one <code>Pipeline.evaluate()</code> call."),
-      content: Pet.h("div", { style: { padding: "12px" } },
-        Pet.h("div", { className: "mono", style: { color: "var(--tx-faint)", fontSize: "12px" } }, "No scans recorded yet.")
-      ),
+      content: Pet.h("div", { style: { padding: "12px" } }, Pet.scanHistoryRows(hist)),
     });
     wrapper.appendChild(historyPanel);
 
@@ -517,6 +584,33 @@
         }
       }
     });
+
+    // ── One-shot seed of the server's pre-existing ring buffer (Decision 5) ──
+    // On the SSE-healthy path Pet.state.scanHistory only fills from NEW events,
+    // so a console opened against an already-populated buffer would look dead
+    // until the next scan. Seed once per mount: fetch /scan-history, merge
+    // dedup-by-scan_id (append unseen, no re-sort — keeps most-recent-first),
+    // then re-render. The guard is set BEFORE the async call so concurrent
+    // SSE-driven re-renders don't restart the fetch; it is reset only in
+    // mount/unmount (never switchTab), so an obs→other→obs round-trip reuses
+    // the SSE-maintained buffer rather than re-seeding.
+    if (!_historySeeded) {
+      _historySeeded = true;
+      Pet.api.getScanHistory(500).then(function (d) {
+        // startFallbackPolling response-shape guard, NOT the bare !d.error check:
+        // _req never rejects on HTTP error (it resolves an error envelope), and a
+        // 200 {} body lacking .entries would make the merge throw on .scan_id.
+        if (!d.error && d.entries && Array.isArray(d.entries)) {
+          var seen = new Set();
+          for (var j = 0; j < Pet.state.scanHistory.length; j++) seen.add(Pet.state.scanHistory[j].scan_id);
+          for (var k = 0; k < d.entries.length; k++) {
+            var en = d.entries[k];
+            if (!seen.has(en.scan_id)) { Pet.state.scanHistory.push(en); seen.add(en.scan_id); }
+          }
+          if (Pet.state.tab === "obs" && _container) Pet.renderDashboard(_container);
+        }
+      });
+    }
   };
 
   Pet.renderPlayground = function (container) {
@@ -875,6 +969,10 @@
 
   var _container = null;
   var _tabStrip = null;
+  // PET-102: one-shot guard so the dashboard seeds the server's pre-existing
+  // scan-history ring buffer exactly once per mount (not on every SSE re-render).
+  // Reset in Pet.unmount AND at the top of Pet.mount (double-mount hardening).
+  var _historySeeded = false;
 
   var TABS = [
     { key: "obs", icon: "activity", label: "Observability" },
@@ -900,6 +998,7 @@
 
   Pet.mount = function (el) {
     el.innerHTML = "";
+    _historySeeded = false;  // PET-102: re-seed on a re-mount that skipped unmount (plugin hot-reload)
 
     // Pane header
     var titleRow = Pet.h("div", { className: "pane-titlerow" },
@@ -937,6 +1036,7 @@
     stopPolling();
     _container = null;
     _tabStrip = null;
+    _historySeeded = false;  // PET-102: next mount re-seeds the history buffer
   };
 
   window.__PETASOS_CONSOLE__ = Pet;
