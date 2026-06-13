@@ -175,6 +175,57 @@ def hostile_stdio(
         _restore()
 
 
+@pytest.fixture
+def hostile_stdio_unconfigured(
+    request: pytest.FixtureRequest,
+) -> Iterator[tuple[_SlotsOnlyWriter, _SlotsOnlyWriter]]:
+    """Like ``hostile_stdio`` but **without** the pre-scan ``configure_logger``.
+
+    PET-104 D4: ``hostile_stdio`` calls ``configure_logger(stream=sys.stdout)``
+    in setup, so structlog's first emission happens at fixture time — that path
+    passes even if the construction window were unshielded. This fixture installs
+    the slots-only wrappers and stops, so the first structlog emission lands
+    *during scanner construction* (inside ``_do_load``), with the raw
+    non-weakref-able wrapper live as ``sys.stdout``. That is the true
+    construction-window path Step 0 reproduced.
+
+    Restoration is registered *before* any global mutation so a setup failure
+    (including the tripwire below) still restores stdio for downstream tests.
+    """
+    saved_out, saved_err = sys.stdout, sys.stderr
+
+    def _restore() -> None:
+        sys.stdout, sys.stderr = saved_out, saved_err
+
+    request.addfinalizer(_restore)
+
+    out_wrapper = _SlotsOnlyWriter(io.StringIO())
+    err_wrapper = _SlotsOnlyWriter(io.StringIO())
+    sys.stdout = cast("TextIO", out_wrapper)
+    sys.stderr = cast("TextIO", err_wrapper)
+
+    # Loud tripwire: the wrapper must be non-weakref-able, or the guard is moot.
+    with pytest.raises(TypeError):
+        weakref.ref(sys.stdout)
+
+    # Intentionally NO configure_logger here (the whole point — see docstring).
+    yield out_wrapper, err_wrapper
+
+    # Teardown: restore real streams, then re-bind structlog to a weakref-able
+    # stream. The scan's _do_load points structlog at the shield proxy, but a
+    # scan that errored before that point could leave it elsewhere; re-bind
+    # defensively so no downstream test inherits the slots-only writer (mirrors
+    # hostile_stdio). The re-bind is swap-triggering on Windows — the final
+    # restore must survive it.
+    _restore()
+    from llm_guard.util import configure_logger
+
+    try:
+        configure_logger(stream=sys.stdout)
+    finally:
+        _restore()
+
+
 @_skip_no_llm_guard
 class TestIntegrationWrappedStdio:
     """Tests 5-7: scans survive non-weakref-able stdio wrappers (PET-92).
@@ -224,3 +275,20 @@ class TestIntegrationWrappedStdio:
         result = await scanner.scan("clean everyday text about the weather")
         assert result.error is None
         assert "weak reference" not in (result.error or "")
+
+    async def test_no_weakref_error_during_scanner_construction(
+        self,
+        hostile_stdio_unconfigured: tuple[_SlotsOnlyWriter, _SlotsOnlyWriter],
+    ) -> None:
+        # Regression for PET-104: the construction-window path. Unlike
+        # test_scan_with_wrapped_stdout (which pre-binds structlog via
+        # hostile_stdio's configure_logger call), this test does NOT
+        # pre-configure — so the first structlog emission lands during scanner
+        # construction inside _do_load, with the raw non-weakref-able wrapper
+        # live as sys.stdout. This mirrors the Step-0 reproduction: it passes
+        # under the PET-92 shield and would have been RED against pre-PET-92
+        # code, which is exactly the coverage gap PET-104 closes.
+        scanner = LlmGuardScanner()
+        result = await scanner.scan(_INJECTION_TEXT)
+        assert result.error is None
+        assert any(f.rule_id == "petasos.llmguard.injection" for f in result.findings)
