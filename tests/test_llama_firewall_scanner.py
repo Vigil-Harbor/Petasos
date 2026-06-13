@@ -51,6 +51,10 @@ _skip_integration = pytest.mark.skipif(
 # _prompt_guard_prereq_error probes (llama_firewall.py model_dir_name).
 _PROMPT_GUARD_MODEL_DIR = "models--meta-llama--Llama-Prompt-Guard-2-86M"
 
+# llamafirewall's own save_pretrained layout (directly under HF_HOME, no
+# hub/, no models-- prefix) — the dir it actually loads from (PET-100).
+_PROMPT_GUARD_LOCAL_DIR = "meta-llama--Llama-Prompt-Guard-2-86M"
+
 
 def _find(result: ScanResult, rule_id: str) -> bool:
     return any(f.rule_id == rule_id for f in result.findings)
@@ -444,6 +448,39 @@ class TestPromptGuardPrereqPredicate:
         monkeypatch.delenv("HF_TOKEN_PATH", raising=False)
         result = _prompt_guard_prereq_error(True)
         assert result is not None
+
+    def test_polluted_tilde_hf_home_expanded(
+        self, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Regression for PET-100: llamafirewall sets HF_HOME to a literal
+        # unexpanded "~/.cache/huggingface" after its first PromptGuard load;
+        # the probe must expanduser or every later in-process scanner
+        # construction false-negatives despite the model being cached.
+        monkeypatch.setenv("HOME", str(tmp_path))  # posixpath expanduser
+        monkeypatch.setenv("USERPROFILE", str(tmp_path))  # ntpath expanduser
+        model_dir = os.path.join(
+            str(tmp_path), ".cache", "huggingface", "hub", _PROMPT_GUARD_MODEL_DIR
+        )
+        os.makedirs(model_dir)
+        monkeypatch.setenv("HF_HOME", "~/.cache/huggingface")  # the polluted literal
+        monkeypatch.delenv("HF_TOKEN", raising=False)
+        monkeypatch.delenv("HUGGING_FACE_HUB_TOKEN", raising=False)
+        monkeypatch.delenv("HF_TOKEN_PATH", raising=False)
+        assert _prompt_guard_prereq_error(True) is None
+
+    def test_save_pretrained_layout_returns_none(
+        self, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Regression for PET-100: llamafirewall loads from its own
+        # save_pretrained dir (HF_HOME/meta-llama--…, no hub/ segment) — a
+        # machine with only that layout has the model and must pass the probe.
+        hf_home = str(tmp_path / "hf")
+        os.makedirs(os.path.join(hf_home, _PROMPT_GUARD_LOCAL_DIR))
+        monkeypatch.setenv("HF_HOME", hf_home)
+        monkeypatch.delenv("HF_TOKEN", raising=False)
+        monkeypatch.delenv("HUGGING_FACE_HUB_TOKEN", raising=False)
+        monkeypatch.delenv("HF_TOKEN_PATH", raising=False)
+        assert _prompt_guard_prereq_error(True) is None
 
 
 class TestFailFast:
