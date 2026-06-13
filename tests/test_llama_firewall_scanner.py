@@ -347,7 +347,7 @@ class TestAvailabilityProbe:
     def test_unavailable_when_blocked(self) -> None:
         with patch.dict("sys.modules", {"llamafirewall": None}):
             scanner = LlamaFirewallScanner()
-            avail, reason = scanner.availability()
+            avail, reason, _cause = scanner.availability()
         assert avail is False
         assert reason is not None
         assert "pip install" in reason
@@ -356,7 +356,7 @@ class TestAvailabilityProbe:
         monkeypatch.setenv("HF_TOKEN", "hf_fake_token")
         with _injected_mock():
             scanner = LlamaFirewallScanner()
-            avail, reason = scanner.availability()
+            avail, reason, _cause = scanner.availability()
         assert avail is True
         assert reason is None
 
@@ -364,7 +364,7 @@ class TestAvailabilityProbe:
         scanner = LlamaFirewallScanner()
         scanner._load_error = "GPU corrupted"
         scanner._load_error_retryable = False
-        avail, reason = scanner.availability()
+        avail, reason, _cause = scanner.availability()
         assert avail is False
         assert reason == "GPU corrupted"
 
@@ -383,7 +383,7 @@ class TestProbeIsolation:
 
         with _blocked_import():
             scanner = LlamaFirewallScanner()
-            avail, reason = scanner.availability()
+            avail, reason, _cause = scanner.availability()
             assert avail is False
             assert reason is not None and "pip install" in reason
             r = await scanner.scan("probe")
