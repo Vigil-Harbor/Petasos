@@ -186,6 +186,7 @@ class ConsoleHandlers:
             "finding_count": len(result.findings),
             "duration_ms": sum((sr.duration_ms or 0.0) for sr in result.scanner_results),
             "direction": direction,
+            "session_id": session_id,  # PET-102: required by the Observability *sessions* tile
             "timestamp": time.time(),
         }
         self.scan_history.push(summary)
