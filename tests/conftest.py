@@ -155,3 +155,10 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
         target_class="TestProbeWeakrefUnderSlotsStdio",
         lane="extras-llamafirewall",
     )
+    _enforce_nonskipping_lane(
+        items,
+        env_flag="PETASOS_REQUIRE_PRESIDIO",
+        import_target="presidio_analyzer",
+        target_class="TestPresidioTightenedDefault",
+        lane="extras-presidio",
+    )

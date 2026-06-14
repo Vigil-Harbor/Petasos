@@ -23,7 +23,7 @@ from petasos._types import (
 )
 from petasos.config import PetasosConfig
 from petasos.normalize import normalize
-from petasos.scanners.minimal import MinimalScanner
+from petasos.scanners.minimal import _UNSUPPRESSIBLE_RULE_IDS, MinimalScanner
 from petasos.session.alerting import AlertManager
 from petasos.session.audit import AuditEmitter
 from petasos.session.frequency import FrequencyTracker, FrequencyUpdateResult
@@ -67,6 +67,43 @@ _TIMEOUT_ERROR_PREFIX = "ScannerTimeout"
 _BREAKER_OPEN_ERROR_PREFIX = "ScannerCircuitOpen"
 
 _STRUCTURAL_RULE_PREFIX = "petasos.syntactic.structural."
+
+
+def _is_floor_rule(rule_id: str) -> bool:
+    # Defense-in-depth (PET-109 D6): _UNSUPPRESSIBLE_RULE_IDS already includes every
+    # structural ID (_UNSUPPRESSIBLE_RULE_IDS = _STRUCTURAL_RULE_IDS | _ALL_INJECTION_IDS,
+    # minimal.py:440); the prefix disjunct is a belt-and-suspenders guard kept aligned
+    # by a tripwire test (_STRUCTURAL_RULE_IDS <= _UNSUPPRESSIBLE_RULE_IDS).
+    return rule_id in _UNSUPPRESSIBLE_RULE_IDS or rule_id.startswith(_STRUCTURAL_RULE_PREFIX)
+
+
+def _suppress_scanner_findings(
+    results: list[ScanResult], suppress_rules: frozenset[str]
+) -> list[ScanResult]:
+    """Drop findings whose rule_id is suppressed and NOT on the floor, per scanner.
+
+    ``replace(r, findings=kept)`` mutates ONLY ``findings``; ``scanner_name``,
+    ``error``, and ``duration_ms`` are preserved, so ``_compute_safe``'s ML-failure
+    accounting and the degraded fail-mode block are unaffected (suppression never
+    empties an errored result's error). A drop is logged at DEBUG so a later "why
+    was nothing flagged?" is a log grep, not a guess — the only runtime trace that
+    a profile suppressed a finding.
+    """
+    out: list[ScanResult] = []
+    for r in results:
+        kept = tuple(
+            f
+            for f in r.findings
+            if not (f.rule_id in suppress_rules and not _is_floor_rule(f.rule_id))
+        )
+        if len(kept) != len(r.findings):
+            dropped = sorted({f.rule_id for f in r.findings} - {f.rule_id for f in kept})
+            _logger.debug("profile suppressed %s on scanner %s", dropped, r.scanner_name)
+            out.append(replace(r, findings=kept))
+        else:
+            out.append(r)
+    return out
+
 
 _STANDALONE_TIER3_CRITICAL_COUNT = 3
 
@@ -594,6 +631,14 @@ class Pipeline:
 
         all_results = [minimal_result] + ml_results
 
+        # Stage 4b: Cross-scanner suppression (pre-merge; PET-109 D5). Drops
+        # suppressed non-floor findings before overlap resolution so a suppressed
+        # finding can neither evict a legitimate overlapping finding nor drive the
+        # tier-3 net / frequency / escalation. Downstream consumers all read the
+        # post-suppression set automatically — no per-consumer change.
+        if active_profile is not None and active_profile.suppress_rules:
+            all_results = _suppress_scanner_findings(all_results, active_profile.suppress_rules)
+
         # Stage 5: Merge findings
         merged = merge_findings(all_results)
 
@@ -604,28 +649,41 @@ class Pipeline:
         if active_profile is not None and active_profile.confidence_floor > 0.0:
             merged = tuple(f for f in merged if f.confidence >= active_profile.confidence_floor)
 
-        # Stage 5c: Severity overrides (PIPE-07 guards)
+        # Stage 5c: Severity overrides (PIPE-07 guards; PET-109 D6/D8 downgrade).
         if active_profile is not None and active_profile.severity_overrides:
             overridden: list[ScanFinding] = []
             for f in merged:
                 override = active_profile.severity_overrides.get(f.rule_id)
-                if override is not None:
-                    if f.rule_id.startswith(_STRUCTURAL_RULE_PREFIX):
-                        overridden.append(f)
-                        continue
+                if override is None:
+                    # Structural findings always land here: _check_structural_overrides
+                    # (profiles/__init__.py, enforced at parse + merge) guarantees no
+                    # structural rule_id ever reaches severity_overrides, so the floor
+                    # branch below is reached only by injection rules. (If that parse
+                    # guard is ever relaxed, structural findings would route into the
+                    # escalate branch — keep the guards coupled.)
+                    overridden.append(f)
+                    continue
+                if _is_floor_rule(f.rule_id):
+                    # Floor rules (injection): escalate-only. Refuse a downgrade or
+                    # no-op (keep original) — PET-54's threat, still covered.
                     try:
                         override_sev = Severity(override)
                     except ValueError:
                         overridden.append(f)
                         continue
-                    override_rank = _SEVERITY_RANK.get(override_sev, 999)
-                    current_rank = _SEVERITY_RANK.get(f.severity, 999)
-                    if override_rank > current_rank:
-                        overridden.append(f)
+                    if _SEVERITY_RANK.get(override_sev, 999) < _SEVERITY_RANK.get(f.severity, 999):
+                        overridden.append(replace(f, severity=override_sev))  # escalate only
                     else:
-                        overridden.append(replace(f, severity=override_sev))
+                        overridden.append(f)  # refuse downgrade/equal
                 else:
-                    overridden.append(f)
+                    # Non-floor (e.g. petasos.presidio.*): any valid severity,
+                    # including downgrade (PET-109 D8 narrows PET-54 to floor rules).
+                    try:
+                        override_sev = Severity(override)
+                    except ValueError:
+                        overridden.append(f)
+                        continue
+                    overridden.append(replace(f, severity=override_sev))
             merged = tuple(overridden)
 
         # Stage 6: Frequency hook
@@ -653,6 +711,18 @@ class Pipeline:
         sanitized_content: str | None = None
         if self._config.anonymize:
             pii_findings = [f for f in merged if f.finding_type == "pii"]
+            # PET-109 D7: when pii_entities is non-empty, anonymize only findings
+            # whose recovered entity type is in the set (case-insensitive); empty ()
+            # preserves the "anonymize all" default. Narrowing only — detection and
+            # `merged` are untouched. Coverage-reduction is intended (operator scoped
+            # what to anonymize) and tested explicitly.
+            if self._config.pii_entities:
+                from petasos.scanners.presidio import _recover_entity_type
+
+                allowed = {e.upper() for e in self._config.pii_entities}
+                pii_findings = [
+                    f for f in pii_findings if _recover_entity_type(f.rule_id) in allowed
+                ]
             if pii_findings:
                 try:
                     from petasos.scanners.presidio import anonymize as _anonymize
@@ -780,12 +850,12 @@ class Pipeline:
         self,
         profile: ResolvedProfile | None,
     ) -> MinimalScanner:
+        # PET-109: profile suppression no longer happens here. The single
+        # pre-merge cross-scanner suppression stage (Stage 4b) drives it for all
+        # scanners; MinimalScanner.with_suppress_rules remains as scanner API for
+        # direct callers/tests but is no longer profile-driven.
         assert self._minimal_scanner is not None
-        if profile is None:
-            return self._minimal_scanner
-        if not profile.suppress_rules:
-            return self._minimal_scanner
-        return self._minimal_scanner.with_suppress_rules(profile.suppress_rules)
+        return self._minimal_scanner
 
     async def _frequency_hook(
         self, findings: tuple[ScanFinding, ...], session_id: str | None

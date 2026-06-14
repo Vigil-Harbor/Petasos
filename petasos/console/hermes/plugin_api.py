@@ -78,7 +78,11 @@ def _self_init() -> None:
 
     try:
         config = PetasosConfig.from_dict(raw_config)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError) as exc:
+        # PET-109: bind + log so a single bad field (e.g. presidio_score_threshold)
+        # discarding ALL operator tuning to defaults is diagnosable, not silent.
+        # A full per-field-tolerant load is out of scope (Deferred).
+        logger.warning("config.yaml rejected (%s); falling back to defaults", exc)
         config = PetasosConfig()
 
     scanners = [MinimalScanner(decode_encoded_payloads=config.decode_encoded_payloads)]
@@ -93,7 +97,23 @@ def _self_init() -> None:
             import importlib
 
             m = importlib.import_module(mod)
-            instance = getattr(m, cls)()
+            if name == "Presidio":
+                # PET-109: build Presidio from config (entities + score_threshold)
+                # instead of the bare no-arg ctor. resolve_presidio_entities lives in
+                # presidio.py, whose module imports are stdlib + petasos._types only —
+                # importing it does NOT import the presidio backend, so the
+                # "importable without the extra" invariant holds and the surrounding
+                # try/except ImportError still catches a genuinely-absent backend.
+                from petasos.scanners.presidio import resolve_presidio_entities
+
+                instance = getattr(m, cls)(
+                    entities=resolve_presidio_entities(
+                        config.presidio_entities, config.presidio_entities_extra
+                    ),
+                    score_threshold=config.presidio_score_threshold,
+                )
+            else:
+                instance = getattr(m, cls)()
             scanners.append(instance)
             probe = getattr(instance, "availability", None)
             if probe is not None:

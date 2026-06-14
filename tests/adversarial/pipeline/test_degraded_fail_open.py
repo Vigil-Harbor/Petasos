@@ -441,13 +441,18 @@ def _make_profile(
 
 @pytest.mark.asyncio
 async def test_override_cannot_downgrade_critical_to_info(valid_key: str) -> None:
-    """PIPE-07: severity floor blocks CRITICAL→info downgrade."""
-    ml = _FindingScanner("ml.critical.rule", Severity.CRITICAL)
+    """PIPE-07 / PET-109 D8: the severity floor still blocks a CRITICAL→info downgrade
+    for FLOOR rules (injection/structural). D8 deliberately narrowed PET-54's
+    upgrade-only floor to floor-rules-only — so this test now pins a real injection
+    (floor) rule. Non-floor downgrade is the intended new behavior and is covered in
+    tests/test_pipeline_suppression.py::test_severity_override_can_downgrade_pii."""
+    floor_rule = "petasos.syntactic.injection.role-switch-capability"
+    ml = _FindingScanner(floor_rule, Severity.CRITICAL)
     pipe = Pipeline([MinimalScanner(), ml])
     pipe.activate(valid_key)
-    profile = _make_profile({"ml.critical.rule": "info"})
+    profile = _make_profile({floor_rule: "info"})
     result = await pipe.inspect("hello world", profile=profile)
-    crit_findings = [f for f in result.findings if f.rule_id == "ml.critical.rule"]
+    crit_findings = [f for f in result.findings if f.rule_id == floor_rule]
     assert len(crit_findings) == 1
     assert crit_findings[0].severity == Severity.CRITICAL
 
@@ -507,15 +512,29 @@ async def test_structural_rule_override_skipped_at_runtime(valid_key: str) -> No
 
 
 @pytest.mark.asyncio
-async def test_suppress_rules_does_not_affect_ml_findings(valid_key: str) -> None:
-    """PIPE-07 / Decision 5: suppress_rules only affects MinimalScanner."""
+async def test_suppress_rules_now_affects_ml_findings(valid_key: str) -> None:
+    """PET-109 D5: suppression is now cross-scanner — a non-floor ML rule_id IS
+    suppressed (supersedes PET-14 Decision 5's MinimalScanner-only behavior). The
+    _UNSUPPRESSIBLE_RULE_IDS floor still protects ML findings (second arm)."""
     ml = _FindingScanner("ml.test.rule", Severity.HIGH)
     pipe = Pipeline([MinimalScanner(), ml])
     pipe.activate(valid_key)
     profile = _make_profile({}, suppress_rules=frozenset({"ml.test.rule"}))
     result = await pipe.inspect("hello world", profile=profile)
     ml_findings = [f for f in result.findings if f.rule_id == "ml.test.rule"]
-    assert len(ml_findings) == 1
+    assert len(ml_findings) == 0  # non-floor ML finding suppressed cross-scanner
+
+    # Floor guarantee: a floor rule_id is stripped from suppress_rules at profile
+    # construction (_validate_suppress_rules), so an ML scanner emitting it is never
+    # suppressed — the pipeline-stage _is_floor_rule re-check is the defense-in-depth
+    # backstop (tested directly in test_pipeline_suppression.py).
+    floor_id = "petasos.syntactic.injection.role-switch-capability"
+    ml_floor = _FindingScanner(floor_id, Severity.HIGH)
+    pipe2 = Pipeline([MinimalScanner(), ml_floor])
+    pipe2.activate(valid_key)
+    profile2 = _make_profile({}, suppress_rules=frozenset({floor_id}))
+    result2 = await pipe2.inspect("hello world", profile=profile2)
+    assert any(f.rule_id == floor_id for f in result2.findings)
 
 
 @pytest.mark.asyncio
