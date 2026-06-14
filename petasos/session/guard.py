@@ -293,17 +293,24 @@ class ToolCallGuard:
         # so the two normalizers never diverge (D-CANON / D-EQUIV).
         name = canonicalize_tool_name(tool_name)
         if self._profile and self._profile.tool_alias_map:
-            combined = {**DEFAULT_TOOL_ALIASES, **self._profile.tool_alias_map}
+            raw_aliases = {**DEFAULT_TOOL_ALIASES, **self._profile.tool_alias_map}
         else:
-            combined = dict(DEFAULT_TOOL_ALIASES)
+            raw_aliases = dict(DEFAULT_TOOL_ALIASES)
+        # PET-121: canonicalize alias-map KEYS into the same space as `name`, so an alias keyed
+        # with a camel / _tool-suffixed form still fires once the shared primitive strips the
+        # suffix or splits the camel (incoming `custom_tool` -> `custom`; without this the raw
+        # `custom_tool` key would silently never match). Default keys are canonical-stable, so
+        # this is a no-op on them; profile keys collapsing to the same canonical form: last wins.
+        combined = {canonicalize_tool_name(k): v for k, v in raw_aliases.items()}
         pre_alias = name
         resolved = combined.get(name, name)
         # GUARD-03: a PROFILE-INTRODUCED alias must not redirect onto an exempt key.
         # Default aliases (bash->exec) onto an operator-exempted target stay legal (D8).
+        # Compare `name` against the profile's CANONICALIZED keys (PET-121: same space as name).
         if (
             resolved != pre_alias
             and self._profile
-            and name in self._profile.tool_alias_map
+            and name in {canonicalize_tool_name(k) for k in self._profile.tool_alias_map}
             and resolved.strip().casefold() in self._profile.tool_exempt_list
         ):
             _logger.warning(
