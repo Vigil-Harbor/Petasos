@@ -14,10 +14,16 @@ import io
 import sys
 import weakref
 from typing import TYPE_CHECKING, cast
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from petasos.scanners.llm_guard import LlmGuardScanner, _WeakrefableStdout
+from petasos._types import AVAILABILITY_CAUSE_LOAD_FAILED, Severity
+from petasos.scanners.llm_guard import (
+    _MAX_LOAD_ATTEMPTS,
+    LlmGuardScanner,
+    _WeakrefableStdout,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -292,3 +298,237 @@ class TestIntegrationWrappedStdio:
         result = await scanner.scan(_INJECTION_TEXT)
         assert result.error is None
         assert any(f.rule_id == "petasos.llmguard.injection" for f in result.findings)
+
+
+# ---------------------------------------------------------------------------
+# PET-108: weakref-shaped load failures are retryable, bounded by a hard cap;
+# honest health backing; _scan_sync empty-guard. All extras-free (no skipif).
+#
+# Injection convention (per PET-104 round-1 edge guidance): swap the
+# `llm_guard.input_scanners` module for a MagicMock whose `PromptInjection`
+# drives the chosen `_do_load` failure. The fake modules are *present* (non-None)
+# in sys.modules, so `availability()` probes truthy on its own — the unit reaches
+# the installed-but-broken classifier without the real extra.
+# ---------------------------------------------------------------------------
+
+_WEAKREF_EXC_MSG = "cannot create weak reference to '_SafeWriter' object"
+
+
+def _fake_modules(mock_module: MagicMock) -> dict[str, MagicMock]:
+    """Present (non-None) llm_guard modules so ``availability()`` probes truthy,
+    with ``input_scanners`` swapped for ``mock_module`` (mirrors the helper in
+    tests/test_llm_guard_scanner.py)."""
+    return {
+        "llm_guard": MagicMock(),
+        "llm_guard.util": MagicMock(),
+        "llm_guard.input_scanners": mock_module,
+    }
+
+
+def _weakref_failing_module() -> MagicMock:
+    """``input_scanners`` mock whose ``PromptInjection()`` raises the live weakref
+    ``TypeError`` (``cannot create weak reference to '_SafeWriter' object``)."""
+    mock_module = MagicMock()
+    mock_module.PromptInjection.side_effect = TypeError(_WEAKREF_EXC_MSG)
+    mock_module.InvisibleText = MagicMock()
+    return mock_module
+
+
+def _succeeding_module() -> MagicMock:
+    """``input_scanners`` mock whose scanners construct and scan cleanly."""
+    mock_sub = MagicMock()
+    mock_sub.scan.return_value = ("clean", True, 0.0)
+    mock_module = MagicMock()
+    mock_module.PromptInjection = MagicMock(return_value=mock_sub)
+    mock_module.InvisibleText = MagicMock(return_value=mock_sub)
+    return mock_module
+
+
+def _rearm_for_reload(scanner: LlmGuardScanner) -> None:
+    """Re-arm load state exactly as ``_ensure_loaded``'s involuntary retry-clear
+    does (NO ``reset()``): clears the per-attempt state but leaves ``_load_attempts``
+    untouched, so a direct ``_do_load()`` re-runs while the lifetime cap persists.
+    """
+    scanner._loaded = False
+    scanner._load_error = None
+    scanner._load_error_retryable = False
+    scanner._scanners = []
+
+
+class TestWeakrefRetryClassification:
+    """PET-108 D1/D2/D4: weakref-shaped failures retry under a hard cap; everything
+    else stays fail-once."""
+
+    async def test_weakref_load_failure_retryable(self) -> None:
+        # Regression for PET-108 D1: a weakref-shaped load failure is reclassified
+        # retryable, and a subsequent scan re-attempts the load (the attempt
+        # counter increments) — unlike the pre-PET-108 fail-once behavior.
+        scanner = LlmGuardScanner()
+        with patch.dict("sys.modules", _fake_modules(_weakref_failing_module())):
+            r1 = await scanner.scan("first")
+            assert r1.error is not None
+            assert scanner._load_error_retryable is True
+            assert scanner._load_attempts == 1
+
+            r2 = await scanner.scan("second")
+            assert r2.error is not None
+            assert scanner._load_attempts == 2  # re-attempted, not short-circuited
+
+    async def test_weakref_retry_capped_rotating_wrapper(self) -> None:
+        # Regression for PET-108 D2: a persistently/rotating-failing weakref
+        # wrapper does NOT cause a per-scan reload storm — total weakref _do_load
+        # attempts are bounded by _MAX_LOAD_ATTEMPTS, after which the scanner is
+        # terminal (availability() -> load_failed).
+        scanner = LlmGuardScanner()
+        mock_module = _weakref_failing_module()
+        with patch.dict("sys.modules", _fake_modules(mock_module)):
+            for _ in range(10):
+                await scanner.scan("rotating wrapper keeps failing")
+            # Each _do_load attempt calls PromptInjection exactly once before it
+            # raises, so its call_count IS the attempt count: capped at the cap
+            # despite 10 scans.
+            assert mock_module.PromptInjection.call_count == _MAX_LOAD_ATTEMPTS
+        assert scanner._load_attempts == _MAX_LOAD_ATTEMPTS
+        assert scanner._load_error_retryable is False
+        ok, _reason, cause = scanner.availability()
+        assert ok is False
+        assert cause == AVAILABILITY_CAUSE_LOAD_FAILED
+
+    async def test_cap_not_reset_by_success(self) -> None:
+        # Regression for PET-108 D2: a successful load between weakref failures
+        # does NOT reset the cap counter (the only bound that holds under a
+        # rotating / id-reused wrapper). Also pins the health-field flap: cleared
+        # on confirmed success, set again on the next failure.
+        scanner = LlmGuardScanner()
+
+        with patch.dict("sys.modules", _fake_modules(_weakref_failing_module())):
+            scanner._do_load()
+        assert scanner._load_attempts == 1
+        assert scanner._load_health_error is not None
+
+        # A successful load in between — must not reset _load_attempts.
+        _rearm_for_reload(scanner)
+        success_module = _succeeding_module()
+        with patch.dict("sys.modules", _fake_modules(success_module)):
+            scanner._do_load()
+        assert scanner._loaded is True
+        assert success_module.PromptInjection.called  # proves _do_load actually ran
+        assert scanner._load_attempts == 1  # success did NOT reset the cap
+        assert scanner._load_health_error is None  # cleared on confirmed success
+
+        # A further weakref failure advances the hard lifetime bound to 2.
+        _rearm_for_reload(scanner)
+        with patch.dict("sys.modules", _fake_modules(_weakref_failing_module())):
+            scanner._do_load()
+        assert scanner._load_attempts == 2
+        assert scanner._load_health_error is not None
+
+    async def test_cap_decoupled_from_missing_package(self) -> None:
+        # Regression for PET-108 D2 / Out-of-scope: a missing-package retryable
+        # failure does NOT increment the weakref cap; only weakref-shaped failures
+        # do. availability() is truthy via _fake_modules, so the classifier path
+        # is reached white-box (the only way to exercise the decoupling).
+        scanner = LlmGuardScanner()
+
+        missing_module = MagicMock()
+        missing_module.PromptInjection.side_effect = ImportError(
+            "No module named 'llm_guard'", name="llm_guard"
+        )
+        missing_module.InvisibleText = MagicMock()
+        with patch.dict("sys.modules", _fake_modules(missing_module)):
+            scanner._do_load()
+        assert scanner._load_error_retryable is True  # missing-package stays retryable
+        assert scanner._load_attempts == 0  # but did NOT touch the weakref cap
+
+        _rearm_for_reload(scanner)
+        with patch.dict("sys.modules", _fake_modules(_weakref_failing_module())):
+            scanner._do_load()
+        assert scanner._load_attempts == 1  # only the weakref failure incremented
+
+    async def test_reset_clears_cap(self) -> None:
+        # Regression for PET-108 D2: reset() zeroes the attempt counter and clears
+        # the health backing field; a subsequent weakref failure is retryable again.
+        scanner = LlmGuardScanner()
+        with patch.dict("sys.modules", _fake_modules(_weakref_failing_module())):
+            for _ in range(_MAX_LOAD_ATTEMPTS):
+                await scanner.scan("fail")
+        assert scanner._load_attempts == _MAX_LOAD_ATTEMPTS
+        assert scanner._load_error_retryable is False
+        assert scanner._load_health_error is not None
+
+        scanner.reset()
+        assert scanner._load_attempts == 0
+        assert scanner._load_health_error is None
+
+        with patch.dict("sys.modules", _fake_modules(_weakref_failing_module())):
+            await scanner.scan("fail again")
+        assert scanner._load_attempts == 1
+        assert scanner._load_error_retryable is True
+
+    async def test_non_weakref_breakage_stays_fail_once(self) -> None:
+        # Regression for PET-108 D4: a non-weakref installed-but-broken failure
+        # (here a TypeError WITHOUT "weak reference") stays fail-once — retryable
+        # False, the weakref cap untouched, and a subsequent scan does not
+        # re-attempt the load.
+        scanner = LlmGuardScanner()
+        mock_module = MagicMock()
+        mock_module.PromptInjection.side_effect = TypeError("unexpected keyword argument")
+        mock_module.InvisibleText = MagicMock()
+        with patch.dict("sys.modules", _fake_modules(mock_module)):
+            r1 = await scanner.scan("first")
+            assert r1.error is not None
+            assert scanner._load_error_retryable is False
+            assert scanner._load_attempts == 0
+
+            r2 = await scanner.scan("second")
+            assert r2.error is not None
+            # No re-attempt: _ensure_loaded short-circuits on a non-retryable error.
+            assert mock_module.PromptInjection.call_count == 1
+            assert scanner._load_attempts == 0
+
+
+class TestScanSyncEmptyGuard:
+    """PET-108 D8: _scan_sync returns an explicit error (not a silent
+    false-negative) when a concurrent clear empties _scanners mid-flight."""
+
+    async def test_scan_sync_empty_scanners_returns_error_not_silent(self) -> None:
+        # Regression for PET-108 D8 (fix-discriminating): a concurrent reset()/
+        # clear can land in the asyncio.to_thread dispatch gap, after scan()'s
+        # pre-checks pass, leaving _scanners == []. The unguarded loop returned
+        # (findings=(), error=None) — a silent false-negative (content passes with
+        # no ML scan). The guard converts it to an explicit blocking error.
+        scanner = LlmGuardScanner()
+        scanner._loaded = True
+        scanner._load_error = None
+        scanner._scanners = []
+        result = await scanner.scan("content that must not silently pass unscanned")
+        assert result.error is not None
+        assert "cleared mid-scan" in result.error
+        assert result.findings == ()  # explicit error, not a silent empty pass
+
+        # Characterization (Python iterator-protocol guarantee, NOT a fix guard):
+        # an in-loop *rebind* of self._scanners installs a NEW list object and
+        # leaves the live iterator intact, so every captured sub-scanner still
+        # runs. Documents why the bare snapshot is not the load-bearing half of D8.
+        scanner2 = LlmGuardScanner()
+        calls: list[str] = []
+
+        def _make_sub(tag: str) -> MagicMock:
+            sub = MagicMock()
+
+            def _scan(_text: str) -> tuple[str, bool, float]:
+                calls.append(tag)
+                scanner2._scanners = []  # concurrent rebind mid-iteration
+                return ("clean", True, 0.0)
+
+            sub.scan.side_effect = _scan
+            return sub
+
+        scanner2._scanners = [
+            ("petasos.llmguard.injection", "injection", Severity.HIGH, _make_sub("a")),
+            ("petasos.llmguard.invisible-text", "encoding", Severity.MEDIUM, _make_sub("b")),
+        ]
+        findings, errors = scanner2._scan_sync("text")
+        assert calls == ["a", "b"]  # iteration completed over the captured list
+        assert findings == []
+        assert errors == []
