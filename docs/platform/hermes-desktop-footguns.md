@@ -504,6 +504,32 @@ weakref-keyed). Evidence: `docs/specs/TODO/PET-110.test-output.txt`.
 
 ---
 
+## 17. CodeShield Unusable on Native Windows (semgrep-core + symlink)
+
+`LlamaFirewallScanner(enable_code_shield=True)` cannot run on **native Windows**
+because of two independent defects in upstream `codeshield` v1.0.1
+(`insecure_code_detector/oss.py`):
+
+1. `_get_semgrep_core_path` probes for `semgrep-core` with no `.exe` suffix. On
+   Windows the binary ships as `semgrep-core.exe` (`semgrep/bin/`, semgrep
+   1.165.0 win_amd64), so the lookup misses it — unlike semgrep's own
+   `semgrep_core.py`, which appends `.exe` on Windows. Failure surfaces as
+   `code_shield: Failed to find semgrep-core in PATH or in the semgrep package.`
+2. `_make_semgrep_binary_path` creates an `osemgrep` symlink at import time via
+   `os.symlink`, which on Windows requires Developer Mode or admin.
+
+**Workaround:** run the CodeShield path under WSL, where `semgrep-core` (no
+suffix) is present and `os.symlink` is unprivileged. PromptGuard and
+AgentAlignment are unaffected and run natively.
+
+**Test handling (PET-101):** the two CodeShield integration assertions
+self-skip-with-reason on native Windows via a model-free `_code_shield_prereq_error`
+locatability probe (`petasos/scanners/llama_firewall.py`), mirroring the
+PromptGuard prereq gate; they run unchanged where semgrep-core is locatable. The
+probe is **advisory** — production CodeShield loading/fail-mode is unchanged.
+
+---
+
 ## Summary: Integration Surface Ranking
 
 | Surface | Difficulty | Platform Risk | Recommended |
@@ -516,6 +542,7 @@ weakref-keyed). Evidence: `docs/specs/TODO/PET-110.test-output.txt`.
 | Docker image customization | Medium | Medium (image pull time) | No — unnecessary coupling |
 | Profile home plugin files | Low | **High** (silent enforcement loss) | Yes — verify after every Hermes upgrade |
 | In-process stdio contract (`_SafeWriter`) | Low | **High** (ML scanner dead in-process) | Yes — shield ships in Petasos (PET-92) |
+| CodeShield (semgrep-core) | — | **High** (dead on native Windows) | WSL only |
 
 ---
 
