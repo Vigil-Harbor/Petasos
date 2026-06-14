@@ -142,6 +142,54 @@ def _prompt_guard_prereq_error(enable_prompt_guard: bool) -> str | None:
         )
 
 
+def _code_shield_prereq_error(enable_code_shield: bool) -> str | None:
+    """Return an actionable reason if CodeShield's semgrep-core is not locatable
+    the way upstream ``codeshield`` looks for it, else None.
+
+    Mirrors ``_prompt_guard_prereq_error``: a model-free, side-effect-free probe
+    the test module derives a skip gate from. Advisory only — the production
+    scanner never consults it (CodeShield load failures surface via the normal
+    fail-mode path). See docs/platform/hermes-desktop-footguns.md § CodeShield.
+    """
+    if not enable_code_shield:
+        return None
+    try:
+        spec = importlib.util.find_spec("semgrep")
+        if spec is None or not spec.submodule_search_locations:
+            return (
+                "CodeShield unavailable — the semgrep package is not importable; "
+                "install petasos[llamafirewall] where codeshield's semgrep "
+                "dependency is present. See "
+                "docs/platform/hermes-desktop-footguns.md (CodeShield on native Windows)."
+            )
+        bin_dir = os.path.join(next(iter(spec.submodule_search_locations)), "bin")
+        # codeshield's _get_semgrep_core_path probes the bare name with no
+        # platform suffix; semgrep itself appends .exe on Windows, so on native
+        # Windows the binary ships as semgrep-core.exe and codeshield misses it.
+        codeshield_path = os.path.join(bin_dir, "semgrep-core")
+        windows_path = os.path.join(bin_dir, "semgrep-core.exe")
+        if os.path.isfile(codeshield_path):
+            return None  # codeshield's own lookup will succeed (POSIX/WSL)
+        if os.path.isfile(windows_path):
+            return (
+                "CodeShield unavailable on native Windows — semgrep ships "
+                "semgrep-core.exe but codeshield's locator omits the .exe suffix, "
+                "and its import-time osemgrep symlink typically needs Developer "
+                "Mode/admin. Run the CodeShield path under WSL. See "
+                "docs/platform/hermes-desktop-footguns.md."
+            )
+        return (
+            "CodeShield unavailable — semgrep-core not found in the semgrep "
+            "package bin/ directory. See docs/platform/hermes-desktop-footguns.md."
+        )
+    except Exception as exc:
+        return (
+            f"CodeShield unavailable — semgrep-core locatability probe failed: "
+            f"{exc!r}. See docs/platform/hermes-desktop-footguns.md "
+            "(CodeShield on native Windows)."
+        )
+
+
 class LlamaFirewallScanner:
     def __init__(
         self,
