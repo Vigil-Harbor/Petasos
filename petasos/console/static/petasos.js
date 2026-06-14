@@ -1110,7 +1110,13 @@
       // safe-to-index {} objects for revealFieldSections (§3e).
       var fieldSection = {};
       var panelsBySection = {};
-      d.fields.forEach(function (f) { fieldSection[f.name] = f.section; });
+      // never-throw (PET-99): skip a malformed entry rather than throwing on
+      // f.name before the empty-guard / recovery panel can render — mirrors the
+      // guard groupConfigSections already applies to the same d.fields.
+      d.fields.forEach(function (f) {
+        if (!f || typeof f !== "object" || f.name == null) return;
+        fieldSection[f.name] = f.section;
+      });
 
       if (groups.length === 0) {
         // Expected-degraded, never-throw (PET-99): no fields, or a registry/field
