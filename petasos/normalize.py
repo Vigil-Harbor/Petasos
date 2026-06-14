@@ -159,20 +159,56 @@ _HOMOGLYPH_TABLE = str.maketrans(
 # _HOMOGLYPH_TABLE because canonicalize_tool_name composes both.
 _NAMESPACE_PREFIX_RE = re.compile(r"^(?:mcp__[a-zA-Z0-9_]+?__|hermes__)")
 
+# PET-121: split at a TRUE camel boundary only — a lowercase/digit immediately followed
+# by an uppercase. Boundary-guarded, NOT Hermes's naive `(?<!^)(?=[A-Z])` (which mangles
+# all-caps/snake-with-capital names: SEND_EMAIL -> s_e_n_d__e_m_a_i_l). Hermes survives its
+# own naive split because it is one candidate in a registry-guarded set; Petasos emits a
+# SINGLE canonical form and has no registry, so it must reproduce Hermes's *resolved
+# outcome* for snake tools without mangling (D-CAMEL).
+_CAMEL_BOUNDARY_RE = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
+
+
+def _strip_tool_suffix(name: str) -> str:
+    """PET-121 (D-SUFFIX): strip a trailing ``_tool`` / ``-tool``, looped twice to mirror
+    Hermes's ``range(2)`` (``TodoTool_tool`` -> ``todo``). The empty-guard never strips to
+    ``""`` (Hermes guards via ``if c``). Bare ``tool`` (no separator) is deliberately NOT
+    stripped: Hermes only strips it when the result is a registered tool, and Petasos has no
+    registry — an unconditional strip would over-canonicalize (``dbtool`` -> ``db``) and
+    break PET-118's ``mcp__mcp__tool`` -> ``tool`` fixtures. ``name`` is already casefolded
+    and namespace-stripped here."""
+    for _ in range(2):
+        for suffix in ("_tool", "-tool"):
+            if name.endswith(suffix):
+                stripped = name[: -len(suffix)].rstrip("_-")
+                if stripped:  # empty-guard: never strip to "" (keeps prior value)
+                    name = stripped
+                break
+        else:
+            break  # no separator-suffix matched this pass -> done
+    return name
+
 
 def canonicalize_tool_name(name: str) -> str:
-    """Alias-free canonical form for tool-name matching. Shared by ToolCallGuard's
-    normalizer (under its alias layer) and the reference plugin's classification, so
-    the two never diverge. Pure: no profile/alias dependency.
+    """Alias-free canonical form for tool-name matching, shared by ToolCallGuard's
+    normalizer (under its alias layer) and the reference plugin's classification.
+
+    Mirrors the deterministic shapes Hermes resolves at dispatch (PET-121): a
+    boundary-guarded CamelCase->snake split (BEFORE casefold — the case info is
+    load-bearing) and a trailing _tool/-tool suffix strip. It does NOT reproduce
+    Hermes's naive single-regex camel (which mangles all-caps names as a single
+    form), its registry-guarded bare-`tool` strip, its single-underscore mcp_
+    namespace stripping, or its fuzzy fallback — see D-CAMEL/D-SUFFIX/D-NS/D-FUZZY.
 
     Strips a SINGLE leading namespace prefix (matching the guard's existing behavior,
-    D-EQUIV / D6) — not a fixed-point loop. Stacked/alternate prefix shapes are a D6
+    D-EQUIV / D6) — not a fixed-point loop. Stacked/alternate prefix shapes remain a D6
     coverage item gated on the verified Hermes grammar (D-VERIFY)."""
     name = name.strip()
     name = unicodedata.normalize("NFKC", name)
     name = name.translate(_HOMOGLYPH_TABLE)
+    name = _CAMEL_BOUNDARY_RE.sub("_", name)  # PET-121 D-CAMEL/D1: BEFORE casefold
     name = name.casefold()
     name = _NAMESPACE_PREFIX_RE.sub("", name)
+    name = _strip_tool_suffix(name)  # PET-121 D-SUFFIX: after ns-strip
     return name.strip()
 
 

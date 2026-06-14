@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import unicodedata
 
+import pytest
+
 from petasos.normalize import (
     _HOMOGLYPH_TABLE,
     INVISIBLE_CHARS,
@@ -505,3 +507,93 @@ class TestCanonicalizeToolName:
     def test_canonicalize_empty_and_prefix_only(self) -> None:
         for raw in ("", "   ", "mcp__acme__"):
             assert canonicalize_tool_name(raw) == ""
+
+    # ------------------------------------------------------------------ PET-121
+    # CamelCase->snake (boundary-guarded, before casefold) + _tool/-tool suffix strip.
+
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            ("SendEmail", "send_email"),
+            ("sendEmail", "send_email"),
+            ("SEND_EMAIL", "send_email"),  # all-caps: no lower->upper boundary, casefold only
+            ("Send_Email", "send_email"),  # snake-with-capital: boundary already a "_"
+            ("SendEmailTool", "send_email"),  # camel emits send_email_tool, suffix strips _tool
+            ("HttpRequest", "http_request"),  # Pascal of a real snake wire name
+        ],
+    )
+    def test_canonicalize_camelcase_to_wire_name(self, raw: str, expected: str) -> None:
+        # PET-121 D-CAMEL: the deterministically-resolvable CamelCase / SCREAMING_SNAKE /
+        # Pascal variants of a configured snake wire name canonicalize ONTO that wire name.
+        # The all-caps and snake-with-capital rows are exactly what Hermes's literal naive
+        # `(?<!^)(?=[A-Z])` would mangle (s_e_n_d__e_m_a_i_l); the boundary-guarded rule does not.
+        assert canonicalize_tool_name(raw) == expected
+
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            ("HTTPRequest", "httprequest"),  # acronym run: no lower/digit before the caps
+            ("get2FA", "get2_fa"),  # split after the digit, none inside the upper run
+            ("oauth2Token", "oauth2_token"),
+        ],
+    )
+    def test_canonicalize_acronym_and_digit_rule(self, raw: str, expected: str) -> None:
+        # PET-121 D-CAMEL: pins the boundary-guarded outputs that DIFFER from Hermes's literal
+        # naive regex. Acronym/all-caps forms (HTTPRequest) are not deterministically resolvable
+        # by Hermes either (its naive split yields a non-tool h_t_t_p_request); only its fuzzy
+        # fallback might map them, and fuzzy is out of scope to mirror (D-FUZZY) — so the
+        # divergence is non-exploitable. Digit boundaries are pinned only to lock the rule.
+        assert canonicalize_tool_name(raw) == expected
+
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            ("send_email_tool", "send_email"),
+            ("send_email-tool", "send_email"),
+            ("x_tool_tool", "x"),  # two passes strip both
+            ("_tool", "_tool"),  # alone -> empty-guard keeps it (Hermes: "_tool" unchanged)
+            ("-tool", "-tool"),
+            ("dbtool", "dbtool"),  # bare `tool` (no separator) deliberately NOT stripped
+            ("x_tool_tool_tool", "x_tool"),  # range(2) bound: 3rd suffix intentionally left
+            ("___tool", "___tool"),  # rstrip("_-") would empty -> empty-guard keeps prior
+            ("_tool_tool", "_tool"),  # pass1 -> "_tool"; pass2 empty-guarded
+        ],
+    )
+    def test_canonicalize_tool_suffix_stripped(self, raw: str, expected: str) -> None:
+        # PET-121 D-SUFFIX: trailing _tool/-tool stripped, looped twice (mirrors Hermes's
+        # range(2)), empty-guarded (never strips to ""), bare `tool` not stripped. The
+        # range(2) and rstrip("_-")<->empty-guard interaction rows lock the loop against drift.
+        assert canonicalize_tool_name(raw) == expected
+
+    def test_canonicalize_ordering_camel_before_casefold(self) -> None:
+        # PET-121 D1 (the central correctness invariant): the camel split MUST run before
+        # casefold, and homoglyph-translate MUST run before the camel split.
+        #
+        # camel-before-casefold: casefold destroys the case the split keys on. If reversed,
+        # "SendEmail".casefold() -> "sendemail" (no boundary left) != "send_email".
+        assert canonicalize_tool_name("SEND_EMAIL") == "send_email"
+        assert canonicalize_tool_name("SendEmail") == canonicalize_tool_name("send_email")
+        #
+        # homoglyph-before-camel: a Cyrillic uppercase homoglyph standing in for the INTERNAL
+        # capital only creates a camel boundary AFTER it folds to ASCII. Here U+0415 'Е'
+        # stands in for the 'E' of sendEmail: homoglyph->'E'->camel split -> "send_email".
+        # If homoglyph-translate moved after casefold, the ASCII-only camel regex would never
+        # split at the Cyrillic char -> "sendemail", silently re-opening the bypass for the
+        # homoglyph-led camel variant this ticket targets. Only this assertion catches it.
+        #
+        # NOTE (spec correction): PET-121.spec used U+0421 'С' and claimed it folds to ASCII
+        # 'S'. It does NOT — _HOMOGLYPH_TABLE maps U+0421 -> 'C' (Cyrillic ES is a C-homoglyph),
+        # and a word-INITIAL homoglyph is not at a camel boundary so it cannot distinguish the
+        # ordering. The faithful guard uses U+0415 'Е' at the internal boundary; the second
+        # assertion pins the true U+0421 mapping so the table is not silently re-pointed.
+        assert canonicalize_tool_name("sendЕmail") == "send_email"  # U+0415 Cyrillic IE -> E
+        assert canonicalize_tool_name("Сend_email") == "cend_email"  # U+0421 Cyrillic ES -> C
+
+    def test_canonicalize_pet118_cases_unregressed(self) -> None:
+        # PET-121: the PET-118 primitive contract still holds with the camel/suffix additions.
+        assert canonicalize_tool_name("mcp__acme__Send_Email") == "send_email"
+        assert canonicalize_tool_name("mcp__mcp__tool") == "tool"  # bare `tool` not stripped
+        assert canonicalize_tool_name("mcp__acme__") == ""
+        for raw in ("", "   "):
+            assert canonicalize_tool_name(raw) == ""
+        assert canonicalize_tool_name("sеnd_email") == "send_email"  # U+0435 lower cyr e

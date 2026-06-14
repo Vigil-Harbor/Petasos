@@ -160,7 +160,12 @@ class PetasosConfig:
     # (write_file/terminal/execute_code/edit) are exempt. Stored RAW; canonicalized by the
     # plugin before matching (PET-118), mirroring READ_ONLY_TOOLS/_is_dangerous. Best-effort
     # default names — operators must align to their host's tool registry (frontend-bindable,
-    # PET-112).
+    # PET-112). PET-121 (D-NS): an MCP-namespaced egress tool must be listed by its FULL
+    # single-underscore wire name (e.g. mcp_acme_send_email), not a bare name — the
+    # single-underscore mcp_ prefix is ambiguous (the separator is also a legal name char)
+    # and is deliberately NOT stripped; canonicalization then closes the case/homoglyph/
+    # CamelCase/_tool variants OF THAT configured wire name. See docs/deployment/
+    # hermes-desktop.md ("Tool-name canonicalization vs Hermes dispatch").
     egress_sink_tools: tuple[str, ...] = (
         "send_email",
         "send_message",

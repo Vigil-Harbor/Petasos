@@ -318,6 +318,44 @@ petasos:
 | `session_ttl_seconds` | 3600.0 | 1-hour TTL matches typical chat session |
 | Normalization toggles | all `true` | No reason to disable any |
 
+### Tool-name canonicalization vs Hermes dispatch
+
+The `pre_tool_call` hook (where the guard runs) sees the **raw model-emitted tool
+name**. Hermes resolves that raw name to a registered tool *after* the hook fires,
+trying a candidate set — lowercase, separator-normalized, CamelCase→snake,
+`_tool`/`-tool` suffix-stripped — and finally a fuzzy (`difflib`) fallback. Petasos
+canonicalizes both your configured names and the incoming name through one shared
+function so a `SendEmail` / `SEND_EMAIL` / `send_email_tool` variant of a configured
+egress tool is still matched. Two operator-facing consequences:
+
+- **List MCP tools by their full single-underscore wire name (D-NS).** Hermes
+  namespaces MCP tools as `mcp_<server>_<tool>` (e.g. `mcp_acme_send_email`), where
+  `_` is *both* the separator and a legal character inside server/tool names — so the
+  boundary is not recoverable without the registry. Petasos therefore does **not**
+  heuristically strip the single-underscore `mcp_` prefix (a greedy strip would
+  mis-segment real names and add false matches). Configure the **full wire name** in
+  both `egress_sink_tools` and your read-only set:
+
+  ```yaml
+  # Right — full single-underscore wire name; its case/CamelCase/_tool variants
+  #         all canonicalize onto this entry.
+  egress_sink_tools:
+    - mcp_acme_send_email
+  # Wrong — bare name; the namespaced wire name will NOT match it.
+  #   - send_email
+  ```
+
+  (The double-underscore `mcp__<server>__` / `hermes__` prefix *is* stripped — that
+  is the OpenClaw / Claude-Code convention, harmless-but-inert for Hermes.)
+
+- **Bound or disable Hermes's fuzzy fallback host-side (D-FUZZY).** Hermes's
+  `difflib.get_close_matches(..., cutoff=0.7)` last resort can map a name no
+  deterministic canonicalizer can reproduce (e.g. `snd_eml` → `send_email`). Petasos
+  deliberately does **not** mirror fuzzy resolution. If your Hermes build allows it,
+  bound or disable the fuzzy tool-name fallback so a fuzzily-resolved variant cannot
+  reach a real egress/dangerous tool without an exact/deterministic match the guard
+  also sees.
+
 ## 6. Restart and verify
 
 **Full app restart required.** Plugin discovery runs at app startup, not

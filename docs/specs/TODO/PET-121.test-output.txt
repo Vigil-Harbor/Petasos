@@ -1,0 +1,30 @@
+PET-121 — test gate evidence
+Branch: fix/pet-121-canonicalize-hermes-dispatch  (base origin/master 3f79bdb)
+Interpreter: Python 3.10.6
+Date: 2026-06-14
+
+================================================================
+Primary gate (spec § Test command):
+python -m pytest tests/test_normalize.py tests/test_guard.py tests/test_reference_plugin_egress.py tests/adversarial/guard/test_tool_smuggling.py -q
+================================================================
+........................................................................ [ 32%]
+........................................................................ [ 65%]
+........................................................................ [ 98%]
+....                                                                     [100%]
+220 passed in 1.45s
+
+================================================================
+Full suite (deselect pre-existing Unicode-13 test_default_ignorable_rejected on local 3.10):
+python -m pytest -q -k 'not test_default_ignorable_rejected'
+================================================================
+1656 passed, 41 skipped, 1 deselected, 1 xfailed, 68 warnings in 28.17s
+
+================================================================
+Static gates:
+================================================================
+$ ruff check .
+All checks passed!
+$ ruff format --check .
+116 files already formatted
+$ mypy --strict .
+Success: no issues found in 116 source files
