@@ -125,13 +125,19 @@ def _check_lane_pairing(extras: set[str], workflows: dict[str, _Workflow | None]
             )
             continue
         runs = _run_steps(workflow)
-        # Require the extra to appear as a whole word inside a `pip install`
-        # extras bracket, so an unrelated package whose name merely contains the
-        # extra (e.g. `pip install some-presidio-helper`) does not satisfy it, and
-        # comma-joined extras (`.[presidio,dev]`) do. `[^\n]*` stops at the newline
-        # so the install must keep its extras bracket on one line.
+        # Require the extra to appear as a complete comma-separated token inside a
+        # `pip install` extras bracket, bounded by `[`/`,` on the left and `]`/`,`
+        # on the right. A `\b` word boundary is NOT enough: `-`/`.` are non-word
+        # chars, so `\bpresidio\b` would match `presidio` inside `.[presidio-helper]`
+        # — a lane installing the wrong bracketed extra would pass (CodeRabbit, PR
+        # #86). The negative look-around on `[\w.-]` (the PEP 503 extra-name charset)
+        # rejects that while still accepting comma-joined extras (`.[presidio,dev]`,
+        # `.[dev,presidio]`). An unrelated package whose name merely contains the
+        # extra (`pip install some-presidio-helper`) has no `.[...]` bracket and is
+        # rejected outright. `[^\n]*` stops at the newline so the install must keep
+        # its extras bracket on one line.
         install_re = re.compile(
-            r"pip install[^\n]*\.\[[^\]]*\b" + re.escape(extra) + r"\b[^\]]*\]"
+            r"pip install[^\n]*\.\[[^\]]*(?<![\w.\-])" + re.escape(extra) + r"(?![\w.\-])[^\]]*\]"
         )
         if not any(install_re.search(run) for run in runs):
             violations.append(
@@ -350,6 +356,27 @@ def test_pairing_check_flags_lane_without_install() -> None:
     assert any("install" in violation.lower() for violation in violations)
     # pytest IS present, so the install violation is the only one.
     assert not any("`pytest`" in violation for violation in violations)
+
+
+def test_pairing_check_rejects_hyphenated_superstring_in_bracket() -> None:
+    """Regression for PR #86 (CodeRabbit): a lane whose extras bracket installs a
+    *different* extra that merely contains the required name as a hyphen-bounded
+    substring (``.[presidio-helper]`` for ``presidio``) must still be flagged. A
+    word-boundary regex would wrongly accept it (``-`` is a non-word char); the
+    delimiter-bounded look-around rejects it."""
+    lane: _Workflow = {
+        "jobs": {
+            "scanner-tests": {
+                "steps": [
+                    {"run": 'pip install -e ".[presidio-helper,dev]"'},
+                    {"run": "pytest tests/test_presidio_scanner.py"},
+                ],
+            }
+        }
+    }
+    workflows: dict[str, _Workflow | None] = {"extras-presidio.yml": lane}
+    violations = _check_lane_pairing({"presidio"}, workflows)
+    assert any("install" in violation.lower() for violation in violations)
 
 
 def test_pairing_check_empty_extras_returns_no_violations() -> None:
