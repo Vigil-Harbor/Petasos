@@ -121,6 +121,14 @@ async def test_get_profiles(handlers: ConsoleHandlers) -> None:
     assert "general" in names
 
 
+async def test_profile_metadata_surfaced(handlers: ConsoleHandlers) -> None:
+    # Regression for PET-113: the /profiles endpoint surfaces a non-empty
+    # description for every profile (flows through ResolvedProfile.to_dict).
+    result = await handlers.get_profiles()
+    for p in result["profiles"]:
+        assert p.get("description", "").strip(), f"{p['name']} missing description"
+
+
 async def test_get_about(handlers: ConsoleHandlers) -> None:
     result = await handlers.get_about()
     assert result["version"] == "0.1.0"

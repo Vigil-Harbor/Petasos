@@ -1,5 +1,6 @@
 {
   "name": "code_generation",
+  "description": "Tuned for coding agents. Suppresses encoding and shell-command rules that fire constantly on legitimate code (base64, homoglyphs, pipe-to-shell, decode/fetch-exec, recursive deletes) and raises the confidence floor to 0.6 to cut false positives. For: code-writing and dev-tooling agents. Trade-off: weaker defense against command-injection payloads.",
   "suppress_rules": [
     "petasos.syntactic.encoding.invisible-chars",
     "petasos.syntactic.encoding.base64-in-text",

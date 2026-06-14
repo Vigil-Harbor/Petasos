@@ -1,5 +1,6 @@
 {
   "name": "research",
+  "description": "Low-friction for long research and browsing sessions. Suppresses encoding-obfuscation rules that trip on quoted web content, raises the confidence floor to 0.7, and relaxes escalation tiers (25/45/70) so deep multi-step sessions are not cut short. For: research and retrieval agents working over large external corpora.",
   "suppress_rules": [
     "petasos.syntactic.encoding.invisible-chars",
     "petasos.syntactic.encoding.base64-in-text",

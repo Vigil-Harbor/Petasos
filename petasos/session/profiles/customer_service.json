@@ -1,5 +1,6 @@
 {
   "name": "customer_service",
+  "description": "Hardened against prompt injection for user-facing chat. Promotes the common injection openers (ignore/disregard, role-reassignment, new-instruction, and system-override patterns) to critical and watches conversations for personal data such as names and phone numbers. For: support and chat agents handling untrusted end-user input.",
   "suppress_rules": [],
   "severity_overrides": {
     "petasos.syntactic.injection.ignore-previous": "critical",
