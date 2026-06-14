@@ -25,6 +25,8 @@ _BOOL_FIELDS: frozenset[str] = frozenset(
         "tool_guard_enabled",
         "audit_enabled",
         "alert_enabled",
+        "subagent_lineage_enabled",
+        "delegate_fanout_enabled",
     }
 )
 
@@ -119,6 +121,28 @@ class PetasosConfig:
 
     # Session token binding (FREQ-03 defense)
     session_secret: bytes | None = None
+
+    # Sub-agent (delegate_task) session intelligence (PET-107).
+    # A — lineage-linked escalation: a child's tier is max(own, parent-chain).
+    # C — delegation fan-out gate: an escalation-tied budget on delegate spawns.
+    # Both default on (PET-78 posture); A additionally needs the host's
+    # subagent_start/subagent_stop hooks (degrades to C-only if unavailable).
+    subagent_lineage_enabled: bool = True
+    delegate_fanout_enabled: bool = True
+    # Lineage chain walk + edge store bounds. depth 8 gives headroom over the
+    # Hermes default delegation depth (<=1); edges/ttl parallel max_sessions /
+    # session_ttl_seconds.
+    lineage_max_depth: int = 8
+    lineage_max_edges: int = 10_000
+    lineage_edge_ttl_seconds: float = 3600.0
+    # Fan-out budget: base spawns per rolling window at tier none. Default 3
+    # mirrors Hermes's 3-concurrent delegate default; tier1 halves it, tier2
+    # caps at 1, tier3 is already fully blocked by the tier ladder.
+    delegate_max_fanout_per_window: int = 3
+    delegate_fanout_window_seconds: float = 60.0
+    # Tool names treated as delegation spawns. Stored RAW here; the guard
+    # normalizes them through its own _normalize_tool_name at construction.
+    delegate_tool_names: tuple[str, ...] = ("delegate_task",)
 
     def __post_init__(self) -> None:
         for fname in _BOOL_FIELDS:
@@ -220,6 +244,54 @@ class PetasosConfig:
             raise ValueError(
                 f"session_secret must be bytes or None, got {type(self.session_secret).__name__}"
             )
+
+        # Sub-agent session intelligence validation (PET-107)
+        if (
+            not isinstance(self.lineage_max_depth, int)
+            or isinstance(self.lineage_max_depth, bool)
+            or self.lineage_max_depth <= 0
+        ):
+            raise ValueError(
+                f"lineage_max_depth must be a positive integer, got {self.lineage_max_depth!r}"
+            )
+        if (
+            not isinstance(self.lineage_max_edges, int)
+            or isinstance(self.lineage_max_edges, bool)
+            or self.lineage_max_edges <= 0
+        ):
+            raise ValueError(
+                f"lineage_max_edges must be a positive integer, got {self.lineage_max_edges!r}"
+            )
+        if self.lineage_edge_ttl_seconds <= 0 or not math.isfinite(self.lineage_edge_ttl_seconds):
+            raise ValueError(
+                f"lineage_edge_ttl_seconds must be positive and finite, "
+                f"got {self.lineage_edge_ttl_seconds!r}"
+            )
+        if (
+            not isinstance(self.delegate_max_fanout_per_window, int)
+            or isinstance(self.delegate_max_fanout_per_window, bool)
+            or self.delegate_max_fanout_per_window <= 0
+        ):
+            raise ValueError(
+                f"delegate_max_fanout_per_window must be a positive integer, "
+                f"got {self.delegate_max_fanout_per_window!r}"
+            )
+        if self.delegate_fanout_window_seconds <= 0 or not math.isfinite(
+            self.delegate_fanout_window_seconds
+        ):
+            raise ValueError(
+                f"delegate_fanout_window_seconds must be positive and finite, "
+                f"got {self.delegate_fanout_window_seconds!r}"
+            )
+        # delegate_tool_names stored raw; coerce list→tuple in lockstep with
+        # pii_entities so a to_dict/from_dict round-trip preserves the tuple type.
+        if not isinstance(self.delegate_tool_names, tuple):
+            object.__setattr__(self, "delegate_tool_names", tuple(self.delegate_tool_names))
+        for tool_name in self.delegate_tool_names:
+            if not isinstance(tool_name, str) or not tool_name:
+                raise ValueError(
+                    f"delegate_tool_names entries must be non-empty strings, got {tool_name!r}"
+                )
         if self.frequency_weights is not None:
             for k, v in self.frequency_weights.items():
                 if not isinstance(k, str) or not k:
@@ -399,6 +471,8 @@ class PetasosConfig:
         filtered = {k: v for k, v in data.items() if k in known}
         if "pii_entities" in filtered and isinstance(filtered["pii_entities"], list):
             filtered["pii_entities"] = tuple(filtered["pii_entities"])
+        if "delegate_tool_names" in filtered and isinstance(filtered["delegate_tool_names"], list):
+            filtered["delegate_tool_names"] = tuple(filtered["delegate_tool_names"])
         if "session_secret" in filtered and isinstance(filtered["session_secret"], str):
             import base64
 

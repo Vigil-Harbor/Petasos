@@ -180,7 +180,37 @@ hooks:
   - pre_tool_call
   - post_tool_call
   - on_session_start
+  # PET-107: sub-agent (delegate_task) session lineage. Optional — registered
+  # defensively; if the host build does not emit them, lineage-linked
+  # escalation (A) no-ops and only the delegation fan-out gate (C) runs.
+  - subagent_start
+  - subagent_stop
 ```
+
+### Sub-agent (delegate_task) session intelligence — PET-107
+
+A Hermes `delegate_task` spawns a child agent with its own fresh
+`session_id`, so without extra wiring a session escalating toward tier 2/3
+could launder its frequency state through a clean child, and a parent's
+tier-3 termination would never reach its children. Petasos closes this with
+two independently-shippable halves:
+
+- **A — lineage-linked escalation.** On `subagent_start` the plugin records
+  a host-asserted `child → parent` edge in a `LineageRegistry`; the guard
+  then derives a child's tier as `max(own, parent-chain)` read live at
+  evaluation time. A parent reaching tier 3 forces its children to tier 3 on
+  their *next* guarded tool call (the hook model cannot interrupt an
+  in-flight call). `subagent_stop` drops the edge. A non-terminated tier-1/2
+  parent with a live child is pinned against eviction so the child can still
+  read its tier, bounded by an edge TTL and a hard `2×max_sessions` ceiling.
+- **C — delegation fan-out gate.** An escalation-tied budget on
+  `delegate_task` spawns (configurable via `delegate_max_fanout_per_window` /
+  `delegate_fanout_window_seconds` / `delegate_tool_names`) so a
+  high-frequency session cannot spray sub-agents. This needs only
+  `pre_tool_call`, so it runs even when the sub-agent hooks are unavailable.
+
+Both default on. If the host does not emit `subagent_start`/`subagent_stop`,
+A no-ops and only C is active (logged once at startup).
 
 ### `__init__.py`
 

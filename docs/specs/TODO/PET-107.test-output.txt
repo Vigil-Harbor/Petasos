@@ -1,0 +1,337 @@
+# PET-107 test gate — captured 2026-06-14T02:15:49Z
+# Interpreter: Python 3.10.6 at C:\python310\python.exe
+# NOTE: tests/test_console_validation.py::test_default_ignorable_rejected is a PRE-EXISTING
+#       failure on clean master (verified) — a Unicode sweep expecting Unicode 14.0.0, but this
+#       interpreter (CPython 3.10.6) ships Unicode 13.0.0 (swept=266 vs expected>=267). The repo
+#       targets Python 3.11+ (Unicode 14). Unrelated to PET-107; not touched by this change.
+
+=================================================================
+## 1) python -m pytest tests/test_lineage.py tests/test_guard.py tests/test_frequency.py -v
+=================================================================
+============================= test session starts =============================
+platform win32 -- Python 3.10.6, pytest-9.0.3, pluggy-1.6.0 -- C:\python310\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\zioni\Documents\Vigil-Harbor\PET-107-worktree
+configfile: pyproject.toml
+plugins: anyio-4.13.0, asyncio-1.3.0
+asyncio: mode=auto, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 120 items
+
+tests/test_lineage.py::TestMaxTier::test_returns_highest_rank PASSED     [  0%]
+tests/test_lineage.py::TestMaxTier::test_no_args_is_none PASSED          [  1%]
+tests/test_lineage.py::TestMaxTier::test_raises_on_unknown PASSED        [  2%]
+tests/test_lineage.py::TestRegisterUnregister::test_basic_edge_and_ancestors PASSED [  3%]
+tests/test_lineage.py::TestRegisterUnregister::test_unregister_drops_edge_and_is_idempotent PASSED [  4%]
+tests/test_lineage.py::TestRegisterUnregister::test_self_edge_rejected PASSED [  5%]
+tests/test_lineage.py::TestRegisterUnregister::test_empty_ids_rejected PASSED [  5%]
+tests/test_lineage.py::TestRegisterUnregister::test_register_is_idempotent_same_parent PASSED [  6%]
+tests/test_lineage.py::TestReparent::test_last_writer_wins PASSED        [  7%]
+tests/test_lineage.py::TestReparent::test_reparent_in_place_does_not_evict_unrelated_edge_at_cap PASSED [  8%]
+tests/test_lineage.py::TestAncestorsWalk::test_multi_hop_nearest_first PASSED [  9%]
+tests/test_lineage.py::TestAncestorsWalk::test_bounded_by_max_depth PASSED [ 10%]
+tests/test_lineage.py::TestAncestorsWalk::test_cycle_is_safe PASSED      [ 10%]
+tests/test_lineage.py::TestAncestorsWalk::test_no_edge_returns_empty PASSED [ 11%]
+tests/test_lineage.py::TestTtlAndCap::test_expired_edge_skipped_in_walk PASSED [ 12%]
+tests/test_lineage.py::TestTtlAndCap::test_max_edges_evicts_oldest PASSED [ 13%]
+tests/test_lineage.py::TestIsPinned::test_parent_of_live_edge_is_pinned PASSED [ 14%]
+tests/test_lineage.py::TestIsPinned::test_unregister_unpins_parent PASSED [ 15%]
+tests/test_lineage.py::TestIsPinned::test_expired_edge_does_not_pin PASSED [ 15%]
+tests/test_guard.py::TestFeatureGate::test_feature_disabled_returns_allowed PASSED [ 16%]
+tests/test_guard.py::TestFeatureGate::test_feature_disabled_is_singleton PASSED [ 17%]
+tests/test_guard.py::TestFeatureGate::test_feature_enabled_does_not_skip PASSED [ 18%]
+tests/test_guard.py::TestToolNameNormalization::test_case_folding PASSED [ 19%]
+tests/test_guard.py::TestToolNameNormalization::test_mcp_namespace_stripping PASSED [ 20%]
+tests/test_guard.py::TestToolNameNormalization::test_hermes_namespace_stripping PASSED [ 20%]
+tests/test_guard.py::TestToolNameNormalization::test_no_double_strip PASSED [ 21%]
+tests/test_guard.py::TestToolNameNormalization::test_alias_mapping_bash PASSED [ 22%]
+tests/test_guard.py::TestToolNameNormalization::test_alias_mapping_file_read PASSED [ 23%]
+tests/test_guard.py::TestToolNameNormalization::test_alias_mapping_web_fetch PASSED [ 24%]
+tests/test_guard.py::TestToolNameNormalization::test_whitespace_stripped PASSED [ 25%]
+tests/test_guard.py::TestToolNameNormalization::test_default_alias_map_coverage PASSED [ 25%]
+tests/test_guard.py::TestToolNameNormalization::test_namespace_prefix_with_numbers PASSED [ 26%]
+tests/test_guard.py::TestToolNameNormalization::test_profile_alias_extends_defaults PASSED [ 27%]
+tests/test_guard.py::TestToolNameNormalization::test_casefold_not_just_lower PASSED [ 28%]
+tests/test_guard.py::TestToolNameNormalization::test_namespace_prefix_with_cyrillic PASSED [ 29%]
+tests/test_guard.py::TestToolNameNormalization::test_plain_ascii_no_regression PASSED [ 30%]
+tests/test_guard.py::TestToolNameNormalization::test_empty_string_normalizes PASSED [ 30%]
+tests/test_guard.py::TestToolNameNormalization::test_whitespace_only_normalizes PASSED [ 31%]
+tests/test_guard.py::TestToolNameNormalization::test_empty_after_normalization_blocks PASSED [ 32%]
+tests/test_guard.py::TestTierDerivation::test_unknown_session_is_none PASSED [ 33%]
+tests/test_guard.py::TestTierDerivation::test_profile_tier_thresholds_used PASSED [ 34%]
+tests/test_guard.py::TestTierDerivation::test_terminated_session_is_tier3 PASSED [ 35%]
+tests/test_guard.py::TestTierBlocking::test_tier3_blocks_unconditionally PASSED [ 35%]
+tests/test_guard.py::TestTierBlocking::test_tier2_blocks_non_exempt PASSED [ 36%]
+tests/test_guard.py::TestTierBlocking::test_tier2_allows_exempt_tool PASSED [ 37%]
+tests/test_guard.py::TestTierBlocking::test_tier1_allows_with_warning PASSED [ 38%]
+tests/test_guard.py::TestParamScanning::test_empty_params_shortcircuit PASSED [ 39%]
+tests/test_guard.py::TestParamScanning::test_none_valued_params_skipped PASSED [ 40%]
+tests/test_guard.py::TestParamScanning::test_non_string_params_serialized PASSED [ 40%]
+tests/test_guard.py::TestParamScanning::test_malicious_param_detected PASSED [ 41%]
+tests/test_guard.py::TestParamScanning::test_exempt_tool_scans_params_by_default PASSED [ 42%]
+tests/test_guard.py::TestParamScanning::test_tier3_shortcircuits_before_scanning PASSED [ 43%]
+tests/test_guard.py::TestGuard03AliasExempt::test_default_alias_onto_exempt_still_allowed PASSED [ 44%]
+tests/test_guard.py::TestGuard03AliasExempt::test_default_aliases_not_in_builtin_exempt PASSED [ 45%]
+tests/test_guard.py::TestGuard03AliasExempt::test_valid_alias_still_works PASSED [ 45%]
+tests/test_guard.py::TestSessionTokenGuard::test_guard_derive_tier_with_session_secret PASSED [ 46%]
+tests/test_guard.py::TestGuardResult::test_frozen PASSED                 [ 47%]
+tests/test_guard.py::TestGuardResult::test_to_dict PASSED                [ 48%]
+tests/test_guard.py::TestGuardResult::test_to_dict_with_findings PASSED  [ 49%]
+tests/test_guard.py::TestGuardNoProfile::test_guard_works_without_profile PASSED [ 50%]
+tests/test_guard.py::TestGuardNoProfile::test_guard_tier_derivation_without_profile PASSED [ 50%]
+tests/test_guard.py::TestConcurrency::test_concurrent_evaluate_calls PASSED [ 51%]
+tests/test_guard.py::TestNamespaceRegex::test_mcp_prefix PASSED          [ 52%]
+tests/test_guard.py::TestNamespaceRegex::test_hermes_prefix PASSED       [ 53%]
+tests/test_guard.py::TestNamespaceRegex::test_no_prefix PASSED           [ 54%]
+tests/test_guard.py::TestNamespaceRegex::test_mcp_with_numbers PASSED    [ 55%]
+tests/test_guard.py::TestFullEscalationFlow::test_tier1_to_tier2_to_tier3 PASSED [ 55%]
+tests/test_guard.py::TestScanParamsCatchAll::test_scan_params_exception_returns_unsafe PASSED [ 56%]
+tests/test_guard.py::TestLineageInheritance::test_subagent_inherits_parent_tier PASSED [ 57%]
+tests/test_guard.py::TestLineageInheritance::test_parent_tier3_blocks_child_tools PASSED [ 58%]
+tests/test_guard.py::TestLineageInheritance::test_lineage_with_session_token PASSED [ 59%]
+tests/test_guard.py::TestLineageInheritance::test_child_cannot_register_arbitrary_parent PASSED [ 60%]
+tests/test_guard.py::TestLineageInheritance::test_laundering_closed_under_eviction PASSED [ 60%]
+tests/test_guard.py::TestDelegationFanout::test_tier2_blocks_delegate_task PASSED [ 61%]
+tests/test_guard.py::TestDelegationFanout::test_delegate_not_exempt_rejected_at_construction PASSED [ 62%]
+tests/test_guard.py::TestDelegationFanout::test_delegate_fanout_budget_enforced PASSED [ 63%]
+tests/test_guard.py::TestDelegationFanout::test_fanout_tier1_cap_halved PASSED [ 64%]
+tests/test_guard.py::TestDelegationFanout::test_fanout_concurrent_atomic PASSED [ 65%]
+tests/test_guard.py::TestConcurrentChildren::test_concurrent_children_threadsafe PASSED [ 65%]
+tests/test_guard.py::TestFeatureDisabledNoop::test_lineage_none_no_inheritance PASSED [ 66%]
+tests/test_guard.py::TestFeatureDisabledNoop::test_lineage_flag_off_no_inheritance PASSED [ 67%]
+tests/test_guard.py::TestFeatureDisabledNoop::test_fanout_flag_off_not_gated PASSED [ 68%]
+tests/test_frequency.py::TestDecayMath::test_score_halves_after_one_half_life PASSED [ 69%]
+tests/test_frequency.py::TestDecayMath::test_score_decays_to_near_zero_after_many_half_lives PASSED [ 70%]
+tests/test_frequency.py::TestDecayMath::test_zero_elapsed_no_decay PASSED [ 70%]
+tests/test_frequency.py::TestDecayMath::test_decay_with_zero_initial_score PASSED [ 71%]
+tests/test_frequency.py::TestDecayMath::test_multiple_updates_produce_reference_sequence PASSED [ 72%]
+tests/test_frequency.py::TestWeightMatching::test_exact_match_takes_priority_over_glob PASSED [ 73%]
+tests/test_frequency.py::TestWeightMatching::test_glob_match_longest_prefix_wins PASSED [ 74%]
+tests/test_frequency.py::TestWeightMatching::test_no_match_returns_zero PASSED [ 75%]
+tests/test_frequency.py::TestWeightMatching::test_multiple_rule_ids_weights_summed PASSED [ 75%]
+tests/test_frequency.py::TestWeightMatching::test_empty_rule_ids_only_decays PASSED [ 76%]
+tests/test_frequency.py::TestRollingWindow::test_findings_within_window_counted PASSED [ 77%]
+tests/test_frequency.py::TestRollingWindow::test_findings_outside_window_pruned PASSED [ 78%]
+tests/test_frequency.py::TestRollingWindow::test_rolling_threshold_promotes_to_tier1 PASSED [ 79%]
+tests/test_frequency.py::TestRollingWindow::test_empty_rolling_window_after_expiry PASSED [ 80%]
+tests/test_frequency.py::TestSessionEviction::test_ttl_eviction_removes_stale_sessions PASSED [ 80%]
+tests/test_frequency.py::TestSessionEviction::test_max_sessions_evicts_oldest_prefers_terminated PASSED [ 81%]
+tests/test_frequency.py::TestSessionEviction::test_eviction_never_removes_current_session PASSED [ 82%]
+tests/test_frequency.py::TestSessionEviction::test_over_1000_sessions_no_crash PASSED [ 83%]
+tests/test_frequency.py::TestRateLimiting::test_new_session_rejected_at_capacity PASSED [ 84%]
+tests/test_frequency.py::TestRateLimiting::test_new_session_accepted_under_capacity PASSED [ 85%]
+tests/test_frequency.py::TestRateLimiting::test_rate_limit_window_rolls_forward PASSED [ 85%]
+tests/test_frequency.py::TestEdgeCases::test_terminated_session_returns_immediately PASSED [ 86%]
+tests/test_frequency.py::TestEdgeCases::test_get_state_unknown_session_returns_none PASSED [ 87%]
+tests/test_frequency.py::TestEdgeCases::test_reset_removes_session PASSED [ 88%]
+tests/test_frequency.py::TestEdgeCases::test_clear_removes_all_sessions_and_timestamps PASSED [ 89%]
+tests/test_frequency.py::TestStaticResults::test_disabled_result_is_frozen PASSED [ 90%]
+tests/test_frequency.py::TestStaticResults::test_rate_limited_result_is_frozen PASSED [ 90%]
+tests/test_frequency.py::TestWeightValidation::test_glob_key_with_non_terminal_star_raises PASSED [ 91%]
+tests/test_frequency.py::TestWeightValidation::test_default_weights_used_when_none PASSED [ 92%]
+tests/test_frequency.py::TestSessionToken::test_backward_compat_no_secret PASSED [ 93%]
+tests/test_frequency.py::TestSessionToken::test_valid_token_accepted PASSED [ 94%]
+tests/test_frequency.py::TestSessionToken::test_mint_token_without_secret_raises PASSED [ 95%]
+tests/test_frequency.py::TestSessionToken::test_mint_token_rejects_null_bytes PASSED [ 95%]
+tests/test_frequency.py::TestLineagePinning::test_terminated_child_unpins_parent PASSED [ 96%]
+tests/test_frequency.py::TestLineagePinning::test_passive_eviction_retries_after_unpin PASSED [ 97%]
+tests/test_frequency.py::TestLineagePinning::test_terminated_parent_ttl_evicted_unpins PASSED [ 98%]
+tests/test_frequency.py::TestLineagePinning::test_pinning_hard_ceiling PASSED [ 99%]
+tests/test_frequency.py::TestLineagePinning::test_feature_off_eviction_is_unchanged PASSED [100%]
+
+============================= 120 passed in 0.21s =============================
+exit=0
+
+=================================================================
+## 2) python -m pytest   (full suite)
+=================================================================
+============================= test session starts =============================
+platform win32 -- Python 3.10.6, pytest-9.0.3, pluggy-1.6.0
+rootdir: C:\Users\zioni\Documents\Vigil-Harbor\PET-107-worktree
+configfile: pyproject.toml
+plugins: anyio-4.13.0, asyncio-1.3.0
+asyncio: mode=auto, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 1353 items
+
+tests\adversarial\config\test_bool_coercion.py ......................... [  1%]
+....                                                                     [  2%]
+tests\adversarial\config\test_config_poisoning.py ............           [  3%]
+tests\adversarial\escalation\test_derive_tier.py ......                  [  3%]
+tests\adversarial\escalation\test_standalone_tier3.py .....              [  3%]
+tests\adversarial\escalation\test_tier3_floor_inline.py ..               [  3%]
+tests\adversarial\frequency\test_rate_limited_sentinel.py ....           [  4%]
+tests\adversarial\frequency\test_session_spoofing.py .....               [  4%]
+tests\adversarial\frequency\test_terminated_state_loss.py .........      [  5%]
+tests\adversarial\frequency\test_ttl_eviction.py ....                    [  5%]
+tests\adversarial\guard\test_tool_smuggling.py ................          [  6%]
+tests\adversarial\license\test_jwt_attacks.py ...                        [  7%]
+tests\adversarial\license\test_license_hardening.py .................... [  8%]
+...                                                                      [  8%]
+tests\adversarial\normalization\test_unicode_bypass.py ................. [  9%]
+.....                                                                    [ 10%]
+tests\adversarial\pipeline\test_callback_isolation.py ...............    [ 11%]
+tests\adversarial\pipeline\test_cancel_mid_gather.py ......              [ 11%]
+tests\adversarial\pipeline\test_cancel_scan_residual.py .                [ 11%]
+tests\adversarial\pipeline\test_degraded_fail_open.py .................. [ 13%]
+......                                                                   [ 13%]
+tests\adversarial\pipeline\test_env_license_trust.py ...                 [ 13%]
+tests\adversarial\pipeline\test_rt075_chain.py x....                     [ 14%]
+tests\adversarial\pipeline\test_scanner_timeout_breaker.py ............. [ 15%]
+.....                                                                    [ 15%]
+tests\adversarial\profiles\test_suppress_bypass.py .....                 [ 16%]
+tests\adversarial\scanner\test_confidence_clamp.py ......                [ 16%]
+tests\adversarial\syntactic\test_binary_nul.py .                         [ 16%]
+tests\adversarial\syntactic\test_injection_evasion.py .................. [ 17%]
+.....................................                                    [ 20%]
+tests\adversarial\syntactic\test_json_depth_strings.py .                 [ 20%]
+tests\adversarial\types\test_type_validation.py ...................      [ 22%]
+tests\test_alerting.py ................................................. [ 25%]
+..................                                                       [ 27%]
+tests\test_audit.py ..................................                   [ 29%]
+tests\test_benchmarks.py ssssss                                          [ 30%]
+tests\test_config.py .........................................           [ 33%]
+tests\test_config_meta.py .............                                  [ 33%]
+tests\test_console_handlers.py ................................          [ 36%]
+tests\test_console_validation.py ....................................... [ 39%]
+........F............                                                    [ 40%]
+tests\test_escalation.py ...............                                 [ 41%]
+tests\test_finding_merge.py ............                                 [ 42%]
+tests\test_formatting.py ....................                            [ 44%]
+tests\test_frequency.py ......................................           [ 47%]
+tests\test_frequency_tombstone.py .................                      [ 48%]
+tests\test_guard.py .................................................... [ 52%]
+...........                                                              [ 52%]
+tests\test_hardening.py ..............                                   [ 54%]
+tests\test_hermes_integration_defaults.py .................              [ 55%]
+tests\test_hermes_smoke.py ssss..                                        [ 55%]
+tests\test_integration_e2e.py ..................                         [ 57%]
+tests\test_license.py ....................                               [ 58%]
+tests\test_lineage.py ...................                                [ 59%]
+tests\test_llama_firewall_scanner.py ................................... [ 62%]
+........ssssssssssss                                                     [ 64%]
+tests\test_llm_guard_scanner.py .......................ssssssssss        [ 66%]
+tests\test_llm_guard_wrapper.py ....ssss                                 [ 67%]
+tests\test_minimal_scanner.py .......................................... [ 70%]
+.......................                                                  [ 71%]
+tests\test_normalize.py ................................................ [ 75%]
+........                                                                 [ 75%]
+tests\test_pipeline.py ................................................. [ 79%]
+......                                                                   [ 80%]
+tests\test_plugin_api_paths.py .......................................   [ 82%]
+tests\test_plugin_api_sse.py ......                                      [ 83%]
+tests\test_plugin_init_logging.py ....                                   [ 83%]
+tests\test_presidio_scanner.py ......................................... [ 86%]
+.............                                                            [ 87%]
+tests\test_profiles.py ......................................            [ 90%]
+tests\test_profiles_retained_ref.py ...                                  [ 90%]
+tests\test_profiles_suppress.py .......                                  [ 91%]
+tests\test_ring_buffer.py ........                                       [ 91%]
+tests\test_safe_json.py .........                                        [ 92%]
+tests\test_scanner_init.py ...........                                   [ 93%]
+tests\test_session_integration.py ...................................... [ 96%]
+...........                                                              [ 96%]
+tests\test_sse.py .......                                                [ 97%]
+tests\test_subagent_plugin_wiring.py .......                             [ 97%]
+tests\test_types.py ................                                     [ 99%]
+tests\test_verify.py ............                                        [100%]
+
+================================== FAILURES ===================================
+_______________________ test_default_ignorable_rejected _______________________
+
+    def test_default_ignorable_rejected() -> None:
+        """Sweep the assigned-non-Cf Default_Ignorable residue (group 1 guard)."""
+        swept = 0
+        for start, end in _DEFAULT_IGNORABLE_RANGES:
+            for cp in range(start, end + 1):
+                ch = chr(cp)
+                if unicodedata.category(ch) in ("Cf", "Cn"):
+                    continue  # isprintable() rejects these; group 1 is the assigned-non-Cf residue
+                swept += 1
+                with pytest.raises(SessionIdError):
+                    sanitize_session_id(f"a{ch}b")
+        # Unicode 14.0.0: CGJ(1) + Hangul fillers(2) + Khmer(2) + FVS1-4(4)
+        # + HANGUL FILLER(1) + VS1-16(16) + HALFWIDTH FILLER(1) + VS17-256(240) = 267
+>       assert swept >= 267
+E       assert 266 >= 267
+
+tests\test_console_validation.py:240: AssertionError
+============================== warnings summary ===============================
+tests/test_console_validation.py: 24 warnings
+  C:\Users\zioni\Documents\Vigil-Harbor\PET-107-worktree\petasos\console\server.py:273: DeprecationWarning: 
+          on_event is deprecated, use lifespan event handlers instead.
+  
+          Read more about it in the
+          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+          
+    @app.on_event("shutdown")
+
+tests/test_console_validation.py: 24 warnings
+  C:\python310\lib\site-packages\fastapi\applications.py:4598: DeprecationWarning: 
+          on_event is deprecated, use lifespan event handlers instead.
+  
+          Read more about it in the
+          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+          
+    return self.router.on_event(event_type)  # ty: ignore[deprecated]
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED tests/test_console_validation.py::test_default_ignorable_rejected - as...
+===== 1 failed, 1315 passed, 36 skipped, 1 xfailed, 48 warnings in 20.97s =====
+full-suite exit=1
+
+=================================================================
+## 2b) full suite minus the pre-existing Unicode-version failure
+=================================================================
+........................................................................ [  5%]
+........................................................................ [ 10%]
+.............................................x.......................... [ 15%]
+........................................................................ [ 21%]
+........................................................................ [ 26%]
+........................................ssssss.......................... [ 31%]
+........................................................................ [ 37%]
+........................................................................ [ 42%]
+........................................................................ [ 47%]
+........................................................................ [ 53%]
+...........................ssss......................................... [ 58%]
+.............................................................sssssssssss [ 63%]
+s.......................ssssssssss....ssss.............................. [ 69%]
+........................................................................ [ 74%]
+........................................................................ [ 79%]
+........................................................................ [ 85%]
+........................................................................ [ 90%]
+........................................................................ [ 95%]
+........................................................                 [100%]
+============================== warnings summary ===============================
+tests/test_console_validation.py: 24 warnings
+  C:\Users\zioni\Documents\Vigil-Harbor\PET-107-worktree\petasos\console\server.py:273: DeprecationWarning: 
+          on_event is deprecated, use lifespan event handlers instead.
+  
+          Read more about it in the
+          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+          
+    @app.on_event("shutdown")
+
+tests/test_console_validation.py: 24 warnings
+  C:\python310\lib\site-packages\fastapi\applications.py:4598: DeprecationWarning: 
+          on_event is deprecated, use lifespan event handlers instead.
+  
+          Read more about it in the
+          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+          
+    return self.router.on_event(event_type)  # ty: ignore[deprecated]
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+1315 passed, 36 skipped, 1 deselected, 1 xfailed, 48 warnings in 20.78s
+deselected exit=0
+
+=================================================================
+## 3) ruff check .
+=================================================================
+All checks passed!
+ruff exit=0
+
+=================================================================
+## 4) mypy --strict .
+=================================================================
+Success: no issues found in 106 source files
+mypy exit=0

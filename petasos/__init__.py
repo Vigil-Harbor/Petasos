@@ -24,6 +24,7 @@ from petasos.session.formatting import (
 from petasos.session.frequency import FrequencyTracker, FrequencyUpdateResult, SessionToken
 from petasos.session.guard import GuardResult, ToolCallGuard
 from petasos.session.license import LicenseClaims, LicenseState, LicenseValidator, validate_license
+from petasos.session.lineage import LineageRegistry
 from petasos.session.profiles import ProfileResolver, ResolvedProfile, TierThresholds
 
 __all__ = [
@@ -40,6 +41,7 @@ __all__ = [
     "LicenseClaims",
     "LicenseState",
     "LicenseValidator",
+    "LineageRegistry",
     "MinimalScanner",
     "NormalizedText",
     "PetasosConfig",

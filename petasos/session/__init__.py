@@ -7,6 +7,7 @@ from petasos.session.escalation import (
     derive_tier,
     evaluate_escalation,
     evaluate_tier,
+    max_tier,
 )
 from petasos.session.formatting import (
     format_block_message,
@@ -16,6 +17,7 @@ from petasos.session.formatting import (
 from petasos.session.frequency import FrequencyTracker, FrequencyUpdateResult, SessionToken
 from petasos.session.guard import GuardResult, ToolCallGuard
 from petasos.session.license import LicenseClaims, LicenseState, LicenseValidator, validate_license
+from petasos.session.lineage import LineageRegistry
 from petasos.session.profiles import (
     ProfileResolver,
     ResolvedProfile,
@@ -32,6 +34,8 @@ __all__ = [
     "derive_tier",
     "FrequencyUpdateResult",
     "GuardResult",
+    "LineageRegistry",
+    "max_tier",
     "format_block_message",
     "format_pipeline_block_message",
     "LicenseClaims",

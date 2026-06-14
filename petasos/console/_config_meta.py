@@ -497,6 +497,84 @@ _FIELD_META: dict[str, dict[str, Any]] = {
         "section": "session",
         "constraints": {"min": 1},
     },
+    "subagent_lineage_enabled": {
+        "description": "Inherit a parent's escalation tier into its delegated sub-agents.",
+        "help_plain": (
+            "When a conversation spawns a helper sub-agent, this makes the helper start at"
+            " least as restricted as the conversation that launched it — so a flagged session"
+            " can't wash its record clean by handing work to a fresh child. Needs the host to"
+            " report sub-agent start/stop; if it doesn't, this quietly does nothing."
+        ),
+        "section": "tool_guard",
+    },
+    "delegate_fanout_enabled": {
+        "description": "Rate-limit how many sub-agents a session may spawn.",
+        "help_plain": (
+            "Caps how fast one conversation can spin up helper sub-agents, so a noisy or"
+            " hostile session can't flood the system by spraying delegated tasks. The cap"
+            " tightens automatically as the session's risk level rises."
+        ),
+        "section": "tool_guard",
+    },
+    "lineage_max_depth": {
+        "description": "Maximum ancestor chain walked when inheriting a sub-agent's tier.",
+        "help_plain": (
+            "How many levels up the family tree to look when deciding an inherited"
+            " restriction level for a sub-agent. Sub-agents are normally shallow, so the"
+            " default leaves plenty of headroom while keeping the lookup fast."
+        ),
+        "section": "tool_guard",
+        "constraints": {"min": 1},
+    },
+    "lineage_max_edges": {
+        "description": "Maximum parent↔child links tracked at once.",
+        "help_plain": (
+            "How many active sub-agent relationships to remember at a time. Once full, the"
+            " oldest link is dropped to make room — a safety ceiling so the bookkeeping can't"
+            " grow without bound under a flood of helpers."
+        ),
+        "section": "tool_guard",
+        "constraints": {"min": 1},
+    },
+    "lineage_edge_ttl_seconds": {
+        "description": "How long a parent↔child link stays valid (seconds).",
+        "help_plain": (
+            "How long to keep a sub-agent's link to its parent before treating it as stale."
+            " Set this comfortably longer than a realistic helper's lifetime so the parent"
+            " stays remembered for as long as the child might still be running."
+        ),
+        "section": "tool_guard",
+        "constraints": {"min": 0.01},
+    },
+    "delegate_max_fanout_per_window": {
+        "description": "Base number of sub-agent spawns allowed per time window.",
+        "help_plain": (
+            "How many helper sub-agents a calm conversation may launch within the time"
+            " window below. The allowance is cut in half once the session looks risky, and"
+            " down to one when it's flagged — a terminated session can't spawn at all."
+        ),
+        "section": "tool_guard",
+        "constraints": {"min": 1},
+    },
+    "delegate_fanout_window_seconds": {
+        "description": "Rolling window for the sub-agent spawn budget (seconds).",
+        "help_plain": (
+            "The span of time the spawn allowance above is measured over. A shorter window"
+            " forgives bursts sooner; a longer one keeps a tighter lid on sustained"
+            " sub-agent spawning."
+        ),
+        "section": "tool_guard",
+        "constraints": {"min": 0.01},
+    },
+    "delegate_tool_names": {
+        "description": "Tool names treated as sub-agent spawns for the fan-out budget.",
+        "help_plain": (
+            "The list of tool names that count as launching a helper sub-agent (by default,"
+            ' just "delegate_task"). Anything named here is subject to the spawn rate limit;'
+            " add your host's own delegation tool names if they differ."
+        ),
+        "section": "tool_guard",
+    },
 }
 
 _EXCLUDED_FIELDS = frozenset({"session_secret"})
