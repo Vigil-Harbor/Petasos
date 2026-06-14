@@ -419,7 +419,10 @@ class TestPresidioScannerIntegration:
         phone_findings = [f for f in result.findings if "phone" in f.rule_id]
         assert len(phone_findings) > 0
 
-    def test_detect_person(self, scanner: PresidioScanner) -> None:
+    def test_detect_person(self) -> None:
+        # PET-109 D3: PERSON is opt-in under the tightened default, so this test
+        # (intent: "PERSON detection works") builds a PERSON-scoped scanner.
+        scanner = PresidioScanner(entities=["PERSON"])
         result = asyncio.run(scanner.scan("My name is John Smith and I live in New York"))
         assert result.error is None
         persons = [f for f in result.findings if "person" in f.rule_id]
@@ -459,7 +462,9 @@ class TestPresidioScannerIntegration:
         assert result.duration_ms > 0
 
     def test_score_threshold_filtering(self) -> None:
-        scanner = PresidioScanner(score_threshold=0.9)
+        # PET-109 D3: scope PERSON in explicitly so the threshold assertion is
+        # non-vacuous (PERSON is opt-in under the tightened default).
+        scanner = PresidioScanner(entities=["PERSON"], score_threshold=0.9)
         result = asyncio.run(scanner.scan("Maybe John from somewhere"))
         assert result.error is None
         for f in result.findings:
@@ -478,6 +483,12 @@ class TestPresidioScannerIntegration:
         )
         assert result.error is None
         assert len(result.findings) >= 2
+        # PET-109: PERSON no longer fires under the tightened default, so the >= 2
+        # now rests on exactly email+phone — pin those entity types so a future
+        # tightening of either yields a clear failure, not a confusing count miss.
+        rule_ids = {f.rule_id for f in result.findings}
+        assert any("email" in r for r in rule_ids)
+        assert any("phone" in r for r in rule_ids)
 
     def test_scanner_name_in_findings(self, scanner: PresidioScanner) -> None:
         result = asyncio.run(scanner.scan("john@example.com"))
@@ -492,8 +503,12 @@ class TestAnonymizeIntegration:
         text: str,
         mode: str = "redact",
         hash_key: str | None = None,
+        entities: list[str] | None = None,
     ) -> str:
-        scanner = PresidioScanner()
+        # PET-109: entities=None keeps the curated default (preserves the email/SSN
+        # siblings); test_replace_with_counters passes entities=["PERSON"] because
+        # PERSON is opt-in under the tightened default.
+        scanner = PresidioScanner(entities=entities)
         result = asyncio.run(scanner.scan(text))
         return anonymize(
             text,
@@ -510,7 +525,7 @@ class TestAnonymizeIntegration:
 
     def test_replace_with_counters(self) -> None:
         text = "Contact John Smith or Jane Doe"
-        result = self._scan_and_anonymize(text, mode="replace")
+        result = self._scan_and_anonymize(text, mode="replace", entities=["PERSON"])
         assert "John Smith" not in result or "Jane Doe" not in result
 
     def test_hash_with_key_deterministic(self) -> None:

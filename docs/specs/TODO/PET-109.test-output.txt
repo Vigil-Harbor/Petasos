@@ -1,0 +1,15 @@
+PET-109 test gate — captured 2026-06-14T09:32:57Z
+Interpreter: Python 3.10.6  (presidio + spaCy en_core_web_lg installed locally)
+
+### ruff check .
+All checks passed!
+### ruff format --check .
+112 files already formatted
+### mypy --strict .
+Success: no issues found in 112 source files
+### python -m pytest -q  (deselect pre-existing Unicode-13 local failure)
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+1490 passed, 40 skipped, 1 deselected, 1 xfailed, 52 warnings in 24.80s
+### Non-skipping presidio lane: PETASOS_REQUIRE_PRESIDIO=1
+.................................................................        [100%]
+65 passed in 16.42s

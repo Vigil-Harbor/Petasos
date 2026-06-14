@@ -78,6 +78,12 @@ class PetasosConfig:
     # Anonymization
     anonymize: bool = False
     pii_entities: tuple[str, ...] = ()
+    # Presidio detection scoping (PET-109). presidio_entities=None -> the scanner's
+    # curated default (DEFAULT_PRESIDIO_ENTITIES); a non-None tuple replaces it
+    # wholesale. presidio_entities_extra is additive (opt back in e.g. "URL").
+    presidio_entities: tuple[str, ...] | None = None
+    presidio_entities_extra: tuple[str, ...] = ()
+    presidio_score_threshold: float = 0.35
     redaction_mode: Literal["redact", "replace", "hash", "mask"] = "redact"
     hash_key: str | None = None
 
@@ -174,8 +180,80 @@ class PetasosConfig:
                 "redaction_mode='hash' and anonymize=True"
             )
         for entity in self.pii_entities:
-            if not isinstance(entity, str) or not entity:
-                raise ValueError(f"pii_entities entries must be non-empty strings, got {entity!r}")
+            if not isinstance(entity, str) or not entity.strip():
+                raise ValueError(
+                    f"pii_entities entries must be non-empty, non-whitespace strings, "
+                    f"got {entity!r}"
+                )
+        # Trim surrounding whitespace so a " EMAIL_ADDRESS " entry isn't a silent no-op in
+        # the Stage 9 anonymize filter (which matches on the uppercased entity type, D7).
+        object.__setattr__(self, "pii_entities", tuple(e.strip() for e in self.pii_entities))
+
+        # Presidio detection scoping (PET-109). presidio_entities: None = use the
+        # scanner default; an explicit value replaces it wholesale (mirrors the
+        # delegate_tool_names template — bare-str reject, list→tuple coerce, per-entry
+        # check — with a None early-out and an empty-tuple reject prepended).
+        if self.presidio_entities is not None:
+            if isinstance(self.presidio_entities, str):
+                raise ValueError(
+                    "presidio_entities must be an iterable of entity names, not a string, "
+                    f"got {self.presidio_entities!r}"
+                )
+            if not isinstance(self.presidio_entities, tuple):
+                object.__setattr__(self, "presidio_entities", tuple(self.presidio_entities))
+            if not self.presidio_entities:  # empty explicit tuple is meaningless
+                raise ValueError(
+                    "presidio_entities must be non-empty when not None (use None for default)"
+                )
+            for e in self.presidio_entities:
+                if not isinstance(e, str) or not e.strip():
+                    raise ValueError(
+                        f"presidio_entities entries must be non-empty, non-whitespace strings, "
+                        f"got {e!r}"
+                    )
+            # Trim, then normalize to Presidio's case-sensitive uppercase vocabulary so a
+            # lowercase/typo/whitespace entry (e.g. "person", " URL ") isn't a silent no-op
+            # (it would match nothing in analyzer.analyze).
+            object.__setattr__(
+                self,
+                "presidio_entities",
+                tuple(e.strip().upper() for e in self.presidio_entities),
+            )
+
+        # presidio_entities_extra: additive opt-ins; empty () is the default and is
+        # allowed (no None early-out, no empty reject). The bare-str reject is
+        # load-bearing here too: tuple("URL") -> ("U","R","L") would pass the
+        # per-entry check and become three no-op recognizer names.
+        if isinstance(self.presidio_entities_extra, str):
+            raise ValueError(
+                "presidio_entities_extra must be an iterable of entity names, not a string, "
+                f"got {self.presidio_entities_extra!r}"
+            )
+        if not isinstance(self.presidio_entities_extra, tuple):
+            object.__setattr__(
+                self, "presidio_entities_extra", tuple(self.presidio_entities_extra)
+            )
+        for e in self.presidio_entities_extra:
+            if not isinstance(e, str) or not e.strip():
+                raise ValueError(
+                    f"presidio_entities_extra entries must be non-empty, non-whitespace strings, "
+                    f"got {e!r}"
+                )
+        object.__setattr__(
+            self,
+            "presidio_entities_extra",
+            tuple(e.strip().upper() for e in self.presidio_entities_extra),
+        )
+
+        # presidio_score_threshold: finite and inclusive [0.0, 1.0]. 0.0 is the
+        # documented power-user "all candidates" escape hatch.
+        if not math.isfinite(self.presidio_score_threshold) or not (
+            0.0 <= self.presidio_score_threshold <= 1.0
+        ):
+            raise ValueError(
+                f"presidio_score_threshold must be finite and in [0.0, 1.0], "
+                f"got {self.presidio_score_threshold!r}"
+            )
 
         # Scanner timeout + circuit breaker validation (PIPE-03)
         if self.scanner_timeout_seconds <= 0 or not math.isfinite(self.scanner_timeout_seconds):
@@ -493,6 +571,13 @@ class PetasosConfig:
             filtered["pii_entities"] = tuple(filtered["pii_entities"])
         if "delegate_tool_names" in filtered and isinstance(filtered["delegate_tool_names"], list):
             filtered["delegate_tool_names"] = tuple(filtered["delegate_tool_names"])
+        # PET-109: coerce only when a list — preserve None so the None round-trip holds.
+        if "presidio_entities" in filtered and isinstance(filtered["presidio_entities"], list):
+            filtered["presidio_entities"] = tuple(filtered["presidio_entities"])
+        if "presidio_entities_extra" in filtered and isinstance(
+            filtered["presidio_entities_extra"], list
+        ):
+            filtered["presidio_entities_extra"] = tuple(filtered["presidio_entities_extra"])
         if "session_secret" in filtered and isinstance(filtered["session_secret"], str):
             import base64
 

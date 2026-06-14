@@ -1,0 +1,37 @@
+# PET-109: non-skipping lane with the real presidio extra + spaCy model installed,
+# so the tightened-default detection set (D2) is proven not to blind the scanner —
+# the benign-technical-corpus regression and the real-PII-still-detected test (D4)
+# run on the shipping PR instead of silently self-skipping. PETASOS_REQUIRE_PRESIDIO=1
+# arms the collection-time fail-loud guard in tests/conftest.py: with presidio +
+# the spaCy model present, TestPresidioTightenedDefault must run, never skip.
+name: extras-presidio
+on:
+  pull_request:
+    paths:
+      - "petasos/scanners/presidio.py"
+      - "petasos/config.py"
+      - "petasos/console/hermes/plugin_api.py"
+      - "tests/test_presidio_scanner.py"
+      - "tests/test_presidio_entity_scoping.py"
+      - "tests/conftest.py" # home of the fail-loud collection guard this lane arms
+  schedule:
+    - cron: "13 4 * * 1" # Mondays 04:13 UTC — off-peak, off-minute, distinct from the other extras lanes
+  workflow_dispatch:
+jobs:
+  scanner-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PETASOS_REQUIRE_PRESIDIO: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e ".[presidio,dev]"
+      # spaCy's model-download CLI imports `click`, which is not always pulled in
+      # transitively via presidio-analyzer -> spacy -> typer; install it explicitly
+      # so `spacy download` doesn't fail with ModuleNotFoundError: No module named 'click'.
+      - run: python -m pip install click
+      - run: python -m spacy download en_core_web_lg
+      - run: pytest tests/test_presidio_entity_scoping.py tests/test_presidio_scanner.py -v --tb=short
