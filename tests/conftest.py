@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib
 import os
 import pathlib
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 import jwt as pyjwt
@@ -124,14 +125,69 @@ def _enforce_nonskipping_lane(
         )
 
 
+@dataclass(frozen=True)
+class NonSkippingLane:
+    """One scanner backend whose CI lane must run a real-backend class without
+    skipping. PET-106: single source of truth consumed by both the runtime guard
+    below and tests/test_ci_extras_lanes.py. Add a backend = add a row here +
+    add .github/workflows/extras-<extra>.yml (the meta-test enforces the pair).
+    Frozen dataclass per CLAUDE.md § Key Design Invariants 'Frozen exports' and
+    the petasos/_types.py idiom (round-1 conventions F-1)."""
+
+    extra: str  # pyproject optional-dependency key, e.g. "presidio"
+    env_flag: str  # CI lane env var, e.g. "PETASOS_REQUIRE_PRESIDIO"
+    import_target: str  # symbol the scanner's _do_load imports
+    target_class: str  # test class the lane must collect unskipped
+    lane: str  # workflow basename, e.g. "extras-presidio"
+
+
+NONSKIPPING_LANES: tuple[NonSkippingLane, ...] = (
+    NonSkippingLane(
+        "llm-guard",
+        "PETASOS_REQUIRE_LLM_GUARD",
+        "llm_guard.input_scanners",
+        "TestIntegrationWrappedStdio",
+        "extras-llm-guard",
+    ),
+    NonSkippingLane(
+        "llamafirewall",
+        "PETASOS_REQUIRE_LLAMAFIREWALL",
+        "llamafirewall",
+        "TestProbeWeakrefUnderSlotsStdio",
+        "extras-llamafirewall",
+    ),
+    # presidio has two must-run live-detection classes in one lane: PET-106's real
+    # PII scan and PET-109's tightened-default regression. Both need the extra +
+    # spaCy model, so both are armed under the same PETASOS_REQUIRE_PRESIDIO flag.
+    NonSkippingLane(
+        "presidio",
+        "PETASOS_REQUIRE_PRESIDIO",
+        "presidio_analyzer",
+        "TestPresidioScannerIntegration",
+        "extras-presidio",
+    ),
+    NonSkippingLane(
+        "presidio",
+        "PETASOS_REQUIRE_PRESIDIO",
+        "presidio_analyzer",
+        "TestPresidioTightenedDefault",
+        "extras-presidio",
+    ),
+)
+
+
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     """Collection-time fail-loud guards for the non-skipping extras lanes.
 
-    PET-104 armed the ``extras-llm-guard`` lane; PET-105 adds ``extras-llamafirewall``
-    and extracts the shared enforcement body into ``_enforce_nonskipping_lane`` so the
-    two structurally-identical guards cannot drift (DD). Each lane is gated on its own
-    ``PETASOS_REQUIRE_*`` env var, set only in that lane job's ``env`` block, so the
-    default ``ci.yml`` lane and local dev keep the existing ``@skipif`` self-skip.
+    PET-104 armed the ``extras-llm-guard`` lane; PET-105 added ``extras-llamafirewall``
+    and extracted the shared enforcement body into ``_enforce_nonskipping_lane`` so the
+    structurally-identical guards cannot drift (DD). PET-106 lifts the per-lane
+    arguments into the module-level ``NONSKIPPING_LANES`` table — the single source of
+    truth also consumed by ``tests/test_ci_extras_lanes.py`` — and arms presidio. Adding
+    a backend is one table row plus one ``extras-<extra>.yml`` lane, no new control flow.
+    Each lane is gated on its own ``PETASOS_REQUIRE_*`` env var, set only in that lane
+    job's ``env`` block, so the default ``ci.yml`` lane and local dev keep the existing
+    ``@skipif`` self-skip.
 
     Controller-gated as a SINGLE top-level check (DD): under ``pytest-xdist`` only the
     controller (which lacks a ``workerinput`` attribute) runs this, so each lane's
@@ -141,24 +197,11 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     """
     if hasattr(config, "workerinput"):
         return
-    _enforce_nonskipping_lane(
-        items,
-        env_flag="PETASOS_REQUIRE_LLM_GUARD",
-        import_target="llm_guard.input_scanners",
-        target_class="TestIntegrationWrappedStdio",
-        lane="extras-llm-guard",
-    )
-    _enforce_nonskipping_lane(
-        items,
-        env_flag="PETASOS_REQUIRE_LLAMAFIREWALL",
-        import_target="llamafirewall",
-        target_class="TestProbeWeakrefUnderSlotsStdio",
-        lane="extras-llamafirewall",
-    )
-    _enforce_nonskipping_lane(
-        items,
-        env_flag="PETASOS_REQUIRE_PRESIDIO",
-        import_target="presidio_analyzer",
-        target_class="TestPresidioTightenedDefault",
-        lane="extras-presidio",
-    )
+    for ln in NONSKIPPING_LANES:
+        _enforce_nonskipping_lane(
+            items,
+            env_flag=ln.env_flag,
+            import_target=ln.import_target,
+            target_class=ln.target_class,
+            lane=ln.lane,
+        )
