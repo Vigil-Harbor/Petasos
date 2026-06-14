@@ -83,7 +83,13 @@ def resolve_presidio_entities(
     sentinel), so a build path cannot accidentally re-enable everything.
     """
     chosen = DEFAULT_PRESIDIO_ENTITIES if base is None else base
-    return list(dict.fromkeys((*chosen, *extra)))
+    resolved = list(dict.fromkeys((*chosen, *extra)))
+    if not resolved:
+        # Enforce the documented non-empty contract: a degenerate base=() with no
+        # extra would otherwise silently disable detection (the config layer already
+        # rejects an empty explicit presidio_entities; this guards direct callers).
+        raise ValueError("effective Presidio entity set must be non-empty")
+    return resolved
 
 
 _module_anonymizer: Any = None

@@ -86,6 +86,9 @@ def test_resolve_entities_default_and_extra() -> None:
     assert resolve_presidio_entities(("EMAIL_ADDRESS", "EMAIL_ADDRESS"), ("EMAIL_ADDRESS",)) == [
         "EMAIL_ADDRESS"
     ]
+    # a degenerate empty base + empty extra violates the non-empty contract
+    with pytest.raises(ValueError):
+        resolve_presidio_entities((), ())
 
 
 def test_default_scanner_entities_wired() -> None:

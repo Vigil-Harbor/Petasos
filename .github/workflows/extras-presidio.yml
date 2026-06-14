@@ -29,5 +29,9 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install -e ".[presidio,dev]"
+      # spaCy's model-download CLI imports `click`, which is not always pulled in
+      # transitively via presidio-analyzer -> spacy -> typer; install it explicitly
+      # so `spacy download` doesn't fail with ModuleNotFoundError: No module named 'click'.
+      - run: python -m pip install click
       - run: python -m spacy download en_core_web_lg
       - run: pytest tests/test_presidio_entity_scoping.py tests/test_presidio_scanner.py -v --tb=short
