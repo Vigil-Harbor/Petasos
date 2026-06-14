@@ -461,31 +461,40 @@ answer cannot silently skip, and it stands as a canary: a future
 `llamafirewall` upgrade that begins logging through structlog's default
 `PrintLogger` re-trips it in CI.
 
-**Verdict: PENDING the lane's first CI run** — `petasos` requires Python
-≥ 3.11 and `llamafirewall` is unavailable on the local 3.10 dev box, so the
-probe could not run at authoring time. This line MUST be replaced, before
-this PR merges, with the verdict read from the `extras-llamafirewall` lane
-log (a follow-up commit on the same PR — not a post-merge follow-up):
+**Verdict: not exposed (DE outcome 3 — import-window clean; model-gated
+residual filed).** The upgraded `extras-llamafirewall` lane (PR #84, run
+`27490922095`) ran the probe **GREEN — `OK EMITTED=0`**: under a slots-only,
+non-`__weakref__` stdout the import/load window raised no weakref and emitted
+**zero bytes** (the scan returned the expected PromptGuard-prereq error,
+confirming the load gate-returned before any model build). The load-bearing
+*reason*, captured by an introspection step in the same lane (not assumed):
 
-- **`OK EMITTED=1` → not exposed.** `llamafirewall` exercised the import
-  window and did not detonate the weakref path. Record the load-bearing
-  *reason* here (the mechanism it uses instead — e.g. stdlib
-  `logging.StreamHandler` / a pinned real stream), obtained by introspecting
-  its logging config in the lane (a green lane proves "no TypeError", not the
-  *why*). No `petasos/` runtime change; the canary guards the property.
-- **`WEAKREF…` → exposed.** Port the PET-92 proxy pattern
-  (`_WeakrefableStdout` / `_STDOUT_PROXY` / `_SHIELD_LOCK`) into
-  `petasos/scanners/llama_firewall.py` (mechanism + lock-composition case
-  chosen from the probe's evidence, reconciled with `_stdin_swap` + the HF
-  prereq probe), and record the ported coverage + a cross-reference to the
-  PET-92 entry above.
-- **`OK EMITTED=0` → import-window safe but no model-free emission.** Record
-  "import-window clean; construction/scan-window coverage is model-gated" with
-  the gibson model-gated 1b run's result (or a filed sibling PET-NNN) — a
-  visible residual, not a clean not-exposed claim. (`EMITTED` is captured under
-  `HF_HUB_OFFLINE=1`, which can itself suppress a telemetry import-time line, so
-  `EMITTED=0` does not prove no *online* import-time emission — the online 1b run
-  on gibson settles it.)
+- `llamafirewall` logs through **stdlib `logging`** —
+  `logging.getLogger("llamafirewall")` is a plain logger, no custom handlers,
+  `propagate=True`. Stdlib logging never takes a weak reference to its stream,
+  unlike structlog's `PrintLogger`.
+- **`structlog` is not in the `petasos[llamafirewall]` dependency closure**
+  (`import structlog` → `ModuleNotFoundError` in the lane). The `WRITE_LOCKS`
+  weak-keyed registry that detonates on `_SafeWriter` is therefore absent — the
+  crash class is categorically impossible for `llamafirewall`, in *any* window,
+  not only the one the model-free probe exercised.
+
+So **no `petasos/` shield is ported**: porting the PET-92 proxy on a parity
+assumption is exactly the unverified-guess failure mode PET-92 → PET-104
+exposed. The canary (`TestProbeWeakrefUnderSlotsStdio`) now pins the property —
+a future `llamafirewall` upgrade that routes logging through structlog's
+default `PrintLogger` (or any weakref-keyed-stream path) re-trips it RED in the
+non-skipping lane instead of silently re-creating the production-dead failure.
+
+**Residual (because `EMITTED=0`):** the model-free probe did not exercise a
+*construction/scan-time* emission — that path needs the HF-gated PromptGuard
+model. The mechanism reason above already covers every window, but the
+*empirical* construction/scan-window check is model-gated: the shipped gated
+test `test_llamafirewall_scan_under_slots_stdio_completes` settles it where the
+model exists (gibson per PET-97), tracked as **PET-110**. (`EMITTED` was also
+captured under `HF_HUB_OFFLINE=1`, which can itself suppress a telemetry
+import-time line, so `EMITTED=0` is not by itself proof of no *online*
+import-time emission — PET-110's online run closes that too.)
 
 ---
 
