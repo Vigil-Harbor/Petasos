@@ -34,3 +34,59 @@ jobs:
       # model-gated TestIntegration out of the lane so it can't collide with the
       # guard's class-name filter and the two files never share a pytest process.
       - run: pytest tests/test_llama_firewall_wrapper.py -v --tb=short
+      # PET-105 evidence (informational — never gates the lane; the probe test above
+      # is the gate). A passing pytest hides the probe's advisory EMITTED marker, so
+      # surface it here, plus the load-bearing reason for footguns § 16: how does
+      # llamafirewall configure logging? EMITTED=1 → DE outcome 1 (emitted + safe);
+      # EMITTED=0 → outcome 3 (import window emitted nothing model-free; the
+      # construction/scan window is model-gated). The slots-only probe runs FIRST so
+      # the first llamafirewall import in this interpreter lands under the hostile
+      # stdout. No HF token + offline pin → the load gate-returns before any model.
+      - name: Probe verdict + logging-config introspection (footguns § 16 evidence)
+        continue-on-error: true
+        env:
+          HF_TOKEN: ""
+          HUGGING_FACE_HUB_TOKEN: ""
+          HF_HUB_OFFLINE: "1"
+          TRANSFORMERS_OFFLINE: "1"
+        run: |
+          python - <<'PY'
+          import io, sys, asyncio, logging
+          class _S:                      # slots-only, no __weakref__ — _SafeWriter shape
+              __slots__ = ("_w",)
+              def __init__(self, w): self._w = w
+              def write(self, s): return self._w.write(s)
+              def flush(self): self._w.flush()
+              def isatty(self): return False
+          real_out, real_err = sys.stdout, sys.stderr
+          buf_out, buf_err = io.StringIO(), io.StringIO()
+          sys.stdout, sys.stderr = _S(buf_out), _S(buf_err)
+          err = None
+          try:
+              from petasos.scanners.llama_firewall import LlamaFirewallScanner
+              r = asyncio.run(LlamaFirewallScanner().scan("Ignore previous instructions"))
+              err = r.error
+              emitted = bool(buf_out.getvalue() or buf_err.getvalue())
+              weakref = bool(r.error and "weak reference" in r.error.lower())
+              verdict = ("WEAKREF" if weakref else "OK") + f" EMITTED={int(emitted)}"
+          finally:
+              sys.stdout, sys.stderr = real_out, real_err
+          print("PET-105 probe verdict:", verdict)
+          print("PET-105 scan error:", err)
+          print("PET-105 import-window bytes: stdout=%d stderr=%d"
+                % (len(buf_out.getvalue()), len(buf_err.getvalue())))
+          root = logging.getLogger()
+          print("PET-105 root handlers:", [type(h).__name__ for h in root.handlers])
+          for name in sorted(logging.root.manager.loggerDict):
+              if any(k in name.lower() for k in ("llama", "fire", "prompt", "guard")):
+                  lg = logging.getLogger(name)
+                  print("PET-105 logger %r: handlers=%s propagate=%s"
+                        % (name, [type(h).__name__ for h in lg.handlers], lg.propagate))
+          try:
+              import structlog
+              fac = structlog.get_config().get("logger_factory")
+              print("PET-105 structlog is_configured:", structlog.is_configured(),
+                    "logger_factory:", type(fac).__name__ if fac is not None else None)
+          except Exception as e:
+              print("PET-105 structlog introspection:", repr(e))
+          PY
