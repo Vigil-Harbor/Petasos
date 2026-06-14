@@ -220,7 +220,14 @@ async def run_scan(request: Request) -> Any:
     except SessionIdError as exc:
         err = {"field": "session_id", "message": str(exc)}
         return JSONResponse(status_code=422, content={"detail": [err]})
-    return await h.run_scan(text, direction=direction, session_id=session_id)
+    try:
+        return await h.run_scan(text, direction=direction, session_id=session_id)
+    except Exception as exc:  # PET-99 D8: defense-in-depth; pipeline.inspect never throws
+        logger.exception("console scan failed")
+        return JSONResponse(
+            status_code=500,
+            content={"detail": [{"field": "scan", "message": str(exc)}]},
+        )
 
 
 @router.get("/health")
