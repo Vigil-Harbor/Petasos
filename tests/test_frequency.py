@@ -497,6 +497,14 @@ class TestWeightValidation:
         assert tracker._exact_weights == {}
         assert len(tracker._glob_weights) == len(DEFAULT_FREQUENCY_WEIGHTS)
 
+    def test_command_family_default_weight(self) -> None:
+        # Regression for PET-94 (Decision 3.2): the command family carries the
+        # default frequency weight 3.0 (encoding parity). _match_weight binds
+        # weights at construction, so build over the defaults (frequency_weights=
+        # None) — the existing weight tests never exercise the defaults.
+        tracker = FrequencyTracker(_cfg(frequency_weights=None))
+        assert tracker._match_weight("petasos.syntactic.command.fetch-exec") == 3.0
+
 
 # ---------------------------------------------------------------------------
 # Session token (FREQ-03)
