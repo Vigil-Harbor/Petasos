@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import unicodedata
 
 from petasos._types import NormalizedText
@@ -151,6 +152,29 @@ _HOMOGLYPH_TABLE = str.maketrans(
         "ɡ": "g",
     }
 )
+
+# Relocated from petasos/session/guard.py (PET-118): single definition, shared by
+# ToolCallGuard's normalizer and the reference plugin's classification. Strips a
+# SINGLE leading namespace prefix — `mcp__<ns>__` or `hermes__`. Co-located with
+# _HOMOGLYPH_TABLE because canonicalize_tool_name composes both.
+_NAMESPACE_PREFIX_RE = re.compile(r"^(?:mcp__[a-zA-Z0-9_]+?__|hermes__)")
+
+
+def canonicalize_tool_name(name: str) -> str:
+    """Alias-free canonical form for tool-name matching. Shared by ToolCallGuard's
+    normalizer (under its alias layer) and the reference plugin's classification, so
+    the two never diverge. Pure: no profile/alias dependency.
+
+    Strips a SINGLE leading namespace prefix (matching the guard's existing behavior,
+    D-EQUIV / D6) — not a fixed-point loop. Stacked/alternate prefix shapes are a D6
+    coverage item gated on the verified Hermes grammar (D-VERIFY)."""
+    name = name.strip()
+    name = unicodedata.normalize("NFKC", name)
+    name = name.translate(_HOMOGLYPH_TABLE)
+    name = name.casefold()
+    name = _NAMESPACE_PREFIX_RE.sub("", name)
+    return name.strip()
+
 
 # Leet-fold tables (PET-97). Common ASCII digit/symbol→letter substitutions,
 # decoded onto match-only candidate views — never onto ``normalized`` itself:

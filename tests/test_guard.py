@@ -9,6 +9,7 @@ import pytest
 
 from petasos._types import ScanFinding, Severity
 from petasos.config import PetasosConfig
+from petasos.normalize import canonicalize_tool_name
 from petasos.pipeline import Pipeline
 from petasos.session.frequency import FrequencyTracker, SessionState
 from petasos.session.guard import (
@@ -180,6 +181,51 @@ class TestToolNameNormalization:
         result = await g.evaluate("hermes__", {}, "s1")
         assert result.allowed is False
         assert "empty after normalization" in result.reason
+
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            ("READ_FILE", "read"),
+            ("mcp__plane__list_projects", "list_projects"),
+            ("hermes__terminal", "exec"),
+            ("mcp__mcp__tool", "tool"),
+            ("bash", "exec"),
+            ("file_read", "read"),
+            ("web_fetch", "browser"),
+            ("  read_file  ", "read"),
+            ("mcp__server_2__tool", "tool"),
+            ("BASH", "exec"),
+            ("mcp__server__bаsh", "exec"),  # Cyrillic 'а' homoglyph
+            ("", ""),
+            ("   ", ""),
+            ("http_request ", "browser"),  # trailing NBSP: D-EQUIV no-op-strip pin
+        ],
+    )
+    async def test_normalize_tool_name_equivalence_pin(
+        self, valid_key: str, raw: str, expected: str
+    ) -> None:
+        # Regression for PET-118: the canonicalize_tool_name + alias_resolve refactor of
+        # _normalize_tool_name is byte-for-byte equivalent for existing callers (D-EQUIV).
+        g = _guard(key=valid_key)
+        assert g._normalize_tool_name(raw) == expected
+
+    async def test_normalize_guard03_equivalence_after_refactor(self, valid_key: str) -> None:
+        # PET-118 D-EQUIV: the GUARD-03 exempt-redirect block stays in the alias layer,
+        # unchanged by the refactor — a profile alias onto an exempt target is neutralized.
+        p = _profile(
+            tool_alias_map=MappingProxyType({"sneaky": "read"}),
+            tool_exempt_list=frozenset({"read"}),
+        )
+        g = _guard(profile=p, key=valid_key)
+        assert g._normalize_tool_name("sneaky") == "sneaky"
+
+    async def test_classification_canonical_distinct_from_alias(self, valid_key: str) -> None:
+        # PET-118 D-CANON: the web_search -> browser alias collapse lives ONLY in the guard's
+        # alias layer; the shared canonical primitive never applies it.
+        assert canonicalize_tool_name("web_search") == "web_search"
+        assert canonicalize_tool_name("web_search") != "browser"
+        g = _guard(key=valid_key)
+        assert g._normalize_tool_name("web_search") == "browser"
 
 
 # ---------------------------------------------------------------------------

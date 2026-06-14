@@ -157,9 +157,10 @@ class PetasosConfig:
     delegate_tool_names: tuple[str, ...] = ("delegate_task",)
     # Tool names treated as egress sinks (outbound content: email/social/HTTP/webhook/
     # clipboard-out). The PII-finding block applies ONLY to these tools; internal tools
-    # (write_file/terminal/execute_code/edit) are exempt. Stored RAW; matched raw by the
-    # plugin, mirroring READ_ONLY_TOOLS/_is_dangerous. Best-effort default names — operators
-    # must align to their host's tool registry (frontend-bindable, PET-112).
+    # (write_file/terminal/execute_code/edit) are exempt. Stored RAW; canonicalized by the
+    # plugin before matching (PET-118), mirroring READ_ONLY_TOOLS/_is_dangerous. Best-effort
+    # default names — operators must align to their host's tool registry (frontend-bindable,
+    # PET-112).
     egress_sink_tools: tuple[str, ...] = (
         "send_email",
         "send_message",
@@ -403,8 +404,9 @@ class PetasosConfig:
                 raise ValueError(
                     f"delegate_tool_names entries must be non-empty strings, got {tool_name!r}"
                 )
-        # egress_sink_tools (PET-112): RAW tool names matched by the plugin's
-        # _is_egress_sink. Mirrors the delegate_tool_names template — bare-str reject
+        # egress_sink_tools (PET-112): RAW tool names, canonicalized by the plugin's
+        # _is_egress_sink before matching (PET-118). Mirrors the delegate_tool_names
+        # template — bare-str reject
         # (tuple("send_email") would char-explode and silently empty the set),
         # list→tuple coerce, per-entry non-empty check — but an EMPTY tuple is allowed
         # (an operator may disable egress PII blocking entirely; the plugin warns).

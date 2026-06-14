@@ -1,0 +1,78 @@
+PET-118 — Canonicalize tool-name classification to the guard's form
+Verify-first verdict: EXPLOITABLE — implemented (see spec ## Verify-first answer).
+Plane comment id (PET-118): 082da57b-ad08-475c-a061-06078e9e39fb
+Residual follow-up: PET-121 (align Petasos canonical form to Hermes dispatch grammar).
+Interpreter: Python 3.10.6 | pytest 9.0.3
+Date: 2026-06-14
+
+================================================================
+# Focused test command (spec ## Test command)
+python -m pytest tests/test_reference_plugin_egress.py tests/test_guard.py tests/test_normalize.py tests/adversarial/guard/test_tool_smuggling.py -q
+================================================================
+........................................................................ [ 38%]
+........................................................................ [ 76%]
+.............................................                            [100%]
+189 passed in 1.44s
+focused exit: 0
+
+================================================================
+# Full gate before PR (per CLAUDE.md Build & Run)
+# Pre-existing 3.10/Unicode-13 failure deselected: tests/test_console_validation.py::test_default_ignorable_rejected
+#   (assert 266>=267 — Unicode 14 expected; unrelated to PET-118, see memory note)
+================================================================
+$ python -m pytest -q --deselect tests/test_console_validation.py::test_default_ignorable_rejected
+........................................................................ [  4%]
+........................................................................ [  8%]
+..................................................x..................... [ 13%]
+........................................................................ [ 17%]
+........................................................................ [ 21%]
+........................................................................ [ 26%]
+........................................................................ [ 30%]
+.............ssssssss................................................... [ 35%]
+........................................................................ [ 39%]
+........................................................................ [ 43%]
+........................................................................ [ 48%]
+........................................................................ [ 52%]
+........................................................................ [ 56%]
+.....................ssss............................................... [ 61%]
+.......................................................ssssssssssssss... [ 65%]
+....................ssssssssss....ssss.................................. [ 70%]
+........................................................................ [ 74%]
+........................................................................ [ 78%]
+........................................................................ [ 83%]
+........................................................................ [ 87%]
+........................................................................ [ 91%]
+........................................................................ [ 96%]
+.............................................................            [100%]
+============================== warnings summary ===============================
+tests/test_console_armed.py: 8 warnings
+tests/test_console_playground.py: 2 warnings
+tests/test_console_validation.py: 24 warnings
+  C:\Users\zioni\Documents\Vigil-Harbor\PET-118-worktree\petasos\console\server.py:291: DeprecationWarning: 
+          on_event is deprecated, use lifespan event handlers instead.
+  
+          Read more about it in the
+          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+          
+    @app.on_event("shutdown")
+
+tests/test_console_armed.py: 8 warnings
+tests/test_console_playground.py: 2 warnings
+tests/test_console_validation.py: 24 warnings
+  C:\python310\lib\site-packages\fastapi\applications.py:4598: DeprecationWarning: 
+          on_event is deprecated, use lifespan event handlers instead.
+  
+          Read more about it in the
+          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+          
+    return self.router.on_event(event_type)  # ty: ignore[deprecated]
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+1604 passed, 40 skipped, 1 deselected, 1 xfailed, 68 warnings in 27.70s
+full pytest exit: 0
+$ python -m ruff check .
+All checks passed!
+$ python -m ruff format --check .
+116 files already formatted
+$ python -m mypy --strict .
+Success: no issues found in 116 source files
