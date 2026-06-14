@@ -46,6 +46,10 @@ dev = [
     "ruff>=0.4",
     "httpx>=0.27",
     "PyYAML>=6.0",
+    # PET-106: the tests/test_ci_extras_lanes.py meta-test reads pyproject.toml;
+    # `tomllib` is stdlib only on 3.11+. CI runs 3.11+ (native tomllib); the local
+    # dev interpreter is 3.10, so backfill tomli there only.
+    "tomli>=2.0; python_version < '3.11'",
 ]
 
 [tool.pytest.ini_options]
@@ -75,6 +79,11 @@ module = [
     "pytest_benchmark.*",
     "yaml",
     "yaml.*",
+    # PET-106: tomli is the 3.10 fallback import in tests/test_ci_extras_lanes.py;
+    # the sys.version_info guard already keeps mypy (pinned to 3.11) off that branch,
+    # this override is belt-and-suspenders against a later refactor of the guard.
+    "tomli",
+    "tomli.*",
 ]
 ignore_missing_imports = true
 
