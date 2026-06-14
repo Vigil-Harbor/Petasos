@@ -1,0 +1,70 @@
+### PET-114 test command output (2026-06-14T11:01:08Z)
+
+=== python -m pytest tests/test_config_meta.py tests/test_console_handlers.py -v --tb=short ===
+tests/test_console_handlers.py::test_metadata_endpoint_carries_help_plain PASSED [ 37%]
+tests/test_console_handlers.py::test_get_config_redacts_secrets PASSED   [ 38%]
+tests/test_console_handlers.py::test_update_config_valid PASSED          [ 40%]
+tests/test_console_handlers.py::test_update_config_invalid PASSED        [ 42%]
+tests/test_console_handlers.py::test_run_scan PASSED                     [ 44%]
+tests/test_console_handlers.py::test_run_scan_with_injection PASSED      [ 45%]
+tests/test_console_handlers.py::test_get_health PASSED                   [ 47%]
+tests/test_console_handlers.py::test_get_scan_history_empty PASSED       [ 49%]
+tests/test_console_handlers.py::test_get_scan_history_after_scan PASSED  [ 50%]
+tests/test_console_handlers.py::test_get_profiles PASSED                 [ 52%]
+tests/test_console_handlers.py::test_get_about PASSED                    [ 54%]
+tests/test_console_handlers.py::test_scan_history_limit PASSED           [ 55%]
+tests/test_console_handlers.py::test_pipeline_scanner_health PASSED      [ 57%]
+tests/test_console_handlers.py::test_pipeline_list_profiles PASSED       [ 59%]
+tests/test_console_handlers.py::test_pipeline_result_to_dict PASSED      [ 61%]
+tests/test_console_handlers.py::test_config_persist_writes_yaml PASSED   [ 62%]
+tests/test_console_handlers.py::test_config_persist_preserves_enabled_and_host_id PASSED [ 64%]
+tests/test_console_handlers.py::test_get_armed_reflects_read PASSED      [ 66%]
+tests/test_console_handlers.py::test_set_armed_persists PASSED           [ 67%]
+tests/test_console_handlers.py::test_set_armed_persist_failure PASSED    [ 69%]
+tests/test_console_handlers.py::test_health_surfaces_scan_errors PASSED  [ 71%]
+tests/test_console_handlers.py::test_health_unavailable_status PASSED    [ 72%]
+tests/test_console_handlers.py::test_health_recovery_to_healthy PASSED   [ 74%]
+tests/test_console_handlers.py::test_health_unavailable_wins_over_breaker PASSED [ 76%]
+tests/test_console_handlers.py::test_minimal_never_unavailable PASSED    [ 77%]
+tests/test_console_handlers.py::test_health_has_last_error_field PASSED  [ 79%]
+tests/test_console_handlers.py::test_idle_recovery_transition PASSED     [ 81%]
+tests/test_console_handlers.py::test_health_load_failed_distinct_from_unavailable PASSED [ 83%]
+tests/test_console_handlers.py::test_health_unavailable_means_absent PASSED [ 84%]
+tests/test_console_handlers.py::test_health_unavailable_legacy_2tuple PASSED [ 86%]
+tests/test_console_handlers.py::test_health_retryable_load_failure_is_degraded PASSED [ 88%]
+tests/test_console_handlers.py::test_health_error_last_error_is_crash_reason PASSED [ 89%]
+tests/test_console_handlers.py::test_availability_returns_cause_discriminator PASSED [ 91%]
+tests/test_console_handlers.py::test_health_not_healthy_under_pending_weakref_failure PASSED [ 93%]
+tests/test_console_handlers.py::test_health_returns_healthy_after_recovery PASSED [ 94%]
+tests/test_console_handlers.py::test_scanner_health_no_attributeerror_on_sibling_ml PASSED [ 96%]
+tests/test_console_handlers.py::test_scan_summary_carries_tile_contract PASSED [ 98%]
+tests/test_console_handlers.py::test_scan_summary_session_id_present_when_omitted PASSED [100%]
+
+============================= 59 passed in 0.37s ==============================
+
+=== node --test tests/js/config-sections.test.mjs ===
+✔ loader: petasos.js exports the PET-114 surfaces (0.4637ms)
+✔ groupConfigSections: registry order + labels + booleans (0.6266ms)
+✔ groupConfigSections: default_collapsed is coerced to a real boolean (0.0755ms)
+✔ groupConfigSections: skips registry sections with no fields (0.1131ms)
+✔ groupConfigSections: unknown-section field is a trailing expanded group (0.1104ms)
+✔ groupConfigSections: stale-backend fallback (no sections) (0.1201ms)
+✔ groupConfigSections: empty/non-array fields return [] (0.0696ms)
+✔ Pet.Panel collapsible: structure (collapsed) (0.4701ms)
+✔ Pet.Panel collapsible: structure (expanded) (0.1428ms)
+✔ Pet.Panel collapsible: click toggles live state + aria + onToggle (0.6133ms)
+✔ Pet.Panel collapsible: Enter key toggles (0.1323ms)
+✔ Pet.Panel collapsible: Space key toggles (0.1103ms)
+✔ Pet.Panel collapsible: other keys do not toggle (0.0774ms)
+✔ Pet.Panel collapsible: petSetCollapsed expands without firing onToggle (0.0669ms)
+✔ Pet.Panel non-collapsible: unchanged (regression guard) (0.0801ms)
+✔ revealFieldSections: expands the owning section of an errored field (0.1187ms)
+✔ revealFieldSections: unknown / missing-panel field is a safe no-op (0.111ms)
+ℹ tests 17
+ℹ suites 0
+ℹ pass 17
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 49.8051

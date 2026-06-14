@@ -144,6 +144,13 @@
 .pet .panel-body { flex: 1; min-height: 0; padding: 12px; }
 .pet .panel-body.flush { padding: 0; overflow: hidden; border-radius: 0 0 calc(var(--r-panel) - 1px) calc(var(--r-panel) - 1px); }
 
+/* ── PET-114: collapsible config sections (collapse affordance only) ── */
+.pet .panel-head.collapsible { cursor: pointer; user-select: none; }
+.pet .panel-head .chevron { transition: transform .15s; }
+.pet .panel:not(.collapsed) .panel-head .chevron { transform: rotate(90deg); }
+.pet .panel.collapsed .panel-body { display: none; }
+.pet .panel-head.collapsible:focus-visible { outline: 2px solid var(--acc); outline-offset: -2px; border-radius: var(--r-panel) var(--r-panel) 0 0; }
+
 /* ── BADGES / PILLS ── */
 .pet .badge { display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 8px; border-radius: var(--r-chip); font-size: 10.5px; font-weight: 700; letter-spacing: .3px; font-family: var(--font-mono); white-space: nowrap; }
 .pet .badge .d { width: 6px; height: 6px; border-radius: 50%; }

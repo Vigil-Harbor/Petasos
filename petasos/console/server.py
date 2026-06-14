@@ -17,7 +17,7 @@ import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from petasos.console._config_meta import generate_config_metadata
+from petasos.console._config_meta import generate_config_metadata, generate_section_metadata
 from petasos.console._ring_buffer import RingBuffer
 from petasos.console._sse import SSEBroadcaster
 from petasos.console._validation import SessionIdError, sanitize_session_id
@@ -140,7 +140,8 @@ class ConsoleHandlers:
     async def get_config(self) -> dict[str, Any]:
         config_dict = self.pipeline.config.to_dict(redact_secrets=True)
         fields = generate_config_metadata()
-        return {"config": config_dict, "fields": fields}
+        sections = generate_section_metadata()
+        return {"config": config_dict, "fields": fields, "sections": sections}
 
     async def update_config(
         self, body: dict[str, Any]
@@ -161,6 +162,7 @@ class ConsoleHandlers:
         result = {
             "config": validated.to_dict(redact_secrets=True),
             "fields": generate_config_metadata(),
+            "sections": generate_section_metadata(),
         }
         if not persisted:
             result["warning"] = "Config applied in memory but failed to persist to disk"
