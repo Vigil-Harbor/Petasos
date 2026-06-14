@@ -409,6 +409,7 @@ async def test_config_persist_root_fallback_and_warns(
     caplog.clear()
     with caplog.at_level(logging.WARNING, logger="petasos.console.server"):
         result, errors = await handlers.update_config({"anonymize": True})
+    assert errors is None
     assert result is not None
     assert any(
         "profile resolution" in r.message.lower() and "phantom" in r.message.lower()
