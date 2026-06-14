@@ -20,6 +20,11 @@
       if (attrs.style) Object.assign(el.style, attrs.style);
       if (attrs.title) el.title = attrs.title;
       if (attrs.tabIndex != null) el.tabIndex = attrs.tabIndex;
+      // PET-114: role / aria-expanded are not plain DOM properties — route them
+      // through setAttribute so the collapsible Panel head exposes them. Additive;
+      // no existing caller sets them.
+      if (attrs.role) el.setAttribute("role", attrs.role);
+      if (attrs.ariaExpanded != null) el.setAttribute("aria-expanded", String(attrs.ariaExpanded));
       if (attrs.type) el.type = attrs.type;
       if (attrs.value != null) el.value = attrs.value;
       if (attrs.placeholder) el.placeholder = attrs.placeholder;
@@ -89,6 +94,9 @@
     flow: "M6 4h0 M6 20h0 M18 12h0 M6 6v12 M6 12h9 M14 9l4 3-4 3",
     caduceus: "M12 3v18 M9 5a3 3 0 006 0 M8 9h8 M9 9c-2 2-2 5 3 6 5-1 5-4 3-6 M7 21h10",
     x: "M6 6l12 12 M18 6L6 18",
+    // PET-114: collapse affordance. Points right (collapsed); CSS rotates it
+    // 90° to point down when the section is expanded.
+    chevron: "M9 6l6 6-6 6",
   };
 
   Pet.Icon = function (name) {
@@ -201,8 +209,27 @@
   };
 
   // ── Panel primitive ──
+  // PET-114 D5: collapsible support is additive and default-off. When
+  // `opts.collapsible` is falsy the builder is behaviorally unchanged, so the
+  // Observability / Playground / About callers are unaffected. Body visibility
+  // is driven solely by the `collapsed` class on the panel (CSS rule) — there is
+  // no imperative body.style.display write, so there is exactly one hide mechanism.
   Pet.Panel = function (opts) {
-    var head = Pet.h("div", { className: "panel-head" });
+    var collapsible = !!opts.collapsible;
+    var collapsed = collapsible && !!opts.collapsed;
+
+    var headAttrs = { className: "panel-head" + (collapsible ? " collapsible" : "") };
+    if (collapsible) {
+      headAttrs.role = "button";
+      headAttrs.tabIndex = 0;
+      headAttrs.ariaExpanded = !collapsed;
+    }
+    var head = Pet.h("div", headAttrs);
+    if (collapsible) {
+      // Leading chevron in an `.ic` flex slot so it inherits the head's vertical
+      // centering; the `chevron` class is the CSS rotation hook.
+      head.appendChild(Pet.h("span", { className: "ic chevron" }, Pet.Icon("chevron")));
+    }
     if (opts.icon) {
       var ic = Pet.h("span", { className: "ic" }, Pet.Icon(opts.icon));
       head.appendChild(ic);
@@ -223,8 +250,32 @@
       if (Array.isArray(opts.content)) opts.content.forEach(function (c) { if (c) body.appendChild(c); });
       else body.appendChild(opts.content);
     }
-    var panel = Pet.h("div", { className: "panel" }, head, body);
+    var panel = Pet.h("div", { className: "panel" + (collapsed ? " collapsed" : "") }, head, body);
     if (opts.style) Object.assign(panel.style, opts.style);
+
+    if (collapsible) {
+      // Imperative live-DOM mutation, not a re-render: flip the flag, drive the
+      // `collapsed` class on the panel, rewrite aria-expanded on the live head.
+      var applyState = function () {
+        panel.className = "panel" + (collapsed ? " collapsed" : "");
+        head.setAttribute("aria-expanded", String(!collapsed));
+      };
+      var toggle = function () {
+        collapsed = !collapsed;
+        applyState();
+        if (typeof opts.onToggle === "function") opts.onToggle(collapsed);
+      };
+      head.addEventListener("click", toggle);
+      head.addEventListener("keydown", function (e) {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); }
+      });
+      // Programmatic handle for the apply-error reveal (§3f): expand/collapse
+      // WITHOUT firing onToggle (a programmatic expansion is not a user choice).
+      panel.petSetCollapsed = function (c) {
+        collapsed = !!c;
+        applyState();
+      };
+    }
     return panel;
   };
 
@@ -242,6 +293,11 @@
     profiles: [],
     about: null,
     armed: true,  // PET-111: master Equipped/Unequipped bit; corrected by the mount fetch
+    // PET-114: per-session collapse choices { sectionKey: bool }. Written SOLELY
+    // by an onToggle (an explicit user collapse/expand) or the apply-error reveal,
+    // never seeded on render — so an upgrade from a stale all-expanded payload
+    // re-applies each section's real default_collapsed for untouched sections.
+    sectionCollapsed: {},
   };
 
   // ── API client ──
@@ -948,6 +1004,80 @@
     container.appendChild(wrapper);
   };
 
+  // PET-114: pure builder — turns the flat field list + registry section metadata
+  // into an ordered array of groups, each carrying a real boolean default_collapsed:
+  //   [ { key, label, default_collapsed, fields: [field, …] }, … ]
+  // Testable without the network (mirrors Pet.scannerHealthRows / mergeScanHistory).
+  // Degrades gracefully (D6): a stale backend with no `sections` falls back to
+  // field-appearance order, all expanded; a field whose section is absent from the
+  // registry (forward-compat new field) lands in a trailing expanded group keyed by
+  // its raw section — never silently dropped.
+  Pet.groupConfigSections = function (fields, sections) {
+    if (!Array.isArray(fields) || fields.length === 0) return [];
+
+    // Group fields by section, preserving field order and first-appearance order.
+    var bySection = {};
+    var appearance = [];
+    for (var i = 0; i < fields.length; i++) {
+      var f = fields[i];
+      if (!f || typeof f !== "object") continue;
+      var key = (f.section == null) ? "unknown" : f.section;
+      if (!Object.prototype.hasOwnProperty.call(bySection, key)) {
+        bySection[key] = [];
+        appearance.push(key);
+      }
+      bySection[key].push(f);
+    }
+
+    var groups = [];
+    var used = {};
+    if (Array.isArray(sections) && sections.length > 0) {
+      // Registry path: emit one group per registry entry in `order` (sort on the
+      // explicit value rather than trusting array order across the wire); skip
+      // registry entries with zero matching fields.
+      var ordered = sections.slice().sort(function (a, b) {
+        return ((a && a.order) || 0) - ((b && b.order) || 0);
+      });
+      ordered.forEach(function (s) {
+        if (!s || s.key == null) return;
+        var gk = s.key;
+        if (!Object.prototype.hasOwnProperty.call(bySection, gk)) return;
+        groups.push({
+          key: gk,
+          label: (s.label != null) ? s.label : gk,
+          default_collapsed: Boolean(s.default_collapsed),
+          fields: bySection[gk],
+        });
+        used[gk] = true;
+      });
+    }
+    // Trailing groups: any section not emitted above (unknown registry, or stale
+    // backend with no/empty sections), in field first-appearance order, expanded.
+    appearance.forEach(function (gk) {
+      if (used[gk]) return;
+      groups.push({ key: gk, label: gk, default_collapsed: false, fields: bySection[gk] });
+    });
+    return groups;
+  };
+
+  // PET-114 §3f: for each errored field, expand its owning section panel so the
+  // inline error is visible, and persist the expansion as a user-visible choice.
+  // Pure w.r.t. the DOM handles passed in; returns the set of section keys
+  // revealed. A field with no panel / unknown section is a safe no-op.
+  Pet.revealFieldSections = function (errorFields, fieldSection, panelsBySection) {
+    var revealed = {};
+    (errorFields || []).forEach(function (name) {
+      var sec = fieldSection[name];
+      var panel = sec && panelsBySection[sec];
+      if (panel && typeof panel.petSetCollapsed === "function") {
+        panel.petSetCollapsed(false);             // imperative expand (no onToggle)
+        Pet.state.sectionCollapsed[sec] = false;  // next re-render keeps it open
+        revealed[sec] = true;
+      }
+    });
+    return revealed;
+  };
+
   Pet.renderConfig = function (container) {
     container.innerHTML = "";
     var wrapper = Pet.h("div", { style: { display: "flex", flexDirection: "column", gap: "12px", height: "100%" } });
@@ -975,14 +1105,30 @@
       Pet.state.configFields = d.fields;
       formArea.innerHTML = "";
 
-      var sections = {};
+      var groups = Pet.groupConfigSections(d.fields, d.sections);
+      // Declared up front (not inside the loop) so the empty path leaves them
+      // safe-to-index {} objects for revealFieldSections (§3e).
+      var fieldSection = {};
+      var panelsBySection = {};
+      // never-throw (PET-99): skip a malformed entry rather than throwing on
+      // f.name before the empty-guard / recovery panel can render — mirrors the
+      // guard groupConfigSections already applies to the same d.fields.
       d.fields.forEach(function (f) {
-        if (!sections[f.section]) sections[f.section] = [];
-        sections[f.section].push(f);
+        if (!f || typeof f !== "object" || f.name == null) return;
+        fieldSection[f.name] = f.section;
       });
 
-      Object.keys(sections).forEach(function (section) {
-        var fields = sections[section];
+      if (groups.length === 0) {
+        // Expected-degraded, never-throw (PET-99): no fields, or a registry/field
+        // mismatch. Render a neutral panel rather than a blank area.
+        formArea.appendChild(Pet.Panel({
+          icon: "sliders", title: "Configuration",
+          content: Pet.h("div", { className: "mono", style: { fontSize: "12px", color: "var(--tx-faint)", padding: "8px" } }, "No configurable fields."),
+        }));
+      }
+
+      groups.forEach(function (group) {
+        var fields = group.fields;
         var fieldEls = fields.map(function (f) {
           var val = d.config[f.name];
           var control;
@@ -1043,9 +1189,19 @@
           );
         });
 
+        // Seed rule (§3b): read the user-choice map only if the key is present;
+        // otherwise the registry/builder default. Never write the map here.
+        var collapsed = Object.prototype.hasOwnProperty.call(Pet.state.sectionCollapsed, group.key)
+          ? Pet.state.sectionCollapsed[group.key]   // user chose
+          : group.default_collapsed;                 // registry/builder default
         var sectionPanel = Pet.Panel({
-          icon: "sliders", title: section, content: Pet.h("div", {}, fieldEls),
+          icon: "sliders", title: group.label,
+          collapsible: true, collapsed: collapsed,
+          onToggle: function (c) { Pet.state.sectionCollapsed[group.key] = c; },
+          content: Pet.h("div", {}, fieldEls),
         });
+        sectionPanel.dataset.section = group.key;
+        panelsBySection[group.key] = sectionPanel;
         formArea.appendChild(sectionPanel);
       });
 
@@ -1068,6 +1224,13 @@
                   if (!el || typeof el !== "object") return { field: "?", message: String(el) };
                   return { field: el.field || el.name || el.path || "?", message: el.message || el.msg || el.detail || String(el) };
                 });
+                // §3f: expand any default-collapsed section that owns an errored
+                // field BEFORE the .pet-field-err nodes are appended, so the
+                // inline error lands in a visible (un-hidden) body. Synchronous
+                // class removal in petSetCollapsed un-hides it this same tick.
+                Pet.revealFieldSections(
+                  details.map(function (e) { return e.field; }), fieldSection, panelsBySection
+                );
                 details.forEach(function (err) {
                   if (err.field === "?") return;
                   var fieldEl = null;
