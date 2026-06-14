@@ -180,8 +180,14 @@ class PetasosConfig:
                 "redaction_mode='hash' and anonymize=True"
             )
         for entity in self.pii_entities:
-            if not isinstance(entity, str) or not entity:
-                raise ValueError(f"pii_entities entries must be non-empty strings, got {entity!r}")
+            if not isinstance(entity, str) or not entity.strip():
+                raise ValueError(
+                    f"pii_entities entries must be non-empty, non-whitespace strings, "
+                    f"got {entity!r}"
+                )
+        # Trim surrounding whitespace so a " EMAIL_ADDRESS " entry isn't a silent no-op in
+        # the Stage 9 anonymize filter (which matches on the uppercased entity type, D7).
+        object.__setattr__(self, "pii_entities", tuple(e.strip() for e in self.pii_entities))
 
         # Presidio detection scoping (PET-109). presidio_entities: None = use the
         # scanner default; an explicit value replaces it wholesale (mirrors the
@@ -200,15 +206,18 @@ class PetasosConfig:
                     "presidio_entities must be non-empty when not None (use None for default)"
                 )
             for e in self.presidio_entities:
-                if not isinstance(e, str) or not e:
+                if not isinstance(e, str) or not e.strip():
                     raise ValueError(
-                        f"presidio_entities entries must be non-empty strings, got {e!r}"
+                        f"presidio_entities entries must be non-empty, non-whitespace strings, "
+                        f"got {e!r}"
                     )
-            # Normalize to Presidio's case-sensitive uppercase vocabulary so a
-            # lowercase/typo entry isn't a silent no-op (edge: "person" matches
-            # nothing in analyzer.analyze).
+            # Trim, then normalize to Presidio's case-sensitive uppercase vocabulary so a
+            # lowercase/typo/whitespace entry (e.g. "person", " URL ") isn't a silent no-op
+            # (it would match nothing in analyzer.analyze).
             object.__setattr__(
-                self, "presidio_entities", tuple(e.upper() for e in self.presidio_entities)
+                self,
+                "presidio_entities",
+                tuple(e.strip().upper() for e in self.presidio_entities),
             )
 
         # presidio_entities_extra: additive opt-ins; empty () is the default and is
@@ -225,14 +234,15 @@ class PetasosConfig:
                 self, "presidio_entities_extra", tuple(self.presidio_entities_extra)
             )
         for e in self.presidio_entities_extra:
-            if not isinstance(e, str) or not e:
+            if not isinstance(e, str) or not e.strip():
                 raise ValueError(
-                    f"presidio_entities_extra entries must be non-empty strings, got {e!r}"
+                    f"presidio_entities_extra entries must be non-empty, non-whitespace strings, "
+                    f"got {e!r}"
                 )
         object.__setattr__(
             self,
             "presidio_entities_extra",
-            tuple(e.upper() for e in self.presidio_entities_extra),
+            tuple(e.strip().upper() for e in self.presidio_entities_extra),
         )
 
         # presidio_score_threshold: finite and inclusive [0.0, 1.0]. 0.0 is the

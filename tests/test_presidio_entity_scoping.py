@@ -132,12 +132,27 @@ def test_config_round_trips_presidio_fields() -> None:
 
 
 def test_presidio_entities_casing_normalized() -> None:
+    # case-folded AND surrounding whitespace trimmed (a " URL " entry would otherwise
+    # be a silent no-op — it matches no recognizer in analyzer.analyze).
     cfg = PetasosConfig(
-        presidio_entities=("person", "url"),
-        presidio_entities_extra=("ip_address",),
+        presidio_entities=(" person ", "url"),
+        presidio_entities_extra=("ip_address ",),
+        pii_entities=(" EMAIL_ADDRESS ",),
     )
     assert cfg.presidio_entities == ("PERSON", "URL")
     assert cfg.presidio_entities_extra == ("IP_ADDRESS",)
+    assert cfg.pii_entities == ("EMAIL_ADDRESS",)  # trimmed (D7 filter uppercases at read)
+
+
+def test_whitespace_only_entity_entries_rejected() -> None:
+    # whitespace-only entries are non-empty but normalize to nothing — reject them
+    # rather than let them silently disable a security-sensitive detector/filter.
+    with pytest.raises(ValueError):
+        PetasosConfig(presidio_entities=("   ",))
+    with pytest.raises(ValueError):
+        PetasosConfig(presidio_entities_extra=("\t",))
+    with pytest.raises(ValueError):
+        PetasosConfig(pii_entities=("  ",))
 
 
 def test_structural_ids_subset_of_unsuppressible() -> None:
