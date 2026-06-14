@@ -155,6 +155,19 @@ class PetasosConfig:
     # Tool names treated as delegation spawns. Stored RAW here; the guard
     # normalizes them through its own _normalize_tool_name at construction.
     delegate_tool_names: tuple[str, ...] = ("delegate_task",)
+    # Tool names treated as egress sinks (outbound content: email/social/HTTP/webhook/
+    # clipboard-out). The PII-finding block applies ONLY to these tools; internal tools
+    # (write_file/terminal/execute_code/edit) are exempt. Stored RAW; matched raw by the
+    # plugin, mirroring READ_ONLY_TOOLS/_is_dangerous. Best-effort default names — operators
+    # must align to their host's tool registry (frontend-bindable, PET-112).
+    egress_sink_tools: tuple[str, ...] = (
+        "send_email",
+        "send_message",
+        "post_social",
+        "http_request",
+        "send_webhook",
+        "clipboard_write",
+    )
 
     def __post_init__(self) -> None:
         for fname in _BOOL_FIELDS:
@@ -390,6 +403,29 @@ class PetasosConfig:
                 raise ValueError(
                     f"delegate_tool_names entries must be non-empty strings, got {tool_name!r}"
                 )
+        # egress_sink_tools (PET-112): RAW tool names matched by the plugin's
+        # _is_egress_sink. Mirrors the delegate_tool_names template — bare-str reject
+        # (tuple("send_email") would char-explode and silently empty the set),
+        # list→tuple coerce, per-entry non-empty check — but an EMPTY tuple is allowed
+        # (an operator may disable egress PII blocking entirely; the plugin warns).
+        if isinstance(self.egress_sink_tools, str):
+            raise ValueError(
+                "egress_sink_tools must be an iterable of tool names, not a string, "
+                f"got {self.egress_sink_tools!r}"
+            )
+        if not isinstance(self.egress_sink_tools, tuple):
+            try:
+                object.__setattr__(self, "egress_sink_tools", tuple(self.egress_sink_tools))
+            except TypeError as exc:
+                raise ValueError(
+                    f"egress_sink_tools must be an iterable of non-empty strings, "
+                    f"got {self.egress_sink_tools!r}"
+                ) from exc
+        for tool_name in self.egress_sink_tools:
+            if not isinstance(tool_name, str) or not tool_name:
+                raise ValueError(
+                    f"egress_sink_tools entries must be non-empty strings, got {tool_name!r}"
+                )
         if self.frequency_weights is not None:
             for k, v in self.frequency_weights.items():
                 if not isinstance(k, str) or not k:
@@ -571,6 +607,8 @@ class PetasosConfig:
             filtered["pii_entities"] = tuple(filtered["pii_entities"])
         if "delegate_tool_names" in filtered and isinstance(filtered["delegate_tool_names"], list):
             filtered["delegate_tool_names"] = tuple(filtered["delegate_tool_names"])
+        if "egress_sink_tools" in filtered and isinstance(filtered["egress_sink_tools"], list):
+            filtered["egress_sink_tools"] = tuple(filtered["egress_sink_tools"])
         # PET-109: coerce only when a list — preserve None so the None round-trip holds.
         if "presidio_entities" in filtered and isinstance(filtered["presidio_entities"], list):
             filtered["presidio_entities"] = tuple(filtered["presidio_entities"])

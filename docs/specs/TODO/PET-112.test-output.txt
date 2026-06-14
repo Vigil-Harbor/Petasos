@@ -1,0 +1,26 @@
+PET-112 test gate — captured 2026-06-14T10:54:02Z
+Interpreter: Python 3.10.6  (deps-bearing local interpreter)
+
+=== Local gate (spec ## Test command) ===
+$ python -m pytest tests/test_reference_plugin_egress.py tests/test_config.py \
+    tests/test_config_meta.py tests/test_guard.py tests/test_subagent_plugin_wiring.py \
+    tests/test_plugin_init_logging.py tests/test_plugin_api_paths.py -q
+
+........................................................................ [ 37%]
+........................................................................ [ 74%]
+..................................................                       [100%]
+194 passed in 0.55s
+
+=== Full pre-PR gate (Done-when) ===
+$ python -m pytest -q --deselect "tests/test_console_validation.py::test_default_ignorable_rejected"
+  (deselect = pre-existing Unicode-13-vs-14 local failure, unrelated to PET-112)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+1543 passed, 40 skipped, 1 deselected, 1 xfailed, 68 warnings in 25.95s
+
+$ ruff check .
+All checks passed!
+$ ruff format --check .
+115 files already formatted
+$ mypy --strict .
+Success: no issues found in 115 source files

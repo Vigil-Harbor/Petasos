@@ -533,7 +533,7 @@ class TestScanParamsCatchAll:
     async def test_scan_params_exception_returns_unsafe(
         self, valid_key: str, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """_scan_params catch-all: Pipeline.inspect raising returns ((), True)."""
+        """_scan_params catch-all: Pipeline.inspect raising returns ((), True, True)."""
         cfg = _cfg()
         pipe = Pipeline(config=cfg)
         pipe.activate(valid_key)
