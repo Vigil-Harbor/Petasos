@@ -541,6 +541,101 @@ async def test_availability_returns_cause_discriminator(
 
 
 # ---------------------------------------------------------------------------
+# PET-108: honest health under a retryable/pending weakref load failure. The
+# scanner stubs expose the exact availability()/load_health() return shapes of
+# each truth-table row rather than suspending a real _do_load mid-flight —
+# deterministic and extras-free, consistent with the PET-103 stubs above.
+# ---------------------------------------------------------------------------
+
+
+class _PendingWeakrefLoadScanner(_StubScanner):
+    """Failed/pending weakref load: availability() truthy (the required modules
+    are present — that is the precondition that produced the weakref failure),
+    load_health() reports failed with a reason (PET-108 truth-table rows 2-3)."""
+
+    def __init__(self, name: str, *, reason: str | None) -> None:
+        super().__init__(name)
+        self._reason = reason
+
+    def availability(self) -> tuple[bool, str | None, str | None]:
+        return (True, None, None)
+
+    def load_health(self) -> tuple[bool, str | None]:
+        return (True, self._reason)
+
+
+class _RecoveredLoadScanner(_StubScanner):
+    """Recovered-after-retry row: availability() truthy and load_health() not
+    failed — the deterministic 'healthy' truth-table row (PET-108)."""
+
+    def availability(self) -> tuple[bool, str | None, str | None]:
+        return (True, None, None)
+
+    def load_health(self) -> tuple[bool, str | None]:
+        return (False, None)
+
+
+async def test_health_not_healthy_under_pending_weakref_failure() -> None:
+    """PET-108 (B/D6/D10): a failed/pending weakref load reports 'degraded',
+    never 'healthy', driven solely by load_health() — no scan error is seeded,
+    so this exercises the poll interleaved with the retry window."""
+    stub = _PendingWeakrefLoadScanner("test_ml", reason="weakref load failed; retry pending")
+    pipe = Pipeline(
+        scanners=[MinimalScanner(), stub],
+        config=PetasosConfig(fail_mode="open"),
+    )
+    health = pipe.scanner_health()
+    ml_entry = [h for h in health if h["name"] == "test_ml"][0]
+    assert ml_entry["status"] == "degraded"
+    assert ml_entry["status"] != "healthy"
+    assert ml_entry["last_error"] == "weakref load failed; retry pending"
+
+    # Empty-string crash reason is preserved (not replaced by a stale scan_err),
+    # pinning the `load_error is not None` provenance on the new branch the way
+    # test_health_error_last_error_is_crash_reason pins it on the 'error' branch.
+    empty_stub = _PendingWeakrefLoadScanner("test_ml2", reason="")
+    pipe2 = Pipeline(
+        scanners=[MinimalScanner(), empty_stub],
+        config=PetasosConfig(fail_mode="open"),
+    )
+    pipe2._last_scan_errors["test_ml2"] = "stale run-time scan error from before"
+    health2 = pipe2.scanner_health()
+    ml_entry2 = [h for h in health2 if h["name"] == "test_ml2"][0]
+    assert ml_entry2["status"] == "degraded"
+    assert ml_entry2["last_error"] == ""
+
+
+async def test_health_returns_healthy_after_recovery() -> None:
+    """PET-108: after recovery (load_health() -> (False, None), availability()
+    truthy), the scanner reports 'healthy' with no stale last_error. Stub-based,
+    so it cannot flake on the success-path store window (D6)."""
+    stub = _RecoveredLoadScanner("test_ml")
+    pipe = Pipeline(
+        scanners=[MinimalScanner(), stub],
+        config=PetasosConfig(fail_mode="open"),
+    )
+    health = pipe.scanner_health()
+    ml_entry = [h for h in health if h["name"] == "test_ml"][0]
+    assert ml_entry["status"] == "healthy"
+    assert ml_entry["last_error"] is None
+
+
+async def test_scanner_health_no_attributeerror_on_sibling_ml() -> None:
+    """PET-108 D5: scanner_health() does not raise when an _ml_scanners member
+    lacks load_health() (a stub with availability() but no load_health, mirroring
+    Presidio/LlamaFirewall); its entry is computed normally."""
+    stub = _AvailableScanner("sibling_ml", error=None)  # availability() but NO load_health
+    pipe = Pipeline(
+        scanners=[MinimalScanner(), stub],
+        config=PetasosConfig(fail_mode="open"),
+    )
+    health = pipe.scanner_health()  # must not raise AttributeError
+    ml_entry = [h for h in health if h["name"] == "sibling_ml"][0]
+    assert ml_entry["status"] == "healthy"
+    assert ml_entry["last_error"] is None
+
+
+# ---------------------------------------------------------------------------
 # PET-102: run_scan summary carries the field set the Observability tiles read
 # ---------------------------------------------------------------------------
 

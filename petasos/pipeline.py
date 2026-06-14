@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import logging
 import os
@@ -341,8 +342,6 @@ class Pipeline:
             probe_reason: str | None = None
             probe_cause: str | None = None
             if probe_fn is not None:
-                import contextlib
-
                 # PET-103 D4: arity-tolerant, fail-safe extraction. ``probe_result``
                 # is ``Any`` (``availability()`` is duck-typed) and MUST stay ``Any``
                 # — annotating it as a fixed-arity tuple makes the ``len`` guards
@@ -357,6 +356,22 @@ class Pipeline:
                     probe_reason = probe_result[1] if len(probe_result) > 1 else None
                     probe_cause = probe_result[2] if len(probe_result) > 2 else None
 
+            # PET-108 (D5/D10): consult load_health() defensively for llm_guard's
+            # retryable/pending load state, which availability() does not cover.
+            # getattr-guarded (siblings lack it), arity-tolerant, exception-
+            # suppressed — a missing/malformed/raising load_health leaves
+            # ``load_failed`` False → the scanner reports ``healthy``, not
+            # ``degraded`` (mirrors the availability() idiom above; the only
+            # in-tree implementer returns a guaranteed 2-tuple).
+            load_failed = False
+            load_error: str | None = None
+            lh = getattr(s, "load_health", None)
+            if lh is not None:
+                with contextlib.suppress(Exception):
+                    lh_result = lh()
+                    load_failed = bool(lh_result[0])
+                    load_error = lh_result[1] if len(lh_result) > 1 else None
+
             if not probe_ok:
                 if probe_cause == AVAILABILITY_CAUSE_LOAD_FAILED:
                     status = _HEALTH_STATUS_ERROR
@@ -367,6 +382,15 @@ class Pipeline:
                 # ``scan_err``. ``is not None`` (not ``or``) preserves an
                 # explicitly-empty crash reason. (PET-103)
                 last_error = probe_reason if probe_reason is not None else scan_err
+            elif load_failed:
+                # PET-108 D10: retryable/pending load failure → degraded. Ordered
+                # AFTER the terminal ``not probe_ok`` check so a cap-exhausted load
+                # (availability() → load_failed → probe_ok False) still wins
+                # ``error``; the two states partition cleanly by availability().
+                # ``is not None`` (not ``or``) preserves an explicitly-empty
+                # reason, matching the ``error`` branch's provenance rule.
+                status = _HEALTH_STATUS_DEGRADED
+                last_error = load_error if load_error is not None else scan_err
             elif open_until > _time.monotonic():
                 status = _HEALTH_STATUS_CIRCUIT_OPEN
                 last_error = scan_err
