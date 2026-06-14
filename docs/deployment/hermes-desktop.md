@@ -333,8 +333,12 @@ egress tool is still matched. Two operator-facing consequences:
   `_` is *both* the separator and a legal character inside server/tool names — so the
   boundary is not recoverable without the registry. Petasos therefore does **not**
   heuristically strip the single-underscore `mcp_` prefix (a greedy strip would
-  mis-segment real names and add false matches). Configure the **full wire name** in
-  both `egress_sink_tools` and your read-only set:
+  mis-segment real names and add false matches). Use the **full wire name** wherever
+  you name the tool — but note these are two separate mechanisms, not two config
+  steps. `egress_sink_tools` is an operator knob in `config.yaml` (below). The
+  read-only set is *code*: the plugin's `READ_ONLY_TOOLS` constant, canonicalized at
+  load into `_READ_ONLY_CANON`, which `_is_dangerous()` consults directly — customize
+  it by editing the plugin, not `config.yaml`.
 
   ```yaml
   # Right — full single-underscore wire name; its case/CamelCase/_tool variants
