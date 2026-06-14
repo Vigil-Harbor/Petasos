@@ -1,0 +1,100 @@
+PET-105 — local test gate (ship-spec Phase 3)
+Environment: Windows, Python 3.10.6 (petasos requires >=3.11; llamafirewall/structlog
+absent locally — the model-free probe + model-gated 1b tests self-skip here and run
+in the upgraded extras-llamafirewall CI lane). Verdict is produced by that lane.
+
+============================================================
+$ python -m pytest tests/test_llama_firewall_wrapper.py tests/test_llama_firewall_scanner.py -v --tb=short
+============================================================
+============================= test session starts =============================
+platform win32 -- Python 3.10.6, pytest-9.0.3, pluggy-1.6.0 -- C:\python310\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\zioni\Documents\Vigil-Harbor\PET-105-worktree
+configfile: pyproject.toml
+plugins: anyio-4.13.0, asyncio-1.3.0
+asyncio: mode=auto, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 57 items
+
+tests/test_llama_firewall_wrapper.py::TestProbeWeakrefUnderSlotsStdio::test_llamafirewall_no_weakref_during_load_under_slots_stdio SKIPPED [  1%]
+tests/test_llama_firewall_wrapper.py::TestShieldUnderSlotsStdio::test_llamafirewall_scan_under_slots_stdio_completes SKIPPED [  3%]
+tests/test_llama_firewall_scanner.py::TestUnit::test_name PASSED         [  5%]
+tests/test_llama_firewall_scanner.py::TestUnit::test_protocol_conformance PASSED [  7%]
+tests/test_llama_firewall_scanner.py::TestUnit::test_import_failure_returns_error PASSED [  8%]
+tests/test_llama_firewall_scanner.py::TestUnit::test_import_failure_message PASSED [ 10%]
+tests/test_llama_firewall_scanner.py::TestUnit::test_init_failure_returns_error PASSED [ 12%]
+tests/test_llama_firewall_scanner.py::TestUnit::test_no_components_enabled PASSED [ 14%]
+tests/test_llama_firewall_scanner.py::TestUnit::test_no_components_duration_tracked PASSED [ 15%]
+tests/test_llama_firewall_scanner.py::TestUnit::test_single_component_enabled_no_error PASSED [ 17%]
+tests/test_llama_firewall_scanner.py::TestUnit::test_all_disabled_warns_on_load PASSED [ 19%]
+tests/test_llama_firewall_scanner.py::TestUnit::test_default_constructor PASSED [ 21%]
+tests/test_llama_firewall_scanner.py::TestUnit::test_thread_safety PASSED [ 22%]
+tests/test_llama_firewall_scanner.py::TestUnit::test_duration_tracking PASSED [ 24%]
+tests/test_llama_firewall_scanner.py::TestUnit::test_exception_in_scan_returns_error PASSED [ 26%]
+tests/test_llama_firewall_scanner.py::TestUnit::test_empty_string PASSED [ 28%]
+tests/test_llama_firewall_scanner.py::TestAvailabilityProbe::test_unavailable_when_blocked PASSED [ 29%]
+tests/test_llama_firewall_scanner.py::TestAvailabilityProbe::test_available_with_mock PASSED [ 31%]
+tests/test_llama_firewall_scanner.py::TestAvailabilityProbe::test_terminal_error_returns_unavailable PASSED [ 33%]
+tests/test_llama_firewall_scanner.py::TestProbeIsolation::test_probe_isolation_hermetic PASSED [ 35%]
+tests/test_llama_firewall_scanner.py::TestPromptGuardPrereqPredicate::test_disabled_returns_none PASSED [ 36%]
+tests/test_llama_firewall_scanner.py::TestPromptGuardPrereqPredicate::test_model_present_returns_none PASSED [ 38%]
+tests/test_llama_firewall_scanner.py::TestPromptGuardPrereqPredicate::test_token_via_env_returns_none PASSED [ 40%]
+tests/test_llama_firewall_scanner.py::TestPromptGuardPrereqPredicate::test_token_via_file_returns_none PASSED [ 42%]
+tests/test_llama_firewall_scanner.py::TestPromptGuardPrereqPredicate::test_no_model_no_token_returns_error PASSED [ 43%]
+tests/test_llama_firewall_scanner.py::TestPromptGuardPrereqPredicate::test_empty_token_treated_as_absent PASSED [ 45%]
+tests/test_llama_firewall_scanner.py::TestPromptGuardPrereqPredicate::test_polluted_tilde_hf_home_expanded PASSED [ 47%]
+tests/test_llama_firewall_scanner.py::TestPromptGuardPrereqPredicate::test_save_pretrained_layout_returns_none PASSED [ 49%]
+tests/test_llama_firewall_scanner.py::TestFailFast::test_no_token_fails_fast PASSED [ 50%]
+tests/test_llama_firewall_scanner.py::TestStdinTripwire::test_scan_window_catches_input PASSED [ 52%]
+tests/test_llama_firewall_scanner.py::TestStdinTripwire::test_construction_window_catches_input PASSED [ 54%]
+tests/test_llama_firewall_scanner.py::TestStdinTripwire::test_nonblocking_guard_returns_warming_up PASSED [ 56%]
+tests/test_llama_firewall_scanner.py::TestStdinTripwire::test_warm_trigger_regression PASSED [ 57%]
+tests/test_llama_firewall_scanner.py::TestCrossAxisRecovery::test_blocked_to_prereq_to_healthy PASSED [ 59%]
+tests/test_llama_firewall_scanner.py::TestMockFunctional::test_block_produces_finding PASSED [ 61%]
+tests/test_llama_firewall_scanner.py::TestMockFunctional::test_allow_no_finding PASSED [ 63%]
+tests/test_llama_firewall_scanner.py::TestMockFunctional::test_confidence_clamped_high PASSED [ 64%]
+tests/test_llama_firewall_scanner.py::TestMockFunctional::test_confidence_clamped_low PASSED [ 66%]
+tests/test_llama_firewall_scanner.py::TestMockFunctional::test_direction_inbound_uses_user_message PASSED [ 68%]
+tests/test_llama_firewall_scanner.py::TestMockFunctional::test_direction_outbound_uses_assistant_message PASSED [ 70%]
+tests/test_llama_firewall_scanner.py::TestMockFunctional::test_multiple_components PASSED [ 71%]
+tests/test_llama_firewall_scanner.py::TestMockFunctional::test_partial_failure_preserves_findings PASSED [ 73%]
+tests/test_llama_firewall_scanner.py::TestMockFunctional::test_non_allow_decision_produces_finding PASSED [ 75%]
+tests/test_llama_firewall_scanner.py::TestMockFunctional::test_none_score_defaults_to_one PASSED [ 77%]
+tests/test_llama_firewall_scanner.py::TestMockFunctional::test_fail_once_semantics PASSED [ 78%]
+tests/test_llama_firewall_scanner.py::TestIntegration::test_prompt_guard_detects_jailbreak SKIPPED [ 80%]
+tests/test_llama_firewall_scanner.py::TestIntegration::test_prompt_guard_clean_message SKIPPED [ 82%]
+tests/test_llama_firewall_scanner.py::TestIntegration::test_code_shield_detects_unsafe SKIPPED [ 84%]
+tests/test_llama_firewall_scanner.py::TestIntegration::test_alignment_check_cot SKIPPED [ 85%]
+tests/test_llama_firewall_scanner.py::TestIntegration::test_direction_inbound SKIPPED [ 87%]
+tests/test_llama_firewall_scanner.py::TestIntegration::test_direction_outbound SKIPPED [ 89%]
+tests/test_llama_firewall_scanner.py::TestIntegration::test_multiple_components_enabled SKIPPED [ 91%]
+tests/test_llama_firewall_scanner.py::TestIntegration::test_finding_field_completeness SKIPPED [ 92%]
+tests/test_llama_firewall_scanner.py::TestIntegration::test_backend_exception_partial_findings SKIPPED [ 94%]
+tests/test_llama_firewall_scanner.py::TestIntegration::test_confidence_range SKIPPED [ 96%]
+tests/test_llama_firewall_scanner.py::TestIntegration::test_corpus SKIPPED [ 98%]
+tests/test_llama_firewall_scanner.py::TestIntegration::test_async_correctness SKIPPED [100%]
+
+======================= 43 passed, 14 skipped in 0.17s ========================
+
+============================================================
+$ ruff check .
+============================================================
+All checks passed!
+
+============================================================
+$ ruff format --check .
+============================================================
+109 files already formatted
+
+============================================================
+$ mypy --strict .
+============================================================
+Success: no issues found in 109 source files
+
+============================================================
+$ python -m pytest --deselect "tests/test_console_validation.py::test_default_ignorable_rejected" -q
+   (full suite; deselect = the pre-existing Unicode-13 failure, unrelated to PET-105;
+    spec note guessed test_normalize.py — real node confirmed at implementation time)
+============================================================
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+1440 passed, 39 skipped, 1 deselected, 1 xfailed, 52 warnings in 21.81s

@@ -443,6 +443,59 @@ reporting healthy (pre-PET-87) or `unavailable` (post-PET-87).
 sibling ML backend ever logs through a stream-weakref path, apply the
 same proxy pattern.
 
+### LlamaFirewall — the same probe, applied (PET-105)
+
+`LlamaFirewallScanner` loads `llamafirewall` / PromptGuard on the same
+in-process path under Hermes's `_SafeWriter`, so PET-105 asks the
+pre-registered follow-through question above: *does `llamafirewall` route
+a log line through the structlog stream-weakref path?* It is answered by a
+**model-free canary** —
+`tests/test_llama_firewall_wrapper.py::TestProbeWeakrefUnderSlotsStdio` — a
+fresh subprocess that installs a slots-only, non-`__weakref__` stdout from
+interpreter start and drives `LlamaFirewallScanner().scan()` with no HF
+token (the load gate-returns at the PromptGuard prereq check before any
+model load), then reports `OK`/`WEAKREF`. It runs on the shipping PR via
+the upgraded non-skipping `extras-llamafirewall` lane
+(`PETASOS_REQUIRE_LLAMAFIREWALL=1`, path-filtered `pull_request`), so the
+answer cannot silently skip, and it stands as a canary: a future
+`llamafirewall` upgrade that begins logging through structlog's default
+`PrintLogger` re-trips it in CI.
+
+**Verdict: not exposed (DE outcome 3 — import-window clean; model-gated
+residual filed).** The upgraded `extras-llamafirewall` lane (PR #84, run
+`27490922095`) ran the probe **GREEN — `OK EMITTED=0`**: under a slots-only,
+non-`__weakref__` stdout the import/load window raised no weakref and emitted
+**zero bytes** (the scan returned the expected PromptGuard-prereq error,
+confirming the load gate-returned before any model build). The load-bearing
+*reason*, captured by an introspection step in the same lane (not assumed):
+
+- `llamafirewall` logs through **stdlib `logging`** —
+  `logging.getLogger("llamafirewall")` is a plain logger, no custom handlers,
+  `propagate=True`. Stdlib logging never takes a weak reference to its stream,
+  unlike structlog's `PrintLogger`.
+- **`structlog` is not in the `petasos[llamafirewall]` dependency closure**
+  (`import structlog` → `ModuleNotFoundError` in the lane). The `WRITE_LOCKS`
+  weak-keyed registry that detonates on `_SafeWriter` is therefore absent — the
+  crash class is categorically impossible for `llamafirewall`, in *any* window,
+  not only the one the model-free probe exercised.
+
+So **no `petasos/` shield is ported**: porting the PET-92 proxy on a parity
+assumption is exactly the unverified-guess failure mode PET-92 → PET-104
+exposed. The canary (`TestProbeWeakrefUnderSlotsStdio`) now pins the property —
+a future `llamafirewall` upgrade that routes logging through structlog's
+default `PrintLogger` (or any weakref-keyed-stream path) re-trips it RED in the
+non-skipping lane instead of silently re-creating the production-dead failure.
+
+**Residual (because `EMITTED=0`):** the model-free probe did not exercise a
+*construction/scan-time* emission — that path needs the HF-gated PromptGuard
+model. The mechanism reason above already covers every window, but the
+*empirical* construction/scan-window check is model-gated: the shipped gated
+test `test_llamafirewall_scan_under_slots_stdio_completes` settles it where the
+model exists (gibson per PET-97), tracked as **PET-110**. (`EMITTED` was also
+captured under `HF_HUB_OFFLINE=1`, which can itself suppress a telemetry
+import-time line, so `EMITTED=0` is not by itself proof of no *online*
+import-time emission — PET-110's online run closes that too.)
+
 ---
 
 ## Summary: Integration Surface Ranking
