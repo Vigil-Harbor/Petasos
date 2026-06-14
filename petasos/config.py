@@ -19,6 +19,7 @@ _BOOL_FIELDS: frozenset[str] = frozenset(
         "map_homoglyphs",
         "detect_rtl_override",
         "fold_leet",
+        "decode_encoded_payloads",
         "anonymize",
         "frequency_enabled",
         "escalation_enabled",
@@ -51,6 +52,11 @@ class PetasosConfig:
     map_homoglyphs: bool = True
     detect_rtl_override: bool = True
     fold_leet: bool = True
+    # Decode-and-rescan reversible encodings (base64/hex/ROT13) inside the
+    # built-in syntactic scanner (PET-98). Unlike fold_leet, this toggle is
+    # threaded into MinimalScanner's constructor, so turning it off genuinely
+    # disables the decode stage in every pipeline build path.
+    decode_encoded_payloads: bool = True
 
     # Scanning
     direction: Direction = "inbound"
