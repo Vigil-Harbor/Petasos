@@ -19,6 +19,13 @@ DEFAULT_FREQUENCY_WEIGHTS: dict[str, float] = {
     "petasos.syntactic.injection.*": 10.0,
     "petasos.syntactic.structural.*": 5.0,
     "petasos.syntactic.encoding.*": 3.0,
+    # PET-94 Decision 3.2 — encoding parity (both are suppressible content-shaped
+    # heuristics). Bound: <=5 command rules fire per scan x 3.0 = 15 points, ==
+    # default tier1_threshold and well below the 50.0 tier3 termination floor, so
+    # a single shell-heavy param cannot terminate a session. The weight is a
+    # documented constraint, not a free parameter: a nudge above 3.0 would cross
+    # the maximally-stacked single scan into tier2 territory.
+    "petasos.syntactic.command.*": 3.0,
 }
 
 _RATE_LIMIT_WINDOW_SECONDS: float = 60.0
