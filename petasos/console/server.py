@@ -14,10 +14,10 @@ import json
 import logging
 import time
 import uuid
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from petasos.console._config_meta import generate_config_metadata, generate_section_metadata
+from petasos.console._paths import resolve_hermes_config_path
 from petasos.console._ring_buffer import RingBuffer
 from petasos.console._sse import SSEBroadcaster
 from petasos.console._validation import SessionIdError, sanitize_session_id
@@ -34,15 +34,6 @@ _MAX_SCAN_TEXT_LEN = 100_000
 _VALID_DIRECTIONS = frozenset({"inbound", "outbound"})
 
 
-def _hermes_config_path() -> Path:
-    import os
-    import platform
-
-    if platform.system() == "Windows":
-        return Path(os.environ.get("LOCALAPPDATA", "")) / "hermes" / "config.yaml"
-    return Path.home() / ".hermes" / "config.yaml"
-
-
 def _persist_config(validated_config: Any) -> bool:
     """Write the petasos: section back to Hermes config.yaml.
 
@@ -53,7 +44,10 @@ def _persist_config(validated_config: Any) -> bool:
 
     import yaml
 
-    config_path = _hermes_config_path()
+    res = resolve_hermes_config_path()
+    if res.warning is not None:
+        _logger.warning("Hermes profile resolution: %s", res.warning)
+    config_path = res.path
     if not config_path.exists():
         _logger.warning("Cannot persist config — %s not found", config_path)
         return False
