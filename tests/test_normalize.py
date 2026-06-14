@@ -8,6 +8,7 @@ from petasos.normalize import (
     INVISIBLE_NON_CF,
     RTL_OVERRIDES,
     _is_strippable,
+    canonicalize_tool_name,
     normalize,
 )
 
@@ -470,3 +471,37 @@ class TestLeetFold:
         assert once.normalized == text
         twice = normalize(once.normalized)
         assert twice.normalized == once.normalized
+
+
+class TestCanonicalizeToolName:
+    """PET-118: the alias-free canonical primitive shared by the guard's normalizer and
+    the reference plugin's classification."""
+
+    def test_canonicalize_strips_namespace_and_case(self) -> None:
+        for raw in ("mcp__acme__Send_Email", "HERMES__Send_Email", "SEND_EMAIL"):
+            assert canonicalize_tool_name(raw) == "send_email"
+
+    def test_canonicalize_folds_homoglyph(self) -> None:
+        # Cyrillic 'е' (U+0435) -> ASCII 'e' via _HOMOGLYPH_TABLE (explicit-char mapping,
+        # Unicode-version-independent). NOTE: the 2nd char below is Cyrillic 'е', not ASCII.
+        assert canonicalize_tool_name("sеnd_email") == "send_email"
+
+    def test_canonicalize_is_alias_free(self) -> None:
+        # These all collapse to `browser` under the guard's alias layer; canonicalize must
+        # NOT apply aliases (D-CANON), so each maps to itself.
+        assert canonicalize_tool_name("web_search") == "web_search"
+        assert canonicalize_tool_name("http_request") == "http_request"
+        assert canonicalize_tool_name("web_fetch") == "web_fetch"
+
+    def test_canonicalize_single_strip(self) -> None:
+        # Deliberate SINGLE namespace strip (D6) — not a fixed-point loop.
+        assert canonicalize_tool_name("mcp__mcp__tool") == "tool"  # inner mcp = server seg
+        assert (
+            canonicalize_tool_name("mcp__acme__mcp__evil__send_email") == "mcp__evil__send_email"
+        )
+        # Identity on an already-canonical name keeps the contract unambiguous.
+        assert canonicalize_tool_name("send_email") == "send_email"
+
+    def test_canonicalize_empty_and_prefix_only(self) -> None:
+        for raw in ("", "   ", "mcp__acme__"):
+            assert canonicalize_tool_name(raw) == ""

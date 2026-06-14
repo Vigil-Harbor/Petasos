@@ -30,6 +30,7 @@ from petasos import (
     Severity,
     ToolCallGuard,
 )
+from petasos.normalize import canonicalize_tool_name
 
 if TYPE_CHECKING:
     import types
@@ -162,6 +163,98 @@ def test_pii_finding_blocks_egress_tool(monkeypatch: pytest.MonkeyPatch) -> None
     )
     assert out_high is not None and out_high["action"] == "block"
     assert out_high["message"].startswith("Security finding (PII, HIGH)")
+
+
+# ---------------------------------------------------------------------------
+# PET-118: classification canonicalizes to the guard's shared form
+# ---------------------------------------------------------------------------
+
+# Egress set holding only the canonical form of "send_email" (already canonical) — the
+# variant tests prove a namespaced/cased/homoglyph name still matches it.
+_SEND_EMAIL_CANON = frozenset({canonicalize_tool_name("send_email")})
+
+
+def test_namespaced_egress_variant_still_pii_blocked(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Regression for PET-118: a namespaced / cased / homoglyph variant of a configured egress
+    # tool still trips branch-3 PII-egress blocking (canonical membership, not raw match).
+    variants = (
+        "mcp__acme__Send_Email",  # namespace prefix + mixed case
+        "SEND_EMAIL",  # upper case
+        "sеnd_email",  # Cyrillic 'е' (U+0435) homoglyph -> folds to ASCII 'e'
+    )
+    for variant in variants:
+        out = _drive(
+            monkeypatch,
+            variant,
+            _guard_result(findings=(_pii(Severity.CRITICAL),), param_scan_unsafe=True),
+            egress=_SEND_EMAIL_CANON,
+        )
+        assert out is not None and out["action"] == "block", f"{variant!r} should block"
+        assert out["message"].startswith("Security finding (PII, CRITICAL)")
+
+
+def test_namespaced_readonly_variant_not_dangerous(monkeypatch: pytest.MonkeyPatch) -> None:
+    # PET-118: case/homoglyph/single-`__`-namespace variants of READ_ONLY members canonicalize
+    # back into the read-only set -> not dangerous -> no false-positive quarantine.
+    ref = _import_reference_plugin()
+    # (a) bare double-`__` namespace over a bare read-only member (web_search).
+    assert ref._is_dangerous("mcp__vigil__web_search") is False
+    # (b) a case variant of an actual single-underscore mcp_* member.
+    assert ref._is_dangerous("MCP_VIGIL_HARBOR_MEMORY_SEARCH") is False
+    # _pre_tool_call short-circuits to None at the read-only gate, even with CRITICAL PII.
+    out = _drive(
+        monkeypatch,
+        "mcp__vigil__web_search",
+        _guard_result(findings=(_pii(Severity.CRITICAL),), param_scan_unsafe=True),
+    )
+    assert out is None
+
+
+def test_readonly_wireform_limitation() -> None:
+    # PET-118 D-READONLY-FORMS (honest pin): the hyphenated double-`__` wire form does NOT
+    # canonicalize onto the stored single-underscore member, so it currently reads dangerous.
+    # Deferred to the D-VERIFY follow-up (PET-121); update this test if the stored forms align.
+    ref = _import_reference_plugin()
+    assert ref._is_dangerous("mcp__vigil-harbor__memory_search") is True
+
+
+def test_alias_collapse_does_not_reclassify(monkeypatch: pytest.MonkeyPatch) -> None:
+    # PET-118 D-CANON: classification skips the guard's alias layer. web_search aliases to
+    # `browser` alongside http_request/web_fetch, but classification must NOT pull web_search
+    # into the egress set nor out of read-only.
+    ref = _import_reference_plugin()
+    egress_canon = frozenset(canonicalize_tool_name(t) for t in PetasosConfig().egress_sink_tools)
+    assert "http_request" in egress_canon  # sanity: the alias sibling IS a default egress sink
+    monkeypatch.setattr(ref, "_egress_sink_tools", egress_canon)
+    assert ref._is_egress_sink("web_search") is False
+    assert ref._is_dangerous("web_search") is False
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "send_email",
+        "SEND_EMAIL",
+        "mcp__acme__send_email",
+        "sеnd_email",  # Cyrillic 'е' homoglyph
+        "web_search",
+        "mcp__vigil__web_search",
+        "read_file",
+        "write_file",
+        "",
+    ],
+)
+def test_classification_shares_guard_canonical_form(
+    monkeypatch: pytest.MonkeyPatch, raw: str
+) -> None:
+    # PET-118: _is_egress_sink / _is_dangerous agree exactly with canonical membership — no
+    # divergent normalizer hides between the classifier and canonicalize_tool_name.
+    ref = _import_reference_plugin()
+    egress_canon = frozenset(canonicalize_tool_name(t) for t in PetasosConfig().egress_sink_tools)
+    monkeypatch.setattr(ref, "_egress_sink_tools", egress_canon)
+    canon = canonicalize_tool_name(raw)
+    assert ref._is_egress_sink(raw) == (canon in egress_canon)
+    assert ref._is_dangerous(raw) == (canon not in ref._READ_ONLY_CANON)
 
 
 # ---------------------------------------------------------------------------
@@ -400,14 +493,19 @@ def test_deferred_init_populates_egress_set(monkeypatch: pytest.MonkeyPatch) -> 
     _prep_init(ref, monkeypatch)
     monkeypatch.setattr(ref, "_config", {"egress_sink_tools": ["send_email"]})
     ref._deferred_init()
-    assert ref._egress_sink_tools == frozenset({"send_email"})
+    # PET-118: the set is now the CANONICALIZED config (equal to the literals today because
+    # the defaults are already canonical, but the assertion states the post-PET-118 contract
+    # and catches a future non-canonical default).
+    assert ref._egress_sink_tools == frozenset(canonicalize_tool_name(t) for t in ["send_email"])
 
     # Default config → the non-empty default set (catches the F-4 global-shadow bug).
     ref2 = _import_reference_plugin()
     _prep_init(ref2, monkeypatch)
     monkeypatch.setattr(ref2, "_config", {})
     ref2._deferred_init()
-    assert ref2._egress_sink_tools == frozenset(PetasosConfig().egress_sink_tools)
+    assert ref2._egress_sink_tools == frozenset(
+        canonicalize_tool_name(t) for t in PetasosConfig().egress_sink_tools
+    )
     assert len(ref2._egress_sink_tools) > 0
 
 

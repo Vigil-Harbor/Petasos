@@ -1,16 +1,20 @@
 from __future__ import annotations
 
 import logging
-import re
 import threading
 import time
-import unicodedata
 from collections import deque
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
-from petasos.normalize import _HOMOGLYPH_TABLE
+# PET-118: canonicalize_tool_name is the shared alias-free primitive used by
+# _normalize_tool_name below. _NAMESPACE_PREFIX_RE's single definition now lives in
+# normalize.py; the redundant `as` alias re-exports it explicitly (for --strict mypy's
+# no-implicit-reexport and for tests) so existing
+# `from petasos.session.guard import _NAMESPACE_PREFIX_RE` imports keep resolving.
+from petasos.normalize import _NAMESPACE_PREFIX_RE as _NAMESPACE_PREFIX_RE
+from petasos.normalize import canonicalize_tool_name
 from petasos.session._safe_json import safe_json_dumps
 from petasos.session.escalation import derive_tier, evaluate_tier, max_tier
 
@@ -38,8 +42,6 @@ DEFAULT_TOOL_ALIASES: MappingProxyType[str, str] = MappingProxyType(
         "http_request": "browser",
     }
 )
-
-_NAMESPACE_PREFIX_RE = re.compile(r"^(?:mcp__[a-zA-Z0-9_]+?__|hermes__)")
 
 _MAX_PARAM_TEXT_LEN = 1_000_000
 
@@ -285,11 +287,11 @@ class ToolCallGuard:
         )
 
     def _normalize_tool_name(self, tool_name: str) -> str:
-        name = tool_name.strip()
-        name = unicodedata.normalize("NFKC", name)
-        name = name.translate(_HOMOGLYPH_TABLE)
-        name = name.casefold()
-        name = _NAMESPACE_PREFIX_RE.sub("", name)
+        # PET-118: canonicalize (strip→NFKC→homoglyph→casefold→ns-strip→strip) is the
+        # alias-free shared primitive; alias resolution below layers on top of it. The
+        # plugin's classification reuses canonicalize_tool_name WITHOUT this alias layer,
+        # so the two normalizers never diverge (D-CANON / D-EQUIV).
+        name = canonicalize_tool_name(tool_name)
         if self._profile and self._profile.tool_alias_map:
             combined = {**DEFAULT_TOOL_ALIASES, **self._profile.tool_alias_map}
         else:

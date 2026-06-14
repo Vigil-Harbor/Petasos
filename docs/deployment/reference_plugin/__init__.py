@@ -24,6 +24,7 @@ import uuid
 from typing import Any
 
 from petasos._types import Severity  # PET-112: dep-light (enum + dataclasses, no ML imports)
+from petasos.normalize import canonicalize_tool_name  # PET-118: dep-light (re + unicodedata)
 
 logger = logging.getLogger("petasos.plugin")
 
@@ -86,9 +87,20 @@ READ_ONLY_TOOLS = frozenset(
     }
 )
 
+# PET-118: derived sibling canonical set. READ_ONLY_TOOLS stays the immutable raw
+# source-of-truth; _READ_ONLY_CANON is canonicalized at MODULE LOAD (not _deferred_init)
+# because _is_dangerous runs in _fallback_pre_tool_call during the init window, before
+# _deferred_init completes. The same `if c` empty-drop the egress init uses applies here:
+# a name that canonicalizes away (a future homoglyph-only / prefix-only constant) never
+# enters the set, so _is_dangerous("") stays True (fail-secure) unconditionally — no
+# `assert`, which `python -O` / PYTHONOPTIMIZE would strip. Every current entry is plain
+# ASCII and canonicalizes non-empty, so the filter is a no-op today, a regression guard
+# tomorrow.
+_READ_ONLY_CANON = frozenset(c for c in (canonicalize_tool_name(t) for t in READ_ONLY_TOOLS) if c)
+
 
 def _is_dangerous(tool_name: str) -> bool:
-    return tool_name not in READ_ONLY_TOOLS
+    return canonicalize_tool_name(tool_name) not in _READ_ONLY_CANON
 
 
 # ---------------------------------------------------------------------------
@@ -127,14 +139,15 @@ def _worst(findings):
     return min(findings, key=lambda f: (_SEVERITY_RANK.get(f.severity, 999), -f.confidence))
 
 
-# Resolved in _deferred_init from config.egress_sink_tools; raw membership mirrors
-# _is_dangerous. Written once under _init_lock before _initialized flips; read lock-free in
-# _pre_tool_call (which only runs post-init). Atomic name rebind — no torn read under the GIL.
+# Resolved in _deferred_init from config.egress_sink_tools, canonicalized once at init
+# (PET-118); canonical membership mirrors _is_dangerous. Written once under _init_lock
+# before _initialized flips; read lock-free in _pre_tool_call (which only runs post-init).
+# Atomic name rebind — no torn read under the GIL.
 _egress_sink_tools: frozenset[str] = frozenset()
 
 
 def _is_egress_sink(tool_name: str) -> bool:
-    return tool_name in _egress_sink_tools
+    return canonicalize_tool_name(tool_name) in _egress_sink_tools
 
 
 # ---------------------------------------------------------------------------
@@ -394,10 +407,19 @@ def _deferred_init() -> None:
             # binds a function-local and leaves the module frozenset empty forever,
             # silently disabling egress PII blocking.
             global _egress_sink_tools
-            _egress_sink_tools = frozenset(config.egress_sink_tools)
+            # PET-118: canonicalize once here through the SAME shared primitive the guard
+            # uses, mirroring the delegate_tool_names template (canonicalize, drop names
+            # that normalize away via `if c`, warn when the resolved set is empty). A name
+            # that is purely a namespace prefix (e.g. "mcp__acme__") passes config
+            # validation but canonicalizes to "" — the `if c` filter drops it so the set
+            # never contains "" (no false match in _is_egress_sink).
+            _egress_sink_tools = frozenset(
+                c for c in (canonicalize_tool_name(t) for t in config.egress_sink_tools) if c
+            )
             if not _egress_sink_tools:
                 logger.warning(
-                    "egress_sink_tools is empty — PII will not be blocked on any egress tool"
+                    "egress_sink_tools is empty (or all names canonicalized away) — "
+                    "PII will not be blocked on any egress tool"
                 )
 
             scanner_names = [s.name for s in scanners]
