@@ -1,19 +1,36 @@
-# PET-96: weekly lane with the real llamafirewall extra installed, so
-# "real package present" stops being a local-only configuration.
-# TestIntegration self-skips via _skip_integration (no HF token/model in CI).
+# PET-105: non-skipping lane with the real llamafirewall extra installed, so the
+# model-free structlog stream-weakref probe (PET-92 class, ported question) runs
+# on the shipping PR instead of silently self-skipping. Upgraded from PET-96's
+# cron-only/self-skipping lane: a path-filtered `pull_request` trigger + a
+# `PETASOS_REQUIRE_LLAMAFIREWALL=1` collection guard (tests/conftest.py) so, with
+# the extra present, `TestProbeWeakrefUnderSlotsStdio` must run, never skip (spec
+# DA/DF). The model-free probe (spec D1) is what makes this runnable on PRs with
+# no HF secret. Weekly cron + workflow_dispatch are kept for a token-bearing run.
 name: extras-llamafirewall
 on:
+  pull_request:
+    paths:
+      - "petasos/scanners/llama_firewall.py"
+      - "tests/test_llama_firewall_wrapper.py"
+      - "tests/conftest.py" # home of the fail-loud collection guard this lane arms
   schedule:
-    - cron: "23 6 * * 1" # Mondays 06:23 UTC — off-peak, off-minute
+    - cron: "23 6 * * 1" # Mondays 06:23 UTC — off-peak, off-minute, distinct from extras-llm-guard
   workflow_dispatch:
 jobs:
   scanner-tests:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      PETASOS_REQUIRE_LLAMAFIREWALL: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
       - run: pip install -e ".[llamafirewall,dev]"
-      - run: pytest tests/test_llama_firewall_scanner.py -v --tb=short
+      # Run ONLY the wrapper file (mirrors extras-llm-guard.yml): the model-free
+      # probe class runs (the guard enforces it); model-gated tests self-skip via
+      # the imported _skip_integration (no HF token here). Keeps the scanner file's
+      # model-gated TestIntegration out of the lane so it can't collide with the
+      # guard's class-name filter and the two files never share a pytest process.
+      - run: pytest tests/test_llama_firewall_wrapper.py -v --tb=short

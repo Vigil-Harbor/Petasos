@@ -443,6 +443,50 @@ reporting healthy (pre-PET-87) or `unavailable` (post-PET-87).
 sibling ML backend ever logs through a stream-weakref path, apply the
 same proxy pattern.
 
+### LlamaFirewall — the same probe, applied (PET-105)
+
+`LlamaFirewallScanner` loads `llamafirewall` / PromptGuard on the same
+in-process path under Hermes's `_SafeWriter`, so PET-105 asks the
+pre-registered follow-through question above: *does `llamafirewall` route
+a log line through the structlog stream-weakref path?* It is answered by a
+**model-free canary** —
+`tests/test_llama_firewall_wrapper.py::TestProbeWeakrefUnderSlotsStdio` — a
+fresh subprocess that installs a slots-only, non-`__weakref__` stdout from
+interpreter start and drives `LlamaFirewallScanner().scan()` with no HF
+token (the load gate-returns at the PromptGuard prereq check before any
+model load), then reports `OK`/`WEAKREF`. It runs on the shipping PR via
+the upgraded non-skipping `extras-llamafirewall` lane
+(`PETASOS_REQUIRE_LLAMAFIREWALL=1`, path-filtered `pull_request`), so the
+answer cannot silently skip, and it stands as a canary: a future
+`llamafirewall` upgrade that begins logging through structlog's default
+`PrintLogger` re-trips it in CI.
+
+**Verdict: PENDING the lane's first CI run** — `petasos` requires Python
+≥ 3.11 and `llamafirewall` is unavailable on the local 3.10 dev box, so the
+probe could not run at authoring time. This line MUST be replaced, before
+this PR merges, with the verdict read from the `extras-llamafirewall` lane
+log (a follow-up commit on the same PR — not a post-merge follow-up):
+
+- **`OK EMITTED=1` → not exposed.** `llamafirewall` exercised the import
+  window and did not detonate the weakref path. Record the load-bearing
+  *reason* here (the mechanism it uses instead — e.g. stdlib
+  `logging.StreamHandler` / a pinned real stream), obtained by introspecting
+  its logging config in the lane (a green lane proves "no TypeError", not the
+  *why*). No `petasos/` runtime change; the canary guards the property.
+- **`WEAKREF…` → exposed.** Port the PET-92 proxy pattern
+  (`_WeakrefableStdout` / `_STDOUT_PROXY` / `_SHIELD_LOCK`) into
+  `petasos/scanners/llama_firewall.py` (mechanism + lock-composition case
+  chosen from the probe's evidence, reconciled with `_stdin_swap` + the HF
+  prereq probe), and record the ported coverage + a cross-reference to the
+  PET-92 entry above.
+- **`OK EMITTED=0` → import-window safe but no model-free emission.** Record
+  "import-window clean; construction/scan-window coverage is model-gated" with
+  the gibson model-gated 1b run's result (or a filed sibling PET-NNN) — a
+  visible residual, not a clean not-exposed claim. (`EMITTED` is captured under
+  `HF_HUB_OFFLINE=1`, which can itself suppress a telemetry import-time line, so
+  `EMITTED=0` does not prove no *online* import-time emission — the online 1b run
+  on gibson settles it.)
+
 ---
 
 ## Summary: Integration Surface Ranking
