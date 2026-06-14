@@ -1,5 +1,6 @@
 """Tests for petasos.console.server.ConsoleHandlers."""
 
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -7,8 +8,14 @@ import pytest
 
 pytest.importorskip("fastapi")
 
+import petasos.console._paths as paths_mod  # noqa: E402
 from petasos._types import ScanResult  # noqa: E402
 from petasos.config import PetasosConfig  # noqa: E402
+from petasos.console._paths import (  # noqa: E402
+    HermesConfigResolution,
+    read_petasos_section,
+    resolve_hermes_config_path,
+)
 from petasos.console.server import ConsoleHandlers  # noqa: E402
 from petasos.pipeline import Pipeline  # noqa: E402
 from petasos.scanners.llama_firewall import LlamaFirewallScanner  # noqa: E402
@@ -212,7 +219,10 @@ async def test_config_persist_writes_yaml(
         encoding="utf-8",
     )
 
-    with patch("petasos.console.server._hermes_config_path", return_value=config_file):
+    with patch(
+        "petasos.console.server.resolve_hermes_config_path",
+        return_value=HermesConfigResolution(path=config_file, tier="root"),
+    ):
         result, errors = await handlers.update_config({"anonymize": True})
 
     assert errors is None
@@ -243,7 +253,10 @@ async def test_config_persist_preserves_enabled_and_host_id(
         "petasos:\n  enabled: false\n  host_id: my-host\n  anonymize: false\n",
         encoding="utf-8",
     )
-    with patch("petasos.console.server._hermes_config_path", return_value=config_file):
+    with patch(
+        "petasos.console.server.resolve_hermes_config_path",
+        return_value=HermesConfigResolution(path=config_file, tier="root"),
+    ):
         result, errors = await handlers.update_config({"anonymize": True})
 
     assert errors is None
@@ -251,6 +264,221 @@ async def test_config_persist_preserves_enabled_and_host_id(
     assert persisted["petasos"]["anonymize"] is True
     assert persisted["petasos"]["enabled"] is False  # PRESERVED (BUG-A fix)
     assert persisted["petasos"]["host_id"] == "my-host"  # PRESERVED
+
+
+# ---------------------------------------------------------------------------
+# PET-115: Config Editor write path is unified on resolve_hermes_config_path().
+# T2-T6 drive the REAL resolver via env/monkeypatch (no patching of the
+# resolver) so they pin the read/write coupling across all three tiers —
+# profile, HERMES_HOME, root — plus the dangling-warning and missing-file
+# `return False` paths. Helpers mirror tests/test_plugin_api_paths.py's
+# _write_config / _setup_root (Decision 4: replicate the pattern, don't import).
+# ---------------------------------------------------------------------------
+
+
+def _write_yaml_config(path: Path, petasos_section: dict[str, Any] | None = None) -> None:
+    """Write a minimal Hermes config.yaml with an optional petasos: section.
+
+    Byte-for-byte mirror of tests/test_plugin_api_paths.py::_write_config.
+    """
+    import yaml
+
+    data: dict[str, Any] = {"model": {"provider": "test"}}
+    if petasos_section is not None:
+        data["petasos"] = petasos_section
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(yaml.dump(data, default_flow_style=False), encoding="utf-8")
+
+
+def _setup_hermes_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    system: str = "Windows",
+) -> Path:
+    """Point hermes_root() at tmp_path and return it; clear HERMES_HOME.
+
+    Mirrors tests/test_plugin_api_paths.py::_setup_root, adding the
+    HERMES_HOME clear (the tests/test_verify.py copy carries it) so the
+    active-profile / root tiers are exercised without a stray HERMES_HOME
+    env winning tier 1.
+    """
+    monkeypatch.delenv("HERMES_HOME", raising=False)
+    monkeypatch.setattr(paths_mod.platform, "system", lambda: system)  # type: ignore[attr-defined]
+    if system == "Windows":
+        monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+        return tmp_path / "hermes"
+    monkeypatch.setattr(paths_mod.Path, "home", classmethod(lambda cls: tmp_path))  # type: ignore[attr-defined]
+    return tmp_path / ".hermes"
+
+
+async def test_config_persist_writes_to_active_profile(
+    handlers: ConsoleHandlers,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Regression for PET-115: with an active profile, a Config Editor save writes
+    # to profiles/<active>/config.yaml and leaves the v0.15 root config untouched.
+    import yaml
+
+    root = _setup_hermes_root(tmp_path, monkeypatch, system="Windows")
+    _write_yaml_config(root / "config.yaml", {"anonymize": False})
+    profile_cfg = root / "profiles" / "gibson" / "config.yaml"
+    _write_yaml_config(profile_cfg, {"anonymize": False})
+    (root / "active_profile").write_text("gibson")
+
+    result, errors = await handlers.update_config({"anonymize": True})
+
+    assert errors is None
+    assert result is not None
+    assert "warning" not in result  # profile tier resolves cleanly, no fallback
+
+    persisted_profile = yaml.safe_load(profile_cfg.read_text(encoding="utf-8"))
+    assert persisted_profile["petasos"]["anonymize"] is True
+
+    # The v0.15 root config must be untouched — proves the write did not hit it.
+    persisted_root = yaml.safe_load((root / "config.yaml").read_text(encoding="utf-8"))
+    assert persisted_root["petasos"]["anonymize"] is False
+
+
+async def test_config_persist_read_write_same_file(
+    handlers: ConsoleHandlers,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Regression for PET-115: read and write resolve to the SAME file (the
+    # split-brain this ticket closes). Drive the real resolver on both sides.
+    root = _setup_hermes_root(tmp_path, monkeypatch, system="Windows")
+    _write_yaml_config(root / "config.yaml", {"anonymize": False})
+    _write_yaml_config(root / "profiles" / "gibson" / "config.yaml", {"anonymize": False})
+    (root / "active_profile").write_text("gibson")
+
+    result, errors = await handlers.update_config({"anonymize": True})
+    assert errors is None
+    assert result is not None
+
+    section = read_petasos_section(resolve_hermes_config_path())
+    assert section["anonymize"] is True
+
+
+async def test_config_persist_root_fallback_and_warns(
+    handlers: ConsoleHandlers,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Regression for PET-115: root fallback + the dangling-pointer WARNING on the
+    # WRITE side (mirrors the read side's honesty contract, Design Sec 3).
+    import yaml
+
+    # Sub-case 1 — clean root fallback (no active_profile pointer) → no warning.
+    root1 = _setup_hermes_root(tmp_path / "clean", monkeypatch, system="Windows")
+    _write_yaml_config(root1 / "config.yaml", {"anonymize": False})
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger="petasos.console.server"):
+        result, errors = await handlers.update_config({"anonymize": True})
+    assert errors is None
+    assert result is not None
+    assert "warning" not in result
+    persisted = yaml.safe_load((root1 / "config.yaml").read_text(encoding="utf-8"))
+    assert persisted["petasos"]["anonymize"] is True
+    assert not any("profile resolution" in r.message.lower() for r in caplog.records)
+
+    # Sub-case 2 — dangling pointer, root present → root write + resolution WARNING.
+    root2 = _setup_hermes_root(tmp_path / "dangling", monkeypatch, system="Windows")
+    _write_yaml_config(root2 / "config.yaml", {"anonymize": False})
+    (root2 / "active_profile").write_text("phantom")
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger="petasos.console.server"):
+        result, errors = await handlers.update_config({"anonymize": True})
+    assert errors is None
+    assert result is not None
+    persisted = yaml.safe_load((root2 / "config.yaml").read_text(encoding="utf-8"))
+    assert persisted["petasos"]["anonymize"] is True
+    assert any(
+        "profile resolution" in r.message.lower() and "phantom" in r.message.lower()
+        for r in caplog.records
+    )
+
+    # Sub-case 3 — dangling pointer, root ABSENT (double-warning ordering). The
+    # resolution warning is logged BEFORE the missing-file guard (Design Sec 1).
+    root3 = _setup_hermes_root(tmp_path / "absent", monkeypatch, system="Windows")
+    root3.mkdir(parents=True, exist_ok=True)
+    (root3 / "active_profile").write_text("phantom")
+    # deliberately NO <root>/config.yaml — exercises the return-False path.
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger="petasos.console.server"):
+        result, errors = await handlers.update_config({"anonymize": True})
+    assert result is not None
+    assert any(
+        "profile resolution" in r.message.lower() and "phantom" in r.message.lower()
+        for r in caplog.records
+    )
+    assert any("not found" in r.message.lower() for r in caplog.records)
+    assert "failed to persist" in result["warning"]
+
+
+async def test_config_persist_writes_to_hermes_home(
+    handlers: ConsoleHandlers,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Regression for PET-115: HERMES_HOME (tier 1) wins over an active profile;
+    # the write lands in <HERMES_HOME>/config.yaml and emits no resolution warning.
+    import yaml
+
+    root = _setup_hermes_root(tmp_path, monkeypatch, system="Windows")
+    profile_cfg = root / "profiles" / "gibson" / "config.yaml"
+    _write_yaml_config(profile_cfg, {"anonymize": False})
+    (root / "active_profile").write_text("gibson")
+
+    hermes_home = tmp_path / "hh"
+    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+    _write_yaml_config(hermes_home / "config.yaml", {"anonymize": False})
+
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger="petasos.console.server"):
+        result, errors = await handlers.update_config({"anonymize": True})
+
+    assert errors is None
+    assert result is not None
+    assert "warning" not in result
+
+    persisted_home = yaml.safe_load((hermes_home / "config.yaml").read_text(encoding="utf-8"))
+    assert persisted_home["petasos"]["anonymize"] is True
+
+    # Profile config untouched — HERMES_HOME tier wins.
+    persisted_profile = yaml.safe_load(profile_cfg.read_text(encoding="utf-8"))
+    assert persisted_profile["petasos"]["anonymize"] is False
+    assert not any("profile resolution" in r.message.lower() for r in caplog.records)
+
+
+async def test_config_persist_profile_dir_without_config_returns_false(
+    handlers: ConsoleHandlers,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Regression for PET-115: a profile dir without config.yaml (common right
+    # after `hermes profile create`) resolves to tier=profile, but the missing
+    # file makes the save return False gracefully — no exception, warning surfaced.
+    root = _setup_hermes_root(tmp_path, monkeypatch, system="Windows")
+    (root / "profiles" / "gibson").mkdir(parents=True)
+    (root / "active_profile").write_text("gibson")
+    # NB: no config.yaml inside profiles/gibson/ — the resolver still returns
+    # tier="profile", path=<profile>/config.yaml; the write hits the guard.
+
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger="petasos.console.server"):
+        result, errors = await handlers.update_config({"anonymize": True})
+
+    assert errors is None
+    assert result is not None
+    assert "failed to persist" in result["warning"]
+    assert any("not found" in r.message.lower() for r in caplog.records)
+    # No resolution warning — tier is "profile", not "root".
+    assert not any("profile resolution" in r.message.lower() for r in caplog.records)
 
 
 async def test_get_armed_reflects_read(
