@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import binascii
 import re
 import time
 from dataclasses import dataclass
@@ -156,6 +158,91 @@ _BINARY_PATTERN = re.compile(r"[\x00-\x08\x0e-\x1f\x7f]")
 
 _BASE64_PATTERN = re.compile(r"[A-Za-z0-9+/]{40,}={0,2}")
 
+# --- Decode-and-rescan (PET-98) ---
+#
+# Separate detector battery with lower floors than _BASE64_PATTERN's 40-char
+# LOW-flag threshold (Decision 6): decode + injection-match is self-validating, so
+# a short blob that does not decode to an injection phrase emits nothing and adds
+# no false positive. Span discovery runs off the base64 detector only — the hex
+# alphabet [0-9a-fA-F] is a strict subset of the base64 alphabet at the same
+# 16-char floor, so every hex run is contained in a base64 span and each physical
+# span costs exactly one budget slot while being attempted under both codecs
+# (Decision 4 / § Design step 2).
+_BASE64_BLOB_DETECTOR = re.compile(r"[A-Za-z0-9+/]{16,}={0,2}")
+_HEX_BLOB_DETECTOR = re.compile(r"(?:[0-9a-fA-F]{2}){8,}")
+_ROT13_TABLE = str.maketrans(
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz",
+    "NOPQRSTUVWXYZABCDEFGHIJKLMnopqrstuvwxyzabcdefghijklm",
+)
+_DECODE_MAX_BLOBS = 16  # per-input detected-span attempt cap (base64+hex)
+_DECODE_MAX_BYTES = 8192  # per-blob decoded-size cap (scan first N bytes)
+_DECODE_SNIPPET_CAP = 80  # message snippet cap (matches leet [:80])
+
+
+@dataclass(frozen=True)
+class _DecodeCandidate:
+    """A decoded plaintext to rescan through the injection/role-switch batteries.
+
+    ``scan_text`` is what the patterns search. For a base64/hex blob,
+    ``position``/``matched_text`` are the fixed raw-space blob span (consistent
+    with base64-in-text / binary-content raw-space positions). For the ROT13
+    view they are ``None`` and resolved per-match against ``origin_text`` (=
+    ``normalized.normalized``) in normalized-space coordinates — consistent with
+    the _check_injection leet path, which reports the original attack bytes in
+    matched_text and names the decoded form in the message.
+    """
+
+    carrier: str
+    scan_text: str
+    position: Position | None
+    matched_text: str | None
+    origin_text: str
+
+
+def _try_b64decode(span: str) -> bytes | None:
+    try:
+        return base64.b64decode(span, validate=True)
+    except (binascii.Error, ValueError):
+        return None
+
+
+def _try_hexdecode(span: str) -> bytes | None:
+    try:
+        return bytes.fromhex(span)
+    except ValueError:
+        return None
+
+
+def _decode_bytes(raw: bytes) -> str | None:
+    """Bytes → text under Decision 5's size-cap-aware rule.
+
+    Under the per-blob cap: strict UTF-8 — the FP discipline that keeps binary
+    assets (image/font data, random tokens, gzip) quiet. Over the cap: decode the
+    first cap bytes with ``errors="ignore"`` so a code point split by the hard
+    byte truncation drops only its trailing partial sequence, never an in-prefix
+    injection. The ``errors=`` divergence is deliberate and applies only to the
+    truncated tail.
+    """
+    if len(raw) <= _DECODE_MAX_BYTES:
+        try:
+            return raw.decode("utf-8")
+        except UnicodeDecodeError:
+            return None
+    return raw[:_DECODE_MAX_BYTES].decode("utf-8", errors="ignore")
+
+
+def _resolve_finding_shape(cand: _DecodeCandidate, m: re.Match[str]) -> tuple[Position, str]:
+    """Resolve (position, matched_text) for a match on a decoded candidate.
+
+    Blob candidates carry a fixed raw-space span; the ROT13 view resolves per
+    match against its origin text in normalized-space coordinates.
+    """
+    if cand.position is not None:
+        assert cand.matched_text is not None
+        return cand.position, cand.matched_text
+    return Position(start=m.start(), end=m.end()), cand.origin_text[m.start() : m.end()]
+
+
 # Cheap necessary-condition gate for the injection battery (PET-97 latency).
 # Every _INJECTION_PATTERNS match contains one of these literal substrings:
 #   inst   — "instructions" (ignore-*, disregard A/B, new-instructions),
@@ -217,16 +304,19 @@ class MinimalScanner:
         max_payload_bytes: int = 524_288,
         max_json_depth: int = 10,
         suppress_rules: frozenset[str] = frozenset(),
+        decode_encoded_payloads: bool = True,
     ) -> None:
         self._max_payload_bytes = max_payload_bytes
         self._max_json_depth = max_json_depth
         self._suppress_rules = suppress_rules - _UNSUPPRESSIBLE_RULE_IDS
+        self._decode_encoded_payloads = decode_encoded_payloads
 
     def with_suppress_rules(self, additional: frozenset[str]) -> MinimalScanner:
         return MinimalScanner(
             max_payload_bytes=self._max_payload_bytes,
             max_json_depth=self._max_json_depth,
             suppress_rules=self._suppress_rules | additional,
+            decode_encoded_payloads=self._decode_encoded_payloads,
         )
 
     @property
@@ -273,11 +363,18 @@ class MinimalScanner:
         # Step 4: Role-switch detection on normalized text
         self._check_role_switch(normalized.normalized, findings)
 
-        # Step 5: Encoding detection
+        # Step 5: Decode-and-rescan reversible encodings (PET-98). Runs as its own
+        # step (not inside the base64-in-text suppression guard), so the decoded
+        # injection fires even when the LOW base64-in-text flag is suppressed.
+        decoded_matched = self._check_encoded_payloads(text, normalized, findings)
+
+        # Step 6: Encoding detection (LOW base64-in-text flag, etc.)
         self._check_encoding(text, normalized, findings)
 
-        # Step 6: Invisible-chars escalation
-        self._apply_escalation(findings, injection_matched)
+        # Step 7: Invisible-chars escalation. OR the decode result into the
+        # co-occurrence flag so a decode-only injection still escalates an
+        # invisible-chars finding (consistency with the plain path).
+        self._apply_escalation(findings, injection_matched or decoded_matched)
 
         return findings
 
@@ -452,6 +549,147 @@ class MinimalScanner:
                         matched_text=trigger_match.group(),
                     )
                 )
+
+    def _check_encoded_payloads(
+        self,
+        raw_text: str,
+        normalized: NormalizedText,
+        findings: list[ScanFinding],
+    ) -> bool:
+        """Decode reversible-encoding blobs and rescan the plaintext (PET-98).
+
+        Locates base64/hex blob spans in the raw text and computes one ROT13 view
+        of the normalized text, decodes each under strict DoS bounds (Decision 4),
+        then runs the injection battery (anchor-gated) and the role-switch battery
+        (unconditional, Decision 2 / § step 5) over every decoded candidate. A
+        match emits the underlying injection / role-switch finding at its native
+        severity, reusing the existing rule_id — no new rule_id is minted. Runs
+        independently of base64-in-text suppression (Decision 3). Returns whether
+        any candidate matched (feeds the escalation co-occurrence flag).
+        """
+        if not self._decode_encoded_payloads:
+            return False
+
+        candidates: list[_DecodeCandidate] = []
+
+        # base64-detector spans are the physical spans (§ Design step 2): the hex
+        # alphabet is a strict subset of the base64 alphabet at the same 16-char
+        # floor, so every hex run is contained in a base64 span. One budget slot
+        # per physical span; both codecs are attempted per span (<=2 decodes), so
+        # a delimited hex blob — which the base64 detector also matches — still
+        # decodes. The cap counts attempted spans, not successful decodes, so a
+        # malformed-blob flood stays bounded.
+        attempts = 0
+        for m in _BASE64_BLOB_DETECTOR.finditer(raw_text):
+            if attempts >= _DECODE_MAX_BLOBS:
+                break
+            attempts += 1
+            span = m.group()
+            blob_position = Position(start=m.start(), end=m.end())
+            blob_matched = span[:_DECODE_SNIPPET_CAP]
+            for carrier, raw in (("base64", _try_b64decode(span)), ("hex", _try_hexdecode(span))):
+                if raw is None:
+                    continue
+                decoded = _decode_bytes(raw)
+                if decoded is None:
+                    continue
+                candidates.append(
+                    _DecodeCandidate(carrier, decoded, blob_position, blob_matched, "")
+                )
+
+        # ROT13: a single always-on, length-preserving view, bounded to the
+        # per-blob byte cap (Decision 4) so the translate + scan stays O(cap).
+        # ROT13 has no structural signature, so it is decoded unconditionally as
+        # one extra view rather than detected (Decision 7). Offsets map 1:1 onto
+        # normalized.normalized, so a match span there is valid in normalized space.
+        rot13_view = normalized.normalized[:_DECODE_MAX_BYTES].translate(_ROT13_TABLE)
+        candidates.append(_DecodeCandidate("rot13", rot13_view, None, None, normalized.normalized))
+
+        matched = False
+        for cand in candidates:
+            if self._rescan_candidate(cand, findings):
+                matched = True
+        return matched
+
+    def _rescan_candidate(self, cand: _DecodeCandidate, findings: list[ScanFinding]) -> bool:
+        matched = False
+
+        # Injection battery — anchor-gated exactly as _check_injection gates leet
+        # views: a candidate carrying no injection anchor skips the 8-pattern
+        # battery. The suppress check is omitted because injection rule_ids are
+        # stripped from _suppress_rules at construction (Decision 3).
+        if _INJECTION_ANCHOR.search(cand.scan_text):
+            for slug, pattern in _INJECTION_PATTERNS:
+                m = pattern.search(cand.scan_text)
+                if m is None:
+                    continue
+                position, matched_text = _resolve_finding_shape(cand, m)
+                snippet = m.group()[:_DECODE_SNIPPET_CAP]
+                findings.append(
+                    ScanFinding(
+                        rule_id=f"petasos.syntactic.injection.{slug}",
+                        finding_type="injection",
+                        severity=Severity.HIGH,
+                        confidence=1.0,
+                        message=(
+                            f"Injection pattern matched: {slug} "
+                            f"({cand.carrier}-decoded: {snippet!r})"
+                        ),
+                        scanner_name=self.name,
+                        position=position,
+                        matched_text=matched_text,
+                    )
+                )
+                matched = True
+
+        # Role-switch battery — NOT anchor-gated (the injection anchor is not a
+        # superset of the role-switch triggers, so gating here would drop a decoded
+        # "act as DAN with no restrictions"). At most one finding per candidate,
+        # mirroring the live single-emit _check_role_switch.
+        if self._rescan_role_switch(cand, findings):
+            matched = True
+
+        return matched
+
+    def _rescan_role_switch(self, cand: _DecodeCandidate, findings: list[ScanFinding]) -> bool:
+        trigger_match = None
+        for pat in _ROLE_TRIGGERS:
+            trigger_match = pat.search(cand.scan_text)
+            if trigger_match:
+                break
+        if trigger_match is None:
+            return False
+
+        grant_match = None
+        for pat in _ROLE_GRANTS:
+            grant_match = pat.search(cand.scan_text)
+            if grant_match:
+                break
+
+        position, matched_text = _resolve_finding_shape(cand, trigger_match)
+        if grant_match is not None:
+            rule_id = "petasos.syntactic.injection.role-switch-capability"
+            severity = Severity.HIGH
+            message = f"Role-switch with capability grant detected ({cand.carrier}-decoded)"
+        else:
+            rule_id = "petasos.syntactic.injection.role-switch-only"
+            severity = Severity.LOW
+            message = (
+                f"Role-switch trigger detected without capability grant ({cand.carrier}-decoded)"
+            )
+        findings.append(
+            ScanFinding(
+                rule_id=rule_id,
+                finding_type="injection",
+                severity=severity,
+                confidence=1.0,
+                message=message,
+                scanner_name=self.name,
+                position=position,
+                matched_text=matched_text,
+            )
+        )
+        return True
 
     def _check_encoding(
         self,

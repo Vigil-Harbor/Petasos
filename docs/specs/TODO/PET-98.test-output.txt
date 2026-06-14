@@ -1,0 +1,19 @@
+### PET-98 test gate — 2026-06-14T06:14:19Z
+### python Python 3.10.6
+
+=== targeted suite ===
+........................................................................ [ 33%]
+........................................................................ [ 67%]
+....................................................................     [100%]
+212 passed in 0.32s
+
+=== benchmark lane (auto-skips without pytest-benchmark) ===
+sssssss                                                                  [100%]
+7 skipped in 0.03s
+
+=== ruff check ===
+All checks passed!
+=== ruff format --check ===
+107 files already formatted
+=== mypy --strict ===
+Success: no issues found in 107 source files

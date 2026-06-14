@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import importlib
 
 import pytest
@@ -72,6 +73,28 @@ def test_benchmark_syntactic_anchor_dense(benchmark) -> None:  # type: ignore[no
     scanner = MinimalScanner()
     chunk = "system status 1 report 3: node 5 ok, system load 8 at 07:45 nominal\n"
     payload = chunk * 90  # ~6 KB, 'system' on every line -> gate always passes
+    loop = asyncio.new_event_loop()
+
+    def run() -> None:
+        loop.run_until_complete(scanner.scan(payload, direction="inbound"))
+
+    benchmark.pedantic(run, warmup_rounds=5, rounds=50)
+    loop.close()
+
+
+def test_benchmark_syntactic_decode_load(benchmark) -> None:  # type: ignore[no-untyped-def]
+    """PET-98 (Decision 10): decode-and-rescan under adversarial load — a base64
+    bomb (one large blob → size cap), a blob flood (many >=16-char runs → attempt
+    cap), and a ROT13-view input. Measure-only: the cost-bounding caps are pinned
+    deterministically in the unit suite (depth=1, size, attempt-count, anchor
+    gate); shared CI runners are too slow/noisy for a wall-clock assertion."""
+    scanner = MinimalScanner()
+    bomb = base64.b64encode(b"A" * 200_000).decode()  # one large blob -> size cap
+    flood = " ".join(
+        base64.b64encode(f"benign blob number {i:03d}".encode()).decode() for i in range(40)
+    )
+    rot13_text = "the quick brown fox jumps over the lazy dog " * 200
+    payload = f"{bomb} {flood} {rot13_text}"
     loop = asyncio.new_event_loop()
 
     def run() -> None:

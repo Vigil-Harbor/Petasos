@@ -81,7 +81,7 @@ def _self_init() -> None:
     except (TypeError, ValueError):
         config = PetasosConfig()
 
-    scanners = [MinimalScanner()]
+    scanners = [MinimalScanner(decode_encoded_payloads=config.decode_encoded_payloads)]
     unavailable: list[str] = []
     for name, cls_path in [
         ("LLM Guard", "petasos.scanners.LlmGuardScanner"),

@@ -257,7 +257,9 @@ class Pipeline:
                 self._ml_scanners.append(s)
 
         if self._minimal_scanner is None:
-            self._minimal_scanner = MinimalScanner()
+            self._minimal_scanner = MinimalScanner(
+                decode_encoded_payloads=self._config.decode_encoded_payloads
+            )
 
         self._frequency_tracker = FrequencyTracker(self._config)
         self._profile_resolver = ProfileResolver()
