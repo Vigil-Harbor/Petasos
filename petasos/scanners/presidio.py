@@ -277,8 +277,16 @@ class PresidioScanner:
         *,
         direction: Direction = "inbound",
         session_id: str | None = None,
+        extra_entities: Sequence[str] | None = None,
     ) -> ScanResult:
         """Scan ``text`` for PII and return a ScanResult (never raises).
+
+        ``extra_entities`` (PET-119) is an *additive* per-call opt-in list, unioned
+        on top of the scanner's constructed base set (``self._entities``) for this
+        call only. It lets a caller (the pipeline, per active profile) widen the
+        detected entity set without rebuilding the scanner; ``self._entities`` is
+        never mutated, so concurrent scans on different profiles cannot race
+        (Decision 6). ``None``/empty preserves today's behavior exactly.
 
         Cancellation residual (SCAN-03): analysis runs in a worker thread via
         ``asyncio.to_thread``. Cancelling the awaiting task frees the event loop
@@ -289,7 +297,8 @@ class PresidioScanner:
         start_time = time.perf_counter()
         try:
             self._ensure_loaded()
-            findings = await asyncio.to_thread(self._scan_sync, text)
+            effective = self._effective_entities(extra_entities)
+            findings = await asyncio.to_thread(self._scan_sync, text, effective)
             elapsed = (time.perf_counter() - start_time) * 1000
             return ScanResult(
                 scanner_name=self.name,
@@ -316,10 +325,25 @@ class PresidioScanner:
                 error=msg,
             )
 
-    def _scan_sync(self, text: str) -> list[ScanFinding]:
+    def _effective_entities(self, extra_entities: Sequence[str] | None) -> list[str]:
+        """Additive, order-preserving dedup of ``extra_entities`` over the base set.
+
+        Returns the scanner's own ``self._entities`` unchanged when there are no
+        extras (the default/no-profile path — byte-for-byte today's behavior).
+        Otherwise unions the per-call extras on top via ``resolve_presidio_entities``
+        (the same order-preserving ``dict.fromkeys`` dedup the config path uses), so
+        a config/profile overlap cannot double-fire. ``self._entities`` is always
+        non-empty (>= DEFAULT_PRESIDIO_ENTITIES), so the empty-set guard never trips.
+        ``self._entities`` is **not** mutated (Decision 6 concurrency invariant). PET-119.
+        """
+        if not extra_entities:
+            return self._entities
+        return resolve_presidio_entities(tuple(self._entities), tuple(extra_entities))
+
+    def _scan_sync(self, text: str, entities: list[str] | None = None) -> list[ScanFinding]:
         results = self._analyzer.analyze(
             text=text,
-            entities=self._entities,
+            entities=self._entities if entities is None else entities,
             language=self._language,
             score_threshold=self._score_threshold,
         )
