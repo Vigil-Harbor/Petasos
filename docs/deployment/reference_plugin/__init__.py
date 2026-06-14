@@ -36,6 +36,17 @@ _initialized = False
 _init_error: str | None = None
 _session_ids: dict[int, str] = {}
 
+# PET-107: sub-agent lineage (Option A). The registry is constructed in
+# _deferred_init (it shares the tracker's clock + lock discipline), but the
+# subagent_start/subagent_stop hooks are registered earlier in register(). The
+# handlers therefore reference the registry lazily through this module global —
+# a hook firing before init completes (registry None) is a safe no-op.
+_lineage_registry = None
+# True iff BOTH subagent hooks registered. A is wired only when both are present
+# (an edge store created but never dropped-on-stop would leak edges); otherwise
+# A degrades fully to C (lineage=None). Set in register(), read in _deferred_init.
+_subagent_hooks_available = False
+
 # Dedicated event loop for async Petasos calls (evaluate is async,
 # but Hermes invoke_hook is sync).
 _async_loop: asyncio.AbstractEventLoop | None = None
@@ -286,10 +297,33 @@ def _deferred_init() -> None:
                     "PETASOS_LICENSE_KEY not set — all features available (license is optional)"
                 )
 
-            from petasos import FrequencyTracker
+            from petasos import FrequencyTracker, LineageRegistry
 
-            tracker = FrequencyTracker(config)
-            _guard = ToolCallGuard(_pipeline, tracker, config)
+            global _lineage_registry
+            if _subagent_hooks_available:
+                # A + C: construct ONE registry before the tracker, wire the
+                # tracker's pin/unpin callbacks to it, and hand it to the guard.
+                # Hooks carry raw session_ids; the registry keys on raw ids
+                # (matching is_terminated); the guard mints per-ancestor tokens
+                # for get_state.
+                registry = LineageRegistry(config)
+                _lineage_registry = registry
+                tracker = FrequencyTracker(
+                    config,
+                    is_pinned=registry.is_pinned,
+                    on_terminate=registry.unregister,
+                )
+                _guard = ToolCallGuard(_pipeline, tracker, config, lineage=registry)
+                logger.info("Petasos sub-agent lineage (A) + delegation fan-out gate (C) active")
+            else:
+                # C only: no sub-agent hooks, so lineage no-ops (no chain walk,
+                # no pinning). The fan-out gate still rate-limits delegate spawns.
+                tracker = FrequencyTracker(config)
+                _guard = ToolCallGuard(_pipeline, tracker, config, lineage=None)
+                logger.info(
+                    "Petasos delegation fan-out gate (C) active; sub-agent lineage (A) "
+                    "inactive (sub-agent hooks unavailable)"
+                )
 
             scanner_names = [s.name for s in scanners]
             logger.info(
@@ -486,13 +520,55 @@ def _on_session_start(**kwargs) -> None:
     logger.info("PETASOS_SESSION_START — Petasos content security active")
 
 
+def _subagent_start(parent_session_id: str = "", child_session_id: str = "", **kwargs) -> None:
+    """Host-asserted lineage edge: child spawned by parent (PET-107 D2).
+
+    Only the host's hook calls register(); the child agent never registers its
+    own edge and does not choose its parent_session_id (Hermes assigns it from
+    the spawning parent). The untrusted surface is the child's tool *content*
+    (already scanned), not this edge.
+    """
+    reg = _lineage_registry
+    if reg is None:
+        return
+    if not child_session_id or not parent_session_id:
+        logger.debug("subagent_start missing parent/child id — ignoring edge")
+        return
+    reg.register(child_session_id, parent_session_id)
+
+
+def _subagent_stop(child_session_id: str = "", **kwargs) -> None:
+    """Drop the child's lineage edge on stop (idempotent)."""
+    reg = _lineage_registry
+    if reg is None:
+        return
+    if child_session_id:
+        reg.unregister(child_session_id)
+
+
+def _try_register_hook(ctx, name: str, handler) -> bool:
+    """Register an optional hook, tolerating a host that rejects the name.
+
+    subagent_start/subagent_stop are a Hermes-side assumption (brief
+    delegate_tool.py:1213) that must be verified against the live build. If the
+    host's plugin loader rejects the name, log a warning and report False so the
+    caller can degrade A → C rather than crash.
+    """
+    try:
+        ctx.register_hook(name, handler)
+        return True
+    except Exception as exc:
+        logger.warning("register_hook(%s) rejected by host — skipping: %s", name, exc)
+        return False
+
+
 # ---------------------------------------------------------------------------
 # Plugin registration — called by Hermes plugin loader
 # ---------------------------------------------------------------------------
 
 
 def register(ctx) -> None:
-    global _config
+    global _config, _subagent_hooks_available
 
     try:
         _config = _load_config()
@@ -503,6 +579,24 @@ def register(ctx) -> None:
     ctx.register_hook("pre_tool_call", _pre_tool_call)
     ctx.register_hook("post_tool_call", _post_tool_call)
     ctx.register_hook("on_session_start", _on_session_start)
+
+    # PET-107: sub-agent lineage hooks (Option A). Registered defensively — both
+    # must be accepted, else A degrades fully to C (an edge store that never sees
+    # subagent_stop would leak edges to the TTL/on_terminate backstop only).
+    start_ok = _try_register_hook(ctx, "subagent_start", _subagent_start)
+    stop_ok = _try_register_hook(ctx, "subagent_stop", _subagent_stop)
+    _subagent_hooks_available = start_ok and stop_ok
+    if not _subagent_hooks_available:
+        rejected = [
+            name
+            for name, ok in (("subagent_start", start_ok), ("subagent_stop", stop_ok))
+            if not ok
+        ]
+        logger.warning(
+            "Petasos sub-agent lineage (A) inactive — hook(s) unavailable: %s. "
+            "Delegation fan-out gate (C) remains active.",
+            ", ".join(rejected),
+        )
 
     init_thread = threading.Thread(
         target=_deferred_init,

@@ -5,3 +5,8 @@ hooks:
   - pre_tool_call
   - post_tool_call
   - on_session_start
+  # PET-107: sub-agent (delegate_task) lineage. Registered defensively — if the
+  # host build does not emit these, Petasos degrades to the fan-out gate (C)
+  # only; lineage-linked escalation (A) no-ops.
+  - subagent_start
+  - subagent_stop

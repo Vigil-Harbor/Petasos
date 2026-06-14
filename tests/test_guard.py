@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 from types import MappingProxyType
+from unittest.mock import patch
 
 import pytest
 
@@ -15,6 +17,7 @@ from petasos.session.guard import (
     GuardResult,
     ToolCallGuard,
 )
+from petasos.session.lineage import LineageRegistry
 from petasos.session.profiles import ResolvedProfile, TierThresholds
 
 
@@ -544,3 +547,267 @@ class TestScanParamsCatchAll:
         result = await g.evaluate("read", {"path": "/etc/passwd"}, "s1")
         assert result.param_scan_unsafe is True
         assert result.findings == ()
+
+
+# ---------------------------------------------------------------------------
+# PET-107: sub-agent lineage (A) + delegation fan-out gate (C)
+# ---------------------------------------------------------------------------
+
+_GUARD_CLOCK = "petasos.session.guard.time.monotonic"
+
+
+def _lineage_setup(
+    cfg: PetasosConfig | None = None,
+    profile: ResolvedProfile | None = None,
+) -> tuple[Pipeline, LineageRegistry, FrequencyTracker, ToolCallGuard]:
+    """Build a guard wired to a shared registry + a tracker whose pin/unpin
+    callbacks point at that registry (mirrors the reference plugin)."""
+    cfg = cfg or _cfg()
+    pipe = Pipeline(config=cfg, host_id="test-host")
+    registry = LineageRegistry(cfg)
+    tracker = FrequencyTracker(cfg, is_pinned=registry.is_pinned, on_terminate=registry.unregister)
+    guard = ToolCallGuard(pipe, tracker, cfg, profile=profile, lineage=registry)
+    return pipe, registry, tracker, guard
+
+
+class TestLineageInheritance:
+    async def test_subagent_inherits_parent_tier(self) -> None:
+        # Brief A: parent at tier 2, child inherits it on its first evaluate().
+        _pipe, registry, tracker, guard = _lineage_setup()
+        tracker._sessions["parent"] = SessionState(last_score=31.0, last_update=0.0)
+        registry.register("child", "parent")
+        result = await guard.evaluate("read", {}, "child")
+        assert result.tier == "tier2"
+        assert result.allowed is False  # tier2 blocks the non-exempt child tool
+
+    async def test_parent_tier3_blocks_child_tools(self) -> None:
+        # Brief A / #2: a terminated parent forces the child to tier3 even after
+        # the parent's live state is gone (tombstone-backed is_terminated).
+        _pipe, registry, tracker, guard = _lineage_setup()
+        tracker.terminate_session("parent")
+        registry.register("child", "parent")
+        result = await guard.evaluate("read", {}, "child")
+        assert result.tier == "tier3"
+        assert result.allowed is False
+
+    async def test_lineage_with_session_token(self) -> None:
+        # PET-31 regression: ancestor tiers must be read via per-ancestor minted
+        # tokens, never the raw id (a raw-id get_state raises with a secret set).
+        secret = b"test-secret-key-32-bytes-long!!!"
+        cfg = _cfg(session_secret=secret)
+        pipe = Pipeline(config=cfg, host_id="test-host")
+        registry = LineageRegistry(cfg)
+        tracker = FrequencyTracker(
+            cfg, is_pinned=registry.is_pinned, on_terminate=registry.unregister
+        )
+        guard = ToolCallGuard(pipe, tracker, cfg, lineage=registry)
+        parent_token = tracker.mint_token("parent", "test-host")
+        tracker.update(parent_token, ["petasos.syntactic.injection.x"] * 4)  # → tier2
+        registry.register("child", "parent")
+        result = await guard.evaluate("read", {}, "child")
+        assert result.tier == "tier2"
+
+    async def test_child_cannot_register_arbitrary_parent(self) -> None:
+        # D2 trust model: registration is host-hook-only. Tool *content* naming a
+        # parent must never create or alter a lineage edge.
+        _pipe, registry, tracker, guard = _lineage_setup()
+        tracker._sessions["victim"] = SessionState(last_score=31.0, last_update=0.0)
+        await guard.evaluate(
+            "read",
+            {"parent_session_id": "victim", "child_session_id": "child"},
+            "child",
+        )
+        assert registry.ancestors("child") == []
+        assert registry.is_pinned("victim") is False
+
+    async def test_laundering_closed_under_eviction(self) -> None:
+        # D6/#1: a tier-2 parent with a live child is pinned, so a TTL-eviction
+        # pass keeps it and the child keeps inheriting tier 2.
+        cfg = _cfg(session_ttl_seconds=10.0)
+        clock = {"t": 0.0}
+
+        def _now() -> float:
+            return clock["t"]
+
+        with (
+            patch("petasos.session.frequency.time.monotonic", _now),
+            patch("petasos.session.lineage.time.monotonic", _now),
+        ):
+            pipe = Pipeline(config=cfg, host_id="test-host")
+            registry = LineageRegistry(cfg)
+            tracker = FrequencyTracker(
+                cfg, is_pinned=registry.is_pinned, on_terminate=registry.unregister
+            )
+            guard = ToolCallGuard(pipe, tracker, cfg, lineage=registry)
+            tracker.update("parent", ["petasos.syntactic.injection.x"] * 4)  # → tier2
+            registry.register("child", "parent")
+            clock["t"] = 100.0  # past session_ttl (10s), within edge_ttl (3600s)
+            tracker.update("trigger", [])  # runs passive eviction — parent pinned
+            assert tracker.get_state("parent") is not None  # retained, not evicted
+            result = await guard.evaluate("read", {}, "child")
+            assert result.tier == "tier2"  # still inherited
+
+
+class TestDelegationFanout:
+    async def test_tier2_blocks_delegate_task(self) -> None:
+        # C: tier-2 delegate blocked by the ladder (step 6); Step 3.5 counted the
+        # first attempt, so the second is blocked by the fan-out budget instead.
+        _pipe, _registry, tracker, guard = _lineage_setup()
+        tracker._sessions["s1"] = SessionState(last_score=31.0, last_update=0.0)
+        r1 = await guard.evaluate("delegate_task", {}, "s1")
+        assert r1.allowed is False
+        assert "tier2" in r1.reason
+        r2 = await guard.evaluate("delegate_task", {}, "s1")
+        assert r2.allowed is False
+        assert "fan-out" in r2.reason
+
+    def test_delegate_not_exempt_rejected_at_construction(self) -> None:
+        # D8: a delegate tool name in the profile exempt list is a hard error.
+        cfg = _cfg()
+        pipe = Pipeline(config=cfg)
+        tracker = FrequencyTracker(cfg)
+        p = _profile(tool_exempt_list=frozenset({"delegate_task"}))
+        with pytest.raises(ValueError, match="exempt"):
+            ToolCallGuard(pipe, tracker, cfg, profile=p)
+
+    async def test_delegate_fanout_budget_enforced(self) -> None:
+        cfg = _cfg()  # base cap 3, window 60s
+        pipe = Pipeline(config=cfg)
+        tracker = FrequencyTracker(cfg)
+        guard = ToolCallGuard(pipe, tracker, cfg)  # lineage=None → C only
+        with patch(_GUARD_CLOCK, return_value=1000.0):
+            for _ in range(3):  # base_cap spawns allowed at tier none
+                assert (await guard.evaluate("delegate_task", {}, "s1")).allowed is True
+            over = await guard.evaluate("delegate_task", {}, "s1")  # the next blocked
+            assert over.allowed is False
+            assert "fan-out" in over.reason
+        with patch(_GUARD_CLOCK, return_value=1000.0 + 120.0):  # aged out
+            assert (await guard.evaluate("delegate_task", {}, "s1")).allowed is True
+
+    async def test_fanout_tier1_cap_halved(self) -> None:
+        # tier1 cap = max(1, base_cap // 2) = 1 for base_cap 3.
+        cfg = _cfg()
+        pipe = Pipeline(config=cfg)
+        tracker = FrequencyTracker(cfg)
+        tracker._sessions["s1"] = SessionState(last_score=15.0, last_update=0.0)  # tier1
+        guard = ToolCallGuard(pipe, tracker, cfg)
+        with patch(_GUARD_CLOCK, return_value=1000.0):
+            assert (await guard.evaluate("delegate_task", {}, "s1")).allowed is True
+            r2 = await guard.evaluate("delegate_task", {}, "s1")
+            assert r2.allowed is False
+            assert "fan-out" in r2.reason
+
+    def test_fanout_concurrent_atomic(self) -> None:
+        # C TOCTOU: N threads racing a budget of 1 → exactly one passes.
+        from petasos.session.guard import SpawnBudget
+
+        budget = SpawnBudget(window_seconds=60.0)
+        results: list[bool] = []
+        results_lock = threading.Lock()
+        start = threading.Barrier(20)
+
+        def worker() -> None:
+            start.wait()
+            ok = budget.try_consume("s", 1, 1000.0)
+            with results_lock:
+                results.append(ok)
+
+        threads = [threading.Thread(target=worker) for _ in range(20)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        assert sum(1 for r in results if r) == 1
+
+    def test_fanout_sweeps_stale_one_shot_sessions(self) -> None:
+        # A session that delegates once and is never touched again must not leave
+        # a stale deque in _events forever; the amortized global sweep (fired by a
+        # later consume past the window) drops it so the map tracks active windows
+        # rather than every distinct session ID ever seen.
+        from petasos.session.guard import SpawnBudget
+
+        budget = SpawnBudget(window_seconds=60.0)
+        for sid in ("a", "b", "c"):
+            assert budget.try_consume(sid, 5, 1000.0) is True
+        assert len(budget._events) == 3
+        # A later consume past the window triggers the global sweep; the three
+        # one-shot sessions are gone and only the live one remains.
+        assert budget.try_consume("d", 5, 2000.0) is True
+        assert set(budget._events) == {"d"}
+
+
+class TestConcurrentChildren:
+    def test_concurrent_children_threadsafe(self) -> None:
+        # Brief #4: >=3 real-thread children registering + evaluating against the
+        # shared registry + locked tracker → no race/exception, consistent reads.
+        _pipe, registry, tracker, guard = _lineage_setup()
+        tracker._sessions["parent"] = SessionState(last_score=31.0, last_update=0.0)
+        errors: list[Exception] = []
+        results: dict[int, str] = {}
+
+        def child_worker(k: int) -> None:
+            try:
+                registry.register(f"child{k}", "parent")
+                res = asyncio.run(guard.evaluate("read", {}, f"child{k}"))
+                results[k] = res.tier
+            except Exception as exc:  # noqa: BLE001 — record, assert empty later
+                errors.append(exc)
+
+        def noise_writer(k: int) -> None:
+            try:
+                for _ in range(10):
+                    tracker.update(f"noise{k}", ["petasos.syntactic.injection.x"])
+            except Exception as exc:  # noqa: BLE001
+                errors.append(exc)
+
+        threads = [threading.Thread(target=child_worker, args=(k,)) for k in range(5)]
+        threads += [threading.Thread(target=noise_writer, args=(k,)) for k in range(3)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert errors == []
+        assert len(results) == 5
+        assert all(tier == "tier2" for tier in results.values())
+
+
+class TestFeatureDisabledNoop:
+    async def test_lineage_none_no_inheritance(self) -> None:
+        cfg = _cfg()
+        pipe = Pipeline(config=cfg)
+        tracker = FrequencyTracker(cfg)
+        tracker._sessions["parent"] = SessionState(last_score=31.0, last_update=0.0)
+        guard = ToolCallGuard(pipe, tracker, cfg, lineage=None)  # A off
+        result = await guard.evaluate("read", {}, "child")  # no own state
+        assert result.tier == "none"
+        assert result.allowed is True
+
+    async def test_lineage_flag_off_no_inheritance(self) -> None:
+        cfg = _cfg(subagent_lineage_enabled=False)
+        _pipe, registry, tracker, guard = _lineage_setup(cfg=cfg)
+        tracker._sessions["parent"] = SessionState(last_score=31.0, last_update=0.0)
+        registry.register("child", "parent")
+        result = await guard.evaluate("read", {}, "child")
+        assert result.tier == "none"  # flag off → optional tier-1/2 not inherited
+
+    async def test_lineage_flag_off_still_enforces_terminated_tier3(self) -> None:
+        # D4 floor: subagent_lineage_enabled=False disables only the OPTIONAL
+        # tier-1/2 inheritance; a terminated ancestor's tier3 has no config
+        # override ("Tier 3 escalation cannot be disabled"), so the child of a
+        # terminated parent is still forced to tier3 with the flag off.
+        cfg = _cfg(subagent_lineage_enabled=False)
+        _pipe, registry, tracker, guard = _lineage_setup(cfg=cfg)
+        tracker.terminate_session("parent")
+        registry.register("child", "parent")
+        result = await guard.evaluate("read", {}, "child")
+        assert result.tier == "tier3"
+        assert result.allowed is False
+
+    async def test_fanout_flag_off_not_gated(self) -> None:
+        cfg = _cfg(delegate_fanout_enabled=False)
+        pipe = Pipeline(config=cfg)
+        tracker = FrequencyTracker(cfg)
+        guard = ToolCallGuard(pipe, tracker, cfg)
+        for _ in range(6):  # well past base_cap — gate inert
+            assert (await guard.evaluate("delegate_task", {}, "s1")).allowed is True

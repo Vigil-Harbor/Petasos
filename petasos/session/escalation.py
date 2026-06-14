@@ -19,6 +19,33 @@ _TIER_ACTIONS: dict[str, str] = {
     "tier3": "terminate",
 }
 
+# PET-107: single ordering source for tier comparison across the codebase.
+_TIER_RANK: dict[str, int] = {"none": 0, "tier1": 1, "tier2": 2, "tier3": 3}
+
+
+def max_tier(*tiers: str) -> str:
+    """Return the highest-ranked tier among the inputs (``"none"`` if none given).
+
+    The single ordering source for combining already-derived tier strings
+    (e.g. an own tier with a parent-chain of ancestor tiers, PET-107 Option A).
+    It is a *combinator*, not a re-derivation: it never re-evaluates a score and
+    never re-applies the tier-3 floor (that stays inline in ``derive_tier``).
+
+    Raises ``ValueError`` on any string not in ``_TIER_RANK``. The inputs are
+    produced internally, so an unknown value is a bug — ranking it silently as
+    ``"none"`` would be a fail-open in a security max, which is never acceptable.
+    """
+    best = "none"
+    best_rank = 0
+    for tier in tiers:
+        rank = _TIER_RANK.get(tier)
+        if rank is None:
+            raise ValueError(f"unknown tier: {tier!r}")
+        if rank > best_rank:
+            best_rank = rank
+            best = tier
+    return best
+
 
 @dataclass(frozen=True)
 class EscalationResult:
