@@ -71,6 +71,19 @@ DEFAULT_PRESIDIO_ENTITIES: tuple[str, ...] = (
 )
 NOISY_OPT_IN_ENTITIES: tuple[str, ...] = ("PERSON", "LOCATION", "DATE_TIME", "NRP", "URL")
 
+# PET-117: petasos-curated set of Presidio recognizer names this package has a
+# severity mapping or default/opt-in band for. The profile parser validates
+# pii_entities_extra against this set WITHOUT importing presidio_analyzer (every
+# Presidio import in this module is deferred), preserving the zero-dep base
+# install. This is petasos's known vocabulary, not Presidio's full recognizer
+# registry — an uncurated-but-real recognizer name is intentionally treated as
+# "unknown" (it would fall to Severity.LOW and is outside every curated band).
+KNOWN_PII_ENTITIES: frozenset[str] = (
+    frozenset(_SEVERITY_MAP)
+    | frozenset(DEFAULT_PRESIDIO_ENTITIES)
+    | frozenset(NOISY_OPT_IN_ENTITIES)
+)
+
 
 def resolve_presidio_entities(
     base: tuple[str, ...] | None, extra: tuple[str, ...] = ()
