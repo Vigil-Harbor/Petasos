@@ -470,6 +470,7 @@ class TestPiiEntityValidation:
             [sys.executable, "-c", _PROBE_SRC],
             capture_output=True,
             text=True,
+            timeout=60,  # trivial import probe; bound it so a regression can't hang the suite
         )
         assert proc.returncode == 0, proc.stderr
         assert "OK" in proc.stdout
