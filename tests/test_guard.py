@@ -719,6 +719,22 @@ class TestDelegationFanout:
             t.join()
         assert sum(1 for r in results if r) == 1
 
+    def test_fanout_sweeps_stale_one_shot_sessions(self) -> None:
+        # A session that delegates once and is never touched again must not leave
+        # a stale deque in _events forever; the amortized global sweep (fired by a
+        # later consume past the window) drops it so the map tracks active windows
+        # rather than every distinct session ID ever seen.
+        from petasos.session.guard import SpawnBudget
+
+        budget = SpawnBudget(window_seconds=60.0)
+        for sid in ("a", "b", "c"):
+            assert budget.try_consume(sid, 5, 1000.0) is True
+        assert len(budget._events) == 3
+        # A later consume past the window triggers the global sweep; the three
+        # one-shot sessions are gone and only the live one remains.
+        assert budget.try_consume("d", 5, 2000.0) is True
+        assert set(budget._events) == {"d"}
+
 
 class TestConcurrentChildren:
     def test_concurrent_children_threadsafe(self) -> None:

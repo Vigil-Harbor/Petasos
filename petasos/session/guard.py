@@ -79,18 +79,32 @@ class SpawnBudget:
     all in one critical section so the read-check-append is atomic (closes the
     concurrent-spawn TOCTOU two children racing against a budget of 1).
 
-    The per-session deque is dropped once its window empties, so memory is bound
-    by the count of sessions that have spawned within ``window_seconds``.
+    The consumed session's deque is dropped once its window empties; an amortized
+    global sweep (at most once per ``window_seconds``) drops the deques of
+    sessions that delegated once and were never touched again. Together these
+    bound memory by the count of sessions that spawned within roughly the last
+    window, not by every distinct session ever seen.
     """
 
     def __init__(self, window_seconds: float) -> None:
         self._window = window_seconds
         self._lock = threading.Lock()
         self._events: dict[str, deque[float]] = {}
+        self._last_sweep = 0.0
 
     def try_consume(self, session_id: str, cap: int, now: float) -> bool:
         with self._lock:
             cutoff = now - self._window
+            # Amortized global sweep (<= once per window): drop any session whose
+            # entire window has expired. The per-session prune below only fires
+            # when THAT session is consumed again, so without this a one-shot
+            # delegate would leave a stale deque in _events forever and the map
+            # would grow with distinct session IDs instead of active windows.
+            if now - self._last_sweep >= self._window:
+                stale = [sid for sid, ev in self._events.items() if not ev or ev[-1] <= cutoff]
+                for sid in stale:
+                    del self._events[sid]
+                self._last_sweep = now
             dq = self._events.get(session_id)
             if dq is not None:
                 while dq and dq[0] <= cutoff:
