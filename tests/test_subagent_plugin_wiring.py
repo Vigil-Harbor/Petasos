@@ -133,9 +133,7 @@ class TestHookHandlers:
         assert ref._lineage_registry is None
         ref._subagent_start(parent_session_id="p", child_session_id="c")  # no raise
 
-    def test_handlers_register_and_unregister_edges(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_handlers_register_and_unregister_edges(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from petasos import LineageRegistry, PetasosConfig
 
         ref = _import_reference_plugin()
