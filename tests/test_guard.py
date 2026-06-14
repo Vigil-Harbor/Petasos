@@ -156,6 +156,22 @@ class TestToolNameNormalization:
         assert g._normalize_tool_name("custom_tool") == "mapped"
         assert g._normalize_tool_name("bash") == "exec"
 
+    async def test_profile_alias_key_canonicalized(self, valid_key: str) -> None:
+        # Regression for PET-121: alias-map KEYS are canonicalized into the same space as the
+        # incoming name, so an alias keyed with a camel / _tool-suffixed form still fires after
+        # the shared primitive strips the suffix or splits the camel. Without key
+        # canonicalization the D-SUFFIX strip ("custom_tool" -> "custom") would silently miss
+        # the raw "custom_tool" key, breaking the alias. Both the raw-suffixed key and its camel
+        # sibling resolve onto the same target.
+        p = _profile(
+            tool_alias_map=MappingProxyType({"custom_tool": "mapped", "SendThing": "exec"})
+        )
+        g = _guard(profile=p, key=valid_key)
+        assert g._normalize_tool_name("custom_tool") == "mapped"  # _tool-suffixed key fires
+        assert g._normalize_tool_name("CustomTool") == "mapped"  # camel variant of same tool
+        assert g._normalize_tool_name("send_thing") == "exec"  # canonical of the camel key
+        assert g._normalize_tool_name("SendThing") == "exec"
+
     async def test_casefold_not_just_lower(self, valid_key: str) -> None:
         g = _guard(key=valid_key)
         assert g._normalize_tool_name("BASH") == "exec"
@@ -199,13 +215,24 @@ class TestToolNameNormalization:
             ("", ""),
             ("   ", ""),
             ("http_request ", "browser"),  # trailing NBSP: D-EQUIV no-op-strip pin
+            # PET-121: CamelCase / _tool variants route through the SAME shared primitive,
+            # so the guard inherits the new shapes and then layers aliases on top — no second
+            # normalizer. send_email is unaliased; the rest fold onto an alias target.
+            ("SendEmail", "send_email"),  # camel -> send_email (unaliased)
+            ("sendEmail", "send_email"),
+            ("send_email_tool", "send_email"),  # D-SUFFIX strip, unaliased
+            ("FileRead", "read"),  # camel -> file_read -> alias read
+            ("ReadFileTool", "read"),  # camel -> read_file_tool -> suffix read_file -> read
+            ("BashTool", "exec"),  # camel -> bash_tool -> suffix bash -> alias exec
+            ("WebFetch", "browser"),  # camel -> web_fetch -> alias browser
         ],
     )
     async def test_normalize_tool_name_equivalence_pin(
         self, valid_key: str, raw: str, expected: str
     ) -> None:
-        # Regression for PET-118: the canonicalize_tool_name + alias_resolve refactor of
-        # _normalize_tool_name is byte-for-byte equivalent for existing callers (D-EQUIV).
+        # Regression for PET-118 / PET-121: the canonicalize_tool_name + alias layer of
+        # _normalize_tool_name is byte-for-byte equivalent for existing callers (D-EQUIV) and
+        # inherits the PET-121 camel/_tool shapes through the one shared primitive (no drift).
         g = _guard(key=valid_key)
         assert g._normalize_tool_name(raw) == expected
 

@@ -258,6 +258,68 @@ def test_classification_shares_guard_canonical_form(
 
 
 # ---------------------------------------------------------------------------
+# PET-121: CamelCase / _tool variants + single-underscore mcp_ wire names
+# ---------------------------------------------------------------------------
+
+
+def test_camelcase_egress_variant_still_pii_blocked(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Regression for PET-121: the CamelCase / SCREAMING_SNAKE / _tool variants Hermes resolves
+    # at dispatch now canonicalize onto the configured egress wire name, so a CRITICAL PII
+    # finding still trips branch-3 egress blocking. These are the live bypass shapes PET-118
+    # left open. egress set holds only the (already-canonical) wire form of "send_email".
+    for variant in ("SendEmail", "SEND_EMAIL", "send_email_tool"):
+        out = _drive(
+            monkeypatch,
+            variant,
+            _guard_result(findings=(_pii(Severity.CRITICAL),), param_scan_unsafe=True),
+            egress=_SEND_EMAIL_CANON,
+        )
+        assert out is not None and out["action"] == "block", f"{variant!r} should block"
+        assert out["message"].startswith("Security finding (PII, CRITICAL)")
+
+
+def test_camelcase_readonly_variant_not_dangerous(monkeypatch: pytest.MonkeyPatch) -> None:
+    # PET-121: a CamelCase variant of a READ_ONLY_TOOLS member (WebSearch -> web_search)
+    # canonicalizes back into _READ_ONLY_CANON -> not dangerous -> no false-positive quarantine,
+    # even with CRITICAL PII present (short-circuits to None at the read-only gate).
+    ref = _import_reference_plugin()
+    assert ref._is_dangerous("WebSearch") is False
+    out = _drive(
+        monkeypatch,
+        "WebSearch",
+        _guard_result(findings=(_pii(Severity.CRITICAL),), param_scan_unsafe=True),
+    )
+    assert out is None
+
+
+def test_single_underscore_namespace_requires_full_wire_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # PET-121 D-NS: the single-underscore mcp_<server>_<tool> prefix is NOT heuristically
+    # stripped (ambiguous boundary). An MCP egress tool matches only when configured by its
+    # FULL wire name; its CamelCase/_tool variants then fold onto it, but the bare tool name
+    # does NOT (no greedy strip merges the namespaced and bare forms).
+    ref = _import_reference_plugin()
+    full_wire = frozenset({canonicalize_tool_name("mcp_acme_send_email")})
+    monkeypatch.setattr(ref, "_egress_sink_tools", full_wire)
+    # full wire name matches; bare name does not (no prefix strip)
+    assert ref._is_egress_sink("mcp_acme_send_email") is True
+    assert ref._is_egress_sink("send_email") is False
+    # CamelCase / _tool variants OF THE FULL WIRE NAME still resolve onto it
+    assert ref._is_egress_sink("mcp_acme_SendEmail") is True
+    assert ref._is_egress_sink("mcp_acme_send_email_tool") is True
+    # and a full-wire CamelCase variant carrying CRITICAL PII trips the egress block
+    out = _drive(
+        monkeypatch,
+        "mcp_acme_SendEmail",
+        _guard_result(findings=(_pii(Severity.CRITICAL),), param_scan_unsafe=True),
+        egress=full_wire,
+    )
+    assert out is not None and out["action"] == "block"
+    assert out["message"].startswith("Security finding (PII, CRITICAL)")
+
+
+# ---------------------------------------------------------------------------
 # Non-PII finding types block all dangerous tools (D3 / D-EGRESS partition)
 # ---------------------------------------------------------------------------
 
