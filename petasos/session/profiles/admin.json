@@ -1,5 +1,6 @@
 {
   "name": "admin",
+  "description": "Strictest posture. Tightens escalation tiers (10/20/35) so risk trips fast and scans for the full PII set including credit cards and IBANs. For: privileged or admin agents and compliance-sensitive deployments where early lockdown beats convenience.",
   "suppress_rules": [],
   "severity_overrides": {},
   "confidence_floor": 0.0,

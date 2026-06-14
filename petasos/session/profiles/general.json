@@ -1,5 +1,6 @@
 {
   "name": "general",
+  "description": "Balanced default. Runs every rule and scanner at standard sensitivity with no suppressions or overrides - the safe starting point when no other preset clearly fits. For: general-purpose agents and first-time setup.",
   "suppress_rules": [],
   "severity_overrides": {},
   "confidence_floor": 0.0,
