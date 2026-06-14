@@ -285,8 +285,22 @@ class PetasosConfig:
             )
         # delegate_tool_names stored raw; coerce list→tuple in lockstep with
         # pii_entities so a to_dict/from_dict round-trip preserves the tuple type.
+        # Reject a bare string first: tuple("delegate_task") would explode into
+        # per-character entries that each pass the non-empty-string check below,
+        # silently emptying the delegate match set and bypassing the spawn gate.
+        if isinstance(self.delegate_tool_names, str):
+            raise ValueError(
+                "delegate_tool_names must be an iterable of tool names, not a string, "
+                f"got {self.delegate_tool_names!r}"
+            )
         if not isinstance(self.delegate_tool_names, tuple):
-            object.__setattr__(self, "delegate_tool_names", tuple(self.delegate_tool_names))
+            try:
+                object.__setattr__(self, "delegate_tool_names", tuple(self.delegate_tool_names))
+            except TypeError as exc:
+                raise ValueError(
+                    f"delegate_tool_names must be an iterable of non-empty strings, "
+                    f"got {self.delegate_tool_names!r}"
+                ) from exc
         for tool_name in self.delegate_tool_names:
             if not isinstance(tool_name, str) or not tool_name:
                 raise ValueError(

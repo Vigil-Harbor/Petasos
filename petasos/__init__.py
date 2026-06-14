@@ -16,6 +16,7 @@ from petasos.pipeline import Pipeline
 from petasos.scanners.minimal import RULE_TAXONOMY, MinimalScanner
 from petasos.session.alerting import AlertManager
 from petasos.session.audit import AuditEmitter
+from petasos.session.escalation import max_tier
 from petasos.session.formatting import (
     format_block_message,
     format_pipeline_block_message,
@@ -42,6 +43,7 @@ __all__ = [
     "LicenseState",
     "LicenseValidator",
     "LineageRegistry",
+    "max_tier",
     "MinimalScanner",
     "NormalizedText",
     "PetasosConfig",

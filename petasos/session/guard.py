@@ -315,18 +315,20 @@ class ToolCallGuard:
         return self._state_to_tier(self._read_state(session_id))
 
     def _derive_tier(self, session_id: str) -> str:
-        # Step 1: own tier (today's logic). Computed outside the fail-secure
-        # wrapper so its existing error behavior is preserved.
-        own = self._derive_own_tier(session_id)
-        # Step 2: lineage off / disabled → own only (byte-for-byte today's).
-        if self._lineage is None or not self._config.subagent_lineage_enabled:
-            return own
-        # Steps 3-4: a child's tier is max(own, worst ancestor) read LIVE at
-        # evaluation time (D5). The whole chain walk is wrapped fail-SECURE — an
-        # internal error (including a max_tier ValueError on an unexpected tier
-        # string) logs and returns tier3, mirroring evaluate_tier; it must never
-        # escape into the reference plugin's fail-OPEN evaluate catch.
+        # The whole derivation is wrapped fail-SECURE: any internal error — the
+        # own-tier read (_read_state → mint_token can raise on a malformed
+        # session_id or unset host_id when session_secret is set), a terminated
+        # ancestor lookup, or a max_tier ValueError on an unexpected tier string
+        # — logs and returns tier3, mirroring evaluate_tier. It must never escape
+        # into the reference plugin's fail-OPEN evaluate catch.
         try:
+            # Step 1: own tier (today's logic).
+            own = self._derive_own_tier(session_id)
+            # Step 2: lineage off / disabled → own only (byte-for-byte today's).
+            if self._lineage is None or not self._config.subagent_lineage_enabled:
+                return own
+            # Steps 3-4: a child's tier is max(own, worst ancestor) read LIVE at
+            # evaluation time (D5).
             anc_tiers: list[str] = []
             for aid in self._lineage.ancestors(session_id):
                 if self._frequency_tracker.is_terminated(aid):

@@ -189,10 +189,10 @@ class FrequencyTracker:
                     self._terminated_ids[sid] = None
                     self._enforce_tombstone_cap()
                 del self._sessions[sid]
-                if state_ev.terminated:
-                    # Tombstone path (1/4): a terminated session reaped on TTL
-                    # must unpin its own parent.
-                    self._fire_on_terminate(sid)
+                # Any session removed here is gone, terminated or not: drop its
+                # OWN outgoing lineage edge so it stops pinning its parent. A
+                # terminated session was additionally tombstoned above.
+                self._fire_on_terminate(sid)
 
             # Step 1b: Deque compaction
             if len(self._ttl_deque) > 2 * self._max_sessions:
@@ -327,19 +327,28 @@ class FrequencyTracker:
     def reset(self, session: str | SessionToken) -> None:
         with self._lock:
             session_id = self._resolve_session_id(session)
-            self._sessions.pop(session_id, None)
+            if self._sessions.pop(session_id, None) is not None:
+                # Removed session drops its own outgoing lineage edge.
+                self._fire_on_terminate(session_id)
 
     def force_reset(self, session_id: str) -> None:
         with self._lock:
-            self._sessions.pop(session_id, None)
+            removed = self._sessions.pop(session_id, None)
             self._terminated_ids.pop(session_id, None)
+            if removed is not None:
+                # Removed session drops its own outgoing lineage edge.
+                self._fire_on_terminate(session_id)
 
     def clear(self) -> None:
         with self._lock:
+            removed_ids = tuple(self._sessions)
             self._sessions.clear()
             self._creation_timestamps.clear()
             self._terminated_ids.clear()
             self._ttl_deque.clear()
+            # Every removed session drops its own outgoing lineage edge.
+            for session_id in removed_ids:
+                self._fire_on_terminate(session_id)
 
     @property
     def size(self) -> int:
@@ -427,9 +436,13 @@ class FrequencyTracker:
             # Tombstone path (4/4): an evicted terminated session unpins its parent.
             self._fire_on_terminate(sid)
         elif oldest_candidate is not None:
-            # Plain LRU eviction of a non-terminated session — NOT a tombstone,
-            # so on_terminate does not fire here.
-            del self._sessions[oldest_candidate[0]]
+            # Plain LRU eviction of a non-terminated session: not a tombstone,
+            # but the evicted session is gone, so it must still drop its own
+            # outgoing edge (mirrors _force_evict_pinned) rather than leave its
+            # parent pinned by a session that no longer exists.
+            sid = oldest_candidate[0]
+            del self._sessions[sid]
+            self._fire_on_terminate(sid)
 
     def _force_evict_pinned(self, protect_id: str) -> None:
         """Hard-ceiling overflow: force-evict the smallest-last_update pinned session.
