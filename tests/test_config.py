@@ -234,3 +234,39 @@ class TestConfigFrozen:
         cfg = PetasosConfig()
         with pytest.raises(dataclasses.FrozenInstanceError):
             cfg.direction = "outbound"  # type: ignore[misc]
+
+
+class TestDecodeEncodedPayloads:
+    def test_default_true(self) -> None:
+        assert PetasosConfig().decode_encoded_payloads is True
+
+    def test_roundtrip(self) -> None:
+        # PET-98: to_dict/from_dict/copy preserve the field (serialized via fields()).
+        cfg = PetasosConfig(decode_encoded_payloads=False)
+        d = cfg.to_dict()
+        assert d["decode_encoded_payloads"] is False
+        restored = PetasosConfig.from_dict(d)
+        assert restored.decode_encoded_payloads is False
+        assert restored == cfg
+        assert cfg.copy().decode_encoded_payloads is False
+
+    def test_from_dict_rejects_non_bool(self) -> None:
+        # PET-98 (CFG-03): pins the _BOOL_FIELDS membership in from_dict.
+        with pytest.raises(TypeError, match="decode_encoded_payloads must be a bool"):
+            PetasosConfig.from_dict({"decode_encoded_payloads": 1})
+        with pytest.raises(TypeError, match="decode_encoded_payloads must be a bool"):
+            PetasosConfig.from_dict({"decode_encoded_payloads": "true"})
+
+    def test_constructor_rejects_non_bool(self) -> None:
+        # PET-98 (CFG-03): pins the _BOOL_FIELDS membership in __post_init__.
+        with pytest.raises(TypeError, match="decode_encoded_payloads must be a bool"):
+            PetasosConfig(decode_encoded_payloads=1)  # type: ignore[arg-type]
+
+    def test_config_meta_help_plain_distinct(self) -> None:
+        # PET-98 (Decision 9): help_plain is distinct prose and documents that this
+        # toggle does disable the built-in scanner stage.
+        from petasos.console._config_meta import _FIELD_META
+
+        meta = _FIELD_META["decode_encoded_payloads"]
+        assert meta["help_plain"].strip() != meta["description"].strip()
+        assert meta["section"] == "normalization"

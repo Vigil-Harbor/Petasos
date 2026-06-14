@@ -85,6 +85,20 @@ _FIELD_META: dict[str, dict[str, Any]] = {
         ),
         "section": "normalization",
     },
+    "decode_encoded_payloads": {
+        "description": ("Decode base64/hex/ROT13 blobs and rescan the plaintext for injections."),
+        "help_plain": (
+            "Catches attacks hidden inside encoded blobs — a base64-, hex-, or"
+            ' ROT13-wrapped "ignore all previous instructions" is decoded and rescanned,'
+            " so it is caught at full severity instead of slipping through as a low-priority"
+            " encoding flag. Unlike the leetspeak setting above, turning this off DOES"
+            " disable the decode stage inside the built-in syntactic scanner, reopening the"
+            " encoded-payload gap. Decoding is bounded (size, count, and depth caps) and"
+            " only ever raises a flag on a real injection, so it adds no false positives on"
+            " ordinary encoded data."
+        ),
+        "section": "normalization",
+    },
     "direction": {
         "description": (
             "Default scan direction: inbound (user to agent) or outbound (agent to user)."

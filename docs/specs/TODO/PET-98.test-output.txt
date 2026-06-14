@@ -1,0 +1,13 @@
+### PET-98 post-merge test gate — 2026-06-14T06:29:29Z
+### merged origin/master (PET-99 #80, PET-94 #82) into fix/pet-98
+### python Python 3.10.6
+
+=== full suite (1 pre-existing Unicode-13 env failure deselected below) ===
+1469 passed, 38 skipped, 1 xfailed; only failure = test_default_ignorable_rejected (Unicode 13 vs 14, env, unrelated)
+
+=== ruff check ===
+All checks passed!
+=== ruff format --check ===
+109 files already formatted
+=== mypy --strict ===
+Success: no issues found in 109 source files
