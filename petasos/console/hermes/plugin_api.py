@@ -283,6 +283,39 @@ async def get_about() -> Any:
     return await _require_handlers().get_about()
 
 
+@router.get("/armed")
+async def get_armed() -> Any:
+    return await _require_handlers().get_armed()
+
+
+@router.post("/armed")
+async def set_armed(request: Request) -> Any:
+    from fastapi.responses import JSONResponse
+
+    h = _require_handlers()
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse(
+            status_code=422,
+            content={"detail": [{"field": "body", "message": "Invalid JSON"}]},
+        )
+    if not isinstance(body, dict) or not isinstance(body.get("armed"), bool):
+        return JSONResponse(
+            status_code=422,
+            content={"detail": [{"field": "armed", "message": "Must be a boolean"}]},
+        )
+    result, ok = await h.set_armed(body["armed"])
+    if not ok:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "detail": [{"field": "armed", "message": "Failed to persist armed state to disk"}]
+            },
+        )
+    return result
+
+
 @router.get("/diag")
 async def get_diag() -> Any:
     """Debug endpoint — pipeline wiring diagnostics."""
