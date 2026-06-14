@@ -324,18 +324,24 @@ class ToolCallGuard:
         try:
             # Step 1: own tier (today's logic).
             own = self._derive_own_tier(session_id)
-            # Step 2: lineage off / disabled → own only (byte-for-byte today's).
-            if self._lineage is None or not self._config.subagent_lineage_enabled:
+            # Step 2: no lineage data wired (host sub-agent hooks absent) → own
+            # only. This is the graceful-degradation branch (lineage is None).
+            if self._lineage is None:
                 return own
             # Steps 3-4: a child's tier is max(own, worst ancestor) read LIVE at
-            # evaluation time (D5).
+            # evaluation time (D5). subagent_lineage_enabled gates the OPTIONAL
+            # tier-1/2 inheritance, but a terminated ancestor's tier-3 floor (D4)
+            # has NO config override — "Tier 3 escalation cannot be disabled" — so
+            # the chain is still walked for tombstones even when the flag is off.
+            inherit_full = self._config.subagent_lineage_enabled
             anc_tiers: list[str] = []
             for aid in self._lineage.ancestors(session_id):
                 if self._frequency_tracker.is_terminated(aid):
                     # Tombstone-backed: a terminated ancestor forces tier3 even
-                    # post-eviction (closes orphaned termination).
+                    # post-eviction (closes orphaned termination) and even when
+                    # full inheritance is config-disabled (D4 floor, no override).
                     anc_tiers.append("tier3")
-                else:
+                elif inherit_full:
                     anc_tiers.append(self._state_to_tier(self._read_state(aid)))
             return max_tier(own, *anc_tiers)
         except Exception:

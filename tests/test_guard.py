@@ -773,7 +773,20 @@ class TestFeatureDisabledNoop:
         tracker._sessions["parent"] = SessionState(last_score=31.0, last_update=0.0)
         registry.register("child", "parent")
         result = await guard.evaluate("read", {}, "child")
-        assert result.tier == "none"  # flag off → no chain walk
+        assert result.tier == "none"  # flag off → optional tier-1/2 not inherited
+
+    async def test_lineage_flag_off_still_enforces_terminated_tier3(self) -> None:
+        # D4 floor: subagent_lineage_enabled=False disables only the OPTIONAL
+        # tier-1/2 inheritance; a terminated ancestor's tier3 has no config
+        # override ("Tier 3 escalation cannot be disabled"), so the child of a
+        # terminated parent is still forced to tier3 with the flag off.
+        cfg = _cfg(subagent_lineage_enabled=False)
+        _pipe, registry, tracker, guard = _lineage_setup(cfg=cfg)
+        tracker.terminate_session("parent")
+        registry.register("child", "parent")
+        result = await guard.evaluate("read", {}, "child")
+        assert result.tier == "tier3"
+        assert result.allowed is False
 
     async def test_fanout_flag_off_not_gated(self) -> None:
         cfg = _cfg(delegate_fanout_enabled=False)
