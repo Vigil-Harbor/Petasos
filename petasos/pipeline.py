@@ -24,6 +24,7 @@ from petasos._types import (
 from petasos.config import PetasosConfig
 from petasos.normalize import normalize
 from petasos.scanners.minimal import _UNSUPPRESSIBLE_RULE_IDS, MinimalScanner
+from petasos.scanners.presidio import PresidioScanner
 from petasos.session.alerting import AlertManager
 from petasos.session.audit import AuditEmitter
 from petasos.session.frequency import FrequencyTracker, FrequencyUpdateResult
@@ -212,12 +213,19 @@ async def _scan_one(
     direction: Direction,
     session_id: str | None,
     timeout: float = _SCANNER_TIMEOUT,
+    extra_entities: Sequence[str] | None = None,
 ) -> ScanResult:
     sname = getattr(scanner, "name", "unknown")
     t0 = time.perf_counter()
     try:
+        # extra_entities is Presidio-only (PET-119); passed conditionally so the
+        # generic Scanner.scan() call stays protocol-conformant under mypy --strict
+        # (no keyword reaches non-Presidio scanners).
+        scan_kwargs: dict[str, Any] = {"direction": direction, "session_id": session_id}
+        if extra_entities is not None:
+            scan_kwargs["extra_entities"] = list(extra_entities)
         return await asyncio.wait_for(
-            scanner.scan(normalized_text, direction=direction, session_id=session_id),
+            scanner.scan(normalized_text, **scan_kwargs),
             timeout=timeout,
         )
     except asyncio.TimeoutError:  # noqa: UP041
@@ -617,7 +625,21 @@ class Pipeline:
         elif self._ml_scanners:
             tasks = [
                 self._scan_with_breaker(
-                    s, normalized_text, direction=direction, session_id=session_id
+                    s,
+                    normalized_text,
+                    direction=direction,
+                    session_id=session_id,
+                    # PET-119: per-profile additive PII opt-ins, Presidio-only. A
+                    # per-call concrete-type check (not a one-time partition like
+                    # the minimal scanner): the extras are profile-dependent and
+                    # recomputed each inspect(), and only PresidioScanner.scan
+                    # accepts the keyword. None on the no-profile/non-Presidio path
+                    # keeps today's exact behavior.
+                    extra_entities=(
+                        active_profile.pii_entities_extra
+                        if active_profile is not None and isinstance(s, PresidioScanner)
+                        else None
+                    ),
                 )
                 for s in self._ml_scanners
             ]
@@ -786,6 +808,7 @@ class Pipeline:
         *,
         direction: Direction,
         session_id: str | None,
+        extra_entities: Sequence[str] | None = None,
     ) -> ScanResult:
         """Run one ML scanner under the consecutive-timeout circuit breaker (PIPE-03).
 
@@ -825,6 +848,7 @@ class Pipeline:
             direction=direction,
             session_id=session_id,
             timeout=self._config.scanner_timeout_seconds,
+            extra_entities=extra_entities,
         )
         self._last_scan_durations[sname] = (time.monotonic() - _t0) * 1000
         if result.error is not None:

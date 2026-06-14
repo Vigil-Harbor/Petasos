@@ -173,6 +173,13 @@ NONSKIPPING_LANES: tuple[NonSkippingLane, ...] = (
         "TestPresidioTightenedDefault",
         "extras-presidio",
     ),
+    NonSkippingLane(
+        "presidio",
+        "PETASOS_REQUIRE_PRESIDIO",
+        "presidio_analyzer",
+        "TestProfilePresidioScoping",  # PET-119 profile→Presidio wiring contract
+        "extras-presidio",
+    ),
 )
 
 

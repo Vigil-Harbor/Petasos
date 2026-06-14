@@ -8,12 +8,19 @@ conftest non-skipping-lane guard pins for ``extras-presidio`` (D4).
 
 from __future__ import annotations
 
+import asyncio
 import math
+from typing import Any
 
 import pytest
 
 from petasos.config import PetasosConfig
-from petasos.scanners.minimal import _STRUCTURAL_RULE_IDS, _UNSUPPRESSIBLE_RULE_IDS
+from petasos.pipeline import Pipeline
+from petasos.scanners.minimal import (
+    _STRUCTURAL_RULE_IDS,
+    _UNSUPPRESSIBLE_RULE_IDS,
+    MinimalScanner,
+)
 from petasos.scanners.presidio import (
     DEFAULT_PRESIDIO_ENTITIES,
     NOISY_OPT_IN_ENTITIES,
@@ -235,3 +242,178 @@ class TestPresidioTightenedDefault:
         assert any("credit_card" in r for r in rule_ids), rule_ids
         assert any("email" in r for r in rule_ids), rule_ids
         assert any("phone" in r for r in rule_ids), rule_ids
+
+
+# ---------------------------------------------------------------------------
+# PET-119: profile.pii_entities_extra → per-profile Presidio scoping
+#
+# These pins make the field load-bearing: each fails if a profile-set PII entity
+# silently no-ops again. The scan-level and pipeline-level rows are backend-free
+# (a recording fake stands in for the analyzer); the real-backend contract lives
+# in TestProfilePresidioScoping below.
+# ---------------------------------------------------------------------------
+
+
+class _RecordingAnalyzer:
+    """Backend-free stand-in for presidio's AnalyzerEngine. Records the exact
+    ``entities`` list ``analyzer.analyze`` is handed, with no spaCy dependency, so
+    the per-call effective-entity computation can be asserted on every lane."""
+
+    def __init__(self) -> None:
+        self.entities: list[str] | None = None
+
+    def analyze(
+        self,
+        *,
+        text: str,
+        entities: list[str],
+        language: str,
+        score_threshold: float,
+    ) -> list[Any]:
+        self.entities = list(entities)
+        return []
+
+
+def _recording_scanner(**kw: Any) -> tuple[PresidioScanner, _RecordingAnalyzer]:
+    s = PresidioScanner(**kw)
+    rec = _RecordingAnalyzer()
+    s._analyzer = rec
+    s._loaded = True
+    return s, rec
+
+
+class _RecordingPresidio(PresidioScanner):
+    """PresidioScanner subclass wired to a recording analyzer so the pipeline's
+    ``isinstance(s, PresidioScanner)`` Presidio special-case holds (the extras are
+    only threaded to scanners that are PresidioScanner instances)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._rec = _RecordingAnalyzer()
+        self._analyzer = self._rec
+        self._loaded = True
+
+
+# --- scan() additive channel (backend-free) --------------------------------
+
+
+def test_scan_no_extra_uses_base() -> None:
+    # Negative pin: no extras (omitted / None / empty) records exactly the base set.
+    for extra in (None, ()):
+        scanner, rec = _recording_scanner()
+        asyncio.run(scanner.scan("text", extra_entities=extra))
+        assert rec.entities == list(DEFAULT_PRESIDIO_ENTITIES)
+    scanner, rec = _recording_scanner()
+    asyncio.run(scanner.scan("text"))  # keyword omitted entirely
+    assert rec.entities == list(DEFAULT_PRESIDIO_ENTITIES)
+
+
+def test_scan_extra_entities_additive() -> None:
+    scanner, rec = _recording_scanner()
+    asyncio.run(scanner.scan("text", extra_entities=("PERSON",)))
+    assert rec.entities == [*DEFAULT_PRESIDIO_ENTITIES, "PERSON"]
+
+
+def test_scan_extra_entities_dedup() -> None:
+    # EMAIL_ADDRESS is already in the base — the additive union must not duplicate it.
+    scanner, rec = _recording_scanner()
+    asyncio.run(scanner.scan("text", extra_entities=("EMAIL_ADDRESS",)))
+    assert rec.entities == list(DEFAULT_PRESIDIO_ENTITIES)
+    assert rec.entities.count("EMAIL_ADDRESS") == 1
+
+
+def test_scan_does_not_mutate_self_entities() -> None:
+    # Decision 6 concurrency invariant: the effective list is a per-call local;
+    # self._entities is read-only after construction.
+    scanner, rec = _recording_scanner()
+    asyncio.run(scanner.scan("text", extra_entities=("PERSON",)))
+    assert scanner._entities == list(DEFAULT_PRESIDIO_ENTITIES)
+    assert "PERSON" not in scanner._entities
+
+
+def test_scan_unknown_extra_threads_through() -> None:
+    # Presidio is the filter — the wiring must not silently drop unknown names, or a
+    # regression could hide behind a swallowed entity (Design note, edge-cases/F-2).
+    scanner, rec = _recording_scanner()
+    asyncio.run(scanner.scan("text", extra_entities=("NOT_A_REAL_ENTITY",)))
+    assert rec.entities == [*DEFAULT_PRESIDIO_ENTITIES, "NOT_A_REAL_ENTITY"]
+
+
+# --- pipeline threading (backend-free) -------------------------------------
+
+
+def test_pipeline_passes_profile_extras_to_presidio() -> None:
+    rec_presidio = _RecordingPresidio()
+    pipeline = Pipeline([MinimalScanner(), rec_presidio])
+    asyncio.run(pipeline.inspect("benign text", profile="customer_service"))
+    # customer_service extras = [PERSON, EMAIL_ADDRESS, PHONE_NUMBER]; EMAIL_ADDRESS
+    # and PHONE_NUMBER are already in the base, so the order-preserving union adds
+    # only PERSON.
+    assert rec_presidio._rec.entities == [*DEFAULT_PRESIDIO_ENTITIES, "PERSON"]
+
+
+def test_pipeline_no_profile_uses_base() -> None:
+    # Negative pin at the pipeline layer: no active profile -> keyword omitted ->
+    # base set; no profile leakage.
+    rec_presidio = _RecordingPresidio()
+    pipeline = Pipeline([MinimalScanner(), rec_presidio])
+    asyncio.run(pipeline.inspect("benign text"))
+    assert rec_presidio._rec.entities == list(DEFAULT_PRESIDIO_ENTITIES)
+
+
+def test_pipeline_general_profile_empty_extras_uses_base() -> None:
+    # Empty-extras pin (edge-cases/F-1): general's pii_entities_extra == [] makes the
+    # keyword present-but-empty, which must collapse to the base — structurally
+    # distinct from the no-profile branch (keyword omitted) and the most common live
+    # path whenever general is active.
+    rec_presidio = _RecordingPresidio()
+    pipeline = Pipeline([MinimalScanner(), rec_presidio])
+    asyncio.run(pipeline.inspect("benign text", profile="general"))
+    assert rec_presidio._rec.entities == list(DEFAULT_PRESIDIO_ENTITIES)
+
+
+# ---------------------------------------------------------------------------
+# Real-backend contract — non-skipping on the extras-presidio lane (PET-119)
+# ---------------------------------------------------------------------------
+
+
+@requires_presidio
+class TestProfilePresidioScoping:
+    """The load-bearing contract: a profile opt-in (PERSON) that is NOT in the config
+    default fires under that profile and not under one without it. This is the exact
+    assertion PET-117 declined to add (it would false-green while the field was inert);
+    it fails if the profile→Presidio wiring ever regresses."""
+
+    # NER-friendly corpus: a full name with a title + a "Customer name:" cue scores
+    # PERSON comfortably above the 0.35 default threshold on en_core_web_lg. Phrasing
+    # is pinned, not deferred — PERSON is spaCy-NER, not a deterministic pattern
+    # recognizer, so a bare "John Smith" can fall below threshold and flake.
+    _CORPUS = "Customer name: Dr. Margaret Thompson called about her account."
+
+    def _pipeline(self) -> Pipeline:
+        return Pipeline([MinimalScanner(), PresidioScanner()])
+
+    def test_person_fires_under_customer_service_not_general(self) -> None:
+        pipeline = self._pipeline()
+
+        cs = asyncio.run(pipeline.inspect(self._CORPUS, profile="customer_service"))
+        assert cs.errors == ()
+        person = [f for f in cs.findings if f.rule_id == "petasos.presidio.person"]
+        assert person, f"expected a PERSON finding under customer_service, got {cs.findings}"
+        # Buffer above the 0.35 threshold so a marginal future model regression fails
+        # loudly rather than flaking.
+        assert max(f.confidence for f in person) > 0.45
+
+        general = asyncio.run(pipeline.inspect(self._CORPUS, profile="general"))
+        assert general.errors == ()
+        assert not any(f.rule_id == "petasos.presidio.person" for f in general.findings), (
+            f"PERSON must not fire under general (no opt-in), got {general.findings}"
+        )
+
+    def test_admin_person_fires(self) -> None:
+        pipeline = self._pipeline()
+        admin = asyncio.run(pipeline.inspect(self._CORPUS, profile="admin"))
+        assert admin.errors == ()
+        assert any(f.rule_id == "petasos.presidio.person" for f in admin.findings), (
+            f"expected a PERSON finding under admin, got {admin.findings}"
+        )
