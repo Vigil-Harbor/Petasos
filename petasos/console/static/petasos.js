@@ -786,7 +786,7 @@
         // present-but-non-numeric session_score degrades this one tile, never the
         // whole result and never the UI.
         var ss = Number(r.session_score);
-        if (ss === ss) { // not NaN
+        if (!Number.isNaN(ss)) { // present-but-non-numeric score → skip this tile
           stats.appendChild(Pet.h("div", { style: { flex: "1", background: "var(--bg-raised)", border: "1px solid var(--border)", borderRadius: "var(--r-card)", padding: "7px 11px" } },
             Pet.h("div", { className: "eyebrow" }, "session_score"),
             Pet.h("div", { className: "num", style: { fontSize: "18px", fontWeight: "700", color: "var(--amber-bright)" } }, ss.toFixed(3))
