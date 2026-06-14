@@ -51,6 +51,13 @@ class GuardResult:
     findings: tuple[ScanFinding, ...]
     tier: str
     param_scan_unsafe: bool
+    # PET-112: True iff the param scan flipped unsafe AND a scanner errored, i.e. the
+    # unsafe verdict is degraded-mode driven rather than finding-driven. Lets the plugin
+    # honor the "ML failure blocks content" invariant independently of finding type
+    # (degraded co-occurring with PII still blocks). Last + defaulted so every existing
+    # construction stays valid. fail-mode-correct: gates on `not result.safe`, so
+    # fail_mode="open" (scanner error doesn't flip safe) yields False → no block.
+    param_scan_degraded: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -59,6 +66,7 @@ class GuardResult:
             "findings": [f.to_dict() for f in self.findings],
             "tier": self.tier,
             "param_scan_unsafe": self.param_scan_unsafe,
+            "param_scan_degraded": self.param_scan_degraded,
         }
 
 
@@ -227,17 +235,22 @@ class ToolCallGuard:
                     tier=tier,
                     param_scan_unsafe=False,
                 )
-            findings, param_scan_unsafe = await self._scan_params(tool_params, session_id)
+            findings, param_scan_unsafe, param_scan_degraded = await self._scan_params(
+                tool_params, session_id
+            )
             return GuardResult(
                 allowed=True,
                 reason="exempt-with-scan",
                 findings=findings,
                 tier=tier,
                 param_scan_unsafe=param_scan_unsafe,
+                param_scan_degraded=param_scan_degraded,
             )
 
         # Step 5: Scan params
-        findings, param_scan_unsafe = await self._scan_params(tool_params, session_id)
+        findings, param_scan_unsafe, param_scan_degraded = await self._scan_params(
+            tool_params, session_id
+        )
 
         # Step 6: Tier 2 → block
         if tier == "tier2":
@@ -247,6 +260,7 @@ class ToolCallGuard:
                 findings=findings,
                 tier="tier2",
                 param_scan_unsafe=param_scan_unsafe,
+                param_scan_degraded=param_scan_degraded,
             )
 
         # Step 7: Tier 1 with unsafe → warn
@@ -257,6 +271,7 @@ class ToolCallGuard:
                 findings=findings,
                 tier="tier1",
                 param_scan_unsafe=param_scan_unsafe,
+                param_scan_degraded=param_scan_degraded,
             )
 
         # Step 8: Clean / no tier → allow
@@ -266,6 +281,7 @@ class ToolCallGuard:
             findings=findings,
             tier=tier,
             param_scan_unsafe=param_scan_unsafe,
+            param_scan_degraded=param_scan_degraded,
         )
 
     def _normalize_tool_name(self, tool_name: str) -> str:
@@ -369,10 +385,16 @@ class ToolCallGuard:
         self,
         tool_params: dict[str, Any],
         session_id: str,
-    ) -> tuple[tuple[ScanFinding, ...], bool]:
+    ) -> tuple[tuple[ScanFinding, ...], bool, bool]:
+        # PET-112: returns (findings, param_scan_unsafe, param_scan_degraded). The third
+        # element is True only when the unsafe verdict co-occurs with a scanner error
+        # (degraded-mode), so the plugin can block on degradation regardless of finding
+        # type. The two error early-returns force degraded=True regardless of fail_mode —
+        # a deliberate fail-safe on guard-internal/hook failure; the fail-mode-correct
+        # `not result.safe` gate applies to the normal finding-driven path only.
         try:
             if not tool_params:
-                return (), False
+                return (), False, False
 
             parts: list[str] = []
             for value in tool_params.values():
@@ -385,7 +407,7 @@ class ToolCallGuard:
 
             param_text = "\n".join(parts)
             if not param_text:
-                return (), False
+                return (), False, False
 
             if len(param_text) > _MAX_PARAM_TEXT_LEN:
                 _logger.warning(
@@ -405,11 +427,13 @@ class ToolCallGuard:
                     "param scan errored without findings, marking unsafe; error_count=%d",
                     len(result.errors),
                 )
-                return (), True
+                return (), True, True
 
             param_scan_unsafe = not result.safe
+            scanner_errored = any(r.error is not None for r in result.scanner_results)
+            param_scan_degraded = param_scan_unsafe and scanner_errored
             findings = result.findings
-            return findings, param_scan_unsafe
+            return findings, param_scan_unsafe, param_scan_degraded
         except Exception:
             _logger.exception("_scan_params failed unexpectedly, marking unsafe")
-            return (), True
+            return (), True, True

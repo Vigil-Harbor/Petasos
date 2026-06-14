@@ -23,6 +23,8 @@ import time
 import uuid
 from typing import Any
 
+from petasos._types import Severity  # PET-112: dep-light (enum + dataclasses, no ML imports)
+
 logger = logging.getLogger("petasos.plugin")
 
 # ---------------------------------------------------------------------------
@@ -87,6 +89,52 @@ READ_ONLY_TOOLS = frozenset(
 
 def _is_dangerous(tool_name: str) -> bool:
     return tool_name not in READ_ONLY_TOOLS
+
+
+# ---------------------------------------------------------------------------
+# PET-112: ordinal severity gate + egress-sink classification
+# ---------------------------------------------------------------------------
+
+# Lower rank = worse — the established convention (four existing copies in
+# pipeline.py / presidio.py / alerting.py / formatting.py). A fifth copy in this
+# deployment artifact is preferable to importing a private name across the
+# package -> docs/deployment/ boundary.
+_SEVERITY_RANK: dict[Severity, int] = {
+    Severity.CRITICAL: 0,
+    Severity.HIGH: 1,
+    Severity.MEDIUM: 2,
+    Severity.LOW: 3,
+    Severity.INFO: 4,
+}
+_BLOCK_RANK = _SEVERITY_RANK[Severity.HIGH]  # block at HIGH or worse (rank <= 1)
+
+
+def _blocks(severity: Severity) -> bool:
+    """Ordinal severity gate (replaces the broken lexicographic compare, PET-112 D-CAVEAT).
+
+    Unknown severities sort to 999 -> do not block, matching the _SEVERITY_RANK.get(..., 999)
+    idiom used across the package.
+    """
+    return _SEVERITY_RANK.get(severity, 999) <= _BLOCK_RANK
+
+
+def _worst(findings):
+    """Severity-first, confidence-tiebreak selection (PET-51 ordering).
+
+    Caller guarantees a non-empty sequence (only ever called inside an `if list:` guard),
+    so min() never raises on empty input.
+    """
+    return min(findings, key=lambda f: (_SEVERITY_RANK.get(f.severity, 999), -f.confidence))
+
+
+# Resolved in _deferred_init from config.egress_sink_tools; raw membership mirrors
+# _is_dangerous. Written once under _init_lock before _initialized flips; read lock-free in
+# _pre_tool_call (which only runs post-init). Atomic name rebind — no torn read under the GIL.
+_egress_sink_tools: frozenset[str] = frozenset()
+
+
+def _is_egress_sink(tool_name: str) -> bool:
+    return tool_name in _egress_sink_tools
 
 
 # ---------------------------------------------------------------------------
@@ -340,6 +388,18 @@ def _deferred_init() -> None:
                     "inactive (sub-agent hooks unavailable)"
                 )
 
+            # PET-112: publish the egress-sink set under the same happens-before as
+            # _pipeline/_guard (written before _initialized flips; read lock-free in the
+            # post-init hot path). The `global` is MANDATORY — without it the assignment
+            # binds a function-local and leaves the module frozenset empty forever,
+            # silently disabling egress PII blocking.
+            global _egress_sink_tools
+            _egress_sink_tools = frozenset(config.egress_sink_tools)
+            if not _egress_sink_tools:
+                logger.warning(
+                    "egress_sink_tools is empty — PII will not be blocked on any egress tool"
+                )
+
             scanner_names = [s.name for s in scanners]
             logger.info(
                 "Petasos initialized: scanners=%s, unavailable=%s, fail_mode=%s, host_id=%s",
@@ -435,10 +495,10 @@ def _fallback_pre_tool_call(
         param_text = json.dumps(args, default=str)[:100_000]
         result = _run_async(scanner.scan(param_text, direction="inbound"))
         if result.findings:
-            from petasos._types import Severity
-
-            worst = max(result.findings, key=lambda f: f.severity.value)
-            if worst.severity.value >= Severity.HIGH.value:
+            # PET-112: ordinal gate (a lone CRITICAL now blocks; MEDIUM/LOW no longer do).
+            # MinimalScanner emits no PII findings (syntactic only), so no egress logic here.
+            worst = _worst(result.findings)
+            if _blocks(worst.severity):
                 logger.warning(
                     "PETASOS_FALLBACK_BLOCK tool=%s — init in progress, syntactic scan found: %s",
                     tool_name,
@@ -527,33 +587,63 @@ def _pre_tool_call(
         )
         return {"action": "block", "message": result.reason}
 
-    if result.param_scan_unsafe and _is_dangerous(tool_name):
+    # PET-112: read-only tools never take a content block (both old blocks were
+    # _is_dangerous-gated; preserved exactly).
+    if not _is_dangerous(tool_name):
+        return None
+
+    egress = _is_egress_sink(tool_name)
+    # HIGH/CRITICAL only, via the ordinal gate (D-CAVEAT) — partitioned by finding type.
+    blocking = [f for f in result.findings if _blocks(f.severity)]
+    non_pii_blocking = [f for f in blocking if f.finding_type != "pii"]
+    pii_blocking = [f for f in blocking if f.finding_type == "pii"]
+
+    # 1. Scan degraded/unreliable -> block ALL dangerous tools (fail-mode; cannot trust the
+    #    scan). Independent of finding type, so a degraded scanner co-occurring with a PII
+    #    finding still blocks (D-DEGRADED, closes the degraded+PII hole).
+    if result.param_scan_degraded:
         logger.warning(
-            "PETASOS_QUARANTINE tool=%s session=%s — param scan unsafe on non-read-only tool",
+            "PETASOS_QUARANTINE tool=%s session=%s — param scan degraded",
             tool_name,
             session_id,
         )
         return {
             "action": "block",
-            "message": f"Parameter scan flagged unsafe content: {result.reason}",
+            "message": (
+                "Parameter scan unavailable (scanner degraded) — blocked by fail-mode policy."
+            ),
         }
 
-    if result.findings and _is_dangerous(tool_name):
-        from petasos._types import Severity
+    # 2. Non-PII finding (injection/command/structural/credential) at HIGH+ -> block ALL
+    #    dangerous tools (D3 posture; credentials are deliberately NOT egress-scoped).
+    if non_pii_blocking:
+        worst = _worst(non_pii_blocking)
+        logger.warning(
+            "PETASOS_QUARANTINE tool=%s session=%s — %s finding: %s",
+            tool_name,
+            session_id,
+            worst.severity.name,
+            worst.message,
+        )
+        return {
+            "action": "block",
+            "message": f"Parameter scan flagged unsafe content: {worst.message}",
+        }
 
-        worst = max(result.findings, key=lambda f: f.severity.value)
-        if worst.severity.value >= Severity.HIGH.value:
-            logger.warning(
-                "PETASOS_QUARANTINE tool=%s session=%s — %s finding: %s",
-                tool_name,
-                session_id,
-                worst.severity.name,
-                worst.message,
-            )
-            return {
-                "action": "block",
-                "message": (f"Security finding ({worst.severity.name}): {worst.message}"),
-            }
+    # 3. PII at HIGH+ -> block ONLY egress sinks (D-EGRESS). Internal tools are exempt, so
+    #    an agent's own local write/terminal/edit of PII is permitted.
+    if pii_blocking and egress:
+        worst = _worst(pii_blocking)
+        logger.warning(
+            "PETASOS_QUARANTINE tool=%s session=%s — PII to egress sink: %s",
+            tool_name,
+            session_id,
+            worst.message,
+        )
+        return {
+            "action": "block",
+            "message": f"Security finding (PII, {worst.severity.name}): {worst.message}",
+        }
 
     return None
 
