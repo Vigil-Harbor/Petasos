@@ -5,7 +5,32 @@ import dataclasses
 import pytest
 
 from petasos.config import _SECRET_FIELDS, PetasosConfig
-from petasos.console._config_meta import _FIELD_META, generate_config_metadata
+from petasos.console._config_meta import (
+    _FIELD_META,
+    _SECTION_REGISTRY,
+    ConfigSection,
+    generate_config_metadata,
+    generate_section_metadata,
+)
+
+# PET-114: canonical section render order — common controls first/open, advanced
+# groups after, collapsed. Pinned here so the order + open-first coupling can't
+# drift silently.
+_EXPECTED_SECTION_ORDER = [
+    "profiles",
+    "anonymization",
+    "fail_mode",
+    "tool_guard",
+    "scanning",
+    "normalization",
+    "escalation",
+    "frequency",
+    "audit",
+    "alerting",
+    "session",
+]
+_ADVANCED_SECTIONS = {"normalization", "escalation", "frequency", "audit", "alerting", "session"}
+_COMMON_SECTIONS = {"profiles", "anonymization", "fail_mode", "tool_guard", "scanning"}
 
 
 def test_every_field_present() -> None:
@@ -132,3 +157,82 @@ def test_help_plain_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     by_name = {m["name"]: m for m in generate_config_metadata()}
     assert by_name["normalize_nfkc"]["help_plain"] == "Technical text only."
+
+
+# ── PET-114: section-level registry metadata ──────────────────────────────────
+
+
+def test_every_field_section_has_registry_entry() -> None:
+    # Brief-required: no field references a section the registry doesn't define
+    # (prevents an orphan field section).
+    registry_keys = {s["key"] for s in generate_section_metadata()}
+    for entry in generate_config_metadata():
+        assert entry["section"] in registry_keys, (
+            f"Field {entry['name']!r} section {entry['section']!r} has no registry entry"
+        )
+
+
+def test_section_registry_frozen_and_ordered() -> None:
+    # Brief-required: registry is immutable and deterministically ordered.
+    # Frozen: instances reject attribute assignment; the registry is a tuple.
+    section = _SECTION_REGISTRY[0]
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        section.label = "mutated"  # type: ignore[misc]
+    assert isinstance(_SECTION_REGISTRY, tuple)
+
+    # Defensive copy: fresh list of fresh dicts each call; mutating one return
+    # value cannot corrupt the source.
+    a = generate_section_metadata()
+    b = generate_section_metadata()
+    assert a == b
+    assert a is not b
+    assert a[0] is not b[0]
+    a[0]["label"] = "MUTATED"
+    assert generate_section_metadata()[0]["label"] != "MUTATED"
+
+    # Ordered: contiguous, 0-based, strictly increasing `order`; key sequence
+    # matches the canonical order; deterministic across calls.
+    sections = generate_section_metadata()
+    assert [s["order"] for s in sections] == list(range(len(sections)))
+    assert [s["key"] for s in sections] == _EXPECTED_SECTION_ORDER
+    assert [s["key"] for s in generate_section_metadata()] == _EXPECTED_SECTION_ORDER
+
+    # Open-first coupling: the open sections are exactly the leading five.
+    assert [s["key"] for s in sections if not s["default_collapsed"]] == [
+        s["key"] for s in sections
+    ][:5]
+
+    # Exact coverage (no drift): registry keys == the in-use field sections —
+    # kills both a missing registry entry and a dead registry entry with no fields.
+    assert {s["key"] for s in generate_section_metadata()} == {
+        f["section"] for f in generate_config_metadata()
+    }
+
+
+def test_advanced_sections_default_collapsed() -> None:
+    # Brief-required: advanced sections carry the collapsed flag; common ones open.
+    by_key = {s["key"]: s for s in generate_section_metadata()}
+    for key in _ADVANCED_SECTIONS:
+        assert by_key[key]["default_collapsed"] is True, f"{key} should default collapsed"
+    for key in _COMMON_SECTIONS:
+        assert by_key[key]["default_collapsed"] is False, f"{key} should default open"
+
+
+def test_section_metadata_entry_shape() -> None:
+    # Every section dict has exactly the expected keys with the expected types.
+    for s in generate_section_metadata():
+        assert set(s.keys()) == {"key", "label", "description", "default_collapsed", "order"}
+        assert isinstance(s["key"], str) and s["key"]
+        assert isinstance(s["label"], str) and s["label"].strip()
+        assert isinstance(s["description"], str) and s["description"].strip()
+        assert isinstance(s["default_collapsed"], bool)
+        assert isinstance(s["order"], int)
+
+
+def test_config_section_is_frozen_slots_dataclass() -> None:
+    # ConfigSection is a frozen, slotted dataclass (the "Frozen exports" invariant).
+    assert dataclasses.is_dataclass(ConfigSection)
+    params = ConfigSection.__dataclass_params__  # type: ignore[attr-defined]
+    assert params.frozen is True
+    # slots=True means no per-instance __dict__.
+    assert not hasattr(ConfigSection("k", "l", "d", default_collapsed=False), "__dict__")

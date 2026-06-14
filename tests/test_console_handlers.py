@@ -41,6 +41,32 @@ async def test_get_config_returns_fields(handlers: ConsoleHandlers) -> None:
     assert "session_secret" not in result["config"]
 
 
+async def test_get_config_returns_sections(handlers: ConsoleHandlers) -> None:
+    # PET-114: /config carries the ordered section registry alongside fields.
+    result = await handlers.get_config()
+    assert "sections" in result
+    sections = result["sections"]
+    assert isinstance(sections, list) and len(sections) > 0
+    for s in sections:
+        assert {"key", "label", "order"} <= set(s.keys())
+    # Sections cover every field's section in the same payload.
+    section_keys = {s["key"] for s in sections}
+    field_sections = {f["section"] for f in result["fields"]}
+    assert field_sections <= section_keys
+
+
+async def test_update_config_returns_sections(handlers: ConsoleHandlers) -> None:
+    # PET-114 Decision 4 symmetry: a valid update result also carries `sections`.
+    result, errors = await handlers.update_config({"fail_mode": "closed"})
+    assert errors is None
+    assert result is not None
+    assert "sections" in result
+    sections = result["sections"]
+    assert isinstance(sections, list) and len(sections) > 0
+    for s in sections:
+        assert {"key", "label", "order"} <= set(s.keys())
+
+
 async def test_metadata_endpoint_carries_help_plain(handlers: ConsoleHandlers) -> None:
     # Regression for PET-88: config metadata carries plain-language help text
     # alongside the technical description for every field.

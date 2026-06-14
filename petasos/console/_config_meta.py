@@ -643,6 +643,117 @@ _FIELD_META: dict[str, dict[str, Any]] = {
 _EXCLUDED_FIELDS = frozenset({"session_secret"})
 
 
+@dataclasses.dataclass(frozen=True, slots=True)
+class ConfigSection:
+    """Display metadata for one Config Editor section group."""
+
+    key: str  # matches the per-field `section` value
+    label: str  # human-readable group title
+    description: str  # one-line group summary
+    default_collapsed: bool
+
+
+# Ordered tuple — tuple position IS the canonical render order.
+# Common controls first/open (PET-114 D3), advanced groups after, collapsed.
+# The 11 keys are exactly the in-use `section` values on the _FIELD_META fields.
+# The "unknown" missing-metadata sentinel is deliberately NOT a registry entry:
+# a field that ever synthesizes section="unknown" is rendered by the frontend's
+# trailing-group fallback (and the exact-coverage test points the fix at the
+# _FIELD_META gap, not here).
+_SECTION_REGISTRY: typing.Final[tuple[ConfigSection, ...]] = (
+    ConfigSection(
+        "profiles",
+        "Profiles",
+        "Pick a preset tuning bundle that adjusts rule sensitivity and tool"
+        " permissions for a use case.",
+        default_collapsed=False,
+    ),
+    ConfigSection(
+        "anonymization",
+        "PII / Anonymization",
+        "Hide personal information the scanners detect before it travels further.",
+        default_collapsed=False,
+    ),
+    ConfigSection(
+        "fail_mode",
+        "Fail Mode",
+        "Decide what happens to content when a scanner breaks or times out mid-scan.",
+        default_collapsed=False,
+    ),
+    ConfigSection(
+        "tool_guard",
+        "Tool Call Guard",
+        "Inspect the agent's tool calls and rate-limit sub-agent spawns before they run.",
+        default_collapsed=False,
+    ),
+    ConfigSection(
+        "scanning",
+        "Scanning",
+        "Core scan behavior: direction, scanner timeouts, circuit breakers, and"
+        " PII detection scope.",
+        default_collapsed=False,
+    ),
+    ConfigSection(
+        "normalization",
+        "Normalization",
+        "Clean up disguised text (homoglyphs, zero-width, leetspeak, encoded blobs)"
+        " before scanning.",
+        default_collapsed=True,
+    ),
+    ConfigSection(
+        "escalation",
+        "Escalation Tiers",
+        "Risk-score thresholds that tighten enforcement tier by tier as a"
+        " conversation misbehaves.",
+        default_collapsed=True,
+    ),
+    ConfigSection(
+        "frequency",
+        "Frequency Tracking",
+        "How per-conversation risk scores accumulate and decay over time.",
+        default_collapsed=True,
+    ),
+    ConfigSection(
+        "audit",
+        "Audit",
+        "Whether and how much detail every scan records for later review.",
+        default_collapsed=True,
+    ),
+    ConfigSection(
+        "alerting",
+        "Alerting",
+        "Fire warnings on suspicious patterns like rapid-fire scanning or PII"
+        " spikes, with rate limits.",
+        default_collapsed=True,
+    ),
+    ConfigSection(
+        "session",
+        "Session Management",
+        "Limits on how many conversations are tracked, how long they live, and"
+        " new-session rate caps.",
+        default_collapsed=True,
+    ),
+)
+
+
+def generate_section_metadata() -> list[dict[str, Any]]:
+    """Ordered section display metadata for the Config Editor UI.
+
+    Returns a fresh list of fresh dicts each call (defensive copy — the
+    registry source stays immutable). ``order`` is the 0-based render index.
+    """
+    return [
+        {
+            "key": s.key,
+            "label": s.label,
+            "description": s.description,
+            "default_collapsed": s.default_collapsed,
+            "order": i,
+        }
+        for i, s in enumerate(_SECTION_REGISTRY)
+    ]
+
+
 def _derive_type(annotation: Any) -> tuple[str, bool]:
     """Return (type_name, nullable) from a dataclass field annotation."""
     import types as _bt
