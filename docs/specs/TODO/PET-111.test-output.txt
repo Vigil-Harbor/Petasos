@@ -123,4 +123,4 @@ tests/test_console_armed.py::test_post_armed_persist_failure_is_503[standalone]
     return self.router.on_event(event_type)  # ty: ignore[deprecated]
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-======================= 81 passed, 16 warnings in 0.55s =======================
+======================= 81 passed, 16 warnings in 0.51s =======================

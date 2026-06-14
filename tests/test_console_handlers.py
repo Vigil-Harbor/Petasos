@@ -234,7 +234,12 @@ async def test_set_armed_persists(
     import petasos.console._armed as armed_mod
 
     seen: list[bool] = []
-    monkeypatch.setattr(armed_mod, "write_armed", lambda a: (seen.append(a) or True))
+
+    def fake_write(armed: bool) -> bool:
+        seen.append(armed)
+        return True
+
+    monkeypatch.setattr(armed_mod, "write_armed", fake_write)
     result, ok = await handlers.set_armed(False)
     assert ok is True
     assert result == {"armed": False, "persisted": True}

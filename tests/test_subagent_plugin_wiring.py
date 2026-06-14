@@ -17,6 +17,7 @@ import pytest
 
 if TYPE_CHECKING:
     import types
+    from typing import Any
 
 _REF_PLUGIN_PATH = (
     Path(__file__).resolve().parent.parent
@@ -166,7 +167,7 @@ class _FakeGuardResult:
     allowed = False
     reason = "blocked"
     param_scan_unsafe = False
-    findings: list = []
+    findings: list[Any] = []
 
 
 class TestArmDisarmGate:
@@ -202,9 +203,7 @@ class TestArmDisarmGate:
         assert out is None
         assert consulted == []  # guard never consulted while disarmed
 
-    def test_rearm_enforces_on_same_built_pipeline(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_rearm_enforces_on_same_built_pipeline(self, monkeypatch: pytest.MonkeyPatch) -> None:
         ref = self._build(monkeypatch)
         monkeypatch.setattr(ref, "_is_armed", lambda: True)
         # Isolate the GATE from MinimalScanner specifics: stub the guard result to a

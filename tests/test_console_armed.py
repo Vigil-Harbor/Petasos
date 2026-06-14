@@ -86,14 +86,14 @@ def test_non_bool_enabled_fails_secure_armed(cfg: Path, val: Any) -> None:
 def test_cache_avoids_reparse_within_ttl(cfg: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _write_config(cfg, petasos_section={"enabled": True})
     calls = {"n": 0}
-    real = armed_mod.read_petasos_section
+    real = armed_mod.read_petasos_section  # type: ignore[attr-defined]
 
     def counting(res: Any) -> Any:
         calls["n"] += 1
         return real(res)
 
     monkeypatch.setattr(armed_mod, "read_petasos_section", counting)
-    monkeypatch.setattr(armed_mod.time, "monotonic", lambda: 100.0)
+    monkeypatch.setattr(armed_mod.time, "monotonic", lambda: 100.0)  # type: ignore[attr-defined]
     assert read_armed() is True
     assert read_armed() is True
     assert calls["n"] == 1  # second call served from cache — no re-parse
@@ -105,7 +105,7 @@ def test_ttl_forces_reparse_on_unchanged_key(cfg: Path, monkeypatch: pytest.Monk
     # past TTL the value is re-read. Proves the TTL bounds the same-tick miss.
     _write_config(cfg, petasos_section={"enabled": True})
     clock = {"v": 100.0}
-    monkeypatch.setattr(armed_mod.time, "monotonic", lambda: clock["v"])
+    monkeypatch.setattr(armed_mod.time, "monotonic", lambda: clock["v"])  # type: ignore[attr-defined]
     assert read_armed() is True  # parse #1 cached at t=100
     monkeypatch.setattr(armed_mod, "read_petasos_section", lambda res: {"enabled": False})
     clock["v"] = 100.5
@@ -212,7 +212,12 @@ def test_post_armed_rejects_non_bool(
 
 def test_post_armed_accepts_bool(client: tuple[Any, str], monkeypatch: pytest.MonkeyPatch) -> None:
     seen: list[bool] = []
-    monkeypatch.setattr(armed_mod, "write_armed", lambda a: (seen.append(a) or True))
+
+    def fake_write(armed: bool) -> bool:
+        seen.append(armed)
+        return True
+
+    monkeypatch.setattr(armed_mod, "write_armed", fake_write)
     tc, path = client
     r = tc.post(path, json={"armed": False})
     assert r.status_code == 200

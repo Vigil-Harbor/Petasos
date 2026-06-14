@@ -594,7 +594,10 @@
       var lbl = b.querySelector(".equip-label");
       if (lbl) lbl.textContent = on ? "EQUIPPED" : "UNEQUIPPED";
       var sw = b.querySelector(".switch");
-      if (sw) sw.className = "switch" + (on ? " on" : "");
+      if (sw) {
+        sw.className = "switch" + (on ? " on" : "");
+        sw.setAttribute("aria-label", "Petasos enforcement: " + (on ? "equipped" : "unequipped"));
+      }
     };
     var doToggle = function () {
       if (_armedBusy) return;  // ignore rapid re-clicks while a write is in flight
@@ -611,6 +614,7 @@
     };
     var armedOn = Pet.state.armed !== false;
     var armedSwitch = Pet.h("button", { className: "switch" + (armedOn ? " on" : ""), type: "button", onClick: doToggle });
+    armedSwitch.setAttribute("aria-label", "Petasos enforcement: " + (armedOn ? "equipped" : "unequipped"));
     armedSwitch.addEventListener("keydown", function (e) {
       if (e.key === "Enter" || e.key === " ") { e.preventDefault(); doToggle(); }
     });
