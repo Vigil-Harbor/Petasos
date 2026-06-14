@@ -218,8 +218,12 @@
 .pet .finding .rail { position: absolute; left: 0; top: 0; bottom: 0; width: 3px; }
 .pet .finding .body { flex: 1; min-width: 0; }
 .pet .finding .rid { font-family: var(--font-mono); font-size: 11.5px; color: var(--tx-bright); font-weight: 600; }
-.pet .finding .msg { font-size: 12px; color: var(--tx-mut); margin-top: 3px; }
-.pet .finding .matched { font-family: var(--font-mono); font-size: 11px; background: var(--bg-input); color: var(--high); padding: 1px 5px; border-radius: 3px; }
+.pet .finding .msg { font-size: 12px; color: var(--tx-mut); margin-top: 3px; overflow-wrap: anywhere; }
+/* PET-99 D4: long unbroken matched_text must wrap inside the overflow:hidden
+   finding card rather than overflowing into invisibility. .matched is an inline
+   span with no width box, so it also needs display:inline-block + max-width:100%
+   to give overflow-wrap a box to wrap within. */
+.pet .finding .matched { font-family: var(--font-mono); font-size: 11px; background: var(--bg-input); color: var(--high); padding: 1px 5px; border-radius: 3px; overflow-wrap: anywhere; display: inline-block; max-width: 100%; }
 .pet .conf-bar { height: 4px; border-radius: 2px; background: var(--bg-input); overflow: hidden; }
 .pet .conf-bar i { display: block; height: 100%; border-radius: 2px; }
 
