@@ -68,7 +68,16 @@ def _persist_config(validated_config: Any) -> bool:
         export = validated_config.to_dict(redact_secrets=False)
         export.pop("session_secret", None)
         export.pop("hash_key", None)
-        full["petasos"] = export
+        # PET-111 BUG-A: `enabled`/`host_id` are not PetasosConfig fields (they are
+        # popped before building the config), so a bare `full["petasos"] = export`
+        # drops them on every Config Editor save. Merge-preserve them.
+        existing = full.get("petasos")
+        preserved = {}
+        if isinstance(existing, dict):
+            for k in ("enabled", "host_id"):
+                if k in existing:
+                    preserved[k] = existing[k]
+        full["petasos"] = {**preserved, **export}
 
         fd, tmp_path = tempfile.mkstemp(
             dir=str(config_path.parent),
@@ -247,6 +256,19 @@ class ConsoleHandlers:
             ],
         }
 
+    async def get_armed(self) -> dict[str, Any]:
+        # PET-111: the Equipped/Unequipped master bit. File-backed (petasos.enabled)
+        # via the shared _paths resolver — the dashboard reads what the gateway reads.
+        from petasos.console._armed import read_armed
+
+        return {"armed": read_armed()}
+
+    async def set_armed(self, armed: bool) -> tuple[dict[str, Any], bool]:
+        from petasos.console._armed import write_armed
+
+        ok = write_armed(armed)
+        return {"armed": armed, "persisted": ok}, ok
+
 
 def _extract_field_from_error(msg: str, body: dict[str, Any]) -> str:
     for key in body:
@@ -366,5 +388,37 @@ def build_app(pipeline: "Pipeline") -> "FastAPI":
     @app.get("/api/about")
     async def api_get_about() -> dict[str, Any]:
         return await handlers.get_about()
+
+    @app.get("/api/armed")
+    async def api_get_armed() -> dict[str, Any]:
+        return await handlers.get_armed()
+
+    @app.post("/api/armed")
+    async def api_set_armed(request: Request) -> Any:
+        try:
+            body = await request.json()
+        except Exception:
+            return JSONResponse(
+                status_code=422,
+                content={"detail": [{"field": "body", "message": "Invalid JSON"}]},
+            )
+        # bool-strict: isinstance(True, int) is True, but isinstance(1, bool) is False,
+        # so 1 / "true" / null / missing all reject. Non-dict body rejects first.
+        if not isinstance(body, dict) or not isinstance(body.get("armed"), bool):
+            return JSONResponse(
+                status_code=422,
+                content={"detail": [{"field": "armed", "message": "Must be a boolean"}]},
+            )
+        result, ok = await handlers.set_armed(body["armed"])
+        if not ok:
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "detail": [
+                        {"field": "armed", "message": "Failed to persist armed state to disk"}
+                    ]
+                },
+            )
+        return result
 
     return app

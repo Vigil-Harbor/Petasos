@@ -241,6 +241,7 @@
     pipelineHealth: null,
     profiles: [],
     about: null,
+    armed: true,  // PET-111: master Equipped/Unequipped bit; corrected by the mount fetch
   };
 
   // ── API client ──
@@ -288,6 +289,8 @@
     getScanHistory: function (limit) { return this._get("/scan-history?limit=" + (limit || 100)); },
     getProfiles: function () { return this._get("/profiles"); },
     getAbout: function () { return this._get("/about"); },
+    getArmed: function () { return this._get("/armed"); },
+    setArmed: function (a) { return this._post("/armed", { armed: a }); },
   };
 
   // ── SSE client (fetch-based for auth header support) ──
@@ -579,6 +582,48 @@
     container.innerHTML = "";
     var wrapper = Pet.h("div", { style: { display: "flex", flexDirection: "column", gap: "12px", height: "100%" } });
 
+    // ── PET-111: Equipped/Unequipped master switch (first child of the tab) ──
+    // paintBanner re-queries the LIVE banner node each call (never closes over a
+    // captured node): renderDashboard rebuilds the banner on every SSE/poll frame,
+    // and _container is null after unmount — so guard container-truthiness first.
+    var paintBanner = function () {
+      var b = _container && _container.querySelector(".equip-banner");
+      if (!b) return;
+      var on = Pet.state.armed !== false;
+      b.className = "equip-banner" + (on ? "" : " disarmed");
+      var lbl = b.querySelector(".equip-label");
+      if (lbl) lbl.textContent = on ? "EQUIPPED" : "UNEQUIPPED";
+      var sw = b.querySelector(".switch");
+      if (sw) sw.className = "switch" + (on ? " on" : "");
+    };
+    var doToggle = function () {
+      if (_armedBusy) return;  // ignore rapid re-clicks while a write is in flight
+      var next = !(Pet.state.armed !== false);
+      _armedBusy = true;
+      Pet.state.armed = next; paintBanner();  // optimistic (live re-query, survives re-render)
+      Pet.api.setArmed(next).then(function (d) {
+        _armedBusy = false;
+        _armedSeeded = true;  // a settled write IS a fresh seed -> no spurious follow-up GET
+        var ok = d && !d.error && (!d._status || d._status < 400) && typeof d.armed === "boolean";
+        Pet.state.armed = ok ? d.armed : !next;  // reconcile to authoritative value, else revert
+        paintBanner();
+      });
+    };
+    var armedOn = Pet.state.armed !== false;
+    var armedSwitch = Pet.h("button", { className: "switch" + (armedOn ? " on" : ""), type: "button", onClick: doToggle });
+    armedSwitch.addEventListener("keydown", function (e) {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); doToggle(); }
+    });
+    wrapper.appendChild(Pet.h("div", { className: "equip-banner" + (armedOn ? "" : " disarmed") },
+      Pet.h("img", { className: "equip-mark", src: Pet.asset("img/petasos-helmet.png"), alt: "" }),
+      Pet.h("div", { className: "equip-text" },
+        Pet.h("div", { className: "equip-label" }, armedOn ? "EQUIPPED" : "UNEQUIPPED"),
+        Pet.h("div", { className: "equip-sub" }, "Petasos enforcement")
+      ),
+      Pet.HelpTip("<b>Equipped</b> — master switch. <b>Unequipped</b> disables <b>all</b> Petasos enforcement (scan, guard, audit) for this and running sessions, applied by the next tool call. Backed by <code>petasos.enabled</code>."),
+      armedSwitch
+    ));
+
     // ── Metric tiles, computed from the in-memory scan-history buffer ──
     // (PET-102) The SSE scan_result handler maintains Pet.state.scanHistory and
     // re-renders this dashboard on every event, so deriving the tiles from that
@@ -632,6 +677,21 @@
     wrapper.appendChild(historyPanel);
 
     container.appendChild(wrapper);
+
+    // PET-111: fetch the authoritative armed bit once per obs ENTRY (guarded by
+    // _armedSeeded — reset in mount/unmount/switchTab→obs) — never on every
+    // SSE/poll re-render. Skip while a write is in flight so it can't clobber an
+    // optimistic value; paintBanner re-queries the live node.
+    if (!_armedSeeded && !_armedBusy) {
+      _armedSeeded = true;
+      Pet.api.getArmed().then(function (d) {
+        if (_armedBusy) return;
+        if (d && !d.error && typeof d.armed === "boolean") {
+          Pet.state.armed = d.armed;
+          paintBanner();
+        }
+      });
+    }
 
     // Fetch initial data and render scanner health
     Pet.api.getHealth().then(function (d) {
@@ -1113,6 +1173,11 @@
   // scan-history ring buffer exactly once per mount (not on every SSE re-render).
   // Reset in Pet.unmount AND at the top of Pet.mount (double-mount hardening).
   var _historySeeded = false;
+  // PET-111: _armedSeeded — fetch the Equipped/Unequipped bit once per obs ENTRY
+  // (mount or switchTab→obs), never on every SSE/poll re-render. _armedBusy — a
+  // POST /armed is in flight; suppress concurrent toggles and seed-overwrites.
+  var _armedSeeded = false;
+  var _armedBusy = false;
 
   var TABS = [
     { key: "obs", icon: "activity", label: "Observability" },
@@ -1130,7 +1195,9 @@
     }
     if (!_container) return;
     _container.innerHTML = "";
-    if (name === "obs") Pet.renderDashboard(_container);
+    // PET-111: re-fetch the armed bit on each obs ENTRY (armed has no SSE
+    // reconciliation, unlike scan history) — but not on every re-render.
+    if (name === "obs") { _armedSeeded = false; Pet.renderDashboard(_container); }
     else if (name === "play") Pet.renderPlayground(_container);
     else if (name === "cfg") Pet.renderConfig(_container);
     else if (name === "about") Pet.renderAbout(_container);
@@ -1139,6 +1206,7 @@
   Pet.mount = function (el) {
     el.innerHTML = "";
     _historySeeded = false;  // PET-102: re-seed on a re-mount that skipped unmount (plugin hot-reload)
+    _armedSeeded = false;    // PET-111: re-fetch the armed bit on (re-)mount
 
     // Pane header
     var titleRow = Pet.h("div", { className: "pane-titlerow" },
@@ -1177,6 +1245,7 @@
     _container = null;
     _tabStrip = null;
     _historySeeded = false;  // PET-102: next mount re-seeds the history buffer
+    _armedSeeded = false;    // PET-111: next mount re-fetches the armed bit
   };
 
   window.__PETASOS_CONSOLE__ = Pet;

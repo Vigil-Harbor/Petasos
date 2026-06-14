@@ -193,6 +193,65 @@ async def test_config_persist_writes_yaml(
     assert "hash_key" not in persisted["petasos"]
 
 
+async def test_config_persist_preserves_enabled_and_host_id(
+    handlers: ConsoleHandlers,
+    tmp_path: Path,
+) -> None:
+    # Regression for PET-111 (BUG-A): `enabled`/`host_id` are not PetasosConfig
+    # fields, so a Config Editor save must merge-preserve them, not wipe them.
+    from unittest.mock import patch
+
+    import yaml
+
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        "model:\n  default: test\n"
+        "petasos:\n  enabled: false\n  host_id: my-host\n  anonymize: false\n",
+        encoding="utf-8",
+    )
+    with patch("petasos.console.server._hermes_config_path", return_value=config_file):
+        result, errors = await handlers.update_config({"anonymize": True})
+
+    assert errors is None
+    persisted = yaml.safe_load(config_file.read_text(encoding="utf-8"))
+    assert persisted["petasos"]["anonymize"] is True
+    assert persisted["petasos"]["enabled"] is False  # PRESERVED (BUG-A fix)
+    assert persisted["petasos"]["host_id"] == "my-host"  # PRESERVED
+
+
+async def test_get_armed_reflects_read(
+    handlers: ConsoleHandlers, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import petasos.console._armed as armed_mod
+
+    monkeypatch.setattr(armed_mod, "read_armed", lambda: False)
+    assert await handlers.get_armed() == {"armed": False}
+
+
+async def test_set_armed_persists(
+    handlers: ConsoleHandlers, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import petasos.console._armed as armed_mod
+
+    seen: list[bool] = []
+    monkeypatch.setattr(armed_mod, "write_armed", lambda a: (seen.append(a) or True))
+    result, ok = await handlers.set_armed(False)
+    assert ok is True
+    assert result == {"armed": False, "persisted": True}
+    assert seen == [False]
+
+
+async def test_set_armed_persist_failure(
+    handlers: ConsoleHandlers, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import petasos.console._armed as armed_mod
+
+    monkeypatch.setattr(armed_mod, "write_armed", lambda a: False)
+    result, ok = await handlers.set_armed(True)
+    assert ok is False
+    assert result == {"armed": True, "persisted": False}
+
+
 # ---------------------------------------------------------------------------
 # PET-87: Health surfaces scan errors, unavailable status, recovery
 # ---------------------------------------------------------------------------
