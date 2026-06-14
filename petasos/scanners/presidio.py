@@ -54,6 +54,38 @@ _SEVERITY_RANK: dict[Severity, int] = {
     Severity.INFO: 4,
 }
 
+# PET-109: the security-relevant default detection set (the CRITICAL/HIGH band
+# of _SEVERITY_MAP). spaCy-NER (PERSON/LOCATION) and loose pattern (URL/DATE_TIME/
+# NRP) recognizers are noisy on technical text and are opt-in, not default.
+DEFAULT_PRESIDIO_ENTITIES: tuple[str, ...] = (
+    "CREDIT_CARD",
+    "IBAN_CODE",
+    "US_SSN",
+    "US_BANK_NUMBER",
+    "CRYPTO",
+    "EMAIL_ADDRESS",
+    "PHONE_NUMBER",
+    "US_DRIVER_LICENSE",
+    "US_PASSPORT",
+    "IP_ADDRESS",
+)
+NOISY_OPT_IN_ENTITIES: tuple[str, ...] = ("PERSON", "LOCATION", "DATE_TIME", "NRP", "URL")
+
+
+def resolve_presidio_entities(
+    base: tuple[str, ...] | None, extra: tuple[str, ...] = ()
+) -> list[str]:
+    """Resolve the effective detection entity list for a build path.
+
+    None base -> DEFAULT_PRESIDIO_ENTITIES; an explicit base is used verbatim.
+    ``extra`` is appended (additive opt-ins like ("URL",)). Order-preserving dedup.
+    Always returns a non-empty concrete list (never the analyzer's all-recognizers
+    sentinel), so a build path cannot accidentally re-enable everything.
+    """
+    chosen = DEFAULT_PRESIDIO_ENTITIES if base is None else base
+    return list(dict.fromkeys((*chosen, *extra)))
+
+
 _module_anonymizer: Any = None
 _module_anonymizer_lock = threading.Lock()
 
@@ -106,7 +138,11 @@ class PresidioScanner:
         language: str = "en",
         score_threshold: float = 0.35,
     ) -> None:
-        self._entities = entities
+        # PET-109 D3: entities=None now means the curated default detection set
+        # (not "all recognizers"). Defensive copy keeps the frozen module tuple
+        # immutable shared state; _scan_sync therefore always passes a concrete
+        # entity list to analyzer.analyze(), never the all-recognizers sentinel.
+        self._entities = list(DEFAULT_PRESIDIO_ENTITIES) if entities is None else list(entities)
         self._language = language
         self._score_threshold = score_threshold
         self._analyzer: Any = None

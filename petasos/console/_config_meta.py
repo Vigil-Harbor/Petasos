@@ -167,13 +167,51 @@ _FIELD_META: dict[str, dict[str, Any]] = {
         "section": "anonymization",
     },
     "pii_entities": {
-        "description": "Which PII entity types to detect (e.g., PERSON, EMAIL_ADDRESS).",
+        "description": "Which detected PII entity types to anonymize (empty = all).",
         "help_plain": (
-            "Meant to list which kinds of personal information to look for (like PERSON or"
-            " EMAIL_ADDRESS). Currently informational only — the personal-info scanner uses"
-            " its own list, so changing this value has no effect yet."
+            "Narrows which kinds of detected personal information actually get hidden at the"
+            " anonymize step — for example, list only EMAIL_ADDRESS to redact emails while"
+            " leaving other detected PII untouched. Leave empty to anonymize every detected"
+            " type (the default). This filters only what is hidden, not what the scanner"
+            " looks for — detection scope is set by the Presidio entity settings."
         ),
         "section": "anonymization",
+    },
+    # PET-109: detection-scope fields. section "scanning" (not "anonymization") keeps
+    # detection separate from the anonymize-stage filter (pii_entities), honoring D7.
+    "presidio_entities": {
+        "description": (
+            "PII entity types the Presidio scanner detects (unset = curated default set)."
+        ),
+        "help_plain": (
+            "Replaces the personal-info scanner's detected entity list wholesale. Leave unset"
+            " to use the curated default — the security-relevant types like credit cards,"
+            " SSNs, emails, and phone numbers — which deliberately omits noisier types (names,"
+            " locations, dates, URLs) that misfire on file paths and code. Set your own list"
+            " here only when you need a fully custom detection set."
+        ),
+        "section": "scanning",
+    },
+    "presidio_entities_extra": {
+        "description": "Extra Presidio entity types to add on top of the default set.",
+        "help_plain": (
+            "Adds entity types back on top of the curated default without replacing it — for"
+            ' example, add "URL" to detect web addresses again. Use this to opt one of the'
+            " noisier types back in while keeping the rest of the safe default. Entries are"
+            " uppercased automatically."
+        ),
+        "section": "scanning",
+    },
+    "presidio_score_threshold": {
+        "description": "Minimum confidence (0-1) a Presidio match needs before it is reported.",
+        "help_plain": (
+            "How confident the personal-info scanner must be before it reports a match, from"
+            " 0 to 1. Higher means fewer false alarms but more missed items; lower catches"
+            " more but gets noisier. Setting it all the way to 0 reports every candidate and"
+            " brings back a lot of the noise this scoping is meant to remove."
+        ),
+        "section": "scanning",
+        "constraints": {"min": 0, "max": 1},
     },
     "redaction_mode": {
         "description": "How to hide PII: redact, replace, hash, or mask.",
