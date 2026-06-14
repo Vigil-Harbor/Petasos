@@ -431,6 +431,18 @@
       } else if (evType === "alert") {
         Pet.state.alerts.unshift(d);
         if (Pet.state.alerts.length > 200) Pet.state.alerts.length = 200;
+      } else if (evType === "armed") {
+        // PET-116: live cross-tab sync of the Equipped/Unequipped bit. _dispatch
+        // cannot call paintBanner (a renderDashboard-local closure); it adopts the
+        // authoritative pushed value into Pet.state.armed and re-renders, mirroring
+        // the scan_result arm. renderDashboard rebuilds the banner from
+        // Pet.state.armed and re-runs its per-entry seed guard.
+        if (_armedBusy) return;                 // don't clobber this tab's in-flight optimistic toggle
+        if (d && typeof d.armed === "boolean") {
+          Pet.state.armed = d.armed;            // adopt file-truth pushed by the originating tab
+          _armedSeeded = true;                  // an authoritative push counts as a seed (no redundant GET)
+          if (Pet.state.tab === "obs" && _container) Pet.renderDashboard(_container);
+        }
       }
     },
 

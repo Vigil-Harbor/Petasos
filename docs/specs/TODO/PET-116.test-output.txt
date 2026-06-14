@@ -1,0 +1,125 @@
+PET-116 — ship-spec test gate output (rebased onto origin/master bdfe8dc)
+Branch: feat/pet-116-multitab-armed-sse-sync
+Python: Python 3.10.6 | Node: v25.6.1
+
+########## PRIMARY GATE ##########
+$ python -m pytest tests/test_console_handlers.py -q
+.................................................                        [100%]
+49 passed in 0.42s
+
+$ node --test tests/js/armed-sync.test.mjs
+✔ loader: petasos.js exports Pet.sse._dispatch (0.3789ms)
+✔ test_armed_adopts_valid_boolean (0.1418ms)
+✔ test_armed_ignores_malformed_frames_and_never_throws (0.1563ms)
+ℹ tests 3
+ℹ suites 0
+ℹ pass 3
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 51.4956
+
+########## REGRESSION SWEEP ##########
+$ python -m pytest tests/test_console_armed.py tests/test_console_handlers.py tests/test_subagent_plugin_wiring.py -q
+........................................................................ [ 79%]
+...................                                                      [100%]
+============================== warnings summary ===============================
+tests/test_console_armed.py::test_get_armed_reflects_read[standalone]
+tests/test_console_armed.py::test_post_armed_rejects_non_bool[standalone-bad0]
+tests/test_console_armed.py::test_post_armed_rejects_non_bool[standalone-bad1]
+tests/test_console_armed.py::test_post_armed_rejects_non_bool[standalone-bad2]
+tests/test_console_armed.py::test_post_armed_rejects_non_bool[standalone-bad3]
+tests/test_console_armed.py::test_post_armed_rejects_non_bool[standalone-bad4]
+tests/test_console_armed.py::test_post_armed_accepts_bool[standalone]
+tests/test_console_armed.py::test_post_armed_persist_failure_is_503[standalone]
+  C:\Users\zioni\Documents\Vigil-Harbor\PET-116-worktree\petasos\console\server.py:301: DeprecationWarning: 
+          on_event is deprecated, use lifespan event handlers instead.
+  
+          Read more about it in the
+          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+          
+    @app.on_event("shutdown")
+
+tests/test_console_armed.py::test_get_armed_reflects_read[standalone]
+tests/test_console_armed.py::test_post_armed_rejects_non_bool[standalone-bad0]
+tests/test_console_armed.py::test_post_armed_rejects_non_bool[standalone-bad1]
+tests/test_console_armed.py::test_post_armed_rejects_non_bool[standalone-bad2]
+tests/test_console_armed.py::test_post_armed_rejects_non_bool[standalone-bad3]
+tests/test_console_armed.py::test_post_armed_rejects_non_bool[standalone-bad4]
+tests/test_console_armed.py::test_post_armed_accepts_bool[standalone]
+tests/test_console_armed.py::test_post_armed_persist_failure_is_503[standalone]
+  C:\python310\lib\site-packages\fastapi\applications.py:4598: DeprecationWarning: 
+          on_event is deprecated, use lifespan event handlers instead.
+  
+          Read more about it in the
+          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+          
+    return self.router.on_event(event_type)  # ty: ignore[deprecated]
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+91 passed, 16 warnings in 0.60s
+
+$ node --test tests/js/*.test.mjs
+✔ loader: petasos.js exports Pet.sse._dispatch (0.4183ms)
+✔ test_armed_adopts_valid_boolean (0.1391ms)
+✔ test_armed_ignores_malformed_frames_and_never_throws (0.158ms)
+✔ loader: petasos.js exports the PET-114 surfaces (0.5232ms)
+✔ groupConfigSections: registry order + labels + booleans (0.4789ms)
+✔ groupConfigSections: default_collapsed is coerced to a real boolean (0.0643ms)
+✔ groupConfigSections: skips registry sections with no fields (0.0971ms)
+✔ groupConfigSections: unknown-section field is a trailing expanded group (0.1898ms)
+✔ groupConfigSections: stale-backend fallback (no sections) (0.2003ms)
+✔ groupConfigSections: empty/non-array fields return [] (0.1531ms)
+✔ Pet.Panel collapsible: structure (collapsed) (0.7808ms)
+✔ Pet.Panel collapsible: structure (expanded) (0.1675ms)
+✔ Pet.Panel collapsible: click toggles live state + aria + onToggle (0.6879ms)
+✔ Pet.Panel collapsible: Enter key toggles (0.1467ms)
+✔ Pet.Panel collapsible: Space key toggles (0.1079ms)
+✔ Pet.Panel collapsible: other keys do not toggle (0.0842ms)
+✔ Pet.Panel collapsible: petSetCollapsed expands without firing onToggle (0.0728ms)
+✔ Pet.Panel non-collapsible: unchanged (regression guard) (0.0829ms)
+✔ revealFieldSections: expands the owning section of an errored field (0.131ms)
+✔ revealFieldSections: unknown / missing-panel field is a safe no-op (0.1023ms)
+✔ loader: petasos.js exports the playground builders + mergeScanHistory (0.7124ms)
+✔ test_result_area_scrolls_not_clips (0.2649ms)
+✔ test_long_error_fully_rendered (0.2003ms)
+✔ test_long_matched_text_not_lost (1.0274ms)
+✔ test_failed_scan_restores_button (0.3186ms)
+✔ test_scan_then_switch_tab_no_throw (0.6889ms)
+✔ test_seed_merge_skips_malformed (0.5019ms)
+✔ test_render_scan_result_malformed (0.5449ms)
+✔ loader: petasos.js exports Pet.richText (0.6106ms)
+✔ #1 <b> renders a B element (0.2441ms)
+✔ #2 <code> renders a CODE element (0.4334ms)
+✔ #3 <em> is allow-listed (0.0936ms)
+✔ #4 nested tags build a nested tree (0.1051ms)
+✔ #5 uppercase tags are honored (case-insensitive) (0.11ms)
+✔ #6 <script> is escaped to text, no element (0.0712ms)
+✔ #7 <img onerror> is escaped to text, no element (0.0741ms)
+✔ #8 <b class=...> degrades to literal text (0.0925ms)
+✔ #9 mismatched </b> does not close the wrong element (0.1543ms)
+✔ #10 truncated < is literal text (0.0987ms)
+✔ #11 lone </b> is literal text, no throw (0.0757ms)
+✔ #12 unclosed <b> still wraps trailing text (0.4732ms)
+✔ #13 null/undefined/empty return an empty fragment (0.1139ms)
+✔ #14 number input coerces to text (0.0548ms)
+✔ #15 plain text becomes a single text node (0.0351ms)
+✔ #16 whitespace and stray angle brackets (0.0619ms)
+✔ #17 astral characters survive intact (0.0427ms)
+✔ #18 security sweep: only b/code/em can become elements (0.0786ms)
+✔ #19 current caller strings render identically (structural) (0.2317ms)
+✔ loader: petasos.js exports scannerHealthRows + SCANNER_HEALTH_HELP (0.8998ms)
+✔ shim: textContent setter throws (D10 tripwire is armed) (0.2544ms)
+✔ test_scanner_health_rows_render_full_error (0.3233ms)
+✔ test_scanner_health_pill_color_for_error_status (0.1184ms)
+✔ test_help_text_status_definitions_agree (0.0638ms)
+✔ existing statuses keep their established pill colors (0.1359ms)
+ℹ tests 54
+ℹ suites 0
+ℹ pass 54
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 72.4481

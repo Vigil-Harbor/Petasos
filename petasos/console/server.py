@@ -263,6 +263,16 @@ class ConsoleHandlers:
         from petasos.console._armed import write_armed
 
         ok = write_armed(armed)
+        if ok:
+            # PET-116: live cross-tab sync. Broadcast the authoritative value only
+            # on a persisted flip, so every other open `obs` tab adopts file-truth
+            # within one SSE frame. A failed write (503) emits nothing — other tabs
+            # must not be told the file changed when it did not. Awaited directly
+            # (not loop.create_task'd like _on_audit/_on_alert) because set_armed
+            # already runs in the route's event loop; no try/except is needed — the
+            # payload is trivially serializable and broadcast suppresses QueueFull
+            # internally over a list() snapshot, so it cannot raise here.
+            await self.sse.broadcast("armed", {"armed": armed})
         return {"armed": armed, "persisted": ok}, ok
 
 
