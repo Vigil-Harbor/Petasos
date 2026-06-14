@@ -627,6 +627,17 @@ _FIELD_META: dict[str, dict[str, Any]] = {
         ),
         "section": "tool_guard",
     },
+    "egress_sink_tools": {
+        "description": "Tool names treated as egress sinks; the PII block applies only to these.",
+        "help_plain": (
+            "The tools that send content OUT of the machine — email, social posts, external"
+            " web requests, webhooks, clipboard. Detected personal data (cards, SSNs, emails)"
+            " is blocked only when an agent tries to send it through one of these. Writing to"
+            " local files or the terminal is never blocked for personal data. Set these to your"
+            " host's actual outbound tool names."
+        ),
+        "section": "tool_guard",
+    },
 }
 
 _EXCLUDED_FIELDS = frozenset({"session_secret"})
