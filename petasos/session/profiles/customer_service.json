@@ -12,7 +12,7 @@
   },
   "confidence_floor": 0.0,
   "tier_thresholds": null,
-  "pii_entities_extra": ["PERSON", "EMAIL", "PHONE_NUMBER"],
+  "pii_entities_extra": ["PERSON", "EMAIL_ADDRESS", "PHONE_NUMBER"],
   "tool_exempt_list": [],
   "tool_alias_map": {}
 }

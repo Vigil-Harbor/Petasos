@@ -9,7 +9,7 @@
     "tier2": 20,
     "tier3": 35
   },
-  "pii_entities_extra": ["PERSON", "EMAIL", "PHONE_NUMBER", "CREDIT_CARD", "IBAN_CODE"],
+  "pii_entities_extra": ["PERSON", "EMAIL_ADDRESS", "PHONE_NUMBER", "CREDIT_CARD", "IBAN_CODE"],
   "tool_exempt_list": [],
   "tool_alias_map": {}
 }

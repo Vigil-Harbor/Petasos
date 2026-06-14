@@ -11,6 +11,7 @@ from petasos._types import Severity
 from petasos.config import _validate_tier_thresholds
 from petasos.scanners.minimal import _STRUCTURAL_RULE_IDS
 from petasos.scanners.minimal import _UNSUPPRESSIBLE_RULE_IDS as _UNSUPPRESSIBLE_RULE_IDS
+from petasos.scanners.presidio import KNOWN_PII_ENTITIES
 
 _logger = logging.getLogger(__name__)
 
@@ -100,6 +101,43 @@ def _check_severity_values(severity_overrides: dict[str, str]) -> None:
         raise ValueError(f"invalid severity override values: {invalid}")
 
 
+def _validate_pii_entities(
+    entities: tuple[str, ...],
+    *,
+    profile_name: str,
+    strict: bool,
+) -> None:
+    """Validate pii_entities_extra entries against KNOWN_PII_ENTITIES.
+
+    strict=True (built-in parse path): raise ValueError on any unknown name.
+    strict=False (custom merge path): log a warning; entries are retained.
+    """
+    # A non-str entry (malformed JSON: int, null, or an unhashable list/dict) is
+    # classified "unknown" by construction. The isinstance guard short-circuits
+    # before `in` touches the frozenset, so an unhashable element can never raise
+    # TypeError here — which would otherwise violate the strict path's stated
+    # ValueError contract (a list/dict entry would hit `<unhashable> in frozenset`).
+    unknown = [e for e in entities if not (isinstance(e, str) and e in KNOWN_PII_ENTITIES)]
+    if not unknown:
+        return
+    # Render defensively: str() each entry, dedup, and sort the strings — a
+    # mixed-type sorted() over raw int/None/str would itself raise TypeError, and
+    # the set comprehension keeps a repeated bad entry from doubling in the message.
+    rendered = sorted({str(e) for e in unknown})
+    if strict:
+        raise ValueError(
+            f"profile {profile_name!r}: unknown pii_entities_extra entries "
+            f"{rendered} — not known Presidio recognizer names "
+            f"(known: {sorted(KNOWN_PII_ENTITIES)})"
+        )
+    _logger.warning(
+        "profile %r: unknown pii_entities_extra entries %s — not known Presidio "
+        "recognizer names; entries are inert for detection",
+        profile_name,
+        rendered,
+    )
+
+
 def _parse_profile(data: dict[str, Any]) -> ResolvedProfile:
     tt_raw = data.get("tier_thresholds")
     tier_thresholds: TierThresholds | None = None
@@ -134,13 +172,16 @@ def _parse_profile(data: dict[str, Any]) -> ResolvedProfile:
     if not isinstance(desc, str):
         raise ValueError("description must be a string")
 
+    pii_extra = tuple(data.get("pii_entities_extra", []))
+    _validate_pii_entities(pii_extra, profile_name=data.get("name", "?"), strict=True)
+
     return ResolvedProfile(
         name=data["name"],
         suppress_rules=_validate_suppress_rules(frozenset(data.get("suppress_rules", []))),
         severity_overrides=MappingProxyType(dict(sev_overrides)),
         confidence_floor=float(data.get("confidence_floor", 0.0)),
         tier_thresholds=tier_thresholds,
-        pii_entities_extra=tuple(data.get("pii_entities_extra", [])),
+        pii_entities_extra=pii_extra,
         tool_exempt_list=exempt_set,
         tool_alias_map=MappingProxyType(dict(alias_map)),
         description=desc,
@@ -196,6 +237,7 @@ def _merge_with_base(
         val = overrides["pii_entities_extra"]
         if not isinstance(val, (list, tuple)):
             raise ValueError("pii_entities_extra must be a list")
+        _validate_pii_entities(tuple(val), profile_name="custom", strict=False)
         pii = tuple(set(pii) | set(val))
 
     exempt = base.tool_exempt_list
