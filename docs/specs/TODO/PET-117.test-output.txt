@@ -1,0 +1,22 @@
+$ python -m pytest tests/test_profiles.py && ruff check . && ruff format --check . && mypy --strict petasos
+
+============================= test session starts =============================
+platform win32 -- Python 3.10.6, pytest-9.0.3, pluggy-1.6.0
+rootdir: C:\Users\zioni\Documents\Vigil-Harbor\PET-117-worktree
+configfile: pyproject.toml
+plugins: anyio-4.13.0, asyncio-1.3.0
+asyncio: mode=auto, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 46 items
+
+tests\test_profiles.py ..............................................    [100%]
+
+============================= 46 passed in 0.33s ==============================
+
+--- ruff check . ---
+All checks passed!
+
+--- ruff format --check . ---
+116 files already formatted
+
+--- mypy --strict petasos ---
+Success: no issues found in 31 source files

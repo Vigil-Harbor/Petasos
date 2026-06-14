@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import logging
+import subprocess
+import sys
 from types import MappingProxyType
 
 import pytest
 
 from petasos.config import TIER3_FLOOR
 from petasos.scanners.minimal import _STRUCTURAL_RULE_IDS
+from petasos.scanners.presidio import KNOWN_PII_ENTITIES
 from petasos.session.profiles import (
     _BUILTIN_NAMES,
     ProfileResolver,
@@ -375,3 +379,98 @@ class TestProfileDescriptions:
 
         # custom override absent does not inherit general's copy (Decision 2)
         assert resolver.resolve({"confidence_floor": 0.8}).description == ""
+
+
+# ---------------------------------------------------------------------------
+# PET-117: pii_entities_extra validation (dead EMAIL entity + typo guard)
+# ---------------------------------------------------------------------------
+
+
+# Zero-dep import-guard probe (test 6). A fresh interpreter imports the profile
+# package and asserts neither Presidio package was pulled in transitively, then
+# prints a positive verdict token. Fresh-interpreter isolation makes this robust
+# even when Presidio is installed in the venv (which patch.dict(sys.modules, ...)
+# cannot achieve). Mirrors the subprocess-probe idiom in
+# tests/test_llama_firewall_wrapper.py.
+_PROBE_SRC = r"""
+import sys
+import petasos.session.profiles  # noqa: F401
+assert "presidio_analyzer" not in sys.modules, "presidio_analyzer was imported"
+assert "presidio_anonymizer" not in sys.modules, "presidio_anonymizer was imported"
+print("OK")
+"""
+
+
+class TestPiiEntityValidation:
+    def test_builtin_profiles_use_known_pii_entities(self) -> None:
+        # Regression for PET-117: the assertion that would have caught the dead
+        # EMAIL entity. Construction itself now enforces this via the strict parse
+        # path; the explicit check documents intent and localizes the failure.
+        resolver = ProfileResolver()
+        for name in _BUILTIN_NAMES:
+            p = resolver.resolve(name)
+            for entity in p.pii_entities_extra:
+                assert entity in KNOWN_PII_ENTITIES, f"{name} lists unknown pii entity {entity!r}"
+
+    def test_no_builtin_profile_contains_bare_email(self) -> None:
+        # Frozen-export pin (PET-117): bare EMAIL is dead (no recognizer); the
+        # canonical name is EMAIL_ADDRESS. Re-fails the instant the typo returns.
+        resolver = ProfileResolver()
+        for name in _BUILTIN_NAMES:
+            assert "EMAIL" not in resolver.resolve(name).pii_entities_extra
+        assert "EMAIL_ADDRESS" in resolver.resolve("customer_service").pii_entities_extra
+        assert "EMAIL_ADDRESS" in resolver.resolve("admin").pii_entities_extra
+
+    def test_parse_profile_rejects_unknown_pii_entity(self) -> None:
+        # Strict path (built-in parse): an unknown name raises ValueError.
+        with pytest.raises(ValueError, match="unknown pii_entities_extra"):
+            _parse_profile({"name": "x", "pii_entities_extra": ["EMAIL"]})
+        # A valid recognizer name does not raise.
+        _parse_profile({"name": "x", "pii_entities_extra": ["EMAIL_ADDRESS"]})
+        # An unhashable malformed entry raises ValueError (the contracted type),
+        # not TypeError — pins the isinstance-guarded membership check.
+        with pytest.raises(ValueError, match="unknown pii_entities_extra"):
+            _parse_profile({"name": "x", "pii_entities_extra": [["EMAIL"]]})
+
+    def test_merge_warns_unknown_pii_entity_without_raising(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        # Lenient path (custom merge): an unknown name warns and is retained,
+        # never raises.
+        resolver = ProfileResolver()
+        with caplog.at_level(logging.WARNING, logger="petasos.session.profiles"):
+            p = resolver.resolve({"pii_entities_extra": ["EMAIL"]})
+        assert "EMAIL" in p.pii_entities_extra
+        assert any("unknown pii_entities_extra" in r.getMessage() for r in caplog.records)
+        # A known name produces no warning.
+        caplog.clear()
+        with caplog.at_level(logging.WARNING, logger="petasos.session.profiles"):
+            resolver.resolve({"pii_entities_extra": ["IBAN_CODE"]})
+        assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+
+    def test_known_pii_entities_contents(self) -> None:
+        for known in (
+            "EMAIL_ADDRESS",
+            "PERSON",
+            "PHONE_NUMBER",
+            "CREDIT_CARD",
+            "IBAN_CODE",
+            "URL",
+        ):
+            assert known in KNOWN_PII_ENTITIES
+        assert "EMAIL" not in KNOWN_PII_ENTITIES
+
+    def test_profiles_import_does_not_load_presidio(self) -> None:
+        # Zero-dep guard (PET-117): importing the profile package must not pull in
+        # presidio_analyzer/presidio_anonymizer (the validator imports only the
+        # KNOWN_PII_ENTITIES constant, and every Presidio import in presidio.py is
+        # deferred). Fresh-interpreter isolation via subprocess; the "OK" token is a
+        # positive-evidence gate so a crashed/silent child cannot read as a pass.
+        proc = subprocess.run(
+            [sys.executable, "-c", _PROBE_SRC],
+            capture_output=True,
+            text=True,
+            timeout=60,  # trivial import probe; bound it so a regression can't hang the suite
+        )
+        assert proc.returncode == 0, proc.stderr
+        assert "OK" in proc.stdout
