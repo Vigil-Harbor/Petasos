@@ -486,15 +486,21 @@ a future `llamafirewall` upgrade that routes logging through structlog's
 default `PrintLogger` (or any weakref-keyed-stream path) re-trips it RED in the
 non-skipping lane instead of silently re-creating the production-dead failure.
 
-**Residual (because `EMITTED=0`):** the model-free probe did not exercise a
-*construction/scan-time* emission — that path needs the HF-gated PromptGuard
-model. The mechanism reason above already covers every window, but the
-*empirical* construction/scan-window check is model-gated: the shipped gated
-test `test_llamafirewall_scan_under_slots_stdio_completes` settles it where the
-model exists (gibson per PET-97), tracked as **PET-110**. (`EMITTED` was also
-captured under `HF_HUB_OFFLINE=1`, which can itself suppress a telemetry
-import-time line, so `EMITTED=0` is not by itself proof of no *online*
-import-time emission — PET-110's online run closes that too.)
+**Settled (PET-110, 2026-06-14):** the construction/scan window was checked
+empirically on gibson — the model-bearing host where the accepted
+Llama-Prompt-Guard-2-86M license + HF token satisfy `_prompt_guard_prereq_error`,
+the predicate corrected in PET-100 (not PET-97, which is leetspeak normalization).
+The shipped gated test
+`tests/test_llama_firewall_wrapper.py::TestShieldUnderSlotsStdio::test_llamafirewall_scan_under_slots_stdio_completes`
+ran **online** (no `HF_HUB_OFFLINE=1`) and passed weakref-clean (`1 passed`): a real
+`LlamaFirewallScanner().scan()` of an injection string under slots-only,
+non-`__weakref__` stdout returned `error is None` with a `petasos.llamafirewall.*`
+finding — no `cannot create weak reference` anywhere. This **confirms** the
+categorical mechanism reason above (it does not *replace* it), and together they
+close both the construction/scan-window residual and the `HF_HUB_OFFLINE=1`
+online-emission caveat: the online run surfaced no weakref-keyed import-time line
+(the only warnings were `torch.jit` deprecation notices — stdlib/torch, not
+weakref-keyed). Evidence: `docs/specs/TODO/PET-110.test-output.txt`.
 
 ---
 

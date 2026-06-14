@@ -18,7 +18,9 @@ Two surfaces:
   stream-weakref path during the load window; a future upgrade that re-routes
   logging through structlog's default ``PrintLogger`` re-trips it (spec D5).
 * 1b — in-process, **model-gated** tests (``TestShieldUnderSlotsStdio``) that run
-  only where the PromptGuard model exists (gibson per PET-97). They settle the
+  only where the PromptGuard model exists (gibson — the HF-model-bearing host; the
+  accepted-license + HF-token environment is recognized by
+  ``_prompt_guard_prereq_error`` (PET-100), not PET-97 (leetspeak)). They settle the
   construction/scan window the model-free probe cannot reach (it gate-returns at the
   prereq check before any model load).
 """
@@ -197,11 +199,11 @@ def hostile_stdio_llamafirewall(
 
 @_skip_integration
 class TestShieldUnderSlotsStdio:
-    """1b — in-process, model-gated (run where the HF model exists: gibson per
-    PET-97). Held in a **separate class** from ``TestProbeWeakrefUnderSlotsStdio``
-    so the conftest guard's class-name filter (which targets only the probe class)
-    never flags these, and they self-skip cleanly in the no-token lane via the
-    imported ``_skip_integration`` (spec DF).
+    """1b — in-process, model-gated (run where the HF model exists: gibson;
+    HF-prereq gate per PET-100). Held in a **separate class** from
+    ``TestProbeWeakrefUnderSlotsStdio`` so the conftest guard's class-name filter
+    (which targets only the probe class) never flags these, and they self-skip
+    cleanly in the no-token lane via the imported ``_skip_integration`` (spec DF).
 
     On the not-exposed / indeterminate branch this holds only the construction/scan
     -window settling test (DE outcome 3). If the probe shows exposure (DE outcome 2),
