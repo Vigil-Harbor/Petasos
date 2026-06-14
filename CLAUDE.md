@@ -110,6 +110,14 @@ petasos/
 - Target: 300+ tests, 90%+ line coverage on pipeline/frequency/guard/audit/alerting.
 - Scanner wrappers use integration tests against real backends, not mocks.
 - Latency budgets: syntactic-only < 5ms, single ML scanner < 100ms, full pipeline < 250ms (CPU).
+- **Scanner-extra / CI-lane pairing (PET-106).** Every scanner-backend extra in
+  `pyproject.toml [project.optional-dependencies]` (currently `llm-guard`,
+  `llamafirewall`, `presidio`; `console` excluded — not a scanner) MUST have a
+  paired `.github/workflows/extras-<extra>.yml` lane that installs the extra and
+  runs its real-backend tests. Backends whose live path needs no gated secret
+  additionally arm a `PETASOS_REQUIRE_<EXTRA>=1` collection guard
+  (`tests/conftest.py`, `NONSKIPPING_LANES`). Enforced by
+  `tests/test_ci_extras_lanes.py`; the default `ci.yml` lane stays ML-free.
 
 ## Plan & Spec Reviews
 
