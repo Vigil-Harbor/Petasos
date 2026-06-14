@@ -9,6 +9,8 @@ on:
   pull_request:
     paths:
       - "petasos/scanners/presidio.py"
+      - "petasos/pipeline.py" # PET-119: profile→Presidio extras wiring
+      - "petasos/session/profiles/__init__.py" # PET-119: pii_entities_extra source
       - "petasos/config.py"
       - "petasos/console/hermes/plugin_api.py"
       - "tests/test_presidio_scanner.py"
