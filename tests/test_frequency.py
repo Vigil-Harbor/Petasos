@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from unittest.mock import patch
 
 import pytest
@@ -10,7 +11,9 @@ from petasos.session.frequency import (
     DISABLED_RESULT,
     RATE_LIMITED_RESULT,
     FrequencyTracker,
+    SessionState,
 )
+from petasos.session.lineage import LineageRegistry
 
 
 def _cfg(**overrides: object) -> PetasosConfig:
@@ -539,3 +542,107 @@ class TestSessionToken:
             tracker.mint_token("\x00abc", "host")
         with pytest.raises(ValueError, match="null bytes"):
             tracker.mint_token("s1", "host\x00evil")
+
+
+# ---------------------------------------------------------------------------
+# PET-107 D6: lineage pinning, hard ceiling, termination unpin
+# ---------------------------------------------------------------------------
+
+
+def _pinned_tracker(cfg: PetasosConfig) -> tuple[FrequencyTracker, LineageRegistry]:
+    registry = LineageRegistry(cfg)
+    tracker = FrequencyTracker(cfg, is_pinned=registry.is_pinned, on_terminate=registry.unregister)
+    return tracker, registry
+
+
+class TestLineagePinning:
+    def test_terminated_child_unpins_parent(self) -> None:
+        # D6: tombstoning a child fires on_terminate → its edge drops → the
+        # parent is no longer pinned.
+        tracker, registry = _pinned_tracker(_cfg())
+        registry.register("child", "parent")
+        assert registry.is_pinned("parent") is True
+        tracker.terminate_session("child")
+        assert registry.is_pinned("parent") is False
+
+    def test_passive_eviction_retries_after_unpin(self) -> None:
+        # D6: a pinned session is skipped (and re-appended, no spin) by passive
+        # TTL eviction, then reaped once it unpins on a later update().
+        cfg = _cfg(session_ttl_seconds=10.0)
+        tracker, registry = _pinned_tracker(cfg)
+        clock = {"t": 0.0}
+
+        def _now() -> float:
+            return clock["t"]
+
+        with patch("petasos.session.frequency.time.monotonic", _now):
+            tracker.update("parent", [])  # created at t=0
+            registry.register("child", "parent")  # parent pinned
+            clock["t"] = 100.0  # past session_ttl
+            tracker.update("trigger", [])  # step-1: parent expired but pinned → skip
+            assert tracker.get_state("parent") is not None  # retained, no spin
+            registry.unregister("child")  # unpin
+            clock["t"] = 200.0
+            tracker.update("trigger2", [])  # step-1: parent now reaped
+            assert tracker.get_state("parent") is None
+
+    def test_terminated_parent_ttl_evicted_unpins(self) -> None:
+        # D6 (4th tombstone path): a terminated session reaped on the step-1 TTL
+        # path fires on_terminate → drops its outgoing edge → unpins its parent.
+        cfg = _cfg(session_ttl_seconds=10.0)
+        tracker, registry = _pinned_tracker(cfg)
+        clock = {"t": 0.0}
+
+        def _now() -> float:
+            return clock["t"]
+
+        with patch("petasos.session.frequency.time.monotonic", _now):
+            # Directly mark terminated to bypass the on_terminate-firing paths,
+            # isolating the TTL reap path with a still-live outgoing edge.
+            tracker._sessions["parent"] = SessionState(
+                last_score=0.0, last_update=0.0, terminated=True
+            )
+            tracker._ttl_deque.append((10.0, "parent"))
+            registry.register("parent", "grandparent")  # grandparent pinned
+            assert registry.is_pinned("grandparent") is True
+            clock["t"] = 100.0
+            tracker.update("trigger", [])  # step-1 reaps the terminated parent
+            assert tracker.get_state("parent") is None
+            assert registry.is_pinned("grandparent") is False  # edge dropped on reap
+
+    def test_pinning_hard_ceiling(self, caplog: pytest.LogCaptureFixture) -> None:
+        # D6: under an all-pinned spray, _sessions never exceeds 2×max_sessions;
+        # the smallest-last_update pinned session is force-evicted (logged, no
+        # raise) and degrades to OWN-tier (non-tombstoned), while a *terminated*
+        # ancestor's tombstone still survives (tier-3 floor unaffected, D4).
+        cfg = _cfg(max_sessions=2)
+        tracker, registry = _pinned_tracker(cfg)
+        parents = [f"p{i}" for i in range(5)]
+        with caplog.at_level(logging.WARNING):
+            for p in parents:
+                registry.register(f"c_{p}", p)  # pin p (child edge)
+                tracker.update(p, [])
+                assert tracker.size <= 2 * cfg.max_sessions  # bounded, never exceeds 4
+
+        # p0 (smallest last_update) was force-evicted and is NOT tombstoned →
+        # its sub-tree reads own-tier, not tier3.
+        assert tracker.get_state("p0") is None
+        assert tracker.is_terminated("p0") is False
+        assert any("hard ceiling" in r.getMessage().lower() for r in caplog.records)
+
+        # Contrast: the tier-3 floor is unaffected — a terminated session's
+        # tombstone survives removal from _sessions.
+        tracker.terminate_session("survivor")
+        tracker.reset("survivor")  # drop the live state; tombstone must remain
+        assert tracker.is_terminated("survivor") is True
+
+    def test_feature_off_eviction_is_unchanged(self) -> None:
+        # is_pinned=None / on_terminate=None → eviction is byte-for-byte today's:
+        # an over-cap insert evicts the oldest, no pinning consulted.
+        cfg = _cfg(max_sessions=1)
+        tracker = FrequencyTracker(cfg)  # no callbacks
+        tracker.update("a", [])
+        tracker.update("b", [])  # over cap → 'a' evicted (no pin protection)
+        assert tracker.size == 1
+        assert tracker.get_state("a") is None
+        assert tracker.get_state("b") is not None

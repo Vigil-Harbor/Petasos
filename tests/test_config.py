@@ -94,6 +94,19 @@ class TestConfigSerialization:
         d = cfg.to_dict()
         assert isinstance(d["pii_entities"], list)
 
+    def test_config_roundtrip_preserves_delegate_tool_names_tuple(self) -> None:
+        # PET-107: delegate_tool_names is stored raw as a tuple; a to_dict (→
+        # list) / from_dict (→ tuple) round-trip — as the Console persist path
+        # and copy() perform — must preserve the tuple type and value.
+        cfg = PetasosConfig(delegate_tool_names=("delegate_task", "spawn_agent"))
+        d = cfg.to_dict()
+        assert isinstance(d["delegate_tool_names"], list)  # serialized as JSON list
+        restored = PetasosConfig.from_dict(d)
+        assert isinstance(restored.delegate_tool_names, tuple)
+        assert restored.delegate_tool_names == ("delegate_task", "spawn_agent")
+        assert restored == cfg
+        assert isinstance(cfg.copy().delegate_tool_names, tuple)
+
     def test_from_dict_partial_fills_defaults(self) -> None:
         cfg = PetasosConfig.from_dict({"direction": "outbound"})
         assert cfg.direction == "outbound"
