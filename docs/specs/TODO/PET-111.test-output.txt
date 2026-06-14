@@ -1,0 +1,126 @@
+============================= test session starts =============================
+platform win32 -- Python 3.10.6, pytest-9.0.3, pluggy-1.6.0 -- C:\python310\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\zioni\Documents\Vigil-Harbor\PET-111-worktree
+configfile: pyproject.toml
+plugins: anyio-4.13.0, asyncio-1.3.0
+asyncio: mode=auto, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 81 items
+
+tests/test_console_armed.py::test_default_armed_when_file_absent PASSED  [  1%]
+tests/test_console_armed.py::test_default_armed_when_key_absent PASSED   [  2%]
+tests/test_console_armed.py::test_disarmed_only_on_literal_false PASSED  [  3%]
+tests/test_console_armed.py::test_non_bool_enabled_fails_secure_armed[false] PASSED [  4%]
+tests/test_console_armed.py::test_non_bool_enabled_fails_secure_armed[0] PASSED [  6%]
+tests/test_console_armed.py::test_non_bool_enabled_fails_secure_armed[None] PASSED [  7%]
+tests/test_console_armed.py::test_non_bool_enabled_fails_secure_armed[true] PASSED [  8%]
+tests/test_console_armed.py::test_non_bool_enabled_fails_secure_armed[1] PASSED [  9%]
+tests/test_console_armed.py::test_cache_avoids_reparse_within_ttl PASSED [ 11%]
+tests/test_console_armed.py::test_ttl_forces_reparse_on_unchanged_key PASSED [ 12%]
+tests/test_console_armed.py::test_write_preserves_siblings_and_top_level PASSED [ 13%]
+tests/test_console_armed.py::test_write_creates_section_when_absent PASSED [ 14%]
+tests/test_console_armed.py::test_write_fails_returns_false_on_missing_parent PASSED [ 16%]
+tests/test_console_armed.py::test_write_fails_returns_false_on_oserror PASSED [ 17%]
+tests/test_console_armed.py::test_get_armed_reflects_read[standalone] PASSED [ 18%]
+tests/test_console_armed.py::test_get_armed_reflects_read[plugin] PASSED [ 19%]
+tests/test_console_armed.py::test_post_armed_rejects_non_bool[standalone-bad0] PASSED [ 20%]
+tests/test_console_armed.py::test_post_armed_rejects_non_bool[standalone-bad1] PASSED [ 22%]
+tests/test_console_armed.py::test_post_armed_rejects_non_bool[standalone-bad2] PASSED [ 23%]
+tests/test_console_armed.py::test_post_armed_rejects_non_bool[standalone-bad3] PASSED [ 24%]
+tests/test_console_armed.py::test_post_armed_rejects_non_bool[standalone-bad4] PASSED [ 25%]
+tests/test_console_armed.py::test_post_armed_rejects_non_bool[plugin-bad0] PASSED [ 27%]
+tests/test_console_armed.py::test_post_armed_rejects_non_bool[plugin-bad1] PASSED [ 28%]
+tests/test_console_armed.py::test_post_armed_rejects_non_bool[plugin-bad2] PASSED [ 29%]
+tests/test_console_armed.py::test_post_armed_rejects_non_bool[plugin-bad3] PASSED [ 30%]
+tests/test_console_armed.py::test_post_armed_rejects_non_bool[plugin-bad4] PASSED [ 32%]
+tests/test_console_armed.py::test_post_armed_accepts_bool[standalone] PASSED [ 33%]
+tests/test_console_armed.py::test_post_armed_accepts_bool[plugin] PASSED [ 34%]
+tests/test_console_armed.py::test_post_armed_persist_failure_is_503[standalone] PASSED [ 35%]
+tests/test_console_armed.py::test_post_armed_persist_failure_is_503[plugin] PASSED [ 37%]
+tests/test_console_handlers.py::test_get_config_returns_fields PASSED    [ 38%]
+tests/test_console_handlers.py::test_metadata_endpoint_carries_help_plain PASSED [ 39%]
+tests/test_console_handlers.py::test_get_config_redacts_secrets PASSED   [ 40%]
+tests/test_console_handlers.py::test_update_config_valid PASSED          [ 41%]
+tests/test_console_handlers.py::test_update_config_invalid PASSED        [ 43%]
+tests/test_console_handlers.py::test_run_scan PASSED                     [ 44%]
+tests/test_console_handlers.py::test_run_scan_with_injection PASSED      [ 45%]
+tests/test_console_handlers.py::test_get_health PASSED                   [ 46%]
+tests/test_console_handlers.py::test_get_scan_history_empty PASSED       [ 48%]
+tests/test_console_handlers.py::test_get_scan_history_after_scan PASSED  [ 49%]
+tests/test_console_handlers.py::test_get_profiles PASSED                 [ 50%]
+tests/test_console_handlers.py::test_get_about PASSED                    [ 51%]
+tests/test_console_handlers.py::test_scan_history_limit PASSED           [ 53%]
+tests/test_console_handlers.py::test_pipeline_scanner_health PASSED      [ 54%]
+tests/test_console_handlers.py::test_pipeline_list_profiles PASSED       [ 55%]
+tests/test_console_handlers.py::test_pipeline_result_to_dict PASSED      [ 56%]
+tests/test_console_handlers.py::test_config_persist_writes_yaml PASSED   [ 58%]
+tests/test_console_handlers.py::test_config_persist_preserves_enabled_and_host_id PASSED [ 59%]
+tests/test_console_handlers.py::test_get_armed_reflects_read PASSED      [ 60%]
+tests/test_console_handlers.py::test_set_armed_persists PASSED           [ 61%]
+tests/test_console_handlers.py::test_set_armed_persist_failure PASSED    [ 62%]
+tests/test_console_handlers.py::test_health_surfaces_scan_errors PASSED  [ 64%]
+tests/test_console_handlers.py::test_health_unavailable_status PASSED    [ 65%]
+tests/test_console_handlers.py::test_health_recovery_to_healthy PASSED   [ 66%]
+tests/test_console_handlers.py::test_health_unavailable_wins_over_breaker PASSED [ 67%]
+tests/test_console_handlers.py::test_minimal_never_unavailable PASSED    [ 69%]
+tests/test_console_handlers.py::test_health_has_last_error_field PASSED  [ 70%]
+tests/test_console_handlers.py::test_idle_recovery_transition PASSED     [ 71%]
+tests/test_console_handlers.py::test_health_load_failed_distinct_from_unavailable PASSED [ 72%]
+tests/test_console_handlers.py::test_health_unavailable_means_absent PASSED [ 74%]
+tests/test_console_handlers.py::test_health_unavailable_legacy_2tuple PASSED [ 75%]
+tests/test_console_handlers.py::test_health_retryable_load_failure_is_degraded PASSED [ 76%]
+tests/test_console_handlers.py::test_health_error_last_error_is_crash_reason PASSED [ 77%]
+tests/test_console_handlers.py::test_availability_returns_cause_discriminator PASSED [ 79%]
+tests/test_console_handlers.py::test_health_not_healthy_under_pending_weakref_failure PASSED [ 80%]
+tests/test_console_handlers.py::test_health_returns_healthy_after_recovery PASSED [ 81%]
+tests/test_console_handlers.py::test_scanner_health_no_attributeerror_on_sibling_ml PASSED [ 82%]
+tests/test_console_handlers.py::test_scan_summary_carries_tile_contract PASSED [ 83%]
+tests/test_console_handlers.py::test_scan_summary_session_id_present_when_omitted PASSED [ 85%]
+tests/test_subagent_plugin_wiring.py::TestHookRegistration::test_both_hooks_registered_marks_available PASSED [ 86%]
+tests/test_subagent_plugin_wiring.py::TestHookRegistration::test_stop_hook_rejected_degrades_to_C PASSED [ 87%]
+tests/test_subagent_plugin_wiring.py::TestDeferredInitWiring::test_subagent_hooks_available_wires_lineage PASSED [ 88%]
+tests/test_subagent_plugin_wiring.py::TestDeferredInitWiring::test_lineage_unavailable_degrades_to_C PASSED [ 90%]
+tests/test_subagent_plugin_wiring.py::TestHookHandlers::test_start_handler_noop_before_registry_ready PASSED [ 91%]
+tests/test_subagent_plugin_wiring.py::TestHookHandlers::test_handlers_register_and_unregister_edges PASSED [ 92%]
+tests/test_subagent_plugin_wiring.py::TestHookHandlers::test_start_handler_ignores_missing_ids PASSED [ 93%]
+tests/test_subagent_plugin_wiring.py::TestArmDisarmGate::test_option_a_builds_pipeline_when_disabled_at_boot PASSED [ 95%]
+tests/test_subagent_plugin_wiring.py::TestArmDisarmGate::test_disarmed_passes_through_without_raising PASSED [ 96%]
+tests/test_subagent_plugin_wiring.py::TestArmDisarmGate::test_rearm_enforces_on_same_built_pipeline PASSED [ 97%]
+tests/test_subagent_plugin_wiring.py::TestArmDisarmGate::test_post_tool_call_noop_when_disarmed PASSED [ 98%]
+tests/test_subagent_plugin_wiring.py::TestArmDisarmGate::test_disarm_tripwire_rate_limited PASSED [100%]
+
+============================== warnings summary ===============================
+tests/test_console_armed.py::test_get_armed_reflects_read[standalone]
+tests/test_console_armed.py::test_post_armed_rejects_non_bool[standalone-bad0]
+tests/test_console_armed.py::test_post_armed_rejects_non_bool[standalone-bad1]
+tests/test_console_armed.py::test_post_armed_rejects_non_bool[standalone-bad2]
+tests/test_console_armed.py::test_post_armed_rejects_non_bool[standalone-bad3]
+tests/test_console_armed.py::test_post_armed_rejects_non_bool[standalone-bad4]
+tests/test_console_armed.py::test_post_armed_accepts_bool[standalone]
+tests/test_console_armed.py::test_post_armed_persist_failure_is_503[standalone]
+  C:\Users\zioni\Documents\Vigil-Harbor\PET-111-worktree\petasos\console\server.py:295: DeprecationWarning: 
+          on_event is deprecated, use lifespan event handlers instead.
+  
+          Read more about it in the
+          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+          
+    @app.on_event("shutdown")
+
+tests/test_console_armed.py::test_get_armed_reflects_read[standalone]
+tests/test_console_armed.py::test_post_armed_rejects_non_bool[standalone-bad0]
+tests/test_console_armed.py::test_post_armed_rejects_non_bool[standalone-bad1]
+tests/test_console_armed.py::test_post_armed_rejects_non_bool[standalone-bad2]
+tests/test_console_armed.py::test_post_armed_rejects_non_bool[standalone-bad3]
+tests/test_console_armed.py::test_post_armed_rejects_non_bool[standalone-bad4]
+tests/test_console_armed.py::test_post_armed_accepts_bool[standalone]
+tests/test_console_armed.py::test_post_armed_persist_failure_is_503[standalone]
+  C:\python310\lib\site-packages\fastapi\applications.py:4598: DeprecationWarning: 
+          on_event is deprecated, use lifespan event handlers instead.
+  
+          Read more about it in the
+          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+          
+    return self.router.on_event(event_type)  # ty: ignore[deprecated]
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================= 81 passed, 16 warnings in 0.51s =======================

@@ -19,6 +19,7 @@ import base64
 import logging
 import os
 import threading
+import time
 import uuid
 from typing import Any
 
@@ -35,6 +36,15 @@ _init_lock = threading.Lock()
 _initialized = False
 _init_error: str | None = None
 _session_ids: dict[int, str] = {}
+
+# PET-111: live arm/disarm. _pre_tool_call/_post_tool_call re-read petasos.enabled
+# per call (mtime+size+TTL-cached in petasos.console._armed) rather than latching
+# it at init, so an operator's Equipped/Unequipped toggle affects running sessions.
+# The disarm tripwire is rate-limited so a bypass of (even tier-3) enforcement is
+# always attributable in the log.
+_disarm_log_lock = threading.Lock()
+_last_disarm_log = 0.0
+_DISARM_LOG_EVERY_S = 30.0
 
 # PET-107: sub-agent lineage (Option A). The registry is constructed in
 # _deferred_init (it shares the tracker's clock + lock discipline), but the
@@ -155,12 +165,17 @@ def _deferred_init() -> None:
             raw_config = _config or {}
 
             host_id = raw_config.pop("host_id", "hermes-gavin-01")
+            # PET-111 (Option A): build the pipeline regardless of the boot-time
+            # `enabled` value; enforcement is gated per-call by _is_armed() so a
+            # re-arm mid-session pays no cold-start penalty. The "disabled"
+            # _init_error sentinel is retired — _init_error now latches only a
+            # genuine init exception.
             enabled = raw_config.pop("enabled", True)
-
-            if not enabled:
-                logger.info("Petasos disabled via config (enabled: false)")
-                _init_error = "disabled"
-                return
+            logger.info(
+                "Petasos starting %s (petasos.enabled=%s)",
+                "armed" if enabled else "disarmed",
+                enabled,
+            )
 
             session_secret_b64 = os.environ.get("PETASOS_SESSION_SECRET")
             session_secret = None
@@ -438,12 +453,47 @@ def _fallback_pre_tool_call(
     return None
 
 
+def _is_armed() -> bool:
+    """PET-111: True unless the operator set petasos.enabled=false. Fail-secure True."""
+    try:
+        from petasos.console._armed import read_armed
+
+        return read_armed()
+    except Exception:
+        return True  # never fail open into disarmed
+
+
+def _reset_disarm_log() -> None:
+    """Test seam — reset the disarm tripwire rate-limit clock."""
+    global _last_disarm_log
+    with _disarm_log_lock:
+        _last_disarm_log = 0.0
+
+
+def _log_disarmed_bypass(tool_name: str) -> None:
+    """Rate-limited WARNING so an operator-disarmed bypass is always attributable."""
+    global _last_disarm_log
+    now = time.monotonic()
+    with _disarm_log_lock:
+        if now - _last_disarm_log < _DISARM_LOG_EVERY_S:
+            return
+        _last_disarm_log = now
+    logger.warning(
+        "PETASOS_DISARMED tool=%s — enforcement bypassed by operator (Unequipped)",
+        tool_name,
+    )
+
+
 def _pre_tool_call(
     tool_name: str, args: dict, task_id: str = "", **kwargs
 ) -> dict[str, str] | None:
+    # PET-111: operator-disarmed -> zero enforcement, pass through. The gate sits
+    # ABOVE _ensure_initialized so it covers the initialized, init-failed, and
+    # init-in-progress windows uniformly (a disarmed boot skips the fallback scan).
+    if not _is_armed():
+        _log_disarmed_bypass(tool_name)
+        return None
     if not _ensure_initialized():
-        if _init_error == "disabled":
-            return None
         if _init_error:
             logger.debug("Petasos init failed — allowing tool call")
             return None
@@ -512,6 +562,8 @@ def _post_tool_call(
     tool_name: str, args: dict, result: str = "", task_id: str = "", duration_ms: int = 0, **kwargs
 ) -> None:
     if not _initialized:
+        return
+    if not _is_armed():  # PET-111: skip the completion log while disarmed
         return
     logger.debug("PETASOS_TOOL_COMPLETE tool=%s duration_ms=%d", tool_name, duration_ms)
 
