@@ -145,7 +145,16 @@ def _check_lane_pairing(extras: set[str], workflows: dict[str, _Workflow | None]
                 f"must install the {extra!r} extra in a `.[...]` extras bracket "
                 f"on the install line."
             )
-        if not any("pytest" in run for run in runs):
+        # A bare `"pytest" in run` substring is too loose: it is satisfied by
+        # non-execution text such as `pip install pytest`, so an install-only lane
+        # that never runs the suite would pass (CodeRabbit, PR #86). Anchor on an
+        # actual command: `pytest` (optionally `python -m pytest`) at the start of a
+        # line — after indentation — bounded on the right by whitespace or
+        # end-of-string. That rejects `pip install pytest` and `pip install
+        # pytest-cov` while still accepting real invocations (`pytest tests/...`,
+        # `python -m pytest ...`).
+        pytest_re = re.compile(r"(?:^|\n)[ \t]*(?:python[ \t]+-m[ \t]+)?pytest(?:\s|$)")
+        if not any(pytest_re.search(run) for run in runs):
             violations.append(
                 f"{lane}: no step runs `pytest` — the lane must run the "
                 f"real-backend tests, not just install the extra."
@@ -356,6 +365,28 @@ def test_pairing_check_flags_lane_without_install() -> None:
     assert any("install" in violation.lower() for violation in violations)
     # pytest IS present, so the install violation is the only one.
     assert not any("`pytest`" in violation for violation in violations)
+
+
+def test_pairing_check_flags_install_only_pytest() -> None:
+    """Regression for PR #86 (CodeRabbit): a lane that installs the extra in a
+    bracket but merely ``pip install pytest``s the runner — never executing it —
+    must still be flagged. The prior substring check (``"pytest" in run``) wrongly
+    accepted the install line; the command-anchored regex (rule 3) rejects it."""
+    lane: _Workflow = {
+        "jobs": {
+            "scanner-tests": {
+                "steps": [
+                    {"run": 'pip install -e ".[presidio,dev]"'},
+                    {"run": "pip install pytest"},
+                ],
+            }
+        }
+    }
+    workflows: dict[str, _Workflow | None] = {"extras-presidio.yml": lane}
+    violations = _check_lane_pairing({"presidio"}, workflows)
+    assert any("`pytest`" in violation for violation in violations)
+    # the extra IS installed in a bracket, so the pytest violation is the only one.
+    assert not any("extras bracket" in violation for violation in violations)
 
 
 def test_pairing_check_rejects_hyphenated_superstring_in_bracket() -> None:
