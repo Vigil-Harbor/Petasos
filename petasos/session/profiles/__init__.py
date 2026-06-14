@@ -45,6 +45,7 @@ class ResolvedProfile:
     pii_entities_extra: tuple[str, ...]
     tool_exempt_list: frozenset[str]
     tool_alias_map: MappingProxyType[str, str]
+    description: str = ""
 
     def __post_init__(self) -> None:
         cleaned = _validate_suppress_rules(self.suppress_rules)
@@ -69,6 +70,7 @@ class ResolvedProfile:
             "pii_entities_extra": list(self.pii_entities_extra),
             "tool_exempt_list": sorted(self.tool_exempt_list),
             "tool_alias_map": dict(self.tool_alias_map),
+            "description": self.description,
         }
 
 
@@ -128,6 +130,10 @@ def _parse_profile(data: dict[str, Any]) -> ResolvedProfile:
     _check_structural_overrides(sev_overrides)
     _check_severity_values(sev_overrides)
 
+    desc = data.get("description", "")
+    if not isinstance(desc, str):
+        raise ValueError("description must be a string")
+
     return ResolvedProfile(
         name=data["name"],
         suppress_rules=_validate_suppress_rules(frozenset(data.get("suppress_rules", []))),
@@ -137,6 +143,7 @@ def _parse_profile(data: dict[str, Any]) -> ResolvedProfile:
         pii_entities_extra=tuple(data.get("pii_entities_extra", [])),
         tool_exempt_list=exempt_set,
         tool_alias_map=MappingProxyType(dict(alias_map)),
+        description=desc,
     )
 
 
@@ -215,6 +222,15 @@ def _merge_with_base(
             f"profile 'custom': tool_alias_map targets cannot be exempt keys: {sorted(collisions)}"
         )
 
+    # A custom profile is not `general`; default to "" rather than inheriting the
+    # base's description, which would mislabel it in the selector.
+    description = ""
+    if "description" in overrides:
+        val = overrides["description"]
+        if not isinstance(val, str):
+            raise ValueError("description must be a string")
+        description = val
+
     return ResolvedProfile(
         name="custom",
         suppress_rules=suppress,
@@ -224,6 +240,7 @@ def _merge_with_base(
         pii_entities_extra=pii,
         tool_exempt_list=exempt,
         tool_alias_map=MappingProxyType(alias),
+        description=description,
     )
 
 

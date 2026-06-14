@@ -329,3 +329,49 @@ class TestStructuralOverrideProtection:
         prefix = "petasos.syntactic.structural."
         for rule_id in _STRUCTURAL_RULE_IDS:
             assert rule_id.startswith(prefix), f"{rule_id} does not start with {prefix}"
+
+
+# ---------------------------------------------------------------------------
+# PET-113: Built-in profile descriptions
+# ---------------------------------------------------------------------------
+
+
+class TestProfileDescriptions:
+    def test_builtin_profiles_have_descriptions(self) -> None:
+        # Regression for PET-113: every built-in profile exposes a renderable,
+        # non-empty description (catches "" / whitespace-only and a regression to
+        # str(None) coercion), and the new field is frozen like the rest.
+        resolver = ProfileResolver()
+        for name in _BUILTIN_NAMES:
+            p = resolver.resolve(name)
+            assert p.description.strip(), f"{name} has empty description"
+            assert p.description != "None", f"{name} description is str(None) garbage"
+            with pytest.raises(AttributeError):
+                p.description = "x"  # type: ignore[misc]
+
+    def test_profile_description_roundtrips(self) -> None:
+        # Regression for PET-113: description survives to_dict -> _parse_profile and
+        # every branch of the resolved validation policy (Decision 5) holds.
+        resolver = ProfileResolver()
+        p = resolver.resolve("admin")
+        assert _parse_profile(p.to_dict()).description == p.description
+
+        # missing key -> "" (back-compat)
+        assert _parse_profile({"name": "x"}).description == ""
+
+        # present-but-non-string raises on the JSON path (None and 123 are
+        # distinct isinstance branches)
+        with pytest.raises(ValueError, match="must be a string"):
+            _parse_profile({"name": "x", "description": None})
+        with pytest.raises(ValueError, match="must be a string"):
+            _parse_profile({"name": "x", "description": 123})
+
+        # custom dict-merge override present
+        assert resolver.resolve({"description": "mine"}).description == "mine"
+
+        # custom override non-string raises on the merge path
+        with pytest.raises(ValueError, match="must be a string"):
+            resolver.resolve({"description": 123})
+
+        # custom override absent does not inherit general's copy (Decision 2)
+        assert resolver.resolve({"confidence_floor": 0.8}).description == ""
