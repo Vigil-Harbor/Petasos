@@ -519,6 +519,49 @@ async def test_set_armed_persist_failure(
     assert result == {"armed": True, "persisted": False}
 
 
+async def test_set_armed_broadcasts_on_success(
+    handlers: ConsoleHandlers, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # PET-116 Decision 2: a persisted flip broadcasts exactly one authoritative
+    # `armed` frame to every subscriber present at call time. Subscribe BEFORE
+    # the call — broadcast fans out only to queues already on the broadcaster.
+    import json
+
+    import petasos.console._armed as armed_mod
+
+    monkeypatch.setattr(armed_mod, "write_armed", lambda a: True)
+    q = handlers.sse.subscribe()
+
+    result, ok = await handlers.set_armed(False)
+
+    assert ok is True
+    assert result == {"armed": False, "persisted": True}
+    assert q.qsize() == 1  # exactly one frame, synchronously fanned out
+    frame = q.get_nowait()
+    assert frame.startswith("event: armed\n")
+    # Read the `armed` field, not the whole dict — broadcast also injects `seq`.
+    data_line = next(line for line in frame.splitlines() if line.startswith("data:"))
+    payload = json.loads(data_line[len("data:") :].strip())
+    assert payload["armed"] is False
+
+
+async def test_set_armed_silent_on_persist_failure(
+    handlers: ConsoleHandlers, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # PET-116 Decision 2: a failed write (503) emits NO `armed` frame — other
+    # tabs must not be told the file changed when it did not.
+    import petasos.console._armed as armed_mod
+
+    monkeypatch.setattr(armed_mod, "write_armed", lambda a: False)
+    q = handlers.sse.subscribe()
+
+    result, ok = await handlers.set_armed(True)
+
+    assert ok is False
+    assert result == {"armed": True, "persisted": False}
+    assert q.empty()
+
+
 # ---------------------------------------------------------------------------
 # PET-87: Health surfaces scan errors, unavailable status, recovery
 # ---------------------------------------------------------------------------
