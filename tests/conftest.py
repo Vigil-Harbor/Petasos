@@ -62,57 +62,96 @@ def _item_class_name(item: pytest.Item) -> str | None:
     return name
 
 
-def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    """PET-104 C — collection-time fail-loud guard for the extras-llm-guard lane.
+def _would_skip(item: pytest.Item) -> bool:
+    """True if ``item`` carries a decoration-time skip — either a plain
+    ``@pytest.mark.skip`` (unconditional) or a truthy ``@pytest.mark.skipif``.
 
-    When ``PETASOS_REQUIRE_LLM_GUARD=1`` (set only in the extras-llm-guard job's
-    ``env`` block), assert the real backend is importable via the same symbol
-    ``LlmGuardScanner._do_load`` loads — ``llm_guard.input_scanners``, not a
-    top-level ``find_spec`` — and that ``TestIntegrationWrappedStdio`` is
-    collected unskipped. Otherwise fail collection loudly, naming the lane and
-    the missing import. A no-op when the env var is unset, so the default
-    ``ci.yml`` lane and local dev keep the existing ``@_skip_no_llm_guard``
-    self-skip unchanged (spec D3).
-
-    Controller-gated: under ``pytest-xdist`` only the controller (which lacks a
-    ``workerinput`` attribute) runs this, so the message is emitted once and
-    stays stable.
+    A plain ``skip`` is not a ``skipif`` and would otherwise sail past the guard,
+    skipping the target class despite the backend being importable — exactly what
+    a non-skipping lane must catch. Module-level (PET-105 DD) so both lane guards
+    share one definition and cannot drift. A *runtime* ``pytest.skip()`` in a test
+    body is invisible here by design — the target classes must never call it.
     """
-    if os.environ.get("PETASOS_REQUIRE_LLM_GUARD") != "1":
-        return
-    if hasattr(config, "workerinput"):
+    if item.get_closest_marker("skip") is not None:
+        return True
+    return any(mark.args and bool(mark.args[0]) for mark in item.iter_markers(name="skipif"))
+
+
+def _enforce_nonskipping_lane(
+    items: list[pytest.Item],
+    *,
+    env_flag: str,
+    import_target: str,
+    target_class: str,
+    lane: str,
+) -> None:
+    """Fail collection loudly if ``lane``'s real-backend class would skip.
+
+    Armed only when ``env_flag`` is ``"1"`` (set in the lane job's ``env`` block);
+    a no-op otherwise, so the default ``ci.yml`` lane and local dev keep their
+    ``@skipif`` self-skip unchanged. When armed: import ``import_target`` (the same
+    symbol the scanner's ``_do_load`` loads — not a top-level ``find_spec``) and
+    assert ``target_class`` is collected unskipped. The three failure shapes
+    (import-failed, target-not-collected, would-skip-despite-importable) mirror the
+    PET-104 guard verbatim, parameterized per lane (PET-105 DD). Each lane is
+    enforced independently — see DD for the both-armed composition.
+    """
+    if os.environ.get(env_flag) != "1":
         return
 
-    lane = "extras-llm-guard"
     try:
-        importlib.import_module("llm_guard.input_scanners")
+        importlib.import_module(import_target)
     except ImportError as exc:
         raise pytest.UsageError(
-            f"{lane} lane requires the real llm-guard extra, but importing "
-            f"`llm_guard.input_scanners` (the symbol LlmGuardScanner._do_load "
-            f'loads) failed: {exc}. Install with: pip install -e ".[llm-guard,dev]".'
+            f"{lane} lane requires the real backend extra, but importing "
+            f"`{import_target}` (the symbol the scanner's _do_load loads) failed: "
+            f"{exc}. Install the lane's extra (see .github/workflows/{lane}.yml)."
         ) from exc
 
-    target = "TestIntegrationWrappedStdio"
-    in_class = [item for item in items if _item_class_name(item) == target]
+    in_class = [item for item in items if _item_class_name(item) == target_class]
     if not in_class:
         raise pytest.UsageError(
-            f"{lane} lane: {target} (tests/test_llm_guard_wrapper.py) was not "
-            f"collected. The non-weakref-able stdio path must run, not vanish."
+            f"{lane} lane: {target_class} was not collected. "
+            f"The non-weakref-able stdio path must run, not vanish."
         )
-
-    def _would_skip(item: pytest.Item) -> bool:
-        # A plain @pytest.mark.skip (unconditional) is not a skipif and would
-        # otherwise sail past the guard, skipping the class despite llm-guard
-        # being importable — exactly what this lane must catch.
-        if item.get_closest_marker("skip") is not None:
-            return True
-        return any(mark.args and bool(mark.args[0]) for mark in item.iter_markers(name="skipif"))
 
     would_skip = [item for item in in_class if _would_skip(item)]
     if would_skip:
         raise pytest.UsageError(
-            f"{lane} lane: {target} is collected but {len(would_skip)} item(s) "
-            f"would skip despite llm-guard being importable. The lane must "
-            f"exercise the shield, not skip it."
+            f"{lane} lane: {target_class} is collected but {len(would_skip)} item(s) "
+            f"would skip despite {import_target} being importable. "
+            f"The lane must exercise the path, not skip it."
         )
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """Collection-time fail-loud guards for the non-skipping extras lanes.
+
+    PET-104 armed the ``extras-llm-guard`` lane; PET-105 adds ``extras-llamafirewall``
+    and extracts the shared enforcement body into ``_enforce_nonskipping_lane`` so the
+    two structurally-identical guards cannot drift (DD). Each lane is gated on its own
+    ``PETASOS_REQUIRE_*`` env var, set only in that lane job's ``env`` block, so the
+    default ``ci.yml`` lane and local dev keep the existing ``@skipif`` self-skip.
+
+    Controller-gated as a SINGLE top-level check (DD): under ``pytest-xdist`` only the
+    controller (which lacks a ``workerinput`` attribute) runs this, so each lane's
+    message is emitted once and stays stable. Hoisting the gate above the env checks is
+    behavior-equivalent for the single-env-var, controller-only, no-``-n`` invocation
+    these lanes use (env-unset is a no-op either way).
+    """
+    if hasattr(config, "workerinput"):
+        return
+    _enforce_nonskipping_lane(
+        items,
+        env_flag="PETASOS_REQUIRE_LLM_GUARD",
+        import_target="llm_guard.input_scanners",
+        target_class="TestIntegrationWrappedStdio",
+        lane="extras-llm-guard",
+    )
+    _enforce_nonskipping_lane(
+        items,
+        env_flag="PETASOS_REQUIRE_LLAMAFIREWALL",
+        import_target="llamafirewall",
+        target_class="TestProbeWeakrefUnderSlotsStdio",
+        lane="extras-llamafirewall",
+    )
