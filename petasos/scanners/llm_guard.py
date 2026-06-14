@@ -21,9 +21,25 @@ from petasos._types import (
 
 _REQUIRED_PACKAGES: tuple[str, ...] = ("llm_guard",)
 
+# D9 (PET-108): hard per-process cap on weakref-shaped load attempts. One initial
+# attempt + two retries. Never reset by success — only reset() clears the counter.
+_MAX_LOAD_ATTEMPTS = 3
+
 _INSTALL_HINT = "llm_guard not installed. pip install petasos[llm-guard]"
 
 _logger = logging.getLogger(__name__)
+
+
+def _is_weakref_shaped(exc: BaseException) -> bool:
+    """True when ``exc`` is the stdio-weakref load failure carved out by PET-108.
+
+    The live signature is ``cannot create weak reference to '_SafeWriter'
+    object`` — a TypeError whose message mentions a weak reference. This failure
+    class is stdio-state-transient (the host can rebind a weakref-able stdout),
+    so it is reclassified retryable; everything else stays fail-once (D1/D4).
+    """
+    return isinstance(exc, TypeError) and "weak reference" in str(exc).lower()
+
 
 # Serializes the logging-shield's stdio snapshot/restore window across scanner
 # instances: self._lock is per-instance, but sys.stdout/sys.stderr are
@@ -92,6 +108,8 @@ class LlmGuardScanner:
         self._loaded: bool = False
         self._load_error: str | None = None
         self._load_error_retryable: bool = False
+        self._load_attempts: int = 0  # D2: weakref-shaped attempts (hard per-process cap)
+        self._load_health_error: str | None = None  # D6: health backing; success-only clear
         self._lock: threading.Lock = threading.Lock()
         self._scanners: list[tuple[str, str, Severity, Any]] = []
 
@@ -120,6 +138,20 @@ class LlmGuardScanner:
             if spec is None or spec.origin is None:
                 return (False, _INSTALL_HINT, AVAILABILITY_CAUSE_ABSENT)
         return (True, None, None)
+
+    def load_health(self) -> tuple[bool, str | None]:
+        """Return ``(failed, last_error)`` for the console dashboard (PET-108).
+
+        Lock-free (mirrors ``availability()``): ``_load_health_error`` is cleared
+        only on a confirmed load success and in ``reset()`` — never at the
+        retry-clear site — so a reader sees only a failed state (retryable,
+        pending, or terminal) or a post-success not-failed state, never a torn
+        intermediate (D6). The clear is sequenced before ``_loaded`` is published
+        on the success path so a composite health read cannot report a stale
+        ``degraded`` after the load already succeeded.
+        """
+        err = self._load_health_error
+        return (err is not None, err)
 
     def _ensure_loaded(self) -> None:
         if self._loaded:
@@ -260,7 +292,8 @@ class LlmGuardScanner:
                     )
                 )
 
-            self._loaded = True
+            self._load_health_error = None  # D6: success-only clear, sequenced BEFORE
+            self._loaded = True  # ........... publishing success (avoids a stale degraded read)
         except Exception as exc:
             from petasos.scanners import _is_missing_package
 
@@ -271,10 +304,15 @@ class LlmGuardScanner:
                 avail, avail_reason, _cause = self.availability()
                 if avail:
                     self._load_error = str(exc)
-                    self._load_error_retryable = False
+                    if _is_weakref_shaped(exc):  # D1: stdio-weakref carve-out
+                        self._load_attempts += 1  # D2: count weakref attempts only
+                        self._load_error_retryable = self._load_attempts < _MAX_LOAD_ATTEMPTS
+                    else:
+                        self._load_error_retryable = False  # D4: non-weakref stays fail-once
                 else:
                     self._load_error = avail_reason or str(exc)
                     self._load_error_retryable = True
+            self._load_health_error = self._load_error  # D6: set on every failure path
 
     def reset(self) -> None:
         """Clear cached load error to allow re-attempt (e.g., after pip install).
@@ -290,6 +328,8 @@ class LlmGuardScanner:
             self._load_error_retryable = False
             self._loaded = False
             self._scanners = []
+            self._load_health_error = None  # D6: cleared only here and on confirmed success
+            self._load_attempts = 0  # D2: the only place the weakref cap counter resets
 
     async def scan(
         self,
@@ -335,9 +375,24 @@ class LlmGuardScanner:
             )
 
     def _scan_sync(self, text: str) -> tuple[list[ScanFinding], list[str]]:
+        # D8 (PET-108): bind self._scanners to a local once at entry, then guard
+        # on empty. Every clear site (_do_load, _ensure_loaded's retry-clear,
+        # reset()) *rebinds* self._scanners = [] (never mutates in place), so this
+        # local is a safe read-once alias — not a copy. If any clear site is ever
+        # changed to in-place mutation (.clear() / del [:]), this MUST become
+        # `scanners = list(self._scanners)` or a concurrent mutation tears the loop.
+        scanners = self._scanners
+        if not scanners:
+            # A concurrent clear (reset()/retry) emptied _scanners after scan()'s
+            # pre-checks passed (loaded, _load_error is None). Return an explicit
+            # error so fail-mode 'degraded' blocks, instead of the silent
+            # false-negative (findings=(), error=None) an unguarded loop would
+            # yield. A successfully-loaded llm_guard always has >=1 scanner (the
+            # injection scanner is unconditional), so this is never the normal path.
+            return [], ["llm_guard: scanners cleared mid-scan (load reset in flight)"]
         findings: list[ScanFinding] = []
         errors: list[str] = []
-        for rule_id, finding_type, severity, sub_scanner in self._scanners:
+        for rule_id, finding_type, severity, sub_scanner in scanners:
             try:
                 _sanitized, is_valid, risk_score = sub_scanner.scan(text)
                 if not is_valid:

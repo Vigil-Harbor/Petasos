@@ -1,0 +1,61 @@
+============================= test session starts =============================
+platform win32 -- Python 3.10.6, pytest-9.0.3, pluggy-1.6.0 -- C:\python310\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\zioni\Documents\Vigil-Harbor\PET-108-worktree
+configfile: pyproject.toml
+plugins: anyio-4.13.0, asyncio-1.3.0
+asyncio: mode=auto, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 50 items
+
+tests/test_llm_guard_wrapper.py::TestSlotsWriterRejectsWeakref::test_slots_writer_rejects_weakref PASSED [  2%]
+tests/test_llm_guard_wrapper.py::TestProxySupportsWeakref::test_proxy_supports_weakref PASSED [  4%]
+tests/test_llm_guard_wrapper.py::TestProxyDelegation::test_proxy_write_delegates_to_current_stdout PASSED [  6%]
+tests/test_llm_guard_wrapper.py::TestProxyNoneStdout::test_proxy_handles_none_stdout PASSED [  8%]
+tests/test_llm_guard_wrapper.py::TestIntegrationWrappedStdio::test_scan_with_wrapped_stdout SKIPPED [ 10%]
+tests/test_llm_guard_wrapper.py::TestIntegrationWrappedStdio::test_wrapped_stdout_restored_after_init SKIPPED [ 12%]
+tests/test_llm_guard_wrapper.py::TestIntegrationWrappedStdio::test_no_weakref_requirement_on_stdio SKIPPED [ 14%]
+tests/test_llm_guard_wrapper.py::TestIntegrationWrappedStdio::test_no_weakref_error_during_scanner_construction SKIPPED [ 16%]
+tests/test_llm_guard_wrapper.py::TestWeakrefRetryClassification::test_weakref_load_failure_retryable PASSED [ 18%]
+tests/test_llm_guard_wrapper.py::TestWeakrefRetryClassification::test_weakref_retry_capped_rotating_wrapper PASSED [ 20%]
+tests/test_llm_guard_wrapper.py::TestWeakrefRetryClassification::test_cap_not_reset_by_success PASSED [ 22%]
+tests/test_llm_guard_wrapper.py::TestWeakrefRetryClassification::test_cap_decoupled_from_missing_package PASSED [ 24%]
+tests/test_llm_guard_wrapper.py::TestWeakrefRetryClassification::test_reset_clears_cap PASSED [ 26%]
+tests/test_llm_guard_wrapper.py::TestWeakrefRetryClassification::test_non_weakref_breakage_stays_fail_once PASSED [ 28%]
+tests/test_llm_guard_wrapper.py::TestScanSyncEmptyGuard::test_scan_sync_empty_scanners_returns_error_not_silent PASSED [ 30%]
+tests/test_console_handlers.py::test_get_config_returns_fields PASSED    [ 32%]
+tests/test_console_handlers.py::test_metadata_endpoint_carries_help_plain PASSED [ 34%]
+tests/test_console_handlers.py::test_get_config_redacts_secrets PASSED   [ 36%]
+tests/test_console_handlers.py::test_update_config_valid PASSED          [ 38%]
+tests/test_console_handlers.py::test_update_config_invalid PASSED        [ 40%]
+tests/test_console_handlers.py::test_run_scan PASSED                     [ 42%]
+tests/test_console_handlers.py::test_run_scan_with_injection PASSED      [ 44%]
+tests/test_console_handlers.py::test_get_health PASSED                   [ 46%]
+tests/test_console_handlers.py::test_get_scan_history_empty PASSED       [ 48%]
+tests/test_console_handlers.py::test_get_scan_history_after_scan PASSED  [ 50%]
+tests/test_console_handlers.py::test_get_profiles PASSED                 [ 52%]
+tests/test_console_handlers.py::test_get_about PASSED                    [ 54%]
+tests/test_console_handlers.py::test_scan_history_limit PASSED           [ 56%]
+tests/test_console_handlers.py::test_pipeline_scanner_health PASSED      [ 58%]
+tests/test_console_handlers.py::test_pipeline_list_profiles PASSED       [ 60%]
+tests/test_console_handlers.py::test_pipeline_result_to_dict PASSED      [ 62%]
+tests/test_console_handlers.py::test_config_persist_writes_yaml PASSED   [ 64%]
+tests/test_console_handlers.py::test_health_surfaces_scan_errors PASSED  [ 66%]
+tests/test_console_handlers.py::test_health_unavailable_status PASSED    [ 68%]
+tests/test_console_handlers.py::test_health_recovery_to_healthy PASSED   [ 70%]
+tests/test_console_handlers.py::test_health_unavailable_wins_over_breaker PASSED [ 72%]
+tests/test_console_handlers.py::test_minimal_never_unavailable PASSED    [ 74%]
+tests/test_console_handlers.py::test_health_has_last_error_field PASSED  [ 76%]
+tests/test_console_handlers.py::test_idle_recovery_transition PASSED     [ 78%]
+tests/test_console_handlers.py::test_health_load_failed_distinct_from_unavailable PASSED [ 80%]
+tests/test_console_handlers.py::test_health_unavailable_means_absent PASSED [ 82%]
+tests/test_console_handlers.py::test_health_unavailable_legacy_2tuple PASSED [ 84%]
+tests/test_console_handlers.py::test_health_retryable_load_failure_is_degraded PASSED [ 86%]
+tests/test_console_handlers.py::test_health_error_last_error_is_crash_reason PASSED [ 88%]
+tests/test_console_handlers.py::test_availability_returns_cause_discriminator PASSED [ 90%]
+tests/test_console_handlers.py::test_health_not_healthy_under_pending_weakref_failure PASSED [ 92%]
+tests/test_console_handlers.py::test_health_returns_healthy_after_recovery PASSED [ 94%]
+tests/test_console_handlers.py::test_scanner_health_no_attributeerror_on_sibling_ml PASSED [ 96%]
+tests/test_console_handlers.py::test_scan_summary_carries_tile_contract PASSED [ 98%]
+tests/test_console_handlers.py::test_scan_summary_session_id_present_when_omitted PASSED [100%]
+
+======================== 46 passed, 4 skipped in 0.31s ========================
