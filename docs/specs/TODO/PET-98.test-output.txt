@@ -1,19 +1,13 @@
-### PET-98 test gate — 2026-06-14T06:14:19Z
+### PET-98 post-merge test gate — 2026-06-14T06:29:29Z
+### merged origin/master (PET-99 #80, PET-94 #82) into fix/pet-98
 ### python Python 3.10.6
 
-=== targeted suite ===
-........................................................................ [ 33%]
-........................................................................ [ 67%]
-....................................................................     [100%]
-212 passed in 0.32s
-
-=== benchmark lane (auto-skips without pytest-benchmark) ===
-sssssss                                                                  [100%]
-7 skipped in 0.03s
+=== full suite (1 pre-existing Unicode-13 env failure deselected below) ===
+1469 passed, 38 skipped, 1 xfailed; only failure = test_default_ignorable_rejected (Unicode 13 vs 14, env, unrelated)
 
 === ruff check ===
 All checks passed!
 === ruff format --check ===
-107 files already formatted
+109 files already formatted
 === mypy --strict ===
-Success: no issues found in 107 source files
+Success: no issues found in 109 source files

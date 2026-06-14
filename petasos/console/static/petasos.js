@@ -239,7 +239,6 @@
     auditLog: [],
     scannerHealth: [],
     pipelineHealth: null,
-    lastScanResult: null,
     profiles: [],
     about: null,
   };
@@ -361,7 +360,10 @@
     _dispatch: function (evType, dataStr) {
       try { var d = JSON.parse(dataStr); } catch (_) { return; }
       if (evType === "scan_result") {
-        Pet.state.scanHistory.unshift(d);
+        // PET-99 D6: a malformed frame (JSON.parse("null"), a number, an array)
+        // must never enter the render buffer — scanHistoryRows/renderDashboard
+        // guard on read, but keeping the buffer object-only is the cheaper floor.
+        if (d && typeof d === "object") Pet.state.scanHistory.unshift(d);
         if (Pet.state.scanHistory.length > 500) Pet.state.scanHistory.length = 500;
         if (Pet.state.tab === "obs" && _container) Pet.renderDashboard(_container);
       } else if (evType === "audit") {
@@ -545,6 +547,34 @@
     return table;
   };
 
+  // PET-99 D6/D9: the scan-history seed-merge, extracted as a pure seam so a
+  // malformed entry can never throw on render. Mirrors the existing
+  // `if (!e || typeof e !== "object") continue` guards in renderDashboard
+  // (js tile loop) and scanHistoryRows — closing the one buffer-consuming path
+  // that lacked them (the old inline seed-merge dereferenced `.scan_id` on every
+  // buffer entry AND every fetched entry with no shape guard). Skips non-object
+  // entries on BOTH the existing buffer and the fetched entries before reading
+  // `.scan_id`. Behavior-preserving vs the old inline loops: dedups by scan_id,
+  // appends unseen (a bare {} with scan_id===undefined is an object, unseen on
+  // first occurrence, so it survives — exactly the prior behavior). Mutates
+  // `buffer` in place and returns it (the `return` is for test ergonomics).
+  // Intentionally does NOT clamp to the SSE path's 500-entry cap — the request
+  // limit bounds the fetched set and the next SSE frame re-clamps (out of scope).
+  Pet.mergeScanHistory = function (buffer, entries) {
+    var seen = new Set();
+    for (var j = 0; j < buffer.length; j++) {
+      var cur = buffer[j];
+      if (cur && typeof cur === "object") seen.add(cur.scan_id);
+    }
+    for (var k = 0; k < entries.length; k++) {
+      var en = entries[k];
+      if (en && typeof en === "object" && !seen.has(en.scan_id)) {
+        buffer.push(en); seen.add(en.scan_id);
+      }
+    }
+    return buffer;
+  };
+
   Pet.renderDashboard = function (container) {
     container.innerHTML = "";
     var wrapper = Pet.h("div", { style: { display: "flex", flexDirection: "column", gap: "12px", height: "100%" } });
@@ -636,16 +666,171 @@
         // _req never rejects on HTTP error (it resolves an error envelope), and a
         // 200 {} body lacking .entries would make the merge throw on .scan_id.
         if (!d.error && d.entries && Array.isArray(d.entries)) {
-          var seen = new Set();
-          for (var j = 0; j < Pet.state.scanHistory.length; j++) seen.add(Pet.state.scanHistory[j].scan_id);
-          for (var k = 0; k < d.entries.length; k++) {
-            var en = d.entries[k];
-            if (!seen.has(en.scan_id)) { Pet.state.scanHistory.push(en); seen.add(en.scan_id); }
-          }
+          // PET-99 D6/D9: shape-guarded seed-merge (skips non-object entries on
+          // both sides before reading .scan_id) — replaces the inline dedup loops.
+          Pet.mergeScanHistory(Pet.state.scanHistory, d.entries);
           if (Pet.state.tab === "obs" && _container) Pet.renderDashboard(_container);
         }
       });
     }
+  };
+
+  // ── Playground result/error builders (PET-99 D9 testability seam) ──
+  // Extracted from the former inline scan-button onClick closure so the console
+  // JS harness (node:vm + DOM shim) can assert them as pure builder calls.
+
+  // D2: the result region scrolls within its definite-height flex bound; it does
+  // not clip-to-invisible. flex:1 + minHeight:0 + overflowY:auto.
+  Pet.makeResultArea = function () {
+    return Pet.h("div", { style: { flex: "1", minHeight: "0", overflowY: "auto" } });
+  };
+
+  // D3: one legibility contract for every failure shape. The message is a real,
+  // selectable text node (present in textContent), not title-only; pre-wrap +
+  // overflow-wrap keep it readable, a bounded maxHeight + scroll keep it reachable.
+  Pet.scanErrorBlock = function (message) {
+    return Pet.h("div", { style: {
+      color: "var(--crit)", padding: "12px",
+      whiteSpace: "pre-wrap", overflowWrap: "anywhere",
+      maxHeight: "240px", overflowY: "auto",
+    } }, String(message == null ? "" : message));
+  };
+
+  // D5: shared button-restore for both promise arms (success + failure).
+  Pet.restoreScanButton = function (scanBtn) {
+    scanBtn.textContent = "";
+    scanBtn.appendChild(Pet.Icon("bolt"));
+    scanBtn.appendChild(document.createTextNode(" Scan"));
+  };
+
+  // The success render (verdict + findings + normalization diff + anonymized
+  // output + session overlay), lifted from the former onClick closure. Reads
+  // d.result shape-defensively (D5) so a malformed body returns a readable error
+  // block instead of throwing into runPlaygroundScan's .catch (which would
+  // discard the whole result for a generic message). Side-effect-free.
+  Pet.renderScanResult = function (d, rawText) {
+    var r = d && d.result;
+    if (!r || typeof r !== "object" || typeof r.safe !== "boolean" || !Array.isArray(r.findings)) {
+      return Pet.scanErrorBlock("Unexpected response shape from /scan");
+    }
+    var findings = Array.isArray(r.findings) ? r.findings : [];
+    var isSafe = (r.safe === true); // explicit, mirroring scanHistoryRows' ===false discipline
+
+    var frag = document.createDocumentFragment();
+
+    // Verdict
+    var verdict = isSafe
+      ? Pet.h("span", { className: "pill ok", style: { height: "18px", fontSize: "10px" } }, "safe")
+      : Pet.h("span", { className: "pill err", style: { height: "18px", fontSize: "10px" } }, "blocked");
+
+    var summary = Pet.h("div", { style: { display: "flex", alignItems: "center", gap: "10px", marginBottom: "12px" } },
+      verdict,
+      Pet.h("span", { style: { fontSize: "12px", color: "var(--tx-mut)" } }, findings.length + " findings")
+    );
+    frag.appendChild(summary);
+
+    // Findings
+    if (findings.length > 0) {
+      var findingsPanel = Pet.Panel({
+        icon: "radar", title: "findings", place: "detections by scanner",
+        help: Pet.HelpTip("<b>Findings</b> — individual detections from each scanner. Severity ranges from <code>INFO</code> to <code>CRITICAL</code>. High+ on dangerous tools triggers a block."),
+        content: Pet.h("div", { className: "vlist", style: { gap: "8px" } },
+          findings.map(function (f) {
+            var v = SEV[f.severity] || SEV.info;
+            var finding = Pet.h("div", { className: "finding" });
+            var rail = Pet.h("div", { className: "rail", style: { background: v.col } });
+            var body = Pet.h("div", { className: "body" },
+              Pet.h("div", { style: { display: "flex", gap: "8px", alignItems: "center" } },
+                Pet.h("span", { className: "rid" }, f.rule_id),
+                Pet.h("span", { className: "mono", style: { marginLeft: "auto", fontSize: "10px", color: "var(--tx-faint)" } }, f.scanner_name || "")
+              ),
+              Pet.h("div", { className: "msg" }, f.message || ""),
+              // D4: full matched_text on title as a hover affordance; the CSS wrap
+              // rules keep the visible badge text from clipping to invisibility.
+              f.matched_text ? Pet.h("span", { className: "matched", title: f.matched_text }, f.matched_text) : null
+            );
+            finding.appendChild(rail);
+            finding.appendChild(Pet.SevBadge(f.severity));
+            finding.appendChild(body);
+            return finding;
+          })
+        ),
+      });
+      frag.appendChild(findingsPanel);
+    }
+
+    // Normalized diff
+    if (d.normalized_text && d.normalized_text !== rawText) {
+      frag.appendChild(Pet.Panel({
+        icon: "trending", title: "normalization", place: "before → after",
+        content: Pet.h("div", { className: "mono", style: { fontSize: "11.5px", lineHeight: "1.7" } },
+          Pet.h("div", { style: { color: "var(--tx-ghost)" } }, "raw: ", Pet.h("span", { style: { color: "var(--tx-mut)" } }, rawText)),
+          Pet.h("div", { style: { color: "var(--tx-ghost)" } }, "norm: ", Pet.h("span", { style: { color: "var(--tx)" } }, d.normalized_text))
+        ),
+      }));
+    }
+
+    // Anonymized output
+    if (r.sanitized_content) {
+      frag.appendChild(Pet.Panel({
+        icon: "shieldCheck", title: "anonymized output", place: "PII redacted",
+        content: Pet.h("div", { className: "mono", style: { fontSize: "12px", color: "var(--tx-mut)", lineHeight: "1.7" } }, r.sanitized_content),
+      }));
+    }
+
+    // Session overlay
+    if (r.session_score != null || r.escalation_tier) {
+      var stats = Pet.h("div", { style: { display: "flex", gap: "10px" } });
+      if (r.session_score != null) {
+        // Numeric coercion (mirrors scanHistoryRows' Number(...) discipline): a
+        // present-but-non-numeric session_score degrades this one tile, never the
+        // whole result and never the UI.
+        var ss = Number(r.session_score);
+        if (!Number.isNaN(ss)) { // present-but-non-numeric score → skip this tile
+          stats.appendChild(Pet.h("div", { style: { flex: "1", background: "var(--bg-raised)", border: "1px solid var(--border)", borderRadius: "var(--r-card)", padding: "7px 11px" } },
+            Pet.h("div", { className: "eyebrow" }, "session_score"),
+            Pet.h("div", { className: "num", style: { fontSize: "18px", fontWeight: "700", color: "var(--amber-bright)" } }, ss.toFixed(3))
+          ));
+        }
+      }
+      if (r.escalation_tier) {
+        stats.appendChild(Pet.h("div", { style: { flex: "1", background: "var(--bg-raised)", border: "1px solid var(--border)", borderRadius: "var(--r-card)", padding: "7px 11px" } },
+          Pet.h("div", { className: "eyebrow" }, "escalation_tier"),
+          Pet.h("div", { className: "num", style: { fontSize: "18px", fontWeight: "700", color: "var(--crit)" } }, r.escalation_tier)
+        ));
+      }
+      frag.appendChild(Pet.Panel({ icon: "user", title: "session overlay", place: "frequency + escalation", help: Pet.HelpTip("<b>Session Overlay</b> — cumulative session risk score and escalation tier. Score rises with repeated violations; tier thresholds trigger progressively stricter enforcement."), content: stats }));
+    }
+
+    return frag;
+  };
+
+  // D5: the extracted submit handler. Restores the button on EVERY path and
+  // routes both the {error|detail} response branch and the rejection branch
+  // through scanErrorBlock — no path leaves the UI stranded on "Scanning...".
+  // `api` is injected (defaults to Pet.api) so a test can pass a stub; the
+  // returned promise lets the test await completion.
+  Pet.runPlaygroundScan = function (opts) {
+    var scanBtn = opts.scanBtn;
+    var resultArea = opts.resultArea;
+    scanBtn.textContent = "Scanning...";
+    return (opts.api || Pet.api).postScan(opts.text, opts.dir, opts.sid)
+      .then(function (d) {
+        Pet.restoreScanButton(scanBtn);
+        resultArea.innerHTML = "";
+        if (d && (d.error || d.detail)) {
+          var msg = d.error;
+          if (msg == null) { try { msg = JSON.stringify(d.detail); } catch (_) { msg = String(d.detail); } }
+          resultArea.appendChild(Pet.scanErrorBlock(msg));
+          return;
+        }
+        resultArea.appendChild(Pet.renderScanResult(d, opts.text)); // shape-defensive
+      })
+      .catch(function (e) { // D5: any throw/rejection still restores + shows readable text
+        Pet.restoreScanButton(scanBtn);
+        resultArea.innerHTML = "";
+        resultArea.appendChild(Pet.scanErrorBlock((e && e.message) || "Scan failed"));
+      });
   };
 
   Pet.renderPlayground = function (container) {
@@ -658,7 +843,7 @@
       placeholder: "Paste text to scan... Try: 'ignore previous instructions' or 'email: test@example.com card: 4111 1111 1111 1234'",
     });
 
-    var resultArea = Pet.h("div", { style: { flex: "1", minHeight: "0" } });
+    var resultArea = Pet.makeResultArea();
 
     var dirBtn = { dir: "inbound" };
     var dirToggle = Pet.h("div", { className: "seg" });
@@ -673,94 +858,14 @@
     var scanBtn = Pet.h("button", { className: "btn btn-primary btn-sm", onClick: function () {
       var text = textArea.value;
       if (!text || !text.trim()) return;
-      scanBtn.textContent = "Scanning...";
-      Pet.api.postScan(text, dirBtn.dir, sessionInput.value || null).then(function (d) {
-        scanBtn.textContent = "";
-        scanBtn.appendChild(Pet.Icon("bolt"));
-        scanBtn.appendChild(document.createTextNode(" Scan"));
-        resultArea.innerHTML = "";
-        if (d.error || d.detail) {
-          resultArea.appendChild(Pet.h("div", { style: { color: "var(--crit)", padding: "12px" } }, d.error || JSON.stringify(d.detail)));
-          return;
-        }
-        Pet.state.lastScanResult = d;
-        var r = d.result;
-
-        // Verdict
-        var verdict = r.safe
-          ? Pet.h("span", { className: "pill ok", style: { height: "18px", fontSize: "10px" } }, "safe")
-          : Pet.h("span", { className: "pill err", style: { height: "18px", fontSize: "10px" } }, "blocked");
-
-        var summary = Pet.h("div", { style: { display: "flex", alignItems: "center", gap: "10px", marginBottom: "12px" } },
-          verdict,
-          Pet.h("span", { style: { fontSize: "12px", color: "var(--tx-mut)" } }, r.findings.length + " findings")
-        );
-        resultArea.appendChild(summary);
-
-        // Findings
-        if (r.findings.length > 0) {
-          var findingsPanel = Pet.Panel({
-            icon: "radar", title: "findings", place: "detections by scanner",
-            help: Pet.HelpTip("<b>Findings</b> — individual detections from each scanner. Severity ranges from <code>INFO</code> to <code>CRITICAL</code>. High+ on dangerous tools triggers a block."),
-            content: Pet.h("div", { className: "vlist", style: { gap: "8px" } },
-              r.findings.map(function (f) {
-                var v = SEV[f.severity] || SEV.info;
-                var finding = Pet.h("div", { className: "finding" });
-                var rail = Pet.h("div", { className: "rail", style: { background: v.col } });
-                var body = Pet.h("div", { className: "body" },
-                  Pet.h("div", { style: { display: "flex", gap: "8px", alignItems: "center" } },
-                    Pet.h("span", { className: "rid" }, f.rule_id),
-                    Pet.h("span", { className: "mono", style: { marginLeft: "auto", fontSize: "10px", color: "var(--tx-faint)" } }, f.scanner_name || "")
-                  ),
-                  Pet.h("div", { className: "msg" }, f.message || ""),
-                  f.matched_text ? Pet.h("span", { className: "matched" }, f.matched_text) : null
-                );
-                finding.appendChild(rail);
-                finding.appendChild(Pet.SevBadge(f.severity));
-                finding.appendChild(body);
-                return finding;
-              })
-            ),
-          });
-          resultArea.appendChild(findingsPanel);
-        }
-
-        // Normalized diff
-        if (d.normalized_text && d.normalized_text !== text) {
-          resultArea.appendChild(Pet.Panel({
-            icon: "trending", title: "normalization", place: "before → after",
-            content: Pet.h("div", { className: "mono", style: { fontSize: "11.5px", lineHeight: "1.7" } },
-              Pet.h("div", { style: { color: "var(--tx-ghost)" } }, "raw: ", Pet.h("span", { style: { color: "var(--tx-mut)" } }, text)),
-              Pet.h("div", { style: { color: "var(--tx-ghost)" } }, "norm: ", Pet.h("span", { style: { color: "var(--tx)" } }, d.normalized_text))
-            ),
-          }));
-        }
-
-        // Anonymized output
-        if (r.sanitized_content) {
-          resultArea.appendChild(Pet.Panel({
-            icon: "shieldCheck", title: "anonymized output", place: "PII redacted",
-            content: Pet.h("div", { className: "mono", style: { fontSize: "12px", color: "var(--tx-mut)", lineHeight: "1.7" } }, r.sanitized_content),
-          }));
-        }
-
-        // Session overlay
-        if (r.session_score != null || r.escalation_tier) {
-          var stats = Pet.h("div", { style: { display: "flex", gap: "10px" } });
-          if (r.session_score != null) {
-            stats.appendChild(Pet.h("div", { style: { flex: "1", background: "var(--bg-raised)", border: "1px solid var(--border)", borderRadius: "var(--r-card)", padding: "7px 11px" } },
-              Pet.h("div", { className: "eyebrow" }, "session_score"),
-              Pet.h("div", { className: "num", style: { fontSize: "18px", fontWeight: "700", color: "var(--amber-bright)" } }, r.session_score.toFixed(3))
-            ));
-          }
-          if (r.escalation_tier) {
-            stats.appendChild(Pet.h("div", { style: { flex: "1", background: "var(--bg-raised)", border: "1px solid var(--border)", borderRadius: "var(--r-card)", padding: "7px 11px" } },
-              Pet.h("div", { className: "eyebrow" }, "escalation_tier"),
-              Pet.h("div", { className: "num", style: { fontSize: "18px", fontWeight: "700", color: "var(--crit)" } }, r.escalation_tier)
-            ));
-          }
-          resultArea.appendChild(Pet.Panel({ icon: "user", title: "session overlay", place: "frequency + escalation", help: Pet.HelpTip("<b>Session Overlay</b> — cumulative session risk score and escalation tier. Score rises with repeated violations; tier thresholds trigger progressively stricter enforcement."), content: stats }));
-        }
+      // PET-99 D5/D9: thin call into the extracted handler with the live
+      // scanBtn/resultArea; all render + restore + error legibility lives there.
+      Pet.runPlaygroundScan({
+        text: text,
+        dir: dirBtn.dir,
+        sid: sessionInput.value || null,
+        scanBtn: scanBtn,
+        resultArea: resultArea,
       });
     } });
     scanBtn.appendChild(Pet.Icon("bolt"));

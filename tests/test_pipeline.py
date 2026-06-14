@@ -775,7 +775,7 @@ class TestMinimalScannerError:
 
         scanner = MinimalScanner()
 
-        def boom(_text: str) -> list[ScanFinding]:
+        def boom(_text: str, _direction: str) -> list[ScanFinding]:
             raise RuntimeError("boom")
 
         scanner._scan_impl = boom  # type: ignore[method-assign,assignment]
@@ -792,7 +792,7 @@ class TestMinimalScannerError:
 
         scanner = MinimalScanner()
 
-        def boom(_text: str) -> list[ScanFinding]:
+        def boom(_text: str, _direction: str) -> list[ScanFinding]:
             raise RuntimeError("boom")
 
         scanner._scan_impl = boom  # type: ignore[method-assign,assignment]
@@ -809,7 +809,7 @@ class TestMinimalScannerError:
 
         scanner = MinimalScanner()
 
-        def boom(_text: str) -> list[ScanFinding]:
+        def boom(_text: str, _direction: str) -> list[ScanFinding]:
             raise RuntimeError("boom")
 
         scanner._scan_impl = boom  # type: ignore[method-assign,assignment]

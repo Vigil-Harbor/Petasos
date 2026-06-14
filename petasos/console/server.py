@@ -333,7 +333,14 @@ def build_app(pipeline: "Pipeline") -> "FastAPI":
         except SessionIdError as exc:
             err = {"field": "session_id", "message": str(exc)}
             return JSONResponse(status_code=422, content={"detail": [err]})
-        return await handlers.run_scan(text, direction=direction, session_id=session_id)
+        try:
+            return await handlers.run_scan(text, direction=direction, session_id=session_id)
+        except Exception as exc:  # PET-99 D8: defense-in-depth; pipeline.inspect never throws
+            _logger.exception("console scan failed")
+            return JSONResponse(
+                status_code=500,
+                content={"detail": [{"field": "scan", "message": str(exc)}]},
+            )
 
     @app.get("/api/health")
     async def api_get_health() -> dict[str, Any]:

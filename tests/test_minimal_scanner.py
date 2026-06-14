@@ -9,6 +9,9 @@ from petasos.config import PetasosConfig
 from petasos.normalize import normalize
 from petasos.pipeline import Pipeline
 from petasos.scanners.minimal import (
+    _COMMAND_ANCHOR,
+    _COMMAND_PATTERNS,
+    _COMMAND_RULE_IDS,
     _DECODE_MAX_BYTES,
     _INJECTION_ANCHOR,
     _INJECTION_PATTERNS,
@@ -19,6 +22,9 @@ from petasos.scanners.minimal import (
 from tests.adversarial.syntactic.benign_corpus import (
     ACCEPTED_CLASS,
     BENIGN_CORPUS,
+    COMMAND_ACCEPTED_FP,
+    COMMAND_BENIGN,
+    COMMAND_EXPECTED_TP,
     MIGRATED,
     PRE_EXISTING,
     SANCTIONED_NEW_GRANTS,
@@ -267,8 +273,9 @@ class TestJsonDepth:
 
 
 class TestRuleTaxonomy:
-    def test_17_rules(self) -> None:
-        assert len(RULE_TAXONOMY) == 17
+    def test_22_rules(self) -> None:
+        # PET-94: 17 -> 22 with the five-rule command family.
+        assert len(RULE_TAXONOMY) == 22
 
     def test_all_prefixed(self) -> None:
         for rule_id in RULE_TAXONOMY:
@@ -359,6 +366,71 @@ class TestInjectionAnchorSoundness:
                 f"petasos.syntactic.injection.{slug}"
                 for slug, pat in _INJECTION_PATTERNS
                 if any(pat.search(v) for v in views)
+            )
+            assert gated == ungated, f"gate changed findings for {text!r}: {gated} != {ungated}"
+
+
+class TestCommandAnchorSoundness:
+    """PET-94 Decision 6 / brief D6: the _check_command anchor gate must be a
+    sound superset of every command pattern — a candidate that matches a pattern
+    must also match the anchor, or the gate would drop a real detection. The
+    TestInjectionAnchorSoundness analogue for the command family."""
+
+    def test_expected_tp_covers_every_rule(self) -> None:
+        # Regression for PET-94: the per-branch corpus *is* the reachability
+        # guarantee (no API enumerates a compiled regex's literals), so
+        # COMMAND_EXPECTED_TP must exercise every command rule.
+        covered = {suffix for _snippet, suffix in COMMAND_EXPECTED_TP}
+        all_slugs = {slug for slug, _pat, _conf in _COMMAND_PATTERNS}
+        assert covered == all_slugs, (
+            f"COMMAND_EXPECTED_TP missing per-rule coverage: {sorted(all_slugs - covered)}"
+        )
+
+    def test_destructive_recursive_subbranches_covered(self) -> None:
+        # Regression for PET-94: the destructive-recursive union has three arms
+        # (rm / dd / mkfs); each needs its own TP so a future arm edit flips a pin.
+        dr = [s for s, suffix in COMMAND_EXPECTED_TP if suffix == "destructive-recursive"]
+        assert any(s.lstrip().startswith("rm ") for s in dr), "no rm-branch TP"
+        assert any("dd " in s for s in dr), "no dd-branch TP"
+        assert any("mkfs." in s for s in dr), "no mkfs-branch TP"
+
+    def test_every_firing_snippet_matches_a_pattern_and_the_anchor(self) -> None:
+        # Regression for PET-94 perf gate: each firing snippet must (a) actually
+        # fire some command pattern, and (b) contain a _COMMAND_ANCHOR substring —
+        # so gating on the anchor never filters out a real match. A future
+        # widening whose literal escapes the anchor set flips this pin instead of
+        # going silently undetected.
+        for snippet, _suffix in (*COMMAND_EXPECTED_TP, *COMMAND_ACCEPTED_FP):
+            norm = normalize(snippet).normalized
+            assert any(p.search(norm) for _s, p, _c in _COMMAND_PATTERNS), (
+                f"{snippet!r} no longer matches any command pattern — update the corpus"
+            )
+            assert _COMMAND_ANCHOR.search(norm) is not None, (
+                f"{snippet!r} matches a pattern but not _COMMAND_ANCHOR — the gate "
+                "would drop this detection; widen the anchor"
+            )
+
+    async def test_command_anchor_equivalence(self) -> None:
+        # Regression for PET-94 perf gate: gating must not change findings. Over
+        # COMMAND_BENIGN + COMMAND_EXPECTED_TP + COMMAND_ACCEPTED_FP, the gated
+        # _check_command output (scanner.scan, outbound, raw/unmerged) equals a
+        # gate-free brute-force _COMMAND_PATTERNS sweep — the gate is pure
+        # pruning, never a behavior change (the test_gated_results_identical_to_
+        # ungated analogue).
+        scanner = MinimalScanner()
+        corpus = (
+            *COMMAND_BENIGN,
+            *(s for s, _ in COMMAND_EXPECTED_TP),
+            *(s for s, _ in COMMAND_ACCEPTED_FP),
+        )
+        for text in corpus:
+            result = await scanner.scan(text, direction="outbound")
+            gated = frozenset(f.rule_id for f in result.findings if f.rule_id in _COMMAND_RULE_IDS)
+            norm = normalize(text).normalized
+            ungated = frozenset(
+                f"petasos.syntactic.command.{slug}"
+                for slug, pat, _conf in _COMMAND_PATTERNS
+                if pat.search(norm)
             )
             assert gated == ungated, f"gate changed findings for {text!r}: {gated} != {ungated}"
 
@@ -597,7 +669,13 @@ class TestDecodeAndRescan:
         structural = await scanner.scan("hello\x00world")
         assert _find(structural, "petasos.syntactic.structural.binary-content")
 
-    def test_decode_adds_no_rule_id(self) -> None:
+    async def test_decode_reuses_existing_rule_ids(self) -> None:
         # Regression for PET-98 (Decision 2): the decode path reuses existing
-        # rule_ids — RULE_TAXONOMY stays at 17.
-        assert len(RULE_TAXONOMY) == 17
+        # rule_ids — every finding it emits is already in RULE_TAXONOMY, so no new
+        # rule_id is minted (the taxonomy count itself is pinned by test_22_rules).
+        blob = base64.b64encode(_INJECTION_PHRASE.encode()).decode()
+        result = await MinimalScanner().scan(blob)
+        decoded = [f for f in result.findings if "-decoded" in f.message]
+        assert decoded, "expected at least one decoded finding"
+        assert all(f.rule_id in RULE_TAXONOMY for f in decoded)
+        assert any(f.rule_id == _IGNORE_PREVIOUS for f in decoded)
