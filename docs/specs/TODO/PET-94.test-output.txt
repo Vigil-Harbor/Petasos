@@ -1,0 +1,34 @@
+PET-94 — obfuscated destructive-command rule family — test gate
+Interpreter: Python 3.11.14  (C:/Users/zioni/AppData/Local/hermes/hermes-agent/venv/Scripts/python.exe)
+Branch: fix/pet-94-obfuscated-command-rules  Base: master @ e2da7fe (rebased)
+Run date: 2026-06-14T06:04:53Z
+
+================================================================
+1) pytest (targeted set from spec § Test command)
+================================================================
+........................................................................ [ 74%]
+........................................................................ [ 92%]
+............................                                             [100%]
+388 passed in 1.86s
+
+================================================================
+2) ruff check .
+================================================================
+All checks passed!
+
+================================================================
+3) ruff format --check .
+================================================================
+108 files already formatted
+
+================================================================
+4) mypy --strict .
+================================================================
+Success: no issues found in 108 source files
+
+================================================================
+Full-suite sanity (2-deselect set; --benchmark-disable)
+================================================================
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+1465 passed, 13 deselected, 1 xfailed, 59 warnings in 33.51s

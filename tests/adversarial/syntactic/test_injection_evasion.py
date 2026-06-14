@@ -125,7 +125,7 @@ async def test_scanner_internal_error_fail_open() -> None:
     """SYN-07: forced error returns empty findings (fail-open at scanner)."""
     scanner = MinimalScanner()
 
-    def boom(_text: str) -> list[ScanFinding]:
+    def boom(_text: str, _direction: str) -> list[ScanFinding]:
         raise RuntimeError("boom")
 
     scanner._scan_impl = boom  # type: ignore[method-assign,assignment]
