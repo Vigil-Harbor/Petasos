@@ -191,6 +191,25 @@
 .pet .seg button { height: 26px; padding: 0 14px; border: none; background: transparent; cursor: pointer; font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: var(--tx-mut); border-radius: 5px; transition: background .12s, color .12s; }
 .pet .seg button.on { background: var(--acc); color: var(--color-primary-foreground, #fff); }
 
+/* ── PET-124: strength-preset "tuning dial" (Config Editor) ── */
+.pet .pet-dial-host { flex: 0 0 auto; }
+.pet .pet-dial-wrap { display: flex; flex-direction: column; gap: 6px; padding: 4px 0 12px; margin-bottom: 8px; border-bottom: 1px solid var(--border-soft); }
+.pet .pet-dial-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.pet .pet-dial-title { flex: 0 0 auto; }
+/* The dial reuses .seg; its segments are wider and label-cased, and the Custom
+   tail reads as derived (dashed, muted) rather than a peer selectable level. */
+.pet .seg.pet-dial { flex-wrap: wrap; }
+.pet .pet-dial-seg { display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 12px; border: none; background: transparent; cursor: pointer; font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: var(--tx-mut); border-radius: 5px; transition: background .12s, color .12s; }
+.pet .pet-dial-seg:hover { color: var(--tx-bright); background: var(--bg-hover); }
+.pet .pet-dial-seg.on { background: var(--acc); color: var(--color-primary-foreground, #fff); }
+.pet .pet-dial-seg.on:hover { background: var(--acc); }
+.pet .pet-dial-seg .help { color: inherit; }
+.pet .pet-dial-custom { cursor: default; font-style: italic; color: var(--tx-faint); box-shadow: inset 0 0 0 1px var(--border); }
+.pet .pet-dial-custom:hover { background: transparent; color: var(--tx-faint); }
+.pet .pet-dial-custom.on { background: var(--bg-active); color: var(--tx-bright); font-style: normal; box-shadow: inset 0 0 0 1px var(--border-strong); }
+.pet .pet-dial-rec { font-size: 11px; color: var(--tx-faint); font-family: var(--font-mono); }
+.pet .pet-dial-rec b { color: var(--amber); font-weight: 600; }
+
 /* flex: none, not a fixed basis — inside the column .pet-ctrl-wrap (petasos.js, PET-81)
    a 38px flex-basis becomes the *height* (column main axis beats the height property),
    rendering the pill as a 38x38 rounded square (PET-89). min/max-height + 999px radius

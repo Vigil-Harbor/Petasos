@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any
 
 from petasos.console._config_meta import generate_config_metadata, generate_section_metadata
 from petasos.console._paths import resolve_hermes_config_path
+from petasos.console._presets import generate_preset_metadata, resolve_active_preset
 from petasos.console._ring_buffer import RingBuffer
 from petasos.console._sse import SSEBroadcaster
 from petasos.console._validation import SessionIdError, sanitize_session_id
@@ -135,7 +136,16 @@ class ConsoleHandlers:
         config_dict = self.pipeline.config.to_dict(redact_secrets=True)
         fields = generate_config_metadata()
         sections = generate_section_metadata()
-        return {"config": config_dict, "fields": fields, "sections": sections}
+        # PET-124: the strength-preset registry and the derived active level. The
+        # comparator is passed the PetasosConfig object (not the redacted payload
+        # dict) — no preset-owned field is a secret, so redaction cannot perturb it.
+        return {
+            "config": config_dict,
+            "fields": fields,
+            "sections": sections,
+            "presets": generate_preset_metadata(),
+            "active_preset": resolve_active_preset(self.pipeline.config),
+        }
 
     async def update_config(
         self, body: dict[str, Any]
@@ -157,6 +167,10 @@ class ConsoleHandlers:
             "config": validated.to_dict(redact_secrets=True),
             "fields": generate_config_metadata(),
             "sections": generate_section_metadata(),
+            # PET-124: recompute the dial level from the freshly validated config so
+            # the editor re-render reflects the just-applied preset (or Custom).
+            "presets": generate_preset_metadata(),
+            "active_preset": resolve_active_preset(validated),
         }
         if not persisted:
             result["warning"] = "Config applied in memory but failed to persist to disk"

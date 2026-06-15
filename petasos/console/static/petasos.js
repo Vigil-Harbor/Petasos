@@ -288,6 +288,11 @@
     config: null,
     configFields: null,
     configDirty: {},
+    // PET-124: strength-preset registry + derived active level from the last
+    // /config fetch (alongside config / configFields). active level is recomputed
+    // authoritatively on every fetch and update response.
+    configPresets: null,
+    configActivePreset: null,
     scanHistory: [],
     alerts: [],
     auditLog: [],
@@ -1154,6 +1159,99 @@
     }, text);
   };
 
+  // ── PET-124: strength-preset "tuning dial" ──
+  // Pure JS mirror of petasos.console._presets.resolve_active_preset. Projects
+  // `configValues` to each preset's override keys and returns the matching
+  // preset key, or null (the derived "Custom" state) when none match. Used for
+  // live (pre-apply) flips while editing. Value-normalizing equality: booleans
+  // and the fail_mode string compare strictly; numeric owned fields compare as
+  // Number(a) === Number(b), so a JSON-sourced `30` and a literal `30.0` are
+  // equal and a freshly-applied preset never spuriously reads as Custom.
+  Pet.resolveActivePreset = function (configValues, presets) {
+    if (!configValues || typeof configValues !== "object") return null;
+    if (!Array.isArray(presets) || presets.length === 0) return null;
+    var valEq = function (a, b) {
+      if (typeof a === "boolean" || typeof b === "boolean") return a === b;
+      if (typeof a === "number" || typeof b === "number") return Number(a) === Number(b);
+      return a === b;
+    };
+    for (var i = 0; i < presets.length; i++) {
+      var p = presets[i];
+      if (!p || typeof p !== "object" || !p.overrides || typeof p.overrides !== "object") continue;
+      var keys = Object.keys(p.overrides);
+      if (keys.length === 0) continue;
+      var match = true;
+      for (var j = 0; j < keys.length; j++) {
+        var k = keys[j];
+        if (!Object.prototype.hasOwnProperty.call(configValues, k) || !valEq(configValues[k], p.overrides[k])) {
+          match = false;
+          break;
+        }
+      }
+      if (match) return p.key != null ? p.key : null;
+    }
+    return null;
+  };
+
+  // Renders the segmented strength dial: one button per preset (in `order`) plus
+  // a trailing non-selectable Custom segment, the active one highlighted from
+  // `activeKey` (Custom when null/absent/unknown). Each metal carries a HelpTip
+  // from its description. Clicking a metal calls onSelect(preset). Never throws
+  // (PET-99) / no innerHTML (PET-82): degrades on every malformed shape — a stale
+  // backend missing `presets` (renders nothing), an empty list (nothing), a
+  // preset entry lacking `overrides` (skipped).
+  Pet.renderStrengthDial = function (presets, activeKey, onSelect) {
+    var wrap = Pet.h("div", { className: "pet-dial-wrap" });
+    if (!Array.isArray(presets) || presets.length === 0) return wrap;
+    var ordered = presets
+      .filter(function (p) {
+        return p && typeof p === "object" && p.overrides && typeof p.overrides === "object";
+      })
+      .sort(function (a, b) { return ((a && a.order) || 0) - ((b && b.order) || 0); });
+    if (ordered.length === 0) return wrap;
+
+    var row = Pet.h("div", { className: "pet-dial-row" });
+    row.appendChild(Pet.h("span", { className: "pet-dial-title eyebrow" }, "Strength"));
+    var seg = Pet.h("div", { className: "seg pet-dial" });
+
+    var activeIsKnown = false;
+    ordered.forEach(function (p) {
+      var isOn = p.key === activeKey;
+      if (isOn) activeIsKnown = true;
+      var btn = Pet.h("button", {
+        className: "pet-dial-seg" + (isOn ? " on" : ""),
+        type: "button",
+        dataset: { preset: String(p.key) },
+        onClick: function () { if (typeof onSelect === "function") onSelect(p); },
+      }, p.label != null ? p.label : String(p.key));
+      if (p.description) btn.appendChild(Pet.HelpTip(p.description));
+      seg.appendChild(btn);
+    });
+
+    // Derived Custom segment — presentational, not clickable. Highlighted when no
+    // built-in level matches the live config.
+    var custom = Pet.h("span", {
+      className: "pet-dial-seg pet-dial-custom" + (activeIsKnown ? "" : " on"),
+      dataset: { preset: "custom" },
+      title: "Custom: the live config does not match any built-in level.",
+    }, "Custom");
+    seg.appendChild(custom);
+
+    row.appendChild(seg);
+    wrap.appendChild(row);
+
+    // D6: presentational recommendation pairing Iron (strength) with the
+    // code_generation profile (scenario, selected separately). Changes no default.
+    wrap.appendChild(Pet.h("div", { className: "pet-dial-rec" },
+      "Recommended for coding agents: ",
+      Pet.h("b", {}, "Iron"),
+      " strength with the ",
+      Pet.h("b", {}, "code_generation"),
+      " profile."
+    ));
+    return wrap;
+  };
+
   Pet.renderConfig = function (container) {
     container.innerHTML = "";
     var wrapper = Pet.h("div", { style: { display: "flex", flexDirection: "column", gap: "12px", height: "100%" } });
@@ -1179,7 +1277,63 @@
       }
       Pet.state.config = d.config;
       Pet.state.configFields = d.fields;
+      Pet.state.configPresets = d.presets;
+      Pet.state.configActivePreset = d.active_preset;
       formArea.innerHTML = "";
+
+      // PET-124: strength dial at the top of the editor. The owned-field set is
+      // derived from the presets payload so the live (pre-apply) recompute and the
+      // apply wiring stay in lockstep with the backend registry. If `presets` is
+      // absent (stale backend), OWNED is empty and the dial renders nothing.
+      var OWNED = {};
+      (Array.isArray(d.presets) ? d.presets : []).forEach(function (p) {
+        if (p && p.overrides && typeof p.overrides === "object") {
+          Object.keys(p.overrides).forEach(function (k) { OWNED[k] = true; });
+        }
+      });
+      var dialHost = Pet.h("div", { className: "pet-dial-host" });
+      formArea.appendChild(dialHost);
+      var dialApplyInFlight = false;
+      var currentConfigValues = function () {
+        // Persisted config overlaid with in-memory edits, restricted to owned fields.
+        var vals = {};
+        Object.keys(OWNED).forEach(function (k) {
+          if (d.config && Object.prototype.hasOwnProperty.call(d.config, k)) vals[k] = d.config[k];
+        });
+        Object.keys(Pet.state.configDirty).forEach(function (k) { vals[k] = Pet.state.configDirty[k]; });
+        return vals;
+      };
+      var onSelectPreset = function (preset) {
+        if (!preset || !preset.overrides || dialApplyInFlight) return;
+        dialApplyInFlight = true;  // in-flight guard, mirrors the Apply button
+        Pet.api.putConfig(preset.overrides).then(function (resp) {
+          if (resp && resp._status && resp.detail) {
+            var raw = Array.isArray(resp.detail) ? resp.detail : [resp.detail];
+            var msg = raw.map(function (e) {
+              if (!e || typeof e !== "object") return String(e);
+              return (e.field || "?") + ": " + (e.message || e.msg || e.detail || String(e));
+            }).join("; ");
+            alert("Preset apply failed: " + msg);
+            return;
+          }
+          if (resp && resp.error) { alert("Preset apply failed: " + resp.error); return; }
+          // Re-render from persisted truth: the merge base is the server-side
+          // config, so a preset apply intentionally discards unsaved non-owned
+          // edits and resets the dirty map, consistent with the Apply path.
+          Pet.state.config = resp.config || Pet.state.config;
+          Pet.state.configDirty = {};
+          Pet.renderConfig(container);
+        }).then(function () { dialApplyInFlight = false; }, function () { dialApplyInFlight = false; });
+      };
+      var renderDial = function () {
+        dialHost.innerHTML = "";
+        var activeKey = Pet.resolveActivePreset(currentConfigValues(), d.presets);
+        dialHost.appendChild(Pet.renderStrengthDial(d.presets, activeKey, onSelectPreset));
+      };
+      // Recompute the highlight only when an owned field changes; a non-owned edit
+      // never flips the dial.
+      var maybeUpdateDial = function (name) { if (OWNED[name]) renderDial(); };
+      renderDial();
 
       var groups = Pet.groupConfigSections(d.fields, d.sections);
       // Declared up front (not inside the loop) so the empty path leaves them
@@ -1214,6 +1368,7 @@
               sw.className = "switch" + (val ? " on" : "");
               sw.setAttribute("aria-checked", val ? "true" : "false");
               Pet.state.configDirty[f.name] = val;
+              maybeUpdateDial(f.name);
             };
             var sw = Pet.h("button", {
               className: "switch" + (val ? " on" : ""),
@@ -1234,6 +1389,7 @@
                   seg.querySelectorAll("button").forEach(function (b) { b.className = ""; b.setAttribute("aria-checked", "false"); });
                   btn.className = "on"; btn.setAttribute("aria-checked", "true");
                   Pet.state.configDirty[f.name] = opt;
+                  maybeUpdateDial(f.name);
                 }
               }, opt);
               seg.appendChild(btn);
@@ -1250,7 +1406,7 @@
             if (c.max != null) inp.setAttribute("max", String(c.max));
             var frac = (c.min != null && !Number.isInteger(c.min)) || (c.max != null && c.max <= 1);
             inp.setAttribute("step", frac ? "any" : "1");
-            inp.addEventListener("change", function () { Pet.state.configDirty[f.name] = parseFloat(inp.value); });
+            inp.addEventListener("change", function () { Pet.state.configDirty[f.name] = parseFloat(inp.value); maybeUpdateDial(f.name); });
             control = inp;
           } else if (f.redacted) {
             control = Pet.h("span", { className: "mono", style: { fontSize: "12px", color: "var(--tx-faint)" } }, val || "(not set)");
@@ -1259,7 +1415,7 @@
               className: "input mono", style: { width: "200px", height: "32px" },
               value: val != null ? String(val) : "",
             });
-            inp2.addEventListener("change", function () { Pet.state.configDirty[f.name] = inp2.value; });
+            inp2.addEventListener("change", function () { Pet.state.configDirty[f.name] = inp2.value; maybeUpdateDial(f.name); });
             control = inp2;
           }
 
