@@ -2,14 +2,12 @@
   <img src="https://raw.githubusercontent.com/Vigil-Harbor/Petasos/master/assets/petasos-banner.webp" alt="Petasos: content security for AI agents" width="800"/>
 </p>
 
-<!-- TODO(badges): re-enable at the v0.1.0 release. All four are dark until then: the PyPI badges 404 (package unpublished, PET-12) and the GitHub badges need a public repo (currently private) before shields.io can read them.
 <p align="center">
   <a href="https://pypi.org/project/petasos/"><img alt="PyPI" src="https://img.shields.io/pypi/v/petasos"></a>
   <a href="https://pypi.org/project/petasos/"><img alt="Python" src="https://img.shields.io/pypi/pyversions/petasos"></a>
   <a href="https://github.com/Vigil-Harbor/Petasos/blob/master/LICENSE"><img alt="License" src="https://img.shields.io/github/license/Vigil-Harbor/Petasos"></a>
   <a href="https://github.com/Vigil-Harbor/Petasos/actions"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/Vigil-Harbor/Petasos/ci.yml?branch=master"></a>
 </p>
--->
 
 Content security for AI agents. Petasos inspects everything an AI agent sends and receives, catching prompt injection, data exfiltration, PII leaks, and tool misuse before they reach the user or the outside world.
 
@@ -19,7 +17,7 @@ Content security for AI agents. Petasos inspects everything an AI agent sends an
 
 Petasos sits in the message path and inspects every exchange. It combines fast pattern matching with ML-powered semantic analysis, tracks session behavior over time, and escalates automatically when something looks wrong. If it blocks a message, it tells the agent exactly what happened and why: no silent failures, no guessing.
 
-All features ship free. No license key, no tiered pricing, no "contact sales." Install it and it works.
+All features ship free. No license key, no tiered pricing, no "contact sales." Install it and it works out of the box. (The optional ML backends fetch their own model weights on first use, and PromptGuard 2 is a gated model that needs a one-time Hugging Face approval; see Install below.)
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/Vigil-Harbor/Petasos/master/assets/petasos-demo-loop.webp" alt="Petasos guardrail scan demo" width="800"/>
@@ -43,6 +41,8 @@ pip install "petasos[llm-guard]"     # DeBERTa-v3 prompt injection + toxicity
 pip install "petasos[presidio]"      # PII detection + anonymization
 pip install "petasos[llamafirewall]" # Meta's PromptGuard 2 + CodeShield
 ```
+
+The ML extras download model weights on first use. `petasos[llamafirewall]` additionally needs access to the **gated** PromptGuard 2 model on Hugging Face: a quick one-time approval on the model page plus an HF token. See [scanner setup](https://github.com/Vigil-Harbor/Petasos/blob/master/docs/usage/scanners.md) for the steps.
 
 Requires Python 3.11+.
 
@@ -131,7 +131,7 @@ result = await scanner.scan(user_message, direction="inbound")
 <details>
 <summary><strong>LlamaFirewallScanner</strong>: Meta's PromptGuard 2 + CodeShield</summary>
 
-Wraps [LlamaFirewall](https://github.com/meta-llama/LlamaFirewall) with per-component attribution. PromptGuard for injection, AlignmentCheck for instruction-following, CodeShield for code safety. Each component is toggled independently: PromptGuard is on by default; AlignmentCheck and CodeShield are opt-in.
+Wraps [LlamaFirewall](https://github.com/meta-llama/PurpleLlama/tree/main/LlamaFirewall) with per-component attribution. PromptGuard for injection, AlignmentCheck for instruction-following, CodeShield for code safety. Each component is toggled independently: PromptGuard is on by default; AlignmentCheck and CodeShield are opt-in.
 
 ```bash
 pip install "petasos[llamafirewall]"

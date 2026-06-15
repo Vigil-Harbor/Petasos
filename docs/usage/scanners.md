@@ -140,6 +140,25 @@ and enabled.
 **What the extra adds.** `pip install petasos[llamafirewall]` installs
 LlamaFirewall and makes the three components above available.
 
+**Setting up the gated PromptGuard 2 model.** PromptGuard 2
+(`meta-llama/Llama-Prompt-Guard-2-86M`) is a *gated* model on Hugging Face, so
+installing the extra is not enough on its own. Before the first live scan:
+
+1. Request access on the model page,
+   [huggingface.co/meta-llama/Llama-Prompt-Guard-2-86M](https://huggingface.co/meta-llama/Llama-Prompt-Guard-2-86M),
+   while signed in, and accept Meta's license. Approval is usually quick.
+2. Authenticate locally so the download can use that grant: run
+   `huggingface-cli login`, or set `HF_TOKEN` to a read token from your account.
+   Confirm with `huggingface-cli whoami`.
+3. If you run the prompt-guard scanner in parallel, set
+   `export TOKENIZERS_PARALLELISM=true`.
+
+The first scan then downloads the model into your Hugging Face cache
+(`~/.cache/huggingface`, or `HF_HOME` if set). Until access is granted and a
+token is present, the scanner fails fast with an actionable message rather than
+hanging on the loader's interactive login prompt. `alignment_check` and
+`code_shield` are opt-in and carry their own model and runtime prerequisites.
+
 ## PresidioScanner (extra: `presidio`)
 
 `PresidioScanner` wraps [Microsoft Presidio](https://github.com/microsoft/presidio)
