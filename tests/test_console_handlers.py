@@ -74,6 +74,56 @@ async def test_update_config_returns_sections(handlers: ConsoleHandlers) -> None
         assert {"key", "label", "order"} <= set(s.keys())
 
 
+# ── PET-124: strength-preset dial payload keys ───────────────────────────────
+
+
+async def test_get_config_returns_presets(handlers: ConsoleHandlers) -> None:
+    # get_config carries the ordered preset registry and the derived active level.
+    result = await handlers.get_config()
+    assert "presets" in result
+    presets = result["presets"]
+    assert isinstance(presets, list) and len(presets) == 5
+    for p in presets:
+        assert {"key", "label", "order", "description", "overrides"} <= set(p.keys())
+        assert isinstance(p["overrides"], dict) and p["overrides"]
+    # A default pipeline resolves to Iron (the shipped default, D6).
+    assert result["active_preset"] == "iron"
+
+
+async def test_get_config_active_preset_ignores_redaction() -> None:
+    # A non-default hash_key (a secret) must not leak into resolution — the
+    # comparator sees the PetasosConfig object, not the redacted payload dict.
+    h = ConsoleHandlers(
+        Pipeline(
+            scanners=[MinimalScanner()],
+            config=PetasosConfig(hash_key="my-secret-key"),
+        )
+    )
+    result = await h.get_config()
+    assert result["config"]["hash_key"] == "[REDACTED]"
+    assert result["active_preset"] == "iron"
+
+
+async def test_update_config_returns_presets(handlers: ConsoleHandlers) -> None:
+    # update_config echoes presets and an active_preset consistent with the body.
+    from petasos.console._presets import _PRESET_REGISTRY
+
+    steel = next(p for p in _PRESET_REGISTRY if p.key == "steel")
+    result, errors = await handlers.update_config(dict(steel.overrides))
+    assert errors is None
+    assert result is not None
+    assert isinstance(result["presets"], list) and len(result["presets"]) == 5
+    assert result["active_preset"] == "steel"
+
+
+async def test_update_config_off_preset_field_is_custom(handlers: ConsoleHandlers) -> None:
+    # Applying a single off-preset owned field yields the derived Custom state.
+    result, errors = await handlers.update_config({"tier1_threshold": 12.0})
+    assert errors is None
+    assert result is not None
+    assert result["active_preset"] is None
+
+
 async def test_metadata_endpoint_carries_help_plain(handlers: ConsoleHandlers) -> None:
     # Regression for PET-88: config metadata carries plain-language help text
     # alongside the technical description for every field.
