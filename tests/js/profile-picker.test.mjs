@@ -158,6 +158,7 @@ const BAD_PAYLOADS = [
   [{ name: "x" }], // no description
   [{ description: "y" }], // no name
   [{ name: "z", description: "  " }], // blank description
+  [{ name: "   ", description: "x" }], // whitespace-only NAME -> rejected (no blank button)
   [{ name: "a", description: null }], // null description
   [{ name: "b", description: 7 }], // number description
   [{ name: "c", description: {} }], // object description
@@ -222,6 +223,7 @@ test("profileNames: degrade matrix returns an array, never throws, skips bad ent
     [JSON.stringify([{ name: "x" }]), ["x"]], // name present, description irrelevant
     [JSON.stringify([{ description: "y" }]), []], // no name
     [JSON.stringify([{ name: "z", description: "  " }]), ["z"]], // blank desc, name kept
+    [JSON.stringify([{ name: "   ", description: "x" }]), []], // whitespace-only name dropped
     [JSON.stringify([{ name: "a", description: null }]), ["a"]],
     [JSON.stringify([{ name: "b", description: 7 }]), ["b"]],
     [JSON.stringify([{ name: "c", description: {} }]), ["c"]],
