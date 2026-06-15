@@ -6,6 +6,21 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
 
 _Nothing yet._
 
+## [0.1.1] - 2026-06-15
+
+Documentation and packaging only. No code or behavior changes.
+
+### Changed
+
+- README now frames Petasos as a defense-in-depth content, session, and visibility layer that complements an agent runtime's command and sandbox guards, rather than implying it is the sole line of defense. The session-aware visibility story (per-session risk scoring, audit trail, alert rules) is surfaced as a first-class value.
+- Documented the gated PromptGuard 2 setup (Hugging Face license approval and token) for the LlamaFirewall backend, across the README, the scanner reference, and the Hermes Desktop deployment guide.
+- Added package `authors` and a `Homepage` URL to the project metadata.
+
+### Fixed
+
+- Corrected the LlamaFirewall link to its location in Meta's PurpleLlama repository.
+- Corrected the security hardening checklist's release label to 0.1.0.
+
 ## [0.1.0] - 2026-06-14
 
 First public release. Every feature ships free and keyless: no license key, no tiers, no gate.
@@ -37,5 +52,6 @@ First public release. Every feature ships free and keyless: no license key, no t
 - **Tool-name canonicalization parity**: enforcement and classification share one canonical primitive, closing case / homoglyph / namespace / CamelCase / `_tool`-suffix variant-named egress bypasses
 - **PII-egress hardening**: egress-scoped guard blocking, corrected ordinal severity ranking (a lone CRITICAL now blocks), and a parse-time PII-entity vocabulary guard
 
-[Unreleased]: https://github.com/Vigil-Harbor/Petasos/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/Vigil-Harbor/Petasos/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/Vigil-Harbor/Petasos/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/Vigil-Harbor/Petasos/releases/tag/v0.1.0

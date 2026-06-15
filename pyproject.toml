@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "petasos"
-version = "0.1.0"
+version = "0.1.1"
 requires-python = ">=3.11"
 license = "MIT"
 authors = [{ name = "Vigil Harbor", email = "support@vigilharbor.com" }]
