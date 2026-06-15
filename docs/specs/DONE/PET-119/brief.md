@@ -65,7 +65,7 @@ config-resolved entity set at scan time**: a profile can opt entities *in* (e.g.
 
 For a given scan under `active_profile`:
 
-```
+```python
 effective_entities = resolve_presidio_entities(
     config.presidio_entities, config.presidio_entities_extra
 ) ∪ active_profile.pii_entities_extra        # order-preserving dedup
