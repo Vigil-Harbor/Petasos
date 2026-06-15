@@ -1,6 +1,6 @@
 # Petasos Security Hardening Checklist
 
-Audit artifact for v1.0.0 release. Verifies existing code against Drawbridge security hardening categories.
+Audit artifact for the 0.1.0 release. Verifies existing code against [Drawbridge](https://github.com/ziomancer/clawmoat-drawbridge) (prior art) security hardening categories.
 
 **Audited commit:** Post PET-10 merge (`44639fe`) on `master`.
 **Date:** 2026-05-26
@@ -77,7 +77,7 @@ Audit artifact for v1.0.0 release. Verifies existing code against Drawbridge sec
 
 ## Summary
 
-Petasos v1.0.0 meets the Drawbridge security hardening baseline: the
+Petasos 0.1.0 meets the Drawbridge security hardening baseline: the
 input-validation, error-handling, secrets, frozen-export, rate-limiting, and
 Tier-3 checks (sections 1 to 6) all pass. Of the three platform footguns, two are
 N/A (hook shebang divergence and signal handling: Petasos ships no hook scripts,

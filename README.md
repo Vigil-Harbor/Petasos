@@ -13,9 +13,9 @@ Content security for AI agents. Petasos inspects everything an AI agent sends an
 
 ## Why this exists
 
-**AI agents run on untrusted input.** A user message, a webpage, a tool response: any of these can carry hidden instructions that hijack the agent's behavior. Most teams find out the hard way: a prompt injection slips past, the agent runs a command it shouldn't, and sensitive data walks out the door.
+**AI agents run on untrusted input.** A user message, a webpage, a tool response: any of these can carry hidden instructions that hijack the agent's behavior.
 
-Petasos sits in the message path and inspects every exchange. It combines fast pattern matching with ML-powered semantic analysis, tracks session behavior over time, and escalates automatically when something looks wrong. If it blocks a message, it tells the agent exactly what happened and why: no silent failures, no guessing.
+A capable agent runtime already guards the dangerous edges: it sandboxes execution, gates risky commands, and strips credentials from subprocesses. Those defenses act at the command boundary. Prompt injection works earlier, in the content the model reads, and what slips through there reshapes the agent's intent before any command is checked. Petasos adds the content and session layer: it inspects every message and tool-call argument for injection and PII, tracks each session's behavior over time, and escalates automatically as risk compounds. If it blocks something, it tells the agent exactly what happened and why: no silent failures, no guessing.
 
 All features ship free. No license key, no tiered pricing, no "contact sales." Install it and it works out of the box. (The optional ML backends fetch their own model weights on first use, and PromptGuard 2 is a gated model that needs a one-time Hugging Face approval; see Install below.)
 

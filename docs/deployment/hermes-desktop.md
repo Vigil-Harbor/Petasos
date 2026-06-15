@@ -285,7 +285,7 @@ petasos:
 | `tool_guard_enabled` | `true` | Enabled out of the box |
 | `audit_enabled` | `true` | Enabled out of the box |
 | `scanner_timeout_seconds` | 10.0 | Generous for cold-start, capped at 60 |
-| `tier1_threshold` / `tier2_threshold` | 15.0 / 30.0 | Battle-tested from Drawbridge |
+| `tier1_threshold` / `tier2_threshold` | 15.0 / 30.0 | Tuned defaults carried over from [Drawbridge](https://github.com/ziomancer/clawmoat-drawbridge) (prior art) |
 | `tier3_threshold` | 50.0 | Floor hardcoded at 30.0, cannot go lower |
 | `session_ttl_seconds` | 3600.0 | 1-hour TTL matches a typical chat session |
 | Normalization toggles | all `true` | No reason to disable any |
