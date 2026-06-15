@@ -4,42 +4,38 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
 
 ## [Unreleased]
 
-### Added
-- **Plain-language config help** — every Config Editor field carries a `help_plain` text alongside the technical `description`; the plain line renders primary in the UI with the technical line beneath, the metadata endpoint guarantees `help_plain` is never empty via a server-side fallback, and a guard-rail test blocks future config fields from shipping without one (PET-88)
+_Nothing yet._
 
-### Fixed
-- **Scanner init logs now tell the truth** — init surfaces (reference plugin, dashboard) log "backend verified" or "backend missing" based on a real availability probe instead of claiming "loaded" on instantiation (PET-87)
-- **Health endpoint reflects scan-time reality** — `scanner_health()` status enum corrected to `healthy | degraded | circuit_open | unavailable` with a `last_error` field; scanners whose backend is absent report `unavailable` instead of `healthy` (PET-87)
-- **LlamaFirewall no longer hangs on missing HF token** — fail-fast prerequisite check and stdin tripwire prevent upstream's interactive `huggingface_hub.login()` from blocking the event loop (PET-87)
-- **Profile-aware config resolution** — Petasos config readers now resolve
-  Hermes v0.16+ per-profile homes (`HERMES_HOME` → `active_profile` pointer →
-  v0.15 root fallback) via a shared resolver, fixing the silent enforcement loss
-  and dashboard split-brain observed when Hermes upgraded to profile-based config
-  homes (PET-86)
-- **Deployment verification** — `verify.py` gains orphaned-plugin and config
-  split-brain detection, checking plugin files and config sections at the
-  resolved profile home rather than hardcoded root paths
+## [0.1.0] - 2026-06-14
 
-## [0.1.0] — 2026-06-01
-
-First public release. All features ship free and keyless.
+First public release. Every feature ships free and keyless: no license key, no tiers, no gate.
 
 ### Added
-- **Pipeline orchestrator** — 12-stage async pipeline (`normalize → scan → merge → decide`) with never-throws invariant and three fail-mode policies (open / closed / degraded)
-- **Scanner protocol** — pluggable `Scanner` interface with four backends:
-  - `MinimalScanner` — 17 regex rules, zero dependencies, <5ms
-  - `LlmGuardScanner` — DeBERTa-v3 prompt injection + toxicity (optional extra)
-  - `LlamaFirewallScanner` — Meta PromptGuard 2 + CodeShield (optional extra)
-  - `PresidioScanner` — PII detection + anonymization with HMAC hashing (optional extra)
-- **Input normalization** — NFKC, zero-width stripping, combining mark removal, homoglyph mapping (44 confusables), RTL override detection
-- **Frequency tracking** — per-session exponential decay scoring, rolling window, rate limiting, HMAC-SHA256 session token binding
-- **3-tier escalation** — configurable thresholds with hardcoded Tier 3 floor (30.0); standalone safety net on ≥3 CRITICAL findings
-- **Tool call guard** — 8-step evaluation with NFKC + homoglyph + casefold tool name normalization, alias resolution, parameter scanning, exempt-with-scan
-- **Profiles** — 5 frozen built-in profiles (general, customer_service, code_generation, research, admin), custom registration, severity override floors, unsuppressible rule protection
-- **Audit trails** — verbosity-gated event recording with monotonic sequencing, secret redaction, exception-isolated callbacks
-- **Alert rules** — 5 built-in rules with per-rule cooldowns, dual rate limiting, per-session contribution caps, critical alert caps
-- **Configuration** — single frozen `PetasosConfig` dataclass, JSON-serializable, strict bool coercion, construction-time type validation
-- **License machinery** — Ed25519 JWT validation with key-fingerprint pinning (parked for future supporter/compliance recognition; does not gate features)
-- **Security hardening** — 60 red-team findings resolved across 12 domains (see `docs/specs/` for individual remediation specs)
 
+- **Pipeline orchestrator**: a multi-stage async pipeline (`normalize → scan → merge → decide → session intelligence`) with a hard never-throws invariant: every outcome, including total scanner failure, returns in a structured `PipelineResult`. Three fail-mode policies: `degraded` (default: block on partial ML failure), `closed` (block on any failure), `open` (pass through).
+- **Scanner protocol + four backends**: a pluggable `Scanner` interface:
+  - `MinimalScanner`: 22 regex rules (injection, role-switch, structural, encoding, obfuscated destructive-command), zero dependencies, always on, <5ms, the safety floor
+  - `LlmGuardScanner`: DeBERTa-v3 prompt injection + toxicity (optional extra)
+  - `LlamaFirewallScanner`: Meta PromptGuard 2 + AlignmentCheck + CodeShield, per-component toggles (optional extra)
+  - `PresidioScanner`: PII detection + anonymization with redact / mask / replace / HMAC-SHA256 hash (optional extra)
+- **Input normalization**: NFKC, zero-width / invisible-character stripping, combining-mark removal, 44-confusable homoglyph mapping, RTL-override detection, leet-speak folding, and decode-and-rescan of base64 / hex / ROT13 payloads
+- **Frequency tracking**: per-session exponential-decay scoring, rolling window, rate limiting, HMAC-SHA256 session-token binding, tombstoned terminations
+- **3-tier escalation**: configurable thresholds with a hardcoded Tier-3 floor (30.0) and a standalone safety net on ≥3 CRITICAL findings; extends across sub-agent delegation trees via lineage escalation and a fan-out budget
+- **Tool call guard**: tool-name canonicalization (NFKC + homoglyph + casefold + namespace / CamelCase / `_tool` folding), alias resolution, parameter scanning, and an egress-scoped PII policy that blocks data-exfiltration sinks without blocking the agent's own local writes
+- **Profiles**: 5 frozen, self-describing built-ins (general, customer_service, code_generation, research, admin) plus custom registration, severity-override floors, and an unsuppressible injection/structural rule floor
+- **Audit trails**: verbosity-gated, monotonically sequenced, secret-redacting, exception-isolated event recording
+- **Alert rules**: 5 built-in rules with per-rule cooldowns, dual rate limiting, per-session contribution caps, and a critical-alert cap
+- **Console dashboard** (`petasos[console]`): a FastAPI dashboard that runs standalone or as a Hermes Desktop plugin, with four surfaces (Observability, Scan Playground, Config Editor, About), live SSE updates, an Equipped/Unequipped master toggle that arms/disarms enforcement on running sessions (with live multi-tab sync), collapsible config sections carrying plain-language help on every field, and Hermes v0.16+ profile-aware config resolution
+- **PII detection scoping**: a curated default entity band (cards, SSNs, bank/IBAN, crypto, email, phone, passport, license, IP), opt-in noisy classes, per-profile additive entities, and a tunable score threshold
+- **Configuration**: a single frozen, JSON-serializable `PetasosConfig` with strict bool coercion and construction-time validation; every field exposed for frontend binding
+- **License machinery (parked)**: Ed25519 JWT validation with key-fingerprint pinning, preserved for future supporter/compliance recognition; does not gate any feature
+- **Deployment**: a reference Hermes plugin, a config-path resolver for v0.15 / v0.16+ layouts, a `verify.py` deployment checker, and an OS-boundary hardening checklist
+
+### Security
+
+- **60 red-team findings resolved** across 12 domains: normalization bypasses, config coercion, session spoofing, guard evasion, pipeline severity handling, profile suppression, audit secret-leak, and alert starvation. Per-finding remediation specs live in `docs/specs/`.
+- **Tool-name canonicalization parity**: enforcement and classification share one canonical primitive, closing case / homoglyph / namespace / CamelCase / `_tool`-suffix variant-named egress bypasses
+- **PII-egress hardening**: egress-scoped guard blocking, corrected ordinal severity ranking (a lone CRITICAL now blocks), and a parse-time PII-entity vocabulary guard
+
+[Unreleased]: https://github.com/Vigil-Harbor/Petasos/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/Vigil-Harbor/Petasos/releases/tag/v0.1.0

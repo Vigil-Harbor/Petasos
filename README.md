@@ -1,6 +1,5 @@
-<!-- TODO(asset): petasos-banner.webp is composed from the current helmet render (assets/Petasos-helmet-cropped.png) plus the wordmark. Drop the finalized art at this same path before release. At publish, switch src to an absolute https://raw.githubusercontent.com/Vigil-Harbor/Petasos/<branch>/assets/petasos-banner.webp URL: relative paths do not resolve on the PyPI project page. -->
 <p align="center">
-  <img src="assets/petasos-banner.webp" alt="Petasos: content security for AI agents" width="800"/>
+  <img src="https://raw.githubusercontent.com/Vigil-Harbor/Petasos/master/assets/petasos-banner.webp" alt="Petasos: content security for AI agents" width="800"/>
 </p>
 
 <!-- TODO(badges): re-enable at the v0.1.0 release. All four are dark until then: the PyPI badges 404 (package unpublished, PET-12) and the GitHub badges need a public repo (currently private) before shields.io can read them.
@@ -22,9 +21,8 @@ Petasos sits in the message path and inspects every exchange. It combines fast p
 
 All features ship free. No license key, no tiered pricing, no "contact sales." Install it and it works.
 
-<!-- TODO(asset): at publish, switch src to an absolute https://raw.githubusercontent.com/Vigil-Harbor/Petasos/<branch>/assets/petasos-demo-loop.webp URL: relative paths do not resolve on the PyPI project page. -->
 <p align="center">
-  <img src="assets/petasos-demo-loop.webp" alt="Petasos guardrail scan demo" width="800"/>
+  <img src="https://raw.githubusercontent.com/Vigil-Harbor/Petasos/master/assets/petasos-demo-loop.webp" alt="Petasos guardrail scan demo" width="800"/>
 </p>
 
 ## Install
