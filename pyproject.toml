@@ -7,6 +7,7 @@ name = "petasos"
 version = "0.1.0"
 requires-python = ">=3.11"
 license = "MIT"
+authors = [{ name = "Vigil Harbor", email = "support@vigilharbor.com" }]
 description = "Pluggable, session-aware content security pipeline for Python AI agents"
 readme = "README.md"
 dependencies = ["pyjwt[crypto]>=2.8,<3"]
@@ -23,6 +24,7 @@ classifiers = [
 ]
 
 [project.urls]
+Homepage = "https://vigilharbor.com"
 Repository = "https://github.com/Vigil-Harbor/Petasos"
 Changelog = "https://github.com/Vigil-Harbor/Petasos/blob/master/CHANGELOG.md"
 "Bug Tracker" = "https://github.com/Vigil-Harbor/Petasos/issues"
