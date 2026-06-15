@@ -722,6 +722,9 @@
         sw.setAttribute("aria-checked", on ? "true" : "false");
         sw.setAttribute("aria-label", "Petasos enforcement: " + (on ? "equipped, click to unequip" : "unequipped, click to equip"));
       }
+      // PET-13: two-state helmet art - worn (equipped) when armed, off (unequipped) when not.
+      var mark = b.querySelector(".equip-mark");
+      if (mark) mark.src = Pet.asset(on ? "img/petasos-equipped.png" : "img/petasos-unequipped.png");
     };
     var doToggle = function () {
       if (_armedBusy) return;  // ignore rapid re-clicks while a write is in flight
@@ -757,7 +760,7 @@
       if (e.key === "Enter" || e.key === " ") { e.preventDefault(); doToggle(); }
     });
     wrapper.appendChild(Pet.h("div", { className: "equip-banner" + (armedOn ? "" : " disarmed") + (confirming ? " confirming" : "") },
-      Pet.h("img", { className: "equip-mark", src: Pet.asset("img/petasos-helmet.png"), alt: "" }),
+      Pet.h("img", { className: "equip-mark", src: Pet.asset(armedOn ? "img/petasos-equipped.png" : "img/petasos-unequipped.png"), alt: "" }),
       Pet.h("div", { className: "equip-text" },
         Pet.h("div", { className: "equip-label" }, confirming ? "CONFIRM UNEQUIP?" : (armedOn ? "EQUIPPED" : "UNEQUIPPED")),
         Pet.h("div", { className: "equip-sub" }, confirming ? "Click again to disable all enforcement" : (armedOn ? "Enforcement is ON" : "Enforcement is OFF for every session"))
@@ -1150,7 +1153,7 @@
       root.className = "trap-viz sprung";
       setPhase("TRAP SPRUNG", "var(--crit)");
       root.appendChild(Pet.h("div", { className: "trap-lockdown", role: "status" },
-        Pet.h("img", { className: "trap-lock-mark", src: Pet.asset("img/petasos-helmet.png"), alt: "" }),
+        Pet.h("img", { className: "trap-lock-mark", src: Pet.asset("img/tier3-terminate.webp"), alt: "" }),
         Pet.h("div", {},
           Pet.h("div", { className: "trap-lock-title" }, "TIER 3 · TERMINATE"),
           Pet.h("div", { className: "trap-lock-sub" }, "Session locked after " + n + " attacks. Escalation caught the repeat offender.")
