@@ -4,7 +4,7 @@ rootdir: C:\Users\zioni\Documents\Vigil-Harbor\PET-126-worktree
 configfile: pyproject.toml
 plugins: anyio-4.13.0, asyncio-1.3.0
 asyncio: mode=auto, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
-collected 1748 items / 1 deselected / 1747 selected
+collected 1775 items / 1 deselected / 1774 selected
 
 tests\adversarial\config\test_bool_coercion.py ......................... [  1%]
 ......                                                                   [  1%]
@@ -19,21 +19,21 @@ tests\adversarial\frequency\test_ttl_eviction.py ....                    [  4%]
 tests\adversarial\guard\test_tool_smuggling.py ...................       [  5%]
 tests\adversarial\license\test_jwt_attacks.py ...                        [  5%]
 tests\adversarial\license\test_license_hardening.py .................... [  6%]
-...                                                                      [  7%]
-tests\adversarial\normalization\test_unicode_bypass.py ................. [  8%]
+...                                                                      [  6%]
+tests\adversarial\normalization\test_unicode_bypass.py ................. [  7%]
 .....                                                                    [  8%]
 tests\adversarial\pipeline\test_callback_isolation.py ...............    [  9%]
 tests\adversarial\pipeline\test_cancel_mid_gather.py ......              [  9%]
 tests\adversarial\pipeline\test_cancel_scan_residual.py .                [  9%]
 tests\adversarial\pipeline\test_degraded_fail_open.py .................. [ 10%]
 ......                                                                   [ 10%]
-tests\adversarial\pipeline\test_env_license_trust.py ...                 [ 11%]
+tests\adversarial\pipeline\test_env_license_trust.py ...                 [ 10%]
 tests\adversarial\pipeline\test_rt075_chain.py x....                     [ 11%]
-tests\adversarial\pipeline\test_scanner_timeout_breaker.py ............. [ 12%]
+tests\adversarial\pipeline\test_scanner_timeout_breaker.py ............. [ 11%]
 .....                                                                    [ 12%]
 tests\adversarial\profiles\test_suppress_bypass.py ......                [ 12%]
-tests\adversarial\scanner\test_confidence_clamp.py ......                [ 13%]
-tests\adversarial\syntactic\test_binary_nul.py .                         [ 13%]
+tests\adversarial\scanner\test_confidence_clamp.py ......                [ 12%]
+tests\adversarial\syntactic\test_binary_nul.py .                         [ 12%]
 tests\adversarial\syntactic\test_command_rules.py ...................... [ 14%]
 ........................................................................ [ 18%]
 .....                                                                    [ 18%]
@@ -45,56 +45,58 @@ tests\adversarial\types\test_type_validation.py ...................      [ 23%]
 tests\test_alerting.py ................................................. [ 26%]
 ..................                                                       [ 27%]
 tests\test_audit.py ..................................                   [ 29%]
-tests\test_benchmarks.py ssssssss                                        [ 30%]
+tests\test_benchmarks.py ssssssss                                        [ 29%]
 tests\test_ci_extras_lanes.py ............                               [ 30%]
-tests\test_config.py ..............................................      [ 33%]
-tests\test_config_meta.py ..................                             [ 34%]
-tests\test_console_armed.py ..............................               [ 36%]
+tests\test_config.py ..............................................      [ 32%]
+tests\test_config_meta.py ..................                             [ 33%]
+tests\test_console_armed.py ..............................               [ 35%]
+tests\test_console_auth.py .............                                 [ 36%]
 tests\test_console_handlers.py ......................................... [ 38%]
 ............                                                             [ 39%]
 tests\test_console_playground.py ....                                    [ 39%]
 tests\test_console_reload.py ...........                                 [ 40%]
-tests\test_console_server.py .                                           [ 40%]
+tests\test_console_server.py ..                                          [ 40%]
 tests\test_console_validation.py ....................................... [ 42%]
 ....................                                                     [ 43%]
-tests\test_escalation.py ...............                                 [ 44%]
-tests\test_finding_merge.py ............                                 [ 44%]
+tests\test_docs_usage_consistency.py ..........                          [ 44%]
+tests\test_escalation.py ................                                [ 45%]
+tests\test_finding_merge.py ............                                 [ 45%]
 tests\test_formatting.py ....................                            [ 46%]
-tests\test_frequency.py .......................................          [ 48%]
-tests\test_frequency_tombstone.py .................                      [ 49%]
+tests\test_frequency.py .......................................          [ 49%]
+tests\test_frequency_tombstone.py .................                      [ 50%]
 tests\test_guard.py .................................................... [ 52%]
-......................................                                   [ 54%]
-tests\test_guard_reconfigure.py .......                                  [ 54%]
-tests\test_hardening.py ..............                                   [ 55%]
-tests\test_hermes_integration_defaults.py .................              [ 56%]
+......................................                                   [ 55%]
+tests\test_guard_reconfigure.py .......                                  [ 55%]
+tests\test_hardening.py ..............                                   [ 56%]
+tests\test_hermes_integration_defaults.py .................              [ 57%]
 tests\test_hermes_smoke.py ssss..                                        [ 57%]
 tests\test_integration_e2e.py ..................                         [ 58%]
 tests\test_license.py ....................                               [ 59%]
 tests\test_lineage.py ...................                                [ 60%]
 tests\test_llama_firewall_scanner.py ................................... [ 62%]
-...........sssssssssssss                                                 [ 63%]
-tests\test_llama_firewall_wrapper.py ss                                  [ 63%]
-tests\test_llm_guard_scanner.py .......................ssssssssss        [ 65%]
+...........sssssssssssss                                                 [ 64%]
+tests\test_llama_firewall_wrapper.py ss                                  [ 64%]
+tests\test_llm_guard_scanner.py .......................ssssssssss        [ 66%]
 tests\test_llm_guard_wrapper.py ....ssss.......                          [ 66%]
-tests\test_minimal_scanner.py .......................................... [ 68%]
-....................................                                     [ 70%]
-tests\test_normalize.py ................................................ [ 73%]
+tests\test_minimal_scanner.py .......................................... [ 69%]
+.....................................                                    [ 71%]
+tests\test_normalize.py ................................................ [ 74%]
 .................................                                        [ 75%]
 tests\test_pipeline.py ................................................. [ 78%]
-......                                                                   [ 78%]
+......                                                                   [ 79%]
 tests\test_pipeline_reconfigure.py ..............                        [ 79%]
 tests\test_pipeline_suppression.py ..........                            [ 80%]
 tests\test_plugin_api_paths.py .......................................   [ 82%]
 tests\test_plugin_api_sse.py ......                                      [ 82%]
-tests\test_plugin_init_logging.py ....                                   [ 82%]
+tests\test_plugin_init_logging.py ....                                   [ 83%]
 tests\test_presets.py ............                                       [ 83%]
-tests\test_presidio_entity_scoping.py .....................              [ 84%]
+tests\test_presidio_entity_scoping.py .....................              [ 85%]
 tests\test_presidio_scanner.py ......................................... [ 87%]
-.............                                                            [ 87%]
+.............                                                            [ 88%]
 tests\test_profiles.py ..............................................    [ 90%]
 tests\test_profiles_retained_ref.py ...                                  [ 90%]
 tests\test_profiles_suppress.py ........                                 [ 91%]
-tests\test_reference_plugin_egress.py ..............................     [ 92%]
+tests\test_reference_plugin_egress.py ...............................    [ 93%]
 tests\test_ring_buffer.py ........                                       [ 93%]
 tests\test_safe_json.py .........                                        [ 93%]
 tests\test_scanner_init.py ...........                                   [ 94%]
@@ -107,9 +109,10 @@ tests\test_verify.py ............                                        [100%]
 
 ============================== warnings summary ===============================
 tests/test_console_armed.py: 8 warnings
+tests/test_console_auth.py: 13 warnings
 tests/test_console_playground.py: 2 warnings
 tests/test_console_validation.py: 24 warnings
-  C:\Users\zioni\Documents\Vigil-Harbor\PET-126-worktree\petasos\console\server.py:320: DeprecationWarning: 
+  C:\Users\zioni\Documents\Vigil-Harbor\PET-126-worktree\petasos\console\server.py:383: DeprecationWarning: 
           on_event is deprecated, use lifespan event handlers instead.
   
           Read more about it in the
@@ -118,6 +121,7 @@ tests/test_console_validation.py: 24 warnings
     @app.on_event("shutdown")
 
 tests/test_console_armed.py: 8 warnings
+tests/test_console_auth.py: 13 warnings
 tests/test_console_playground.py: 2 warnings
 tests/test_console_validation.py: 24 warnings
   C:\python310\lib\site-packages\fastapi\applications.py:4598: DeprecationWarning: 
@@ -129,11 +133,11 @@ tests/test_console_validation.py: 24 warnings
     return self.router.on_event(event_type)  # ty: ignore[deprecated]
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-=== 1705 passed, 41 skipped, 1 deselected, 1 xfailed, 68 warnings in 28.08s ===
+=== 1732 passed, 41 skipped, 1 deselected, 1 xfailed, 94 warnings in 32.39s ===
 
 === ruff check . ===
 All checks passed!
 === ruff format --check . ===
-123 files already formatted
+125 files already formatted
 === mypy --strict . ===
-Success: no issues found in 123 source files
+Success: no issues found in 125 source files

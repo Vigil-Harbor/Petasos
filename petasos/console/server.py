@@ -167,7 +167,18 @@ class ConsoleHandlers:
         # decode_encoded_payloads all live-update), not just on a new session. A
         # bare ``self.pipeline._config = validated`` only updated the fields read
         # directly off _config at scan time.
-        self.pipeline.reconfigure(validated)
+        try:
+            self.pipeline.reconfigure(validated)
+        except (ValueError, TypeError) as exc:
+            # from_dict validates structure, but frequency_weights content (glob
+            # position, non-negative/finite values) is validated inside
+            # FrequencyTracker.apply_config during reconfigure. Surface that as a
+            # structured field error (422), not an unhandled 500. reconfigure is
+            # atomic (Decision 5), so the live config is unchanged on failure and
+            # we do not persist a config that could not be applied.
+            msg = str(exc)
+            field = _extract_field_from_error(msg, body)
+            return None, [{"field": field, "message": msg}]
         persisted = _persist_config(validated)
         result = {
             "config": validated.to_dict(redact_secrets=True),
