@@ -9,13 +9,15 @@
   <a href="https://github.com/Vigil-Harbor/Petasos/actions"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/Vigil-Harbor/Petasos/ci.yml?branch=master"></a>
 </p>
 
-Content security for AI agents. Petasos inspects everything an AI agent sends and receives, catching prompt injection, data exfiltration, PII leaks, and tool misuse before they reach the user or the outside world.
+Content security for AI agents. Petasos inspects what an agent reads and the tool calls it makes, catching prompt injection on the way in and PII on the way out, and surfacing every attempt it sees: a per-session risk score, an audit trail, and alerts. It is the content, session, and visibility layer that complements the command and sandbox guards a runtime already provides. Defense in depth.
 
 ## Why this exists
 
 **AI agents run on untrusted input.** A user message, a webpage, a tool response: any of these can carry hidden instructions that hijack the agent's behavior.
 
-A capable agent runtime already guards the dangerous edges: it sandboxes execution, gates risky commands, and strips credentials from subprocesses. Those defenses act at the command boundary. Prompt injection works earlier, in the content the model reads, and what slips through there reshapes the agent's intent before any command is checked. Petasos adds the content and session layer: it inspects every message and tool-call argument for injection and PII, tracks each session's behavior over time, and escalates automatically as risk compounds. If it blocks something, it tells the agent exactly what happened and why: no silent failures, no guessing.
+A capable agent runtime already guards the dangerous edges: it sandboxes execution, gates risky commands, and strips credentials from subprocesses. Those defenses act at the command boundary. Prompt injection works earlier, in the content the model reads, and what slips through there reshapes the agent's intent before any command is checked. Petasos adds the content and session layer: it inspects every message and tool-call argument for injection and PII, tracks each session's behavior over time, and escalates automatically as risk compounds.
+
+Detection is only half of it. A runtime gives you the hooks to log what happens; Petasos turns them into security visibility you don't have to build. Every scan is recorded, each session's risk is scored, and alerts fire on the patterns that matter (rapid-fire attempts, cross-session bursts, PII spikes), so a prompt injection that was only *attempted* becomes a signal you can act on, not a silent non-event. When it blocks something, it tells the agent exactly what happened and why: no silent failures, no guessing.
 
 All features ship free. No license key, no tiered pricing, no "contact sales." Install it and it works out of the box. (The optional ML backends fetch their own model weights on first use, and PromptGuard 2 is a gated model that needs a one-time Hugging Face approval; see Install below.)
 
