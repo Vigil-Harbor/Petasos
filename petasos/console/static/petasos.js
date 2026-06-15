@@ -1092,6 +1092,9 @@
         groups.push({
           key: gk,
           label: (s.label != null) ? s.label : gk,
+          // PET-123: carry the registry copy the last hop (builder -> render) so
+          // the section body can show a plain-language intro. Never-undefined (D4).
+          description: (s.description != null) ? s.description : "",
           default_collapsed: Boolean(s.default_collapsed),
           fields: bySection[gk],
         });
@@ -1102,7 +1105,9 @@
     // backend with no/empty sections), in field first-appearance order, expanded.
     appearance.forEach(function (gk) {
       if (used[gk]) return;
-      groups.push({ key: gk, label: gk, default_collapsed: false, fields: bySection[gk] });
+      // PET-123: a stale backend / unknown section has no registry copy; "" is the
+      // never-undefined sentinel the intro builder degrades on (D4).
+      groups.push({ key: gk, label: gk, description: "", default_collapsed: false, fields: bySection[gk] });
     });
     return groups;
   };
@@ -1134,6 +1139,19 @@
       var lw = w.toLowerCase();
       return Pet.CONFIG_ACRONYMS[lw] || (w.charAt(0).toUpperCase() + w.slice(1));
     }).join(" ");
+  };
+
+  // PET-123: intro node for a section body, or null when there is no copy to show
+  // (stale backend / unknown section). Never throws on a missing / blank /
+  // non-string description — degrades to null (PET-99 / D4 never-throw posture).
+  Pet.sectionIntro = function (description) {
+    if (typeof description !== "string") return null;
+    var text = description.trim();
+    if (!text) return null;
+    return Pet.h("div", {
+      style: { fontSize: "11.5px", color: "var(--tx-faint)", margin: "2px 0 10px",
+               lineHeight: "1.45" }
+    }, text);
   };
 
   Pet.renderConfig = function (container) {
@@ -1260,11 +1278,20 @@
         var collapsed = Object.prototype.hasOwnProperty.call(Pet.state.sectionCollapsed, group.key)
           ? Pet.state.sectionCollapsed[group.key]   // user chose
           : group.default_collapsed;                 // registry/builder default
+        // PET-123: prepend the plain-language intro (when present) above the field
+        // rows. fieldEls is passed as a direct array child in both branches, so the
+        // rows stay at today's DOM depth (Pet.h flattens an array child); the only
+        // tree change is the single intro node when copy exists. intro === null is
+        // byte-for-byte today's render (D4 / Design Change 3).
+        var intro = Pet.sectionIntro(group.description);
+        var body = intro
+          ? Pet.h("div", {}, intro, fieldEls)
+          : Pet.h("div", {}, fieldEls);
         var sectionPanel = Pet.Panel({
           icon: "sliders", title: group.label,
           collapsible: true, collapsed: collapsed,
           onToggle: function (c) { Pet.state.sectionCollapsed[group.key] = c; },
-          content: Pet.h("div", {}, fieldEls),
+          content: body,
         });
         sectionPanel.dataset.section = group.key;
         panelsBySection[group.key] = sectionPanel;

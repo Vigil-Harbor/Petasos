@@ -664,73 +664,89 @@ _SECTION_REGISTRY: typing.Final[tuple[ConfigSection, ...]] = (
     ConfigSection(
         "profiles",
         "Profiles",
-        "Pick a preset tuning bundle that adjusts rule sensitivity and tool"
-        " permissions for a use case.",
+        "Pick a ready-made settings bundle for your use case (coding agent,"
+        " customer service, and so on) instead of tuning every knob by hand."
+        " Start here if you are not sure what to change.",
         default_collapsed=False,
     ),
     ConfigSection(
         "anonymization",
         "PII / Anonymization",
-        "Hide personal information the scanners detect before it travels further.",
+        "Mask personal details (names, emails, card numbers) the scanners find"
+        " so they do not pass through in the clear. Leave on if your agent"
+        " handles real user data.",
         default_collapsed=False,
     ),
     ConfigSection(
         "fail_mode",
         "Fail Mode",
-        "Decide what happens to content when a scanner breaks or times out mid-scan.",
+        "Choose what happens to a message when a scanner crashes or times out:"
+        " block it, let it through, or block only on a hard failure. The safe"
+        " default blocks on failure.",
         default_collapsed=False,
     ),
     ConfigSection(
         "tool_guard",
         "Tool Call Guard",
-        "Inspect the agent's tool calls and rate-limit sub-agent spawns before they run.",
+        "Check the tools your agent tries to call and cap how fast it can spawn"
+        " sub-agents, before any of it runs. Tighten this for agents that touch"
+        " the file system or the shell.",
         default_collapsed=False,
     ),
     ConfigSection(
         "scanning",
         "Scanning",
-        "Core scan behavior: direction, scanner timeouts, circuit breakers, and"
-        " PII detection scope.",
+        "The core scan settings: which direction to scan (incoming, outgoing, or"
+        " both) and how widely to look for personal data. Also sets per-scanner"
+        " time limits and when to stop calling one that keeps failing.",
         default_collapsed=False,
     ),
     ConfigSection(
         "normalization",
         "Normalization",
-        "Clean up disguised text (homoglyphs, zero-width, leetspeak, encoded blobs)"
-        " before scanning.",
+        "Undo tricks that hide malicious text from the scanners (look-alike"
+        " letters, invisible characters, leetspeak, encoded blobs) before"
+        " anything is checked. Most operators leave this on as-is.",
         default_collapsed=True,
     ),
     ConfigSection(
         "escalation",
         "Escalation Tiers",
-        "Risk-score thresholds that tighten enforcement tier by tier as a"
-        " conversation misbehaves.",
+        "As a conversation keeps misbehaving, these risk-score cutoffs ratchet"
+        " enforcement up one tier at a time. Advanced: the built-in tiers are"
+        " sensible defaults.",
         default_collapsed=True,
     ),
     ConfigSection(
         "frequency",
         "Frequency Tracking",
-        "How per-conversation risk scores accumulate and decay over time.",
+        "Tracks how risky each conversation looks over time, so repeated"
+        " suspicious behavior adds up instead of being judged one message at a"
+        " time. Advanced: the defaults are sensible.",
         default_collapsed=True,
     ),
     ConfigSection(
         "audit",
         "Audit",
-        "Whether and how much detail every scan records for later review.",
+        "Decide whether each scan is recorded for later review, and how much"
+        " detail to keep. Turn the detail up when you need an investigation"
+        " trail.",
         default_collapsed=True,
     ),
     ConfigSection(
         "alerting",
         "Alerting",
-        "Fire warnings on suspicious patterns like rapid-fire scanning or PII"
-        " spikes, with rate limits.",
+        "Raise a warning when something looks off (rapid-fire scanning, a spike"
+        " in personal data, repeated blocks) without flooding you with"
+        " duplicates. Advanced: the defaults cover the common cases.",
         default_collapsed=True,
     ),
     ConfigSection(
         "session",
         "Session Management",
-        "Limits on how many conversations are tracked, how long they live, and"
-        " new-session rate caps.",
+        "Caps on how many conversations are tracked at once, how long each is"
+        " remembered, and how fast new ones may start. Advanced: raise these"
+        " only for high-traffic deployments.",
         default_collapsed=True,
     ),
 )
