@@ -1,32 +1,36 @@
-PET-123 test gate — bec29b1 on feat/pet-123-config-section-intros
-Resolved test command (spec § Test command):
+PET-123 test gate — df5da3d on feat/pet-123-config-section-intros
+Resolved test command (spec § Test command), with mypy broadened to the full
+tree (mypy --strict .) to match repo policy (CLAUDE.md: mypy --strict for all
+**/*.py; PET-123 review thread 3411126743). The spec scoped mypy to the one
+changed file for speed and asserted the full tree was unaffected; this records
+the full-tree run as proof.
   node --test tests/js/config-sections.test.mjs
   python -m pytest tests/test_config_meta.py
-  ruff check . && ruff format --check . && mypy --strict petasos/console/_config_meta.py
+  ruff check . && ruff format --check . && mypy --strict .
 
 ==================== node --test tests/js/config-sections.test.mjs ====================
-✔ loader: petasos.js exports the PET-114 surfaces (0.6142ms)
-✔ groupConfigSections: registry order + labels + booleans (0.4938ms)
-✔ groupConfigSections: default_collapsed is coerced to a real boolean (0.0879ms)
-✔ groupConfigSections: skips registry sections with no fields (0.0998ms)
-✔ groupConfigSections: unknown-section field is a trailing expanded group (0.1124ms)
-✔ groupConfigSections: stale-backend fallback (no sections) (0.1248ms)
-✔ groupConfigSections: empty/non-array fields return [] (0.066ms)
-✔ Pet.Panel collapsible: structure (collapsed) (0.4637ms)
-✔ Pet.Panel collapsible: structure (expanded) (0.5163ms)
-✔ Pet.Panel collapsible: click toggles live state + aria + onToggle (0.2218ms)
-✔ Pet.Panel collapsible: Enter key toggles (0.1351ms)
-✔ Pet.Panel collapsible: Space key toggles (0.0972ms)
-✔ Pet.Panel collapsible: other keys do not toggle (0.0727ms)
-✔ Pet.Panel collapsible: petSetCollapsed expands without firing onToggle (0.118ms)
-✔ Pet.Panel non-collapsible: unchanged (regression guard) (0.0915ms)
-✔ revealFieldSections: expands the owning section of an errored field (0.0997ms)
-✔ revealFieldSections: unknown / missing-panel field is a safe no-op (0.1103ms)
-✔ loader: petasos.js exports the PET-123 surface (sectionIntro) (0.0251ms)
-✔ groupConfigSections: carries each registry description onto its group (PET-123) (0.0703ms)
-✔ groupConfigSections: fallback groups carry description === "" (PET-123) (0.0755ms)
-✔ sectionIntro: renders a node whose textContent is the trimmed copy (PET-123) (0.0715ms)
-✔ sectionIntro: blank / non-string copy degrades to null, never throws (PET-123) (0.0568ms)
+✔ loader: petasos.js exports the PET-114 surfaces (0.4873ms)
+✔ groupConfigSections: registry order + labels + booleans (0.5656ms)
+✔ groupConfigSections: default_collapsed is coerced to a real boolean (0.0696ms)
+✔ groupConfigSections: skips registry sections with no fields (0.0985ms)
+✔ groupConfigSections: unknown-section field is a trailing expanded group (0.1134ms)
+✔ groupConfigSections: stale-backend fallback (no sections) (0.1303ms)
+✔ groupConfigSections: empty/non-array fields return [] (0.0596ms)
+✔ Pet.Panel collapsible: structure (collapsed) (0.4755ms)
+✔ Pet.Panel collapsible: structure (expanded) (0.5082ms)
+✔ Pet.Panel collapsible: click toggles live state + aria + onToggle (0.2238ms)
+✔ Pet.Panel collapsible: Enter key toggles (0.1571ms)
+✔ Pet.Panel collapsible: Space key toggles (0.0961ms)
+✔ Pet.Panel collapsible: other keys do not toggle (0.0704ms)
+✔ Pet.Panel collapsible: petSetCollapsed expands without firing onToggle (0.1133ms)
+✔ Pet.Panel non-collapsible: unchanged (regression guard) (0.1037ms)
+✔ revealFieldSections: expands the owning section of an errored field (0.0975ms)
+✔ revealFieldSections: unknown / missing-panel field is a safe no-op (0.0971ms)
+✔ loader: petasos.js exports the PET-123 surface (sectionIntro) (0.0252ms)
+✔ groupConfigSections: carries each registry description onto its group (PET-123) (0.0677ms)
+✔ groupConfigSections: fallback groups carry description === "" (PET-123) (0.0747ms)
+✔ sectionIntro: renders a node whose textContent is the trimmed copy (PET-123) (0.0842ms)
+✔ sectionIntro: blank / non-string copy degrades to null, never throws (PET-123) (0.0656ms)
 ℹ tests 22
 ℹ suites 0
 ℹ pass 22
@@ -34,7 +38,7 @@ Resolved test command (spec § Test command):
 ℹ cancelled 0
 ℹ skipped 0
 ℹ todo 0
-ℹ duration_ms 54.848
+ℹ duration_ms 55.5611
 
 ==================== python -m pytest tests/test_config_meta.py ====================
 ============================= test session starts =============================
@@ -53,5 +57,5 @@ tests\test_config_meta.py ..................                             [100%]
 All checks passed!
 ==================== ruff format --check . ====================
 116 files already formatted
-==================== mypy --strict petasos/console/_config_meta.py ====================
-Success: no issues found in 1 source file
+==================== mypy --strict . ====================
+Success: no issues found in 116 source files
