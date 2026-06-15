@@ -1275,7 +1275,10 @@
     if (!Array.isArray(profiles)) return out;
     for (var i = 0; i < profiles.length; i++) {
       var p = profiles[i];
-      if (p && typeof p.name === "string" && p.name &&
+      // Gate on p.name.trim() so a whitespace-only name (e.g. "   ") is rejected
+      // rather than rendered as a blank button; the original p.name is kept as the
+      // key/value so a padded-but-real name still matches the resolver exactly.
+      if (p && typeof p.name === "string" && p.name.trim() &&
           !Object.prototype.hasOwnProperty.call(out, p.name) &&
           typeof p.description === "string" && p.description.trim()) {
         out[p.name] = p.description.trim();
@@ -1292,7 +1295,9 @@
     if (!Array.isArray(profiles)) return out;
     for (var i = 0; i < profiles.length; i++) {
       var p = profiles[i];
-      if (p && typeof p.name === "string" && p.name &&
+      // Whitespace-only names are rejected (see profileDescriptions); the original
+      // name is the option value so it round-trips to the resolver unchanged.
+      if (p && typeof p.name === "string" && p.name.trim() &&
           !Object.prototype.hasOwnProperty.call(seen, p.name)) {
         seen[p.name] = true;
         out.push(p.name);
@@ -1393,9 +1398,10 @@
 
     rebuild([], {});   // minimal initial seg: "(none)" + current value
     if (profilesP && typeof profilesP.then === "function") {
-      profilesP.then(function (profiles) {
-        rebuild(Pet.profileNames(profiles), Pet.profileDescriptions(profiles));
-      });
+      profilesP.then(
+        function (profiles) { rebuild(Pet.profileNames(profiles), Pet.profileDescriptions(profiles)); },
+        function () { rebuild([], {}); }   // defensive: a non-normalized rejecting promise still degrades to the minimal seg
+      );
     }
     seg._petRebuild = rebuild;   // test seam: drive the enrich rebuild synchronously
     return seg;
