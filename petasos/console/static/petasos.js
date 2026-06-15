@@ -1224,7 +1224,13 @@
         dataset: { preset: String(p.key) },
         onClick: function () { if (typeof onSelect === "function") onSelect(p); },
       }, p.label != null ? p.label : String(p.key));
-      if (p.description) btn.appendChild(Pet.HelpTip(p.description));
+      if (p.description) {
+        // The HelpTip lives inside the clickable segment; swallow its click so
+        // reading the tooltip never bubbles to onSelect and applies the preset.
+        var tip = Pet.HelpTip(p.description);
+        tip.addEventListener("click", function (e) { if (e && e.stopPropagation) e.stopPropagation(); });
+        btn.appendChild(tip);
+      }
       seg.appendChild(btn);
     });
 
