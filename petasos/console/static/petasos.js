@@ -1258,6 +1258,149 @@
     return wrap;
   };
 
+  // ── Profile-picker pure builders (PET-122) ──
+  // Two single-purpose, never-throw builders in the Pet.groupConfigSections /
+  // Pet.scannerHealthRows idiom (no DOM, no network). profileNames is the option
+  // source (every valid name); profileDescriptions is the tip source (names that
+  // carry a usable description). Both first-wins dedup so they agree on a
+  // duplicate-name payload.
+
+  // Map a profile name -> its trimmed description. Tolerant of a missing/partial/
+  // failed /api/profiles payload. Never throws (PET-99 never-throw posture).
+  // Profiles with a blank/missing/non-string description are intentionally absent
+  // (caller falls back to neutral tip copy). First occurrence of a name wins, so a
+  // duplicate-name payload agrees with profileNames. Values are never undefined/empty.
+  Pet.profileDescriptions = function (profiles) {
+    var out = {};
+    if (!Array.isArray(profiles)) return out;
+    for (var i = 0; i < profiles.length; i++) {
+      var p = profiles[i];
+      if (p && typeof p.name === "string" && p.name &&
+          !Object.prototype.hasOwnProperty.call(out, p.name) &&
+          typeof p.description === "string" && p.description.trim()) {
+        out[p.name] = p.description.trim();
+      }
+    }
+    return out;
+  };
+
+  // Ordered list of valid profile names (ALL of them, regardless of description),
+  // deduped first-wins, malformed entries skipped. Never throws. This is the option
+  // source; profileDescriptions is the tip source.
+  Pet.profileNames = function (profiles) {
+    var out = [], seen = {};
+    if (!Array.isArray(profiles)) return out;
+    for (var i = 0; i < profiles.length; i++) {
+      var p = profiles[i];
+      if (p && typeof p.name === "string" && p.name &&
+          !Object.prototype.hasOwnProperty.call(seen, p.name)) {
+        seen[p.name] = true;
+        out.push(p.name);
+      }
+    }
+    return out;
+  };
+
+  // ── Profile-picker render seam (PET-122, D1/D3) ──
+  // Bespoke, fetch-sourced control for the nullable `profile_name` field. Render-
+  // then-enrich: paints a minimal seg ("(none)" + current value) synchronously,
+  // then swaps in the full option set + per-option HelpTips when profilesP resolves.
+  // Never blocks the form on /api/profiles and never throws. Exposed on Pet (like
+  // groupConfigSections / revealFieldSections) so the render-seam unit tests can
+  // drive it; the returned node carries a `_petRebuild(names, descMap)` handle for
+  // the dirty-selection and collision-guard tests.
+  //
+  // NONE_LABEL doubles as the structural unset button's label AND the reserved
+  // literal guarded against name collision (D6): a payload/stored value equal to
+  // "(none)" is treated as unset, never rendered as a second truthy-string button.
+  var PROFILE_NONE_LABEL = "(none)";
+  var PROFILE_FALLBACK_TIP = "Custom profile: no description provided.";   // D5, sole authored string
+  Pet.buildProfileControl = function (f, val, profilesP) {
+    var seg = Pet.h("div", { className: "seg", role: "radiogroup", ariaLabel: Pet.humanizeKey(f.name) });
+    var btns = [];   // explicit node array; selection clearing avoids querySelectorAll (F-1)
+
+    // Recompute selection from configDirty on EVERY call (F-4): dirty wins (may be
+    // null); else the config value captured once in this function's `val` param
+    // (F-3); null => unset. A click before getProfiles resolves wrote configDirty,
+    // so the enrich rebuild re-reads it and keeps the highlight.
+    function currentSelection() {
+      return Object.prototype.hasOwnProperty.call(Pet.state.configDirty, "profile_name")
+        ? Pet.state.configDirty.profile_name
+        : (typeof val === "string" && val ? val : null);
+    }
+    // null OR the literal "(none)" both resolve to the structural unset button.
+    function isNoneSel(sel) { return sel == null || sel === PROFILE_NONE_LABEL; }
+
+    function highlight() {
+      var sel = currentSelection();
+      var noneOn = isNoneSel(sel);
+      for (var i = 0; i < btns.length; i++) {
+        var b = btns[i];
+        var on = b._petNone ? noneOn : (!noneOn && b._petVal === sel);
+        b.className = on ? "on" : "";
+        b.setAttribute("aria-checked", on ? "true" : "false");
+      }
+    }
+
+    function addButton(label, value, tipText) {
+      var btn = Pet.h("button", {
+        className: "", type: "button", role: "radio", ariaChecked: "false",
+        onClick: function () { Pet.state.configDirty.profile_name = value; highlight(); },
+      }, label);
+      btn._petVal = value;          // null for the structural "(none)" button
+      btn._petNone = (value == null);
+      seg.appendChild(btn);
+      btns.push(btn);
+      if (tipText) seg.appendChild(Pet.HelpTip(tipText));   // sibling .help node, focus-revealable (D4)
+    }
+
+    // Clear via shim-observable node removal, never innerHTML="" (F-1): the test
+    // shim has no innerHTML setter, so an innerHTML write would leave childNodes
+    // intact and the enrich rebuild would stack on the stale minimal seg.
+    function clearSeg() {
+      while (seg.childNodes.length) seg.removeChild(seg.childNodes[seg.childNodes.length - 1]);
+      btns = [];
+    }
+
+    function rebuild(names, descMap) {
+      clearSeg();
+      var list = Array.isArray(names) ? names : [];
+      var map = (descMap && typeof descMap === "object") ? descMap : {};
+      // A non-empty profile list means we have enriched data and attach a HelpTip
+      // per name/union button. An empty list is the minimal/degrade seg (initial
+      // paint, or getProfiles rejected/empty): "(none)" + current value, selectable,
+      // NO tips, no console error (D3). tipFor() encodes that split.
+      var enriched = list.length > 0;
+      function tipFor(name) { return enriched ? (map[name] || PROFILE_FALLBACK_TIP) : null; }
+
+      addButton(PROFILE_NONE_LABEL, null, null);   // structural unset, writes null, never a tip
+      var sel = currentSelection();
+      var present = {};
+      for (var i = 0; i < list.length; i++) {
+        var nm = list[i];
+        if (nm === PROFILE_NONE_LABEL) continue;   // D6: never a second "(none)" button
+        present[nm] = true;
+        addButton(nm, nm, tipFor(nm));
+      }
+      // Union the current/dirty value if it is a real custom/unknown name not
+      // already listed (and not the reserved "(none)" literal — F-2).
+      if (typeof sel === "string" && sel && sel !== PROFILE_NONE_LABEL &&
+          !Object.prototype.hasOwnProperty.call(present, sel)) {
+        addButton(sel, sel, tipFor(sel));
+      }
+      highlight();
+    }
+
+    rebuild([], {});   // minimal initial seg: "(none)" + current value
+    if (profilesP && typeof profilesP.then === "function") {
+      profilesP.then(function (profiles) {
+        rebuild(Pet.profileNames(profiles), Pet.profileDescriptions(profiles));
+      });
+    }
+    seg._petRebuild = rebuild;   // test seam: drive the enrich rebuild synchronously
+    return seg;
+  };
+
   Pet.renderConfig = function (container) {
     container.innerHTML = "";
     var wrapper = Pet.h("div", { style: { display: "flex", flexDirection: "column", gap: "12px", height: "100%" } });
@@ -1273,6 +1416,16 @@
     );
     wrapper.appendChild(formArea);
     container.appendChild(wrapper);
+
+    // PET-122: kick off the profiles fetch concurrently with getConfig so it is
+    // already in flight when the form paints. Normalize to a never-throwing promise
+    // of a raw profile array: a rejected or malformed getProfiles resolves to [].
+    // (_get/_req return a fetch-based promise that resolves to {error} on failure
+    // rather than rejecting, so the onRejected arm is belt-and-suspenders.)
+    var profilesP = Pet.api.getProfiles().then(
+      function (resp) { return (resp && Array.isArray(resp.profiles)) ? resp.profiles : []; },
+      function () { return []; }
+    );
 
     Pet.api.getConfig().then(function (d) {
       if (d.error || !d.config || !d.fields) {
@@ -1368,7 +1521,12 @@
         var fieldEls = fields.map(function (f) {
           var val = d.config[f.name];
           var control;
-          if (f.type === "boolean") {
+          if (f.name === "profile_name") {
+            // PET-122: dedicated fetch-sourced control, placed first so no other
+            // field matches it and the generic enum/text branches stay unreachable
+            // for profile_name (D-OPT1).
+            control = Pet.buildProfileControl(f, val, profilesP);
+          } else if (f.type === "boolean") {
             var toggleFn = function () {
               val = !val;
               sw.className = "switch" + (val ? " on" : "");

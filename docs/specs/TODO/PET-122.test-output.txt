@@ -1,0 +1,41 @@
+PET-122 test gate — captured 2026-06-15T05:39:25Z
+Worktree: /c/Users/zioni/Documents/Vigil-Harbor/PET-122-worktree
+Commit base: 855c309
+
+### 1. node --test tests/js/profile-picker.test.mjs
+✔ loader: petasos.js exports the PET-122 surfaces (0.5246ms)
+✔ profileDescriptions: five built-ins map to their exact trimmed descriptions (0.4059ms)
+✔ profileDescriptions: degrade matrix returns {} and never throws (0.1877ms)
+✔ profileNames: ordered, first-wins deduped, blank-description kept, no-name skipped (0.0929ms)
+✔ profileNames: degrade matrix returns an array, never throws, skips bad entries (0.1877ms)
+✔ duplicate-name payload: profileNames and profileDescriptions both first-wins (0.0709ms)
+✔ render seam: a custom/unknown value renders as a selectable option with the fallback tip (0.8242ms)
+✔ render seam: each enriched option tip is a focusable HelpTip (.help, tabIndex 0, focus handler) (0.1301ms)
+✔ render seam: empty profiles -> (none) + current value, selectable, no tips (0.8054ms)
+✔ render seam: a selection made before enrich survives the rebuild (0.3398ms)
+✔ render seam: a profile named (none) never duplicates the structural unset button (0.2802ms)
+ℹ tests 11
+ℹ suites 0
+ℹ pass 11
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 58.7627
+
+### 2. C:/python310/python.exe -m pytest tests/test_console_handlers.py -k "get_profiles or profile_metadata_surfaced"
+============================= test session starts =============================
+platform win32 -- Python 3.10.6, pytest-9.0.3, pluggy-1.6.0
+rootdir: C:\Users\zioni\Documents\Vigil-Harbor\PET-122-worktree
+configfile: pyproject.toml
+plugins: anyio-4.13.0, asyncio-1.3.0
+asyncio: mode=auto, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 49 items / 47 deselected / 2 selected
+
+tests\test_console_handlers.py ..                                        [100%]
+
+====================== 2 passed, 47 deselected in 0.18s =======================
+
+### 3. ruff check . && ruff format --check .
+All checks passed!
+116 files already formatted
