@@ -95,10 +95,12 @@
   };
 
   // PET-127: n skeleton bars in a column, with a gap. opts.h sets bar height;
-  // opts.w the width; opts.gap the spacing. n<1 / non-finite -> 1 bar.
+  // opts.w the width; opts.gap the spacing. Non-finite / n<1 -> 1 bar; a positive
+  // fraction (0<n<1) also clamps to 1 (Math.floor would otherwise drop it to 0,
+  // yielding an empty placeholder) — the builder never renders zero bars.
   Pet.skelRows = function (n, opts) {
     opts = opts || {};
-    var count = (typeof n === "number" && isFinite(n) && n > 0) ? Math.floor(n) : 1;
+    var count = (typeof n === "number" && isFinite(n) && n > 0) ? Math.max(1, Math.floor(n)) : 1;
     var rows = [];
     for (var i = 0; i < count; i++) rows.push(Pet.skel(opts.w, opts.h));
     return Pet.h("div", { style: { display: "flex", flexDirection: "column", gap: (opts.gap || "8px") } }, rows);

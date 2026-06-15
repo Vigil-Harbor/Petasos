@@ -152,8 +152,9 @@ test("Pet.skelRows(3): returns a column of 3 skeleton bars", () => {
   assert.ok(bars.every((b) => b.className === "skel"), "every child is a .skel bar");
 });
 
-test("Pet.skelRows(0) / ('x'): degrade to 1 bar, never throw (divergent from skel(0))", () => {
-  for (const bad of [0, "x", null, undefined, NaN, -4]) {
+test("Pet.skelRows(0) / ('x') / (0.5): degrade to 1 bar, never throw (divergent from skel(0))", () => {
+  // 0.5 is the regression guard: a positive fraction must NOT Math.floor to 0 bars.
+  for (const bad of [0, "x", null, undefined, NaN, -4, 0.5]) {
     let rows;
     assert.doesNotThrow(() => { rows = Pet.skelRows(bad); });
     assert.equal(elementChildren(rows).length, 1, `skelRows(${JSON.stringify(bad)}) -> 1 bar`);
