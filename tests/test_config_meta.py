@@ -29,6 +29,8 @@ _EXPECTED_SECTION_ORDER = [
     "alerting",
     "session",
 ]
+# Historical PET-114 D3 common/advanced partition. All sections now default
+# collapsed (see test_all_sections_default_collapsed); kept as the full key set.
 _ADVANCED_SECTIONS = {"normalization", "escalation", "frequency", "audit", "alerting", "session"}
 _COMMON_SECTIONS = {"profiles", "anonymization", "fail_mode", "tool_guard", "scanning"}
 
@@ -197,10 +199,9 @@ def test_section_registry_frozen_and_ordered() -> None:
     assert [s["key"] for s in sections] == _EXPECTED_SECTION_ORDER
     assert [s["key"] for s in generate_section_metadata()] == _EXPECTED_SECTION_ORDER
 
-    # Open-first coupling: the open sections are exactly the leading five.
-    assert [s["key"] for s in sections if not s["default_collapsed"]] == [
-        s["key"] for s in sections
-    ][:5]
+    # All sections default collapsed: the editor opens fully collapsed so each
+    # group is revealed on click (supersedes PET-114 D3's open-first five).
+    assert [s["key"] for s in sections if not s["default_collapsed"]] == []
 
     # Exact coverage (no drift): registry keys == the in-use field sections —
     # kills both a missing registry entry and a dead registry entry with no fields.
@@ -209,13 +210,13 @@ def test_section_registry_frozen_and_ordered() -> None:
     }
 
 
-def test_advanced_sections_default_collapsed() -> None:
-    # Brief-required: advanced sections carry the collapsed flag; common ones open.
+def test_all_sections_default_collapsed() -> None:
+    # Every section defaults collapsed: the Config Editor opens fully collapsed
+    # so each group's detail is requested on click. Supersedes PET-114 D3's
+    # common-open / advanced-collapsed partition.
     by_key = {s["key"]: s for s in generate_section_metadata()}
-    for key in _ADVANCED_SECTIONS:
+    for key in _COMMON_SECTIONS | _ADVANCED_SECTIONS:
         assert by_key[key]["default_collapsed"] is True, f"{key} should default collapsed"
-    for key in _COMMON_SECTIONS:
-        assert by_key[key]["default_collapsed"] is False, f"{key} should default open"
 
 
 def test_section_metadata_entry_shape() -> None:

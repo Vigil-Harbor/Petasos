@@ -654,7 +654,9 @@ class ConfigSection:
 
 
 # Ordered tuple — tuple position IS the canonical render order.
-# Common controls first/open (PET-114 D3), advanced groups after, collapsed.
+# Every section defaults collapsed: the Config Editor opens fully collapsed so
+# each group's detail is requested on click (supersedes PET-114 D3's open-first
+# five). Tuple position is still the canonical render order.
 # The 11 keys are exactly the in-use `section` values on the _FIELD_META fields.
 # The "unknown" missing-metadata sentinel is deliberately NOT a registry entry:
 # a field that ever synthesizes section="unknown" is rendered by the frontend's
@@ -667,7 +669,7 @@ _SECTION_REGISTRY: typing.Final[tuple[ConfigSection, ...]] = (
         "Pick a ready-made settings bundle for your use case (coding agent,"
         " customer service, and so on) instead of tuning every knob by hand."
         " Start here if you are not sure what to change.",
-        default_collapsed=False,
+        default_collapsed=True,
     ),
     ConfigSection(
         "anonymization",
@@ -675,7 +677,7 @@ _SECTION_REGISTRY: typing.Final[tuple[ConfigSection, ...]] = (
         "Mask personal details (names, emails, card numbers) the scanners find"
         " so they do not pass through in the clear. Leave on if your agent"
         " handles real user data.",
-        default_collapsed=False,
+        default_collapsed=True,
     ),
     ConfigSection(
         "fail_mode",
@@ -683,7 +685,7 @@ _SECTION_REGISTRY: typing.Final[tuple[ConfigSection, ...]] = (
         "Choose what happens to a message when a scanner crashes or times out:"
         " block it, let it through, or block only on a hard failure. The safe"
         " default blocks on failure.",
-        default_collapsed=False,
+        default_collapsed=True,
     ),
     ConfigSection(
         "tool_guard",
@@ -691,7 +693,7 @@ _SECTION_REGISTRY: typing.Final[tuple[ConfigSection, ...]] = (
         "Check the tools your agent tries to call and cap how fast it can spawn"
         " sub-agents, before any of it runs. Tighten this for agents that touch"
         " the file system or the shell.",
-        default_collapsed=False,
+        default_collapsed=True,
     ),
     ConfigSection(
         "scanning",
@@ -699,7 +701,7 @@ _SECTION_REGISTRY: typing.Final[tuple[ConfigSection, ...]] = (
         "The core scan settings: which direction to scan (incoming, outgoing, or"
         " both) and how widely to look for personal data. Also sets per-scanner"
         " time limits and when to stop calling one that keeps failing.",
-        default_collapsed=False,
+        default_collapsed=True,
     ),
     ConfigSection(
         "normalization",
