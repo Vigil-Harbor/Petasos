@@ -89,9 +89,15 @@ const src = readFileSync(
   join(here, "..", "..", "petasos", "console", "static", "petasos.js"),
   "utf8"
 );
-// setTimeout: run the callback immediately so the inter-shot delay resolves
-// without real wall-clock time (the burst still serializes via promise ticks).
-const sandbox = { window: {}, document, setTimeout: (fn) => fn() };
+// setTimeout fires SHORT timers (the inter-shot delay) immediately and ignores
+// LONG ones (the 8s per-shot hang guard) so a resolved postScan wins the race;
+// the timeout test injects a short shotTimeoutMs to exercise the guard directly.
+const sandbox = {
+  window: {},
+  document,
+  setTimeout: (fn, ms) => { if ((ms || 0) <= 1000) fn(); },
+  clearTimeout: () => {},
+};
 vm.runInNewContext(src, sandbox);
 const Pet = sandbox.window.__PETASOS_CONSOLE__;
 
@@ -251,4 +257,21 @@ test("runTrapBurst: a rejection and an {error} envelope both surface an error + 
   });
   assert.ok(findEl(vizRoot(resultArea), isErrorBlock), "error envelope should render an error block");
   assert.equal(trapBtn.disabled, false, "button restored after error envelope");
+});
+
+test("runTrapBurst: a hung scan hits the per-shot timeout, surfaces error + restores", async () => {
+  const resultArea = document.createElement("div");
+  const trapBtn = document.createElement("button");
+  // postScan that never settles (the indefinite-hang case _req cannot catch). The
+  // short shotTimeoutMs lets the sandbox setTimeout fire the guard.
+  await assert.doesNotReject(
+    Pet.runTrapBurst({
+      resultArea,
+      trapBtn,
+      api: { postScan: () => new Promise(() => {}) },
+      shotTimeoutMs: 50,
+    })
+  );
+  assert.ok(findEl(vizRoot(resultArea), isErrorBlock), "timeout should render an error block");
+  assert.equal(trapBtn.disabled, false, "button restored after a hung scan times out");
 });
