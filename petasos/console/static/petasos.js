@@ -28,6 +28,10 @@
       if (attrs.ariaLabel != null) el.setAttribute("aria-label", String(attrs.ariaLabel));
       if (attrs.ariaSelected != null) el.setAttribute("aria-selected", String(attrs.ariaSelected));
       if (attrs.ariaChecked != null) el.setAttribute("aria-checked", String(attrs.ariaChecked));
+      // PET-127: aria-busy (loading-region in flight) + aria-hidden (decorative
+      // skeleton bars). Additive; no existing caller sets them.
+      if (attrs.ariaBusy != null) el.setAttribute("aria-busy", String(attrs.ariaBusy));
+      if (attrs.ariaHidden != null) el.setAttribute("aria-hidden", String(attrs.ariaHidden));
       if (attrs.type) el.type = attrs.type;
       if (attrs.value != null) el.value = attrs.value;
       if (attrs.placeholder) el.placeholder = attrs.placeholder;
@@ -71,6 +75,33 @@
       if (child != null) el.appendChild(child);
     }
     return el;
+  };
+
+  // PET-127: skeleton bar. width default "100%", height default "12px" (one text
+  // line). Numbers -> px; non-finite / blank -> default. Decorative: aria-hidden
+  // so AT skips it (the loading semantic is carried by the role=status wrapper).
+  // Pure builder in the Pet.scannerHealthRows / Pet.sectionIntro idiom; never throws.
+  Pet.skel = function (w, h) {
+    var dim = function (v, dflt) {
+      if (typeof v === "number" && isFinite(v)) return v + "px";
+      if (typeof v === "string" && v.trim()) return v.trim();
+      return dflt;
+    };
+    return Pet.h("div", {
+      className: "skel",
+      ariaHidden: true,
+      style: { width: dim(w, "100%"), height: dim(h, "12px") },
+    });
+  };
+
+  // PET-127: n skeleton bars in a column, with a gap. opts.h sets bar height;
+  // opts.w the width; opts.gap the spacing. n<1 / non-finite -> 1 bar.
+  Pet.skelRows = function (n, opts) {
+    opts = opts || {};
+    var count = (typeof n === "number" && isFinite(n) && n > 0) ? Math.floor(n) : 1;
+    var rows = [];
+    for (var i = 0; i < count; i++) rows.push(Pet.skel(opts.w, opts.h));
+    return Pet.h("div", { style: { display: "flex", flexDirection: "column", gap: (opts.gap || "8px") } }, rows);
   };
 
   // ── Icons (ported from pcommon.jsx) ──
@@ -477,6 +508,7 @@
     _pollInterval = setInterval(function () {
       Pet.api.getHealth().then(function (d) {
         if (!d.error) {
+          _healthLoaded = true;  // PET-127: a poll settle that beats a slow in-render fetch flips the gate, not the skeleton
           Pet.state.scannerHealth = d.scanners || [];
           Pet.state.pipelineHealth = d.pipeline || null;
           if (Pet.state.tab === "obs" && _container) Pet.renderDashboard(_container);
@@ -774,8 +806,17 @@
     var healthPanel = Pet.Panel({
       icon: "radar", title: "scanner health", place: "loaded backends", flush: true,
       help: Pet.HelpTip(Pet.SCANNER_HEALTH_HELP),
+      // PET-127: keep this padding:12px div as the stable paint target in both
+      // branches — the resolve/error arms find it via [style*='padding: 12px'].
+      // Only <inner> changes: skeleton while !_healthLoaded, cached rows once a
+      // /health response has settled (so steady-state SSE frames show no skeleton).
+      // The role=status wrapper carries NO padding:12px, so the outer div stays the
+      // unique [style*='padding: 12px'] match.
       content: Pet.h("div", { style: { padding: "12px" } },
-        Pet.h("div", { className: "mono", style: { color: "var(--tx-faint)", fontSize: "12px" } }, "Loading scanner status...")
+        _healthLoaded
+          ? Pet.scannerHealthRows(Pet.state.scannerHealth)
+          : Pet.h("div", { role: "status", ariaBusy: true, ariaLabel: "Loading scanner status" },
+              Pet.skelRows(3, { h: "16px" }))
       ),
     });
     wrapper.appendChild(healthPanel);
@@ -807,6 +848,7 @@
 
     // Fetch initial data and render scanner health
     Pet.api.getHealth().then(function (d) {
+      _healthLoaded = true;  // PET-127: settled (either arm) -> stop painting the skeleton
       if (!d.error) {
         Pet.state.scannerHealth = d.scanners || [];
         Pet.state.pipelineHealth = d.pipeline || null;
@@ -1417,8 +1459,12 @@
     );
     wrapper.appendChild(notice);
 
+    // PET-127: skeleton field-rows while /config resolves. role=status carries the
+    // loading semantic for AT; the resolve arm (formArea.innerHTML = "") and error
+    // arm both wipe this wrapper before appending real content, so no arm change.
     var formArea = Pet.h("div", { style: { flex: "1", overflowY: "auto" } },
-      Pet.h("div", { className: "mono", style: { color: "var(--tx-faint)", padding: "20px" } }, "Loading configuration...")
+      Pet.h("div", { role: "status", ariaBusy: true, ariaLabel: "Loading configuration", style: { padding: "20px" } },
+        Pet.skelRows(5, { h: "20px" }))
     );
     wrapper.appendChild(formArea);
     container.appendChild(wrapper);
@@ -1705,7 +1751,12 @@
       icon: "shieldCheck", title: "Petasos",
       content: Pet.h("div", {},
         Pet.h("div", { style: { fontSize: "14px", color: "var(--tx-bright)", fontWeight: "600" } }, "Petasos"),
-        Pet.h("div", { className: "mono", style: { fontSize: "11px", color: "var(--tx-faint)", marginTop: "4px" } }, "v..."),
+        // PET-127: text-independent [data-pet-ver] anchor (retires the .mono + "v..."
+        // text-coupled selector). Seeds a skeleton bar + aria-busy/aria-label; the
+        // fill below repopulates it in place (so NO role=status here — see Decision 4).
+        Pet.h("div", { className: "mono", dataset: { petVer: "1" }, ariaBusy: true, ariaLabel: "Loading version",
+                       style: { fontSize: "11px", color: "var(--tx-faint)", marginTop: "4px" } },
+          Pet.skel(48, 11)),
         Pet.h("span", { className: "pill ok", style: { marginTop: "8px", height: "18px", fontSize: "10px" } }, "MIT License")
       ),
     }));
@@ -1752,13 +1803,23 @@
 
     container.appendChild(wrapper);
 
-    // Fill version from API
+    // Fill version from API. PET-127: select the text-independent [data-pet-ver]
+    // anchor, tear down the skeleton, and route success / {error} / malformed-200
+    // (a 200 with no version) through the same innerHTML="" + remove(aria-busy) tail
+    // so the skeleton can never spin forever (fixes the old "v..." stuck-on-failure
+    // flash). Pet.state.about is set only when a real version is present (it is
+    // currently write-only/unread, so narrowing the assignment is inert).
     Pet.api.getAbout().then(function (d) {
-      if (!d.error) {
+      var verEl = container.querySelector("[data-pet-ver]");
+      if (!verEl) return;
+      verEl.innerHTML = "";
+      if (d && !d.error && d.version != null) {
         Pet.state.about = d;
-        var ver = container.querySelector(".mono");
-        if (ver && ver.textContent.indexOf("v...") >= 0) ver.textContent = "v" + d.version;
+        verEl.appendChild(document.createTextNode("v" + d.version));
+      } else {
+        verEl.appendChild(document.createTextNode("version unavailable"));
       }
+      verEl.removeAttribute("aria-busy");
     });
   };
 
@@ -1770,6 +1831,14 @@
   // scan-history ring buffer exactly once per mount (not on every SSE re-render).
   // Reset in Pet.unmount AND at the top of Pet.mount (double-mount hardening).
   var _historySeeded = false;
+  // PET-127: gate the scanner-health skeleton. renderDashboard re-runs on every
+  // SSE/poll frame, so an unconditional skeleton would re-flash; this flips true
+  // at every /health settle (in-render success+error arms AND the 10s poll), never
+  // at paint time, and resets only in mount/unmount (not switchTab) so an
+  // obs->other->obs round-trip reuses cached rows. NOT keyed off scannerHealth
+  // (inits to [], truthy, and []-length collides with the genuine zero-backends
+  // case where scannerHealthRows([]) is a false "unavailable" error).
+  var _healthLoaded = false;
   // PET-111: _armedSeeded — fetch the Equipped/Unequipped bit once per obs ENTRY
   // (mount or switchTab→obs), never on every SSE/poll re-render. _armedBusy — a
   // POST /armed is in flight; suppress concurrent toggles and seed-overwrites.
@@ -1816,6 +1885,7 @@
   Pet.mount = function (el) {
     el.innerHTML = "";
     _historySeeded = false;  // PET-102: re-seed on a re-mount that skipped unmount (plugin hot-reload)
+    _healthLoaded = false;   // PET-127: re-show the scanner-health skeleton on (re-)mount
     _armedSeeded = false;    // PET-111: re-fetch the armed bit on (re-)mount
     clearArmedConfirm();     // drop any stale disarm-confirm + timer from a skipped unmount
 
@@ -1871,6 +1941,7 @@
     _container = null;
     _tabStrip = null;
     _historySeeded = false;  // PET-102: next mount re-seeds the history buffer
+    _healthLoaded = false;   // PET-127: next mount re-shows the scanner-health skeleton
     _armedSeeded = false;    // PET-111: next mount re-fetches the armed bit
     clearArmedConfirm();     // clear the pending-disarm confirm + its 4s timer on teardown
   };

@@ -173,6 +173,22 @@
 .pet .live .blip { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 8px var(--ok); animation: petpulse 1.8s ease-in-out infinite; }
 @keyframes petpulse { 0%,100%{opacity:1} 50%{opacity:.35} }
 
+/* ── PET-127: skeleton loading primitive ── */
+.pet .skel {
+  display: block;
+  border-radius: var(--r-card);
+  background: linear-gradient(90deg,
+    var(--bg-raised) 0%,
+    color-mix(in srgb, var(--bg-raised) 82%, var(--tx-mut)) 50%,
+    var(--bg-raised) 100%);
+  background-size: 200% 100%;
+  animation: petshimmer 1.4s ease-in-out infinite;
+}
+@keyframes petshimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .pet .skel { animation: none; background: var(--bg-raised); }
+}
+
 /* ── BUTTONS / INPUTS ── */
 .pet .btn { display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 14px; border-radius: var(--r-card); border: 1px solid transparent; cursor: pointer; font-family: var(--font-ui); font-size: 12.5px; font-weight: 600; line-height: 1; transition: background .14s, border-color .14s, color .14s; }
 .pet .btn svg { width: 15px; height: 15px; }
