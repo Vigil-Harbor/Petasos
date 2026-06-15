@@ -1759,7 +1759,10 @@
         Pet.h("div", { className: "mono", dataset: { petVer: "1" }, ariaBusy: true, ariaLabel: "Loading version",
                        style: { fontSize: "11px", color: "var(--tx-faint)", marginTop: "4px" } },
           Pet.skel(48, 11)),
-        Pet.h("span", { className: "pill ok", style: { marginTop: "8px", height: "18px", fontSize: "10px" } }, "MIT License")
+        Pet.h("span", { className: "pill ok", style: { marginTop: "8px", height: "18px", fontSize: "10px" } }, "MIT License"),
+        Pet.h("p", { style: { fontSize: "12.5px", color: "var(--tx-mut)", lineHeight: "1.6", margin: "12px 0 0", maxWidth: "440px" } },
+          "Thank you for checking out the plugin! It is my hope that it helps extend trust to your agents, and assists you in enforcing your guardrails. May your Hermes Agent travel long and well."
+        )
       ),
     }));
 
@@ -1784,7 +1787,9 @@
         Pet.h("img", { className: "support-coffee", src: Pet.asset("img/coffee.webp"), alt: "A robot enjoying a hot cup of coffee" }),
         Pet.h("div", { style: { fontSize: "15px", fontWeight: "700", color: "var(--tx-bright)", marginBottom: "8px" } }, "Did Petasos prevent a disaster?"),
         Pet.h("div", { style: { fontSize: "12.5px", color: "var(--tx-mut)", lineHeight: "1.6", maxWidth: "400px", margin: "0 auto 16px" } },
-          "Every feature is free, forever. If this saved your team from a bad day, a coffee keeps the lights on."
+          "Every feature is free, forever.",
+          Pet.h("br"),
+          "If this saved your team from a bad day, a coffee keeps the lights on."
         ),
         Pet.h("a", { href: "https://github.com/sponsors/Vigil-Harbor", target: "_blank", rel: "noopener", className: "btn btn-primary", style: { textDecoration: "none", display: "inline-flex" } },
           Pet.Icon("caduceus"), " Buy us a coffee"
