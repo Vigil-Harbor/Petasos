@@ -55,3 +55,6 @@ docs/research/
 
 # Internal specs/reviews live in the wiki, not the public repo
 docs/specs/
+
+# Internal planning briefs - kept local, not published
+docs/briefs/
