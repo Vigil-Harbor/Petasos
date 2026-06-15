@@ -491,6 +491,7 @@
       if (this._usingFallback) return;
       this._usingFallback = true;
       startFallbackPolling();
+      if (Pet.updateConnStatus) Pet.updateConnStatus();  // PET-13: flip the header blip to POLLING
     },
 
     disconnect: function () {
@@ -1516,20 +1517,48 @@
         Object.keys(Pet.state.configDirty).forEach(function (k) { vals[k] = Pet.state.configDirty[k]; });
         return vals;
       };
+      // PET-13: render-scoped so renderDial can surface the confirm hint.
+      var _presetConfirmKey = null;
+      var _presetConfirmTimer = null;
+      var clearPresetConfirm = function () {
+        _presetConfirmKey = null;
+        if (_presetConfirmTimer) { clearTimeout(_presetConfirmTimer); _presetConfirmTimer = null; }
+      };
       var onSelectPreset = function (preset) {
         if (!preset || !preset.overrides || dialApplyInFlight) return;
+        // PET-13: a preset apply re-renders from server truth, discarding unsaved
+        // edits. With pending edits, require a confirming second click on the same
+        // level before throwing them away. No dirty edits -> applies on one click.
+        var dirtyCount = Object.keys(Pet.state.configDirty).length;
+        if (dirtyCount > 0 && _presetConfirmKey !== preset.key) {
+          _presetConfirmKey = preset.key;
+          renderDial();
+          _presetConfirmTimer = setTimeout(function () { clearPresetConfirm(); renderDial(); }, 4000);
+          return;
+        }
+        clearPresetConfirm();
         dialApplyInFlight = true;  // in-flight guard, mirrors the Apply button
         Pet.api.putConfig(preset.overrides).then(function (resp) {
+          var failMsg = null;
           if (resp && resp._status && resp.detail) {
             var raw = Array.isArray(resp.detail) ? resp.detail : [resp.detail];
-            var msg = raw.map(function (e) {
+            failMsg = raw.map(function (e) {
               if (!e || typeof e !== "object") return String(e);
               return (e.field || "?") + ": " + (e.message || e.msg || e.detail || String(e));
             }).join("; ");
-            alert("Preset apply failed: " + msg);
+          } else if (resp && resp.error) {
+            failMsg = String(resp.error);
+          }
+          if (failMsg !== null) {
+            // PET-13: inline error in the dial host, consistent with the Apply
+            // path's .pet-field-err strip (replaces the native alert()).
+            renderDial();
+            dialHost.appendChild(Pet.h("div", {
+              className: "pet-field-err",
+              style: { color: "var(--err)", fontSize: "12px", padding: "8px 12px", background: "var(--bg-raised)", borderRadius: "var(--r-card)", marginTop: "8px" }
+            }, "Preset apply failed: " + failMsg));
             return;
           }
-          if (resp && resp.error) { alert("Preset apply failed: " + resp.error); return; }
           // Re-render from persisted truth: the merge base is the server-side
           // config, so a preset apply intentionally discards unsaved non-owned
           // edits and resets the dirty map, consistent with the Apply path.
@@ -1541,7 +1570,23 @@
       var renderDial = function () {
         dialHost.innerHTML = "";
         var activeKey = Pet.resolveActivePreset(currentConfigValues(), d.presets);
-        dialHost.appendChild(Pet.renderStrengthDial(d.presets, activeKey, onSelectPreset));
+        var dial = Pet.renderStrengthDial(d.presets, activeKey, onSelectPreset);
+        dialHost.appendChild(dial);
+        // PET-13: frame the dial as a shortcut, not the headline. Only when the
+        // dial actually rendered (presets present) — keep a stale backend clean.
+        if (dial && dial.firstChild) {
+          dialHost.appendChild(Pet.h("div", { className: "pet-dial-rec", style: { marginTop: "2px" } },
+            "Quick preset: sets the strength fields below. Or expand a section to tune individual fields."));
+        }
+        // PET-13: confirm strip when applying a preset would discard unsaved edits.
+        if (_presetConfirmKey) {
+          var n = Object.keys(Pet.state.configDirty).length;
+          dialHost.appendChild(Pet.h("div", { className: "notice", style: { marginTop: "8px" } },
+            Pet.Icon("warn"),
+            Pet.h("span", {}, "Applying ", Pet.h("b", {}, String(_presetConfirmKey)),
+              " discards your " + n + " unsaved edit" + (n === 1 ? "" : "s") + ". Click that level again to confirm.")
+          ));
+        }
       };
       // Recompute the highlight only when an owned field changes; a non-owned edit
       // never flips the dial.
@@ -1672,15 +1717,56 @@
         formArea.appendChild(sectionPanel);
       });
 
-      // Save bar
-      var saveBar = Pet.h("div", { style: { display: "flex", gap: "10px", justifyContent: "flex-end", padding: "10px 0" } },
+      // ── Save bar (PET-13: sticky so Apply stays visible below collapsed sections) ──
+      // PET-13: flag pending edits that LOWER protection (a scanner/feature toggled
+      // off, or fail_mode -> open) so Apply gates them with a confirming second
+      // click, the same care the disarm switch gets. base = persisted config.
+      var diffWeakensProtection = function () {
+        var base = Pet.state.config || {};
+        var dirty = Pet.state.configDirty || {};
+        return Object.keys(dirty).some(function (k) {
+          if (base[k] === true && dirty[k] === false) return true;    // a protection toggled off
+          if (k === "fail_mode" && dirty[k] === "open") return true;  // weakest fail mode
+          return false;
+        });
+      };
+      var _weakenConfirmPending = false;
+      var _weakenConfirmTimer = null;
+      var applyLabel = Pet.h("span", {}, " Apply");
+      var applyBtn;
+      var setWeakenConfirm = function (on) {
+        _weakenConfirmPending = on;
+        if (applyBtn) applyBtn.className = "btn btn-primary" + (on ? " confirm-weaken" : "");
+        applyLabel.textContent = on ? " Confirm: this lowers protection" : " Apply";
+        var note = formArea.querySelector(".pet-weaken-note");
+        if (on && !note) {
+          formArea.insertBefore(Pet.h("div", { className: "notice pet-weaken-note", style: { marginBottom: "8px" } },
+            Pet.Icon("warn"), Pet.h("span", {}, Pet.h("b", {}, "These changes lower protection."), " Click Apply again to confirm.")
+          ), formArea.firstChild);
+        } else if (!on && note) {
+          note.remove();
+        }
+      };
+      var clearWeakenConfirm = function () {
+        if (_weakenConfirmTimer) { clearTimeout(_weakenConfirmTimer); _weakenConfirmTimer = null; }
+        setWeakenConfirm(false);
+      };
+      var saveBar = Pet.h("div", { className: "pet-save-bar", style: { display: "flex", gap: "10px", justifyContent: "flex-end", alignItems: "center", padding: "10px 0", position: "sticky", bottom: "0", background: "var(--bg-app)", borderTop: "1px solid var(--border-soft)", marginTop: "6px" } },
         Pet.h("button", { className: "btn btn-ghost", onClick: function () {
+          clearWeakenConfirm();
           Pet.state.configDirty = {};
           Pet.renderConfig(container);
         } }, "Discard"),
         (function () {
-          var applyBtn = Pet.h("button", { className: "btn btn-primary", onClick: function () {
+          applyBtn = Pet.h("button", { className: "btn btn-primary", onClick: function () {
             if (Object.keys(Pet.state.configDirty).length === 0) return;
+            // PET-13: protection-weakening edits require a confirming second click.
+            if (diffWeakensProtection() && !_weakenConfirmPending) {
+              setWeakenConfirm(true);
+              _weakenConfirmTimer = setTimeout(function () { clearWeakenConfirm(); }, 4000);
+              return;
+            }
+            clearWeakenConfirm();
             formArea.querySelectorAll(".pet-field-err").forEach(function (el) { el.remove(); });
             applyBtn.disabled = true;
             Pet.api.putConfig(Pet.state.configDirty).then(function (d) {
@@ -1736,7 +1822,7 @@
               }, Pet.Icon("check"), Pet.h("span", {}, Pet.h("b", {}, "Configuration saved."), " Active sessions use the previous config until restarted.")), formArea.firstChild);
               setTimeout(function () { if (Pet.state.tab === "cfg") Pet.renderConfig(container); }, 1500);
             }).then(function () { applyBtn.disabled = false; }, function () { applyBtn.disabled = false; });
-          } }, Pet.Icon("check"), " Apply");
+          } }, Pet.Icon("check"), applyLabel);
           return applyBtn;
         })()
       );
@@ -1761,7 +1847,9 @@
           Pet.skel(48, 11)),
         Pet.h("span", { className: "pill ok", style: { marginTop: "8px", height: "18px", fontSize: "10px" } }, "MIT License"),
         Pet.h("p", { style: { fontSize: "12.5px", color: "var(--tx-mut)", lineHeight: "1.6", margin: "12px 0 0", maxWidth: "440px" } },
-          "Thank you for checking out the plugin! It is my hope that it helps extend trust to your agents, and assists you in enforcing your guardrails. May your Hermes Agent travel long and well."
+          "Thank you for checking out the plugin! It is my hope that it helps extend trust to your agents, and assists you in enforcing your guardrails.",
+          Pet.h("br"),
+          "May your Hermes Agent travel long and well."
         )
       ),
     }));
@@ -1834,6 +1922,7 @@
 
   var _container = null;
   var _tabStrip = null;
+  var _connStatus = null;  // PET-13: LIVE/POLLING blip node in the pane header (persistent; not rebuilt per frame)
   // PET-102: one-shot guard so the dashboard seeds the server's pre-existing
   // scan-history ring buffer exactly once per mount (not on every SSE re-render).
   // Reset in Pet.unmount AND at the top of Pet.mount (double-mount hardening).
@@ -1897,6 +1986,13 @@
     clearArmedConfirm();     // drop any stale disarm-confirm + timer from a skipped unmount
 
     // Pane header
+    // PET-13: connection-state indicator. The live feed can silently drop from SSE
+    // to 10s polling (Pet.sse._enableFallback); this blip is the only signal the
+    // operator gets that a quiet dashboard means "polling", not "all clear".
+    _connStatus = Pet.h("div", { className: "live", role: "status", ariaLive: "polite", title: "Live updates streaming." },
+      Pet.h("span", { className: "blip" }),
+      Pet.h("span", { className: "live-label" }, "LIVE")
+    );
     var titleRow = Pet.h("div", { className: "pane-titlerow" },
       Pet.h("div", { className: "pane-mark" },
         Pet.h("img", { src: Pet.asset("img/petasos-helmet.png"), alt: "Petasos winged helmet" })
@@ -1904,7 +2000,8 @@
       Pet.h("div", {},
         Pet.h("div", { className: "pane-name" }, "Petasos"),
         Pet.h("div", { className: "pane-sub" }, "guardrail pipeline")
-      )
+      ),
+      Pet.h("div", { className: "right" }, _connStatus)
     );
 
     _tabStrip = Pet.h("div", { className: "tabs", role: "tablist", ariaLabel: "Console sections" });
@@ -1940,6 +2037,21 @@
     Pet.switchTab("obs");
     Pet.sse.connect();
     startPolling();
+    Pet.updateConnStatus();
+  };
+
+  // PET-13: paint the LIVE/POLLING blip from Pet.sse state. Re-queries via the
+  // stored node (the pane header is built once per mount, not per SSE frame), so
+  // it survives the dashboard's per-frame re-render of _container.
+  Pet.updateConnStatus = function () {
+    if (!_connStatus) return;
+    var polling = !!(Pet.sse && Pet.sse._usingFallback);
+    _connStatus.className = "live" + (polling ? " polling" : "");
+    var lbl = _connStatus.querySelector(".live-label");
+    if (lbl) lbl.textContent = polling ? "POLLING" : "LIVE";
+    _connStatus.setAttribute("title", polling
+      ? "Live stream unavailable; polling every 10s."
+      : "Live updates streaming.");
   };
 
   Pet.unmount = function () {
@@ -1947,6 +2059,7 @@
     stopPolling();
     _container = null;
     _tabStrip = null;
+    _connStatus = null;      // PET-13: drop the stale header-blip node
     _historySeeded = false;  // PET-102: next mount re-seeds the history buffer
     _healthLoaded = false;   // PET-127: next mount re-shows the scanner-health skeleton
     _armedSeeded = false;    // PET-111: next mount re-fetches the armed bit
