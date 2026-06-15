@@ -57,13 +57,13 @@ class Scanner(Protocol):
                    session_id: str | None = None) -> ScanResult: ...
 ```
 
-Four backends: `MinimalScanner` (17 regex rules, zero deps, always ships), `LlmGuardScanner` (extras), `LlamaFirewallScanner` (extras), `PresidioScanner` (extras).
+Four backends: `MinimalScanner` (22 rules across 5 families, zero deps, always ships), `LlmGuardScanner` (extras), `LlamaFirewallScanner` (extras), `PresidioScanner` (extras).
 
 ### Pipeline Stages
 
 ```
 Input → Normalize (NFKC, zero-width, homoglyph, RTL)
-  → Syntactic pre-filter (17 rules, always runs)
+  → Syntactic pre-filter (22 rules, always runs)
   → Fan-out to N scanners (asyncio.gather)
   → Merge findings (dedup overlapping positions)
   → Frequency update → Escalation check
@@ -82,7 +82,7 @@ petasos/
 ├── pipeline.py          # Pipeline class — central orchestrator
 ├── config.py            # PetasosConfig dataclass
 ├── scanners/
-│   ├── minimal.py       # MinimalScanner (zero-dep, 17 regex rules)
+│   ├── minimal.py       # MinimalScanner (zero-dep, 22 rules across 5 families)
 │   ├── llm_guard.py     # LlmGuardScanner (extras: llm-guard)
 │   ├── llama_firewall.py # LlamaFirewallScanner (extras: llamafirewall)
 │   └── presidio.py      # PresidioScanner + anonymization (extras: presidio)
