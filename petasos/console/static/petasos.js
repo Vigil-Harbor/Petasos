@@ -25,6 +25,9 @@
       // no existing caller sets them.
       if (attrs.role) el.setAttribute("role", attrs.role);
       if (attrs.ariaExpanded != null) el.setAttribute("aria-expanded", String(attrs.ariaExpanded));
+      if (attrs.ariaLabel != null) el.setAttribute("aria-label", String(attrs.ariaLabel));
+      if (attrs.ariaSelected != null) el.setAttribute("aria-selected", String(attrs.ariaSelected));
+      if (attrs.ariaChecked != null) el.setAttribute("aria-checked", String(attrs.ariaChecked));
       if (attrs.type) el.type = attrs.type;
       if (attrs.value != null) el.value = attrs.value;
       if (attrs.placeholder) el.placeholder = attrs.placeholder;
@@ -514,29 +517,29 @@
   // markup only (<b>/<code> + plain prose) — kept valid for Pet.richText and for
   // the richtext.test #19 tripwire (no `&`, no stray angle brackets).
   Pet.SCANNER_HEALTH_HELP =
-    "<b>Scanner Health</b> — per-scanner backend status. " +
+    "<b>Scanner Health</b>: per-scanner backend status. " +
     "<code>healthy</code>: last scan succeeded. " +
     "<code>degraded</code>: last scan errored or timeout streak. " +
     "<code>circuit_open</code>: consecutive timeout breaker tripped. " +
     "<code>unavailable</code>: backend not installed or prerequisites missing. " +
-    "<code>error</code>: backend installed but failed to load — see the error detail.";
+    "<code>error</code>: backend installed but failed to load. See the error detail.";
 
   Pet.scannerHealthRows = function (scanners) {
     if (!scanners || !scanners.length) {
-      return Pet.h("div", { className: "mono", style: { color: "var(--tx-faint)", fontSize: "12px" } }, "scanner status unavailable — health fetch failed");
+      return Pet.h("div", { className: "mono", style: { color: "var(--tx-faint)", fontSize: "12px" } }, "scanner status unavailable: health fetch failed");
     }
     var table = Pet.h("div", { style: { display: "flex", flexDirection: "column", gap: "4px" } });
     for (var i = 0; i < scanners.length; i++) {
       var s = scanners[i];
-      var pillColor;
-      if (s.status === "healthy") pillColor = "var(--green, #22c55e)";
-      else if (s.status === "degraded") pillColor = "var(--amber, #f59e0b)";
-      else if (s.status === "unavailable" || s.status === "circuit_open") pillColor = "var(--red, #ef4444)";
-      // PET-103 D7: `error` (installed-but-load-crashed) is a failure state —
-      // color it red, never let it fall through to the grey "unknown" else.
-      else if (s.status === "error") pillColor = "var(--red, #ef4444)";
-      else pillColor = "var(--tx-faint, #888)";
-      var pill = Pet.h("span", { className: "mono", style: { display: "inline-block", padding: "1px 8px", borderRadius: "9999px", fontSize: "11px", color: "#fff", background: pillColor } }, s.status || "unknown");
+      // Token-bound .pill variants (no hardcoded greens/reds, so chips follow the
+      // Hermes theme): healthy=ok, degraded=warn, unavailable/circuit_open/error=err,
+      // unknown=neutral. `error` (installed-but-load-crashed) is a failure state, so
+      // it shares the err pill, never falling through to neutral (PET-103 D7).
+      var pillCls = "pill";
+      if (s.status === "healthy") pillCls = "pill ok";
+      else if (s.status === "degraded") pillCls = "pill warn";
+      else if (s.status === "unavailable" || s.status === "circuit_open" || s.status === "error") pillCls = "pill err";
+      var pill = Pet.h("span", { className: pillCls }, s.status || "unknown");
       var nameEl = Pet.h("span", { className: "mono", style: { fontSize: "12px", color: "var(--tx)", minWidth: "120px", display: "inline-block" } }, s.name);
       var latency = Pet.h("span", { className: "mono", style: { fontSize: "11px", color: "var(--tx-faint)", minWidth: "60px", display: "inline-block" } }, s.last_ms != null ? (s.last_ms.toFixed(1) + "ms") : "—");
       var row = Pet.h("div", { style: { display: "flex", alignItems: "center", gap: "8px" } });
@@ -594,7 +597,7 @@
       var e = hist[i];
       if (!e || typeof e !== "object") continue; // never-throw: skip a malformed entry (e.g. JSON null from a bad SSE frame) rather than aborting the synchronous re-render
       var isBlocked = (e.safe === false); // strict ===false; truthy-but-not-false is not "blocked"
-      var badge = Pet.h("span", { className: "mono", style: { display: "inline-block", padding: "1px 8px", borderRadius: "9999px", fontSize: "11px", color: "#fff", minWidth: "52px", textAlign: "center", background: isBlocked ? "var(--red, #ef4444)" : "var(--green, #22c55e)" } }, isBlocked ? "blocked" : "safe");
+      var badge = Pet.h("span", { className: "pill " + (isBlocked ? "err" : "ok"), style: { minWidth: "62px", justifyContent: "center" } }, isBlocked ? "blocked" : "safe");
 
       var dirEl = Pet.h("span", { className: "mono", style: { fontSize: "11px", color: "var(--tx-faint)", minWidth: "64px", display: "inline-block" } });
       dirEl.textContent = (e.direction != null && e.direction !== "") ? String(e.direction) : "—";
@@ -654,22 +657,42 @@
     // paintBanner re-queries the LIVE banner node each call (never closes over a
     // captured node): renderDashboard rebuilds the banner on every SSE/poll frame,
     // and _container is null after unmount — so guard container-truthiness first.
+    var clearArmedConfirm = function () {
+      _armedConfirmPending = false;
+      if (_armedConfirmTimer) { clearTimeout(_armedConfirmTimer); _armedConfirmTimer = null; }
+    };
     var paintBanner = function () {
       var b = _container && _container.querySelector(".equip-banner");
       if (!b) return;
       var on = Pet.state.armed !== false;
-      b.className = "equip-banner" + (on ? "" : " disarmed");
+      var confirming = on && _armedConfirmPending;
+      b.className = "equip-banner" + (on ? "" : " disarmed") + (confirming ? " confirming" : "");
       var lbl = b.querySelector(".equip-label");
-      if (lbl) lbl.textContent = on ? "EQUIPPED" : "UNEQUIPPED";
+      if (lbl) lbl.textContent = confirming ? "CONFIRM UNEQUIP?" : (on ? "EQUIPPED" : "UNEQUIPPED");
+      var sub = b.querySelector(".equip-sub");
+      if (sub) sub.textContent = confirming
+        ? "Click again to disable all enforcement"
+        : (on ? "Enforcement is ON" : "Enforcement is OFF for every session");
       var sw = b.querySelector(".switch");
       if (sw) {
-        sw.className = "switch" + (on ? " on" : "");
-        sw.setAttribute("aria-label", "Petasos enforcement: " + (on ? "equipped" : "unequipped"));
+        sw.className = "switch" + (on && !confirming ? " on" : "");
+        sw.setAttribute("aria-checked", on ? "true" : "false");
+        sw.setAttribute("aria-label", "Petasos enforcement: " + (on ? "equipped, click to unequip" : "unequipped, click to equip"));
       }
     };
     var doToggle = function () {
       if (_armedBusy) return;  // ignore rapid re-clicks while a write is in flight
-      var next = !(Pet.state.armed !== false);
+      var on = Pet.state.armed !== false;
+      // Disarming is the high-stakes direction: require a confirming 2nd click.
+      // Arming protection back ON stays one click.
+      if (on && !_armedConfirmPending) {
+        _armedConfirmPending = true;
+        paintBanner();
+        _armedConfirmTimer = setTimeout(function () { clearArmedConfirm(); paintBanner(); }, 4000);
+        return;
+      }
+      clearArmedConfirm();
+      var next = !on;
       _armedBusy = true;
       Pet.state.armed = next; paintBanner();  // optimistic (live re-query, survives re-render)
       Pet.api.setArmed(next).then(function (d) {
@@ -681,18 +704,22 @@
       });
     };
     var armedOn = Pet.state.armed !== false;
-    var armedSwitch = Pet.h("button", { className: "switch" + (armedOn ? " on" : ""), type: "button", onClick: doToggle });
-    armedSwitch.setAttribute("aria-label", "Petasos enforcement: " + (armedOn ? "equipped" : "unequipped"));
+    var confirming = armedOn && _armedConfirmPending;
+    var armedSwitch = Pet.h("button", {
+      className: "switch" + (armedOn && !confirming ? " on" : ""), type: "button", onClick: doToggle,
+      role: "switch", ariaChecked: armedOn ? "true" : "false",
+      ariaLabel: "Petasos enforcement: " + (armedOn ? "equipped, click to unequip" : "unequipped, click to equip")
+    });
     armedSwitch.addEventListener("keydown", function (e) {
       if (e.key === "Enter" || e.key === " ") { e.preventDefault(); doToggle(); }
     });
-    wrapper.appendChild(Pet.h("div", { className: "equip-banner" + (armedOn ? "" : " disarmed") },
+    wrapper.appendChild(Pet.h("div", { className: "equip-banner" + (armedOn ? "" : " disarmed") + (confirming ? " confirming" : "") },
       Pet.h("img", { className: "equip-mark", src: Pet.asset("img/petasos-helmet.png"), alt: "" }),
       Pet.h("div", { className: "equip-text" },
-        Pet.h("div", { className: "equip-label" }, armedOn ? "EQUIPPED" : "UNEQUIPPED"),
-        Pet.h("div", { className: "equip-sub" }, "Petasos enforcement")
+        Pet.h("div", { className: "equip-label" }, confirming ? "CONFIRM UNEQUIP?" : (armedOn ? "EQUIPPED" : "UNEQUIPPED")),
+        Pet.h("div", { className: "equip-sub" }, confirming ? "Click again to disable all enforcement" : (armedOn ? "Enforcement is ON" : "Enforcement is OFF for every session"))
       ),
-      Pet.HelpTip("<b>Equipped</b> — master switch. <b>Unequipped</b> disables <b>all</b> Petasos enforcement (scan, guard, audit) for this and running sessions, applied by the next tool call. Backed by <code>petasos.enabled</code>."),
+      Pet.HelpTip("<b>Equipped</b>: master switch. <b>Unequipped</b> disables <b>all</b> Petasos enforcement (scan, guard, audit) for this and running sessions, applied by the next tool call. Backed by <code>petasos.enabled</code>."),
       armedSwitch
     ));
 
@@ -721,13 +748,25 @@
     var sessions = sessionSet.size;
 
     var metricsRow = Pet.h("div", { style: { display: "flex", gap: "12px" } });
-    var valueTile = function (label, value) {
-      return Pet.Panel({ icon: "activity", title: label, content: Pet.h("div", { className: "num", style: { fontSize: "24px", color: "var(--tx-bright)" } }, String(value)) });
+    // Lean metric cells (not four identical icon-panels): an eyebrow label over a
+    // value. `blocked` carries severity weight when > 0 so the one security-load-
+    // bearing number stands out instead of looking like `sessions`.
+    var valueTile = function (label, value, alert) {
+      return Pet.h("div", {
+        style: {
+          flex: "1", minWidth: "0", borderRadius: "var(--r-panel)", padding: "11px 14px",
+          background: alert ? "var(--crit-soft)" : "var(--bg-panel)",
+          border: "1px solid " + (alert ? "var(--crit)" : "var(--border)")
+        }
+      },
+        Pet.h("div", { className: "eyebrow" }, label),
+        Pet.h("div", { className: "num", style: { fontSize: "26px", marginTop: "4px", color: alert ? "var(--crit)" : "var(--tx-bright)" } }, String(value))
+      );
     };
-    metricsRow.appendChild(valueTile("scans", scans));
-    metricsRow.appendChild(valueTile("blocked", blocked));
-    metricsRow.appendChild(valueTile("avg latency", avgLatency));
-    metricsRow.appendChild(valueTile("sessions", sessions));
+    metricsRow.appendChild(valueTile("scans", scans, false));
+    metricsRow.appendChild(valueTile("blocked", blocked, blocked > 0));
+    metricsRow.appendChild(valueTile("avg latency", avgLatency, false));
+    metricsRow.appendChild(valueTile("sessions", sessions, false));
     wrapper.appendChild(metricsRow);
 
     // Scanner health
@@ -743,7 +782,7 @@
     // Scan history — rows derived from the same buffer (already most-recent-first).
     var historyPanel = Pet.Panel({
       icon: "list", title: "scan history", place: "recent evaluations", flush: true,
-      help: Pet.HelpTip("<b>Scan History</b> — recent pipeline scans with severity, direction, and timing. Each row is one <code>Pipeline.evaluate()</code> call."),
+      help: Pet.HelpTip("<b>Scan History</b>: recent pipeline scans with severity, direction, and timing. Each row is one <code>Pipeline.evaluate()</code> call."),
       content: Pet.h("div", { style: { padding: "12px" } }, Pet.scanHistoryRows(hist)),
     });
     wrapper.appendChild(historyPanel);
@@ -777,7 +816,7 @@
         var contentEl = healthPanel.querySelector("[style*='padding: 12px']") || healthPanel.querySelector("div > div");
         if (contentEl) {
           contentEl.innerHTML = "";
-          contentEl.appendChild(Pet.h("div", { className: "mono", style: { color: "var(--tx-faint)", fontSize: "12px" } }, "scanner status unavailable — health fetch failed"));
+          contentEl.appendChild(Pet.h("div", { className: "mono", style: { color: "var(--tx-faint)", fontSize: "12px" } }, "scanner status unavailable: health fetch failed"));
         }
       }
     });
@@ -865,7 +904,7 @@
     if (findings.length > 0) {
       var findingsPanel = Pet.Panel({
         icon: "radar", title: "findings", place: "detections by scanner",
-        help: Pet.HelpTip("<b>Findings</b> — individual detections from each scanner. Severity ranges from <code>INFO</code> to <code>CRITICAL</code>. High+ on dangerous tools triggers a block."),
+        help: Pet.HelpTip("<b>Findings</b>: individual detections from each scanner. Severity ranges from <code>INFO</code> to <code>CRITICAL</code>. High+ on dangerous tools triggers a block."),
         content: Pet.h("div", { className: "vlist", style: { gap: "8px" } },
           findings.map(function (f) {
             var v = SEV[f.severity] || SEV.info;
@@ -931,7 +970,7 @@
           Pet.h("div", { className: "num", style: { fontSize: "18px", fontWeight: "700", color: "var(--crit)" } }, r.escalation_tier)
         ));
       }
-      frag.appendChild(Pet.Panel({ icon: "user", title: "session overlay", place: "frequency + escalation", help: Pet.HelpTip("<b>Session Overlay</b> — cumulative session risk score and escalation tier. Score rises with repeated violations; tier thresholds trigger progressively stricter enforcement."), content: stats }));
+      frag.appendChild(Pet.Panel({ icon: "user", title: "session overlay", place: "frequency + escalation", help: Pet.HelpTip("<b>Session Overlay</b>: cumulative session risk score and escalation tier. Score rises with repeated violations; tier thresholds trigger progressively stricter enforcement."), content: stats }));
     }
 
     return frag;
@@ -978,9 +1017,9 @@
     var resultArea = Pet.makeResultArea();
 
     var dirBtn = { dir: "inbound" };
-    var dirToggle = Pet.h("div", { className: "seg" });
-    var inBtn = Pet.h("button", { className: "on", onClick: function () { dirBtn.dir = "inbound"; inBtn.className = "on"; outBtn.className = ""; } }, "inbound");
-    var outBtn = Pet.h("button", { onClick: function () { dirBtn.dir = "outbound"; outBtn.className = "on"; inBtn.className = ""; } }, "outbound");
+    var dirToggle = Pet.h("div", { className: "seg", role: "radiogroup", ariaLabel: "Scan direction" });
+    var inBtn = Pet.h("button", { className: "on", role: "radio", ariaChecked: "true", onClick: function () { dirBtn.dir = "inbound"; inBtn.className = "on"; outBtn.className = ""; inBtn.setAttribute("aria-checked", "true"); outBtn.setAttribute("aria-checked", "false"); } }, "inbound");
+    var outBtn = Pet.h("button", { role: "radio", ariaChecked: "false", onClick: function () { dirBtn.dir = "outbound"; outBtn.className = "on"; inBtn.className = ""; outBtn.setAttribute("aria-checked", "true"); inBtn.setAttribute("aria-checked", "false"); } }, "outbound");
     dirToggle.appendChild(inBtn);
     dirToggle.appendChild(outBtn);
 
@@ -1007,7 +1046,7 @@
 
     var inspectPanel = Pet.Panel({
       icon: "beaker", title: "inspect", place: "scan playground",
-      help: Pet.HelpTip("<b>Scan Playground</b> — paste text and run it through the full pipeline. Choose <code>inbound</code> (user→agent) or <code>outbound</code> (agent→user) direction. Optionally bind to a session ID for frequency tracking."),
+      help: Pet.HelpTip("<b>Scan Playground</b>: paste text and run it through the full pipeline. Choose <code>inbound</code> (user→agent) or <code>outbound</code> (agent→user) direction. Optionally bind to a session ID for frequency tracking."),
       content: Pet.h("div", { style: { display: "flex", flexDirection: "column", gap: "10px" } }, textArea, controls),
     });
 
@@ -1090,6 +1129,17 @@
     return revealed;
   };
 
+  // Humanize a config key for display: "tier3_threshold" -> "Tier 3 Threshold".
+  Pet.CONFIG_ACRONYMS = { pii: "PII", iban: "IBAN", ssn: "SSN", ttl: "TTL", id: "ID", ip: "IP", rtl: "RTL", nfkc: "NFKC", hmac: "HMAC", url: "URL", ml: "ML", jwt: "JWT", api: "API", json: "JSON", llm: "LLM" };
+  Pet.humanizeKey = function (key) {
+    if (typeof key !== "string" || !key) return "";
+    var s = key.replace(/^petasos\./, "").replace(/[._]+/g, " ").replace(/([a-zA-Z])([0-9])/g, "$1 $2").trim();
+    return s.split(/\s+/).filter(Boolean).map(function (w) {
+      var lw = w.toLowerCase();
+      return Pet.CONFIG_ACRONYMS[lw] || (w.charAt(0).toUpperCase() + w.slice(1));
+    }).join(" ");
+  };
+
   Pet.renderConfig = function (container) {
     container.innerHTML = "";
     var wrapper = Pet.h("div", { style: { display: "flex", flexDirection: "column", gap: "12px", height: "100%" } });
@@ -1148,11 +1198,13 @@
             var toggleFn = function () {
               val = !val;
               sw.className = "switch" + (val ? " on" : "");
+              sw.setAttribute("aria-checked", val ? "true" : "false");
               Pet.state.configDirty[f.name] = val;
             };
             var sw = Pet.h("button", {
               className: "switch" + (val ? " on" : ""),
               type: "button",
+              role: "switch", ariaChecked: val ? "true" : "false", ariaLabel: Pet.humanizeKey(f.name),
               onClick: toggleFn,
             });
             sw.addEventListener("keydown", function (e) {
@@ -1160,13 +1212,16 @@
             });
             control = sw;
           } else if (f.type === "enum" && f.constraints && f.constraints.values) {
-            var seg = Pet.h("div", { className: "seg" });
+            var seg = Pet.h("div", { className: "seg", role: "radiogroup", ariaLabel: Pet.humanizeKey(f.name) });
             f.constraints.values.forEach(function (opt) {
-              var btn = Pet.h("button", { className: opt === val ? "on" : "", onClick: function () {
-                seg.querySelectorAll("button").forEach(function (b) { b.className = ""; });
-                btn.className = "on";
-                Pet.state.configDirty[f.name] = opt;
-              } }, opt);
+              var btn = Pet.h("button", {
+                className: opt === val ? "on" : "", role: "radio", ariaChecked: opt === val ? "true" : "false",
+                onClick: function () {
+                  seg.querySelectorAll("button").forEach(function (b) { b.className = ""; b.setAttribute("aria-checked", "false"); });
+                  btn.className = "on"; btn.setAttribute("aria-checked", "true");
+                  Pet.state.configDirty[f.name] = opt;
+                }
+              }, opt);
               seg.appendChild(btn);
             });
             control = seg;
@@ -1176,6 +1231,11 @@
               style: { width: "110px", height: "32px" },
               value: val != null ? String(val) : "",
             });
+            var c = f.constraints || {};
+            if (c.min != null) inp.setAttribute("min", String(c.min));
+            if (c.max != null) inp.setAttribute("max", String(c.max));
+            var frac = (c.min != null && !Number.isInteger(c.min)) || (c.max != null && c.max <= 1);
+            inp.setAttribute("step", frac ? "any" : "1");
             inp.addEventListener("change", function () { Pet.state.configDirty[f.name] = parseFloat(inp.value); });
             control = inp;
           } else if (f.redacted) {
@@ -1191,11 +1251,9 @@
 
           return Pet.h("div", { dataset: { field: f.name }, style: { display: "flex", alignItems: "flex-start", gap: "14px", padding: "12px 0", borderBottom: "1px solid var(--border-soft)" } },
             Pet.h("div", { style: { flex: "1" } },
-              Pet.h("div", { className: "mono", style: { fontSize: "12.5px", fontWeight: "600", color: "var(--tx-bright)" } }, f.name),
+              Pet.h("div", { style: { fontSize: "13px", fontWeight: "600", color: "var(--tx-bright)" } }, Pet.humanizeKey(f.name)),
               Pet.h("div", { style: { fontSize: "11.5px", color: "var(--tx)", marginTop: "3px" } }, f.help_plain || f.description),
-              (f.help_plain && f.help_plain !== f.description)
-                ? Pet.h("div", { className: "mono", style: { fontSize: "10.5px", color: "var(--tx-faint)", marginTop: "2px" } }, f.description)
-                : null
+              Pet.h("div", { className: "mono", style: { fontSize: "10px", color: "var(--tx-mut)", marginTop: "3px" } }, f.name)
             ),
             Pet.h("div", { className: "pet-ctrl-wrap", style: { flex: "0 0 auto", display: "flex", flexDirection: "column" } }, control)
           );
@@ -1267,14 +1325,21 @@
                 return;
               }
               if (d.error) {
-                alert("Save failed: " + d.error);
+                formArea.insertBefore(Pet.h("div", {
+                  className: "pet-field-err",
+                  style: { color: "var(--err)", fontSize: "12px", padding: "8px 12px", background: "var(--bg-raised)", borderRadius: "var(--r-card)", marginBottom: "8px" }
+                }, "Couldn't save: " + d.error + ". Your changes are kept; try Apply again."), formArea.firstChild);
                 return;
               }
               Pet.state.config = d.config || Pet.state.config;
               Pet.state.configDirty = {};
-              Pet.renderConfig(container);
+              formArea.insertBefore(Pet.h("div", {
+                className: "notice",
+                style: { background: "var(--ok-soft)", borderColor: "rgba(63,185,80,.3)", color: "var(--ok)", marginBottom: "8px" }
+              }, Pet.Icon("check"), Pet.h("span", {}, Pet.h("b", {}, "Configuration saved."), " Active sessions use the previous config until restarted.")), formArea.firstChild);
+              setTimeout(function () { if (Pet.state.tab === "cfg") Pet.renderConfig(container); }, 1500);
             }).then(function () { applyBtn.disabled = false; }, function () { applyBtn.disabled = false; });
-          } }, Pet.Icon("check"), " Apply config");
+          } }, Pet.Icon("check"), " Apply");
           return applyBtn;
         })()
       );
@@ -1308,7 +1373,7 @@
     // Donation
     wrapper.appendChild(Pet.Panel({
       icon: "caduceus", title: "Support",
-      help: Pet.HelpTip("<b>Support</b> — Petasos is free and open source (MIT). Sponsorship helps fund continued development but unlocks nothing — every feature is available to everyone."),
+      help: Pet.HelpTip("<b>Support</b>: Petasos is free and open source (MIT). Sponsorship helps fund continued development but unlocks nothing; every feature is available to everyone."),
       style: { border: "1px solid rgba(232,144,28,.3)" },
       bodyStyle: { background: "rgba(232,144,28,.06)" },
       content: Pet.h("div", { style: { textAlign: "center", padding: "12px 0" } },
@@ -1327,8 +1392,10 @@
     wrapper.appendChild(Pet.Panel({
       icon: "user", title: "Credits",
       content: Pet.h("div", { className: "mono", style: { fontSize: "11px", color: "var(--tx-faint)", lineHeight: "1.8" } },
-        Pet.h("div", {}, "Vigil Harbor — maintainer"),
-        Pet.h("div", {}, "Built with FastAPI, Python, vanilla JS")
+        Pet.h("div", {}, "Vigil Harbor (maintainer)"),
+        Pet.h("div", {}, "Built with FastAPI, Python, vanilla JS"),
+        Pet.h("a", { href: "https://x.com/vigilharbor", target: "_blank", rel: "noopener", className: "link", style: { display: "block", padding: "4px 0" } }, "X: @vigilharbor"),
+        Pet.h("a", { href: "https://github.com/ziomancer", target: "_blank", rel: "noopener", className: "link", style: { display: "block", padding: "4px 0" } }, "GitHub: @ziomancer")
       ),
     }));
 
@@ -1357,6 +1424,8 @@
   // POST /armed is in flight; suppress concurrent toggles and seed-overwrites.
   var _armedSeeded = false;
   var _armedBusy = false;
+  var _armedConfirmPending = false;   // disarming requires a confirming 2nd click
+  var _armedConfirmTimer = null;
 
   var TABS = [
     { key: "obs", icon: "activity", label: "Observability" },
@@ -1369,7 +1438,10 @@
     Pet.state.tab = name;
     if (_tabStrip) {
       _tabStrip.querySelectorAll(".tab").forEach(function (t) {
-        t.className = "tab" + (t.dataset.key === name ? " active" : "");
+        var active = t.dataset.key === name;
+        t.className = "tab" + (active ? " active" : "");
+        t.setAttribute("aria-selected", active ? "true" : "false");
+        t.tabIndex = active ? 0 : -1;
       });
     }
     if (!_container) return;
@@ -1398,11 +1470,26 @@
       )
     );
 
-    _tabStrip = Pet.h("div", { className: "tabs" });
+    _tabStrip = Pet.h("div", { className: "tabs", role: "tablist", ariaLabel: "Console sections" });
     TABS.forEach(function (t) {
-      var tab = Pet.h("div", { className: "tab" + (t.key === "obs" ? " active" : ""), dataset: { key: t.key }, onClick: function () { Pet.switchTab(t.key); } },
-        Pet.Icon(t.icon), " " + t.label
-      );
+      var isActive = t.key === "obs";
+      var tab = Pet.h("div", {
+        className: "tab" + (isActive ? " active" : ""), dataset: { key: t.key },
+        role: "tab", tabIndex: isActive ? 0 : -1, ariaSelected: isActive ? "true" : "false",
+        onClick: function () { Pet.switchTab(t.key); }
+      }, Pet.Icon(t.icon), " " + t.label);
+      tab.addEventListener("keydown", function (e) {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); Pet.switchTab(t.key); return; }
+        if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
+          e.preventDefault();
+          var keys = TABS.map(function (x) { return x.key; });
+          var i = keys.indexOf(t.key);
+          var nk = e.key === "ArrowRight" ? keys[(i + 1) % keys.length] : keys[(i - 1 + keys.length) % keys.length];
+          Pet.switchTab(nk);
+          var nt = _tabStrip && _tabStrip.querySelector('.tab[data-key="' + nk + '"]');
+          if (nt) nt.focus();
+        }
+      });
       _tabStrip.appendChild(tab);
     });
 

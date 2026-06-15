@@ -95,13 +95,16 @@ function findEl(node, pred) {
 }
 
 const isErrorBlock = (el) => el.style && el.style.whiteSpace === "pre-wrap";
-const isPill = (el) => el.style && el.style.borderRadius === "9999px";
+// PET critique (P2): status chips moved off hardcoded inline colors onto the
+// token-bound .pill variants (.pill ok | .pill warn | .pill err | bare .pill =
+// neutral) so they follow the Hermes theme. Assert the variant class, not color.
+const isPill = (el) => typeof el.className === "string" && /\bpill\b/.test(el.className);
 
-function pillColor(status) {
+function pillClass(status) {
   const tree = Pet.scannerHealthRows([{ name: "x", status, last_ms: null, last_error: null }]);
   const pill = findEl(tree, isPill);
   assert.ok(pill, `pill not found for status ${status}`);
-  return pill.style.background;
+  return pill.className;
 }
 
 // ── Tests ───────────────────────────────────────────────────────────────
@@ -147,11 +150,12 @@ test("test_scanner_health_rows_render_full_error", () => {
 
 // Defect #2 (card): the new `error` status gets the red pill, not the grey else.
 test("test_scanner_health_pill_color_for_error_status", () => {
-  const bg = pillColor("error");
-  // Red is shared with unavailable/circuit_open, so this witnesses "not grey";
-  // the status-value distinction is caught Python-side.
-  assert.equal(bg, "var(--red, #ef4444)");
-  assert.notEqual(bg, "var(--tx-faint, #888)");
+  const cls = pillClass("error");
+  // `error` shares the err (red) variant with unavailable/circuit_open, so this
+  // witnesses "a failure pill, not the neutral else"; the status-value distinction
+  // is caught Python-side.
+  assert.match(cls, /\berr\b/);
+  assert.doesNotMatch(cls, /\b(ok|warn)\b/);
 });
 
 // Defect #2 (card): help-text status definitions agree with the labels.
@@ -170,11 +174,13 @@ test("test_help_text_status_definitions_agree", () => {
 });
 
 // Regression: the established statuses keep their pill colors.
-test("existing statuses keep their established pill colors", () => {
-  assert.equal(pillColor("healthy"), "var(--green, #22c55e)");
-  assert.equal(pillColor("degraded"), "var(--amber, #f59e0b)");
-  assert.equal(pillColor("unavailable"), "var(--red, #ef4444)");
-  assert.equal(pillColor("circuit_open"), "var(--red, #ef4444)");
-  // An unknown status still falls through to the faint/grey else.
-  assert.equal(pillColor("totally_unknown"), "var(--tx-faint, #888)");
+test("existing statuses keep their established pill variants", () => {
+  assert.match(pillClass("healthy"), /\bok\b/);
+  assert.match(pillClass("degraded"), /\bwarn\b/);
+  assert.match(pillClass("unavailable"), /\berr\b/);
+  assert.match(pillClass("circuit_open"), /\berr\b/);
+  // An unknown status falls through to the neutral pill (no ok/warn/err variant).
+  const unknown = pillClass("totally_unknown");
+  assert.match(unknown, /\bpill\b/);
+  assert.doesNotMatch(unknown, /\b(ok|warn|err)\b/);
 });
