@@ -130,6 +130,9 @@ def _drive(
     stub_guard = type("G", (), {"evaluate": lambda self, *a, **k: None})()
     monkeypatch.setattr(ref, "_guard", stub_guard)
     monkeypatch.setattr(ref, "_run_async", lambda coro: guard_result)
+    # PET-126: _pre_tool_call now checks for a live config.yaml change; neutralize it
+    # here so these egress tests stay isolated from the machine's real config.
+    monkeypatch.setattr(ref, "_maybe_reconfigure", lambda: None)
     return ref._pre_tool_call(tool_name, args or {"text": "x"}, task_id="s1")
 
 

@@ -31,6 +31,16 @@ class AuditEmitter:
         self._last_callback_error: str | None = None
         self._listeners: list[Callable[[AuditEvent], None]] = []
 
+    def apply_config(self, new_config: PetasosConfig) -> None:
+        """PET-126: rebind ``_config`` in place.
+
+        ``audit_verbosity`` is read live off ``_config`` in ``_build_payload``, so
+        a swap takes effect on the next emitted event. Preserves
+        ``_global_sequence`` (the audit sequence is not reset), ``_listeners``, and
+        ``_last_callback_error``.
+        """
+        self._config = new_config
+
     @property
     def last_callback_error(self) -> str | None:
         return self._last_callback_error

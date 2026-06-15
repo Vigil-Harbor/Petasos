@@ -129,6 +129,68 @@ class FrequencyTracker:
         self._max_terminated: int = config.max_terminated_tombstones
         self._ttl_deque: deque[tuple[float, str]] = deque()
 
+    def apply_config(self, new_config: PetasosConfig) -> None:
+        """Re-read tunables from ``new_config`` in place, preserving session state.
+
+        PET-126: the live-reconfigure hook. Re-parses ``frequency_weights`` and
+        re-reads the seven cached scalars without reconstructing the tracker, so
+        accumulated per-session scores, tombstones, and rolling-window deques
+        survive a Config Editor save or a cross-process reload.
+
+        Atomicity (spec Decision 5): the full ``frequency_weights`` validation
+        lives here, not in ``PetasosConfig.__post_init__``, so a malformed glob
+        key or a negative/non-finite weight passes ``from_dict`` but must abort
+        ``reconfigure`` before any live state is touched. The parse is therefore
+        *staged* into locals first (may raise) and only then *committed* under
+        ``_lock``; the rebind and the on-shrink tombstone trim share that one
+        critical section (``_enforce_tombstone_cap`` assumes the lock is held).
+
+        ``_session_secret`` is treated as immutable (spec Decision 2): it is never
+        rebound here, at either the pipeline or the guard tracker, so HMAC-bound
+        session tokens minted before the reload still verify afterward.
+        """
+        # Stage: re-run the full weight parse (mirrors __init__). May raise
+        # ValueError on a malformed glob key or a negative/non-finite weight;
+        # nothing has been mutated yet, so reconfigure aborts cleanly.
+        raw_weights = (
+            new_config.frequency_weights
+            if new_config.frequency_weights is not None
+            else DEFAULT_FREQUENCY_WEIGHTS
+        )
+        new_exact_weights: dict[str, float] = {}
+        new_glob_entries: list[tuple[str, float]] = []
+        for key, weight in raw_weights.items():
+            if key.endswith(".*"):
+                prefix = key[:-2]
+                if "*" in prefix:
+                    raise ValueError(f"glob key has '*' in non-terminal position: {key!r}")
+                new_glob_entries.append((prefix, weight))
+            elif "*" in key:
+                raise ValueError(f"weight key has '*' in non-terminal position: {key!r}")
+            else:
+                new_exact_weights[key] = weight
+
+            if weight < 0 or not math.isfinite(weight):
+                raise ValueError(f"weight must be non-negative and finite: {key!r}={weight!r}")
+
+        new_glob_entries.sort(key=lambda e: len(e[0]), reverse=True)
+
+        # Commit: rebind scalars + weights + _config under the lock, then trim
+        # tombstones (a no-op unless _max_terminated shrank below the live count).
+        # _session_secret is intentionally NOT rebound (Decision 2).
+        with self._lock:
+            self._half_life = new_config.frequency_half_life_seconds
+            self._rolling_window = new_config.rolling_window_seconds
+            self._rolling_threshold = new_config.rolling_threshold
+            self._max_sessions = new_config.max_sessions
+            self._session_ttl = new_config.session_ttl_seconds
+            self._max_new_per_minute = new_config.max_new_sessions_per_minute
+            self._max_terminated = new_config.max_terminated_tombstones
+            self._exact_weights = new_exact_weights
+            self._glob_weights = new_glob_entries
+            self._config = new_config
+            self._enforce_tombstone_cap()
+
     @property
     def requires_token(self) -> bool:
         return self._session_secret is not None

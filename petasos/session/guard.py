@@ -4,7 +4,7 @@ import logging
 import threading
 import time
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
@@ -102,6 +102,18 @@ class SpawnBudget:
         self._events: dict[str, deque[float]] = {}
         self._last_sweep = 0.0
 
+    def set_window(self, seconds: float) -> None:
+        """PET-126: rebind the rolling-window length in place.
+
+        Rebinds ``_window`` only: never resets ``_last_sweep`` or ``_events``, so
+        buffered spawn timestamps survive a reconfigure. A *shrink* simply
+        re-interprets them against the smaller cutoff on the next ``try_consume``
+        (older events expire sooner). Taken under ``_lock`` because ``try_consume``
+        reads ``_window`` under the same lock.
+        """
+        with self._lock:
+            self._window = seconds
+
     def try_consume(self, session_id: str, cap: int, now: float) -> bool:
         with self._lock:
             cutoff = now - self._window
@@ -174,6 +186,68 @@ class ToolCallGuard:
                 "away) — the delegation fan-out gate is inert"
             )
         self._spawn_budget = SpawnBudget(config.delegate_fanout_window_seconds)
+
+    def validate_config(self, new_config: PetasosConfig) -> None:
+        """Dry-run validation of a candidate config: raises, never mutates (D5/D8).
+
+        Two guard-only invariants that ``PetasosConfig.__post_init__`` does not
+        cover, run here BEFORE any commit so ``apply_config`` is all-or-nothing:
+
+        1. D8 exempt-overlap: a delegate tool must never also be profile-exempt (an
+           exempt delegate would skip the tier ladder). Mirrors the ``__init__``
+           check against the candidate's normalized delegate set.
+        2. ``frequency_weights`` parse trial: the full glob-position and
+           non-negative/finite weight validation lives in ``FrequencyTracker``,
+           not in ``__post_init__``. Trial-parse the candidate so a malformed map
+           is caught here, before the guard's tracker is reconfigured.
+        """
+        if self._profile is not None:
+            candidate_delegates = frozenset(
+                n
+                for n in (self._normalize_tool_name(raw) for raw in new_config.delegate_tool_names)
+                if n
+            )
+            exempt_overlap = candidate_delegates & self._profile.tool_exempt_list
+            if exempt_overlap:
+                raise ValueError(
+                    f"delegate tool name(s) {sorted(exempt_overlap)} appear in the profile "
+                    f"exempt list; a delegate must not be exempt (it would skip the tier ladder)"
+                )
+        # Weight-parse trial: a throwaway FrequencyTracker re-runs the full weight
+        # validation with no side effects beyond the parse, so a malformed
+        # frequency_weights map raises here, before any commit.
+        from petasos.session.frequency import FrequencyTracker
+
+        FrequencyTracker(new_config)
+
+    def apply_config(self, new_config: PetasosConfig) -> None:
+        """PET-126: live-reconfigure the guard in place (spec D2/D5).
+
+        Calls ``validate_config`` FIRST, so a D8 violation or a malformed
+        ``frequency_weights`` map aborts before any mutation. Then:
+
+        - merge-preserves ``session_secret`` into the guard's OWN ``_config`` via
+          ``replace(new_config, session_secret=<live>)`` so ``_read_state``'s mint
+          decision stays in lockstep with the immutable tracker secret. A
+          ``None``<->non-None presence flip would otherwise force tier3 fail-secure
+          on every session (FREQ-03, Decision 2);
+        - recomputes ``_delegate_tool_names`` through the guard's own normalizer;
+        - resizes the ``_spawn_budget`` window in place (preserving counters);
+        - delegates to its OWN ``_frequency_tracker.apply_config`` (which holds the
+          tracker secret immutable).
+
+        Preserved: ``SpawnBudget._events`` / ``_last_sweep``, the guard tracker's
+        session/tombstone state, and ``_config.session_secret``.
+        """
+        self.validate_config(new_config)
+        self._config = replace(new_config, session_secret=self._config.session_secret)
+        self._delegate_tool_names = frozenset(
+            n
+            for n in (self._normalize_tool_name(raw) for raw in new_config.delegate_tool_names)
+            if n
+        )
+        self._spawn_budget.set_window(new_config.delegate_fanout_window_seconds)
+        self._frequency_tracker.apply_config(self._config)
 
     async def evaluate(
         self,
