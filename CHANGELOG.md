@@ -33,7 +33,7 @@ First public release. Every feature ships free and keyless: no license key, no t
 
 ### Security
 
-- **60 red-team findings resolved** across 12 domains: normalization bypasses, config coercion, session spoofing, guard evasion, pipeline severity handling, profile suppression, audit secret-leak, and alert starvation. Per-finding remediation specs live in `docs/specs/`.
+- **60 red-team findings resolved** across 12 domains: normalization bypasses, config coercion, session spoofing, guard evasion, pipeline severity handling, profile suppression, audit secret-leak, and alert starvation.
 - **Tool-name canonicalization parity**: enforcement and classification share one canonical primitive, closing case / homoglyph / namespace / CamelCase / `_tool`-suffix variant-named egress bypasses
 - **PII-egress hardening**: egress-scoped guard blocking, corrected ordinal severity ranking (a lone CRITICAL now blocks), and a parse-time PII-entity vocabulary guard
 
