@@ -127,15 +127,13 @@ petasos/
 
 ## Project Management
 
-- Petasos tracks under the `PET` project in Plane (UUID `REDACTED-PLANE-UUID`).
+- Petasos tracks under the `PET` project in Plane.
 - PET-2 is a parent container; PET-3/4/5 are its children (scanner wrappers).
 - When creating Plane work items, set `description_html` (the canonical field).
-- Drawbridge syntactic rules source: `internal-sanitizer/src/validation/index.ts` → `SYNTACTIC_RULES` export.
-- Drawbridge FrequencyTracker source: `internal-sanitizer/src/frequency/index.ts`.
 
 ## Wiki — Vigil Harbor knowledge layer
 
-The wiki at `C:\Users\user\Documents\Vigil-Harbor\vigil-harbor-wiki` is the
+The wiki (a separate, private Vigil Harbor repository) is the
 compiled knowledge layer; Plane stays as the task tracker. See `SCHEMA.md`
 for conventions and the lint contract.
 
