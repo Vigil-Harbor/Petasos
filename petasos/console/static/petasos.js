@@ -1077,6 +1077,19 @@
   ];
   function _trapRank(t) { return t === "tier3" ? 3 : t === "tier2" ? 2 : t === "tier1" ? 1 : 0; }
   function _trapDelay(ms) { return new Promise(function (res) { setTimeout(res, ms); }); }
+  // PET-13: a console fetch has no timeout (see Pet.api._req), so a request the
+  // server accepts but never answers hangs forever, stranding the burst in FIRING
+  // with the button disabled. Bound each shot; the timeout rejects so it routes to
+  // fire()'s existing error handler (viz.error + done), restoring the UI.
+  function _trapTimeout(promise, ms) {
+    return new Promise(function (resolve, reject) {
+      var t = setTimeout(function () { reject(new Error("scan timed out")); }, ms);
+      promise.then(
+        function (v) { clearTimeout(t); resolve(v); },
+        function (e) { clearTimeout(t); reject(e); }
+      );
+    });
+  }
   function _trapReduced() {
     try { return !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches); }
     catch (_) { return false; }
@@ -1160,6 +1173,7 @@
   Pet.runTrapBurst = function (opts) {
     var resultArea = opts.resultArea, btn = opts.trapBtn, api = opts.api || Pet.api;
     var maxShots = opts.maxShots || 15;
+    var shotTimeout = opts.shotTimeoutMs || 8000; // per-shot hang guard (see _trapTimeout)
     var stepMs = _trapReduced() ? 0 : 170;
     var sid = "trap-" + Math.random().toString(36).slice(2, 10);
     var viz = Pet.buildTrapViz();
@@ -1172,7 +1186,7 @@
     function fire() {
       shot++;
       var payload = Pet.TRAP_PAYLOADS[(shot - 1) % Pet.TRAP_PAYLOADS.length];
-      return api.postScan(payload, "inbound", sid).then(function (d) {
+      return _trapTimeout(api.postScan(payload, "inbound", sid), shotTimeout).then(function (d) {
         if (d && (d.error || d.detail)) { viz.error(shot); done(); return; }
         // Scan fields are nested under .result (mirrors Pet.renderScanResult).
         var res = (d && d.result) || {};
