@@ -260,7 +260,7 @@
 .pet .equip-banner.confirming { border-color: var(--warn); background: var(--med-soft); }
 .pet .equip-banner.confirming .equip-label { color: var(--warn); }
 .pet .equip-banner.confirming .equip-sub { color: var(--warn); }
-.pet .equip-banner .equip-mark { width: 28px; height: 28px; object-fit: contain; flex: none; }
+.pet .equip-banner .equip-mark { width: 44px; height: 44px; object-fit: contain; flex: none; }
 .pet .equip-banner .equip-text { flex: 1 1 auto; min-width: 0; }
 .pet .equip-banner .equip-label { font-family: var(--font-mono); font-size: 14px; letter-spacing: 1px; color: var(--acc); }
 .pet .equip-banner.disarmed .equip-label { color: var(--err); }
@@ -367,9 +367,10 @@
 .pet .trap-shot-n { font-size: 11px; color: var(--tx-mut); flex: 0 0 32px; }
 .pet .trap-shot-tier { margin-left: auto; color: var(--tx-mut); }
 
-.pet .trap-lockdown { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: var(--r-card); background: var(--crit-soft); border: 1px solid var(--crit); }
-.pet .trap-lock-mark { width: 30px; height: 30px; object-fit: contain; flex: none; }
-.pet .trap-lock-title { font-family: var(--font-mono); font-size: 14px; font-weight: 700; color: var(--crit); letter-spacing: 1px; }
+.pet .trap-lockdown { display: flex; align-items: center; gap: 14px; padding: 12px; border-radius: var(--r-card); background: var(--crit-soft); border: 1px solid var(--crit); }
+/* PET-13: the vaporwave bust is the TIER 3 moment - give it real presence, framed + crit glow. */
+.pet .trap-lock-mark { width: 104px; height: 104px; flex: none; object-fit: cover; border-radius: var(--r-card); border: 1px solid var(--crit); box-shadow: 0 0 18px rgba(237,66,69,.3); }
+.pet .trap-lock-title { font-family: var(--font-mono); font-size: 16px; font-weight: 700; color: var(--crit); letter-spacing: 1px; }
 .pet .trap-lock-sub { font-size: 11.5px; color: var(--tx-mut); margin-top: 2px; }
 .pet .trap-note { font-size: 11px; color: var(--tx-faint); padding-top: 6px; }
 
