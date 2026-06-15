@@ -10,7 +10,7 @@ Primary consumer: Hermes Agent (Nous Research, Python 3.11+). Petasos imports in
 
 ### Two Consumer Platforms
 
-Hermes Desktop ships on macOS (native) and Windows (.exe / Electron). The macOS integration path is well-documented in the wiki. The Windows path has platform-specific footguns — see `docs/platform/hermes-desktop-footguns.md` for the full report. Key differences: file tools bypass the terminal sandbox, hooks spawn via Git Bash (MINGW64) adding 100-200ms, config sections get wiped by the UI model switcher, and process signal handling diverges. PET-6 through PET-11 must account for both platforms.
+Hermes Desktop ships on macOS (native) and Windows (.exe / Electron). The macOS integration path is well-documented in the wiki. The Windows path has platform-specific footguns. Key differences: file tools bypass the terminal sandbox, hooks spawn via Git Bash (MINGW64) adding 100-200ms, config sections get wiped by the UI model switcher, and process signal handling diverges. PET-6 through PET-11 must account for both platforms.
 
 Petasos is Drawbridge-*inspired* but fully uncoupled — own repo, own ticket prefix (PET), own release cadence, own threat model. No shared rule package, no cross-runtime conformance with Drawbridge.
 
