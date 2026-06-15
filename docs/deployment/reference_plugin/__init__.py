@@ -22,10 +22,13 @@ import os
 import threading
 import time
 import uuid
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from petasos._types import Severity  # PET-112: dep-light (enum + dataclasses, no ML imports)
 from petasos.normalize import canonicalize_tool_name  # PET-118: dep-light (re + unicodedata)
+
+if TYPE_CHECKING:
+    from petasos import PetasosConfig
 
 logger = logging.getLogger("petasos.plugin")
 
@@ -219,7 +222,7 @@ def _load_config() -> dict[str, Any]:
     return section
 
 
-def _build_config_from_section(section: dict[str, Any]):
+def _build_config_from_section(section: dict[str, Any]) -> PetasosConfig:
     """Build a validated PetasosConfig from a raw petasos: section.
 
     Applies the SAME env overlay as boot (PET-126 Decision 10): injects
@@ -647,7 +650,7 @@ def _log_reload_failure(detail: str) -> None:
     logger.warning("PETASOS_RELOAD_FAILED: %s; keeping last-good config", detail)
 
 
-async def _apply_reconfigure(cfg) -> None:
+async def _apply_reconfigure(cfg: PetasosConfig) -> None:
     """Apply a reloaded config to the live gateway as one uninterrupted unit.
 
     Dispatched onto _async_loop via _run_async (PET-126 Decision 6), so it is

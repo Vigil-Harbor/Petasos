@@ -43,3 +43,22 @@ async def test_update_config_routes_through_reconfigure(
     assert len(seen) == 1  # routed through reconfigure, not a bare _config assignment
     assert seen[0].fail_mode == "closed"
     assert pipe.config.fail_mode == "closed"  # live config actually swapped
+
+
+async def test_update_config_invalid_frequency_weights_returns_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # frequency_weights content passes from_dict but is validated inside
+    # reconfigure (FrequencyTracker.apply_config); the route must surface a
+    # structured field error, not let the ValueError become a 500.
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    pipe = Pipeline(scanners=[MinimalScanner()], config=PetasosConfig())
+    handlers = ConsoleHandlers(pipe)
+    before = pipe.config
+
+    result, errors = await handlers.update_config({"frequency_weights": {"x": -1.0}})
+
+    assert result is None
+    assert errors is not None
+    assert errors[0]["message"]  # non-empty error message
+    assert pipe.config is before  # reconfigure aborted atomically; live config unchanged
