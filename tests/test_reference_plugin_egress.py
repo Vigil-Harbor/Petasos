@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
+import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
@@ -633,3 +634,37 @@ async def test_guard_surfaces_param_scan_degraded(monkeypatch: pytest.MonkeyPatc
         ),
     )._scan_params({"a": "x"}, "s1")
     assert unsafe is True and degraded is True
+
+
+# ---------------------------------------------------------------------------
+# PET-125: disarm tripwire — the one residual breadcrumb on Vector A/B
+# ---------------------------------------------------------------------------
+
+
+def test_disarm_emits_rate_limited_warning(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    # PET-125 tripwire pin (existing PET-111 behavior, no code change): when the
+    # operator/agent has disarmed (petasos.enabled=false), _pre_tool_call passes
+    # through with zero enforcement but emits a single rate-limited WARNING so the
+    # bypass is always attributable. This pins that the breadcrumb is not silently
+    # dropped and that the logger name does not drift.
+    mod = _import_reference_plugin()
+    # _is_armed() resolves read_armed via a function-local import from
+    # petasos.console._armed, so patch the source there — NOT mod.read_armed, which
+    # does not exist on the plugin module.
+    monkeypatch.setattr("petasos.console._armed.read_armed", lambda: False)
+    mod._reset_disarm_log()
+
+    with caplog.at_level(logging.WARNING, logger=mod.logger.name):
+        first = mod._pre_tool_call("shell", {"cmd": "x"}, task_id="s1")
+        assert first is None  # disarmed -> pass-through, no block dict
+        # A second call within _DISARM_LOG_EVERY_S must not emit another WARNING.
+        second = mod._pre_tool_call("shell", {"cmd": "x"}, task_id="s1")
+        assert second is None
+
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1  # rate-limited: exactly one, not two
+    msg = warnings[0].getMessage()
+    assert "PETASOS_DISARMED" in msg
+    assert "shell" in msg

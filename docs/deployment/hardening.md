@@ -47,6 +47,11 @@ The standalone console binds to loopback by design: `serve()` hardcodes
 - [ ] In Hermes plugin mode the console rides Hermes' own session-token
       auth (PET-83); the same network posture still applies.
 
+That "no authentication of its own" default is also a self-disarm path: a
+loopback `POST /api/armed` flips the master Equipped bit with zero credentials.
+See section 6 for the full self-disarm / self-tamper threat and the optional
+`PETASOS_CONSOLE_TOKEN` that gates the `/api/*` routes.
+
 ## 3. Secrets
 
 Two secrets, both environment-variable-first, never committed config:
@@ -112,6 +117,108 @@ duplication — the canonical source is
       [hermes-desktop-footguns.md](../platform/hermes-desktop-footguns.md)
       — on Hermes Desktop for Windows, **file tools bypass the terminal
       sandbox**, which directly bounds what Petasos can and cannot see.
+
+## 6. Protect Petasos's own config (self-disarm / self-tamper)
+
+The Equipped/Unequipped switch and the `petasos:` config block are a
+human-operator escape hatch, not an agent-facing control. A guarded agent that
+can reach `config.yaml`, the standalone console, or the embedded plugin API can
+disable or relax its own enforcement. This is a deployment and boundary problem:
+the fix is to put the config and console out of the agent's reach, not to teach
+the guard to defend its own config file.
+
+### The three vectors
+
+- **A. Filesystem write.** The `enabled` bit and the rest of the config live in
+  `config.yaml` (resolved by `resolve_hermes_config_path()`: `HERMES_HOME`, then
+  the active-profile pointer, then the v0.15 root, all user-writable paths the
+  agent operates in). `read_armed()` re-reads that file on the hot path (roughly
+  a 1 second TTL), so a write of `enabled: false` disarms within about a second;
+  `_pre_tool_call` then passes every call through with no enforcement. There is
+  no path-based protection (classification is name-based by design, and PET-112
+  deliberately exempts the agent's own local writes), so a write to `config.yaml`
+  is indistinguishable from any other local write. The only residual is a
+  rate-limited `PETASOS_DISARMED` WARNING: an audit breadcrumb, not a control.
+- **B. Console HTTP API.** The standalone console binds loopback with no auth by
+  default (see section 2). A loopback `POST /api/armed {"armed": false}` disarms
+  with zero credentials, reachable by any http or shell tool. Loopback is not a
+  control when the agent has a shell.
+- **C. Config self-relaxation.** A hand-written but valid config can set
+  `fail_mode: open`, `tool_guard_enabled: false`, an empty `egress_sink_tools`,
+  and weakened tiers or alerts. `PetasosConfig` validation enforces internal
+  consistency, not a minimum security posture.
+
+### The mitigation (both platforms)
+
+Place `config.yaml` and `$HERMES_HOME` outside the agent's writable filesystem
+scope:
+
+- **POSIX:** a read-only bind mount, or a separate uid that owns the config with
+  the agent's uid denied write.
+- **Windows:** a separate Windows user or service account owns the config
+  directory, with an ACL that denies write to the agent's account. Note that
+  `%LOCALAPPDATA%\hermes` is user-writable by default (and see the section 5
+  Windows note: on Hermes Desktop for Windows, file tools bypass the terminal
+  sandbox).
+
+Then ensure neither the standalone console nor the embedded plugin API is
+reachable by the agent's shell or http tools (network-namespace isolation, or no
+shell/http tool in the agent's toolset). Loopback alone is insufficient.
+
+### Optional console token (`PETASOS_CONSOLE_TOKEN`)
+
+The standalone console reads an optional bearer token from the
+`PETASOS_CONSOLE_TOKEN` environment variable. When it is set to a non-blank
+value, every `/api/*` route (including `POST /api/armed` and `PUT /api/config`,
+plus the config and scan-history reads and the SSE stream) requires an
+`Authorization: Bearer <token>` header; the HTML shell (`GET /`) and `/static`
+assets still load so the page renders.
+
+What it covers, and what it does not:
+
+- It raises the bar against a network-only or non-shell HTTP caller (Vector B).
+- It does **not** defend against an agent that can read the host environment or
+  the config file. Under the common same-uid Hermes deployment the token lives in
+  the agent's own process environment and is readable by a shell-capable agent
+  (which could also just use Vector A). The primary mitigation remains deployment
+  posture (config and console out of reach, separate uid or netns).
+
+Operational notes:
+
+- It is **off by default**, and a blank value (empty or whitespace) is also off
+  (a single set-but-blank WARNING is logged). Verify it is on by observing a 401
+  on an unauthenticated `/api` call, not by trusting a log line.
+- The token is compared **verbatim**: do not rely on leading or trailing
+  whitespace being meaningful, trimmed for you, or preserved in transit.
+- The scheme match is case-sensitive (`Bearer`, not `bearer`).
+- With the token on, the bundled browser UI cannot drive the `/api` routes by
+  plain navigation (it sends no `Authorization` header yet): the shell loads but
+  its panels show errors. Use an authenticated client or a reverse proxy that
+  injects the credential, for example:
+  `curl -H "Authorization: Bearer <token>" -X POST http://127.0.0.1:8384/api/armed -d '{"armed": true}'`.
+- **Known limitation until the served-UI follow-up ships:** with the token on,
+  the browser Observability tab still renders the equip banner as EQUIPPED even
+  though its armed read is being 401'd. Do not trust the in-browser banner when
+  the token is on; verify armed state with an authenticated `GET /api/armed`. The
+  follow-up ticket carries in-UI token entry, graceful 401 handling, equip-banner
+  correctness, and stopping the 10 second health/fallback polls on a 401.
+- **Forward-looking invariant:** the dependency gates by the `/api/` path prefix,
+  so every sensitive route must live under `/api/`. A future non-asset route
+  added outside `/api/` would be served unauthenticated.
+
+### The floor that survives a hostile config
+
+Two invariants survive a relaxed-but-valid config: the Tier-3 floor
+(`max(tier3, 30.0)`, an inline literal in `escalation.py`) and the unsuppressible
+injection and structural rule set (`_UNSUPPRESSIBLE_RULE_IDS` in `minimal.py`,
+subtracted from any caller-supplied suppress set). A hostile config cannot lower
+the Tier-3 floor or suppress those rules, and both are pinned by regression
+tests.
+
+These floors are **moot once `enabled` is flipped**: Vectors A and B
+short-circuit `_pre_tool_call` before any scan runs, so a disarmed pipeline never
+reaches tier evaluation or rule matching. Do not mistake the floor for
+self-disarm protection.
 
 ---
 
