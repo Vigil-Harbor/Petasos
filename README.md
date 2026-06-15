@@ -22,6 +22,11 @@ Petasos sits in the message path and inspects every exchange. It combines fast p
 
 All features ship free. No license key, no tiered pricing, no "contact sales." Install it and it works.
 
+<!-- TODO(asset): at publish, switch src to an absolute https://raw.githubusercontent.com/Vigil-Harbor/Petasos/<branch>/assets/petasos-demo-loop.webp URL: relative paths do not resolve on the PyPI project page. -->
+<p align="center">
+  <img src="assets/petasos-demo-loop.webp" alt="Petasos guardrail scan demo" width="800"/>
+</p>
+
 ## Install
 
 ```bash
