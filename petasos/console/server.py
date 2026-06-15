@@ -10,6 +10,7 @@ TYPE_CHECKING-only names in module-level signatures are quoted instead.
 """
 
 import hashlib
+import hmac
 import json
 import logging
 import time
@@ -297,16 +298,67 @@ def _extract_field_from_error(msg: str, body: dict[str, Any]) -> str:
     return "unknown"
 
 
-def build_app(pipeline: "Pipeline") -> "FastAPI":
-    """Build the complete FastAPI application."""
+def build_app(pipeline: "Pipeline", *, auth_token: str | None = None) -> "FastAPI":
+    """Build the complete FastAPI application.
+
+    PET-125: when *auth_token* is a non-blank string, every ``/api/*`` route
+    requires an ``Authorization: Bearer <token>`` credential. ``auth_token=None``
+    (the default) means no auth — byte-for-byte the prior zero-config behavior.
+    A set-but-blank token (``""`` / whitespace, from any caller including the
+    ``serve()`` env path) logs one WARNING and is treated as no auth. A non-blank
+    token is stored and compared verbatim; ``.strip()`` decides on/off only and
+    never alters the token.
+    """
     import importlib.resources
 
+    from fastapi import Depends, Header, HTTPException, Request
     from fastapi import FastAPI as _FastAPI
-    from fastapi import Request
     from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
     from fastapi.staticfiles import StaticFiles
 
-    app = _FastAPI(title="Petasos Console", version="0.1.0")
+    # PET-125: normalize the token once, centrally, so the env path (serve) and a
+    # programmatic auth_token= argument agree. Single WARNING site for set-but-blank.
+    resolved_token: str | None
+    if auth_token is None:
+        resolved_token = None
+    elif auth_token.strip() == "":
+        _logger.warning("PETASOS console auth token is set but blank; console auth disabled")
+        resolved_token = None
+    else:
+        resolved_token = auth_token
+
+    if resolved_token is None:
+        app = _FastAPI(title="Petasos Console", version="0.1.0")
+    else:
+        token: str = resolved_token  # non-Optional capture for the closure below
+
+        def _require_console_token(
+            request: Request,
+            authorization: str | None = Header(default=None),
+        ) -> None:
+            # PET-125: deny-by-prefix. Only /api/* is gated; GET / (the HTML shell)
+            # and the /static mount stay ungated so the page and assets still load
+            # with the token on. INVARIANT: every sensitive route MUST live under
+            # /api/ — a future non-asset route added outside /api/ would be served
+            # unauthenticated (see hardening.md section 6). Relies on Starlette's
+            # already-normalized request.url.path.
+            if not request.url.path.startswith("/api/"):
+                return
+            # Parse defensively: never index/split before the prefix check, so a
+            # malformed header is a clean 401, never a 500. Scheme match is
+            # case-sensitive ("bearer " does not match).
+            if authorization is None or not authorization.startswith("Bearer "):
+                raise HTTPException(status_code=401, headers={"WWW-Authenticate": "Bearer"})
+            credential = authorization[len("Bearer ") :]
+            if not hmac.compare_digest(credential.encode("utf-8"), token.encode("utf-8")):
+                raise HTTPException(status_code=401, headers={"WWW-Authenticate": "Bearer"})
+
+        app = _FastAPI(
+            title="Petasos Console",
+            version="0.1.0",
+            dependencies=[Depends(_require_console_token)],
+        )
+
     handlers = ConsoleHandlers(pipeline)
 
     static_dir = importlib.resources.files("petasos.console") / "static"

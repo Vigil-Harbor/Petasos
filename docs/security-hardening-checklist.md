@@ -69,7 +69,7 @@ Audit artifact for v1.0.0 release. Verifies existing code against Drawbridge sec
 
 | Footgun | Status | Rationale |
 |---------|--------|-----------|
-| 4c — File tool bypass | N/A | Petasos is an in-process library. It does not dispatch file operations, shell commands, or subprocess calls. All processing is in-memory text transformation. |
+| 4c — File tool bypass | Mitigate (deployment) | Petasos does not itself dispatch file ops, shell, or subprocess calls (true). But the agent can write *Petasos's own* `config.yaml` (the `enabled` bit / posture), disarming or relaxing enforcement. Put the config out of the agent's reach (read-only mount / separate uid on POSIX, separate account + ACL deny-write on Windows) and the console out of reach (no shell/http tool, or netns). See `hardening.md` section 6. |
 | 5 — Hook shebang divergence | N/A | Petasos ships zero hook scripts, zero shell scripts, zero executables. It is a pure Python library imported by the host process. |
 | 9 — Signal handling divergence | N/A | Petasos does not register signal handlers (`signal.signal()`). Lifecycle management is the host process's responsibility (Hermes). Future work must not add signal handlers without revisiting this assessment. |
 
@@ -77,4 +77,11 @@ Audit artifact for v1.0.0 release. Verifies existing code against Drawbridge sec
 
 ## Summary
 
-All 28 checks pass. Petasos v1.0.0 meets the Drawbridge security hardening baseline with three platform footguns documented as N/A (in-process library with no subprocess, hook, or signal handler surface).
+Petasos v1.0.0 meets the Drawbridge security hardening baseline: the
+input-validation, error-handling, secrets, frozen-export, rate-limiting, and
+Tier-3 checks (sections 1 to 6) all pass. Of the three platform footguns, two are
+N/A (hook shebang divergence and signal handling: Petasos ships no hook scripts,
+executables, or signal handlers) and one is a deployment-mitigated exposure: 4c
+(file tool bypass), where the agent cannot make Petasos dispatch file ops but can
+write Petasos's own `config.yaml` to disarm or relax it. The mitigation is to put
+the config and console out of the agent's reach (see `hardening.md` section 6).
