@@ -575,7 +575,7 @@
     if (!scanners || !scanners.length) {
       return Pet.h("div", { className: "mono", style: { color: "var(--tx-faint)", fontSize: "12px" } }, "scanner status unavailable: health fetch failed");
     }
-    var table = Pet.h("div", { style: { display: "flex", flexDirection: "column", gap: "4px" } });
+    var table = Pet.h("div", { style: { display: "flex", flexDirection: "column", gap: "6px" } });
     for (var i = 0; i < scanners.length; i++) {
       var s = scanners[i];
       // Token-bound .pill variants (no hardcoded greens/reds, so chips follow the
@@ -639,7 +639,7 @@
       if (isNaN(dt.getTime())) return "—"; // guard against Invalid Date
       return pad2(dt.getHours()) + ":" + pad2(dt.getMinutes()) + ":" + pad2(dt.getSeconds());
     }
-    var table = Pet.h("div", { style: { display: "flex", flexDirection: "column", gap: "4px" } });
+    var table = Pet.h("div", { style: { display: "flex", flexDirection: "column", gap: "6px" } });
     for (var i = 0; i < hist.length; i++) {
       var e = hist[i];
       if (!e || typeof e !== "object") continue; // never-throw: skip a malformed entry (e.g. JSON null from a bad SSE frame) rather than aborting the synchronous re-render
@@ -698,7 +698,7 @@
 
   Pet.renderDashboard = function (container) {
     container.innerHTML = "";
-    var wrapper = Pet.h("div", { style: { display: "flex", flexDirection: "column", gap: "12px", height: "100%" } });
+    var wrapper = Pet.h("div", { style: { display: "flex", flexDirection: "column", gap: "16px", height: "100%" } });
 
     // ── PET-111: Equipped/Unequipped master switch (first child of the tab) ──
     // paintBanner re-queries the LIVE banner node each call (never closes over a
@@ -790,14 +790,14 @@
     var avgLatency = hist.length > 0 ? ((latencySum / hist.length).toFixed(1) + "ms") : "—";
     var sessions = sessionSet.size;
 
-    var metricsRow = Pet.h("div", { style: { display: "flex", gap: "12px" } });
+    var metricsRow = Pet.h("div", { style: { display: "flex", gap: "10px" } });
     // Lean metric cells (not four identical icon-panels): an eyebrow label over a
     // value. `blocked` carries severity weight when > 0 so the one security-load-
     // bearing number stands out instead of looking like `sessions`.
     var valueTile = function (label, value, alert) {
       return Pet.h("div", {
         style: {
-          flex: "1", minWidth: "0", borderRadius: "var(--r-panel)", padding: "11px 14px",
+          flex: "1", minWidth: "0", borderRadius: "var(--r-panel)", padding: "12px 14px",
           background: alert ? "var(--crit-soft)" : "var(--bg-panel)",
           border: "1px solid " + (alert ? "var(--crit)" : "var(--border)")
         }
@@ -987,7 +987,7 @@
     if (d.normalized_text && d.normalized_text !== rawText) {
       frag.appendChild(Pet.Panel({
         icon: "trending", title: "normalization", place: "before → after",
-        content: Pet.h("div", { className: "mono", style: { fontSize: "11.5px", lineHeight: "1.7", overflowWrap: "anywhere" } },
+        content: Pet.h("div", { className: "mono", style: { fontSize: "12px", lineHeight: "1.7", overflowWrap: "anywhere" } },
           Pet.h("div", { style: { color: "var(--tx-ghost)" } }, "raw: ", Pet.h("span", { style: { color: "var(--tx-mut)" } }, rawText)),
           Pet.h("div", { style: { color: "var(--tx-ghost)" } }, "norm: ", Pet.h("span", { style: { color: "var(--tx)" } }, d.normalized_text))
         ),
@@ -1011,14 +1011,14 @@
         // whole result and never the UI.
         var ss = Number(r.session_score);
         if (!Number.isNaN(ss)) { // present-but-non-numeric score → skip this tile
-          stats.appendChild(Pet.h("div", { style: { flex: "1", background: "var(--bg-raised)", border: "1px solid var(--border)", borderRadius: "var(--r-card)", padding: "7px 11px" } },
+          stats.appendChild(Pet.h("div", { style: { flex: "1", background: "var(--bg-raised)", border: "1px solid var(--border)", borderRadius: "var(--r-card)", padding: "8px 12px" } },
             Pet.h("div", { className: "eyebrow" }, "session_score"),
             Pet.h("div", { className: "num", style: { fontSize: "18px", fontWeight: "700", color: "var(--amber-bright)" } }, ss.toFixed(3))
           ));
         }
       }
       if (r.escalation_tier) {
-        stats.appendChild(Pet.h("div", { style: { flex: "1", background: "var(--bg-raised)", border: "1px solid var(--border)", borderRadius: "var(--r-card)", padding: "7px 11px" } },
+        stats.appendChild(Pet.h("div", { style: { flex: "1", background: "var(--bg-raised)", border: "1px solid var(--border)", borderRadius: "var(--r-card)", padding: "8px 12px" } },
           Pet.h("div", { className: "eyebrow" }, "escalation_tier"),
           Pet.h("div", { className: "num", style: { fontSize: "18px", fontWeight: "700", color: "var(--crit)" } }, r.escalation_tier)
         ));
@@ -1059,7 +1059,7 @@
 
   Pet.renderPlayground = function (container) {
     container.innerHTML = "";
-    var wrapper = Pet.h("div", { style: { display: "flex", flexDirection: "column", gap: "12px", height: "100%" } });
+    var wrapper = Pet.h("div", { style: { display: "flex", flexDirection: "column", gap: "16px", height: "100%" } });
 
     var textArea = Pet.h("textarea", {
       className: "input mono",
@@ -1207,7 +1207,7 @@
     var text = description.trim();
     if (!text) return null;
     return Pet.h("div", {
-      style: { fontSize: "11.5px", color: "var(--tx-faint)", margin: "2px 0 10px",
+      style: { fontSize: "12px", color: "var(--tx-faint)", margin: "2px 0 10px",
                lineHeight: "1.45" }
     }, text);
   };
@@ -1462,7 +1462,7 @@
 
   Pet.renderConfig = function (container) {
     container.innerHTML = "";
-    var wrapper = Pet.h("div", { style: { display: "flex", flexDirection: "column", gap: "12px", height: "100%" } });
+    var wrapper = Pet.h("div", { style: { display: "flex", flexDirection: "column", gap: "16px", height: "100%" } });
 
     // PET-13: the "how saving works" disclosure moved to the sticky save bar at the
     // bottom (subtle faint text, always visible) and replaces the top warning
@@ -1699,8 +1699,8 @@
           return Pet.h("div", { dataset: { field: f.name }, style: { display: "flex", alignItems: "flex-start", gap: "14px", padding: "12px 0", borderBottom: "1px solid var(--border-soft)" } },
             Pet.h("div", { style: { flex: "1" } },
               Pet.h("div", { style: { fontSize: "13px", fontWeight: "600", color: "var(--tx-bright)" } }, Pet.humanizeKey(f.name)),
-              Pet.h("div", { style: { fontSize: "11.5px", color: "var(--tx)", marginTop: "3px" } }, f.help_plain || f.description),
-              Pet.h("div", { className: "mono", style: { fontSize: "10px", color: "var(--tx-mut)", marginTop: "3px" } }, f.name)
+              Pet.h("div", { style: { fontSize: "11.5px", color: "var(--tx-mut)", marginTop: "2px" } }, f.help_plain || f.description),
+              Pet.h("div", { className: "mono", style: { fontSize: "10px", color: "var(--tx-mut)", marginTop: "2px" } }, f.name)
             ),
             Pet.h("div", { className: "pet-ctrl-wrap", style: { flex: "0 0 auto", display: "flex", flexDirection: "column" } }, control)
           );
@@ -1861,7 +1861,7 @@
     wrapper.appendChild(Pet.Panel({
       icon: "shieldCheck", title: "Petasos",
       content: Pet.h("div", {},
-        Pet.h("div", { style: { fontSize: "14px", color: "var(--tx-bright)", fontWeight: "600" } }, "Petasos"),
+        Pet.h("div", { style: { fontSize: "15px", color: "var(--tx-bright)", fontWeight: "700" } }, "Petasos"),
         // PET-127: text-independent [data-pet-ver] anchor (retires the .mono + "v..."
         // text-coupled selector). Seeds a skeleton bar + aria-busy/aria-label; the
         // fill below repopulates it in place (so NO role=status here — see Decision 4).
@@ -1869,7 +1869,7 @@
                        style: { fontSize: "11px", color: "var(--tx-faint)", marginTop: "4px" } },
           Pet.skel(48, 11)),
         Pet.h("span", { className: "pill ok", style: { marginTop: "8px", height: "18px", fontSize: "10px" } }, "MIT License"),
-        Pet.h("p", { style: { fontSize: "12.5px", color: "var(--tx-mut)", lineHeight: "1.6", margin: "12px 0 0", maxWidth: "440px" } },
+        Pet.h("p", { style: { fontSize: "13px", color: "var(--tx-mut)", lineHeight: "1.6", margin: "12px 0 0", maxWidth: "440px" } },
           "Thank you for checking out the plugin! It is my hope that it helps extend trust to your agents, and assists you in enforcing your guardrails.",
           Pet.h("br"),
           "May your Hermes Agent travel long and well."
@@ -1897,7 +1897,7 @@
       content: Pet.h("div", { style: { textAlign: "center", padding: "12px 0" } },
         Pet.h("img", { className: "support-coffee", src: Pet.asset("img/coffee.webp"), alt: "A robot enjoying a hot cup of coffee" }),
         Pet.h("div", { style: { fontSize: "15px", fontWeight: "700", color: "var(--tx-bright)", marginBottom: "8px" } }, "Did Petasos prevent a disaster?"),
-        Pet.h("div", { style: { fontSize: "12.5px", color: "var(--tx-mut)", lineHeight: "1.6", maxWidth: "400px", margin: "0 auto 16px" } },
+        Pet.h("div", { style: { fontSize: "13px", color: "var(--tx-mut)", lineHeight: "1.6", maxWidth: "400px", margin: "0 auto 16px" } },
           "Every feature is free, forever.",
           Pet.h("br"),
           "If this saved your team from a bad day, a coffee keeps the lights on."
