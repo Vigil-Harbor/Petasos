@@ -657,10 +657,6 @@
     // paintBanner re-queries the LIVE banner node each call (never closes over a
     // captured node): renderDashboard rebuilds the banner on every SSE/poll frame,
     // and _container is null after unmount — so guard container-truthiness first.
-    var clearArmedConfirm = function () {
-      _armedConfirmPending = false;
-      if (_armedConfirmTimer) { clearTimeout(_armedConfirmTimer); _armedConfirmTimer = null; }
-    };
     var paintBanner = function () {
       var b = _container && _container.querySelector(".equip-banner");
       if (!b) return;
@@ -1426,6 +1422,13 @@
   var _armedBusy = false;
   var _armedConfirmPending = false;   // disarming requires a confirming 2nd click
   var _armedConfirmTimer = null;
+  // The pending-disarm confirmation is per-view, ephemeral UI intent. Reset it on
+  // every tab change, mount, and unmount so a half-finished two-step disarm cannot
+  // carry across navigation or remount, and the 4s timer never fires post-teardown.
+  function clearArmedConfirm() {
+    _armedConfirmPending = false;
+    if (_armedConfirmTimer) { clearTimeout(_armedConfirmTimer); _armedConfirmTimer = null; }
+  }
 
   var TABS = [
     { key: "obs", icon: "activity", label: "Observability" },
@@ -1436,6 +1439,7 @@
 
   Pet.switchTab = function (name) {
     Pet.state.tab = name;
+    clearArmedConfirm();  // a tab change abandons any half-finished two-step disarm
     if (_tabStrip) {
       _tabStrip.querySelectorAll(".tab").forEach(function (t) {
         var active = t.dataset.key === name;
@@ -1458,6 +1462,7 @@
     el.innerHTML = "";
     _historySeeded = false;  // PET-102: re-seed on a re-mount that skipped unmount (plugin hot-reload)
     _armedSeeded = false;    // PET-111: re-fetch the armed bit on (re-)mount
+    clearArmedConfirm();     // drop any stale disarm-confirm + timer from a skipped unmount
 
     // Pane header
     var titleRow = Pet.h("div", { className: "pane-titlerow" },
@@ -1512,6 +1517,7 @@
     _tabStrip = null;
     _historySeeded = false;  // PET-102: next mount re-seeds the history buffer
     _armedSeeded = false;    // PET-111: next mount re-fetches the armed bit
+    clearArmedConfirm();     // clear the pending-disarm confirm + its 4s timer on teardown
   };
 
   window.__PETASOS_CONSOLE__ = Pet;
