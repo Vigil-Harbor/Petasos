@@ -341,3 +341,75 @@ test("revealFieldSections: unknown / missing-panel field is a safe no-op", () =>
     {}
   );
 });
+
+// ── PET-123: section intro copy carried builder -> render ────────────────────
+// The bug class is "registry copy that exists end-to-end but is dropped at the
+// last frontend hop". These pin the carry (builder), the graceful-degradation
+// sentinel, and the Pet.sectionIntro builder (trim + never-throw).
+
+// Dedicated loader sibling (keeps the PET-114 loader test name accurate).
+test("loader: petasos.js exports the PET-123 surface (sectionIntro)", () => {
+  assert.equal(typeof Pet.sectionIntro, "function");
+});
+
+// A registry carrying distinct, non-empty descriptions, in scrambled `order`.
+function registryWithDescriptions() {
+  return [
+    { key: "alerting", label: "Alerting", description: "alerting intro copy", default_collapsed: true, order: 9 },
+    { key: "profiles", label: "Profiles", description: "profiles intro copy", default_collapsed: false, order: 0 },
+    { key: "scanning", label: "Scanning", description: "scanning intro copy", default_collapsed: false, order: 4 },
+  ];
+}
+
+test("groupConfigSections: carries each registry description onto its group (PET-123)", () => {
+  const groups = Pet.groupConfigSections(scrambledFields(), registryWithDescriptions());
+  // Order still by `order` — the carry is additive, ordering untouched.
+  assertLoose.deepEqual(
+    groups.map((g) => g.key),
+    ["profiles", "scanning", "alerting"]
+  );
+  // Every emitted group's description equals its registry entry's description.
+  assertLoose.deepEqual(
+    groups.map((g) => g.description),
+    ["profiles intro copy", "scanning intro copy", "alerting intro copy"]
+  );
+});
+
+test("groupConfigSections: fallback groups carry description === \"\" (PET-123)", () => {
+  // Stale backend (null / []) — every trailing group gets the never-undefined "".
+  // strict assert.equal rejects undefined, so this pins strictly "".
+  for (const stale of [null, []]) {
+    const groups = Pet.groupConfigSections(scrambledFields(), stale);
+    assert.ok(groups.length > 0);
+    for (const g of groups) {
+      assert.equal(g.description, "", "stale-backend group description is strictly \"\"");
+    }
+  }
+  // Unknown-section field (no registry entry) — trailing group also gets "".
+  const fields = scrambledFields().concat([{ name: "x1", section: "future_thing" }]);
+  const groups = Pet.groupConfigSections(fields, registryWithDescriptions());
+  const last = groups[groups.length - 1];
+  assert.equal(last.key, "future_thing");
+  assert.equal(last.description, "", "unknown-section group description is strictly \"\"");
+});
+
+test("sectionIntro: renders a node whose textContent is the trimmed copy (PET-123)", () => {
+  // Deliberate leading/trailing whitespace — pins that the builder trims, not
+  // just that it renders clean input.
+  const node = Pet.sectionIntro("  Clean up disguised text before scanning.  ");
+  assert.ok(node, "intro node is truthy");
+  assert.equal(node.nodeType, 1, "intro is an element node");
+  assert.equal(node.textContent, "Clean up disguised text before scanning.");
+});
+
+test("sectionIntro: blank / non-string copy degrades to null, never throws (PET-123)", () => {
+  // Empty, whitespace-only, null, undefined, plus non-strings (number + the two
+  // collection types) so the test reads as obviously type-class-total.
+  for (const bad of ["", "   ", null, undefined, 42, [], {}]) {
+    let out = "UNSET";
+    assert.doesNotThrow(() => {
+      out = Pet.sectionIntro(bad);
+    });
+    assert.equal(out, null, `sectionIntro(${JSON.stringify(bad)}) returns null`);
+  }
+});

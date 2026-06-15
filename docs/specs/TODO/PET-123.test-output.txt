@@ -1,0 +1,57 @@
+PET-123 test gate — bec29b1 on feat/pet-123-config-section-intros
+Resolved test command (spec § Test command):
+  node --test tests/js/config-sections.test.mjs
+  python -m pytest tests/test_config_meta.py
+  ruff check . && ruff format --check . && mypy --strict petasos/console/_config_meta.py
+
+==================== node --test tests/js/config-sections.test.mjs ====================
+✔ loader: petasos.js exports the PET-114 surfaces (0.6142ms)
+✔ groupConfigSections: registry order + labels + booleans (0.4938ms)
+✔ groupConfigSections: default_collapsed is coerced to a real boolean (0.0879ms)
+✔ groupConfigSections: skips registry sections with no fields (0.0998ms)
+✔ groupConfigSections: unknown-section field is a trailing expanded group (0.1124ms)
+✔ groupConfigSections: stale-backend fallback (no sections) (0.1248ms)
+✔ groupConfigSections: empty/non-array fields return [] (0.066ms)
+✔ Pet.Panel collapsible: structure (collapsed) (0.4637ms)
+✔ Pet.Panel collapsible: structure (expanded) (0.5163ms)
+✔ Pet.Panel collapsible: click toggles live state + aria + onToggle (0.2218ms)
+✔ Pet.Panel collapsible: Enter key toggles (0.1351ms)
+✔ Pet.Panel collapsible: Space key toggles (0.0972ms)
+✔ Pet.Panel collapsible: other keys do not toggle (0.0727ms)
+✔ Pet.Panel collapsible: petSetCollapsed expands without firing onToggle (0.118ms)
+✔ Pet.Panel non-collapsible: unchanged (regression guard) (0.0915ms)
+✔ revealFieldSections: expands the owning section of an errored field (0.0997ms)
+✔ revealFieldSections: unknown / missing-panel field is a safe no-op (0.1103ms)
+✔ loader: petasos.js exports the PET-123 surface (sectionIntro) (0.0251ms)
+✔ groupConfigSections: carries each registry description onto its group (PET-123) (0.0703ms)
+✔ groupConfigSections: fallback groups carry description === "" (PET-123) (0.0755ms)
+✔ sectionIntro: renders a node whose textContent is the trimmed copy (PET-123) (0.0715ms)
+✔ sectionIntro: blank / non-string copy degrades to null, never throws (PET-123) (0.0568ms)
+ℹ tests 22
+ℹ suites 0
+ℹ pass 22
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 54.848
+
+==================== python -m pytest tests/test_config_meta.py ====================
+============================= test session starts =============================
+platform win32 -- Python 3.10.6, pytest-9.0.3, pluggy-1.6.0
+rootdir: C:\Users\zioni\Documents\Vigil-Harbor\PET-123-worktree
+configfile: pyproject.toml
+plugins: anyio-4.13.0, asyncio-1.3.0
+asyncio: mode=auto, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 18 items
+
+tests\test_config_meta.py ..................                             [100%]
+
+============================= 18 passed in 0.05s ==============================
+
+==================== ruff check . ====================
+All checks passed!
+==================== ruff format --check . ====================
+116 files already formatted
+==================== mypy --strict petasos/console/_config_meta.py ====================
+Success: no issues found in 1 source file

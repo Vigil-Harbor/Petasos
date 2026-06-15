@@ -227,6 +227,13 @@ def test_section_metadata_entry_shape() -> None:
         assert isinstance(s["description"], str) and s["description"].strip()
         assert isinstance(s["default_collapsed"], bool)
         assert isinstance(s["order"], int)
+        # PET-123 D6: ELI5 section copy uses no em dash (house style). Fence the
+        # em dash plus the two substitutes a copy editor reaches for (en dash,
+        # double hyphen) as a strict superset of D6.
+        for d in ("—", "–", "--"):  # em dash, en dash, double hyphen
+            assert d not in s["description"], (
+                f"{s['key']} description uses a banned dash {d!r} (house style: no em dashes)"
+            )
 
 
 def test_config_section_is_frozen_slots_dataclass() -> None:
