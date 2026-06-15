@@ -172,6 +172,11 @@
 .pet .live { display: inline-flex; align-items: center; gap: 6px; font-size: 10px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--ok); }
 .pet .live .blip { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 8px var(--ok); animation: petpulse 1.8s ease-in-out infinite; }
 @keyframes petpulse { 0%,100%{opacity:1} 50%{opacity:.35} }
+/* PET-13: connection state. Streaming = green LIVE (pulse); SSE-fallback = amber POLLING (steady). */
+.pet .live.polling { color: var(--warn); }
+.pet .live.polling .blip { background: var(--warn); box-shadow: none; animation: none; }
+/* PET-13: protection-weakening Apply confirm — mirrors the disarm banner's amber confirm register. */
+.pet .btn-primary.confirm-weaken { background: var(--med-soft); color: var(--warn); border-color: var(--warn); }
 
 /* ── PET-127: skeleton loading primitive ── */
 .pet .skel {
