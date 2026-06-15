@@ -52,3 +52,6 @@ docs/research/
 
 # Claude Code
 .claude/
+
+# Internal specs/reviews live in the wiki, not the public repo
+docs/specs/
