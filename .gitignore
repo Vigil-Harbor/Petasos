@@ -58,3 +58,7 @@ docs/specs/
 
 # Internal planning briefs - kept local, not published
 docs/briefs/
+
+# Old console spec scaffolding - kept local, not published
+docs/console/petasos-console-frontend-handoff.md
+docs/console/handoff-extracted/
