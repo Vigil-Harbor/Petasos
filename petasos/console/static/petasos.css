@@ -337,3 +337,42 @@
   border: 1px solid rgba(232,144,28,.35);
   box-shadow: 0 4px 16px rgba(0,0,0,.4);
 }
+
+/* ── PET-13 OVERDRIVE: escalation trap stress test ── */
+.pet .btn-trap { background: var(--crit-soft); color: var(--crit); border: 1px solid rgba(237,66,69,.4); font-weight: 700; letter-spacing: .3px; }
+.pet .btn-trap:hover { background: color-mix(in srgb, var(--crit-soft) 60%, var(--crit)); color: var(--tx-bright); }
+.pet .btn-trap:disabled { opacity: .5; cursor: default; }
+
+.pet .trap-viz { display: flex; flex-direction: column; gap: 12px; padding: 14px; border: 1px solid var(--border); border-radius: var(--r-panel); background: var(--bg-panel); transition: border-color .2s; }
+.pet .trap-viz.sprung { border-color: var(--crit); box-shadow: inset 0 0 0 1px rgba(237,66,69,.35); }
+.pet .trap-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
+
+.pet .trap-bar { height: 6px; border-radius: 3px; background: var(--bg-input); overflow: hidden; }
+.pet .trap-bar-fill { height: 100%; width: 0; border-radius: 3px; background: linear-gradient(90deg, var(--low), var(--med), var(--crit)); transition: width .16s ease-out; }
+
+.pet .trap-body { display: flex; gap: 12px; }
+.pet .trap-ladder { display: flex; flex-direction: column; gap: 6px; flex: 0 0 168px; }
+.pet .trap-rung { position: relative; overflow: hidden; border: 1px solid var(--border); border-radius: var(--r-card); padding: 8px 10px; background: var(--bg-raised); opacity: .5; transition: opacity .18s, border-color .18s; }
+.pet .trap-rung-fill { position: absolute; inset: 0; transform: scaleX(0); transform-origin: left; transition: transform .22s ease-out; }
+.pet .trap-rung.passed { opacity: 1; border-color: rgba(237,66,69,.35); }
+.pet .trap-rung.passed .trap-rung-fill { transform: scaleX(1); background: var(--crit-soft); }
+.pet .trap-rung.active { opacity: 1; border-color: var(--warn); }
+.pet .trap-rung.active .trap-rung-fill { transform: scaleX(1); background: var(--med-soft); }
+.pet .trap-rung-body { position: relative; }
+.pet .trap-rung-tier { font-family: var(--font-mono); font-size: 11px; font-weight: 700; color: var(--tx-bright); letter-spacing: .5px; }
+.pet .trap-rung-act { font-size: 10px; color: var(--tx-faint); text-transform: uppercase; letter-spacing: 1px; }
+
+.pet .trap-stream { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; max-height: 220px; overflow-y: auto; }
+.pet .trap-shot { display: flex; align-items: center; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--border-soft); }
+.pet .trap-shot-n { font-size: 11px; color: var(--tx-mut); flex: 0 0 32px; }
+.pet .trap-shot-tier { margin-left: auto; color: var(--tx-mut); }
+
+.pet .trap-lockdown { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: var(--r-card); background: var(--crit-soft); border: 1px solid var(--crit); }
+.pet .trap-lock-mark { width: 30px; height: 30px; object-fit: contain; flex: none; }
+.pet .trap-lock-title { font-family: var(--font-mono); font-size: 14px; font-weight: 700; color: var(--crit); letter-spacing: 1px; }
+.pet .trap-lock-sub { font-size: 11.5px; color: var(--tx-mut); margin-top: 2px; }
+.pet .trap-note { font-size: 11px; color: var(--tx-faint); padding-top: 6px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .pet .trap-bar-fill, .pet .trap-rung, .pet .trap-rung-fill, .pet .trap-viz { transition: none; }
+}
