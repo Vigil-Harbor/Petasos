@@ -162,7 +162,12 @@ class ConsoleHandlers:
             msg = str(exc)
             field = _extract_field_from_error(msg, body)
             return None, [{"field": field, "message": msg}]
-        self.pipeline._config = validated
+        # PET-126: route through reconfigure so the change takes effect on the
+        # running pipeline (frequency, escalation, audit verbosity, alerting, and
+        # decode_encoded_payloads all live-update), not just on a new session. A
+        # bare ``self.pipeline._config = validated`` only updated the fields read
+        # directly off _config at scan time.
+        self.pipeline.reconfigure(validated)
         persisted = _persist_config(validated)
         result = {
             "config": validated.to_dict(redact_secrets=True),

@@ -462,6 +462,16 @@ class MinimalScanner:
             decode_encoded_payloads=self._decode_encoded_payloads,
         )
 
+    def set_decode_encoded_payloads(self, flag: bool) -> None:
+        """PET-126: flip the decode toggle in place (read live at scan time).
+
+        The one targeted in-place mutation in the reconfigure path: MinimalScanner
+        carries no session state, so a caller-supplied scanner keeps its other
+        tunables (``max_payload_bytes``, ``max_json_depth``, ``suppress_rules``)
+        and its object identity rather than being rebuilt (spec Decision 1).
+        """
+        self._decode_encoded_payloads = flag
+
     @property
     def name(self) -> str:
         return "minimal"
