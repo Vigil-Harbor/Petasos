@@ -235,16 +235,48 @@ test("renderStrengthDial: degrades without throwing on malformed shapes", () => 
 
 test("renderStrengthDial: a metal click invokes the apply path with that preset's overrides", () => {
   let putBody = null;
-  // Stub the apply path; record the PUT body the dial sends.
-  Pet.api.putConfig = function (body) {
-    putBody = body;
-    return { then: function () { return { then: function () {} }; } };
-  };
-  const onSelect = function (p) { Pet.api.putConfig(p.overrides); };
-  const dial = Pet.renderStrengthDial(presets(), "iron", onSelect);
+  const originalPutConfig = Pet.api.putConfig;
+  // Stub the apply path; record the PUT body the dial sends. Restored in finally
+  // so the global mutation cannot leak into later tests.
+  try {
+    Pet.api.putConfig = function (body) {
+      putBody = body;
+      return { then: function () { return { then: function () {} }; } };
+    };
+    const onSelect = function (p) { Pet.api.putConfig(p.overrides); };
+    const dial = Pet.renderStrengthDial(presets(), "iron", onSelect);
 
-  fire(segByKey(dial, "bronze"), "click");
-  assertLoose.deepEqual(putBody, BRONZE);
+    fire(segByKey(dial, "bronze"), "click");
+    assertLoose.deepEqual(putBody, BRONZE);
+  } finally {
+    Pet.api.putConfig = originalPutConfig;
+  }
+});
+
+test("renderStrengthDial: the in-segment HelpTip swallows clicks (no preset apply)", () => {
+  // Regression for PET-124 review (Major): the HelpTip lives inside the clickable
+  // segment, so reading the tooltip must not bubble to onSelect. The fix registers
+  // a click handler on the tip that stops propagation; assert it is present.
+  const dial = Pet.renderStrengthDial(presets(), "iron", function () {});
+  const ironSeg = segByKey(dial, "iron");
+  const help = (function find(node) {
+    for (const c of node.childNodes || []) {
+      if (c.nodeType === 1) {
+        if (hasClass(c, "help")) return c;
+        const f = find(c);
+        if (f) return f;
+      }
+    }
+    return null;
+  })(ironSeg);
+  assert.ok(help, "metal segment carries a HelpTip");
+  assert.ok(help.handlers.click && help.handlers.click.length > 0, "HelpTip has a click handler");
+  // Firing the tip's click invokes its stopPropagation guard without throwing.
+  let propagationStopped = false;
+  assert.doesNotThrow(() =>
+    fire(help, "click", { stopPropagation() { propagationStopped = true; } })
+  );
+  assert.ok(propagationStopped, "tip click calls stopPropagation");
 });
 
 test("renderStrengthDial: the Custom segment is not clickable (no onSelect)", () => {
