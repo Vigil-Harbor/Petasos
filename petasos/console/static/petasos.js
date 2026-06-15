@@ -1715,7 +1715,9 @@
       icon: "flow", title: "Links",
       content: Pet.h("div", {},
         Pet.h("a", { href: "https://github.com/Vigil-Harbor/Petasos", target: "_blank", rel: "noopener", className: "link", style: { display: "block", padding: "6px 0" } }, "Repository"),
-        Pet.h("a", { href: "https://github.com/Vigil-Harbor/Petasos/issues", target: "_blank", rel: "noopener", className: "link", style: { display: "block", padding: "6px 0" } }, "Issue Tracker")
+        Pet.h("a", { href: "https://github.com/Vigil-Harbor/Petasos/issues", target: "_blank", rel: "noopener", className: "link", style: { display: "block", padding: "6px 0" } }, "Issue Tracker"),
+        Pet.h("a", { href: "https://github.com/Vigil-Harbor/Petasos/blob/master/docs/usage/scanners.md", target: "_blank", rel: "noopener", className: "link", style: { display: "block", padding: "6px 0" } }, "Scanner Reference"),
+        Pet.h("a", { href: "https://github.com/Vigil-Harbor/Petasos/blob/master/docs/usage/configuration.md", target: "_blank", rel: "noopener", className: "link", style: { display: "block", padding: "6px 0" } }, "Configuration Guide")
       ),
     }));
 

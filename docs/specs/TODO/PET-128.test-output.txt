@@ -1,0 +1,55 @@
+........................................................................ [  4%]
+........................................................................ [  8%]
+..................................................x..................... [ 12%]
+........................................................................ [ 16%]
+........................................................................ [ 20%]
+........................................................................ [ 25%]
+........................................................................ [ 29%]
+.............ssssssss................................................... [ 33%]
+........................................................................ [ 37%]
+........................................................................ [ 41%]
+........................................................................ [ 45%]
+........................................................................ [ 50%]
+........................................................................ [ 54%]
+.............................................ssss....................... [ 58%]
+........................................................................ [ 62%]
+..........sssssssssssssss.......................ssssssssss....ssss...... [ 66%]
+........................................................................ [ 70%]
+........................................................................ [ 75%]
+........................................................................ [ 79%]
+........................................................................ [ 83%]
+........................................................................ [ 87%]
+........................................................................ [ 91%]
+........................................................................ [ 96%]
+....................................................................     [100%]
+============================== warnings summary ===============================
+tests/test_console_armed.py: 8 warnings
+tests/test_console_playground.py: 2 warnings
+tests/test_console_validation.py: 24 warnings
+  C:\Users\zioni\Documents\Vigil-Harbor\PET-128-worktree\petasos\console\server.py:315: DeprecationWarning: 
+          on_event is deprecated, use lifespan event handlers instead.
+  
+          Read more about it in the
+          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+          
+    @app.on_event("shutdown")
+
+tests/test_console_armed.py: 8 warnings
+tests/test_console_playground.py: 2 warnings
+tests/test_console_validation.py: 24 warnings
+  C:\python310\lib\site-packages\fastapi\applications.py:4598: DeprecationWarning: 
+          on_event is deprecated, use lifespan event handlers instead.
+  
+          Read more about it in the
+          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+          
+    return self.router.on_event(event_type)  # ty: ignore[deprecated]
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+1682 passed, 41 skipped, 1 deselected, 1 xfailed, 68 warnings in 35.40s
+=== ruff check . ===
+All checks passed!
+=== ruff format --check . ===
+119 files already formatted
+=== mypy --strict . ===
+Success: no issues found in 119 source files
