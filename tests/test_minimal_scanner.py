@@ -193,10 +193,12 @@ class TestSuppression:
         assert _find(r, injection_id)
         assert _find(r, structural_id)
 
-        # (2) Profile route: with_suppress_rules re-runs the subtraction via __init__.
-        profiled = MinimalScanner().with_suppress_rules(frozenset({injection_id}))
+        # (2) Profile route: with_suppress_rules re-runs the subtraction via __init__,
+        # so both families survive it too.
+        profiled = MinimalScanner().with_suppress_rules(frozenset({injection_id, structural_id}))
         r2 = await profiled.scan(content)
         assert _find(r2, injection_id)
+        assert _find(r2, structural_id)
 
         # Sanity: an empty suppress set still fires every unsuppressible rule.
         baseline = MinimalScanner(suppress_rules=frozenset())
