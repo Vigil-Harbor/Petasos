@@ -133,7 +133,7 @@ the guard to defend its own config file.
   `config.yaml` (resolved by `resolve_hermes_config_path()`: `HERMES_HOME`, then
   the active-profile pointer, then the v0.15 root, all user-writable paths the
   agent operates in). `read_armed()` re-reads that file on the hot path (roughly
-  a 1 second TTL), so a write of `enabled: false` disarms within about a second;
+  a 1-second TTL), so a write of `enabled: false` disarms within about a second;
   `_pre_tool_call` then passes every call through with no enforcement. There is
   no path-based protection (classification is name-based by design, and PET-112
   deliberately exempts the agent's own local writes), so a write to `config.yaml`
