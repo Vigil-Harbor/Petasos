@@ -63,6 +63,9 @@ def _prep_init(mod: types.ModuleType, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(mod, "_init_error", None)
     monkeypatch.setattr(mod, "_pipeline", None)
     monkeypatch.setattr(mod, "_guard", None)
+    # PET-126: _pre_tool_call now checks for a live config.yaml change; neutralize it
+    # so these wiring tests stay isolated from the machine's real config.
+    monkeypatch.setattr(mod, "_maybe_reconfigure", lambda: None)
 
 
 # ---------------------------------------------------------------------------

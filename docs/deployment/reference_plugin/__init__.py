@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import contextlib
 import logging
 import os
 import threading
@@ -48,6 +49,17 @@ _session_ids: dict[int, str] = {}
 _disarm_log_lock = threading.Lock()
 _last_disarm_log = 0.0
 _DISARM_LOG_EVERY_S = 30.0
+
+# PET-126: live config reload. The cross-process re-read (petasos.console._reload)
+# detects a config.yaml change on the hot path and _maybe_reconfigure applies it
+# to the running pipeline + guard + lineage registry. Two rate-limited streams
+# reuse the _DISARM_LOG_EVERY_S window but keep their OWN clocks so neither can
+# suppress the other (or the security-critical PETASOS_DISARMED tripwire): an
+# attribution WARNING on each applied change, and a failure WARNING on a
+# build/apply error (keep-last-good).
+_reload_log_lock = threading.Lock()
+_last_attribution_log = 0.0
+_last_reload_fail_log = 0.0
 
 # PET-107: sub-agent lineage (Option A). The registry is constructed in
 # _deferred_init (it shares the tracker's clock + lock discipline), but the
@@ -207,6 +219,40 @@ def _load_config() -> dict[str, Any]:
     return section
 
 
+def _build_config_from_section(section: dict[str, Any]):
+    """Build a validated PetasosConfig from a raw petasos: section.
+
+    Applies the SAME env overlay as boot (PET-126 Decision 10): injects
+    session_secret / hash_key from the environment and applies boot's
+    hash_key-missing anonymize=False defang, so a boot config and a live-reload
+    config are equivalent. Operates on a copy and never mutates the caller's dict.
+    Raises (TypeError/ValueError) on a validation failure of any other field; the
+    reload path absorbs that via its fail-safe keep-last-good branch.
+    """
+    from petasos import PetasosConfig
+
+    raw = dict(section)
+    # host_id is a Pipeline constructor arg (not a config field) and `enabled` is
+    # owned by the _armed fast path; neither is reconfigured (Decision 2).
+    raw.pop("host_id", None)
+    raw.pop("enabled", None)
+
+    session_secret_b64 = os.environ.get("PETASOS_SESSION_SECRET")
+    if session_secret_b64:
+        # Invalid base64: leave as-is (boot warns separately and does not inject).
+        with contextlib.suppress(Exception):
+            raw["session_secret"] = base64.b64decode(session_secret_b64)
+
+    hash_key = os.environ.get("PETASOS_HASH_KEY")
+    if hash_key:
+        raw["hash_key"] = hash_key
+    elif raw.get("redaction_mode") == "hash":
+        # Boot's defang: downgrade rather than raise when hash_key is absent.
+        raw["anonymize"] = False
+
+    return PetasosConfig.from_dict(raw)
+
+
 # ---------------------------------------------------------------------------
 # Deferred initialization — runs in background thread from register()
 # ---------------------------------------------------------------------------
@@ -238,11 +284,15 @@ def _deferred_init() -> None:
                 enabled,
             )
 
+            # Boot-time operator guidance. The actual env overlay + validation is
+            # the shared _build_config_from_section (also used by the live reload,
+            # PET-126 Decision 10), so a boot config and a live-reload config are
+            # equivalent. The warnings stay here so the reload path does not re-emit
+            # them on every applied change.
             session_secret_b64 = os.environ.get("PETASOS_SESSION_SECRET")
-            session_secret = None
             if session_secret_b64:
                 try:
-                    session_secret = base64.b64decode(session_secret_b64)
+                    base64.b64decode(session_secret_b64)
                 except Exception:
                     logger.warning(
                         "PETASOS_SESSION_SECRET is not valid base64"
@@ -251,22 +301,18 @@ def _deferred_init() -> None:
             else:
                 logger.warning("PETASOS_SESSION_SECRET not set — HMAC session binding disabled")
 
-            hash_key = os.environ.get("PETASOS_HASH_KEY")
-            if not hash_key and raw_config.get("redaction_mode") == "hash":
+            if (
+                not os.environ.get("PETASOS_HASH_KEY")
+                and raw_config.get("redaction_mode") == "hash"
+            ):
                 logger.warning(
                     "PETASOS_HASH_KEY not set but redaction_mode=hash "
                     "— PII anonymization will fail. Set PETASOS_HASH_KEY "
                     "or change redaction_mode."
                 )
-                raw_config["anonymize"] = False
-
-            if session_secret is not None:
-                raw_config["session_secret"] = session_secret
-            if hash_key:
-                raw_config["hash_key"] = hash_key
 
             try:
-                config = PetasosConfig.from_dict(raw_config)
+                config = _build_config_from_section(raw_config)
             except (TypeError, ValueError) as exc:
                 logger.error("PetasosConfig validation failed: %s — using defaults", exc)
                 config = PetasosConfig()
@@ -566,6 +612,103 @@ def _log_disarmed_bypass(tool_name: str) -> None:
     )
 
 
+def _reset_reload_logs() -> None:
+    """Test seam — reset the PET-126 reload rate-limit clocks."""
+    global _last_attribution_log, _last_reload_fail_log
+    with _reload_log_lock:
+        _last_attribution_log = 0.0
+        _last_reload_fail_log = 0.0
+
+
+def _log_reconfigure_applied() -> None:
+    """Rate-limited WARNING so every applied live config change is attributable."""
+    global _last_attribution_log
+    now = time.monotonic()
+    with _reload_log_lock:
+        if now - _last_attribution_log < _DISARM_LOG_EVERY_S:
+            return
+        _last_attribution_log = now
+    logger.warning("PETASOS_RECONFIGURED: live config.yaml change applied to the running session")
+
+
+def _log_reload_failure(detail: str) -> None:
+    """Rate-limited WARNING for a build/apply failure; the live config is unchanged.
+
+    Its own clock (never _last_disarm_log / _last_attribution_log) so a
+    persistently-malformed section, which re-detects every TTL, cannot spam the
+    log or suppress the disarm tripwire.
+    """
+    global _last_reload_fail_log
+    now = time.monotonic()
+    with _reload_log_lock:
+        if now - _last_reload_fail_log < _DISARM_LOG_EVERY_S:
+            return
+        _last_reload_fail_log = now
+    logger.warning("PETASOS_RELOAD_FAILED: %s; keeping last-good config", detail)
+
+
+async def _apply_reconfigure(cfg) -> None:
+    """Apply a reloaded config to the live gateway as one uninterrupted unit.
+
+    Dispatched onto _async_loop via _run_async (PET-126 Decision 6), so it is
+    serialized with scans between await points. The body is fully synchronous (it
+    never yields), so the steps are atomic with respect to any other loop task.
+
+    Two-phase (Decision 5): validate everything that can fail BEFORE committing
+    anything, then commit. Because guard.validate_config and the apply tracker
+    stages parse the SAME already-validated cfg through pure functions, phase-1
+    success guarantees no commit step raises, so there is no partial cross-object
+    apply. The gateway owns the guard, lineage registry, and egress set, which the
+    pipeline cannot reach, so all four are reconfigured here (Decision 4).
+    """
+    # Phase 1: validate (no mutation) — D8 overlap + frequency_weights trial.
+    _guard.validate_config(cfg)
+    # Phase 2: commit.
+    _pipeline.reconfigure(cfg)
+    _guard.apply_config(cfg)
+    if _lineage_registry is not None:
+        _lineage_registry.apply_config(cfg)
+    global _egress_sink_tools
+    _egress_sink_tools = frozenset(
+        c for c in (canonicalize_tool_name(t) for t in cfg.egress_sink_tools) if c
+    )
+
+
+def _maybe_reconfigure() -> None:
+    """PET-126: detect a config.yaml change and hot-apply it to the live session.
+
+    Called at the top of _pre_tool_call once initialized. The no-change path is
+    one os.stat (see _reload). On a detected change: build the config (failure ->
+    rate-limited fail log, keep last-good, do NOT commit so it retries next call)
+    and dispatch _apply_reconfigure onto _async_loop. On a successful apply:
+    commit_seen(key) + a rate-limited attribution WARNING. On apply failure:
+    swallow fail-safe (matching the _is_armed / guard-eval posture, rate-limited
+    fail log) and do NOT commit, so the change is re-attempted next call. A reload
+    error never blocks a tool call and never silently pins a stale config.
+    """
+    try:
+        from petasos.console._reload import commit_seen, read_changed_section
+    except Exception:
+        return
+
+    changed = read_changed_section()
+    if changed is None:
+        return
+    section, key = changed
+    try:
+        cfg = _build_config_from_section(section)
+    except Exception as exc:
+        _log_reload_failure(f"build failed: {exc}")
+        return  # keep last-good; not committed -> retried next call
+    try:
+        _run_async(_apply_reconfigure(cfg))
+    except Exception as exc:
+        _log_reload_failure(f"apply failed: {exc}")
+        return  # keep last-good; not committed -> retried next call
+    commit_seen(key)
+    _log_reconfigure_applied()
+
+
 def _pre_tool_call(
     tool_name: str, args: dict, task_id: str = "", **kwargs
 ) -> dict[str, str] | None:
@@ -583,6 +726,13 @@ def _pre_tool_call(
         # silently allow during the cold-start window (fail_mode=closed
         # means we should be blocking, not passing through).
         return _fallback_pre_tool_call(tool_name, args, task_id, **kwargs)
+
+    # PET-126: initialized here — pick up any live config.yaml change before this
+    # call is evaluated. Self-guarded and fail-safe; never blocks the tool call.
+    try:
+        _maybe_reconfigure()
+    except Exception as exc:
+        logger.debug("Petasos reconfigure check failed: %s — keeping last-good", exc)
 
     session_id = _derive_session_id(task_id, kwargs)
 

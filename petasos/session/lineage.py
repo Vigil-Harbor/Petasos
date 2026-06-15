@@ -40,6 +40,21 @@ class LineageRegistry:
         self._lock = threading.Lock()
         self._edges: dict[str, tuple[str, float]] = {}
 
+    def apply_config(self, new_config: PetasosConfig) -> None:
+        """PET-126: rebind the cached bounds in place, preserving ``_edges``.
+
+        ``_max_depth`` / ``_max_edges`` / ``_edge_ttl`` are cached at construction
+        and read live in ``register`` / ``ancestors`` / ``is_pinned``. The rebind
+        runs under ``_lock`` (the same lock those reads take), which is the
+        happens-before for the next live scalar read. The load-bearing lock-order
+        invariant is preserved: this method touches only registry state and never
+        calls into ``FrequencyTracker`` (spec D10).
+        """
+        with self._lock:
+            self._max_depth = new_config.lineage_max_depth
+            self._max_edges = new_config.lineage_max_edges
+            self._edge_ttl = new_config.lineage_edge_ttl_seconds
+
     def register(self, child: str, parent: str) -> None:
         """Record (or re-parent) the ``child -> parent`` edge.
 

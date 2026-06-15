@@ -54,6 +54,25 @@ class AlertManager:
         self._cross_session_tracker: dict[str, float] = {}
         self._callback_errors: list[str] = []
 
+    def apply_config(self, new_config: PetasosConfig) -> None:
+        """PET-126: rebind ``_config``; rebuild ``_pii_ring_buffer`` only when
+        ``alert_ring_buffer_capacity`` changed.
+
+        On a capacity *shrink*, ``deque(old, maxlen=new)`` keeps the most-recent
+        ``new`` items (oldest dropped): ring-buffer recency semantics. All
+        counters, cooldowns, per-rule/per-session deques, ``_ring_buffers``, and
+        ``_cross_session_tracker`` are preserved. The capacity is pre-validated as
+        a positive int in ``__post_init__``, so the rebuild cannot raise. Existing
+        per-rule ``_ring_buffers`` entries keep their construction-time ``maxlen``
+        (harmless: ``__post_init__`` bounds ``alert_rapid_fire_count <= capacity``);
+        newly-created entries pick up the new capacity.
+        """
+        old_capacity = self._config.alert_ring_buffer_capacity
+        self._config = new_config
+        new_capacity = new_config.alert_ring_buffer_capacity
+        if new_capacity != old_capacity:
+            self._pii_ring_buffer = deque(self._pii_ring_buffer, maxlen=new_capacity)
+
     @property
     def callback_errors(self) -> tuple[str, ...]:
         return tuple(self._callback_errors)

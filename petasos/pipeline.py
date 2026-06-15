@@ -308,6 +308,10 @@ class Pipeline:
 
         self._frequency_tracker = FrequencyTracker(self._config)
         self._profile_resolver = ProfileResolver()
+        # PET-126: retain the raw constructor `profile` arg so reconfigure can
+        # re-resolve _default_profile with the same precedence (a pinned profile
+        # stays pinned; a config-driven one follows profile_name — Decision 7).
+        self._profile_arg = profile
         self._default_profile: ResolvedProfile | None = self._resolve_profile(profile)
         self._audit_emitter = AuditEmitter(self._config, on_audit=on_audit)
         self._alert_manager = AlertManager(self._config, on_alert=on_alert)
@@ -328,6 +332,48 @@ class Pipeline:
     @property
     def config(self) -> PetasosConfig:
         return self._config
+
+    def reconfigure(self, new_config: PetasosConfig) -> None:
+        """Atomically swap ``self._config`` and propagate it into every
+        subcomponent that cached config, without resetting accumulated session
+        state (PET-126).
+
+        The single in-process propagation primitive (spec Decision 1). Order is
+        chosen for all-or-nothing atomicity (Decision 5):
+
+        1. Merge-preserve the restart-required ``session_secret`` (Decision 2): the
+           applied config always keeps the LIVE secret. A differing non-None
+           incoming secret logs one WARNING and is ignored (restart required); a
+           None/absent secret preserves silently (the console path always drops
+           it). ``replace`` re-runs ``__post_init__`` (full validation) before any
+           live state is touched, so a sub-floor or unordered tier is rejected here.
+        2. Apply the only fail-prone step FIRST: ``FrequencyTracker.apply_config``
+           stages the weight parse then commits. If it raises (malformed weights),
+           ``self._config`` is untouched and the pipeline stays wholly on the prior
+           config.
+        3. Apply the infallible steps: audit, alert, and the MinimalScanner decode
+           flag.
+        4. Commit the swap and re-resolve the profile.
+        """
+        applied = replace(new_config, session_secret=self._config.session_secret)
+        if (
+            new_config.session_secret is not None
+            and new_config.session_secret != self._config.session_secret
+        ):
+            _logger.warning(
+                "reconfigure: session_secret change ignored (restart required); "
+                "the live secret is preserved"
+            )
+        # Fail-prone step first (the atomic abort point, Decision 5).
+        self._frequency_tracker.apply_config(applied)
+        # Infallible steps.
+        self._audit_emitter.apply_config(applied)
+        self._alert_manager.apply_config(applied)
+        assert self._minimal_scanner is not None
+        self._minimal_scanner.set_decode_encoded_payloads(applied.decode_encoded_payloads)
+        # Commit the swap, then re-resolve the profile with constructor precedence.
+        self._config = applied
+        self._default_profile = self._resolve_profile(self._profile_arg)
 
     def activate(self, key: str) -> LicenseState:
         """Validate a license key for supporter/compliance recognition.
