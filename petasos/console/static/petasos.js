@@ -463,7 +463,14 @@
         // PET-99 D6: a malformed frame (JSON.parse("null"), a number, an array)
         // must never enter the render buffer — scanHistoryRows/renderDashboard
         // guard on read, but keeping the buffer object-only is the cheaper floor.
-        if (d && typeof d === "object") Pet.state.scanHistory.unshift(d);
+        if (d && typeof d === "object") {
+          Pet.state.scanHistory.unshift(d);
+          // PET-13: announce the newest verdict to AT; the wholesale re-render below
+          // is not screen-reader-followable on its own.
+          var _v = d.safe === false ? "blocked" : "allowed";
+          var _nf = Array.isArray(d.findings) ? d.findings.length : 0;
+          if (Pet.announce) Pet.announce("Scan " + _v + (_nf ? (", " + _nf + " finding" + (_nf === 1 ? "" : "s")) : ""));
+        }
         if (Pet.state.scanHistory.length > 500) Pet.state.scanHistory.length = 500;
         if (Pet.state.tab === "obs" && _container) Pet.renderDashboard(_container);
       } else if (evType === "audit") {
@@ -580,7 +587,7 @@
       else if (s.status === "degraded") pillCls = "pill warn";
       else if (s.status === "unavailable" || s.status === "circuit_open" || s.status === "error") pillCls = "pill err";
       var pill = Pet.h("span", { className: pillCls }, s.status || "unknown");
-      var nameEl = Pet.h("span", { className: "mono", style: { fontSize: "12px", color: "var(--tx)", minWidth: "120px", display: "inline-block" } }, s.name);
+      var nameEl = Pet.h("span", { className: "mono", style: { fontSize: "12px", color: "var(--tx)", minWidth: "120px", display: "inline-block", overflowWrap: "anywhere" } }, s.name);
       var latency = Pet.h("span", { className: "mono", style: { fontSize: "11px", color: "var(--tx-faint)", minWidth: "60px", display: "inline-block" } }, s.last_ms != null ? (s.last_ms.toFixed(1) + "ms") : "—");
       var row = Pet.h("div", { style: { display: "flex", alignItems: "center", gap: "8px" } });
       row.appendChild(nameEl);
@@ -957,7 +964,7 @@
             var finding = Pet.h("div", { className: "finding" });
             var rail = Pet.h("div", { className: "rail", style: { background: v.col } });
             var body = Pet.h("div", { className: "body" },
-              Pet.h("div", { style: { display: "flex", gap: "8px", alignItems: "center" } },
+              Pet.h("div", { style: { display: "flex", gap: "8px", alignItems: "center", minWidth: "0" } },
                 Pet.h("span", { className: "rid" }, f.rule_id),
                 Pet.h("span", { className: "mono", style: { marginLeft: "auto", fontSize: "10px", color: "var(--tx-faint)" } }, f.scanner_name || "")
               ),
@@ -980,7 +987,7 @@
     if (d.normalized_text && d.normalized_text !== rawText) {
       frag.appendChild(Pet.Panel({
         icon: "trending", title: "normalization", place: "before → after",
-        content: Pet.h("div", { className: "mono", style: { fontSize: "11.5px", lineHeight: "1.7" } },
+        content: Pet.h("div", { className: "mono", style: { fontSize: "11.5px", lineHeight: "1.7", overflowWrap: "anywhere" } },
           Pet.h("div", { style: { color: "var(--tx-ghost)" } }, "raw: ", Pet.h("span", { style: { color: "var(--tx-mut)" } }, rawText)),
           Pet.h("div", { style: { color: "var(--tx-ghost)" } }, "norm: ", Pet.h("span", { style: { color: "var(--tx)" } }, d.normalized_text))
         ),
@@ -991,7 +998,7 @@
     if (r.sanitized_content) {
       frag.appendChild(Pet.Panel({
         icon: "shieldCheck", title: "anonymized output", place: "PII redacted",
-        content: Pet.h("div", { className: "mono", style: { fontSize: "12px", color: "var(--tx-mut)", lineHeight: "1.7" } }, r.sanitized_content),
+        content: Pet.h("div", { className: "mono", style: { fontSize: "12px", color: "var(--tx-mut)", lineHeight: "1.7", overflowWrap: "anywhere" } }, r.sanitized_content),
       }));
     }
 
@@ -1059,6 +1066,7 @@
       style: { width: "100%", height: "80px", resize: "vertical", padding: "10px", fontSize: "13px", background: "var(--bg-input)", border: "1px solid var(--border)", borderRadius: "var(--r-card)", color: "var(--tx)" },
       placeholder: "Paste text to scan... Try: 'ignore previous instructions' or 'email: test@example.com card: 4111 1111 1111 1234'",
     });
+    textArea.maxLength = 100000;  // PET-13: UI guardrail against multi-MB pastes; the server stays authoritative
 
     var resultArea = Pet.makeResultArea();
 
@@ -1552,6 +1560,7 @@
             // path's .pet-field-err strip (replaces the native alert()).
             renderDial();
             dialHost.appendChild(Pet.h("div", {
+              role: "alert",
               className: "pet-field-err",
               style: { color: "var(--err)", fontSize: "12px", padding: "8px 12px", background: "var(--bg-raised)", borderRadius: "var(--r-card)", marginTop: "8px" }
             }, "Preset apply failed: " + failMsg));
@@ -1667,10 +1676,17 @@
             if (c.max != null) inp.setAttribute("max", String(c.max));
             var frac = (c.min != null && !Number.isInteger(c.min)) || (c.max != null && c.max <= 1);
             inp.setAttribute("step", frac ? "any" : "1");
-            inp.addEventListener("change", function () { Pet.state.configDirty[f.name] = parseFloat(inp.value); maybeUpdateDial(f.name); });
+            inp.addEventListener("change", function () {
+              // PET-13: a cleared field is parseFloat("") -> NaN, which JSON-serializes
+              // to null and silently sends null. Drop it from the diff instead.
+              var n = parseFloat(inp.value);
+              if (Number.isNaN(n)) { delete Pet.state.configDirty[f.name]; }
+              else { Pet.state.configDirty[f.name] = n; }
+              maybeUpdateDial(f.name);
+            });
             control = inp;
           } else if (f.redacted) {
-            control = Pet.h("span", { className: "mono", style: { fontSize: "12px", color: "var(--tx-faint)" } }, val || "(not set)");
+            control = Pet.h("span", { className: "mono", style: { fontSize: "12px", color: "var(--tx-faint)", overflowWrap: "anywhere", wordBreak: "break-all" } }, val || "(not set)");
           } else {
             var inp2 = Pet.h("input", {
               className: "input mono", style: { width: "200px", height: "32px" },
@@ -1738,7 +1754,7 @@
         applyLabel.textContent = on ? " Confirm: this lowers protection" : " Apply";
         var note = formArea.querySelector(".pet-weaken-note");
         if (on && !note) {
-          formArea.insertBefore(Pet.h("div", { className: "notice pet-weaken-note", style: { marginBottom: "8px" } },
+          formArea.insertBefore(Pet.h("div", { role: "alert", className: "notice pet-weaken-note", style: { marginBottom: "8px" } },
             Pet.Icon("warn"), Pet.h("span", {}, Pet.h("b", {}, "These changes lower protection."), " Click Apply again to confirm.")
           ), formArea.firstChild);
         } else if (!on && note) {
@@ -1755,6 +1771,7 @@
           "Saved to config.yaml and applied to the running pipeline immediately. No restart needed; frequency counters and escalation state are preserved."),
         Pet.h("div", { style: { display: "flex", gap: "10px", justifyContent: "flex-end", alignItems: "center" } },
         Pet.h("button", { className: "btn btn-ghost", onClick: function () {
+          if (applyBtn && applyBtn.disabled) return;  // PET-13: Apply in flight; don't tear down formArea mid-PUT
           clearWeakenConfirm();
           Pet.state.configDirty = {};
           Pet.renderConfig(container);
@@ -1803,6 +1820,7 @@
                 if (!formArea.querySelector(".pet-field-err")) {
                   var msg = details.map(function (e) { return e.field + ": " + e.message; }).join("; ");
                   formArea.insertBefore(Pet.h("div", {
+                    role: "alert",
                     className: "pet-field-err",
                     style: { color: "var(--err)", fontSize: "12px", padding: "8px 12px", background: "var(--bg-raised)", borderRadius: "var(--r-card)", marginBottom: "8px" }
                   }, msg), formArea.firstChild);
@@ -1811,6 +1829,7 @@
               }
               if (d.error) {
                 formArea.insertBefore(Pet.h("div", {
+                  role: "alert",
                   className: "pet-field-err",
                   style: { color: "var(--err)", fontSize: "12px", padding: "8px 12px", background: "var(--bg-raised)", borderRadius: "var(--r-card)", marginBottom: "8px" }
                 }, "Couldn't save: " + d.error + ". Your changes are kept; try Apply again."), formArea.firstChild);
@@ -1819,6 +1838,7 @@
               Pet.state.config = d.config || Pet.state.config;
               Pet.state.configDirty = {};
               formArea.insertBefore(Pet.h("div", {
+                role: "status",
                 className: "notice",
                 style: { background: "var(--ok-soft)", borderColor: "rgba(63,185,80,.3)", color: "var(--ok)", marginBottom: "8px" }
               }, Pet.Icon("check"), Pet.h("span", {}, Pet.h("b", {}, "Configuration saved."), " Applied to the running pipeline.")), formArea.firstChild);
@@ -1926,6 +1946,7 @@
   var _container = null;
   var _tabStrip = null;
   var _connStatus = null;  // PET-13: LIVE/POLLING blip node in the pane header (persistent; not rebuilt per frame)
+  var _liveRegion = null;  // PET-13: visually-hidden aria-live region; announces the newest scan verdict to AT
   // PET-102: one-shot guard so the dashboard seeds the server's pre-existing
   // scan-history ring buffer exactly once per mount (not on every SSE re-render).
   // Reset in Pet.unmount AND at the top of Pet.mount (double-mount hardening).
@@ -2037,6 +2058,14 @@
     var paneBody = Pet.h("div", { className: "pane-body" }, _container);
     el.appendChild(paneBody);
 
+    // PET-13: off-screen live region. The dashboard re-renders wholesale on every
+    // SSE frame, which AT cannot follow; announce only the newest verdict here.
+    _liveRegion = Pet.h("div", { className: "sr-only" });
+    _liveRegion.setAttribute("role", "status");
+    _liveRegion.setAttribute("aria-live", "polite");
+    _liveRegion.setAttribute("aria-atomic", "true");
+    el.appendChild(_liveRegion);
+
     Pet.switchTab("obs");
     Pet.sse.connect();
     startPolling();
@@ -2057,12 +2086,18 @@
       : "Live updates streaming.");
   };
 
+  // PET-13: push a short message into the off-screen live region for AT.
+  Pet.announce = function (msg) {
+    if (_liveRegion) _liveRegion.textContent = msg;
+  };
+
   Pet.unmount = function () {
     Pet.sse.disconnect();
     stopPolling();
     _container = null;
     _tabStrip = null;
     _connStatus = null;      // PET-13: drop the stale header-blip node
+    _liveRegion = null;      // PET-13: drop the stale live-region node
     _historySeeded = false;  // PET-102: next mount re-seeds the history buffer
     _healthLoaded = false;   // PET-127: next mount re-shows the scanner-health skeleton
     _armedSeeded = false;    // PET-111: next mount re-fetches the armed bit

@@ -192,6 +192,13 @@
 @keyframes petshimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 @media (prefers-reduced-motion: reduce) {
   .pet .skel { animation: none; background: var(--bg-raised); }
+  .pet .live .blip { animation: none; }  /* PET-13: the LIVE pulse must respect reduced-motion */
+}
+
+/* PET-13: visually-hidden live region for screen-reader announcements (new scan verdicts). */
+.pet .sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
 }
 
 /* ── BUTTONS / INPUTS ── */
@@ -284,7 +291,7 @@
 .pet .finding { display: flex; gap: 11px; padding: 10px 12px 10px 14px; border-radius: var(--r-card); background: var(--bg-raised); border: 1px solid var(--border); position: relative; overflow: hidden; }
 .pet .finding .rail { position: absolute; left: 0; top: 0; bottom: 0; width: 3px; }
 .pet .finding .body { flex: 1; min-width: 0; }
-.pet .finding .rid { font-family: var(--font-mono); font-size: 11.5px; color: var(--tx-bright); font-weight: 600; }
+.pet .finding .rid { font-family: var(--font-mono); font-size: 11.5px; color: var(--tx-bright); font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
 .pet .finding .msg { font-size: 12px; color: var(--tx-mut); margin-top: 3px; overflow-wrap: anywhere; }
 /* PET-99 D4: long unbroken matched_text must wrap inside the overflow:hidden
    finding card rather than overflowing into invisibility. .matched is an inline
