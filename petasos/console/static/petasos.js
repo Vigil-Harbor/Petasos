@@ -1456,12 +1456,10 @@
     container.innerHTML = "";
     var wrapper = Pet.h("div", { style: { display: "flex", flexDirection: "column", gap: "12px", height: "100%" } });
 
-    var notice = Pet.h("div", { className: "notice", style: { flex: "0 0 auto" } },
-      Pet.Icon("warn"),
-      Pet.h("span", {}, Pet.h("b", {}, "Changes are saved to config.yaml."), " Active agent sessions use the previous config until restarted.")
-    );
-    wrapper.appendChild(notice);
-
+    // PET-13: the "how saving works" disclosure moved to the sticky save bar at the
+    // bottom (subtle faint text, always visible) and replaces the top warning
+    // banner. With every section collapsed by default, the save bar is the page's
+    // visible anchor, so the disclosure belongs there, not up top.
     // PET-127: skeleton field-rows while /config resolves. role=status carries the
     // loading semantic for AT; the resolve arm (formArea.innerHTML = "") and error
     // arm both wipe this wrapper before appending real content, so no arm change.
@@ -1751,7 +1749,11 @@
         if (_weakenConfirmTimer) { clearTimeout(_weakenConfirmTimer); _weakenConfirmTimer = null; }
         setWeakenConfirm(false);
       };
-      var saveBar = Pet.h("div", { className: "pet-save-bar", style: { display: "flex", gap: "10px", justifyContent: "flex-end", alignItems: "center", padding: "10px 0", position: "sticky", bottom: "0", background: "var(--bg-app)", borderTop: "1px solid var(--border-soft)", marginTop: "6px" } },
+      var saveBar = Pet.h("div", { className: "pet-save-bar", style: { position: "sticky", bottom: "0", background: "var(--bg-app)", borderTop: "1px solid var(--border-soft)", marginTop: "6px", padding: "8px 0", display: "flex", flexDirection: "column", gap: "8px" } },
+        // PET-13: subtle hot-swap disclosure (PET-126), bottom-anchored, not a top warning.
+        Pet.h("div", { style: { fontSize: "11px", color: "var(--tx-faint)", fontFamily: "var(--font-mono)", lineHeight: "1.5" } },
+          "Saved to config.yaml and applied to the running pipeline immediately. No restart needed; frequency counters and escalation state are preserved."),
+        Pet.h("div", { style: { display: "flex", gap: "10px", justifyContent: "flex-end", alignItems: "center" } },
         Pet.h("button", { className: "btn btn-ghost", onClick: function () {
           clearWeakenConfirm();
           Pet.state.configDirty = {};
@@ -1819,12 +1821,13 @@
               formArea.insertBefore(Pet.h("div", {
                 className: "notice",
                 style: { background: "var(--ok-soft)", borderColor: "rgba(63,185,80,.3)", color: "var(--ok)", marginBottom: "8px" }
-              }, Pet.Icon("check"), Pet.h("span", {}, Pet.h("b", {}, "Configuration saved."), " Active sessions use the previous config until restarted.")), formArea.firstChild);
+              }, Pet.Icon("check"), Pet.h("span", {}, Pet.h("b", {}, "Configuration saved."), " Applied to the running pipeline.")), formArea.firstChild);
               setTimeout(function () { if (Pet.state.tab === "cfg") Pet.renderConfig(container); }, 1500);
             }).then(function () { applyBtn.disabled = false; }, function () { applyBtn.disabled = false; });
           } }, Pet.Icon("check"), applyLabel);
           return applyBtn;
         })()
+        )
       );
       formArea.appendChild(saveBar);
     });
