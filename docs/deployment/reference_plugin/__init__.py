@@ -600,6 +600,16 @@ def _fallback_pre_tool_call(
                     tool_name,
                     worst.rule_id,
                 )
+                # PET-131: a cold-start (init-window) block is still a gateway block the
+                # operator must see — emit it beside the log line like the main path.
+                _emit_enforcement_event(
+                    session_id=_derive_session_id(task_id, kwargs),
+                    tool=tool_name,
+                    event_type="quarantine",
+                    severity=worst.severity.name,
+                    rule_id=worst.rule_id,
+                    reason=worst.message,
+                )
                 return {
                     "action": "block",
                     # PET-77: route through the library formatter (contract: [BLOCKED by Petasos]
@@ -634,18 +644,68 @@ def _reset_disarm_log() -> None:
         _last_disarm_log = 0.0
 
 
-def _log_disarmed_bypass(tool_name: str) -> None:
-    """Rate-limited WARNING so an operator-disarmed bypass is always attributable."""
+def _log_disarmed_bypass(tool_name: str) -> bool:
+    """Rate-limited WARNING so an operator-disarmed bypass is always attributable.
+
+    PET-131: returns ``True`` iff it actually logged this call (the rate-limit
+    window opened), so the caller can emit a 1:1 enforcement event onto the same
+    clock — the surfaced "bypassed (disarmed)" row and the ``PETASOS_DISARMED`` log
+    line then share one source of truth and one ``_DISARM_LOG_EVERY_S`` cadence.
+    """
     global _last_disarm_log
     now = time.monotonic()
     with _disarm_log_lock:
         if now - _last_disarm_log < _DISARM_LOG_EVERY_S:
-            return
+            return False
         _last_disarm_log = now
     logger.warning(
         "PETASOS_DISARMED tool=%s — enforcement bypassed by operator (Unequipped)",
         tool_name,
     )
+    return True
+
+
+def _emit_enforcement_event(
+    *,
+    session_id: str,
+    tool: str,
+    event_type: str,
+    tier: str | None = None,
+    rule_id: str | None = None,
+    severity: str | None = None,
+    reason: str = "",
+    param_scan_degraded: bool = False,
+    armed: bool = True,
+) -> None:
+    """PET-131: emit a structured enforcement event onto the cross-process spool the
+    dashboard drains, beside the existing decision-point log line (one emit per log
+    line — log and surface share one source of truth, spec D1/D4).
+
+    Self-guarded and fail-open (spec D5): surfacing a block must never gate, delay,
+    or break the tool call, so the whole body is wrapped and swallows everything.
+    The write itself is an O(1) local append (``petasos.console._events``), the same
+    hot-path cost class as the per-call ``read_armed`` file read — not a network
+    call and not a blocking ``await`` on the decision path.
+    """
+    try:
+        from petasos.console._events import emit_enforcement_event
+
+        emit_enforcement_event(
+            {
+                "session_id": session_id,
+                "tool": tool,
+                "event_type": event_type,
+                "tier": tier,
+                "rule_id": rule_id,
+                "severity": severity,
+                "reason": reason,
+                "param_scan_degraded": param_scan_degraded,
+                "direction": "tool_call",
+                "armed": armed,
+            }
+        )
+    except Exception:
+        pass
 
 
 def _reset_reload_logs() -> None:
@@ -754,7 +814,15 @@ def _pre_tool_call(
     # ABOVE _ensure_initialized so it covers the initialized, init-failed, and
     # init-in-progress windows uniformly (a disarmed boot skips the fallback scan).
     if not _is_armed():
-        _log_disarmed_bypass(tool_name)
+        # PET-131: emit a "bypassed (disarmed)" event 1:1 with the rate-limited
+        # PETASOS_DISARMED log line so the operator can confirm "off means off".
+        if _log_disarmed_bypass(tool_name):
+            _emit_enforcement_event(
+                session_id=_derive_session_id(task_id, kwargs),
+                tool=tool_name,
+                event_type="bypassed_disarmed",
+                armed=False,
+            )
         return None
     if not _ensure_initialized():
         if _init_error:
@@ -784,6 +852,9 @@ def _pre_tool_call(
         logger.critical(
             "PETASOS_TIER3 tool=%s session=%s — all tool calls blocked", tool_name, session_id
         )
+        _emit_enforcement_event(
+            session_id=session_id, tool=tool_name, event_type="tier3", tier="tier3"
+        )
         return {
             "action": "block",
             "message": format_block_message(result, tool_name),  # PET-77
@@ -793,8 +864,16 @@ def _pre_tool_call(
         logger.warning(
             "PETASOS_BLOCK tool=%s session=%s reason=%s", tool_name, session_id, result.reason
         )
+        _emit_enforcement_event(
+            session_id=session_id,
+            tool=tool_name,
+            event_type="block",
+            tier=result.tier,
+            reason=result.reason,
+        )
         # PET-77: route through the formatter so internal reason strings (exempt-with-scan,
-        # tier2: tool calls blocked, ...) never reach the model.
+        # tier2: tool calls blocked, ...) never reach the model. (The enforcement event
+        # above carries the raw reason to the OPERATOR dashboard, not the model.)
         return {"action": "block", "message": format_block_message(result, tool_name)}
 
     # PET-112: read-only tools never take a content block (both old blocks were
@@ -817,6 +896,13 @@ def _pre_tool_call(
             tool_name,
             session_id,
         )
+        _emit_enforcement_event(
+            session_id=session_id,
+            tool=tool_name,
+            event_type="quarantine",
+            param_scan_degraded=True,
+            reason="param scan degraded",
+        )
         return {
             "action": "block",
             "message": format_content_block("degraded", tool_name, tuple(blocking)),  # PET-77
@@ -833,6 +919,14 @@ def _pre_tool_call(
             worst.severity.name,
             worst.message,
         )
+        _emit_enforcement_event(
+            session_id=session_id,
+            tool=tool_name,
+            event_type="quarantine",
+            severity=worst.severity.name,
+            rule_id=worst.rule_id,
+            reason=worst.message,
+        )
         return {
             "action": "block",
             "message": format_content_block("non_pii_param", tool_name, tuple(non_pii_blocking)),
@@ -847,6 +941,14 @@ def _pre_tool_call(
             tool_name,
             session_id,
             worst.message,
+        )
+        _emit_enforcement_event(
+            session_id=session_id,
+            tool=tool_name,
+            event_type="quarantine",
+            severity=worst.severity.name,
+            rule_id=worst.rule_id,
+            reason=worst.message,
         )
         return {
             "action": "block",

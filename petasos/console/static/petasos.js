@@ -639,30 +639,66 @@
       if (isNaN(dt.getTime())) return "—"; // guard against Invalid Date
       return pad2(dt.getHours()) + ":" + pad2(dt.getMinutes()) + ":" + pad2(dt.getSeconds());
     }
+    // PET-131: coerce any field to a printable cell — the no-data glyph "—" for
+    // null/empty, never the string "undefined" (a bypassed_disarmed row carries no
+    // tier/rule/severity). Mirrors the existing guarded cells; never throws.
+    function pcell(v, w) {
+      var el = Pet.h("span", { className: "mono", style: { fontSize: "11px", color: "var(--tx-faint)", minWidth: w, display: "inline-block" } });
+      el.textContent = (v == null || v === "") ? "—" : String(v);
+      return el;
+    }
     var table = Pet.h("div", { style: { display: "flex", flexDirection: "column", gap: "6px" } });
     for (var i = 0; i < hist.length; i++) {
       var e = hist[i];
       if (!e || typeof e !== "object") continue; // never-throw: skip a malformed entry (e.g. JSON null from a bad SSE frame) rather than aborting the synchronous re-render
+
+      // PET-131: enforcement rows (source==="enforcement") render distinguishably —
+      // an "enf" source pill, a blocked/bypassed/safe badge, and tool + event/tier in
+      // place of the playground direction/findings pair. Playground rows are
+      // byte-identical to before (no source pill). No em/en dash or double-hyphen in
+      // any label (house style); the only "—" is the no-data glyph.
+      var isEnforcement = (e.source === "enforcement");
+      var et = (e.event_type == null || e.event_type === "") ? "" : String(e.event_type);
+      var isBypass = isEnforcement && et === "bypassed_disarmed";
       var isBlocked = (e.safe === false); // strict ===false; truthy-but-not-false is not "blocked"
-      var badge = Pet.h("span", { className: "pill " + (isBlocked ? "err" : "ok"), style: { minWidth: "62px", justifyContent: "center" } }, isBlocked ? "blocked" : "safe");
 
-      var dirEl = Pet.h("span", { className: "mono", style: { fontSize: "11px", color: "var(--tx-faint)", minWidth: "64px", display: "inline-block" } });
-      dirEl.textContent = (e.direction != null && e.direction !== "") ? String(e.direction) : "—";
+      var badgeText = isBypass ? "bypassed (disarmed)" : (isBlocked ? "blocked" : "safe");
+      var badgeClass = isBypass ? "warn" : (isBlocked ? "err" : "ok");
+      var badge = Pet.h("span", { className: "pill " + badgeClass, style: { justifyContent: "center" } }, badgeText);
 
-      var findEl = Pet.h("span", { className: "mono", style: { fontSize: "11px", color: "var(--tx-faint)", minWidth: "78px", display: "inline-block" } });
-      findEl.textContent = (Number(e.finding_count) || 0) + " findings";
+      var rowEls = [];
+      if (isEnforcement) {
+        rowEls.push(Pet.h("span", { className: "pill blue", style: { minWidth: "40px", justifyContent: "center", fontSize: "10px" } }, "enf"));
+      }
+      rowEls.push(badge);
+
+      if (isEnforcement) {
+        var tierStr = (e.tier == null || e.tier === "") ? "" : String(e.tier);
+        var etTier = et + (tierStr && tierStr !== et ? (" " + tierStr) : "");
+        rowEls.push(pcell(e.tool, "120px"));
+        rowEls.push(pcell(etTier, "120px"));
+      } else {
+        rowEls.push(pcell(e.direction, "64px"));
+        var findEl = Pet.h("span", { className: "mono", style: { fontSize: "11px", color: "var(--tx-faint)", minWidth: "78px", display: "inline-block" } });
+        findEl.textContent = (Number(e.finding_count) || 0) + " findings";
+        rowEls.push(findEl);
+      }
 
       var latEl = Pet.h("span", { className: "mono", style: { fontSize: "11px", color: "var(--tx-faint)", minWidth: "56px", display: "inline-block" } });
       latEl.textContent = (Number(e.duration_ms) || 0).toFixed(1) + "ms"; // never e.duration_ms.toFixed — would throw on missing/non-numeric
+      rowEls.push(latEl);
 
       var sidStr = (e.session_id == null || e.session_id === "") ? "" : String(e.session_id);
       var sidEl = Pet.h("span", { className: "mono", title: sidStr, style: { fontSize: "11px", color: "var(--tx-faint)", maxWidth: "120px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "inline-block" } });
       sidEl.textContent = sidStr ? (sidStr.length > 12 ? sidStr.slice(0, 12) + "…" : sidStr) : "—";
+      rowEls.push(sidEl);
 
       var timeEl = Pet.h("span", { className: "mono", style: { fontSize: "11px", color: "var(--tx-faint)", marginLeft: "auto", display: "inline-block" } });
       timeEl.textContent = fmtTime(e.timestamp);
+      rowEls.push(timeEl);
 
-      var row = Pet.h("div", { style: { display: "flex", alignItems: "center", gap: "8px" } }, badge, dirEl, findEl, latEl, sidEl, timeEl);
+      var row = Pet.h("div", { style: { display: "flex", alignItems: "center", gap: "8px" } });
+      for (var ri = 0; ri < rowEls.length; ri++) row.appendChild(rowEls[ri]);
       table.appendChild(row);
     }
     return table;
