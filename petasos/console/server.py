@@ -9,6 +9,8 @@ treats the parameter as a required query param — every standalone POST/PUT
 TYPE_CHECKING-only names in module-level signatures are quoted instead.
 """
 
+import asyncio
+import contextlib
 import hashlib
 import hmac
 import json
@@ -34,6 +36,46 @@ _logger = logging.getLogger(__name__)
 
 _MAX_SCAN_TEXT_LEN = 100_000
 _VALID_DIRECTIONS = frozenset({"inbound", "outbound"})
+
+# PET-131: enforcement event_types that count as a block for the *blocked* tile and
+# the per-session reconciliation tally. `bypassed_disarmed` is a visible-but-not-
+# blocked heartbeat and is deliberately excluded.
+_BLOCK_EVENT_TYPES = frozenset({"block", "quarantine", "tier3"})
+# Bound on the per-session block tally (drop-oldest by session), mirroring the
+# config.max_terminated_tombstones discipline. Independent of the 500-entry ring.
+_MAX_TALLY_SESSIONS = 10_000
+# Poll cadence of the dashboard's background enforcement-spool tailer (standalone).
+_ENFORCEMENT_TAIL_INTERVAL_S = 1.0
+
+
+def _enforcement_summary(ev: dict[str, Any]) -> dict[str, Any]:
+    """Build the unified `scan_history` summary for a drained enforcement event (D6).
+
+    One schema, two producers: `run_scan` writes playground summaries (no `source`,
+    read as "playground"); enforcement entries carry `source="enforcement"` plus
+    tool/event_type/tier/rule_id/severity/reason. A block-class event sets
+    `safe=False` so the existing `safe === false` tile loop counts it with no
+    tile-math change; a `bypassed_disarmed` event sets `safe=True` (visible row,
+    never counted as blocked).
+    """
+    event_type = ev.get("event_type")
+    is_block = event_type in _BLOCK_EVENT_TYPES
+    return {
+        "scan_id": ev.get("scan_id"),
+        "source": "enforcement",
+        "safe": not is_block,
+        "finding_count": 1 if is_block else 0,
+        "duration_ms": 0.0,
+        "direction": "tool_call",
+        "session_id": ev.get("session_id"),
+        "timestamp": ev.get("timestamp"),
+        "tool": ev.get("tool"),
+        "event_type": event_type,
+        "tier": ev.get("tier"),
+        "rule_id": ev.get("rule_id"),
+        "severity": ev.get("severity"),
+        "reason": ev.get("reason"),
+    }
 
 
 def _persist_config(validated_config: Any) -> bool:
@@ -108,8 +150,124 @@ class ConsoleHandlers:
         self.sse = SSEBroadcaster()
         self._start_time = time.monotonic()
 
+        # PET-131: cross-process enforcement-event drain state. Byte offsets into the
+        # spool / its rotated segment (restart-independent; not a producer seq). One
+        # asyncio.Lock serializes the whole peek->push->advance->broadcast(+rotate)
+        # unit so the background tailer and a concurrent get_scan_history are
+        # exactly-once. The per-session block tally is the reconciliation source of
+        # truth (D4) — independent of the 500-entry ring's eviction.
+        self._enforcement_offset = 0
+        self._rot_offset = 0
+        self._enforcement_lock = asyncio.Lock()
+        self._block_tally: dict[str, int] = {}
+
         pipeline.add_audit_listener(self._on_audit)
         pipeline.add_alert_listener(self._on_alert)
+
+    def block_tally_for(self, session_id: str) -> int:
+        """PET-131: per-session count of surfaced block-class enforcement events.
+
+        The D4 reconciliation source of truth; survives ring-buffer eviction within a
+        session. Resets on a dashboard restart (in-memory by design).
+        """
+        return self._block_tally.get(session_id, 0)
+
+    def _bump_block_tally(self, session_id: str) -> None:
+        tally = self._block_tally
+        if session_id in tally:
+            tally[session_id] += 1
+            return
+        tally[session_id] = 1
+        if len(tally) > _MAX_TALLY_SESSIONS:
+            # Drop-oldest by insertion order (dict is insertion-ordered).
+            del tally[next(iter(tally))]
+
+    async def _surface_enforcement_event(self, ev: dict[str, Any]) -> None:
+        """Fold one drained enforcement event into scan_history + the tally + SSE."""
+        summary = _enforcement_summary(ev)
+        self.scan_history.push(summary)
+        if ev.get("event_type") in _BLOCK_EVENT_TYPES:
+            sid = ev.get("session_id")
+            if isinstance(sid, str) and sid:
+                self._bump_block_tally(sid)
+        await self.sse.broadcast("scan_result", summary)
+
+    async def _drain_and_clear_rot(self, rot_path: str) -> None:
+        """Drain a rotated `.rot` segment forward from `self._rot_offset`, then unlink.
+
+        `_rot_offset` advances per recovered record and resets to 0 only after a
+        successful unlink — so if the unlink fails (a Windows handle held on `.rot`)
+        the next cycle does NOT re-push or re-tally the already-recovered records
+        (spec round-4 edge F-1). Never raises.
+        """
+        import os
+
+        from petasos.console import _events
+
+        try:
+            events, new_off = _events.drain_enforcement_events(rot_path, self._rot_offset)
+        except Exception:
+            events, new_off = [], self._rot_offset
+        for ev in events:
+            await self._surface_enforcement_event(ev)
+        self._rot_offset = new_off
+        try:
+            os.remove(rot_path)
+            self._rot_offset = 0
+        except OSError:
+            _logger.warning(
+                "PETASOS_ENFORCEMENT could not unlink %s; will retry next cycle", rot_path
+            )
+
+    async def _drain_enforcement_into_history(self) -> None:
+        """Drain the cross-process enforcement spool into scan_history + SSE (PET-131).
+
+        Exactly-once under one asyncio.Lock: the byte offset advances inside the same
+        critical section that pushes the ring and broadcasts, and any rotation runs
+        inside it too, so the background tailer and a concurrent get_scan_history can
+        never double-deliver or interleave a rotation. Forward-only reader -> no
+        scan_id seen-set. Read-side; never raises.
+        """
+        import os
+
+        from petasos.console import _events
+
+        async with self._enforcement_lock:
+            path = _events._spool_path()
+            rot = path + _events._ROT_SUFFIX
+            # (1) Recover an orphan .rot from a reader that crashed mid-rotation BEFORE
+            # touching the live spool, so its undrained events are never overwritten.
+            if os.path.exists(rot):
+                await self._drain_and_clear_rot(rot)
+            # Normal forward drain of the live spool.
+            try:
+                events, new_offset = _events.drain_enforcement_events(
+                    path, self._enforcement_offset
+                )
+            except Exception:
+                events, new_offset = [], self._enforcement_offset
+            for ev in events:
+                await self._surface_enforcement_event(ev)
+            self._enforcement_offset = new_offset
+            # (2/3) Bounding via reader-owned rotation, off the gateway hot path.
+            try:
+                if _events.spool_size(path) > _events.SPOOL_CAP_BYTES:
+                    if _events.rotate_spool(path):
+                        # The just-renamed .rot IS the former live spool; continue
+                        # from the committed live offset to capture in-flight appends,
+                        # then reset the live offset to 0 for the fresh spool.
+                        self._rot_offset = self._enforcement_offset
+                        await self._drain_and_clear_rot(rot)
+                        self._enforcement_offset = 0
+                    else:
+                        # Windows handle held, or a leftover .rot we could not clear:
+                        # soft cap. The spool grows on disk (no telemetry loss, no
+                        # double-count); the WARNING makes it observable; retry next cycle.
+                        _logger.warning(
+                            "PETASOS_ENFORCEMENT spool over cap; rotation skipped (will retry)"
+                        )
+            except Exception:
+                _logger.debug("enforcement spool bounding failed", exc_info=True)
 
     def _on_audit(self, event: Any) -> None:
         import asyncio
@@ -253,6 +411,11 @@ class ConsoleHandlers:
         }
 
     async def get_scan_history(self, limit: int = 100) -> dict[str, Any]:
+        # PET-131: drain-on-read is the floor that surfaces live enforcement on the
+        # gated-mode polling fallback (PET-83) and in the embedded Hermes plugin path
+        # (no FastAPI startup tailer there). The background tailer is the live-SSE
+        # latency optimization on top; both share the exactly-once drain.
+        await self._drain_enforcement_into_history()
         clamped = min(max(1, limit), 1000)
         return {"entries": list(reversed(self.scan_history.to_list(clamped)))}
 
@@ -380,8 +543,30 @@ def build_app(pipeline: "Pipeline", *, auth_token: str | None = None) -> "FastAP
     static_dir = importlib.resources.files("petasos.console") / "static"
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
+    # PET-131: background enforcement-spool tailer (standalone live-SSE latency).
+    # Embedded Hermes-plugin mode mounts the bare router and never runs this
+    # lifecycle; there the drain-on-read in get_scan_history is the floor.
+    _enforcement_tailer: dict[str, Any] = {"task": None}
+
+    @app.on_event("startup")
+    async def _startup() -> None:
+        async def _tail() -> None:
+            while True:
+                try:
+                    await handlers._drain_enforcement_into_history()
+                except Exception:
+                    _logger.debug("enforcement tailer drain failed", exc_info=True)
+                await asyncio.sleep(_ENFORCEMENT_TAIL_INTERVAL_S)
+
+        _enforcement_tailer["task"] = asyncio.create_task(_tail())
+
     @app.on_event("shutdown")
     async def _shutdown() -> None:
+        task = _enforcement_tailer.get("task")
+        if task is not None:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await task
         await handlers.sse.shutdown()
 
     @app.get("/", response_class=HTMLResponse)

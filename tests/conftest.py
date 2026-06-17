@@ -5,9 +5,13 @@ import os
 import pathlib
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from typing import TYPE_CHECKING
 
 import jwt as pyjwt
 import pytest
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 _FIXTURES = pathlib.Path(__file__).parent / "fixtures"
 _PRIVATE_KEY = (_FIXTURES / "test_private.pem").read_bytes()
@@ -36,6 +40,32 @@ def _make_token(
     if extra_claims:
         payload.update(extra_claims)
     return pyjwt.encode(payload, key or _PRIVATE_KEY, algorithm=algorithm)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_enforcement_spool(tmp_path_factory: pytest.TempPathFactory) -> Iterator[None]:
+    """PET-131: redirect the cross-process enforcement spool to a throwaway temp path
+    for every test.
+
+    The dashboard now drains this spool on ``get_scan_history`` and the gateway
+    ``_pre_tool_call`` block branches append to it, so without isolation a test could
+    read the real machine spool (``%LOCALAPPDATA%/hermes/petasos-enforcement.jsonl``)
+    or pollute it. Tests that inspect the spool read ``_events._spool_path()``, which
+    returns this per-test path. A no-op if the console module is unimportable.
+    """
+    try:
+        import petasos.console._events as _ev
+    except Exception:
+        yield
+        return
+    saved_override = _ev._SPOOL_PATH_OVERRIDE
+    saved_cap = _ev.SPOOL_CAP_BYTES
+    _ev._reset_events_state(str(tmp_path_factory.mktemp("enf_spool") / "enf.jsonl"))
+    try:
+        yield
+    finally:
+        _ev._SPOOL_PATH_OVERRIDE = saved_override
+        _ev.SPOOL_CAP_BYTES = saved_cap
 
 
 @pytest.fixture()
