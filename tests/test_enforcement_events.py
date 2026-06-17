@@ -559,3 +559,68 @@ def test_spool_path_identical_under_dangling_profile(
     p1 = ev._spool_path()  # "gateway"
     p2 = ev._spool_path()  # "dashboard"
     assert p1 == p2 == os.path.join(str(tmp_path), ev._SPOOL_FILENAME)
+
+
+# ---------------------------------------------------------------------------
+# CodeRabbit follow-ups (PR #117)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_spool_path_change_resets_offset(handlers: ConsoleHandlers, tmp_path: Path) -> None:
+    # A Hermes profile/config path switch points the drain at a different (smaller)
+    # spool. The stale byte offset must reset to 0 so the new spool's events are not
+    # skipped (CodeRabbit PR #117).
+    p1 = str(tmp_path / "a.jsonl")
+    ev._reset_events_state(p1)
+    ev.emit_enforcement_event(
+        {"scan_id": "e-1", "session_id": "s", "tool": "t", "event_type": "block"}
+    )
+    await handlers._drain_enforcement_into_history()
+    assert {r["scan_id"] for r in handlers.scan_history.to_list()} == {"e-1"}
+
+    p2 = str(tmp_path / "b.jsonl")  # a fresh, smaller spool at a new path
+    ev._reset_events_state(p2)
+    ev.emit_enforcement_event(
+        {"scan_id": "e-2", "session_id": "s", "tool": "t", "event_type": "block"}
+    )
+    await handlers._drain_enforcement_into_history()
+    # Without the offset reset, the stale (larger) offset would skip e-2.
+    assert "e-2" in {r["scan_id"] for r in handlers.scan_history.to_list()}
+
+
+@pytest.mark.asyncio
+async def test_long_reason_is_capped(spool: str, handlers: ConsoleHandlers) -> None:
+    # A long scanner/guard message must not bloat the ring buffer / SSE frame
+    # (CodeRabbit PR #117). The raw matched value is never in `reason` to begin with.
+    ev.emit_enforcement_event(
+        {"session_id": "s", "tool": "t", "event_type": "quarantine", "reason": "x" * 500}
+    )
+    await handlers._drain_enforcement_into_history()
+    assert len(handlers.scan_history.to_list()[0]["reason"]) == 200
+
+
+def test_fallback_init_window_block_emits_event(
+    spool: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A cold-start (init-window) block via _fallback_pre_tool_call is still a gateway
+    # block and must surface to the operator (CodeRabbit PR #117).
+    ref = _import_reference_plugin()
+    monkeypatch.setattr(ref, "_init_error", None)
+    monkeypatch.setattr(ref, "_is_armed", lambda: True)
+    monkeypatch.setattr(ref, "_maybe_reconfigure", lambda: None)
+    monkeypatch.setattr(ref, "_ensure_initialized", lambda: False)  # init in progress
+    monkeypatch.setattr(
+        ref, "_get_fallback_scanner", lambda: type("S", (), {"scan": lambda self, *a, **k: None})()
+    )
+    scan_result = type("R", (), {"findings": (_finding("injection", Severity.CRITICAL),)})()
+    monkeypatch.setattr(ref, "_run_async", lambda coro: scan_result)
+
+    out = ref._pre_tool_call("send_email", {"text": "x"}, task_id="sess-F")
+    assert out is not None and out["action"] == "block"
+    events = _read_spool(spool)
+    assert len(events) == 1
+    assert events[0]["event_type"] == "quarantine"
+    assert events[0]["session_id"] == "sess-F"
+    assert events[0]["tool"] == "send_email"
+    assert events[0]["rule_id"] == "petasos.injection.x"

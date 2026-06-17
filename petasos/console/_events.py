@@ -79,7 +79,11 @@ def emit_enforcement_event(event: dict[str, Any]) -> bool:
     """
     try:
         rec = dict(event)
-        rec.setdefault("scan_id", f"e-{uuid.uuid4().hex[:6]}")
+        # Full uuid hex (not a 6-char prefix): enforcement is high-volume (a 45%-block
+        # session mints thousands of ids) and scan_id feeds the frontend seed-dedup, so
+        # adequate entropy avoids cross-event collisions. The `e-` prefix keeps it
+        # distinct from the playground `s-<hex>` keyspace.
+        rec.setdefault("scan_id", f"e-{uuid.uuid4().hex}")
         rec.setdefault("timestamp", time.time())
         line = json.dumps(rec, default=str) + "\n"
         with open(_spool_path(), "a", encoding="utf-8") as f:

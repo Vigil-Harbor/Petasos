@@ -600,6 +600,16 @@ def _fallback_pre_tool_call(
                     tool_name,
                     worst.rule_id,
                 )
+                # PET-131: a cold-start (init-window) block is still a gateway block the
+                # operator must see — emit it beside the log line like the main path.
+                _emit_enforcement_event(
+                    session_id=_derive_session_id(task_id, kwargs),
+                    tool=tool_name,
+                    event_type="quarantine",
+                    severity=worst.severity.name,
+                    rule_id=worst.rule_id,
+                    reason=worst.message,
+                )
                 return {
                     "action": "block",
                     # PET-77: route through the library formatter (contract: [BLOCKED by Petasos]

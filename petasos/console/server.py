@@ -46,6 +46,12 @@ _BLOCK_EVENT_TYPES = frozenset({"block", "quarantine", "tier3"})
 _MAX_TALLY_SESSIONS = 10_000
 # Poll cadence of the dashboard's background enforcement-spool tailer (standalone).
 _ENFORCEMENT_TAIL_INTERVAL_S = 1.0
+# Cap on the surfaced enforcement `reason` length. The raw matched value lives in a
+# finding's `matched_text` (never surfaced); `reason` is the structured scanner/guard
+# message (e.g. "PII detected: PERSON"), already returned to the agent. We cap it so a
+# long decoded-payload message cannot bloat the ring buffer / SSE frame — matching the
+# 200-char block-message truncation in petasos/session/formatting.py.
+_MAX_REASON_LEN = 200
 
 
 def _enforcement_summary(ev: dict[str, Any]) -> dict[str, Any]:
@@ -60,6 +66,9 @@ def _enforcement_summary(ev: dict[str, Any]) -> dict[str, Any]:
     """
     event_type = ev.get("event_type")
     is_block = event_type in _BLOCK_EVENT_TYPES
+    reason = ev.get("reason")
+    if isinstance(reason, str) and len(reason) > _MAX_REASON_LEN:
+        reason = reason[:_MAX_REASON_LEN]
     return {
         "scan_id": ev.get("scan_id"),
         "source": "enforcement",
@@ -74,7 +83,7 @@ def _enforcement_summary(ev: dict[str, Any]) -> dict[str, Any]:
         "tier": ev.get("tier"),
         "rule_id": ev.get("rule_id"),
         "severity": ev.get("severity"),
-        "reason": ev.get("reason"),
+        "reason": reason,
     }
 
 
@@ -158,6 +167,7 @@ class ConsoleHandlers:
         # truth (D4) — independent of the 500-entry ring's eviction.
         self._enforcement_offset = 0
         self._rot_offset = 0
+        self._enforcement_spool_path: str | None = None
         self._enforcement_lock = asyncio.Lock()
         self._block_tally: dict[str, int] = {}
 
@@ -234,6 +244,13 @@ class ConsoleHandlers:
 
         async with self._enforcement_lock:
             path = _events._spool_path()
+            # The resolved spool can move mid-session (a Hermes profile/config path
+            # switch). Stale byte offsets index a different (possibly smaller) file and
+            # would skip its events, so reset to 0 and read the new spool from the start.
+            if path != self._enforcement_spool_path:
+                self._enforcement_offset = 0
+                self._rot_offset = 0
+                self._enforcement_spool_path = path
             rot = path + _events._ROT_SUFFIX
             # (1) Recover an orphan .rot from a reader that crashed mid-rotation BEFORE
             # touching the live spool, so its undrained events are never overwritten.
