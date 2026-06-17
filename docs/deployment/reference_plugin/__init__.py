@@ -26,6 +26,10 @@ from typing import TYPE_CHECKING, Any
 
 from petasos._types import Severity  # PET-112: dep-light (enum + dataclasses, no ML imports)
 from petasos.normalize import canonicalize_tool_name  # PET-118: dep-light (re + unicodedata)
+from petasos.session.formatting import (  # PET-77: dep-light (string formatting over dataclasses)
+    format_block_message,
+    format_content_block,
+)
 
 if TYPE_CHECKING:
     from petasos import PetasosConfig
@@ -598,7 +602,9 @@ def _fallback_pre_tool_call(
                 )
                 return {
                     "action": "block",
-                    "message": (f"Security scan (init in progress): {worst.message}"),
+                    # PET-77: route through the library formatter (contract: [BLOCKED by Petasos]
+                    # prefix, tool name, NOT executed, top-finding clause).
+                    "message": format_content_block("init", tool_name, result.findings),
                 }
     except Exception as exc:
         logger.debug("Fallback scan failed: %s — allowing", exc)
@@ -780,16 +786,16 @@ def _pre_tool_call(
         )
         return {
             "action": "block",
-            "message": (
-                "All tool calls blocked for this session by security policy (Tier 3 escalation)."
-            ),
+            "message": format_block_message(result, tool_name),  # PET-77
         }
 
     if not result.allowed:
         logger.warning(
             "PETASOS_BLOCK tool=%s session=%s reason=%s", tool_name, session_id, result.reason
         )
-        return {"action": "block", "message": result.reason}
+        # PET-77: route through the formatter so internal reason strings (exempt-with-scan,
+        # tier2: tool calls blocked, ...) never reach the model.
+        return {"action": "block", "message": format_block_message(result, tool_name)}
 
     # PET-112: read-only tools never take a content block (both old blocks were
     # _is_dangerous-gated; preserved exactly).
@@ -813,9 +819,7 @@ def _pre_tool_call(
         )
         return {
             "action": "block",
-            "message": (
-                "Parameter scan unavailable (scanner degraded) — blocked by fail-mode policy."
-            ),
+            "message": format_content_block("degraded", tool_name, tuple(blocking)),  # PET-77
         }
 
     # 2. Non-PII finding (injection/command/structural/credential) at HIGH+ -> block ALL
@@ -831,7 +835,7 @@ def _pre_tool_call(
         )
         return {
             "action": "block",
-            "message": f"Parameter scan flagged unsafe content: {worst.message}",
+            "message": format_content_block("non_pii_param", tool_name, tuple(non_pii_blocking)),
         }
 
     # 3. PII at HIGH+ -> block ONLY egress sinks (D-EGRESS). Internal tools are exempt, so
@@ -846,7 +850,7 @@ def _pre_tool_call(
         )
         return {
             "action": "block",
-            "message": f"Security finding (PII, {worst.severity.name}): {worst.message}",
+            "message": format_content_block("pii_egress", tool_name, tuple(pii_blocking)),
         }
 
     return None

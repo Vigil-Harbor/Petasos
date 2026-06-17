@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from petasos._types import PipelineResult, ScanFinding, Severity
 
@@ -20,6 +20,19 @@ _STRIP_PREFIX = "petasos.syntactic."
 _PREFIX = "[BLOCKED by Petasos]"
 
 _MAX_MESSAGE_LEN = 200
+
+# PET-77: the reference-plugin content-scan / init-fallback block sites fire after the
+# guard has returned allowed=True (or operate outside GuardResult), so they cannot reuse
+# format_block_message. format_content_block is keyed on the block decision the shim
+# already made (one of these paths) plus the findings that drove it.
+ContentBlockPath = Literal["init", "degraded", "non_pii_param", "pii_egress"]
+
+_CONTENT_REASON: dict[str, str] = {
+    "init": "Blocked by the initialization-time security scan.",
+    "degraded": "Parameter scan unavailable (scanner degraded); blocked by fail-mode policy.",
+    "non_pii_param": "Unsafe content detected in the tool parameters.",
+    "pii_egress": "Sensitive data (PII) was about to leave via this tool; the call was stopped.",
+}
 
 
 def shorten_rule_id(rule_id: str) -> str:
@@ -102,6 +115,32 @@ def format_pipeline_block_message(result: PipelineResult) -> str:
 
     clause = _top_finding_clause(result.findings)
     msg = f"{_PREFIX} Message blocked — content not forwarded."
+    if clause:
+        msg += " " + clause
+    return msg
+
+
+def format_content_block(
+    path: ContentBlockPath,
+    tool_name: str,
+    findings: tuple[ScanFinding, ...],
+) -> str:
+    """Format a model-facing block message for a reference-plugin content-scan or
+    init-fallback block.
+
+    Keyed on the block decision the shim already made (``path``) plus the findings
+    that drove it, because these sites fire after the guard has returned
+    ``allowed=True`` (or outside ``GuardResult`` entirely) and so cannot reuse
+    ``format_block_message`` (which returns ``""`` for an allowed result).
+
+    The reason lookup is fail-closed: an out-of-set ``path`` (a wiring typo in a
+    caller that mypy does not type-check at the import boundary) degrades to a valid
+    ``[BLOCKED by Petasos]`` message rather than raising, honoring the
+    pipeline-never-throws invariant.
+    """
+    reason = _CONTENT_REASON.get(path, "Blocked by a security policy.")
+    clause = _top_finding_clause(findings)
+    msg = f"{_PREFIX} Tool '{tool_name}' was NOT executed. {reason}"
     if clause:
         msg += " " + clause
     return msg

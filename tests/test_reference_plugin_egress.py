@@ -158,7 +158,11 @@ def test_pii_finding_blocks_egress_tool(monkeypatch: pytest.MonkeyPatch) -> None
         _guard_result(findings=(_pii(Severity.CRITICAL),), param_scan_unsafe=True),
     )
     assert out is not None and out["action"] == "block"
-    assert out["message"].startswith("Security finding (PII, CRITICAL)")
+    # PET-77: block messages now carry the [BLOCKED by Petasos] contract (was a raw
+    # "Security finding (PII, ...)" string straight from the shim).
+    assert out["message"].startswith("[BLOCKED by Petasos]")
+    assert "send_email" in out["message"] and "NOT executed" in out["message"]
+    assert "(CRITICAL)" in out["message"] and "PII" in out["message"]
 
     out_high = _drive(
         monkeypatch,
@@ -166,7 +170,9 @@ def test_pii_finding_blocks_egress_tool(monkeypatch: pytest.MonkeyPatch) -> None
         _guard_result(findings=(_pii(Severity.HIGH),), param_scan_unsafe=True),
     )
     assert out_high is not None and out_high["action"] == "block"
-    assert out_high["message"].startswith("Security finding (PII, HIGH)")
+    assert out_high["message"].startswith("[BLOCKED by Petasos]")
+    assert "http_request" in out_high["message"]
+    assert "(HIGH)" in out_high["message"] and "PII" in out_high["message"]
 
 
 # ---------------------------------------------------------------------------
@@ -194,7 +200,9 @@ def test_namespaced_egress_variant_still_pii_blocked(monkeypatch: pytest.MonkeyP
             egress=_SEND_EMAIL_CANON,
         )
         assert out is not None and out["action"] == "block", f"{variant!r} should block"
-        assert out["message"].startswith("Security finding (PII, CRITICAL)")
+        # PET-77: contract-formatted message (was raw "Security finding (PII, ...)").
+        assert out["message"].startswith("[BLOCKED by Petasos]")
+        assert "(CRITICAL)" in out["message"] and "PII" in out["message"]
 
 
 def test_namespaced_readonly_variant_not_dangerous(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -279,7 +287,9 @@ def test_camelcase_egress_variant_still_pii_blocked(monkeypatch: pytest.MonkeyPa
             egress=_SEND_EMAIL_CANON,
         )
         assert out is not None and out["action"] == "block", f"{variant!r} should block"
-        assert out["message"].startswith("Security finding (PII, CRITICAL)")
+        # PET-77: contract-formatted message (was raw "Security finding (PII, ...)").
+        assert out["message"].startswith("[BLOCKED by Petasos]")
+        assert "(CRITICAL)" in out["message"] and "PII" in out["message"]
 
 
 def test_camelcase_readonly_variant_not_dangerous(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -320,7 +330,9 @@ def test_single_underscore_namespace_requires_full_wire_name(
         egress=full_wire,
     )
     assert out is not None and out["action"] == "block"
-    assert out["message"].startswith("Security finding (PII, CRITICAL)")
+    # PET-77: contract-formatted message (was raw "Security finding (PII, ...)").
+    assert out["message"].startswith("[BLOCKED by Petasos]")
+    assert "(CRITICAL)" in out["message"] and "PII" in out["message"]
 
 
 # ---------------------------------------------------------------------------
@@ -335,7 +347,9 @@ def test_injection_still_blocks_all_dangerous_tools(monkeypatch: pytest.MonkeyPa
         )
         out = _drive(monkeypatch, tool, gr)
         assert out is not None and out["action"] == "block", f"{tool} should block injection"
-        assert out["message"].startswith("Parameter scan flagged unsafe content")
+        # PET-77: contract-formatted message (was raw "Parameter scan flagged unsafe content").
+        assert out["message"].startswith("[BLOCKED by Petasos]")
+        assert "NOT executed" in out["message"] and "(HIGH)" in out["message"]
 
 
 def test_non_pii_types_block_all_dangerous(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -345,7 +359,9 @@ def test_non_pii_types_block_all_dangerous(monkeypatch: pytest.MonkeyPatch) -> N
         gr = _guard_result(findings=(_non_pii(ftype, Severity.HIGH),), param_scan_unsafe=True)
         out = _drive(monkeypatch, "write_file", gr)
         assert out is not None and out["action"] == "block", f"finding_type={ftype!r} should block"
-        assert out["message"].startswith("Parameter scan flagged unsafe content")
+        # PET-77: contract-formatted message (was raw "Parameter scan flagged unsafe content").
+        assert out["message"].startswith("[BLOCKED by Petasos]")
+        assert "NOT executed" in out["message"]
 
 
 # ---------------------------------------------------------------------------
@@ -396,7 +412,9 @@ def test_fallback_ordinal_gate(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(ref, "_get_fallback_scanner", lambda: crit_scanner)
     out = ref._fallback_pre_tool_call("write_file", {"text": "x"}, "s1")
     assert out is not None and out["action"] == "block"
-    assert out["message"].startswith("Security scan (init in progress)")
+    # PET-77: contract-formatted message (was raw "Security scan (init in progress): ...").
+    assert out["message"].startswith("[BLOCKED by Petasos]")
+    assert "write_file" in out["message"] and "NOT executed" in out["message"]
 
     # MEDIUM finding → no block (ordinal gate).
     med_scanner = _make_scanner(_non_pii("injection", Severity.MEDIUM))
@@ -496,7 +514,9 @@ def test_tier3_and_not_allowed_unchanged(monkeypatch: pytest.MonkeyPatch) -> Non
         _guard_result(tier="tier3", allowed=False, reason="session terminated (tier3)"),
     )
     assert out_t3 is not None and out_t3["action"] == "block"
-    assert "Tier 3" in out_t3["message"]
+    # PET-77: tier3 message now carries the contract (was raw "...(Tier 3 escalation).").
+    assert out_t3["message"].startswith("[BLOCKED by Petasos]")
+    assert "tier3" in out_t3["message"] and "NOT executed" in out_t3["message"]
 
     out_blocked = _drive(
         monkeypatch,
@@ -504,7 +524,12 @@ def test_tier3_and_not_allowed_unchanged(monkeypatch: pytest.MonkeyPatch) -> Non
         _guard_result(allowed=False, reason="tier2: tool calls blocked"),
     )
     assert out_blocked is not None and out_blocked["action"] == "block"
-    assert out_blocked["message"] == "tier2: tool calls blocked"
+    # PET-77: the not-allowed block is routed through format_block_message. This fixture
+    # carries tier="none" (default), so the formatter takes the catch-all branch; the key
+    # guarantee is that the internal reason string never reaches the model.
+    assert out_blocked["message"].startswith("[BLOCKED by Petasos]")
+    assert "NOT executed" in out_blocked["message"]
+    assert "tier2: tool calls blocked" not in out_blocked["message"]
 
 
 # ---------------------------------------------------------------------------

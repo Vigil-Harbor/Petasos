@@ -11,6 +11,7 @@ from petasos.session.escalation import (
 )
 from petasos.session.formatting import (
     format_block_message,
+    format_content_block,
     format_pipeline_block_message,
     shorten_rule_id,
 )
@@ -37,6 +38,7 @@ __all__ = [
     "LineageRegistry",
     "max_tier",
     "format_block_message",
+    "format_content_block",
     "format_pipeline_block_message",
     "LicenseClaims",
     "LicenseState",
