@@ -20,6 +20,7 @@ Backend-free: the guard is stubbed and ``_run_async`` is monkeypatched, exactly 
 
 from __future__ import annotations
 
+import ast
 import asyncio
 import importlib.util
 from pathlib import Path
@@ -400,8 +401,17 @@ def test_shim_emits_branding() -> None:
 
 def test_shim_routes_every_block_site_through_formatter() -> None:
     # Regression for PET-77: each of the six block sites must route through the formatter.
-    # Counting call occurrences closes the hole B2 leaves open (a NEW ad-hoc f-string at a
-    # single site would pass B2 but drop the count below six).
-    src = _shim_source()
-    call_sites = src.count("format_block_message(") + src.count("format_content_block(")
+    # Counting call sites closes the hole B2 leaves open (a NEW ad-hoc f-string at a single
+    # site would pass B2 but drop the count below six). Parse the AST and count real Call
+    # nodes so the names appearing in the import, comments, or string literals are not
+    # miscounted (a raw src.count() would inflate the total and could mask a removed site).
+    tree = ast.parse(_shim_source())
+    targets = {"format_block_message", "format_content_block"}
+    call_sites = sum(
+        1
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id in targets
+    )
     assert call_sites >= 6, f"expected >=6 formatter call sites in the shim, found {call_sites}"
