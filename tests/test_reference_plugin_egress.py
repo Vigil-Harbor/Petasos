@@ -655,8 +655,9 @@ def test_disarm_emits_rate_limited_warning(
     mod = _import_reference_plugin()
     # _is_armed() resolves read_armed via a function-local import from
     # petasos.console._armed, so patch the source there — NOT mod.read_armed, which
-    # does not exist on the plugin module.
-    monkeypatch.setattr("petasos.console._armed.read_armed", lambda: False)
+    # does not exist on the plugin module. PET-130: _is_armed now calls
+    # read_armed(_session_resolution), so the stub accepts the optional arg.
+    monkeypatch.setattr("petasos.console._armed.read_armed", lambda res=None: False)
     mod._reset_disarm_log()
 
     with caplog.at_level(logging.WARNING, logger=mod.logger.name):

@@ -76,7 +76,7 @@ def _prep_init(mod: types.ModuleType, monkeypatch: pytest.MonkeyPatch) -> None:
 class TestHookRegistration:
     def test_both_hooks_registered_marks_available(self, monkeypatch: pytest.MonkeyPatch) -> None:
         ref = _import_reference_plugin()
-        monkeypatch.setattr(ref, "_load_config", lambda: {})
+        monkeypatch.setattr(ref, "_load_config", lambda res=None: {})
         monkeypatch.setattr(ref, "_deferred_init", lambda: None)  # neutralize bg thread
         ctx = _FakeCtx()
         ref.register(ctx)
@@ -85,7 +85,7 @@ class TestHookRegistration:
 
     def test_stop_hook_rejected_degrades_to_C(self, monkeypatch: pytest.MonkeyPatch) -> None:
         ref = _import_reference_plugin()
-        monkeypatch.setattr(ref, "_load_config", lambda: {})
+        monkeypatch.setattr(ref, "_load_config", lambda res=None: {})
         monkeypatch.setattr(ref, "_deferred_init", lambda: None)
         ctx = _FakeCtx(reject={"subagent_stop"})
         ref.register(ctx)
