@@ -114,6 +114,38 @@ def test_ttl_forces_reparse_on_unchanged_key(cfg: Path, monkeypatch: pytest.Monk
     assert read_armed() is False  # past TTL -> re-parse observes the flip
 
 
+# ── read_armed: PET-130 session-bound resolution ─────────────────────────────
+
+
+def test_armed_read_uses_session_bound_resolution(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Regression for PET-130: a profile session pinned to its own config honors a
+    # disarm written there, even when ambient resolution (HERMES_HOME) would read a
+    # different, still-armed file.
+    from petasos.console._paths import HermesConfigResolution
+
+    root_cfg = tmp_path / "root" / "config.yaml"
+    profile_cfg = tmp_path / "profiles" / "gibson" / "config.yaml"
+    _write_config(root_cfg, petasos_section={"enabled": True})
+    _write_config(profile_cfg, petasos_section={"enabled": False})
+    monkeypatch.setenv("HERMES_HOME", str(root_cfg.parent))
+
+    assert read_armed() is True  # ambient -> root -> armed
+    armed_mod._reset_armed_cache()
+    pinned = HermesConfigResolution(path=profile_cfg, tier="profile")
+    assert read_armed(pinned) is False  # session-bound -> profile -> disarmed
+
+
+def test_armed_read_with_res_fails_secure_on_missing_path(tmp_path: Path) -> None:
+    # Regression for PET-130: a pinned resolution whose file is missing still arms
+    # (the fail-secure floor must not weaken on the res path).
+    from petasos.console._paths import HermesConfigResolution
+
+    missing = HermesConfigResolution(path=tmp_path / "nope" / "config.yaml", tier="profile")
+    assert read_armed(missing) is True
+
+
 # ── write_armed: preserve, create, fail-safe ─────────────────────────────────
 
 
