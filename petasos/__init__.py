@@ -19,6 +19,7 @@ from petasos.session.audit import AuditEmitter
 from petasos.session.escalation import max_tier
 from petasos.session.formatting import (
     format_block_message,
+    format_content_block,
     format_pipeline_block_message,
     shorten_rule_id,
 )
@@ -38,6 +39,7 @@ __all__ = [
     "FrequencyUpdateResult",
     "GuardResult",
     "format_block_message",
+    "format_content_block",
     "format_pipeline_block_message",
     "LicenseClaims",
     "LicenseState",
