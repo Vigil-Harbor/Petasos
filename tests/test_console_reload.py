@@ -29,6 +29,8 @@ if TYPE_CHECKING:
     import types
     from collections.abc import Iterator
 
+    from petasos.console._paths import Tier
+
 
 _REF_PLUGIN_PATH = (
     Path(__file__).resolve().parent.parent
@@ -245,3 +247,158 @@ def test_reload_failure_log_rate_limited(
 
     fails = [r for r in caplog.records if "PETASOS_RELOAD_FAILED" in r.getMessage()]
     assert len(fails) == 1  # rate-limited to one per 30s window, not one per call
+
+
+# ── PET-130: gateway session-bound armed/reload resolution ───────────────────
+
+
+class _FakeCtx:
+    def __init__(self) -> None:
+        self.registered: list[str] = []
+
+    def register_hook(self, name: str, fn: Any) -> None:
+        self.registered.append(name)
+
+
+def _make_resolution(path: Path, tier: Tier) -> Any:
+    from petasos.console._paths import HermesConfigResolution
+
+    return HermesConfigResolution(path=path, tier=tier)
+
+
+def _split_armed(
+    tmp_path: Path, *, profile_enabled: bool, root_enabled: bool
+) -> tuple[Path, Path]:
+    root_cfg = tmp_path / "root" / "config.yaml"
+    profile_cfg = tmp_path / "profiles" / "gibson" / "config.yaml"
+    _write_config(root_cfg, {"enabled": root_enabled})
+    _write_config(profile_cfg, {"enabled": profile_enabled})
+    return root_cfg, profile_cfg
+
+
+def test_reload_shares_session_bound_resolution(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Regression for PET-130: the reload reader pinned to the session's profile reads
+    # AND commits against the profile config even when ambient (HERMES_HOME) resolves
+    # to root. The negative arm proves the res argument is load-bearing (the peek/
+    # commit pairing invariant) rather than passing vacuously.
+    root_cfg = tmp_path / "root" / "config.yaml"
+    profile_cfg = tmp_path / "profiles" / "gibson" / "config.yaml"
+    _write_config(root_cfg, {"profile_name": "root_profile"})
+    _write_config(profile_cfg, {"profile_name": "gibson_profile"})
+    monkeypatch.setenv("HERMES_HOME", str(root_cfg.parent))  # ambient -> root
+
+    pinned = _make_resolution(profile_cfg, "profile")
+    changed = read_changed_section(pinned)
+    assert changed is not None
+    section, key = changed
+    assert section.get("profile_name") == "gibson_profile"  # profile, not root
+
+    commit_seen(key, pinned)
+    assert reload_mod._RELOAD_CACHE is not None
+    assert reload_mod._RELOAD_CACHE[1].get("profile_name") == "gibson_profile"
+
+    # Drop the res on commit: it re-resolves to ambient root and caches the WRONG
+    # section -> the test fails here if the res argument were ever dropped.
+    reload_mod._reset_reload_cache()
+    commit_seen(key)
+    assert reload_mod._RELOAD_CACHE is not None
+    assert reload_mod._RELOAD_CACHE[1].get("profile_name") == "root_profile"
+
+
+def test_profile_disarm_honored_over_global_armed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Regression for PET-130 (headline): profile disarmed (enabled:false) + global
+    # armed (enabled:true); a gateway pinned to the profile reads DISARMED and passes
+    # the next tool call through.
+    import petasos.console._armed as armed_mod
+
+    ref = _import_reference_plugin()
+    root_cfg, profile_cfg = _split_armed(tmp_path, profile_enabled=False, root_enabled=True)
+    monkeypatch.setenv("HERMES_HOME", str(root_cfg.parent))  # ambient -> root (armed)
+    armed_mod._reset_armed_cache()
+    monkeypatch.setattr(ref, "_session_resolution", _make_resolution(profile_cfg, "profile"))
+    ref._reset_disarm_log()
+
+    assert ref._is_armed() is False  # pinned to profile -> disarmed
+    assert ref._pre_tool_call("shell", {"cmd": "x"}, task_id="s1") is None  # pass-through
+
+
+def test_disarm_emits_disarmed_log_within_one_call(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    # Regression for PET-130: unequipping (profile enabled:false, gateway pinned to it)
+    # emits exactly one PETASOS_DISARMED line and passes the very next call through.
+    import petasos.console._armed as armed_mod
+
+    ref = _import_reference_plugin()
+    _root_cfg, profile_cfg = _split_armed(tmp_path, profile_enabled=False, root_enabled=True)
+    armed_mod._reset_armed_cache()
+    monkeypatch.setattr(ref, "_session_resolution", _make_resolution(profile_cfg, "profile"))
+    ref._reset_disarm_log()
+
+    with caplog.at_level(logging.WARNING, logger="petasos.plugin"):
+        assert ref._pre_tool_call("shell", {"cmd": "x"}, task_id="s1") is None
+
+    disarmed = [r for r in caplog.records if "PETASOS_DISARMED" in r.getMessage()]
+    assert len(disarmed) == 1
+
+
+def test_armed_resolution_logged_at_boot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    # Regression for PET-130 (D2): register() captures the session resolution and emits
+    # a greppable line naming tier + path; the logged path equals the config-load path.
+    ref = _import_reference_plugin()
+    profile_dir = tmp_path / "profiles" / "gibson"
+    _write_config(profile_dir / "config.yaml", {"enabled": True})
+    monkeypatch.setenv("HERMES_HOME", str(profile_dir))
+    monkeypatch.setattr(ref, "_deferred_init", lambda: None)  # neutralize bg thread
+
+    with caplog.at_level(logging.INFO, logger="petasos.plugin"):
+        ref.register(_FakeCtx())
+
+    res_lines = [
+        r.getMessage() for r in caplog.records if "PETASOS_ARMED_RESOLUTION" in r.getMessage()
+    ]
+    assert len(res_lines) == 1
+    assert "tier=hermes_home" in res_lines[0]
+    assert str(profile_dir / "config.yaml") in res_lines[0]
+
+    assert ref._session_resolution is not None
+    assert ref._session_resolution.path == profile_dir / "config.yaml"
+    load_lines = [
+        r.getMessage() for r in caplog.records if "loading config from" in r.getMessage()
+    ]
+    assert len(load_lines) == 1
+    assert str(profile_dir / "config.yaml") in load_lines[0]  # one file, not two
+
+
+def test_wrong_boot_resolution_stays_armed_and_logs_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    # Regression for PET-130 (corollary): if the gateway boots under the root/global
+    # config (wrong) while the disarm lives in the profile, pinning preserves the wrong
+    # file -> stays ARMED, but the D2 boot log names the root path loudly (a one-line
+    # diagnosis, not a silent correction). The Hermes-launch fix is out of scope.
+    import petasos.console._armed as armed_mod
+
+    ref = _import_reference_plugin()
+    root_cfg, _profile_cfg = _split_armed(tmp_path, profile_enabled=False, root_enabled=True)
+    armed_mod._reset_armed_cache()
+    monkeypatch.setenv("HERMES_HOME", str(root_cfg.parent))  # boots under root
+    monkeypatch.setattr(ref, "_deferred_init", lambda: None)
+
+    with caplog.at_level(logging.INFO, logger="petasos.plugin"):
+        ref.register(_FakeCtx())
+
+    assert ref._session_resolution is not None
+    assert ref._session_resolution.path == root_cfg  # booted under the global config
+    assert ref._is_armed() is True  # profile disarm NOT honored under a wrong boot
+    res_lines = [
+        r.getMessage() for r in caplog.records if "PETASOS_ARMED_RESOLUTION" in r.getMessage()
+    ]
+    assert len(res_lines) == 1
+    assert str(root_cfg) in res_lines[0]  # names the wrong (root) file -> greppable

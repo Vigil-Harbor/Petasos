@@ -19,6 +19,16 @@ the seen key by itself. It returns ``(section, key)`` and the caller calls
 ``commit_seen(key)`` only after a successful apply. A failed apply leaves the key
 uncommitted, so the same change is re-attempted on the next call after the TTL: a
 failed apply can never silently pin a stale config. Never raises.
+
+PET-130: ``read_changed_section`` and ``commit_seen`` take an optional ``res``
+resolution (mirroring ``read_armed``). The gateway passes its boot-pinned
+resolution so the reload reads the same file the armed bit does; the standalone
+console passes ``None`` and re-resolves. The peek and its matching commit MUST be
+passed the identical ``res`` in one cycle, or the committed key and section would
+describe different files. Precondition: the ``(mtime_ns, size)`` cache is keyed by
+stat metadata, not path; a single process must use one binding consistently. If a
+future surface ever runs gateway and console in one process, re-key the cache to
+include ``res.path``.
 """
 
 from __future__ import annotations
@@ -27,7 +37,11 @@ import threading
 import time
 from typing import Any
 
-from petasos.console._paths import read_petasos_section, resolve_hermes_config_path
+from petasos.console._paths import (
+    HermesConfigResolution,
+    read_petasos_section,
+    resolve_hermes_config_path,
+)
 
 _RELOAD_LOCK = threading.Lock()
 _RELOAD_TTL_S = 1.0
@@ -44,8 +58,13 @@ def _reset_reload_cache() -> None:
         _RELOAD_CACHE = None
 
 
-def read_changed_section() -> tuple[dict[str, Any], tuple[int, int]] | None:
+def read_changed_section(
+    res: HermesConfigResolution | None = None,
+) -> tuple[dict[str, Any], tuple[int, int]] | None:
     """Return ``(section, key)`` when the ``petasos:`` section changed, else ``None``.
+
+    ``res``: when supplied (the PET-130 gateway path), use this boot-pinned
+    resolution; when ``None``, re-resolve from environment (standalone console).
 
     ``key = (mtime_ns, size)``. Logic:
 
@@ -65,7 +84,7 @@ def read_changed_section() -> tuple[dict[str, Any], tuple[int, int]] | None:
     """
     global _RELOAD_CACHE
     try:
-        res = resolve_hermes_config_path()
+        res = res if res is not None else resolve_hermes_config_path()
         try:
             st = res.path.stat()
             key = (st.st_mtime_ns, st.st_size)
@@ -97,7 +116,7 @@ def read_changed_section() -> tuple[dict[str, Any], tuple[int, int]] | None:
         return None  # never raises out (fail-safe)
 
 
-def commit_seen(key: tuple[int, int]) -> None:
+def commit_seen(key: tuple[int, int], res: HermesConfigResolution | None = None) -> None:
     """Advance the seen key after a successful apply (commit-on-success).
 
     Re-reads the resolved section so the cached ``(key, section, ts)`` lets a
@@ -105,10 +124,14 @@ def commit_seen(key: tuple[int, int]) -> None:
     compare). Re-applying the same already-validated config is idempotent, so the
     rare race where the file changes again between read and commit costs at most
     one redundant re-apply on the next call rather than a correctness bug.
+
+    ``res`` MUST be the same resolution passed to the matching ``read_changed_section``
+    call (PET-130); otherwise the committed section would be re-read from a different
+    file than the one ``key`` describes.
     """
     global _RELOAD_CACHE
     try:
-        res = resolve_hermes_config_path()
+        res = res if res is not None else resolve_hermes_config_path()
         section = read_petasos_section(res)
     except Exception:
         section = {}

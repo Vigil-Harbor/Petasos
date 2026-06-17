@@ -29,6 +29,7 @@ from petasos.normalize import canonicalize_tool_name  # PET-118: dep-light (re +
 
 if TYPE_CHECKING:
     from petasos import PetasosConfig
+    from petasos.console._paths import HermesConfigResolution
 
 logger = logging.getLogger("petasos.plugin")
 
@@ -43,6 +44,21 @@ _init_lock = threading.Lock()
 _initialized = False
 _init_error: str | None = None
 _session_ids: dict[int, str] = {}
+
+# PET-130: the gateway's session-bound config resolution, captured once at the top
+# of register() from the operator-trusted boot environment and pinned for the
+# process lifetime. _is_armed() and _maybe_reconfigure() pass it to the armed/reload
+# readers so a profile session never re-resolves to the global config mid-session.
+# None means capture has not run (or failed) -> the readers fall back to an ambient
+# per-call resolve. Never re-derived from in-session-mutable state (PET-125).
+_session_resolution: HermesConfigResolution | None = None
+
+
+def _reset_session_resolution() -> None:
+    """Test seam — drop the pinned resolution (mirrors _reset_disarm_log)."""
+    global _session_resolution
+    _session_resolution = None
+
 
 # PET-111: live arm/disarm. _pre_tool_call/_post_tool_call re-read petasos.enabled
 # per call (mtime+size+TTL-cached in petasos.console._armed) rather than latching
@@ -201,11 +217,16 @@ def _run_async(coro):
 # ---------------------------------------------------------------------------
 
 
-def _load_config() -> dict[str, Any]:
-    """Read petasos: section from the resolved Hermes config.yaml."""
+def _load_config(res: HermesConfigResolution | None = None) -> dict[str, Any]:
+    """Read petasos: section from the resolved Hermes config.yaml.
+
+    PET-130: ``res`` is the boot-captured resolution; when supplied, boot resolves
+    exactly once (the same file the armed/reload reads are pinned to). When ``None``,
+    resolve from environment as before.
+    """
     from petasos.console._paths import read_petasos_section, resolve_hermes_config_path
 
-    res = resolve_hermes_config_path()
+    res = res if res is not None else resolve_hermes_config_path()
     logger.info("loading config from %s [tier=%s]", res.path, res.tier)
     if res.warning:
         logger.warning("Hermes profile resolution: %s", res.warning)
@@ -585,11 +606,17 @@ def _fallback_pre_tool_call(
 
 
 def _is_armed() -> bool:
-    """PET-111: True unless the operator set petasos.enabled=false. Fail-secure True."""
+    """PET-111: True unless the operator set petasos.enabled=false. Fail-secure True.
+
+    PET-130: reads through the session-bound resolution captured at boot so a
+    profile session honors a disarm written to its own config rather than re-reading
+    the global. ``_session_resolution`` is None until register() captures it, in which
+    case read_armed falls back to an ambient per-call resolve.
+    """
     try:
         from petasos.console._armed import read_armed
 
-        return read_armed()
+        return read_armed(_session_resolution)
     except Exception:
         return True  # never fail open into disarmed
 
@@ -694,7 +721,9 @@ def _maybe_reconfigure() -> None:
     except Exception:
         return
 
-    changed = read_changed_section()
+    # PET-130: peek and commit MUST share the same session-bound resolution so the
+    # committed key and section describe one file.
+    changed = read_changed_section(_session_resolution)
     if changed is None:
         return
     section, key = changed
@@ -708,7 +737,7 @@ def _maybe_reconfigure() -> None:
     except Exception as exc:
         _log_reload_failure(f"apply failed: {exc}")
         return  # keep last-good; not committed -> retried next call
-    commit_seen(key)
+    commit_seen(key, _session_resolution)
     _log_reconfigure_applied()
 
 
@@ -885,10 +914,35 @@ def _try_register_hook(ctx, name: str, handler) -> bool:
 
 
 def register(ctx) -> None:
-    global _config, _subagent_hooks_available
+    global _config, _subagent_hooks_available, _session_resolution
+
+    # PET-130: capture the session-bound resolution FIRST — before any hook is
+    # registered or the init thread starts — so the first _pre_tool_call cannot
+    # observe a None binding and fall back to an ambient resolve. Pre-clear to None
+    # so a re-register whose capture fails cannot leave a stale prior binding. The
+    # binding source is the operator-trusted boot environment, never in-session
+    # state (PET-125 / Decision 2).
+    _session_resolution = None
+    try:
+        from petasos.console._paths import resolve_hermes_config_path
+
+        _session_resolution = resolve_hermes_config_path()
+    except Exception as exc:  # resolve_hermes_config_path never raises; stay safe
+        logger.warning(
+            "PETASOS_ARMED_RESOLUTION tier=unresolved path=ambient: boot capture "
+            "failed (%s); falling back to per-call resolve",
+            exc,
+        )
+    if _session_resolution is not None:
+        # D2: greppable, names the tier + absolute path the armed/reload reads pin to.
+        logger.info(
+            "PETASOS_ARMED_RESOLUTION tier=%s path=%s",
+            _session_resolution.tier,
+            _session_resolution.path,
+        )
 
     try:
-        _config = _load_config()
+        _config = _load_config(_session_resolution)
     except Exception as exc:
         logger.error("Failed to load petasos config: %s", exc)
         _config = {}
