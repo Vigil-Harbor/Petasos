@@ -214,7 +214,7 @@ async def test_profile_metadata_surfaced(handlers: ConsoleHandlers) -> None:
 
 async def test_get_about(handlers: ConsoleHandlers) -> None:
     result = await handlers.get_about()
-    assert result["version"] == "0.1.0"
+    assert result["version"] == "0.1.2"
     assert result["license"] == "MIT"
     assert "donation" in result
     assert "url" in result["donation"]

@@ -6,6 +6,21 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
 
 _Nothing yet._
 
+## [0.1.2] - 2026-06-17
+
+First patch release with code changes since 0.1.0. Hardens the Hermes gateway integration surfaced during live operator sessions, and adds an opt-in source-taint egress fence plus a dormant profile re-bind path.
+
+### Added
+
+- **Source-taint egress fence** (`SessionTaintStore`, off by default): content ingested from an operator-declared source namespace may not be relayed verbatim to an egress sink (normalized-substring match), additive to the PII-egress block. Adds two config fields with console and docs surfaces.
+- **Re-establishable boot-pin** for a future operator-trusted profile change: if a host retargets a running process to a new profile in place, Petasos can re-pin its config binding from an operator-trusted signal (never an agent-writable pointer) instead of silently enforcing the boot profile's policy. Ships dormant: Hermes 0.16 has no such signal, so a security-relevant profile change still requires a gateway or process restart, now documented in the hardening guide.
+
+### Fixed
+
+- Unequipping the helmet (disarm) is now honored in Hermes profile sessions. The gateway previously re-resolved its config path on every call and read the global armed bit, so a disarm written to a profile's config was ignored and enforcement stayed on. The gateway now pins its config resolution once at boot and threads it through the armed and reload reads.
+- Blocked tool calls now return an attributed "[BLOCKED by Petasos]" message to the model. All six reference-plugin block sites route through the block-message formatter, so a blocked call is no longer reported as a raw, unattributed string the model can confabulate a cause for.
+- Gateway enforcement decisions (blocks, quarantines, and disarmed pass-throughs) now surface on the Observability dashboard. The gateway and dashboard run in separate processes, so blocks were previously invisible in the UI; a fail-open cross-process event spool now carries them into the scan history and live stream.
+
 ## [0.1.1] - 2026-06-15
 
 Documentation and packaging only. No code or behavior changes.
@@ -52,6 +67,7 @@ First public release. Every feature ships free and keyless: no license key, no t
 - **Tool-name canonicalization parity**: enforcement and classification share one canonical primitive, closing case / homoglyph / namespace / CamelCase / `_tool`-suffix variant-named egress bypasses
 - **PII-egress hardening**: egress-scoped guard blocking, corrected ordinal severity ranking (a lone CRITICAL now blocks), and a parse-time PII-entity vocabulary guard
 
-[Unreleased]: https://github.com/Vigil-Harbor/Petasos/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/Vigil-Harbor/Petasos/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/Vigil-Harbor/Petasos/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/Vigil-Harbor/Petasos/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/Vigil-Harbor/Petasos/releases/tag/v0.1.0
