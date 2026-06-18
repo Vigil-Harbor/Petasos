@@ -28,6 +28,7 @@ from petasos.session.guard import GuardResult, ToolCallGuard
 from petasos.session.license import LicenseClaims, LicenseState, LicenseValidator, validate_license
 from petasos.session.lineage import LineageRegistry
 from petasos.session.profiles import ProfileResolver, ResolvedProfile, TierThresholds
+from petasos.session.taint import SessionTaintStore
 
 __all__ = [
     "Alert",
@@ -59,6 +60,7 @@ __all__ = [
     "ScanFinding",
     "ScanResult",
     "Scanner",
+    "SessionTaintStore",
     "Severity",
     "TierThresholds",
     "ToolCallGuard",

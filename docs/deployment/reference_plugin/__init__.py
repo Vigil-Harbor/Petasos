@@ -224,6 +224,36 @@ def _is_egress_sink(tool_name: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# PET-134: per-namespace source-taint egress fence
+# ---------------------------------------------------------------------------
+
+# The taint store (per-session bounded span set) and the canonicalized source-namespace
+# prefix set, built in _deferred_init from config beside _egress_sink_tools and rebuilt in
+# _apply_reconfigure. Written once under _init_lock before _initialized flips; read lock-free
+# in the post-init hot path (_pre_tool_call / _post_tool_call). Both default to the
+# feature-off sentinels (None store, empty set) so the fence is a no-op until an operator
+# declares a source namespace. _taint_store is typed loosely (Any) to keep this deployment
+# artifact import-light — the concrete type is petasos.session.taint.SessionTaintStore.
+_taint_store: Any = None
+_source_taint_namespaces: frozenset[str] = frozenset()
+
+
+def _match_source_namespace(tool_name: str) -> str | None:
+    """Return the declared source-namespace prefix the producing ``tool_name`` falls under,
+    or ``None``. Canonicalizes the tool name through the SAME primitive as the sinks
+    (PET-118: closes the variant bypass on the source side) and PREFIX-matches it (a source
+    namespace labels a FAMILY of tools, unlike the exact membership a sink uses). The
+    LONGEST matching prefix wins, so overlapping declarations (``mcp_`` and ``mcp_bank_``)
+    resolve deterministically to the most specific provenance (D-NS)."""
+    canon_tool = canonicalize_tool_name(tool_name)
+    return max(
+        (p for p in _source_taint_namespaces if canon_tool.startswith(p)),
+        key=len,
+        default=None,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Async bridge — dedicated event loop in a background thread
 # ---------------------------------------------------------------------------
 
@@ -485,7 +515,7 @@ def _deferred_init() -> None:
                     "PETASOS_LICENSE_KEY not set — all features available (license is optional)"
                 )
 
-            from petasos import FrequencyTracker, LineageRegistry
+            from petasos import FrequencyTracker, LineageRegistry, SessionTaintStore
 
             global _lineage_registry
             if _subagent_hooks_available:
@@ -532,6 +562,25 @@ def _deferred_init() -> None:
                 logger.warning(
                     "egress_sink_tools is empty (or all names canonicalized away) — "
                     "PII will not be blocked on any egress tool"
+                )
+
+            # PET-134: build the source-taint set + store under the SAME happens-before as
+            # _egress_sink_tools (written before _initialized flips; read lock-free in the
+            # hot path). The `global` is MANDATORY — without it the assignments bind
+            # function-locals and leave the module set frozen empty / the store None forever,
+            # silently disabling the fence (the exact footgun the egress comment warns of).
+            # _source_taint_namespaces uses the identical canonicalize-drop-empty-warn idiom;
+            # the prefixes are canonicalized so a variant-named source tool still matches
+            # (PET-118 on the source side).
+            global _taint_store, _source_taint_namespaces
+            _source_taint_namespaces = frozenset(
+                c for c in (canonicalize_tool_name(t) for t in config.source_taint_namespaces) if c
+            )
+            _taint_store = SessionTaintStore(config)
+            if config.source_taint_namespaces and not _source_taint_namespaces:
+                logger.warning(
+                    "source_taint_namespaces is set but all names canonicalized away — "
+                    "the source-taint egress fence will match no producing tool"
                 )
 
             scanner_names = [s.name for s in scanners]
@@ -802,10 +851,20 @@ async def _apply_reconfigure(cfg: PetasosConfig) -> None:
     _guard.apply_config(cfg)
     if _lineage_registry is not None:
         _lineage_registry.apply_config(cfg)
-    global _egress_sink_tools
+    global _egress_sink_tools, _source_taint_namespaces
     _egress_sink_tools = frozenset(
         c for c in (canonicalize_tool_name(t) for t in cfg.egress_sink_tools) if c
     )
+    # PET-134: rebuild the source-namespace set and apply the live FP floor beside the
+    # egress rebuild (the gateway owns this state; the pipeline cannot reach it). The
+    # `global` is mandatory for the rebind (the store itself is mutated in place, not
+    # reassigned). apply_config only rebinds an already-validated scalar under the store
+    # lock, so it cannot raise on this phase-1-validated cfg (commit-phase no-raise).
+    _source_taint_namespaces = frozenset(
+        c for c in (canonicalize_tool_name(t) for t in cfg.source_taint_namespaces) if c
+    )
+    if _taint_store is not None:
+        _taint_store.apply_config(cfg)
 
 
 def _maybe_reconfigure() -> None:
@@ -1114,6 +1173,33 @@ def _pre_tool_call(
     non_pii_blocking = [f for f in blocking if f.finding_type != "pii"]
     pii_blocking = [f for f in blocking if f.finding_type == "pii"]
 
+    # 0. PET-134 source-taint egress fence: the FIRST block check, additive to and
+    #    independent of the PII-egress block below. Content a tool in a declared source
+    #    namespace returned may not leave, verbatim, via an egress sink, regardless of
+    #    whether it also matches PII. All three short-circuits collapse to a fast empty-set
+    #    check on the default, so the feature-off / untainted path is byte-identical to the
+    #    pre-PET-134 behavior. Direction-orthogonal: tainted_source is a pure substring
+    #    test that never consults Direction and never calls the pipeline scan. The
+    #    model-facing message carries no source/sink detail (PET-77); the provenance
+    #    namespace and sink go only to the operator log line + enforcement event (D-OBSERV).
+    if egress and _source_taint_namespaces and _taint_store is not None:
+        tainted_ns = _taint_store.tainted_source(session_id, args)
+        if tainted_ns is not None:
+            reason = f"source-taint egress: {tainted_ns} -> {tool_name}"
+            logger.warning(
+                "PETASOS_QUARANTINE tool=%s session=%s — %s", tool_name, session_id, reason
+            )
+            _emit_enforcement_event(
+                session_id=session_id,
+                tool=tool_name,
+                event_type="quarantine",
+                reason=reason,
+            )
+            return {
+                "action": "block",
+                "message": format_content_block("taint_egress", tool_name, ()),
+            }
+
     # 1. Scan degraded/unreliable -> block ALL dangerous tools (fail-mode; cannot trust the
     #    scan). Independent of finding type, so a degraded scanner co-occurring with a PII
     #    finding still blocks (D-DEGRADED, closes the degraded+PII hole).
@@ -1193,6 +1279,27 @@ def _post_tool_call(
     if not _is_armed():  # PET-111: skip the completion log while disarmed
         return
     logger.debug("PETASOS_TOOL_COMPLETE tool=%s duration_ms=%d", tool_name, duration_ms)
+
+    # PET-134: capture tainted spans from a declared source namespace. Fast-path off on the
+    # empty default (zero added cost, preserves the no-op posture, brief D-PERF). Guarded
+    # end-to-end so capture can never break a completing tool call.
+    if not _source_taint_namespaces or _taint_store is None:
+        return
+    try:
+        source_ns = _match_source_namespace(tool_name)
+        if source_ns is None:
+            return
+        # D1b: skip capture when no stable correlator was supplied. That input shape
+        # (no task_id and no _agent) drives _derive_session_id into a fresh anon-<uuid>
+        # per call that a later _pre_tool_call check can never match, so storing under it
+        # is a guaranteed fail-open plus orphan-session growth. The discriminator is the
+        # INPUTS, not the derived-id string: a durable task_id that legitimately begins
+        # with "anon-" stays correlatable and is captured.
+        if not task_id and kwargs.get("_agent") is None:
+            return
+        _taint_store.capture(_derive_session_id(task_id, kwargs), result, source_ns)
+    except Exception as exc:
+        logger.debug("Petasos taint capture failed: %s; skipping", exc)
 
 
 def _on_session_start(**kwargs) -> None:

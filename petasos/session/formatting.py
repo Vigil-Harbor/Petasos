@@ -25,13 +25,19 @@ _MAX_MESSAGE_LEN = 200
 # guard has returned allowed=True (or operate outside GuardResult), so they cannot reuse
 # format_block_message. format_content_block is keyed on the block decision the shim
 # already made (one of these paths) plus the findings that drove it.
-ContentBlockPath = Literal["init", "degraded", "non_pii_param", "pii_egress"]
+ContentBlockPath = Literal["init", "degraded", "non_pii_param", "pii_egress", "taint_egress"]
 
 _CONTENT_REASON: dict[str, str] = {
     "init": "Blocked by the initialization-time security scan.",
     "degraded": "Parameter scan unavailable (scanner degraded); blocked by fail-mode policy.",
     "non_pii_param": "Unsafe content detected in the tool parameters.",
     "pii_egress": "Sensitive data (PII) was about to leave via this tool; the call was stopped.",
+    # PET-134: the model-facing taint message carries NO source/sink detail (PET-77:
+    # internal provenance reasons never reach the model; that detail goes only to the
+    # operator log + enforcement event).
+    "taint_egress": (
+        "Content from a restricted source was about to leave via this tool; the call was stopped."
+    ),
 }
 
 
