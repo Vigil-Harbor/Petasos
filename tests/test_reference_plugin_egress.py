@@ -28,6 +28,7 @@ from petasos import (
     PipelineResult,
     ScanFinding,
     ScanResult,
+    SessionTaintStore,
     Severity,
     ToolCallGuard,
 )
@@ -697,3 +698,216 @@ def test_disarm_emits_rate_limited_warning(
     msg = warnings[0].getMessage()
     assert "PETASOS_DISARMED" in msg
     assert "shell" in msg
+
+
+# ---------------------------------------------------------------------------
+# PET-134: per-namespace source-taint egress fence (plugin-level integration)
+# ---------------------------------------------------------------------------
+
+_BANK_NS = ("mcp_bank_",)
+# A non-PII span: matches no PII pattern, so only the taint fence can block it.
+_TAINTED = "$4,000 at Whole Foods on groceries"
+
+
+def _make_taint_plugin(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    namespaces: tuple[str, ...] = _BANK_NS,
+    min_span_length: int = 12,
+    egress: frozenset[str] = _EGRESS,
+    guard_result: GuardResult | None = None,
+) -> types.ModuleType:
+    """Freshly imported, post-init, armed plugin with the taint fence wired: a real
+    SessionTaintStore plus the canonicalized source-namespace set. The guard is stubbed
+    (its evaluate result is supplied) so the fence is exercised in isolation."""
+    ref = _import_reference_plugin()
+    cfg = PetasosConfig(source_taint_namespaces=namespaces, taint_min_span_length=min_span_length)
+    monkeypatch.setattr(ref, "_initialized", True)
+    monkeypatch.setattr(ref, "_init_error", None)
+    monkeypatch.setattr(ref, "_is_armed", lambda: True)
+    monkeypatch.setattr(ref, "_maybe_reconfigure", lambda: None)
+    monkeypatch.setattr(ref, "_egress_sink_tools", egress)
+    monkeypatch.setattr(
+        ref,
+        "_source_taint_namespaces",
+        frozenset(c for c in (canonicalize_tool_name(t) for t in namespaces) if c),
+    )
+    monkeypatch.setattr(ref, "_taint_store", SessionTaintStore(cfg))
+    gr = guard_result if guard_result is not None else _guard_result()
+    stub_guard = type("G", (), {"evaluate": lambda self, *a, **k: None})()
+    monkeypatch.setattr(ref, "_guard", stub_guard)
+    monkeypatch.setattr(ref, "_run_async", lambda coro: gr)
+    return ref
+
+
+def test_tainted_nonpii_blocked_to_egress_sink(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The headline regression: a non-PII string captured from a declared source namespace,
+    # then relayed to an egress sink, is blocked though it matches no PII pattern. The
+    # enforcement-event reason names the matched SOURCE namespace (D-OBSERV).
+    ref = _make_taint_plugin(monkeypatch)
+    events: list[dict[str, Any]] = []
+    monkeypatch.setattr(ref, "_emit_enforcement_event", lambda **kw: events.append(kw))
+
+    ref._post_tool_call("mcp_bank_list_accounts", {}, result=_TAINTED, task_id="s1")
+    out = ref._pre_tool_call("send_email", {"body": f"FYI: {_TAINTED}"}, task_id="s1")
+
+    assert out is not None and out["action"] == "block"
+    assert out["message"].startswith("[BLOCKED by Petasos]")
+    # PET-77: the model-facing message carries no source/sink provenance detail.
+    assert "mcp_bank_" not in out["message"]
+    quarantines = [e for e in events if e.get("event_type") == "quarantine"]
+    assert quarantines, "expected a quarantine enforcement event"
+    assert quarantines[-1]["reason"] == "source-taint egress: mcp_bank_ -> send_email"
+
+
+def test_tainted_content_to_internal_tool_allowed(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The same tainted content to an internal tool is NOT blocked (internal-exempt parity:
+    # the fence is egress-scoped, like the PII-egress block).
+    ref = _make_taint_plugin(monkeypatch)
+    ref._post_tool_call("mcp_bank_list_accounts", {}, result=_TAINTED, task_id="s1")
+    for tool in ("write_file", "terminal"):
+        assert ref._pre_tool_call(tool, {"content": _TAINTED}, task_id="s1") is None, tool
+
+
+def test_untainted_content_to_egress_sink_unaffected(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Content never captured from a tainted source flows to an egress sink unchanged: the
+    # no-match path is byte-identical to today (no over-block).
+    ref = _make_taint_plugin(monkeypatch)
+    assert ref._pre_tool_call("send_email", {"body": _TAINTED}, task_id="s1") is None
+
+
+def test_taint_capture_only_from_declared_namespace(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A result from a non-declared namespace does not taint; relaying it is allowed.
+    ref = _make_taint_plugin(monkeypatch)
+    ref._post_tool_call("mcp_weather_forecast", {}, result=_TAINTED, task_id="s1")
+    assert ref._pre_tool_call("send_email", {"body": _TAINTED}, task_id="s1") is None
+
+
+def test_taint_namespace_canonicalized_match(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A cased / CamelCase / _tool variant of a tool in the declared namespace still taints
+    # (reuses canonicalize_tool_name; closes the PET-118-class bypass on the source side).
+    ref = _make_taint_plugin(monkeypatch)
+    value = "canonical-taint-check-value"
+    for producer in (
+        "MCP_BANK_List_Accounts",
+        "mcp_bank_ListAccounts",
+        "mcp_bank_get_balance_tool",
+    ):
+        cfg = PetasosConfig(source_taint_namespaces=_BANK_NS, taint_min_span_length=12)
+        monkeypatch.setattr(ref, "_taint_store", SessionTaintStore(cfg))  # isolate each producer
+        ref._post_tool_call(producer, {}, result=value, task_id="s1")
+        out = ref._pre_tool_call("send_email", {"body": f"relay {value}"}, task_id="s1")
+        assert out is not None and out["action"] == "block", producer
+
+
+def test_taint_block_is_additive_to_pii(monkeypatch: pytest.MonkeyPatch) -> None:
+    # (a) a tainted arg that ALSO matches PII is blocked by the taint fence (ordered first).
+    gr_pii = _guard_result(findings=(_pii(Severity.CRITICAL),), param_scan_unsafe=True)
+    ref = _make_taint_plugin(monkeypatch, guard_result=gr_pii)
+    ref._post_tool_call(
+        "mcp_bank_list_accounts", {}, result="taxpayer-balance-record-xyz", task_id="s1"
+    )
+    out = ref._pre_tool_call(
+        "send_email", {"body": "relay taxpayer-balance-record-xyz"}, task_id="s1"
+    )
+    assert out is not None and out["action"] == "block"
+    assert "restricted source" in out["message"]  # the taint_egress message, not pii_egress
+
+    # (b) an untainted PII arg still takes the unchanged pii_egress path (distinct message).
+    ref2 = _make_taint_plugin(monkeypatch, guard_result=gr_pii)
+    out2 = ref2._pre_tool_call("send_email", {"body": "no taint here"}, task_id="s2")
+    assert out2 is not None and out2["action"] == "block"
+    assert "PII" in out2["message"] and "restricted source" not in out2["message"]
+
+
+def test_taint_fence_direction_orthogonal(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The fence fires identically with and without a direction kwarg (D4 orthogonality:
+    # it never consults Direction).
+    ref = _make_taint_plugin(monkeypatch)
+    value = "direction-orthogonal-value-99"
+    ref._post_tool_call("mcp_bank_list_accounts", {}, result=value, task_id="s1")
+    out_no_dir = ref._pre_tool_call("send_email", {"body": f"relay {value}"}, task_id="s1")
+    out_with_dir = ref._pre_tool_call(
+        "send_email", {"body": f"relay {value}"}, task_id="s1", direction="outbound"
+    )
+    assert out_no_dir is not None and out_with_dir is not None
+    assert out_no_dir["message"] == out_with_dir["message"]
+
+
+def test_taint_feature_off_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    # With source_taint_namespaces=() the capture and check paths are inert; _pre_tool_call
+    # behavior equals the pre-PET-134 baseline.
+    ref = _make_taint_plugin(monkeypatch, namespaces=())
+    ref._post_tool_call("mcp_bank_list_accounts", {}, result=_TAINTED, task_id="s1")
+    assert ref._pre_tool_call("send_email", {"body": _TAINTED}, task_id="s1") is None
+
+
+def test_taint_capture_check_same_session_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    # (a) post then pre through the SAME (task_id, kwargs) -> blocked (the keying invariant, D1b).
+    ref = _make_taint_plugin(monkeypatch)
+    ref._post_tool_call(
+        "mcp_bank_list_accounts", {}, result="same-session-keying-value", task_id="t-42"
+    )
+    out = ref._pre_tool_call(
+        "send_email", {"body": "relay same-session-keying-value"}, task_id="t-42"
+    )
+    assert out is not None and out["action"] == "block"
+
+    # (b) an uncorrelatable call (no task_id, no _agent) captures nothing and never blocks
+    # (the fail-open guard: capture under a fresh anon-<uuid> could never be matched).
+    ref2 = _make_taint_plugin(monkeypatch)
+    ref2._post_tool_call(
+        "mcp_bank_list_accounts", {}, result="anon-uncorrelatable-value", task_id=""
+    )
+    assert (
+        ref2._pre_tool_call("send_email", {"body": "relay anon-uncorrelatable-value"}, task_id="")
+        is None
+    )
+
+
+def test_taint_namespace_set_reconfigure(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Adding a namespace live via _apply_reconfigure makes a subsequent relay blocked;
+    # removing all namespaces live makes it allowed (the `global`-declaration / live-rebuild
+    # guard, F-6). Proves the module set is rebuilt, not frozen at boot.
+    ref = _make_taint_plugin(monkeypatch, namespaces=())  # start with the fence off
+
+    class _Collab:
+        # Serves both _guard.evaluate (relay) and the _apply_reconfigure phase calls.
+        def evaluate(self, *a: Any, **k: Any) -> None:
+            return None
+
+        def validate_config(self, cfg: PetasosConfig) -> None:
+            return None
+
+        def apply_config(self, cfg: PetasosConfig) -> None:
+            return None
+
+        def reconfigure(self, cfg: PetasosConfig) -> None:
+            return None
+
+    collab = _Collab()
+    monkeypatch.setattr(ref, "_guard", collab)
+    monkeypatch.setattr(ref, "_pipeline", collab)
+    monkeypatch.setattr(ref, "_lineage_registry", None)
+
+    value = "reconfigure-taint-value-7"
+
+    def _relay() -> Any:  # ref._pre_tool_call is dynamically typed (module attr) -> Any
+        ref._post_tool_call("mcp_bank_list_accounts", {}, result=value, task_id="s1")
+        return ref._pre_tool_call("send_email", {"body": f"relay {value}"}, task_id="s1")
+
+    # initially off -> allowed
+    assert _relay() is None
+
+    # add the namespace live (default egress_sink_tools include send_email)
+    cfg_on = PetasosConfig(source_taint_namespaces=_BANK_NS, taint_min_span_length=12)
+    asyncio.run(ref._apply_reconfigure(cfg_on))
+    assert ref._source_taint_namespaces == frozenset({"mcp_bank_"})
+    out = _relay()
+    assert out is not None and out["action"] == "block"
+
+    # remove all namespaces live -> allowed again
+    cfg_off = PetasosConfig(source_taint_namespaces=(), taint_min_span_length=12)
+    asyncio.run(ref._apply_reconfigure(cfg_off))
+    assert ref._source_taint_namespaces == frozenset()
+    assert _relay() is None

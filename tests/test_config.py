@@ -270,3 +270,59 @@ class TestDecodeEncodedPayloads:
         meta = _FIELD_META["decode_encoded_payloads"]
         assert meta["help_plain"].strip() != meta["description"].strip()
         assert meta["section"] == "normalization"
+
+
+class TestSourceTaintConfig:
+    # PET-134: source_taint_namespaces + taint_min_span_length.
+
+    def test_defaults_off(self) -> None:
+        cfg = PetasosConfig()
+        assert cfg.source_taint_namespaces == ()  # empty == fence off
+        assert cfg.taint_min_span_length == 12
+
+    def test_source_taint_config_roundtrip_and_frozen(self) -> None:
+        # source_taint_namespaces round-trips (list -> tuple), rejects a bare string, allows
+        # empty (= disabled), is immutable post-construction; taint_min_span_length rejects < 1.
+        # constructor coerces a list arg to a tuple in __post_init__.
+        cfg = PetasosConfig(source_taint_namespaces=["mcp_bank_"])  # type: ignore[arg-type]
+        assert cfg.source_taint_namespaces == ("mcp_bank_",)
+
+        d = cfg.to_dict()
+        assert isinstance(d["source_taint_namespaces"], list)  # to_dict emits a list
+        assert PetasosConfig.from_dict(d).source_taint_namespaces == ("mcp_bank_",)
+        # from_dict coerces a list payload back to a tuple.
+        assert PetasosConfig.from_dict(
+            {"source_taint_namespaces": ["mcp_bank_", "mcp_health_"]}
+        ).source_taint_namespaces == ("mcp_bank_", "mcp_health_")
+
+        # empty allowed (= disabled) and round-trips.
+        assert PetasosConfig(source_taint_namespaces=()).source_taint_namespaces == ()
+        assert (
+            PetasosConfig.from_dict(
+                PetasosConfig(source_taint_namespaces=()).to_dict()
+            ).source_taint_namespaces
+            == ()
+        )
+
+        # bare string rejected (would char-explode into a per-character set).
+        with pytest.raises(ValueError, match="source_taint_namespaces"):
+            PetasosConfig(source_taint_namespaces="mcp_bank_")  # type: ignore[arg-type]
+        with pytest.raises(ValueError, match="source_taint_namespaces"):
+            PetasosConfig.from_dict({"source_taint_namespaces": "mcp_bank_"})
+        # per-entry non-empty.
+        with pytest.raises(ValueError, match="source_taint_namespaces"):
+            PetasosConfig(source_taint_namespaces=("",))
+
+        # taint_min_span_length: positive-int only.
+        with pytest.raises(ValueError, match="taint_min_span_length"):
+            PetasosConfig(taint_min_span_length=0)
+        with pytest.raises(ValueError, match="taint_min_span_length"):
+            PetasosConfig(taint_min_span_length=-5)
+        with pytest.raises(ValueError, match="taint_min_span_length"):
+            PetasosConfig(
+                taint_min_span_length=True
+            )  # bool is an int subtype; rejected at runtime
+
+        # frozen / immutable post-construction (frozen-export invariant).
+        with pytest.raises(dataclasses.FrozenInstanceError):
+            cfg.source_taint_namespaces = ("x",)  # type: ignore[misc]

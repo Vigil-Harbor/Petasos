@@ -174,6 +174,21 @@ class PetasosConfig:
         "send_webhook",
         "clipboard_write",
     )
+    # PET-134: source namespaces whose returned content taints (a content-agnostic
+    # provenance fence layered over the PII-egress block). Stored RAW as
+    # single-underscore wire prefixes (e.g. "mcp_bank_"); canonicalized by the plugin
+    # through the SAME canonicalize_tool_name primitive the egress sinks use (PET-118),
+    # then PREFIX-matched against a producing tool's canonical name (D-NS). Empty (the
+    # default) disables the fence entirely, exactly as an empty egress_sink_tools
+    # disables egress PII blocking. Validated identically to egress_sink_tools (bare-str
+    # reject, list->tuple coerce, per-entry non-empty, empty allowed). No
+    # banking-specific names ship — this is a reusable Petasos primitive.
+    source_taint_namespaces: tuple[str, ...] = ()
+    # PET-134: the false-positive floor — a tainted span shorter than this (measured on
+    # the NORMALIZED span) is never stored, so low-entropy values ("$5.00", "2026")
+    # cannot poison every later argument. Operator-tunable (FP is the single biggest
+    # usability risk) without a code change; positive-int, mirrors lineage_max_edges.
+    taint_min_span_length: int = 12
 
     def __post_init__(self) -> None:
         for fname in _BOOL_FIELDS:
@@ -433,6 +448,42 @@ class PetasosConfig:
                 raise ValueError(
                     f"egress_sink_tools entries must be non-empty strings, got {tool_name!r}"
                 )
+        # source_taint_namespaces (PET-134): RAW namespace prefixes, canonicalized +
+        # prefix-matched by the plugin. Validated with the egress_sink_tools template —
+        # bare-str reject (tuple("mcp_bank_") would char-explode and silently empty the
+        # set), list→tuple coerce, per-entry non-empty — and an EMPTY tuple is the default
+        # (= fence off; the plugin warns when a non-empty config canonicalizes away).
+        if isinstance(self.source_taint_namespaces, str):
+            raise ValueError(
+                "source_taint_namespaces must be an iterable of namespace prefixes, "
+                f"not a string, got {self.source_taint_namespaces!r}"
+            )
+        if not isinstance(self.source_taint_namespaces, tuple):
+            try:
+                object.__setattr__(
+                    self, "source_taint_namespaces", tuple(self.source_taint_namespaces)
+                )
+            except TypeError as exc:
+                raise ValueError(
+                    f"source_taint_namespaces must be an iterable of non-empty strings, "
+                    f"got {self.source_taint_namespaces!r}"
+                ) from exc
+        for ns in self.source_taint_namespaces:
+            if not isinstance(ns, str) or not ns:
+                raise ValueError(
+                    f"source_taint_namespaces entries must be non-empty strings, got {ns!r}"
+                )
+        # taint_min_span_length (PET-134): the FP floor — positive int, mirroring
+        # lineage_max_edges (bool excluded; True/False is not a valid length).
+        if (
+            not isinstance(self.taint_min_span_length, int)
+            or isinstance(self.taint_min_span_length, bool)
+            or self.taint_min_span_length <= 0
+        ):
+            raise ValueError(
+                f"taint_min_span_length must be a positive integer, "
+                f"got {self.taint_min_span_length!r}"
+            )
         if self.frequency_weights is not None:
             for k, v in self.frequency_weights.items():
                 if not isinstance(k, str) or not k:
@@ -616,6 +667,12 @@ class PetasosConfig:
             filtered["delegate_tool_names"] = tuple(filtered["delegate_tool_names"])
         if "egress_sink_tools" in filtered and isinstance(filtered["egress_sink_tools"], list):
             filtered["egress_sink_tools"] = tuple(filtered["egress_sink_tools"])
+        # PET-134: list→tuple in lockstep with egress_sink_tools so a to_dict/from_dict
+        # round-trip preserves the tuple type (the dataclass is frozen + tuple-typed).
+        if "source_taint_namespaces" in filtered and isinstance(
+            filtered["source_taint_namespaces"], list
+        ):
+            filtered["source_taint_namespaces"] = tuple(filtered["source_taint_namespaces"])
         # PET-109: coerce only when a list — preserve None so the None round-trip holds.
         if "presidio_entities" in filtered and isinstance(filtered["presidio_entities"], list):
             filtered["presidio_entities"] = tuple(filtered["presidio_entities"])

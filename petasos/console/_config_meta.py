@@ -638,6 +638,35 @@ _FIELD_META: dict[str, dict[str, Any]] = {
         ),
         "section": "tool_guard",
     },
+    "source_taint_namespaces": {
+        "description": (
+            "Tool namespaces whose returned content may not be sent back out through an"
+            " egress sink."
+        ),
+        "help_plain": (
+            "Marks tool groups (by name prefix, such as a banking or health connector) whose"
+            " results are sensitive. Once a tool in one of these groups returns data, that exact"
+            " text is blocked from leaving through any egress sink above (email, web request,"
+            " messaging), even when it is not recognized as personal data. This catches a plain"
+            " account balance or amount the personal-data scanner would miss. Leave empty (the"
+            " default) to turn the fence off; matching is exact-text only, so paraphrased or"
+            " re-encoded copies are not caught."
+        ),
+        "section": "tool_guard",
+    },
+    "taint_min_span_length": {
+        "description": "Shortest piece of restricted-source content the egress fence will track.",
+        "help_plain": (
+            "The minimum length, in characters, a piece of restricted-source content must reach"
+            " before the egress fence remembers it. Short, common values (a price like $5.00, a"
+            " year like 2026) fall below this and are ignored, so they cannot block every later"
+            " message that happens to contain them. Raise it if benign messages get blocked for"
+            " sharing a common phrase; lower it to catch shorter sensitive values at the cost of"
+            " more false alarms. Only applies to the restricted-source fence above."
+        ),
+        "section": "tool_guard",
+        "constraints": {"min": 1},
+    },
 }
 
 _EXCLUDED_FIELDS = frozenset({"session_secret"})

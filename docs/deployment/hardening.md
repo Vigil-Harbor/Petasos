@@ -255,6 +255,40 @@ re-bind does fire, the pipeline/guard config is process-wide, so it applies to
 every session the process hosts; in-flight sessions see the new shared config at
 their next tool call (the swap does not drain them first).
 
+### The source-taint egress fence is verbatim, defense-in-depth (PET-134)
+
+`source_taint_namespaces` adds a content-agnostic egress fence: once a tool in a
+declared source namespace (for example a banking or health connector) returns
+content, that **exact** text is blocked from leaving again through any
+`egress_sink_tools` tool, even when it carries no PII pattern. It closes the
+structural hole the PII matcher cannot reach: a non-PII balance, amount, or
+merchant relayed off-box. It is **off by default** (empty
+`source_taint_namespaces`); the Configuration guide covers the two operator levers
+(`source_taint_namespaces` and `taint_min_span_length`).
+
+Understand its boundary before relying on it:
+
+- **It is a verbatim, source-to-off-box guarantee, not a dataflow tracer.** The
+  fence matches a normalized exact substring of what the source returned. A copy
+  the model paraphrases, summarizes, base64-encodes, or otherwise transforms
+  before the egress call is **not** caught. Treat it as defense-in-depth against a
+  direct relay, not a complete exfiltration control.
+- **It does not intercept the model call.** There is no `pre_llm_call` hook, so
+  tainted content can still reach the language model. Closing the inference-time
+  leak is a configuration concern (run a local model so the content never leaves
+  the box), not something this fence does.
+- **It is not a replacement for local inference or network isolation.** It rides
+  on the same tool-call boundary as the rest of the guard. An agent with an
+  unsanctioned network path (a shell, or an HTTP tool that is not listed in
+  `egress_sink_tools`) is outside its reach. Pair it with the deployment posture
+  in this section, do not substitute it for that posture.
+- **The enabling field must survive the model switcher (see Vector A / PET-115).**
+  The fence is off whenever `source_taint_namespaces` is empty, and the Hermes
+  Desktop model switcher wipes the `petasos:` config section, which empties the
+  field and silently disarms the fence: the same per-field config-wipe footgun
+  every `petasos:` setting shares. Confirm the field is still present after a model
+  switch before trusting the fence.
+
 ---
 
 *Companion docs: [hermes-desktop.md](hermes-desktop.md) (step-by-step Hermes
