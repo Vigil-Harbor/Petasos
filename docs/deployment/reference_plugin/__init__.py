@@ -22,6 +22,7 @@ import os
 import threading
 import time
 import uuid
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from petasos._types import Severity  # PET-112: dep-light (enum + dataclasses, no ML imports)
@@ -83,6 +84,43 @@ _DISARM_LOG_EVERY_S = 30.0
 _reload_log_lock = threading.Lock()
 _last_attribution_log = 0.0
 _last_reload_fail_log = 0.0
+
+# PET-132: live profile-swap re-bind. PET-130 pins _session_resolution once at boot;
+# these make the pin RE-establishable on an operator-trusted profile change without a
+# process restart. _rebind_to_profile re-captures the resolution from the TRUSTED profile
+# home (never the agent-writable active_profile pointer, PET-125 / Decision 2), resets the
+# (mtime,size)-keyed armed/reload caches (Decision 5), refreshes _config, and hot-applies
+# the pipeline config via PET-126's _apply_reconfigure (Decision 4). The whole worker runs
+# under _rebind_lock so concurrent re-binds commit in re-pin order (Decision 7). The two
+# process-global flags keep a re-runnable register() (the forced-rediscovery route) from
+# double-registering hooks or spawning a second init thread (Decision 3). _last_rebind_log
+# is a DEDICATED clock — never the disarm/reload clocks — so a routine reload failure
+# cannot suppress a one-shot operator-triggered re-bind line (Decision 6).
+_rebind_lock = threading.Lock()
+_hooks_registered = False
+_init_thread_started = False
+_rebind_log_lock = threading.Lock()
+_last_rebind_log = 0.0
+
+
+def _reset_hooks_registered() -> None:
+    """Test seam — clear the one-shot hook-registration flag (Decision 3)."""
+    global _hooks_registered
+    _hooks_registered = False
+
+
+def _reset_init_thread_started() -> None:
+    """Test seam — clear the one-shot init-thread-spawn flag (Decision 3)."""
+    global _init_thread_started
+    _init_thread_started = False
+
+
+def _reset_rebind_log() -> None:
+    """Test seam — reset the dedicated re-bind rate-limit clock (Decision 6)."""
+    global _last_rebind_log
+    with _rebind_log_lock:
+        _last_rebind_log = 0.0
+
 
 # PET-107: sub-agent lineage (Option A). The registry is constructed in
 # _deferred_init (it shares the tracker's clock + lock discipline), but the
@@ -807,6 +845,195 @@ def _maybe_reconfigure() -> None:
     _log_reconfigure_applied()
 
 
+# ---------------------------------------------------------------------------
+# PET-132: trusted profile-swap re-bind (re-establish the boot-pin on a profile change)
+# ---------------------------------------------------------------------------
+
+
+def _validated_profile_home(profile_home: Any) -> tuple[Path | None, str]:
+    """Validate a trusted profile-change payload (Decision 2/6 fail-secure floor).
+
+    Returns ``(home, "")`` on success or ``(None, reason)`` on rejection. The payload
+    must be a non-empty, ABSOLUTE path that resolves to an existing directory. The
+    absolute check runs BEFORE ``resolve()`` so a relative path can never be anchored to
+    the process CWD — closing the CWD vector the brief's D-WIN names (an agent that can
+    chdir cannot make a relative home resolve into a tree it controls). ``resolve(strict=
+    False)`` normalizes a well-formed absolute path (``..`` segments) without requiring
+    every component to pre-exist; the ``is_dir()`` check is the existence gate.
+    """
+    if not profile_home:
+        return None, "empty profile_home"
+    if not isinstance(profile_home, (str, os.PathLike)):
+        return None, f"non-path profile_home type={type(profile_home).__name__}"
+    candidate = Path(profile_home)
+    # Absolute BEFORE resolve(): resolve() would anchor a relative path to CWD and mask
+    # the rejection. On Windows is_absolute() requires a drive or UNC root, so a bare or
+    # mixed-separator relative path is rejected here (tested on win32).
+    if not candidate.is_absolute():
+        return None, f"non-absolute profile_home {str(profile_home)!r}"
+    try:
+        home = candidate.resolve(strict=False)
+    except (OSError, RuntimeError, ValueError):
+        return None, f"unresolvable profile_home {str(profile_home)!r}"
+    if not home.is_dir():
+        return None, f"profile_home is not an existing directory: {home}"
+    return home, ""
+
+
+def _log_rebind_skipped(reason: str) -> None:
+    """Rate-limited WARNING: a malformed/untrusted profile-change payload was rejected;
+    the boot binding, caches, and live config are left unchanged (fail-secure, Decision
+    6). Uses the dedicated ``_last_rebind_log`` clock so a routine reload failure cannot
+    suppress this operator-triggered attribution line."""
+    global _last_rebind_log
+    now = time.monotonic()
+    with _rebind_log_lock:
+        if now - _last_rebind_log < _DISARM_LOG_EVERY_S:
+            return
+        _last_rebind_log = now
+    logger.warning("PETASOS_REBIND_SKIPPED reason=%s", reason)
+
+
+def _log_rebind_config_stale(res: HermesConfigResolution, detail: str | BaseException) -> None:
+    """Rate-limited WARNING: a valid re-pin landed but the heavier pipeline config did
+    not apply (no ``petasos:`` section, build failure, or apply failure). The binding has
+    already moved, so the armed bit honors the new profile immediately; the pipeline keeps
+    last-good via ``_apply_reconfigure``'s two-phase guarantee. Loud + attributable so the
+    transient armed/pipeline divergence (Decision 6) is never silent. Accepts a string
+    reason or an exception so the None-path, build-failure, and apply-failure call sites
+    all type-check (correctness round-3 F-1). Dedicated clock."""
+    global _last_rebind_log
+    now = time.monotonic()
+    with _rebind_log_lock:
+        if now - _last_rebind_log < _DISARM_LOG_EVERY_S:
+            return
+        _last_rebind_log = now
+    logger.warning("PETASOS_REBIND_CONFIG_STALE path=%s: %s", res.path, detail)
+
+
+def _dispatch_reconfigure(cfg: PetasosConfig, on_success, on_error) -> None:
+    """Schedule ``_apply_reconfigure(cfg)`` on ``_async_loop`` WITHOUT blocking the caller
+    (Decision 4). PET-126's ``_maybe_reconfigure`` blocks up to 15s on ``future.result()``;
+    that is fine on the tool-call hot path but not on an operator-interactive profile-change
+    callback that may run while ``_async_loop`` is busy with an ML scan. Reuses
+    ``_ensure_async_loop()`` + ``run_coroutine_threadsafe`` (the guts of ``_run_async``,
+    minus the blocking ``.result()``) so loop access stays single-sourced. The completion
+    callback runs ``on_success`` when the apply committed or ``on_error`` if it raised —
+    both on the loop thread, after ``_rebind_lock`` has been released (Decision 7)."""
+    _ensure_async_loop()
+    future = asyncio.run_coroutine_threadsafe(_apply_reconfigure(cfg), _async_loop)
+
+    def _done(fut: Any) -> None:
+        try:
+            fut.result()
+        except Exception as exc:
+            on_error(exc)
+        else:
+            on_success()
+
+    future.add_done_callback(_done)
+
+
+def _apply_live(res: HermesConfigResolution) -> None:
+    """Hot-apply the new profile via the same peek/commit sequence as
+    ``_maybe_reconfigure`` (Decision 4/5). The reload cache was reset by the worker, so a
+    non-empty ``petasos:`` section at the new profile reads as a change; a missing/empty/
+    malformed section yields ``None`` -> keep last-good policy by design (the armed bit is
+    independently re-stat'd and honored, fail-secure ``True``). Either way the outcome is
+    attributable, never silent."""
+    from petasos.console._reload import commit_seen, read_changed_section
+
+    changed = read_changed_section(res)
+    if changed is None:
+        _log_rebind_config_stale(
+            res, "no petasos: section at new profile; keeping last-good policy"
+        )
+        return
+    section, key = changed
+    try:
+        cfg = _build_config_from_section(section)
+    except Exception as exc:
+        _log_rebind_config_stale(res, exc)
+        return
+
+    def _on_apply_error(exc: BaseException) -> None:
+        # On apply failure also reset the reload cache so a stale committed key from a
+        # superseded re-bind cannot suppress the next re-read (Decision 5 / Decision 7).
+        from petasos.console._reload import _reset_reload_cache
+
+        _reset_reload_cache()
+        _log_rebind_config_stale(res, exc)
+
+    _dispatch_reconfigure(
+        cfg,
+        on_success=lambda: commit_seen(key, res),  # settle the reload cache on the new profile
+        on_error=_on_apply_error,
+    )
+
+
+def _rebind_to_resolution(res: HermesConfigResolution) -> None:
+    """Serialized re-pin + cache reset + ``_config`` refresh + branch decision + dispatch
+    (Decisions 3/5/7). ``_deferred_init`` holds ``_init_lock`` across its whole build and
+    flips ``_initialized`` only at the end while still holding it, so while we hold
+    ``_init_lock`` the build is never mid-flight: ``_initialized`` is either already-True
+    (init done) or will-read-our-``_config`` (init not yet started). Deciding the branch
+    under the SAME ``_init_lock`` acquisition makes case selection race-free, closing the
+    init-window TOCTOU. Lock order is strictly ``_rebind_lock`` then ``_init_lock``
+    (acyclic; ``_deferred_init`` takes only ``_init_lock``)."""
+    global _session_resolution, _config
+    from petasos.console._armed import _reset_armed_cache
+    from petasos.console._reload import _reset_reload_cache
+
+    with _rebind_lock:
+        _session_resolution = res  # re-pin; the armed bit follows immediately
+        _reset_armed_cache()  # Decision 5: drop W's (mtime,size)-keyed bit
+        _reset_reload_cache()  # Decision 5: force the new profile to read as a change
+        logger.info("PETASOS_ARMED_RESOLUTION tier=%s path=%s", res.tier, res.path)
+
+        # Refresh _config AND decide the branch under the SAME _init_lock acquisition.
+        with _init_lock:
+            _config = _load_config(res)
+            live = _initialized and _pipeline is not None and _guard is not None
+            failed = (not live) and _init_error is not None
+
+        if live:
+            _apply_live(res)  # peek/build/dispatch the new profile onto the live pipeline
+        elif failed:
+            logger.warning(
+                "PETASOS_REBIND_NOPIPELINE path=%s: init failed earlier; "
+                "binding moved, no pipeline to reconfigure",
+                res.path,
+            )
+        else:
+            # Init window: _deferred_init has not yet read _config and will build from the
+            # resolution we just stored. No apply here (no pipeline yet). Honest wording:
+            # _deferred_init swallows a malformed section to PetasosConfig() defaults with
+            # only its own generic validation log, so the binding move is attributable here
+            # but the config outcome is NOT guaranteed to be the new profile's.
+            logger.info(
+                "PETASOS_REBIND_PENDING_INIT path=%s: scanner init in flight; new "
+                "profile staged, applied at init only if it validates (else defaults)",
+                res.path,
+            )
+
+
+def _rebind_to_profile(profile_home: Any) -> None:
+    """Internal re-bind worker entry. Validates the trusted payload (fail-secure: a bad
+    payload keeps the current binding, Decision 6), constructs the resolution DIRECTLY
+    from the trusted home (Decision 2: never ``resolve_hermes_config_path`` /
+    ``read_active_profile``), and delegates to the serialized worker."""
+    home, reason = _validated_profile_home(profile_home)
+    if home is None:
+        _log_rebind_skipped(reason)  # binding + caches + config unchanged
+        return
+    from petasos.console._paths import HermesConfigResolution
+
+    # tier="profile" is a valid Tier literal; omitting warning defaults it to None, which
+    # satisfies the dataclass invariant "warning non-None only when tier=='root'".
+    res = HermesConfigResolution(path=home / "config.yaml", tier="profile")
+    _rebind_to_resolution(res)
+
+
 def _pre_tool_call(
     tool_name: str, args: dict, task_id: str = "", **kwargs
 ) -> dict[str, str] | None:
@@ -972,6 +1199,18 @@ def _on_session_start(**kwargs) -> None:
     logger.info("PETASOS_SESSION_START — Petasos content security active")
 
 
+def _on_profile_change(profile_name: str = "", profile_home: str = "", **kwargs: Any) -> None:
+    """PET-132: trusted Hermes profile-change signal. Hermes fires this only from the
+    operator-trusted swap path with the new profile's home; Petasos does not re-derive the
+    identity (Decision 2). ``profile_name`` is cosmetic and logged via ``%r`` (repr escapes
+    any newline/control char) so a crafted name cannot inject a forged
+    ``PETASOS_ARMED_RESOLUTION`` line; the load-bearing identity is the path, logged
+    separately by the worker (Decision 6). Registered defensively via _try_register_hook,
+    so a host without the event simply never calls it (dormant, safe)."""
+    logger.info("PETASOS_PROFILE_CHANGE name=%r", profile_name or "<unnamed>")
+    _rebind_to_profile(profile_home)
+
+
 def _subagent_start(parent_session_id: str = "", child_session_id: str = "", **kwargs) -> None:
     """Host-asserted lineage edge: child spawned by parent (PET-107 D2).
 
@@ -1021,13 +1260,22 @@ def _try_register_hook(ctx, name: str, handler) -> bool:
 
 def register(ctx) -> None:
     global _config, _subagent_hooks_available, _session_resolution
+    global _hooks_registered, _init_thread_started
+
+    # PET-132: a re-runnable register() is the forced-rediscovery re-bind route (Decision
+    # 1 fallback / Decision 3). The FIRST register() of an uninitialized process spawns
+    # _deferred_init; a SECOND one (Hermes re-ran discovery under the new profile env)
+    # must re-bind the live pipeline instead of double-registering hooks or spawning a
+    # duplicate init thread. Latch the boot-vs-rebind decision BEFORE the flags move.
+    first_boot = not _init_thread_started and not _initialized and not _init_error
 
     # PET-130: capture the session-bound resolution FIRST — before any hook is
     # registered or the init thread starts — so the first _pre_tool_call cannot
     # observe a None binding and fall back to an ambient resolve. Pre-clear to None
     # so a re-register whose capture fails cannot leave a stale prior binding. The
     # binding source is the operator-trusted boot environment, never in-session
-    # state (PET-125 / Decision 2).
+    # state (PET-125 / Decision 2). On the forced-rediscovery route Hermes has set the
+    # env to the new profile, so this re-captures the new profile here too.
     _session_resolution = None
     try:
         from petasos.console._paths import resolve_hermes_config_path
@@ -1039,8 +1287,10 @@ def register(ctx) -> None:
             "failed (%s); falling back to per-call resolve",
             exc,
         )
-    if _session_resolution is not None:
+    if first_boot and _session_resolution is not None:
         # D2: greppable, names the tier + absolute path the armed/reload reads pin to.
+        # On a re-register the worker (below) re-emits this line after re-pinning, so it
+        # is logged exactly once per register() either way.
         logger.info(
             "PETASOS_ARMED_RESOLUTION tier=%s path=%s",
             _session_resolution.tier,
@@ -1053,33 +1303,58 @@ def register(ctx) -> None:
         logger.error("Failed to load petasos config: %s", exc)
         _config = {}
 
-    ctx.register_hook("pre_tool_call", _pre_tool_call)
-    ctx.register_hook("post_tool_call", _post_tool_call)
-    ctx.register_hook("on_session_start", _on_session_start)
+    # PET-132: register every hook exactly once per process (Decision 3). The already-
+    # registered closures read the module globals (_session_resolution, _config,
+    # _pipeline, _guard) dynamically, so a re-register's new binding is observed without
+    # re-registration; a second register() onto a fresh ctx intentionally skips it.
+    if not _hooks_registered:
+        ctx.register_hook("pre_tool_call", _pre_tool_call)
+        ctx.register_hook("post_tool_call", _post_tool_call)
+        ctx.register_hook("on_session_start", _on_session_start)
 
-    # PET-107: sub-agent lineage hooks (Option A). Registered defensively — both
-    # must be accepted, else A degrades fully to C (an edge store that never sees
-    # subagent_stop would leak edges to the TTL/on_terminate backstop only).
-    start_ok = _try_register_hook(ctx, "subagent_start", _subagent_start)
-    stop_ok = _try_register_hook(ctx, "subagent_stop", _subagent_stop)
-    _subagent_hooks_available = start_ok and stop_ok
-    if not _subagent_hooks_available:
-        rejected = [
-            name
-            for name, ok in (("subagent_start", start_ok), ("subagent_stop", stop_ok))
-            if not ok
-        ]
-        logger.warning(
-            "Petasos sub-agent lineage (A) inactive — hook(s) unavailable: %s. "
-            "Delegation fan-out gate (C) remains active.",
-            ", ".join(rejected),
+        # PET-107: sub-agent lineage hooks (Option A). Registered defensively — both
+        # must be accepted, else A degrades fully to C (an edge store that never sees
+        # subagent_stop would leak edges to the TTL/on_terminate backstop only).
+        start_ok = _try_register_hook(ctx, "subagent_start", _subagent_start)
+        stop_ok = _try_register_hook(ctx, "subagent_stop", _subagent_stop)
+        _subagent_hooks_available = start_ok and stop_ok
+        if not _subagent_hooks_available:
+            rejected = [
+                name
+                for name, ok in (("subagent_start", start_ok), ("subagent_stop", stop_ok))
+                if not ok
+            ]
+            logger.warning(
+                "Petasos sub-agent lineage (A) inactive — hook(s) unavailable: %s. "
+                "Delegation fan-out gate (C) remains active.",
+                ", ".join(rejected),
+            )
+
+        # PET-132: the trusted profile-change re-bind hook. Registered defensively so a
+        # host without on_profile_change degrades to "restart required" (Decision 8)
+        # rather than crashing; on every host today it is simply never fired (dormant).
+        _try_register_hook(ctx, "on_profile_change", _on_profile_change)
+
+        _hooks_registered = True
+
+    if first_boot:
+        _init_thread_started = True
+        init_thread = threading.Thread(
+            target=_deferred_init,
+            daemon=True,
+            name="petasos-init",
         )
-
-    init_thread = threading.Thread(
-        target=_deferred_init,
-        daemon=True,
-        name="petasos-init",
-    )
-    init_thread.start()
-
-    logger.info("Petasos plugin registered — hooks active, scanner init in background")
+        init_thread.start()
+        logger.info("Petasos plugin registered — hooks active, scanner init in background")
+    elif _session_resolution is not None:
+        # Forced-rediscovery re-register of an already-started process: re-bind the live
+        # pipeline to the freshly-captured resolution (re-pin, reset the (mtime,size)-keyed
+        # caches, re-emit ARMED_RESOLUTION, hot-apply / stage per init state). The init
+        # thread is NOT re-spawned (Decision 3).
+        _rebind_to_resolution(_session_resolution)
+        logger.info("Petasos plugin re-registered — re-bound to the current profile resolution")
+    else:
+        logger.warning(
+            "Petasos re-register: boot capture failed and no prior binding to re-bind; "
+            "enforcement reflects the last good binding until restart"
+        )

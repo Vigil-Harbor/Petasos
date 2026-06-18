@@ -220,6 +220,41 @@ short-circuit `_pre_tool_call` before any scan runs, so a disarmed pipeline neve
 reaches tier evaluation or rule matching. Do not mistake the floor for
 self-disarm protection.
 
+### Profile changes require a restart (the boot profile is pinned)
+
+Petasos pins its config resolution **once, at plugin registration**, from the
+operator-trusted boot environment (PET-130). Every armed-bit read and every live
+config reload resolves through that boot pin, so a per-profile gateway process
+enforces its own profile correctly for its whole lifetime. This is the supported
+model on Hermes 0.16.x, where each gateway is a per-profile process with its own
+`HERMES_HOME`.
+
+The pin is captured at boot and is **not** re-derived on a profile change. If a
+running gateway process is ever retargeted to a different profile **in place**
+(a live profile swap with no process restart), Petasos keeps enforcing the
+**boot** profile's policy: a disarm, a tier change, or any `petasos:` edit written
+to the *new* profile is not picked up. For a security control that is the wrong
+default, so the contract is explicit:
+
+- [ ] **A security-relevant profile change requires a gateway/process restart.**
+      Restart the gateway after switching the active profile; do not rely on a
+      live swap to move enforcement. Confirm the new binding from the log line
+      `PETASOS_ARMED_RESOLUTION tier=<t> path=<p>` (it names the `config.yaml` the
+      running process is pinned to). If it still names the old profile, the
+      process did not re-bind: restart it.
+
+PET-132 ships the Petasos half of the eventual no-restart path: an
+operator-trusted re-bind worker that re-pins the resolution, resets the
+armed/reload caches, and hot-applies the new profile's config. It is **dormant**
+until Hermes fires a trusted profile-change signal that names the new profile
+home out-of-band from anything the guarded agent can write (the re-bind never
+re-reads the agent-writable `active_profile` pointer, preserving the section 6
+boundary). Until that Hermes-side signal exists, the restart contract above is
+the only supported way to change a security-bearing gateway's profile. When the
+re-bind does fire, the pipeline/guard config is process-wide, so it applies to
+every session the process hosts; in-flight sessions see the new shared config at
+their next tool call (the swap does not drain them first).
+
 ---
 
 *Companion docs: [hermes-desktop.md](hermes-desktop.md) (step-by-step Hermes
