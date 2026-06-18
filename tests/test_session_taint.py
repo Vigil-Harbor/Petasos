@@ -16,11 +16,13 @@ from __future__ import annotations
 import base64
 import json
 import time
+from typing import Any
 
 from petasos import PetasosConfig
 from petasos.session.taint import (
     _MAX_SCAN_LEAVES,
     _MAX_SCAN_TEXT,
+    _MAX_TAINT_DEPTH,
     _MAX_TAINT_SPAN_LEN,
     _TAINT_MAX_SESSIONS,
     _TAINT_MAX_SPANS_PER_SESSION,
@@ -248,19 +250,41 @@ def test_taint_block_off_hot_path_cost() -> None:
     for i in range(_TAINT_MAX_SPANS_PER_SESSION):
         store.capture("s1", f"sensitive-span-value-{i:05d}", "ns")
 
-    # (a) check side: tainted_source against a full per-session span set stays well within
-    # the syntactic-only budget.
+    # (a) check side: tainted_source IS the pre-call enforcement hot path (syntactic-only
+    # budget < 5ms), and it is a few-microsecond op (normalize a couple of arg leaves, then
+    # substring-scan a full span set), so a 5ms ceiling holds ~1000x headroom and tightly
+    # catches a gross regression (e.g. an accidental O(n^2) blow-up).
     args = {"a": "no tainted content here at all, just benign text", "b": 12345}
     start = time.perf_counter()
     for _ in range(50):
         store.tainted_source("s1", args)
     check_avg = (time.perf_counter() - start) / 50
-    assert check_avg < 0.05, f"tainted_source too slow: {check_avg * 1000:.2f}ms"
+    assert check_avg < 0.005, f"tainted_source too slow: {check_avg * 1000:.2f}ms"
 
-    # (b) capture side: normalizing + JSON-walking a representative tainted result is bounded.
+    # (b) capture side: a deliberately loose bound. capture runs on _post_tool_call (after
+    # the tool ran), NOT on the < 5ms pre-call enforcement path, and it NFKC-normalizes
+    # every leaf, which on a contended CI runner approaches single-digit ms. Per spec
+    # § Performance this stays a flake-resistant bounded-work check, not a 5ms budget assert
+    # (a real latency budget needs a benchmark harness, not an averaged wall-clock assert).
     payload = json.dumps({"rows": [f"row-value-{i}-xxxxxxxx" for i in range(50)]})
     start = time.perf_counter()
     for _ in range(50):
         store.capture("s2", payload, "ns")
     capture_avg = (time.perf_counter() - start) / 50
     assert capture_avg < 0.05, f"capture too slow: {capture_avg * 1000:.2f}ms"
+
+
+def test_taint_deeply_nested_no_recursion_error() -> None:
+    # Finding 2 regression: a hostile deeply-nested payload must not raise RecursionError
+    # on EITHER path (bounded leaf walk); content past _MAX_TAINT_DEPTH is a documented
+    # walk-miss, not a crash.
+    store = _store(12)
+    deep: Any = "sensitive-deep-leaf-value-xyz"
+    for _ in range(_MAX_TAINT_DEPTH + 50):
+        deep = [deep]
+    store.capture("s1", deep, "ns")  # structured-walk recursion: must not raise
+    # the buried leaf sits past the depth cap, so it is never reached (no match, no crash).
+    assert store.tainted_source("s1", {"v": deep}) is None
+    # a deeply-nested JSON STRING result exercises json.loads's own recursion guard.
+    json_bomb = "[" * 50000 + "]" * 50000
+    store.capture("s2", json_bomb, "ns")  # must not raise

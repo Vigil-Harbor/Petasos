@@ -259,8 +259,11 @@ their next tool call (the swap does not drain them first).
 
 `source_taint_namespaces` adds a content-agnostic egress fence: once a tool in a
 declared source namespace (for example a banking or health connector) returns
-content, that **exact** text is blocked from leaving again through any
-`egress_sink_tools` tool, even when it carries no PII pattern. It closes the
+content, a **normalized substring** of that text is blocked from leaving again
+through any `egress_sink_tools` tool, even when it carries no PII pattern. The
+match folds case, zero-width, and homoglyph variants, so a trivially obfuscated
+copy is still caught; a paraphrase or re-encoding is not (see the verbatim bullet
+below). It closes the
 structural hole the PII matcher cannot reach: a non-PII balance, amount, or
 merchant relayed off-box. It is **off by default** (empty
 `source_taint_namespaces`); the Configuration guide covers the two operator levers

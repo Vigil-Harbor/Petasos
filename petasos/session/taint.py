@@ -24,6 +24,7 @@ through, so a live reconfigure is the happens-before for the next floor read.
 
 from __future__ import annotations
 
+import itertools
 import json
 import threading
 from collections import OrderedDict
@@ -43,9 +44,11 @@ _TAINT_MAX_SESSIONS = 1024  # global session LRU cap, evict least-recently-activ
 _MAX_TAINT_SPAN_LEN = 4096  # never store a leaf longer than this (raw codepoints)
 _MAX_SCAN_TEXT = 100_000  # cap text fed to normalize() (matches the plugin fallback cap)
 _MAX_SCAN_LEAVES = 2048  # cap leaves walked per capture (bounds the dict/list path)
+_MAX_TAINT_DEPTH = 64  # cap leaf-walk recursion depth (a hostile deeply-nested payload
+# past this is a documented walk-miss, never a RecursionError)
 
 
-def _iter_leaf_strings(obj: object) -> Iterator[str]:
+def _iter_leaf_strings(obj: object, _depth: int = 0) -> Iterator[str]:
     """Yield the leaf string candidates of an arbitrary JSON-ish value.
 
     Recurses ``Mapping`` values and ``list``/``tuple`` items. ``str`` leaves are
@@ -55,7 +58,14 @@ def _iter_leaf_strings(obj: object) -> Iterator[str]:
     ``"True"``) — so capture and check see one canonical leaf shape. ``None`` is
     skipped. ``default=str`` matches the house never-raise idiom (``_events.py``
     / the plugin's ``json.dumps(..., default=str)``).
+
+    Recursion is bounded by ``_MAX_TAINT_DEPTH``: a hostile deeply-nested payload
+    (in a tool result or in outbound args) is a documented walk-miss past the cap,
+    never a ``RecursionError`` — preserving the never-raise invariant on both the
+    post-call capture and the pre-call enforcement path.
     """
+    if _depth > _MAX_TAINT_DEPTH:
+        return
     if obj is None:
         return
     if isinstance(obj, str):
@@ -63,11 +73,11 @@ def _iter_leaf_strings(obj: object) -> Iterator[str]:
         return
     if isinstance(obj, Mapping):
         for value in obj.values():
-            yield from _iter_leaf_strings(value)
+            yield from _iter_leaf_strings(value, _depth + 1)
         return
     if isinstance(obj, (list, tuple)):
         for item in obj:
-            yield from _iter_leaf_strings(item)
+            yield from _iter_leaf_strings(item, _depth + 1)
         return
     # Non-string scalar (int/float/bool) or any other leaf: stringify to the
     # JSON-wire form. Never raise — fall back to str() on an unserializable leaf.
@@ -91,9 +101,11 @@ def _result_leaf_strings(result: object) -> Iterator[str]:
         capped = result[:_MAX_SCAN_TEXT]
         try:
             parsed = json.loads(capped)
-        except (ValueError, TypeError):
-            # JSONDecodeError is a ValueError subclass. Treat the capped text as
-            # one leaf (an over-_MAX_TAINT_SPAN_LEN leaf is then dropped by capture).
+        except (ValueError, TypeError, RecursionError):
+            # JSONDecodeError (ValueError) for malformed/truncated input; RecursionError
+            # for a hostile deeply-nested JSON string (json's own recursion guard). Either
+            # way, treat the capped text as one leaf (then dropped if over
+            # _MAX_TAINT_SPAN_LEN) rather than propagating — the never-raise invariant.
             yield capped
             return
         yield from _iter_leaf_strings(parsed)
@@ -172,13 +184,21 @@ class SessionTaintStore:
         leaf — else ``None`` (the no-match / allow result). Marks the session
         most-recently-used so an actively-checked session is never LRU-evicted out
         from under itself.
+
+        The candidate leaves are normalized **outside** the lock and bounded by
+        ``_MAX_SCAN_LEAVES``: normalization touches no shared state, so a hostile
+        wide/deep ``args`` payload cannot amplify lock-hold on the pre-call
+        enforcement path (the lock guards only the span comparison).
         """
+        candidates = [
+            self._normalize(leaf)
+            for leaf in itertools.islice(_iter_leaf_strings(args), _MAX_SCAN_LEAVES)
+        ]
         with self._lock:
             spans = self._store.get(session_id)
             if not spans:
                 return None
             self._store.move_to_end(session_id)  # active -> MRU
-            candidates = [self._normalize(leaf) for leaf in _iter_leaf_strings(args)]
             for span, source_ns in spans.items():
                 for candidate in candidates:
                     if span in candidate:
