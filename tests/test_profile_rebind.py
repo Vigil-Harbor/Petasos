@@ -551,17 +551,23 @@ def test_concurrent_rebinds_converge(tmp_path: Path, monkeypatch: pytest.MonkeyP
     monkeypatch.setattr(ref, "_session_resolution", _make_resolution(w_home / "config.yaml"))
 
     barrier = threading.Barrier(2)
+    errors: list[Exception] = []
 
     def _fire(home: Path) -> None:
-        barrier.wait()
-        ref._on_profile_change(profile_home=str(home))
+        try:
+            barrier.wait(timeout=2.0)
+            ref._on_profile_change(profile_home=str(home))
+        except Exception as exc:  # noqa: BLE001 — record, assert empty later
+            errors.append(exc)
 
     t1 = threading.Thread(target=_fire, args=(x_home,))
     t2 = threading.Thread(target=_fire, args=(y_home,))
     t1.start()
     t2.start()
-    t1.join()
-    t2.join()
+    t1.join(timeout=2.0)
+    t2.join(timeout=2.0)
+    assert not t1.is_alive() and not t2.is_alive(), "rebind workers did not finish"
+    assert errors == [], f"worker errors: {errors!r}"
 
     expected = {
         (x_home / "config.yaml").resolve(strict=False): "closed",
