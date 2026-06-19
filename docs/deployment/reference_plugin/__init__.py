@@ -505,6 +505,21 @@ def _deferred_init() -> None:
                 on_alert=_handle_alert,
             )
 
+            # PET-139: install the enforcement-spool HMAC key (D3) so writer-side events are
+            # signed. Sourced from the `session_secret` already decoded by
+            # `_build_config_from_section` (no new env read). The reader (dashboard process)
+            # derives the same key from the same `PETASOS_SESSION_SECRET` under one documented
+            # env contract, so writer and reader agree. Wrapped fail-safe: a failure degrades
+            # to integrity-off (no `sig`), never breaks boot.
+            try:
+                from petasos.console._events import set_spool_key
+
+                set_spool_key(config.session_secret)
+            except Exception as exc:  # pragma: no cover - defensive; integrity is best-effort
+                logger.warning(
+                    "PETASOS_INTEGRITY spool-key install failed at boot: %s — integrity off", exc
+                )
+
             license_key = os.environ.get("PETASOS_LICENSE_KEY")
             if license_key:
                 from petasos import LicenseState
@@ -900,6 +915,21 @@ async def _apply_reconfigure(cfg: PetasosConfig) -> None:
     _guard.validate_config(cfg)
     # Phase 2: commit.
     _pipeline.reconfigure(cfg)
+    # PET-139: re-derive the enforcement-spool HMAC key from the adopted config (idempotent
+    # per D3 — session_secret is restart-required and env-reinjected, so this re-installs
+    # identical bytes). This single chokepoint covers BOTH the PET-126 hot-apply and the
+    # PET-132 re-bind, which reach the live pipeline only through `_apply_reconfigure`; do not
+    # add a separate call on the re-bind early-return branch (no `cfg` is built there, so a
+    # `set_spool_key(cfg...)` would NameError). Wrapped fail-safe: a failure degrades to
+    # integrity-off, never breaks the reconfigure.
+    try:
+        from petasos.console._events import set_spool_key
+
+        set_spool_key(cfg.session_secret)
+    except Exception as exc:  # pragma: no cover - defensive; integrity is best-effort
+        logger.warning(
+            "PETASOS_INTEGRITY spool-key re-install failed on reconfigure: %s — integrity off", exc
+        )
     _guard.apply_config(cfg)
     if _lineage_registry is not None:
         _lineage_registry.apply_config(cfg)

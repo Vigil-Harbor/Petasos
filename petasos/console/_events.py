@@ -33,6 +33,8 @@ Never raises out of any public function.
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import os
 import time
@@ -70,6 +72,67 @@ def _reset_events_state(path: str | None = None, cap: int | None = None) -> None
         SPOOL_CAP_BYTES = cap
 
 
+# PET-139: enforcement-event integrity. The spool key is a *domain-separated subkey*
+# derived from session_secret (D3), never the raw secret — so the FREQ-03 session-binding
+# use and this spool-attestation use cannot cross-interfere. ``None`` => integrity off: no
+# ``sig`` is stamped and the reader maps an unkeyed deployment to "unattested" (the PET-131
+# no-regression path). Held in its OWN global with a dedicated reset, decoupled from
+# _reset_events_state's path/cap reset, so a `_reset_events_state` call after `set_spool_key`
+# cannot silently disarm signing.
+_SPOOL_KEY: bytes | None = None
+
+
+def _derive_spool_key(secret: bytes) -> bytes:
+    """Domain-separated subkey for spool attestation (D3): HMAC-SHA256(secret, label).
+
+    The ``v1`` label leaves room for a future rotation without ambiguity and keeps this
+    key distinct from any other HMAC use of the same ``session_secret``.
+    """
+    return hmac.new(secret, b"petasos/enforcement-spool/v1", hashlib.sha256).digest()
+
+
+def set_spool_key(secret: bytes | None) -> None:
+    """Install the spool HMAC key derived from *secret*, or ``None`` to disable integrity.
+
+    Idempotent: re-deriving from the same secret installs identical bytes (session_secret is
+    restart-required and env-reinjected, so the derived key is invariant for a process
+    lifetime, D3). Order note: ``_reset_events_state`` does NOT touch the key, so a test that
+    needs both should call ``_reset_events_state(...)`` first, then ``set_spool_key(...)``.
+    """
+    global _SPOOL_KEY
+    _SPOOL_KEY = _derive_spool_key(secret) if secret else None
+
+
+def _reset_spool_key() -> None:
+    """Test seam: clear the writer key independently of path/cap reset."""
+    global _SPOOL_KEY
+    _SPOOL_KEY = None
+
+
+def verify_event(ev: object, key: bytes | None) -> bool:
+    """True iff *key* is set and ``ev["sig"]`` matches the recomputed HMAC. Never raises (D6).
+
+    Pure and total: a ``None`` key, a non-dict input, a missing/non-string ``sig``, or any
+    serialization error all resolve to ``False``. A ``None`` key returns ``False`` so the
+    caller can distinguish "no key configured" (which it maps to "unattested" — still trusted
+    and counted) from a real verify failure (mapped to "unverifiable"); the *caller* owns that
+    trust decision, not this function. The ``object`` annotation + explicit ``isinstance`` guard
+    keep it total under ``mypy --strict`` even though the live drain only ever passes dicts.
+    """
+    if key is None or not isinstance(ev, dict):
+        return False  # None-key => caller maps to "unattested", not "unverifiable"
+    try:
+        sig = ev.get("sig")
+        if not isinstance(sig, str):
+            return False
+        rest = {k: v for k, v in ev.items() if k != "sig"}
+        preimage = json.dumps(rest, sort_keys=True, separators=(",", ":"), default=str)
+        expected = hmac.new(key, preimage.encode("utf-8"), hashlib.sha256).hexdigest()
+        return hmac.compare_digest(sig, expected)
+    except Exception:
+        return False
+
+
 def emit_enforcement_event(event: dict[str, Any]) -> bool:
     """Append one enforcement event as a JSONL line. O(1), fail-open.
 
@@ -85,6 +148,18 @@ def emit_enforcement_event(event: dict[str, Any]) -> bool:
         # distinct from the playground `s-<hex>` keyspace.
         rec.setdefault("scan_id", f"e-{uuid.uuid4().hex}")
         rec.setdefault("timestamp", time.time())
+        # PET-139: stamp a keyed HMAC over the canonical serialization of the whole record
+        # (after the identity fields above, before `sig` is added), so the reader can attest
+        # provenance (D1). Signing the whole record — not a field whitelist — makes the tag
+        # cover every present and future field (e.g. PET-138's `bypassed_count`) automatically.
+        # `sort_keys=True` makes writer and reader agree regardless of insertion order;
+        # `default=str` mirrors the on-disk serialization below so preimage and line share one
+        # discipline. `None` key => integrity off (unsigned line, read as "unattested"). Stays
+        # inside the fail-open try (D6): a signing error returns False, never raises into the
+        # tool call. CPU-only microseconds — no fsync, no extra handle, O(1) append preserved.
+        if _SPOOL_KEY is not None:
+            preimage = json.dumps(rec, sort_keys=True, separators=(",", ":"), default=str)
+            rec["sig"] = hmac.new(_SPOOL_KEY, preimage.encode("utf-8"), hashlib.sha256).hexdigest()
         line = json.dumps(rec, default=str) + "\n"
         with open(_spool_path(), "a", encoding="utf-8") as f:
             f.write(line)

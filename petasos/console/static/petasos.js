@@ -705,8 +705,25 @@
         "source: " + source + "  ·  scan ran: " + scanRan + "  ·  armed: " + armedStr)
     );
     if (isEnf) {
-      prov.appendChild(Pet.h("div", { className: "sd-prov-note" },
-        "Self-reported by the enforcement spool; shown as far as the data allows, not proven."));
+      // PET-139: attestation state from the spool-integrity HMAC verdict (D4), extending
+      // PET-137's "is this legit?" line. Read summary.provenance; only the exact strings
+      // "genuine" / "unverifiable" map through — an absent / non-string / unknown value
+      // renders as "unattested" (not a crash, not a false "genuine"), gated the way the
+      // PET-138 bypassed_count path guards its input. No-em-dash house style for the copy.
+      var prv = e.provenance;
+      var provState = (prv === "genuine" || prv === "unverifiable") ? prv : "unattested";
+      var attClass, attText;
+      if (provState === "genuine") {
+        attClass = "sd-prov-att sd-prov-genuine";
+        attText = "Verified Petasos event: the signature checks out against the configured key.";
+      } else if (provState === "unverifiable") {
+        attClass = "sd-prov-att sd-prov-unverifiable";
+        attText = "Unverified: signature missing or invalid; this row may not be a genuine Petasos decision.";
+      } else {
+        attClass = "sd-prov-att sd-prov-unattested";
+        attText = "Integrity not configured: no signing key is set, so this row cannot be attested.";
+      }
+      prov.appendChild(Pet.h("div", { className: attClass }, attText));
     }
     wrap.appendChild(prov);
 
