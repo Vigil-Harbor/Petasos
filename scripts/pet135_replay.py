@@ -68,6 +68,9 @@ _BLOCKING_SEVERITIES = {"critical", "high"}
 # structural trigger (what made the rule fire) and mask only secrets/PII.
 # --------------------------------------------------------------------------
 
+# IPv6 hextet group, reused by the full + compressed redactors below.
+_IPV6_HEXTET = r"[0-9a-fA-F]{1,4}"
+
 _REDACTORS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+"), "<EMAIL>"),
     (re.compile(r"\bBearer\s+[A-Za-z0-9._\-]+", re.IGNORECASE), "Bearer <TOKEN>"),
@@ -75,6 +78,19 @@ _REDACTORS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"[A-Za-z]:\\Users\\[^\\\s\"']+"), r"C:\\Users\\<USER>"),
     (re.compile(r"/(?:home|Users)/[^/\s\"']+"), "/home/<USER>"),
     (re.compile(r"\b(\d{1,3}\.){3}\d{1,3}\b"), "<IP>"),
+    # IPv6 — full 8-hextet form and any "::"-compressed form (incl. ::1 and
+    # link-local fe80::). \w-boundary lookarounds (not \b, which won't anchor
+    # before the leading ":" of "::1") keep C++/Rust scope tokens such as
+    # "std::cout" from matching while still catching bracketed-URL addresses.
+    (re.compile(rf"(?<!\w)(?:{_IPV6_HEXTET}:){{7}}{_IPV6_HEXTET}(?!\w)"), "<IPv6>"),
+    (
+        re.compile(
+            rf"(?<!\w)(?:{_IPV6_HEXTET}(?::{_IPV6_HEXTET})*::"
+            rf"(?:{_IPV6_HEXTET}(?::{_IPV6_HEXTET})*)?"
+            rf"|::(?:{_IPV6_HEXTET}(?::{_IPV6_HEXTET})*))(?!\w)"
+        ),
+        "<IPv6>",
+    ),
 ]
 
 
