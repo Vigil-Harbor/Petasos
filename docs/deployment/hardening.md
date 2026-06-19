@@ -121,7 +121,7 @@ burst of `unverifiable` rows. To avoid that artifact, clear the live spool file
 **and** remove any `<spool>.rot` segment beside it before (re)starting with the
 secret set:
 
-```
+```bash
 rm -f "<config-dir>/petasos-enforcement.jsonl" "<config-dir>/petasos-enforcement.jsonl.rot"
 ```
 

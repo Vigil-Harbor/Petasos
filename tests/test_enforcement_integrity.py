@@ -31,9 +31,13 @@ if TYPE_CHECKING:
 import petasos.console._events as ev
 import petasos.console.server as server_mod
 from petasos import PetasosConfig, Pipeline
-from petasos.console.hermes import plugin_api
 from petasos.console.server import ConsoleHandlers
 from petasos.scanners.minimal import MinimalScanner
+
+# NOTE: `petasos.console.hermes.plugin_api` imports fastapi at module level, so it is
+# imported lazily inside the one embedded-path test (guarded by importorskip) rather than
+# here — the writer / verifier / key tests need no fastapi and must stay collectable without
+# the console extra.
 
 # A real 32-byte-ish secret; both the writer (set_spool_key) and the reader
 # (PetasosConfig.session_secret) derive their key from THIS value, so they agree.
@@ -169,6 +173,11 @@ async def test_genuine_event_round_trips_direct_construction() -> None:
 async def test_genuine_event_round_trips_embedded_drain_on_read() -> None:
     # The embedded Hermes path: plugin_api.init_handlers(pipeline) -> ConsoleHandlers(pipeline),
     # surfaced through get_scan_history's drain-on-read (server.py drain-on-read floor).
+    # plugin_api imports fastapi at module level; skip gracefully where the console extra is
+    # absent rather than failing collection.
+    pytest.importorskip("fastapi")
+    from petasos.console.hermes import plugin_api
+
     ev.set_spool_key(_SECRET)
     ev.emit_enforcement_event(_block(session_id="sess-B"))
     pipeline = Pipeline(
