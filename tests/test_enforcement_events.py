@@ -333,6 +333,70 @@ async def test_observability_correct_when_disarmed(
     assert handlers.block_tally_for("sess-D") == 0  # the bypass does not move the tally
 
 
+# ---------------------------------------------------------------------------
+# PET-137: the F3 correction, frozen — disarmed is a HARD bypass (no scan runs)
+# ---------------------------------------------------------------------------
+
+
+def test_disarmed_pre_tool_call_runs_no_scan(spool: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Regression for PET-137: a disarmed _pre_tool_call performs NO scan — _guard.evaluate
+    # is never called, the async guard path is never entered, and the call returns None (a
+    # hard bypass). Freezes the fact the optimistic first pass got wrong ("disarmed still
+    # scans") so no future change silently reintroduces it. The emitted heartbeat carries
+    # only tool/event_type/armed; the structured-decision fields stay unset.
+    ref = _import_reference_plugin()
+    _setup_plugin(ref, monkeypatch, armed=False)
+    ref._reset_disarm_log()
+
+    eval_calls: list[Any] = []
+    run_calls: list[Any] = []
+    monkeypatch.setattr(
+        ref,
+        "_guard",
+        type("SpyGuard", (), {"evaluate": lambda self, *a, **k: eval_calls.append(a)})(),
+    )
+    monkeypatch.setattr(ref, "_run_async", lambda coro: run_calls.append(coro))
+
+    out = ref._pre_tool_call("send_email", {"text": "x"}, task_id="sess-D")
+
+    assert out is None  # hard bypass: no decision returned
+    assert eval_calls == []  # NO scan ran
+    assert run_calls == []  # the async guard path was never entered
+
+    events = _read_spool(spool)
+    assert len(events) == 1
+    e = events[0]
+    assert e["event_type"] == "bypassed_disarmed"
+    assert e["armed"] is False
+    assert e["tool"] == "send_email"
+    # Structured-decision fields are unset (the emit helper always builds the full dict,
+    # so assert field VALUES, not key-set equality).
+    assert e["rule_id"] is None
+    assert e["severity"] is None
+    assert e["reason"] == ""
+
+
+def test_armed_pre_tool_call_invokes_guard_evaluate(
+    spool: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Pins the D6 invariant precondition: the armed branch DOES run the guard. A block-class
+    # event can only be emitted after a real _guard.evaluate (which only runs while armed),
+    # so armed-at-decision is soundly derivable from event_type as a fallback.
+    ref = _import_reference_plugin()
+    _setup_plugin(ref, monkeypatch, armed=True)
+
+    eval_calls: list[Any] = []
+    monkeypatch.setattr(
+        ref,
+        "_guard",
+        type("SpyGuard", (), {"evaluate": lambda self, *a, **k: eval_calls.append(a) or "coro"})(),
+    )
+    monkeypatch.setattr(ref, "_run_async", lambda coro: _guard_result())  # allowed result
+
+    ref._pre_tool_call("send_email", {"text": "x"}, task_id="sess-E")
+    assert eval_calls, "_guard.evaluate must run on the armed branch"
+
+
 @pytest.mark.asyncio
 async def test_observability_correct_across_profiles(
     spool: str, handlers: ConsoleHandlers

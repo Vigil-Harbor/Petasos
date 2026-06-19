@@ -327,6 +327,10 @@
     configPresets: null,
     configActivePreset: null,
     scanHistory: [],
+    // PET-137: scan_id of the scan-history row whose detail panel is open (or null).
+    // Persisted in state (not local DOM) so the panel survives renderDashboard's
+    // per-SSE-frame rebuild; re-opened by scan_id, so an evicted row closes cleanly.
+    openDetailId: null,
     alerts: [],
     auditLog: [],
     scannerHealth: [],
@@ -626,6 +630,141 @@
   // exception out of the row build would abort the live re-render. Every
   // caller-influenceable field is coerced/guarded. No innerHTML (PET-82): cells
   // are built with Pet.h + .textContent (title= for the truncated session id).
+  // PET-137: the per-finding renderer, extracted from Pet.renderScanResult so the
+  // live playground result view AND the Observability detail panel share one builder.
+  // matched_text-tolerant: shown on hover when present (live playground only); the
+  // persisted detail blob strips it (D5), so it renders nothing in the detail panel.
+  Pet.findingRows = function (findings) {
+    var list = Array.isArray(findings) ? findings : [];
+    return list.map(function (f) {
+      f = f || {};
+      var v = SEV[f.severity] || SEV.info;
+      var finding = Pet.h("div", { className: "finding" });
+      var rail = Pet.h("div", { className: "rail", style: { background: v.col } });
+      var body = Pet.h("div", { className: "body" },
+        Pet.h("div", { style: { display: "flex", gap: "8px", alignItems: "center", minWidth: "0" } },
+          Pet.h("span", { className: "rid" }, f.rule_id),
+          Pet.h("span", { className: "mono", style: { marginLeft: "auto", fontSize: "10px", color: "var(--tx-faint)" } }, f.scanner_name || "")
+        ),
+        Pet.h("div", { className: "msg" }, f.message || ""),
+        f.matched_text ? Pet.h("span", { className: "matched", title: f.matched_text }, f.matched_text) : null
+      );
+      finding.appendChild(rail);
+      finding.appendChild(Pet.SevBadge(f.severity));
+      finding.appendChild(body);
+      return finding;
+    });
+  };
+
+  // PET-137: typed scan-detail panel, branched by row kind (D1). Read-only consumer of
+  // the persisted summary (enforcement fields) or the bounded playground detail blob —
+  // never surfaces matched_text (D5). The provenance line answers "is this legit?" (D3),
+  // honest as far as the (unauthenticated, F7) spool allows — never overclaimed.
+  Pet.scanDetailPanel = function (e) {
+    var wrap = Pet.h("div", { className: "scan-detail" });
+    if (!e || typeof e !== "object") {
+      wrap.appendChild(Pet.h("div", { className: "sd-sub mono" }, "(detail unavailable)"));
+      return wrap;
+    }
+    var ENF_KINDS = { block: 1, quarantine: 1, tier3: 1 };
+    var isEnf = (e.source === "enforcement");
+    var et = (e.event_type == null || e.event_type === "") ? "" : String(e.event_type);
+    var isBypass = isEnf && et === "bypassed_disarmed";
+    var isEnfDecision = isEnf && !!ENF_KINDS[et];
+    var isPlayground = (e.source == null || e.source === "" || e.source === "playground");
+
+    function fld(k, val) {
+      return Pet.h("div", { className: "sd-field" },
+        Pet.h("span", { className: "sd-k" }, k),
+        Pet.h("span", { className: "sd-v mono" }, (val == null || val === "") ? "—" : String(val)));
+    }
+
+    // ── Provenance line: "is this legit?" (D3) ──
+    var source = isEnf ? "enforcement" : (isPlayground ? "playground" : ("unknown (" + String(e.source) + ")"));
+    var scanRan;
+    if (isBypass) scanRan = "no (bypassed while Unequipped)";
+    else if (isEnfDecision || isPlayground) scanRan = "yes";
+    else scanRan = "unknown";
+    var armedStr;
+    if (isPlayground) armedStr = "n/a (operator-initiated manual scan)";
+    else if (e.armed === true) armedStr = "armed (Equipped)";
+    else if (e.armed === false) armedStr = "disarmed (Unequipped)";
+    else if (isEnfDecision) armedStr = "armed (Equipped)";  // D6 fallback: block-class only emits while armed
+    else armedStr = "unknown";
+
+    var prov = Pet.h("div", { className: "sd-provenance" },
+      Pet.h("div", { className: "sd-prov-q" }, "is this legit?"),
+      Pet.h("div", { className: "sd-prov-line mono" },
+        "source: " + source + "  ·  scan ran: " + scanRan + "  ·  armed: " + armedStr)
+    );
+    if (isEnf) {
+      prov.appendChild(Pet.h("div", { className: "sd-prov-note" },
+        "Self-reported by the enforcement spool; shown as far as the data allows, not proven."));
+    }
+    wrap.appendChild(prov);
+
+    // ── Kind-specific body ──
+    if (isBypass) {
+      wrap.appendChild(Pet.h("div", { className: "sd-heartbeat" },
+        Pet.h("div", {}, "Enforcement bypassed (Unequipped). No scan was performed."),
+        Pet.h("div", { className: "sd-sub" }, "A rate-limited heartbeat (about 1 per 30 s), not a per-call record; bypassed-call coverage is not counted here.")));
+      wrap.appendChild(fld("tool", e.tool));
+      wrap.appendChild(fld("session", e.session_id));
+    } else if (isEnfDecision) {
+      wrap.appendChild(fld("tool", e.tool));
+      wrap.appendChild(fld("decision", et));
+      wrap.appendChild(fld("tier", e.tier));
+      wrap.appendChild(fld("rule", e.rule_id));
+      wrap.appendChild(fld("severity", e.severity));
+      wrap.appendChild(fld("reason", e.reason));
+      wrap.appendChild(fld("session", e.session_id));
+    } else if (isPlayground) {
+      var det = e.detail;
+      if (!det || typeof det !== "object") {
+        wrap.appendChild(Pet.h("div", { className: "sd-sub" }, "(detail unavailable)"));
+        wrap.appendChild(fld("findings", e.finding_count));
+        wrap.appendChild(fld("direction", e.direction));
+      } else {
+        var fs = Array.isArray(det.findings) ? det.findings : [];
+        if (fs.length) {
+          wrap.appendChild(Pet.h("div", { className: "sd-section" }, "findings"));
+          var vlist = Pet.h("div", { className: "vlist", style: { gap: "8px" } });
+          var rows = Pet.findingRows(fs);
+          for (var fi = 0; fi < rows.length; fi++) vlist.appendChild(rows[fi]);
+          wrap.appendChild(vlist);
+          if (Number(det.findings_omitted) > 0) {
+            wrap.appendChild(Pet.h("div", { className: "sd-sub" }, "+" + det.findings_omitted + " more findings omitted (capped)"));
+          }
+        } else {
+          wrap.appendChild(Pet.h("div", { className: "sd-sub" }, "no findings"));
+        }
+        var srs = Array.isArray(det.scanner_results) ? det.scanner_results : [];
+        if (srs.length) {
+          wrap.appendChild(Pet.h("div", { className: "sd-section" }, "scanners"));
+          for (var si = 0; si < srs.length; si++) {
+            var sr = srs[si] || {};
+            var line = (sr.scanner_name || "?") + ": " + (Number(sr.duration_ms) || 0).toFixed(1) + "ms, "
+              + (Number(sr.finding_count) || 0) + " findings" + (sr.error ? (" (error: " + String(sr.error) + ")") : "");
+            wrap.appendChild(Pet.h("div", { className: "sd-scanner mono" }, line));
+          }
+        }
+        if (det.normalized_text != null && det.normalized_text !== "") {
+          wrap.appendChild(Pet.h("div", { className: "sd-section" }, "normalized text" + (det.normalized_text_truncated ? " (preview)" : "")));
+          var pre = Pet.h("div", { className: "sd-normalized mono" });
+          pre.textContent = String(det.normalized_text);
+          wrap.appendChild(pre);
+        }
+      }
+      wrap.appendChild(fld("session", e.session_id));
+    } else {
+      // Unknown row kind (D1 default). Do NOT claim playground/manual-scan provenance.
+      wrap.appendChild(Pet.h("div", { className: "sd-sub" }, "Unknown row kind; cannot classify this entry."));
+      wrap.appendChild(fld("source", e.source));
+      wrap.appendChild(fld("event", et));
+    }
+    return wrap;
+  };
+
   Pet.scanHistoryRows = function (hist) {
     if (!hist || !hist.length) {
       // Honest empty state — never the "..." loading ellipsis (Decision 4).
@@ -646,6 +785,20 @@
       var el = Pet.h("span", { className: "mono", style: { fontSize: "11px", color: "var(--tx-faint)", minWidth: w, display: "inline-block" } });
       el.textContent = (v == null || v === "") ? "—" : String(v);
       return el;
+    }
+    // PET-137: a row click (or Enter/Space) toggles its detail panel. The open row's
+    // scan_id lives in Pet.state.openDetailId (not local DOM), so it survives the
+    // per-SSE-frame renderDashboard rebuild and re-opens by scan_id on the next render.
+    function makeToggle(sid) {
+      return function () {
+        Pet.state.openDetailId = (Pet.state.openDetailId === sid) ? null : sid;
+        if (_container) Pet.renderDashboard(_container);
+      };
+    }
+    function makeKey(toggle) {
+      return function (ev) {
+        if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); toggle(); }
+      };
     }
     var table = Pet.h("div", { style: { display: "flex", flexDirection: "column", gap: "6px" } });
     for (var i = 0; i < hist.length; i++) {
@@ -697,9 +850,30 @@
       timeEl.textContent = fmtTime(e.timestamp);
       rowEls.push(timeEl);
 
-      var row = Pet.h("div", { style: { display: "flex", alignItems: "center", gap: "8px" } });
+      var sid = e.scan_id;
+      var clickable = (sid != null && sid !== "");
+      var isOpen = clickable && Pet.state.openDetailId === sid;
+      var rowAttrs = {
+        className: "scan-row" + (clickable ? " clickable" : "") + (isOpen ? " open" : ""),
+        style: { display: "flex", alignItems: "center", gap: "8px" }
+      };
+      if (clickable) {
+        var toggle = makeToggle(sid);
+        rowAttrs.role = "button";
+        rowAttrs.tabIndex = 0;
+        rowAttrs.ariaExpanded = isOpen;
+        rowAttrs.ariaLabel = (isEnforcement ? "enforcement" : "playground")
+          + " scan row, " + (isOpen ? "expanded" : "collapsed") + ", activate to toggle detail";
+        rowAttrs.onClick = toggle;
+        rowAttrs.onKeydown = makeKey(toggle);
+      }
+      var row = Pet.h("div", rowAttrs);
       for (var ri = 0; ri < rowEls.length; ri++) row.appendChild(rowEls[ri]);
       table.appendChild(row);
+      // PET-137: render the open detail panel directly below its row. Re-evaluated on
+      // every rebuild and keyed on scan_id, so it survives an incoming SSE frame (D-FE)
+      // and closes cleanly if the open row has evicted from the buffer.
+      if (isOpen) table.appendChild(Pet.scanDetailPanel(e));
     }
     return table;
   };
@@ -997,26 +1171,10 @@
       var findingsPanel = Pet.Panel({
         icon: "radar", title: "findings", place: "detections by scanner",
         help: Pet.HelpTip("<b>Findings</b>: individual detections from each scanner. Severity ranges from <code>INFO</code> to <code>CRITICAL</code>. High+ on dangerous tools triggers a block."),
+        // PET-137: shared per-finding renderer (live playground view + Observability
+        // detail panel). The matched_text hover affordance lives in Pet.findingRows.
         content: Pet.h("div", { className: "vlist", style: { gap: "8px" } },
-          findings.map(function (f) {
-            var v = SEV[f.severity] || SEV.info;
-            var finding = Pet.h("div", { className: "finding" });
-            var rail = Pet.h("div", { className: "rail", style: { background: v.col } });
-            var body = Pet.h("div", { className: "body" },
-              Pet.h("div", { style: { display: "flex", gap: "8px", alignItems: "center", minWidth: "0" } },
-                Pet.h("span", { className: "rid" }, f.rule_id),
-                Pet.h("span", { className: "mono", style: { marginLeft: "auto", fontSize: "10px", color: "var(--tx-faint)" } }, f.scanner_name || "")
-              ),
-              Pet.h("div", { className: "msg" }, f.message || ""),
-              // D4: full matched_text on title as a hover affordance; the CSS wrap
-              // rules keep the visible badge text from clipping to invisibility.
-              f.matched_text ? Pet.h("span", { className: "matched", title: f.matched_text }, f.matched_text) : null
-            );
-            finding.appendChild(rail);
-            finding.appendChild(Pet.SevBadge(f.severity));
-            finding.appendChild(body);
-            return finding;
-          })
+          Pet.findingRows(findings)
         ),
       });
       frag.appendChild(findingsPanel);

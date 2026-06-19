@@ -377,3 +377,40 @@
 @media (prefers-reduced-motion: reduce) {
   .pet .trap-bar-fill, .pet .trap-rung, .pet .trap-rung-fill, .pet .trap-viz { transition: none; }
 }
+
+/* PET-137: scan-history row drill-down. Clickable rows + a typed detail panel that
+   answers "what happened" and "is this legit?". Additive; existing rows unchanged
+   except for the cursor/focus affordance when clickable. */
+.pet .scan-row { border-radius: var(--r-card, 8px); }
+.pet .scan-row.clickable { cursor: pointer; padding: 2px 4px; margin: 0 -4px; }
+.pet .scan-row.clickable:hover { background: color-mix(in srgb, var(--bg-panel) 70%, var(--tx-faint)); }
+.pet .scan-row.clickable:focus-visible { outline: 2px solid var(--accent, var(--tx-bright)); outline-offset: 1px; }
+.pet .scan-row.open { background: color-mix(in srgb, var(--bg-panel) 60%, var(--tx-faint)); }
+
+.pet .scan-detail {
+  display: flex; flex-direction: column; gap: 8px;
+  margin: 2px 0 8px; padding: 12px;
+  border-radius: var(--r-card, 8px);
+  background: var(--bg-panel); border: 1px solid var(--border);
+}
+.pet .sd-provenance {
+  padding: 8px 10px; border-radius: var(--r-card, 8px);
+  background: color-mix(in srgb, var(--bg-panel) 50%, transparent);
+  border: 1px solid var(--border-soft);
+}
+.pet .sd-prov-q { font-size: 11px; font-weight: 700; letter-spacing: .5px; color: var(--tx-bright); text-transform: uppercase; }
+.pet .sd-prov-line { font-size: 12px; color: var(--tx-mut); margin-top: 3px; }
+.pet .sd-prov-note { font-size: 10.5px; color: var(--tx-faint); margin-top: 4px; }
+.pet .sd-section { font-size: 10px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--tx-faint); margin-top: 4px; }
+.pet .sd-field { display: flex; gap: 8px; align-items: baseline; font-size: 12px; }
+.pet .sd-k { flex: 0 0 84px; color: var(--tx-faint); }
+.pet .sd-v { color: var(--tx-mut); word-break: break-word; min-width: 0; }
+.pet .sd-sub { font-size: 11px; color: var(--tx-faint); }
+.pet .sd-scanner { font-size: 11px; color: var(--tx-mut); }
+.pet .sd-heartbeat { font-size: 12px; color: var(--tx-mut); }
+.pet .sd-normalized {
+  font-size: 11px; color: var(--tx-mut); white-space: pre-wrap; word-break: break-word;
+  max-height: 140px; overflow-y: auto;
+  padding: 6px 8px; border-radius: var(--r-card, 8px);
+  background: color-mix(in srgb, var(--bg-panel) 60%, transparent); border: 1px solid var(--border-soft);
+}
