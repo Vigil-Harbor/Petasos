@@ -170,21 +170,27 @@ def test_tconc_concurrent_desktop_agent_single_id(monkeypatch: pytest.MonkeyPatc
     n = 50
     ids: list[str] = []
     ids_lock = threading.Lock()
+    errors: list[Exception] = []
     barrier = threading.Barrier(n)
 
     def worker() -> None:
-        barrier.wait()  # maximize contention on the fresh-agent insert
-        ref._pre_tool_call("t", {}, task_id="", _agent=agent)
-        sid = ref._derive_session_id("", {"_agent": agent})
-        with ids_lock:
-            ids.append(sid)
+        try:
+            barrier.wait(timeout=10)  # don't block forever if a thread never arrives
+            ref._pre_tool_call("t", {}, task_id="", _agent=agent)
+            sid = ref._derive_session_id("", {"_agent": agent})
+            with ids_lock:
+                ids.append(sid)
+        except Exception as exc:  # capture (incl. BrokenBarrierError) for the main thread
+            errors.append(exc)
 
     threads = [threading.Thread(target=worker) for _ in range(n)]
     for t in threads:
         t.start()
     for t in threads:
-        t.join()
+        t.join(timeout=15)  # fail rather than hang if a worker is unresponsive
 
+    assert not any(t.is_alive() for t in threads), "a worker thread hung"
+    assert not errors, f"worker thread(s) raised: {errors!r}"
     assert len(set(ids)) == 1  # exactly one desktop-* id across all threads
     sid = ids[0]
     assert sid.startswith("desktop-")

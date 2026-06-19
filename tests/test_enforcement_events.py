@@ -792,8 +792,14 @@ def test_enforcement_summary_normalizes_bypassed_count() -> None:
         s = _enforcement_summary({"event_type": "bypassed_disarmed", "bypassed_count": bad})
         assert s["bypassed_count"] is None, f"{bad!r} should normalize to None"
 
-    # A block event has no bypassed_count -> None.
-    assert _enforcement_summary({"event_type": "block"})["bypassed_count"] is None
+    # Event-type isolation: non-bypass event types never carry a bypassed_count,
+    # even if a malformed/legacy producer stamps one (guards the summary's event-type
+    # gate so a stray count cannot feed the tile).
+    for et in ("block", "quarantine", "tier3", "allowed", "notification"):
+        assert _enforcement_summary({"event_type": et})["bypassed_count"] is None
+        assert (
+            _enforcement_summary({"event_type": et, "bypassed_count": 5})["bypassed_count"] is None
+        )
 
 
 @pytest.mark.asyncio

@@ -198,12 +198,17 @@ def _enforcement_summary(ev: dict[str, Any]) -> dict[str, Any]:
     reason = ev.get("reason")
     if isinstance(reason, str) and len(reason) > _MAX_REASON_LEN:
         reason = reason[:_MAX_REASON_LEN]
-    # PET-138: normalize the cumulative disarmed-bypass count to a positive int (or
-    # None) so a torn/legacy spool line, a float, or a bool can never reach the SSE
-    # frame / tile. bool is excluded via `type(...) is int` (isinstance(True, int)
-    # is True). The frontend integer-gates again before summing.
+    # PET-138: only a bypassed_disarmed heartbeat carries a count; gate on the event
+    # type so a malformed/legacy non-bypass event that stamps a stray bypassed_count
+    # can never feed the tile. Then normalize to a positive int (or None): a float or
+    # a bool is dropped (bool via `type(...) is int` — isinstance(True, int) is True).
+    # The frontend integer-gates again before summing.
     raw_count = ev.get("bypassed_count")
-    bypassed_count = raw_count if type(raw_count) is int and raw_count > 0 else None
+    bypassed_count = (
+        raw_count
+        if event_type == "bypassed_disarmed" and type(raw_count) is int and raw_count > 0
+        else None
+    )
     return {
         "scan_id": ev.get("scan_id"),
         "source": "enforcement",

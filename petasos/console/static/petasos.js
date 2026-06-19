@@ -917,16 +917,20 @@
       var e = entries[i];
       if (!e || typeof e !== "object" || e.event_type !== "bypassed_disarmed") continue;
       var sid = e.session_id;
-      if (sid === null || sid === undefined || sid === "") continue;
+      if (typeof sid !== "string" || sid === "") continue; // only string session ids (matches server isinstance(sid, str))
       var n = e.bypassed_count;
       // Gate on number-type FIRST (excludes bool/string/null/undefined — Number(true)
       // is 1, so a bare Number() would leak a bool), then positive-integer (excludes
       // float/0/negative/NaN). Mirrors the server's `type(cnt) is int and cnt > 0`.
       if (typeof n !== "number" || !Number.isInteger(n) || n <= 0) continue;
-      if (n > (map[sid] || 0)) {
-        var isNew = !(sid in map);
+      // hasOwnProperty (not `in` / bare `map[sid]`) so a session id colliding with an
+      // inherited Object member (e.g. "toString", "constructor") is read and stored as
+      // an OWN property, never miscounted against a prototype member.
+      var has = Object.prototype.hasOwnProperty.call(map, sid);
+      var prev = has ? map[sid] : 0;
+      if (n > prev) {
         map[sid] = n; // refresh in place (existing) or insert (new)
-        if (isNew) {
+        if (!has) {
           var keys = Object.keys(map);
           if (keys.length > _MAX_BYPASS_SESSIONS) delete map[keys[0]]; // drop-oldest by insertion
         }
