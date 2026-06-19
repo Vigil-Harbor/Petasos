@@ -53,6 +53,135 @@ _ENFORCEMENT_TAIL_INTERVAL_S = 1.0
 # 200-char block-message truncation in petasos/session/formatting.py.
 _MAX_REASON_LEN = 200
 
+# PET-137: bounds on the per-row playground "detail" blob persisted alongside the
+# scan-history summary so a playground row can drill down to its findings (enforcement
+# rows already carry their decision fields). Hard caps, not config fields — a cap is not
+# a tuning dial; mirrors `_MAX_REASON_LEN` / `_MAX_TALLY_SESSIONS` / `SPOOL_CAP_BYTES`.
+_MAX_DETAIL_FINDINGS = 50
+_MAX_DETAIL_NORMALIZED_CHARS = 2_000
+_MAX_DETAIL_BYTES = 8_000
+# Severity ordering for detail-blob shedding. A 6th local copy (the cross-module rank is
+# private; the reference plugin documents preferring a local copy over a cross-boundary
+# import). Keyed by the Severity `.value` string; an unknown severity ranks highest so it
+# is kept (shed last), never silently dropped first.
+_SEVERITY_RANK: dict[str, int] = {"info": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
+_SEVERITY_RANK_MAX = max(_SEVERITY_RANK.values()) + 1
+
+
+def _detail_bytes(blob: dict[str, Any]) -> int:
+    """Serialized UTF-8 size of a detail blob, measured the way it is broadcast/stored."""
+    return len(json.dumps(blob, default=str).encode("utf-8"))
+
+
+def _build_playground_detail(result: Any, normalized: Any) -> dict[str, Any]:
+    """Bounded ``detail`` blob for a playground scan-history row (PET-137 D2/D-CAP/D5/D7).
+
+    Structured decision only: ``matched_text`` is stripped (D5); the normalized-text view
+    is a bounded preview (D7); findings are capped and severity-shed so the serialized blob
+    is ``<= _MAX_DETAIL_BYTES`` unconditionally (D-CAP). Pure; never raises.
+    """
+    try:
+        findings: list[Any] = [
+            {
+                "rule_id": f.rule_id,
+                "finding_type": f.finding_type,
+                "severity": f.severity.value,  # `.value` string, matching ScanFinding.to_dict()
+                "scanner_name": f.scanner_name,
+                "message": (f.message or "")[:_MAX_REASON_LEN],
+            }
+            for f in result.findings
+        ]
+        total = len(findings)
+        findings_omitted = 0
+        detail_truncated = False
+
+        # Cap finding count: keep the most severe (stable rank-desc, index-asc).
+        if total > _MAX_DETAIL_FINDINGS:
+            keep_set = set(
+                sorted(
+                    range(total),
+                    key=lambda i: (
+                        -_SEVERITY_RANK.get(findings[i]["severity"], _SEVERITY_RANK_MAX),
+                        i,
+                    ),
+                )[:_MAX_DETAIL_FINDINGS]
+            )
+            findings = [findings[i] for i in range(total) if i in keep_set]
+            findings_omitted = total - _MAX_DETAIL_FINDINGS
+            detail_truncated = True
+
+        scanner_results: Any = [
+            {
+                "scanner_name": sr.scanner_name,
+                "duration_ms": sr.duration_ms,
+                "finding_count": len(sr.findings),
+                "error": sr.error,
+            }
+            for sr in result.scanner_results
+        ]
+        norm_full = normalized.normalized or ""
+        norm_truncated = len(norm_full) > _MAX_DETAIL_NORMALIZED_CHARS
+
+        blob: dict[str, Any] = {
+            "findings": findings,
+            "findings_omitted": findings_omitted,
+            "scanner_results": scanner_results,
+            "normalized_text": norm_full[:_MAX_DETAIL_NORMALIZED_CHARS],
+            "normalized_text_truncated": norm_truncated,
+            "transformations_applied": list(normalized.transformations_applied),
+            "detail_truncated": detail_truncated,
+        }
+
+        # D-CAP hard byte cap. Findings are the payload that answers "what happened", so
+        # shed the cheap/low-value parts FIRST and findings LAST: normalized preview
+        # (the operator's own, already-bounded input) -> scanner_results (count-only) ->
+        # findings (lowest severity first, may reach zero). This keeps the most-severe
+        # findings (e.g. a critical) as long as anything at all fits; a huge multibyte
+        # preview can no longer evict the critical. The irreducible floor (structural keys
+        # + small transformations list) is far below the cap, so this terminates with the
+        # blob `<= _MAX_DETAIL_BYTES` unconditionally.
+        if _detail_bytes(blob) > _MAX_DETAIL_BYTES and blob["normalized_text"]:
+            # Largest char-prefix of the preview whose whole-blob serialization fits.
+            # str slicing is codepoint-safe (never splits a multibyte sequence).
+            blob["normalized_text_truncated"] = True
+            full_preview = blob["normalized_text"]
+            lo, hi, best = 0, len(full_preview), 0
+            while lo <= hi:
+                mid = (lo + hi) // 2
+                blob["normalized_text"] = full_preview[:mid]
+                if _detail_bytes(blob) <= _MAX_DETAIL_BYTES:
+                    best = mid
+                    lo = mid + 1
+                else:
+                    hi = mid - 1
+            blob["normalized_text"] = full_preview[:best]
+
+        if _detail_bytes(blob) > _MAX_DETAIL_BYTES:
+            blob["scanner_results"] = {"count": len(scanner_results)}
+
+        if _detail_bytes(blob) > _MAX_DETAIL_BYTES and blob["findings"]:
+            shed = sorted(
+                range(len(blob["findings"])),
+                key=lambda i: (
+                    _SEVERITY_RANK.get(blob["findings"][i]["severity"], _SEVERITY_RANK_MAX),
+                    -i,
+                ),
+            )
+            kept: list[Any] = list(blob["findings"])
+            for idx in shed:
+                if _detail_bytes(blob) <= _MAX_DETAIL_BYTES:
+                    break
+                kept[idx] = None
+                blob["findings"] = [x for x in kept if x is not None]
+                blob["detail_truncated"] = True
+                # total = the original finding count, so this stays correct across both
+                # the count-cap and this byte-shed pass.
+                blob["findings_omitted"] = total - len(blob["findings"])
+
+        return blob
+    except Exception:  # never-throw: a malformed result must not break run_scan
+        return {"findings": [], "detail_truncated": True, "detail_error": True}
+
 
 def _enforcement_summary(ev: dict[str, Any]) -> dict[str, Any]:
     """Build the unified `scan_history` summary for a drained enforcement event (D6).
@@ -84,6 +213,10 @@ def _enforcement_summary(ev: dict[str, Any]) -> dict[str, Any]:
         "rule_id": ev.get("rule_id"),
         "severity": ev.get("severity"),
         "reason": reason,
+        # PET-137: authoritative armed-at-decision for the drill-down provenance line
+        # (D6). The plugin stamps `armed` on every event (reference_plugin emits
+        # armed=True on the armed branch, armed=False on the disarmed bypass).
+        "armed": ev.get("armed"),
     }
 
 
@@ -381,14 +514,18 @@ class ConsoleHandlers:
         )
 
         cfg = self.pipeline.config
-        normalized_text = normalize(
+        # PET-137: keep the full NormalizedText (not just `.normalized`) so the detail
+        # blob can carry `transformations_applied`; the bare string still feeds the
+        # HTTP response below.
+        norm = normalize(
             text,
             nfkc=cfg.normalize_nfkc,
             strip_zero_width=cfg.strip_zero_width,
             map_homoglyphs=cfg.map_homoglyphs,
             detect_rtl=cfg.detect_rtl_override,
             fold_leet=cfg.fold_leet,
-        ).normalized
+        )
+        normalized_text = norm.normalized
 
         scan_id = f"s-{uuid.uuid4().hex[:6]}"
         summary: dict[str, Any] = {
@@ -399,6 +536,8 @@ class ConsoleHandlers:
             "direction": direction,
             "session_id": session_id,  # PET-102: required by the Observability *sessions* tile
             "timestamp": time.time(),
+            # PET-137: bounded detail blob so a playground row can drill down (D2/D-CAP).
+            "detail": _build_playground_detail(result, norm),
         }
         self.scan_history.push(summary)
         await self.sse.broadcast("scan_result", summary)
