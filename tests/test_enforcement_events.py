@@ -689,3 +689,130 @@ def test_fallback_init_window_block_emits_event(
     assert events[0]["session_id"] == "sess-F"
     assert events[0]["tool"] == "send_email"
     assert events[0]["rule_id"] == "petasos.injection.x"
+
+
+# ---------------------------------------------------------------------------
+# PET-138: per-session disarmed-bypass counter — event payload, dashboard tally,
+# summary passthrough, and the cross-process (both-modes) round trip.
+# ---------------------------------------------------------------------------
+
+
+def _emit_bypass(session_id: str, **kw: Any) -> None:
+    """Emit a bypassed_disarmed event directly onto the spool (dashboard-side tests)."""
+    ev.emit_enforcement_event(
+        {
+            "session_id": session_id,
+            "tool": "send_email",
+            "event_type": "bypassed_disarmed",
+            "armed": False,
+            **kw,
+        }
+    )
+
+
+def test_bypassed_event_carries_count(spool: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    # PET-138 (T5): the bypassed_disarmed heartbeat carries an integer
+    # bypassed_count >= 1 alongside tool/event_type/armed, and no matched_text leaks.
+    ref = _import_reference_plugin()
+    _setup_plugin(ref, monkeypatch, armed=False)
+    ref._reset_disarm_log()
+    ref._reset_bypass_counts()
+
+    assert ref._pre_tool_call("send_email", {"text": "x"}, task_id="sess-C") is None
+
+    events = _read_spool(spool)
+    assert len(events) == 1
+    e = events[0]
+    assert e["event_type"] == "bypassed_disarmed"
+    assert isinstance(e["bypassed_count"], int) and not isinstance(e["bypassed_count"], bool)
+    assert e["bypassed_count"] >= 1
+    assert "matched_text" not in e
+
+
+@pytest.mark.asyncio
+async def test_bypass_tally_monotonic_max_and_isolated(
+    spool: str, handlers: ConsoleHandlers
+) -> None:
+    # PET-138 (T6): the dashboard bypass tally takes the monotonic max of the carried
+    # cumulative count, ignores non-int / bool / zero, and is isolated from the block
+    # tally (both directions).
+    _emit_bypass("s", bypassed_count=3)
+    _emit_bypass("s", bypassed_count=7)
+    _emit_bypass("s", bypassed_count=5)  # re-surfaced lower value must NOT lower it
+    _emit_bypass("s", bypassed_count=True)  # bool ignored (isinstance(True, int) is True)
+    _emit_bypass("s", bypassed_count=0)  # zero ignored (no-op slot)
+    await handlers._drain_enforcement_into_history()
+    assert handlers.bypass_tally_for("s") == 7
+    assert handlers.block_tally_for("s") == 0  # a bypass never touches the block tally
+
+    # And a block event never touches the bypass tally.
+    ev.emit_enforcement_event({"session_id": "s", "tool": "t", "event_type": "block"})
+    await handlers._drain_enforcement_into_history()
+    assert handlers.bypass_tally_for("s") == 7
+    assert handlers.block_tally_for("s") == 1
+
+
+@pytest.mark.asyncio
+async def test_bypass_tally_refresh_preserves_insertion_order(
+    spool: str, handlers: ConsoleHandlers, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # PET-138 (T6): refreshing an existing session's tally must assign IN PLACE (not
+    # del+reinsert), so drop-oldest still evicts the genuine oldest. A del+reinsert
+    # bug would move the refreshed key to the end and evict the wrong session.
+    import petasos.console.server as srv
+
+    monkeypatch.setattr(srv, "_MAX_TALLY_SESSIONS", 2)
+    _emit_bypass("s0", bypassed_count=1)
+    _emit_bypass("s1", bypassed_count=1)
+    await handlers._drain_enforcement_into_history()
+    _emit_bypass("s0", bypassed_count=9)  # refresh the OLDEST key (must not move it)
+    await handlers._drain_enforcement_into_history()
+    _emit_bypass("s2", bypassed_count=1)  # over bound -> drop genuine oldest (s0)
+    await handlers._drain_enforcement_into_history()
+
+    assert handlers.bypass_tally_for("s0") == 0  # s0 evicted despite the refresh
+    assert handlers.bypass_tally_for("s1") == 1
+    assert handlers.bypass_tally_for("s2") == 1
+
+
+def test_enforcement_summary_normalizes_bypassed_count() -> None:
+    # PET-138 (T7): _enforcement_summary passes a positive int through, normalizes
+    # any non-int / bool / non-positive to None, keeps safe=True / finding_count=0,
+    # and never carries matched_text.
+    from petasos.console.server import _enforcement_summary
+
+    ok = _enforcement_summary(
+        {"event_type": "bypassed_disarmed", "session_id": "s", "bypassed_count": 4, "armed": False}
+    )
+    assert ok["bypassed_count"] == 4
+    assert ok["safe"] is True and ok["finding_count"] == 0
+    assert "matched_text" not in ok
+
+    for bad in (0, -1, 3.5, True, "4", None):
+        s = _enforcement_summary({"event_type": "bypassed_disarmed", "bypassed_count": bad})
+        assert s["bypassed_count"] is None, f"{bad!r} should normalize to None"
+
+    # A block event has no bypassed_count -> None.
+    assert _enforcement_summary({"event_type": "block"})["bypassed_count"] is None
+
+
+@pytest.mark.asyncio
+async def test_bypass_count_round_trips_in_process(
+    spool: str, handlers: ConsoleHandlers, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # PET-138 (T-plugin-mode): the plugin emit -> spool -> dashboard drain -> tally
+    # path is identical in standalone and Hermes-plugin modes. Exercise it end-to-end
+    # in-process, satisfying the brief's "both modes" recurrence test via the shared
+    # drain path.
+    ref = _import_reference_plugin()
+    _setup_plugin(ref, monkeypatch, armed=False)
+    ref._reset_disarm_log()
+    ref._reset_bypass_counts()
+
+    assert ref._pre_tool_call("send_email", {"text": "x"}, task_id="sess-P") is None
+    await handlers._drain_enforcement_into_history()
+
+    assert handlers.bypass_tally_for("sess-P") == 1
+    rows = handlers.scan_history.to_list()
+    assert rows[0]["bypassed_count"] == 1
+    assert rows[0]["safe"] is True

@@ -198,6 +198,12 @@ def _enforcement_summary(ev: dict[str, Any]) -> dict[str, Any]:
     reason = ev.get("reason")
     if isinstance(reason, str) and len(reason) > _MAX_REASON_LEN:
         reason = reason[:_MAX_REASON_LEN]
+    # PET-138: normalize the cumulative disarmed-bypass count to a positive int (or
+    # None) so a torn/legacy spool line, a float, or a bool can never reach the SSE
+    # frame / tile. bool is excluded via `type(...) is int` (isinstance(True, int)
+    # is True). The frontend integer-gates again before summing.
+    raw_count = ev.get("bypassed_count")
+    bypassed_count = raw_count if type(raw_count) is int and raw_count > 0 else None
     return {
         "scan_id": ev.get("scan_id"),
         "source": "enforcement",
@@ -217,6 +223,9 @@ def _enforcement_summary(ev: dict[str, Any]) -> dict[str, Any]:
         # (D6). The plugin stamps `armed` on every event (reference_plugin emits
         # armed=True on the armed branch, armed=False on the disarmed bypass).
         "armed": ev.get("armed"),
+        # PET-138: cumulative per-session disarmed-bypass count (bypassed_disarmed
+        # heartbeats only; None elsewhere). Drives the "bypassed (disarmed)" tile.
+        "bypassed_count": bypassed_count,
     }
 
 
@@ -303,6 +312,12 @@ class ConsoleHandlers:
         self._enforcement_spool_path: str | None = None
         self._enforcement_lock = asyncio.Lock()
         self._block_tally: dict[str, int] = {}
+        # PET-138: per-session cumulative count of disarmed bypasses, a
+        # reconciliation/test source-of-truth mirroring _block_tally's role (NOT a
+        # UI feed — the tile reads dedicated frontend state). Monotonic-max of the
+        # cumulative count carried on bypassed_disarmed heartbeats; bounded
+        # drop-oldest; resets on a dashboard restart (in-memory by design).
+        self._bypass_tally: dict[str, int] = {}
 
         pipeline.add_audit_listener(self._on_audit)
         pipeline.add_alert_listener(self._on_alert)
@@ -325,6 +340,24 @@ class ConsoleHandlers:
             # Drop-oldest by insertion order (dict is insertion-ordered).
             del tally[next(iter(tally))]
 
+    def bypass_tally_for(self, session_id: str) -> int:
+        """PET-138: per-session cumulative count of disarmed bypasses. Reconciliation
+        source of truth (mirrors block_tally_for); resets on a dashboard restart."""
+        return self._bypass_tally.get(session_id, 0)
+
+    def _set_bypass_tally(self, session_id: str, count: int) -> None:
+        """PET-138: set-or-refresh (NOT increment) — the carried count is an absolute
+        cumulative, so the caller passes a monotonic max. An existing key is assigned
+        in place (preserves insertion order, so drop-oldest still evicts the genuine
+        oldest); a new key triggers the _MAX_TALLY_SESSIONS drop-oldest bound."""
+        tally = self._bypass_tally
+        if session_id in tally:
+            tally[session_id] = count
+            return
+        tally[session_id] = count
+        if len(tally) > _MAX_TALLY_SESSIONS:
+            del tally[next(iter(tally))]
+
     async def _surface_enforcement_event(self, ev: dict[str, Any]) -> None:
         """Fold one drained enforcement event into scan_history + the tally + SSE."""
         summary = _enforcement_summary(ev)
@@ -333,6 +366,14 @@ class ConsoleHandlers:
             sid = ev.get("session_id")
             if isinstance(sid, str) and sid:
                 self._bump_block_tally(sid)
+        elif ev.get("event_type") == "bypassed_disarmed":
+            # PET-138: monotonic-max of the cumulative count (restart re-seed belt;
+            # exactly-once delivery already comes from the forward offset / .rot
+            # discipline). type(cnt) is int excludes bool; cnt > 0 skips no-ops.
+            sid = ev.get("session_id")
+            cnt = ev.get("bypassed_count")
+            if isinstance(sid, str) and sid and type(cnt) is int and cnt > 0:
+                self._set_bypass_tally(sid, max(self.bypass_tally_for(sid), cnt))
         await self.sse.broadcast("scan_result", summary)
 
     async def _drain_and_clear_rot(self, rot_path: str) -> None:

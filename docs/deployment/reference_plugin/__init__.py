@@ -74,6 +74,22 @@ _disarm_log_lock = threading.Lock()
 _last_disarm_log = 0.0
 _DISARM_LOG_EVERY_S = 30.0
 
+# PET-138: per-session count of tool calls bypassed while disarmed. Bumped on
+# EVERY disarmed _pre_tool_call (independent of the rate-limited heartbeat above),
+# so the operator sees an authoritative count, not a 30s sample. The cumulative
+# per-session total rides the rate-limited bypassed_disarmed heartbeat as
+# `bypassed_count`. _bypass_lock guards BOTH _bypass_counts AND the _session_ids
+# insert in _derive_session_id (which now runs on the disarm hot path, not once
+# per 30s). It is a non-reentrant Lock: _derive_session_id and _bump_bypass_count
+# each acquire and release it independently (sequential, never nested) — do not
+# wrap the whole disarm block in it. _MAX_DISARM_SESSIONS bounds the map
+# drop-oldest, mirroring server._MAX_TALLY_SESSIONS (an independent bound by
+# design; the plugin cannot import server without pulling aiohttp onto the hot
+# path).
+_bypass_lock = threading.Lock()
+_bypass_counts: dict[str, int] = {}
+_MAX_DISARM_SESSIONS = 10_000
+
 # PET-126: live config reload. The cross-process re-read (petasos.console._reload)
 # detects a config.yaml change on the hot path and _maybe_reconfigure applies it
 # to the running pipeline + guard + lineage registry. Two rate-limited streams
@@ -658,10 +674,39 @@ def _derive_session_id(task_id: str, kwargs: dict) -> str:
     agent = kwargs.get("_agent")
     if agent is not None:
         agent_id = id(agent)
-        if agent_id not in _session_ids:
-            _session_ids[agent_id] = f"desktop-{uuid.uuid4().hex[:12]}"
-        return _session_ids[agent_id]
+        # PET-138: this check-then-set on the process-global _session_ids dict now
+        # runs on every disarmed call (the disarm fast path), not once per 30s, so
+        # it must be thread-safe on the multi-threaded gateway. Guard with
+        # _bypass_lock so two threads racing a fresh _agent cannot mint two ids
+        # (split count) or trigger an unsafe concurrent dict resize.
+        with _bypass_lock:
+            if agent_id not in _session_ids:
+                _session_ids[agent_id] = f"desktop-{uuid.uuid4().hex[:12]}"
+            return _session_ids[agent_id]
     return f"anon-{uuid.uuid4().hex[:8]}"
+
+
+def _bump_bypass_count(session_id: str) -> int:
+    """PET-138: increment the per-session disarmed-bypass counter and return the new
+    total. O(1) under _bypass_lock. Drop-oldest by insertion order when the map
+    exceeds _MAX_DISARM_SESSIONS (mirrors server._bump_block_tally's bound).
+    """
+    with _bypass_lock:
+        new_count = _bypass_counts.get(session_id, 0) + 1
+        _bypass_counts[session_id] = new_count
+        if len(_bypass_counts) > _MAX_DISARM_SESSIONS:
+            del _bypass_counts[next(iter(_bypass_counts))]
+        return new_count
+
+
+def _reset_bypass_counts() -> None:
+    """Test seam — clear the per-session disarmed-bypass counters (mirrors
+    _reset_disarm_log). Also clears _session_ids so a concurrency test can assert
+    a clean mint."""
+    global _session_ids
+    with _bypass_lock:
+        _bypass_counts.clear()
+        _session_ids = {}
 
 
 def _fallback_pre_tool_call(
@@ -763,10 +808,16 @@ def _emit_enforcement_event(
     reason: str = "",
     param_scan_degraded: bool = False,
     armed: bool = True,
+    bypassed_count: int | None = None,
 ) -> None:
     """PET-131: emit a structured enforcement event onto the cross-process spool the
     dashboard drains, beside the existing decision-point log line (one emit per log
     line — log and surface share one source of truth, spec D1/D4).
+
+    PET-138: ``bypassed_count`` carries the cumulative per-session count of
+    disarmed bypasses on the rate-limited ``bypassed_disarmed`` heartbeat so the
+    dashboard can surface an authoritative count, not a 30s sample. None for all
+    other event types.
 
     Self-guarded and fail-open (spec D5): surfacing a block must never gate, delay,
     or break the tool call, so the whole body is wrapped and swallows everything.
@@ -789,6 +840,7 @@ def _emit_enforcement_event(
                 "param_scan_degraded": param_scan_degraded,
                 "direction": "tool_call",
                 "armed": armed,
+                "bypassed_count": bypassed_count,
             }
         )
     except Exception:
@@ -1100,14 +1152,21 @@ def _pre_tool_call(
     # ABOVE _ensure_initialized so it covers the initialized, init-failed, and
     # init-in-progress windows uniformly (a disarmed boot skips the fallback scan).
     if not _is_armed():
+        # PET-138: count EVERY bypassed call (authoritative tally, not a sample),
+        # independent of the rate-limited heartbeat below. O(1) locked bump; no
+        # scan, no _guard.evaluate — the zero-overhead disarm invariant holds.
+        session_id = _derive_session_id(task_id, kwargs)
+        new_count = _bump_bypass_count(session_id)
         # PET-131: emit a "bypassed (disarmed)" event 1:1 with the rate-limited
         # PETASOS_DISARMED log line so the operator can confirm "off means off".
+        # PET-138: carry the cumulative per-session count on that heartbeat.
         if _log_disarmed_bypass(tool_name):
             _emit_enforcement_event(
-                session_id=_derive_session_id(task_id, kwargs),
+                session_id=session_id,
                 tool=tool_name,
                 event_type="bypassed_disarmed",
                 armed=False,
+                bypassed_count=new_count,
             )
         return None
     if not _ensure_initialized():

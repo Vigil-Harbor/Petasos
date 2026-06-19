@@ -327,6 +327,10 @@
     configPresets: null,
     configActivePreset: null,
     scanHistory: [],
+    // PET-138: session_id -> cumulative count of tool calls bypassed while disarmed.
+    // Dedicated, eviction-proof state (the count rides a single rate-limited
+    // heartbeat row that ages out of scanHistory); fed by Pet.accrueBypass.
+    bypassBySession: {},
     // PET-137: scan_id of the scan-history row whose detail panel is open (or null).
     // Persisted in state (not local DOM) so the panel survives renderDashboard's
     // per-SSE-frame rebuild; re-opened by scan_id, so an evicted row closes cleanly.
@@ -469,6 +473,7 @@
         // guard on read, but keeping the buffer object-only is the cheaper floor.
         if (d && typeof d === "object") {
           Pet.state.scanHistory.unshift(d);
+          Pet.accrueBypass([d]); // PET-138: fold this frame's bypass count into state
           // PET-13: announce the newest verdict to AT; the wholesale re-render below
           // is not screen-reader-followable on its own.
           var _v = d.safe === false ? "blocked" : "allowed";
@@ -541,6 +546,7 @@
         Pet.api.getScanHistory(100).then(function (d) {
           if (!d.error && d.entries && Array.isArray(d.entries)) {
             Pet.state.scanHistory = d.entries;
+            Pet.accrueBypass(d.entries); // PET-138: SSE-down path also feeds bypass state
             if (Pet.state.tab === "obs" && _container) Pet.renderDashboard(_container);
           }
         }).then(function () {
@@ -551,6 +557,7 @@
     Pet.api.getScanHistory(100).then(function (d) {
       if (!d.error && d.entries && Array.isArray(d.entries)) {
         Pet.state.scanHistory = d.entries;
+        Pet.accrueBypass(d.entries); // PET-138: SSE-down path also feeds bypass state
         if (Pet.state.tab === "obs" && _container) Pet.renderDashboard(_container);
       }
     });
@@ -891,6 +898,54 @@
   // `buffer` in place and returns it (the `return` is for test ergonomics).
   // Intentionally does NOT clamp to the SSE path's 500-entry cap — the request
   // limit bounds the fetched set and the next SSE frame re-clamps (out of scope).
+  // PET-138: fold an array of scan-history rows into Pet.state.bypassBySession, the
+  // dedicated eviction-proof per-session disarmed-bypass accumulator. Tiles
+  // recompute from the ≤500 buffer each render, but a bypass count lives on a single
+  // rate-limited heartbeat row that ages out — so the count is held here in state
+  // (not recomputed from the buffer) and survives eviction once seen. Integer-gated:
+  // a plain Number(x)||0 leaks a non-zero float (Number(3.7)||0 === 3.7), so only a
+  // clean positive integer contributes (the server normalizes too, but this helper
+  // is also called directly in tests with raw frames). Cumulative + Math.max, so a
+  // re-surfaced/lower frame never lowers the count. Bounded drop-oldest (mirrors
+  // server._MAX_TALLY_SESSIONS; the server tally is authoritative) so the frontend
+  // is not the lone unbounded per-session map. Never throws on a malformed entry.
+  var _MAX_BYPASS_SESSIONS = 10000; // mirrors server._MAX_TALLY_SESSIONS
+  Pet.accrueBypass = function (entries) {
+    if (!entries || typeof entries.length !== "number") return;
+    var map = Pet.state.bypassBySession;
+    for (var i = 0; i < entries.length; i++) {
+      var e = entries[i];
+      if (!e || typeof e !== "object" || e.event_type !== "bypassed_disarmed") continue;
+      var sid = e.session_id;
+      if (sid === null || sid === undefined || sid === "") continue;
+      var n = e.bypassed_count;
+      // Gate on number-type FIRST (excludes bool/string/null/undefined — Number(true)
+      // is 1, so a bare Number() would leak a bool), then positive-integer (excludes
+      // float/0/negative/NaN). Mirrors the server's `type(cnt) is int and cnt > 0`.
+      if (typeof n !== "number" || !Number.isInteger(n) || n <= 0) continue;
+      if (n > (map[sid] || 0)) {
+        var isNew = !(sid in map);
+        map[sid] = n; // refresh in place (existing) or insert (new)
+        if (isNew) {
+          var keys = Object.keys(map);
+          if (keys.length > _MAX_BYPASS_SESSIONS) delete map[keys[0]]; // drop-oldest by insertion
+        }
+      }
+    }
+  };
+
+  // PET-138: sum the per-session bypass accumulator for the tile. Pure seam (like
+  // Pet.mergeScanHistory) so the console JS harness can assert the displayed total
+  // without driving the full renderDashboard. Number()||0 is a belt over the
+  // already-integer-gated stored values.
+  Pet.bypassTotal = function () {
+    var map = Pet.state.bypassBySession || {};
+    var keys = Object.keys(map);
+    var total = 0;
+    for (var i = 0; i < keys.length; i++) total += (Number(map[keys[i]]) || 0);
+    return total;
+  };
+
   Pet.mergeScanHistory = function (buffer, entries) {
     var seen = new Set();
     for (var j = 0; j < buffer.length; j++) {
@@ -1002,6 +1057,9 @@
     // loading and from a true zero count); counts render literal 0 (Decision 4).
     var avgLatency = hist.length > 0 ? ((latencySum / hist.length).toFixed(1) + "ms") : "—";
     var sessions = sessionSet.size;
+    // PET-138: "bypassed (disarmed)" total — sum of the dedicated per-session
+    // accumulator (NOT recomputed from the buffer, so it survives row eviction).
+    var bypassed = Pet.bypassTotal();
 
     var metricsRow = Pet.h("div", { style: { display: "flex", gap: "10px" } });
     // Lean metric cells (not four identical icon-panels): an eyebrow label over a
@@ -1023,6 +1081,7 @@
     metricsRow.appendChild(valueTile("blocked", blocked, blocked > 0));
     metricsRow.appendChild(valueTile("avg latency", avgLatency, false));
     metricsRow.appendChild(valueTile("sessions", sessions, false));
+    metricsRow.appendChild(valueTile("bypassed (disarmed)", bypassed, false));
     wrapper.appendChild(metricsRow);
 
     // Scanner health
@@ -1106,6 +1165,7 @@
           // PET-99 D6/D9: shape-guarded seed-merge (skips non-object entries on
           // both sides before reading .scan_id) — replaces the inline dedup loops.
           Pet.mergeScanHistory(Pet.state.scanHistory, d.entries);
+          Pet.accrueBypass(d.entries); // PET-138: seed bypass counts from the pre-existing buffer
           if (Pet.state.tab === "obs" && _container) Pet.renderDashboard(_container);
         }
       });
