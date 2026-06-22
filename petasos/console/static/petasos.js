@@ -967,6 +967,19 @@
     return total;
   };
 
+  // PET-144: honest scan-history subtitle. The ≤500 ring evicts silently; when the
+  // authoritative lifetime count (scans_total from /health) exceeds the buffered
+  // window, say so instead of implying the window is the whole record. Pure seam so
+  // the console JS harness can assert the label without driving renderDashboard.
+  Pet.scanHistorySubtitle = function (buffered, total) {
+    var b = Number(buffered); if (!Number.isFinite(b) || b < 0) b = 0;
+    var t = Number(total);
+    // total absent / non-numeric (health not yet loaded) or not actually evicting:
+    // fall back to the static subtitle, never a misleading "of NaN".
+    if (!Number.isFinite(t) || t <= b) return "recent evaluations";
+    return "showing last " + b + " of " + t;
+  };
+
   Pet.mergeScanHistory = function (buffer, entries) {
     var seen = new Set();
     for (var j = 0; j < buffer.length; j++) {
@@ -1126,7 +1139,12 @@
 
     // Scan history — rows derived from the same buffer (already most-recent-first).
     var historyPanel = Pet.Panel({
-      icon: "list", title: "scan history", place: "recent evaluations", flush: true,
+      icon: "list", title: "scan history", flush: true,
+      // PET-144: lifetime total (scans_total from /health) vs the buffered ≤500 window.
+      place: Pet.scanHistorySubtitle(
+        hist.length,
+        Pet.state.pipelineHealth && Pet.state.pipelineHealth.scans_total
+      ),
       help: Pet.HelpTip("<b>Scan History</b>: recent pipeline scans with severity, direction, and timing. Each row is one <code>Pipeline.evaluate()</code> call."),
       content: Pet.h("div", { style: { padding: "12px" } }, Pet.scanHistoryRows(hist)),
     });
@@ -1153,11 +1171,26 @@
     Pet.api.getHealth().then(function (d) {
       _healthLoaded = true;  // PET-127: settled (either arm) -> stop painting the skeleton
       if (!d.error) {
+        // PET-144: capture BEFORE the assignment whether this settle is the first to
+        // populate pipelineHealth, so the cold-mount re-render below fires on the
+        // null->set transition only.
+        var hadHealth = Pet.state.pipelineHealth !== null;
         Pet.state.scannerHealth = d.scanners || [];
         Pet.state.pipelineHealth = d.pipeline || null;
         var rows = Pet.scannerHealthRows(Pet.state.scannerHealth);
         var contentEl = healthPanel.querySelector("[style*='padding: 12px']") || healthPanel.querySelector("div > div");
         if (contentEl) { contentEl.innerHTML = ""; contentEl.appendChild(rows); }
+        // PET-144 cold-mount: this in-render fetch only patches the scanner-health
+        // panel above; the scan-history subtitle ("showing last N of M") is computed
+        // from scans_total at render time. On a cold mount against an already-evicting
+        // ring it would otherwise read "recent evaluations" until the first 10s poll.
+        // Re-render once so the honest label appears on first paint. The transition
+        // guard is load-bearing: this getHealth() fetch runs on EVERY renderDashboard
+        // (unlike the timer-gated poll :533 / one-shot seed :1190), so an
+        // unconditional re-render here would re-invoke the fetch without bound.
+        if (!hadHealth && Pet.state.pipelineHealth && Pet.state.tab === "obs" && _container) {
+          Pet.renderDashboard(_container);
+        }
       } else {
         var contentEl = healthPanel.querySelector("[style*='padding: 12px']") || healthPanel.querySelector("div > div");
         if (contentEl) {

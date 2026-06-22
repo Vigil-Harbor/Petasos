@@ -348,6 +348,12 @@ class ConsoleHandlers:
         # cumulative count carried on bypassed_disarmed heartbeats; bounded
         # drop-oldest; resets on a dashboard restart (in-memory by design).
         self._bypass_tally: dict[str, int] = {}
+        # PET-144: eviction-proof lifetime scan count. Decoupled from the 500-entry ring
+        # (mirrors the PET-131/138 tally pattern): monotonic, in-memory, resets on a
+        # dashboard restart by design. A single scalar, so no per-session bound.
+        self._scans_total = 0
+        # One-shot guard so the first ring overflow logs exactly once per run, not per scan.
+        self._ring_overflow_warned = False
 
         pipeline.add_audit_listener(self._on_audit)
         pipeline.add_alert_listener(self._on_alert)
@@ -414,6 +420,22 @@ class ConsoleHandlers:
         except Exception:
             pass
 
+    def _record_scan(self, summary: dict[str, Any]) -> None:
+        """Single record chokepoint: append to the ring AND bump the eviction-proof
+        total. Both the playground run_scan push and the drained-enforcement fold route
+        here so scans_total can never diverge from what was recorded (PET-144)."""
+        self.scan_history.push(summary)
+        self._scans_total += 1
+        if not self._ring_overflow_warned and self._scans_total > len(self.scan_history):
+            self._ring_overflow_warned = True
+            _logger.warning(
+                "console scan-history ring at capacity (%d entries); oldest rows now "
+                "evict silently. scans_total is authoritative; the history pane shows "
+                "the last %d.",
+                len(self.scan_history),
+                len(self.scan_history),
+            )
+
     async def _surface_enforcement_event(self, ev: dict[str, Any]) -> None:
         """Fold one drained enforcement event into scan_history + the tally + SSE.
 
@@ -432,7 +454,7 @@ class ConsoleHandlers:
         if key_on and not verified:
             self._log_integrity_failure(ev)
         summary = _enforcement_summary(ev, provenance=provenance)
-        self.scan_history.push(summary)
+        self._record_scan(summary)
         if ev.get("event_type") in _BLOCK_EVENT_TYPES:
             # unattested + genuine count; unverifiable does NOT (D4) — a forged/legacy-unsigned
             # block is surfaced-but-flagged, never tallied as a trusted block.
@@ -657,7 +679,7 @@ class ConsoleHandlers:
             # PET-137: bounded detail blob so a playground row can drill down (D2/D-CAP).
             "detail": _build_playground_detail(result, norm),
         }
-        self.scan_history.push(summary)
+        self._record_scan(summary)
         await self.sse.broadcast("scan_result", summary)
 
         return {
@@ -679,6 +701,7 @@ class ConsoleHandlers:
                 "scanner_count": len(self.pipeline.scanner_health()),
                 "config_hash": config_hash,
                 "uptime_seconds": round(time.monotonic() - self._start_time, 1),
+                "scans_total": self._scans_total,  # PET-144: eviction-proof lifetime count
             },
             "scanners": self.pipeline.scanner_health(),
             "feature_status": dict(self.pipeline._build_feature_status()),
