@@ -177,6 +177,36 @@ def test_pii_finding_blocks_egress_tool(monkeypatch: pytest.MonkeyPatch) -> None
 
 
 # ---------------------------------------------------------------------------
+# PET-133: bank-framed egress-sink specialization of the PII gate (D4)
+# ---------------------------------------------------------------------------
+
+# A Gavin-shaped egress set: every off-box tool (messaging, http, the Vigil
+# ingest sink) is an egress sink; the mcp_bank_* tools are sources, never sinks,
+# so they are deliberately absent.
+_GAVIN_EGRESS = frozenset({"send_email", "http_request", "mcp_vigil_harbor_memory_ingest"})
+
+
+def test_bank_pii_blocked_to_egress_sink(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Regression for PET-133: a HIGH+ PII finding is blocked on an egress sink,
+    # but the SAME finding to a bank *source* tool and to an internal tool is
+    # not, pinning that bank tools are never miscategorized as sinks (D4).
+    gr = _guard_result(findings=(_pii(Severity.HIGH),), param_scan_unsafe=True)
+
+    # (a) PII -> egress sink: blocked.
+    out = _drive(monkeypatch, "send_email", gr, egress=_GAVIN_EGRESS)
+    assert out is not None and out["action"] == "block"
+    assert out["message"].startswith("[BLOCKED by Petasos]")
+    assert "send_email" in out["message"] and "PII" in out["message"]
+
+    # (b) the same PII -> a bank source tool (not in the egress set, not
+    # read-only): NOT blocked. Bank tools pull data in; they are never sinks.
+    assert _drive(monkeypatch, "mcp_bank_query_transactions", gr, egress=_GAVIN_EGRESS) is None
+
+    # (c) the same PII -> an internal tool: NOT blocked (internal-exempt parity).
+    assert _drive(monkeypatch, "write_file", gr, egress=_GAVIN_EGRESS) is None
+
+
+# ---------------------------------------------------------------------------
 # PET-118: classification canonicalizes to the guard's shared form
 # ---------------------------------------------------------------------------
 
