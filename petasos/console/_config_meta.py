@@ -71,31 +71,17 @@ _FIELD_META: dict[str, dict[str, Any]] = {
         ),
         "section": "normalization",
     },
-    "fold_leet": {
-        "description": (
-            "Decode common leetspeak substitutions (1→i/l, 3→e, @→a, …) for rule matching."
-        ),
-        "help_plain": (
-            'Adds a decoded copy of leetspeak text (like "1gn0r3" for "ignore") for the'
-            " injection rules to check. The original text is never altered — the decoded"
-            " copy is used only for matching, so version numbers and code stay intact."
-            " Note: the built-in syntactic scanner always decodes leetspeak regardless of"
-            " this setting; this toggle affects only direct normalize() callers, so"
-            " turning it off does not disable leet detection."
-        ),
-        "section": "normalization",
-    },
     "decode_encoded_payloads": {
         "description": ("Decode base64/hex/ROT13 blobs and rescan the plaintext for injections."),
         "help_plain": (
             "Catches attacks hidden inside encoded blobs — a base64-, hex-, or"
             ' ROT13-wrapped "ignore all previous instructions" is decoded and rescanned,'
             " so it is caught at full severity instead of slipping through as a low-priority"
-            " encoding flag. Unlike the leetspeak setting above, turning this off DOES"
-            " disable the decode stage inside the built-in syntactic scanner, reopening the"
-            " encoded-payload gap. Decoding is bounded (size, count, and depth caps) and"
-            " only ever raises a flag on a real injection, so it adds no false positives on"
-            " ordinary encoded data."
+            " encoding flag. Unlike leetspeak decoding (which is always on), turning this"
+            " off DOES disable the decode stage inside the built-in syntactic scanner,"
+            " reopening the encoded-payload gap. Decoding is bounded (size, count, and depth"
+            " caps) and only ever raises a flag on a real injection, so it adds no false"
+            " positives on ordinary encoded data."
         ),
         "section": "normalization",
     },
@@ -669,7 +655,13 @@ _FIELD_META: dict[str, dict[str, Any]] = {
     },
 }
 
-_EXCLUDED_FIELDS = frozenset({"session_secret"})
+# Fields deliberately kept off the Config Editor surface. Two distinct rationales:
+# `session_secret` is a secret kept off the wire (never serialized to the UI);
+# `fold_leet` is a retired no-op control (PET-143): leet folding is always-on by
+# design (PET-97 Decision 6), so surfacing the flag would advertise a knob that
+# cannot move a detection outcome. The field is retained on PetasosConfig for
+# normalize()-parity but is not bindable here.
+_EXCLUDED_FIELDS = frozenset({"session_secret", "fold_leet"})
 
 
 @dataclasses.dataclass(frozen=True, slots=True)

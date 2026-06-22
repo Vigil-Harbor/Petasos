@@ -251,13 +251,21 @@ async def test_lossy_leet_not_claimed_by_syntactic() -> None:
 
 
 @pytest.mark.asyncio
-async def test_fold_leet_config_false_still_detects() -> None:
-    """PET-97 Decision 6: the always-on syntactic pre-filter decodes leet
-    regardless of the config toggle — fold_leet=False gates only the
-    pipeline-level normalize() call, whose views nothing consumes today. A
-    future refactor that threads normalize flags into MinimalScanner must
-    consciously flip this pin."""
-    # Regression for PET-97: always-on enforcement posture under fold_leet=False
-    result = await _leet_pipeline(fold_leet=False).inspect(_FAITHFUL_LEET, direction="inbound")
-    rule_ids = {f.rule_id for f in result.findings}
-    assert "petasos.syntactic.injection.ignore-previous" in rule_ids
+async def test_fold_leet_not_a_detection_control() -> None:
+    """PET-143 (ratifies PET-97 Decision 6): leet folding is, by design, an
+    always-on syntactic posture, so the PetasosConfig.fold_leet toggle is not a
+    detection control. The built-in scanner re-folds internally with hardcoded
+    defaults; fold_leet gates only the pipeline-level normalize() call, whose
+    views nothing consumes. Detection is identical under fold_leet=True and
+    fold_leet=False. A future refactor that threads normalize flags into
+    MinimalScanner must consciously flip this pin."""
+    # Regression for PET-143: fold_leet is not a detection control (True == False).
+    # The fold_leet=True arm is an explicit positive control at the call site (not
+    # the helper default), so a future change to the _leet_pipeline default cannot
+    # silently turn this into a second negative arm.
+    on = await _leet_pipeline(fold_leet=True).inspect(_FAITHFUL_LEET, direction="inbound")
+    off = await _leet_pipeline(fold_leet=False).inspect(_FAITHFUL_LEET, direction="inbound")
+    on_rules = {f.rule_id for f in on.findings}
+    off_rules = {f.rule_id for f in off.findings}
+    assert "petasos.syntactic.injection.ignore-previous" in on_rules
+    assert "petasos.syntactic.injection.ignore-previous" in off_rules

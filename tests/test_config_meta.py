@@ -6,6 +6,7 @@ import pytest
 
 from petasos.config import _SECRET_FIELDS, PetasosConfig
 from petasos.console._config_meta import (
+    _EXCLUDED_FIELDS,
     _FIELD_META,
     _SECTION_REGISTRY,
     ConfigSection,
@@ -36,12 +37,20 @@ _COMMON_SECTIONS = {"profiles", "anonymization", "fail_mode", "tool_guard", "sca
 
 
 def test_every_field_present() -> None:
-    """Every non-excluded PetasosConfig field appears in metadata."""
+    """Every non-excluded PetasosConfig field appears in metadata; every excluded
+    field is absent.
+
+    The exclusion set is pinned to an authored literal (PET-143) so a field cannot
+    be silently dropped from the console by an unreviewed addition to
+    _EXCLUDED_FIELDS: driving this test off the set alone would let an unintended
+    exclusion pass green, so the literal is the silent-drop tripwire.
+    """
+    assert frozenset({"session_secret", "fold_leet"}) == _EXCLUDED_FIELDS
     meta = generate_config_metadata()
     meta_names = {m["name"] for m in meta}
     for f in dataclasses.fields(PetasosConfig):
-        if f.name == "session_secret":
-            assert f.name not in meta_names, "session_secret should be excluded"
+        if f.name in _EXCLUDED_FIELDS:
+            assert f.name not in meta_names, f"{f.name} should be excluded"
         else:
             assert f.name in meta_names, f"Field {f.name!r} missing from metadata"
 
@@ -50,6 +59,15 @@ def test_session_secret_excluded() -> None:
     meta = generate_config_metadata()
     names = {m["name"] for m in meta}
     assert "session_secret" not in names
+
+
+def test_config_meta_omits_fold_leet() -> None:
+    # Regression for PET-143: fold_leet is retired from the console surface (an
+    # always-on syntactic posture, not a live operator control), so it must not
+    # appear among the generated config-metadata field names.
+    meta = generate_config_metadata()
+    names = {m["name"] for m in meta}
+    assert "fold_leet" not in names
 
 
 def test_bool_type_derivation() -> None:
