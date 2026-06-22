@@ -137,16 +137,31 @@ def _wire_live(
 
 
 class _FakeCtx:
-    """Minimal Hermes plugin ctx; captures registered hook names and can reject some."""
+    """Minimal Hermes plugin ctx; captures registered hook names and, additively (PET-147),
+    the handler objects so a test can FIRE a registered hook the way a real host would.
+
+    ``registered: list[str]`` and its ``register_hook`` append are load-bearing for existing
+    consumers (``.count(...)`` / ``set(...)``) and stay unchanged. ``handlers`` is the additive
+    firing capability: the handler is stored ONLY on the success path, after the reject-guard,
+    so a rejected hook appears in neither ``registered`` nor ``handlers`` (D-FAKECTX-ADDITIVE)."""
 
     def __init__(self, reject: set[str] | None = None) -> None:
         self.registered: list[str] = []
+        self.handlers: dict[str, object] = {}
         self._reject = reject or set()
 
     def register_hook(self, name: str, handler: object) -> None:
         if name in self._reject:
             raise ValueError(f"unknown hook: {name!r}")
         self.registered.append(name)
+        self.handlers[name] = handler  # PET-147: success path only (after the reject-guard)
+
+    def fire(self, name: str, **payload: Any) -> None:
+        """Invoke a registered hook exactly as a real Hermes host would. Raises ``KeyError``
+        if ``name`` was never registered, so a test cannot fire a phantom hook (PET-147)."""
+        handler = self.handlers[name]  # KeyError on an unregistered name
+        assert callable(handler)  # narrow object -> callable for mypy --strict; always true here
+        handler(**payload)
 
 
 @pytest.fixture(autouse=True)
@@ -482,6 +497,39 @@ def test_register_idempotent_rebind(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     assert ref._config.get("fail_mode") == "closed"
 
 
+def test_forced_rediscovery_rebinds(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Regression for PET-147 (mechanism (b)): the forced-rediscovery PRODUCTION trigger — a
+    # single re-runnable register() under the new profile's env, with init already complete —
+    # re-pins AND re-applies X onto the LIVE pipeline. test_register_idempotent_rebind proves
+    # the hook-count invariant but never sets _initialized, so its re-bind takes the init-window
+    # branch and cannot prove live re-apply; this test wires a real pipeline first so register()
+    # routes through _rebind_to_resolution -> _apply_live (the same W->X axis as the E2E test).
+    ref = _import_reference_plugin()
+    w_section = {"enabled": True, "fail_mode": "degraded", "egress_sink_tools": ["w_tool"]}
+    pipe, _guard = _wire_live(ref, monkeypatch, w_section)
+    w_home = _profile_home(tmp_path, "w", w_section)
+    x_home = _profile_home(
+        tmp_path, "x", {"enabled": True, "fail_mode": "closed", "egress_sink_tools": ["x_tool"]}
+    )
+    monkeypatch.setattr(ref, "_deferred_init", lambda: None)  # defensive: first_boot is False
+    monkeypatch.setenv("HERMES_HOME", str(w_home))
+    monkeypatch.setattr(ref, "_session_resolution", _make_resolution(w_home / "config.yaml"))
+    assert pipe.config.fail_mode == "degraded"  # boot-bound to W
+    assert ref._is_egress_sink("w_tool") is True
+
+    # Hermes re-runs discovery under X's env, then re-registers ONCE. _initialized is True and
+    # _init_thread_started is False, so first_boot is False -> register() re-captures X from the
+    # env and routes to _rebind_to_resolution(X) -> live branch -> _apply_live(X).
+    monkeypatch.setenv("HERMES_HOME", str(x_home))
+    ref.register(_FakeCtx())
+
+    assert _same_config(ref._session_resolution.path, x_home)  # re-pinned to X, no leaked W
+    assert pipe.config.fail_mode == "closed"  # X applied through the real loader
+    assert ref._is_egress_sink("x_tool") is True  # X's egress set is live
+    assert ref._is_egress_sink("w_tool") is False  # W's is gone
+    assert reload_mod.read_changed_section(ref._session_resolution) is None  # settled on X
+
+
 # ── observability + attributability ─────────────────────────────────────────────
 
 
@@ -600,6 +648,56 @@ def test_concurrent_rebinds_converge(tmp_path: Path, monkeypatch: pytest.MonkeyP
     assert reload_mod._RELOAD_CACHE is None  # not left committed to a superseded profile
 
 
+# ── PET-147: the dormant re-bind handler is host-callable (end-to-end) ──────────
+
+
+def test_hermes_signal_triggers_rebind_end_to_end(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    # Regression for PET-147: prove the PET-132 re-bind handler is HOST-CALLABLE, not merely
+    # call-correct. The 15 merged vectors call ref._on_profile_change(...) directly; this test
+    # drives the real register() -> captured-handler -> ctx.fire() path a trusted Hermes host
+    # would use, closing the gap between "the handler works when called" and "a host can call
+    # the dormant handler." Posture is asserted via pipe.config (not the armed bit) so a no-op
+    # _apply_live fails the test, mirroring test_rebind_reapplies_full_pipeline_config.
+    ref = _import_reference_plugin()
+    w_section = {"enabled": True, "fail_mode": "degraded", "egress_sink_tools": ["w_tool"]}
+    pipe, _guard = _wire_live(ref, monkeypatch, w_section)
+    w_home = _profile_home(tmp_path, "w", w_section)
+    x_home = _profile_home(
+        tmp_path, "x", {"enabled": True, "fail_mode": "closed", "egress_sink_tools": ["x_tool"]}
+    )
+    monkeypatch.setattr(ref, "_deferred_init", lambda: None)  # defensive: first_boot is False
+    monkeypatch.setenv("HERMES_HOME", str(w_home))
+
+    # first_boot is False (init already done by _wire_live), so register() takes the re-bind
+    # branch: it re-pins to W (a no-move) and registers on_profile_change into ctx.handlers.
+    ctx = _FakeCtx()
+    ref.register(ctx)
+    assert ctx.registered.count("on_profile_change") == 1  # hook registered exactly once
+    assert "on_profile_change" in ctx.handlers  # the capture path the fire() below depends on
+    assert pipe.config.fail_mode == "degraded"  # live pipeline still reflects boot W
+    assert ref._is_egress_sink("w_tool") is True
+
+    # Drive the REAL registered handler the way a trusted host would (NOT ref._on_profile_change
+    # directly — that is what the merged vectors already exercise).
+    with caplog.at_level(logging.INFO, logger="petasos.plugin"):
+        ctx.fire("on_profile_change", profile_name="x", profile_home=str(x_home))
+
+    # Mandatory move assertions: the live pipeline config moved W->X, not just the armed bit.
+    assert _same_config(ref._session_resolution.path, x_home)
+    assert pipe.config.fail_mode == "closed"  # X's pipeline policy is live
+    assert ref._is_egress_sink("x_tool") is True  # X's egress set is live
+    assert ref._is_egress_sink("w_tool") is False  # W's is gone
+    # Settled cache proves _apply_live actually moved (not a CONFIG_STALE no-op from a collision).
+    assert reload_mod.read_changed_section(ref._session_resolution) is None
+    # The re-bind re-emits the greppable binding line naming X (mirrors test_rebind_reemits...).
+    res_lines = [
+        r.getMessage() for r in caplog.records if "PETASOS_ARMED_RESOLUTION" in r.getMessage()
+    ]
+    assert any(str((x_home / "config.yaml").resolve(strict=False)) in m for m in res_lines)
+
+
 # ── the documented interim contract (no Hermes signal yet) ──────────────────────
 
 
@@ -627,3 +725,35 @@ def test_no_trusted_signal_means_restart_required(
         r for r in caplog.records if "register_hook(on_profile_change) rejected" in r.getMessage()
     ]
     assert len(rejected) == 1
+
+
+def test_unregistered_host_still_degrades_to_restart(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Regression for PET-147 (D-NO-DUP-DEGRADE-TEST): the tool-call-level delta over
+    # test_no_trusted_signal_means_restart_required. That test locks the degrade at
+    # REGISTRATION time (_try_register_hook returns False, armed bit intact); this one proves
+    # the degrade is END-TO-END — a host that rejects on_profile_change leaves NO handler for
+    # any host to fire (the test literally cannot ctx.fire it), so the live pipeline stays
+    # pinned to the BOOT profile W until a process restart, which is exactly the hardening.md
+    # §6 contract. Posture is asserted via pipe.config (not a real _pre_tool_call) per the
+    # shared harness preconditions — avoids the cross-loop hazard and an armed-bit false green.
+    ref = _import_reference_plugin()
+    w_section = {"enabled": True, "fail_mode": "degraded", "egress_sink_tools": ["w_tool"]}
+    pipe, _guard = _wire_live(ref, monkeypatch, w_section)
+    w_home = _profile_home(tmp_path, "w", w_section)
+    monkeypatch.setattr(ref, "_deferred_init", lambda: None)  # defensive: first_boot is False
+    monkeypatch.setenv("HERMES_HOME", str(w_home))
+    ctx = _FakeCtx(reject={"on_profile_change"})
+
+    ref.register(ctx)  # must not raise
+
+    # Registration-time floor (mirrors the companion test): rejected hook absent, core present.
+    assert "on_profile_change" not in ctx.registered
+    assert "pre_tool_call" in ctx.registered
+    # New delta — the degrade is end-to-end: no handler exists for any host to fire...
+    assert "on_profile_change" not in ctx.handlers
+    # ...and the live pipeline still enforces the BOOT profile W (stuck on W until a restart).
+    assert _same_config(ref._session_resolution.path, w_home)
+    assert pipe.config.fail_mode == "degraded"
+    assert ref._is_egress_sink("w_tool") is True
