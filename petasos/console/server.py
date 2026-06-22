@@ -46,6 +46,9 @@ _BLOCK_EVENT_TYPES = frozenset({"block", "quarantine", "tier3"})
 _MAX_TALLY_SESSIONS = 10_000
 # Poll cadence of the dashboard's background enforcement-spool tailer (standalone).
 _ENFORCEMENT_TAIL_INTERVAL_S = 1.0
+# PET-139: rate-limit window for the integrity-failure tripwire (D9), mirroring the
+# reference plugin's `_DISARM_LOG_EVERY_S` cadence so a forging loop cannot spam the log.
+_INTEGRITY_LOG_EVERY_S = 30.0
 # Cap on the surfaced enforcement `reason` length. The raw matched value lives in a
 # finding's `matched_text` (never surfaced); `reason` is the structured scanner/guard
 # message (e.g. "PII detected: PERSON"), already returned to the agent. We cap it so a
@@ -183,7 +186,7 @@ def _build_playground_detail(result: Any, normalized: Any) -> dict[str, Any]:
         return {"findings": [], "detail_truncated": True, "detail_error": True}
 
 
-def _enforcement_summary(ev: dict[str, Any]) -> dict[str, Any]:
+def _enforcement_summary(ev: dict[str, Any], *, provenance: str = "unattested") -> dict[str, Any]:
     """Build the unified `scan_history` summary for a drained enforcement event (D6).
 
     One schema, two producers: `run_scan` writes playground summaries (no `source`,
@@ -192,6 +195,11 @@ def _enforcement_summary(ev: dict[str, Any]) -> dict[str, Any]:
     `safe=False` so the existing `safe === false` tile loop counts it with no
     tile-math change; a `bypassed_disarmed` event sets `safe=True` (visible row,
     never counted as blocked).
+
+    PET-139: `provenance` (one of "genuine"/"unverifiable"/"unattested", D4) carries the
+    spool-integrity verdict to the drill-down "is this legit?" line. Keyword-only and
+    DEFAULTED so existing callers (playground summaries, the PET-131/137/138 enforcement
+    tests) stay green untouched — the default reflects "no key configured".
     """
     event_type = ev.get("event_type")
     is_block = event_type in _BLOCK_EVENT_TYPES
@@ -231,6 +239,8 @@ def _enforcement_summary(ev: dict[str, Any]) -> dict[str, Any]:
         # PET-138: cumulative per-session disarmed-bypass count (bypassed_disarmed
         # heartbeats only; None elsewhere). Drives the "bypassed (disarmed)" tile.
         "bypassed_count": bypassed_count,
+        # PET-139: spool-integrity verdict for the drill-down "is this legit?" line (D4).
+        "provenance": provenance,
     }
 
 
@@ -302,6 +312,21 @@ class ConsoleHandlers:
 
     def __init__(self, pipeline: "Pipeline") -> None:
         self.pipeline = pipeline
+        # PET-139: derive the reader-side spool-integrity key from the pipeline's config
+        # (D5). This is the single construction chokepoint for BOTH standalone (`build_app`)
+        # and embedded (`plugin_api.init_handlers`) modes, so `self._spool_key` is always
+        # bound (no AttributeError on any drain path) and both modes obtain the key from the
+        # `session_secret` the pipeline already carries. `None` => integrity off ("unattested").
+        from petasos.console import _events
+
+        self._spool_key: bytes | None = (
+            _events._derive_spool_key(s) if (s := pipeline.config.session_secret) else None
+        )
+        # PET-139: monotonic clock for the rate-limited integrity-failure tripwire (D9). A
+        # plain instance attribute is safe — every `_surface_enforcement_event` runs inside
+        # `_enforcement_lock`, which already serializes the read path (no `threading.Lock`
+        # needed, unlike the reference plugin's writer-thread module clocks).
+        self._integrity_log_last = 0.0
         self.scan_history = RingBuffer[dict[str, Any]](maxlen=500)
         self.sse = SSEBroadcaster()
         self._start_time = time.monotonic()
@@ -363,18 +388,65 @@ class ConsoleHandlers:
         if len(tally) > _MAX_TALLY_SESSIONS:
             del tally[next(iter(tally))]
 
+    def _log_integrity_failure(self, ev: dict[str, Any]) -> None:
+        """PET-139: rate-limited WARNING tripwire for a spool-integrity failure (D9). Never raises.
+
+        Greppable token `PETASOS_INTEGRITY_UNVERIFIABLE` plus a failure class so an operator can
+        tell a forging process (`sig-mismatch`) from a key-config mistake or a legacy unsigned
+        event on upgrade (`sig-missing`). Mirrors the codebase's greppable-attribution convention
+        (`PETASOS_DISARMED` / `PETASOS_ARMED_RESOLUTION`). The clock is a plain instance attribute
+        serialized by `_enforcement_lock` (the caller always holds it). Fail-safe and observable
+        are not in tension: this never raises and never gates the drain.
+        """
+        try:
+            now = time.monotonic()
+            if now - self._integrity_log_last < _INTEGRITY_LOG_EVERY_S:
+                return
+            self._integrity_log_last = now
+            failure_class = "sig-missing" if not isinstance(ev.get("sig"), str) else "sig-mismatch"
+            _logger.warning(
+                "PETASOS_INTEGRITY_UNVERIFIABLE class=%s scan_id=%s session_id=%s — spool row "
+                "failed HMAC verification (forged, misconfigured, or legacy unsigned)",
+                failure_class,
+                ev.get("scan_id"),
+                ev.get("session_id"),
+            )
+        except Exception:
+            pass
+
     async def _surface_enforcement_event(self, ev: dict[str, Any]) -> None:
-        """Fold one drained enforcement event into scan_history + the tally + SSE."""
-        summary = _enforcement_summary(ev)
+        """Fold one drained enforcement event into scan_history + the tally + SSE.
+
+        PET-139: classify provenance (D4) before folding. With NO key configured the event is
+        "unattested" and behaves exactly as pre-PET-139 — surfaced, and a block-class event
+        still bumps the tally (the no-regression path). With a key configured, a verified event
+        is "genuine"; a missing or invalid `sig` is "unverifiable" — surfaced and flagged,
+        logged (D9), and EXCLUDED from the authoritative block tally so a forged row can never
+        be counted as a trusted block.
+        """
+        from petasos.console import _events
+
+        verified = _events.verify_event(ev, self._spool_key)
+        key_on = self._spool_key is not None
+        provenance = "unattested" if not key_on else ("genuine" if verified else "unverifiable")
+        if key_on and not verified:
+            self._log_integrity_failure(ev)
+        summary = _enforcement_summary(ev, provenance=provenance)
         self.scan_history.push(summary)
         if ev.get("event_type") in _BLOCK_EVENT_TYPES:
-            sid = ev.get("session_id")
-            if isinstance(sid, str) and sid:
-                self._bump_block_tally(sid)
+            # unattested + genuine count; unverifiable does NOT (D4) — a forged/legacy-unsigned
+            # block is surfaced-but-flagged, never tallied as a trusted block.
+            if provenance != "unverifiable":
+                sid = ev.get("session_id")
+                if isinstance(sid, str) and sid:
+                    self._bump_block_tally(sid)
         elif ev.get("event_type") == "bypassed_disarmed":
             # PET-138: monotonic-max of the cumulative count (restart re-seed belt;
             # exactly-once delivery already comes from the forward offset / .rot
             # discipline). type(cnt) is int excludes bool; cnt > 0 skips no-ops.
+            # Intentionally NOT integrity-gated: a disarmed-bypass heartbeat is safe=True,
+            # never a trusted-block claim, so gating it would be scope creep (the v1 residual
+            # — a forged heartbeat can inflate _bypass_tally — is named in the spec threat model).
             sid = ev.get("session_id")
             cnt = ev.get("bypassed_count")
             if isinstance(sid, str) and sid and type(cnt) is int and cnt > 0:

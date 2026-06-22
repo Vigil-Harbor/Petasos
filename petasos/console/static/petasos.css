@@ -401,6 +401,11 @@
 .pet .sd-prov-q { font-size: 11px; font-weight: 700; letter-spacing: .5px; color: var(--tx-bright); text-transform: uppercase; }
 .pet .sd-prov-line { font-size: 12px; color: var(--tx-mut); margin-top: 3px; }
 .pet .sd-prov-note { font-size: 10.5px; color: var(--tx-faint); margin-top: 4px; }
+/* PET-139: spool-integrity attestation badge on the "is this legit?" line. */
+.pet .sd-prov-att { font-size: 10.5px; margin-top: 4px; padding: 2px 7px; border-radius: 6px; border: 1px solid var(--border-soft); display: inline-block; }
+.pet .sd-prov-genuine { color: var(--ok); border-color: rgba(63,185,80,.3); background: var(--ok-soft); }
+.pet .sd-prov-unverifiable { color: var(--warn); border-color: rgba(232,177,58,.3); background: var(--med-soft); }
+.pet .sd-prov-unattested { color: var(--tx-faint); }
 .pet .sd-section { font-size: 10px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--tx-faint); margin-top: 4px; }
 .pet .sd-field { display: flex; gap: 8px; align-items: baseline; font-size: 12px; }
 .pet .sd-k { flex: 0 0 84px; color: var(--tx-faint); }

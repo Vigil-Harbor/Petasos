@@ -58,7 +58,7 @@ Two secrets, both environment-variable-first, never committed config:
 
 | Secret | Purpose | Handling |
 |---|---|---|
-| `PETASOS_SESSION_SECRET` | HMAC session binding — prevents session spoofing (FREQ-03) | base64 in env; decoded at dashboard init (`petasos/console/hermes/plugin_api.py:65-73`). Invalid base64 → a warning is logged and **session binding is silently disabled** — watch for that log line. |
+| `PETASOS_SESSION_SECRET` | HMAC session binding (FREQ-03) **and** enforcement-spool integrity (PET-139); see [§3.1](#31-enforcement-spool-integrity-pet-139) | base64 in env; decoded at dashboard init (`petasos/console/hermes/plugin_api.py:65-73`). Invalid base64 → a warning is logged and **session binding is silently disabled** — watch for that log line. |
 | `PETASOS_HASH_KEY` / `hash_key` | HMAC key for hash-mode PII anonymization | env override at `plugin_api.py:75-77`; required non-empty when `anonymize=True` and `redaction_mode="hash"` (`petasos/config.py:139-142`, SCAN-05). |
 
 Leak resistance is built in — and worth knowing the exact shape of:
@@ -84,6 +84,76 @@ Leak resistance is built in — and worth knowing the exact shape of:
 - [ ] Grep your logs once after deploy for the invalid-base64 warning;
       binding that silently disabled is worse than binding you never
       configured.
+
+### 3.1 Enforcement-spool integrity (PET-139)
+
+`PETASOS_SESSION_SECRET` does double duty. Beyond FREQ-03 session binding it is
+the root of a keyed-HMAC attestation on the cross-process enforcement spool
+(`petasos-enforcement.jsonl`). The gateway (writer) stamps every enforcement
+event with an HMAC over a canonical serialization of the record; the dashboard
+(reader) recomputes and verifies before trusting the row. A row that fails
+verification is still surfaced, but flagged `unverifiable` in the drill-down
+panel and never counted as a trusted block. The on-the-wire key is a
+domain-separated subkey, `HMAC-SHA256(session_secret,
+"petasos/enforcement-spool/v1")`, not the raw secret, so the two uses cannot
+cross-interfere.
+
+**The env contract (the one thing to get right):** integrity only holds when
+the writer and the reader derive the same key, and they are separate processes.
+That reduces to one rule: every process that touches the spool must launch with
+the identical `PETASOS_SESSION_SECRET`. In a gateway-paired deployment that is
+the gateway process and the dashboard process sharing one secret in their
+environment. For the low-level `serve()` / `create_app()` API the caller owns
+`session_secret` on the pipeline config it passes; populate it the same way
+(decode `PETASOS_SESSION_SECRET` into the config) to get attestation on that
+path. A writer-key / reader-key mismatch is a misconfiguration, not a silent
+blind spot: it surfaces as a burst of `unverifiable` rows plus the log token
+below with class `sig-mismatch`.
+
+**No secret set?** Integrity is simply off. Every event is `unattested`,
+surfaced and counted exactly as before PET-139. Setting the secret is opt-in;
+not setting it is the documented no-regression posture, not a downgrade.
+
+**Upgrade step (do this once, when first enabling integrity).** On a host that
+has already been running, the spool on disk still holds pre-PET-139 unsigned
+events. Those are genuine but unattestable, so they would surface as a one-time
+burst of `unverifiable` rows. To avoid that artifact, clear the live spool file
+**and** remove any `<spool>.rot` segment beside it before (re)starting with the
+secret set:
+
+```bash
+rm -f "<config-dir>/petasos-enforcement.jsonl" "<config-dir>/petasos-enforcement.jsonl.rot"
+```
+
+(`<config-dir>` is the resolved Hermes config directory, e.g.
+`%LOCALAPPDATA%/hermes/...` on Windows.) The block tally is in-memory and resets
+on a dashboard restart anyway, so clearing the spool loses only already-drained
+telemetry. Removing the `.rot` too matters: an orphan `.rot` recovered later
+would replay the same legacy-unsigned burst.
+
+**The greppable tripwire.** Every verification failure emits a rate-limited
+WARNING carrying the token `PETASOS_INTEGRITY_UNVERIFIABLE`, a failure class
+(`sig-missing` for an absent tag, `sig-mismatch` for a wrong one), the
+`scan_id`, and the `session_id`. `sig-mismatch` points at a forging process or a
+key mismatch; `sig-missing` over a freshly-enabled host is usually the
+legacy-unsigned rollout artifact above.
+
+**Threat model (what this does and does not defend).** The delivered property is
+forgery-evidence on the spool against a same-host process that is not Petasos
+and does not hold `session_secret` trying to inject or forge enforcement rows.
+It is **not** a defense against a compromised gateway (it legitimately holds the
+key), an attacker who can read `PETASOS_SESSION_SECRET` from the environment or
+config, byte-for-byte replay of a captured genuine line (it still verifies and
+still inflates the block tally, a named v1 limitation), or network-level
+tampering (that is PET-83's domain).
+
+**Checklist:**
+
+- [ ] For spool attestation, launch the gateway and the dashboard with the
+      **same** `PETASOS_SESSION_SECRET`.
+- [ ] On first enable over an existing host, clear the spool and its `.rot`.
+- [ ] Grep deploy logs for `PETASOS_INTEGRITY_UNVERIFIABLE`; a steady stream of
+      `sig-mismatch` means a key mismatch or a forging process, not noise.
 
 ## 4. Fail-mode
 
@@ -254,6 +324,24 @@ the only supported way to change a security-bearing gateway's profile. When the
 re-bind does fire, the pipeline/guard config is process-wide, so it applies to
 every session the process hosts; in-flight sessions see the new shared config at
 their next tool call (the swap does not drain them first).
+
+PET-147 status: the PET-132 re-bind worker is now proven **host-callable
+end-to-end**, not just call-correct. An in-process host-stub test
+(`test_hermes_signal_triggers_rebind_end_to_end`) registers the plugin against a
+fake Hermes ctx, captures the `on_profile_change` handler the way a real host
+would, fires it, and asserts the live pipeline actually retargets (fail_mode and
+egress set move to the new profile, and the binding line re-emits naming it). A
+companion test (`test_unregistered_host_still_degrades_to_restart`) proves the
+inverse at the tool-call level: a host that rejects the hook leaves no handler to
+fire, so the pipeline stays pinned to the boot profile until a restart. This
+closes the Petasos-side verification gap; it does **not** make live re-bind work
+in production. The sole remaining gate is the external, operator-trusted Hermes
+emitter that fires `on_profile_change` from the trusted swap path (never from the
+agent-writable `active_profile`); until Hermes ships it, the restart contract
+above stays the only supported way to change a security-bearing gateway's
+profile. The assumed signal contract is pinned (`on_profile_change(profile_name,
+profile_home)`, `profile_home` an existing absolute dir); reconciling it to the
+real Hermes name and payload is tracked on the Hermes-side work item.
 
 ### The source-taint egress fence is verbatim, defense-in-depth (PET-134)
 
