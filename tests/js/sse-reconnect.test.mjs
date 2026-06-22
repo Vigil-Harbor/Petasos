@@ -267,12 +267,14 @@ function setup(opts = {}) {
     warnings,
     randomBox,
     eventsCount: () => ctl.log.filter((u) => u.indexOf("/events") !== -1).length,
-    // fire the single pending reconnect (backoff) timer: its delay is neither the
-    // 10s poll nor the 60s durability timer. F-4 single-flight guarantees exactly
-    // one such handle exists when a reconnect is pending.
-    fireReconnect: () => timers.fireWhere((h) => h.delay !== POLL_MS && h.delay !== Pet.sse._HEALTHY_RESET_MS),
-    fireHealthy: () => timers.fireWhere((h) => h.delay === Pet.sse._HEALTHY_RESET_MS),
-    firePoll: () => timers.fireWhere((h) => h.delay === POLL_MS),
+    // Fire a pending timer by the exact handle id Pet.sse stored for it
+    // (_scheduleReconnect sets self._reconnectTimer; the first-bytes branch sets
+    // self._healthyTimer). Keying on the id is unambiguous and jitter-proof — a
+    // delay-based predicate is unsafe because _backoffDelay(4) ∈ [8000, 16000)
+    // can straddle the 10s poll delay. Returns false when no such timer is
+    // pending (the id is null), e.g. after a concede or a disconnect().
+    fireReconnect: () => timers.fireWhere((h) => h.id === Pet.sse._reconnectTimer),
+    fireHealthy: () => timers.fireWhere((h) => h.id === Pet.sse._healthyTimer),
   };
 }
 
