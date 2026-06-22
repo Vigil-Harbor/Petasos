@@ -821,7 +821,7 @@ class Pipeline:
 
         # Stage 10: Audit hook
         try:
-            audit_cb_error = await self._audit_hook(result, session_id, freq_result)
+            audit_cb_error = await self._audit_hook(result, session_id, freq_result, direction)
             if audit_cb_error is not None:
                 errors.append(audit_cb_error)
         except Exception as exc:
@@ -961,10 +961,12 @@ class Pipeline:
         result: PipelineResult,
         session_id: str | None,
         freq_result: FrequencyUpdateResult | None,
+        direction: Direction,
     ) -> str | None:
         if not self._is_enabled("audit"):
             return None
-        self._audit_emitter.emit(result, session_id, freq_result)
+        # PET-136: thread the scan-level resolved direction into the audit payload.
+        self._audit_emitter.emit(result, session_id, freq_result, direction=direction)
         return self._audit_emitter.last_callback_error
 
     async def _alert_hook(

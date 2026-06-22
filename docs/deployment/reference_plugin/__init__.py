@@ -9,7 +9,18 @@ Deploy: copy this directory to the active Hermes profile's plugin dir:
         v0.15   ~/.hermes/plugins/petasos/  (macOS)
                 %LOCALAPPDATA%\\hermes\\plugins\\petasos\\  (Windows)
 Config: add a top-level ``petasos:`` section to the profile's config.yaml
-Env:    PETASOS_LICENSE_KEY, PETASOS_SESSION_SECRET, PETASOS_HASH_KEY
+Env:    PETASOS_LICENSE_KEY, PETASOS_SESSION_SECRET, PETASOS_HASH_KEY,
+        PETASOS_AUDIT_FINDING
+
+Capture window (PET-136): to record per-finding tuning data, open a short
+capture window by setting ``PETASOS_AUDIT_FINDING=1`` (or flipping the
+``audit_emit_findings`` toggle in the dashboard Audit section). One
+``PETASOS_AUDIT_FINDING`` line per finding (rule_id / severity / confidence /
+direction) then lands in ``agent.log`` for every scan, allowed or blocked,
+armed or disarmed. The env path re-arms on every config reload, so it survives a
+Windows model-switcher wiping the ``petasos:`` section mid-capture. Leave it off
+in normal operation: it multiplies audit volume by the finding count, so keep
+the window short to avoid log rotation dropping the very window being captured.
 """
 
 from __future__ import annotations
@@ -362,6 +373,21 @@ def _build_config_from_section(section: dict[str, Any]) -> PetasosConfig:
         # Boot's defang: downgrade rather than raise when hash_key is absent.
         raw["anonymize"] = False
 
+    # PET-136: env can only turn the per-finding audit sink ON (an absent or
+    # falsy value leaves the YAML/default untouched), and env wins over YAML. The
+    # strict truthy parse avoids enabling on PETASOS_AUDIT_FINDING=0 (a non-empty
+    # string a bare presence check would treat as set). Because this is the shared
+    # boot + live-reload path (PET-126 Decision 10), the value is re-evaluated on
+    # every reload, so the toggle re-arms from env after a Windows model-switcher
+    # wipes the petasos: section mid-capture (D-WINDOWS).
+    if os.environ.get("PETASOS_AUDIT_FINDING", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    ):
+        raw["audit_emit_findings"] = True
+
     return PetasosConfig.from_dict(raw)
 
 
@@ -666,6 +692,25 @@ def _handle_audit(event) -> None:
         event.sequence_number,
         event.event_type,
     )
+    # PET-136: per-finding capture sink. Gated on the payload's emit_findings flag
+    # (not the mere presence of `findings`, which is populated at standard/verbose
+    # verbosity too), so at the default verbosity with the toggle off, zero
+    # PETASOS_AUDIT_FINDING lines are emitted. The finding dicts carry only
+    # rule_id/severity/confidence/direction (no matched_text or raw content), so
+    # the line is redaction-safe by construction even if it bypasses a formatter.
+    payload = event.payload
+    if payload.get("emit_findings"):
+        for f in payload.get("findings", ()):  # MappingProxyType.get is safe
+            logger.info(
+                "PETASOS_AUDIT_FINDING session=%s seq=%s rule_id=%s "
+                "severity=%s confidence=%s direction=%s",
+                event.session_id,
+                event.sequence_number,
+                f.get("rule_id"),
+                f.get("severity"),
+                f.get("confidence"),
+                f.get("direction"),
+            )
 
 
 def _handle_alert(alert) -> None:

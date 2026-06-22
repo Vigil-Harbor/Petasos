@@ -438,6 +438,17 @@ _FIELD_META: dict[str, dict[str, Any]] = {
         "section": "audit",
         "constraints": {"values": ["minimal", "standard", "verbose"]},
     },
+    "audit_emit_findings": {
+        "description": "Emit one log line per finding for offline tuning (default off).",
+        "help_plain": (
+            "Debug capture window: when on, writes one log line per detection finding"
+            " (rule, severity, confidence, direction) for every scan, so false-positive"
+            " tuning can read straight from the logs. Leave off in normal operation; it"
+            " multiplies log volume by the number of findings per scan, so turn it on"
+            " only for a short capture session."
+        ),
+        "section": "audit",
+    },
     "frequency_half_life_seconds": {
         "description": "How fast the frequency score decays when a session goes quiet.",
         "help_plain": (
