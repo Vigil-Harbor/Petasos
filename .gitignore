@@ -62,3 +62,10 @@ docs/briefs/
 # Old console spec scaffolding - kept local, not published
 docs/console/petasos-console-frontend-handoff.md
 docs/console/handoff-extracted/
+docs/console/*.zip
+
+# Design-skill (impeccable) critique output - local scratch
+.impeccable/
+
+# Per-ticket presync backups - local safety nets, never committed
+*-presync-bak/
