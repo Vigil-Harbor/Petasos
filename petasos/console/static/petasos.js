@@ -399,14 +399,39 @@
   };
 
   // ── SSE client (fetch-based for auth header support) ──
+  // PET-142: bounded-backoff reconnect. A transient stream fault (clean close,
+  // mid-stream read error, network failure, or any non-auth HTTP status) no
+  // longer latches polling for the whole session; it schedules a jittered,
+  // capped reconnect (the existing 10s poll runs during the backoff window as
+  // the safety net) and returns to push cadence on the reconnected stream's
+  // first bytes. Only 401/403 and an exhausted attempt budget concede to polling
+  // terminally — exactly where the pre-PET-142 single-strike client always
+  // landed, so the worst case is strictly non-regressive. See spec PET-142.
   Pet.sse = {
     _reader: null,
     _abortCtrl: null,
-    _usingFallback: false,
+    _usingFallback: false,        // D8: "polling is currently active" — true during transient backoff AND terminal concede
+    _reconnectTimer: null,        // pending reconnect setTimeout handle, or null
+    _reconnectAttempts: 0,        // consecutive failed attempts since the last durable stream
+    _healthyTimer: null,          // pending durable-reset setTimeout handle (D11), or null
+    _gen: 0,                      // connection generation (D12); bumped on disconnect + each _openStream
+    _BACKOFF_BASE_MS: 1000,       // base delay
+    _BACKOFF_MAX_MS: 30000,       // per-attempt delay cap
+    _MAX_RECONNECTS: 6,           // attempt cap before conceding to polling
+    _HEALTHY_RESET_MS: 60000,     // a reconnected stream must survive this long to refill the budget (D11)
 
+    // Public entry: full reset, then a fresh stream. The reconnect timer calls
+    // _openStream() directly (NOT this), so a reconnect does not re-enter the
+    // counter-zeroing reset and break the attempt bound.
     connect: function () {
+      this.disconnect();   // full reset: bump _gen, abort old stream, cancel both timers, zero counter, stop poll
+      this._openStream();  // the fetch/pump body (no reset — safe on the reconnect path)
+    },
+
+    _openStream: function () {
       var self = this;
-      if (self._abortCtrl) self.disconnect();
+      var gen = (self._gen += 1);                    // D12: this connection's generation
+      if (self._abortCtrl) self._abortCtrl.abort();  // defensive; inert on the reconnect path (disconnect nulled it)
       var url = Pet.api.baseUrl + "/events";
       var headers = { "Accept": "text/event-stream" };
       var token = window.__HERMES_SESSION_TOKEN__;
@@ -419,6 +444,7 @@
         credentials: "same-origin",
       })
         .then(function (resp) {
+          if (gen !== self._gen) return;             // D12: superseded connection — drop silently
           if (!resp.ok) throw new Error(resp.status);
           if (!resp.body) throw new Error("no response body");
           var reader = resp.body.getReader();
@@ -427,6 +453,7 @@
           var buf = "";
           function pump() {
             reader.read().then(function (r) {
+              if (gen !== self._gen) return;         // D12: superseded — no resurrection, even on the done path
               if (r.done) {
                 if (buf.trim()) {
                   var evType = null, evData = null;
@@ -436,8 +463,25 @@
                   });
                   if (evType && evData) self._dispatch(evType, evData);
                 }
-                self._enableFallback();
+                self._scheduleReconnect();           // D9: clean close is retryable, not a terminal demotion
                 return;
+              }
+              // D7: first bytes on this connection. Flip the UI back to LIVE now
+              // (the operator's win) but only ARM a durability timer — the retry
+              // budget refills on proven durability (D11), not on the first byte,
+              // so a bytes-then-die flap stays bounded. Both branches are
+              // idempotent on later chunks; on a clean first connect
+              // (_reconnectAttempts===0, _usingFallback===false) the block is a no-op.
+              if (self._usingFallback) {
+                self._usingFallback = false;
+                stopFallbackPolling();
+                if (Pet.updateConnStatus) Pet.updateConnStatus();   // POLLING → LIVE
+              }
+              if (self._reconnectAttempts > 0 && !self._healthyTimer) {
+                self._healthyTimer = setTimeout(function () {
+                  self._healthyTimer = null;
+                  self._reconnectAttempts = 0;       // durable: earn a fresh retry budget
+                }, self._HEALTHY_RESET_MS);
               }
               buf += dec.decode(r.value, { stream: true }).replace(/\r\n/g, "\n");
               var frames = buf.split("\n\n");
@@ -452,17 +496,62 @@
               });
               pump();
             }).catch(function (e) {
-              if (e.name !== "AbortError") self._enableFallback();
+              if (gen !== self._gen) return;         // D12
+              if (e.name !== "AbortError") self._scheduleReconnect();  // mid-stream read error is retryable
             });
           }
           pump();
         })
         .catch(function (e) {
-          if (e.name !== "AbortError") {
-            console.warn("Petasos SSE: " + e.message + ", using polling fallback");
-            self._enableFallback();
+          if (gen !== self._gen) return;             // D12
+          if (e.name === "AbortError") return;       // deliberate teardown — never reconnect
+          // D9: the terminal (non-retryable) set is exactly {401, 403}. The :422
+          // `throw new Error(resp.status)` makes e.message the status string.
+          if (e.message === "401" || e.message === "403") {
+            console.warn("Petasos SSE: auth rejected (" + e.message + "), using polling fallback");
+            self._enableFallback();                  // terminal: a tab that will never re-authorize must not storm
+          } else {
+            self._scheduleReconnect();               // 5xx / 404 / 429 / network / "no response body" — all retryable
           }
         });
+    },
+
+    // PET-142: schedule one jittered reconnect, or concede to polling once the
+    // attempt budget is spent. The single-flight guard (F-4) keeps disconnect()
+    // able to cancel the one pending timer; the _healthyTimer clear (D11) makes a
+    // not-yet-durable connection's death count toward the cap.
+    _scheduleReconnect: function () {
+      var self = this;
+      if (self._reconnectTimer) return;              // F-4: exactly one reconnect pending at a time
+      if (self._healthyTimer) {                      // D11/F-2: this connection died before proving durable
+        clearTimeout(self._healthyTimer); self._healthyTimer = null;
+      }
+      if (self._reconnectAttempts >= self._MAX_RECONNECTS) {
+        console.warn("Petasos SSE: reconnect attempts exhausted, using polling fallback");
+        self._enableFallback();                      // terminal; no new timer scheduled → bounded
+        return;
+      }
+      if (!self._usingFallback) {                    // D8: arm the safety net on the first fault
+        self._usingFallback = true;
+        startFallbackPolling();                      // idempotent: guarded by _fallbackPollInterval (load-bearing)
+        if (Pet.updateConnStatus) Pet.updateConnStatus();
+      }
+      var delay = self._backoffDelay(self._reconnectAttempts);
+      self._reconnectAttempts += 1;
+      self._reconnectTimer = setTimeout(function () {
+        self._reconnectTimer = null;
+        self._openStream();                          // _openStream bumps _gen; disconnect cleared this handle if torn down
+      }, delay);
+    },
+
+    // PET-142: pure helper (testable seam, like Pet.mergeScanHistory / bypassTotal).
+    // Equal jitter: returns a delay in [capped/2, capped) — half-open, so the floor
+    // capped/2 is reachable (Math.random → 0) but the ceiling capped is not. Never
+    // below capped/2 (no degenerate-zero retry), never the full cap (no herd).
+    _backoffDelay: function (n) {
+      var capped = Math.min(this._BACKOFF_BASE_MS * Math.pow(2, n), this._BACKOFF_MAX_MS);
+      var half = capped / 2;
+      return half + Math.random() * half;
     },
 
     _dispatch: function (evType, dataStr) {
@@ -511,8 +600,12 @@
     },
 
     disconnect: function () {
+      this._gen += 1;                                // D12: invalidate every in-flight continuation (incl. the done path)
       if (this._abortCtrl) { this._abortCtrl.abort(); this._abortCtrl = null; }
       this._reader = null;
+      if (this._reconnectTimer) { clearTimeout(this._reconnectTimer); this._reconnectTimer = null; }
+      if (this._healthyTimer) { clearTimeout(this._healthyTimer); this._healthyTimer = null; }
+      this._reconnectAttempts = 0;
       this._usingFallback = false;
       stopFallbackPolling();
     },
