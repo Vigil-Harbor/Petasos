@@ -768,10 +768,17 @@ class ConsoleHandlers:
 
 
 def _extract_field_from_error(msg: str, body: dict[str, Any]) -> str:
+    # Return the MOST SPECIFIC (longest) body key named in the error message.
+    # A first-match scan mis-attributes when one field name is a substring of
+    # another the body also carries (e.g. ``presidio_entities`` vs
+    # ``presidio_entities_extra``): the error names the longer field but the
+    # shorter one matched first. Longest-match makes the 422 point at the field
+    # the validator actually rejected.
+    best = ""
     for key in body:
-        if key in msg:
-            return key
-    return "unknown"
+        if key in msg and len(key) > len(best):
+            best = key
+    return best or "unknown"
 
 
 def build_app(pipeline: "Pipeline", *, auth_token: str | None = None) -> "FastAPI":
