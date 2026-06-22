@@ -268,4 +268,7 @@ async def test_fold_leet_not_a_detection_control() -> None:
     on_rules = {f.rule_id for f in on.findings}
     off_rules = {f.rule_id for f in off.findings}
     assert "petasos.syntactic.injection.ignore-previous" in on_rules
-    assert "petasos.syntactic.injection.ignore-previous" in off_rules
+    # Full-set equality (not just the headline rule) is what proves the toggle is
+    # inert: any drift in the other findings between the two arms reds this. The
+    # positive control above keeps it non-vacuous (both arms must actually fire).
+    assert on_rules == off_rules
