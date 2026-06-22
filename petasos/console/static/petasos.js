@@ -583,11 +583,13 @@
       var token = window.__HERMES_SESSION_TOKEN__;
       if (token) headers["X-Hermes-Session-Token"] = token;
       // PET-129 D1 (edge F-7): sse.connect is the single SSE client for both modes, so
-      // "standalone only" must be explicit here: use the same predicate as _req (no
-      // embedded Hermes plugin SDK). In embedded mode the fetch keeps its
-      // X-Hermes-Session-Token and gains NO Petasos Authorization, so the two
-      // credentials never coexist (the double-credentialing D5 forbids).
-      if (!window.__HERMES_PLUGIN_SDK__) {
+      // "standalone only" must be explicit here. Use the EXACT same embedded predicate
+      // as _req (`sdk && sdk.fetchJSON`), so a partial SDK object lacking fetchJSON is
+      // treated as standalone by both paths (no path divergence). In embedded mode the
+      // fetch keeps its X-Hermes-Session-Token and gains NO Petasos Authorization, so
+      // the two credentials never coexist (the double-credentialing D5 forbids).
+      var _sdk = window.__HERMES_PLUGIN_SDK__;
+      if (!(_sdk && _sdk.fetchJSON)) {
         var _ctok = Pet.token.get();
         if (_ctok) headers["Authorization"] = "Bearer " + _ctok;
       }

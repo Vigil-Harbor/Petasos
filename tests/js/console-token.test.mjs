@@ -199,7 +199,15 @@ function makeTimers() {
       for (const fn of [...intervals.values()]) fn();
     },
     fireTimeouts() {
-      for (const fn of [...timeouts.values()]) fn();
+      // One-shot semantics: a timeout is consumed when it fires. Snapshot the due
+      // callbacks, remove them, THEN run — so a callback that reschedules registers a
+      // new timer that does not fire within this same invocation (matching real
+      // setTimeout, and never double-firing a callback on a later fireTimeouts()).
+      const due = [...timeouts.entries()];
+      for (const [id, fn] of due) {
+        timeouts.delete(id);
+        fn();
+      }
     },
     get totalIntervals() {
       return totalIntervals;

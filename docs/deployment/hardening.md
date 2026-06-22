@@ -273,7 +273,7 @@ Operational notes:
   and a "clear token" affordance drops the credential and returns to the
   authenticate state. An authenticated client or a credential-injecting reverse
   proxy still works for scripted access, for example:
-  `curl -H "Authorization: Bearer <token>" -X POST http://127.0.0.1:8384/api/armed -d '{"armed": true}'`.
+  `curl -H "Authorization: Bearer <token>" -H "Content-Type: application/json" -X POST http://127.0.0.1:8384/api/armed -d '{"armed": true}'`.
 - **Where the token lives in the browser:** the console holds the operator-supplied
   token in `sessionStorage`, so it survives a reload within the tab and is cleared
   when the tab closes. It is no stronger than the operator's browser session: any
