@@ -629,3 +629,54 @@ test("test_clear_token_re_enters_authenticate_state", () => {
   assert.equal(Pet.token.get(), null, "clear drops the stored token");
   assert.equal(Pet.state.authRequired, true, "clear re-enters the authenticate state");
 });
+
+// A resume superseded DURING the /health round-trip (a concurrent clearToken / new
+// submit bumps Pet.auth._gen) must drop the whole stale continuation — it must NOT
+// restart polling/SSE under the superseded generation (would re-arm transports a
+// concurrent clearToken just tore down).
+test("test_resume_superseded_during_health_drops_stale_continuation", async () => {
+  const timers = makeTimers();
+  let pet;
+  const fetch = (url) => {
+    if (url.indexOf("/armed") >= 0) return Promise.resolve(jsonResp(200, { armed: true }));
+    if (url.indexOf("/health") >= 0) {
+      pet.auth.clearToken(); // a clearToken landing mid-resume bumps _gen AND re-enters authRequired
+      return Promise.resolve(jsonResp(200, { scanners: [] }));
+    }
+    if (url.indexOf("/events") >= 0) return Promise.resolve(sseResp());
+    return Promise.resolve(jsonResp(200, {}));
+  };
+  const { Pet } = loadPet({
+    fetch,
+    setInterval: timers.setInterval,
+    clearInterval: timers.clearInterval,
+    setTimeout: timers.setTimeout,
+    clearTimeout: timers.clearTimeout,
+  });
+  pet = Pet;
+  Pet.auth.on401({ _status: 401 });
+  const res = await Pet.auth.submitToken("good");
+  await flush();
+  await flush();
+  assert.equal(res.ok, false, "a resume superseded during /health does not report success");
+  assert.ok(res.stale, "it returns the stale marker");
+  assert.equal(Pet.state.authRequired, true, "the concurrent clearToken wins (still the authenticate state)");
+  assert.equal(Pet._poll.state().health, false, "the stale resume did NOT restart polling under the superseded generation");
+});
+
+// In the authenticate state, opening the config tab renders the token panel and
+// issues NO config reads (no redundant getProfiles/getConfig 401s, no skeleton flash).
+test("test_config_tab_in_authenticate_state_renders_panel_no_reads", () => {
+  const calls = [];
+  const fetch = (url) => {
+    calls.push(url);
+    return Promise.resolve(jsonResp(200, {}));
+  };
+  const { Pet, document } = loadPet({ fetch });
+  Pet.state.authRequired = true;
+  const container = document.createElement("div");
+  Pet.renderConfig(container);
+  assert.ok(/AUTHENTICATE/.test(container.textContent), "config tab shows the authenticate panel");
+  assert.ok(!/EQUIPPED/.test(container.textContent), "never EQUIPPED");
+  assert.equal(calls.length, 0, "no /config or /profiles reads issued while authRequired");
+});

@@ -474,7 +474,13 @@
         Pet.state.armed = d.armed; // seed from the authenticated read, not the stale default
         _armedSeeded = true;       // armed is verified; skip the dashboard's mount re-fetch
         return Pet.api.getHealth().then(function (h) {
-          if (gen === Pet.auth._gen && h && !h.error && h._status !== 401) {
+          // A token set/clear during the /health round-trip supersedes this resume (a
+          // newer submit, or a clearToken, now owns the outcome). Drop the whole stale
+          // continuation — not just the health seed — so it cannot restart transports
+          // or re-render the dashboard under a superseded generation (e.g. re-arming
+          // polling/SSE that a concurrent clearToken just tore down).
+          if (gen !== Pet.auth._gen) return { ok: false, stale: true };
+          if (h && !h.error && h._status !== 401) {
             _healthLoaded = true;
             Pet.state.scannerHealth = h.scanners || [];
             Pet.state.pipelineHealth = h.pipeline || null;
@@ -2344,6 +2350,14 @@
 
   Pet.renderConfig = function (container) {
     container.innerHTML = "";
+    // PET-129: in the authenticate state render the token panel instead of issuing
+    // config reads that would only 401 (the obs dashboard does the same). The auth
+    // flow takes precedence when the config tab is opened while authRequired, so no
+    // redundant getProfiles/getConfig calls and no skeleton flash before on401 swaps in.
+    if (Pet.state.authRequired) {
+      container.appendChild(Pet.renderAuthPanel());
+      return;
+    }
     var wrapper = Pet.h("div", { style: { display: "flex", flexDirection: "column", gap: "16px", height: "100%" } });
 
     // PET-13: the "how saving works" disclosure moved to the sticky save bar at the
