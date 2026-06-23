@@ -123,19 +123,19 @@ const IRON = {
   fail_mode: "degraded", tier1_threshold: 15, tier2_threshold: 30, tier3_threshold: 50,
   presidio_score_threshold: 0.35, anonymize: false, tool_guard_enabled: true,
   normalize_nfkc: true, strip_zero_width: true, map_homoglyphs: true,
-  detect_rtl_override: true, fold_leet: true, decode_encoded_payloads: true,
+  detect_rtl_override: true, decode_encoded_payloads: true,
 };
 const BRONZE = {
   fail_mode: "degraded", tier1_threshold: 25, tier2_threshold: 45, tier3_threshold: 65,
   presidio_score_threshold: 0.5, anonymize: false, tool_guard_enabled: true,
   normalize_nfkc: true, strip_zero_width: true, map_homoglyphs: true,
-  detect_rtl_override: true, fold_leet: true, decode_encoded_payloads: true,
+  detect_rtl_override: true, decode_encoded_payloads: true,
 };
 const TIN = {
   fail_mode: "open", tier1_threshold: 40, tier2_threshold: 60, tier3_threshold: 80,
   presidio_score_threshold: 0.6, anonymize: false, tool_guard_enabled: false,
   normalize_nfkc: true, strip_zero_width: true, map_homoglyphs: true,
-  detect_rtl_override: false, fold_leet: false, decode_encoded_payloads: false,
+  detect_rtl_override: false, decode_encoded_payloads: false,
 };
 function presets() {
   return [
