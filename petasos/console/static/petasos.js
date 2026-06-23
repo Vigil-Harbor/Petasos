@@ -3295,6 +3295,15 @@
     }
   }
 
+  // PET-152: a history fetch counts as a successful read only when it has no error AND no non-OK
+  // HTTP status. _req (:530, :550) sets `_status` on a parsed non-OK body, which for a 403/500 like
+  // `{}` carries NO `error` field — so a bare `!d.error` check would accept a failed read as an
+  // empty older page (silent "no older history" on an auth/server failure). Gate paging on this
+  // instead. `_status == null` covers OK bodies (status never stamped) and the test mocks.
+  function _historyResponseOk(d) {
+    return !!(d && !d.error && (d._status == null || d._status < 400));
+  }
+
   // PET-152: the single shared push for an older page — both the re-mint path and the paged-view
   // path call it, so the shape guard and render trigger live in one place. Module-scoped (never a
   // render-local) because it needs _container / Pet.renderDashboard. Keeps the Array.isArray shape
@@ -3336,7 +3345,8 @@
       Pet.api.getScanHistory(plan.remintLimit).then(function (rd) {
         if (gen !== _historyPagingGen) return;          // superseded by re-seed/401/unmount
         if (Pet.auth.on401(rd)) { _historyPaging = false; return; }
-        var freshCursor = (rd && !rd.error && rd.next_before) ? rd.next_before : null;
+        if (!_historyResponseOk(rd)) { _historyPaging = false; return; } // non-OK re-mint: not a miss, a failed read
+        var freshCursor = rd.next_before || null;
         if (freshCursor == null) {                      // gate said older exist, ring points nowhere
           _historyPaging = false;
           _pushOlderPage(null, { entries: [], older_truncated: true }); // honest empty (E-6)
@@ -3347,7 +3357,7 @@
           if (gen !== _historyPagingGen) return;
           _historyPaging = false;
           if (Pet.auth.on401(d)) return;
-          if (!d.error) { _pushOlderPage(freshCursor, d); }
+          if (_historyResponseOk(d)) { _pushOlderPage(freshCursor, d); }
         });
       }).catch(function () { if (gen === _historyPagingGen) _historyPaging = false; });
       return;
@@ -3358,7 +3368,7 @@
       if (gen !== _historyPagingGen) return;
       _historyPaging = false; // clear before any early return so paging can resume
       if (Pet.auth.on401(d)) return; // a 401 stops paging, never a stale page
-      if (!d.error) { _pushOlderPage(plan.cursor, d); }
+      if (_historyResponseOk(d)) { _pushOlderPage(plan.cursor, d); }
     }).catch(function () { if (gen === _historyPagingGen) _historyPaging = false; });
   };
 
