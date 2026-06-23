@@ -332,15 +332,17 @@
     // so a profile switch reloads the same profile after save/discard.
     selectedHermesProfile: null,
     scanHistory: [],
-    // PET-148: scan-history back-page paging state. historyAtHead=true shows the live
-    // SSE-maintained scanHistory buffer (the most-recent window); when paged back,
-    // historyStack holds the fetched older pages (top = current view) and historyHeadCursor
-    // is the server `next_before` for the first "Older" click off the live head (server-minted
-    // to avoid float-repr drift). The single "of N" total stays /health.scans_total (D-RESTART);
-    // paged views never compute a competing total.
+    // PET-148/PET-152: scan-history back-page paging state. historyAtHead=true shows the live
+    // SSE-maintained scanHistory buffer (the most-recent window); when paged back, historyStack
+    // holds the fetched older pages (top = current view). PET-152 dropped the cached
+    // historyHeadCursor field: it was captured once at seed and went stale once the ring evicted
+    // past the oldest seeded row, so the first "Older" click skipped the band between the current
+    // oldest buffered row and the stale boundary. The head boundary is now re-minted via a fresh
+    // server round-trip on every head->older transition, and the "Older" affordance off the head
+    // gates on scanHistoryHasOlder(buffered, scans_total). The single "of N" total stays
+    // /health.scans_total (D-RESTART); paged views never compute a competing total.
     historyAtHead: true,
     historyStack: [],
-    historyHeadCursor: null,
     // PET-138: session_id -> cumulative count of tool calls bypassed while disarmed.
     // Dedicated, eviction-proof state (the count rides a single rate-limited
     // heartbeat row that ages out of scanHistory); fed by Pet.accrueBypass.
@@ -447,6 +449,7 @@
       if (Pet.sse) Pet.sse.disconnect(); // aborts SSE, resets _usingFallback, stops the fallback poll
       _armedSeeded = false;   // force a re-seed from server truth after re-auth (edge F-3)
       _historySeeded = false; // ditto for the scan-history buffer
+      _historyPaging = false; _historyPagingGen++; // PET-152: drop any in-flight paging re-mint; its stale .then checks gen and bails
       Pet.state.armed = null; // unknown until a verified read; bannerView keys authRequired first regardless
       if (Pet.updateConnStatus) Pet.updateConnStatus(); // F-8: don't leave the blip stuck on POLLING
       if (_container && Pet.renderDashboard) Pet.renderDashboard(_container);
@@ -478,6 +481,7 @@
       var gen = Pet.auth._gen;
       _armedSeeded = false;   // re-derive from server truth, regardless of any stray frame (edge F-3)
       _historySeeded = false;
+      _historyPaging = false; _historyPagingGen++; // PET-152: supersede any in-flight paging re-mint across the re-auth resume
       return Pet.api.getArmed().then(function (d) {
         if (gen !== Pet.auth._gen) return { ok: false, stale: true }; // superseded; drop (incl. a stale 401)
         if (d && d._status === 401) return { ok: false, message: "Authentication failed. Check the token and retry." };
@@ -1292,6 +1296,19 @@
     return "showing last " + b + " of " + t;
   };
 
+  // PET-152: the honest "are there retained rows older than the live window?" predicate that
+  // gates the "Older" affordance off the live head. Reuses the SAME lifetime N already shown in
+  // scanHistorySubtitle (/health.scans_total, D-RESTART) — no competing total is minted. The
+  // b > 0 term (a deliberate divergence from scanHistorySubtitle, which is a pure label and
+  // tolerates b === 0) refuses to offer "Older" off an EMPTY live buffer: an empty window has no
+  // oldest edge to page past, and the one-shot seed (not "Older") is what populates the head.
+  // Without it, scans_total > 0 over a transiently-empty pre-seed buffer would re-mint from the
+  // Nth-newest row and CREATE a gap over rows 1..N (edges E-2/E-4). Pure (no DOM, no network).
+  Pet.scanHistoryHasOlder = function (buffered, total) {
+    var b = Number(buffered), t = Number(total);
+    return Number.isFinite(b) && Number.isFinite(t) && b > 0 && t > b;
+  };
+
   // PET-148: positional label for a paged-back history view (D-RESTART). NEVER a numeric
   // total — the only "of N" headline anywhere stays scanHistorySubtitle (scans_total from
   // /health). An empty page is retention-honest: "no older retained history" when the
@@ -1306,17 +1323,19 @@
     return "older history";
   };
 
-  // PET-148: pure paging-state transition for scan-history back-pages (testable in node:vm,
-  // like scanHistorySubtitle / mergeScanHistory). The server cursor walks only OLDER
+  // PET-148/PET-152: pure paging-state transition for scan-history back-pages (testable in
+  // node:vm, like scanHistorySubtitle / mergeScanHistory). The server cursor walks only OLDER
   // (D-PAGING); "newer" replays the client-buffered page stack back toward the live head.
   // Given the current paging state + a navigation action, returns the next-state descriptor
-  // {atHead, stack, cursor, needsFetch} — no DOM, no network. For "older" the caller fetches
-  // with `cursor` (when needsFetch) and pushes the resulting page; for "newer"/"head" the
+  // {atHead, stack, cursor, needsFetch, needsRemint, remintLimit?} — no DOM, no network. For
+  // "older" OFF THE LIVE HEAD the reducer signals needsRemint (PET-152) instead of handing back a
+  // cached head cursor that goes stale after ring eviction; the handler then re-mints the head
+  // boundary via a fresh getScanHistory(remintLimit) round-trip and pages from that. For "older"
+  // from a paged view the caller fetches with `cursor` (when needsFetch); for "newer"/"head" the
   // returned {atHead, stack} is applied directly (client-buffered, no fetch).
   Pet.historyPagingView = function (state, action) {
     state = state || {};
     var stack = Array.isArray(state.stack) ? state.stack.slice() : [];
-    var headCursor = (state.headCursor != null) ? state.headCursor : null;
     var top = stack.length ? stack[stack.length - 1] : null;
     if (action === "head") {
       return { atHead: true, stack: [], cursor: null, needsFetch: false };
@@ -1327,12 +1346,31 @@
       return { atHead: false, stack: stack, cursor: null, needsFetch: false };
     }
     if (action === "older") {
-      // Cursor: the current view's next_before, or the live head's server cursor off the head.
-      var cursor = top ? (top.nextBefore != null ? top.nextBefore : null) : headCursor;
-      var needsFetch = cursor != null;
+      if (top) {
+        // Paged view (unchanged): advance past the current page via its server next_before.
+        var cursor = (top.nextBefore != null) ? top.nextBefore : null;
+        var needsFetch = cursor != null;
+        return {
+          atHead: needsFetch ? false : (state.atHead !== false),
+          stack: stack, cursor: cursor, needsFetch: needsFetch, needsRemint: false,
+        };
+      }
+      // Off the live head: re-mint required (PET-152); never reuse a cached cursor. The head
+      // boundary is re-derived by the handler from a fetch sized to the runtime buffer length.
+      var bufferLength = (typeof state.bufferLength === "number" && state.bufferLength > 0)
+        ? state.bufferLength : 0;
+      if (bufferLength === 0) {
+        // Empty live buffer: no oldest edge to page past; the one-shot seed populates the head,
+        // not "Older". Refuse to fetch so we never page from the Nth-newest row and create a gap
+        // over rows 1..N (edges E-2/E-4).
+        return {
+          atHead: state.atHead !== false, stack: stack,
+          cursor: null, needsFetch: false, needsRemint: false,
+        };
+      }
       return {
-        atHead: needsFetch ? false : (state.atHead !== false),
-        stack: stack, cursor: cursor, needsFetch: needsFetch,
+        atHead: false, stack: stack, cursor: null,
+        needsFetch: false, needsRemint: true, remintLimit: bufferLength,
       };
     }
     // Unknown action: stay put.
@@ -1630,65 +1668,31 @@
           hist.length,
           Pet.state.pipelineHealth && Pet.state.pipelineHealth.scans_total
         );
-    // "Older" is offered when an older cursor exists (the paged view's next_before, or the
-    // live head's server cursor from the seed); "Newer" only when paged back.
+    // PET-152: "Older" is offered when an older cursor exists (the paged view's next_before) or,
+    // off the live head, when scanHistoryHasOlder reports retained rows older than the live window
+    // — gated on the SAME lifetime scans_total the subtitle reads (:1631), never a cached seed
+    // cursor that goes stale after ring eviction. "Newer" only when paged back.
     var histCanOlder = histPaged
       ? (histPaged.nextBefore != null)
-      : (Pet.state.historyHeadCursor != null);
+      : Pet.scanHistoryHasOlder(
+          hist.length,
+          Pet.state.pipelineHealth && Pet.state.pipelineHealth.scans_total
+        );
 
-    function pageHistoryOlder() {
-      if (_historyPaging) return; // ignore re-entrant clicks while a fetch is in flight
-      var next = Pet.historyPagingView(
-        {
-          atHead: Pet.state.historyAtHead !== false,
-          stack: Pet.state.historyStack || [],
-          headCursor: Pet.state.historyHeadCursor,
-        },
-        "older"
-      );
-      if (!next.needsFetch) return; // at the retained bottom; no older cursor (flag stays clear)
-      _historyPaging = true;
-      Pet.api.getScanHistory(100, next.cursor).then(function (d) {
-        _historyPaging = false; // clear before any early return so paging can resume
-        if (Pet.auth.on401(d)) return; // a 401 stops paging, never a stale page
-        if (!d.error) {
-          Pet.state.historyAtHead = false;
-          var st = Pet.state.historyStack || (Pet.state.historyStack = []);
-          st.push({
-            entries: (d.entries && Array.isArray(d.entries)) ? d.entries : [],
-            cursor: next.cursor,
-            nextBefore: d.next_before || null,
-            olderTruncated: !!d.older_truncated,
-          });
-          if (Pet.state.tab === "obs" && _container) Pet.renderDashboard(_container);
-        }
-      });
-    }
-    function pageHistoryNewer() {
-      // Same in-flight guard as pageHistoryOlder: while an "Older" fetch is pending, a
-      // synchronous stack pop here would invalidate the cursor that pending .then is about
-      // to push from, appending a non-contiguous page and breaking Older/Newer adjacency.
-      if (_historyPaging) return;
-      var next = Pet.historyPagingView(
-        { atHead: Pet.state.historyAtHead !== false, stack: Pet.state.historyStack || [] },
-        "newer"
-      );
-      Pet.state.historyAtHead = next.atHead;
-      Pet.state.historyStack = next.stack;
-      if (Pet.state.tab === "obs" && _container) Pet.renderDashboard(_container);
-    }
-
+    // PET-152: the "Older"/"Newer" handlers are now module-scoped (Pet.pageHistoryOlder /
+    // Pet.pageHistoryNewer), defined once rather than rebuilt per render so they provably share
+    // the one _historyPaging in-flight binding and are unit-testable end-to-end.
     var histControls = Pet.h("div", { style: { display: "flex", gap: "8px", marginTop: "10px", alignItems: "center" } });
     if (histCanOlder) {
       histControls.appendChild(Pet.h("button", {
         className: "btn btn-ghost btn-sm", type: "button",
-        ariaLabel: "Show older scan history", onClick: pageHistoryOlder,
+        ariaLabel: "Show older scan history", onClick: Pet.pageHistoryOlder,
       }, "Older"));
     }
     if (!histAtHead) {
       histControls.appendChild(Pet.h("button", {
         className: "btn btn-ghost btn-sm", type: "button",
-        ariaLabel: "Show newer scan history", onClick: pageHistoryNewer,
+        ariaLabel: "Show newer scan history", onClick: Pet.pageHistoryNewer,
       }, "Newer"));
     }
     // Body: rows for the active view, or the retention-honest empty state when a paged-back
@@ -1779,10 +1783,12 @@
         // _req never rejects on HTTP error (it resolves an error envelope), and a
         // 200 {} body lacking .entries would make the merge throw on .scan_id.
         if (!d.error && d.entries && Array.isArray(d.entries)) {
-          // PET-148: the server's next_before on the seed (limit 500) is the cursor at the
-          // oldest seeded row — the boundary the first "Older" click pages past, server-minted
-          // so the client never mints a float-repr-fragile token (edge F-4).
-          Pet.state.historyHeadCursor = d.next_before || null;
+          // PET-148/PET-152: the seed merges the live-head window but no longer captures a head
+          // cursor. PET-152 dropped that cached cursor: it went stale once the ring evicted past
+          // the oldest seeded row, so the first "Older" click skipped the band between the current
+          // oldest buffered row and the stale boundary. The head boundary is now re-minted per
+          // head->older transition (Pet.pageHistoryOlder), never cached across evictions (edge F-4
+          // still holds: that re-mint is a server round-trip, never a client-derived token).
           // PET-99 D6/D9: shape-guarded seed-merge (skips non-object entries on
           // both sides before reading .scan_id) — replaces the inline dedup loops.
           Pet.mergeScanHistory(Pet.state.scanHistory, d.entries);
@@ -3252,11 +3258,125 @@
   // scan-history ring buffer exactly once per mount (not on every SSE re-render).
   // Reset in Pet.unmount AND at the top of Pet.mount (double-mount hardening).
   var _historySeeded = false;
-  // PET-148: in-flight guard for "Older" paging. The pageHistoryOlder handler closure is
-  // rebuilt on every renderDashboard, so a local flag can't survive between clicks — this
-  // module-scoped flag ignores re-entrant clicks while a getScanHistory fetch is pending,
-  // so two quick clicks can't fetch the same cursor twice and push a duplicate page.
+  // PET-148/PET-152: in-flight guard for scan-history paging. PET-152 extracted the
+  // pageHistoryOlder/pageHistoryNewer handlers to module scope (Pet.pageHistoryOlder /
+  // Pet.pageHistoryNewer), so they are now defined ONCE and provably share this one binding
+  // rather than being rebuilt per renderDashboard. It ignores re-entrant clicks while a
+  // getScanHistory fetch is pending — including across the PET-152 two-fetch re-mint chain —
+  // so two quick clicks can't fetch the same cursor twice, and an in-flight "Older" re-mint
+  // blocks a "Newer" click that would otherwise pop the cursor that pending .then is about to
+  // push from (the :1667-style non-contiguous-page hazard).
   var _historyPaging = false;
+  // PET-152: paging generation. Bumped at every paging-context teardown (_enterAuthRequired,
+  // _resume, Pet.mount, Pet.unmount — beside each _historySeeded = false) and captured by each
+  // handler at entry; every fetch .then/.catch checks it before mutating, so a two-fetch re-mint
+  // chain that outlives a re-seed / 401 / unmount / profile-switch cannot push a stale older page
+  // onto a freshly-reset stack or flip historyAtHead. Mirrors the Pet.auth._gen stale-read guard.
+  var _historyPagingGen = 0;
+  // PET-152: one-shot tripwire flag for the re-mint divergence (the gate offered "Older" because
+  // scans_total > buffered, yet the head re-mint returned no cursor). Set once per console-JS load
+  // and intentionally NOT reset at teardown — it is a structural-defect signal, not a per-session
+  // one (matches the server one-shot WARNING _ring_overflow_warned at server.py:609).
+  var _remintMissWarned = false;
+
+  // PET-152: one-shot console.warn naming the re-mint divergence. The "Older" gate keyed on the
+  // lifetime scans_total promised older rows exist, but the head re-mint came back with no cursor
+  // (ring empty / error, or everything beyond the ring already rotated out). Surfacing it once
+  // turns a would-be silent dead click into an operator-visible signal.
+  function _warnRemintMiss() {
+    if (_remintMissWarned) return;
+    _remintMissWarned = true;
+    if (typeof console !== "undefined" && console && console.warn) {
+      console.warn(
+        "[petasos] scan-history: re-mint returned no cursor while scans_total exceeded the " +
+        "buffered window; landing on the retention-honest empty state. Rows older than the live " +
+        "window are unreachable (aged out of retention, or the live ring is empty)."
+      );
+    }
+  }
+
+  // PET-152: the single shared push for an older page — both the re-mint path and the paged-view
+  // path call it, so the shape guard and render trigger live in one place. Module-scoped (never a
+  // render-local) because it needs _container / Pet.renderDashboard. Keeps the Array.isArray shape
+  // guard so a 200 {} / { entries: null } body lands on the honest empty state instead of throwing
+  // on .scan_id (carried from the seed-merge hazard at :1778-1780).
+  function _pushOlderPage(cursor, d) {
+    Pet.state.historyAtHead = false;
+    var st = Pet.state.historyStack || (Pet.state.historyStack = []);
+    st.push({
+      entries: (d && Array.isArray(d.entries)) ? d.entries : [],
+      cursor: cursor,
+      nextBefore: (d && d.next_before) || null,
+      olderTruncated: !!(d && d.older_truncated),
+    });
+    if (Pet.state.tab === "obs" && _container) Pet.renderDashboard(_container);
+  }
+
+  // PET-152: "Older" handler. Reads Pet.state fresh at click time, captures the paging
+  // generation, asks the reducer for a plan, and runs the two-fetch re-mint off the live head:
+  // fetch-1 (limit = runtime buffer length, `before` absent) re-mints the head boundary off the
+  // in-memory ring; fetch-2 (`before` = freshCursor) pages into the on-disk sink. The two fetches
+  // read two different stores (server.py:1219-1235), so ring-then-sink is the only shape that can
+  // mint a current head boundary AND then reach the sink. The _historyPaging guard stays set
+  // across BOTH fetches and is cleared on every terminal path; each .then/.catch first checks the
+  // captured generation so a chain that outlives a re-seed / 401 / unmount drops without mutating.
+  Pet.pageHistoryOlder = function () {
+    if (_historyPaging) return; // ignore re-entrant clicks while a fetch is in flight
+    var gen = _historyPagingGen; // F-2: capture; teardown bumps this
+    var plan = Pet.historyPagingView(
+      {
+        atHead: Pet.state.historyAtHead !== false,
+        stack: Pet.state.historyStack || [],
+        bufferLength: (Pet.state.scanHistory || []).length,
+      },
+      "older"
+    );
+    if (plan.needsRemint) {
+      _historyPaging = true;
+      Pet.api.getScanHistory(plan.remintLimit).then(function (rd) {
+        if (gen !== _historyPagingGen) return;          // superseded by re-seed/401/unmount
+        if (Pet.auth.on401(rd)) { _historyPaging = false; return; }
+        var freshCursor = (rd && !rd.error && rd.next_before) ? rd.next_before : null;
+        if (freshCursor == null) {                      // gate said older exist, ring points nowhere
+          _historyPaging = false;
+          _pushOlderPage(null, { entries: [], older_truncated: true }); // honest empty (E-6)
+          _warnRemintMiss();                            // one-shot tripwire (E-6)
+          return;
+        }
+        return Pet.api.getScanHistory(100, freshCursor).then(function (d) {
+          if (gen !== _historyPagingGen) return;
+          _historyPaging = false;
+          if (Pet.auth.on401(d)) return;
+          if (!d.error) { _pushOlderPage(freshCursor, d); }
+        });
+      }).catch(function () { if (gen === _historyPagingGen) _historyPaging = false; });
+      return;
+    }
+    if (!plan.needsFetch) return; // paged view at the retained bottom (flag stays clear)
+    _historyPaging = true;
+    Pet.api.getScanHistory(100, plan.cursor).then(function (d) {
+      if (gen !== _historyPagingGen) return;
+      _historyPaging = false; // clear before any early return so paging can resume
+      if (Pet.auth.on401(d)) return; // a 401 stops paging, never a stale page
+      if (!d.error) { _pushOlderPage(plan.cursor, d); }
+    }).catch(function () { if (gen === _historyPagingGen) _historyPaging = false; });
+  };
+
+  // PET-152: "Newer" handler — relocated to module scope, behavior byte-identical to the former
+  // render-local closure (D-PAGING: client-buffered stack pop, no fetch), so it provably shares
+  // the one _historyPaging binding with pageHistoryOlder. Same in-flight guard: while an "Older"
+  // fetch is pending, a synchronous stack pop here would invalidate the cursor that pending .then
+  // is about to push from, appending a non-contiguous page and breaking Older/Newer adjacency.
+  Pet.pageHistoryNewer = function () {
+    if (_historyPaging) return;
+    var next = Pet.historyPagingView(
+      { atHead: Pet.state.historyAtHead !== false, stack: Pet.state.historyStack || [] },
+      "newer"
+    );
+    Pet.state.historyAtHead = next.atHead;
+    Pet.state.historyStack = next.stack;
+    if (Pet.state.tab === "obs" && _container) Pet.renderDashboard(_container);
+  };
   // PET-127: gate the scanner-health skeleton. renderDashboard re-runs on every
   // SSE/poll frame, so an unconditional skeleton would re-flash; this flips true
   // at every /health settle (in-render success+error arms AND the 10s poll), never
@@ -3311,6 +3431,7 @@
   Pet.mount = function (el) {
     el.innerHTML = "";
     _historySeeded = false;  // PET-102: re-seed on a re-mount that skipped unmount (plugin hot-reload)
+    _historyPaging = false; _historyPagingGen++;  // PET-152: cancel any in-flight paging from a skipped unmount
     _healthLoaded = false;   // PET-127: re-show the scanner-health skeleton on (re-)mount
     _armedSeeded = false;    // PET-111: re-fetch the armed bit on (re-)mount
     clearArmedConfirm();     // drop any stale disarm-confirm + timer from a skipped unmount
@@ -3405,6 +3526,7 @@
     _connStatus = null;      // PET-13: drop the stale header-blip node
     _liveRegion = null;      // PET-13: drop the stale live-region node
     _historySeeded = false;  // PET-102: next mount re-seeds the history buffer
+    _historyPaging = false; _historyPagingGen++;  // PET-152: cancel any in-flight paging re-mint on teardown
     _healthLoaded = false;   // PET-127: next mount re-shows the scanner-health skeleton
     _armedSeeded = false;    // PET-111: next mount re-fetches the armed bit
     clearArmedConfirm();     // clear the pending-disarm confirm + its 4s timer on teardown
