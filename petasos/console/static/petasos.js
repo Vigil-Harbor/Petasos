@@ -332,6 +332,15 @@
     // so a profile switch reloads the same profile after save/discard.
     selectedHermesProfile: null,
     scanHistory: [],
+    // PET-148: scan-history back-page paging state. historyAtHead=true shows the live
+    // SSE-maintained scanHistory buffer (the most-recent window); when paged back,
+    // historyStack holds the fetched older pages (top = current view) and historyHeadCursor
+    // is the server `next_before` for the first "Older" click off the live head (server-minted
+    // to avoid float-repr drift). The single "of N" total stays /health.scans_total (D-RESTART);
+    // paged views never compute a competing total.
+    historyAtHead: true,
+    historyStack: [],
+    historyHeadCursor: null,
     // PET-138: session_id -> cumulative count of tool calls bypassed while disarmed.
     // Dedicated, eviction-proof state (the count rides a single rate-limited
     // heartbeat row that ages out of scanHistory); fed by Pet.accrueBypass.
@@ -554,7 +563,7 @@
     putConfig: function (patch) { return this._put("/config", patch); },
     postScan: function (text, dir, sid) { return this._post("/scan", { text: text, direction: dir, session_id: sid }); },
     getHealth: function () { return this._get("/health"); },
-    getScanHistory: function (limit) { return this._get("/scan-history?limit=" + (limit || 100)); },
+    getScanHistory: function (limit, before) { return this._get("/scan-history?limit=" + (limit || 100) + (before ? "&before=" + encodeURIComponent(before) : "")); },
     getProfiles: function () { return this._get("/profiles"); },
     getAbout: function () { return this._get("/about"); },
     getArmed: function () { return this._get("/armed"); },
@@ -754,7 +763,10 @@
           var _nf = Array.isArray(d.findings) ? d.findings.length : 0;
           if (Pet.announce) Pet.announce("Scan " + _v + (_nf ? (", " + _nf + " finding" + (_nf === 1 ? "" : "s")) : ""));
         }
-        if (Pet.state.scanHistory.length > 500) Pet.state.scanHistory.length = 500;
+        // PET-148 (D-DRIFT): the @ring-cap marker pins this literal to the backend
+        // _SCAN_HISTORY_RING_CAPACITY; the drift test greps the marker, never a bare 500
+        // (which would also match the getScanHistory(500) seed page-size below).
+        if (Pet.state.scanHistory.length > /* @ring-cap */ 500) Pet.state.scanHistory.length = 500;
         if (Pet.state.tab === "obs" && _container) Pet.renderDashboard(_container);
       } else if (evType === "audit") {
         Pet.state.auditLog.unshift(d);
@@ -1280,6 +1292,53 @@
     return "showing last " + b + " of " + t;
   };
 
+  // PET-148: positional label for a paged-back history view (D-RESTART). NEVER a numeric
+  // total — the only "of N" headline anywhere stays scanHistorySubtitle (scans_total from
+  // /health). An empty page is retention-honest: "no older retained history" when the
+  // cursor's segment aged out (older_truncated), never a flat "no older history" that would
+  // read as a false absolute bottom (D-ROTATION / edge F-2). Pure (no DOM, no network).
+  Pet.historyPageLabel = function (page) {
+    page = page || {};
+    var entries = Array.isArray(page.entries) ? page.entries : [];
+    if (entries.length === 0) {
+      return page.olderTruncated ? "no older retained history" : "no older history";
+    }
+    return "older history";
+  };
+
+  // PET-148: pure paging-state transition for scan-history back-pages (testable in node:vm,
+  // like scanHistorySubtitle / mergeScanHistory). The server cursor walks only OLDER
+  // (D-PAGING); "newer" replays the client-buffered page stack back toward the live head.
+  // Given the current paging state + a navigation action, returns the next-state descriptor
+  // {atHead, stack, cursor, needsFetch} — no DOM, no network. For "older" the caller fetches
+  // with `cursor` (when needsFetch) and pushes the resulting page; for "newer"/"head" the
+  // returned {atHead, stack} is applied directly (client-buffered, no fetch).
+  Pet.historyPagingView = function (state, action) {
+    state = state || {};
+    var stack = Array.isArray(state.stack) ? state.stack.slice() : [];
+    var headCursor = (state.headCursor != null) ? state.headCursor : null;
+    var top = stack.length ? stack[stack.length - 1] : null;
+    if (action === "head") {
+      return { atHead: true, stack: [], cursor: null, needsFetch: false };
+    }
+    if (action === "newer") {
+      stack.pop(); // drop the current paged view
+      if (stack.length === 0) return { atHead: true, stack: [], cursor: null, needsFetch: false };
+      return { atHead: false, stack: stack, cursor: null, needsFetch: false };
+    }
+    if (action === "older") {
+      // Cursor: the current view's next_before, or the live head's server cursor off the head.
+      var cursor = top ? (top.nextBefore != null ? top.nextBefore : null) : headCursor;
+      var needsFetch = cursor != null;
+      return {
+        atHead: needsFetch ? false : (state.atHead !== false),
+        stack: stack, cursor: cursor, needsFetch: needsFetch,
+      };
+    }
+    // Unknown action: stay put.
+    return { atHead: state.atHead !== false, stack: stack, cursor: null, needsFetch: false };
+  };
+
   Pet.mergeScanHistory = function (buffer, entries) {
     var seen = new Set();
     for (var j = 0; j < buffer.length; j++) {
@@ -1556,16 +1615,87 @@
     });
     wrapper.appendChild(healthPanel);
 
-    // Scan history — rows derived from the same buffer (already most-recent-first).
+    // Scan history — PET-148 back-pages. The live head renders the SSE-maintained ≤500
+    // buffer with the PET-144 "last N of M" subtitle; paged-back views render fetched older
+    // pages with a positional (no-total) label and Older/Newer controls (D-RESTART/D-PAGING).
+    var histAtHead = Pet.state.historyAtHead !== false;
+    var histStack = Pet.state.historyStack || [];
+    var histPaged = (!histAtHead && histStack.length) ? histStack[histStack.length - 1] : null;
+    var histRowsData = histPaged
+      ? (Array.isArray(histPaged.entries) ? histPaged.entries : [])
+      : hist;
+    var histSubtitle = histPaged
+      ? Pet.historyPageLabel(histPaged)
+      : Pet.scanHistorySubtitle(
+          hist.length,
+          Pet.state.pipelineHealth && Pet.state.pipelineHealth.scans_total
+        );
+    // "Older" is offered when an older cursor exists (the paged view's next_before, or the
+    // live head's server cursor from the seed); "Newer" only when paged back.
+    var histCanOlder = histPaged
+      ? (histPaged.nextBefore != null)
+      : (Pet.state.historyHeadCursor != null);
+
+    function pageHistoryOlder() {
+      var next = Pet.historyPagingView(
+        {
+          atHead: Pet.state.historyAtHead !== false,
+          stack: Pet.state.historyStack || [],
+          headCursor: Pet.state.historyHeadCursor,
+        },
+        "older"
+      );
+      if (!next.needsFetch) return; // at the retained bottom; no older cursor
+      Pet.api.getScanHistory(100, next.cursor).then(function (d) {
+        if (Pet.auth.on401(d)) return; // a 401 stops paging, never a stale page
+        if (!d.error) {
+          Pet.state.historyAtHead = false;
+          var st = Pet.state.historyStack || (Pet.state.historyStack = []);
+          st.push({
+            entries: (d.entries && Array.isArray(d.entries)) ? d.entries : [],
+            cursor: next.cursor,
+            nextBefore: d.next_before || null,
+            olderTruncated: !!d.older_truncated,
+          });
+          if (Pet.state.tab === "obs" && _container) Pet.renderDashboard(_container);
+        }
+      });
+    }
+    function pageHistoryNewer() {
+      var next = Pet.historyPagingView(
+        { atHead: Pet.state.historyAtHead !== false, stack: Pet.state.historyStack || [] },
+        "newer"
+      );
+      Pet.state.historyAtHead = next.atHead;
+      Pet.state.historyStack = next.stack;
+      if (Pet.state.tab === "obs" && _container) Pet.renderDashboard(_container);
+    }
+
+    var histControls = Pet.h("div", { style: { display: "flex", gap: "8px", marginTop: "10px", alignItems: "center" } });
+    if (histCanOlder) {
+      histControls.appendChild(Pet.h("button", {
+        className: "btn btn-ghost btn-sm", type: "button",
+        ariaLabel: "Show older scan history", onClick: pageHistoryOlder,
+      }, "Older"));
+    }
+    if (!histAtHead) {
+      histControls.appendChild(Pet.h("button", {
+        className: "btn btn-ghost btn-sm", type: "button",
+        ariaLabel: "Show newer scan history", onClick: pageHistoryNewer,
+      }, "Newer"));
+    }
+    // Body: rows for the active view, or the retention-honest empty state when a paged-back
+    // view came back empty (never "no scans yet" — that is the live-head empty state).
+    var histBody = (histPaged && histRowsData.length === 0)
+      ? Pet.h("div", { className: "mono", style: { color: "var(--tx-faint)", fontSize: "12px" } }, Pet.historyPageLabel(histPaged))
+      : Pet.scanHistoryRows(histRowsData);
+
     var historyPanel = Pet.Panel({
       icon: "list", title: "scan history", flush: true,
-      // PET-144: lifetime total (scans_total from /health) vs the buffered ≤500 window.
-      place: Pet.scanHistorySubtitle(
-        hist.length,
-        Pet.state.pipelineHealth && Pet.state.pipelineHealth.scans_total
-      ),
-      help: Pet.HelpTip("<b>Scan History</b>: recent pipeline scans with severity, direction, and timing. Each row is one <code>Pipeline.evaluate()</code> call."),
-      content: Pet.h("div", { style: { padding: "12px" } }, Pet.scanHistoryRows(hist)),
+      // PET-144/PET-148: lifetime "last N of M" at the head; a positional label when paged.
+      place: histSubtitle,
+      help: Pet.HelpTip("<b>Scan History</b>: recent pipeline scans with severity, direction, and timing. Each row is one <code>Pipeline.evaluate()</code> call. <b>Older</b>/<b>Newer</b> page through retained history beyond the live window."),
+      content: Pet.h("div", { style: { padding: "12px" } }, histBody, histControls),
     });
     wrapper.appendChild(historyPanel);
 
@@ -1632,12 +1762,20 @@
     // the SSE-maintained buffer rather than re-seeding.
     if (!_historySeeded) {
       _historySeeded = true;
+      // PET-148: every (re-)seed starts at the live head — drop any paged-back state from a
+      // prior mount/profile (a `before` cursor is only meaningful within its own profile).
+      Pet.state.historyAtHead = true;
+      Pet.state.historyStack = [];
       Pet.api.getScanHistory(500).then(function (d) {
         if (Pet.auth.on401(d)) return; // PET-129 D3: first statement, before the shape-guarded seed-merge
         // startFallbackPolling response-shape guard, NOT the bare !d.error check:
         // _req never rejects on HTTP error (it resolves an error envelope), and a
         // 200 {} body lacking .entries would make the merge throw on .scan_id.
         if (!d.error && d.entries && Array.isArray(d.entries)) {
+          // PET-148: the server's next_before on the seed (limit 500) is the cursor at the
+          // oldest seeded row — the boundary the first "Older" click pages past, server-minted
+          // so the client never mints a float-repr-fragile token (edge F-4).
+          Pet.state.historyHeadCursor = d.next_before || null;
           // PET-99 D6/D9: shape-guarded seed-merge (skips non-object entries on
           // both sides before reading .scan_id) — replaces the inline dedup loops.
           Pet.mergeScanHistory(Pet.state.scanHistory, d.entries);

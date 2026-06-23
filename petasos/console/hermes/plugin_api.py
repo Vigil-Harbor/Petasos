@@ -273,8 +273,9 @@ async def get_health() -> Any:
 
 
 @router.get("/scan-history")
-async def get_scan_history(limit: int = 100) -> Any:
-    return await _require_handlers().get_scan_history(limit)
+async def get_scan_history(limit: int = 100, before: str | None = None) -> Any:
+    # PET-148: additive `before` cursor for back-pages; absent => today's live window.
+    return await _require_handlers().get_scan_history(limit, before)
 
 
 @router.get("/profiles")

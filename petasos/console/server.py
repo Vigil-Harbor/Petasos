@@ -19,6 +19,7 @@ import time
 import uuid
 from typing import TYPE_CHECKING, Any
 
+from petasos.console import _history
 from petasos.console._config_meta import generate_config_metadata, generate_section_metadata
 from petasos.console._paths import (
     _resolved_normcase,
@@ -67,6 +68,14 @@ _INTEGRITY_LOG_EVERY_S = 30.0
 # long decoded-payload message cannot bloat the ring buffer / SSE frame — matching the
 # 200-char block-message truncation in petasos/session/formatting.py.
 _MAX_REASON_LEN = 200
+
+# PET-148 (D-DRIFT): single source of truth for the in-memory scan-history ring capacity.
+# Promoted from the inline `RingBuffer(maxlen=500)` literal so the ring window and the
+# on-disk back-page cursor cannot silently disagree: surfaced in get_health as
+# `scan_history_capacity`, and pinned against the JS `/* @ring-cap */ 500` literal by
+# tests/test_console_scan_history.py::test_ring_capacity_single_source. A hard cap, not a
+# config field (depth comes from the on-disk sink, not a bigger deque — PET-144 convention).
+_SCAN_HISTORY_RING_CAPACITY = 500
 
 # PET-137: bounds on the per-row playground "detail" blob persisted alongside the
 # scan-history summary so a playground row can drill down to its findings (enforcement
@@ -256,6 +265,67 @@ def _enforcement_summary(ev: dict[str, Any], *, provenance: str = "unattested") 
     }
 
 
+def _history_disk_row(summary: dict[str, Any]) -> dict[str, Any]:
+    """Project a ring summary to its PII-minimized at-rest shape (PET-148 D-PII-PROJECTION).
+
+    The ring summary's only content-bearing field is ``detail.normalized_text`` (the bounded
+    preview of the operator's scanned text, ``_build_playground_detail`` D7). This strips it
+    (and its ``_truncated`` flag), keeping the structured remainder: the headline fields and
+    the capped ``detail.findings`` projection. ``matched_text`` is already stripped upstream
+    by ``_build_playground_detail`` (D5) and never reaches the summary, so it can never reach
+    disk. Pure and total: the ``.get`` + ``isinstance(detail, dict)`` guard (NOT a subscript)
+    makes it correct over a summary whose ``detail`` is absent (every enforcement summary
+    carries none — ``_enforcement_summary``), ``None``, or non-dict; never raises. A finding
+    ``message`` of ``None`` passes through untouched (it is capped, not stripped, here). The
+    projection is the inverse-coupled twin of ``_build_playground_detail``'s content keys
+    (``normalized_text`` / ``normalized_text_truncated``).
+    """
+    row = dict(summary)
+    detail = row.get("detail")
+    if isinstance(detail, dict):
+        projected = dict(detail)
+        projected.pop("normalized_text", None)
+        projected.pop("normalized_text_truncated", None)
+        row["detail"] = projected
+    return row
+
+
+def _history_cursor_token(row: dict[str, Any]) -> str | None:
+    """Mint the opaque ``before`` cursor token for *row* (PET-148 D-CURSOR), or None.
+
+    Format ``f"{timestamp!r}~{scan_id}"``: a float repr contains no ``~`` and ``scan_id``
+    (``s-<hex>`` / ``e-<hex>``) is ``~``-free, so ``rsplit("~", 1)`` round-trips cleanly.
+    Returns None for a row that cannot be ordered (non-numeric ``timestamp`` or non-string
+    ``scan_id``) so the caller emits ``next_before: null`` rather than a broken token.
+    """
+    ts = row.get("timestamp")
+    sid = row.get("scan_id")
+    if isinstance(ts, bool) or not isinstance(ts, (int, float)) or not isinstance(sid, str):
+        return None
+    return f"{float(ts)!r}~{sid}"
+
+
+def _parse_history_cursor(before: str | None) -> tuple[tuple[float, str] | None, bool]:
+    """Parse a ``before`` cursor token fail-safe (PET-148 D-CURSOR). Never raises.
+
+    Returns ``(cursor, malformed)``: ``(None, False)`` when *before* is absent (the live
+    window — the intended default); ``(None, True)`` when it is present but unparseable (an
+    empty page, NOT a snap-back to the live head — a teleport from deep history to the newest
+    500 is a wrong answer the operator did not ask for); ``((timestamp, scan_id), False)``
+    for a valid token. The arity check (exactly one ``~`` split into two parts) plus the
+    ``float()`` try are the only two ways a token is rejected.
+    """
+    if before is None:
+        return None, False
+    parts = before.rsplit("~", 1)
+    if len(parts) != 2:
+        return None, True
+    try:
+        return (float(parts[0]), parts[1]), False
+    except (ValueError, TypeError):
+        return None, True
+
+
 def _persist_config(validated_config: Any, *, target_path: "Path | None" = None) -> bool:
     """Write the petasos: section back to a Hermes config.yaml.
 
@@ -414,7 +484,23 @@ class ConsoleHandlers:
         # `_enforcement_lock`, which already serializes the read path (no `threading.Lock`
         # needed, unlike the reference plugin's writer-thread module clocks).
         self._integrity_log_last = 0.0
-        self.scan_history = RingBuffer[dict[str, Any]](maxlen=500)
+        # PET-148 (D-ATTEST): reader/writer key for the persistent scan-history sink — a
+        # DISTINCT domain-separated subkey of the same session_secret (label
+        # b"petasos/scan-history/v1"), never the spool subkey. `None` => integrity off
+        # ("unattested", the no-regression path). Single construction chokepoint for both
+        # standalone and embedded modes, parallel to self._spool_key above.
+        self._history_key: bytes | None = (
+            _history._derive_history_key(s) if (s := pipeline.config.session_secret) else None
+        )
+        # PET-148: the sole guard for the history sink's FILE STRUCTURE — every cursor
+        # page-read and every rotate_history check acquires it, so a rotation can never
+        # interleave a page read or another rotate. Acquired sequentially with (never nested
+        # inside) _enforcement_lock; the lockless O(1) append path takes neither.
+        self._history_lock = asyncio.Lock()
+        # One-shot guard so a dead sink logs PETASOS_HISTORY_SINK_UNWRITABLE exactly once
+        # per run, not per scan (mirrors _ring_overflow_warned).
+        self._history_sink_warned = False
+        self.scan_history = RingBuffer[dict[str, Any]](maxlen=_SCAN_HISTORY_RING_CAPACITY)
         self.sse = SSEBroadcaster()
         self._start_time = time.monotonic()
 
@@ -508,9 +594,12 @@ class ConsoleHandlers:
             pass
 
     def _record_scan(self, summary: dict[str, Any]) -> None:
-        """Single record chokepoint: append to the ring AND bump the eviction-proof
-        total. Both the playground run_scan push and the drained-enforcement fold route
-        here so scans_total can never diverge from what was recorded (PET-144)."""
+        """Single record chokepoint: append to the ring, the on-disk sink, AND bump the
+        eviction-proof total in lockstep. Both the playground run_scan push and the
+        drained-enforcement fold route here so the three records of "a scan happened"
+        cannot diverge (PET-144 / PET-131 / PET-148 D-CHOKEPOINT). Stays SYNCHRONOUS and
+        lockless: the sink append is O(1), fsync-free, fail-open on-path work that never
+        gates or slows a scan."""
         self.scan_history.push(summary)
         self._scans_total += 1
         if not self._ring_overflow_warned and self._scans_total > len(self.scan_history):
@@ -522,6 +611,56 @@ class ConsoleHandlers:
                 len(self.scan_history),
                 len(self.scan_history),
             )
+        # PET-148 (D-CHOKEPOINT): persist the PII-minimized projection fail-open. A
+        # persistence error never gates the scan; on the FIRST failure emit a one-shot
+        # greppable WARNING (mirrors the ring-overflow warn above) so a dead sink (absent
+        # dir, full disk, permissions) is observable, not silent (D-WRITER / edge F-8/F-9).
+        # `and` short-circuits AFTER the append (left operand always runs), so the append
+        # fires on every scan and only the WARNING is one-shot-gated.
+        if (
+            not _history.append_history_row(_history_disk_row(summary), self._history_key)
+            and not self._history_sink_warned
+        ):
+            self._history_sink_warned = True
+            _logger.warning(
+                "PETASOS_HISTORY_SINK_UNWRITABLE scan-history sink append failed "
+                "(absent state dir, full disk, or permissions); persisted back-pages "
+                "are unavailable. The in-memory ring and scans_total are unaffected. "
+                "Logged once per run."
+            )
+
+    async def _maybe_rotate_history(self) -> None:
+        """PET-148 (D-ROTATION): bound the on-disk sink under the sink-structure lock.
+
+        The single rotation entry point. Called after EVERY append path — the enforcement
+        drain (standalone tailer + every get_scan_history read) and run_scan (the playground
+        path) — so the sink is bounded in both standalone and embedded modes regardless of
+        reads. The embedded Hermes plugin starts no background tailer, so checking rotation
+        only on the drain would leave a never-polled embedded sink unbounded under sustained
+        playground scans. Acquires only _history_lock (sequentially with, never nested
+        inside, _enforcement_lock); a long O(retained) page read holding that lock blocks
+        only a later rotation, never the enforcement drain. Never raises."""
+        async with self._history_lock:
+            try:
+                if _history.history_size() > _history._HISTORY_CAP_BYTES:
+                    _history.rotate_history()
+            except Exception:
+                _logger.debug("scan-history sink bounding failed", exc_info=True)
+
+    def _attach_history_provenance(self, row: dict[str, Any]) -> dict[str, Any]:
+        """PET-148 (D-ATTEST): classify a disk row's provenance, then strip its internal sig.
+
+        Mirrors _surface_enforcement_event exactly: with NO key the row is "unattested"
+        (still trusted — the no-key no-regression path); with a key a verified row is
+        "genuine", a bad/missing sig is "unverifiable". No tripwire log on the read path —
+        the PETASOS_INTEGRITY_UNVERIFIABLE log is the live enforcement drain's job; a
+        historical read is not an enforcement decision (edge F-7). Mutates and returns row."""
+        verified = _history.verify_history_row(row, self._history_key)
+        key_on = self._history_key is not None
+        provenance = "unattested" if not key_on else ("genuine" if verified else "unverifiable")
+        row["provenance"] = provenance
+        row.pop("sig", None)
+        return row
 
     async def _surface_enforcement_event(self, ev: dict[str, Any]) -> None:
         """Fold one drained enforcement event into scan_history + the tally + SSE.
@@ -645,6 +784,12 @@ class ConsoleHandlers:
                         )
             except Exception:
                 _logger.debug("enforcement spool bounding failed", exc_info=True)
+        # PET-148 (D-ROTATION / edge F-10): bound the history sink AFTER the _enforcement_lock
+        # body closes — a SEQUENTIAL, never nested, lock acquisition (the two locks guard two
+        # different resources; see Concurrency notes). Covers the standalone 1s background
+        # tailer AND every get_scan_history (the enforcement-fold + read paths). Runs in its
+        # own _history_lock block, so a history rotation can never stall live-enforcement SSE.
+        await self._maybe_rotate_history()
 
     def _on_audit(self, event: Any) -> None:
         import asyncio
@@ -967,7 +1112,13 @@ class ConsoleHandlers:
         )
         normalized_text = norm.normalized
 
-        scan_id = f"s-{uuid.uuid4().hex[:6]}"
+        # PET-148 (edge F-4): full uuid hex, not a 6-char prefix. scan_id is the cursor's
+        # (timestamp, scan_id) tie-breaker AND the brief's dedup key; the 24-bit [:6] space
+        # collides at ~95% within the sink's ~10 k-row retention (birthday), which would break
+        # dedup and cursor uniqueness. Full hex matches the enforcement `e-` keyspace entropy.
+        # scan_id is an opaque token (HTTP echo + JS dedup), so widening it is observationally
+        # inert for every existing consumer.
+        scan_id = f"s-{uuid.uuid4().hex}"
         summary: dict[str, Any] = {
             "scan_id": scan_id,
             "safe": result.safe,
@@ -980,6 +1131,12 @@ class ConsoleHandlers:
             "detail": _build_playground_detail(result, norm),
         }
         self._record_scan(summary)
+        # PET-148 (D-ROTATION / round-3 embedded gap): bound the sink on the playground
+        # append path. This is the ONLY sink-growth path the embedded Hermes plugin has
+        # between reads (it starts no background tailer), so without it a never-polled
+        # embedded sink would grow unbounded under sustained operator scans. _record_scan
+        # itself stays sync + lockless; the rotate check is async and takes _history_lock.
+        await self._maybe_rotate_history()
         await self.sse.broadcast("scan_result", summary)
 
         return {
@@ -1002,19 +1159,58 @@ class ConsoleHandlers:
                 "config_hash": config_hash,
                 "uptime_seconds": round(time.monotonic() - self._start_time, 1),
                 "scans_total": self._scans_total,  # PET-144: eviction-proof lifetime count
+                # PET-148 (D-DRIFT): single source of truth for the ring window size so the
+                # frontend never hardcodes a second 500 that could drift from the backend.
+                "scan_history_capacity": _SCAN_HISTORY_RING_CAPACITY,
             },
             "scanners": self.pipeline.scanner_health(),
             "feature_status": dict(self.pipeline._build_feature_status()),
         }
 
-    async def get_scan_history(self, limit: int = 100) -> dict[str, Any]:
+    async def get_scan_history(
+        self, limit: int = 100, before: str | None = None
+    ) -> dict[str, Any]:
         # PET-131: drain-on-read is the floor that surfaces live enforcement on the
         # gated-mode polling fallback (PET-83) and in the embedded Hermes plugin path
         # (no FastAPI startup tailer there). The background tailer is the live-SSE
-        # latency optimization on top; both share the exactly-once drain.
+        # latency optimization on top; both share the exactly-once drain. PET-148: the
+        # drain now also rotates the history sink (in its own _history_lock block, after
+        # its _enforcement_lock body), bounding growth on the tailer + read paths.
         await self._drain_enforcement_into_history()
         clamped = min(max(1, limit), 1000)
-        return {"entries": list(reversed(self.scan_history.to_list(clamped)))}
+        # PET-148 (D-CURSOR): additive `before` cursor. Absent => today's live window
+        # (byte-identical `entries`); present => reverse-scan the on-disk sink for rows
+        # strictly older than the cursor. The response gains additive `next_before` +
+        # `older_truncated` keys; PET-144's `entries`/`scans_total` shape is preserved, so
+        # existing consumers ignore the new keys.
+        rows: list[dict[str, Any]]
+        older_truncated: bool
+        cursor, malformed = _parse_history_cursor(before)
+        if malformed:
+            # Present-but-unparseable: an EMPTY page, never a snap-back to the live head
+            # (a teleport from deep history to the newest 500 is a wrong answer; edge F-4).
+            _logger.debug(
+                "PETASOS_HISTORY malformed before cursor %r; returning empty page", before
+            )
+            rows = []
+            older_truncated = False
+        elif cursor is not None:
+            # Paged-back: key-ordered reverse-scan of live + .rot, under _history_lock so a
+            # concurrent rotate cannot interleave the read (closes the os.replace race).
+            async with self._history_lock:
+                rows, older_truncated = _history.read_history_page(
+                    _history._history_path(), before=cursor, limit=clamped
+                )
+            rows = [self._attach_history_provenance(r) for r in rows]
+        else:
+            # Default (before absent): byte-identical to today — most-recent-first ring window.
+            rows = list(reversed(self.scan_history.to_list(clamped)))
+            older_truncated = False
+        # next_before = cursor token of the oldest returned row (rows are most-recent-first),
+        # or null when the page is empty — so the frontend's first "Older" click off the live
+        # head has a cursor without minting one client-side (float-repr parity, edge F-4).
+        next_before = _history_cursor_token(rows[-1]) if rows else None
+        return {"entries": rows, "next_before": next_before, "older_truncated": older_truncated}
 
     async def get_profiles(self) -> dict[str, Any]:
         return {"profiles": self.pipeline.list_profiles()}
@@ -1264,8 +1460,9 @@ def build_app(pipeline: "Pipeline", *, auth_token: str | None = None) -> "FastAP
         return await handlers.get_health()
 
     @app.get("/api/scan-history")
-    async def api_get_scan_history(limit: int = 100) -> dict[str, Any]:
-        return await handlers.get_scan_history(limit)
+    async def api_get_scan_history(limit: int = 100, before: str | None = None) -> dict[str, Any]:
+        # PET-148: additive `before` cursor for back-pages; absent => today's live window.
+        return await handlers.get_scan_history(limit, before)
 
     @app.get("/api/profiles")
     async def api_get_profiles() -> dict[str, Any]:

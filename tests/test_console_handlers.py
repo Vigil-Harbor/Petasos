@@ -186,7 +186,9 @@ async def test_get_health(handlers: ConsoleHandlers) -> None:
 
 async def test_get_scan_history_empty(handlers: ConsoleHandlers) -> None:
     result = await handlers.get_scan_history()
-    assert result == {"entries": []}
+    # PET-148: the default (no-cursor) response gains the additive `next_before` +
+    # `older_truncated` keys; `entries` stays byte-identical (empty here).
+    assert result == {"entries": [], "next_before": None, "older_truncated": False}
 
 
 async def test_get_scan_history_after_scan(handlers: ConsoleHandlers) -> None:
