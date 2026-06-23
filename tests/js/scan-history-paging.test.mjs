@@ -350,3 +350,54 @@ test("_pushOlderPage tolerates a malformed older-page body (F-5)", async () => {
     assert.match(Pet.historyPageLabel(top), /no older/); // honest empty state, no throw
   }
 });
+
+test("a non-OK sink fetch is a failed read, never an empty older page (F-6, _status gate)", async () => {
+  // _req stamps `_status` on a parsed non-OK body; a 403/500 like {} carries NO `error`. The push
+  // must NOT treat it as an empty older page (that would render a silent "no older history" on an
+  // auth/server failure). Nothing is pushed and the in-flight guard clears so a retry can fetch.
+  resetPagingState();
+  Pet.state.scanHistory = makeRows(500, "live");
+  Pet.state.pipelineHealth = { scans_total: 1200 };
+  let calls = 0;
+  Pet.api.getScanHistory = function (limit, before) {
+    calls++;
+    if (before === undefined) return Promise.resolve({ entries: makeRows(limit, "head"), next_before: "FRESH" });
+    return Promise.resolve({ _status: 500 }); // fetch-2: server error, no `error` field, no entries
+  };
+  Pet.pageHistoryOlder();
+  await flush();
+  assert.equal(calls, 2);
+  assert.equal(Pet.state.historyStack.length, 0); // failed read NOT pushed as an empty page
+  assert.equal(Pet.state.historyAtHead, true);    // never left the live head (only _pushOlderPage flips it)
+  // guard cleared: a fresh re-mint must be able to fetch again
+  Pet.api.getScanHistory = function (limit, before) {
+    calls++;
+    if (before === undefined) return Promise.resolve({ entries: makeRows(limit, "head"), next_before: "FRESH" });
+    return Promise.resolve({ entries: makeRows(100, "older"), next_before: "OLDER" });
+  };
+  Pet.pageHistoryOlder();
+  await flush();
+  assert.ok(calls >= 4, "in-flight guard wedged after a non-OK sink fetch (calls=" + calls + ")");
+  assert.equal(Pet.state.historyStack.length, 1); // the retry pages cleanly
+});
+
+test("a non-OK paged-view fetch is a failed read, never an empty older page (F-6, _status gate)", async () => {
+  resetPagingState();
+  // Paged-back one level so the reducer takes the needsFetch (non-remint) branch.
+  Pet.state.scanHistory = makeRows(500, "live");
+  Pet.state.pipelineHealth = { scans_total: 1200 };
+  Pet.state.historyAtHead = false;
+  Pet.state.historyStack = [{ entries: makeRows(3, "p"), cursor: "C0", nextBefore: "C1" }];
+  let calls = 0;
+  Pet.api.getScanHistory = function () { calls++; return Promise.resolve({ _status: 403 }); };
+  Pet.pageHistoryOlder();
+  await flush();
+  assert.equal(calls, 1);
+  assert.equal(Pet.state.historyStack.length, 1); // unchanged: the 403 is not pushed as a new page
+  // guard cleared: a subsequent click fetches again
+  Pet.api.getScanHistory = function () { calls++; return Promise.resolve({ entries: makeRows(2, "q"), next_before: null }); };
+  Pet.pageHistoryOlder();
+  await flush();
+  assert.equal(calls, 2);
+  assert.equal(Pet.state.historyStack.length, 2);
+});
