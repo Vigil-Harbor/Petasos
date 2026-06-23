@@ -16,7 +16,7 @@ fixtures — the same shape the live resolver reads.
 from __future__ import annotations
 
 import platform
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 import yaml
@@ -68,7 +68,8 @@ def _handlers(config: PetasosConfig | None = None) -> ConsoleHandlers:
 
 
 def _section_of(cfg_path: Path) -> dict[str, Any]:
-    return yaml.safe_load(cfg_path.read_text(encoding="utf-8"))["petasos"]
+    full = yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
+    return cast("dict[str, Any]", full["petasos"])
 
 
 # ── D1: binding identity for each tier ──────────────────────────────────────
@@ -195,11 +196,11 @@ async def test_edit_nonactive_profile_persists_without_hotapply(
 
     before_cfg = handlers.pipeline.config
     calls = {"n": 0}
-    monkeypatch.setattr(
-        handlers.pipeline,
-        "reconfigure",
-        lambda cfg: calls.__setitem__("n", calls["n"] + 1),
-    )
+
+    def _count(cfg: PetasosConfig) -> None:
+        calls["n"] += 1
+
+    monkeypatch.setattr(handlers.pipeline, "reconfigure", _count)
 
     result, errors = await handlers.update_config({"fail_mode": "open"}, profile="beta")
     assert errors is None
@@ -275,11 +276,12 @@ async def test_is_active_path_normalization(
 
     calls = {"n": 0}
     orig = handlers.pipeline.reconfigure
-    monkeypatch.setattr(
-        handlers.pipeline,
-        "reconfigure",
-        lambda cfg: (calls.__setitem__("n", calls["n"] + 1), orig(cfg))[1],
-    )
+
+    def _spy(cfg: PetasosConfig) -> None:
+        calls["n"] += 1
+        orig(cfg)
+
+    monkeypatch.setattr(handlers.pipeline, "reconfigure", _spy)
     result, errors = await handlers.update_config({"fail_mode": "closed"}, profile="alpha")
     assert errors is None and result is not None
     assert result["applied"] is True  # equipped path
@@ -398,24 +400,37 @@ async def test_get_config_malformed_profile_degrades_without_500(
     assert ok["profile_warning"] is None
 
 
-def _write_unreadable_profile(root: Path, name: str) -> Path:
-    # A member profile (config.yaml exists) whose petasos: section is a non-dict —
+# Two distinct read-failure shapes read_petasos_section_checked() must catch:
+# (1) valid YAML whose petasos: value is a non-dict (shape failure), and
+# (2) genuinely malformed YAML syntax that makes yaml.safe_load raise (the
+# except branch) — CodeRabbit PR #135 review #2 nit.
+_UNREADABLE_PROFILE_CASES = (
+    "petasos:\n  - not\n  - a dict\n",  # non-dict section (shape branch)
+    "petasos: [\n",  # unclosed flow sequence -> yaml.safe_load raises (except branch)
+)
+
+
+def _write_unreadable_profile(
+    root: Path, name: str, contents: str = _UNREADABLE_PROFILE_CASES[0]
+) -> Path:
+    # A member profile (config.yaml exists) whose petasos: section cannot be read —
     # read_petasos_section_checked() reports ok=False (a real read failure).
     pdir = root / "profiles" / name
     pdir.mkdir(parents=True, exist_ok=True)
     cfg = pdir / "config.yaml"
-    cfg.write_text("petasos:\n  - not\n  - a dict\n", encoding="utf-8")
+    cfg.write_text(contents, encoding="utf-8")
     return cfg
 
 
+@pytest.mark.parametrize("contents", _UNREADABLE_PROFILE_CASES)
 async def test_get_config_unreadable_profile_warns_not_silent(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, contents: str
 ) -> None:
     # CodeRabbit PR #135 (read-failure provenance): a malformed-YAML profile must
     # not silently present defaults — read_ok=False surfaces a profile_warning.
     root = _point_root_at(tmp_path, monkeypatch)
     _write_profile(root, "alpha", {"fail_mode": "degraded"}, active=True)
-    _write_unreadable_profile(root, "beta")
+    _write_unreadable_profile(root, "beta", contents)
     handlers = _handlers(PetasosConfig(fail_mode="degraded"))
 
     payload = await handlers.get_config(profile="beta")
@@ -423,14 +438,15 @@ async def test_get_config_unreadable_profile_warns_not_silent(
     assert payload["profile_warning"] is not None  # not a silent default
 
 
+@pytest.mark.parametrize("contents", _UNREADABLE_PROFILE_CASES)
 async def test_nonactive_save_rejects_unreadable_profile(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, contents: str
 ) -> None:
     # CodeRabbit PR #135: a dirty save against an UNREADABLE profile is rejected, so
     # it cannot merge {} + body and silently persist all-defaults over the broken file.
     root = _point_root_at(tmp_path, monkeypatch)
     _write_profile(root, "alpha", {"fail_mode": "degraded"}, active=True)
-    beta = _write_unreadable_profile(root, "beta")
+    beta = _write_unreadable_profile(root, "beta", contents)
     before = beta.read_bytes()
     handlers = _handlers(PetasosConfig(fail_mode="degraded"))
 
@@ -481,7 +497,8 @@ async def test_bridge_forwards_profile_selector(
         async def json(self) -> dict[str, Any]:
             return self._d
 
-    out = await plugin_api.update_config(_Req({"fail_mode": "open", "profile": "beta"}))
+    # _Req is a minimal stand-in for fastapi.Request (only .json() is used).
+    out = await plugin_api.update_config(_Req({"fail_mode": "open", "profile": "beta"}))  # type: ignore[arg-type]
     assert isinstance(out, dict)
     assert out["applied"] is False
     assert _section_of(beta)["fail_mode"] == "open"

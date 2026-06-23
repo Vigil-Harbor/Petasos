@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import platform
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import yaml
 
@@ -49,7 +49,7 @@ def _point_root_at(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 def _write_profile(
-    root: Path, name: str, section: dict | None = None, *, active: bool = False
+    root: Path, name: str, section: dict[str, Any] | None = None, *, active: bool = False
 ) -> Path:
     pdir = root / "profiles" / name
     pdir.mkdir(parents=True, exist_ok=True)
