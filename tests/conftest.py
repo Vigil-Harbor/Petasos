@@ -68,6 +68,32 @@ def _isolate_enforcement_spool(tmp_path_factory: pytest.TempPathFactory) -> Iter
         _ev.SPOOL_CAP_BYTES = saved_cap
 
 
+@pytest.fixture(autouse=True)
+def _isolate_history_sink(tmp_path_factory: pytest.TempPathFactory) -> Iterator[None]:
+    """PET-148: redirect the persistent scan-history sink to a throwaway temp path for
+    every test (mirrors ``_isolate_enforcement_spool``).
+
+    ``ConsoleHandlers._record_scan`` now appends every recorded scan to this on-disk sink,
+    so without isolation a test would write to the real machine state dir
+    (``%LOCALAPPDATA%/hermes/petasos-scan-history.jsonl``) or read it back. Tests that
+    inspect the sink read ``_history._history_path()``, which returns this per-test path.
+    A no-op if the console module is unimportable.
+    """
+    try:
+        import petasos.console._history as _hist
+    except Exception:
+        yield
+        return
+    saved_override = _hist._HISTORY_PATH_OVERRIDE
+    saved_cap = _hist._HISTORY_CAP_BYTES
+    _hist._reset_history_state(str(tmp_path_factory.mktemp("hist_sink") / "hist.jsonl"))
+    try:
+        yield
+    finally:
+        _hist._HISTORY_PATH_OVERRIDE = saved_override
+        _hist._HISTORY_CAP_BYTES = saved_cap
+
+
 @pytest.fixture()
 def valid_token() -> str:
     return _make_token()
