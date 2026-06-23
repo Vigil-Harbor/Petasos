@@ -20,7 +20,7 @@ from petasos.console._presets import (
 )
 from petasos.scanners.minimal import _UNSUPPRESSIBLE_RULE_IDS, MinimalScanner
 
-# The exact owned-field set (D8): 13 config-level strength fields, no reliability
+# The exact owned-field set (D8): 12 config-level strength fields, no reliability
 # or profile levers. Pinned here so a drift in either the registry or the
 # allowlist is caught.
 _EXPECTED_OWNED_FIELDS = frozenset(
@@ -36,7 +36,6 @@ _EXPECTED_OWNED_FIELDS = frozenset(
         "strip_zero_width",
         "map_homoglyphs",
         "detect_rtl_override",
-        "fold_leet",
         "decode_encoded_payloads",
     }
 )
@@ -111,7 +110,10 @@ def test_all_presets_cover_same_fields() -> None:
     # Symmetric comparator: each preset's key set equals _PRESET_OWNED_FIELDS,
     # which equals the pinned expected set.
     assert _PRESET_OWNED_FIELDS == _EXPECTED_OWNED_FIELDS
-    assert len(_PRESET_OWNED_FIELDS) == 13
+    assert len(_PRESET_OWNED_FIELDS) == 12
+    # Regression for PET-143: fold_leet retired from the preset surface, so no
+    # preset can imply leet-off (leet folding is always-on by design).
+    assert "fold_leet" not in _PRESET_OWNED_FIELDS
     for preset in _PRESET_REGISTRY:
         assert set(preset.overrides.keys()) == _PRESET_OWNED_FIELDS, preset.key
 

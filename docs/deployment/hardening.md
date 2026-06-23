@@ -325,6 +325,24 @@ re-bind does fire, the pipeline/guard config is process-wide, so it applies to
 every session the process hosts; in-flight sessions see the new shared config at
 their next tool call (the swap does not drain them first).
 
+PET-147 status: the PET-132 re-bind worker is now proven **host-callable
+end-to-end**, not just call-correct. An in-process host-stub test
+(`test_hermes_signal_triggers_rebind_end_to_end`) registers the plugin against a
+fake Hermes ctx, captures the `on_profile_change` handler the way a real host
+would, fires it, and asserts the live pipeline actually retargets (fail_mode and
+egress set move to the new profile, and the binding line re-emits naming it). A
+companion test (`test_unregistered_host_still_degrades_to_restart`) proves the
+inverse at the tool-call level: a host that rejects the hook leaves no handler to
+fire, so the pipeline stays pinned to the boot profile until a restart. This
+closes the Petasos-side verification gap; it does **not** make live re-bind work
+in production. The sole remaining gate is the external, operator-trusted Hermes
+emitter that fires `on_profile_change` from the trusted swap path (never from the
+agent-writable `active_profile`); until Hermes ships it, the restart contract
+above stays the only supported way to change a security-bearing gateway's
+profile. The assumed signal contract is pinned (`on_profile_change(profile_name,
+profile_home)`, `profile_home` an existing absolute dir); reconciling it to the
+real Hermes name and payload is tracked on the Hermes-side work item.
+
 ### The source-taint egress fence is verbatim, defense-in-depth (PET-134)
 
 `source_taint_namespaces` adds a content-agnostic egress fence: once a tool in a

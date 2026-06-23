@@ -52,11 +52,17 @@ class PetasosConfig:
     strip_zero_width: bool = True
     map_homoglyphs: bool = True
     detect_rtl_override: bool = True
+    # By design not a detection control: leet folding is an always-on syntactic
+    # posture (PET-97 Decision 6) and the built-in scanner re-folds internally with
+    # hardcoded defaults regardless of this flag. Retained for normalize()-parity
+    # (direct callers and tests); not surfaced as a console control (PET-143).
     fold_leet: bool = True
     # Decode-and-rescan reversible encodings (base64/hex/ROT13) inside the
-    # built-in syntactic scanner (PET-98). Unlike fold_leet, this toggle is
-    # threaded into MinimalScanner's constructor, so turning it off genuinely
-    # disables the decode stage in every pipeline build path.
+    # built-in syntactic scanner (PET-98). Leet folding above is an intentional
+    # always-on syntactic posture (not threaded into the scanner by design, no
+    # longer a console control); decode_encoded_payloads, by contrast, IS threaded
+    # into MinimalScanner's constructor, so turning it off genuinely disables the
+    # decode stage in every pipeline build path.
     decode_encoded_payloads: bool = True
 
     # Scanning
