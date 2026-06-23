@@ -669,8 +669,12 @@
         .catch(function (e) {
           if (gen !== self._gen) return;             // D12
           if (e.name === "AbortError") return;       // deliberate teardown — never reconnect
-          // D9: the terminal (non-retryable) set is exactly {401, 403}. The :422
-          // `throw new Error(resp.status)` makes e.message the status string.
+          // D9: the terminal (non-retryable) set is {401, 403}. PET-129 now intercepts
+          // a 401 upstream in the response handler (-> Pet.auth.on401, the authenticate
+          // state) before it can throw here, so in practice this branch fires for 403;
+          // the 401 arm is kept as belt-and-suspenders so any 401 that did reach here
+          // still concedes rather than reconnect-storms. The `throw new Error(resp.status)`
+          // makes e.message the status string.
           if (e.message === "401" || e.message === "403") {
             console.warn("Petasos SSE: auth rejected (" + e.message + "), using polling fallback");
             self._enableFallback();                  // terminal: a tab that will never re-authorize must not storm
