@@ -185,8 +185,20 @@ async def get_config(profile: str | None = None) -> Any:
     # the selector silently no-ops there. The PUT bridge below already forwards the
     # body unchanged (the selector rides as a top-level body key, popped in the
     # shared handler), so only this GET needs the explicit query param.
+    from fastapi.responses import JSONResponse
+
+    from petasos.console.server import ProfileNotFoundError
+
     h = _require_handlers()
-    return await h.get_config(profile=profile)
+    # CodeRabbit PR #135: an unresolved selector is a structured 422, not a silent
+    # fallback to the equipped view (mirrors the standalone route + the PUT contract).
+    try:
+        return await h.get_config(profile=profile)
+    except ProfileNotFoundError as exc:
+        return JSONResponse(
+            status_code=422,
+            content={"detail": [{"field": "profile", "message": str(exc)}]},
+        )
 
 
 @router.put("/config")

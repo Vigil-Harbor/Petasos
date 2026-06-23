@@ -226,25 +226,48 @@ def resolve_profile_config_path(name: str) -> HermesConfigResolution | None:
         return None
 
 
+def read_petasos_section_checked(res: HermesConfigResolution) -> tuple[dict[str, Any], bool]:
+    """Read the ``petasos:`` section AND report whether the read succeeded.
+
+    Returns ``(section, ok)``.  ``ok`` is False ONLY when the file exists but is
+    unreadable *as* a petasos section: malformed YAML, a top-level non-dict, or a
+    ``petasos:`` value that is not a dict.  A missing file, an empty file, a
+    missing ``petasos:`` key, or a ``petasos:`` with no value are all ``ok=True``
+    with ``{}`` — legitimately empty, not a failure.  This lets a caller tell
+    "intentionally empty" apart from "broken": warn on GET, reject on PUT so a
+    dirty save can't merge ``{}`` with a patch and silently persist all-defaults
+    over a malformed profile (PET-146 D4 data-loss guard).  Never raises (D3).
+    """
+    import yaml
+
+    if not res.path.is_file():
+        return {}, True
+    try:
+        with open(res.path, encoding="utf-8") as f:
+            full_config = yaml.safe_load(f)
+    except Exception:
+        return {}, False
+    if full_config is None:
+        return {}, True
+    if not isinstance(full_config, dict):
+        return {}, False
+    if "petasos" not in full_config:
+        return {}, True
+    section = full_config["petasos"]
+    if section is None:
+        return {}, True
+    if not isinstance(section, dict):
+        return {}, False
+    return section, True
+
+
 def read_petasos_section(res: HermesConfigResolution) -> dict[str, Any]:
     """Read the ``petasos:`` YAML section from the resolved config path.
 
     Returns ``{}`` on missing file, unreadable file, malformed YAML,
     YAML parsing to a non-dict, or a ``petasos:`` value that is not a
-    dict.  Never raises (D3).
+    dict.  Never raises (D3).  Use ``read_petasos_section_checked`` when the
+    empty-vs-unreadable distinction matters.
     """
-    import yaml
-
-    if not res.path.is_file():
-        return {}
-    try:
-        with open(res.path, encoding="utf-8") as f:
-            full_config = yaml.safe_load(f)
-    except Exception:
-        return {}
-    if not isinstance(full_config, dict):
-        return {}
-    section = full_config.get("petasos", {})
-    if not isinstance(section, dict):
-        return {}
+    section, _ = read_petasos_section_checked(res)
     return section

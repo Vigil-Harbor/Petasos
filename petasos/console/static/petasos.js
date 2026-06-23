@@ -2246,6 +2246,18 @@
     );
 
     Pet.api.getConfig(Pet.state.selectedHermesProfile).then(function (d) {
+      // PET-146 (CodeRabbit PR #135): a selected profile that no longer resolves
+      // (deleted out-of-band) is rejected by the backend with a 422 naming the
+      // `profile` field. Reset to the equipped view and reload, rather than bricking
+      // the editor on a stale selection (getConfig(null) won't 422, so no loop).
+      if (d && d._status === 422 && Array.isArray(d.detail) &&
+          d.detail.some(function (e) { return e && e.field === "profile"; }) &&
+          Pet.state.selectedHermesProfile) {
+        Pet.state.selectedHermesProfile = null;
+        Pet.state.configDirty = {};
+        Pet.renderConfig(container);
+        return;
+      }
       if (d.error || !d.config || !d.fields) {
         formArea.innerHTML = "";
         formArea.appendChild(Pet.h("div", { style: { padding: "20px", color: "var(--err)", fontSize: "12px", fontFamily: "var(--font-mono)" } },

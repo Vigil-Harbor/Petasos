@@ -24,7 +24,7 @@ from petasos.console._paths import (
     _resolved_normcase,
     hermes_root,
     list_hermes_profiles,
-    read_petasos_section,
+    read_petasos_section_checked,
     resolve_hermes_config_path,
     resolve_profile_config_path,
 )
@@ -330,6 +330,16 @@ def _persist_config(validated_config: Any, *, target_path: "Path | None" = None)
     except Exception as exc:
         _logger.error("Failed to persist config: %s", exc)
         return False
+
+
+class ProfileNotFoundError(Exception):
+    """A named profile selector did not resolve (deleted / unknown).
+
+    Raised by ``get_config`` so the route boundary can surface a structured 422,
+    mirroring ``update_config``'s contract (PET-146 edge F-6 / CodeRabbit PR #135).
+    A plain ``Exception`` (not ``ValueError``) so it is never swallowed by the
+    ``from_dict`` ``(ValueError, TypeError)`` handlers downstream.
+    """
 
 
 def _hermes_profile_label(res: "HermesConfigResolution") -> str:
@@ -690,10 +700,16 @@ class ConsoleHandlers:
 
         # PET-146 D4: a selected profile is "the equipped one" iff its resolved
         # config path is the SAME FILE as the live binding (normalized-path compare,
-        # not a leaf-name/raw-string compare). An unresolvable selector (deleted,
-        # unknown) or a resolution OSError degrades to the active view.
+        # not a leaf-name/raw-string compare).
         target_res = resolve_profile_config_path(profile) if profile is not None else None
+        # PET-146 (CodeRabbit PR #135): a NAMED selector that does not resolve
+        # (deleted/unknown) is rejected, mirroring update_config — never silently
+        # shown as the equipped view, which would risk the operator editing the
+        # wrong profile. Surfaced as a 422 at the route/bridge boundary.
+        if profile is not None and target_res is None:
+            raise ProfileNotFoundError(f"Profile {profile!r} not found")
         target_norm = _resolved_normcase(target_res.path) if target_res is not None else None
+        # A resolution OSError (target_norm None) degrades to the active view.
         viewing_active = (
             target_res is None
             or target_norm is None
@@ -715,8 +731,18 @@ class ConsoleHandlers:
             assert target_res is not None
             from petasos.config import PetasosConfig
 
+            # CodeRabbit PR #135: distinguish a read FAILURE (malformed YAML / non-dict
+            # section) from a legitimately-empty section. read_ok=False means the
+            # `{}` is a broken read, not an intentional default — warn rather than
+            # present silent defaults.
+            section, read_ok = read_petasos_section_checked(target_res)
+            if not read_ok:
+                profile_warning = (
+                    "This profile's config could not be read (malformed YAML) and is shown "
+                    "as defaults."
+                )
             try:
-                cfg = PetasosConfig.from_dict(read_petasos_section(target_res))
+                cfg = PetasosConfig.from_dict(section)
             except (ValueError, TypeError) as exc:
                 # The selected profile's config holds values PetasosConfig rejects
                 # (e.g. a bad fail_mode or unordered tiers). The console must never
@@ -727,9 +753,11 @@ class ConsoleHandlers:
                 _logger.warning("selected profile %r config rejected: %s", profile, exc)
                 cfg = PetasosConfig()
                 view_profile = None
-                profile_warning = (
-                    f"This profile's config could not be loaded and is shown as defaults: {exc}"
-                )
+                if profile_warning is None:
+                    profile_warning = (
+                        "This profile's config could not be loaded and is shown as "
+                        f"defaults: {exc}"
+                    )
             else:
                 view_profile = None
                 if cfg.profile_name:
@@ -848,7 +876,22 @@ class ConsoleHandlers:
         # all-defaults and silently reset the profile's posture (edge round-2 F-6).
         # (is_active is False only when target_res resolved — narrow for mypy.)
         assert target_res is not None
-        merged = {**read_petasos_section(target_res), **body}
+        # CodeRabbit PR #135: if the target's config is UNREADABLE (malformed YAML /
+        # non-dict section), reject rather than merge `{}` + body and silently persist
+        # all-defaults over the broken file. A legitimately-empty section (read_ok
+        # True) still saves normally (the dirty-only merge preserves on-disk posture).
+        section, read_ok = read_petasos_section_checked(target_res)
+        if not read_ok:
+            return None, [
+                {
+                    "field": "profile",
+                    "message": (
+                        "This profile's config is unreadable (malformed YAML); repair it on "
+                        "disk before saving."
+                    ),
+                }
+            ]
+        merged = {**section, **body}
         try:
             validated = PetasosConfig.from_dict(merged)
         except (ValueError, TypeError) as exc:
@@ -1129,10 +1172,18 @@ def build_app(pipeline: "Pipeline", *, auth_token: str | None = None) -> "FastAP
         return HTMLResponse(html_path.read_text(encoding="utf-8"))
 
     @app.get("/api/config")
-    async def api_get_config(profile: str | None = None) -> dict[str, Any]:
+    async def api_get_config(profile: str | None = None) -> Any:
         # PET-146: optional ?profile=<name> selector loads a non-equipped profile's
         # effective view; absent -> the equipped binding (byte-identical to today).
-        return await handlers.get_config(profile=profile)
+        # A named selector that no longer resolves is a structured 422 (CodeRabbit
+        # PR #135), mirroring the PUT contract — not a silent fallback to active.
+        try:
+            return await handlers.get_config(profile=profile)
+        except ProfileNotFoundError as exc:
+            return JSONResponse(
+                status_code=422,
+                content={"detail": [{"field": "profile", "message": str(exc)}]},
+            )
 
     @app.put("/api/config")
     async def api_update_config(request: Request) -> Any:

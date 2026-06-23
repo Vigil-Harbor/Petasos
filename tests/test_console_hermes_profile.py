@@ -25,7 +25,7 @@ pytest.importorskip("fastapi")
 
 from petasos.config import PetasosConfig  # noqa: E402
 from petasos.console.hermes import plugin_api  # noqa: E402
-from petasos.console.server import ConsoleHandlers  # noqa: E402
+from petasos.console.server import ConsoleHandlers, ProfileNotFoundError  # noqa: E402
 from petasos.pipeline import Pipeline  # noqa: E402
 from petasos.scanners.minimal import MinimalScanner  # noqa: E402
 
@@ -396,6 +396,66 @@ async def test_get_config_malformed_profile_degrades_without_500(
     # The valid-profile path leaves profile_warning None.
     ok = await handlers.get_config()
     assert ok["profile_warning"] is None
+
+
+def _write_unreadable_profile(root: Path, name: str) -> Path:
+    # A member profile (config.yaml exists) whose petasos: section is a non-dict —
+    # read_petasos_section_checked() reports ok=False (a real read failure).
+    pdir = root / "profiles" / name
+    pdir.mkdir(parents=True, exist_ok=True)
+    cfg = pdir / "config.yaml"
+    cfg.write_text("petasos:\n  - not\n  - a dict\n", encoding="utf-8")
+    return cfg
+
+
+async def test_get_config_unreadable_profile_warns_not_silent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # CodeRabbit PR #135 (read-failure provenance): a malformed-YAML profile must
+    # not silently present defaults — read_ok=False surfaces a profile_warning.
+    root = _point_root_at(tmp_path, monkeypatch)
+    _write_profile(root, "alpha", {"fail_mode": "degraded"}, active=True)
+    _write_unreadable_profile(root, "beta")
+    handlers = _handlers(PetasosConfig(fail_mode="degraded"))
+
+    payload = await handlers.get_config(profile="beta")
+    assert payload["is_active"] is False
+    assert payload["profile_warning"] is not None  # not a silent default
+
+
+async def test_nonactive_save_rejects_unreadable_profile(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # CodeRabbit PR #135: a dirty save against an UNREADABLE profile is rejected, so
+    # it cannot merge {} + body and silently persist all-defaults over the broken file.
+    root = _point_root_at(tmp_path, monkeypatch)
+    _write_profile(root, "alpha", {"fail_mode": "degraded"}, active=True)
+    beta = _write_unreadable_profile(root, "beta")
+    before = beta.read_bytes()
+    handlers = _handlers(PetasosConfig(fail_mode="degraded"))
+
+    result, errors = await handlers.update_config({"fail_mode": "open"}, profile="beta")
+    assert result is None and errors is not None
+    assert errors[0]["field"] == "profile"
+    assert beta.read_bytes() == before  # the broken file is left untouched
+
+
+async def test_get_config_unresolved_selector_raises(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # CodeRabbit PR #135 (outside-diff): a named selector that does not resolve is
+    # rejected (ProfileNotFoundError -> route 422), never a silent fallback to the
+    # equipped view (which would risk editing the wrong profile).
+    root = _point_root_at(tmp_path, monkeypatch)
+    _write_profile(root, "alpha", {"fail_mode": "degraded"}, active=True)
+    handlers = _handlers(PetasosConfig(fail_mode="degraded"))
+
+    with pytest.raises(ProfileNotFoundError):
+        await handlers.get_config(profile="ghost")
+    # The bridge maps it to a 422 (not a 500 / silent active view).
+    monkeypatch.setattr(plugin_api, "_handlers", handlers)
+    resp = await plugin_api.get_config(profile="ghost")
+    assert getattr(resp, "status_code", None) == 422
 
 
 # ── edge F-1: the embedded plugin bridge forwards the selector ──────────────
