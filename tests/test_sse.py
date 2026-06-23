@@ -6,8 +6,6 @@ import pytest
 
 from petasos.console._sse import SSEBroadcaster
 
-pytestmark = pytest.mark.asyncio
-
 
 async def test_subscribe_and_broadcast() -> None:
     sse = SSEBroadcaster()

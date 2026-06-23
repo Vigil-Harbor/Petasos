@@ -11,8 +11,6 @@ from __future__ import annotations
 import asyncio
 import time
 
-import pytest
-
 from petasos._types import Direction, PipelineResult, ScanResult
 from petasos.config import PetasosConfig
 from petasos.pipeline import Pipeline
@@ -48,7 +46,6 @@ class _ToThreadScanner:
         return ScanResult(scanner_name="to_thread", findings=())
 
 
-@pytest.mark.asyncio
 async def test_cancel_frees_loop_and_pipeline_reusable() -> None:
     started = asyncio.Event()
     scanner = _ToThreadScanner(started)

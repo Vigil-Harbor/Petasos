@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from types import MappingProxyType
 
-import pytest
-
 from petasos.config import PetasosConfig
 from petasos.pipeline import Pipeline
 from petasos.scanners.minimal import (
@@ -95,7 +93,6 @@ class TestBuiltinProfilesClean:
 
 
 class TestCodeGenerationSuppressesCommandFamily:
-    @pytest.mark.asyncio
     async def test_code_generation_profile_suppresses_family(self) -> None:
         # Regression for PET-94 (Decision 4): with the PIPELINE carrying
         # code_generation (the wiring Decision 4 requires — param-scan

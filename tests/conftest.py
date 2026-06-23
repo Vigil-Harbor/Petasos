@@ -109,6 +109,18 @@ def valid_key() -> str:
     return _make_token()
 
 
+@pytest.fixture()
+def anyio_backend() -> str:
+    """PET-149: the single repo-owned async-backend selector under ``anyio_mode =
+    "auto"`` (pyproject ``[tool.pytest.ini_options]``). Overrides anyio's built-in
+    ``anyio_backend`` (module-scoped, parametrized over every available backend) so
+    the suite runs function-scoped on asyncio only: behavior-preserving against the
+    dropped ``asyncio_mode = "auto"``, with no ``[asyncio]`` id suffix and no trio
+    fan-out. It is also the one edit point a future targeted trio parametrization
+    (D-BACKEND) would change."""
+    return "asyncio"
+
+
 def _item_class_name(item: pytest.Item) -> str | None:
     """Return the name of the test class owning ``item``, or None for module-level
     functions. ``cls`` is a ``pytest.Function`` attribute, absent on bare items."""

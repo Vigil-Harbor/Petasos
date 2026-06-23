@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import logging
 from types import MappingProxyType
-
-import pytest
+from typing import TYPE_CHECKING
 
 from petasos.config import PetasosConfig
 from petasos.session.guard import ToolCallGuard
 from petasos.session.profiles import ResolvedProfile
+
+if TYPE_CHECKING:
+    import pytest
 
 
 def _guard_with_profile(profile: ResolvedProfile) -> ToolCallGuard:
@@ -110,7 +112,6 @@ def test_alias_onto_exempt_runtime_fallback() -> None:
     assert guard._normalize_tool_name("exec") == "exec"
 
 
-@pytest.mark.asyncio
 async def test_alias_exec_to_read_exempt_blocked(monkeypatch: pytest.MonkeyPatch) -> None:
     """GUARD-03 end-to-end: with features enabled, exec->read + exempt read
     does NOT short-circuit as exempt — params are scanned under true identity."""
@@ -156,7 +157,6 @@ def test_whitespace_alias_onto_exempt_runtime_fallback() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_circular_dict_no_crash(monkeypatch: pytest.MonkeyPatch) -> None:
     """GUARD-05: circular dict in tool_params does not crash evaluate()."""
     from petasos.pipeline import Pipeline
@@ -174,7 +174,6 @@ async def test_circular_dict_no_crash(monkeypatch: pytest.MonkeyPatch) -> None:
     assert hasattr(result, "allowed")
 
 
-@pytest.mark.asyncio
 async def test_deeply_nested_dict_no_crash(monkeypatch: pytest.MonkeyPatch) -> None:
     """GUARD-05: 500-level nested dict does not raise RecursionError."""
     from petasos.pipeline import Pipeline
@@ -193,7 +192,6 @@ async def test_deeply_nested_dict_no_crash(monkeypatch: pytest.MonkeyPatch) -> N
     assert hasattr(result, "allowed")
 
 
-@pytest.mark.asyncio
 async def test_large_params_truncated(monkeypatch: pytest.MonkeyPatch) -> None:
     """GUARD-05: 2 MB string param is scanned without timeout/OOM."""
     from petasos.pipeline import Pipeline
@@ -213,7 +211,6 @@ async def test_large_params_truncated(monkeypatch: pytest.MonkeyPatch) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_exempt_tool_malicious_params_detected(monkeypatch: pytest.MonkeyPatch) -> None:
     """GUARD-04: exempt tool with malicious params -> allowed=True, findings populated."""
     from petasos.pipeline import Pipeline
@@ -239,7 +236,6 @@ async def test_exempt_tool_malicious_params_detected(monkeypatch: pytest.MonkeyP
     assert len(result.findings) > 0
 
 
-@pytest.mark.asyncio
 async def test_exempt_param_scan_disabled_skips(monkeypatch: pytest.MonkeyPatch) -> None:
     """GUARD-04: exempt_param_scan=False preserves old behavior -- no param scan."""
     from petasos.pipeline import Pipeline
@@ -267,7 +263,6 @@ async def test_exempt_param_scan_disabled_skips(monkeypatch: pytest.MonkeyPatch)
     assert result.findings == ()
 
 
-@pytest.mark.asyncio
 async def test_exempt_clean_params_no_findings(monkeypatch: pytest.MonkeyPatch) -> None:
     """GUARD-04: exempt tool with clean params -> allowed=True, no findings."""
     from petasos.pipeline import Pipeline
@@ -298,7 +293,6 @@ async def test_exempt_clean_params_no_findings(monkeypatch: pytest.MonkeyPatch) 
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_guard_param_scan_fires_family(monkeypatch: pytest.MonkeyPatch) -> None:
     """PET-94: ToolCallGuard.evaluate over a default-profile pipeline surfaces a
     command.fetch-exec finding and flips param_scan_unsafe per existing guard
@@ -318,7 +312,6 @@ async def test_guard_param_scan_fires_family(monkeypatch: pytest.MonkeyPatch) ->
     assert result.param_scan_unsafe is True
 
 
-@pytest.mark.asyncio
 async def test_guard_profile_does_not_suppress_param_scan(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -343,7 +336,6 @@ async def test_guard_profile_does_not_suppress_param_scan(
     assert "petasos.syntactic.command.fetch-exec" in rids
 
 
-@pytest.mark.asyncio
 async def test_command_truncation_beyond_cap_missed(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -368,7 +360,6 @@ async def test_command_truncation_beyond_cap_missed(
     assert any("length cap" in r.getMessage() for r in caplog.records)
 
 
-@pytest.mark.asyncio
 async def test_exempt_param_scan_error_marks_unsafe(monkeypatch: pytest.MonkeyPatch) -> None:
     """GUARD-04: if _scan_params errors during exempt scan, result is still allowed but unsafe."""
     from petasos.pipeline import Pipeline

@@ -16,8 +16,6 @@ from petasos.console.server import ConsoleHandlers  # noqa: E402
 from petasos.pipeline import Pipeline  # noqa: E402
 from petasos.scanners.minimal import MinimalScanner  # noqa: E402
 
-pytestmark = pytest.mark.asyncio
-
 
 async def test_update_config_routes_through_reconfigure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch

@@ -47,7 +47,6 @@ console = ["fastapi>=0.110,<1", "uvicorn[standard]>=0.29,<1"]
 all = ["petasos[llm-guard,llamafirewall,presidio,console]"]
 dev = [
     "pytest>=8.0",
-    "pytest-asyncio>=0.23",
     "pytest-benchmark>=5.0,<6",
     "pytest-cov>=5.0",
     "anyio[trio]>=4.0",
@@ -62,7 +61,13 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-asyncio_mode = "auto"
+# PET-149: anyio's native auto-mode is the replacement for the removed
+# `asyncio_mode = "auto"`. It binds every `async def test_*` to the anyio runner
+# via anyio's early usefixtures("anyio_backend") collection path, which composes
+# with `@pytest.mark.parametrize`, so no async test is silently collected but
+# never awaited. The shared `anyio_backend` fixture (tests/conftest.py) pins it to
+# function-scoped asyncio. Guarded by tests/test_async_marker_invariants.py.
+anyio_mode = "auto"
 
 [tool.mypy]
 strict = true

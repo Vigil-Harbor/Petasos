@@ -137,7 +137,6 @@ def test_detail_strips_matched_text_and_uses_finding_type() -> None:
     assert detail["transformations_applied"] == ["nfkc"]
 
 
-@pytest.mark.asyncio
 async def test_run_scan_history_entry_carries_bounded_detail_no_matched_text() -> None:
     handlers = _handlers()
     resp = await handlers.run_scan(
@@ -191,7 +190,6 @@ def test_detail_byte_cap_multibyte_worst_case_keeps_critical() -> None:
     assert "critical" in sevs
 
 
-@pytest.mark.asyncio
 async def test_detail_survives_ring_eviction_and_is_additive() -> None:
     handlers = _handlers()
     pre_keys = None
@@ -229,7 +227,6 @@ async def test_detail_survives_ring_eviction_and_is_additive() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_enforcement_block_drills_down_dual_mode() -> None:
     block = {
         "session_id": "sess-B",

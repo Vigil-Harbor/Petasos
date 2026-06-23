@@ -9,7 +9,6 @@ from petasos.scanners.minimal import _COMMAND_RULE_IDS, RULE_TAXONOMY
 from petasos.session.profiles import _UNSUPPRESSIBLE_RULE_IDS
 
 
-@pytest.mark.asyncio
 async def test_suppress_all_rules_adversarial(valid_key: str) -> None:
     pipe = Pipeline()
     pipe.activate(valid_key)
@@ -31,7 +30,6 @@ async def test_suppress_all_rules_adversarial(valid_key: str) -> None:
     )
 
 
-@pytest.mark.asyncio
 async def test_family_is_suppressible(valid_key: str) -> None:
     # Regression for PET-94 (Decision 1): the command family IS suppressible
     # (unlike injection). A custom profile listing the five command rule_ids
