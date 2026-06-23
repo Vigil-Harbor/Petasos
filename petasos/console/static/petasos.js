@@ -399,14 +399,39 @@
   };
 
   // ── SSE client (fetch-based for auth header support) ──
+  // PET-142: bounded-backoff reconnect. A transient stream fault (clean close,
+  // mid-stream read error, network failure, or any non-auth HTTP status) no
+  // longer latches polling for the whole session; it schedules a jittered,
+  // capped reconnect (the existing 10s poll runs during the backoff window as
+  // the safety net) and returns to push cadence on the reconnected stream's
+  // first bytes. Only 401/403 and an exhausted attempt budget concede to polling
+  // terminally — exactly where the pre-PET-142 single-strike client always
+  // landed, so the worst case is strictly non-regressive. See spec PET-142.
   Pet.sse = {
     _reader: null,
     _abortCtrl: null,
-    _usingFallback: false,
+    _usingFallback: false,        // D8: "polling is currently active" — true during transient backoff AND terminal concede
+    _reconnectTimer: null,        // pending reconnect setTimeout handle, or null
+    _reconnectAttempts: 0,        // consecutive failed attempts since the last durable stream
+    _healthyTimer: null,          // pending durable-reset setTimeout handle (D11), or null
+    _gen: 0,                      // connection generation (D12); bumped on disconnect + each _openStream
+    _BACKOFF_BASE_MS: 1000,       // base delay
+    _BACKOFF_MAX_MS: 30000,       // per-attempt delay cap
+    _MAX_RECONNECTS: 6,           // attempt cap before conceding to polling
+    _HEALTHY_RESET_MS: 60000,     // a reconnected stream must survive this long to refill the budget (D11)
 
+    // Public entry: full reset, then a fresh stream. The reconnect timer calls
+    // _openStream() directly (NOT this), so a reconnect does not re-enter the
+    // counter-zeroing reset and break the attempt bound.
     connect: function () {
+      this.disconnect();   // full reset: bump _gen, abort old stream, cancel both timers, zero counter, stop poll
+      this._openStream();  // the fetch/pump body (no reset — safe on the reconnect path)
+    },
+
+    _openStream: function () {
       var self = this;
-      if (self._abortCtrl) self.disconnect();
+      var gen = (self._gen += 1);                    // D12: this connection's generation
+      if (self._abortCtrl) self._abortCtrl.abort();  // defensive; inert on the reconnect path (disconnect nulled it)
       var url = Pet.api.baseUrl + "/events";
       var headers = { "Accept": "text/event-stream" };
       var token = window.__HERMES_SESSION_TOKEN__;
@@ -419,6 +444,7 @@
         credentials: "same-origin",
       })
         .then(function (resp) {
+          if (gen !== self._gen) return;             // D12: superseded connection — drop silently
           if (!resp.ok) throw new Error(resp.status);
           if (!resp.body) throw new Error("no response body");
           var reader = resp.body.getReader();
@@ -427,6 +453,7 @@
           var buf = "";
           function pump() {
             reader.read().then(function (r) {
+              if (gen !== self._gen) return;         // D12: superseded — no resurrection, even on the done path
               if (r.done) {
                 if (buf.trim()) {
                   var evType = null, evData = null;
@@ -436,8 +463,25 @@
                   });
                   if (evType && evData) self._dispatch(evType, evData);
                 }
-                self._enableFallback();
+                self._scheduleReconnect();           // D9: clean close is retryable, not a terminal demotion
                 return;
+              }
+              // D7: first bytes on this connection. Flip the UI back to LIVE now
+              // (the operator's win) but only ARM a durability timer — the retry
+              // budget refills on proven durability (D11), not on the first byte,
+              // so a bytes-then-die flap stays bounded. Both branches are
+              // idempotent on later chunks; on a clean first connect
+              // (_reconnectAttempts===0, _usingFallback===false) the block is a no-op.
+              if (self._usingFallback) {
+                self._usingFallback = false;
+                stopFallbackPolling();
+                if (Pet.updateConnStatus) Pet.updateConnStatus();   // POLLING → LIVE
+              }
+              if (self._reconnectAttempts > 0 && !self._healthyTimer) {
+                self._healthyTimer = setTimeout(function () {
+                  self._healthyTimer = null;
+                  self._reconnectAttempts = 0;       // durable: earn a fresh retry budget
+                }, self._HEALTHY_RESET_MS);
               }
               buf += dec.decode(r.value, { stream: true }).replace(/\r\n/g, "\n");
               var frames = buf.split("\n\n");
@@ -452,17 +496,62 @@
               });
               pump();
             }).catch(function (e) {
-              if (e.name !== "AbortError") self._enableFallback();
+              if (gen !== self._gen) return;         // D12
+              if (e.name !== "AbortError") self._scheduleReconnect();  // mid-stream read error is retryable
             });
           }
           pump();
         })
         .catch(function (e) {
-          if (e.name !== "AbortError") {
-            console.warn("Petasos SSE: " + e.message + ", using polling fallback");
-            self._enableFallback();
+          if (gen !== self._gen) return;             // D12
+          if (e.name === "AbortError") return;       // deliberate teardown — never reconnect
+          // D9: the terminal (non-retryable) set is exactly {401, 403}. The :422
+          // `throw new Error(resp.status)` makes e.message the status string.
+          if (e.message === "401" || e.message === "403") {
+            console.warn("Petasos SSE: auth rejected (" + e.message + "), using polling fallback");
+            self._enableFallback();                  // terminal: a tab that will never re-authorize must not storm
+          } else {
+            self._scheduleReconnect();               // 5xx / 404 / 429 / network / "no response body" — all retryable
           }
         });
+    },
+
+    // PET-142: schedule one jittered reconnect, or concede to polling once the
+    // attempt budget is spent. The single-flight guard (F-4) keeps disconnect()
+    // able to cancel the one pending timer; the _healthyTimer clear (D11) makes a
+    // not-yet-durable connection's death count toward the cap.
+    _scheduleReconnect: function () {
+      var self = this;
+      if (self._reconnectTimer) return;              // F-4: exactly one reconnect pending at a time
+      if (self._healthyTimer) {                      // D11/F-2: this connection died before proving durable
+        clearTimeout(self._healthyTimer); self._healthyTimer = null;
+      }
+      if (self._reconnectAttempts >= self._MAX_RECONNECTS) {
+        console.warn("Petasos SSE: reconnect attempts exhausted, using polling fallback");
+        self._enableFallback();                      // terminal; no new timer scheduled → bounded
+        return;
+      }
+      if (!self._usingFallback) {                    // D8: arm the safety net on the first fault
+        self._usingFallback = true;
+        startFallbackPolling();                      // idempotent: guarded by _fallbackPollInterval (load-bearing)
+        if (Pet.updateConnStatus) Pet.updateConnStatus();
+      }
+      var delay = self._backoffDelay(self._reconnectAttempts);
+      self._reconnectAttempts += 1;
+      self._reconnectTimer = setTimeout(function () {
+        self._reconnectTimer = null;
+        self._openStream();                          // _openStream bumps _gen; disconnect cleared this handle if torn down
+      }, delay);
+    },
+
+    // PET-142: pure helper (testable seam, like Pet.mergeScanHistory / bypassTotal).
+    // Equal jitter: returns a delay in [capped/2, capped) — half-open, so the floor
+    // capped/2 is reachable (Math.random → 0) but the ceiling capped is not. Never
+    // below capped/2 (no degenerate-zero retry), never the full cap (no herd).
+    _backoffDelay: function (n) {
+      var capped = Math.min(this._BACKOFF_BASE_MS * Math.pow(2, n), this._BACKOFF_MAX_MS);
+      var half = capped / 2;
+      return half + Math.random() * half;
     },
 
     _dispatch: function (evType, dataStr) {
@@ -511,8 +600,12 @@
     },
 
     disconnect: function () {
+      this._gen += 1;                                // D12: invalidate every in-flight continuation (incl. the done path)
       if (this._abortCtrl) { this._abortCtrl.abort(); this._abortCtrl = null; }
       this._reader = null;
+      if (this._reconnectTimer) { clearTimeout(this._reconnectTimer); this._reconnectTimer = null; }
+      if (this._healthyTimer) { clearTimeout(this._healthyTimer); this._healthyTimer = null; }
+      this._reconnectAttempts = 0;
       this._usingFallback = false;
       stopFallbackPolling();
     },
@@ -967,6 +1060,19 @@
     return total;
   };
 
+  // PET-144: honest scan-history subtitle. The ≤500 ring evicts silently; when the
+  // authoritative lifetime count (scans_total from /health) exceeds the buffered
+  // window, say so instead of implying the window is the whole record. Pure seam so
+  // the console JS harness can assert the label without driving renderDashboard.
+  Pet.scanHistorySubtitle = function (buffered, total) {
+    var b = Number(buffered); if (!Number.isFinite(b) || b < 0) b = 0;
+    var t = Number(total);
+    // total absent / non-numeric (health not yet loaded) or not actually evicting:
+    // fall back to the static subtitle, never a misleading "of NaN".
+    if (!Number.isFinite(t) || t <= b) return "recent evaluations";
+    return "showing last " + b + " of " + t;
+  };
+
   Pet.mergeScanHistory = function (buffer, entries) {
     var seen = new Set();
     for (var j = 0; j < buffer.length; j++) {
@@ -1126,7 +1232,12 @@
 
     // Scan history — rows derived from the same buffer (already most-recent-first).
     var historyPanel = Pet.Panel({
-      icon: "list", title: "scan history", place: "recent evaluations", flush: true,
+      icon: "list", title: "scan history", flush: true,
+      // PET-144: lifetime total (scans_total from /health) vs the buffered ≤500 window.
+      place: Pet.scanHistorySubtitle(
+        hist.length,
+        Pet.state.pipelineHealth && Pet.state.pipelineHealth.scans_total
+      ),
       help: Pet.HelpTip("<b>Scan History</b>: recent pipeline scans with severity, direction, and timing. Each row is one <code>Pipeline.evaluate()</code> call."),
       content: Pet.h("div", { style: { padding: "12px" } }, Pet.scanHistoryRows(hist)),
     });
@@ -1153,11 +1264,26 @@
     Pet.api.getHealth().then(function (d) {
       _healthLoaded = true;  // PET-127: settled (either arm) -> stop painting the skeleton
       if (!d.error) {
+        // PET-144: capture BEFORE the assignment whether this settle is the first to
+        // populate pipelineHealth, so the cold-mount re-render below fires on the
+        // null->set transition only.
+        var hadHealth = Pet.state.pipelineHealth !== null;
         Pet.state.scannerHealth = d.scanners || [];
         Pet.state.pipelineHealth = d.pipeline || null;
         var rows = Pet.scannerHealthRows(Pet.state.scannerHealth);
         var contentEl = healthPanel.querySelector("[style*='padding: 12px']") || healthPanel.querySelector("div > div");
         if (contentEl) { contentEl.innerHTML = ""; contentEl.appendChild(rows); }
+        // PET-144 cold-mount: this in-render fetch only patches the scanner-health
+        // panel above; the scan-history subtitle ("showing last N of M") is computed
+        // from scans_total at render time. On a cold mount against an already-evicting
+        // ring it would otherwise read "recent evaluations" until the first 10s poll.
+        // Re-render once so the honest label appears on first paint. The transition
+        // guard is load-bearing: this getHealth() fetch runs on EVERY renderDashboard
+        // (unlike the timer-gated poll :533 / one-shot seed :1190), so an
+        // unconditional re-render here would re-invoke the fetch without bound.
+        if (!hadHealth && Pet.state.pipelineHealth && Pet.state.tab === "obs" && _container) {
+          Pet.renderDashboard(_container);
+        }
       } else {
         var contentEl = healthPanel.querySelector("[style*='padding: 12px']") || healthPanel.querySelector("div > div");
         if (contentEl) {
