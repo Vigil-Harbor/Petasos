@@ -701,6 +701,10 @@ class ConsoleHandlers:
             or target_norm == active_norm
         )
 
+        # Non-None only when the SELECTED non-equipped profile's config.yaml holds
+        # values PetasosConfig rejects (hand-edited / corrupt). Distinct from
+        # `config_warning`, which always reflects the ACTIVE binding (edge F-5).
+        profile_warning: str | None = None
         if viewing_active:
             cfg = self.pipeline.config
             view_profile = self.pipeline._default_profile
@@ -711,11 +715,26 @@ class ConsoleHandlers:
             assert target_res is not None
             from petasos.config import PetasosConfig
 
-            cfg = PetasosConfig.from_dict(read_petasos_section(target_res))
-            view_profile = None
-            if cfg.profile_name:
-                with contextlib.suppress(KeyError):
-                    view_profile = self.pipeline._profile_resolver.resolve(cfg.profile_name)
+            try:
+                cfg = PetasosConfig.from_dict(read_petasos_section(target_res))
+            except (ValueError, TypeError) as exc:
+                # The selected profile's config holds values PetasosConfig rejects
+                # (e.g. a bad fail_mode or unordered tiers). The console must never
+                # 500 on a browse — degrade to defaults for the view and surface the
+                # parse error so the operator can fix it. (A subsequent save of a
+                # dirty field that does NOT cover the bad value still 422s via the
+                # update_config merge, pinpointing the offending field.)
+                _logger.warning("selected profile %r config rejected: %s", profile, exc)
+                cfg = PetasosConfig()
+                view_profile = None
+                profile_warning = (
+                    f"This profile's config could not be loaded and is shown as defaults: {exc}"
+                )
+            else:
+                view_profile = None
+                if cfg.profile_name:
+                    with contextlib.suppress(KeyError):
+                        view_profile = self.pipeline._profile_resolver.resolve(cfg.profile_name)
 
         return {
             "config": cfg.to_dict(redact_secrets=True),
@@ -731,6 +750,7 @@ class ConsoleHandlers:
             "profile_home": str(active_res.path.parent),
             "config_tier": active_res.tier,
             "config_warning": active_res.warning,
+            "profile_warning": profile_warning,
             "effective_config": _compute_effective_config(cfg, view_profile),
             "active_profile_overrides": _active_profile_overrides(view_profile),
             "hermes_profiles": profiles,

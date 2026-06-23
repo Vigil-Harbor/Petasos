@@ -2055,6 +2055,19 @@
   Pet.HERMES_RESTART_BANNER =
     "This isn't the equipped profile; changes take effect when it's equipped (restart).";
 
+  // PET-146: build the PUT /config payload for a save. Copies the source map (the
+  // dirty-field subset, or a preset's overrides) and tags it with `profile` ONLY
+  // when a non-equipped profile is in view, so update_config persists-only to that
+  // profile (D4); the equipped view omits `profile` and hot-applies (D3,
+  // byte-identical to pre-PET-146). Pure; never mutates the source.
+  Pet.buildSavePatch = function (source, viewingActive, selectedProfile) {
+    var patch = {};
+    var src = (source && typeof source === "object") ? source : {};
+    Object.keys(src).forEach(function (k) { patch[k] = src[k]; });
+    if (!viewingActive && selectedProfile) patch.profile = selectedProfile;
+    return patch;
+  };
+
   // PET-146: the Hermes-agent-profile selector. Mounts a <select> over the payload's
   // profiles (defaulting to the equipped/active entry, or `opts.selected` when a
   // non-equipped profile is being viewed), the binding read-out, the dangling-pointer
@@ -2148,6 +2161,14 @@
         Pet.Icon("warn"),
         Pet.h("span", {}, "Active binding: ", Pet.h("b", {}, d.hermes_profile ? String(d.hermes_profile) : "root"),
           " has a dangling pointer. " + String(d.config_warning))));
+    }
+
+    // ── selected-profile parse warning (its config.yaml holds invalid values) ──
+    // Labeled as the SELECTED profile, distinct from the active-binding warning above.
+    if (d && d.profile_warning) {
+      host.appendChild(Pet.h("div", { role: "alert", className: "notice pet-hermes-profile-warn", style: { marginTop: "8px" } },
+        Pet.Icon("warn"),
+        Pet.h("span", {}, "Selected profile: " + String(d.profile_warning))));
     }
 
     // ── "scoped to the selected Hermes profile" note (replaces any global marker) ──
@@ -2302,8 +2323,7 @@
         // PET-146: tag the PUT with the selected profile when a non-equipped profile
         // is being viewed, so a preset apply persists to THAT profile (D4) rather
         // than hot-applying to the equipped pipeline behind the operator's back.
-        var presetPatch = Object.assign({}, preset.overrides);
-        if (!viewingActive && Pet.state.selectedHermesProfile) presetPatch.profile = Pet.state.selectedHermesProfile;
+        var presetPatch = Pet.buildSavePatch(preset.overrides, viewingActive, Pet.state.selectedHermesProfile);
         Pet.api.putConfig(presetPatch).then(function (resp) {
           var failMsg = null;
           if (resp && resp._status && resp.detail) {
@@ -2556,9 +2576,7 @@
             // save against an empty on-disk section would reset a profile's posture,
             // edge round-2 F-6) and, when a non-equipped profile is in view, tag it
             // with `profile` so update_config persists-only (D4).
-            var savePatch = {};
-            Object.keys(Pet.state.configDirty).forEach(function (k) { savePatch[k] = Pet.state.configDirty[k]; });
-            if (!viewingActive && Pet.state.selectedHermesProfile) savePatch.profile = Pet.state.selectedHermesProfile;
+            var savePatch = Pet.buildSavePatch(Pet.state.configDirty, viewingActive, Pet.state.selectedHermesProfile);
             Pet.api.putConfig(savePatch).then(function (d) {
               if (d._status && d.detail) {
                 var raw = Array.isArray(d.detail) ? d.detail : [d.detail];

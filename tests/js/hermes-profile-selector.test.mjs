@@ -185,7 +185,34 @@ test("loader: petasos.js exports the PET-146 surfaces", () => {
   assert.equal(typeof Pet.hermesProfileOptions, "function");
   assert.equal(typeof Pet.renderHermesProfileSelector, "function");
   assert.equal(typeof Pet.hermesEffectiveReadout, "function");
+  assert.equal(typeof Pet.buildSavePatch, "function");
   assert.equal(typeof Pet.HERMES_RESTART_BANNER, "string");
+});
+
+// ── save-routing contract: buildSavePatch tags `profile` only when non-equipped ─
+test("buildSavePatch: equipped view omits `profile`; non-equipped includes it", () => {
+  // Equipped (viewingActive true): no profile key -> update_config hot-applies (D3).
+  const equipped = Pet.buildSavePatch({ fail_mode: "open" }, true, "beta");
+  assert.equal(equipped.fail_mode, "open");
+  assert.equal("profile" in equipped, false, "equipped save must NOT carry profile");
+
+  // Non-equipped: profile tagged -> update_config persists-only (D4).
+  const nonEquipped = Pet.buildSavePatch({ fail_mode: "open" }, false, "beta");
+  assert.equal(nonEquipped.fail_mode, "open");
+  assert.equal(nonEquipped.profile, "beta", "non-equipped save tags the selected profile");
+
+  // No selected profile (defensive) -> never tags, even when not viewing active.
+  const noSel = Pet.buildSavePatch({ fail_mode: "open" }, false, null);
+  assert.equal("profile" in noSel, false);
+
+  // Pure: the source map is never mutated.
+  const src = { a: 1 };
+  Pet.buildSavePatch(src, false, "beta");
+  assert.equal("profile" in src, false, "source map left untouched");
+
+  // Degrade: a non-object source yields a bare (or profile-only) patch, never throws.
+  assert.doesNotThrow(() => Pet.buildSavePatch(null, true, null));
+  assertLoose.deepEqual(Pet.buildSavePatch(null, false, "beta"), { profile: "beta" });
 });
 
 // ── 2. hermesProfileOptions: order, dedup, skip-blank, degrade ──────────────

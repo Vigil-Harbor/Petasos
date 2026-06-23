@@ -377,6 +377,27 @@ async def test_get_config_nonactive_view_loads_target_and_carries_active_warning
     assert payload["config_warning"] is not None
 
 
+async def test_get_config_malformed_profile_degrades_without_500(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A hand-edited / corrupt non-equipped config.yaml (valid YAML dict, but a value
+    # PetasosConfig rejects) must never 500 the browse: get_config degrades to
+    # defaults and surfaces a profile_warning (CodeRabbit PR #135).
+    root = _point_root_at(tmp_path, monkeypatch)
+    _write_profile(root, "alpha", {"fail_mode": "degraded"}, active=True)
+    _write_profile(root, "beta", {"fail_mode": "bogus"})  # invalid enum -> from_dict raises
+    handlers = _handlers(PetasosConfig(fail_mode="degraded"))
+
+    payload = await handlers.get_config(profile="beta")
+    assert payload["is_active"] is False
+    assert payload["profile_warning"] is not None
+    # Shown as defaults (a valid PetasosConfig), not the rejected value.
+    assert payload["config"]["fail_mode"] == "degraded"
+    # The valid-profile path leaves profile_warning None.
+    ok = await handlers.get_config()
+    assert ok["profile_warning"] is None
+
+
 # ── edge F-1: the embedded plugin bridge forwards the selector ──────────────
 async def test_bridge_forwards_profile_selector(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
