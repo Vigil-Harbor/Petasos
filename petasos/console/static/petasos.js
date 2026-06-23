@@ -347,11 +347,157 @@
     profiles: [],
     about: null,
     armed: true,  // PET-111: master Equipped/Unequipped bit; corrected by the mount fetch
+    // PET-129: first-class terminal "authenticate" state. Set true by Pet.auth.on401
+    // when a standalone /api call returns 401 (PETASOS_CONSOLE_TOKEN gate, PET-125);
+    // distinct from "offline". While true the dashboard renders the authenticate
+    // panel, both polls are stopped, and the banner reads AUTHENTICATE (never a false
+    // EQUIPPED). Cleared only by a verified re-auth (Pet.auth resume).
+    authRequired: false,
     // PET-114: per-session collapse choices { sectionKey: bool }. Written SOLELY
     // by an onToggle (an explicit user collapse/expand) or the apply-error reveal,
     // never seeded on render — so an upgrade from a stale all-expanded payload
     // re-applies each section's real default_collapsed for untouched sections.
     sectionCollapsed: {},
+  };
+
+  // ── PET-129: console token store + 401 auth chokepoint ──
+  // PET-125 shipped an optional, off-by-default PETASOS_CONSOLE_TOKEN Bearer gate on
+  // every standalone /api/* route (server.py:_require_console_token). This client
+  // teaches the browser about that credential: it stores the operator-supplied token
+  // here and attaches it on the standalone path only (D1). The embedded Hermes path
+  // authenticates through its own X-Hermes-Session-Token mount and must never gain a
+  // Petasos bearer (no double-credentialing).
+  //
+  // Persistence is sessionStorage (D2): survives a reload within the tab, dies when
+  // the tab closes; a deliberate middle ground between in-memory (re-enter on every
+  // reload) and localStorage (a long-lived bearer reachable by any script on the
+  // origin indefinitely). The store NEVER throws to its callers: sessionStorage can be
+  // absent (a headless node:vm load) or throw on setItem (private-browsing modes), so
+  // every access is wrapped and falls back to an in-module in-memory value.
+  var _UNSET = {};      // sentinel: no in-session set()/clear() has run yet
+  var _tokenMem = _UNSET; // in-memory truth once set/clear runs; falls back to sessionStorage before that
+  var _TOKEN_KEY = "petasos.console.token";
+  Pet.token = {
+    get: function () {
+      // In-session truth wins: once set()/clear() has run, _tokenMem is authoritative
+      // even if its sessionStorage write threw — so a failed write never lets get()
+      // return a stale persisted token. Fall back to sessionStorage only before the
+      // first set/clear (so an operator's token survives a reload within the tab).
+      if (_tokenMem !== _UNSET) return _tokenMem;
+      try {
+        if (typeof sessionStorage !== "undefined" && sessionStorage) {
+          var v = sessionStorage.getItem(_TOKEN_KEY);
+          if (v != null) return v;
+        }
+      } catch (_) {}
+      return null;
+    },
+    set: function (value) {
+      var v = value == null ? "" : String(value);
+      _tokenMem = v; // set the in-memory mirror FIRST so a throwing setItem still round-trips
+      try {
+        if (typeof sessionStorage !== "undefined" && sessionStorage) sessionStorage.setItem(_TOKEN_KEY, v);
+      } catch (_) {}
+      // D2 stale-submit guard: every credential change advances the auth generation
+      // so reads issued under a superseded token (their on401 included) are dropped.
+      Pet.auth._gen++;
+    },
+    clear: function () {
+      _tokenMem = null;
+      try {
+        if (typeof sessionStorage !== "undefined" && sessionStorage) sessionStorage.removeItem(_TOKEN_KEY);
+      } catch (_) {}
+      Pet.auth._gen++;
+    },
+  };
+
+  // Pet.auth.on401 is the one transport-agnostic 401 chokepoint (D3). It keys strictly
+  // on `_status === 401` (NOT on `.error`): a FastAPI 401 JSON body is { detail,
+  // _status: 401 } with no `.error` key, so the readers' `if (!d.error)` gate treats it
+  // as an empty success and the stale optimistic state survives. on401 must therefore
+  // be the FIRST statement of every /api reader's `.then`, strictly before any shape
+  // check. Keyed on _status (not "is standalone"), it would also cover a future
+  // embedded 401 without a rewrite (D-EMBEDDED-PARITY, forward-looking).
+  Pet.auth = {
+    _gen: 0, // D2 stale-submit generation counter; bumped on every token set/clear
+
+    on401: function (d) {
+      if (!(d && d._status === 401)) return false;
+      Pet.auth._enterAuthRequired();
+      return true;
+    },
+
+    // Idempotent transition into the authenticate state. Safe to run on every 401 and
+    // shared with the manual "clear token" affordance (D2): stop both polls, drop the
+    // SSE stream (resetting _usingFallback), clear the optimistic armed reassurance so
+    // the banner cannot read EQUIPPED, un-stick the connectivity blip, and re-render.
+    _enterAuthRequired: function () {
+      Pet.state.authRequired = true;
+      stopPolling();
+      stopFallbackPolling();
+      if (Pet.sse) Pet.sse.disconnect(); // aborts SSE, resets _usingFallback, stops the fallback poll
+      _armedSeeded = false;   // force a re-seed from server truth after re-auth (edge F-3)
+      _historySeeded = false; // ditto for the scan-history buffer
+      Pet.state.armed = null; // unknown until a verified read; bannerView keys authRequired first regardless
+      if (Pet.updateConnStatus) Pet.updateConnStatus(); // F-8: don't leave the blip stuck on POLLING
+      if (_container && Pet.renderDashboard) Pet.renderDashboard(_container);
+    },
+
+    // D2: store the submitted token and run the D4 resume sequence. Called by the
+    // authenticate panel's Unlock control; returns a promise of { ok, message? } so a
+    // wrong/transient result can re-enable the control with a reason.
+    submitToken: function (value) {
+      Pet.token.set(value); // bumps _gen
+      return Pet.auth._resume();
+    },
+
+    // D2: explicit "clear token" affordance. Runs the SAME idempotent teardown as
+    // on401 (not a mere panel swap) so a manual clear cannot leave polls running or
+    // flash a stale EQUIPPED banner (edge F-9).
+    clearToken: function () {
+      Pet.token.clear(); // bumps _gen
+      Pet.auth._enterAuthRequired();
+    },
+
+    // D4 re-auth resume. Verification read mirrors the mount sequence (getArmed, then
+    // getHealth). The captured generation (D2) gates reconciliation: a response from a
+    // superseded token (including its 401) is dropped, so a wrong-then-correct
+    // double-submit cannot let the wrong token's stale 401 tear down the correct
+    // token's session (edge F-6). authRequired is cleared ONLY after the verification
+    // read returns a non-401, well-shaped body (not optimistically on submit).
+    _resume: function () {
+      var gen = Pet.auth._gen;
+      _armedSeeded = false;   // re-derive from server truth, regardless of any stray frame (edge F-3)
+      _historySeeded = false;
+      return Pet.api.getArmed().then(function (d) {
+        if (gen !== Pet.auth._gen) return { ok: false, stale: true }; // superseded; drop (incl. a stale 401)
+        if (d && d._status === 401) return { ok: false, message: "Authentication failed. Check the token and retry." };
+        // round-2 edge F-3: a transient non-401 error (no boolean armed) keeps the
+        // authenticate state and re-enables the control with a distinct message.
+        if (!(d && typeof d.armed === "boolean")) return { ok: false, message: "Could not verify the token (transient error). Retry." };
+        Pet.state.authRequired = false;
+        Pet.state.armed = d.armed; // seed from the authenticated read, not the stale default
+        _armedSeeded = true;       // armed is verified; skip the dashboard's mount re-fetch
+        return Pet.api.getHealth().then(function (h) {
+          // A token set/clear during the /health round-trip supersedes this resume (a
+          // newer submit, or a clearToken, now owns the outcome). Drop the whole stale
+          // continuation — not just the health seed — so it cannot restart transports
+          // or re-render the dashboard under a superseded generation (e.g. re-arming
+          // polling/SSE that a concurrent clearToken just tore down).
+          if (gen !== Pet.auth._gen) return { ok: false, stale: true };
+          if (h && !h.error && h._status !== 401) {
+            _healthLoaded = true;
+            Pet.state.scannerHealth = h.scanners || [];
+            Pet.state.pipelineHealth = h.pipeline || null;
+          }
+          startPolling();
+          if (Pet.sse && Pet.sse.connect) Pet.sse.connect();
+          if (Pet.updateConnStatus) Pet.updateConnStatus();
+          if (_container && Pet.renderDashboard) Pet.renderDashboard(_container);
+          return { ok: true };
+        });
+      });
+    },
   };
 
   // ── API client ──
@@ -373,6 +519,18 @@
             }
             return { error: msg };
           });
+      }
+      // PET-129 D1: attach the optional console bearer on the standalone path only
+      // (this branch is reached only when there is no embedded Hermes SDK above). Sent
+      // verbatim as "Bearer " + token to match the server's case-sensitive scheme check
+      // and its hmac.compare_digest verbatim comparison (server.py). Shallow-copy so a
+      // caller's opts/headers literal (e.g. _post's { "Content-Type": ... }) is
+      // preserved and never mutated; tolerate opts === undefined (_get passes none).
+      // No token -> no Authorization key at all (byte-for-byte the token-off request).
+      var _tok = Pet.token.get();
+      if (_tok) {
+        opts = Object.assign({}, opts);
+        opts.headers = Object.assign({}, opts.headers, { Authorization: "Bearer " + _tok });
       }
       return fetch(url, opts).then(function (r) {
         return r.json().then(function (data) {
@@ -439,8 +597,19 @@
       if (self._abortCtrl) self._abortCtrl.abort();  // defensive; inert on the reconnect path (disconnect nulled it)
       var url = Pet.api.baseUrl + "/events";
       var headers = { "Accept": "text/event-stream" };
-      var token = window.__HERMES_SESSION_TOKEN__;
-      if (token) headers["X-Hermes-Session-Token"] = token;
+      // PET-129 D1/D5 (edge F-7): sse.connect is the single SSE client for both modes,
+      // so exactly ONE credential is attached, keyed on the SAME embedded predicate as
+      // _req (`sdk && sdk.fetchJSON`) — embedded -> Hermes session token only, standalone
+      // -> Petasos bearer only. The two never coexist (double-credentialing D5 forbids),
+      // and a partial SDK object lacking fetchJSON is treated as standalone by both paths.
+      var _sdk = window.__HERMES_PLUGIN_SDK__;
+      if (_sdk && _sdk.fetchJSON) {
+        var _hs = window.__HERMES_SESSION_TOKEN__;
+        if (_hs) headers["X-Hermes-Session-Token"] = _hs;
+      } else {
+        var _ctok = Pet.token.get();
+        if (_ctok) headers["Authorization"] = "Bearer " + _ctok;
+      }
 
       self._abortCtrl = new AbortController();
       fetch(url, {
@@ -450,6 +619,13 @@
       })
         .then(function (resp) {
           if (gen !== self._gen) return;             // D12: superseded connection — drop silently
+          // PET-129 D4: a 401 here is the auth-required terminal state, NOT transient
+          // offline. Route it to the chokepoint (which stops the polls + disconnects,
+          // cancelling PET-142's reconnect) instead of letting it fall to the .catch
+          // reconnect, which would re-open and 401 forever. Genuine offline (a network
+          // reject or a non-401 non-ok status) still throws below -> the .catch keeps
+          // PET-142's bounded-backoff reconnect, so the live/polling indicator is intact.
+          if (resp.status === 401) { Pet.auth.on401({ _status: 401 }); return; }
           if (!resp.ok) throw new Error(resp.status);
           if (!resp.body) throw new Error("no response body");
           var reader = resp.body.getReader();
@@ -510,8 +686,12 @@
         .catch(function (e) {
           if (gen !== self._gen) return;             // D12
           if (e.name === "AbortError") return;       // deliberate teardown — never reconnect
-          // D9: the terminal (non-retryable) set is exactly {401, 403}. The :422
-          // `throw new Error(resp.status)` makes e.message the status string.
+          // D9: the terminal (non-retryable) set is {401, 403}. PET-129 now intercepts
+          // a 401 upstream in the response handler (-> Pet.auth.on401, the authenticate
+          // state) before it can throw here, so in practice this branch fires for 403;
+          // the 401 arm is kept as belt-and-suspenders so any 401 that did reach here
+          // still concedes rather than reconnect-storms. The `throw new Error(resp.status)`
+          // makes e.message the status string.
           if (e.message === "401" || e.message === "403") {
             console.warn("Petasos SSE: auth rejected (" + e.message + "), using polling fallback");
             self._enableFallback();                  // terminal: a tab that will never re-authorize must not storm
@@ -588,6 +768,11 @@
         // authoritative pushed value into Pet.state.armed and re-renders, mirroring
         // the scan_result arm. renderDashboard rebuilds the banner from
         // Pet.state.armed and re-runs its per-entry seed guard.
+        // PET-129 (edge F-3): a buffered armed frame racing the 401 teardown must not
+        // mutate armed/_armedSeeded while authentication is required (it would re-seed
+        // a false EQUIPPED via a side channel). Bail first; resume re-derives from
+        // server truth, and bannerView keys on authRequired regardless.
+        if (Pet.state.authRequired) return;
         if (_armedBusy) return;                 // don't clobber this tab's in-flight optimistic toggle
         if (d && typeof d.armed === "boolean") {
           Pet.state.armed = d.armed;            // adopt file-truth pushed by the originating tab
@@ -624,6 +809,7 @@
     if (_pollInterval) return;
     _pollInterval = setInterval(function () {
       Pet.api.getHealth().then(function (d) {
+        if (Pet.auth.on401(d)) return; // PET-129 D3/D4: first statement; a 401 stops the poll, never an empty-success no-op
         if (!d.error) {
           _healthLoaded = true;  // PET-127: a poll settle that beats a slow in-render fetch flips the gate, not the skeleton
           Pet.state.scannerHealth = d.scanners || [];
@@ -642,6 +828,7 @@
     function schedule() {
       _fallbackPollInterval = setTimeout(function () {
         Pet.api.getScanHistory(100).then(function (d) {
+          if (Pet.auth.on401(d)) return; // PET-129 D4: on401 nulls _fallbackPollInterval before the reschedule .then runs, so the re-arm below no-ops
           if (!d.error && d.entries && Array.isArray(d.entries)) {
             Pet.state.scanHistory = d.entries;
             Pet.accrueBypass(d.entries); // PET-138: SSE-down path also feeds bypass state
@@ -653,6 +840,7 @@
       }, 10000);
     }
     Pet.api.getScanHistory(100).then(function (d) {
+      if (Pet.auth.on401(d)) return; // PET-129 D4: a 401 on the initial fallback read enters the authenticate state
       if (!d.error && d.entries && Array.isArray(d.entries)) {
         Pet.state.scanHistory = d.entries;
         Pet.accrueBypass(d.entries); // PET-138: SSE-down path also feeds bypass state
@@ -664,6 +852,20 @@
   function stopFallbackPolling() {
     if (_fallbackPollInterval) { clearTimeout(_fallbackPollInterval); _fallbackPollInterval = null; }
   }
+
+  // PET-129 D4: read-only testability seam over the module-private poll timers
+  // (PET-103 D9 / scanner-health-help style: exposes state, adds no behavior).
+  // startHealth/startFallback are thin wrappers so the headless node:vm harness can
+  // start each poll directly (the health poll is otherwise reachable only through
+  // Pet.mount, which the DOM shim cannot drive), making the poll-stop assertion
+  // load-bearing rather than vacuously green. state() is the read-only probe.
+  Pet._poll = {
+    startHealth: function () { startPolling(); },
+    startFallback: function () { startFallbackPolling(); },
+    state: function () { return { health: !!_pollInterval, fallback: !!_fallbackPollInterval }; },
+  };
+  // Convenience alias for the read-only probe (some call sites reference Pet._pollState).
+  Pet._pollState = Pet._poll.state;
 
   // ── Surface renderers ──
 
@@ -1093,37 +1295,153 @@
     return buffer;
   };
 
+  // PET-129 D3: pure banner label/sub/class decision, authRequired-FIRST. Extracted
+  // from paintBanner so the headless node:vm harness (no querySelector) can assert the
+  // decision directly. When authRequired is set, the banner renders an explicit
+  // AUTHENTICATE state and NEVER EQUIPPED, regardless of the optimistic armed default
+  // (closes defect #2). The non-auth branch is byte-for-byte today's paintBanner logic
+  // for a boolean armed value (no-regression for the token-off path).
+  Pet.bannerView = function (state) {
+    state = state || {};
+    if (state.authRequired) {
+      return {
+        label: "AUTHENTICATE",
+        sub: "Enter the console token to view enforcement state",
+        cls: "equip-banner unknown",
+        on: false,
+        confirming: false,
+        authRequired: true,
+      };
+    }
+    var on = state.armed !== false && state.armed != null;
+    var confirming = on && !!state.confirming;
+    return {
+      label: confirming ? "CONFIRM UNEQUIP?" : (on ? "EQUIPPED" : "UNEQUIPPED"),
+      sub: confirming
+        ? "Click again to disable all enforcement"
+        : (on ? "Enforcement is ON" : "Enforcement is OFF for every session"),
+      cls: "equip-banner" + (on ? "" : " disarmed") + (confirming ? " confirming" : ""),
+      on: on,
+      confirming: confirming,
+      authRequired: false,
+    };
+  };
+
+  // PET-129 D2: the authenticate panel rendered (instead of the dashboard tiles) while
+  // Pet.state.authRequired is set. Shows the honest banner (bannerView authRequired ->
+  // AUTHENTICATE, never EQUIPPED), a token field + Unlock submit, and an explicit
+  // "clear token" affordance. Crucially it issues NO /api reads, so a token-gated
+  // console renders a clear authenticate state rather than 401-looping broken tiles.
+  // The submit runs the D4 resume sequence with the stale-submit generation guard; the
+  // control is disabled while a resume is in flight and re-enabled with a reason on a
+  // wrong/transient result. Clear runs the same idempotent teardown as on401 (F-9).
+  Pet.renderAuthPanel = function () {
+    var view = Pet.bannerView({ authRequired: true });
+    var wrapper = Pet.h("div", { style: { display: "flex", flexDirection: "column", gap: "16px", height: "100%" } });
+
+    wrapper.appendChild(Pet.h("div", { className: view.cls },
+      Pet.h("img", { className: "equip-mark", src: Pet.asset("img/petasos-unequipped.png"), alt: "" }),
+      Pet.h("div", { className: "equip-text" },
+        Pet.h("div", { className: "equip-label" }, view.label),
+        Pet.h("div", { className: "equip-sub" }, view.sub)
+      )
+    ));
+
+    var msg = Pet.h("div", { className: "mono", style: { fontSize: "12px", color: "var(--tx-faint)", minHeight: "16px" } });
+    var input = Pet.h("input", {
+      type: "password", placeholder: "Console token", ariaLabel: "Console token",
+      style: {
+        flex: "1", minWidth: "0", padding: "10px 12px", borderRadius: "var(--r-panel)",
+        background: "var(--bg-panel)", border: "1px solid var(--border)",
+        color: "var(--tx)", fontFamily: "var(--font-mono)", fontSize: "13px"
+      }
+    });
+    var submitBtn = Pet.h("button", {
+      type: "button", className: "btn",
+      style: { padding: "10px 16px", whiteSpace: "nowrap" }
+    }, "Unlock");
+    var clearBtn = Pet.h("button", {
+      type: "button", className: "btn",
+      style: { padding: "8px 12px", fontSize: "12px", alignSelf: "flex-start", color: "var(--tx-faint)" }
+    }, "Clear token");
+
+    var doSubmit = function () {
+      var val = input.value;
+      if (!val || submitBtn.disabled) return;
+      submitBtn.disabled = true;                 // belt-and-suspenders against a double-submit (D2)
+      msg.textContent = "Verifying...";
+      Pet.auth.submitToken(val).then(function (res) {
+        if (res && res.ok) return;               // resume cleared authRequired and re-rendered the dashboard
+        if (res && res.stale) return;            // superseded by a later submit; that submit owns the outcome
+        submitBtn.disabled = false;
+        msg.textContent = (res && res.message) || "Authentication failed. Check the token and retry.";
+      });
+    };
+    submitBtn.addEventListener("click", doSubmit);
+    input.addEventListener("keydown", function (e) {
+      if (e.key === "Enter") { e.preventDefault(); doSubmit(); }
+    });
+    clearBtn.addEventListener("click", function () { Pet.auth.clearToken(); });
+
+    var help = Pet.h("div", { className: "mono", style: { fontSize: "11px", color: "var(--tx-faint)", lineHeight: "1.5" } },
+      "This console requires a token (PETASOS_CONSOLE_TOKEN). It is held for this browser tab only and is no stronger than your browser session.");
+
+    var row = Pet.h("div", { style: { display: "flex", gap: "10px", alignItems: "center" } }, input, submitBtn);
+    wrapper.appendChild(Pet.h("div", {
+      style: {
+        display: "flex", flexDirection: "column", gap: "10px",
+        padding: "16px", borderRadius: "var(--r-panel)",
+        background: "var(--bg-panel)", border: "1px solid var(--border)"
+      }
+    }, row, msg, help, clearBtn));
+
+    return wrapper;
+  };
+
   Pet.renderDashboard = function (container) {
     container.innerHTML = "";
+    // PET-129 D2/D3: in the authenticate state, render the token-entry panel and issue
+    // NO data reads (no getArmed/getHealth/getScanHistory), so a token-gated console
+    // shows a clear authenticate state instead of 401-looping skeletons/broken tiles.
+    if (Pet.state.authRequired) {
+      container.appendChild(Pet.renderAuthPanel());
+      return;
+    }
     var wrapper = Pet.h("div", { style: { display: "flex", flexDirection: "column", gap: "16px", height: "100%" } });
 
     // ── PET-111: Equipped/Unequipped master switch (first child of the tab) ──
     // paintBanner re-queries the LIVE banner node each call (never closes over a
     // captured node): renderDashboard rebuilds the banner on every SSE/poll frame,
     // and _container is null after unmount — so guard container-truthiness first.
+    // PET-129 D3: paintBanner derives ALL of its live outputs (label, .equip-banner
+    // class, .switch/aria-checked, helmet art) from the pure Pet.bannerView decision,
+    // which keys on authRequired first. So a 401 (or an operator click while
+    // unauthenticated) can never repaint EQUIPPED on the live node.
     var paintBanner = function () {
       var b = _container && _container.querySelector(".equip-banner");
       if (!b) return;
-      var on = Pet.state.armed !== false;
-      var confirming = on && _armedConfirmPending;
-      b.className = "equip-banner" + (on ? "" : " disarmed") + (confirming ? " confirming" : "");
+      var view = Pet.bannerView({
+        authRequired: Pet.state.authRequired,
+        armed: Pet.state.armed,
+        confirming: _armedConfirmPending,
+      });
+      b.className = view.cls;
       var lbl = b.querySelector(".equip-label");
-      if (lbl) lbl.textContent = confirming ? "CONFIRM UNEQUIP?" : (on ? "EQUIPPED" : "UNEQUIPPED");
+      if (lbl) lbl.textContent = view.label;
       var sub = b.querySelector(".equip-sub");
-      if (sub) sub.textContent = confirming
-        ? "Click again to disable all enforcement"
-        : (on ? "Enforcement is ON" : "Enforcement is OFF for every session");
+      if (sub) sub.textContent = view.sub;
       var sw = b.querySelector(".switch");
       if (sw) {
-        sw.className = "switch" + (on && !confirming ? " on" : "");
-        sw.setAttribute("aria-checked", on ? "true" : "false");
-        sw.setAttribute("aria-label", "Petasos enforcement: " + (on ? "equipped, click to unequip" : "unequipped, click to equip"));
+        sw.className = "switch" + (view.on && !view.confirming ? " on" : "");
+        sw.setAttribute("aria-checked", view.on ? "true" : "false");
+        sw.setAttribute("aria-label", "Petasos enforcement: " + (view.on ? "equipped, click to unequip" : "unequipped, click to equip"));
       }
       // PET-13: two-state helmet art - worn (equipped) when armed, off (unequipped) when not.
       var mark = b.querySelector(".equip-mark");
-      if (mark) mark.src = Pet.asset(on ? "img/petasos-equipped.png" : "img/petasos-unequipped.png");
+      if (mark) mark.src = Pet.asset(view.on ? "img/petasos-equipped.png" : "img/petasos-unequipped.png");
     };
     var doToggle = function () {
+      if (Pet.state.authRequired) return; // PET-129 D3: no toggling (or EQUIPPED repaint) while unauthenticated
       if (_armedBusy) return;  // ignore rapid re-clicks while a write is in flight
       var on = Pet.state.armed !== false;
       // Disarming is the high-stakes direction: require a confirming 2nd click.
@@ -1139,7 +1457,10 @@
       _armedBusy = true;
       Pet.state.armed = next; paintBanner();  // optimistic (live re-query, survives re-render)
       Pet.api.setArmed(next).then(function (d) {
-        _armedBusy = false;
+        _armedBusy = false; // cleared on EVERY path (incl. the 401 route below) so re-auth can re-seed
+        // PET-129 D3: a toggle that 401s also enters the authenticate state (on401
+        // already re-renders); route it through the chokepoint before reconciling.
+        if (Pet.auth.on401(d)) return;
         _armedSeeded = true;  // a settled write IS a fresh seed -> no spurious follow-up GET
         var ok = d && !d.error && (!d._status || d._status < 400) && typeof d.armed === "boolean";
         Pet.state.armed = ok ? d.armed : !next;  // reconcile to authoritative value, else revert
@@ -1257,6 +1578,7 @@
     if (!_armedSeeded && !_armedBusy) {
       _armedSeeded = true;
       Pet.api.getArmed().then(function (d) {
+        if (Pet.auth.on401(d)) return; // PET-129 D3: first statement; a 401 here must not be read as armed
         if (_armedBusy) return;
         if (d && !d.error && typeof d.armed === "boolean") {
           Pet.state.armed = d.armed;
@@ -1267,6 +1589,7 @@
 
     // Fetch initial data and render scanner health
     Pet.api.getHealth().then(function (d) {
+      if (Pet.auth.on401(d)) return; // PET-129 D3: first statement, before the _healthLoaded flip / shape gate
       _healthLoaded = true;  // PET-127: settled (either arm) -> stop painting the skeleton
       if (!d.error) {
         // PET-144: capture BEFORE the assignment whether this settle is the first to
@@ -1310,6 +1633,7 @@
     if (!_historySeeded) {
       _historySeeded = true;
       Pet.api.getScanHistory(500).then(function (d) {
+        if (Pet.auth.on401(d)) return; // PET-129 D3: first statement, before the shape-guarded seed-merge
         // startFallbackPolling response-shape guard, NOT the bare !d.error check:
         // _req never rejects on HTTP error (it resolves an error envelope), and a
         // 200 {} body lacking .entries would make the merge throw on .scan_id.
@@ -1450,6 +1774,10 @@
     return (opts.api || Pet.api).postScan(opts.text, opts.dir, opts.sid)
       .then(function (d) {
         Pet.restoreScanButton(scanBtn);
+        // PET-129 D3: chokepoint completeness. A playground scan that 401s enters the
+        // authenticate state rather than rendering a scanErrorBlock. (In practice a
+        // poll/mount reader 401s first; the bearer attach for postScan is via _req.)
+        if (Pet.auth.on401(d)) return;
         resultArea.innerHTML = "";
         if (d && (d.error || d.detail)) {
           var msg = d.error;
@@ -2219,6 +2547,14 @@
 
   Pet.renderConfig = function (container) {
     container.innerHTML = "";
+    // PET-129: in the authenticate state render the token panel instead of issuing
+    // config reads that would only 401 (the obs dashboard does the same). The auth
+    // flow takes precedence when the config tab is opened while authRequired, so no
+    // redundant getProfiles/getConfig calls and no skeleton flash before on401 swaps in.
+    if (Pet.state.authRequired) {
+      container.appendChild(Pet.renderAuthPanel());
+      return;
+    }
     var wrapper = Pet.h("div", { style: { display: "flex", flexDirection: "column", gap: "16px", height: "100%" } });
 
     // PET-13: the "how saving works" disclosure moved to the sticky save bar at the
@@ -2241,11 +2577,15 @@
     // (_get/_req return a fetch-based promise that resolves to {error} on failure
     // rather than rejecting, so the onRejected arm is belt-and-suspenders.)
     var profilesP = Pet.api.getProfiles().then(
-      function (resp) { return (resp && Array.isArray(resp.profiles)) ? resp.profiles : []; },
+      function (resp) {
+        if (Pet.auth.on401(resp)) return []; // PET-129: a profiles 401 enters the auth state (chokepoint completeness)
+        return (resp && Array.isArray(resp.profiles)) ? resp.profiles : [];
+      },
       function () { return []; }
     );
 
     Pet.api.getConfig(Pet.state.selectedHermesProfile).then(function (d) {
+      if (Pet.auth.on401(d)) return; // PET-129 D3: a 401 on the config read enters the authenticate state, not "Config unavailable"
       // PET-146 (CodeRabbit PR #135): a selected profile that no longer resolves
       // (deleted out-of-band) is rejected by the backend with a 422 naming the
       // `profile` field. Reset to the equipped view and reload, rather than bricking
@@ -2337,6 +2677,7 @@
         // than hot-applying to the equipped pipeline behind the operator's back.
         var presetPatch = Pet.buildSavePatch(preset.overrides, viewingActive, Pet.state.selectedHermesProfile);
         Pet.api.putConfig(presetPatch).then(function (resp) {
+          if (Pet.auth.on401(resp)) return; // PET-129: a config-save 401 enters the auth state, not a validation error
           var failMsg = null;
           if (resp && resp._status && resp.detail) {
             var raw = Array.isArray(resp.detail) ? resp.detail : [resp.detail];
@@ -2590,6 +2931,7 @@
             // with `profile` so update_config persists-only (D4).
             var savePatch = Pet.buildSavePatch(Pet.state.configDirty, viewingActive, Pet.state.selectedHermesProfile);
             Pet.api.putConfig(savePatch).then(function (d) {
+              if (Pet.auth.on401(d)) return; // PET-129: a config-save 401 enters the auth state, not a validation error
               if (d._status && d.detail) {
                 var raw = Array.isArray(d.detail) ? d.detail : [d.detail];
                 var details = raw.map(function (el) {

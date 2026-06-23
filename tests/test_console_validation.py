@@ -235,9 +235,34 @@ def test_default_ignorable_rejected() -> None:
             swept += 1
             with pytest.raises(SessionIdError):
                 sanitize_session_id(f"a{ch}b")
-    # Unicode 14.0.0: CGJ(1) + Hangul fillers(2) + Khmer(2) + FVS1-4(4)
-    # + HANGUL FILLER(1) + VS1-16(16) + HALFWIDTH FILLER(1) + VS17-256(240) = 267
-    assert swept >= 267
+    # This guards test integrity (the loop swept the assigned-non-Cf residue, so
+    # the in-loop ``pytest.raises`` ran over a meaningful population), not a
+    # per-codepoint security assertion. The count is fixed per Unicode version,
+    # and assigned codepoints only ever grow, so we pin the exact count for every
+    # version we have ground truth for and apply a monotonic floor to future ones.
+    # Exact-where-known catches a silently narrowed sweep on each interpreter; the
+    # floor keeps a newer Unicode (which may add codepoints) from false-failing.
+    # (Was a bare ``>= 266`` floor — version-blind, so a regression dropping the
+    # py3.11+ sweep from 267 to 266 would have passed silently. Originally a
+    # hardcoded ``267`` that red-failed on the py3.10 / Unicode-13 interpreter.)
+    _EXPECTED_SWEEP_BY_UNIDATA = {
+        "13.0.0": 266,  # CPython 3.10
+        "14.0.0": 267,  # CPython 3.11 / 3.12
+    }
+    expected = _EXPECTED_SWEEP_BY_UNIDATA.get(unicodedata.unidata_version)
+    if expected is not None:
+        assert swept == expected, (
+            f"swept {swept} != expected {expected} for Unicode "
+            f"{unicodedata.unidata_version}; sweep population changed"
+        )
+    else:
+        # Unicode 15+: no local ground truth. Assigned codepoints only grow, so
+        # 267 (the Unicode-14 count) is a valid lower bound; a narrowed sweep
+        # still trips this, while legitimate codepoint additions do not.
+        assert swept >= 267, (
+            f"swept {swept} below the 267 floor for Unicode "
+            f"{unicodedata.unidata_version}; sweep population shrank"
+        )
 
 
 @pytest.mark.parametrize(

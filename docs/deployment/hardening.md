@@ -220,30 +220,49 @@ the guard to defend its own config file.
 
 ### The mitigation (both platforms)
 
-Place `config.yaml` and `$HERMES_HOME` outside the agent's writable filesystem
-scope:
+Place **every** resolver-reachable `config.yaml` outside the agent's writable
+filesystem scope, not only the single file `resolve_hermes_config_path()` returns
+for the active profile. That means the whole `profiles/` tree
+(`profiles/*/config.yaml`), `$HERMES_HOME`, and the legacy v0.15 root: each is a
+home the resolver can bind, so each is a config an agent must not be able to write.
 
-- **POSIX:** a read-only bind mount, or a separate uid that owns the config with
-  the agent's uid denied write.
+**Why all homes, not only the active one.** PET-146's Config Editor selector makes
+every profile home an editable surface, and the three safety levers (`fail_mode`,
+`source_taint_namespaces`, `egress_sink_tools`) live inside each profile's config.
+An agent that can write a *non-active* profile's `config.yaml` can pre-stage an
+inert relaxed or disarmed posture that arms the instant an operator equips that
+profile, or a PET-147 live swap retargets to it, with no further agent action at
+switch time. A boundary scoped to only the resolved active config leaves that
+pre-stage path open. For the Hermes-profile-home versus internal-Petasos-profile
+distinction, see `profile-resolution-model.md`.
+
+- **POSIX:** a read-only bind mount over the `profiles/` tree (and `$HERMES_HOME`),
+  or a separate uid that owns the tree with the agent's uid denied write. Scope the
+  mount or ownership to the directory, not a single file, so sibling and
+  later-created profile homes inherit the boundary.
 - **Windows:** a separate Windows user or service account owns the config
-  directory, with an ACL that denies write to the agent's account. Note that
-  `%LOCALAPPDATA%\hermes` is user-writable by default (and see the section 5
-  Windows note: on Hermes Desktop for Windows, file tools bypass the terminal
-  sandbox).
+  directory, with an inherited deny-write ACL across the entire `profiles\` tree,
+  for example `icacls "...\hermes\profiles" /deny "agent-user:(OI)(CI)W" /T`. A
+  single-file ACL would leave sibling and later-created profile homes writable.
+  Note that `%LOCALAPPDATA%\hermes` is user-writable by default (and see the
+  section 5 Windows note: on Hermes Desktop for Windows, file tools bypass the
+  terminal sandbox).
+
+Verify no home is agent-writable (the filesystem-reach check, distinct from the
+active-binding confirmation in *Profile changes require a restart* below):
+
+- **POSIX:** running as the agent's uid,
+  `find <hermes-root>/profiles -name config.yaml -writable` should print nothing.
+- **Windows:** `icacls "...\hermes\profiles\*\config.yaml"` should show no write
+  grant for the agent's account.
 
 Then ensure neither the standalone console nor the embedded plugin API is
 reachable by the agent's shell or http tools (network-namespace isolation, or no
 shell/http tool in the agent's toolset). Loopback alone is insufficient.
 
-> **All profile homes, not just the active one (PET-146).** Hermes 0.16+ keeps a
-> separate `config.yaml` per persona under `profiles/<name>/`, and the Config
-> Editor's Hermes-agent-profile selector enumerates and edits **every** one of
-> them. A per-profile egress fence (`source_taint_namespaces`) or a relaxed
-> `fail_mode` can be **pre-staged in a non-equipped profile** and arm on the next
-> equip, so the read-only-mount / write-denying-ACL mitigation above must cover the
-> **whole `profiles/` tree** (plus the v0.15 root and any `$HERMES_HOME`), not only
-> the equipped profile's file. Background and the full two-axis model:
-> [`profile-resolution-model.md`](./profile-resolution-model.md).
+<!-- petasos-doc-assert: multihome_config_unreachable=all-profile-homes -->
+<!-- petasos-doc-assert: multihome_prestage_threat=equip-or-live-swap -->
+<!-- petasos-doc-assert: config_boundary_mechanism=deployment-posture -->
 
 ### Optional console token (`PETASOS_CONSOLE_TOKEN`)
 
@@ -262,6 +281,10 @@ What it covers, and what it does not:
   the agent's own process environment and is readable by a shell-capable agent
   (which could also just use Vector A). The primary mitigation remains deployment
   posture (config and console out of reach, separate uid or netns).
+- It is most useful when the console is **not** loopback-only. Keep the section 2
+  binding guidance (loopback, or reach it over Tailscale/WireGuard) even with the
+  token on: the token raises the bar for a network-reachable console but does not
+  replace the network posture.
 
 Operational notes:
 
@@ -271,17 +294,27 @@ Operational notes:
 - The token is compared **verbatim**: do not rely on leading or trailing
   whitespace being meaningful, trimmed for you, or preserved in transit.
 - The scheme match is case-sensitive (`Bearer`, not `bearer`).
-- With the token on, the bundled browser UI cannot drive the `/api` routes by
-  plain navigation (it sends no `Authorization` header yet): the shell loads but
-  its panels show errors. Use an authenticated client or a reverse proxy that
-  injects the credential, for example:
-  `curl -H "Authorization: Bearer <token>" -X POST http://127.0.0.1:8384/api/armed -d '{"armed": true}'`.
-- **Known limitation until the served-UI follow-up ships:** with the token on,
-  the browser Observability tab still renders the equip banner as EQUIPPED even
-  though its armed read is being 401'd. Do not trust the in-browser banner when
-  the token is on; verify armed state with an authenticated `GET /api/armed`. The
-  follow-up ticket carries in-UI token entry, graceful 401 handling, equip-banner
-  correctness, and stopping the 10 second health/fallback polls on a 401.
+- With the token on, the bundled browser console now drives the `/api` routes
+  itself (PET-129). Opening the served console shows a clear **authenticate** state
+  (not broken tiles, not skeletons): enter the token in the unlock field and all
+  panels (config, scan, scan-history, armed, SSE) function. A 401 stops the 10
+  second health and fallback polls and renders an honest banner instead of looping,
+  and a "clear token" affordance drops the credential and returns to the
+  authenticate state. An authenticated client or a credential-injecting reverse
+  proxy still works for scripted access, for example:
+  `curl -H "Authorization: Bearer <token>" -H "Content-Type: application/json" -X POST http://127.0.0.1:8384/api/armed -d '{"armed": true}'`.
+- **Where the token lives in the browser:** the console holds the operator-supplied
+  token in `sessionStorage`, so it survives a reload within the tab and is cleared
+  when the tab closes. It is no stronger than the operator's browser session: any
+  script on the origin can read it for the life of that tab. It is never written to
+  `localStorage` (which would persist a bearer indefinitely), and is never read from
+  the server or environment into the page (the operator supplies it in the browser).
+- **Served-UI follow-up (shipped, PET-129):** in-UI token entry, graceful 401
+  handling, equip-banner correctness (a 401'd armed read shows the authenticate
+  state, never a false EQUIPPED), and poll-stop are now in the browser client. This
+  is convenience plus a bar against a network-only or non-shell caller (Vector B);
+  it is **not** a defense against a shell-capable agent that can read the env or
+  config (Vector A), for which the primary mitigation remains deployment posture.
 - **Forward-looking invariant:** the dependency gates by the `/api/` path prefix,
   so every sensitive route must live under `/api/`. A future non-asset route
   added outside `/api/` would be served unauthenticated.
