@@ -32,6 +32,8 @@ from petasos.scanners.minimal import MinimalScanner  # noqa: E402
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from fastapi import Request
+
 pytestmark = pytest.mark.anyio
 
 
@@ -497,8 +499,13 @@ async def test_bridge_forwards_profile_selector(
         async def json(self) -> dict[str, Any]:
             return self._d
 
-    # _Req is a minimal stand-in for fastapi.Request (only .json() is used).
-    out = await plugin_api.update_config(_Req({"fail_mode": "open", "profile": "beta"}))  # type: ignore[arg-type]
+    # _Req is a minimal stand-in for fastapi.Request (only .json() is used). The
+    # cast keeps mypy --strict green across environments that disagree on whether
+    # `Request` resolves to a concrete type or to Any (the bare arg-type ignore was
+    # flagged unused under the CI stubs).
+    out = await plugin_api.update_config(
+        cast("Request", _Req({"fail_mode": "open", "profile": "beta"}))
+    )
     assert isinstance(out, dict)
     assert out["applied"] is False
     assert _section_of(beta)["fail_mode"] == "open"
