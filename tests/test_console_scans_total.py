@@ -28,8 +28,6 @@ from petasos.console.server import ConsoleHandlers  # noqa: E402
 from petasos.pipeline import Pipeline  # noqa: E402
 from petasos.scanners.minimal import MinimalScanner  # noqa: E402
 
-pytestmark = pytest.mark.anyio
-
 
 @pytest.fixture()
 def handlers() -> ConsoleHandlers:

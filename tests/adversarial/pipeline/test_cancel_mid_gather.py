@@ -117,7 +117,6 @@ class _BlockingScanner:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_inspect_catches_cancelled_error() -> None:
     # Regression for PET-48: CancelledError must not escape inspect()
     pipe = Pipeline(scanners=[_CancellingScanner()])
@@ -130,7 +129,6 @@ async def test_inspect_catches_cancelled_error() -> None:
     )
 
 
-@pytest.mark.asyncio
 async def test_scan_one_isolates_cancelled_scanner() -> None:
     # Regression for PET-48: _scan_one must catch BaseException
     scanner = _CancellingScanner()
@@ -140,7 +138,6 @@ async def test_scan_one_isolates_cancelled_scanner() -> None:
     assert "CancelledError" in result.error
 
 
-@pytest.mark.asyncio
 async def test_gather_return_exceptions_isolates_failure() -> None:
     # Regression for PET-48: one cancelled scanner must not abort others
     pipe = Pipeline(scanners=[_CancellingScanner(), _HealthyScanner()])
@@ -157,7 +154,6 @@ async def test_gather_return_exceptions_isolates_failure() -> None:
     assert len(cancelled_results) >= 1
 
 
-@pytest.mark.asyncio
 async def test_keyboard_interrupt_caught_at_boundary() -> None:
     # Regression for PET-48: KeyboardInterrupt must not escape inspect()
     # KI is tested at the inspect() boundary (not through a scanner inside
@@ -170,7 +166,6 @@ async def test_keyboard_interrupt_caught_at_boundary() -> None:
     assert result.safe is False
 
 
-@pytest.mark.asyncio
 async def test_cancelled_error_logged() -> None:
     # Regression for PET-48: non-Exception BaseExceptions are logged at inspect() boundary
     pipe = Pipeline()
@@ -186,7 +181,6 @@ async def test_cancelled_error_logged() -> None:
     assert "CancelledError" in str(args)
 
 
-@pytest.mark.asyncio
 async def test_mid_gather_cancel_full_pipeline() -> None:
     # Regression for PET-48: external task cancellation returns PipelineResult
     started = asyncio.Event()

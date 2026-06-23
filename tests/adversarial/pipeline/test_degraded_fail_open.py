@@ -46,7 +46,6 @@ class _HighFindingScanner:
         )
 
 
-@pytest.mark.asyncio
 async def test_degraded_partial_ml_failure_blocks() -> None:
     """PIPE-02: partial ML failure in degraded mode blocks content."""
     pipe = Pipeline(
@@ -57,7 +56,6 @@ async def test_degraded_partial_ml_failure_blocks() -> None:
     assert result.safe is False
 
 
-@pytest.mark.asyncio
 async def test_degraded_all_ml_failure_blocks() -> None:
     """PIPE-02: total ML failure in degraded mode blocks content."""
     pipe = Pipeline(
@@ -68,7 +66,6 @@ async def test_degraded_all_ml_failure_blocks() -> None:
     assert result.safe is False
 
 
-@pytest.mark.asyncio
 async def test_degraded_no_ml_failure_passes() -> None:
     """PIPE-02: all ML scanners healthy + clean in degraded mode passes content."""
     pipe = Pipeline(
@@ -79,7 +76,6 @@ async def test_degraded_no_ml_failure_passes() -> None:
     assert result.safe is True
 
 
-@pytest.mark.asyncio
 async def test_degraded_partial_ml_failure_with_findings_blocks() -> None:
     """PIPE-02: partial ML failure + HIGH finding in degraded mode blocks content."""
     pipe = Pipeline(
@@ -90,7 +86,6 @@ async def test_degraded_partial_ml_failure_with_findings_blocks() -> None:
     assert result.safe is False
 
 
-@pytest.mark.asyncio
 async def test_open_partial_ml_failure_passes() -> None:
     """PIPE-02: partial ML failure in open mode passes content (risk accepted)."""
     pipe = Pipeline(
@@ -101,7 +96,6 @@ async def test_open_partial_ml_failure_passes() -> None:
     assert result.safe is True
 
 
-@pytest.mark.asyncio
 async def test_closed_partial_ml_failure_blocks() -> None:
     """PIPE-02: partial ML failure in closed mode blocks content."""
     pipe = Pipeline(
@@ -322,7 +316,6 @@ def test_merge_critical_as_nxt_beats_earlier_info() -> None:
     assert info_first not in merged
 
 
-@pytest.mark.asyncio
 async def test_pipeline_critical_low_conf_still_blocks() -> None:
     """Full pipeline: CRITICAL at any confidence produces safe=False."""
 
@@ -363,7 +356,6 @@ class _CapturingScanner:
         return ScanResult(scanner_name=self.name, findings=(), duration_ms=0.1)
 
 
-@pytest.mark.asyncio
 async def test_normalization_per_stage_independent() -> None:
     """PIPE-05: each normalize toggle is honored independently. Turning one stage
     off no longer skips the entire normalize() — the others still run."""
@@ -439,7 +431,6 @@ def _make_profile(
     )
 
 
-@pytest.mark.asyncio
 async def test_override_cannot_downgrade_critical_to_info(valid_key: str) -> None:
     """PIPE-07 / PET-109 D8: the severity floor still blocks a CRITICAL→info downgrade
     for FLOOR rules (injection/structural). D8 deliberately narrowed PET-54's
@@ -457,7 +448,6 @@ async def test_override_cannot_downgrade_critical_to_info(valid_key: str) -> Non
     assert crit_findings[0].severity == Severity.CRITICAL
 
 
-@pytest.mark.asyncio
 async def test_override_cannot_downgrade_high_to_low(valid_key: str) -> None:
     """PIPE-07: severity floor blocks HIGH→low downgrade."""
     pipe = Pipeline([MinimalScanner()])
@@ -469,7 +459,6 @@ async def test_override_cannot_downgrade_high_to_low(valid_key: str) -> None:
     assert inj_findings[0].severity == Severity.HIGH
 
 
-@pytest.mark.asyncio
 async def test_override_can_upgrade_medium_to_critical(valid_key: str) -> None:
     """PIPE-07: severity floor allows MEDIUM→critical upgrade."""
     pipe = Pipeline([MinimalScanner()])
@@ -484,7 +473,6 @@ async def test_override_can_upgrade_medium_to_critical(valid_key: str) -> None:
         assert b64_findings[0].severity == Severity.CRITICAL
 
 
-@pytest.mark.asyncio
 async def test_override_same_severity_accepted(valid_key: str) -> None:
     """PIPE-07: same-severity override is a no-op, accepted."""
     pipe = Pipeline([MinimalScanner()])
@@ -496,7 +484,6 @@ async def test_override_same_severity_accepted(valid_key: str) -> None:
     assert inj_findings[0].severity == Severity.HIGH
 
 
-@pytest.mark.asyncio
 async def test_structural_rule_override_skipped_at_runtime(valid_key: str) -> None:
     """PIPE-07: structural rule override silently skipped even for direct ResolvedProfile."""
     pipe = Pipeline([MinimalScanner()])
@@ -511,7 +498,6 @@ async def test_structural_rule_override_skipped_at_runtime(valid_key: str) -> No
     assert structural[0].severity == Severity.CRITICAL
 
 
-@pytest.mark.asyncio
 async def test_suppress_rules_now_affects_ml_findings(valid_key: str) -> None:
     """PET-109 D5: suppression is now cross-scanner — a non-floor ML rule_id IS
     suppressed (supersedes PET-14 Decision 5's MinimalScanner-only behavior). The
@@ -537,7 +523,6 @@ async def test_suppress_rules_now_affects_ml_findings(valid_key: str) -> None:
     assert any(f.rule_id == floor_id for f in result2.findings)
 
 
-@pytest.mark.asyncio
 async def test_dict_profile_override_critical_blocked(valid_key: str) -> None:
     """PIPE-07: dict profile downgrade floored at runtime via inspect()."""
     pipe = Pipeline([MinimalScanner()])
@@ -552,7 +537,6 @@ async def test_dict_profile_override_critical_blocked(valid_key: str) -> None:
     assert result.safe is False
 
 
-@pytest.mark.asyncio
 async def test_invalid_severity_override_value_skipped(valid_key: str) -> None:
     """PIPE-07 / Decision 6: invalid severity value silently skipped, no crash."""
     pipe = Pipeline([MinimalScanner()])

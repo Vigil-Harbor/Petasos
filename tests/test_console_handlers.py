@@ -24,8 +24,6 @@ from petasos.scanners.llm_guard import LlmGuardScanner  # noqa: E402
 from petasos.scanners.minimal import MinimalScanner  # noqa: E402
 from petasos.scanners.presidio import PresidioScanner  # noqa: E402
 
-pytestmark = pytest.mark.asyncio
-
 
 @pytest.fixture()
 def pipeline() -> Pipeline:

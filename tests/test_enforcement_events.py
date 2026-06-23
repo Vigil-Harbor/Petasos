@@ -213,7 +213,6 @@ def test_allowed_call_emits_no_event(spool: str, monkeypatch: pytest.MonkeyPatch
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_enforcement_event_reaches_observability_buffer(
     spool: str, handlers: ConsoleHandlers
 ) -> None:
@@ -238,7 +237,6 @@ async def test_enforcement_event_reaches_observability_buffer(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_dashboard_observes_gateway_enforcement(spool: str) -> None:
     # The dashboard self-initialized its own host_id="dashboard" pipeline — a separate
     # instance from any gateway pipeline. The event still surfaces because the channel
@@ -256,7 +254,6 @@ async def test_dashboard_observes_gateway_enforcement(spool: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_block_count_reconciles_with_log(
     spool: str,
     handlers: ConsoleHandlers,
@@ -288,7 +285,6 @@ async def test_block_count_reconciles_with_log(
     assert len(_read_spool(spool)) == n
 
 
-@pytest.mark.asyncio
 async def test_block_count_survives_ring_eviction(spool: str, handlers: ConsoleHandlers) -> None:
     # The per-session tally is independent of the 500-entry ring's eviction — the
     # case that distinguishes the running tally from a buffer-scoped count (D4).
@@ -308,7 +304,6 @@ async def test_block_count_survives_ring_eviction(spool: str, handlers: ConsoleH
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_observability_correct_when_disarmed(
     spool: str, handlers: ConsoleHandlers, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -398,7 +393,6 @@ def test_armed_pre_tool_call_invokes_guard_evaluate(
     assert eval_calls, "_guard.evaluate must run on the armed branch"
 
 
-@pytest.mark.asyncio
 async def test_observability_correct_across_profiles(
     spool: str, handlers: ConsoleHandlers
 ) -> None:
@@ -452,7 +446,6 @@ def test_telemetry_emission_never_blocks_toolcall(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_enforcement_spool_bounded(spool: str, handlers: ConsoleHandlers) -> None:
     # A tiny cap forces reader-owned rotation; every event still surfaces exactly once
     # and the live spool is bounded (rotated away), not grown without bound.
@@ -471,7 +464,6 @@ async def test_enforcement_spool_bounded(spool: str, handlers: ConsoleHandlers) 
     assert ev.spool_size(spool) == 0  # rotated + cleared -> live spool bounded
 
 
-@pytest.mark.asyncio
 async def test_enforcement_survives_gateway_seq_reset(
     spool: str, handlers: ConsoleHandlers
 ) -> None:
@@ -495,7 +487,6 @@ async def test_enforcement_survives_gateway_seq_reset(
     assert ids == {"e-a0", "e-a1", "e-a2", "e-b0", "e-b1", "e-b2"}
 
 
-@pytest.mark.asyncio
 async def test_reader_rotation_captures_inflight_and_no_doublecount(
     spool: str, handlers: ConsoleHandlers, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -524,7 +515,6 @@ async def test_reader_rotation_captures_inflight_and_no_doublecount(
     assert handlers.block_tally_for("s") == 2  # exactly two, no rotation double-count
 
 
-@pytest.mark.asyncio
 async def test_orphan_rot_recovered_not_overwritten(spool: str, handlers: ConsoleHandlers) -> None:
     # A .rot left by a reader that crashed mid-rotation is recovered (drained +
     # unlinked) before any new rotation, so its events are never overwritten/lost.
@@ -548,7 +538,6 @@ async def test_orphan_rot_recovered_not_overwritten(spool: str, handlers: Consol
     assert not os.path.exists(rot)  # orphan recovered + cleared
 
 
-@pytest.mark.asyncio
 async def test_drain_exactly_once_under_concurrency(spool: str, handlers: ConsoleHandlers) -> None:
     # The background tailer and a concurrent get_scan_history drain against one spool
     # each yield every scan_id exactly once (one asyncio.Lock; forward offset). Includes
@@ -569,7 +558,6 @@ async def test_drain_exactly_once_under_concurrency(spool: str, handlers: Consol
     assert handlers.block_tally_for("s") == 8
 
 
-@pytest.mark.asyncio
 async def test_enforcement_visible_on_polling_fallback(
     spool: str, handlers: ConsoleHandlers
 ) -> None:
@@ -582,7 +570,6 @@ async def test_enforcement_visible_on_polling_fallback(
     assert any(e.get("source") == "enforcement" for e in res["entries"])
 
 
-@pytest.mark.asyncio
 async def test_live_enforcement_row_survives_a_poll(spool: str, handlers: ConsoleHandlers) -> None:
     # A row delivered "live" (drain) is still present after a subsequent poll, because
     # the server ring is the single source of truth and get_scan_history serves it.
@@ -594,7 +581,6 @@ async def test_live_enforcement_row_survives_a_poll(spool: str, handlers: Consol
     assert any(e.get("scan_id") == "e-live" for e in res["entries"])
 
 
-@pytest.mark.asyncio
 async def test_enforcement_visible_via_embedded_plugin_route(
     spool: str, handlers: ConsoleHandlers, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -631,7 +617,6 @@ def test_spool_path_identical_under_dangling_profile(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_spool_path_change_resets_offset(handlers: ConsoleHandlers, tmp_path: Path) -> None:
     # A Hermes profile/config path switch points the drain at a different (smaller)
     # spool. The stale byte offset must reset to 0 so the new spool's events are not
@@ -654,7 +639,6 @@ async def test_spool_path_change_resets_offset(handlers: ConsoleHandlers, tmp_pa
     assert "e-2" in {r["scan_id"] for r in handlers.scan_history.to_list()}
 
 
-@pytest.mark.asyncio
 async def test_long_reason_is_capped(spool: str, handlers: ConsoleHandlers) -> None:
     # A long scanner/guard message must not bloat the ring buffer / SSE frame
     # (CodeRabbit PR #117). The raw matched value is never in `reason` to begin with.
@@ -729,7 +713,6 @@ def test_bypassed_event_carries_count(spool: str, monkeypatch: pytest.MonkeyPatc
     assert "matched_text" not in e
 
 
-@pytest.mark.asyncio
 async def test_bypass_tally_monotonic_max_and_isolated(
     spool: str, handlers: ConsoleHandlers
 ) -> None:
@@ -752,7 +735,6 @@ async def test_bypass_tally_monotonic_max_and_isolated(
     assert handlers.block_tally_for("s") == 1
 
 
-@pytest.mark.asyncio
 async def test_bypass_tally_refresh_preserves_insertion_order(
     spool: str, handlers: ConsoleHandlers, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -802,7 +784,6 @@ def test_enforcement_summary_normalizes_bypassed_count() -> None:
         )
 
 
-@pytest.mark.asyncio
 async def test_bypass_count_round_trips_in_process(
     spool: str, handlers: ConsoleHandlers, monkeypatch: pytest.MonkeyPatch
 ) -> None:

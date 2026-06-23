@@ -5,8 +5,6 @@ from __future__ import annotations
 from types import MappingProxyType
 from unittest.mock import patch
 
-import pytest
-
 from petasos.config import PetasosConfig
 from petasos.pipeline import Pipeline
 from petasos.session.escalation import derive_tier, evaluate_tier
@@ -53,7 +51,6 @@ class TestDeriveTierBoundaries:
 
 
 class TestGuardDeriveTier:
-    @pytest.mark.asyncio
     async def test_guard_with_profile_thresholds(self, valid_key: str) -> None:
         cfg = _cfg(tier1_threshold=15.0, tier2_threshold=30.0, tier3_threshold=50.0)
         pipe = Pipeline(config=cfg)
@@ -79,7 +76,6 @@ class TestGuardDeriveTier:
         result = await guard.evaluate("bash", {}, "s1")
         assert result.tier == "tier2"
 
-    @pytest.mark.asyncio
     async def test_guard_without_profile_falls_back(self, valid_key: str) -> None:
         cfg = _cfg(tier1_threshold=15.0, tier2_threshold=30.0, tier3_threshold=50.0)
         pipe = Pipeline(config=cfg)

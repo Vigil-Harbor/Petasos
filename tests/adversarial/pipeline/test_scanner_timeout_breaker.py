@@ -89,7 +89,6 @@ def test_circuit_breaker_cooldown_rejects_invalid(bad: float) -> None:
 # --- timeout behavior -------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_hanging_scanner_times_out_not_hangs() -> None:
     cfg = PetasosConfig(
         fail_mode="degraded",
@@ -114,7 +113,6 @@ async def test_hanging_scanner_times_out_not_hangs() -> None:
 # --- circuit breaker --------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_circuit_breaker_trips_after_threshold() -> None:
     cfg = PetasosConfig(
         fail_mode="degraded",
@@ -136,7 +134,6 @@ async def test_circuit_breaker_trips_after_threshold() -> None:
     assert scanner.calls == 2
 
 
-@pytest.mark.asyncio
 async def test_circuit_breaker_streak_clears_after_cooldown() -> None:
     """Cooldown expiry resets the consecutive-timeout count.
 
@@ -188,7 +185,6 @@ async def test_circuit_breaker_streak_clears_after_cooldown() -> None:
     )
 
 
-@pytest.mark.asyncio
 async def test_circuit_breaker_resets_on_success() -> None:
     cfg = PetasosConfig(
         fail_mode="degraded",
