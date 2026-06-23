@@ -20,7 +20,14 @@ import uuid
 from typing import TYPE_CHECKING, Any
 
 from petasos.console._config_meta import generate_config_metadata, generate_section_metadata
-from petasos.console._paths import resolve_hermes_config_path
+from petasos.console._paths import (
+    _resolved_normcase,
+    hermes_root,
+    list_hermes_profiles,
+    read_petasos_section,
+    resolve_hermes_config_path,
+    resolve_profile_config_path,
+)
 from petasos.console._presets import generate_preset_metadata, resolve_active_preset
 from petasos.console._ring_buffer import RingBuffer
 from petasos.console._sse import SSEBroadcaster
@@ -28,9 +35,14 @@ from petasos.console._validation import SessionIdError, sanitize_session_id
 from petasos.normalize import normalize
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from fastapi import FastAPI
 
+    from petasos.config import PetasosConfig
+    from petasos.console._paths import HermesConfigResolution
     from petasos.pipeline import Pipeline
+    from petasos.session.profiles import ResolvedProfile
 
 _logger = logging.getLogger(__name__)
 
@@ -244,8 +256,18 @@ def _enforcement_summary(ev: dict[str, Any], *, provenance: str = "unattested") 
     }
 
 
-def _persist_config(validated_config: Any) -> bool:
-    """Write the petasos: section back to Hermes config.yaml.
+def _persist_config(validated_config: Any, *, target_path: "Path | None" = None) -> bool:
+    """Write the petasos: section back to a Hermes config.yaml.
+
+    ``target_path is None`` resolves the active binding via
+    ``resolve_hermes_config_path()`` (today's behavior, byte-identical) — the
+    standalone/equipped path.  An explicit ``target_path`` writes to that file
+    instead (PET-146 D4, a non-equipped profile's ``config.yaml``).  Either way
+    the write is the same atomic temp+rename; ``hash_key``/``session_secret`` are
+    popped so NO secret is ever written to any ``config.yaml`` (parity
+    active/non-active), and ``enabled``/``host_id`` are merge-preserved from the
+    written file.  Last-writer-wins across the dashboard / gateway / model-switcher
+    writers is accepted (edge F-7).
 
     Returns True on success, False on failure.
     """
@@ -254,10 +276,13 @@ def _persist_config(validated_config: Any) -> bool:
 
     import yaml
 
-    res = resolve_hermes_config_path()
-    if res.warning is not None:
-        _logger.warning("Hermes profile resolution: %s", res.warning)
-    config_path = res.path
+    if target_path is None:
+        res = resolve_hermes_config_path()
+        if res.warning is not None:
+            _logger.warning("Hermes profile resolution: %s", res.warning)
+        config_path = res.path
+    else:
+        config_path = target_path
     if not config_path.exists():
         _logger.warning("Cannot persist config — %s not found", config_path)
         return False
@@ -305,6 +330,58 @@ def _persist_config(validated_config: Any) -> bool:
     except Exception as exc:
         _logger.error("Failed to persist config: %s", exc)
         return False
+
+
+def _hermes_profile_label(res: "HermesConfigResolution") -> str:
+    """PET-146 D1 human label for a binding resolution.
+
+    The ``profiles/<name>`` leaf for ``tier == "profile"``, ``"HERMES_HOME"`` for
+    ``tier == "hermes_home"``, ``"root"`` for ``tier == "root"``.
+    """
+    if res.tier == "profile":
+        return res.path.parent.name
+    if res.tier == "hermes_home":
+        return "HERMES_HOME"
+    return "root"
+
+
+def _compute_effective_config(
+    config: "PetasosConfig", view_profile: "ResolvedProfile | None"
+) -> dict[str, Any]:
+    """PET-146 D-EFFECTIVE: the synthetic view that matches enforcement.
+
+    Starts from ``config.to_dict(redact_secrets=True)`` and overlays ONLY the tier
+    thresholds when the governing internal profile sets ``tier_thresholds`` — the
+    single config-shaped runtime override (``guard._state_to_tier`` consults
+    ``profile.tier_thresholds`` over ``config.{tier1,2,3}_threshold``).  No other
+    field is overlaid, because no other config-shaped field is overridden at
+    runtime.  ``confidence_floor`` is a live finding-dropping override but is NOT a
+    ``PetasosConfig`` field, so it cannot appear here — it surfaces in
+    ``active_profile_overrides`` instead (corr F-1).
+    """
+    eff = config.to_dict(redact_secrets=True)
+    if view_profile is not None and view_profile.tier_thresholds is not None:
+        tt = view_profile.tier_thresholds
+        eff["tier1_threshold"] = tt.tier1
+        eff["tier2_threshold"] = tt.tier2
+        eff["tier3_threshold"] = tt.tier3
+    return eff
+
+
+def _active_profile_overrides(view_profile: "ResolvedProfile | None") -> dict[str, Any] | None:
+    """PET-146 D-EFFECTIVE: the internal profile's non-config-shaped runtime effects.
+
+    ``None`` when no internal profile governs the viewed config; else
+    ``ResolvedProfile.to_dict()`` verbatim (it emits fresh copies — frozen-exports
+    safe).  Surfaces ``confidence_floor`` (the live finding-dropping floor that is
+    not a ``PetasosConfig`` field), ``suppress_rules``, ``severity_overrides``,
+    ``pii_entities_extra``, ``tier_thresholds``, ``tool_exempt_list``,
+    ``tool_alias_map`` — what the internal profile adds, without pretending they
+    are config fields.
+    """
+    if view_profile is None:
+        return None
+    return view_profile.to_dict()
 
 
 class ConsoleHandlers:
@@ -581,64 +658,224 @@ class ConsoleHandlers:
         except Exception:
             _logger.debug("Console alert broadcast failed", exc_info=True)
 
-    async def get_config(self) -> dict[str, Any]:
-        config_dict = self.pipeline.config.to_dict(redact_secrets=True)
-        fields = generate_config_metadata()
-        sections = generate_section_metadata()
-        # PET-124: the strength-preset registry and the derived active level. The
-        # comparator is passed the PetasosConfig object (not the redacted payload
-        # dict) — no preset-owned field is a secret, so redaction cannot perturb it.
+    async def get_config(self, profile: str | None = None) -> dict[str, Any]:
+        # PET-146 D1: the active binding identity + its (possibly dangling-pointer)
+        # warning. resolve_hermes_config_path() is the same resolver _persist_config
+        # uses. The active binding's config_warning is carried in EVERY payload,
+        # regardless of the selected profile (edge F-5), so the dangling-pointer
+        # signal never vanishes while the operator browses a non-active profile.
+        active_res = resolve_hermes_config_path()
+        active_norm = _resolved_normcase(active_res.path)
+
+        # PET-146 D1: the profile list (fail-soft active-only on []).
+        profiles = list_hermes_profiles()
+        if not profiles:
+            # Caller-owned diagnostic (keeps _paths.py logging-free): WARN only when
+            # the profiles/ dir is present but enumerated empty — a benign
+            # double-log on a legitimately-empty dir is acceptable (edge F-8).
+            with contextlib.suppress(Exception):
+                if (hermes_root() / "profiles").exists():
+                    _logger.warning(
+                        "profiles/ is present but enumerated empty — selector falls back to "
+                        "the active binding only"
+                    )
+            profiles = [
+                {
+                    "name": _hermes_profile_label(active_res),
+                    "path": str(active_res.path),
+                    "is_active": True,
+                    "tier": active_res.tier,
+                }
+            ]
+
+        # PET-146 D4: a selected profile is "the equipped one" iff its resolved
+        # config path is the SAME FILE as the live binding (normalized-path compare,
+        # not a leaf-name/raw-string compare). An unresolvable selector (deleted,
+        # unknown) or a resolution OSError degrades to the active view.
+        target_res = resolve_profile_config_path(profile) if profile is not None else None
+        target_norm = _resolved_normcase(target_res.path) if target_res is not None else None
+        viewing_active = (
+            target_res is None
+            or target_norm is None
+            or active_norm is None
+            or target_norm == active_norm
+        )
+
+        if viewing_active:
+            cfg = self.pipeline.config
+            view_profile = self.pipeline._default_profile
+        else:
+            # PET-146 D4 load: read the target file's on-disk section, build a config
+            # from it, and resolve ITS internal profile via the pipeline's resolver.
+            # (viewing_active is False only when target_res resolved — narrow for mypy.)
+            assert target_res is not None
+            from petasos.config import PetasosConfig
+
+            cfg = PetasosConfig.from_dict(read_petasos_section(target_res))
+            view_profile = None
+            if cfg.profile_name:
+                with contextlib.suppress(KeyError):
+                    view_profile = self.pipeline._profile_resolver.resolve(cfg.profile_name)
+
         return {
-            "config": config_dict,
-            "fields": fields,
-            "sections": sections,
+            "config": cfg.to_dict(redact_secrets=True),
+            "fields": generate_config_metadata(),
+            "sections": generate_section_metadata(),
+            # PET-124: the strength-preset registry and the derived active level. The
+            # comparator is passed the PetasosConfig object (not the redacted payload
+            # dict) — no preset-owned field is a secret, so redaction cannot perturb it.
             "presets": generate_preset_metadata(),
-            "active_preset": resolve_active_preset(self.pipeline.config),
+            "active_preset": resolve_active_preset(cfg),
+            # PET-146 D1: the binding identity, effective view, and profile list.
+            "hermes_profile": _hermes_profile_label(active_res),
+            "profile_home": str(active_res.path.parent),
+            "config_tier": active_res.tier,
+            "config_warning": active_res.warning,
+            "effective_config": _compute_effective_config(cfg, view_profile),
+            "active_profile_overrides": _active_profile_overrides(view_profile),
+            "hermes_profiles": profiles,
+            "is_active": viewing_active,
         }
 
     async def update_config(
-        self, body: dict[str, Any]
+        self, body: dict[str, Any], profile: str | None = None
     ) -> tuple[dict[str, Any] | None, list[dict[str, str]] | None]:
-        current = self.pipeline.config.to_dict()
-        current.pop("session_secret", None)
-        merged = {**current, **body}
-        try:
-            from petasos.config import PetasosConfig
+        from petasos.config import PetasosConfig
 
+        # PET-146: the selector rides as a top-level body key on PUT (the bridge
+        # forwards the body unchanged) and falls back to the handler arg (the GET
+        # query path). Pop it BEFORE any merge so it never reaches
+        # PetasosConfig.from_dict, mirroring the session_secret pop precedent.
+        body = dict(body)
+        selector = body.pop("profile", None)
+        if selector is None:
+            selector = profile
+
+        active_res = resolve_hermes_config_path()
+        active_norm = _resolved_normcase(active_res.path)
+        target_res = resolve_profile_config_path(selector) if selector is not None else None
+
+        # PET-146 D4 / edge F-6: a named selector that no longer resolves (deleted
+        # between load and save) is rejected explicitly — never silently routed to
+        # the active file nor folded into the generic persist warning.
+        if selector is not None and target_res is None:
+            return None, [{"field": "profile", "message": f"Profile {selector!r} not found"}]
+
+        target_norm = _resolved_normcase(target_res.path) if target_res is not None else None
+        # No selector -> the equipped binding (D3, byte-identical to today). A
+        # selector that resolves to the same file as the live binding is ALSO the
+        # equipped path (D4 normalized-path compare; closes case-fold / symlink /
+        # HERMES_HOME-aliasing). A resolution OSError -> treated as NOT active (the
+        # safe persist-only branch, edge round-2 F-2).
+        is_active = target_res is None or (
+            target_norm is not None and active_norm is not None and target_norm == active_norm
+        )
+
+        if is_active:
+            # ── Equipped path (D3): unchanged validate -> reconfigure -> persist ──
+            current = self.pipeline.config.to_dict()
+            current.pop("session_secret", None)
+            merged = {**current, **body}
+            try:
+                validated = PetasosConfig.from_dict(merged)
+            except (ValueError, TypeError) as exc:
+                msg = str(exc)
+                field = _extract_field_from_error(msg, body)
+                return None, [{"field": field, "message": msg}]
+            # PET-126: route through reconfigure so the change takes effect on the
+            # running pipeline (frequency, escalation, audit verbosity, alerting, and
+            # decode_encoded_payloads all live-update), not just on a new session.
+            try:
+                self.pipeline.reconfigure(validated)
+            except KeyError as exc:
+                # PET-146 D-NONACTIVE-VALIDATION (active-path parity): an unknown
+                # profile_name surfaces from ProfileResolver.resolve inside
+                # reconfigure as a KeyError — a pre-existing 500 the selector makes
+                # reachable for arbitrary profiles. Map it to a structured 422.
+                return None, [{"field": "profile_name", "message": str(exc)}]
+            except (ValueError, TypeError) as exc:
+                # from_dict validates structure, but frequency_weights content (glob
+                # position, non-negative/finite values) is validated inside
+                # FrequencyTracker.apply_config during reconfigure. Surface that as a
+                # structured field error (422), not an unhandled 500. reconfigure is
+                # atomic (Decision 5), so the live config is unchanged on failure and
+                # we do not persist a config that could not be applied.
+                msg = str(exc)
+                field = _extract_field_from_error(msg, body)
+                return None, [{"field": field, "message": msg}]
+            persisted = _persist_config(validated)
+            result = {
+                "config": validated.to_dict(redact_secrets=True),
+                "fields": generate_config_metadata(),
+                "sections": generate_section_metadata(),
+                # PET-124: recompute the dial level from the freshly validated config
+                # so the editor re-render reflects the just-applied preset (or Custom).
+                "presets": generate_preset_metadata(),
+                "active_preset": resolve_active_preset(validated),
+                # PET-146 D3: the equipped save hot-applied; UI keeps no banner.
+                "applied": True,
+            }
+            if not persisted:
+                result["warning"] = "Config applied in memory but failed to persist to disk"
+            return result, None
+
+        # ── Non-equipped path (D4): merge on-disk section, validate, dry-run gate,
+        # persist-only (never reconfigure — the live pipeline is bound elsewhere) ──
+        # Merge base is the TARGET FILE's on-disk section, NOT the redacted client
+        # payload (edge F-2): a redacted hash_key "[REDACTED]" would pass the
+        # non-empty check and mask a real error. body is the operator's dirty-field
+        # subset only — a full-form save against an empty on-disk section would write
+        # all-defaults and silently reset the profile's posture (edge round-2 F-6).
+        # (is_active is False only when target_res resolved — narrow for mypy.)
+        assert target_res is not None
+        merged = {**read_petasos_section(target_res), **body}
+        try:
             validated = PetasosConfig.from_dict(merged)
         except (ValueError, TypeError) as exc:
             msg = str(exc)
             field = _extract_field_from_error(msg, body)
             return None, [{"field": field, "message": msg}]
-        # PET-126: route through reconfigure so the change takes effect on the
-        # running pipeline (frequency, escalation, audit verbosity, alerting, and
-        # decode_encoded_payloads all live-update), not just on a new session. A
-        # bare ``self.pipeline._config = validated`` only updated the fields read
-        # directly off _config at scan time.
+
+        # PET-146 D-NONACTIVE-VALIDATION: a non-active save skips reconfigure, so it
+        # would skip the validations that only run there. Replicate the two
+        # fail-prone ones in dry-run BEFORE any write, so an unappliable config can't
+        # be pre-staged into a profile that later becomes live.
         try:
-            self.pipeline.reconfigure(validated)
+            from petasos.session.frequency import FrequencyTracker
+
+            # The constructor validates frequency_weights content (glob position,
+            # finite, non-negative). Discard the instance; bind no callbacks.
+            FrequencyTracker(validated)
+            if validated.profile_name:
+                # KeyError on an unknown internal profile name (parity with
+                # reconfigure's ProfileResolver.resolve). Discard the result.
+                self.pipeline._profile_resolver.resolve(validated.profile_name)
         except (ValueError, TypeError) as exc:
-            # from_dict validates structure, but frequency_weights content (glob
-            # position, non-negative/finite values) is validated inside
-            # FrequencyTracker.apply_config during reconfigure. Surface that as a
-            # structured field error (422), not an unhandled 500. reconfigure is
-            # atomic (Decision 5), so the live config is unchanged on failure and
-            # we do not persist a config that could not be applied.
-            msg = str(exc)
-            field = _extract_field_from_error(msg, body)
-            return None, [{"field": field, "message": msg}]
-        persisted = _persist_config(validated)
+            return None, [{"field": "frequency_weights", "message": str(exc)}]
+        except KeyError as exc:
+            return None, [{"field": "profile_name", "message": str(exc)}]
+
+        # PET-146 D4 tripwire: a mis-determined is_active is a silent split-brain
+        # (dashboard skips reconfigure while the gateway hot-applies the file, or the
+        # reverse). Log target/active/is_active at INFO so a mis-route is visible.
+        _logger.info(
+            "Petasos non-equipped profile save: target_path=%s active_path=%s is_active=%s",
+            target_res.path,
+            active_res.path,
+            is_active,
+        )
+        persisted = _persist_config(validated, target_path=target_res.path)
         result = {
             "config": validated.to_dict(redact_secrets=True),
             "fields": generate_config_metadata(),
             "sections": generate_section_metadata(),
-            # PET-124: recompute the dial level from the freshly validated config so
-            # the editor re-render reflects the just-applied preset (or Custom).
             "presets": generate_preset_metadata(),
             "active_preset": resolve_active_preset(validated),
+            # PET-146 D5: persisted but NOT hot-applied -> UI shows the restart banner.
+            "applied": False,
         }
         if not persisted:
-            result["warning"] = "Config applied in memory but failed to persist to disk"
+            result["warning"] = "Config failed to persist to disk"
         return result, None
 
     async def run_scan(
@@ -872,8 +1109,10 @@ def build_app(pipeline: "Pipeline", *, auth_token: str | None = None) -> "FastAP
         return HTMLResponse(html_path.read_text(encoding="utf-8"))
 
     @app.get("/api/config")
-    async def api_get_config() -> dict[str, Any]:
-        return await handlers.get_config()
+    async def api_get_config(profile: str | None = None) -> dict[str, Any]:
+        # PET-146: optional ?profile=<name> selector loads a non-equipped profile's
+        # effective view; absent -> the equipped binding (byte-identical to today).
+        return await handlers.get_config(profile=profile)
 
     @app.put("/api/config")
     async def api_update_config(request: Request) -> Any:

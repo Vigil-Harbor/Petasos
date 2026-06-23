@@ -235,6 +235,16 @@ Then ensure neither the standalone console nor the embedded plugin API is
 reachable by the agent's shell or http tools (network-namespace isolation, or no
 shell/http tool in the agent's toolset). Loopback alone is insufficient.
 
+> **All profile homes, not just the active one (PET-146).** Hermes 0.16+ keeps a
+> separate `config.yaml` per persona under `profiles/<name>/`, and the Config
+> Editor's Hermes-agent-profile selector enumerates and edits **every** one of
+> them. A per-profile egress fence (`source_taint_namespaces`) or a relaxed
+> `fail_mode` can be **pre-staged in a non-equipped profile** and arm on the next
+> equip, so the read-only-mount / write-denying-ACL mitigation above must cover the
+> **whole `profiles/` tree** (plus the v0.15 root and any `$HERMES_HOME`), not only
+> the equipped profile's file. Background and the full two-axis model:
+> [`profile-resolution-model.md`](./profile-resolution-model.md).
+
 ### Optional console token (`PETASOS_CONSOLE_TOKEN`)
 
 The standalone console reads an optional bearer token from the

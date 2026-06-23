@@ -139,6 +139,93 @@ def resolve_hermes_config_path() -> HermesConfigResolution:
     )
 
 
+def _resolved_normcase(path: Path) -> str | None:
+    """``os.path.normcase`` of the ``strict=False`` resolution, or None on OSError.
+
+    The single normalization primitive for active-vs-target identity (D4):
+    Windows case-fold, trailing-slash, and symlink collapse all happen here so a
+    selected profile is compared to the live binding as the *same file*, never as
+    a raw string or leaf name.  Returns None when the OS cannot resolve the name
+    (a malformed path or an inaccessible reparse point can raise on Windows); the
+    caller treats a None as "not the active path" — the safe persist-only branch.
+    """
+    try:
+        return os.path.normcase(str(path.resolve(strict=False)))
+    except OSError:
+        return None
+
+
+def list_hermes_profiles() -> list[dict[str, Any]]:
+    """Enumerate ``profiles/*/config.yaml`` under the Hermes root.
+
+    Returns ``[{name, path, is_active, tier}]`` — one entry per profile dir that
+    holds a ``config.yaml``, sorted by leaf name, each marked ``is_active`` by the
+    normalized-path comparison (D4) against the live binding, never a raw string
+    compare.  Fail-soft: a missing or unreadable ``profiles/`` dir (and any other
+    failure) yields ``[]`` so the caller folds in the active binding as a single
+    entry.  Never raises (D3); stays logging-free to preserve this module's
+    pure-stdlib, no-logging contract — the caller (``server.get_config``) owns the
+    diagnostic WARNING for an unreadable-but-present ``profiles/`` dir.
+    """
+    try:
+        base = hermes_root() / "profiles"
+        base_resolved = base.resolve(strict=False)
+        active_norm = _resolved_normcase(resolve_hermes_config_path().path)
+        out: list[dict[str, Any]] = []
+        for child in sorted(base.iterdir()):
+            if not child.is_dir():
+                continue
+            cfg = child / "config.yaml"
+            if not cfg.is_file():
+                continue
+            try:
+                child_resolved = child.resolve(strict=False)
+            except OSError:
+                continue
+            if not child_resolved.is_relative_to(base_resolved):
+                continue
+            cfg_norm = _resolved_normcase(cfg)
+            out.append(
+                {
+                    "name": child.name,
+                    "path": str(cfg),
+                    "is_active": active_norm is not None and cfg_norm == active_norm,
+                    "tier": "profile",
+                }
+            )
+        return out
+    except Exception:
+        return []
+
+
+def resolve_profile_config_path(name: str) -> HermesConfigResolution | None:
+    """Resolve one named profile's config path, traversal-guarded.
+
+    Returns ``HermesConfigResolution(<root>/profiles/<name>/config.yaml,
+    tier="profile", warning=None)`` when *name* is a current
+    ``list_hermes_profiles()`` member — a full resolution (not a bare ``Path``) so
+    it feeds ``read_petasos_section`` directly.  Returns None when *name* is not a
+    member (unknown or deleted) or escapes the ``profiles/`` base.  The membership
+    gate is the traversal guard: ``list_hermes_profiles`` only ever emits simple
+    leaf names from ``iterdir``, so a ``../`` or absolute *name* is never a member.
+    Never raises (D3).
+    """
+    try:
+        if name not in {p["name"] for p in list_hermes_profiles()}:
+            return None
+        base = (hermes_root() / "profiles").resolve(strict=False)
+        candidate = (hermes_root() / "profiles" / name).resolve(strict=False)
+        if not candidate.is_relative_to(base):
+            return None
+        return HermesConfigResolution(
+            path=hermes_root() / "profiles" / name / "config.yaml",
+            tier="profile",
+            warning=None,
+        )
+    except Exception:
+        return None
+
+
 def read_petasos_section(res: HermesConfigResolution) -> dict[str, Any]:
     """Read the ``petasos:`` YAML section from the resolved config path.
 

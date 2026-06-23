@@ -179,9 +179,14 @@ def _require_handlers() -> Any:
 
 
 @router.get("/config")
-async def get_config() -> Any:
+async def get_config(profile: str | None = None) -> Any:
+    # PET-146 (edge F-1): the embedded Hermes-desktop bridge MUST forward the
+    # ?profile=<name> selector — this is the primary operator surface; without it
+    # the selector silently no-ops there. The PUT bridge below already forwards the
+    # body unchanged (the selector rides as a top-level body key, popped in the
+    # shared handler), so only this GET needs the explicit query param.
     h = _require_handlers()
-    return await h.get_config()
+    return await h.get_config(profile=profile)
 
 
 @router.put("/config")

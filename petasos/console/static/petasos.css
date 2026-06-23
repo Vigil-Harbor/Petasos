@@ -238,6 +238,20 @@
 .pet .pet-dial-rec { font-size: 11px; color: var(--tx-faint); font-family: var(--font-mono); }
 .pet .pet-dial-rec b { color: var(--amber); font-weight: 600; }
 
+/* PET-146: Hermes-agent-profile selector — sits above the Strength dial. The
+   read-out/note/banner reuse .notice for the alert strips; these style the
+   selector chrome, the binding line, the scoped note, and the effective block. */
+.pet .pet-hermes-profile-host { flex: 0 0 auto; display: flex; flex-direction: column; gap: 6px; padding: 4px 0 12px; margin-bottom: 8px; border-bottom: 1px solid var(--border-soft); }
+.pet .pet-hermes-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.pet .pet-hermes-label { flex: 0 0 auto; font-size: 13px; font-weight: 600; color: var(--tx-bright); }
+.pet .pet-hermes-select { height: 32px; min-width: 200px; }
+.pet .pet-hermes-binding { font-size: 10px; color: var(--tx-faint); font-family: var(--font-mono); }
+.pet .pet-hermes-note { font-size: 11px; color: var(--tx-faint); font-family: var(--font-mono); }
+.pet .pet-hermes-effective { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; margin-top: 4px; background: var(--bg-raised); border: 1px solid var(--border-soft); border-radius: var(--r-card); }
+.pet .pet-hermes-effective-head { font-size: 10px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--tx-faint); }
+.pet .pet-hermes-effective-row { font-size: 11px; color: var(--tx-mut); }
+.pet .pet-hermes-effective-faint { color: var(--tx-faint); font-style: italic; }
+
 /* flex: none, not a fixed basis — inside the column .pet-ctrl-wrap (petasos.js, PET-81)
    a 38px flex-basis becomes the *height* (column main axis beats the height property),
    rendering the pill as a 38x38 rounded square (PET-89). min/max-height + 999px radius

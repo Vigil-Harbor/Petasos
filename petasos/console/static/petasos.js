@@ -326,6 +326,11 @@
     // authoritatively on every fetch and update response.
     configPresets: null,
     configActivePreset: null,
+    // PET-146: the non-equipped Hermes profile currently being viewed/edited in the
+    // Config Editor, or null for the equipped binding (the default, byte-identical
+    // to the pre-PET-146 active-only view). Persists across renderConfig re-renders
+    // so a profile switch reloads the same profile after save/discard.
+    selectedHermesProfile: null,
     scanHistory: [],
     // PET-138: session_id -> cumulative count of tool calls bypassed while disarmed.
     // Dedicated, eviction-proof state (the count rides a single rate-limited
@@ -387,7 +392,7 @@
     _put: function (path, body) {
       return this._req(path, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     },
-    getConfig: function () { return this._get("/config"); },
+    getConfig: function (profile) { return this._get("/config" + (profile ? ("?profile=" + encodeURIComponent(profile)) : "")); },
     putConfig: function (patch) { return this._put("/config", patch); },
     postScan: function (text, dir, sid) { return this._post("/scan", { text: text, direction: dir, session_id: sid }); },
     getHealth: function () { return this._get("/health"); },
@@ -2020,6 +2025,177 @@
     return seg;
   };
 
+  // PET-146: pure ordered option list for the Hermes-agent-profile selector,
+  // derived from a /config payload's `hermes_profiles`. First-wins dedup by name;
+  // blank / non-string names skipped; options keyed by `name` (not the display
+  // label) so a profile dir literally named "root"/"HERMES_HOME" is harmless to
+  // selection (edge F-10). Fail-soft to [] on any malformed payload; never throws.
+  Pet.hermesProfileOptions = function (d) {
+    var list = (d && Array.isArray(d.hermes_profiles)) ? d.hermes_profiles : [];
+    var out = [];
+    var seen = {};
+    list.forEach(function (p) {
+      if (!p || typeof p !== "object") return;
+      var name = p.name;
+      if (typeof name !== "string" || !name.trim()) return;
+      if (Object.prototype.hasOwnProperty.call(seen, name)) return;
+      seen[name] = true;
+      out.push({
+        name: name,
+        path: typeof p.path === "string" ? p.path : "",
+        is_active: p.is_active === true,
+        tier: typeof p.tier === "string" ? p.tier : "profile",
+      });
+    });
+    return out;
+  };
+
+  // PET-146 D5: pinned non-equipped restart-banner copy (no em dash, house style).
+  // Exported so the JS test and the impl can't drift.
+  Pet.HERMES_RESTART_BANNER =
+    "This isn't the equipped profile; changes take effect when it's equipped (restart).";
+
+  // PET-146: the Hermes-agent-profile selector. Mounts a <select> over the payload's
+  // profiles (defaulting to the equipped/active entry, or `opts.selected` when a
+  // non-equipped profile is being viewed), the binding read-out, the dangling-pointer
+  // warning strip (labeled as the ACTIVE binding so it is not misread as a property
+  // of a browsed non-active profile, edge round-2 F-7), the "scoped to the selected
+  // Hermes profile" note (no per-field "global" badge — D2), an effective
+  // (what's-enforced) read-out, and the non-equipped restart banner (D5).
+  //
+  // `opts.selected` is the name of the non-equipped profile currently viewed (or
+  // null/absent when viewing the equipped one). `opts.onSwitch(target)` is invoked
+  // with the chosen target — null for the equipped entry, else the profile name —
+  // AFTER the selector clears Pet.state.configDirty, so a subsequent save sends only
+  // the freshly-loaded profile's values (edge round-2 F-4). A switch away from a
+  // dirty form is gated behind a two-step confirm (the preset-apply idiom) so pending
+  // edits are not silently discarded (edge round-3 F-1). Never throws.
+  Pet.renderHermesProfileSelector = function (host, d, opts) {
+    opts = opts || {};
+    var onSwitch = typeof opts.onSwitch === "function" ? opts.onSwitch : function () {};
+    var options = Pet.hermesProfileOptions(d);
+    var isActiveView = !d || d.is_active !== false;
+
+    var optionByName = function (nm) {
+      for (var i = 0; i < options.length; i++) if (options[i].name === nm) return options[i];
+      return null;
+    };
+    var activeName = null;
+    options.forEach(function (o) { if (o.is_active) activeName = o.name; });
+    // The currently-selected option name: the viewed non-equipped profile when
+    // given, else the equipped entry.
+    var currentName = (!isActiveView && opts.selected) ? opts.selected : activeName;
+
+    // ── selector row ──
+    var select = Pet.h("select", { className: "pet-hermes-select input mono", ariaLabel: "Hermes agent profile" });
+    options.forEach(function (o) {
+      var label = o.name + (o.is_active ? " (equipped)" : "");
+      select.appendChild(Pet.h("option", { value: o.name }, label));
+    });
+    if (currentName != null) select.value = currentName;
+
+    var pendingTarget;   // a target awaiting a confirming second change (dirty form)
+    var removeStrip = function () {
+      var n = host.querySelector ? host.querySelector(".pet-hermes-switch-confirm") : null;
+      if (n && n.remove) n.remove();
+    };
+    var proceed = function (target) {
+      pendingTarget = undefined;
+      removeStrip();
+      // Clear pending edits + any weaken-confirm intent so the previously-viewed
+      // profile's edits neither leak into the next save (F-4) nor linger.
+      Pet.state.configDirty = {};
+      onSwitch(target);
+    };
+    select.addEventListener("change", function () {
+      var name = select.value;
+      if (name === currentName) { pendingTarget = undefined; removeStrip(); return; }   // no real change
+      var opt = optionByName(name);
+      var target = (opt && opt.is_active) ? null : name;      // equipped -> null
+      var dirtyCount = Object.keys(Pet.state.configDirty || {}).length;
+      if (dirtyCount > 0 && pendingTarget !== name) {
+        // Gate the switch: stash the intent, revert the visible value, and show the
+        // confirm strip. A second change to the same option confirms. (removeStrip
+        // only drops the DOM node — it must NOT reset pendingTarget, or the confirm
+        // could never latch.)
+        pendingTarget = name;
+        select.value = currentName != null ? currentName : "";
+        removeStrip();   // drop any stale strip before re-adding (idempotent)
+        host.appendChild(Pet.h("div", { role: "alert", className: "notice pet-hermes-switch-confirm", style: { marginTop: "8px" } },
+          Pet.Icon("warn"),
+          Pet.h("span", {}, "Switching profiles discards your " + dirtyCount + " unsaved edit" + (dirtyCount === 1 ? "" : "s") + ". Choose ", Pet.h("b", {}, name), " again to confirm.")
+        ));
+        return;
+      }
+      proceed(target);
+    });
+
+    var row = Pet.h("div", { className: "pet-hermes-row" },
+      Pet.h("label", { className: "pet-hermes-label" }, "Hermes agent profile"),
+      select
+    );
+    host.appendChild(row);
+
+    // ── binding read-out: which config.yaml, which tier ──
+    var tier = d && d.config_tier ? String(d.config_tier) : "root";
+    var home = d && d.profile_home ? String(d.profile_home) : "";
+    host.appendChild(Pet.h("div", { className: "pet-hermes-binding mono" },
+      "binding: " + (d && d.hermes_profile ? String(d.hermes_profile) : "root") + " · tier " + tier + (home ? (" · " + home) : "")));
+
+    // ── dangling-pointer warning, labeled as the ACTIVE binding (edge round-2 F-7) ──
+    if (d && d.config_warning) {
+      host.appendChild(Pet.h("div", { role: "alert", className: "notice pet-hermes-warn", style: { marginTop: "8px" } },
+        Pet.Icon("warn"),
+        Pet.h("span", {}, "Active binding: ", Pet.h("b", {}, d.hermes_profile ? String(d.hermes_profile) : "root"),
+          " has a dangling pointer. " + String(d.config_warning))));
+    }
+
+    // ── "scoped to the selected Hermes profile" note (replaces any global marker) ──
+    host.appendChild(Pet.h("div", { className: "pet-hermes-note" },
+      "Settings here are scoped to the selected Hermes profile. No machine-wide tier exists."));
+
+    // ── non-equipped restart banner (D5, pinned copy) ──
+    if (!isActiveView) {
+      host.appendChild(Pet.h("div", { role: "status", className: "notice pet-hermes-banner", style: { marginTop: "8px" } },
+        Pet.Icon("warn"), Pet.h("span", {}, Pet.HERMES_RESTART_BANNER)));
+    }
+
+    // ── effective (what's enforced) read-out ──
+    host.appendChild(Pet.hermesEffectiveReadout(d));
+    return host;
+  };
+
+  // PET-146: compact, read-only "effective (what's enforced)" block — the resolved
+  // tier thresholds (config ⊕ the internal profile's tier_thresholds) plus the
+  // internal profile's added suppressions / severity / pii / confidence floor, so
+  // the operator sees what the active internal profile adds without it masquerading
+  // as a config field. Pure builder; never throws.
+  Pet.hermesEffectiveReadout = function (d) {
+    var eff = (d && d.effective_config && typeof d.effective_config === "object") ? d.effective_config : {};
+    var ov = (d && d.active_profile_overrides && typeof d.active_profile_overrides === "object") ? d.active_profile_overrides : null;
+    var box = Pet.h("div", { className: "pet-hermes-effective" });
+    box.appendChild(Pet.h("div", { className: "pet-hermes-effective-head" }, "effective (what's enforced)"));
+    var t1 = eff.tier1_threshold, t2 = eff.tier2_threshold, t3 = eff.tier3_threshold;
+    box.appendChild(Pet.h("div", { className: "mono pet-hermes-effective-row" },
+      "tier thresholds: " + (t1 != null ? t1 : "?") + " / " + (t2 != null ? t2 : "?") + " / " + (t3 != null ? t3 : "?")));
+    if (ov) {
+      box.appendChild(Pet.h("div", { className: "mono pet-hermes-effective-row" },
+        "internal profile: " + (ov.name != null ? String(ov.name) : "(unnamed)")));
+      if (ov.confidence_floor != null) {
+        box.appendChild(Pet.h("div", { className: "mono pet-hermes-effective-row" }, "confidence floor: " + ov.confidence_floor));
+      }
+      var sr = Array.isArray(ov.suppress_rules) ? ov.suppress_rules : [];
+      if (sr.length) box.appendChild(Pet.h("div", { className: "mono pet-hermes-effective-row" }, "suppressed rules: " + sr.join(", ")));
+      var so = (ov.severity_overrides && typeof ov.severity_overrides === "object") ? Object.keys(ov.severity_overrides) : [];
+      if (so.length) box.appendChild(Pet.h("div", { className: "mono pet-hermes-effective-row" }, "severity overrides: " + so.length));
+      var pe = Array.isArray(ov.pii_entities_extra) ? ov.pii_entities_extra : [];
+      if (pe.length) box.appendChild(Pet.h("div", { className: "mono pet-hermes-effective-row" }, "extra PII entities: " + pe.join(", ")));
+    } else {
+      box.appendChild(Pet.h("div", { className: "mono pet-hermes-effective-row pet-hermes-effective-faint" }, "no internal profile active"));
+    }
+    return box;
+  };
+
   Pet.renderConfig = function (container) {
     container.innerHTML = "";
     var wrapper = Pet.h("div", { style: { display: "flex", flexDirection: "column", gap: "16px", height: "100%" } });
@@ -2048,7 +2224,7 @@
       function () { return []; }
     );
 
-    Pet.api.getConfig().then(function (d) {
+    Pet.api.getConfig(Pet.state.selectedHermesProfile).then(function (d) {
       if (d.error || !d.config || !d.fields) {
         formArea.innerHTML = "";
         formArea.appendChild(Pet.h("div", { style: { padding: "20px", color: "var(--err)", fontSize: "12px", fontFamily: "var(--font-mono)" } },
@@ -2073,6 +2249,25 @@
       });
       var dialHost = Pet.h("div", { className: "pet-dial-host" });
       formArea.appendChild(dialHost);
+
+      // PET-146: the Hermes-agent-profile selector sits at the very TOP of the
+      // editor (above the Strength dial). dialHost is already appended, so
+      // insertBefore positions the selector host visually above it. `viewingActive`
+      // gates the save routing: a non-equipped view tags the PUT with the selected
+      // profile so update_config persists-only (D4) instead of hot-applying.
+      var viewingActive = d.is_active !== false;
+      var hermesHost = Pet.h("div", { className: "pet-hermes-profile-host" });
+      formArea.insertBefore(hermesHost, dialHost);
+      Pet.renderHermesProfileSelector(hermesHost, d, {
+        selected: Pet.state.selectedHermesProfile,
+        onSwitch: function (target) {
+          // target: null for the equipped entry, else the chosen profile name.
+          // configDirty was already cleared by the selector before this fires.
+          Pet.state.selectedHermesProfile = target;
+          Pet.renderConfig(container);
+        },
+      });
+
       var dialApplyInFlight = false;
       var currentConfigValues = function () {
         // Persisted config overlaid with in-memory edits, restricted to owned fields.
@@ -2104,7 +2299,12 @@
         }
         clearPresetConfirm();
         dialApplyInFlight = true;  // in-flight guard, mirrors the Apply button
-        Pet.api.putConfig(preset.overrides).then(function (resp) {
+        // PET-146: tag the PUT with the selected profile when a non-equipped profile
+        // is being viewed, so a preset apply persists to THAT profile (D4) rather
+        // than hot-applying to the equipped pipeline behind the operator's back.
+        var presetPatch = Object.assign({}, preset.overrides);
+        if (!viewingActive && Pet.state.selectedHermesProfile) presetPatch.profile = Pet.state.selectedHermesProfile;
+        Pet.api.putConfig(presetPatch).then(function (resp) {
           var failMsg = null;
           if (resp && resp._status && resp.detail) {
             var raw = Array.isArray(resp.detail) ? resp.detail : [resp.detail];
@@ -2327,8 +2527,12 @@
       };
       var saveBar = Pet.h("div", { className: "pet-save-bar", style: { position: "sticky", bottom: "0", background: "var(--bg-app)", borderTop: "1px solid var(--border-soft)", marginTop: "6px", padding: "8px 0", display: "flex", flexDirection: "column", gap: "8px" } },
         // PET-13: subtle hot-swap disclosure (PET-126), bottom-anchored, not a top warning.
+        // PET-146: honest per-view copy — the equipped profile hot-applies; a
+        // non-equipped profile persists to its config.yaml and waits for equip/restart.
         Pet.h("div", { style: { fontSize: "11px", color: "var(--tx-faint)", fontFamily: "var(--font-mono)", lineHeight: "1.5" } },
-          "Saved to config.yaml and applied to the running pipeline immediately. No restart needed; frequency counters and escalation state are preserved."),
+          viewingActive
+            ? "Saved to config.yaml and applied to the running pipeline immediately. No restart needed; frequency counters and escalation state are preserved."
+            : "Saved to the selected profile's config.yaml. Takes effect when that profile is equipped (restart); the running pipeline is not changed."),
         Pet.h("div", { style: { display: "flex", gap: "10px", justifyContent: "flex-end", alignItems: "center" } },
         Pet.h("button", { className: "btn btn-ghost", onClick: function () {
           if (applyBtn && applyBtn.disabled) return;  // PET-13: Apply in flight; don't tear down formArea mid-PUT
@@ -2348,7 +2552,14 @@
             clearWeakenConfirm();
             formArea.querySelectorAll(".pet-field-err").forEach(function (el) { el.remove(); });
             applyBtn.disabled = true;
-            Pet.api.putConfig(Pet.state.configDirty).then(function (d) {
+            // PET-146: send the dirty-field subset (never the full form — a full-form
+            // save against an empty on-disk section would reset a profile's posture,
+            // edge round-2 F-6) and, when a non-equipped profile is in view, tag it
+            // with `profile` so update_config persists-only (D4).
+            var savePatch = {};
+            Object.keys(Pet.state.configDirty).forEach(function (k) { savePatch[k] = Pet.state.configDirty[k]; });
+            if (!viewingActive && Pet.state.selectedHermesProfile) savePatch.profile = Pet.state.selectedHermesProfile;
+            Pet.api.putConfig(savePatch).then(function (d) {
               if (d._status && d.detail) {
                 var raw = Array.isArray(d.detail) ? d.detail : [d.detail];
                 var details = raw.map(function (el) {
@@ -2397,11 +2608,17 @@
               }
               Pet.state.config = d.config || Pet.state.config;
               Pet.state.configDirty = {};
+              // PET-146 D5: a non-equipped save persisted-only (applied === false) —
+              // say so honestly (takes effect on equip/restart) rather than claiming
+              // it hit the running pipeline. The re-render below re-shows the banner.
+              var savedTail = (d.applied === false)
+                ? " Saved to the selected profile; takes effect when it's equipped (restart)."
+                : " Applied to the running pipeline.";
               formArea.insertBefore(Pet.h("div", {
                 role: "status",
                 className: "notice",
                 style: { background: "var(--ok-soft)", borderColor: "rgba(63,185,80,.3)", color: "var(--ok)", marginBottom: "8px" }
-              }, Pet.Icon("check"), Pet.h("span", {}, Pet.h("b", {}, "Configuration saved."), " Applied to the running pipeline.")), formArea.firstChild);
+              }, Pet.Icon("check"), Pet.h("span", {}, Pet.h("b", {}, "Configuration saved."), savedTail)), formArea.firstChild);
               setTimeout(function () { if (Pet.state.tab === "cfg") Pet.renderConfig(container); }, 1500);
             }).then(function () { applyBtn.disabled = false; }, function () { applyBtn.disabled = false; });
           } }, Pet.Icon("check"), applyLabel);
