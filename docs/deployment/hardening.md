@@ -252,6 +252,10 @@ What it covers, and what it does not:
   the agent's own process environment and is readable by a shell-capable agent
   (which could also just use Vector A). The primary mitigation remains deployment
   posture (config and console out of reach, separate uid or netns).
+- It is most useful when the console is **not** loopback-only. Keep the section 2
+  binding guidance (loopback, or reach it over Tailscale/WireGuard) even with the
+  token on: the token raises the bar for a network-reachable console but does not
+  replace the network posture.
 
 Operational notes:
 
@@ -261,17 +265,27 @@ Operational notes:
 - The token is compared **verbatim**: do not rely on leading or trailing
   whitespace being meaningful, trimmed for you, or preserved in transit.
 - The scheme match is case-sensitive (`Bearer`, not `bearer`).
-- With the token on, the bundled browser UI cannot drive the `/api` routes by
-  plain navigation (it sends no `Authorization` header yet): the shell loads but
-  its panels show errors. Use an authenticated client or a reverse proxy that
-  injects the credential, for example:
-  `curl -H "Authorization: Bearer <token>" -X POST http://127.0.0.1:8384/api/armed -d '{"armed": true}'`.
-- **Known limitation until the served-UI follow-up ships:** with the token on,
-  the browser Observability tab still renders the equip banner as EQUIPPED even
-  though its armed read is being 401'd. Do not trust the in-browser banner when
-  the token is on; verify armed state with an authenticated `GET /api/armed`. The
-  follow-up ticket carries in-UI token entry, graceful 401 handling, equip-banner
-  correctness, and stopping the 10 second health/fallback polls on a 401.
+- With the token on, the bundled browser console now drives the `/api` routes
+  itself (PET-129). Opening the served console shows a clear **authenticate** state
+  (not broken tiles, not skeletons): enter the token in the unlock field and all
+  panels (config, scan, scan-history, armed, SSE) function. A 401 stops the 10
+  second health and fallback polls and renders an honest banner instead of looping,
+  and a "clear token" affordance drops the credential and returns to the
+  authenticate state. An authenticated client or a credential-injecting reverse
+  proxy still works for scripted access, for example:
+  `curl -H "Authorization: Bearer <token>" -H "Content-Type: application/json" -X POST http://127.0.0.1:8384/api/armed -d '{"armed": true}'`.
+- **Where the token lives in the browser:** the console holds the operator-supplied
+  token in `sessionStorage`, so it survives a reload within the tab and is cleared
+  when the tab closes. It is no stronger than the operator's browser session: any
+  script on the origin can read it for the life of that tab. It is never written to
+  `localStorage` (which would persist a bearer indefinitely), and is never read from
+  the server or environment into the page (the operator supplies it in the browser).
+- **Served-UI follow-up (shipped, PET-129):** in-UI token entry, graceful 401
+  handling, equip-banner correctness (a 401'd armed read shows the authenticate
+  state, never a false EQUIPPED), and poll-stop are now in the browser client. This
+  is convenience plus a bar against a network-only or non-shell caller (Vector B);
+  it is **not** a defense against a shell-capable agent that can read the env or
+  config (Vector A), for which the primary mitigation remains deployment posture.
 - **Forward-looking invariant:** the dependency gates by the `/api/` path prefix,
   so every sensitive route must live under `/api/`. A future non-asset route
   added outside `/api/` would be served unauthenticated.

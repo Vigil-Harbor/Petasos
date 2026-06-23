@@ -401,18 +401,36 @@ test("test_persistent_failure_bounded_then_polling", async () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 5 — 401/403 route straight to polling with zero reconnect attempts; a 5xx
-// control case DOES reconnect (Done-when 4; pins D9 "only auth is terminal").
-test("test_auth_401_routes_straight_to_polling", async () => {
-  for (const status of [401, 403]) {
-    const h = setup({ events: [HTTP(status)] });
+// Test 5 — auth statuses are non-retryable (zero reconnect attempts), but PET-129
+// supersedes the 401 case: a 401 is the auth-required terminal state (stop
+// everything and surface the token panel), NOT polling. A 403 keeps PET-142's
+// terminal-polling concede (a non-401 4xx is a proxy/deployment condition, not the
+// token-auth path — PET-129 D3 edge F-4). A 5xx control case still reconnects.
+// (Done-when 4; pins D9 "only auth is terminal" + the PET-129 401 reroute.)
+test("test_auth_401_routes_to_authenticate_state_and_403_to_terminal_polling", async () => {
+  // 401 → authenticate state (PET-129), NOT polling.
+  {
+    const h = setup({ events: [HTTP(401)] });
     h.sse.connect();
     await flush();
-    assert.equal(h.eventsCount(), 1, `${status}: exactly one /events fetch (zero reconnect attempts)`);
-    assert.equal(h.sse._reconnectTimer, null, `${status}: no reconnect scheduled`);
-    assert.equal(h.sse._reconnectAttempts, 0, `${status}: attempt budget untouched`);
-    assert.equal(h.sse._usingFallback, true, `${status}: terminal polling`);
-    assert.ok(h.warnings.some((w) => w.indexOf(String(status)) !== -1), `${status}: one auth console signal`);
+    assert.equal(h.eventsCount(), 1, "401: exactly one /events fetch (zero reconnect attempts)");
+    assert.equal(h.sse._reconnectTimer, null, "401: no reconnect scheduled");
+    assert.equal(h.sse._reconnectAttempts, 0, "401: attempt budget untouched");
+    assert.equal(h.sse._usingFallback, false, "401: PET-129 routes to the authenticate state, not polling");
+    assert.equal(h.Pet.state.authRequired, true, "401: authRequired set (token-entry panel)");
+  }
+
+  // 403 → terminal polling, unchanged from PET-142 (not the token-auth path).
+  {
+    const h = setup({ events: [HTTP(403)] });
+    h.sse.connect();
+    await flush();
+    assert.equal(h.eventsCount(), 1, "403: exactly one /events fetch (zero reconnect attempts)");
+    assert.equal(h.sse._reconnectTimer, null, "403: no reconnect scheduled");
+    assert.equal(h.sse._reconnectAttempts, 0, "403: attempt budget untouched");
+    assert.equal(h.sse._usingFallback, true, "403: terminal polling");
+    assert.equal(h.Pet.state.authRequired, false, "403: not the token-auth path (D3 edge F-4)");
+    assert.ok(h.warnings.some((w) => w.indexOf("403") !== -1), "403: one auth console signal");
   }
 
   // Control: a 500 is retryable, so it MUST schedule a reconnect.
