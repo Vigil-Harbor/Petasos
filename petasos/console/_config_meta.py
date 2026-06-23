@@ -873,6 +873,13 @@ def generate_config_metadata() -> list[dict[str, Any]]:
             "description": meta["description"],
             "help_plain": meta.get("help_plain") or meta["description"],
             "section": meta["section"],
+            # PET-146 D2: posture scope. Every field is per-Hermes-profile today
+            # (no machine-global tier exists) — including fail_mode /
+            # egress_sink_tools / source_taint_namespaces. Emitting "profile" on
+            # every field locks the disclosure contract so a future global tier
+            # can't silently relabel an existing field; the UI prints no "global"
+            # marker while this stays uniformly "profile".
+            "scope": "profile",
         }
 
         if f.name in _SECRET_FIELDS:

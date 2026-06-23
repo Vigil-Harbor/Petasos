@@ -2,9 +2,16 @@
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.hatch.version]
+# PET-141: single version authority. Hatch reads __version__ from this file at
+# build time, so petasos/__init__.py is the sole version literal in the repo.
+path = "petasos/__init__.py"
+
 [project]
 name = "petasos"
-version = "0.1.2"
+# PET-141: version is derived from petasos/__init__.py via Hatch (see
+# [tool.hatch.version]); no static literal here.
+dynamic = ["version"]
 requires-python = ">=3.11"
 license = "MIT"
 authors = [{ name = "Vigil Harbor", email = "support@vigilharbor.com" }]
