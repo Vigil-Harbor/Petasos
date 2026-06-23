@@ -37,9 +37,11 @@ _FIELD_META: dict[str, dict[str, Any]] = {
         "description": "Apply Unicode NFKC normalization to collapse compatibility variants.",
         "help_plain": (
             "Rewrites stylized or alternate-form characters (like fullwidth letters) into"
-            " plain standard text before scanning, so attacks dressed up in fancy lettering"
-            " can't slip past. Turning this off also disables follow-up cleanup passes that"
-            " depend on it, making evasion easier."
+            " plain standard text. This feeds the ML scanners and PII anonymization, which"
+            " see the normalized text; the built-in syntactic scanner re-normalizes its own"
+            " input regardless of this setting, so the toggle does not gate built-in"
+            " findings. Leave it on so the ML and PII stages aren't handed fancy-lettering"
+            " evasions."
         ),
         "section": "normalization",
     },
@@ -47,27 +49,22 @@ _FIELD_META: dict[str, dict[str, Any]] = {
         "description": "Remove zero-width characters that can hide injections.",
         "help_plain": (
             "Removes invisible characters that can be hidden inside text to smuggle"
-            " instructions past the filters. Normal text looks exactly the same with this on"
-            " — there's no reason to turn it off in everyday use."
+            " instructions past the filters. This cleans the text handed to the ML scanners"
+            " and PII anonymization; the built-in syntactic scanner re-strips its own input"
+            " regardless of this setting, so the toggle does not gate built-in findings."
+            " Normal text looks exactly the same with this on, so there's no reason to turn"
+            " it off in everyday use."
         ),
         "section": "normalization",
     },
     "map_homoglyphs": {
         "description": "Map look-alike Unicode characters to their ASCII equivalents.",
         "help_plain": (
-            'Catches text that uses look-alike letters (such as a Cyrillic "а" posing as'
-            ' a Latin "a") to sneak past filters, by converting them to their plain'
-            " equivalents. Turning this off makes scans slightly faster but easier to evade."
-        ),
-        "section": "normalization",
-    },
-    "detect_rtl_override": {
-        "description": "Detect and neutralize right-to-left override characters.",
-        "help_plain": (
-            "Flags special characters that reverse the reading direction of text — a trick"
-            " that disguises malicious content by displaying it backwards. This setting only"
-            " raises the warning flag; actually removing those characters is handled by the"
-            " invisible-character cleanup setting above (on by default)."
+            'Converts look-alike letters (such as a Cyrillic "а" posing as a Latin "a") to'
+            " their plain equivalents before the ML scanners and PII anonymization see the"
+            " text; the built-in syntactic scanner re-maps its own input regardless of this"
+            " setting, so the toggle does not gate built-in findings. Turning it off makes"
+            " scans slightly faster but hands the ML and PII stages easier-to-evade text."
         ),
         "section": "normalization",
     },
@@ -666,13 +663,17 @@ _FIELD_META: dict[str, dict[str, Any]] = {
     },
 }
 
-# Fields deliberately kept off the Config Editor surface. Two distinct rationales:
-# `session_secret` is a secret kept off the wire (never serialized to the UI);
-# `fold_leet` is a retired no-op control (PET-143): leet folding is always-on by
-# design (PET-97 Decision 6), so surfacing the flag would advertise a knob that
-# cannot move a detection outcome. The field is retained on PetasosConfig for
-# normalize()-parity but is not bindable here.
-_EXCLUDED_FIELDS = frozenset({"session_secret", "fold_leet"})
+# Fields deliberately kept off the Config Editor surface. Three distinct
+# rationales: `session_secret` is a secret kept off the wire (never serialized to
+# the UI); `fold_leet` is a retired no-op control (PET-143): leet folding is
+# always-on by design (PET-97 Decision 6), so surfacing the flag would advertise a
+# knob that cannot move a detection outcome; `detect_rtl_override` is a retired
+# inert control (PET-151): the pipeline keeps only `normalize()`'s `.normalized`
+# text (RTL detection sets only a discarded side-channel flag) and the built-in
+# scanner re-derives RTL detection at its hardcoded default, so the toggle moves no
+# detection, ML, or PII outcome anywhere in the shipped pipeline. All three fields
+# are retained on PetasosConfig for `normalize()`-parity but are not bindable here.
+_EXCLUDED_FIELDS = frozenset({"session_secret", "fold_leet", "detect_rtl_override"})
 
 
 @dataclasses.dataclass(frozen=True, slots=True)

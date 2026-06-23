@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 
     from petasos.config import PetasosConfig
 
-# D8: the preset-owned field set. Exactly these 12 config-level *strictness*
+# D8: the preset-owned field set. Exactly these 11 config-level *strictness*
 # fields participate in every preset bundle and in the Custom comparator.
 # Deliberately excluded: the scanner circuit-breaker timing fields (reliability,
 # not strictness) and the profile-axis levers (`confidence_floor`,
@@ -45,7 +45,6 @@ _PRESET_OWNED_FIELDS: Final[frozenset[str]] = frozenset(
         "normalize_nfkc",
         "strip_zero_width",
         "map_homoglyphs",
-        "detect_rtl_override",
         "decode_encoded_payloads",
     }
 )
@@ -103,8 +102,8 @@ _PRESET_REGISTRY: Final[tuple[StrengthPreset, ...]] = (
         "Tin",
         0,
         "Loosest temper. Fail-open if an ML scanner breaks, tool-call guard off, "
-        "and the higher-false-positive transforms (RTL, encoded-payload decode) "
-        "relaxed. Escalates latest. The always-on syntactic pre-filter "
+        "and the higher-false-positive encoded-payload decode relaxed. "
+        "Escalates latest. The always-on syntactic pre-filter "
         "still runs and Tier-3 still terminates at the floor.",
         {
             "fail_mode": "open",
@@ -117,7 +116,6 @@ _PRESET_REGISTRY: Final[tuple[StrengthPreset, ...]] = (
             "normalize_nfkc": True,
             "strip_zero_width": True,
             "map_homoglyphs": True,
-            "detect_rtl_override": False,
             "decode_encoded_payloads": False,
         },
     ),
@@ -138,7 +136,6 @@ _PRESET_REGISTRY: Final[tuple[StrengthPreset, ...]] = (
             "normalize_nfkc": True,
             "strip_zero_width": True,
             "map_homoglyphs": True,
-            "detect_rtl_override": True,
             "decode_encoded_payloads": True,
         },
     ),
@@ -160,7 +157,6 @@ _PRESET_REGISTRY: Final[tuple[StrengthPreset, ...]] = (
             "normalize_nfkc": True,
             "strip_zero_width": True,
             "map_homoglyphs": True,
-            "detect_rtl_override": True,
             "decode_encoded_payloads": True,
         },
     ),
@@ -181,7 +177,6 @@ _PRESET_REGISTRY: Final[tuple[StrengthPreset, ...]] = (
             "normalize_nfkc": True,
             "strip_zero_width": True,
             "map_homoglyphs": True,
-            "detect_rtl_override": True,
             "decode_encoded_payloads": True,
         },
     ),
@@ -202,7 +197,6 @@ _PRESET_REGISTRY: Final[tuple[StrengthPreset, ...]] = (
             "normalize_nfkc": True,
             "strip_zero_width": True,
             "map_homoglyphs": True,
-            "detect_rtl_override": True,
             "decode_encoded_payloads": True,
         },
     ),

@@ -124,8 +124,33 @@ class TestPipelineConstruction:
 
 
 # ===================================================================
-# Normalization stage (3 tests)
+# Normalization stage (6 tests)
 # ===================================================================
+
+
+async def _capture_ml_text(config: PetasosConfig, payload: str) -> str:
+    """Run ``payload`` through a pipeline whose lone ML scanner records the text it
+    receives, and return that captured (post-normalization) text. Mirrors the
+    CapturingScanner pattern below; used by the PET-151 ML-arm load-bearing proofs
+    that nfkc / strip / homoglyph genuinely control the normalized text the ML
+    scanners and PII anonymization consume."""
+    received: list[str] = []
+
+    class CapturingScanner:
+        @property
+        def name(self) -> str:
+            return "capturing"
+
+        async def scan(
+            self, text: str, *, direction: Direction = "inbound", session_id: str | None = None
+        ) -> ScanResult:
+            received.append(text)
+            return ScanResult(scanner_name="capturing", findings=())
+
+    pipeline = Pipeline(scanners=[CapturingScanner()], config=config)
+    await pipeline.inspect(payload)
+    assert len(received) == 1
+    return received[0]
 
 
 class TestNormalization:
@@ -185,6 +210,39 @@ class TestNormalization:
         result = await p.inspect("")
         assert isinstance(result, PipelineResult)
         assert result.safe is True
+
+    @pytest.mark.asyncio
+    async def test_normalize_nfkc_is_an_ml_control(self) -> None:
+        # PET-151 ML-arm: normalize_nfkc is a genuine control for the
+        # normalized-text consumer (ML scanners / PII anonymization). Fullwidth
+        # 'Ａ' (U+FF21) folds to 'A' only when the toggle is on; the captured ML
+        # text shows the exact substitution, so a cross-transform payload cannot
+        # mis-attribute the diff.
+        payload = "ＡBC"  # 'ＡBC' -> 'ABC' under NFKC only
+        on = await _capture_ml_text(PetasosConfig(normalize_nfkc=True), payload)
+        off = await _capture_ml_text(PetasosConfig(normalize_nfkc=False), payload)
+        assert on == "ABC"
+        assert off == "ＡBC"
+
+    @pytest.mark.asyncio
+    async def test_strip_zero_width_is_an_ml_control(self) -> None:
+        # PET-151 ML-arm: U+200B ZERO WIDTH SPACE is Cf (strippable) and
+        # NFKC-stable, so only stripping touches it (no cross-transform overlap).
+        payload = "a​b"  # -> 'ab' only when stripping is on
+        on = await _capture_ml_text(PetasosConfig(strip_zero_width=True), payload)
+        off = await _capture_ml_text(PetasosConfig(strip_zero_width=False), payload)
+        assert on == "ab"
+        assert off == "a​b"
+
+    @pytest.mark.asyncio
+    async def test_map_homoglyphs_is_an_ml_control(self) -> None:
+        # PET-151 ML-arm: Cyrillic 'о' (U+043E) is NFKC-stable and not strippable,
+        # so only homoglyph mapping touches it.
+        payload = "hellо"  # 'hellо' -> 'hello' only when mapping is on
+        on = await _capture_ml_text(PetasosConfig(map_homoglyphs=True), payload)
+        off = await _capture_ml_text(PetasosConfig(map_homoglyphs=False), payload)
+        assert on == "hello"
+        assert off == "hellо"
 
 
 # ===================================================================

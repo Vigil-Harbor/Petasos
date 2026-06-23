@@ -45,7 +45,7 @@ def test_every_field_present() -> None:
     _EXCLUDED_FIELDS: driving this test off the set alone would let an unintended
     exclusion pass green, so the literal is the silent-drop tripwire.
     """
-    assert frozenset({"session_secret", "fold_leet"}) == _EXCLUDED_FIELDS
+    assert frozenset({"session_secret", "fold_leet", "detect_rtl_override"}) == _EXCLUDED_FIELDS
     meta = generate_config_metadata()
     meta_names = {m["name"] for m in meta}
     for f in dataclasses.fields(PetasosConfig):
