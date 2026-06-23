@@ -6,9 +6,17 @@ from unittest.mock import patch
 
 import pytest
 
-from petasos._types import Alert, AuditEvent, PipelineResult, Severity
+from petasos._types import (
+    Alert,
+    AuditEvent,
+    Direction,
+    PipelineResult,
+    ScanResult,
+    Severity,
+)
 from petasos.config import PetasosConfig
 from petasos.pipeline import Pipeline
+from petasos.scanners.minimal import MinimalScanner
 from petasos.session.frequency import FrequencyTracker
 from petasos.session.guard import ToolCallGuard
 from petasos.session.license import LicenseState
@@ -233,6 +241,26 @@ class TestOuterExceptionHandler:
 # ---------------------------------------------------------------------------
 
 
+class _RecordingMinimalScanner(MinimalScanner):
+    """Capture the raw Stage-1b ScanResult so the PET-140 pin can inspect it.
+
+    Subclassing keeps the object a MinimalScanner, so assigning it to
+    ``pipe._minimal_scanner`` stays mypy --strict-clean (no mock library,
+    consistent with the repo's no-mock-for-scanners convention).
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.captured: list[ScanResult] = []
+
+    async def scan(
+        self, text: str, *, direction: Direction = "inbound", session_id: str | None = None
+    ) -> ScanResult:
+        result = await super().scan(text, direction=direction, session_id=session_id)
+        self.captured.append(result)
+        return result
+
+
 class TestProfilePipelineIntegration:
     async def test_pipeline_with_profile_string(self, valid_key: str) -> None:
         pipe = Pipeline(config=_cfg(), profile="admin")
@@ -270,7 +298,7 @@ class TestProfilePipelineIntegration:
         assert result.feature_status is not None
         assert result.feature_status["profiles"] == "enabled"
 
-    async def test_profile_hook_gated_by_feature_config(self, valid_key: str) -> None:
+    async def test_profile_suppression_gated_by_feature_config(self, valid_key: str) -> None:
         pipe = Pipeline(config=_cfg(), profile="research")
 
         text = "​ hello"
@@ -285,6 +313,41 @@ class TestProfilePipelineIntegration:
         assert "petasos.syntactic.encoding.invisible-chars" in inactive_rules or len(
             inactive_rules
         ) >= len(active_rules)
+
+    async def test_prefilter_uses_base_minimal_scanner_regardless_of_profile(
+        self, valid_key: str
+    ) -> None:
+        # Regression for PET-140: Stage 1b always uses the base minimal scanner;
+        # profile-driven suppression is observed only downstream at Stage 4b.
+        rule = "petasos.syntactic.encoding.invisible-chars"
+        text = "​ hello"  # triggers the invisible-chars rule
+
+        # no-profile run
+        pipe_np = Pipeline(config=_cfg())
+        pipe_np.activate(valid_key)
+        rec_np = _RecordingMinimalScanner()
+        pipe_np._minimal_scanner = rec_np
+        res_np = await pipe_np.inspect(text, session_id="s1")
+
+        # active-profile run — code_generation suppresses the invisible-chars rule
+        pipe_cg = Pipeline(config=_cfg(), profile="code_generation")
+        pipe_cg.activate(valid_key)
+        rec_cg = _RecordingMinimalScanner()
+        pipe_cg._minimal_scanner = rec_cg
+        res_cg = await pipe_cg.inspect(text, session_id="s1")
+
+        # (a) Stage 1b invoked the base scanner exactly once on each path...
+        assert len(rec_np.captured) == 1
+        assert len(rec_cg.captured) == 1
+        # ...and the profile did NOT pre-filter Stage 1b: raw findings identical.
+        stage1b_np = {f.rule_id for f in rec_np.captured[0].findings}
+        stage1b_cg = {f.rule_id for f in rec_cg.captured[0].findings}
+        assert rule in stage1b_np
+        assert stage1b_np == stage1b_cg
+
+        # (b) suppression manifests only AFTER Stage 1b (at Stage 4b):
+        assert rule in {f.rule_id for f in res_np.findings}
+        assert rule not in {f.rule_id for f in res_cg.findings}
 
     async def test_code_gen_suppresses_encoding_not_injection(self, valid_key: str) -> None:
         pipe = Pipeline(config=_cfg(), profile="code_generation")
