@@ -216,6 +216,25 @@ async def test_persisted_history_bounded_without_operator_read(
     assert _sink_footprint() < 2 * _history._HISTORY_CAP_BYTES + 4096
 
 
+async def test_rotation_stall_warns_once(
+    handlers: ConsoleHandlers,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # When the sink is over cap but rotate_history() keeps returning False (the OS refuses the
+    # rename/unlink — permissions, a full disk, or a held handle), the stall must surface once
+    # per run as a greppable PETASOS_HISTORY_ROTATION_STALLED WARNING, not silently break
+    # bounded retention. Mirrors the one-shot PETASOS_HISTORY_SINK_UNWRITABLE writer guard.
+    monkeypatch.setattr(_history, "history_size", lambda *a, **k: _history._HISTORY_CAP_BYTES + 1)
+    monkeypatch.setattr(_history, "rotate_history", lambda *a, **k: False)
+    with caplog.at_level(logging.WARNING):
+        await handlers._maybe_rotate_history()
+        await handlers._maybe_rotate_history()  # a second over-cap stall must NOT re-log
+    stalled = [r for r in caplog.records if "PETASOS_HISTORY_ROTATION_STALLED" in r.getMessage()]
+    assert len(stalled) == 1  # one-shot, not per-cycle
+    assert handlers._history_rotation_warned is True
+
+
 # ── PII-at-rest discipline ──
 
 

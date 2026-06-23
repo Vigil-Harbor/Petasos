@@ -500,6 +500,10 @@ class ConsoleHandlers:
         # One-shot guard so a dead sink logs PETASOS_HISTORY_SINK_UNWRITABLE exactly once
         # per run, not per scan (mirrors _ring_overflow_warned).
         self._history_sink_warned = False
+        # One-shot guard so a stalled rotation (over cap but rotate_history() keeps returning
+        # False — e.g. persistent permissions/full-disk/Windows-sharing refusal) logs exactly
+        # once per run, not on every append-triggered rotation check (mirrors the two above).
+        self._history_rotation_warned = False
         self.scan_history = RingBuffer[dict[str, Any]](maxlen=_SCAN_HISTORY_RING_CAPACITY)
         self.sse = SSEBroadcaster()
         self._start_time = time.monotonic()
@@ -642,8 +646,26 @@ class ConsoleHandlers:
         only a later rotation, never the enforcement drain. Never raises."""
         async with self._history_lock:
             try:
-                if _history.history_size() > _history._HISTORY_CAP_BYTES:
-                    _history.rotate_history()
+                # rotate_history() returns False (never raises) when the OS refuses the
+                # rename/unlink — over cap that means a genuine stall, not a benign no-op,
+                # since a >cap size implies the live segment exists. The rotation fires inside
+                # the condition (`and` short-circuits AFTER the over-cap check, so it is only
+                # attempted when over cap); a stalled rotation surfaces once per run as a
+                # greppable WARNING (mirrors PETASOS_HISTORY_SINK_UNWRITABLE) so bounded
+                # retention silently breaking is observable. The next cycle still retries.
+                if (
+                    _history.history_size() > _history._HISTORY_CAP_BYTES
+                    and not _history.rotate_history()
+                    and not self._history_rotation_warned
+                ):
+                    self._history_rotation_warned = True
+                    _logger.warning(
+                        "PETASOS_HISTORY_ROTATION_STALLED scan-history sink over cap but "
+                        "rotation was refused (permissions, full disk, or a held handle); "
+                        "on-disk retention may exceed its bound until the next cycle "
+                        "succeeds. The in-memory ring and scans_total are unaffected. "
+                        "Logged once per run."
+                    )
             except Exception:
                 _logger.debug("scan-history sink bounding failed", exc_info=True)
 

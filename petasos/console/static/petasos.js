@@ -1637,6 +1637,7 @@
       : (Pet.state.historyHeadCursor != null);
 
     function pageHistoryOlder() {
+      if (_historyPaging) return; // ignore re-entrant clicks while a fetch is in flight
       var next = Pet.historyPagingView(
         {
           atHead: Pet.state.historyAtHead !== false,
@@ -1645,8 +1646,10 @@
         },
         "older"
       );
-      if (!next.needsFetch) return; // at the retained bottom; no older cursor
+      if (!next.needsFetch) return; // at the retained bottom; no older cursor (flag stays clear)
+      _historyPaging = true;
       Pet.api.getScanHistory(100, next.cursor).then(function (d) {
+        _historyPaging = false; // clear before any early return so paging can resume
         if (Pet.auth.on401(d)) return; // a 401 stops paging, never a stale page
         if (!d.error) {
           Pet.state.historyAtHead = false;
@@ -3238,6 +3241,11 @@
   // scan-history ring buffer exactly once per mount (not on every SSE re-render).
   // Reset in Pet.unmount AND at the top of Pet.mount (double-mount hardening).
   var _historySeeded = false;
+  // PET-148: in-flight guard for "Older" paging. The pageHistoryOlder handler closure is
+  // rebuilt on every renderDashboard, so a local flag can't survive between clicks — this
+  // module-scoped flag ignores re-entrant clicks while a getScanHistory fetch is pending,
+  // so two quick clicks can't fetch the same cursor twice and push a duplicate page.
+  var _historyPaging = false;
   // PET-127: gate the scanner-health skeleton. renderDashboard re-runs on every
   // SSE/poll frame, so an unconditional skeleton would re-flash; this flips true
   // at every /health settle (in-render success+error arms AND the 10s poll), never
