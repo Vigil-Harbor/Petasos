@@ -1665,6 +1665,10 @@
       });
     }
     function pageHistoryNewer() {
+      // Same in-flight guard as pageHistoryOlder: while an "Older" fetch is pending, a
+      // synchronous stack pop here would invalidate the cursor that pending .then is about
+      // to push from, appending a non-contiguous page and breaking Older/Newer adjacency.
+      if (_historyPaging) return;
       var next = Pet.historyPagingView(
         { atHead: Pet.state.historyAtHead !== false, stack: Pet.state.historyStack || [] },
         "newer"
