@@ -21,6 +21,7 @@ import pytest
 
 pytest.importorskip("fastapi")
 
+import petasos  # noqa: E402
 from petasos.config import PetasosConfig  # noqa: E402
 from petasos.console.server import build_app  # noqa: E402
 from petasos.pipeline import Pipeline  # noqa: E402
@@ -194,3 +195,11 @@ def test_token_with_surrounding_whitespace_is_compared_verbatim(
     # A trimmed credential does not match.
     trimmed = tc.get("/api/health", headers={"Authorization": "Bearer tok"})
     assert trimmed.status_code == 401
+
+
+def test_openapi_version_matches_package() -> None:
+    # Regression for PET-141: the OpenAPI version tracks petasos.__version__ on
+    # BOTH construction paths (untokened and PET-125 tokened), so the single
+    # _version local (D3) keeps the two branches and the package from drifting.
+    assert build_app(_make_pipeline()).version == petasos.__version__
+    assert build_app(_make_pipeline(), auth_token="t").version == petasos.__version__

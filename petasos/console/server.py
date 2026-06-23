@@ -723,7 +723,9 @@ class ConsoleHandlers:
         import petasos
 
         return {
-            "version": getattr(petasos, "__version__", "0.1.0"),
+            # PET-141: source the version from the package single-source; no
+            # hardcoded fallback (a literal can only mask a real packaging defect).
+            "version": petasos.__version__,
             "repo_url": "https://github.com/Vigil-Harbor/Petasos",
             "license": "MIT",
             "description": (
@@ -799,6 +801,12 @@ def build_app(pipeline: "Pipeline", *, auth_token: str | None = None) -> "FastAP
     from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
     from fastapi.staticfiles import StaticFiles
 
+    import petasos
+
+    # PET-141: bind the package version once so both FastAPI constructions (and the
+    # package) can never drift — D3 single source for the OpenAPI version field.
+    _version = petasos.__version__
+
     # PET-125: normalize the token once, centrally, so the env path (serve) and a
     # programmatic auth_token= argument agree. Single WARNING site for set-but-blank.
     resolved_token: str | None
@@ -811,7 +819,7 @@ def build_app(pipeline: "Pipeline", *, auth_token: str | None = None) -> "FastAP
         resolved_token = auth_token
 
     if resolved_token is None:
-        app = _FastAPI(title="Petasos Console", version="0.1.0")
+        app = _FastAPI(title="Petasos Console", version=_version)
     else:
         token: str = resolved_token  # non-Optional capture for the closure below
 
@@ -838,7 +846,7 @@ def build_app(pipeline: "Pipeline", *, auth_token: str | None = None) -> "FastAP
 
         app = _FastAPI(
             title="Petasos Console",
-            version="0.1.0",
+            version=_version,
             dependencies=[Depends(_require_console_token)],
         )
 

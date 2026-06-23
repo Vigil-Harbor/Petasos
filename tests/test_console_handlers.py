@@ -8,6 +8,7 @@ import pytest
 
 pytest.importorskip("fastapi")
 
+import petasos  # noqa: E402
 import petasos.console._paths as paths_mod  # noqa: E402
 from petasos._types import ScanResult  # noqa: E402
 from petasos.config import PetasosConfig  # noqa: E402
@@ -214,11 +215,20 @@ async def test_profile_metadata_surfaced(handlers: ConsoleHandlers) -> None:
 
 async def test_get_about(handlers: ConsoleHandlers) -> None:
     result = await handlers.get_about()
-    assert result["version"] == "0.1.2"
+    # Regression for PET-141: version pins to the package single-source, not a
+    # hand-bumped "0.1.2" literal — the payload-shape smoke check stays.
+    assert result["version"] == petasos.__version__
     assert result["license"] == "MIT"
     assert "donation" in result
     assert "url" in result["donation"]
     assert "credits" in result
+
+
+async def test_about_version_matches_package(handlers: ConsoleHandlers) -> None:
+    # Regression for PET-141: the /about version is sourced from
+    # petasos.__version__ with no hardcoded fallback (D2).
+    result = await handlers.get_about()
+    assert result["version"] == petasos.__version__
 
 
 async def test_scan_history_limit(handlers: ConsoleHandlers) -> None:
