@@ -495,7 +495,9 @@ class TestFailModeClosed:
         async def _esc(findings: tuple[ScanFinding, ...], sid: str | None) -> None:
             hook_calls.append("escalation")
 
-        async def _audit(result: PipelineResult, sid: str | None, freq: object = None) -> None:
+        async def _audit(
+            result: PipelineResult, sid: str | None, freq: object = None, direction: object = None
+        ) -> None:
             hook_calls.append("audit")
 
         async def _alert(result: PipelineResult, sid: str | None, freq: object = None) -> None:
@@ -657,7 +659,7 @@ class TestSessionHooks:
         p = Pipeline()
         await p._frequency_hook((), None)
         await p._escalation_hook(None, None)
-        await p._audit_hook(PipelineResult(safe=True, findings=()), None, None)
+        await p._audit_hook(PipelineResult(safe=True, findings=()), None, None, "inbound")
         await p._alert_hook(PipelineResult(safe=True, findings=()), None, None)
 
     @pytest.mark.asyncio

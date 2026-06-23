@@ -13,7 +13,7 @@ _logger = logging.getLogger(__name__)
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from petasos._types import PipelineResult
+    from petasos._types import Direction, PipelineResult
     from petasos.config import PetasosConfig
     from petasos.session.frequency import FrequencyUpdateResult
 
@@ -50,11 +50,17 @@ class AuditEmitter:
         result: PipelineResult,
         session_id: str | None,
         freq_result: FrequencyUpdateResult | None,
+        *,
+        direction: Direction | None = None,
     ) -> AuditEvent:
         self._last_callback_error = None
         seq = self._global_sequence
 
-        payload = self._build_payload(result, freq_result)
+        # PET-136: `direction` is the scan-level resolved value threaded down from
+        # the pipeline. Existing callers that omit it fall back to the configured
+        # direction, so no caller breaks (additive change).
+        resolved_direction = direction if direction is not None else self._config.direction
+        payload = self._build_payload(result, freq_result, resolved_direction)
 
         event = AuditEvent(
             event_id=uuid.uuid4().hex,
@@ -99,22 +105,34 @@ class AuditEmitter:
         self,
         result: PipelineResult,
         freq_result: FrequencyUpdateResult | None,
+        direction: Direction,
     ) -> MappingProxyType[str, Any]:
         verbosity = self._config.audit_verbosity
+        emit_findings = self._config.audit_emit_findings  # live read (PET-126)
         data: dict[str, Any] = {
             "safe": result.safe,
             "finding_count": len(result.findings),
+            "emit_findings": emit_findings,
         }
 
-        if verbosity in ("standard", "verbose"):
+        # PET-136: the per-finding list is included when the dedicated toggle is on
+        # OR at standard/verbose verbosity, so a minimal-verbosity capture window
+        # still emits findings. `matched_text` and raw content are never copied in
+        # (D3, redaction-safe by construction). `direction` is the scan-level
+        # resolved value, uniform across the list until D-DIRECTION-ON-FINDING
+        # lands; it is not per-finding provenance.
+        if emit_findings or verbosity in ("standard", "verbose"):
             data["findings"] = [
                 {
                     "rule_id": f.rule_id,
                     "severity": f.severity.value,
                     "confidence": f.confidence,
+                    "direction": direction,
                 }
                 for f in result.findings
             ]
+
+        if verbosity in ("standard", "verbose"):
             data["escalation_tier"] = freq_result.tier if freq_result is not None else None
             data["session_score"] = freq_result.current_score if freq_result is not None else None
 

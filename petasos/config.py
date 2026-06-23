@@ -25,6 +25,7 @@ _BOOL_FIELDS: frozenset[str] = frozenset(
         "escalation_enabled",
         "tool_guard_enabled",
         "audit_enabled",
+        "audit_emit_findings",
         "alert_enabled",
         "subagent_lineage_enabled",
         "delegate_fanout_enabled",
@@ -119,6 +120,11 @@ class PetasosConfig:
 
     # Audit
     audit_verbosity: Literal["minimal", "standard", "verbose"] = "standard"
+    # PET-136: verbosity-independent, default-off per-finding audit sink. When on,
+    # the audit payload carries the per-finding list (rule_id/severity/confidence/
+    # direction) regardless of audit_verbosity, so a minimal-verbosity capture
+    # window still emits findings for offline false-positive tuning.
+    audit_emit_findings: bool = False
 
     # Frequency tracking
     frequency_half_life_seconds: float = 60.0

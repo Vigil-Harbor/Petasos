@@ -115,13 +115,20 @@ class TestVerbosityLevels:
     def test_minimal_payload_keys(self) -> None:
         emitter = AuditEmitter(_cfg(audit_verbosity="minimal"))
         event = emitter.emit(_result(), "s1", None)
-        assert set(event.payload.keys()) == {"safe", "finding_count"}
+        assert set(event.payload.keys()) == {"safe", "finding_count", "emit_findings"}
 
     def test_standard_payload_keys(self) -> None:
         emitter = AuditEmitter(_cfg(audit_verbosity="standard"))
         fr = _freq_result()
         event = emitter.emit(_result(findings=(_finding(),)), "s1", fr)
-        expected = {"safe", "finding_count", "findings", "escalation_tier", "session_score"}
+        expected = {
+            "safe",
+            "finding_count",
+            "emit_findings",
+            "findings",
+            "escalation_tier",
+            "session_score",
+        }
         assert set(event.payload.keys()) == expected
 
     def test_verbose_payload_keys(self) -> None:
@@ -132,6 +139,7 @@ class TestVerbosityLevels:
         expected = {
             "safe",
             "finding_count",
+            "emit_findings",
             "findings",
             "escalation_tier",
             "session_score",
@@ -157,6 +165,9 @@ class TestVerbosityLevels:
         assert findings_list[0]["rule_id"] == "test.injection"
         assert findings_list[0]["severity"] == "high"
         assert findings_list[0]["confidence"] == 0.85
+        # PET-136: emit() called without a direction argument and _cfg() does not
+        # override direction, so it resolves to the PetasosConfig.direction default.
+        assert findings_list[0]["direction"] == "inbound"
 
     def test_verbose_scanner_results_content(self) -> None:
         sr = ScanResult(scanner_name="test_scanner", findings=(), duration_ms=5.5, error="oops")
