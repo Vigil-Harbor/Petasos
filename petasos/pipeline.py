@@ -643,8 +643,11 @@ class Pipeline:
         )
         normalized_text = norm_result.normalized
 
-        # Stage 1b: Profile hook → effective scanner
-        effective_scanner = await self._profile_hook(active_profile)
+        # Stage 1b: the syntactic pre-filter always uses the base minimal
+        # scanner. Profile-driven suppression runs at Stage 4b (PET-109); no
+        # profile-based scanner selection happens here.
+        assert self._minimal_scanner is not None
+        effective_scanner = self._minimal_scanner
 
         # Stage 2: Syntactic pre-filter (raw text)
         _t0 = time.monotonic()
@@ -915,17 +918,6 @@ class Pipeline:
             self._breaker_consecutive_timeouts.pop(sname, None)
             self._breaker_open_until.pop(sname, None)
         return result
-
-    async def _profile_hook(
-        self,
-        profile: ResolvedProfile | None,
-    ) -> MinimalScanner:
-        # PET-109: profile suppression no longer happens here. The single
-        # pre-merge cross-scanner suppression stage (Stage 4b) drives it for all
-        # scanners; MinimalScanner.with_suppress_rules remains as scanner API for
-        # direct callers/tests but is no longer profile-driven.
-        assert self._minimal_scanner is not None
-        return self._minimal_scanner
 
     async def _frequency_hook(
         self, findings: tuple[ScanFinding, ...], session_id: str | None
