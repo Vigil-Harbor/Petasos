@@ -69,9 +69,13 @@ Audit artifact for the 0.1.0 release. Verifies existing code against [Drawbridge
 
 | Footgun | Status | Rationale |
 |---------|--------|-----------|
-| 4c — File tool bypass | Mitigate (deployment) | Petasos does not itself dispatch file ops, shell, or subprocess calls (true). But the agent can write *Petasos's own* `config.yaml` (the `enabled` bit / posture), disarming or relaxing enforcement. Put the config out of the agent's reach (read-only mount / separate uid on POSIX, separate account + ACL deny-write on Windows) and the console out of reach (no shell/http tool, or netns). See `hardening.md` section 6. |
+| 4c — File tool bypass | Mitigate (deployment) | Petasos does not itself dispatch file ops, shell, or subprocess calls (true). But the agent can write *Petasos's own* `config.yaml` (the `enabled` bit / posture), disarming or relaxing enforcement, and this is not only the active profile: an agent that writes a non-active `profiles/<name>/config.yaml` pre-stages an inert relaxed or disarmed posture that arms on operator equip or a PET-147 live swap, with no further agent action. Put **every** profile home out of the agent's reach (the whole `profiles/` tree, `HERMES_HOME`, and the legacy root: read-only mount / separate uid on POSIX, separate account + inherited deny-write ACL across `profiles\` on Windows) and the console out of reach (no shell/http tool, or netns). The boundary is deployment posture, not guard-side write-blocklisting (PET-125 Decision 2). See `hardening.md` section 6 and `deployment/profile-resolution-model.md`. |
 | 5 — Hook shebang divergence | N/A | Petasos ships zero hook scripts, zero shell scripts, zero executables. It is a pure Python library imported by the host process. |
 | 9 — Signal handling divergence | N/A | Petasos does not register signal handlers (`signal.signal()`). Lifecycle management is the host process's responsibility (Hermes). Future work must not add signal handlers without revisiting this assessment. |
+
+<!-- petasos-doc-assert: multihome_config_unreachable=all-profile-homes -->
+<!-- petasos-doc-assert: multihome_prestage_threat=equip-or-live-swap -->
+<!-- petasos-doc-assert: config_boundary_mechanism=deployment-posture -->
 
 ---
 

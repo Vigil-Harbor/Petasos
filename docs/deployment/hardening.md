@@ -220,20 +220,49 @@ the guard to defend its own config file.
 
 ### The mitigation (both platforms)
 
-Place `config.yaml` and `$HERMES_HOME` outside the agent's writable filesystem
-scope:
+Place **every** resolver-reachable `config.yaml` outside the agent's writable
+filesystem scope, not only the single file `resolve_hermes_config_path()` returns
+for the active profile. That means the whole `profiles/` tree
+(`profiles/*/config.yaml`), `$HERMES_HOME`, and the legacy v0.15 root: each is a
+home the resolver can bind, so each is a config an agent must not be able to write.
 
-- **POSIX:** a read-only bind mount, or a separate uid that owns the config with
-  the agent's uid denied write.
+**Why all homes, not only the active one.** PET-146's Config Editor selector makes
+every profile home an editable surface, and the three safety levers (`fail_mode`,
+`source_taint_namespaces`, `egress_sink_tools`) live inside each profile's config.
+An agent that can write a *non-active* profile's `config.yaml` can pre-stage an
+inert relaxed or disarmed posture that arms the instant an operator equips that
+profile, or a PET-147 live swap retargets to it, with no further agent action at
+switch time. A boundary scoped to only the resolved active config leaves that
+pre-stage path open. For the Hermes-profile-home versus internal-Petasos-profile
+distinction, see `profile-resolution-model.md`.
+
+- **POSIX:** a read-only bind mount over the `profiles/` tree (and `$HERMES_HOME`),
+  or a separate uid that owns the tree with the agent's uid denied write. Scope the
+  mount or ownership to the directory, not a single file, so sibling and
+  later-created profile homes inherit the boundary.
 - **Windows:** a separate Windows user or service account owns the config
-  directory, with an ACL that denies write to the agent's account. Note that
-  `%LOCALAPPDATA%\hermes` is user-writable by default (and see the section 5
-  Windows note: on Hermes Desktop for Windows, file tools bypass the terminal
-  sandbox).
+  directory, with an inherited deny-write ACL across the entire `profiles\` tree,
+  for example `icacls "...\hermes\profiles" /deny "agent-user:(OI)(CI)W" /T`. A
+  single-file ACL would leave sibling and later-created profile homes writable.
+  Note that `%LOCALAPPDATA%\hermes` is user-writable by default (and see the
+  section 5 Windows note: on Hermes Desktop for Windows, file tools bypass the
+  terminal sandbox).
+
+Verify no home is agent-writable (the filesystem-reach check, distinct from the
+active-binding confirmation in *Profile changes require a restart* below):
+
+- **POSIX:** running as the agent's uid,
+  `find <hermes-root>/profiles -name config.yaml -writable` should print nothing.
+- **Windows:** `icacls "...\hermes\profiles\*\config.yaml"` should show no write
+  grant for the agent's account.
 
 Then ensure neither the standalone console nor the embedded plugin API is
 reachable by the agent's shell or http tools (network-namespace isolation, or no
 shell/http tool in the agent's toolset). Loopback alone is insufficient.
+
+<!-- petasos-doc-assert: multihome_config_unreachable=all-profile-homes -->
+<!-- petasos-doc-assert: multihome_prestage_threat=equip-or-live-swap -->
+<!-- petasos-doc-assert: config_boundary_mechanism=deployment-posture -->
 
 ### Optional console token (`PETASOS_CONSOLE_TOKEN`)
 
