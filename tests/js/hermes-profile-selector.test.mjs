@@ -239,6 +239,24 @@ test("hermesProfileOptions: ordered, first-wins deduped, blank/garbage skipped",
   }
 });
 
+// A profile literally named "__proto__" must not bypass first-wins dedup. With a plain
+// `{}` seen-map, `seen["__proto__"] = true` routes through the prototype setter (a no-op
+// for a non-object), so hasOwnProperty stays false and the repeat slips through; the
+// null-prototype map stores it as a plain own key. Pins the Object.create(null) fix.
+test("hermesProfileOptions: __proto__ is first-wins deduped, not bypassed", () => {
+  const d = payload({
+    hermes_profiles: [
+      { name: "__proto__", path: "/r/one", is_active: true, tier: "profile" },
+      { name: "__proto__", path: "/r/two", is_active: false }, // must dedup, first wins
+      { name: "beta", path: "/r/beta" },
+    ],
+  });
+  const opts = Pet.hermesProfileOptions(d);
+  assert.equal(opts.filter((o) => o.name === "__proto__").length, 1, "__proto__ deduped to one");
+  assertLoose.deepEqual(opts.map((o) => o.name), ["__proto__", "beta"]);
+  assert.equal(opts[0].path, "/r/one", "first-wins kept the first entry");
+});
+
 // ── 3. selector renders: <select>, options, scoped note, no "global" badge ──
 test("renderHermesProfileSelector: select + options + scoped note, no global marker", () => {
   Pet.state.configDirty = {};

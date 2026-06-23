@@ -2382,7 +2382,11 @@
   // deduped first-wins, malformed entries skipped. Never throws. This is the option
   // source; profileDescriptions is the tip source.
   Pet.profileNames = function (profiles) {
-    var out = [], seen = {};
+    // Object.create(null): a profile literally named "__proto__" must not bypass the
+    // first-wins dedup. With a plain {}, `seen["__proto__"] = true` hits the prototype
+    // setter (a no-op for a non-object) so hasOwnProperty stays false and the dupe slips
+    // through; a null-prototype map stores every string key as a plain own property.
+    var out = [], seen = Object.create(null);
     if (!Array.isArray(profiles)) return out;
     for (var i = 0; i < profiles.length; i++) {
       var p = profiles[i];
@@ -2506,7 +2510,10 @@
   Pet.hermesProfileOptions = function (d) {
     var list = (d && Array.isArray(d.hermes_profiles)) ? d.hermes_profiles : [];
     var out = [];
-    var seen = {};
+    // Object.create(null) so a profile named "__proto__" can't bypass first-wins dedup
+    // (a plain {} routes that key through the prototype setter, leaving hasOwnProperty
+    // false on the repeat). Sibling of Pet.profileNames; same null-prototype rationale.
+    var seen = Object.create(null);
     list.forEach(function (p) {
       if (!p || typeof p !== "object") return;
       var name = p.name;
