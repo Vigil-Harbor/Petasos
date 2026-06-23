@@ -407,7 +407,7 @@ test("test_persistent_failure_bounded_then_polling", async () => {
 // terminal-polling concede (a non-401 4xx is a proxy/deployment condition, not the
 // token-auth path — PET-129 D3 edge F-4). A 5xx control case still reconnects.
 // (Done-when 4; pins D9 "only auth is terminal" + the PET-129 401 reroute.)
-test("test_auth_401_routes_straight_to_polling", async () => {
+test("test_auth_401_routes_to_authenticate_state_and_403_to_terminal_polling", async () => {
   // 401 → authenticate state (PET-129), NOT polling.
   {
     const h = setup({ events: [HTTP(401)] });

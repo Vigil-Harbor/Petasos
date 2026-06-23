@@ -359,6 +359,28 @@ test("test_no_bearer_on_sse_embedded_path", () => {
   assert.ok(!h.Authorization, "no Petasos Authorization on the embedded SSE path");
 });
 
+// D5 mutual exclusivity: a partial SDK (no fetchJSON) is treated as standalone by the
+// SAME predicate _req uses, so the Petasos bearer is attached and the Hermes session
+// token is NOT — the two credentials never coexist, even in this odd partial state.
+test("test_sse_partial_sdk_is_standalone_no_double_credential", () => {
+  const calls = [];
+  const fetch = (url, opts) => {
+    calls.push({ url, opts });
+    return Promise.resolve(sseResp());
+  };
+  const window = {
+    __HERMES_PLUGIN_SDK__: {}, // present but NO fetchJSON -> standalone, per _req's predicate
+    __HERMES_SESSION_TOKEN__: "hsess",
+  };
+  const { Pet } = loadPet({ window, fetch });
+  Pet.token.set("s3cr3t");
+  Pet.sse.connect();
+  assert.equal(calls.length, 1);
+  const h = calls[0].opts.headers;
+  assert.equal(h.Authorization, "Bearer s3cr3t", "partial SDK is standalone -> Petasos bearer attached");
+  assert.ok(!h["X-Hermes-Session-Token"], "no Hermes session token alongside the Petasos bearer (D5)");
+});
+
 // Defect #2: a 401 never renders EQUIPPED; on401 sets authRequired; the auth panel is
 // honest.
 test("test_401_does_not_render_equipped", () => {
@@ -438,6 +460,33 @@ test("test_token_store_degrades_without_sessionStorage", () => {
   assert.equal(Pet2.token.get(), "xyz", "falls back to in-memory when setItem throws");
   assert.doesNotThrow(() => Pet2.token.clear());
   assert.equal(Pet2.token.get(), null);
+});
+
+// In-session truth wins over a stale persisted token: a storage write that fails
+// AFTER a successful prior write must NOT let get() return the stale value (the
+// _UNSET sentinel makes _tokenMem authoritative once set/clear has run).
+test("test_token_store_inmemory_truth_wins_over_stale_storage", () => {
+  let failWrites = false;
+  const store = new Map();
+  const flaky = {
+    getItem: (k) => (store.has(k) ? store.get(k) : null),
+    setItem: (k, v) => {
+      if (failWrites) throw new Error("quota");
+      store.set(k, String(v));
+    },
+    removeItem: (k) => {
+      if (failWrites) throw new Error("quota");
+      store.delete(k);
+    },
+  };
+  const { Pet } = loadPet({ sessionStorage: flaky });
+  Pet.token.set("first"); // persisted to storage
+  assert.equal(Pet.token.get(), "first");
+  failWrites = true;
+  Pet.token.set("second"); // setItem throws; storage still holds "first"
+  assert.equal(Pet.token.get(), "second", "in-memory truth wins over the stale persisted token");
+  Pet.token.clear(); // removeItem throws; storage still holds "first"
+  assert.equal(Pet.token.get(), null, "after clear, get() is null even if removeItem failed");
 });
 
 // Defect #3 (edge F-1): a 401 stops BOTH polls; the fallback does not reschedule; and

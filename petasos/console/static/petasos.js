@@ -369,17 +369,23 @@
   // origin indefinitely). The store NEVER throws to its callers: sessionStorage can be
   // absent (a headless node:vm load) or throw on setItem (private-browsing modes), so
   // every access is wrapped and falls back to an in-module in-memory value.
-  var _tokenMem = null; // in-memory mirror / fallback when sessionStorage is unusable
+  var _UNSET = {};      // sentinel: no in-session set()/clear() has run yet
+  var _tokenMem = _UNSET; // in-memory truth once set/clear runs; falls back to sessionStorage before that
   var _TOKEN_KEY = "petasos.console.token";
   Pet.token = {
     get: function () {
+      // In-session truth wins: once set()/clear() has run, _tokenMem is authoritative
+      // even if its sessionStorage write threw — so a failed write never lets get()
+      // return a stale persisted token. Fall back to sessionStorage only before the
+      // first set/clear (so an operator's token survives a reload within the tab).
+      if (_tokenMem !== _UNSET) return _tokenMem;
       try {
         if (typeof sessionStorage !== "undefined" && sessionStorage) {
           var v = sessionStorage.getItem(_TOKEN_KEY);
           if (v != null) return v;
         }
       } catch (_) {}
-      return _tokenMem;
+      return null;
     },
     set: function (value) {
       var v = value == null ? "" : String(value);
@@ -580,16 +586,16 @@
       if (self._abortCtrl) self._abortCtrl.abort();  // defensive; inert on the reconnect path (disconnect nulled it)
       var url = Pet.api.baseUrl + "/events";
       var headers = { "Accept": "text/event-stream" };
-      var token = window.__HERMES_SESSION_TOKEN__;
-      if (token) headers["X-Hermes-Session-Token"] = token;
-      // PET-129 D1 (edge F-7): sse.connect is the single SSE client for both modes, so
-      // "standalone only" must be explicit here. Use the EXACT same embedded predicate
-      // as _req (`sdk && sdk.fetchJSON`), so a partial SDK object lacking fetchJSON is
-      // treated as standalone by both paths (no path divergence). In embedded mode the
-      // fetch keeps its X-Hermes-Session-Token and gains NO Petasos Authorization, so
-      // the two credentials never coexist (the double-credentialing D5 forbids).
+      // PET-129 D1/D5 (edge F-7): sse.connect is the single SSE client for both modes,
+      // so exactly ONE credential is attached, keyed on the SAME embedded predicate as
+      // _req (`sdk && sdk.fetchJSON`) — embedded -> Hermes session token only, standalone
+      // -> Petasos bearer only. The two never coexist (double-credentialing D5 forbids),
+      // and a partial SDK object lacking fetchJSON is treated as standalone by both paths.
       var _sdk = window.__HERMES_PLUGIN_SDK__;
-      if (!(_sdk && _sdk.fetchJSON)) {
+      if (_sdk && _sdk.fetchJSON) {
+        var _hs = window.__HERMES_SESSION_TOKEN__;
+        if (_hs) headers["X-Hermes-Session-Token"] = _hs;
+      } else {
         var _ctok = Pet.token.get();
         if (_ctok) headers["Authorization"] = "Bearer " + _ctok;
       }
@@ -2360,7 +2366,10 @@
     // (_get/_req return a fetch-based promise that resolves to {error} on failure
     // rather than rejecting, so the onRejected arm is belt-and-suspenders.)
     var profilesP = Pet.api.getProfiles().then(
-      function (resp) { return (resp && Array.isArray(resp.profiles)) ? resp.profiles : []; },
+      function (resp) {
+        if (Pet.auth.on401(resp)) return []; // PET-129: a profiles 401 enters the auth state (chokepoint completeness)
+        return (resp && Array.isArray(resp.profiles)) ? resp.profiles : [];
+      },
       function () { return []; }
     );
 
@@ -2422,6 +2431,7 @@
         clearPresetConfirm();
         dialApplyInFlight = true;  // in-flight guard, mirrors the Apply button
         Pet.api.putConfig(preset.overrides).then(function (resp) {
+          if (Pet.auth.on401(resp)) return; // PET-129: a config-save 401 enters the auth state, not a validation error
           var failMsg = null;
           if (resp && resp._status && resp.detail) {
             var raw = Array.isArray(resp.detail) ? resp.detail : [resp.detail];
@@ -2666,6 +2676,7 @@
             formArea.querySelectorAll(".pet-field-err").forEach(function (el) { el.remove(); });
             applyBtn.disabled = true;
             Pet.api.putConfig(Pet.state.configDirty).then(function (d) {
+              if (Pet.auth.on401(d)) return; // PET-129: a config-save 401 enters the auth state, not a validation error
               if (d._status && d.detail) {
                 var raw = Array.isArray(d.detail) ? d.detail : [d.detail];
                 var details = raw.map(function (el) {
