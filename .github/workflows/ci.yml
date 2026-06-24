@@ -38,7 +38,11 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
-      - run: pip install -e ".[dev]"
+      # PET-153: install the `console` extra so the fastapi-dependent standalone
+      # console suites run unskipped. `console` is a non-scanner extra (PET-106
+      # _NON_SCANNER_EXTRAS), so it needs no extras-console.yml lane; fastapi/uvicorn
+      # are pure-Python and add no ML weight, so this lane stays fast and ML-free.
+      - run: pip install -e ".[dev,console]"
       - run: pytest tests/ -v --tb=short
 
   # PET-82: console frontend unit test (zero npm deps; node:test built-in

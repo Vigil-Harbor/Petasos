@@ -36,6 +36,13 @@ Repository = "https://github.com/Vigil-Harbor/Petasos"
 Changelog = "https://github.com/Vigil-Harbor/Petasos/blob/master/CHANGELOG.md"
 "Bug Tracker" = "https://github.com/Vigil-Harbor/Petasos/issues"
 
+[project.scripts]
+# PET-153: the out-of-process supervised console entrypoint. Needs the `console`
+# extra (fastapi/uvicorn) to serve: `pip install "petasos[console]"`. Equivalent
+# to `python -m petasos.console`; the OS supervisor (Task Scheduler / launchd)
+# owns the lifecycle.
+petasos-console = "petasos.console.__main__:main"
+
 [project.optional-dependencies]
 llm-guard = ["llm-guard>=0.3.16,<0.4"]
 llamafirewall = ["llamafirewall"]

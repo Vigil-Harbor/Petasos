@@ -14,7 +14,6 @@ so CI typecheck passes without the console extra installed.
 from __future__ import annotations
 
 import logging
-import os
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
@@ -52,107 +51,21 @@ def _load_config() -> dict[str, Any]:
 
 
 def _self_init() -> None:
-    """Build a standalone Pipeline for the dashboard process."""
-    import base64
+    """Build a standalone Pipeline for the dashboard process.
 
-    from petasos import PetasosConfig, Pipeline
-    from petasos.scanners import MinimalScanner
+    Seam pin (PET-153): config still resolves through this module's
+    ``_load_config()`` (the seam ``tests/test_plugin_init_logging.py``
+    monkeypatches), and the resulting dict feeds the shared
+    ``build_dashboard_pipeline`` builder so the embedded dashboard plugin and the
+    out-of-process standalone console (``petasos.console.__main__``) construct
+    identical pipelines with no drift. The scanner build, probe logging, env-secret
+    injection, and self-initialized summary all live in the builder now.
+    """
+    from petasos.console._standalone import build_dashboard_pipeline
 
     raw_config = _load_config()
-    raw_config.pop("host_id", None)
-    raw_config.pop("enabled", None)
-
-    session_secret_b64 = os.environ.get("PETASOS_SESSION_SECRET")
-    if session_secret_b64:
-        try:
-            raw_config["session_secret"] = base64.b64decode(session_secret_b64)
-        except Exception as exc:
-            logger.warning(
-                "PETASOS_SESSION_SECRET is not valid base64 — session binding disabled: %s",
-                exc,
-            )
-
-    hash_key = os.environ.get("PETASOS_HASH_KEY")
-    if hash_key:
-        raw_config["hash_key"] = hash_key
-
-    try:
-        config = PetasosConfig.from_dict(raw_config)
-    except (TypeError, ValueError) as exc:
-        # PET-109: bind + log so a single bad field (e.g. presidio_score_threshold)
-        # discarding ALL operator tuning to defaults is diagnosable, not silent.
-        # A full per-field-tolerant load is out of scope (Deferred).
-        logger.warning("config.yaml rejected (%s); falling back to defaults", exc)
-        config = PetasosConfig()
-
-    scanners = [MinimalScanner(decode_encoded_payloads=config.decode_encoded_payloads)]
-    unavailable: list[str] = []
-    for name, cls_path in [
-        ("LLM Guard", "petasos.scanners.LlmGuardScanner"),
-        ("LlamaFirewall", "petasos.scanners.LlamaFirewallScanner"),
-        ("Presidio", "petasos.scanners.PresidioScanner"),
-    ]:
-        try:
-            mod, cls = cls_path.rsplit(".", 1)
-            import importlib
-
-            m = importlib.import_module(mod)
-            if name == "Presidio":
-                # PET-109: build Presidio from config (entities + score_threshold)
-                # instead of the bare no-arg ctor. resolve_presidio_entities lives in
-                # presidio.py, whose module imports are stdlib + petasos._types only —
-                # importing it does NOT import the presidio backend, so the
-                # "importable without the extra" invariant holds and the surrounding
-                # try/except ImportError still catches a genuinely-absent backend.
-                from petasos.scanners.presidio import resolve_presidio_entities
-
-                instance = getattr(m, cls)(
-                    entities=resolve_presidio_entities(
-                        config.presidio_entities, config.presidio_entities_extra
-                    ),
-                    score_threshold=config.presidio_score_threshold,
-                )
-            else:
-                instance = getattr(m, cls)()
-            scanners.append(instance)
-            probe = getattr(instance, "availability", None)
-            if probe is not None:
-                # PET-103 D4: arity-tolerant extraction — availability() is
-                # duck-typed here (getattr), so tolerate both the legacy 2-tuple
-                # and the widened 3-tuple (ok, reason, cause).
-                probe_result = probe()
-                avail = bool(probe_result[0])
-                reason = probe_result[1] if len(probe_result) > 1 else None
-                if avail:
-                    logger.info("Dashboard scanner %s: backend verified", name)
-                else:
-                    unavailable.append(name)
-                    logger.warning(
-                        "Dashboard scanner %s: backend missing — registered degraded: %s",
-                        name,
-                        reason,
-                    )
-            else:
-                logger.info("Dashboard scanner %s: backend verified", name)
-        except ImportError:
-            unavailable.append(name)
-            logger.warning("Dashboard scanner %s: import failed", name)
-        except Exception as exc:
-            unavailable.append(name)
-            logger.warning("Dashboard scanner %s failed: %s", name, exc)
-
-    pipeline = Pipeline(config=config, scanners=scanners, host_id="dashboard")
-
-    license_key = os.environ.get("PETASOS_LICENSE_KEY")
-    if license_key:
-        pipeline.activate(license_key)
-
+    pipeline = build_dashboard_pipeline(raw_config)
     init_handlers(pipeline)
-    logger.info(
-        "Dashboard self-initialized pipeline: scanners=%s, unavailable=%s",
-        [s.name for s in scanners],
-        unavailable,
-    )
 
 
 def _require_handlers() -> Any:

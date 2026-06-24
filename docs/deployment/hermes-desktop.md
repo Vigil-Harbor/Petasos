@@ -427,6 +427,113 @@ off**: no error, no log warning (the plugin simply isn't discovered). The
 `verify.py` script and the `loading config from ...` INFO line are the primary
 diagnostic tools.
 
+## Durable console backend across Hermes updates
+
+The console backend (`config`, `scan`, `armed`, `scan-history`) can be served two
+ways. Only one survives a Hermes host update without a manual re-drop. The in-tab
+`9119` dashboard plugin mounts a backend only when Hermes treats it as a
+**bundled** plugin, and a Hermes update rebuilds the install tree where that copy
+lives, so the in-tab backend silently goes dark on each update. The durable answer
+is to run the console as its own supervised process.
+
+**Mount-verification (in-tab backend).** To confirm whether the in-tab `9119`
+backend is actually mounted, read the `has_api` flag in `/api/dashboard/plugins`,
+or send an **authenticated** health probe. A bare `401` from an unauthenticated
+probe is NOT proof of mount: the dashboard auth middleware returns `401` whether
+or not the route is mounted, so treat only `has_api: true` or an authenticated
+non-`401`/non-`404` as confirmation.
+
+<!-- PET-153-DURABLE-PATH -->
+### Durable: supervised standalone console (recommended)
+
+Run the console as its own OS-supervised process, decoupled from Hermes. Nothing
+it depends on lives in the Hermes install tree, and the Hermes plugin-backend
+mount policy is irrelevant to it, so a Hermes update cannot take it dark. This is
+the shipped, durable path.
+
+Petasos ships the entrypoint; the OS supervisor owns the lifecycle:
+
+- **Entrypoint:** `petasos-console` (installed by the `console` extra) or the
+  equivalent `python -m petasos.console`. It binds uvicorn to `127.0.0.1:8384` and
+  serves a complete, self-contained UI and API on that one port. Open
+  `http://127.0.0.1:8384` directly. The served UI is already a token-aware client
+  (it takes the token in the UI, keeps it in `sessionStorage`, and sends it on
+  every request and SSE call), so no rebuild is needed.
+- **Install the extra** into the same interpreter the agent uses:
+  `pip install "petasos[console]"`.
+- **Supervisor:** register `petasos-console` under Windows Task Scheduler
+  (mirroring the existing `Hermes_Gateway_<profile>` scheduled task) or macOS
+  launchd. The supervisor restarts it on reboot and on crash. Petasos does not
+  daemonize or supervise itself.
+
+**Pin the agent's environment in the supervisor registration.** A Task Scheduler
+or launchd process does not inherit the interactive agent's environment, so
+without explicit pinning the supervised console can resolve a different profile's
+`config.yaml` (and a different enforcement spool) than the agent enforces,
+silently. Pin the same values the agent uses, in the Task Scheduler XML or launchd
+plist:
+
+- `HERMES_HOME` (or the active-profile context and the matching user account), so
+  the console resolves the same config path the agent does.
+- `PETASOS_SESSION_SECRET` and `PETASOS_HASH_KEY`, so the console reads the agent's
+  HMAC-attested enforcement events as attested. Without the secret, session binding
+  silently disables and attested events read as unattested.
+- `PETASOS_CONSOLE_TOKEN` set to a **non-blank** value, so every `/api/*` data
+  route requires `Authorization: Bearer <token>`. A set-but-blank value disables
+  auth with one WARNING; do not register it blank.
+- `PETASOS_LICENSE_KEY` if you use one.
+
+**Auth posture.** When `PETASOS_CONSOLE_TOKEN` is a non-blank string, every
+`/api/*` route returns `401` without a valid bearer token. The static page,
+`/static`, and FastAPI's `/docs`, `/redoc`, and `/openapi.json` stay ungated; on a
+localhost-only bind that is acceptable (the OpenAPI surface is a route map, not
+scan data). This does not regress to an unauthenticated `127.0.0.1` surface.
+
+**Startup self-check.** At startup the console logs the config line and one banner
+at INFO immediately before binding:
+
+```text
+INFO petasos.dashboard: loading config from <path> [tier=<tier>]
+INFO petasos.dashboard: petasos console starting: bind=127.0.0.1:8384 auth=on attestation=on
+```
+
+`auth` and `attestation` report **effective** state, not raw env presence:
+`auth=off` means the token was unset or blank, and `attestation=off` means the
+session secret did not decode. Compare the `loading config from` path against the
+agent's own line to confirm both resolve the same profile. If the bind fails (port
+already in use), the console logs an ERROR carrying the token
+`PETASOS_CONSOLE_START_FAILED` and exits non-zero.
+
+**Single-instance replacement.** Lifecycle and single-instance enforcement are the
+supervisor's job. Before registering a new `petasos-console` task, stop and remove
+any existing one; otherwise the stale instance can still hold `127.0.0.1:8384` and
+the new one fails to bind (the same shape as the `Hermes_Gateway_<profile>`
+PID-misidentification footgun). The port-in-use ERROR above makes the collision
+self-diagnosing.
+
+**Single-operator config writes.** With the standalone console running, two
+processes can write `config.yaml` and the armed bit: the agent and the console
+(via `PUT /api/config` and `POST /api/armed`). Each write is an atomic
+read-modify-replace (no torn file), but two independent writers are
+last-writer-wins with a lost-update window. Do not edit config from both the Hermes
+tab and the standalone console at the same time.
+
+<!-- PET-153-D2-FRAGILE: in-tree dashboard copy is wiped every Hermes update; not the durable path -->
+### Interim only: in-tree bundled dashboard copy (fragile)
+
+Before the supervised console is in place, the operator stopgap is a
+dashboard-only bundled copy at `<hermes-agent>/plugins/petasos/dashboard/`, with
+deliberately no root `plugin.yaml` or `__init__.py` so the dashboard discovery
+mounts it as `bundled` (`has_api: true`) while the agent hook loader ignores it
+(no double enforcement).
+
+This works, but it lives inside the Hermes install tree that every Hermes update
+rebuilds, so it is **wiped on each update** and the console silently goes dark
+again. There is no documented durable bundled location and no relocation env, so
+this copy cannot be made update-durable from the Petasos side. Treat it as a
+stopgap that must be re-dropped after every Hermes update, and move to the
+supervised standalone console above as the durable answer.
+
 ## PromptGuard model prerequisites
 
 The LlamaFirewall PromptGuard component uses the gated Hugging Face model
