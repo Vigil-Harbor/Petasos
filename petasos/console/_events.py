@@ -133,6 +133,26 @@ def verify_event(ev: object, key: bytes | None) -> bool:
         return False
 
 
+def classify_integrity_failure(record: object) -> str:
+    """Name the failure class of a record that failed verification (PET-157 D3).
+
+    The single source of truth for the ``sig-missing`` / ``sig-mismatch`` split, consumed by
+    the live drain's log tripwire (``_log_integrity_failure``), the ``get_health`` integrity
+    field, and the boot preflight, so the three can never drift. Pure and total, mirroring
+    ``verify_event``'s posture: a non-dict input or a missing/non-string ``sig`` is
+    ``"sig-missing"``; a present string ``sig`` that nonetheless failed verification is
+    ``"sig-mismatch"``. The *caller* owns the trust decision — this only names the class
+    once verification has already failed.
+
+    Empty-string ``sig`` corner (preserved, not refined): ``sig == ""`` classifies as
+    ``"sig-mismatch"`` (``isinstance("", str)`` is ``True``), byte-identical to the
+    pre-PET-157 inline expression it replaces.
+    """
+    if not isinstance(record, dict) or not isinstance(record.get("sig"), str):
+        return "sig-missing"
+    return "sig-mismatch"
+
+
 def emit_enforcement_event(event: dict[str, Any]) -> bool:
     """Append one enforcement event as a JSONL line. O(1), fail-open.
 

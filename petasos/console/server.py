@@ -17,6 +17,7 @@ import json
 import logging
 import time
 import uuid
+from collections import deque
 from typing import TYPE_CHECKING, Any
 
 from petasos.console import _history
@@ -62,6 +63,36 @@ _ENFORCEMENT_TAIL_INTERVAL_S = 1.0
 # PET-139: rate-limit window for the integrity-failure tripwire (D9), mirroring the
 # reference plugin's `_DISARM_LOG_EVERY_S` cadence so a forging loop cannot spam the log.
 _INTEGRITY_LOG_EVERY_S = 30.0
+# PET-157 (D8): bound on the recent-verdict window the `get_health` integrity field samples.
+# A bounded deque sample, NOT the durable record: a forged/mismatched row older than this many
+# newer events ages out of the live `counts`, but the durable record of a failure this run is
+# the one-shot PETASOS_INTEGRITY_PREFLIGHT WARNING (D7) plus the per-row
+# PETASOS_INTEGRITY_UNVERIFIABLE log (PET-139), neither of which the window can evict.
+_INTEGRITY_WINDOW = 256
+# PET-157 (D9): remediation copy for the integrity diagnostic, backend-emitted so a health-level
+# test can assert it. Keyed by failure class. Must NOT assert forgery for `sig-mismatch` — a
+# PETASOS_SESSION_SECRET skew between gateway and dashboard is the overwhelmingly likely cause.
+# No em dash (house style).
+_INTEGRITY_REMEDIATION = {
+    "sig-mismatch": (
+        "the gateway and dashboard most likely hold different PETASOS_SESSION_SECRET values; "
+        "set the same secret on both processes and restart them. A forged row is rare but "
+        "possible; a single mismatched row among verified rows is the one to investigate."
+    ),
+    "sig-missing": (
+        "the writer is an older build that does not sign the spool, or it has no "
+        "PETASOS_SESSION_SECRET while the dashboard does; upgrade the writer, or set a matching "
+        "PETASOS_SESSION_SECRET on both and restart."
+    ),
+}
+# PET-157 (D9): mode-neutral note for the integrity-off (key_on False) health path. Does not
+# over-promise a specific log line because the two modes fail differently — embedded degrades
+# to off on invalid base64, standalone refuses to start. No em dash (house style).
+_INTEGRITY_KEY_OFF_NOTE = (
+    "Integrity is off because no valid PETASOS_SESSION_SECRET is configured for this process. "
+    "If you did set one, the value may not be valid base64; check this dashboard's startup log "
+    "for a base64 warning (embedded mode degrades to off, standalone refuses to start)."
+)
 # Cap on the surfaced enforcement `reason` length. The raw matched value lives in a
 # finding's `matched_text` (never surfaced); `reason` is the structured scanner/guard
 # message (e.g. "PII detected: PERSON"), already returned to the agent. We cap it so a
@@ -531,6 +562,14 @@ class ConsoleHandlers:
         self._scans_total = 0
         # One-shot guard so the first ring overflow logs exactly once per run, not per scan.
         self._ring_overflow_warned = False
+        # PET-157: self-diagnosing integrity state. `_integrity_recent` is a bounded window of
+        # the most recent `(provenance, failure_class)` tuples, fed ONLY by the live drain
+        # (`_surface_enforcement_event`); `get_health` reads it without draining (D8/D10).
+        # `failure_class` is non-None only for `unverifiable` entries (computed via the D3
+        # helper at record time). `_integrity_preflight_emitted` is the one-shot guard for the
+        # boot/preflight WARNING (D7), mirroring `_ring_overflow_warned`/`_history_sink_warned`.
+        self._integrity_recent: deque[tuple[str, str | None]] = deque(maxlen=_INTEGRITY_WINDOW)
+        self._integrity_preflight_emitted = False
 
         pipeline.add_audit_listener(self._on_audit)
         pipeline.add_alert_listener(self._on_alert)
@@ -586,13 +625,42 @@ class ConsoleHandlers:
             if now - self._integrity_log_last < _INTEGRITY_LOG_EVERY_S:
                 return
             self._integrity_log_last = now
-            failure_class = "sig-missing" if not isinstance(ev.get("sig"), str) else "sig-mismatch"
+            # PET-157 (D3): the single source of truth for the failure class. Byte-identical
+            # output to the prior inline expression for the dict this path always passes.
+            from petasos.console import _events
+
+            failure_class = _events.classify_integrity_failure(ev)
             _logger.warning(
                 "PETASOS_INTEGRITY_UNVERIFIABLE class=%s scan_id=%s session_id=%s — spool row "
                 "failed HMAC verification (forged, misconfigured, or legacy unsigned)",
                 failure_class,
                 ev.get("scan_id"),
                 ev.get("session_id"),
+            )
+        except Exception:
+            pass
+
+    def _log_integrity_preflight(self, ev: dict[str, Any], failure_class: str | None) -> None:
+        """PET-157 (D7): one-shot boot/preflight WARNING the first time this run surfaces a
+        key-on spool row that fails verification. Never raises.
+
+        Distinct from the per-row, rate-limited `PETASOS_INTEGRITY_UNVERIFIABLE` tripwire: this
+        fires exactly once per run (the caller sets `_integrity_preflight_emitted` before calling,
+        so even a suppressed raise here cannot double-fire it), names the remediation for the
+        likely cause (D9), and mirrors the one-shot `PETASOS_HISTORY_SINK_UNWRITABLE` /
+        `_ring_overflow_warned` convention. The greppable token is `PETASOS_INTEGRITY_PREFLIGHT`.
+        """
+        try:
+            remediation = _INTEGRITY_REMEDIATION.get(
+                failure_class or "", _INTEGRITY_REMEDIATION["sig-mismatch"]
+            )
+            _logger.warning(
+                "PETASOS_INTEGRITY_PREFLIGHT class=%s scan_id=%s session_id=%s — the dashboard "
+                "holds an integrity key but a spool row failed verification: %s",
+                failure_class,
+                ev.get("scan_id"),
+                ev.get("session_id"),
+                remediation,
             )
         except Exception:
             pass
@@ -699,6 +767,21 @@ class ConsoleHandlers:
         verified = _events.verify_event(ev, self._spool_key)
         key_on = self._spool_key is not None
         provenance = "unattested" if not key_on else ("genuine" if verified else "unverifiable")
+        # PET-157: record the verdict into the bounded window the get_health integrity field
+        # samples (D8), and fire the one-shot boot/preflight WARNING the first time a key-on row
+        # is unverifiable (D7). `failure_class` is computed via the D3 helper only for
+        # unverifiable rows; every other verdict carries None.
+        # NOTE (post-rotation ordering, deferred P2): a `.rot` recovery surfaces temporally-older
+        # rows at the window's newest end, so the window's dominant verdict is "dominant among
+        # most-recently-*surfaced*"; a brief counts.unverifiable spike right after a rotation is
+        # benign (the durable preflight + per-row log are unaffected), not a bug.
+        failure_class = (
+            _events.classify_integrity_failure(ev) if provenance == "unverifiable" else None
+        )
+        self._integrity_recent.append((provenance, failure_class))
+        if provenance == "unverifiable" and not self._integrity_preflight_emitted:
+            self._integrity_preflight_emitted = True
+            self._log_integrity_preflight(ev, failure_class)
         if key_on and not verified:
             self._log_integrity_failure(ev)
         summary = _enforcement_summary(ev, provenance=provenance)
@@ -1168,6 +1251,61 @@ class ConsoleHandlers:
             "session_id": session_id,
         }
 
+    def _integrity_health(self) -> dict[str, Any]:
+        """PET-157 (D8): assemble the additive `integrity` health field from the bounded
+        recent-verdict window WITHOUT draining. Pure and side-effect-free.
+
+        The live drain (`_surface_enforcement_event`) feeds the window; this only reads it, so a
+        health poll never gains enforcement side-effects (ring pushes, SSE broadcasts, rotation).
+        Snapshots the deque once (D10) so a concurrent append cannot change the counts
+        mid-computation. `key_on` is always exact (`self._spool_key is not None`), so the
+        no-regression key-off report (D2) holds from the first poll, even on an empty window.
+        `dominant_verdict` is the max-count verdict with a deterministic tie-break
+        (`unverifiable` > `unattested` > `genuine` — the more-alarming verdict wins a tie, so a
+        50/50 window never lulls the operator). `failure_class`/`remediation` are reported only
+        when the dominant verdict is `unverifiable`; when `key_on` is False the remediation is the
+        mode-neutral invalid-base64 note (D9), never an alarm.
+        """
+        window = list(self._integrity_recent)
+        counts = {"genuine": 0, "unattested": 0, "unverifiable": 0}
+        fc_counts = {"sig-missing": 0, "sig-mismatch": 0}
+        for provenance, fc in window:
+            if provenance in counts:
+                counts[provenance] += 1
+            if provenance == "unverifiable" and fc in fc_counts:
+                fc_counts[fc] += 1
+
+        key_on = self._spool_key is not None
+        # Tie-break ordering: more-alarming verdict wins on equal counts.
+        _order = {"unverifiable": 2, "unattested": 1, "genuine": 0}
+        dominant_verdict: str | None = None
+        if window:
+            dominant_verdict = max(counts, key=lambda v: (counts[v], _order[v]))
+            if counts[dominant_verdict] == 0:  # belt-and-suspenders; window != [] implies > 0
+                dominant_verdict = None
+
+        failure_class: str | None = None
+        remediation: str | None = None
+        if dominant_verdict == "unverifiable":
+            # Only two classes; ties break to sig-mismatch (the action-bearing one).
+            failure_class = (
+                "sig-mismatch"
+                if fc_counts["sig-mismatch"] >= fc_counts["sig-missing"]
+                else "sig-missing"
+            )
+            remediation = _INTEGRITY_REMEDIATION[failure_class]
+        elif not key_on:
+            remediation = _INTEGRITY_KEY_OFF_NOTE
+
+        return {
+            "key_on": key_on,
+            "dominant_verdict": dominant_verdict,
+            "failure_class": failure_class,
+            "counts": counts,
+            "window_size": len(window),
+            "remediation": remediation,
+        }
+
     async def get_health(self) -> dict[str, Any]:
         cfg = self.pipeline.config
         config_hash = hashlib.sha256(
@@ -1187,6 +1325,9 @@ class ConsoleHandlers:
             },
             "scanners": self.pipeline.scanner_health(),
             "feature_status": dict(self.pipeline._build_feature_status()),
+            # PET-157 (D5): additive integrity diagnostic. Existing consumers ignore unknown
+            # keys; no change to any other field or HTTP response shape.
+            "integrity": self._integrity_health(),
         }
 
     async def get_scan_history(
@@ -1380,6 +1521,17 @@ def build_app(pipeline: "Pipeline", *, auth_token: str | None = None) -> "FastAP
 
     @app.on_event("startup")
     async def _startup() -> None:
+        # PET-157 (D7): drain the pre-existing spool tail once, synchronously, BEFORE spawning
+        # the tailer so the integrity preflight reflects the boot-time tail deterministically and
+        # testably (the tailer would surface it within one interval regardless). Wrapped in the
+        # SAME try/except the tailer body uses so a future drain regression can never break app
+        # startup (edge F-5); `_drain_enforcement_into_history` already never raises, so this is
+        # belt-and-suspenders parity with the tailer.
+        try:
+            await handlers._drain_enforcement_into_history()
+        except Exception:
+            _logger.debug("enforcement preflight drain failed", exc_info=True)
+
         async def _tail() -> None:
             while True:
                 try:
