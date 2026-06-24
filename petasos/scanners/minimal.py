@@ -1071,7 +1071,18 @@ class MinimalScanner:
         # the ROT13 view resolves per-match in normalized space, where the absolute
         # offsets index validly into cand.origin_text because ROT13 is
         # length-preserving.
-        hit = _agent_directive_line_hit(cand.scan_text)
+        # Blob candidates carry RAW decoded text (scan_text=decoded above), so a
+        # base64/hex-wrapped directive with a zero-width char inside `install` or a
+        # homoglyph in the marker would evade what the normalized plain path
+        # catches. Normalize the blob branch before the conjunction; its finding
+        # reports the fixed carrier span (cand.position/.matched_text), so detecting
+        # on a normalized view does not disturb offset mapping. The ROT13 branch
+        # must stay raw — its hit offsets index 1:1 into origin_text and NFKC would
+        # desync them (origin_text is itself normalized-space).
+        scan_text = (
+            normalize(cand.scan_text).normalized if cand.position is not None else cand.scan_text
+        )
+        hit = _agent_directive_line_hit(scan_text)
         if hit is None:
             return False
         start, end = hit
