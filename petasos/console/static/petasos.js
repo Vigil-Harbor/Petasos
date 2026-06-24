@@ -3034,6 +3034,13 @@
         var nc = self._canon(scope.currentProfile);
         var bound = self._canon(Pet.state.selectedHermesProfile);
         if (np === bound && nc === self.current) return;   // true no-op
+        // PET-146 F-4 isolation on the host-driven path: when the bound MANAGEMENT
+        // profile actually changes, drop the prior profile's unsaved edits so they
+        // cannot leak into the next Apply against the new target (the standalone
+        // selector clears configDirty on switch; this rebind is host-driven and is
+        // never mediated by that selector). A currentProfile-only update keeps the
+        // selection (np === bound), so the operator's in-progress edits are preserved.
+        if (np !== bound) Pet.state.configDirty = {};
         self.profile = np; self.current = nc;
         self.profiles = Array.isArray(scope.profiles) ? scope.profiles.slice() : self.profiles;
         Pet.state.selectedHermesProfile = np;
@@ -3044,6 +3051,9 @@
       if (self.source !== "query") return;
       var newProfile = self._readQueryProfile();
       if (newProfile === self._canon(Pet.state.selectedHermesProfile)) return;   // profile-keyed no-op
+      // PET-146 F-4 isolation (see SDK path): past the no-op guard the management
+      // profile has changed, so drop the prior profile's unsaved edits.
+      Pet.state.configDirty = {};
       self.profile = newProfile;
       Pet.state.selectedHermesProfile = newProfile;
       self._gen++;
@@ -3075,6 +3085,11 @@
     detach: function () {
       if (typeof this._teardown === "function") { try { this._teardown(); } catch (_) {} }
       this._teardown = null;
+      // PET-155: invalidate any refreshCurrent in flight. Its generation guard drops a
+      // resolve when _gen has moved on; bumping here (attach() calls detach() first, so
+      // this covers remount too) stops a slow /api/profiles/active reply from a torn-down
+      // lifecycle mutating `current` or triggering a render after detach/remount.
+      this._gen++;
     },
   };
 
