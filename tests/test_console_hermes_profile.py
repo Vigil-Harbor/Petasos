@@ -15,6 +15,7 @@ fixtures — the same shape the live resolver reads.
 
 from __future__ import annotations
 
+import json
 import platform
 from typing import TYPE_CHECKING, Any, cast
 
@@ -474,6 +475,13 @@ async def test_get_config_unresolved_selector_raises(
     monkeypatch.setattr(plugin_api, "_handlers", handlers)
     resp = await plugin_api.get_config(profile="ghost")
     assert getattr(resp, "status_code", None) == 422
+    # PET-155 (D7): pin the GET-route body shape end-to-end, not just the status.
+    # The diegetic console error read-out consumes resp.detail[0]["field"] === "profile"
+    # to surface a readable error (instead of blanking or reverting to own), so the
+    # {detail:[{field,message}]} contract must hold on the GET route as it does on PUT.
+    body = json.loads(resp.body)
+    assert body["detail"][0]["field"] == "profile"
+    assert isinstance(body["detail"][0]["message"], str) and body["detail"][0]["message"]
 
 
 # ── edge F-1: the embedded plugin bridge forwards the selector ──────────────

@@ -2678,6 +2678,12 @@
   // edits are not silently discarded (edge round-3 F-1). Never throws.
   Pet.renderHermesProfileSelector = function (host, d, opts) {
     opts = opts || {};
+    // PET-155: diegetic (host-bound) mode. When embedded in Hermes and a host
+    // profile signal is present (opts.hostBinding.source !== "none"), surrender the
+    // dial to the host switcher and render read-only (D1/D8). With no host binding the
+    // editable in-house selector below is byte-equivalent to PET-146 (standalone).
+    var hb = opts.hostBinding;
+    if (hb && hb.source !== "none") return Pet.renderDiegeticProfile(host, d, hb);
     var onSwitch = typeof opts.onSwitch === "function" ? opts.onSwitch : function () {};
     var options = Pet.hermesProfileOptions(d);
     var isActiveView = !d || d.is_active !== false;
@@ -2779,6 +2785,305 @@
     return host;
   };
 
+  // PET-155: own-profile (host's own / dashboard) read-out placeholder + display cap
+  // for the diegetic name (D7/§F). The host name is untrusted data: trimmed, capped,
+  // and rendered through a text node (escaped), never innerHTML.
+  Pet.HOST_OWN_PROFILE_LABEL = "default (dashboard profile)";
+  Pet.HOST_NAME_DISPLAY_CAP = 64;
+
+  // PET-155: diegetic render mode for the Hermes-agent-profile selector. Read-only:
+  // shows the host-bound profile name, the binding-tier read-out, the read-only
+  // safety warnings, the "follows the sidebar" note, the equipped-vs-management
+  // banner (D5: shown iff profile/current are both known and differ), and the
+  // effective read-out. No editable <select>, no change listener (D8). The host name
+  // is escaped via a text node (D7). Never throws.
+  Pet.renderDiegeticProfile = function (host, d, hb) {
+    hb = hb || {};
+    var canon = function (x) { return String(x == null ? "" : x).trim(); };
+    var profile = canon(hb.profile);   // management/write target; "" = host's own
+    var current = canon(hb.current);   // equipped profile (process); "" = unknown
+    // own-profile placeholder when empty-after-trim; length-cap an over-long name so a
+    // multi-KB host string cannot blow out the layout (§F).
+    var display = profile === "" ? Pet.HOST_OWN_PROFILE_LABEL : profile;
+    if (display.length > Pet.HOST_NAME_DISPLAY_CAP) {
+      display = display.slice(0, Pet.HOST_NAME_DISPLAY_CAP) + "…";
+    }
+
+    // ── read-only profile row (name as an escaped text node, D7) ──
+    host.appendChild(Pet.h("div", { className: "pet-hermes-row pet-hermes-diegetic" },
+      Pet.h("label", { className: "pet-hermes-label" }, "Hermes agent profile"),
+      Pet.h("span", { className: "pet-hermes-bound mono" }, display)));
+
+    // ── binding read-out: which config.yaml, which tier (reused from PET-146) ──
+    var tier = d && d.config_tier ? String(d.config_tier) : "root";
+    var home = d && d.profile_home ? String(d.profile_home) : "";
+    host.appendChild(Pet.h("div", { className: "pet-hermes-binding mono" },
+      "binding: " + (d && d.hermes_profile ? String(d.hermes_profile) : "root") + " · tier " + tier + (home ? (" · " + home) : "")));
+
+    // ── read-only safety warnings (dangling active-binding pointer / selected-profile parse) ──
+    if (d && d.config_warning) {
+      host.appendChild(Pet.h("div", { role: "alert", className: "notice pet-hermes-warn", style: { marginTop: "8px" } },
+        Pet.Icon("warn"),
+        Pet.h("span", {}, "Active binding: ", Pet.h("b", {}, d.hermes_profile ? String(d.hermes_profile) : "root"),
+          " has a dangling pointer. " + String(d.config_warning))));
+    }
+    if (d && d.profile_warning) {
+      host.appendChild(Pet.h("div", { role: "alert", className: "notice pet-hermes-profile-warn", style: { marginTop: "8px" } },
+        Pet.Icon("warn"),
+        Pet.h("span", {}, "Selected profile: " + String(d.profile_warning))));
+    }
+
+    // ── diegetic note: the dial follows the host sidebar (no per-tab dial) ──
+    host.appendChild(Pet.h("div", { className: "pet-hermes-note pet-hermes-diegetic-note" },
+      "This profile follows the Hermes sidebar selection. Switch profiles from the sidebar."));
+
+    // ── equipped-vs-management banner (D5): only when both known and they differ ──
+    if (profile !== "" && current !== "" && profile !== current) {
+      host.appendChild(Pet.h("div", { role: "status", className: "notice pet-hermes-banner", style: { marginTop: "8px" } },
+        Pet.Icon("warn"), Pet.h("span", {}, Pet.HERMES_RESTART_BANNER)));
+    } else if (current === "") {
+      // current unknown -> banner suppressed (fail-safe); a muted note keeps some
+      // equipped-state signal rather than a silent gap (round-2 edge/F-4).
+      host.appendChild(Pet.h("div", { className: "pet-hermes-note pet-hermes-effective-faint", style: { marginTop: "8px" } },
+        "Equipped-profile status unavailable."));
+    }
+
+    // ── effective (what's enforced) read-out ──
+    host.appendChild(Pet.hermesEffectiveReadout(d));
+    return host;
+  };
+
+  // PET-155: host-profile capability layer. A self-contained resolver that decides
+  // whether the console is embedded (a Hermes SDK with fetchJSON is present) and, if
+  // so, binds the Config Editor to the HOST-selected profile instead of an
+  // independent dial. Resolution order (D1/D2): SDK `profileScope` (reactive,
+  // companion D3) -> `?profile=` query + `/api/profiles/active` fallback (works
+  // against today's host) -> standalone ("none", editable dial). Canonicalization
+  // invariant: `profile`/`current` are always strings; absent/null/unknown all
+  // normalize to "" (own/unknown). Never throws.
+  var _NAV_UNSET = {};   // sentinel: "no original history fn captured" (teardown guard)
+
+  Pet.hostProfile = {
+    source: "none",      // "sdk" | "query" | "none"
+    profile: "",         // canonical management/write target ("" = host's own)
+    current: "",         // canonical equipped profile ("" = unknown)
+    profiles: [],        // coerced array (companion-supplied; [] on the fallback)
+    _teardown: null,     // subscribe() teardown, invoked + nulled by Pet.unmount
+    _unsub: null,        // profileScope unsubscribe (SDK path), or null
+    _navPatch: null,     // fallback history-patch state object, or null
+    _gen: 0,             // bind generation; supersedes a stale /api/profiles/active resolve
+
+    _canon: function (x) { return String(x == null ? "" : x).trim(); },
+
+    // The embedded SDK iff it can actually fetch (the existing standalone/embedded
+    // predicate, petasos.js:521-522/618-619). A partial SDK without fetchJSON is
+    // treated as standalone.
+    _sdk: function () {
+      var sdk = window.__HERMES_PLUGIN_SDK__;
+      return (sdk && sdk.fetchJSON) ? sdk : null;
+    },
+
+    // A *usable* profileScope: an object whose subscribe is callable. A truthy-but-
+    // half-built companion (missing/non-function subscribe) is rejected here and falls
+    // through to the fallback (defends D3 against a malformed companion, not just absence).
+    _scope: function () {
+      var sdk = this._sdk();
+      if (!sdk) return null;
+      var ps = sdk.profileScope;
+      if (typeof ps === "object" && ps && typeof ps.subscribe === "function") return ps;
+      return null;
+    },
+
+    // Parse ?profile= from the live location.search; canonicalized to "" when absent/blank.
+    _readQueryProfile: function () {
+      try {
+        var search = (window.location && window.location.search) || "";
+        var m = /[?&]profile=([^&]*)/.exec(search);
+        if (!m) return "";
+        return this._canon(decodeURIComponent(m[1].replace(/\+/g, " ")));
+      } catch (_) { return ""; }
+    },
+
+    snapshot: function () {
+      return { source: this.source, profile: this.profile, current: this.current, profiles: this.profiles };
+    },
+
+    // Synchronous detect + read of profile/profiles (+ current for the SDK path).
+    // Fallback `current` is asynchronous (see refreshCurrent), so it is not read here.
+    resolve: function () {
+      var sdk = this._sdk();
+      if (!sdk) {
+        this.source = "none"; this.profile = ""; this.current = ""; this.profiles = [];
+        return this.snapshot();
+      }
+      var scope = this._scope();
+      if (scope) {
+        this.source = "sdk";
+        this.profile = this._canon(scope.profile);
+        this.current = this._canon(scope.currentProfile);
+        this.profiles = Array.isArray(scope.profiles) ? scope.profiles.slice() : [];
+        return this.snapshot();
+      }
+      this.source = "query";
+      this.profile = this._readQueryProfile();
+      this.current = "";          // unknown until refreshCurrent resolves (fail-safe)
+      this.profiles = [];
+      return this.snapshot();
+    },
+
+    // Fallback only: read the equipped profile from the HOST endpoint
+    // GET /api/profiles/active via the raw SDK fetch (NOT Pet.api, whose embedded
+    // baseUrl is /api/plugins/petasos). Success shape only (!error && !_status);
+    // 404 / network / malformed / missing field leave current "" (unknown). The
+    // generation guard drops a resolve superseded by a newer bind.
+    refreshCurrent: function () {
+      var self = this;
+      var sdk = self._sdk();
+      if (!sdk) return Promise.resolve("");
+      var gen = self._gen;
+      return Promise.resolve()
+        .then(function () { return sdk.fetchJSON("/api/profiles/active"); })
+        .then(function (resp) {
+          if (gen !== self._gen) return self.current;   // superseded
+          if (resp && typeof resp === "object" && !resp.error && !resp._status) {
+            self.current = self._canon(resp.current);
+          }
+          return self.current;
+        }, function () { return self.current; });
+    },
+
+    // Observe host selection changes. SDK: profileScope.subscribe (reactive). Fallback:
+    // a history.pushState/replaceState patch (+ popstate) — replaceState fires no
+    // popstate, so a popstate-only listener would miss every sidebar flip (D4). Returns
+    // a teardown function.
+    subscribe: function (onChange) {
+      var self = this;
+      var cb = typeof onChange === "function" ? onChange : function () {};
+      if (self.source === "sdk") {
+        var scope = self._scope();
+        self._unsub = null;
+        if (scope) {
+          try {
+            var u = scope.subscribe(function () { cb(); });
+            if (typeof u === "function") self._unsub = u;
+          } catch (_) {}
+        }
+        return function () {
+          if (typeof self._unsub === "function") { try { self._unsub(); } catch (_) {} }
+          self._unsub = null;
+        };
+      }
+      if (self.source === "query") return self._installNavPatch(cb);
+      return function () {};   // source none — nothing to observe
+    },
+
+    // Install the history patch once (re-armable). Wrappers call the original FIRST,
+    // capture its return, then fire cb inside try/catch and return the captured result
+    // (a throwing/slow rebind can never make the host's pushState throw or change its
+    // return, test #16). Foreign-patcher-safe and idempotent across remounts (D4/§E).
+    _installNavPatch: function (cb) {
+      var self = this;
+      var hist = window.history;
+      var patch = self._navPatch;
+      if (patch && patch.installed) { patch.cb = cb; return patch.teardown; }   // re-arm, don't re-wrap
+      patch = self._navPatch = {
+        installed: true, cb: cb, popHandler: null,
+        ourPush: null, ourReplace: null, origPush: _NAV_UNSET, origReplace: _NAV_UNSET, teardown: null,
+      };
+      var fire = function () {
+        try { patch.cb(); } catch (e) {
+          try { if (window.console && console.warn) console.warn("petasos: host-profile rebind failed", e); } catch (_) {}
+        }
+      };
+      if (hist && typeof hist.pushState === "function" && typeof hist.replaceState === "function") {
+        patch.origPush = hist.pushState;
+        patch.origReplace = hist.replaceState;
+        patch.ourPush = function () { var r = patch.origPush.apply(hist, arguments); fire(); return r; };
+        patch.ourReplace = function () { var r = patch.origReplace.apply(hist, arguments); fire(); return r; };
+        hist.pushState = patch.ourPush;
+        hist.replaceState = patch.ourReplace;
+      }
+      patch.popHandler = function () { fire(); };
+      try { window.addEventListener("popstate", patch.popHandler); } catch (_) {}
+      patch.teardown = function () {
+        // order: remove popstate -> un-patch history. Each step isolated.
+        try { if (patch.popHandler) window.removeEventListener("popstate", patch.popHandler); } catch (_) {}
+        patch.popHandler = null;
+        // restore only if (a) an original was captured and (b) OUR wrapper is still the
+        // top one (never clobber a foreign patcher / the host's wrapper).
+        try { if (patch.origPush !== _NAV_UNSET && hist && hist.pushState === patch.ourPush) hist.pushState = patch.origPush; } catch (_) {}
+        try { if (patch.origReplace !== _NAV_UNSET && hist && hist.replaceState === patch.ourReplace) hist.replaceState = patch.origReplace; } catch (_) {}
+        patch.cb = function () {};   // if a foreign wrapper sits on top, our link becomes inert
+        patch.installed = false;
+        self._navPatch = null;
+      };
+      return patch.teardown;
+    },
+
+    // Re-bind to the current host selection and re-render the cfg tab if visible.
+    // No-op guard: skip when the canonical bound profile is unchanged (SDK also re-binds
+    // on a current-only change — it is exact; the fallback is profile-keyed, round-2
+    // edge/F-5). Re-render is guarded on tab==="cfg" && _container so a flip while on
+    // another tab (or after unmount nulled _container) only updates state.
+    _rebind: function () {
+      var self = this;
+      if (self.source === "sdk") {
+        var scope = self._scope();
+        if (!scope) return;
+        var np = self._canon(scope.profile);
+        var nc = self._canon(scope.currentProfile);
+        var bound = self._canon(Pet.state.selectedHermesProfile);
+        if (np === bound && nc === self.current) return;   // true no-op
+        self.profile = np; self.current = nc;
+        self.profiles = Array.isArray(scope.profiles) ? scope.profiles.slice() : self.profiles;
+        Pet.state.selectedHermesProfile = np;
+        self._gen++;
+        if (Pet.state.tab === "cfg" && _container) Pet.renderConfig(_container);
+        return;
+      }
+      if (self.source !== "query") return;
+      var newProfile = self._readQueryProfile();
+      if (newProfile === self._canon(Pet.state.selectedHermesProfile)) return;   // profile-keyed no-op
+      self.profile = newProfile;
+      Pet.state.selectedHermesProfile = newProfile;
+      self._gen++;
+      // refresh equipped/current for the new selection, then settle the banner.
+      self.refreshCurrent().then(function () {
+        if (Pet.state.tab === "cfg" && _container) Pet.renderConfig(_container);
+      });
+      if (Pet.state.tab === "cfg" && _container) Pet.renderConfig(_container);
+    },
+
+    // Wire into the mount lifecycle (§E): resolve once, pin the initial host profile,
+    // install the observer, store teardown. Idempotent — detach() first clears a stale
+    // patch left by a remount that skipped unmount.
+    attach: function () {
+      var self = this;
+      self.detach();
+      var desc = self.resolve();
+      if (desc.source !== "none") Pet.state.selectedHermesProfile = desc.profile;
+      if (desc.source === "query") {
+        self.refreshCurrent().then(function () {
+          if (Pet.state.tab === "cfg" && _container) Pet.renderConfig(_container);
+        });
+      }
+      self._teardown = self.subscribe(function () { self._rebind(); });
+    },
+
+    // Invoked by Pet.unmount: run the stored teardown (un-patch history / unsubscribe)
+    // and null it. Guarded so the bridge's cancelled-before-mount path is a no-op.
+    detach: function () {
+      if (typeof this._teardown === "function") { try { this._teardown(); } catch (_) {} }
+      this._teardown = null;
+    },
+  };
+
+  // PET-155: monotonic Config-render generation. A getConfig resolve whose render has
+  // been superseded by a newer renderConfig (e.g. a rapid host re-bind X->Y->X) is
+  // dropped, so an out-of-order in-flight fetch cannot paint a stale profile under a
+  // newer binding (last-write-wins; mirrors the SSE _gen guard at petasos.js:609/633).
+  var _cfgRenderGen = 0;
+
   // PET-146: compact, read-only "effective (what's enforced)" block — the resolved
   // tier thresholds (config ⊕ the internal profile's tier_thresholds) plus the
   // internal profile's added suppressions / severity / pii / confidence floor, so
@@ -2811,6 +3116,7 @@
   };
 
   Pet.renderConfig = function (container) {
+    var _renderGen = (_cfgRenderGen += 1);   // PET-155: this render's generation
     container.innerHTML = "";
     // PET-129: in the authenticate state render the token panel instead of issuing
     // config reads that would only 401 (the obs dashboard does the same). The auth
@@ -2850,6 +3156,7 @@
     );
 
     Pet.api.getConfig(Pet.state.selectedHermesProfile).then(function (d) {
+      if (_renderGen !== _cfgRenderGen) return; // PET-155: a newer renderConfig superseded this fetch (out-of-order re-bind); drop it
       if (Pet.auth.on401(d)) return; // PET-129 D3: a 401 on the config read enters the authenticate state, not "Config unavailable"
       // PET-146 (CodeRabbit PR #135): a selected profile that no longer resolves
       // (deleted out-of-band) is rejected by the backend with a 422 naming the
@@ -2858,6 +3165,20 @@
       if (d && d._status === 422 && Array.isArray(d.detail) &&
           d.detail.some(function (e) { return e && e.field === "profile"; }) &&
           Pet.state.selectedHermesProfile) {
+        // PET-155 (D7/§C): in diegetic mode the host pin must NOT revert to own — that
+        // would silently re-introduce the two-dial drift this ticket fixes. Surface the
+        // readable {detail[0]} error and keep selectedHermesProfile; the §D no-op guard
+        // stops the next render from re-fetching the same rejected profile (no loop).
+        if (Pet.hostProfile.source !== "none") {
+          var first = d.detail[0];
+          var emsg = (first && typeof first === "object")
+            ? (first.field || "profile") + ": " + (first.message || first.msg || "unresolved profile")
+            : "unresolved profile";
+          formArea.innerHTML = "";
+          formArea.appendChild(Pet.h("div", { role: "alert", style: { padding: "20px", color: "var(--err)", fontSize: "12px", fontFamily: "var(--font-mono)" } },
+            "Host profile not resolved: " + emsg + ". Select a valid profile from the Hermes sidebar."));
+          return;
+        }
         Pet.state.selectedHermesProfile = null;
         Pet.state.configDirty = {};
         Pet.renderConfig(container);
@@ -2898,6 +3219,7 @@
       formArea.insertBefore(hermesHost, dialHost);
       Pet.renderHermesProfileSelector(hermesHost, d, {
         selected: Pet.state.selectedHermesProfile,
+        hostBinding: Pet.hostProfile.snapshot(),   // PET-155: diegetic when source !== "none"
         onSwitch: function (target) {
           // target: null for the equipped entry, else the chosen profile name.
           // configDirty was already cleared by the selector before this fires.
@@ -3552,6 +3874,10 @@
     _healthLoaded = false;   // PET-127: re-show the scanner-health skeleton on (re-)mount
     _armedSeeded = false;    // PET-111: re-fetch the armed bit on (re-)mount
     clearArmedConfirm();     // drop any stale disarm-confirm + timer from a skipped unmount
+    // PET-155: resolve the host profile + arm the switcher observer once per mount, so
+    // a sidebar flip is observed even before the Config tab is first opened (§E).
+    // attach() is idempotent — it tears down a stale patch left by a skipped unmount.
+    Pet.hostProfile.attach();
 
     // Pane header
     // PET-13: connection-state indicator. The live feed can silently drop from SSE
@@ -3638,6 +3964,7 @@
   Pet.unmount = function () {
     Pet.sse.disconnect();
     stopPolling();
+    Pet.hostProfile.detach();   // PET-155: un-patch history / unsubscribe (§E); idempotent + foreign-safe
     _container = null;
     _tabStrip = null;
     _connStatus = null;      // PET-13: drop the stale header-blip node
