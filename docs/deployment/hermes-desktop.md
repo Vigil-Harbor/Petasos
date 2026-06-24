@@ -197,7 +197,7 @@ behaviors to preserve in any custom integration:
 
 - **Lazy init.** Scanners load in a background thread. The plugin registers
   hooks and returns immediately so Hermes Desktop doesn't stall on ML model
-  cold-start. Early tool calls during init use MinimalScanner only (22 regex
+  cold-start. Early tool calls during init use MinimalScanner only (23 regex
   rules, under 5ms).
 - **Async bridge.** `ToolCallGuard.evaluate()` is async (it calls
   `Pipeline.inspect()` for param scanning); Hermes's `invoke_hook()` is sync.
@@ -630,7 +630,7 @@ INFO petasos.plugin: LLM Guard not installed, syntactic-only for that backend
 ```
 
 This is graceful degradation, not an error. Install `petasos[all]` in Hermes's
-venv for ML backends. The syntactic pre-filter (22 regex rules) still runs
+venv for ML backends. The syntactic pre-filter (23 regex rules) still runs
 without ML.
 
 ### License invalid

@@ -42,9 +42,9 @@ pre-filter at stage 2 always runs regardless of which extras are present.
 dependencies and runs on every scan as stage 2 above, holding to a sub-5ms
 budget so it can sit in front of everything else.
 
-**What it detects.** A taxonomy of 22 rules grouped into 5 families:
+**What it detects.** A taxonomy of 23 rules grouped into 6 families:
 
-<!-- petasos-doc-assert: rule_taxonomy_total=22 -->
+<!-- petasos-doc-assert: rule_taxonomy_total=23 -->
 
 - **injection** (8 rules): prompt-injection phrasings such as "ignore all
   previous instructions", instruction delimiters, and system-prompt overrides.
@@ -56,8 +56,11 @@ budget so it can sit in front of everything else.
   substitution, and right-to-left override abuse.
 - **command** (5 rules): shell-command patterns such as pipe-to-shell,
   fetch-and-execute, decode-and-execute, and destructive recursive deletes.
+- **agent-directive** (1 rule): an instruction addressed to the agent telling it
+  to fetch, install, or execute code from an external resource (the indirect
+  prompt-injection "download and install my plugin from ..." shape).
 
-<!-- petasos-doc-assert: rule_family.injection=8 rule_family.role_switch=2 rule_family.structural=3 rule_family.encoding=4 rule_family.command=5 -->
+<!-- petasos-doc-assert: rule_family.injection=8 rule_family.role_switch=2 rule_family.structural=3 rule_family.encoding=4 rule_family.command=5 rule_family.agent_directive=1 -->
 
 **How it works.**
 
@@ -76,8 +79,8 @@ budget so it can sit in front of everything else.
 - *Suppressibility.* A profile can suppress the **command** and **encoding**
   families when they are noisy for its use case (for example, the
   `code_generation` profile, which legitimately handles shell snippets). The
-  **injection**, **role-switch**, and **structural** families are hardcoded as
-  unsuppressible: no profile can switch them off.
+  **injection**, **role-switch**, **agent-directive**, and **structural**
+  families are hardcoded as unsuppressible: no profile can switch them off.
 
 **When it runs.** Stage 2, on every scan, always.
 
