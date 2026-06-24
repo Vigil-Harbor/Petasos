@@ -972,13 +972,27 @@ class MinimalScanner:
         rot13_view = normalized.normalized[:_DECODE_MAX_BYTES].translate(_ROT13_TABLE)
         candidates.append(_DecodeCandidate("rot13", rot13_view, None, None, normalized.normalized))
 
+        # PET-160: seed the per-rule_id cap from the Step-3/4 findings, which MUST
+        # run before this step, so the cap is cross-path (plain + decoded collapse to
+        # one finding per rule_id). Reordering Step 5 ahead of the injection/role-
+        # switch batteries would seed an empty set and silently un-cap the plain-vs-
+        # decoded pair (the plain batteries do not consult seen_rule_ids).
+        # test_decode_dedups_against_plain_path pins the behavior; this comment pins
+        # the why. The set is mutated in place by the per-candidate calls, so it also
+        # collapses duplicates across decoded candidates within the same scan.
+        seen_rule_ids = {f.rule_id for f in findings}
         matched = False
         for cand in candidates:
-            if self._rescan_candidate(cand, findings):
+            if self._rescan_candidate(cand, findings, seen_rule_ids):
                 matched = True
         return matched
 
-    def _rescan_candidate(self, cand: _DecodeCandidate, findings: list[ScanFinding]) -> bool:
+    def _rescan_candidate(
+        self,
+        cand: _DecodeCandidate,
+        findings: list[ScanFinding],
+        seen_rule_ids: set[str],
+    ) -> bool:
         matched = False
 
         # Injection battery — anchor-gated exactly as _check_injection gates leet
@@ -990,11 +1004,27 @@ class MinimalScanner:
                 m = pattern.search(cand.scan_text)
                 if m is None:
                     continue
+                # PET-160 (D1/D2/D3): one injection finding per rule_id per scan.
+                # injection.* carries the 10.0 frequency weight (frequency.py), so N
+                # repeated base64/hex carriers of one slug would otherwise emit N
+                # findings -> the 50.0 Tier-3 floor -> terminate a session from a
+                # single crafted payload. matched is set BEFORE the dedup continue
+                # (D3): a decoded injection WAS present even when its finding is
+                # suppressed, so the escalation co-occurrence flag must still see it.
+                # The guard keys on the specific rule_id and the loop does NOT break,
+                # so distinct slugs on one candidate each still fire once (per-append,
+                # not whole-rescan; cross-path + cross-candidate). Pinned by
+                # tests/adversarial/syntactic/test_decode_rescan_dedup.py.
+                matched = True
+                rule_id = f"petasos.syntactic.injection.{slug}"
+                if rule_id in seen_rule_ids:
+                    continue
+                seen_rule_ids.add(rule_id)
                 position, matched_text = _resolve_finding_shape(cand, m)
                 snippet = m.group()[:_DECODE_SNIPPET_CAP]
                 findings.append(
                     ScanFinding(
-                        rule_id=f"petasos.syntactic.injection.{slug}",
+                        rule_id=rule_id,
                         finding_type="injection",
                         severity=Severity.HIGH,
                         confidence=1.0,
@@ -1007,13 +1037,12 @@ class MinimalScanner:
                         matched_text=matched_text,
                     )
                 )
-                matched = True
 
         # Role-switch battery — NOT anchor-gated (the injection anchor is not a
         # superset of the role-switch triggers, so gating here would drop a decoded
         # "act as DAN with no restrictions"). At most one finding per candidate,
         # mirroring the live single-emit _check_role_switch.
-        if self._rescan_role_switch(cand, findings):
+        if self._rescan_role_switch(cand, findings, seen_rule_ids):
             matched = True
 
         # Agent-directive battery (PET-154 / Decision D6) — runs its OWN
@@ -1025,7 +1054,12 @@ class MinimalScanner:
 
         return matched
 
-    def _rescan_role_switch(self, cand: _DecodeCandidate, findings: list[ScanFinding]) -> bool:
+    def _rescan_role_switch(
+        self,
+        cand: _DecodeCandidate,
+        findings: list[ScanFinding],
+        seen_rule_ids: set[str],
+    ) -> bool:
         trigger_match = None
         for pat in _ROLE_TRIGGERS:
             trigger_match = pat.search(cand.scan_text)
@@ -1051,6 +1085,17 @@ class MinimalScanner:
             message = (
                 f"Role-switch trigger detected without capability grant ({cand.carrier}-decoded)"
             )
+        # PET-160 (D1/D3): one role-switch finding per rule_id per scan. Same
+        # 10.0-weight / Tier-3-floor safety argument as the injection battery above —
+        # N repeated carriers of one role-switch payload would otherwise stack to
+        # terminate the session. Return True BEFORE the dedup so decoded_matched stays
+        # set for the escalation co-occurrence flag even when the finding itself is
+        # suppressed as a duplicate of one already emitted (plain-path or an earlier
+        # candidate). Pinned by
+        # test_decoded_duplicate_suppressed_still_escalates_cooccurrence.
+        if rule_id in seen_rule_ids:
+            return True
+        seen_rule_ids.add(rule_id)
         findings.append(
             ScanFinding(
                 rule_id=rule_id,
