@@ -504,7 +504,7 @@ test("#10 standalone (no sdk / source none): editable <select> renders as before
 });
 
 // ── 11. ""/own-profile normalization (embedded, empty ?profile=) ─────────────
-test("#11 own-profile: embedded + empty ?profile= -> diegetic-on-own, no ?profile= read", () => {
+test("#11 own-profile: embedded + empty ?profile= -> diegetic-on-own, no ?profile= read", async () => {
   const sdk = makeSdk({});
   const { Pet } = load({ sdk, search: "" });
   const desc = Pet.hostProfile.resolve();
@@ -518,9 +518,12 @@ test("#11 own-profile: embedded + empty ?profile= -> diegetic-on-own, no ?profil
   const bound = findByClass(h, "pet-hermes-bound");
   assert.equal(bound.textContent, Pet.HOST_OWN_PROFILE_LABEL, "own-profile placeholder shown");
 
-  // Read targets own -> getConfig("") appends no ?profile=.
-  const url = "/api" + "/config" + ("" ? "?profile=" : "");
-  assert.equal(Pet.api.getConfig("").indexOf ? true : true, true); // getConfig returns a promise
+  // Read targets own -> getConfig("") hits /api/config with no ?profile= query.
+  await Pet.api.getConfig("");
+  const ownReq = configCalls(sdk).pop();
+  assert.ok(ownReq, "own-profile read issues a /config request");
+  assert.equal(ownReq.url, "/api/config", "own-profile read hits /api/config (no query)");
+  assert.ok(!/\?profile=/.test(ownReq.url), "own-profile read must not append ?profile=");
   // Banner absent (own == current both ""): assert no banner in the render.
   assert.equal(findByClass(h, "pet-hermes-banner"), null);
 });
@@ -712,11 +715,18 @@ test("#22 diegetic 422: error surfaced, host pin kept, no re-fetch loop", async 
   sdk.profileScope = scope;
   const { Pet } = load({ sdk });
   stubMount(Pet);
-  Pet.mount(host());
+  const el = host();
+  Pet.mount(el);
+  const containerEl = el.querySelector(".content");
   Pet.switchTab("cfg");
   await flush();
 
   assert.equal(Pet.state.selectedHermesProfile, "ghost", "host pin NOT reverted to own/null");
+  // PET-155 D7/§C: the 422 must be surfaced (not silently swallowed) -> the readable
+  // backend detail renders as a role=alert in the cfg container, keeping the host pin.
+  const txt = containerEl.textContent;
+  assert.ok(txt.includes("Host profile not resolved"), "diegetic 422 surfaces the readable error");
+  assert.ok(txt.includes("Profile 'ghost' not found"), "the backend detail reaches the user");
   const before = configCalls(sdk).length;
   await flush();
   assert.equal(configCalls(sdk).length, before, "no re-fetch loop after the 422");
