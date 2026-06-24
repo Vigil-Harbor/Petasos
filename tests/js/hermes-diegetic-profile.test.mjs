@@ -753,3 +753,114 @@ test("#23 lifecycle: unmount invokes the stored teardown once and nulls it", () 
   assert.equal(Pet.hostProfile._teardown, null, "teardown nulled");
   assert.notEqual(win.history.replaceState, undefined);
 });
+
+// ── 24. SDK host flip drops the prior profile's unsaved edits (F-4 isolation) ─
+// The standalone selector clears configDirty before onSwitch (petasos.js:2612);
+// the host-driven diegetic rebind is never mediated by that selector, so it must
+// drop the stale dirty map itself or profile A's edits leak into the next Apply
+// against profile B (via currentConfigValues/buildSavePatch).
+test("#24 SDK host flip drops the prior profile's unsaved edits (no cross-profile leak)", () => {
+  const scope = makeScope({ profile: "alpha", currentProfile: "alpha" });
+  const sdk = makeSdk({ profileScope: scope });
+  const { Pet } = load({ sdk });
+  stubMount(Pet);
+  Pet.mount(host());
+  Pet.switchTab("cfg");
+  assert.equal(Pet.state.selectedHermesProfile, "alpha");
+
+  // Operator edits a field under alpha (the diegetic config form stays editable).
+  Pet.state.configDirty = { tier1_threshold: 99 };
+
+  // Hermes sidebar flips the bound management profile to beta.
+  scope.profile = "beta";
+  scope._fire();
+
+  assert.equal(Pet.state.selectedHermesProfile, "beta", "rebind switched the management target");
+  // configDirty is reassigned inside petasos.js's vm realm, so its prototype differs
+  // from this file's Object.prototype — assert emptiness by key count, not deepEqual({}).
+  assert.equal(Object.keys(Pet.state.configDirty).length, 0, "alpha's unsaved edits dropped on the host flip");
+  // Impact: a save built now cannot persist alpha's stale field into beta.
+  const patch = Pet.buildSavePatch(Pet.state.configDirty, false, Pet.state.selectedHermesProfile);
+  assert.ok(!("tier1_threshold" in patch), "stale field cannot reach the new target");
+  assert.equal(patch.profile, "beta", "save is tagged for the new target only");
+});
+
+// ── 25. SDK current-only update keeps the operator's in-progress edits ────────
+// A currentProfile-only flip (equipped changed elsewhere) does NOT move the bound
+// selection, so the operator's edits to the still-selected profile must survive.
+test("#25 SDK current-only flip (selection unchanged) keeps the operator's edits", () => {
+  const scope = makeScope({ profile: "alpha", currentProfile: "alpha" });
+  const sdk = makeSdk({ profileScope: scope });
+  const { Pet } = load({ sdk });
+  stubMount(Pet);
+  Pet.mount(host());
+  Pet.switchTab("cfg");
+
+  Pet.state.configDirty = { tier1_threshold: 42 };
+
+  // Equipped profile changes elsewhere; the bound selection stays alpha.
+  scope.currentProfile = "beta";
+  scope._fire();
+
+  assert.equal(Pet.state.selectedHermesProfile, "alpha", "selection unchanged on a current-only update");
+  // Realm-agnostic (see #24): assert the edit survived by count + value, not deepEqual.
+  assert.equal(Object.keys(Pet.state.configDirty).length, 1, "edits preserved when the target is unchanged");
+  assert.equal(Pet.state.configDirty.tier1_threshold, 42, "the exact in-progress edit is intact");
+});
+
+// ── 26. Query host flip (replaceState) drops the prior profile's unsaved edits ─
+test("#26 query host flip (replaceState) drops the prior profile's unsaved edits", () => {
+  const sdk = makeSdk({});
+  const { Pet, win } = load({ sdk, search: "?profile=alpha" });
+  stubMount(Pet);
+  Pet.mount(host());
+  Pet.switchTab("cfg");
+  assert.equal(Pet.state.selectedHermesProfile, "alpha");
+
+  Pet.state.configDirty = { tier2_threshold: 7 };
+
+  win.history.replaceState({}, "", "?profile=beta");
+
+  assert.equal(Pet.state.selectedHermesProfile, "beta", "query rebind switched the target");
+  // Realm-agnostic emptiness check (see #24).
+  assert.equal(Object.keys(Pet.state.configDirty).length, 0, "alpha's unsaved edits dropped on the URL flip");
+});
+
+// ── 27. refreshCurrent generation survives detach/remount ────────────────────
+// attach()/detach() bump _gen so a slow /api/profiles/active reply from a prior
+// (torn-down) mount is dropped by refreshCurrent's generation guard rather than
+// mutating `current` / re-rendering after the remount.
+test("#27 a stale refreshCurrent resolving after detach/remount cannot mutate current", async () => {
+  // A controllable /api/profiles/active: each call gets its own deferred resolver.
+  const actives = [];
+  const sdk = {
+    calls: [],
+    fetchJSON(url, o) {
+      this.calls.push({ url: String(url), opts: o });
+      if (/\/profiles\/active/.test(url)) {
+        let resolve;
+        const p = new Promise((r) => { resolve = r; });
+        actives.push({ url: String(url), resolve });
+        return p;
+      }
+      if (/\/profiles(\?|$)/.test(url)) return Promise.resolve({ profiles: [] });
+      if (/config/.test(url)) return Promise.resolve({ error: "stub" });
+      return Promise.resolve({});
+    },
+  };
+  const { Pet } = load({ sdk, search: "?profile=alpha" });
+  stubMount(Pet);
+
+  Pet.mount(host());           // attach #1 -> refreshCurrent#1 captures gen A
+  await flush();               // refreshCurrent defers its fetch to a microtask -> actives[0]
+  assert.ok(actives.length >= 1, "first mount issued a /profiles/active");
+  Pet.unmount();               // detach bumps _gen -> refreshCurrent#1 is now stale
+  Pet.mount(host());           // remount: attach #2 -> refreshCurrent#2 captures a newer gen
+  await flush();               // -> actives[1]
+
+  // The STALE first refresh resolves last, naming a bogus equipped profile.
+  actives[0].resolve({ current: "STALE-ghost" });
+  await flush();
+
+  assert.notEqual(Pet.hostProfile.current, "STALE-ghost", "stale refresh dropped by the generation guard");
+});
