@@ -75,6 +75,31 @@ async def test_expected_tp_fires_exactly_one_high(snippet: str) -> None:
     assert hits[0].severity == Severity.HIGH
 
 
+@pytest.mark.parametrize("snippet", [s for s, _ in AGENT_DIRECTIVE_ACCEPTED_FP])
+async def test_accepted_fp_fires_exactly_one_high(snippet: str) -> None:
+    # Regression for PET-159 (Decision 5): each consciously-pinned accepted FP
+    # (the realistic real-estate `Agent: …contract.zip` line) actually fires
+    # exactly one agent-directed-fetch finding, HIGH — so the pin's firing
+    # behavior is explicit, not only implied by membership in the disjointness
+    # set's `expected`. If AGENT_DIRECTIVE_ACCEPTED_FP is empty this is a no-op
+    # parametrization, so the test stays valid for future specs.
+    r = await MinimalScanner().scan(snippet)
+    hits = _agent_findings(r.findings)
+    assert len(hits) == 1, f"{snippet!r} -> {[f.rule_id for f in r.findings]}"
+    assert hits[0].severity == Severity.HIGH
+
+
+def test_accepted_fp_set_is_isolated_case() -> None:
+    # Regression for PET-159 (Decision 5, "single isolated case"): the
+    # disjointness test folds AGENT_DIRECTIVE_ACCEPTED_FP into `expected`, so it
+    # passes for ANY number of pins and cannot detect the set growing past what
+    # Decision 5 sanctioned. This cap makes the verdict a countable invariant — a
+    # second, materially-different pin reds this test and forces the escape-hatch
+    # escalation (handle agent-addressed fetches at the ML layer) rather than
+    # letting a precision regression accrete silently.
+    assert len(AGENT_DIRECTIVE_ACCEPTED_FP) <= 1
+
+
 @pytest.mark.parametrize("snippet", AGENT_DIRECTIVE_EXOTIC_SEP_TP)
 async def test_exotic_separator_still_fires(snippet: str) -> None:
     # Regression for PET-154 (round-2 edge-cases F-1, the P1 fix): a single
