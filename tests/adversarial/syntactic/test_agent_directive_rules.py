@@ -49,15 +49,15 @@ from tests.adversarial.syntactic.benign_corpus import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterable
 
 RID = "petasos.syntactic.injection.agent-directed-fetch"
 _BASE64_IN_TEXT = "petasos.syntactic.encoding.base64-in-text"
 _INVIS = "petasos.syntactic.encoding.invisible-chars"
 
 
-def _agent_findings(findings: object) -> list[ScanFinding]:
-    return [f for f in findings if f.rule_id == RID]  # type: ignore[attr-defined]
+def _agent_findings(findings: Iterable[ScanFinding]) -> list[ScanFinding]:
+    return [f for f in findings if f.rule_id == RID]
 
 
 # §A — Detection & canonical regression (Done-when 1, 2, 3) -------------------
@@ -276,6 +276,25 @@ async def test_base64_wrapped_directive_detected_at_blob_span() -> None:
     assert decoded.position == Position(start=0, end=len(blob))
 
 
+async def test_base64_wrapped_obfuscated_directive_normalized_before_match() -> None:
+    # Regression for the blob-branch normalization gap (CodeRabbit round-1): the
+    # plain path normalizes before the conjunction, so a zero-width char inside
+    # the marker is unwound; the blob rescan branch must do the same or an
+    # otherwise-identical base64 carrier evades. A ZWSP (U+200B) inside "AGENT"
+    # breaks the \bAI\s+agent\s+instruction literal until normalize() strips it.
+    # The finding still reports the fixed carrier (blob) span.
+    zwsp = chr(0x200B)  # zero-width space: survives base64, stripped by normalize()
+    obfuscated = AGENT_DIRECTIVE_CANONICAL.replace("AGENT", "A" + zwsp + "GENT", 1)
+    assert zwsp in obfuscated
+    blob = base64.b64encode(obfuscated.encode()).decode()
+    r = await MinimalScanner().scan(blob)
+    hits = _agent_findings(r.findings)
+    assert hits, "obfuscated base64-wrapped directive missed — blob branch not normalized"
+    decoded = next(f for f in hits if "base64-decoded" in f.message)
+    assert decoded.severity == Severity.HIGH
+    assert decoded.position == Position(start=0, end=len(blob))
+
+
 async def test_base64_decode_fires_when_base64_flag_suppressed() -> None:
     # Regression for PET-154 (D6 / PET-98 Decision 3): the decode stage runs even
     # when the LOW base64-in-text flag is suppressed; the HIGH agent-directive
@@ -307,8 +326,8 @@ async def test_rot13_wrapped_directive_offset_map() -> None:
 # §H — Escalation co-occurrence (DS2; round-1 edge-cases F-6) ------------------
 
 
-def _invis_finding(findings: object) -> ScanFinding | None:
-    return next((f for f in findings if f.rule_id == _INVIS), None)  # type: ignore[attr-defined]
+def _invis_finding(findings: Iterable[ScanFinding]) -> ScanFinding | None:
+    return next((f for f in findings if f.rule_id == _INVIS), None)
 
 
 async def test_escalation_plain_path_invisible_chars_to_high() -> None:
