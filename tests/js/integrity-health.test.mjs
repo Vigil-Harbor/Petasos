@@ -112,6 +112,37 @@ test("unverifiable / sig-mismatch renders the err pill + remediation line", () =
   assert.ok(cls.some((c) => c.split(" ").includes("err")), "unverifiable verdict should use the err pill");
 });
 
+test("cry-wolf: dominant genuine but a single unverifiable row stays visible", () => {
+  // Mirrors backend health-state 5 (test_console_integrity_health.py): a window of mostly
+  // genuine with one unverifiable row. The dominant pill says genuine, but the bad row MUST
+  // still be visible from the dashboard alone, not masked into a healthy-looking board.
+  const el = Pet.integrityRows({
+    key_on: true,
+    dominant_verdict: "genuine",
+    failure_class: null,
+    counts: { genuine: 8, unattested: 0, unverifiable: 1 },
+    window_size: 9,
+    remediation: null,
+  });
+  const txt = textOf(el);
+  assert.match(txt, /genuine/);       // dominant verdict still shown
+  assert.match(txt, /unverifiable/);  // the bad-row signal is present
+  assert.match(txt, /1/);             // the unverifiable count
+  // An err emphasis is present even under a genuine dominant, so the board does not read healthy.
+  const cls = classesOf(el);
+  assert.ok(cls.some((c) => c.split(" ").includes("err")), "cry-wolf must carry an err emphasis");
+});
+
+test("counts render in both modes; no false cry-wolf when all rows verify", () => {
+  // All-genuine: counts visible, but NO err emphasis (nothing to investigate).
+  const ok = Pet.integrityRows({
+    key_on: true, dominant_verdict: "genuine", failure_class: null,
+    counts: { genuine: 5, unattested: 0, unverifiable: 0 }, window_size: 5, remediation: null,
+  });
+  assert.match(textOf(ok), /5 genuine/);
+  assert.ok(!classesOf(ok).some((c) => c.split(" ").includes("err")), "no err when all verify");
+});
+
 test("missing/partial integrity object renders the unavailable fallback and never throws", () => {
   for (const bad of [undefined, null, {}, { key_on: "yes" }, 123, "nope"]) {
     let el;

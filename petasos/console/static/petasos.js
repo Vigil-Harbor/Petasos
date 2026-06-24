@@ -966,6 +966,20 @@
     }
     var wrap = Pet.h("div", { style: { display: "flex", flexDirection: "column", gap: "6px" } });
     var keyOn = integrity.key_on === true;
+    var verdict = integrity.dominant_verdict;
+    // Coerce a counts entry to a non-negative number; anything odd reads as 0 (never throws).
+    function _n(x) { return (typeof x === "number" && isFinite(x) && x >= 0) ? x : 0; }
+    var c = (integrity.counts && typeof integrity.counts === "object") ? integrity.counts : null;
+    // Per-verdict counts over the recent window. Rendered whenever the backend supplied counts,
+    // in BOTH modes, so the "single bad row among genuines" case the backend already exposes is
+    // visible from the dashboard alone (PET-157 cry-wolf, brief other-implications bullet 1)
+    // instead of being masked by the dominant verdict pill.
+    function countsLine() {
+      if (!c) return null;
+      return Pet.h("div", { className: "mono", style: { fontSize: "11px", color: "var(--tx-faint)" } },
+        "recent: " + _n(c.genuine) + " genuine / " + _n(c.unattested) + " unattested / " +
+        _n(c.unverifiable) + " unverifiable (window " + _n(integrity.window_size) + ")");
+    }
 
     var headRow = Pet.h("div", { style: { display: "flex", alignItems: "center", gap: "8px" } });
     headRow.appendChild(Pet.h("span", { className: "mono", style: { fontSize: "12px", color: "var(--tx)", minWidth: "120px", display: "inline-block" } }, "integrity"));
@@ -979,11 +993,12 @@
         ? integrity.remediation
         : "integrity off (no session secret); rows are unattested";
       wrap.appendChild(Pet.h("div", { className: "mono", style: { fontSize: "11px", color: "var(--tx-faint)", whiteSpace: "pre-wrap", wordBreak: "break-word" } }, offNote));
+      var offCounts = countsLine();
+      if (offCounts) wrap.appendChild(offCounts);
       return wrap;
     }
 
     // ON: dominant verdict pill (genuine => ok, unattested => neutral, unverifiable => err).
-    var verdict = integrity.dominant_verdict;
     if (verdict) {
       var vPill = "pill";
       if (verdict === "genuine") vPill = "pill ok";
@@ -1000,7 +1015,25 @@
       wrap.appendChild(Pet.h("div", { className: "mono", style: { fontSize: "11px", color: "var(--tx-faint)" } }, "no rows surfaced yet"));
     }
 
-    // Remediation line: present only when the dominant verdict is unverifiable.
+    var onCounts = countsLine();
+    if (onCounts) wrap.appendChild(onCounts);
+
+    // Cry-wolf guard: surface unverifiable rows even when they are NOT the dominant verdict (e.g.
+    // one mismatched row among many genuines), so the dominant pill cannot lull the operator into
+    // reading a tampered board as healthy. The dominant-unverifiable case already screams via the
+    // err pill + remediation, so skip it there to avoid duplication. No per-row class here: the
+    // backend reports failure_class only for the dominant-unverifiable case (D8), so this names
+    // the count and points the operator at the rows rather than guessing the class.
+    var nUnver = c ? _n(c.unverifiable) : 0;
+    if (nUnver > 0 && verdict !== "unverifiable") {
+      var warnRow = Pet.h("div", { style: { display: "flex", alignItems: "center", gap: "8px", marginTop: "2px" } });
+      warnRow.appendChild(Pet.h("span", { className: "pill err" }, nUnver + " unverifiable"));
+      warnRow.appendChild(Pet.h("span", { className: "mono", style: { fontSize: "11px", color: "var(--tx-faint)", whiteSpace: "pre-wrap", wordBreak: "break-word" } },
+        (nUnver === 1 ? "1 row" : (nUnver + " rows")) + " in the recent window failed verification even though the dominant state is " + verdict + "; investigate before trusting this board."));
+      wrap.appendChild(warnRow);
+    }
+
+    // Remediation line: present (from the backend) only when the dominant verdict is unverifiable.
     if (typeof integrity.remediation === "string" && integrity.remediation) {
       wrap.appendChild(Pet.h("div", { className: "mono", style: { fontSize: "11px", color: "var(--tx-faint)", whiteSpace: "pre-wrap", wordBreak: "break-word", marginTop: "2px" } }, integrity.remediation));
     }
