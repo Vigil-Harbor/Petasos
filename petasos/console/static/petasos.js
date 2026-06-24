@@ -355,6 +355,7 @@
     auditLog: [],
     scannerHealth: [],
     pipelineHealth: null,
+    integrityHealth: null, // PET-157: additive get_health `integrity` payload for the obs panel
     profiles: [],
     about: null,
     armed: true,  // PET-111: master Equipped/Unequipped bit; corrected by the mount fetch
@@ -502,6 +503,7 @@
             _healthLoaded = true;
             Pet.state.scannerHealth = h.scanners || [];
             Pet.state.pipelineHealth = h.pipeline || null;
+            Pet.state.integrityHealth = h.integrity || null; // PET-157: mirror pipelineHealth
           }
           startPolling();
           if (Pet.sse && Pet.sse.connect) Pet.sse.connect();
@@ -830,6 +832,7 @@
           _healthLoaded = true;  // PET-127: a poll settle that beats a slow in-render fetch flips the gate, not the skeleton
           Pet.state.scannerHealth = d.scanners || [];
           Pet.state.pipelineHealth = d.pipeline || null;
+          Pet.state.integrityHealth = d.integrity || null; // PET-157: mirror pipelineHealth (recurring poll)
           if (Pet.state.tab === "obs" && _container) Pet.renderDashboard(_container);
         }
       });
@@ -945,6 +948,63 @@
       table.appendChild(cell);
     }
     return table;
+  };
+
+  // PET-157: Observability integrity panel builder (mirrors Pet.scannerHealthRows). Reads the
+  // additive get_health `integrity` field and renders the self-diagnosing state — ON/OFF, the
+  // dominant verdict pill, the failure class, and the remediation line — so an operator can tell
+  // config skew (sig-missing/sig-mismatch) from a genuine state from the dashboard alone. Never
+  // throws: tolerant of a missing/partial `integrity` object (renders "integrity status
+  // unavailable"), matching the scannerHealthRows([]) defensive idiom — the SSE _dispatch
+  // re-render path calls this synchronously, so an exception here would abort the live re-render.
+  // No alarm styling on the OFF / unattested paths (D2): bare `pill` is the neutral chip.
+  Pet.integrityRows = function (integrity) {
+    // Missing or partial payload (null/undefined/non-object, or no boolean `key_on`) renders the
+    // unavailable fallback rather than guessing a state — mirrors scannerHealthRows([]).
+    if (!integrity || typeof integrity !== "object" || typeof integrity.key_on !== "boolean") {
+      return Pet.h("div", { className: "mono", style: { color: "var(--tx-faint)", fontSize: "12px" } }, "integrity status unavailable");
+    }
+    var wrap = Pet.h("div", { style: { display: "flex", flexDirection: "column", gap: "6px" } });
+    var keyOn = integrity.key_on === true;
+
+    var headRow = Pet.h("div", { style: { display: "flex", alignItems: "center", gap: "8px" } });
+    headRow.appendChild(Pet.h("span", { className: "mono", style: { fontSize: "12px", color: "var(--tx)", minWidth: "120px", display: "inline-block" } }, "integrity"));
+    // ON => ok pill; OFF => neutral (bare) pill, never an alarm (D2).
+    headRow.appendChild(Pet.h("span", { className: keyOn ? "pill ok" : "pill" }, keyOn ? "ON" : "OFF"));
+    wrap.appendChild(headRow);
+
+    if (!keyOn) {
+      // OFF: the mode-neutral invalid-base64 note (D9) when present, else a short default.
+      var offNote = (typeof integrity.remediation === "string" && integrity.remediation)
+        ? integrity.remediation
+        : "integrity off (no session secret); rows are unattested";
+      wrap.appendChild(Pet.h("div", { className: "mono", style: { fontSize: "11px", color: "var(--tx-faint)", whiteSpace: "pre-wrap", wordBreak: "break-word" } }, offNote));
+      return wrap;
+    }
+
+    // ON: dominant verdict pill (genuine => ok, unattested => neutral, unverifiable => err).
+    var verdict = integrity.dominant_verdict;
+    if (verdict) {
+      var vPill = "pill";
+      if (verdict === "genuine") vPill = "pill ok";
+      else if (verdict === "unverifiable") vPill = "pill err";
+      var vRow = Pet.h("div", { style: { display: "flex", alignItems: "center", gap: "8px" } });
+      vRow.appendChild(Pet.h("span", { className: "mono", style: { fontSize: "11px", color: "var(--tx-faint)", minWidth: "120px", display: "inline-block" } }, "dominant verdict"));
+      vRow.appendChild(Pet.h("span", { className: vPill }, verdict));
+      if (typeof integrity.failure_class === "string" && integrity.failure_class) {
+        vRow.appendChild(Pet.h("span", { className: "mono", style: { fontSize: "11px", color: "var(--tx-faint)" } }, integrity.failure_class));
+      }
+      wrap.appendChild(vRow);
+    } else {
+      // key on but the window is empty (no rows surfaced yet) — honest, not an error (D8).
+      wrap.appendChild(Pet.h("div", { className: "mono", style: { fontSize: "11px", color: "var(--tx-faint)" } }, "no rows surfaced yet"));
+    }
+
+    // Remediation line: present only when the dominant verdict is unverifiable.
+    if (typeof integrity.remediation === "string" && integrity.remediation) {
+      wrap.appendChild(Pet.h("div", { className: "mono", style: { fontSize: "11px", color: "var(--tx-faint)", whiteSpace: "pre-wrap", wordBreak: "break-word", marginTop: "2px" } }, integrity.remediation));
+    }
+    return wrap;
   };
 
   // PET-102: history rows derived from the in-memory scan-history buffer.
@@ -1653,6 +1713,19 @@
     });
     wrapper.appendChild(healthPanel);
 
+    // PET-157: integrity diagnostic panel, sibling to scanner health. Renders the additive
+    // get_health `integrity` field so config skew (sig-missing/sig-mismatch) is distinguishable
+    // from a genuine state and a key-off deployment, from the dashboard alone. A separate panel
+    // (not patched in place by the cold-mount getHealth settle below); refreshes on the next
+    // startPolling tick (<=10s) and on first paint — bounded, display-only staleness (D8 / F-1).
+    var integrityPanel = Pet.Panel({
+      icon: "shieldCheck", title: "integrity", place: "spool provenance", flush: true,
+      content: Pet.h("div", { style: { padding: "12px" } },
+        Pet.integrityRows(Pet.state.integrityHealth)
+      ),
+    });
+    wrapper.appendChild(integrityPanel);
+
     // Scan history — PET-148 back-pages. The live head renders the SSE-maintained ≤500
     // buffer with the PET-144 "last N of M" subtitle; paged-back views render fetched older
     // pages with a positional (no-total) label and Older/Newer controls (D-RESTART/D-PAGING).
@@ -1739,6 +1812,7 @@
         var hadHealth = Pet.state.pipelineHealth !== null;
         Pet.state.scannerHealth = d.scanners || [];
         Pet.state.pipelineHealth = d.pipeline || null;
+        Pet.state.integrityHealth = d.integrity || null; // PET-157: mirror pipelineHealth (cold-mount settle)
         var rows = Pet.scannerHealthRows(Pet.state.scannerHealth);
         var contentEl = healthPanel.querySelector("[style*='padding: 12px']") || healthPanel.querySelector("div > div");
         if (contentEl) { contentEl.innerHTML = ""; contentEl.appendChild(rows); }
