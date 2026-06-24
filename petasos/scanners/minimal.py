@@ -290,12 +290,14 @@ _AGENT_DIRECTIVE_MARKERS: list[re.Pattern[str]] = [
     re.compile(r"\b(?:AI|agent|assistant|system)\s+instruction\s*:", re.IGNORECASE),
 ]
 
-# WEAK speaker-tag marker (Decision DS4) — `Assistant:` prefixes vast amounts of
-# benign transcript, so it pairs ONLY with the high-danger archive/exec resource
-# class (not a bare document URL). No re.MULTILINE: the per-line helper applies it
-# to one physical line, where `^` already anchors the line start.
+# WEAK speaker-tag markers (Decision DS4) — `Assistant:`/`Agent:` prefix vast
+# amounts of benign transcript, so they pair ONLY with the high-danger
+# archive/exec resource class (not a bare document URL). No re.MULTILINE: the
+# per-line helper applies them to one physical line, where `^` already anchors
+# the line start.
 _AGENT_DIRECTIVE_SPEAKER_TAG: list[re.Pattern[str]] = [
     re.compile(r"^\s*assistant\s*:", re.IGNORECASE),
+    re.compile(r"^\s*agent\s*:", re.IGNORECASE),
 ]
 
 _AGENT_DIRECTIVE_ACTIONS: list[re.Pattern[str]] = [

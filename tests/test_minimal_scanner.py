@@ -510,6 +510,7 @@ class TestAgentDirectiveAnchorSoundness:
         "assistant instruction:",  # marker 5 — assistant
         "system instruction:",  # marker 5 — system (anchors via "instruction")
         "assistant:",  # speaker-tag marker
+        "agent:",  # speaker-tag marker (PET-159 — symmetric with assistant)
     )
 
     def test_each_branch_matches_a_marker_and_the_anchor(self) -> None:
