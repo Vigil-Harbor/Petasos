@@ -90,7 +90,9 @@ async def _drain(h: ConsoleHandlers) -> None:
 async def _integrity_of(h: ConsoleHandlers) -> dict[str, Any]:
     health = await h.get_health()
     assert "integrity" in health, "get_health must carry the additive integrity field"
-    return health["integrity"]
+    integ = health["integrity"]
+    assert isinstance(integ, dict)
+    return integ
 
 
 # ---------------------------------------------------------------------------
