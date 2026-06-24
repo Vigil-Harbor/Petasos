@@ -201,6 +201,25 @@ async def test_tier3_safety_n_stacked_markers_one_finding() -> None:
     assert result.escalation_tier != "tier3"
 
 
+async def test_tier3_safety_decoded_carriers_one_finding() -> None:
+    # Regression for the decode-path amplification (CodeRabbit/Hermes review of
+    # PR #145): the DS3 one-finding-per-scan invariant proved above for the plain
+    # path must ALSO hold across decoded candidates. N repeated base64/hex carriers
+    # of the same directive are N decode candidates; without the cap each becomes
+    # its own agent-directed-fetch finding (>=5 -> 50.0 -> Tier-3 from one payload).
+    # Real session_id so the frequency tracker actually scores the merged findings.
+    b64 = base64.b64encode(AGENT_DIRECTIVE_CANONICAL.encode()).decode()
+    hexed = AGENT_DIRECTIVE_CANONICAL.encode().hex()
+    payload = "\n".join([b64] * 3 + [hexed] * 3)
+    result = await Pipeline(config=PetasosConfig()).inspect(
+        payload, session_id="sess-decoded-carriers"
+    )
+    hits = _agent_findings(result.findings)
+    assert len(hits) == 1, f"expected one decoded agent-directive finding, got {len(hits)}"
+    assert hits[0].severity == Severity.HIGH
+    assert result.escalation_tier != "tier3"
+
+
 # §E — Latency / ReDoS (Done-when 7) ------------------------------------------
 # Anchor soundness + gated==ungated live in test_minimal_scanner.py
 # (TestAgentDirectiveAnchorSoundness). These pin the new \s+/per-line battery's
