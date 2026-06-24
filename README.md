@@ -31,7 +31,7 @@ All features ship free. No license key, no tiered pricing, no "contact sales." I
 pip install petasos
 ```
 
-That's the base install: lightweight, zero ML dependencies. It includes a syntactic scanner with 22 pattern rules that catches common injection techniques in under 5ms.
+That's the base install: lightweight, zero ML dependencies. It includes a syntactic scanner with 23 pattern rules that catches common injection techniques in under 5ms.
 
 For deeper protection, add ML scanner backends:
 
@@ -76,7 +76,7 @@ Every message passes through a multi-stage pipeline:
 
 1. **Normalize**: Strips invisible Unicode characters, zero-width joiners, homoglyph substitutions, and RTL override tricks. Attackers use these to split trigger words past pattern scanners; normalization closes that gap.
 
-2. **Pattern scan**: A fast syntactic scanner (22 rules, always runs, <5ms) checks for known injection signatures, role-switching attempts, obfuscated destructive commands, and structural attacks. This is the safety floor: it runs even if ML backends are unavailable.
+2. **Pattern scan**: A fast syntactic scanner (23 rules, always runs, <5ms) checks for known injection signatures, role-switching attempts, obfuscated destructive commands, agent-directed fetch directives, and structural attacks. This is the safety floor: it runs even if ML backends are unavailable.
 
 3. **ML scan**: If installed, multiple ML backends run in parallel. LLM Guard uses DeBERTa-v3 for semantic injection and toxicity detection. LlamaFirewall runs Meta's PromptGuard 2 and CodeShield. Presidio identifies PII. Each backend is isolated: one failing doesn't take down the others.
 
@@ -102,7 +102,7 @@ The pipeline never throws an exception. Every outcome (success, failure, partial
 <details>
 <summary><strong>MinimalScanner</strong>: always available, zero dependencies</summary>
 
-22 regex rules derived from production threat data, across five families: injection, role-switching, structural probes (JSON depth, binary content), encoding attacks (invisible characters, base64-in-text, homoglyphs, RTL override), and obfuscated destructive commands. Runs in under 5ms. This is the safety floor: it ships with every install and runs even when ML backends are loading.
+23 regex rules derived from production threat data, across six families: injection, role-switching, structural probes (JSON depth, binary content), encoding attacks (invisible characters, base64-in-text, homoglyphs, RTL override), obfuscated destructive commands, and agent-directed fetch directives. Runs in under 5ms. This is the safety floor: it ships with every install and runs even when ML backends are loading.
 
 ```python
 from petasos import MinimalScanner

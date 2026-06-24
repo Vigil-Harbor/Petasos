@@ -29,6 +29,7 @@ import pytest
 from petasos.console._config_meta import _FIELD_META, _SECTION_REGISTRY
 from petasos.scanners.llama_firewall import _COMPONENT_TAXONOMY
 from petasos.scanners.minimal import (
+    _AGENT_DIRECTIVE_RULE_IDS,
     _COMMAND_RULE_IDS,
     _ENCODING_RULE_IDS,
     _INJECTION_RULE_IDS,
@@ -116,7 +117,7 @@ def _csv(parsed: dict[str, str], key: str) -> list[str]:
     return parsed[key].split(",")
 
 
-# The six marker keys the rule-count test requires, bridged to their source
+# The seven marker keys the rule-count test requires, bridged to their source
 # frozensets. The bridge is explicit (not inferred from the keys present in the
 # file) so a deleted marker is caught by the required-key contract, and so the
 # marker key ``role_switch`` maps unambiguously to ``_ROLE_SWITCH_RULE_IDS``.
@@ -126,6 +127,7 @@ _RULE_FAMILY_SOURCE: dict[str, frozenset[str]] = {
     "rule_family.structural": _STRUCTURAL_RULE_IDS,
     "rule_family.encoding": _ENCODING_RULE_IDS,
     "rule_family.command": _COMMAND_RULE_IDS,
+    "rule_family.agent_directive": _AGENT_DIRECTIVE_RULE_IDS,
 }
 
 
@@ -137,7 +139,7 @@ def test_docs_scanner_rule_count_matches_taxonomy() -> None:
     assert int(parsed["rule_taxonomy_total"]) == len(RULE_TAXONOMY)
     for marker_key, source_ids in _RULE_FAMILY_SOURCE.items():
         assert int(parsed[marker_key]) == len(source_ids), marker_key
-    # The five families partition the taxonomy: their lengths sum to the total.
+    # The six families partition the taxonomy: their lengths sum to the total.
     # So moving a rule between families reds a per-family marker even though the
     # total is unchanged.
     assert sum(len(ids) for ids in _RULE_FAMILY_SOURCE.values()) == len(RULE_TAXONOMY)
