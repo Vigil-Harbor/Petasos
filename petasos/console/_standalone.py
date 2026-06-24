@@ -64,7 +64,7 @@ def build_dashboard_pipeline(raw_config: dict[str, Any]) -> Pipeline:
     session_secret_b64 = os.environ.get("PETASOS_SESSION_SECRET")
     if session_secret_b64:
         try:
-            raw_config["session_secret"] = base64.b64decode(session_secret_b64)
+            raw_config["session_secret"] = base64.b64decode(session_secret_b64, validate=True)
         except Exception as exc:
             logger.warning(
                 "PETASOS_SESSION_SECRET is not valid base64 — session binding disabled: %s",
