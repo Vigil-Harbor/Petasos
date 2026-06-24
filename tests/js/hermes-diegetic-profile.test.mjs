@@ -868,3 +868,129 @@ test("#27 a stale refreshCurrent resolving after detach/remount cannot mutate cu
 
   assert.notEqual(Pet.hostProfile.current, "STALE-ghost", "stale refresh dropped by the generation guard");
 });
+
+// ── 28. _sdk requires a CALLABLE fetchJSON (CodeRabbit) ──────────────────────
+// A truthy-but-non-function fetchJSON is a half-built companion, not a usable SDK;
+// it must fall through to standalone rather than route in and throw on first call.
+test("#28 _sdk rejects a non-callable fetchJSON -> standalone (source none)", () => {
+  const { Pet } = load({ sdk: { fetchJSON: {} }, search: "?profile=alpha" });
+  assert.equal(Pet.hostProfile.resolve().source, "none", "non-function fetchJSON is not a usable embedded SDK");
+});
+
+// ── 29. Diegetic 422 surfaces the PROFILE detail, not detail[0] (CodeRabbit) ──
+test("#29 diegetic 422 surfaces the profile detail even when it is not first", async () => {
+  const sdk = makeSdk({
+    configResolver: () => Promise.resolve({
+      _status: 422,
+      detail: [
+        { field: "tier1_threshold", message: "must be an int" },   // non-profile error first
+        { field: "profile", message: "Profile 'ghost' not found" },
+      ],
+    }),
+  });
+  sdk.profileScope = makeScope({ profile: "ghost", currentProfile: "alpha" });
+  const { Pet } = load({ sdk });
+  stubMount(Pet);
+  const el = host();
+  Pet.mount(el);
+  const containerEl = el.querySelector(".content");
+  Pet.switchTab("cfg");
+  await flush();
+
+  const txt = containerEl.textContent;
+  assert.ok(txt.includes("Profile 'ghost' not found"), "the profile-field detail is shown");
+  assert.ok(!txt.includes("must be an int"), "the non-profile detail is not used for the host-bound message");
+});
+
+// helper: find a <button> whose rendered text contains `label`
+function findButtonByText(root, label) {
+  let found = null;
+  (function walk(n) {
+    for (const c of n.childNodes) {
+      if (c.nodeType !== 1 || found) continue;
+      if (c.tagName === "BUTTON" && (c.textContent || "").includes(label)) { found = c; return; }
+      walk(c);
+    }
+  })(root);
+  return found;
+}
+const click = (btn) => { (btn.handlers.click || []).forEach((fn) => fn({ preventDefault() {}, stopPropagation() {} })); };
+
+// ── 30. A save PUT resolving AFTER a host rebind cannot clobber the new profile ─
+// The putConfig callback clears configDirty + writes config; without a generation
+// guard a stale PUT from profile A (in flight when the host flips to B) would wipe
+// B's fresh edits. The render-gen guard must drop it.
+test("#30 stale save PUT after a host rebind is dropped (cannot wipe the new profile's edits)", async () => {
+  let putResolve = null;
+  const scope = makeScope({ profile: "alpha", currentProfile: "alpha" });
+  const sdk = {
+    calls: [],
+    profileScope: scope,
+    fetchJSON(url, o) {
+      this.calls.push({ url: String(url), opts: o });
+      if (/\/profiles\/active/.test(url)) return Promise.resolve({ active: "", current: "" });
+      if (/\/profiles(\?|$)/.test(url)) return Promise.resolve({ profiles: [] });
+      if (o && o.method === "PUT") return new Promise((r) => { putResolve = r; });
+      if (/config/.test(url)) return Promise.resolve({ config: { tier1_threshold: 10 }, fields: [], presets: [] });
+      return Promise.resolve({});
+    },
+  };
+  const { Pet } = load({ sdk });
+  stubMount(Pet);
+  const el = host();
+  Pet.mount(el);
+  const containerEl = el.querySelector(".content");
+  Pet.switchTab("cfg");
+  await flush();                                   // form renders for alpha
+
+  // Edit alpha (numeric -> no weaken-confirm gate) and click Apply -> PUT in flight.
+  Pet.state.configDirty = { tier1_threshold: 99 };
+  click(findButtonByText(containerEl, "Apply"));
+  assert.ok(putResolve, "Apply issued a PUT (now in flight)");
+
+  // Host sidebar flips to beta: rebind clears the (alpha) dirty map + re-renders.
+  scope.profile = "beta";
+  scope._fire();
+  await flush();                                   // getConfig(beta) renders the new form
+  assert.equal(Pet.state.selectedHermesProfile, "beta");
+
+  // Operator starts editing beta.
+  Pet.state.configDirty = { tier1_threshold: 55 };
+
+  // The stale alpha PUT finally resolves — it must NOT clear beta's edits.
+  putResolve({ config: { tier1_threshold: 10 }, applied: true });
+  await flush();
+
+  assert.equal(Object.keys(Pet.state.configDirty).length, 1, "beta's edits survived the stale PUT");
+  assert.equal(Pet.state.configDirty.tier1_threshold, 55, "beta's exact edit is intact");
+});
+
+// ── 31. A /config resolving AFTER unmount cannot mutate state (CodeRabbit) ────
+// Pet.unmount bumps _cfgRenderGen so an in-flight renderConfig continuation is
+// superseded and cannot write Pet.state.config on a torn-down console.
+test("#31 a /config resolving after unmount cannot clobber state", async () => {
+  let cfgResolve = null;
+  const sdk = {
+    calls: [],
+    fetchJSON(url, o) {
+      this.calls.push({ url: String(url), opts: o });
+      if (/\/profiles\/active/.test(url)) return Promise.resolve({ active: "", current: "" });
+      if (/\/profiles(\?|$)/.test(url)) return Promise.resolve({ profiles: [] });
+      if (/config/.test(url)) return new Promise((r) => { cfgResolve = r; });
+      return Promise.resolve({});
+    },
+  };
+  const { Pet } = load({ sdk, search: "?profile=alpha" });
+  stubMount(Pet);
+  Pet.mount(host());
+  Pet.switchTab("cfg");                            // getConfig in flight (deferred)
+  assert.ok(cfgResolve, "config fetch issued");
+
+  Pet.state.config = { sentinel: true };
+  Pet.unmount();                                   // bumps _cfgRenderGen -> supersede
+  cfgResolve({ config: { sentinel: false, clobbered: true }, fields: [], presets: [] });
+  await flush();
+
+  assert.equal(Pet.state.config.sentinel, true, "state.config not overwritten after unmount");
+  assert.ok(!Pet.state.config.clobbered, "the post-unmount resolve did not write");
+});

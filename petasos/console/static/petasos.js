@@ -2880,7 +2880,10 @@
     // treated as standalone.
     _sdk: function () {
       var sdk = window.__HERMES_PLUGIN_SDK__;
-      return (sdk && sdk.fetchJSON) ? sdk : null;
+      // Require fetchJSON to be CALLABLE (not merely truthy): a half-built companion
+      // with a non-function fetchJSON must fall through to standalone rather than route
+      // here and throw on the first sdk.fetchJSON(...) call. Mirrors _scope()'s subscribe check.
+      return (sdk && typeof sdk.fetchJSON === "function") ? sdk : null;
     },
 
     // A *usable* profileScope: an object whose subscribe is callable. A truthy-but-
@@ -3185,7 +3188,9 @@
         // readable {detail[0]} error and keep selectedHermesProfile; the §D no-op guard
         // stops the next render from re-fetching the same rejected profile (no loop).
         if (Pet.hostProfile.source !== "none") {
-          var first = d.detail[0];
+          // The guard above only requires SOME profile detail; pick that entry for the
+          // message (not detail[0]) so a non-first profile error shows the right reason.
+          var first = d.detail.filter(function (e) { return e && e.field === "profile"; })[0] || d.detail[0];
           var emsg = (first && typeof first === "object")
             ? (first.field || "profile") + ": " + (first.message || first.msg || "unresolved profile")
             : "unresolved profile";
@@ -3279,6 +3284,7 @@
         // than hot-applying to the equipped pipeline behind the operator's back.
         var presetPatch = Pet.buildSavePatch(preset.overrides, viewingActive, Pet.state.selectedHermesProfile);
         Pet.api.putConfig(presetPatch).then(function (resp) {
+          if (_renderGen !== _cfgRenderGen) return; // PET-155: a host rebind/unmount superseded this render — drop the stale preset save so it can't clear the new profile's dirty edits or clobber its config
           if (Pet.auth.on401(resp)) return; // PET-129: a config-save 401 enters the auth state, not a validation error
           var failMsg = null;
           if (resp && resp._status && resp.detail) {
@@ -3533,6 +3539,7 @@
             // with `profile` so update_config persists-only (D4).
             var savePatch = Pet.buildSavePatch(Pet.state.configDirty, viewingActive, Pet.state.selectedHermesProfile);
             Pet.api.putConfig(savePatch).then(function (d) {
+              if (_renderGen !== _cfgRenderGen) return; // PET-155: a host rebind/unmount superseded this render — drop the stale save so it can't wipe the new profile's dirty edits or clobber its config
               if (Pet.auth.on401(d)) return; // PET-129: a config-save 401 enters the auth state, not a validation error
               if (d._status && d.detail) {
                 var raw = Array.isArray(d.detail) ? d.detail : [d.detail];
@@ -3977,6 +3984,7 @@
   };
 
   Pet.unmount = function () {
+    _cfgRenderGen += 1;      // PET-155: supersede any in-flight renderConfig/save continuation so a late /config or PUT resolve can't mutate state after teardown
     Pet.sse.disconnect();
     stopPolling();
     Pet.hostProfile.detach();   // PET-155: un-patch history / unsubscribe (§E); idempotent + foreign-safe
