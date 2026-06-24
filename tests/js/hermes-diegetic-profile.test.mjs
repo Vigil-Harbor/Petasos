@@ -854,9 +854,13 @@ test("#27 a stale refreshCurrent resolving after detach/remount cannot mutate cu
   Pet.mount(host());           // attach #1 -> refreshCurrent#1 captures gen A
   await flush();               // refreshCurrent defers its fetch to a microtask -> actives[0]
   assert.ok(actives.length >= 1, "first mount issued a /profiles/active");
+  const beforeRemount = actives.length;
   Pet.unmount();               // detach bumps _gen -> refreshCurrent#1 is now stale
   Pet.mount(host());           // remount: attach #2 -> refreshCurrent#2 captures a newer gen
-  await flush();               // -> actives[1]
+  await flush();               // -> a fresh /profiles/active for the new lifecycle
+  // Prove the remount genuinely re-fetched (so the stale-drop below is a real
+  // supersede, not a no-op): attach #2 must issue its own /profiles/active.
+  assert.ok(actives.length > beforeRemount, "remount (attach #2) issued a fresh /profiles/active");
 
   // The STALE first refresh resolves last, naming a bogus equipped profile.
   actives[0].resolve({ current: "STALE-ghost" });
