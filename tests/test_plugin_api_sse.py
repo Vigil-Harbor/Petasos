@@ -74,7 +74,8 @@ async def test_sse_frame_format_for_fetch_reader() -> None:
 
 
 async def test_sse_auth_header_passthrough() -> None:
-    """Verify the /events route is registered and accessible.
+    """Verify the /events route is registered on the plugin_api router and the
+    router mounts onto a FastAPI app without error.
 
     The actual auth enforcement is Hermes middleware (not Petasos code).
     The fetch-based client sends X-Hermes-Session-Token which Hermes validates.
@@ -82,11 +83,17 @@ async def test_sse_auth_header_passthrough() -> None:
     pipeline = Pipeline(scanners=[MinimalScanner()], config=PetasosConfig())
     init_handlers(pipeline)
 
+    # Smoke: the router mounts onto a fresh app without error.
     app = FastAPI()
     app.include_router(router)
 
-    routes = [r.path for r in app.routes if hasattr(r, "path")]
-    assert "/events" in routes
+    # Assert on the router's own routes, not app.routes. FastAPI >= 0.137 includes
+    # routers lazily: app.routes holds an _IncludedRouter placeholder that expands
+    # only when the app is built (e.g. via TestClient), so app.routes-before-build
+    # would not yet list /events. The registration under test lives on the router
+    # regardless of FastAPI's inclusion timing.
+    registered = [getattr(r, "path", None) for r in router.routes]
+    assert "/events" in registered
 
 
 # ── Polling fallback tests (PET-83: used when SSE gets 401) ──
