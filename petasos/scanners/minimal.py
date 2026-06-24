@@ -1064,6 +1064,17 @@ class MinimalScanner:
         return True
 
     def _rescan_agent_directive(self, cand: _DecodeCandidate, findings: list[ScanFinding]) -> bool:
+        # One-finding-per-scan invariant (DS3): the agent-directive rule's 10.0
+        # frequency weight is only safe if a single scan emits at most ONE such
+        # finding — five would reach the 50.0 Tier-3 floor and terminate a session
+        # from a single payload. The plain path (Step 4c, which runs before this
+        # decode path) is self-bounded (the per-line helper returns one hit), but
+        # the decode-and-rescan path runs once PER decoded candidate, so N repeated
+        # base64/hex carriers of the same directive would otherwise emit N findings.
+        # Cap to one surviving agent-directive finding across the plain path and all
+        # decoded candidates. Pinned by test_tier3_safety_decoded_carriers_one_finding.
+        if any(f.rule_id in _AGENT_DIRECTIVE_RULE_IDS for f in findings):
+            return False
         # PET-154 (Decision D6): rescan a decoded carrier for the agent-directive
         # conjunction. Resolution is inlined (not a call to _resolve_finding_shape)
         # because the per-line helper returns absolute (start, end) offsets rather
