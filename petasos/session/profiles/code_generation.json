@@ -1,6 +1,6 @@
 {
   "name": "code_generation",
-  "description": "Tuned for coding agents. Suppresses encoding and shell-command rules that fire constantly on legitimate code (base64, homoglyphs, pipe-to-shell, decode/fetch-exec, recursive deletes), raises the confidence floor to 0.6, and downgrades the LLM Guard ML prompt-injection verdict (petasos.llmguard.injection) to non-blocking. That ML classifier flags ordinary outbound tool calls (ls, curl, git status, file searches over security docs) as injection at confidence 0.5-1.0, so the 0.6 floor cannot tame it; the override keeps the finding visible for audit (still logged at low, and still counted toward session frequency/escalation, so an armed session may sit at a non-blocking tier1) without blocking. For: code-writing and dev-tooling agents. Trade-off: the suppressed command family means destructive shell commands DO NOT BLOCK under this profile: a real `rm -rf /` (petasos.syntactic.command.destructive-recursive) passes; and ML prompt-injection on tool-call params no longer blocks. The injection downgrade is direction-blind, so if this profile is ever used on an inbound surface, ML injection blocking is off there too. Still blocking: syntactic injection + role-switch rules (unsuppressible), LlamaFirewall PromptGuard, structural anomalies, and Presidio PII egress (PET-135).",
+  "description": "Tuned for coding agents. Suppresses encoding and shell-command rules that fire constantly on legitimate code (base64, homoglyphs, pipe-to-shell, decode/fetch-exec, recursive deletes), raises the confidence floor to 0.6, and downgrades the two ML prompt-injection verdicts (LLM Guard's petasos.llmguard.injection and LlamaFirewall's petasos.llamafirewall.prompt-guard) to non-blocking. Those ML classifiers flag ordinary outbound tool calls (ls, curl, git status, file searches over security docs, heredocs that process attack strings as data) as injection at confidence 0.5-1.0, so the 0.6 floor cannot tame them; the overrides keep the findings visible for audit (still logged at low, and still counted toward session frequency/escalation, so an armed session may sit at a non-blocking tier1) without blocking. For: code-writing and dev-tooling agents. Trade-off: the suppressed command family means destructive shell commands DO NOT BLOCK under this profile: a real `rm -rf /` (petasos.syntactic.command.destructive-recursive) passes; and ML prompt-injection on tool-call params no longer blocks. The ML injection downgrades are direction-blind, so if this profile is ever used on an inbound surface, ML injection blocking is off there too. Still blocking: syntactic injection + role-switch rules (unsuppressible), structural anomalies, and Presidio PII egress (PET-135, PET-162).",
   "suppress_rules": [
     "petasos.syntactic.encoding.invisible-chars",
     "petasos.syntactic.encoding.base64-in-text",
@@ -13,7 +13,8 @@
     "petasos.syntactic.command.destructive-recursive"
   ],
   "severity_overrides": {
-    "petasos.llmguard.injection": "low"
+    "petasos.llmguard.injection": "low",
+    "petasos.llamafirewall.prompt-guard": "low"
   },
   "confidence_floor": 0.6,
   "tier_thresholds": null,

@@ -4,6 +4,19 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Changed
+
+- **`code_generation` profile now demotes LlamaFirewall PromptGuard**
+  (`petasos.llamafirewall.prompt-guard`) to a non-blocking LOW, alongside the LLM
+  Guard injection verdict it already demoted (PET-135). Both ML prompt-injection
+  classifiers fire on a coding agent's own outbound tool calls that handle
+  attack-shaped text as data (for example a heredoc that greps for
+  `ignore-previous`); the override keeps the finding visible for audit without
+  blocking the call. The demote is direction-blind, so this profile remains
+  unsuitable for inbound untrusted content; `customer_service` keeps PromptGuard
+  at full strength. The residual *syntactic* injection-floor block requires a
+  net-new direction-scoped capability (PET-162 Part 2) and is unchanged here.
+
 ### Added
 
 - **Agent-directed fetch directive rule** (`MinimalScanner`): a new
