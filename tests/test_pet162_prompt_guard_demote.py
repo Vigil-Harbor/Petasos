@@ -29,10 +29,24 @@ from __future__ import annotations
 from petasos._types import Direction, ScanFinding, ScanResult, Severity
 from petasos.config import PetasosConfig
 from petasos.pipeline import Pipeline
+from petasos.scanners.llama_firewall import _COMPONENT_TAXONOMY
 
-# The real residual rule_id / severity / confidence from the triage.
+# The rule_id the code_generation severity_override targets (the shipped config
+# contract). Pinned as a literal so a drift between the override key and the real
+# backend's emitted rule_id (sourced below) trips these tests rather than passing.
 _PROMPT_GUARD_RULE = "petasos.llamafirewall.prompt-guard"
 _BLOCKING_SEVERITIES = {Severity.CRITICAL, Severity.HIGH}
+
+# Source the stand-in's finding from the REAL LlamaFirewall PromptGuard wiring
+# (petasos/scanners/llama_firewall.py) instead of hardcoding it. This anchors the
+# deterministic stub to the production taxonomy: if the backend's rule_id /
+# finding_type / severity ever diverges, the stub diverges with it and the
+# override-contract assertions below fail loudly, which is exactly the real-wiring
+# regression a free-floating protocol stub would otherwise hide. The module is
+# import-safe without the llamafirewall extra (the package is probed lazily, not
+# imported at module load), and the model-gated real-backend coverage that
+# exercises the live scanner path lives in tests/test_llama_firewall_scanner.py.
+_PG_RULE_ID, _PG_FINDING_TYPE, _PG_SEVERITY = _COMPONENT_TAXONOMY["prompt_guard"]
 
 
 def _blocking(findings: tuple[ScanFinding, ...]) -> list[ScanFinding]:
@@ -42,10 +56,11 @@ def _blocking(findings: tuple[ScanFinding, ...]) -> list[ScanFinding]:
 class _StubPromptGuardScanner:
     """Deterministic stand-in for the LlamaFirewall PromptGuard component.
 
-    Emits exactly the finding that drove the live residual:
-    petasos.llamafirewall.prompt-guard at HIGH / confidence 0.998. Mirrors the
-    real `_COMPONENT_TAXONOMY` mapping (rule_id, "injection", Severity.HIGH) so
-    this test does not need the gated PromptGuard 2 model installed.
+    Emits exactly the finding that drove the live residual at confidence 0.998,
+    with its rule_id / finding_type / severity sourced from the real
+    `_COMPONENT_TAXONOMY` mapping (rather than hardcoded) so the stand-in cannot
+    silently diverge from the production wiring. Needs no gated PromptGuard 2
+    model installed.
     """
 
     name = "stub_promptguard"
@@ -57,9 +72,9 @@ class _StubPromptGuardScanner:
             scanner_name=self.name,
             findings=(
                 ScanFinding(
-                    rule_id=_PROMPT_GUARD_RULE,
-                    finding_type="injection",
-                    severity=Severity.HIGH,
+                    rule_id=_PG_RULE_ID,
+                    finding_type=_PG_FINDING_TYPE,
+                    severity=_PG_SEVERITY,
                     confidence=0.998,
                     message="LlamaFirewall PromptGuard injection verdict",
                     scanner_name=self.name,
@@ -107,6 +122,7 @@ class TestPromptGuardStillBlocksElsewhere:
         assert any(f.rule_id == _PROMPT_GUARD_RULE for f in blocking), (
             "general must NOT downgrade prompt-guard; it should still block"
         )
+        assert res.safe is False
 
     async def test_prompt_guard_still_blocks_under_customer_service_inbound(self) -> None:
         pipe = Pipeline(
