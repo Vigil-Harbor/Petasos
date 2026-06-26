@@ -54,7 +54,12 @@ _BLOCKING_SEVERITIES = {Severity.CRITICAL, Severity.HIGH}
 
 # The exact tuned configuration this investigation decided (PET-135).
 _EXPECTED_SUPPRESS = _ENCODING_RULE_IDS | _COMMAND_RULE_IDS
-_EXPECTED_SEVERITY_OVERRIDES = {"petasos.llmguard.injection": "low"}
+# PET-162 Part 1 added the LlamaFirewall PromptGuard demote alongside PET-135's
+# LLM Guard injection demote (both ML prompt-injection verdicts, both non-floor).
+_EXPECTED_SEVERITY_OVERRIDES = {
+    "petasos.llmguard.injection": "low",
+    "petasos.llamafirewall.prompt-guard": "low",
+}
 _EXPECTED_CONFIDENCE_FLOOR = 0.6
 _NOISY_ML_RULE = "petasos.llmguard.injection"
 _STRUCTURAL_DEPTH_RULE = "petasos.syntactic.structural.excessive-depth"
@@ -72,7 +77,7 @@ _EM_DASH = "—"
 # dash or silently drops the trade-off note trips review. Kept on one line so the
 # equality is character-for-character against the code_generation.json string;
 # E501 is suppressed deliberately for the pin (D-PROFILE-CONTRACT).
-_EXPECTED_DESCRIPTION = "Tuned for coding agents. Suppresses encoding and shell-command rules that fire constantly on legitimate code (base64, homoglyphs, pipe-to-shell, decode/fetch-exec, recursive deletes), raises the confidence floor to 0.6, and downgrades the LLM Guard ML prompt-injection verdict (petasos.llmguard.injection) to non-blocking. That ML classifier flags ordinary outbound tool calls (ls, curl, git status, file searches over security docs) as injection at confidence 0.5-1.0, so the 0.6 floor cannot tame it; the override keeps the finding visible for audit (still logged at low, and still counted toward session frequency/escalation, so an armed session may sit at a non-blocking tier1) without blocking. For: code-writing and dev-tooling agents. Trade-off: the suppressed command family means destructive shell commands DO NOT BLOCK under this profile: a real `rm -rf /` (petasos.syntactic.command.destructive-recursive) passes; and ML prompt-injection on tool-call params no longer blocks. The injection downgrade is direction-blind, so if this profile is ever used on an inbound surface, ML injection blocking is off there too. Still blocking: syntactic injection + role-switch rules (unsuppressible), LlamaFirewall PromptGuard, structural anomalies, and Presidio PII egress (PET-135)."  # noqa: E501
+_EXPECTED_DESCRIPTION = "Tuned for coding agents. Suppresses encoding and shell-command rules that fire constantly on legitimate code (base64, homoglyphs, pipe-to-shell, decode/fetch-exec, recursive deletes), raises the confidence floor to 0.6, and downgrades the two ML prompt-injection verdicts (LLM Guard's petasos.llmguard.injection and LlamaFirewall's petasos.llamafirewall.prompt-guard) to non-blocking. Those ML classifiers flag ordinary outbound tool calls (ls, curl, git status, file searches over security docs, heredocs that process attack strings as data) as injection at confidence 0.5-1.0, so the 0.6 floor cannot tame them; the overrides keep the findings visible for audit (still logged at low, and still counted toward session frequency/escalation, so an armed session may sit at a non-blocking tier1) without blocking. For: code-writing and dev-tooling agents. Trade-off: the suppressed command family means destructive shell commands DO NOT BLOCK under this profile: a real `rm -rf /` (petasos.syntactic.command.destructive-recursive) passes; and ML prompt-injection on tool-call params no longer blocks. The ML injection downgrades are direction-blind, so if this profile is ever used on an inbound surface, ML injection blocking is off there too. Still blocking: syntactic injection + role-switch rules (unsuppressible), structural anomalies, and Presidio PII egress (PET-135, PET-162)."  # noqa: E501
 
 
 def _blocking(findings: tuple[ScanFinding, ...]) -> list[ScanFinding]:
@@ -271,6 +276,7 @@ class TestSuppressionSetIsExactlyDecided:
         # The key trade-off notes must stay legible to operators.
         for phrase in (
             "petasos.llmguard.injection",
+            "petasos.llamafirewall.prompt-guard",
             "DO NOT BLOCK",
             "direction-blind",
             "still counted toward session frequency/escalation",
