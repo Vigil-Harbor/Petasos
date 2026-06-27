@@ -1,6 +1,6 @@
 {
   "name": "code_generation",
-  "description": "Tuned for coding agents. Suppresses encoding and shell-command rules that fire constantly on legitimate code (base64, homoglyphs, pipe-to-shell, decode/fetch-exec, recursive deletes), raises the confidence floor to 0.6, and downgrades the two ML prompt-injection verdicts (LLM Guard's petasos.llmguard.injection and LlamaFirewall's petasos.llamafirewall.prompt-guard) to non-blocking. Those ML classifiers flag ordinary outbound tool calls (ls, curl, git status, file searches over security docs, heredocs that process attack strings as data) as injection at confidence 0.5-1.0, so the 0.6 floor cannot tame them; the overrides keep the findings visible for audit (still logged at low, and still counted toward session frequency/escalation, so an armed session may sit at a non-blocking tier1) without blocking. For: code-writing and dev-tooling agents. Trade-off: the suppressed command family means destructive shell commands DO NOT BLOCK under this profile: a real `rm -rf /` (petasos.syntactic.command.destructive-recursive) passes; and ML prompt-injection on tool-call params no longer blocks. The ML injection downgrades are direction-blind, so if this profile is ever used on an inbound surface, ML injection blocking is off there too. Still blocking: syntactic injection + role-switch rules (unsuppressible), structural anomalies, and Presidio PII egress (PET-135, PET-162).",
+  "description": "Tuned for coding agents. Suppresses encoding and shell-command rules that fire constantly on legitimate code (base64, homoglyphs, pipe-to-shell, decode/fetch-exec, recursive deletes), raises the confidence floor to 0.6, downgrades the two ML prompt-injection verdicts (LLM Guard's petasos.llmguard.injection and LlamaFirewall's petasos.llamafirewall.prompt-guard) to non-blocking, and direction-scopes the syntactic injection floor (injection_floor_scope=inbound) so the agent's own outbound tool calls may carry injection-shaped text as data. Those ML classifiers flag ordinary outbound tool calls (ls, curl, git status, file searches over security docs, heredocs that process attack strings as data) as injection at confidence 0.5-1.0, so the 0.6 floor cannot tame them; the overrides keep the findings visible for audit (still logged at low, and still counted toward session frequency/escalation, so an armed session may sit at a non-blocking tier1) without blocking. The syntactic injection, role-switch, and agent-directive rules are suppressed on outbound only: an inbound injection attempt (someone trying to manipulate THIS model) still blocks at full strength under this profile. Unlike the ML downgrades, a suppressed outbound injection is dropped before merge: it leaves only a debug-log trace, does not appear in the audit spool, and is not counted toward frequency or escalation. For: code-writing and dev-tooling agents on a trusted operator's own machine. Trade-off: the suppressed command family means destructive shell commands DO NOT BLOCK under this profile: a real `rm -rf /` (petasos.syntactic.command.destructive-recursive) passes; ML prompt-injection on tool-call params no longer blocks; and outbound syntactic injection no longer blocks. The ML injection downgrades are direction-blind, so if this profile is ever used on an inbound surface, ML injection blocking is off there too; the syntactic injection relaxation is direction-scoped, but it is only safe if the host labels untrusted content direction=inbound (the per-call default falls back to config.direction, so keep that set to inbound), and second-order egress (an induced outbound attack payload) is guarded by the egress fence (PET-134/133/112) where that fence is deployed; if it is not present, the second-order egress path is uncovered, so arm this profile only if you accept that residual. Still blocking: structural anomalies (unsuppressible on every direction), inbound syntactic injection + role-switch + agent-directive rules, and Presidio PII egress (PET-135, PET-162).",
   "suppress_rules": [
     "petasos.syntactic.encoding.invisible-chars",
     "petasos.syntactic.encoding.base64-in-text",
@@ -10,7 +10,18 @@
     "petasos.syntactic.command.decode-exec",
     "petasos.syntactic.command.fetch-exec",
     "petasos.syntactic.command.alias-escape",
-    "petasos.syntactic.command.destructive-recursive"
+    "petasos.syntactic.command.destructive-recursive",
+    "petasos.syntactic.injection.ignore-previous",
+    "petasos.syntactic.injection.ignore-all",
+    "petasos.syntactic.injection.disregard",
+    "petasos.syntactic.injection.new-instructions",
+    "petasos.syntactic.injection.system-override",
+    "petasos.syntactic.injection.system-prefix",
+    "petasos.syntactic.injection.inst-delimiter",
+    "petasos.syntactic.injection.you-are-now",
+    "petasos.syntactic.injection.role-switch-capability",
+    "petasos.syntactic.injection.role-switch-only",
+    "petasos.syntactic.injection.agent-directed-fetch"
   ],
   "severity_overrides": {
     "petasos.llmguard.injection": "low",
@@ -20,5 +31,6 @@
   "tier_thresholds": null,
   "pii_entities_extra": [],
   "tool_exempt_list": [],
-  "tool_alias_map": {}
+  "tool_alias_map": {},
+  "injection_floor_scope": "inbound"
 }
