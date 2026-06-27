@@ -23,7 +23,7 @@ from types import MappingProxyType
 
 import pytest
 
-from petasos._types import Severity
+from petasos._types import ScanFinding, Severity
 from petasos.config import PetasosConfig
 from petasos.pipeline import Pipeline, _is_floor_rule
 from petasos.scanners.minimal import (
@@ -60,7 +60,7 @@ _OUTBOUND_INJECTION_AS_DATA = [
 ]
 
 
-def _blocking(findings: tuple) -> list:
+def _blocking(findings: tuple[ScanFinding, ...]) -> list[ScanFinding]:
     return [f for f in findings if f.severity in _BLOCKING and f.finding_type != "pii"]
 
 
