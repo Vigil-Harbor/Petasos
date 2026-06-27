@@ -86,7 +86,17 @@ class TestBuiltinProfilesClean:
         resolver = ProfileResolver()
         for name in _BUILTIN_NAMES:
             profile = resolver.resolve(name)
-            overlap = profile.suppress_rules & _UNSUPPRESSIBLE_RULE_IDS
+            # PET-162: a profile with injection_floor_scope="inbound" legitimately
+            # RETAINS injection openers in suppress_rules (the runtime, direction-aware
+            # _is_floor_rule drops them on outbound only; inbound stays hard floor).
+            # Structural rules remain unsuppressible on every scope. Mirror the
+            # parse-time strip set in petasos.session.profiles._validate_suppress_rules.
+            unsuppressible = (
+                _STRUCTURAL_RULE_IDS
+                if profile.injection_floor_scope == "inbound"
+                else _UNSUPPRESSIBLE_RULE_IDS
+            )
+            overlap = profile.suppress_rules & unsuppressible
             assert overlap == frozenset(), (
                 f"Built-in profile {name!r} has unsuppressible rules: {sorted(overlap)}"
             )

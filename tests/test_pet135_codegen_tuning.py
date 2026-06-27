@@ -244,6 +244,16 @@ class TestKeepsRealCatches:
             f"got {[f.rule_id for f in inbound.findings]}"
         )
 
+        # Unlabeled input must follow the default (inbound) path, not the permissive
+        # outbound branch — a default-direction regression would silently open the
+        # relaxed scope on untrusted, unlabeled content.
+        implicit = await pipe.inspect(payload)
+        assert implicit.safe is False
+        assert any(f.rule_id in _ALL_INJECTION_IDS for f in _blocking(implicit.findings)), (
+            "code_generation must default unlabeled input to inbound handling; "
+            f"got {[f.rule_id for f in implicit.findings]}"
+        )
+
         outbound = await pipe.inspect(payload, direction="outbound")
         assert outbound.safe is True, (
             f"code_generation must NOT block OUTBOUND injection-as-data {payload!r}; "

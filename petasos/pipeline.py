@@ -92,7 +92,7 @@ def _is_floor_rule(
         # scope="inbound". Every value other than the exact pair
         # (scope=="inbound" AND direction=="outbound") falls through to floor, so
         # an unvalidated scope reaching here (direct construction) fails safe.
-        return not (scope == "inbound" and direction != "inbound")
+        return not (scope == "inbound" and direction == "outbound")
     return False
 
 
