@@ -52,9 +52,17 @@ _FIXTURE = Path(__file__).parent / "fixtures" / "pet135_codegen_corpus.json"
 # HIGH or CRITICAL on a dangerous tool blocks the call.
 _BLOCKING_SEVERITIES = {Severity.CRITICAL, Severity.HIGH}
 
-# The exact tuned configuration this investigation decided (PET-135).
-_EXPECTED_SUPPRESS = _ENCODING_RULE_IDS | _COMMAND_RULE_IDS
-_EXPECTED_SEVERITY_OVERRIDES = {"petasos.llmguard.injection": "low"}
+# The exact tuned configuration this investigation decided (PET-135), widened by
+# PET-162 Part 2 to suppress the full injection family on outbound (retained in
+# the resolved set under injection_floor_scope="inbound"; the runtime
+# direction-aware floor drops them on outbound and keeps them on inbound).
+_EXPECTED_SUPPRESS = _ENCODING_RULE_IDS | _COMMAND_RULE_IDS | _ALL_INJECTION_IDS
+# PET-162 Part 1 added the LlamaFirewall PromptGuard demote alongside PET-135's
+# LLM Guard injection demote (both ML prompt-injection verdicts, both non-floor).
+_EXPECTED_SEVERITY_OVERRIDES = {
+    "petasos.llmguard.injection": "low",
+    "petasos.llamafirewall.prompt-guard": "low",
+}
 _EXPECTED_CONFIDENCE_FLOOR = 0.6
 _NOISY_ML_RULE = "petasos.llmguard.injection"
 _STRUCTURAL_DEPTH_RULE = "petasos.syntactic.structural.excessive-depth"
@@ -72,7 +80,7 @@ _EM_DASH = "—"
 # dash or silently drops the trade-off note trips review. Kept on one line so the
 # equality is character-for-character against the code_generation.json string;
 # E501 is suppressed deliberately for the pin (D-PROFILE-CONTRACT).
-_EXPECTED_DESCRIPTION = "Tuned for coding agents. Suppresses encoding and shell-command rules that fire constantly on legitimate code (base64, homoglyphs, pipe-to-shell, decode/fetch-exec, recursive deletes), raises the confidence floor to 0.6, and downgrades the LLM Guard ML prompt-injection verdict (petasos.llmguard.injection) to non-blocking. That ML classifier flags ordinary outbound tool calls (ls, curl, git status, file searches over security docs) as injection at confidence 0.5-1.0, so the 0.6 floor cannot tame it; the override keeps the finding visible for audit (still logged at low, and still counted toward session frequency/escalation, so an armed session may sit at a non-blocking tier1) without blocking. For: code-writing and dev-tooling agents. Trade-off: the suppressed command family means destructive shell commands DO NOT BLOCK under this profile: a real `rm -rf /` (petasos.syntactic.command.destructive-recursive) passes; and ML prompt-injection on tool-call params no longer blocks. The injection downgrade is direction-blind, so if this profile is ever used on an inbound surface, ML injection blocking is off there too. Still blocking: syntactic injection + role-switch rules (unsuppressible), LlamaFirewall PromptGuard, structural anomalies, and Presidio PII egress (PET-135)."  # noqa: E501
+_EXPECTED_DESCRIPTION = "Tuned for coding agents. Suppresses encoding and shell-command rules that fire constantly on legitimate code (base64, homoglyphs, pipe-to-shell, decode/fetch-exec, recursive deletes), raises the confidence floor to 0.6, downgrades the two ML prompt-injection verdicts (LLM Guard's petasos.llmguard.injection and LlamaFirewall's petasos.llamafirewall.prompt-guard) to non-blocking, and direction-scopes the syntactic injection floor (injection_floor_scope=inbound) so the agent's own outbound tool calls may carry injection-shaped text as data. Those ML classifiers flag ordinary outbound tool calls (ls, curl, git status, file searches over security docs, heredocs that process attack strings as data) as injection at confidence 0.5-1.0, so the 0.6 floor cannot tame them; the overrides keep the findings visible for audit (still logged at low, and still counted toward session frequency/escalation, so an armed session may sit at a non-blocking tier1) without blocking. The syntactic injection, role-switch, and agent-directive rules are suppressed on outbound only: an inbound injection attempt (someone trying to manipulate THIS model) still blocks at full strength under this profile. Unlike the ML downgrades, a suppressed outbound injection is dropped before merge: it leaves only a debug-log trace, does not appear in the audit spool, and is not counted toward frequency or escalation. For: code-writing and dev-tooling agents on a trusted operator's own machine. Trade-off: the suppressed command family means destructive shell commands DO NOT BLOCK under this profile: a real `rm -rf /` (petasos.syntactic.command.destructive-recursive) passes; ML prompt-injection on tool-call params no longer blocks; and outbound syntactic injection no longer blocks. The ML injection downgrades are direction-blind, so if this profile is ever used on an inbound surface, ML injection blocking is off there too; the syntactic injection relaxation is direction-scoped, but it is only safe if the host labels untrusted content direction=inbound (the per-call default falls back to config.direction, so keep that set to inbound), and second-order egress (an induced outbound attack payload) is guarded by the egress fence (PET-134/133/112) where that fence is deployed; if it is not present, the second-order egress path is uncovered, so arm this profile only if you accept that residual. Still blocking: structural anomalies (unsuppressible on every direction), inbound syntactic injection + role-switch + agent-directive rules, and Presidio PII egress (PET-135, PET-162)."  # noqa: E501
 
 
 def _blocking(findings: tuple[ScanFinding, ...]) -> list[ScanFinding]:
@@ -203,10 +211,14 @@ class TestDowngradedInjectionEscalationBound:
 
 
 class TestKeepsRealCatches:
-    """The other side of the bug: tuning must not blind the scanner. The profile
-    explicitly trades away the command family and the ML injection block, but
-    NEVER the syntactic injection / role-switch / structural floor (all
-    unsuppressible). Genuine attack patterns must still block under code_generation.
+    """The other side of the bug: tuning must not blind the scanner to genuine
+    threats. PET-162 Part 2 makes code_generation's injection floor
+    DIRECTION-SCOPED (injection_floor_scope="inbound"): an INBOUND injection
+    attempt (someone trying to manipulate THIS model) still blocks at full
+    strength, preserving the PET-54/124 anti-self-disarm guarantee on the
+    untrusted-inbound surface; the agent's OWN outbound tool calls may carry the
+    same injection-shaped text as data without blocking. The structural floor
+    stays absolute on every direction (test_codegen_keeps_structural_catch).
 
     The operator's own corpus contained NO live prompt-injection attacks (a
     finding in itself), so these keep-samples use the scanner's canonical attack
@@ -220,12 +232,35 @@ class TestKeepsRealCatches:
 
     @pytest.mark.parametrize("payload,_kind", REAL_INJECTION_CATCHES)
     async def test_codegen_keeps_injection_catches(self, payload: str, _kind: str) -> None:
+        # PET-162 Part 2 re-decide (was: "outbound still blocks"). The injection
+        # floor is now direction-scoped under code_generation. Inbound STILL blocks
+        # at full strength; the agent's own outbound tool call carrying the same
+        # text as data no longer blocks (the family is suppressed pre-merge).
         pipe = Pipeline(config=PetasosConfig(profile_name="code_generation"))
-        res = await pipe.inspect(payload, direction="outbound")
-        blocking = _blocking(res.findings)
-        assert any(f.rule_id in _ALL_INJECTION_IDS for f in blocking), (
-            f"code_generation must still BLOCK genuine injection {payload!r}; "
-            f"got {[f.rule_id for f in res.findings]}"
+
+        inbound = await pipe.inspect(payload, direction="inbound")
+        assert any(f.rule_id in _ALL_INJECTION_IDS for f in _blocking(inbound.findings)), (
+            f"code_generation must still BLOCK genuine INBOUND injection {payload!r}; "
+            f"got {[f.rule_id for f in inbound.findings]}"
+        )
+
+        # Unlabeled input must follow the default (inbound) path, not the permissive
+        # outbound branch — a default-direction regression would silently open the
+        # relaxed scope on untrusted, unlabeled content.
+        implicit = await pipe.inspect(payload)
+        assert implicit.safe is False
+        assert any(f.rule_id in _ALL_INJECTION_IDS for f in _blocking(implicit.findings)), (
+            "code_generation must default unlabeled input to inbound handling; "
+            f"got {[f.rule_id for f in implicit.findings]}"
+        )
+
+        outbound = await pipe.inspect(payload, direction="outbound")
+        assert outbound.safe is True, (
+            f"code_generation must NOT block OUTBOUND injection-as-data {payload!r}; "
+            f"got blocking {[f.rule_id for f in _blocking(outbound.findings)]}"
+        )
+        assert not any(f.rule_id in _ALL_INJECTION_IDS for f in _blocking(outbound.findings)), (
+            f"outbound injection should be suppressed pre-merge for {payload!r}"
         )
 
     async def test_codegen_keeps_structural_catch(self) -> None:
@@ -271,6 +306,7 @@ class TestSuppressionSetIsExactlyDecided:
         # The key trade-off notes must stay legible to operators.
         for phrase in (
             "petasos.llmguard.injection",
+            "petasos.llamafirewall.prompt-guard",
             "DO NOT BLOCK",
             "direction-blind",
             "still counted toward session frequency/escalation",

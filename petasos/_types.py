@@ -8,6 +8,14 @@ from typing import Any, Literal, Protocol, runtime_checkable
 
 Direction = Literal["inbound", "outbound"]
 
+# PET-162 Part 2: a built-in-profile field domain governing how far the syntactic
+# injection floor reaches. "all" (default) keeps injection an absolute floor on
+# every direction (today's behavior); "inbound" relaxes it for the agent's OWN
+# outbound tool calls while keeping it hard floor on agent-inbound content. The
+# two-value-domain idiom mirrors ``Direction`` and gives mypy --strict literal
+# coverage at the floor-check sites.
+FloorScope = Literal["all", "inbound"]
+
 # PET-103: cause discriminator carried as the 3rd element of the duck-typed
 # ``availability()`` return. Distinguishes a backend that is genuinely absent
 # ("absent") from one that is installed but crashed on load ("load_failed").

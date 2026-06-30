@@ -4,7 +4,38 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Changed
+
+- **`code_generation` profile now demotes LlamaFirewall PromptGuard**
+  (`petasos.llamafirewall.prompt-guard`) to a non-blocking LOW, alongside the LLM
+  Guard injection verdict it already demoted (PET-135). Both ML prompt-injection
+  classifiers fire on a coding agent's own outbound tool calls that handle
+  attack-shaped text as data (for example a heredoc that greps for
+  `ignore-previous`); the override keeps the finding visible for audit without
+  blocking the call. The demote is direction-blind, so this profile remains
+  unsuitable for inbound untrusted content; `customer_service` keeps PromptGuard
+  at full strength. The residual *syntactic* injection-floor block requires a
+  net-new direction-scoped capability (PET-162 Part 2) and is unchanged here.
+
 ### Added
+
+- **Direction-scoped injection floor** (`injection_floor_scope` profile field,
+  PET-162 Part 2): a new built-in-profile field (`"all"` default, or `"inbound"`)
+  that keeps the syntactic injection floor (the injection, role-switch, and
+  agent-directive families) absolute on agent-inbound content while letting a
+  profile relax it for the agent's own outbound tool calls. `code_generation`
+  sets `"inbound"` so a coding agent's outbound tool calls may carry
+  injection-shaped text as data (writing a test fixture that contains "ignore
+  previous instructions", grepping the repo for an injection opener) without
+  blocking; an inbound injection attempt against the model still blocks at full
+  strength. The default `"all"` leaves every other profile byte-identical to
+  before. A suppressed outbound injection is dropped pre-merge (debug-log trace
+  only, no audit-spool entry, no frequency or escalation contribution);
+  structural anomalies remain unsuppressible on every direction. The relaxation
+  is safe only when the host labels untrusted content `direction="inbound"`
+  (the per-call default falls back to `config.direction`), and second-order
+  egress is guarded separately by the egress fence (PET-134/133/112) where it is
+  deployed.
 
 - **Agent-directed fetch directive rule** (`MinimalScanner`): a new
   unsuppressible, injection-class syntactic rule

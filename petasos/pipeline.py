@@ -23,7 +23,11 @@ from petasos._types import (
 )
 from petasos.config import PetasosConfig
 from petasos.normalize import normalize
-from petasos.scanners.minimal import _UNSUPPRESSIBLE_RULE_IDS, MinimalScanner
+from petasos.scanners.minimal import (
+    _ALL_INJECTION_IDS,
+    _STRUCTURAL_RULE_IDS,
+    MinimalScanner,
+)
 from petasos.scanners.presidio import PresidioScanner
 from petasos.session.alerting import AlertManager
 from petasos.session.audit import AuditEmitter
@@ -46,7 +50,7 @@ _HEALTH_STATUS_ERROR = "error"
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
-    from petasos._types import Direction, Scanner
+    from petasos._types import Direction, FloorScope, Scanner
 
 _SEVERITY_RANK: dict[Severity, int] = {
     Severity.CRITICAL: 0,
@@ -70,16 +74,33 @@ _BREAKER_OPEN_ERROR_PREFIX = "ScannerCircuitOpen"
 _STRUCTURAL_RULE_PREFIX = "petasos.syntactic.structural."
 
 
-def _is_floor_rule(rule_id: str) -> bool:
-    # Defense-in-depth (PET-109 D6): _UNSUPPRESSIBLE_RULE_IDS already includes every
-    # structural ID (_UNSUPPRESSIBLE_RULE_IDS = _STRUCTURAL_RULE_IDS | _ALL_INJECTION_IDS,
-    # minimal.py:440); the prefix disjunct is a belt-and-suspenders guard kept aligned
-    # by a tripwire test (_STRUCTURAL_RULE_IDS <= _UNSUPPRESSIBLE_RULE_IDS).
-    return rule_id in _UNSUPPRESSIBLE_RULE_IDS or rule_id.startswith(_STRUCTURAL_RULE_PREFIX)
+def _is_floor_rule(
+    rule_id: str,
+    direction: Direction = "inbound",
+    scope: FloorScope = "all",
+) -> bool:
+    # Single chokepoint for both floor checks (PET-162 D1). Structural is ALWAYS
+    # floor — independent of direction/scope (a different threat class than
+    # injection; injection_floor_scope governs the injection family only). The
+    # prefix disjunct is a belt-and-suspenders guard kept aligned by a tripwire
+    # test (_STRUCTURAL_RULE_IDS <= the structural-prefix set).
+    if rule_id in _STRUCTURAL_RULE_IDS or rule_id.startswith(_STRUCTURAL_RULE_PREFIX):
+        return True
+    if rule_id in _ALL_INJECTION_IDS:
+        # Injection floor is absolute on inbound for every profile (PET-54/124). A
+        # profile may relax it for the agent's OWN outbound only by opting into
+        # scope="inbound". Every value other than the exact pair
+        # (scope=="inbound" AND direction=="outbound") falls through to floor, so
+        # an unvalidated scope reaching here (direct construction) fails safe.
+        return not (scope == "inbound" and direction == "outbound")
+    return False
 
 
 def _suppress_scanner_findings(
-    results: list[ScanResult], suppress_rules: frozenset[str]
+    results: list[ScanResult],
+    suppress_rules: frozenset[str],
+    direction: Direction = "inbound",
+    scope: FloorScope = "all",
 ) -> list[ScanResult]:
     """Drop findings whose rule_id is suppressed and NOT on the floor, per scanner.
 
@@ -95,7 +116,9 @@ def _suppress_scanner_findings(
         kept = tuple(
             f
             for f in r.findings
-            if not (f.rule_id in suppress_rules and not _is_floor_rule(f.rule_id))
+            if not (
+                f.rule_id in suppress_rules and not _is_floor_rule(f.rule_id, direction, scope)
+            )
         )
         if len(kept) != len(r.findings):
             dropped = sorted({f.rule_id for f in r.findings} - {f.rule_id for f in kept})
@@ -708,7 +731,12 @@ class Pipeline:
         # tier-3 net / frequency / escalation. Downstream consumers all read the
         # post-suppression set automatically — no per-consumer change.
         if active_profile is not None and active_profile.suppress_rules:
-            all_results = _suppress_scanner_findings(all_results, active_profile.suppress_rules)
+            all_results = _suppress_scanner_findings(
+                all_results,
+                active_profile.suppress_rules,
+                direction,
+                active_profile.injection_floor_scope,
+            )
 
         # Stage 5: Merge findings
         merged = merge_findings(all_results)
@@ -734,7 +762,7 @@ class Pipeline:
                     # escalate branch — keep the guards coupled.)
                     overridden.append(f)
                     continue
-                if _is_floor_rule(f.rule_id):
+                if _is_floor_rule(f.rule_id, direction, active_profile.injection_floor_scope):
                     # Floor rules (injection): escalate-only. Refuse a downgrade or
                     # no-op (keep original) — PET-54's threat, still covered.
                     try:

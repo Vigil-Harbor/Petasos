@@ -79,8 +79,15 @@ budget so it can sit in front of everything else.
 - *Suppressibility.* A profile can suppress the **command** and **encoding**
   families when they are noisy for its use case (for example, the
   `code_generation` profile, which legitimately handles shell snippets). The
-  **injection**, **role-switch**, **agent-directive**, and **structural**
-  families are hardcoded as unsuppressible: no profile can switch them off.
+  **injection**, **role-switch**, and **agent-directive** families are an
+  inbound floor: no profile can switch them off for agent-inbound content
+  (someone trying to manipulate the model). A profile may opt into relaxing
+  them for the agent's own outbound tool calls by setting
+  `injection_floor_scope: "inbound"` (used by `code_generation`, which handles
+  injection-shaped text as data). This is safe only when the host labels
+  untrusted content `direction="inbound"`, and the second-order egress path is
+  guarded separately by the egress fence where that fence is deployed. The
+  **structural** family is unsuppressible on every direction.
 
 **When it runs.** Stage 2, on every scan, always.
 

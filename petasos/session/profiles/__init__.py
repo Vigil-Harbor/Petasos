@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any
 
-from petasos._types import Severity
+from petasos._types import FloorScope, Severity
 from petasos.config import _validate_tier_thresholds
 from petasos.scanners.minimal import _STRUCTURAL_RULE_IDS
 from petasos.scanners.minimal import _UNSUPPRESSIBLE_RULE_IDS as _UNSUPPRESSIBLE_RULE_IDS
@@ -15,15 +15,38 @@ from petasos.scanners.presidio import KNOWN_PII_ENTITIES
 
 _logger = logging.getLogger(__name__)
 
+_VALID_FLOOR_SCOPES: frozenset[str] = frozenset({"all", "inbound"})
 
-def _validate_suppress_rules(suppress: frozenset[str]) -> frozenset[str]:
-    blocked = suppress & _UNSUPPRESSIBLE_RULE_IDS
+
+def _validate_injection_floor_scope(value: Any) -> FloorScope:
+    # PET-162 Part 2: accept only the two-value domain; raise on anything else (a
+    # typo'd scope must fail loud, never silently degrade to "all"). Returns the
+    # matched literal (not the Any input) so mypy --strict narrows to FloorScope.
+    if value == "all":
+        return "all"
+    if value == "inbound":
+        return "inbound"
+    raise ValueError(
+        f"injection_floor_scope must be one of {sorted(_VALID_FLOOR_SCOPES)}, got {value!r}"
+    )
+
+
+def _validate_suppress_rules(suppress: frozenset[str], scope: FloorScope) -> frozenset[str]:
+    # PET-162 Part 2: the parse-time floor gate, now scope-aware. Structural is
+    # ALWAYS stripped (never suppressible on any direction). Injection is stripped
+    # only under the default scope; under scope="inbound" injection rules are
+    # RETAINED in the resolved set so the runtime, direction-aware _is_floor_rule
+    # can drop them on outbound while inbound stays hard floor. ``scope`` is
+    # required (no default) so every caller passes it consciously — a forgotten
+    # argument must not silently over-strip on the load-bearing path.
+    strip = _STRUCTURAL_RULE_IDS if scope == "inbound" else _UNSUPPRESSIBLE_RULE_IDS
+    blocked = suppress & strip
     if blocked:
         _logger.warning(
             "suppress_rules attempted to suppress unsuppressible rules (stripped): %s",
             sorted(blocked),
         )
-    return suppress - _UNSUPPRESSIBLE_RULE_IDS
+    return suppress - strip
 
 
 @dataclass(frozen=True)
@@ -47,9 +70,17 @@ class ResolvedProfile:
     tool_exempt_list: frozenset[str]
     tool_alias_map: MappingProxyType[str, str]
     description: str = ""
+    # PET-162 Part 2: "all" (default) keeps the syntactic injection floor absolute
+    # on every direction; "inbound" relaxes it for the agent's own outbound only.
+    injection_floor_scope: FloorScope = "all"
 
     def __post_init__(self) -> None:
-        cleaned = _validate_suppress_rules(self.suppress_rules)
+        # PET-162 Part 2: validate the scope BEFORE the suppress re-strip, so an
+        # invalid scope (e.g. a direct ``ResolvedProfile(..., injection_floor_scope=
+        # "Inbound")`` typo) raises cleanly rather than first emitting a spurious
+        # "stripped unsuppressible rules" warning from a scope-mismatched strip.
+        scope = _validate_injection_floor_scope(self.injection_floor_scope)
+        cleaned = _validate_suppress_rules(self.suppress_rules, scope)
         if cleaned != self.suppress_rules:
             object.__setattr__(self, "suppress_rules", cleaned)
 
@@ -72,6 +103,7 @@ class ResolvedProfile:
             "tool_exempt_list": sorted(self.tool_exempt_list),
             "tool_alias_map": dict(self.tool_alias_map),
             "description": self.description,
+            "injection_floor_scope": self.injection_floor_scope,
         }
 
 
@@ -175,9 +207,13 @@ def _parse_profile(data: dict[str, Any]) -> ResolvedProfile:
     pii_extra = tuple(data.get("pii_entities_extra", []))
     _validate_pii_entities(pii_extra, profile_name=data.get("name", "?"), strict=True)
 
+    # PET-162 Part 2: parse the scope before the suppress strip so an "inbound"
+    # profile retains its injection openers (the runtime floor drops them later).
+    scope = _validate_injection_floor_scope(data.get("injection_floor_scope", "all"))
+
     return ResolvedProfile(
         name=data["name"],
-        suppress_rules=_validate_suppress_rules(frozenset(data.get("suppress_rules", []))),
+        suppress_rules=_validate_suppress_rules(frozenset(data.get("suppress_rules", [])), scope),
         severity_overrides=MappingProxyType(dict(sev_overrides)),
         confidence_floor=float(data.get("confidence_floor", 0.0)),
         tier_thresholds=tier_thresholds,
@@ -185,6 +221,7 @@ def _parse_profile(data: dict[str, Any]) -> ResolvedProfile:
         tool_exempt_list=exempt_set,
         tool_alias_map=MappingProxyType(dict(alias_map)),
         description=desc,
+        injection_floor_scope=scope,
     )
 
 
@@ -192,12 +229,19 @@ def _merge_with_base(
     base: ResolvedProfile,
     overrides: dict[str, Any],
 ) -> ResolvedProfile:
+    # PET-162 Part 2: resolve the merged scope FIRST, before the suppress strip —
+    # otherwise the merge validates suppress_rules against the wrong scope and
+    # silently strips a custom profile's injection openers.
+    scope = base.injection_floor_scope
+    if "injection_floor_scope" in overrides:
+        scope = _validate_injection_floor_scope(overrides["injection_floor_scope"])
+
     suppress = base.suppress_rules
     if "suppress_rules" in overrides:
         val = overrides["suppress_rules"]
         if not isinstance(val, (list, set, frozenset)):
             raise ValueError("suppress_rules must be a list")
-        suppress = _validate_suppress_rules(suppress | frozenset(val))
+        suppress = _validate_suppress_rules(suppress | frozenset(val), scope)
 
     severity = dict(base.severity_overrides)
     if "severity_overrides" in overrides:
@@ -283,6 +327,7 @@ def _merge_with_base(
         tool_exempt_list=exempt,
         tool_alias_map=MappingProxyType(alias),
         description=description,
+        injection_floor_scope=scope,
     )
 
 
