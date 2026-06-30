@@ -235,6 +235,10 @@ skipped: `Skipping 'petasos' (not in plugins.enabled)` in the agent log.
 Add a top-level `petasos:` section to `config.yaml`. This key survives Desktop
 UI model switches (the UI only rewrites the `model:` section).
 
+To configure several agent roles from one install, use the Config Editor's
+Hermes-agent-profile selector instead of hand-editing each file: see
+[Per-Hermes-agent security profiles](../usage/hermes-agent-profiles.md).
+
 **Important:** on v0.16+, edit the **profile's** `config.yaml`, not the root
 one. If your active profile is `gibson`:
 
@@ -402,6 +406,17 @@ env vars, injection detection, and config split-brain, all PASS. The header line
 shows which config file was resolved and the winning tier.
 
 ### Upgrading Hermes orphans plugins
+
+After any Hermes update, three layers can drift independently, and Petasos only
+enforces when all three line up. Re-check all three; a mismatch fails **silently**,
+not loudly:
+
+1. **The library** in Hermes's venv (`pip show petasos`). A venv rebuild can drop
+   the wheel or its ML deps (see *Scanner import failures*).
+2. **The plugin files** in the resolved profile home. Hermes migrates the
+   `petasos:` config but never copies plugin files (this section).
+3. **The processes** (gateway + dashboard). They pin config at boot, so an edit
+   only takes effect after a restart (see *Restart and verify*).
 
 Hermes v0.16+ config migration copies config keys (including `petasos:`) into the
 new profile home, but it does **not** copy plugin files. After a Hermes major or
@@ -632,6 +647,15 @@ INFO petasos.plugin: LLM Guard not installed, syntactic-only for that backend
 This is graceful degradation, not an error. Install `petasos[all]` in Hermes's
 venv for ML backends. The syntactic pre-filter (23 regex rules) still runs
 without ML.
+
+**Venv-rebuild dep loss (silent).** A Hermes venv rebuild can drop transitive
+dependencies the ML backends import indirectly. The classic failure is a missing
+`packaging`, which makes spaCy/thinc raise on import and takes Presidio and LLM
+Guard down with it even though `petasos[all]` shows as installed. After any venv
+rebuild, re-install `petasos[all]`, keep the JWT lib pinned at `pyjwt==2.12.1`
+(the version the reference plugin expects), and confirm which backends actually
+loaded from the plugin health endpoint (`/api/plugins/petasos/health`) rather
+than assuming the install succeeded.
 
 ### License invalid
 
