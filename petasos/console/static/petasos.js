@@ -3110,8 +3110,11 @@
   Pet.hermesEffectiveReadout = function (d) {
     var eff = (d && d.effective_config && typeof d.effective_config === "object") ? d.effective_config : {};
     var ov = (d && d.active_profile_overrides && typeof d.active_profile_overrides === "object") ? d.active_profile_overrides : null;
-    var box = Pet.h("div", { className: "pet-hermes-effective" });
-    box.appendChild(Pet.h("div", { className: "pet-hermes-effective-head" }, "effective (what's enforced)"));
+    // Collapsed by default (house style): the resolved tier thresholds are honest
+    // but crowd the simplified Strength view, so they live behind a disclosure and
+    // stay one click away rather than always-on.
+    var box = Pet.h("details", { className: "pet-hermes-effective" });
+    box.appendChild(Pet.h("summary", { className: "pet-hermes-effective-head" }, "effective (what's enforced)"));
     var t1 = eff.tier1_threshold, t2 = eff.tier2_threshold, t3 = eff.tier3_threshold;
     box.appendChild(Pet.h("div", { className: "mono pet-hermes-effective-row" },
       "tier thresholds: " + (t1 != null ? t1 : "?") + " / " + (t2 != null ? t2 : "?") + " / " + (t3 != null ? t3 : "?")));

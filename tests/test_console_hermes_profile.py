@@ -16,6 +16,7 @@ fixtures — the same shape the live resolver reads.
 from __future__ import annotations
 
 import json
+import os
 import platform
 from typing import TYPE_CHECKING, Any, cast
 
@@ -26,7 +27,11 @@ pytest.importorskip("fastapi")
 
 from petasos.config import PetasosConfig  # noqa: E402
 from petasos.console.hermes import plugin_api  # noqa: E402
-from petasos.console.server import ConsoleHandlers, ProfileNotFoundError  # noqa: E402
+from petasos.console.server import (  # noqa: E402
+    ConsoleHandlers,
+    ProfileNotFoundError,
+    _display_home,
+)
 from petasos.pipeline import Pipeline  # noqa: E402
 from petasos.scanners.minimal import MinimalScanner  # noqa: E402
 
@@ -85,11 +90,27 @@ async def test_get_config_surfaces_binding_profile_tier(
 
     assert payload["config_tier"] == "profile"
     assert payload["hermes_profile"] == "gibson"
-    assert payload["profile_home"] == str(active.parent)
+    # profile_home is home-collapsed for display (no raw OS username over the API);
+    # _display_home is a no-op for paths outside the home dir (e.g. CI tmp roots).
+    assert payload["profile_home"] == _display_home(active.parent)
     assert payload["config_warning"] is None
     assert payload["is_active"] is True
     names = {p["name"] for p in payload["hermes_profiles"]}
     assert "gibson" in names
+    # The displayed binding path must not leak the raw OS user home prefix.
+    assert os.path.expanduser("~") not in payload["profile_home"]
+
+
+async def test_display_home_collapses_user_prefix_only_under_home() -> None:
+    home = os.path.expanduser("~")
+    under = os.path.join(home, "AppData", "Local", "hermes", "profiles", "gibson")
+    collapsed = _display_home(under)
+    assert collapsed.startswith("~")
+    assert home not in collapsed
+    assert collapsed == "~" + under[len(home) :]
+    # A path outside the home directory is returned untouched (e.g. CI tmp roots).
+    outside = os.path.join(os.sep + "opt", "elsewhere", "profiles", "gibson")
+    assert _display_home(outside) == outside
 
 
 async def test_get_config_surfaces_binding_hermes_home_tier(

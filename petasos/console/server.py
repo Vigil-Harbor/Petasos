@@ -15,6 +15,7 @@ import hashlib
 import hmac
 import json
 import logging
+import os
 import time
 import uuid
 from collections import deque
@@ -454,6 +455,31 @@ def _hermes_profile_label(res: "HermesConfigResolution") -> str:
     if res.tier == "hermes_home":
         return "HERMES_HOME"
     return "root"
+
+
+def _display_home(path: "Path | str") -> str:
+    """Collapse the operator's home-directory prefix to ``~`` for display.
+
+    The binding read-out surfaces an absolute ``profile_home`` over the API; left
+    raw it leaks the OS username (``C:\\Users\\jane\\...``) into the console UI,
+    screenshots, and logs. Collapse a home-relative path to ``~\\...`` and leave
+    any path outside the home directory untouched. Case-insensitive on Windows
+    (``normcase``); never raises.
+    """
+    s = str(path)
+    try:
+        home = os.path.expanduser("~")
+    except Exception:
+        return s
+    if not home or home == "~":
+        return s
+    n_s, n_home = os.path.normcase(s), os.path.normcase(home)
+    if n_s == n_home:
+        return "~"
+    for sep in (os.sep, "/"):
+        if n_s.startswith(n_home + os.path.normcase(sep)):
+            return "~" + s[len(home) :]
+    return s
 
 
 def _compute_effective_config(
@@ -1025,7 +1051,7 @@ class ConsoleHandlers:
             "active_preset": resolve_active_preset(cfg),
             # PET-146 D1: the binding identity, effective view, and profile list.
             "hermes_profile": _hermes_profile_label(active_res),
-            "profile_home": str(active_res.path.parent),
+            "profile_home": _display_home(active_res.path.parent),
             "config_tier": active_res.tier,
             "config_warning": active_res.warning,
             "profile_warning": profile_warning,
