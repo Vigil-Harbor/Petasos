@@ -31,7 +31,7 @@ config; changing one never touches another.
 The selector sits at the top of the **Config Editor** tab, above the Strength
 dial. Under it, a binding read-out names exactly what you are editing:
 
-```
+```text
 binding: gibson · tier profile · ~\AppData\Local\hermes\profiles\gibson
 ```
 
@@ -87,14 +87,19 @@ entities) that is not a plain config field. It is collapsed by default so it
 does not crowd the Strength view; the detail is one click away when you need to
 audit exactly what the resolved posture is.
 
-## Security-relevant changes need a restart
+## What applies live vs what needs a restart
 
-Petasos pins its config binding once, at boot. A disarm, a tier change, or any
-edit written to a profile is picked up by the running gateway only after a
-**gateway/process restart** (the boot profile is pinned; a live in-place swap is
-not yet a supported path on current Hermes). After switching a security-bearing
-agent's profile, restart its gateway and confirm the new binding from the
-`PETASOS_ARMED_RESOLUTION tier=<t> path=<p>` log line. Full contract:
+Editing the **equipped** profile's settings hot-applies on save: the running
+gateway re-reads its pinned config and the new values take effect on the next
+tool call. No restart is needed for that.
+
+What does **not** apply live is changing *which* profile is equipped. Petasos
+pins its config binding once, at boot, so retargeting a running gateway to a
+different profile in place is not picked up. Edits you stage on a **non-equipped**
+profile stay dormant until that profile is equipped, and on current Hermes
+equipping it means a **gateway/process restart**. After switching a
+security-bearing agent's profile, restart its gateway and confirm the new binding
+from the `PETASOS_ARMED_RESOLUTION tier=<t> path=<p>` log line. Full contract:
 [hardening.md](../deployment/hardening.md) section 6.
 
 ---

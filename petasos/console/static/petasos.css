@@ -252,6 +252,7 @@
 /* Collapsed-by-default disclosure: a clean one-line summary with a rotating caret, so the honest tier read-out no longer crowds the simplified Strength view. */
 .pet summary.pet-hermes-effective-head { cursor: pointer; list-style: none; user-select: none; }
 .pet summary.pet-hermes-effective-head::-webkit-details-marker { display: none; }
+.pet summary.pet-hermes-effective-head::marker { content: ""; }
 .pet summary.pet-hermes-effective-head::before { content: "\25B8\00a0"; color: var(--tx-faint); }
 .pet details.pet-hermes-effective[open] > summary.pet-hermes-effective-head::before { content: "\25BE\00a0"; }
 .pet .pet-hermes-effective-row { font-size: 11px; color: var(--tx-mut); }
