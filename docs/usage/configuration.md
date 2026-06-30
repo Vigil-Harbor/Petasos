@@ -5,6 +5,11 @@ and the same order the editor shows them. If you are reading the editor and the
 docs side by side, they line up one-to-one. Profiles are the "start here" bundle:
 pick one that matches your use case and you rarely need to touch anything else.
 
+Running more than one Hermes agent role (a coding agent, a customer-service
+agent) from one install? The selector at the top of the editor configures each
+role's posture separately; see
+[Per-Hermes-agent security profiles](hermes-agent-profiles.md).
+
 > Verified against source at commit `770401e`. The section list, the field count,
 > and the set of documented fields are pinned to live source by
 > `tests/test_docs_usage_consistency.py`, so this page cannot silently fall out of
