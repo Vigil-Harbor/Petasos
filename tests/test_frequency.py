@@ -494,8 +494,12 @@ class TestWeightValidation:
     def test_default_weights_used_when_none(self) -> None:
         cfg = _cfg(frequency_weights=None)
         tracker = FrequencyTracker(cfg)
-        assert tracker._exact_weights == {}
-        assert len(tracker._glob_weights) == len(DEFAULT_FREQUENCY_WEIGHTS)
+        expected_exact = {
+            "petasos.selfmod.config_write": 10.0,
+            "petasos.selfmod.config_ref": 3.0,
+        }
+        assert tracker._exact_weights == expected_exact
+        assert len(tracker._glob_weights) == len(DEFAULT_FREQUENCY_WEIGHTS) - len(expected_exact)
 
     def test_command_family_default_weight(self) -> None:
         # Regression for PET-94 (Decision 3.2): the command family carries the

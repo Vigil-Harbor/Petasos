@@ -40,6 +40,8 @@ def _validate_suppress_rules(suppress: frozenset[str], scope: FloorScope) -> fro
     # required (no default) so every caller passes it consciously — a forgotten
     # argument must not silently over-strip on the load-bearing path.
     strip = _STRUCTURAL_RULE_IDS if scope == "inbound" else _UNSUPPRESSIBLE_RULE_IDS
+    selfmod_ids = frozenset(r for r in suppress if r.startswith("petasos.selfmod."))
+    strip = strip | selfmod_ids
     blocked = suppress & strip
     if blocked:
         _logger.warning(

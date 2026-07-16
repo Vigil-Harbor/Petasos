@@ -171,6 +171,8 @@ class _FakeGuardResult:
     reason = "blocked"
     param_scan_unsafe = False
     findings: list[Any] = []
+    selfmod_target = None
+    selfmod_finding = None
 
 
 class TestArmDisarmGate:
