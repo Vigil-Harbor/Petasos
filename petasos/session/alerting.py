@@ -218,7 +218,7 @@ class AlertManager:
 
         return surviving
 
-    def evaluate_selfmod(self, finding: "ScanFinding", session_id: str | None) -> Alert | None:
+    def evaluate_selfmod(self, finding: ScanFinding, session_id: str | None) -> Alert | None:
         """Dedicated selfmod alert delivery (PET-164 Decision 7).
 
         Cooldown-exempt, per-rule_id critical cap only. Never touches the five

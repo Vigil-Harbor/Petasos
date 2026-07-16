@@ -41,13 +41,16 @@ import time
 import uuid
 from typing import Any
 
-from petasos.console._paths import (
-    _SPOOL_FILENAME,
-    _ROT_SUFFIX,
-    resolve_hermes_config_path,
-    spool_path as _paths_spool_path,
-)
 from petasos.console import _paths as _paths_mod
+from petasos.console._paths import (
+    _ROT_SUFFIX as _ROT_SUFFIX,
+)
+from petasos.console._paths import (
+    _SPOOL_FILENAME as _SPOOL_FILENAME,
+)
+from petasos.console._paths import (
+    resolve_hermes_config_path,
+)
 
 # Sized well above the motivating burst (~40 blocks / 2h18m, ~300 B/line) and far
 # above one tailer interval's worth at peak rate (spec D4). Module-level so a test

@@ -1,4 +1,5 @@
 """Adversarial suppression bypass tests for selfmod (PET-164 Decision 3/4/5/6)."""
+
 from __future__ import annotations
 
 import os
@@ -45,10 +46,12 @@ class TestFrequencyWeightFloors:
 
     @pytest.mark.anyio
     async def test_exact_zero_weight_floors_hold(self, owned_path: str) -> None:
-        config = PetasosConfig(frequency_weights={
-            "petasos.selfmod.config_write": 0.0,
-            "petasos.selfmod.config_ref": 0.0,
-        })
+        config = PetasosConfig(
+            frequency_weights={
+                "petasos.selfmod.config_write": 0.0,
+                "petasos.selfmod.config_ref": 0.0,
+            }
+        )
         _, guard, tracker = _make_guard(config, owned_path=owned_path)
         result = await guard.evaluate("write_file", {"path": owned_path}, "s1")
         assert result.selfmod_finding is not None
@@ -59,9 +62,11 @@ class TestFrequencyWeightFloors:
 
     @pytest.mark.anyio
     async def test_glob_zero_weight_floors_hold(self, owned_path: str) -> None:
-        config = PetasosConfig(frequency_weights={
-            "petasos.selfmod.*": 0.0,
-        })
+        config = PetasosConfig(
+            frequency_weights={
+                "petasos.selfmod.*": 0.0,
+            }
+        )
         _, guard, tracker = _make_guard(config, owned_path=owned_path)
         result = await guard.evaluate("write_file", {"path": owned_path}, "s1")
         assert result.selfmod_finding is not None
@@ -118,10 +123,12 @@ class TestProfileSuppression:
 
         profile = ResolvedProfile(
             name="test",
-            suppress_rules=frozenset({
-                "petasos.selfmod.config_write",
-                "petasos.selfmod.config_ref",
-            }),
+            suppress_rules=frozenset(
+                {
+                    "petasos.selfmod.config_write",
+                    "petasos.selfmod.config_ref",
+                }
+            ),
             severity_overrides=MappingProxyType({}),
             confidence_floor=0.0,
             tier_thresholds=None,
@@ -138,6 +145,7 @@ class TestSeverityOverrideRefused:
 
     def test_selfmod_is_floor_rule(self) -> None:
         from petasos.pipeline import _is_floor_rule
+
         assert _is_floor_rule("petasos.selfmod.config_write") is True
         assert _is_floor_rule("petasos.selfmod.config_ref") is True
         assert _is_floor_rule("petasos.selfmod.console_probe") is True
@@ -153,6 +161,7 @@ class TestBuiltInProfilesDetectionSurvives:
     )
     async def test_builtin_profile_detection(self, owned_path: str, profile_name: str) -> None:
         from petasos.session.profiles import ProfileResolver
+
         resolver = ProfileResolver()
         profile = resolver.resolve(profile_name)
         config = PetasosConfig()

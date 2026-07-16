@@ -57,6 +57,7 @@ class _SelfmodMatch(NamedTuple):
     rule_id: str
     target: str
 
+
 DEFAULT_TOOL_ALIASES: MappingProxyType[str, str] = MappingProxyType(
     {
         "bash": "exec",
@@ -322,7 +323,7 @@ class ToolCallGuard:
                 return None
 
             def _normalize_for_compare(s: str) -> str:
-                s = re.sub(r'\\u([0-9a-fA-F]{4})', lambda m: chr(int(m.group(1), 16)), s)
+                s = re.sub(r"\\u([0-9a-fA-F]{4})", lambda m: chr(int(m.group(1), 16)), s)
                 s = s.replace("\\\\", "/").replace("\\", "/").replace("/", os.sep)
                 s = os.path.normcase(s)
                 try:
@@ -337,23 +338,17 @@ class ToolCallGuard:
                 normed = _normalize_for_compare(tls)
                 for entry in owned:
                     if normed == entry:
-                        return _SelfmodMatch(
-                            rule_id="petasos.selfmod.config_write", target=entry
-                        )
+                        return _SelfmodMatch(rule_id="petasos.selfmod.config_write", target=entry)
 
             for part in all_parts:
                 normed = _normalize_for_compare(part)
                 for entry in owned:
                     if entry in normed:
-                        return _SelfmodMatch(
-                            rule_id="petasos.selfmod.config_ref", target=entry
-                        )
+                        return _SelfmodMatch(rule_id="petasos.selfmod.config_ref", target=entry)
 
             return None
         except Exception:
-            _logger.warning(
-                "selfmod classifier error for tool=%s", canon_pre_alias, exc_info=True
-            )
+            _logger.warning("selfmod classifier error for tool=%s", canon_pre_alias, exc_info=True)
             return None
 
     def validate_config(self, new_config: PetasosConfig) -> None:

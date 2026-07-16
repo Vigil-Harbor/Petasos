@@ -42,6 +42,7 @@ from petasos.session.formatting import (  # PET-77: dep-light (string formatting
     format_block_message,
     format_content_block,
 )
+from petasos.session.guard import READ_ONLY_TOOLS
 
 if TYPE_CHECKING:
     from petasos import PetasosConfig
@@ -164,8 +165,6 @@ _subagent_hooks_available = False
 # but Hermes invoke_hook is sync).
 _async_loop: asyncio.AbstractEventLoop | None = None
 _async_thread: threading.Thread | None = None
-
-from petasos.session.guard import READ_ONLY_TOOLS
 
 # PET-118: derived sibling canonical set. READ_ONLY_TOOLS stays the immutable raw
 # source-of-truth; _READ_ONLY_CANON is canonicalized at MODULE LOAD (not _deferred_init)
@@ -1251,6 +1250,7 @@ def _pre_tool_call(
     if result.selfmod_target is not None:
         try:
             from petasos.console._paths import display_path
+
             _emit_enforcement_event(
                 session_id=session_id,
                 tool=tool_name,

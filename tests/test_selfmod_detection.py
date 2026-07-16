@@ -125,9 +125,7 @@ class TestConfigRefClassification:
 
     async def test_shell_cat_is_config_ref(self, guard_pair: _GuardPair) -> None:
         pipeline, guard, tracker, owned = guard_pair
-        result = await guard.evaluate(
-            "bash", {"command": f"cat {_denormalize(owned)}"}, "s1"
-        )
+        result = await guard.evaluate("bash", {"command": f"cat {_denormalize(owned)}"}, "s1")
         assert result.selfmod_finding is not None
         assert result.selfmod_finding.rule_id == "petasos.selfmod.config_ref"
 
@@ -170,9 +168,7 @@ class TestReadOnlyExclusion:
 
     async def test_read_file_no_classification(self, guard_pair: _GuardPair) -> None:
         pipeline, guard, tracker, owned = guard_pair
-        result = await guard.evaluate(
-            "read_file", {"path": _denormalize(owned)}, "s1"
-        )
+        result = await guard.evaluate("read_file", {"path": _denormalize(owned)}, "s1")
         assert result.selfmod_finding is None
         assert result.selfmod_target is None
 
@@ -187,9 +183,7 @@ class TestReadOnlyExclusion:
     async def test_web_search_no_classification(self, guard_pair: _GuardPair) -> None:
         """web_search is read-only, should not trigger selfmod."""
         pipeline, guard, tracker, owned = guard_pair
-        result = await guard.evaluate(
-            "web_search", {"query": _denormalize(owned)}, "s1"
-        )
+        result = await guard.evaluate("web_search", {"query": _denormalize(owned)}, "s1")
         assert result.selfmod_finding is None
 
 
@@ -222,9 +216,7 @@ class TestHostileAliasMap:
             time.monotonic() + 9999,
             frozenset({owned_path}),
         )
-        result = await guard.evaluate(
-            "write_file", {"path": _denormalize(owned_path)}, "s1"
-        )
+        result = await guard.evaluate("write_file", {"path": _denormalize(owned_path)}, "s1")
         assert result.selfmod_finding is not None
         assert result.selfmod_finding.rule_id == "petasos.selfmod.config_write"
 
@@ -240,9 +232,7 @@ class TestAdversarialArgShapes:
 
     async def test_bytes_value_no_exception(self, guard_pair: _GuardPair) -> None:
         pipeline, guard, tracker, owned = guard_pair
-        result_baseline = await guard.evaluate(
-            "write_file", {"path": "safe.txt"}, "s1"
-        )
+        result_baseline = await guard.evaluate("write_file", {"path": "safe.txt"}, "s1")
         result = await guard.evaluate(
             "write_file",
             {"path": b"bytes-value"},
@@ -253,9 +243,7 @@ class TestAdversarialArgShapes:
 
     async def test_non_str_keys_no_exception(self, guard_pair: _GuardPair) -> None:
         pipeline, guard, tracker, owned = guard_pair
-        result_baseline = await guard.evaluate(
-            "write_file", {"path": "safe.txt"}, "s1"
-        )
+        result_baseline = await guard.evaluate("write_file", {"path": "safe.txt"}, "s1")
         result = await guard.evaluate(
             "write_file",
             {123: "non-str-key"},  # type: ignore[dict-item]
@@ -266,25 +254,23 @@ class TestAdversarialArgShapes:
 
     async def test_deep_nesting_no_exception(self, guard_pair: _GuardPair) -> None:
         pipeline, guard, tracker, owned = guard_pair
-        result_baseline = await guard.evaluate(
-            "write_file", {"path": "safe.txt"}, "s1"
-        )
+        result_baseline = await guard.evaluate("write_file", {"path": "safe.txt"}, "s1")
         evil_params = {
             "path": b"bytes-value",
             123: "non-str-key",
             "nested": {"deep": {"deeper": owned}},
         }
         result = await guard.evaluate(
-            "write_file", evil_params, "s2"  # type: ignore[arg-type]
+            "write_file",
+            evil_params,  # type: ignore[arg-type]
+            "s2",
         )
         assert result.allowed == result_baseline.allowed
         assert result.reason == result_baseline.reason
 
     async def test_none_values_no_exception(self, guard_pair: _GuardPair) -> None:
         pipeline, guard, tracker, owned = guard_pair
-        result = await guard.evaluate(
-            "write_file", {"path": None, "content": None}, "s1"
-        )
+        result = await guard.evaluate("write_file", {"path": None, "content": None}, "s1")
         # Should not raise; selfmod_finding should be None (no path-like values)
         assert result.selfmod_finding is None
 
@@ -302,9 +288,7 @@ class TestSideEffectFree:
     ) -> None:
         pipeline, guard, tracker, owned = guard_pair
         # Evaluate without the owned path -> baseline
-        baseline = await guard.evaluate(
-            "write_file", {"path": "safe.txt", "content": "ok"}, "s1"
-        )
+        baseline = await guard.evaluate("write_file", {"path": "safe.txt", "content": "ok"}, "s1")
         # Evaluate with the owned path -> selfmod classified but same verdict
         result = await guard.evaluate(
             "write_file", {"path": _denormalize(owned), "content": "ok"}, "s2"
@@ -322,9 +306,7 @@ class TestSideEffectFree:
 class TestRecordSelfmodFaultTolerance:
     """record_selfmod never throws even with broken internals."""
 
-    async def test_record_selfmod_with_broken_audit_emitter(
-        self, guard_pair: _GuardPair
-    ) -> None:
+    async def test_record_selfmod_with_broken_audit_emitter(self, guard_pair: _GuardPair) -> None:
         pipeline, guard, tracker, owned = guard_pair
         finding = ScanFinding(
             rule_id="petasos.selfmod.config_write",
@@ -339,9 +321,7 @@ class TestRecordSelfmodFaultTolerance:
         # Should not raise
         pipeline.record_selfmod("s1", finding)
 
-    async def test_record_selfmod_with_broken_alert_manager(
-        self, guard_pair: _GuardPair
-    ) -> None:
+    async def test_record_selfmod_with_broken_alert_manager(self, guard_pair: _GuardPair) -> None:
         pipeline, guard, tracker, owned = guard_pair
         finding = ScanFinding(
             rule_id="petasos.selfmod.config_write",
@@ -356,9 +336,7 @@ class TestRecordSelfmodFaultTolerance:
         # Should not raise
         pipeline.record_selfmod("s1", finding)
 
-    async def test_record_selfmod_with_none_session_id(
-        self, guard_pair: _GuardPair
-    ) -> None:
+    async def test_record_selfmod_with_none_session_id(self, guard_pair: _GuardPair) -> None:
         pipeline, guard, tracker, owned = guard_pair
         finding = ScanFinding(
             rule_id="petasos.selfmod.config_ref",
@@ -382,21 +360,15 @@ class TestGuardResultSerialization:
 
     async def test_to_dict_includes_selfmod_fields(self, guard_pair: _GuardPair) -> None:
         pipeline, guard, tracker, owned = guard_pair
-        result = await guard.evaluate(
-            "write_file", {"path": _denormalize(owned)}, "s1"
-        )
+        result = await guard.evaluate("write_file", {"path": _denormalize(owned)}, "s1")
         d = result.to_dict()
         assert "selfmod_target" in d
         assert "selfmod_finding" in d
         assert d["selfmod_target"] == owned
 
-    async def test_to_dict_selfmod_finding_none_when_absent(
-        self, guard_pair: _GuardPair
-    ) -> None:
+    async def test_to_dict_selfmod_finding_none_when_absent(self, guard_pair: _GuardPair) -> None:
         pipeline, guard, tracker, owned = guard_pair
-        result = await guard.evaluate(
-            "write_file", {"path": "safe.txt"}, "s1"
-        )
+        result = await guard.evaluate("write_file", {"path": "safe.txt"}, "s1")
         d = result.to_dict()
         assert d["selfmod_target"] is None
         assert d["selfmod_finding"] is None

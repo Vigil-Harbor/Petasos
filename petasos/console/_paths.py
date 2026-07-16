@@ -296,7 +296,7 @@ def spool_rot_path() -> str:
     return spool_path() + _ROT_SUFFIX
 
 
-def display_path(path: "Path | str") -> str:
+def display_path(path: Path | str) -> str:
     """Collapse the operator's home-directory prefix to ``~`` for display.
 
     Case-insensitive on Windows (``normcase``); never raises.
@@ -313,5 +313,5 @@ def display_path(path: "Path | str") -> str:
         return "~"
     for sep in (os.sep, "/"):
         if n_s.startswith(n_home + os.path.normcase(sep)):
-            return "~" + s[len(home):]
+            return "~" + s[len(home) :]
     return s

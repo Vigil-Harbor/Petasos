@@ -1,4 +1,5 @@
 """Shape/static tests pinning the selfmod floor (PET-164 Decision 12)."""
+
 from __future__ import annotations
 
 import ast
@@ -8,7 +9,8 @@ _SRC = Path(__file__).resolve().parent.parent / "petasos"
 
 
 def _parse_function(
-    filepath: Path, func_name: str,
+    filepath: Path,
+    func_name: str,
 ) -> ast.FunctionDef | ast.AsyncFunctionDef:
     """Parse a file and return the named function's AST node."""
     tree = ast.parse(filepath.read_text(encoding="utf-8"))
@@ -19,7 +21,9 @@ def _parse_function(
 
 
 def _find_method_in_class(
-    filepath: Path, class_name: str, method_name: str,
+    filepath: Path,
+    class_name: str,
+    method_name: str,
 ) -> ast.FunctionDef | ast.AsyncFunctionDef:
     tree = ast.parse(filepath.read_text(encoding="utf-8"))
     for node in ast.walk(tree):
@@ -38,7 +42,9 @@ class TestRecordSelfmodShape:
 
     def test_single_is_enabled_gate(self) -> None:
         func = _find_method_in_class(
-            _SRC / "pipeline.py", "Pipeline", "record_selfmod",
+            _SRC / "pipeline.py",
+            "Pipeline",
+            "record_selfmod",
         )
         source = ast.dump(func)
         count = source.count("_is_enabled")
@@ -46,10 +52,13 @@ class TestRecordSelfmodShape:
 
     def test_is_enabled_audit_only(self) -> None:
         func = _find_method_in_class(
-            _SRC / "pipeline.py", "Pipeline", "record_selfmod",
+            _SRC / "pipeline.py",
+            "Pipeline",
+            "record_selfmod",
         )
         calls = [
-            node for node in ast.walk(func)
+            node
+            for node in ast.walk(func)
             if isinstance(node, ast.Call)
             and isinstance(node.func, ast.Attribute)
             and node.func.attr == "_is_enabled"
@@ -155,8 +164,5 @@ class TestNoSelfmodConfigField:
                 and isinstance(node.value, str)
                 and "selfmod" in node.value.lower()
             ):
-                msg = (
-                    f"_config_meta.py contains a selfmod-related string:"
-                    f" {node.value!r}"
-                )
+                msg = f"_config_meta.py contains a selfmod-related string: {node.value!r}"
                 raise AssertionError(msg)
