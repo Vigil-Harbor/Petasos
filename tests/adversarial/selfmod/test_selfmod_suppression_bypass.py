@@ -3,16 +3,20 @@ from __future__ import annotations
 
 import os
 import time
-from pathlib import Path
 from types import MappingProxyType
+from typing import TYPE_CHECKING
 
 import pytest
 
-from petasos._types import ScanFinding, Severity
 from petasos.config import PetasosConfig
 from petasos.pipeline import Pipeline
 from petasos.session.frequency import FrequencyTracker
 from petasos.session.guard import ToolCallGuard
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from petasos.session.profiles import ResolvedProfile
 
 
 @pytest.fixture()
@@ -23,7 +27,11 @@ def owned_path(tmp_path: Path) -> str:
     return os.path.normcase(str(p.resolve(strict=False)))
 
 
-def _make_guard(config: PetasosConfig, profile=None, owned_path: str = ""):
+def _make_guard(
+    config: PetasosConfig,
+    profile: ResolvedProfile | None = None,
+    owned_path: str = "",
+) -> tuple[Pipeline, ToolCallGuard, FrequencyTracker]:
     pipeline = Pipeline(config=config, host_id="test-host")
     tracker = FrequencyTracker(config)
     guard = ToolCallGuard(pipeline, tracker, config, profile)
@@ -36,7 +44,7 @@ class TestFrequencyWeightFloors:
     """frequency_weights zeroing (glob and exact) -> floors hold."""
 
     @pytest.mark.anyio
-    async def test_exact_zero_weight_floors_hold(self, owned_path: str):
+    async def test_exact_zero_weight_floors_hold(self, owned_path: str) -> None:
         config = PetasosConfig(frequency_weights={
             "petasos.selfmod.config_write": 0.0,
             "petasos.selfmod.config_ref": 0.0,
@@ -50,7 +58,7 @@ class TestFrequencyWeightFloors:
         assert state.last_score >= 10.0
 
     @pytest.mark.anyio
-    async def test_glob_zero_weight_floors_hold(self, owned_path: str):
+    async def test_glob_zero_weight_floors_hold(self, owned_path: str) -> None:
         config = PetasosConfig(frequency_weights={
             "petasos.selfmod.*": 0.0,
         })
@@ -66,7 +74,7 @@ class TestAlertBypasses:
     """alert_enabled: false -> selfmod alert still delivered."""
 
     @pytest.mark.anyio
-    async def test_alert_enabled_false_still_delivers(self, owned_path: str):
+    async def test_alert_enabled_false_still_delivers(self, owned_path: str) -> None:
         alerts = []
         config = PetasosConfig(alert_enabled=False)
         pipeline, guard, tracker = _make_guard(config, owned_path=owned_path)
@@ -75,7 +83,7 @@ class TestAlertBypasses:
         assert any(a.rule_id == "selfmod_attempt" for a in alerts)
 
     @pytest.mark.anyio
-    async def test_frequency_enabled_false_still_records(self, owned_path: str):
+    async def test_frequency_enabled_false_still_records(self, owned_path: str) -> None:
         config = PetasosConfig(frequency_enabled=False)
         _, guard, tracker = _make_guard(config, owned_path=owned_path)
         await guard.evaluate("write_file", {"path": owned_path}, "s1")
@@ -88,7 +96,7 @@ class TestInflatedThresholds:
     """Inflated thresholds / near-zero half-life -> alert + receipt still fire."""
 
     @pytest.mark.anyio
-    async def test_inflated_thresholds_alert_fires(self, owned_path: str):
+    async def test_inflated_thresholds_alert_fires(self, owned_path: str) -> None:
         alerts = []
         config = PetasosConfig(
             tier1_threshold=1e9,
@@ -105,12 +113,15 @@ class TestInflatedThresholds:
 class TestProfileSuppression:
     """Profile suppress_rules with selfmod ids -> stripped at parse."""
 
-    def test_suppress_rules_strips_selfmod(self):
+    def test_suppress_rules_strips_selfmod(self) -> None:
         from petasos.session.profiles import ResolvedProfile
 
         profile = ResolvedProfile(
             name="test",
-            suppress_rules=frozenset({"petasos.selfmod.config_write", "petasos.selfmod.config_ref"}),
+            suppress_rules=frozenset({
+                "petasos.selfmod.config_write",
+                "petasos.selfmod.config_ref",
+            }),
             severity_overrides=MappingProxyType({}),
             confidence_floor=0.0,
             tier_thresholds=None,
@@ -125,7 +136,7 @@ class TestProfileSuppression:
 class TestSeverityOverrideRefused:
     """severity_overrides downgrade attempt -> refused (floor rule)."""
 
-    def test_selfmod_is_floor_rule(self):
+    def test_selfmod_is_floor_rule(self) -> None:
         from petasos.pipeline import _is_floor_rule
         assert _is_floor_rule("petasos.selfmod.config_write") is True
         assert _is_floor_rule("petasos.selfmod.config_ref") is True
@@ -136,8 +147,11 @@ class TestBuiltInProfilesDetectionSurvives:
     """Every built-in profile applied -> detection still fires."""
 
     @pytest.mark.anyio
-    @pytest.mark.parametrize("profile_name", ["general", "customer_service", "code_generation", "research", "admin"])
-    async def test_builtin_profile_detection(self, owned_path: str, profile_name: str):
+    @pytest.mark.parametrize(
+        "profile_name",
+        ["general", "customer_service", "code_generation", "research", "admin"],
+    )
+    async def test_builtin_profile_detection(self, owned_path: str, profile_name: str) -> None:
         from petasos.session.profiles import ProfileResolver
         resolver = ProfileResolver()
         profile = resolver.resolve(profile_name)

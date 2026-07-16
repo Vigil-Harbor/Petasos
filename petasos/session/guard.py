@@ -274,6 +274,24 @@ class ToolCallGuard:
             _logger.debug("selfmod_target_paths: failed to build owned set", exc_info=True)
             return cached or frozenset()
 
+    @staticmethod
+    def _extract_leaf_strings(value: Any, depth: int = 0) -> list[str]:
+        if depth > 32:
+            return []
+        if isinstance(value, str):
+            return [value]
+        if isinstance(value, dict):
+            out: list[str] = []
+            for v in value.values():
+                out.extend(ToolCallGuard._extract_leaf_strings(v, depth + 1))
+            return out
+        if isinstance(value, (list, tuple)):
+            out = []
+            for item in value:
+                out.extend(ToolCallGuard._extract_leaf_strings(item, depth + 1))
+            return out
+        return []
+
     def _classify_selfmod(
         self, canon_pre_alias: str, tool_params: dict[str, Any]
     ) -> _SelfmodMatch | None:
@@ -297,7 +315,7 @@ class ToolCallGuard:
                     top_level_strs.append(value)
                     all_parts.append(value)
                 else:
-                    all_parts.append(safe_json_dumps(value))
+                    all_parts.extend(self._extract_leaf_strings(value))
 
             any_sep = any(_has_sep(p) for p in all_parts)
             if not any_sep:
@@ -306,7 +324,14 @@ class ToolCallGuard:
             def _normalize_for_compare(s: str) -> str:
                 s = re.sub(r'\\u([0-9a-fA-F]{4})', lambda m: chr(int(m.group(1), 16)), s)
                 s = s.replace("\\\\", "/").replace("\\", "/").replace("/", os.sep)
-                return os.path.normcase(s)
+                s = os.path.normcase(s)
+                try:
+                    p = Path(s)
+                    if p.is_absolute():
+                        s = os.path.normcase(str(p.resolve(strict=False)))
+                except (OSError, ValueError):
+                    pass
+                return s
 
             for tls in top_level_strs:
                 normed = _normalize_for_compare(tls)
@@ -419,7 +444,11 @@ class ToolCallGuard:
         selfmod = self._classify_selfmod(canon_pre_alias, tool_params)
         selfmod_finding: ScanFinding | None = None
         if selfmod is not None:
-            sev = Severity.CRITICAL if selfmod.rule_id == "petasos.selfmod.config_write" else Severity.HIGH
+            sev = (
+                Severity.CRITICAL
+                if selfmod.rule_id == "petasos.selfmod.config_write"
+                else Severity.HIGH
+            )
             selfmod_finding = ScanFinding(
                 rule_id=selfmod.rule_id,
                 finding_type="selfmod",

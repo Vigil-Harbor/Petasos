@@ -63,7 +63,7 @@ _MAX_TALLY_SESSIONS = 10_000
 _ENFORCEMENT_TAIL_INTERVAL_S = 1.0
 # PET-164 (D9): rate-limit for console_probe selfmod on 401. One recording per
 # interval so a brute-force loop cannot spam the audit/alert path.
-_selfmod_401_last: float = 0.0
+_selfmod_401_last: dict[int, float] = {}
 _SELFMOD_401_INTERVAL: float = 10.0
 # PET-139: rate-limit window for the integrity-failure tripwire (D9), mirroring the
 # reference plugin's `_DISARM_LOG_EVERY_S` cadence so a forging loop cannot spam the log.
@@ -1465,11 +1465,11 @@ def _maybe_fire_console_probe(pipeline: "Pipeline") -> None:
     Rate-limited to ``_SELFMOD_401_INTERVAL`` seconds so a brute-force loop
     cannot spam the audit/alert path.
     """
-    global _selfmod_401_last
+    pid = id(pipeline)
     now = time.monotonic()
-    if now - _selfmod_401_last < _SELFMOD_401_INTERVAL:
+    if now - _selfmod_401_last.get(pid, 0.0) < _SELFMOD_401_INTERVAL:
         return
-    _selfmod_401_last = now
+    _selfmod_401_last[pid] = now
     try:
         from petasos._types import ScanFinding, Severity
 
