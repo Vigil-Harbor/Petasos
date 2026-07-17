@@ -359,9 +359,11 @@ attempts escalate tiers through the ordinary frequency channel.
 frequency update runs in the guard on its own tracker.
 
 **Accepted detection misses (tripwire, not wall):** relative-path tricks,
-symlinked aliases, `$HERMES_HOME` indirection inside shell strings, ancestor-
-directory rename/delete, and owned paths beyond `safe_json_dumps`' depth/size
-caps. The OS boundary remains the containment mechanism; this layer is a
+symlinked aliases, `$HERMES_HOME` indirection inside shell strings, and
+ancestor-directory rename/delete. Nested-argument traversal
+(`_extract_leaf_strings`) is depth-capped at 32; when exceeded the call is
+flagged as suspicious (fail-secure). The OS boundary remains the containment
+mechanism; this layer is a
 tripwire. An unlisted read-only tool whose top-level arg *is* the owned path
 classifies as `config_write` even when the tool only reads (accepted FP
 direction; widen `READ_ONLY_TOOLS` as needed).

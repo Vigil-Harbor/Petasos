@@ -275,10 +275,12 @@ class ToolCallGuard:
             _logger.debug("selfmod_target_paths: failed to build owned set", exc_info=True)
             return cached or frozenset()
 
+    _EXTRACT_OVERFLOW = "\x00__PETASOS_DEPTH_OVERFLOW__"
+
     @staticmethod
     def _extract_leaf_strings(value: Any, depth: int = 0) -> list[str]:
         if depth > 32:
-            return []
+            return [ToolCallGuard._EXTRACT_OVERFLOW]
         if isinstance(value, str):
             return [value]
         if isinstance(value, dict):
@@ -317,6 +319,13 @@ class ToolCallGuard:
                     all_parts.append(value)
                 else:
                     all_parts.extend(self._extract_leaf_strings(value))
+
+            overflow = self._EXTRACT_OVERFLOW in all_parts
+            if overflow:
+                return _SelfmodMatch(
+                    rule_id="petasos.selfmod.config_ref",
+                    target=next(iter(owned)),
+                )
 
             any_sep = any(_has_sep(p) for p in all_parts)
             if not any_sep:

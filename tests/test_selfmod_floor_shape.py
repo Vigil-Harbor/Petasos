@@ -99,8 +99,12 @@ class TestEvaluateSelfmodShape:
             "AlertManager",
             "evaluate_selfmod",
         )
-        source = ast.dump(func)
-        assert "'critical'" in source or '"critical"' in source or "critical" in source
+        constants = {
+            node.value
+            for node in ast.walk(func)
+            if isinstance(node, ast.Constant) and isinstance(node.value, str)
+        }
+        assert "critical" in constants
 
     def test_no_rule_cooldowns_access(self) -> None:
         func = _find_method_in_class(
