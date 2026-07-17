@@ -377,7 +377,7 @@ repeated writes to the owned config reach tier 1 at the second write, tier 2
 thresholds, and shell reads (`cat`, `tail`) of the config or spool weigh 3.0
 each. When you direct an agent to edit the `petasos:` section, either flip the
 Equipped switch off for the duration (the documented master off-switch) or
-space the writes beyond the 60 second frequency half-life.
+space the writes beyond the 60-second frequency half-life.
 
 ### Profile changes require a restart (the boot profile is pinned)
 

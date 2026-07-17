@@ -1314,8 +1314,8 @@
         rowAttrs.role = "button";
         rowAttrs.tabIndex = 0;
         rowAttrs.ariaExpanded = isOpen;
-        rowAttrs.ariaLabel = (isEnforcement ? "enforcement" : "playground")
-          + " scan row, " + (isOpen ? "expanded" : "collapsed") + ", activate to toggle detail";
+        rowAttrs.ariaLabel = (isSelfmodRow ? "self-tamper detection" : (isEnforcement ? "enforcement" : "playground")
+          + " scan") + " row, " + (isOpen ? "expanded" : "collapsed") + ", activate to toggle detail";
         rowAttrs.onClick = toggle;
         rowAttrs.onKeydown = makeKey(toggle);
       }
