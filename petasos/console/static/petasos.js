@@ -1086,6 +1086,8 @@
     var isEnf = (e.source === "enforcement");
     var et = (e.event_type == null || e.event_type === "") ? "" : String(e.event_type);
     var isBypass = isEnf && et === "bypassed_disarmed";
+    // PET-164: self-tamper classification rows (detection only, never a block).
+    var isSelfmod = isEnf && et === "selfmod_attempt";
     var isEnfDecision = isEnf && !!ENF_KINDS[et];
     var isPlayground = (e.source == null || e.source === "" || e.source === "playground");
 
@@ -1099,6 +1101,7 @@
     var source = isEnf ? "enforcement" : (isPlayground ? "playground" : ("unknown (" + String(e.source) + ")"));
     var scanRan;
     if (isBypass) scanRan = "no (bypassed while Unequipped)";
+    else if (isSelfmod) scanRan = "n/a (tool argument classification, not a content scan)";
     else if (isEnfDecision || isPlayground) scanRan = "yes";
     else scanRan = "unknown";
     var armedStr;
@@ -1142,6 +1145,18 @@
         Pet.h("div", {}, "Enforcement bypassed (Unequipped). No scan was performed."),
         Pet.h("div", { className: "sd-sub" }, "A rate-limited heartbeat (about 1 per 30 s), not a per-call record; bypassed-call coverage is not counted here.")));
       wrap.appendChild(fld("tool", e.tool));
+      wrap.appendChild(fld("session", e.session_id));
+    } else if (isSelfmod) {
+      // PET-164: self-tamper attempt drill-down. Detection only: the classification
+      // never changed this call's allow/deny; repeated attempts escalate the session
+      // tier and a dedicated alert fires in the gateway log.
+      wrap.appendChild(Pet.h("div", { className: "sd-heartbeat" },
+        Pet.h("div", {}, "Self-tamper attempt: this call referenced a Petasos-owned config surface."),
+        Pet.h("div", { className: "sd-sub" }, "Detection only: the call itself was not blocked by this classification. Repeated attempts escalate the session tier; a dedicated alert fires in the gateway log.")));
+      wrap.appendChild(fld("tool", e.tool));
+      wrap.appendChild(fld("rule", e.rule_id));
+      wrap.appendChild(fld("severity", e.severity));
+      wrap.appendChild(fld("reason", e.reason));
       wrap.appendChild(fld("session", e.session_id));
     } else if (isEnfDecision) {
       wrap.appendChild(fld("tool", e.tool));
@@ -1246,10 +1261,14 @@
       var isEnforcement = (e.source === "enforcement");
       var et = (e.event_type == null || e.event_type === "") ? "" : String(e.event_type);
       var isBypass = isEnforcement && et === "bypassed_disarmed";
+      // PET-164: a self-tamper classification row is detection-only (safe=true on the
+      // summary), but it must never wear the green "safe" badge; amber "self-tamper"
+      // keeps red reserved for actual blocks.
+      var isSelfmodRow = isEnforcement && et === "selfmod_attempt";
       var isBlocked = (e.safe === false); // strict ===false; truthy-but-not-false is not "blocked"
 
-      var badgeText = isBypass ? "bypassed (disarmed)" : (isBlocked ? "blocked" : "safe");
-      var badgeClass = isBypass ? "warn" : (isBlocked ? "err" : "ok");
+      var badgeText = isBypass ? "bypassed (disarmed)" : (isSelfmodRow ? "self-tamper" : (isBlocked ? "blocked" : "safe"));
+      var badgeClass = (isBypass || isSelfmodRow) ? "warn" : (isBlocked ? "err" : "ok");
       var badge = Pet.h("span", { className: "pill " + badgeClass, style: { justifyContent: "center" } }, badgeText);
 
       var rowEls = [];

@@ -362,11 +362,22 @@ frequency update runs in the guard on its own tracker.
 symlinked aliases, `$HERMES_HOME` indirection inside shell strings, and
 ancestor-directory rename/delete. Nested-argument traversal
 (`_extract_leaf_strings`) is depth-capped at 32; when exceeded the call is
-flagged as suspicious (fail-secure). The OS boundary remains the containment
+flagged as suspicious (fail-secure) with the dedicated marker
+`<argument-depth-overflow>` recorded as the target, since no specific owned
+path was matched in that case. The OS boundary remains the containment
 mechanism; this layer is a
 tripwire. An unlisted read-only tool whose top-level arg *is* the owned path
 classifies as `config_write` even when the tool only reads (accepted FP
 direction; widen `READ_ONLY_TOOLS` as needed).
+
+**Operator note (legitimate config edits escalate).** The frequency weights do
+not distinguish an operator-directed edit session from an attack: rapid
+repeated writes to the owned config reach tier 1 at the second write, tier 2
+(all tool calls blocked) at the third, and tier 3 at the fifth under default
+thresholds, and shell reads (`cat`, `tail`) of the config or spool weigh 3.0
+each. When you direct an agent to edit the `petasos:` section, either flip the
+Equipped switch off for the duration (the documented master off-switch) or
+space the writes beyond the 60 second frequency half-life.
 
 ### Profile changes require a restart (the boot profile is pinned)
 

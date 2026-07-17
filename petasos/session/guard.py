@@ -58,6 +58,14 @@ class _SelfmodMatch(NamedTuple):
     target: str
 
 
+# Recorded as the selfmod target when the fail-secure depth-overflow branch fires.
+# Deliberately NOT an owned path: the overflow flag means the args could not be
+# fully traversed, so no specific path was matched and naming one would mislead
+# triage. Public-ish (no underscore) so the reference plugin and tests can
+# recognize the sentinel without string-copying it.
+SELFMOD_DEPTH_OVERFLOW_TARGET = "<argument-depth-overflow>"
+
+
 DEFAULT_TOOL_ALIASES: MappingProxyType[str, str] = MappingProxyType(
     {
         "bash": "exec",
@@ -324,7 +332,7 @@ class ToolCallGuard:
             if overflow:
                 return _SelfmodMatch(
                     rule_id="petasos.selfmod.config_ref",
-                    target=next(iter(owned)),
+                    target=SELFMOD_DEPTH_OVERFLOW_TARGET,
                 )
 
             any_sep = any(_has_sep(p) for p in all_parts)
@@ -453,12 +461,22 @@ class ToolCallGuard:
                 if selfmod.rule_id == "petasos.selfmod.config_write"
                 else Severity.HIGH
             )
+            if selfmod.target == SELFMOD_DEPTH_OVERFLOW_TARGET:
+                # Fail-secure overflow: the args exceeded the traversal depth cap,
+                # so no owned path was actually matched. The message must say that
+                # rather than claim a specific target.
+                msg = (
+                    "Self-tamper heuristic: tool argument nesting exceeded the "
+                    "traversal depth cap (fail-secure flag; no owned path matched)"
+                )
+            else:
+                msg = f"Self-tamper attempt targeting {selfmod.target}"
             selfmod_finding = ScanFinding(
                 rule_id=selfmod.rule_id,
                 finding_type="selfmod",
                 severity=sev,
                 confidence=1.0,
-                message=f"Self-tamper attempt targeting {selfmod.target}",
+                message=msg,
                 scanner_name="tool_guard",
             )
 

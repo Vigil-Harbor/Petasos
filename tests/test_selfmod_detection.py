@@ -19,7 +19,7 @@ from petasos._types import ScanFinding, Severity
 from petasos.config import PetasosConfig
 from petasos.pipeline import Pipeline
 from petasos.session.frequency import FrequencyTracker
-from petasos.session.guard import ToolCallGuard
+from petasos.session.guard import SELFMOD_DEPTH_OVERFLOW_TARGET, ToolCallGuard
 from petasos.session.profiles import ResolvedProfile
 
 if TYPE_CHECKING:
@@ -348,6 +348,47 @@ class TestRecordSelfmodFaultTolerance:
         )
         # None session_id should not raise
         pipeline.record_selfmod(None, finding)
+
+
+# ---------------------------------------------------------------------------
+# Depth-overflow fail-secure marker
+# ---------------------------------------------------------------------------
+
+
+class TestDepthOverflowMarker:
+    """Over-cap nesting flags fail-secure with the sentinel target, never a
+    fabricated owned path (the overflow means nothing was actually matched)."""
+
+    async def test_overflow_records_sentinel_not_owned_path(self, guard_pair: _GuardPair) -> None:
+        pipeline, guard, tracker, owned = guard_pair
+        deep: object = "innocuous"
+        for _ in range(40):
+            deep = {"k": deep}
+        result = await guard.evaluate("delegate_task", {"payload": deep}, "s1")
+        assert result.selfmod_finding is not None
+        assert result.selfmod_finding.rule_id == "petasos.selfmod.config_ref"
+        assert result.selfmod_target == SELFMOD_DEPTH_OVERFLOW_TARGET
+        assert owned not in result.selfmod_finding.message
+        assert "depth cap" in result.selfmod_finding.message
+        assert "no owned path matched" in result.selfmod_finding.message
+
+    async def test_overflow_via_list_nesting(self, guard_pair: _GuardPair) -> None:
+        pipeline, guard, tracker, owned = guard_pair
+        deep: object = ["benign/with/slash"]
+        for _ in range(40):
+            deep = [deep]
+        result = await guard.evaluate("delegate_task", {"payload": deep}, "s1")
+        assert result.selfmod_finding is not None
+        assert result.selfmod_target == SELFMOD_DEPTH_OVERFLOW_TARGET
+
+    async def test_matched_path_message_still_names_target(self, guard_pair: _GuardPair) -> None:
+        pipeline, guard, tracker, owned = guard_pair
+        result = await guard.evaluate(
+            "write_file", {"path": _denormalize(owned), "content": "x"}, "s1"
+        )
+        assert result.selfmod_finding is not None
+        assert owned in result.selfmod_finding.message
+        assert SELFMOD_DEPTH_OVERFLOW_TARGET not in result.selfmod_finding.message
 
 
 # ---------------------------------------------------------------------------
