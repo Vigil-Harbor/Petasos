@@ -187,36 +187,39 @@ class AlertManager:
 
             self._alert_count += 1
             surviving.append(candidate)
-
-            if self._on_alert is not None:
-                try:
-                    self._on_alert(candidate)
-                except BaseException as exc:
-                    _logger.exception(
-                        "on_alert callback failed for rule_id=%s",
-                        candidate.rule_id,
-                    )
-                    self._callback_errors.append(
-                        f"on_alert callback ({candidate.rule_id}, {type(exc).__name__}): {exc}"
-                        if str(exc)
-                        else f"on_alert callback ({candidate.rule_id}, {type(exc).__name__})"
-                    )
-
-            for listener in list(self._listeners):
-                try:
-                    listener(candidate)
-                except BaseException as exc:
-                    _logger.exception(
-                        "alert listener failed for rule_id=%s",
-                        candidate.rule_id,
-                    )
-                    self._callback_errors.append(
-                        f"alert listener ({candidate.rule_id}, {type(exc).__name__}): {exc}"
-                        if str(exc)
-                        else f"alert listener ({candidate.rule_id}, {type(exc).__name__})"
-                    )
+            self._dispatch(candidate)
 
         return surviving
+
+    def _dispatch(self, alert: Alert) -> None:
+        """Deliver *alert* to on_alert and every listener, recording callback errors."""
+        if self._on_alert is not None:
+            try:
+                self._on_alert(alert)
+            except BaseException as exc:
+                _logger.exception(
+                    "on_alert callback failed for rule_id=%s",
+                    alert.rule_id,
+                )
+                self._callback_errors.append(
+                    f"on_alert callback ({alert.rule_id}, {type(exc).__name__}): {exc}"
+                    if str(exc)
+                    else f"on_alert callback ({alert.rule_id}, {type(exc).__name__})"
+                )
+
+        for listener in list(self._listeners):
+            try:
+                listener(alert)
+            except BaseException as exc:
+                _logger.exception(
+                    "alert listener failed for rule_id=%s",
+                    alert.rule_id,
+                )
+                self._callback_errors.append(
+                    f"alert listener ({alert.rule_id}, {type(exc).__name__}): {exc}"
+                    if str(exc)
+                    else f"alert listener ({alert.rule_id}, {type(exc).__name__})"
+                )
 
     def evaluate_selfmod(self, finding: ScanFinding, session_id: str | None) -> Alert | None:
         """Dedicated selfmod alert delivery (PET-164 Decision 7).
@@ -255,34 +258,7 @@ class AlertManager:
         cap_deque.append(now)
 
         self._alert_count += 1
-
-        if self._on_alert is not None:
-            try:
-                self._on_alert(alert)
-            except BaseException as exc:
-                _logger.exception(
-                    "on_alert callback failed for rule_id=%s",
-                    alert.rule_id,
-                )
-                self._callback_errors.append(
-                    f"on_alert callback ({alert.rule_id}, {type(exc).__name__}): {exc}"
-                    if str(exc)
-                    else f"on_alert callback ({alert.rule_id}, {type(exc).__name__})"
-                )
-
-        for listener in list(self._listeners):
-            try:
-                listener(alert)
-            except BaseException as exc:
-                _logger.exception(
-                    "alert listener failed for rule_id=%s",
-                    alert.rule_id,
-                )
-                self._callback_errors.append(
-                    f"alert listener ({alert.rule_id}, {type(exc).__name__}): {exc}"
-                    if str(exc)
-                    else f"alert listener ({alert.rule_id}, {type(exc).__name__})"
-                )
+        self._dispatch(alert)
 
         return alert
 

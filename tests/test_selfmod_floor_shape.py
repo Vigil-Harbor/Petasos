@@ -8,18 +8,6 @@ from pathlib import Path
 _SRC = Path(__file__).resolve().parent.parent / "petasos"
 
 
-def _parse_function(
-    filepath: Path,
-    func_name: str,
-) -> ast.FunctionDef | ast.AsyncFunctionDef:
-    """Parse a file and return the named function's AST node."""
-    tree = ast.parse(filepath.read_text(encoding="utf-8"))
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == func_name:
-            return node
-    raise ValueError(f"{func_name} not found in {filepath}")
-
-
 def _find_method_in_class(
     filepath: Path,
     class_name: str,

@@ -480,75 +480,78 @@ class ToolCallGuard:
                 scanner_name="tool_guard",
             )
 
+        def _finish(result: GuardResult) -> GuardResult:
+            """Attach the selfmod fields and record the attempt at whichever exit fires.
+
+            A tier3 exit skips the frequency-weight update (the session is already
+            terminated); the alert/audit channel still records the attempt.
+            """
+            if selfmod is None or selfmod_finding is None:
+                return result
+            result = replace(
+                result,
+                selfmod_target=selfmod.target,
+                selfmod_finding=selfmod_finding,
+            )
+            if result.tier != "tier3":
+                self._record_selfmod_weight(session_id, selfmod_finding)
+            self._pipeline.record_selfmod(session_id, selfmod_finding)
+            return result
+
         # Step 2: Derive tier
         tier = self._derive_tier(session_id)
 
         # Step 3: Tier 3 → block
         if tier == "tier3":
-            result = GuardResult(
-                allowed=False,
-                reason="session terminated (tier3)",
-                findings=(),
-                tier="tier3",
-                param_scan_unsafe=False,
-                selfmod_target=selfmod.target if selfmod else None,
-                selfmod_finding=selfmod_finding,
+            return _finish(
+                GuardResult(
+                    allowed=False,
+                    reason="session terminated (tier3)",
+                    findings=(),
+                    tier="tier3",
+                    param_scan_unsafe=False,
+                )
             )
-            if selfmod is not None:
-                self._pipeline.record_selfmod(session_id, selfmod_finding)  # type: ignore[arg-type]
-            return result
 
         # Step 3.5: Delegation fan-out gate (PET-107 C).
         if self._config.delegate_fanout_enabled and normalized_name in self._delegate_tool_names:
             cap = self._fanout_cap(tier)
             if not self._spawn_budget.try_consume(session_id, cap, time.monotonic()):
-                result = GuardResult(
-                    allowed=False,
-                    reason="delegate fan-out budget exceeded",
-                    findings=(),
-                    tier=tier,
-                    param_scan_unsafe=False,
-                    selfmod_target=selfmod.target if selfmod else None,
-                    selfmod_finding=selfmod_finding,
+                return _finish(
+                    GuardResult(
+                        allowed=False,
+                        reason="delegate fan-out budget exceeded",
+                        findings=(),
+                        tier=tier,
+                        param_scan_unsafe=False,
+                    )
                 )
-                if selfmod is not None and selfmod_finding is not None:
-                    self._record_selfmod_weight(session_id, selfmod_finding)
-                    self._pipeline.record_selfmod(session_id, selfmod_finding)
-                return result
 
         # Step 4: Exempt check
         if self._profile and normalized_name in self._profile.tool_exempt_list:
             if not self._exempt_param_scan:
-                result = GuardResult(
-                    allowed=True,
-                    reason="tool exempt per profile",
-                    findings=(),
-                    tier=tier,
-                    param_scan_unsafe=False,
-                    selfmod_target=selfmod.target if selfmod else None,
-                    selfmod_finding=selfmod_finding,
+                return _finish(
+                    GuardResult(
+                        allowed=True,
+                        reason="tool exempt per profile",
+                        findings=(),
+                        tier=tier,
+                        param_scan_unsafe=False,
+                    )
                 )
-                if selfmod is not None and selfmod_finding is not None:
-                    self._record_selfmod_weight(session_id, selfmod_finding)
-                    self._pipeline.record_selfmod(session_id, selfmod_finding)
-                return result
             findings, param_scan_unsafe, param_scan_degraded = await self._scan_params(
                 tool_params, session_id
             )
-            result = GuardResult(
-                allowed=True,
-                reason="exempt-with-scan",
-                findings=findings,
-                tier=tier,
-                param_scan_unsafe=param_scan_unsafe,
-                param_scan_degraded=param_scan_degraded,
-                selfmod_target=selfmod.target if selfmod else None,
-                selfmod_finding=selfmod_finding,
+            return _finish(
+                GuardResult(
+                    allowed=True,
+                    reason="exempt-with-scan",
+                    findings=findings,
+                    tier=tier,
+                    param_scan_unsafe=param_scan_unsafe,
+                    param_scan_degraded=param_scan_degraded,
+                )
             )
-            if selfmod is not None and selfmod_finding is not None:
-                self._record_selfmod_weight(session_id, selfmod_finding)
-                self._pipeline.record_selfmod(session_id, selfmod_finding)
-            return result
 
         # Step 5: Scan params
         findings, param_scan_unsafe, param_scan_degraded = await self._scan_params(
@@ -557,53 +560,41 @@ class ToolCallGuard:
 
         # Step 6: Tier 2 → block
         if tier == "tier2":
-            result = GuardResult(
-                allowed=False,
-                reason="tier2: tool calls blocked",
-                findings=findings,
-                tier="tier2",
-                param_scan_unsafe=param_scan_unsafe,
-                param_scan_degraded=param_scan_degraded,
-                selfmod_target=selfmod.target if selfmod else None,
-                selfmod_finding=selfmod_finding,
+            return _finish(
+                GuardResult(
+                    allowed=False,
+                    reason="tier2: tool calls blocked",
+                    findings=findings,
+                    tier="tier2",
+                    param_scan_unsafe=param_scan_unsafe,
+                    param_scan_degraded=param_scan_degraded,
+                )
             )
-            if selfmod is not None and selfmod_finding is not None:
-                self._record_selfmod_weight(session_id, selfmod_finding)
-                self._pipeline.record_selfmod(session_id, selfmod_finding)
-            return result
 
         # Step 7: Tier 1 with unsafe → warn
         if tier == "tier1":
-            result = GuardResult(
-                allowed=True,
-                reason="tier1: allowed with warnings",
-                findings=findings,
-                tier="tier1",
-                param_scan_unsafe=param_scan_unsafe,
-                param_scan_degraded=param_scan_degraded,
-                selfmod_target=selfmod.target if selfmod else None,
-                selfmod_finding=selfmod_finding,
+            return _finish(
+                GuardResult(
+                    allowed=True,
+                    reason="tier1: allowed with warnings",
+                    findings=findings,
+                    tier="tier1",
+                    param_scan_unsafe=param_scan_unsafe,
+                    param_scan_degraded=param_scan_degraded,
+                )
             )
-            if selfmod is not None and selfmod_finding is not None:
-                self._record_selfmod_weight(session_id, selfmod_finding)
-                self._pipeline.record_selfmod(session_id, selfmod_finding)
-            return result
 
         # Step 8: Clean / no tier → allow
-        result = GuardResult(
-            allowed=True,
-            reason="allowed",
-            findings=findings,
-            tier=tier,
-            param_scan_unsafe=param_scan_unsafe,
-            param_scan_degraded=param_scan_degraded,
-            selfmod_target=selfmod.target if selfmod else None,
-            selfmod_finding=selfmod_finding,
+        return _finish(
+            GuardResult(
+                allowed=True,
+                reason="allowed",
+                findings=findings,
+                tier=tier,
+                param_scan_unsafe=param_scan_unsafe,
+                param_scan_degraded=param_scan_degraded,
+            )
         )
-        if selfmod is not None and selfmod_finding is not None:
-            self._record_selfmod_weight(session_id, selfmod_finding)
-            self._pipeline.record_selfmod(session_id, selfmod_finding)
-        return result
 
     def _record_selfmod_weight(self, session_id: str, finding: ScanFinding) -> None:
         """Apply the selfmod frequency update to the guard's own tracker (Decision 3)."""

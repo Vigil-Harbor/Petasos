@@ -45,25 +45,15 @@ from petasos.console import _paths as _paths_mod
 from petasos.console._paths import (
     _ROT_SUFFIX as _ROT_SUFFIX,
 )
-from petasos.console._paths import (
-    _SPOOL_FILENAME as _SPOOL_FILENAME,
-)
-from petasos.console._paths import (
-    resolve_hermes_config_path,
-)
+
+# The resolver lives in _paths (single source for guard, writer, and tests); this
+# module keeps its historical private name for server.py and the test seams.
+_spool_path = _paths_mod.spool_path
 
 # Sized well above the motivating burst (~40 blocks / 2h18m, ~300 B/line) and far
 # above one tailer interval's worth at peak rate (spec D4). Module-level so a test
 # can shrink it via _reset_events_state to force rotation.
 SPOOL_CAP_BYTES = 2_000_000
-
-
-def _spool_path() -> str:
-    """Resolve the spool path beside the active config (recomputed per call)."""
-    if _paths_mod._SPOOL_PATH_OVERRIDE is not None:
-        return _paths_mod._SPOOL_PATH_OVERRIDE
-    res = resolve_hermes_config_path()
-    return os.path.join(str(res.path.parent), _SPOOL_FILENAME)
 
 
 def _reset_events_state(path: str | None = None, cap: int | None = None) -> None:
