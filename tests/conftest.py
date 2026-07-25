@@ -55,16 +55,17 @@ def _isolate_enforcement_spool(tmp_path_factory: pytest.TempPathFactory) -> Iter
     """
     try:
         import petasos.console._events as _ev
+        import petasos.console._paths as _paths
     except Exception:
         yield
         return
-    saved_override = _ev._SPOOL_PATH_OVERRIDE
+    saved_override = _paths._SPOOL_PATH_OVERRIDE
     saved_cap = _ev.SPOOL_CAP_BYTES
     _ev._reset_events_state(str(tmp_path_factory.mktemp("enf_spool") / "enf.jsonl"))
     try:
         yield
     finally:
-        _ev._SPOOL_PATH_OVERRIDE = saved_override
+        _paths._SPOOL_PATH_OVERRIDE = saved_override
         _ev.SPOOL_CAP_BYTES = saved_cap
 
 

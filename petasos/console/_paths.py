@@ -14,6 +14,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
+_SPOOL_FILENAME = "petasos-enforcement.jsonl"
+_ROT_SUFFIX = ".rot"
+
+_SPOOL_PATH_OVERRIDE: str | None = None
+
 Tier = Literal["hermes_home", "profile", "root"]
 
 
@@ -271,3 +276,42 @@ def read_petasos_section(res: HermesConfigResolution) -> dict[str, Any]:
     """
     section, _ = read_petasos_section_checked(res)
     return section
+
+
+def spool_path() -> str:
+    """Resolve the enforcement-spool path beside the active config.
+
+    Recomputed per call so a transient active_profile fallback cannot leave
+    writer and reader on different files.  Shared single source for the guard
+    owned-set, the spool writer, and tests.
+    """
+    if _SPOOL_PATH_OVERRIDE is not None:
+        return _SPOOL_PATH_OVERRIDE
+    res = resolve_hermes_config_path()
+    return os.path.join(str(res.path.parent), _SPOOL_FILENAME)
+
+
+def spool_rot_path() -> str:
+    """The ``.rot`` sibling of the resolved spool path."""
+    return spool_path() + _ROT_SUFFIX
+
+
+def display_path(path: Path | str) -> str:
+    """Collapse the operator's home-directory prefix to ``~`` for display.
+
+    Case-insensitive on Windows (``normcase``); never raises.
+    """
+    s = str(path)
+    try:
+        home = os.path.expanduser("~")
+    except Exception:
+        return s
+    if not home or home == "~":
+        return s
+    n_s, n_home = os.path.normcase(s), os.path.normcase(home)
+    if n_s == n_home:
+        return "~"
+    for sep in (os.sep, "/"):
+        if n_s.startswith(n_home + os.path.normcase(sep)):
+            return "~" + s[len(home) :]
+    return s

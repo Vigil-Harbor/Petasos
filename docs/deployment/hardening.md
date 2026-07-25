@@ -333,6 +333,52 @@ short-circuit `_pre_tool_call` before any scan runs, so a disarmed pipeline neve
 reaches tier evaluation or rule matching. Do not mistake the floor for
 self-disarm protection.
 
+### Self-tamper detection (`petasos.selfmod.*`, PET-164)
+
+When `tool_guard_enabled` is on, `ToolCallGuard` classifies non-read-only
+tool calls that reference Petasos-owned paths (resolver-reachable config,
+profile homes, the enforcement spool) as `petasos.selfmod.config_write` or
+`petasos.selfmod.config_ref`, with floor-protected frequency weights (10.0
+and 3.0 respectively) and a dedicated cooldown-exempt alert delivery path.
+The classification is **detection only** -- it never changes an allow/deny
+outcome at the guard or plugin layer (PET-125 Decision 2 intact). Repeated
+attempts escalate tiers through the ordinary frequency channel.
+
+**Accepted off-switches and blunting knobs:**
+
+- `enabled: false` stops everything (the documented Vector A outcome).
+- `tool_guard_enabled: false` stops the guard and with it detection.
+- `audit_enabled` / `audit_verbosity` gate only the audit sink; alerts,
+  receipts, and frequency weight are unaffected.
+- Session-intelligence tuning knobs (tier thresholds, `frequency_half_life_seconds`)
+  blunt the escalation channel only. Alerts and receipts are the surviving floor
+  surfaces and fire regardless -- at least 1/min per class under a hostile cap config.
+
+`alert_enabled` and `frequency_enabled` are **not** off-switches for this class:
+`record_selfmod`'s alert bypasses the alerting gate by construction, and the
+frequency update runs in the guard on its own tracker.
+
+**Accepted detection misses (tripwire, not wall):** relative-path tricks,
+symlinked aliases, `$HERMES_HOME` indirection inside shell strings, and
+ancestor-directory rename/delete. Nested-argument traversal
+(`_extract_leaf_strings`) is depth-capped at 32; when exceeded the call is
+flagged as suspicious (fail-secure) with the dedicated marker
+`<argument-depth-overflow>` recorded as the target, since no specific owned
+path was matched in that case. The OS boundary remains the containment
+mechanism; this layer is a
+tripwire. An unlisted read-only tool whose top-level arg *is* the owned path
+classifies as `config_write` even when the tool only reads (accepted FP
+direction; widen `READ_ONLY_TOOLS` as needed).
+
+**Operator note (legitimate config edits escalate).** The frequency weights do
+not distinguish an operator-directed edit session from an attack: rapid
+repeated writes to the owned config reach tier 1 at the second write, tier 2
+(all tool calls blocked) at the third, and tier 3 at the fifth under default
+thresholds, and shell reads (`cat`, `tail`) of the config or spool weigh 3.0
+each. When you direct an agent to edit the `petasos:` section, either flip the
+Equipped switch off for the duration (the documented master off-switch) or
+space the writes beyond the 60-second frequency half-life.
+
 ### Profile changes require a restart (the boot profile is pinned)
 
 Petasos pins its config resolution **once, at plugin registration**, from the

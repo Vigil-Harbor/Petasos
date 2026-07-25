@@ -600,16 +600,17 @@ def test_spool_path_identical_under_dangling_profile(
     # Gateway-emit and dashboard-drain resolve to the SAME spool file even under a
     # dangling active_profile (root-tier fallback), because both compute the path from
     # the one resolve_hermes_config_path() recomputed per call.
+    from petasos.console import _paths
     from petasos.console._paths import HermesConfigResolution
 
     ev._reset_events_state(None)  # use the real resolver path for this test
     root_cfg = tmp_path / "config.yaml"
     res = HermesConfigResolution(path=root_cfg, tier="root", warning="active_profile dangling")
-    monkeypatch.setattr(ev, "resolve_hermes_config_path", lambda: res)
+    monkeypatch.setattr(_paths, "resolve_hermes_config_path", lambda: res)
 
     p1 = ev._spool_path()  # "gateway"
     p2 = ev._spool_path()  # "dashboard"
-    assert p1 == p2 == os.path.join(str(tmp_path), ev._SPOOL_FILENAME)
+    assert p1 == p2 == os.path.join(str(tmp_path), _paths._SPOOL_FILENAME)
 
 
 # ---------------------------------------------------------------------------

@@ -42,6 +42,7 @@ from petasos.session.formatting import (  # PET-77: dep-light (string formatting
     format_block_message,
     format_content_block,
 )
+from petasos.session.guard import READ_ONLY_TOOLS
 
 if TYPE_CHECKING:
     from petasos import PetasosConfig
@@ -164,28 +165,6 @@ _subagent_hooks_available = False
 # but Hermes invoke_hook is sync).
 _async_loop: asyncio.AbstractEventLoop | None = None
 _async_thread: threading.Thread | None = None
-
-READ_ONLY_TOOLS = frozenset(
-    {
-        "read_file",
-        "search",
-        "list_directory",
-        "session_search",
-        "web_search",
-        "web_extract",
-        "vision_analyze",
-        "mcp_vigil_harbor_memory_search",
-        "mcp_vigil_harbor_memory_fetch",
-        "mcp_vigil_harbor_memory_list",
-        "mcp_vigil_harbor_memory_query",
-        "mcp_vigil_harbor_memory_sources",
-        "mcp_vigil_harbor_memory_status",
-        "mcp_plane_list_work_items",
-        "mcp_plane_retrieve_work_item",
-        "mcp_plane_retrieve_work_item_by_identifier",
-        "mcp_plane_list_projects",
-    }
-)
 
 # PET-118: derived sibling canonical set. READ_ONLY_TOOLS stays the immutable raw
 # source-of-truth; _READ_ONLY_CANON is canonicalized at MODULE LOAD (not _deferred_init)
@@ -1267,6 +1246,21 @@ def _pre_tool_call(
     except Exception as exc:
         logger.error("Petasos guard evaluation failed: %s — allowing tool call", exc)
         return None
+
+    if result.selfmod_target is not None:
+        try:
+            from petasos.console._paths import display_path
+
+            _emit_enforcement_event(
+                session_id=session_id,
+                tool=tool_name,
+                event_type="selfmod_attempt",
+                rule_id=result.selfmod_finding.rule_id if result.selfmod_finding else None,
+                severity=result.selfmod_finding.severity.value if result.selfmod_finding else None,
+                reason=f"selfmod target: {display_path(result.selfmod_target)}",
+            )
+        except Exception:
+            pass
 
     if result.tier == "tier3":
         logger.critical(

@@ -30,6 +30,8 @@ DEFAULT_FREQUENCY_WEIGHTS: dict[str, float] = {
     # documented constraint, not a free parameter: a nudge above 3.0 would cross
     # the maximally-stacked single scan into tier2 territory.
     "petasos.syntactic.command.*": 3.0,
+    "petasos.selfmod.config_write": 10.0,
+    "petasos.selfmod.config_ref": 3.0,
 }
 
 _RATE_LIMIT_WINDOW_SECONDS: float = 60.0
@@ -441,11 +443,18 @@ class FrequencyTracker:
     def _match_weight(self, finding_type: str) -> float:
         w = self._exact_weights.get(finding_type)
         if w is not None:
-            return w
-        for prefix, weight in self._glob_weights:
-            if finding_type.startswith(prefix + "."):
-                return weight
-        return 0.0
+            resolved = w
+        else:
+            resolved = 0.0
+            for prefix, weight in self._glob_weights:
+                if finding_type.startswith(prefix + "."):
+                    resolved = weight
+                    break
+        if finding_type == "petasos.selfmod.config_write":
+            return max(resolved, 10.0)
+        if finding_type == "petasos.selfmod.config_ref":
+            return max(resolved, 3.0)
+        return resolved
 
     def _fire_on_terminate(self, session_id: str) -> None:
         """Notify the lineage registry that ``session_id`` is gone.

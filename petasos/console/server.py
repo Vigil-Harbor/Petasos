@@ -15,7 +15,6 @@ import hashlib
 import hmac
 import json
 import logging
-import os
 import time
 import uuid
 from collections import deque
@@ -61,6 +60,10 @@ _BLOCK_EVENT_TYPES = frozenset({"block", "quarantine", "tier3"})
 _MAX_TALLY_SESSIONS = 10_000
 # Poll cadence of the dashboard's background enforcement-spool tailer (standalone).
 _ENFORCEMENT_TAIL_INTERVAL_S = 1.0
+# PET-164 (D9): rate-limit for console_probe selfmod on 401. One recording per
+# interval so a brute-force loop cannot spam the audit/alert path.
+_selfmod_401_last: dict[int, float] = {}
+_SELFMOD_401_INTERVAL: float = 10.0
 # PET-139: rate-limit window for the integrity-failure tripwire (D9), mirroring the
 # reference plugin's `_DISARM_LOG_EVERY_S` cadence so a forging loop cannot spam the log.
 _INTEGRITY_LOG_EVERY_S = 30.0
@@ -460,26 +463,11 @@ def _hermes_profile_label(res: "HermesConfigResolution") -> str:
 def _display_home(path: "Path | str") -> str:
     """Collapse the operator's home-directory prefix to ``~`` for display.
 
-    The binding read-out surfaces an absolute ``profile_home`` over the API; left
-    raw it leaks the OS username (``C:\\Users\\jane\\...``) into the console UI,
-    screenshots, and logs. Collapse a home-relative path to ``~\\...`` and leave
-    any path outside the home directory untouched. Case-insensitive on Windows
-    (``normcase``); never raises.
+    Delegates to ``_paths.display_path`` (PET-164 Decision 10a hoist).
     """
-    s = str(path)
-    try:
-        home = os.path.expanduser("~")
-    except Exception:
-        return s
-    if not home or home == "~":
-        return s
-    n_s, n_home = os.path.normcase(s), os.path.normcase(home)
-    if n_s == n_home:
-        return "~"
-    for sep in (os.sep, "/"):
-        if n_s.startswith(n_home + os.path.normcase(sep)):
-            return "~" + s[len(home) :]
-    return s
+    from petasos.console._paths import display_path
+
+    return display_path(path)
 
 
 def _compute_effective_config(
@@ -1468,6 +1456,35 @@ def _extract_field_from_error(msg: str, body: dict[str, Any]) -> str:
     return best or "unknown"
 
 
+def _maybe_fire_console_probe(pipeline: "Pipeline") -> None:
+    """Rate-limited selfmod console_probe on 401 (PET-164 Decision 9).
+
+    Called inside ``_require_console_token`` before each 401 raise so that
+    unauthorized console access attempts are recorded as selfmod events.
+    Rate-limited to ``_SELFMOD_401_INTERVAL`` seconds so a brute-force loop
+    cannot spam the audit/alert path.
+    """
+    pid = id(pipeline)
+    now = time.monotonic()
+    if now - _selfmod_401_last.get(pid, 0.0) < _SELFMOD_401_INTERVAL:
+        return
+    _selfmod_401_last[pid] = now
+    try:
+        from petasos._types import ScanFinding, Severity
+
+        finding = ScanFinding(
+            rule_id="petasos.selfmod.console_probe",
+            finding_type="selfmod",
+            severity=Severity.CRITICAL,
+            confidence=1.0,
+            message="Console API 401: unauthorized access attempt",
+            scanner_name="tool_guard",
+        )
+        pipeline.record_selfmod(None, finding)
+    except Exception:
+        pass
+
+
 def build_app(pipeline: "Pipeline", *, auth_token: str | None = None) -> "FastAPI":
     """Build the complete FastAPI application.
 
@@ -1524,9 +1541,11 @@ def build_app(pipeline: "Pipeline", *, auth_token: str | None = None) -> "FastAP
             # malformed header is a clean 401, never a 500. Scheme match is
             # case-sensitive ("bearer " does not match).
             if authorization is None or not authorization.startswith("Bearer "):
+                _maybe_fire_console_probe(pipeline)
                 raise HTTPException(status_code=401, headers={"WWW-Authenticate": "Bearer"})
             credential = authorization[len("Bearer ") :]
             if not hmac.compare_digest(credential.encode("utf-8"), token.encode("utf-8")):
+                _maybe_fire_console_probe(pipeline)
                 raise HTTPException(status_code=401, headers={"WWW-Authenticate": "Bearer"})
 
         app = _FastAPI(

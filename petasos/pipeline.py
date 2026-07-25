@@ -72,6 +72,7 @@ _TIMEOUT_ERROR_PREFIX = "ScannerTimeout"
 _BREAKER_OPEN_ERROR_PREFIX = "ScannerCircuitOpen"
 
 _STRUCTURAL_RULE_PREFIX = "petasos.syntactic.structural."
+_SELFMOD_RULE_PREFIX = "petasos.selfmod."
 
 
 def _is_floor_rule(
@@ -85,6 +86,8 @@ def _is_floor_rule(
     # prefix disjunct is a belt-and-suspenders guard kept aligned by a tripwire
     # test (_STRUCTURAL_RULE_IDS <= the structural-prefix set).
     if rule_id in _STRUCTURAL_RULE_IDS or rule_id.startswith(_STRUCTURAL_RULE_PREFIX):
+        return True
+    if rule_id.startswith(_SELFMOD_RULE_PREFIX):
         return True
     if rule_id in _ALL_INJECTION_IDS:
         # Injection floor is absolute on inbound for every profile (PET-54/124). A
@@ -539,6 +542,28 @@ class Pipeline:
     def add_alert_listener(self, callback: Callable[[Alert], None]) -> None:
         """Register an additional alert listener."""
         self._alert_manager.add_listener(callback)
+
+    def record_selfmod(self, session_id: str | None, finding: ScanFinding) -> None:
+        """Alert + audit for a selfmod classification (PET-164 Decision 4).
+
+        Sync, never throws. Frequency lives in the guard (Decision 3); this
+        method does NOT touch the tracker. The alert bypasses the ``alerting``
+        feature gate by construction; the audit sink is the sole config gate.
+        """
+        try:
+            self._alert_manager.evaluate_selfmod(finding, session_id)
+        except Exception:
+            _logger.exception("record_selfmod: alert delivery failed")
+        if self._is_enabled("audit"):
+            try:
+                synthetic = PipelineResult(
+                    safe=True,
+                    findings=(finding,),
+                    errors=(),
+                )
+                self._audit_emitter.emit(synthetic, session_id, None, direction="outbound")
+            except Exception:
+                _logger.exception("record_selfmod: audit emit failed")
 
     _FEATURE_GATES: ClassVar[dict[str, str]] = {
         "frequency": "frequency_enabled",

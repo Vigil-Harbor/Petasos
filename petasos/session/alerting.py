@@ -15,7 +15,7 @@ _logger = logging.getLogger(__name__)
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from petasos._types import PipelineResult
+    from petasos._types import PipelineResult, ScanFinding
     from petasos.config import PetasosConfig
     from petasos.session.frequency import FrequencyUpdateResult
 
@@ -187,36 +187,80 @@ class AlertManager:
 
             self._alert_count += 1
             surviving.append(candidate)
-
-            if self._on_alert is not None:
-                try:
-                    self._on_alert(candidate)
-                except BaseException as exc:
-                    _logger.exception(
-                        "on_alert callback failed for rule_id=%s",
-                        candidate.rule_id,
-                    )
-                    self._callback_errors.append(
-                        f"on_alert callback ({candidate.rule_id}, {type(exc).__name__}): {exc}"
-                        if str(exc)
-                        else f"on_alert callback ({candidate.rule_id}, {type(exc).__name__})"
-                    )
-
-            for listener in list(self._listeners):
-                try:
-                    listener(candidate)
-                except BaseException as exc:
-                    _logger.exception(
-                        "alert listener failed for rule_id=%s",
-                        candidate.rule_id,
-                    )
-                    self._callback_errors.append(
-                        f"alert listener ({candidate.rule_id}, {type(exc).__name__}): {exc}"
-                        if str(exc)
-                        else f"alert listener ({candidate.rule_id}, {type(exc).__name__})"
-                    )
+            self._dispatch(candidate)
 
         return surviving
+
+    def _dispatch(self, alert: Alert) -> None:
+        """Deliver *alert* to on_alert and every listener, recording callback errors."""
+        if self._on_alert is not None:
+            try:
+                self._on_alert(alert)
+            except BaseException as exc:
+                _logger.exception(
+                    "on_alert callback failed for rule_id=%s",
+                    alert.rule_id,
+                )
+                self._callback_errors.append(
+                    f"on_alert callback ({alert.rule_id}, {type(exc).__name__}): {exc}"
+                    if str(exc)
+                    else f"on_alert callback ({alert.rule_id}, {type(exc).__name__})"
+                )
+
+        for listener in list(self._listeners):
+            try:
+                listener(alert)
+            except BaseException as exc:
+                _logger.exception(
+                    "alert listener failed for rule_id=%s",
+                    alert.rule_id,
+                )
+                self._callback_errors.append(
+                    f"alert listener ({alert.rule_id}, {type(exc).__name__}): {exc}"
+                    if str(exc)
+                    else f"alert listener ({alert.rule_id}, {type(exc).__name__})"
+                )
+
+    def evaluate_selfmod(self, finding: ScanFinding, session_id: str | None) -> Alert | None:
+        """Dedicated selfmod alert delivery (PET-164 Decision 7).
+
+        Cooldown-exempt, per-rule_id critical cap only. Never touches the five
+        existing checks or their counters.
+        """
+        now = time.monotonic()
+        self._callback_errors = []
+
+        severity = "critical"
+        if finding.rule_id == "petasos.selfmod.config_ref":
+            severity = "high"
+
+        alert = Alert(
+            alert_id=uuid.uuid4().hex,
+            timestamp=time.time(),
+            rule_id="selfmod_attempt",
+            severity=severity,
+            session_id=session_id,
+            message=f"Self-tamper attempt: {finding.rule_id}",
+            context=MappingProxyType(
+                {
+                    "finding_rule_id": finding.rule_id,
+                    "finding_severity": finding.severity.value,
+                }
+            ),
+        )
+
+        cap_key = finding.rule_id
+        cap_deque = self._critical_per_minute_timestamps.setdefault(cap_key, deque())
+        self._evict_old(cap_deque, now, 60.0)
+        if len(cap_deque) >= self._config.alert_critical_per_minute_cap:
+            self._rate_limited_count += 1
+            return None
+        cap_deque.append(now)
+
+        self._alert_count += 1
+        self._dispatch(alert)
+
+        return alert
 
     def _check_tier_escalation(
         self,

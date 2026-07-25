@@ -1,18 +1,17 @@
 from __future__ import annotations
 
 import logging
+import os
+import re
 import threading
 import time
 from collections import deque
 from dataclasses import dataclass, replace
+from pathlib import Path
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 
-# PET-118: canonicalize_tool_name is the shared alias-free primitive used by
-# _normalize_tool_name below. _NAMESPACE_PREFIX_RE's single definition now lives in
-# normalize.py; the redundant `as` alias re-exports it explicitly (for --strict mypy's
-# no-implicit-reexport and for tests) so existing
-# `from petasos.session.guard import _NAMESPACE_PREFIX_RE` imports keep resolving.
+from petasos._types import ScanFinding, Severity
 from petasos.normalize import _NAMESPACE_PREFIX_RE as _NAMESPACE_PREFIX_RE
 from petasos.normalize import canonicalize_tool_name
 from petasos.session._safe_json import safe_json_dumps
@@ -21,12 +20,51 @@ from petasos.session.escalation import derive_tier, evaluate_tier, max_tier
 _logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from petasos._types import ScanFinding
     from petasos.config import PetasosConfig
     from petasos.pipeline import Pipeline
     from petasos.session.frequency import FrequencyTracker, SessionState
     from petasos.session.lineage import LineageRegistry
     from petasos.session.profiles import ResolvedProfile
+
+READ_ONLY_TOOLS: frozenset[str] = frozenset(
+    {
+        "read_file",
+        "search",
+        "list_directory",
+        "session_search",
+        "web_search",
+        "web_extract",
+        "vision_analyze",
+        "mcp_vigil_harbor_memory_search",
+        "mcp_vigil_harbor_memory_fetch",
+        "mcp_vigil_harbor_memory_list",
+        "mcp_vigil_harbor_memory_query",
+        "mcp_vigil_harbor_memory_sources",
+        "mcp_vigil_harbor_memory_status",
+        "mcp_plane_list_work_items",
+        "mcp_plane_retrieve_work_item",
+        "mcp_plane_retrieve_work_item_by_identifier",
+        "mcp_plane_list_projects",
+    }
+)
+
+_READ_ONLY_CANON: frozenset[str] = frozenset(
+    c for c in (canonicalize_tool_name(t) for t in READ_ONLY_TOOLS) if c
+)
+
+
+class _SelfmodMatch(NamedTuple):
+    rule_id: str
+    target: str
+
+
+# Recorded as the selfmod target when the fail-secure depth-overflow branch fires.
+# Deliberately NOT an owned path: the overflow flag means the args could not be
+# fully traversed, so no specific path was matched and naming one would mislead
+# triage. Public-ish (no underscore) so the reference plugin and tests can
+# recognize the sentinel without string-copying it.
+SELFMOD_DEPTH_OVERFLOW_TARGET = "<argument-depth-overflow>"
+
 
 DEFAULT_TOOL_ALIASES: MappingProxyType[str, str] = MappingProxyType(
     {
@@ -60,16 +98,24 @@ class GuardResult:
     # construction stays valid. fail-mode-correct: gates on `not result.safe`, so
     # fail_mode="open" (scanner error doesn't flip safe) yields False → no block.
     param_scan_degraded: bool = False
+    selfmod_target: str | None = None
+    selfmod_finding: ScanFinding | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        d: dict[str, Any] = {
             "allowed": self.allowed,
             "reason": self.reason,
             "findings": [f.to_dict() for f in self.findings],
             "tier": self.tier,
             "param_scan_unsafe": self.param_scan_unsafe,
             "param_scan_degraded": self.param_scan_degraded,
+            "selfmod_target": self.selfmod_target,
         }
+        if self.selfmod_finding is not None:
+            d["selfmod_finding"] = self.selfmod_finding.to_dict()
+        else:
+            d["selfmod_finding"] = None
+        return d
 
 
 _FEATURE_DISABLED = GuardResult(
@@ -186,6 +232,141 @@ class ToolCallGuard:
                 "away) — the delegation fan-out gate is inert"
             )
         self._spawn_budget = SpawnBudget(config.delegate_fanout_window_seconds)
+        self._selfmod_owned_cache: tuple[float, frozenset[str]] = (0.0, frozenset())
+        self._selfmod_empty_warned: bool = False
+
+    def selfmod_target_paths(self) -> frozenset[str]:
+        """Build the owned-path set from ``_paths.py`` resolvers with 1 s TTL cache."""
+        now = time.monotonic()
+        ts, cached = self._selfmod_owned_cache
+        if now - ts < 1.0 and cached:
+            return cached
+        try:
+            from petasos.console._paths import (
+                list_hermes_profiles,
+                resolve_hermes_config_path,
+                spool_path,
+                spool_rot_path,
+            )
+
+            raw_entries: list[str] = []
+            res = resolve_hermes_config_path()
+            raw_entries.append(str(res.path))
+            for prof in list_hermes_profiles():
+                raw_entries.append(prof["path"])
+            raw_entries.append(spool_path())
+            raw_entries.append(spool_rot_path())
+
+            result: set[str] = set()
+            for raw in raw_entries:
+                p = Path(raw)
+                if not p.is_absolute():
+                    continue
+                try:
+                    resolved = str(p.resolve(strict=False))
+                except OSError:
+                    continue
+                parts = Path(resolved).parts
+                if len(parts) < 3:
+                    continue
+                result.add(os.path.normcase(resolved))
+
+            owned = frozenset(result)
+            if not owned and not self._selfmod_empty_warned:
+                _logger.warning("selfmod_target_paths: owned set is empty after hygiene")
+                self._selfmod_empty_warned = True
+            if owned:
+                self._selfmod_empty_warned = False
+            self._selfmod_owned_cache = (now, owned)
+            return owned
+        except Exception:
+            _logger.debug("selfmod_target_paths: failed to build owned set", exc_info=True)
+            return cached or frozenset()
+
+    _EXTRACT_OVERFLOW = "\x00__PETASOS_DEPTH_OVERFLOW__"
+
+    @staticmethod
+    def _extract_leaf_strings(value: Any, depth: int = 0) -> list[str]:
+        if depth > 32:
+            return [ToolCallGuard._EXTRACT_OVERFLOW]
+        if isinstance(value, str):
+            return [value]
+        if isinstance(value, dict):
+            out: list[str] = []
+            for v in value.values():
+                out.extend(ToolCallGuard._extract_leaf_strings(v, depth + 1))
+            return out
+        if isinstance(value, (list, tuple)):
+            out = []
+            for item in value:
+                out.extend(ToolCallGuard._extract_leaf_strings(item, depth + 1))
+            return out
+        return []
+
+    def _classify_selfmod(
+        self, canon_pre_alias: str, tool_params: dict[str, Any]
+    ) -> _SelfmodMatch | None:
+        """Total: never raises. Returns the match or None."""
+        try:
+            if canon_pre_alias in _READ_ONLY_CANON:
+                return None
+            owned = self.selfmod_target_paths()
+            if not owned:
+                return None
+
+            def _has_sep(s: str) -> bool:
+                return "/" in s or "\\" in s or os.sep in s
+
+            top_level_strs: list[str] = []
+            all_parts: list[str] = []
+            for value in tool_params.values():
+                if value is None:
+                    continue
+                if isinstance(value, str):
+                    top_level_strs.append(value)
+                    all_parts.append(value)
+                else:
+                    all_parts.extend(self._extract_leaf_strings(value))
+
+            overflow = self._EXTRACT_OVERFLOW in all_parts
+            if overflow:
+                return _SelfmodMatch(
+                    rule_id="petasos.selfmod.config_ref",
+                    target=SELFMOD_DEPTH_OVERFLOW_TARGET,
+                )
+
+            any_sep = any(_has_sep(p) for p in all_parts)
+            if not any_sep:
+                return None
+
+            def _normalize_for_compare(s: str) -> str:
+                s = re.sub(r"\\u([0-9a-fA-F]{4})", lambda m: chr(int(m.group(1), 16)), s)
+                s = s.replace("\\\\", "/").replace("\\", "/").replace("/", os.sep)
+                s = os.path.normcase(s)
+                try:
+                    p = Path(s)
+                    if p.is_absolute():
+                        s = os.path.normcase(str(p.resolve(strict=False)))
+                except (OSError, ValueError):
+                    pass
+                return s
+
+            for tls in top_level_strs:
+                normed = _normalize_for_compare(tls)
+                for entry in owned:
+                    if normed == entry:
+                        return _SelfmodMatch(rule_id="petasos.selfmod.config_write", target=entry)
+
+            for part in all_parts:
+                normed = _normalize_for_compare(part)
+                for entry in owned:
+                    if entry in normed:
+                        return _SelfmodMatch(rule_id="petasos.selfmod.config_ref", target=entry)
+
+            return None
+        except Exception:
+            _logger.warning("selfmod classifier error for tool=%s", canon_pre_alias, exc_info=True)
+            return None
 
     def validate_config(self, new_config: PetasosConfig) -> None:
         """Dry-run validation of a candidate config: raises, never mutates (D5/D8).
@@ -260,6 +441,7 @@ class ToolCallGuard:
             return _FEATURE_DISABLED
 
         # Step 1: Normalize tool name
+        canon_pre_alias = canonicalize_tool_name(tool_name)
         normalized_name = self._normalize_tool_name(tool_name)
         if not normalized_name:
             return GuardResult(
@@ -270,57 +452,105 @@ class ToolCallGuard:
                 param_scan_unsafe=False,
             )
 
+        # Step 1.5: Selfmod classification (total; never raises; builds no state)
+        selfmod = self._classify_selfmod(canon_pre_alias, tool_params)
+        selfmod_finding: ScanFinding | None = None
+        if selfmod is not None:
+            sev = (
+                Severity.CRITICAL
+                if selfmod.rule_id == "petasos.selfmod.config_write"
+                else Severity.HIGH
+            )
+            if selfmod.target == SELFMOD_DEPTH_OVERFLOW_TARGET:
+                # Fail-secure overflow: the args exceeded the traversal depth cap,
+                # so no owned path was actually matched. The message must say that
+                # rather than claim a specific target.
+                msg = (
+                    "Self-tamper heuristic: tool argument nesting exceeded the "
+                    "traversal depth cap (fail-secure flag; no owned path matched)"
+                )
+            else:
+                msg = f"Self-tamper attempt targeting {selfmod.target}"
+            selfmod_finding = ScanFinding(
+                rule_id=selfmod.rule_id,
+                finding_type="selfmod",
+                severity=sev,
+                confidence=1.0,
+                message=msg,
+                scanner_name="tool_guard",
+            )
+
+        def _finish(result: GuardResult) -> GuardResult:
+            """Attach the selfmod fields and record the attempt at whichever exit fires.
+
+            A tier3 exit skips the frequency-weight update (the session is already
+            terminated); the alert/audit channel still records the attempt.
+            """
+            if selfmod is None or selfmod_finding is None:
+                return result
+            result = replace(
+                result,
+                selfmod_target=selfmod.target,
+                selfmod_finding=selfmod_finding,
+            )
+            if result.tier != "tier3":
+                self._record_selfmod_weight(session_id, selfmod_finding)
+            self._pipeline.record_selfmod(session_id, selfmod_finding)
+            return result
+
         # Step 2: Derive tier
         tier = self._derive_tier(session_id)
 
         # Step 3: Tier 3 → block
         if tier == "tier3":
-            return GuardResult(
-                allowed=False,
-                reason="session terminated (tier3)",
-                findings=(),
-                tier="tier3",
-                param_scan_unsafe=False,
+            return _finish(
+                GuardResult(
+                    allowed=False,
+                    reason="session terminated (tier3)",
+                    findings=(),
+                    tier="tier3",
+                    param_scan_unsafe=False,
+                )
             )
 
-        # Step 3.5: Delegation fan-out gate (PET-107 C). Runs AFTER the tier-3
-        # block and BEFORE the Step-4 exempt check so the budget applies
-        # regardless of exempt status (D8 guarantees a delegate is never exempt,
-        # so this governs spawn-attempt accounting, not an exempt bypass). The
-        # budget counts ATTEMPTS — a spawn later blocked by param-scan-unsafe
-        # still consumed budget, since a session spamming delegate_task is
-        # exactly the spray to rate-limit regardless of per-call content outcome.
+        # Step 3.5: Delegation fan-out gate (PET-107 C).
         if self._config.delegate_fanout_enabled and normalized_name in self._delegate_tool_names:
             cap = self._fanout_cap(tier)
             if not self._spawn_budget.try_consume(session_id, cap, time.monotonic()):
-                return GuardResult(
-                    allowed=False,
-                    reason="delegate fan-out budget exceeded",
-                    findings=(),
-                    tier=tier,
-                    param_scan_unsafe=False,
+                return _finish(
+                    GuardResult(
+                        allowed=False,
+                        reason="delegate fan-out budget exceeded",
+                        findings=(),
+                        tier=tier,
+                        param_scan_unsafe=False,
+                    )
                 )
 
         # Step 4: Exempt check
         if self._profile and normalized_name in self._profile.tool_exempt_list:
             if not self._exempt_param_scan:
-                return GuardResult(
-                    allowed=True,
-                    reason="tool exempt per profile",
-                    findings=(),
-                    tier=tier,
-                    param_scan_unsafe=False,
+                return _finish(
+                    GuardResult(
+                        allowed=True,
+                        reason="tool exempt per profile",
+                        findings=(),
+                        tier=tier,
+                        param_scan_unsafe=False,
+                    )
                 )
             findings, param_scan_unsafe, param_scan_degraded = await self._scan_params(
                 tool_params, session_id
             )
-            return GuardResult(
-                allowed=True,
-                reason="exempt-with-scan",
-                findings=findings,
-                tier=tier,
-                param_scan_unsafe=param_scan_unsafe,
-                param_scan_degraded=param_scan_degraded,
+            return _finish(
+                GuardResult(
+                    allowed=True,
+                    reason="exempt-with-scan",
+                    findings=findings,
+                    tier=tier,
+                    param_scan_unsafe=param_scan_unsafe,
+                    param_scan_degraded=param_scan_degraded,
+                )
             )
 
         # Step 5: Scan params
@@ -330,35 +560,54 @@ class ToolCallGuard:
 
         # Step 6: Tier 2 → block
         if tier == "tier2":
-            return GuardResult(
-                allowed=False,
-                reason="tier2: tool calls blocked",
-                findings=findings,
-                tier="tier2",
-                param_scan_unsafe=param_scan_unsafe,
-                param_scan_degraded=param_scan_degraded,
+            return _finish(
+                GuardResult(
+                    allowed=False,
+                    reason="tier2: tool calls blocked",
+                    findings=findings,
+                    tier="tier2",
+                    param_scan_unsafe=param_scan_unsafe,
+                    param_scan_degraded=param_scan_degraded,
+                )
             )
 
         # Step 7: Tier 1 with unsafe → warn
         if tier == "tier1":
-            return GuardResult(
-                allowed=True,
-                reason="tier1: allowed with warnings",
-                findings=findings,
-                tier="tier1",
-                param_scan_unsafe=param_scan_unsafe,
-                param_scan_degraded=param_scan_degraded,
+            return _finish(
+                GuardResult(
+                    allowed=True,
+                    reason="tier1: allowed with warnings",
+                    findings=findings,
+                    tier="tier1",
+                    param_scan_unsafe=param_scan_unsafe,
+                    param_scan_degraded=param_scan_degraded,
+                )
             )
 
         # Step 8: Clean / no tier → allow
-        return GuardResult(
-            allowed=True,
-            reason="allowed",
-            findings=findings,
-            tier=tier,
-            param_scan_unsafe=param_scan_unsafe,
-            param_scan_degraded=param_scan_degraded,
+        return _finish(
+            GuardResult(
+                allowed=True,
+                reason="allowed",
+                findings=findings,
+                tier=tier,
+                param_scan_unsafe=param_scan_unsafe,
+                param_scan_degraded=param_scan_degraded,
+            )
         )
+
+    def _record_selfmod_weight(self, session_id: str, finding: ScanFinding) -> None:
+        """Apply the selfmod frequency update to the guard's own tracker (Decision 3)."""
+        try:
+            if self._frequency_tracker.requires_token:
+                token = self._frequency_tracker.mint_token(session_id, self._pipeline.host_id)
+                self._frequency_tracker.update(token, [finding.rule_id])
+            else:
+                self._frequency_tracker.update(session_id, [finding.rule_id])
+        except Exception:
+            _logger.warning(
+                "selfmod frequency update failed for session=%s", session_id, exc_info=True
+            )
 
     def _normalize_tool_name(self, tool_name: str) -> str:
         # PET-118: canonicalize (strip→NFKC→homoglyph→casefold→ns-strip→strip) is the
