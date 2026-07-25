@@ -347,6 +347,15 @@
     // Dedicated, eviction-proof state (the count rides a single rate-limited
     // heartbeat row that ages out of scanHistory); fed by Pet.accrueBypass.
     bypassBySession: {},
+    // PET-165: server-authoritative lifetime count of surfaced self-tamper attempts,
+    // feeding the "self-tamper" metric tile. Seeded from /health (pipeline.selfmod_total)
+    // and incremented per SSE selfmod frame, so the tile never decays when the 500-entry
+    // ring evicts the underlying rows. Lifetime-since-console-start, not persisted.
+    selfmodTotal: 0,
+    // PET-165: scan-history row filter, "all" or "selfmod". Filters RENDERED rows only,
+    // never the buffer and never a tile value. Live-head only (paged views render
+    // unfiltered); per-page-load, not persisted.
+    historyFilter: "all",
     // PET-137: scan_id of the scan-history row whose detail panel is open (or null).
     // Persisted in state (not local DOM) so the panel survives renderDashboard's
     // per-SSE-frame rebuild; re-opened by scan_id, so an evicted row closes cleanly.
@@ -504,6 +513,7 @@
             Pet.state.scannerHealth = h.scanners || [];
             Pet.state.pipelineHealth = h.pipeline || null;
             Pet.state.integrityHealth = h.integrity || null; // PET-157: mirror pipelineHealth
+            Pet.adoptSelfmodTotal(Pet.state.pipelineHealth); // PET-165: re-sync the tile count
           }
           startPolling();
           if (Pet.sse && Pet.sse.connect) Pet.sse.connect();
@@ -763,6 +773,10 @@
         if (d && typeof d === "object") {
           Pet.state.scanHistory.unshift(d);
           Pet.accrueBypass([d]); // PET-138: fold this frame's bypass count into state
+          // PET-165: live-increment the self-tamper tile (the arm already guarantees d is
+          // an object). The next /health adoption re-syncs against the server counter, so
+          // a frame seen either side of the seed snapshot self-heals within one poll.
+          if (d.event_type === "selfmod_attempt") Pet.state.selfmodTotal += 1;
           // PET-13: announce the newest verdict to AT; the wholesale re-render below
           // is not screen-reader-followable on its own.
           var _v = d.safe === false ? "blocked" : "allowed";
@@ -833,6 +847,7 @@
           Pet.state.scannerHealth = d.scanners || [];
           Pet.state.pipelineHealth = d.pipeline || null;
           Pet.state.integrityHealth = d.integrity || null; // PET-157: mirror pipelineHealth (recurring poll)
+          Pet.adoptSelfmodTotal(Pet.state.pipelineHealth); // PET-165: re-sync the tile count
           if (Pet.state.tab === "obs" && _container) Pet.renderDashboard(_container);
         }
       });
@@ -1267,8 +1282,23 @@
       var isSelfmodRow = isEnforcement && et === "selfmod_attempt";
       var isBlocked = (e.safe === false); // strict ===false; truthy-but-not-false is not "blocked"
 
-      var badgeText = isBypass ? "bypassed (disarmed)" : (isSelfmodRow ? "self-tamper" : (isBlocked ? "blocked" : "safe"));
-      var badgeClass = (isBypass || isSelfmodRow) ? "warn" : (isBlocked ? "err" : "ok");
+      // PET-165: severity-differentiated self-tamper badge. Severity rides the badge TEXT
+      // as well as the class, so the critical/high distinction never depends on color
+      // alone. Keys on the row's `severity` field (already in the spool summary), not on
+      // rule_id, so a future selfmod rule renders correctly with no frontend change.
+      // Anything other than the two known severities (missing, null, nonsense, a non-string)
+      // falls back to the pre-PET-165 plain amber "self-tamper" — never throws, never
+      // renders "undefined".
+      var selfmodSev = "";
+      if (isSelfmodRow && (e.severity === "critical" || e.severity === "high")) selfmodSev = e.severity;
+      var badgeText = isBypass
+        ? "bypassed (disarmed)"
+        : (isSelfmodRow
+            ? ("self-tamper" + (selfmodSev ? (" (" + selfmodSev + ")") : ""))
+            : (isBlocked ? "blocked" : "safe"));
+      var badgeClass = isBypass
+        ? "warn"
+        : (isSelfmodRow ? (selfmodSev === "critical" ? "err" : "warn") : (isBlocked ? "err" : "ok"));
       var badge = Pet.h("span", { className: "pill " + badgeClass, style: { justifyContent: "center" } }, badgeText);
 
       var rowEls = [];
@@ -1314,7 +1344,9 @@
         rowAttrs.role = "button";
         rowAttrs.tabIndex = 0;
         rowAttrs.ariaExpanded = isOpen;
-        rowAttrs.ariaLabel = (isSelfmodRow ? "self-tamper detection" : (isEnforcement ? "enforcement" : "playground")
+        // PET-165: AT hears the severity too (spoken, not parenthesized), so the
+        // critical/high split is not a purely visual distinction.
+        rowAttrs.ariaLabel = (isSelfmodRow ? ("self-tamper detection" + (selfmodSev ? (", " + selfmodSev) : "")) : (isEnforcement ? "enforcement" : "playground")
           + " scan") + " row, " + (isOpen ? "expanded" : "collapsed") + ", activate to toggle detail";
         rowAttrs.onClick = toggle;
         rowAttrs.onKeydown = makeKey(toggle);
@@ -1393,6 +1425,66 @@
     var total = 0;
     for (var i = 0; i < keys.length; i++) total += (Number(map[keys[i]]) || 0);
     return total;
+  };
+
+  // PET-165: the single adoption seam for the server-authoritative self-tamper lifetime
+  // count. Every site that assigns Pet.state.pipelineHealth calls this with the same
+  // payload, so the three health-settle paths (auth resume, the 10s poll, the cold-mount
+  // in-render fetch) cannot diverge. Strict number gate first (mirrors accrueBypass): a
+  // missing/null/boolean/string/NaN/negative value LEAVES the current count rather than
+  // writing NaN or a false zero into the tile. Adoption is a plain overwrite, never a
+  // monotonic max: overwrite is what makes a console restart honestly reset the tile
+  // (lifetime-since-start semantics). The cost is a <=10s downward flicker when a health
+  // snapshot taken before an SSE-counted event lands after the client increment; it
+  // self-heals on the next poll, and the tile is glanceability, not the audit record.
+  Pet.adoptSelfmodTotal = function (pipeline) {
+    if (!pipeline || typeof pipeline !== "object") return;
+    var n = pipeline.selfmod_total;
+    if (typeof n !== "number" || !Number.isFinite(n) || n < 0) return;
+    Pet.state.selfmodTotal = n;
+  };
+
+  // PET-165: pure row-filter seam for the scan-history pane (testable like
+  // Pet.mergeScanHistory / Pet.bypassTotal). Only the "selfmod" filter narrows; every
+  // other value (including "all") returns the input UNCHANGED, so the default path is
+  // byte-identical to pre-PET-165 rendering. Malformed entries are dropped by the
+  // narrowing branch rather than thrown on (matches the scanHistoryRows shape guard).
+  // Never mutates the buffer and never feeds a tile.
+  Pet.filterHistoryRows = function (entries, filter) {
+    if (filter !== "selfmod") return entries;
+    var out = [];
+    if (!entries || typeof entries.length !== "number") return out;
+    for (var i = 0; i < entries.length; i++) {
+      var e = entries[i];
+      if (e && typeof e === "object" && e.event_type === "selfmod_attempt") out.push(e);
+    }
+    return out;
+  };
+
+  // PET-165: filter-toggle handler. The filter is a LIVE-HEAD view: selecting
+  // "self-tamper" from a paged-back view snaps to the head first (via the existing
+  // historyPagingView "head" transition), because a filtered slice of one older page
+  // would read as "these are the self-tamper events" when it is only the events in that
+  // page. Paged views therefore always render unfiltered. Announces for AT, then
+  // re-renders through the normal renderDashboard path.
+  Pet.setHistoryFilter = function (filter) {
+    var next = (filter === "selfmod") ? "selfmod" : "all";
+    var atHead = Pet.state.historyAtHead !== false;
+    if (next === Pet.state.historyFilter && atHead) return; // nothing to change
+    Pet.state.historyFilter = next;
+    if (next === "selfmod" && !atHead) {
+      var plan = Pet.historyPagingView(
+        { atHead: Pet.state.historyAtHead, stack: Pet.state.historyStack }, "head"
+      );
+      Pet.state.historyAtHead = plan.atHead;
+      Pet.state.historyStack = plan.stack;
+    }
+    if (Pet.announce) {
+      Pet.announce(next === "selfmod"
+        ? "Scan history filtered to self-tamper events"
+        : "Scan history filter cleared, showing all rows");
+    }
+    if (_container) Pet.renderDashboard(_container);
   };
 
   // PET-144: honest scan-history subtitle. The ≤500 ring evicts silently; when the
@@ -1722,6 +1814,11 @@
     // PET-138: "bypassed (disarmed)" total — sum of the dedicated per-session
     // accumulator (NOT recomputed from the buffer, so it survives row eviction).
     var bypassed = Pet.bypassTotal();
+    // PET-165: "self-tamper" total — the server-authoritative lifetime count adopted from
+    // /health and live-incremented over SSE, NOT recomputed from the buffer. A buffer-scoped
+    // count would silently decay to 0 once 500 ordinary scans evicted the tamper rows, and
+    // the highest-stakes signal is precisely the one that must not decay.
+    var selfmodTotal = Number(Pet.state.selfmodTotal) || 0;
 
     var metricsRow = Pet.h("div", { style: { display: "flex", gap: "10px" } });
     // Lean metric cells (not four identical icon-panels): an eyebrow label over a
@@ -1744,6 +1841,8 @@
     metricsRow.appendChild(valueTile("avg latency", avgLatency, false));
     metricsRow.appendChild(valueTile("sessions", sessions, false));
     metricsRow.appendChild(valueTile("bypassed (disarmed)", bypassed, false));
+    // PET-165: alert styling whenever nonzero (like `blocked`); an honest literal 0 otherwise.
+    metricsRow.appendChild(valueTile("self-tamper", selfmodTotal, selfmodTotal > 0));
     wrapper.appendChild(metricsRow);
 
     // Scanner health
@@ -1784,9 +1883,15 @@
     var histAtHead = Pet.state.historyAtHead !== false;
     var histStack = Pet.state.historyStack || [];
     var histPaged = (!histAtHead && histStack.length) ? histStack[histStack.length - 1] : null;
+    // PET-165: the row filter narrows the LIVE HEAD only. A paged-back view is a slice of
+    // older history, so filtering it would present "the self-tamper events in this page" as
+    // "the self-tamper events"; paged views therefore always render unfiltered and the
+    // control reads its on-state from the effective filter below.
+    var histFilter = (Pet.state.historyFilter === "selfmod") ? "selfmod" : "all";
+    var histEffFilter = histPaged ? "all" : histFilter;
     var histRowsData = histPaged
       ? (Array.isArray(histPaged.entries) ? histPaged.entries : [])
-      : hist;
+      : Pet.filterHistoryRows(hist, histEffFilter);
     var histSubtitle = histPaged
       ? Pet.historyPageLabel(histPaged)
       : Pet.scanHistorySubtitle(
@@ -1822,14 +1927,40 @@
     }
     // Body: rows for the active view, or the retention-honest empty state when a paged-back
     // view came back empty (never "no scans yet" — that is the live-head empty state).
-    var histBody = (histPaged && histRowsData.length === 0)
-      ? Pet.h("div", { className: "mono", style: { color: "var(--tx-faint)", fontSize: "12px" } }, Pet.historyPageLabel(histPaged))
-      : Pet.scanHistoryRows(histRowsData);
+    var histBody;
+    if (histPaged && histRowsData.length === 0) {
+      histBody = Pet.h("div", { className: "mono", style: { color: "var(--tx-faint)", fontSize: "12px" } }, Pet.historyPageLabel(histPaged));
+    } else if (histEffFilter === "selfmod" && histRowsData.length === 0) {
+      // PET-165: filtered-empty is its own honest state, distinct from the loading skeleton
+      // and from "no scans yet". Phrased against the WINDOW because the PET-144 eviction
+      // subtitle still applies: this is a view of the <=500-row buffer, not of all history.
+      histBody = Pet.h("div", { className: "mono", style: { color: "var(--tx-faint)", fontSize: "12px" } }, "No self-tamper events in the buffered window.");
+    } else {
+      histBody = Pet.scanHistoryRows(histRowsData);
+    }
+
+    // PET-165: the one history filter dimension (no filter framework). Reuses the existing
+    // .seg segmented primitive (PET-122/PET-124) so it inherits the shipped focus-visible and
+    // on-state styling; seg-sm is the only new CSS, sizing it for the 38px panel head.
+    var histFilterSeg = Pet.h("div", { className: "seg seg-sm", role: "radiogroup", ariaLabel: "Scan history filter" });
+    histFilterSeg.appendChild(Pet.h("button", {
+      className: histEffFilter === "all" ? "on" : "", type: "button", role: "radio",
+      ariaChecked: histEffFilter === "all",
+      onClick: function () { Pet.setHistoryFilter("all"); },
+    }, "all"));
+    histFilterSeg.appendChild(Pet.h("button", {
+      className: histEffFilter === "selfmod" ? "on" : "", type: "button", role: "radio",
+      ariaChecked: histEffFilter === "selfmod",
+      onClick: function () { Pet.setHistoryFilter("selfmod"); },
+    }, "self-tamper"));
 
     var historyPanel = Pet.Panel({
       icon: "list", title: "scan history", flush: true,
       // PET-144/PET-148: lifetime "last N of M" at the head; a positional label when paged.
+      // PET-165: the subtitle reads the UNFILTERED buffered length, so filtering never
+      // rewrites the eviction headline into a false "showing last 3 of N".
       place: histSubtitle,
+      right: histFilterSeg,
       help: Pet.HelpTip("<b>Scan History</b>: recent pipeline scans with severity, direction, and timing. Each row is one <code>Pipeline.evaluate()</code> call. <b>Older</b>/<b>Newer</b> page through retained history beyond the live window."),
       content: Pet.h("div", { style: { padding: "12px" } }, histBody, histControls),
     });
@@ -1865,6 +1996,7 @@
         Pet.state.scannerHealth = d.scanners || [];
         Pet.state.pipelineHealth = d.pipeline || null;
         Pet.state.integrityHealth = d.integrity || null; // PET-157: mirror pipelineHealth (cold-mount settle)
+        Pet.adoptSelfmodTotal(Pet.state.pipelineHealth); // PET-165: seed the tile count on cold mount
         var rows = Pet.scannerHealthRows(Pet.state.scannerHealth);
         var contentEl = healthPanel.querySelector("[style*='padding: 12px']") || healthPanel.querySelector("div > div");
         if (contentEl) { contentEl.innerHTML = ""; contentEl.appendChild(rows); }

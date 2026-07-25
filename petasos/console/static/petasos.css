@@ -218,6 +218,9 @@
 .pet .seg { display: inline-flex; background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--r-card); padding: 2px; gap: 2px; }
 .pet .seg button { height: 26px; padding: 0 14px; border: none; background: transparent; cursor: pointer; font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: var(--tx-mut); border-radius: 5px; transition: background .12s, color .12s; }
 .pet .seg button.on { background: var(--acc); color: var(--color-primary-foreground, #fff); }
+/* PET-165: size modifier only, so a .seg can ride in the 38px panel head (scan-history filter). */
+.pet .seg.seg-sm { padding: 1px; }
+.pet .seg.seg-sm button { height: 22px; padding: 0 9px; font-size: 10px; }
 
 /* ── PET-124: strength-preset "tuning dial" (Config Editor) ── */
 .pet .pet-dial-host { flex: 0 0 auto; }
