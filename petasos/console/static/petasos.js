@@ -1820,20 +1820,38 @@
     // the highest-stakes signal is precisely the one that must not decay.
     var selfmodTotal = Number(Pet.state.selfmodTotal) || 0;
 
-    var metricsRow = Pet.h("div", { style: { display: "flex", gap: "10px" } });
+    // PET-165: wrap instead of crushing. Six tiles at flex:"1" squeezed the eyebrow
+    // labels until "BYPASSED (DISARMED)" wrapped and its value dropped out of line with
+    // its neighbours below ~1000px. A 170px basis is wide enough for the longest label
+    // on one line, so the row reflows into two tidy rows rather than degrading in place.
+    var metricsRow = Pet.h("div", { style: { display: "flex", gap: "10px", flexWrap: "wrap" } });
     // Lean metric cells (not four identical icon-panels): an eyebrow label over a
     // value. `blocked` carries severity weight when > 0 so the one security-load-
     // bearing number stands out instead of looking like `sessions`.
-    var valueTile = function (label, value, alert) {
+    // PET-165: `opts.tone` selects WHICH alert palette. `blocked` keeps crit red;
+    // self-tamper takes amber, because PET-164 fixed amber as the self-tamper channel
+    // colour precisely so red stays reserved for actual blocks. Two identically-red
+    // tiles would read as the same severity when they are not: `blocked` is routine
+    // enforcement over the buffered window, self-tamper is the guarded thing attacking
+    // the guard. `opts.help` hangs a HelpTip off the label for tiles whose counting
+    // scale is not obvious from the number alone.
+    var valueTile = function (label, value, alert, opts) {
+      opts = opts || {};
+      var hue = opts.tone === "amber" ? "var(--amber)" : "var(--crit)";
+      var soft = opts.tone === "amber" ? "var(--amber-soft)" : "var(--crit-soft)";
+      var head = Pet.h("div", { style: { display: "flex", alignItems: "center", gap: "5px", minHeight: "15px" } },
+        Pet.h("div", { className: "eyebrow" }, label)
+      );
+      if (opts.help) head.appendChild(opts.help);
       return Pet.h("div", {
         style: {
-          flex: "1", minWidth: "0", borderRadius: "var(--r-panel)", padding: "12px 14px",
-          background: alert ? "var(--crit-soft)" : "var(--bg-panel)",
-          border: "1px solid " + (alert ? "var(--crit)" : "var(--border)")
+          flex: "1 1 170px", minWidth: "0", borderRadius: "var(--r-panel)", padding: "12px 14px",
+          background: alert ? soft : "var(--bg-panel)",
+          border: "1px solid " + (alert ? hue : "var(--border)")
         }
       },
-        Pet.h("div", { className: "eyebrow" }, label),
-        Pet.h("div", { className: "num", style: { fontSize: "26px", marginTop: "4px", color: alert ? "var(--crit)" : "var(--tx-bright)" } }, String(value))
+        head,
+        Pet.h("div", { className: "num", style: { fontSize: "26px", marginTop: "4px", color: alert ? hue : "var(--tx-bright)" } }, String(value))
       );
     };
     metricsRow.appendChild(valueTile("scans", scans, false));
@@ -1841,8 +1859,15 @@
     metricsRow.appendChild(valueTile("avg latency", avgLatency, false));
     metricsRow.appendChild(valueTile("sessions", sessions, false));
     metricsRow.appendChild(valueTile("bypassed (disarmed)", bypassed, false));
-    // PET-165: alert styling whenever nonzero (like `blocked`); an honest literal 0 otherwise.
-    metricsRow.appendChild(valueTile("self-tamper", selfmodTotal, selfmodTotal > 0));
+    // PET-165: alert styling whenever nonzero, in amber (see valueTile). Sits last,
+    // beside `bypassed (disarmed)`: those two are the only lifetime, eviction-proof
+    // counters in the row, so the buffer-scoped four read as a block and the two
+    // differently-scaled ones are neighbours rather than scattered among them. The
+    // HelpTip carries the scale, since a bare number cannot say which window it counts.
+    metricsRow.appendChild(valueTile("self-tamper", selfmodTotal, selfmodTotal > 0, {
+      tone: "amber",
+      help: Pet.HelpTip("<b>Self-tamper</b>: tool calls that tried to write or read Petasos's own config, profile homes, or enforcement spool. Counted since this console started, so it does not fall when older rows age out of the scan history below. Detection only: these calls were not blocked."),
+    }));
     wrapper.appendChild(metricsRow);
 
     // Scanner health
@@ -1898,6 +1923,12 @@
           hist.length,
           Pet.state.pipelineHealth && Pet.state.pipelineHealth.scans_total
         );
+    // PET-165: the filter APPENDS to the subtitle, never rewrites it. The counts stay the
+    // unfiltered window's (so "showing last 500 of 1200" keeps meaning what PET-144 made
+    // it mean), but a list showing 2 of 500 buffered rows under a bare "recent evaluations"
+    // would misdescribe itself. One trailing clause fixes that without minting a second,
+    // filter-scoped total the operator would have to reconcile against the tile.
+    if (histEffFilter === "selfmod") histSubtitle = histSubtitle + " · self-tamper only";
     // PET-152: "Older" is offered when an older cursor exists (the paged view's next_before) or,
     // off the live head, when scanHistoryHasOlder reports retained rows older than the live window
     // — gated on the SAME lifetime scans_total the subtitle reads (:1631), never a cached seed
@@ -1948,8 +1979,10 @@
       ariaChecked: histEffFilter === "all",
       onClick: function () { Pet.setHistoryFilter("all"); },
     }, "all"));
+    // The active self-tamper segment takes the amber alert treatment (seg-alert), so the
+    // one moment this control is loud is the one moment it is actually withholding rows.
     histFilterSeg.appendChild(Pet.h("button", {
-      className: histEffFilter === "selfmod" ? "on" : "", type: "button", role: "radio",
+      className: histEffFilter === "selfmod" ? "on seg-alert" : "", type: "button", role: "radio",
       ariaChecked: histEffFilter === "selfmod",
       onClick: function () { Pet.setHistoryFilter("selfmod"); },
     }, "self-tamper"));
