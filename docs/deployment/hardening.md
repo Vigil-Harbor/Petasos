@@ -368,7 +368,10 @@ path was matched in that case. The OS boundary remains the containment
 mechanism; this layer is a
 tripwire. An unlisted read-only tool whose top-level arg *is* the owned path
 classifies as `config_write` even when the tool only reads (accepted FP
-direction; widen `READ_ONLY_TOOLS` as needed).
+direction; widen `READ_ONLY_TOOLS` as needed). Console 401 probe attempts
+(`petasos.selfmod.console_probe`) surface via alerts and the audit trail only:
+they write no enforcement-spool event, so they do not appear in the console
+scan history, its self-tamper filter, or the self-tamper tile.
 
 **Operator note (legitimate config edits escalate).** The frequency weights do
 not distinguish an operator-directed edit session from an attack: rapid

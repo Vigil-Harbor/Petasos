@@ -574,6 +574,10 @@ class ConsoleHandlers:
         # (mirrors the PET-131/138 tally pattern): monotonic, in-memory, resets on a
         # dashboard restart by design. A single scalar, so no per-session bound.
         self._scans_total = 0
+        # PET-165: eviction-proof lifetime count of surfaced self-tamper attempts, feeding
+        # the console tile. Same lifecycle as _scans_total (in-memory, resets on a dashboard
+        # restart by design); see the ingest seam for the not-integrity-gated rationale.
+        self._selfmod_total = 0
         # One-shot guard so the first ring overflow logs exactly once per run, not per scan.
         self._ring_overflow_warned = False
         # PET-157: self-diagnosing integrity state. `_integrity_recent` is a bounded window of
@@ -818,6 +822,14 @@ class ConsoleHandlers:
             cnt = ev.get("bypassed_count")
             if isinstance(sid, str) and sid and type(cnt) is int and cnt > 0:
                 self._set_bypass_tally(sid, max(self.bypass_tally_for(sid), cnt))
+        elif ev.get("event_type") == "selfmod_attempt":
+            # PET-165: eviction-proof lifetime tally for the console tile. Not
+            # integrity-gated (detection-only surfacing, same posture as the bypass
+            # tally above, never a trusted-block claim); exactly-once comes from the
+            # shared forward-offset / .rot drain discipline. Residual: a forged spool
+            # row can inflate the tile, so the per-row provenance flag and the audit
+            # trail remain the trusted record.
+            self._selfmod_total += 1
         await self.sse.broadcast("scan_result", summary)
 
     async def _drain_and_clear_rot(self, rot_path: str) -> None:
@@ -1333,6 +1345,9 @@ class ConsoleHandlers:
                 "config_hash": config_hash,
                 "uptime_seconds": round(time.monotonic() - self._start_time, 1),
                 "scans_total": self._scans_total,  # PET-144: eviction-proof lifetime count
+                # PET-165: eviction-proof lifetime self-tamper count feeding the console
+                # tile. Additive key; existing consumers ignore unknown keys (PET-157 D5).
+                "selfmod_total": self._selfmod_total,
                 # PET-148 (D-DRIFT): single source of truth for the ring window size so the
                 # frontend never hardcodes a second 500 that could drift from the backend.
                 "scan_history_capacity": _SCAN_HISTORY_RING_CAPACITY,

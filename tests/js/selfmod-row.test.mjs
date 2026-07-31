@@ -1,12 +1,16 @@
-// Unit tests for selfmod_attempt rendering (petasos.js), PET-164.
+// Unit tests for selfmod_attempt rendering (petasos.js), PET-164 + PET-165.
 //
 // A self-tamper classification row (event_type === "selfmod_attempt") is
 // detection-only: the summary carries safe=true, but the row must never wear
-// the green "safe" badge (amber "self-tamper" instead; red stays reserved for
-// actual blocks). The drill-down must render rule/severity/reason and the
-// detection-only explainer, never the "Unknown row kind" fallback, and the
+// the green "safe" badge. The drill-down must render rule/severity/reason and
+// the detection-only explainer, never the "Unknown row kind" fallback, and the
 // provenance line must not claim a content scan ran. Labels carry no banned
 // dash (em / en / double-hyphen) per house style.
+//
+// PET-165 differentiates the badge by severity: config_write (critical) takes
+// the red `err` class, config_ref (high) stays amber `warn`, and the severity
+// rides the badge TEXT as well as the class so the distinction never depends on
+// color alone. Anything else falls back to the pre-PET-165 plain amber badge.
 //
 // Zero npm deps: Node's built-in test runner + a DOM shim + node:vm over the
 // real shipped petasos.js. Run with: node --test tests/js/selfmod-row.test.mjs
@@ -101,20 +105,62 @@ const ENF_SELFMOD = {
 
 // ── row tests ───────────────────────────────────────────────────────────────
 
-test("selfmod row: amber self-tamper badge, never the green safe badge", () => {
+test("selfmod row: self-tamper badge, never the green safe badge", () => {
   const tree = Pet.scanHistoryRows([ENF_SELFMOD]);
-  const badge = findEl(tree, (el) => hasClass("warn")(el) && el.textContent === "self-tamper");
-  assert.ok(badge, "expected a 'self-tamper' (pill warn) badge");
   assert.equal(
     findEl(tree, (el) => hasClass("ok")(el) && el.textContent === "safe"),
     null,
     "selfmod row must not wear the green 'safe' badge"
   );
-  assert.equal(findEl(tree, hasClass("err")), null, "selfmod is detection only, not a blocked/err badge");
+  assert.ok(findEl(tree, (el) => /^self-tamper/.test(el.textContent)), "self-tamper badge present");
+  assert.equal(findEl(tree, (el) => el.textContent === "blocked"), null, "selfmod is detection only, never 'blocked'");
   const enfPill = findEl(tree, hasClass("blue"));
   assert.ok(enfPill && enfPill.textContent === "enf", "enf source pill present");
   assert.ok(text(tree).includes("selfmod_attempt"), "event_type rendered");
   assert.ok(text(tree).includes("write_file"), "tool rendered");
+});
+
+// ── PET-165: severity-differentiated badges ─────────────────────────────────
+
+const badgeOf = (row) =>
+  findEl(Pet.scanHistoryRows([row]), (el) => /^self-tamper/.test(el.textContent));
+
+test("PET-165 badge: critical severity takes the err class and says so in text", () => {
+  const badge = badgeOf(ENF_SELFMOD); // severity: "critical"
+  assert.ok(badge, "badge rendered");
+  assert.equal(badge.textContent, "self-tamper (critical)");
+  assert.ok(hasClass("err")(badge), "critical rides the red err class, not amber");
+});
+
+test("PET-165 badge: high severity stays amber and says so in text", () => {
+  const badge = badgeOf({
+    ...ENF_SELFMOD,
+    rule_id: "petasos.selfmod.config_ref",
+    severity: "high",
+  });
+  assert.ok(badge, "badge rendered");
+  assert.equal(badge.textContent, "self-tamper (high)");
+  assert.ok(hasClass("warn")(badge), "high stays on the amber warn class");
+});
+
+test("PET-165 badge: missing / nonsense severity falls back to the plain amber badge", () => {
+  // The exact pre-PET-165 rendering, so an unrecognized severity can never produce a
+  // half-formed label like "self-tamper (undefined)" or throw mid-render.
+  for (const severity of [undefined, null, "", "SEVERE", "Critical", 3, {}, ["high"], true]) {
+    const row = { ...ENF_SELFMOD, severity };
+    let badge;
+    assert.doesNotThrow(() => { badge = badgeOf(row); }, `severity ${JSON.stringify(severity)} threw`);
+    assert.equal(badge.textContent, "self-tamper", `severity ${JSON.stringify(severity)} must fall back`);
+    assert.ok(hasClass("warn")(badge), "fallback stays amber");
+  }
+});
+
+test("PET-165 badge: severity does not leak onto non-selfmod rows", () => {
+  // The mapping keys on the row's severity only WITHIN a selfmod row; an ordinary
+  // enforcement block row carrying a severity keeps its own badge text.
+  const block = { source: "enforcement", event_type: "block", safe: false, severity: "critical", scan_id: "e-b1" };
+  const badge = findEl(Pet.scanHistoryRows([block]), (el) => el.textContent === "blocked");
+  assert.ok(badge, "block row still reads 'blocked', not a severity-suffixed label");
 });
 
 // ── drill-down tests ────────────────────────────────────────────────────────

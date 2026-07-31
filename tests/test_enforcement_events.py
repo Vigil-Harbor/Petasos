@@ -804,3 +804,66 @@ async def test_bypass_count_round_trips_in_process(
     rows = handlers.scan_history.to_list()
     assert rows[0]["bypassed_count"] == 1
     assert rows[0]["safe"] is True
+
+
+# ---------------------------------------------------------------------------
+# PET-165: the self-tamper ingest tally behind the console's self-tamper tile.
+# The counter rides the SAME drain seam as the block/bypass tallies, so it
+# inherits their exactly-once discipline (forward offset + .rot recovery). These
+# tests pin the increment semantics; the /health field contract and the
+# eviction-independence guarantee live in test_console_scans_total.py.
+# ---------------------------------------------------------------------------
+
+
+def _emit_selfmod(session_id: str, **kw: Any) -> None:
+    """Emit a selfmod_attempt event directly onto the spool (dashboard-side tests)."""
+    ev.emit_enforcement_event(
+        {
+            "session_id": session_id,
+            "tool": "write_file",
+            "event_type": "selfmod_attempt",
+            "rule_id": "petasos.selfmod.config_write",
+            "severity": "critical",
+            "reason": "selfmod target: config.yaml",
+            "armed": True,
+            **kw,
+        }
+    )
+
+
+async def test_selfmod_total_increments_exactly_once(
+    spool: str, handlers: ConsoleHandlers
+) -> None:
+    # One spool row, one increment -- and a re-drain over the same spool must not
+    # re-count it. The forward offset is what makes this true; asserting it here means a
+    # regression in the offset discipline shows up as an inflated tile, not just as a
+    # duplicate row.
+    _emit_selfmod("s-one")
+    await handlers._drain_enforcement_into_history()
+    assert handlers._selfmod_total == 1
+
+    await handlers._drain_enforcement_into_history()  # nothing new on the spool
+    assert handlers._selfmod_total == 1
+
+    _emit_selfmod("s-one", rule_id="petasos.selfmod.config_ref", severity="high")
+    await handlers._drain_enforcement_into_history()
+    assert handlers._selfmod_total == 2
+
+
+async def test_selfmod_total_isolated_from_other_event_types(
+    spool: str, handlers: ConsoleHandlers
+) -> None:
+    # Event-type isolation in both directions: block / bypass / an ordinary playground scan
+    # never touch the selfmod tally, and a selfmod row never touches the block or bypass
+    # tallies (it is detection-only, never a block claim).
+    ev.emit_enforcement_event({"session_id": "s", "tool": "t", "event_type": "block"})
+    _emit_bypass("s", bypassed_count=2)
+    await handlers._drain_enforcement_into_history()
+    await handlers.run_scan("an ordinary playground scan")
+    assert handlers._selfmod_total == 0
+
+    _emit_selfmod("s")
+    await handlers._drain_enforcement_into_history()
+    assert handlers._selfmod_total == 1
+    assert handlers.block_tally_for("s") == 1  # unchanged by the selfmod row
+    assert handlers.bypass_tally_for("s") == 2  # unchanged by the selfmod row
