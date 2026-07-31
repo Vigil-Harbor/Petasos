@@ -7,3 +7,7 @@ ignore = ["UP017"]
 
 [format]
 quote-style = "double"
+# ruff >= 0.16 formats Python code blocks inside Markdown. Doc snippets are
+# hand-laid out for readability (grouped config examples, aligned comments),
+# so the formatter is scoped to source files only.
+exclude = ["*.md"]

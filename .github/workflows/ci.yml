@@ -14,7 +14,10 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
-      - run: pip install ruff
+      # Pinned deliberately. An unpinned install silently adopts new formatter
+      # behavior on release day and breaks every open branch at once (0.16.0
+      # began formatting Python code blocks inside Markdown). Bump in its own PR.
+      - run: pip install ruff==0.16.0
       - run: ruff check .
       - run: ruff format --check .
 
