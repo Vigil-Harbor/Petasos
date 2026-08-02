@@ -119,6 +119,21 @@ _FIELD_META: dict[str, dict[str, Any]] = {
         "section": "scanning",
         "constraints": {"min": 0.01, "max": 60},
     },
+    "init_wait_timeout_seconds": {
+        "description": "How long a tool call waits for scanners to finish starting up.",
+        "help_plain": (
+            "How many seconds a tool call waits for the security scanners to finish"
+            " loading before giving up and falling back to the fast pattern scan."
+            " Applies to the Hermes plugin's startup window; it has no effect when"
+            " Petasos is embedded directly as a library. Lower keeps short sessions"
+            " snappy; higher gives the full scanners more time to come up, up to 60"
+            " seconds. Values below 0.05 are raised to 0.05, and 0 or a negative"
+            " value falls back to the default of 2. What happens after the wait"
+            " expires is decided by the fail mode setting."
+        ),
+        "section": "scanning",
+        "constraints": {"min": 0.05, "max": 60},
+    },
     "scanner_circuit_breaker_threshold": {
         "description": "Consecutive timeouts before a scanner is temporarily benched.",
         "help_plain": (

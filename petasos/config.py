@@ -82,6 +82,16 @@ class PetasosConfig:
     scanner_circuit_breaker_threshold: int = 3
     scanner_circuit_breaker_cooldown_seconds: float = 30.0
 
+    # PET-167: how long a tool call waits for scanner init to finish before falling back to
+    # the syntactic-only scan. Consumed ONLY by the Hermes deployment shim's cold-start
+    # window (docs/deployment/reference_plugin/__init__.py); nothing in petasos/ reads it, so
+    # a library embedder who sets it gets no behavior change — help_plain says so. 2.0 is
+    # long enough to absorb a warm-ish start, short enough not to visibly stall a one-shot
+    # invocation, and well under a measured ~12s full init so the timeout branch is genuinely
+    # exercised in the field. The shim re-clamps the raw value itself (this validation
+    # protects the pipeline's copy and the Config Editor, not the hook thread).
+    init_wait_timeout_seconds: float = 2.0
+
     # Anonymization
     anonymize: bool = False
     pii_entities: tuple[str, ...] = ()
@@ -310,6 +320,17 @@ class PetasosConfig:
         if self.scanner_timeout_seconds > 60.0:
             raise ValueError(
                 f"scanner_timeout_seconds must be <= 60, got {self.scanner_timeout_seconds!r}"
+            )
+        # PET-167: mirrors the scanner_timeout_seconds idiom (finite, > 0, <= 60).
+        init_wait = self.init_wait_timeout_seconds
+        if init_wait <= 0 or not math.isfinite(init_wait):
+            raise ValueError(
+                f"init_wait_timeout_seconds must be positive and finite, "
+                f"got {self.init_wait_timeout_seconds!r}"
+            )
+        if self.init_wait_timeout_seconds > 60.0:
+            raise ValueError(
+                f"init_wait_timeout_seconds must be <= 60, got {self.init_wait_timeout_seconds!r}"
             )
         if (
             not isinstance(self.scanner_circuit_breaker_threshold, int)

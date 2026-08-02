@@ -133,6 +133,32 @@ def _drive(
     return ref._pre_tool_call(tool_name, args or {"text": "x"}, task_id="s1")
 
 
+def _drive_cold_window_no_finding(
+    monkeypatch: pytest.MonkeyPatch, tool_name: str = "write_file", fail_mode: str = "degraded"
+) -> Any:
+    """PET-167: drive ``_pre_tool_call`` down the cold-window NO-finding block — the wait
+    expired, the syntactic fallback scanned clean, and ``fail_mode`` blocks the dangerous
+    call. This is the eighth formatter site."""
+    ref = _import_reference_plugin()
+    monkeypatch.setattr(ref, "_is_armed", lambda: True)
+    monkeypatch.setattr(ref, "_ensure_initialized", lambda: False)
+    monkeypatch.setattr(ref, "_init_error", None)
+    monkeypatch.setattr(ref, "_initialized", False)
+    monkeypatch.setattr(ref, "_config", {"fail_mode": fail_mode})
+
+    class _Clean:
+        name = "minimal"
+
+        async def scan(
+            self, text: str, *, direction: str = "inbound", session_id: str | None = None
+        ) -> ScanResult:
+            return ScanResult(scanner_name="minimal", findings=())
+
+    monkeypatch.setattr(ref, "_run_async", lambda coro: asyncio.run(coro))
+    monkeypatch.setattr(ref, "_get_fallback_scanner", lambda: _Clean())
+    return ref._pre_tool_call(tool_name, {"text": "x"}, task_id="s-cold")
+
+
 def _drive_fallback(
     monkeypatch: pytest.MonkeyPatch, tool_name: str, finding: ScanFinding | None
 ) -> Any:
@@ -269,6 +295,21 @@ def test_init_fallback_block_message(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "Security scan (init in progress)" not in msg
 
 
+def test_cold_window_no_finding_block_message(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Regression for PET-167: the cold-window block that has NO syntactic finding behind it
+    # (clean or errored scan under degraded/closed) still carries the PET-77 contract. It
+    # reuses the existing "degraded" ContentBlockPath rather than minting a new token: this
+    # and the warm-path param_scan_degraded block are the same decision under the same
+    # policy. No "Top finding:" clause — there is no finding on this sub-path.
+    out = _drive_cold_window_no_finding(monkeypatch)
+    assert out is not None and out["action"] == "block"
+    msg = out["message"]
+    assert msg.startswith(_PREFIX)
+    assert "write_file" in msg and "NOT executed" in msg
+    assert "degraded" in msg.lower()
+    assert "Top finding:" not in msg
+
+
 def test_no_internal_reason_strings_leak(monkeypatch: pytest.MonkeyPatch) -> None:
     # Regression for PET-77: no internal reason string or raw block string reaches the
     # model across every enforcement path, AND a unique sentinel reason is never echoed
@@ -326,6 +367,8 @@ def test_no_internal_reason_strings_leak(monkeypatch: pytest.MonkeyPatch) -> Non
             "message"
         ]
     )
+    # PET-167: the cold-window no-finding block joins the catalogue.
+    messages.append(_drive_cold_window_no_finding(monkeypatch)["message"])
 
     forbidden = (
         "exempt-with-scan",
@@ -400,11 +443,16 @@ def test_shim_emits_branding() -> None:
 
 
 def test_shim_routes_every_block_site_through_formatter() -> None:
-    # Regression for PET-77: each of the six block sites must route through the formatter.
-    # Counting call sites closes the hole B2 leaves open (a NEW ad-hoc f-string at a single
-    # site would pass B2 but drop the count below six). Parse the AST and count real Call
-    # nodes so the names appearing in the import, comments, or string literals are not
-    # miscounted (a raw src.count() would inflate the total and could mask a removed site).
+    # Regression for PET-77: each block site must route through the formatter. Counting
+    # call sites closes the hole B2 leaves open (a NEW ad-hoc f-string at a single site
+    # would pass B2 but drop the count). Parse the AST and count real Call nodes so the
+    # names appearing in the import, comments, or string literals are not miscounted (a raw
+    # src.count() would inflate the total and could mask a removed site).
+    #
+    # Regression for PET-167: bumped 6 -> 8. The tree already had SEVEN sites — PET-134's
+    # taint_egress site was added without bumping the assertion, leaving it unguarded — and
+    # PET-167's cold-window no-finding block is the eighth. The reconciliation is done here
+    # so the number is exact rather than merely non-decreasing.
     tree = ast.parse(_shim_source())
     targets = {"format_block_message", "format_content_block"}
     call_sites = sum(
@@ -414,4 +462,4 @@ def test_shim_routes_every_block_site_through_formatter() -> None:
         and isinstance(node.func, ast.Name)
         and node.func.id in targets
     )
-    assert call_sites >= 6, f"expected >=6 formatter call sites in the shim, found {call_sites}"
+    assert call_sites >= 8, f"expected >=8 formatter call sites in the shim, found {call_sites}"

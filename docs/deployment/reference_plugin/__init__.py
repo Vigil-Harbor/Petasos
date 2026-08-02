@@ -29,6 +29,7 @@ import asyncio
 import base64
 import contextlib
 import logging
+import math  # PET-167: dep-light (stdlib; isfinite guard on the raw init-wait budget)
 import os
 import threading
 import time
@@ -61,6 +62,57 @@ _init_lock = threading.Lock()
 _initialized = False
 _init_error: str | None = None
 _session_ids: dict[int, str] = {}
+
+# PET-167: bounded cold-start wait. `_init_done` is set in a `finally` around the WHOLE
+# _deferred_init body, so every exit path (including its pre-try early return) signals
+# completion. It is a BEST-EFFORT signal, not a guarantee: the init thread is daemon=True
+# and CPython does not run `finally` in daemon threads killed at interpreter finalization.
+# That is safe precisely because the wait is bounded — an unset Event costs one budget,
+# not a hang. An Event rather than `_init_lock.acquire(timeout=...)` because _init_lock is
+# ALSO taken by _rebind_to_resolution for a config refresh unrelated to init completion,
+# so acquiring it proves only that no build is mid-flight.
+#
+# The deadline is process-wide, not per-call: a naive per-call budget would charge N calls
+# N budgets inside one cold window, a latency regression on exactly the short-lived
+# unattended surfaces this targets. `_init_wait_deadline` is captured at the FIRST wait and
+# `_init_wait_expired` latches; total added wait across the process is one budget.
+_init_done = threading.Event()
+_init_wait_deadline: float | None = None
+_init_wait_expired = False
+_DEFAULT_INIT_WAIT_S = 2.0
+
+# PET-167: the scan-outcome channel out of _fallback_pre_tool_call. The fallback's
+# signature and return type are UNCHANGED (three distinct outcomes collapse to None in its
+# return value, and existing callers/tests depend on that contract, e.g.
+# tests/test_reference_plugin_egress.py:444-453); it additionally records
+# clean/errored/skipped/blocked here. Thread-local, not a plain global: _pre_tool_call runs
+# concurrently on a multi-threaded gateway and a shared flag would cross-talk between
+# sessions. The read side treats a missing OR unrecognized value as "errored" (fail-secure)
+# and clears the attribute on every exit so a pooled thread carries no residue.
+_fallback_state = threading.local()
+
+# PET-167: at-most-once-per-(session, event_type) latch for the cold-start markers. Keyed on
+# the PAIR, not the session: a session can legitimately record cold_start_degraded and then
+# init_failed, and a session-only key would silently swallow the more severe second state.
+# Insertion-ordered dict used as a set with drop-oldest at _MAX_COLD_START_KEYS, mirroring
+# _bypass_counts/_MAX_DISARM_SESSIONS. `_KEYS` not `_SESSIONS`: it holds up to two entries
+# per session. The two booleans cover the uncorrelatable shape (no task_id, no _agent), where
+# _derive_session_id mints a fresh anon-<uuid> per call that would defeat the latch entirely
+# (the PET-134 D1b discriminator); they are mutated under the same lock. The lock is
+# dedicated and non-reentrant, acquired independently and NEVER held across
+# _derive_session_id, _emit_enforcement_event, or _init_done.wait() (PET-138 Decision 4).
+_cold_start_lock = threading.Lock()
+_cold_start_records: dict[tuple[str, str], None] = {}
+_MAX_COLD_START_KEYS = 10_000
+_cold_start_anon_degraded = False
+_cold_start_anon_init_failed = False
+# Dedicated rate-limit clock for the failed-spool-write warning (the PET-126
+# _last_reload_fail_log idiom). The retry itself is deliberately unbounded — a later call may
+# find the spool writable again — but on a persistently dead spool an init_failed process
+# qualifies for its whole lifetime, so an unconditional warning would mean one log line per
+# tool call on the hook path exactly when the operator's disk is already the problem.
+_cold_start_log_lock = threading.Lock()
+_last_cold_start_fail_log = 0.0
 
 # PET-130: the gateway's session-bound config resolution, captured once at the top
 # of register() from the operator-trusted boot environment and pinned for the
@@ -137,10 +189,36 @@ def _reset_hooks_registered() -> None:
     _hooks_registered = False
 
 
-def _reset_init_thread_started() -> None:
-    """Test seam — clear the one-shot init-thread-spawn flag (Decision 3)."""
-    global _init_thread_started
+def _reset_init_state() -> None:
+    """Test seam — reset the whole init + bounded-wait latch family (PET-167).
+
+    Subsumes and replaces the former ``_reset_init_thread_started`` (PET-132 Decision 3),
+    which had zero callers. ``_init_done`` is REPLACED with a fresh Event rather than
+    cleared: clearing is insufficient if a waiter is still parked on the old one. Resetting
+    ``_init_wait_deadline`` matters as much as the flags — a stale non-None deadline makes
+    ``remaining <= 0``, skipping the wait entirely, which would let a bounded-wait test pass
+    against an implementation that never waits.
+    """
+    global _initialized, _init_error, _init_thread_started, _init_done
+    global _init_wait_deadline, _init_wait_expired
+    _initialized = False
+    _init_error = None
     _init_thread_started = False
+    _init_wait_deadline = None
+    _init_wait_expired = False
+    _init_done = threading.Event()
+
+
+def _reset_cold_start_records() -> None:
+    """Test seam — clear the PET-167 per-session marker latch, both process-wide
+    uncorrelatable booleans, and the failed-write warning clock."""
+    global _cold_start_anon_degraded, _cold_start_anon_init_failed, _last_cold_start_fail_log
+    with _cold_start_lock:
+        _cold_start_records.clear()
+        _cold_start_anon_degraded = False
+        _cold_start_anon_init_failed = False
+    with _cold_start_log_lock:
+        _last_cold_start_fail_log = 0.0
 
 
 def _reset_rebind_log() -> None:
@@ -378,261 +456,281 @@ def _build_config_from_section(section: dict[str, Any]) -> PetasosConfig:
 def _deferred_init() -> None:
     global _pipeline, _guard, _initialized, _init_error
 
-    with _init_lock:
-        if _initialized or _init_error:
-            return
+    # PET-167: the `finally` wraps the ENTIRE body, including the pre-`try` early return
+    # below. Wrapping only the inner `try` would leave that path with `_init_done` unset,
+    # charging a waiter a full budget for an init that had already finished.
+    try:
+        with _init_lock:
+            if _initialized or _init_error:
+                return
 
-        try:
-            from petasos import PetasosConfig, Pipeline, ToolCallGuard
-            from petasos.scanners import MinimalScanner
+            try:
+                from petasos import PetasosConfig, Pipeline, ToolCallGuard
+                from petasos.scanners import MinimalScanner
 
-            raw_config = _config or {}
+                raw_config = _config or {}
 
-            host_id = raw_config.pop("host_id", "hermes-gavin-01")
-            # PET-111 (Option A): build the pipeline regardless of the boot-time
-            # `enabled` value; enforcement is gated per-call by _is_armed() so a
-            # re-arm mid-session pays no cold-start penalty. The "disabled"
-            # _init_error sentinel is retired — _init_error now latches only a
-            # genuine init exception.
-            enabled = raw_config.pop("enabled", True)
-            logger.info(
-                "Petasos starting %s (petasos.enabled=%s)",
-                "armed" if enabled else "disarmed",
-                enabled,
-            )
+                host_id = raw_config.pop("host_id", "hermes-gavin-01")
+                # PET-111 (Option A): build the pipeline regardless of the boot-time
+                # `enabled` value; enforcement is gated per-call by _is_armed() so a
+                # re-arm mid-session pays no cold-start penalty. The "disabled"
+                # _init_error sentinel is retired — _init_error now latches only a
+                # genuine init exception.
+                enabled = raw_config.pop("enabled", True)
+                logger.info(
+                    "Petasos starting %s (petasos.enabled=%s)",
+                    "armed" if enabled else "disarmed",
+                    enabled,
+                )
 
-            # Boot-time operator guidance. The actual env overlay + validation is
-            # the shared _build_config_from_section (also used by the live reload,
-            # PET-126 Decision 10), so a boot config and a live-reload config are
-            # equivalent. The warnings stay here so the reload path does not re-emit
-            # them on every applied change.
-            session_secret_b64 = os.environ.get("PETASOS_SESSION_SECRET")
-            if session_secret_b64:
+                # Boot-time operator guidance. The actual env overlay + validation is
+                # the shared _build_config_from_section (also used by the live reload,
+                # PET-126 Decision 10), so a boot config and a live-reload config are
+                # equivalent. The warnings stay here so the reload path does not re-emit
+                # them on every applied change.
+                session_secret_b64 = os.environ.get("PETASOS_SESSION_SECRET")
+                if session_secret_b64:
+                    try:
+                        base64.b64decode(session_secret_b64)
+                    except Exception:
+                        logger.warning(
+                            "PETASOS_SESSION_SECRET is not valid base64"
+                            " — HMAC session binding disabled"
+                        )
+                else:
+                    logger.warning(
+                        "PETASOS_SESSION_SECRET not set — HMAC session binding disabled"
+                    )
+
+                if (
+                    not os.environ.get("PETASOS_HASH_KEY")
+                    and raw_config.get("redaction_mode") == "hash"
+                ):
+                    logger.warning(
+                        "PETASOS_HASH_KEY not set but redaction_mode=hash "
+                        "— PII anonymization will fail. Set PETASOS_HASH_KEY "
+                        "or change redaction_mode."
+                    )
+
                 try:
-                    base64.b64decode(session_secret_b64)
-                except Exception:
-                    logger.warning(
-                        "PETASOS_SESSION_SECRET is not valid base64"
-                        " — HMAC session binding disabled"
-                    )
-            else:
-                logger.warning("PETASOS_SESSION_SECRET not set — HMAC session binding disabled")
+                    config = _build_config_from_section(raw_config)
+                except (TypeError, ValueError) as exc:
+                    logger.error("PetasosConfig validation failed: %s — using defaults", exc)
+                    config = PetasosConfig()
 
-            if (
-                not os.environ.get("PETASOS_HASH_KEY")
-                and raw_config.get("redaction_mode") == "hash"
-            ):
-                logger.warning(
-                    "PETASOS_HASH_KEY not set but redaction_mode=hash "
-                    "— PII anonymization will fail. Set PETASOS_HASH_KEY "
-                    "or change redaction_mode."
-                )
+                scanners = [MinimalScanner()]
+                unavailable: list[str] = []
+                try:
+                    from petasos.scanners import LlmGuardScanner
 
-            try:
-                config = _build_config_from_section(raw_config)
-            except (TypeError, ValueError) as exc:
-                logger.error("PetasosConfig validation failed: %s — using defaults", exc)
-                config = PetasosConfig()
-
-            scanners = [MinimalScanner()]
-            unavailable: list[str] = []
-            try:
-                from petasos.scanners import LlmGuardScanner
-
-                instance = LlmGuardScanner()
-                scanners.append(instance)
-                avail, reason, _cause = instance.availability()
-                if avail:
-                    logger.info("LLM Guard backend verified — scanner active")
-                else:
+                    instance = LlmGuardScanner()
+                    scanners.append(instance)
+                    avail, reason, _cause = instance.availability()
+                    if avail:
+                        logger.info("LLM Guard backend verified — scanner active")
+                    else:
+                        unavailable.append("llm_guard")
+                        logger.warning(
+                            "LLM Guard backend missing — scanner registered degraded "
+                            "(every scan will error): %s",
+                            reason,
+                        )
+                except ImportError:
                     unavailable.append("llm_guard")
-                    logger.warning(
-                        "LLM Guard backend missing — scanner registered degraded "
-                        "(every scan will error): %s",
-                        reason,
-                    )
-            except ImportError:
-                unavailable.append("llm_guard")
-                logger.info("LLM Guard not installed — syntactic-only for that backend")
-            except Exception as exc:
-                unavailable.append("llm_guard")
-                logger.warning("LLM Guard failed to load: %s", exc)
+                    logger.info("LLM Guard not installed — syntactic-only for that backend")
+                except Exception as exc:
+                    unavailable.append("llm_guard")
+                    logger.warning("LLM Guard failed to load: %s", exc)
 
-            try:
-                from petasos.scanners import LlamaFirewallScanner
+                try:
+                    from petasos.scanners import LlamaFirewallScanner
 
-                instance = LlamaFirewallScanner()
-                scanners.append(instance)
-                avail, reason, _cause = instance.availability()
-                if avail:
-                    logger.info("LlamaFirewall backend verified — scanner active")
-                else:
+                    instance = LlamaFirewallScanner()
+                    scanners.append(instance)
+                    avail, reason, _cause = instance.availability()
+                    if avail:
+                        logger.info("LlamaFirewall backend verified — scanner active")
+                    else:
+                        unavailable.append("llama_firewall")
+                        logger.warning(
+                            "LlamaFirewall backend missing — scanner registered degraded "
+                            "(every scan will error): %s",
+                            reason,
+                        )
+                except ImportError:
                     unavailable.append("llama_firewall")
-                    logger.warning(
-                        "LlamaFirewall backend missing — scanner registered degraded "
-                        "(every scan will error): %s",
-                        reason,
-                    )
-            except ImportError:
-                unavailable.append("llama_firewall")
-                logger.info("LlamaFirewall not installed — skipped")
-            except Exception as exc:
-                unavailable.append("llama_firewall")
-                logger.warning("LlamaFirewall failed to load: %s", exc)
+                    logger.info("LlamaFirewall not installed — skipped")
+                except Exception as exc:
+                    unavailable.append("llama_firewall")
+                    logger.warning("LlamaFirewall failed to load: %s", exc)
 
-            try:
-                from petasos.scanners import PresidioScanner
+                try:
+                    from petasos.scanners import PresidioScanner
 
-                instance = PresidioScanner()
-                scanners.append(instance)
-                avail, reason, _cause = instance.availability()
-                if avail:
-                    logger.info("Presidio backend verified — scanner active")
-                else:
+                    instance = PresidioScanner()
+                    scanners.append(instance)
+                    avail, reason, _cause = instance.availability()
+                    if avail:
+                        logger.info("Presidio backend verified — scanner active")
+                    else:
+                        unavailable.append("presidio")
+                        logger.warning(
+                            "Presidio backend missing — scanner registered degraded "
+                            "(every scan will error): %s",
+                            reason,
+                        )
+                except ImportError:
                     unavailable.append("presidio")
+                    logger.info("Presidio not installed — PII detection unavailable")
+                except Exception as exc:
+                    unavailable.append("presidio")
+                    logger.warning("Presidio failed to load: %s", exc)
+
+                _pipeline = Pipeline(
+                    config=config,
+                    scanners=scanners,
+                    host_id=host_id,
+                    on_audit=_handle_audit,
+                    on_alert=_handle_alert,
+                )
+
+                # PET-139: install the enforcement-spool HMAC key (D3) so writer-side events are
+                # signed. Sourced from the `session_secret` already decoded by
+                # `_build_config_from_section` (no new env read). The reader (dashboard process)
+                # derives the same key from the same `PETASOS_SESSION_SECRET` under one documented
+                # env contract, so writer and reader agree. Wrapped fail-safe: a failure degrades
+                # to integrity-off (no `sig`), never breaks boot.
+                try:
+                    from petasos.console._events import set_spool_key
+
+                    set_spool_key(config.session_secret)
+                except Exception as exc:  # pragma: no cover - defensive; integrity is best-effort
                     logger.warning(
-                        "Presidio backend missing — scanner registered degraded "
-                        "(every scan will error): %s",
-                        reason,
+                        "PETASOS_INTEGRITY spool-key install failed at boot: %s — integrity off",
+                        exc,
                     )
-            except ImportError:
-                unavailable.append("presidio")
-                logger.info("Presidio not installed — PII detection unavailable")
-            except Exception as exc:
-                unavailable.append("presidio")
-                logger.warning("Presidio failed to load: %s", exc)
 
-            _pipeline = Pipeline(
-                config=config,
-                scanners=scanners,
-                host_id=host_id,
-                on_audit=_handle_audit,
-                on_alert=_handle_alert,
-            )
+                license_key = os.environ.get("PETASOS_LICENSE_KEY")
+                if license_key:
+                    from petasos import LicenseState
 
-            # PET-139: install the enforcement-spool HMAC key (D3) so writer-side events are
-            # signed. Sourced from the `session_secret` already decoded by
-            # `_build_config_from_section` (no new env read). The reader (dashboard process)
-            # derives the same key from the same `PETASOS_SESSION_SECRET` under one documented
-            # env contract, so writer and reader agree. Wrapped fail-safe: a failure degrades
-            # to integrity-off (no `sig`), never breaks boot.
-            try:
-                from petasos.console._events import set_spool_key
-
-                set_spool_key(config.session_secret)
-            except Exception as exc:  # pragma: no cover - defensive; integrity is best-effort
-                logger.warning(
-                    "PETASOS_INTEGRITY spool-key install failed at boot: %s — integrity off", exc
-                )
-
-            license_key = os.environ.get("PETASOS_LICENSE_KEY")
-            if license_key:
-                from petasos import LicenseState
-
-                state = _pipeline.activate(license_key)
-                if state == LicenseState.VALID:
-                    logger.info("Petasos license validated (enterprise)")
-                    for feat in (
-                        "frequency",
-                        "escalation",
-                        "tool_guard",
-                        "audit",
-                        "alerting",
-                    ):
-                        if not _pipeline.is_feature_enabled(feat):
-                            logger.warning(
-                                "Premium feature '%s' not available despite valid license",
-                                feat,
-                            )
+                    state = _pipeline.activate(license_key)
+                    if state == LicenseState.VALID:
+                        logger.info("Petasos license validated (enterprise)")
+                        for feat in (
+                            "frequency",
+                            "escalation",
+                            "tool_guard",
+                            "audit",
+                            "alerting",
+                        ):
+                            if not _pipeline.is_feature_enabled(feat):
+                                logger.warning(
+                                    "Premium feature '%s' not available despite valid license",
+                                    feat,
+                                )
+                    else:
+                        logger.warning(
+                            "Petasos license invalid (state=%s) — running OSS-only", state
+                        )
                 else:
-                    logger.warning("Petasos license invalid (state=%s) — running OSS-only", state)
-            else:
+                    logger.info(
+                        "PETASOS_LICENSE_KEY not set — all features available "
+                        "(license is optional)"
+                    )
+
+                from petasos import FrequencyTracker, LineageRegistry, SessionTaintStore
+
+                global _lineage_registry
+                if _subagent_hooks_available:
+                    # A + C: construct ONE registry before the tracker, wire the
+                    # tracker's pin/unpin callbacks to it, and hand it to the guard.
+                    # Hooks carry raw session_ids; the registry keys on raw ids
+                    # (matching is_terminated); the guard mints per-ancestor tokens
+                    # for get_state.
+                    registry = LineageRegistry(config)
+                    _lineage_registry = registry
+                    tracker = FrequencyTracker(
+                        config,
+                        is_pinned=registry.is_pinned,
+                        on_terminate=registry.unregister,
+                    )
+                    _guard = ToolCallGuard(_pipeline, tracker, config, lineage=registry)
+                    logger.info(
+                        "Petasos sub-agent lineage (A) + delegation fan-out gate (C) active"
+                    )
+                else:
+                    # C only: no sub-agent hooks, so lineage no-ops (no chain walk,
+                    # no pinning). The fan-out gate still rate-limits delegate spawns.
+                    tracker = FrequencyTracker(config)
+                    _guard = ToolCallGuard(_pipeline, tracker, config, lineage=None)
+                    logger.info(
+                        "Petasos delegation fan-out gate (C) active; sub-agent lineage (A) "
+                        "inactive (sub-agent hooks unavailable)"
+                    )
+
+                # PET-112: publish the egress-sink set under the same happens-before as
+                # _pipeline/_guard (written before _initialized flips; read lock-free in the
+                # post-init hot path). The `global` is MANDATORY — without it the assignment
+                # binds a function-local and leaves the module frozenset empty forever,
+                # silently disabling egress PII blocking.
+                global _egress_sink_tools
+                # PET-118: canonicalize once here through the SAME shared primitive the guard
+                # uses, mirroring the delegate_tool_names template (canonicalize, drop names
+                # that normalize away via `if c`, warn when the resolved set is empty). A name
+                # that is purely a namespace prefix (e.g. "mcp__acme__") passes config
+                # validation but canonicalizes to "" — the `if c` filter drops it so the set
+                # never contains "" (no false match in _is_egress_sink).
+                _egress_sink_tools = frozenset(
+                    c for c in (canonicalize_tool_name(t) for t in config.egress_sink_tools) if c
+                )
+                if not _egress_sink_tools:
+                    logger.warning(
+                        "egress_sink_tools is empty (or all names canonicalized away) — "
+                        "PII will not be blocked on any egress tool"
+                    )
+
+                # PET-134: build the source-taint set + store under the SAME happens-before as
+                # _egress_sink_tools (written before _initialized flips; read lock-free in the
+                # hot path). The `global` is MANDATORY — without it the assignments bind
+                # function-locals and leave the module set frozen empty / the store None forever,
+                # silently disabling the fence (the exact footgun the egress comment warns of).
+                # _source_taint_namespaces uses the identical canonicalize-drop-empty-warn idiom;
+                # the prefixes are canonicalized so a variant-named source tool still matches
+                # (PET-118 on the source side).
+                global _taint_store, _source_taint_namespaces
+                _source_taint_namespaces = frozenset(
+                    c
+                    for c in (canonicalize_tool_name(t) for t in config.source_taint_namespaces)
+                    if c
+                )
+                _taint_store = SessionTaintStore(config)
+                if config.source_taint_namespaces and not _source_taint_namespaces:
+                    logger.warning(
+                        "source_taint_namespaces is set but all names canonicalized away — "
+                        "the source-taint egress fence will match no producing tool"
+                    )
+
+                scanner_names = [s.name for s in scanners]
                 logger.info(
-                    "PETASOS_LICENSE_KEY not set — all features available (license is optional)"
+                    "Petasos initialized: scanners=%s, unavailable=%s, fail_mode=%s, host_id=%s",
+                    scanner_names,
+                    unavailable,
+                    config.fail_mode,
+                    host_id,
                 )
 
-            from petasos import FrequencyTracker, LineageRegistry, SessionTaintStore
+                _initialized = True
 
-            global _lineage_registry
-            if _subagent_hooks_available:
-                # A + C: construct ONE registry before the tracker, wire the
-                # tracker's pin/unpin callbacks to it, and hand it to the guard.
-                # Hooks carry raw session_ids; the registry keys on raw ids
-                # (matching is_terminated); the guard mints per-ancestor tokens
-                # for get_state.
-                registry = LineageRegistry(config)
-                _lineage_registry = registry
-                tracker = FrequencyTracker(
-                    config,
-                    is_pinned=registry.is_pinned,
-                    on_terminate=registry.unregister,
-                )
-                _guard = ToolCallGuard(_pipeline, tracker, config, lineage=registry)
-                logger.info("Petasos sub-agent lineage (A) + delegation fan-out gate (C) active")
-            else:
-                # C only: no sub-agent hooks, so lineage no-ops (no chain walk,
-                # no pinning). The fan-out gate still rate-limits delegate spawns.
-                tracker = FrequencyTracker(config)
-                _guard = ToolCallGuard(_pipeline, tracker, config, lineage=None)
-                logger.info(
-                    "Petasos delegation fan-out gate (C) active; sub-agent lineage (A) "
-                    "inactive (sub-agent hooks unavailable)"
-                )
-
-            # PET-112: publish the egress-sink set under the same happens-before as
-            # _pipeline/_guard (written before _initialized flips; read lock-free in the
-            # post-init hot path). The `global` is MANDATORY — without it the assignment
-            # binds a function-local and leaves the module frozenset empty forever,
-            # silently disabling egress PII blocking.
-            global _egress_sink_tools
-            # PET-118: canonicalize once here through the SAME shared primitive the guard
-            # uses, mirroring the delegate_tool_names template (canonicalize, drop names
-            # that normalize away via `if c`, warn when the resolved set is empty). A name
-            # that is purely a namespace prefix (e.g. "mcp__acme__") passes config
-            # validation but canonicalizes to "" — the `if c` filter drops it so the set
-            # never contains "" (no false match in _is_egress_sink).
-            _egress_sink_tools = frozenset(
-                c for c in (canonicalize_tool_name(t) for t in config.egress_sink_tools) if c
-            )
-            if not _egress_sink_tools:
-                logger.warning(
-                    "egress_sink_tools is empty (or all names canonicalized away) — "
-                    "PII will not be blocked on any egress tool"
-                )
-
-            # PET-134: build the source-taint set + store under the SAME happens-before as
-            # _egress_sink_tools (written before _initialized flips; read lock-free in the
-            # hot path). The `global` is MANDATORY — without it the assignments bind
-            # function-locals and leave the module set frozen empty / the store None forever,
-            # silently disabling the fence (the exact footgun the egress comment warns of).
-            # _source_taint_namespaces uses the identical canonicalize-drop-empty-warn idiom;
-            # the prefixes are canonicalized so a variant-named source tool still matches
-            # (PET-118 on the source side).
-            global _taint_store, _source_taint_namespaces
-            _source_taint_namespaces = frozenset(
-                c for c in (canonicalize_tool_name(t) for t in config.source_taint_namespaces) if c
-            )
-            _taint_store = SessionTaintStore(config)
-            if config.source_taint_namespaces and not _source_taint_namespaces:
-                logger.warning(
-                    "source_taint_namespaces is set but all names canonicalized away — "
-                    "the source-taint egress fence will match no producing tool"
-                )
-
-            scanner_names = [s.name for s in scanners]
-            logger.info(
-                "Petasos initialized: scanners=%s, unavailable=%s, fail_mode=%s, host_id=%s",
-                scanner_names,
-                unavailable,
-                config.fail_mode,
-                host_id,
-            )
-
-            _initialized = True
-
-        except Exception as exc:
-            _init_error = str(exc)
-            logger.error("Petasos initialization failed: %s", exc, exc_info=True)
+            except Exception as exc:
+                # PET-167: `str(exc)` is "" for a bare `raise ImportError()`, and an empty
+                # string is falsy — a truthiness test would then read the latch as "still
+                # initializing" forever, mis-bucketing a permanently failed process as
+                # cold-starting. Fall back to the class name so the latch is never invisible.
+                _init_error = str(exc) or type(exc).__name__
+                logger.error("Petasos initialization failed: %s", exc, exc_info=True)
+    finally:
+        _init_done.set()
 
 
 _fallback_scanner = None
@@ -650,12 +748,62 @@ def _get_fallback_scanner():
     return _fallback_scanner
 
 
+def _init_wait_budget() -> float:
+    """PET-167: the cold-start wait budget, read and sanitized from the RAW config dict.
+
+    Deliberately not routed through ``PetasosConfig``: there is no validated config in the
+    cold window. The ``PetasosConfig`` ``_deferred_init`` builds is a local, never stored on
+    a module global, ``_pipeline`` is None until ``_initialized`` flips, and a validation
+    failure is swallowed to ``PetasosConfig()`` defaults while the raw dict keeps the bad
+    value. ``_config`` itself may be None (``_load_config`` returns {} at best).
+
+    The clamp is load-bearing, not belt-and-braces: ``threading.Event.wait`` raises
+    ``OverflowError`` on ``inf`` / ``1e300`` and ``TypeError`` on a str, and this value
+    reaches it directly. Non-finite is rejected BEFORE clamping rather than relying on
+    argument order (``max(nan, 0.05)`` is nan while ``min(60.0, max(0.05, nan))`` is 0.05).
+    A non-positive or non-finite value falls back to the DEFAULT, not to the 0.05 floor.
+    """
+    raw = (_config or {}).get("init_wait_timeout_seconds", _DEFAULT_INIT_WAIT_S)
+    try:
+        v = float(raw)
+    except (TypeError, ValueError):
+        return _DEFAULT_INIT_WAIT_S
+    if not math.isfinite(v) or v <= 0:
+        return _DEFAULT_INIT_WAIT_S
+    return min(60.0, max(0.05, v))
+
+
 def _ensure_initialized() -> bool:
+    """True iff the full pipeline is live. Bounded wait during cold start (PET-167).
+
+    The ``_initialized`` check MUST stay the first statement: hoisting the
+    ``_init_wait_expired`` latch above it would permanently pin the process to the
+    syntactic fallback even after every ML scanner came up — an indefinite silent
+    enforcement downgrade on long-lived gateway and dashboard processes.
+    """
+    global _init_wait_deadline, _init_wait_expired
     if _initialized:
         return True
-    if _init_error:
+    if _init_error is not None:
         return False
-    _deferred_init()
+    if not _init_thread_started:
+        # No background init in flight (a host that never called register(), or a
+        # rolled-back thread start). Preserve today's synchronous behavior rather than
+        # waiting on an Event nobody will ever set.
+        _deferred_init()
+        return _initialized
+    if _init_wait_expired:
+        return False  # the process-wide budget is already spent
+    now = time.monotonic()
+    d = _init_wait_deadline  # read ONCE into a local
+    if d is None:
+        d = now + _init_wait_budget()
+        _init_wait_deadline = d  # monotone commit: a late writer cannot extend an
+    remaining = d - now  # earlier wait, so two threads racing the first wait
+    if remaining > 0:  # cannot compose into more than one budget
+        _init_done.wait(remaining)
+    if not _initialized and _init_error is None:
+        _init_wait_expired = True
     return _initialized
 
 
@@ -752,8 +900,16 @@ def _fallback_pre_tool_call(
     tool_name: str, args: dict, task_id: str, **kwargs
 ) -> dict[str, str] | None:
     """Syntactic-only guard during init window. Scans tool params through
-    MinimalScanner. Blocks if injection patterns found in dangerous tools."""
+    MinimalScanner. Blocks if injection patterns found in dangerous tools.
+
+    PET-167: the signature and return type are UNCHANGED — three distinct outcomes still
+    collapse to ``None`` here, and existing callers depend on that. The outcome is recorded
+    out-of-band on ``_fallback_state`` instead, so the cold-window branch in
+    ``_pre_tool_call`` can tell "scanned clean" from "scan errored" from "read-only, never
+    scanned". Every return path writes it.
+    """
     if not _is_dangerous(tool_name):
+        _fallback_state.outcome = "skipped"
         return None
     try:
         import json
@@ -781,6 +937,7 @@ def _fallback_pre_tool_call(
                     rule_id=worst.rule_id,
                     reason=worst.message,
                 )
+                _fallback_state.outcome = "blocked"
                 return {
                     "action": "block",
                     # PET-77: route through the library formatter (contract: [BLOCKED by Petasos]
@@ -789,6 +946,9 @@ def _fallback_pre_tool_call(
                 }
     except Exception as exc:
         logger.debug("Fallback scan failed: %s — allowing", exc)
+        _fallback_state.outcome = "errored"
+        return None
+    _fallback_state.outcome = "clean"
     return None
 
 
@@ -848,7 +1008,7 @@ def _emit_enforcement_event(
     param_scan_degraded: bool = False,
     armed: bool = True,
     bypassed_count: int | None = None,
-) -> None:
+) -> bool:
     """PET-131: emit a structured enforcement event onto the cross-process spool the
     dashboard drains, beside the existing decision-point log line (one emit per log
     line — log and surface share one source of truth, spec D1/D4).
@@ -863,11 +1023,16 @@ def _emit_enforcement_event(
     The write itself is an O(1) local append (``petasos.console._events``), the same
     hot-path cost class as the per-call ``read_armed`` file read — not a network
     call and not a blocking ``await`` on the decision path.
+
+    PET-167: returns the spool writer's boolean instead of discarding it, so the
+    at-most-once cold-start latch can release a claim whose row never landed. The `except`
+    arm returns False (not True): on a hard emission failure there is no writer boolean to
+    return, and claiming the key there would consume the latch with no durable row.
     """
     try:
         from petasos.console._events import emit_enforcement_event
 
-        emit_enforcement_event(
+        return emit_enforcement_event(
             {
                 "session_id": session_id,
                 "tool": tool,
@@ -883,7 +1048,125 @@ def _emit_enforcement_event(
             }
         )
     except Exception:
-        pass
+        return False
+
+
+# ---------------------------------------------------------------------------
+# PET-167: durable cold-start visibility — the at-most-once marker latch
+# ---------------------------------------------------------------------------
+
+_COLD_START_REASON = (
+    "scanners not up; tool results unscanned (warm path too); syntactic only,"
+    " dangerous tools only, params only (100k cap)"
+)
+# The escape-hatch variant names its trigger: no wait ever ran there, so the cause-neutral
+# opener alone would send an operator chasing a timeout that never happened.
+_COLD_START_REASON_NO_INIT = (
+    "scanners not up (no init in flight); tool results unscanned (warm path too);"
+    " syntactic only, dangerous tools only, params only (100k cap)"
+)
+_INIT_FAILED_REASON_PREFIX = (
+    "scanner init failed; enforcement disabled for this session; calls allowed unscanned: "
+)
+_COLD_BLOCK_REASON = "cold-window block: scanners not up, no finding; blocked by fail-mode policy"
+_MAX_INIT_ERROR_CHARS = 60
+
+
+def _note_cold_start_session(session_id: str | None, event_type: str) -> bool:
+    """RESERVE the ``(session_id, event_type)`` marker key; True iff this call won it.
+
+    Claim-then-release, not claim-after-emit: the spool writer returns False on any write
+    failure (locked or full disk, handle contention during rotation, a permission fault
+    after a profile switch), and a plain claim-then-emit would consume the key, land no row,
+    and deduplicate every later call in that session away — a session that ran degraded with
+    zero durable evidence, the exact silent failure this record class exists to prevent.
+    Check-then-commit is not an option either: it would let two concurrent same-session calls
+    both emit, and the lock cannot be held across the emit.
+
+    ``session_id`` is None for the uncorrelatable shape (no task_id, no _agent), which
+    ``_derive_session_id`` answers with a fresh ``anon-<uuid>`` per call; those latch on a
+    pair of process-wide booleans instead, mutated under this same lock so two concurrent
+    uncorrelatable calls cannot both emit.
+    """
+    global _cold_start_anon_degraded, _cold_start_anon_init_failed
+    with _cold_start_lock:
+        if session_id is None:
+            if event_type == "init_failed":
+                if _cold_start_anon_init_failed:
+                    return False
+                _cold_start_anon_init_failed = True
+            else:
+                if _cold_start_anon_degraded:
+                    return False
+                _cold_start_anon_degraded = True
+            return True
+        key = (session_id, event_type)
+        if key in _cold_start_records:
+            return False
+        _cold_start_records[key] = None
+        # Drop-oldest by insertion order, mirroring _bump_bypass_count's bound. Above the
+        # cap this can evict one member of a live session's pair while keeping the other,
+        # so "at most one of each per session" holds below the cap; above it, duplication
+        # (never suppression) is the accepted direction.
+        if len(_cold_start_records) > _MAX_COLD_START_KEYS:
+            _cold_start_records.pop(next(iter(_cold_start_records)), None)
+        return True
+
+
+def _release_cold_start_claim(session_id: str | None, event_type: str) -> None:
+    """Give the key back after a failed spool write, so a later call retries.
+
+    ``pop(key, None)``, never ``del``: drop-oldest eviction can remove a reserved key before
+    its write fails, and a KeyError here would propagate — the call sites sit in a region of
+    ``_pre_tool_call`` with no ``try`` around it, and the fail-open rule forbids adding one.
+    The uncorrelatable branch releases its boolean symmetrically; without that, one failed
+    write would latch the process out of ever recording the marker again.
+    """
+    global _cold_start_anon_degraded, _cold_start_anon_init_failed
+    with _cold_start_lock:
+        if session_id is None:
+            if event_type == "init_failed":
+                _cold_start_anon_init_failed = False
+            else:
+                _cold_start_anon_degraded = False
+            return
+        _cold_start_records.pop((session_id, event_type), None)
+
+
+def _log_cold_start_emit_failure(event_type: str, session_id: str, reason: str) -> None:
+    """Rate-limited WARNING carrying the record the spool could not take. The retry is
+    unbounded (a later call may find the spool writable again); the LOG is not."""
+    global _last_cold_start_fail_log
+    now = time.monotonic()
+    with _cold_start_log_lock:
+        if now - _last_cold_start_fail_log < _DISARM_LOG_EVERY_S:
+            return
+        _last_cold_start_fail_log = now
+    logger.warning(
+        "PETASOS_COLD_START_UNRECORDED type=%s session=%s: enforcement spool write failed; %s",
+        event_type,
+        session_id,
+        reason,
+    )
+
+
+def _emit_cold_start_marker(
+    *, latch_key: str | None, session_id: str, tool: str, event_type: str, reason: str
+) -> None:
+    """Emit one per-session, non-blocking cold-start marker (at most once per
+    ``(session, type)``). Placed so an emission failure can never alter the allow/block
+    decision, and adds no ``try`` of its own — ``_emit_enforcement_event`` is self-guarded."""
+    if not _note_cold_start_session(latch_key, event_type):
+        return
+    if not _emit_enforcement_event(
+        session_id=session_id,
+        tool=tool,
+        event_type=event_type,
+        param_scan_degraded=True,
+        reason=reason,
+    ):
+        _release_cold_start_claim(latch_key, event_type)
+        _log_cold_start_emit_failure(event_type, session_id, reason)
 
 
 def _reset_reload_logs() -> None:
@@ -1224,13 +1507,104 @@ def _pre_tool_call(
             )
         return None
     if not _ensure_initialized():
-        if _init_error:
+        # PET-167: the cold window now has two real outcomes instead of one, and every call
+        # that reaches here leaves a durable record of which. `is not None`, not truthiness:
+        # an empty _init_error would otherwise read as "still initializing" forever.
+        cold_session_id = _derive_session_id(task_id, kwargs)
+        # PET-134 D1b discriminator, applied to the latch: with no task_id and no _agent,
+        # _derive_session_id mints a fresh anon-<uuid> per call, so key the marker on the
+        # process instead. The INPUTS decide, not the derived string.
+        latch_key: str | None = (
+            None if (not task_id and kwargs.get("_agent") is None) else cold_session_id
+        )
+        if _init_error is not None:
             logger.debug("Petasos init failed — allowing tool call")
+            # Allow/deny behavior on this branch is deliberately UNCHANGED; the record makes
+            # a total, silent enforcement loss visible, it does not start blocking.
+            _emit_cold_start_marker(
+                latch_key=latch_key,
+                session_id=cold_session_id,
+                tool=tool_name,
+                event_type="init_failed",
+                reason=(_INIT_FAILED_REASON_PREFIX + (_init_error or "")[:_MAX_INIT_ERROR_CHARS]),
+            )
             return None
+
+        # Marker first, BEFORE the dispatch and independent of _is_dangerous — the fallback
+        # returns early for read-only tools, so a read_file-only cold session would
+        # otherwise leave no record at all. Emitted on every call that reaches here
+        # (including the no-init-in-flight escape hatch, where no wait ever ran); the latch
+        # makes that one record per session, not one per call. The _initialized re-read is
+        # the TOCTOU guard: init can complete while this branch runs.
+        if not _initialized:
+            _emit_cold_start_marker(
+                latch_key=latch_key,
+                session_id=cold_session_id,
+                tool=tool_name,
+                event_type="cold_start_degraded",
+                reason=(
+                    _COLD_START_REASON if _init_thread_started else _COLD_START_REASON_NO_INIT
+                ),
+            )
+
         # Init still in progress — use MinimalScanner fallback so we don't
         # silently allow during the cold-start window (fail_mode=closed
         # means we should be blocking, not passing through).
-        return _fallback_pre_tool_call(tool_name, args, task_id, **kwargs)
+        out = _fallback_pre_tool_call(tool_name, args, task_id, **kwargs)
+        # Read the out-of-band outcome, then CLEAR it on every exit: a stale value surviving
+        # on a pooled gateway thread would route the next cold-window call around the
+        # fail-secure default (a leftover "skipped" maps to allow).
+        outcome = getattr(_fallback_state, "outcome", None)
+        _fallback_state.outcome = None
+        if out is not None:
+            # A finding-driven block is returned UNCONDITIONALLY, even if init completed
+            # mid-scan: it is justified by a real syntactic finding regardless of init
+            # state, and _fallback_pre_tool_call has already written its quarantine event.
+            # Falling through here would discard the block while leaving a block-class row
+            # on the console for a call that was allowed.
+            return out
+        if _initialized:
+            pass  # init landed mid-scan: fall through to the main path rather than block
+        elif not _is_dangerous(tool_name):
+            # Read-only tools are allowed in the window exactly as the warm path allows
+            # them. This gate sits AHEAD of the outcome read, so the fail-secure default
+            # below can never mass-block read_file / search / web_search / list_directory.
+            return None
+        elif outcome == "clean" and (_config or {}).get("fail_mode") == "open":
+            # Only `open` can allow a dangerous call, and only when the syntactic scan
+            # actually ran and came back clean. Any fail_mode value that is not exactly
+            # "open" is treated as degraded, mirroring _compute_safe's invalid-value
+            # fallback — garbage fails secure by construction. An unreadable outcome
+            # (None or unrecognized) is treated as errored and blocks under every fail_mode.
+            return None
+        else:
+            logger.warning(
+                "PETASOS_QUARANTINE tool=%s session=%s — cold window, scan outcome=%s",
+                tool_name,
+                cold_session_id,
+                outcome if outcome in ("clean", "errored") else "unreadable",
+            )
+            # Block-class so the operator surface counts it: _BLOCK_EVENT_TYPES drives the
+            # blocked tile, the per-session tally and the red badge. Without it a real
+            # enforcement block renders as a green "safe" row. NOT emitted on the
+            # finding-driven path above, which already emitted its own.
+            _emit_enforcement_event(
+                session_id=cold_session_id,
+                tool=tool_name,
+                event_type="quarantine",
+                param_scan_degraded=True,
+                reason=_COLD_BLOCK_REASON,
+            )
+            return {
+                "action": "block",
+                # No finding to format on this sub-path. "degraded" is an existing
+                # ContentBlockPath whose reason is exactly this branch's semantics; a new
+                # token would encode a distinction that does not exist (the warm-path
+                # param_scan_degraded block at the bottom of this function is the same
+                # decision under the same policy). The operator-facing distinction rides
+                # the enforcement event instead.
+                "message": format_content_block("degraded", tool_name, ()),
+            }
 
     # PET-126: initialized here — pick up any live config.yaml change before this
     # call is evaluated. Self-guarded and fail-safe; never blocks the tool call.
@@ -1579,8 +1953,21 @@ def register(ctx) -> None:
             daemon=True,
             name="petasos-init",
         )
-        init_thread.start()
-        logger.info("Petasos plugin registered — hooks active, scanner init in background")
+        # PET-167: roll the flag back if the thread never starts. Otherwise it latches with
+        # no _deferred_init behind it, _init_done is never set, and every cold call spends
+        # the wait budget on an init that will never happen — where today the process
+        # self-heals by initializing in-line on the next call.
+        try:
+            init_thread.start()
+        except Exception as exc:
+            _init_thread_started = False
+            logger.error(
+                "Petasos init thread failed to start: %s — falling back to in-line init "
+                "on the first tool call",
+                exc,
+            )
+        else:
+            logger.info("Petasos plugin registered — hooks active, scanner init in background")
     elif _session_resolution is not None:
         # Forced-rediscovery re-register of an already-started process: re-bind the live
         # pipeline to the freshly-captured resolution (re-pin, reset the (mtime,size)-keyed

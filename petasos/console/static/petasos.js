@@ -1103,6 +1103,11 @@
     var isBypass = isEnf && et === "bypassed_disarmed";
     // PET-164: self-tamper classification rows (detection only, never a block).
     var isSelfmod = isEnf && et === "selfmod_attempt";
+    // PET-167: cold-start markers are enforcement rows that are NOT enforcement decisions,
+    // so without their own arm every branch below misses and the panel falls to the
+    // terminal "Unknown row kind" else, where `reason` (the whole payload) is never
+    // rendered at all.
+    var isColdStart = isEnf && (et === "cold_start_degraded" || et === "init_failed");
     var isEnfDecision = isEnf && !!ENF_KINDS[et];
     var isPlayground = (e.source == null || e.source === "" || e.source === "playground");
 
@@ -1117,6 +1122,11 @@
     var scanRan;
     if (isBypass) scanRan = "no (bypassed while Unequipped)";
     else if (isSelfmod) scanRan = "n/a (tool argument classification, not a content scan)";
+    // PET-167: this chain is separate from the body branches below, so a body-only edit
+    // would leave a row whose entire purpose is to state scan coverage reading "unknown".
+    else if (isColdStart) scanRan = (et === "init_failed")
+      ? "no (enforcement disabled; init failed)"
+      : "partial (syntactic scan only; ML scanners still starting)";
     else if (isEnfDecision || isPlayground) scanRan = "yes";
     else scanRan = "unknown";
     var armedStr;
@@ -1171,6 +1181,17 @@
       wrap.appendChild(fld("tool", e.tool));
       wrap.appendChild(fld("rule", e.rule_id));
       wrap.appendChild(fld("severity", e.severity));
+      wrap.appendChild(fld("reason", e.reason));
+      wrap.appendChild(fld("session", e.session_id));
+    } else if (isColdStart) {
+      // PET-167: cold-start marker drill-down. Non-blocking by design: the record says what
+      // coverage this session actually got, it is not itself a decision.
+      wrap.appendChild(Pet.h("div", { className: "sd-heartbeat" },
+        Pet.h("div", {}, (et === "init_failed")
+          ? "Scanner startup failed: enforcement was disabled for this session and calls ran unscanned."
+          : "Scanners were still starting: this session ran on the fast pattern scan only."),
+        Pet.h("div", { className: "sd-sub" }, "One record per session, not per call. It marks coverage; blocks made during the window appear as their own rows.")));
+      wrap.appendChild(fld("tool", e.tool));
       wrap.appendChild(fld("reason", e.reason));
       wrap.appendChild(fld("session", e.session_id));
     } else if (isEnfDecision) {
@@ -1280,6 +1301,11 @@
       // summary), but it must never wear the green "safe" badge; amber "self-tamper"
       // keeps red reserved for actual blocks.
       var isSelfmodRow = isEnforcement && et === "selfmod_attempt";
+      // PET-167: cold-start markers. The summary carries safe=true (they block nothing and
+      // stay out of _BLOCK_EVENT_TYPES, so they never inflate the blocked tile), but a row
+      // meaning "we did not scan" must never wear the green safe pill. Amber for both:
+      // never green ok, never red err.
+      var isColdStart = isEnforcement && (et === "cold_start_degraded" || et === "init_failed");
       var isBlocked = (e.safe === false); // strict ===false; truthy-but-not-false is not "blocked"
 
       // PET-165: severity-differentiated self-tamper badge. Severity rides the badge TEXT
@@ -1295,10 +1321,14 @@
         ? "bypassed (disarmed)"
         : (isSelfmodRow
             ? ("self-tamper" + (selfmodSev ? (" (" + selfmodSev + ")") : ""))
-            : (isBlocked ? "blocked" : "safe"));
+            : (isColdStart
+                ? (et === "init_failed" ? "unenforced" : "degraded")
+                : (isBlocked ? "blocked" : "safe")));
       var badgeClass = isBypass
         ? "warn"
-        : (isSelfmodRow ? (selfmodSev === "critical" ? "err" : "warn") : (isBlocked ? "err" : "ok"));
+        : (isSelfmodRow
+            ? (selfmodSev === "critical" ? "err" : "warn")
+            : (isColdStart ? "warn" : (isBlocked ? "err" : "ok")));
       var badge = Pet.h("span", { className: "pill " + badgeClass, style: { justifyContent: "center" } }, badgeText);
 
       var rowEls = [];
