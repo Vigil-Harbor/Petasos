@@ -462,4 +462,4 @@ def test_shim_routes_every_block_site_through_formatter() -> None:
         and isinstance(node.func, ast.Name)
         and node.func.id in targets
     )
-    assert call_sites >= 8, f"expected >=8 formatter call sites in the shim, found {call_sites}"
+    assert call_sites == 8, f"expected 8 formatter call sites in the shim, found {call_sites}"
