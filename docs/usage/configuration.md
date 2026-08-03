@@ -31,9 +31,9 @@ The editor shows 11 sections, in this render order:
 10. Alerting
 11. Session Management
 
-Together these cover 60 editable fields.
+Together these cover 61 editable fields.
 
-<!-- petasos-doc-assert: config_field_count=60 -->
+<!-- petasos-doc-assert: config_field_count=61 -->
 
 Each field below is named exactly as it appears in config files and the editor.
 Where a field has a safe range or a fixed set of choices, it is given.
@@ -152,6 +152,12 @@ when to stop calling one that keeps failing.*
   before another chance (minimum 0.01). While benched it is skipped instantly but
   still counts as failed, so the fail mode decides whether content is blocked
   meanwhile; the zero-dependency syntactic check keeps running regardless.
+- `init_wait_timeout_seconds`: how many seconds a tool call waits for the
+  scanners to finish starting up before falling back to the fast pattern scan
+  (0.05 to 60 seconds). Applies to the Hermes plugin's startup window only; it
+  has no effect when Petasos is embedded directly as a library. Values below
+  0.05 are raised to 0.05, and 0 or a negative value falls back to the default
+  of 2. What happens after the wait expires is decided by the fail mode setting.
 - `presidio_entities`: replace the PII scanner's detected entity list wholesale.
   Leave unset to use the curated default (the security-relevant types), which
   deliberately omits noisier types that misfire on file paths and code.
@@ -332,4 +338,4 @@ editor, so do not conclude this page is incomplete if you cannot find them:
 <!-- Drift-guard index: the full set of editor-surfaced field names documented
      above. Kept in sync with petasos.console._config_meta._FIELD_META by
      tests/test_docs_usage_consistency.py. -->
-<!-- petasos-doc-assert: config_fields=profile_name,anonymize,pii_entities,redaction_mode,hash_key,fail_mode,tool_guard_enabled,subagent_lineage_enabled,delegate_fanout_enabled,lineage_max_depth,lineage_max_edges,lineage_edge_ttl_seconds,delegate_max_fanout_per_window,delegate_fanout_window_seconds,delegate_tool_names,egress_sink_tools,direction,scanner_timeout_seconds,scanner_circuit_breaker_threshold,scanner_circuit_breaker_cooldown_seconds,presidio_entities,presidio_entities_extra,presidio_score_threshold,normalize_nfkc,strip_zero_width,map_homoglyphs,decode_encoded_payloads,escalation_enabled,tier1_threshold,tier2_threshold,tier3_threshold,frequency_enabled,frequency_half_life_seconds,frequency_weights,rolling_window_seconds,rolling_threshold,audit_enabled,audit_verbosity,audit_emit_findings,alert_enabled,alert_cooldown_seconds,alert_per_minute_cap,alert_per_hour_cap,alert_critical_per_minute_cap,alert_high_severity_threshold,alert_rapid_fire_count,alert_rapid_fire_window_seconds,alert_cross_session_burst_count,alert_cross_session_burst_window_seconds,alert_pii_volume_threshold,alert_pii_volume_window_seconds,alert_ring_buffer_capacity,alert_per_session_contribution_cap,alert_max_session_contribution_entries,max_sessions,session_ttl_seconds,max_new_sessions_per_minute,max_terminated_tombstones,source_taint_namespaces,taint_min_span_length -->
+<!-- petasos-doc-assert: config_fields=profile_name,anonymize,pii_entities,redaction_mode,hash_key,fail_mode,tool_guard_enabled,subagent_lineage_enabled,delegate_fanout_enabled,lineage_max_depth,lineage_max_edges,lineage_edge_ttl_seconds,delegate_max_fanout_per_window,delegate_fanout_window_seconds,delegate_tool_names,egress_sink_tools,direction,scanner_timeout_seconds,scanner_circuit_breaker_threshold,scanner_circuit_breaker_cooldown_seconds,presidio_entities,presidio_entities_extra,presidio_score_threshold,normalize_nfkc,strip_zero_width,map_homoglyphs,decode_encoded_payloads,escalation_enabled,tier1_threshold,tier2_threshold,tier3_threshold,frequency_enabled,frequency_half_life_seconds,frequency_weights,rolling_window_seconds,rolling_threshold,audit_enabled,audit_verbosity,audit_emit_findings,alert_enabled,alert_cooldown_seconds,alert_per_minute_cap,alert_per_hour_cap,alert_critical_per_minute_cap,alert_high_severity_threshold,alert_rapid_fire_count,alert_rapid_fire_window_seconds,alert_cross_session_burst_count,alert_cross_session_burst_window_seconds,alert_pii_volume_threshold,alert_pii_volume_window_seconds,alert_ring_buffer_capacity,alert_per_session_contribution_cap,alert_max_session_contribution_entries,max_sessions,session_ttl_seconds,max_new_sessions_per_minute,max_terminated_tombstones,source_taint_namespaces,taint_min_span_length,init_wait_timeout_seconds -->

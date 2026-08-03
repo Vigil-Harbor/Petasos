@@ -669,11 +669,18 @@ def test_fallback_init_window_block_emits_event(
     out = ref._pre_tool_call("send_email", {"text": "x"}, task_id="sess-F")
     assert out is not None and out["action"] == "block"
     events = _read_spool(spool)
-    assert len(events) == 1
-    assert events[0]["event_type"] == "quarantine"
-    assert events[0]["session_id"] == "sess-F"
-    assert events[0]["tool"] == "send_email"
-    assert events[0]["rule_id"] == "petasos.injection.x"
+    # PET-167: the same call now also emits a per-session cold_start_degraded marker, and it
+    # is written BEFORE the fallback's quarantine — so the raw spool order is
+    # [cold_start_degraded, quarantine] and every index-0 assertion below would read the
+    # wrong row. Filter to the block-class event instead of pinning the spool length.
+    quarantines = [e for e in events if e["event_type"] == "quarantine"]
+    assert len(quarantines) == 1
+    assert quarantines[0]["session_id"] == "sess-F"
+    assert quarantines[0]["tool"] == "send_email"
+    assert quarantines[0]["rule_id"] == "petasos.injection.x"
+    markers = [e for e in events if e["event_type"] == "cold_start_degraded"]
+    assert len(markers) == 1
+    assert markers[0]["session_id"] == "sess-F"
 
 
 # ---------------------------------------------------------------------------
