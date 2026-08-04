@@ -112,9 +112,11 @@ _FIELD_META: dict[str, dict[str, Any]] = {
         "description": "How long to wait for a scanner before giving up.",
         "help_plain": (
             "How many seconds to wait for a slow scanner before giving up on it for that"
-            " scan. Lower keeps scans snappy but cuts off slow scanners more often — and a"
+            " scan. Lower keeps scans snappy but cuts off slow scanners more often, and a"
             " timeout counts as a scanner failure, so the fail mode setting decides what"
-            " happens next."
+            " happens next. This deadline bounds the optional ML scanners only, so it"
+            " has no effect until you add an ML scanner: the built-in zero-dependency"
+            " pattern check is never run under it."
         ),
         "section": "scanning",
         "constraints": {"min": 0.01, "max": 60},
@@ -139,7 +141,9 @@ _FIELD_META: dict[str, dict[str, Any]] = {
         "help_plain": (
             "How many times in a row a scanner must time out before it's temporarily"
             " benched so it stops slowing down every scan. Lower benches a misbehaving"
-            " scanner sooner; any scan that doesn't time out resets the count."
+            " scanner sooner; any scan that doesn't time out resets the count. Only the"
+            " optional ML scanners can be benched, so this has no effect until you add"
+            " an ML scanner."
         ),
         "section": "scanning",
         "constraints": {"min": 1},
@@ -148,9 +152,11 @@ _FIELD_META: dict[str, dict[str, Any]] = {
         "description": "How long a benched scanner stays out before retrying.",
         "help_plain": (
             "How many seconds a benched scanner sits out before it gets another chance."
-            " While benched it is skipped instantly but still counts as a failed scanner —"
+            " While benched it is skipped instantly but still counts as a failed scanner,"
             " so the fail mode setting decides whether content is blocked meanwhile; the"
-            " built-in zero-dependency pattern check keeps running regardless."
+            " built-in zero-dependency pattern check keeps running regardless. Only the"
+            " optional ML scanners can be benched, so this has no effect until you add"
+            " an ML scanner."
         ),
         "section": "scanning",
         "constraints": {"min": 0.01},
@@ -159,8 +165,12 @@ _FIELD_META: dict[str, dict[str, Any]] = {
         "description": "Replace detected personal info with typed placeholders like [EMAIL].",
         "help_plain": (
             "After scanning, replaces any personal information found (names, emails, and so"
-            " on) with placeholders so it doesn't travel further. Off by default — turn it"
-            " on when conversations may contain other people's data."
+            " on) with placeholders so it doesn't travel further. Off by default; turn it"
+            " on when conversations may contain other people's data. Anonymization only"
+            " runs on personal data a scanner actually reported, so it needs the presidio"
+            " extra and a registered PII-detecting scanner. On a plain"
+            " `pip install petasos` there is nothing for this step to hide and turning it"
+            " on changes nothing."
         ),
         "section": "anonymization",
     },
@@ -168,10 +178,12 @@ _FIELD_META: dict[str, dict[str, Any]] = {
         "description": "Which detected PII entity types to anonymize (empty = all).",
         "help_plain": (
             "Narrows which kinds of detected personal information actually get hidden at the"
-            " anonymize step — for example, list only EMAIL_ADDRESS to redact emails while"
+            " anonymize step: for example, list only EMAIL_ADDRESS to redact emails while"
             " leaving other detected PII untouched. Leave empty to anonymize every detected"
             " type (the default). This filters only what is hidden, not what the scanner"
-            " looks for — detection scope is set by the Presidio entity settings."
+            " looks for; detection scope is set by the Presidio entity settings. Like the"
+            " rest of this section it needs the presidio extra and a registered"
+            " PII-detecting scanner before it can change anything."
         ),
         "section": "anonymization",
     },
@@ -183,20 +195,27 @@ _FIELD_META: dict[str, dict[str, Any]] = {
         ),
         "help_plain": (
             "Replaces the personal-info scanner's detected entity list wholesale. Leave unset"
-            " to use the curated default — the security-relevant types like credit cards,"
-            " SSNs, emails, and phone numbers — which deliberately omits noisier types (names,"
+            " to use the curated default: the security-relevant types like credit cards,"
+            " SSNs, emails, and phone numbers, which deliberately omits noisier types (names,"
             " locations, dates, URLs) that misfire on file paths and code. Set your own list"
-            " here only when you need a fully custom detection set."
+            " here only when you need a fully custom detection set. This applies only to the"
+            " scanner the console builds at startup. A program that imports Petasos as a"
+            " library and constructs its own Presidio scanner passes these settings to that"
+            " scanner directly; installing the presidio extra does not make this field reach"
+            " it."
         ),
         "section": "scanning",
     },
     "presidio_entities_extra": {
         "description": "Extra Presidio entity types to add on top of the default set.",
         "help_plain": (
-            "Adds entity types back on top of the curated default without replacing it — for"
+            "Adds entity types back on top of the curated default without replacing it: for"
             ' example, add "URL" to detect web addresses again. Use this to opt one of the'
             " noisier types back in while keeping the rest of the safe default. Entries are"
-            " uppercased automatically."
+            " uppercased automatically. This applies only to the scanner the console builds"
+            " at startup. A program that imports Petasos as a library and constructs its own"
+            " Presidio scanner passes these settings to that scanner directly; installing the"
+            " presidio extra does not make this field reach it."
         ),
         "section": "scanning",
     },
@@ -206,7 +225,11 @@ _FIELD_META: dict[str, dict[str, Any]] = {
             "How confident the personal-info scanner must be before it reports a match, from"
             " 0 to 1. Higher means fewer false alarms but more missed items; lower catches"
             " more but gets noisier. Setting it all the way to 0 reports every candidate and"
-            " brings back a lot of the noise this scoping is meant to remove."
+            " brings back a lot of the noise this scoping is meant to remove. This applies"
+            " only to the scanner the console builds at startup. A program that imports"
+            " Petasos as a library and constructs its own Presidio scanner passes this"
+            " threshold to that scanner directly; installing the presidio extra does not make"
+            " this field reach it."
         ),
         "section": "scanning",
         "constraints": {"min": 0, "max": 1},
@@ -217,7 +240,9 @@ _FIELD_META: dict[str, dict[str, Any]] = {
             'Chooses how found personal information is hidden: "redact" swaps it for a'
             ' typed placeholder, "replace" numbers each one, "hash" turns it into a'
             " scrambled code (useful for matching records without revealing them), and"
-            ' "mask" hides all but the last few characters.'
+            ' "mask" hides all but the last few characters. The choice only takes effect'
+            " once something is being anonymized, which needs the presidio extra and a"
+            " registered PII-detecting scanner."
         ),
         "section": "anonymization",
         "constraints": {"values": ["redact", "replace", "hash", "mask"]},
@@ -225,9 +250,11 @@ _FIELD_META: dict[str, dict[str, Any]] = {
     "hash_key": {
         "description": "Secret key for hash-mode redaction. Never shown in full.",
         "help_plain": (
-            'The secret key used when redaction mode is "hash" — it makes the scrambled'
+            'The secret key used when redaction mode is "hash": it makes the scrambled'
             " codes impossible to reverse without the key. Required for hash mode, ignored"
-            " otherwise, and never displayed in full."
+            " otherwise, and never displayed in full. Like the rest of this section it"
+            " needs the presidio extra and a registered PII-detecting scanner before it"
+            " can change anything."
         ),
         "section": "anonymization",
     },
@@ -639,11 +666,14 @@ _FIELD_META: dict[str, dict[str, Any]] = {
     "egress_sink_tools": {
         "description": "Tool names treated as egress sinks; the PII block applies only to these.",
         "help_plain": (
-            "The tools that send content OUT of the machine — email, social posts, external"
+            "The tools that send content OUT of the machine: email, social posts, external"
             " web requests, webhooks, clipboard. Detected personal data (cards, SSNs, emails)"
             " is blocked only when an agent tries to send it through one of these. Writing to"
             " local files or the terminal is never blocked for personal data. Set these to your"
-            " host's actual outbound tool names."
+            " host's actual outbound tool names. The block itself is enforced by the Hermes"
+            " plugin, not by the Petasos library alone, so a program embedding Petasos directly"
+            " gets no egress blocking from this list unless it drives the tool-call guard"
+            " itself."
         ),
         "section": "tool_guard",
     },
@@ -659,7 +689,9 @@ _FIELD_META: dict[str, dict[str, Any]] = {
             " messaging), even when it is not recognized as personal data. This catches a plain"
             " account balance or amount the personal-data scanner would miss. Leave empty (the"
             " default) to turn the fence off; matching is exact-text only, so paraphrased or"
-            " re-encoded copies are not caught."
+            " re-encoded copies are not caught. The fence is enforced by the Hermes plugin,"
+            " not by the Petasos library alone, so a program embedding Petasos directly gets"
+            " no blocking from these namespaces unless it drives the tool-call guard itself."
         ),
         "section": "tool_guard",
     },
@@ -671,7 +703,8 @@ _FIELD_META: dict[str, dict[str, Any]] = {
             " year like 2026) fall below this and are ignored, so they cannot block every later"
             " message that happens to contain them. Raise it if benign messages get blocked for"
             " sharing a common phrase; lower it to catch shorter sensitive values at the cost of"
-            " more false alarms. Only applies to the restricted-source fence above."
+            " more false alarms. Only applies to the restricted-source fence above, which the"
+            " Hermes plugin drives end to end."
         ),
         "section": "tool_guard",
         "constraints": {"min": 1},

@@ -4,6 +4,30 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Changed
+
+- **Config-surface honesty audit (PET-169).** Every one of the 64 `PetasosConfig`
+  fields now carries a recorded verdict and a resolving read-site anchor in
+  `tests/test_config_surface_honesty.py`, which is the tracked authority for the
+  sweep. No field was added, removed, retyped, or de-surfaced, and no enforcement
+  path changed, so every existing operator config keeps loading and behaving
+  exactly as before. The sweep found no dead key.
+- **Twelve Config Editor fields now disclose their real consumer.** The
+  anonymization group (`anonymize`, `pii_entities`, `redaction_mode`, `hash_key`)
+  needs the `presidio` extra and a registered PII-detecting scanner before it
+  changes anything. The scanner-timeout family (`scanner_timeout_seconds`,
+  `scanner_circuit_breaker_threshold`,
+  `scanner_circuit_breaker_cooldown_seconds`) has no effect until an ML scanner is
+  registered. The three Presidio detection-scope fields (`presidio_entities`,
+  `presidio_entities_extra`, `presidio_score_threshold`) apply only to the scanner
+  the console builds at startup, so installing the extra alone does not make them
+  reach a `PresidioScanner` an embedder constructs. `egress_sink_tools` and
+  `source_taint_namespaces` are enforced by the Hermes plugin, not by the Petasos
+  library alone. `taint_min_span_length` gained the same plugin note.
+- **Strength-dial descriptions qualified.** Steel and Titanium no longer assert
+  PII anonymization as an unconditional posture; both now scope the claim to
+  deployments where a PII scanner is running.
+
 ## [0.2.0] - 2026-06-30
 
 Headline release since 0.1.2: Hermes-agent profile/role awareness end to end,
