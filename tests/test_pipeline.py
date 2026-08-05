@@ -958,6 +958,7 @@ class TestConfigSurfaceLoadBearingArms:
             )
             await pipe.inspect("hello world")
             second = await pipe.inspect("hello world")
+            assert second.safe is False
             errors = [r.error for r in second.scanner_results if r.scanner_name == "slow-ml"]
             assert len(errors) == 1 and errors[0] is not None
             return errors[0]
