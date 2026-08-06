@@ -118,14 +118,18 @@ system or the shell.*
   social posts, external web requests, webhooks, clipboard). Detected personal
   data is blocked only when an agent tries to send it through one of these;
   writing to local files or the terminal is never blocked for personal data. Set
-  these to your host's actual outbound tool names.
+  these to your host's actual outbound tool names. The block itself is enforced by
+  the Hermes plugin, not by the Petasos library alone: a program that embeds
+  Petasos directly gets no egress blocking from this list unless it drives the
+  tool-call guard itself.
 - `source_taint_namespaces`: tool namespaces (by name prefix, such as a banking or
   health connector) whose returned content must not leave again through an egress
   sink. Once a tool in one of these groups returns data, that exact text is blocked
   from any `egress_sink_tools` tool above, even when it is not flagged as personal
   data, which catches a plain account balance or amount the PII scanner would miss.
   Empty (the default) turns the fence off. Matching is exact-text only, so a
-  paraphrased or re-encoded copy is not caught.
+  paraphrased or re-encoded copy is not caught. Like `egress_sink_tools`, the fence
+  is enforced by the Hermes plugin, not by the Petasos library alone.
 - `taint_min_span_length`: the shortest piece of restricted-source content the fence
   will remember (minimum 1; default 12 characters). Short, common values (a price
   like $5.00, a year like 2026) fall below this and are ignored, so they cannot

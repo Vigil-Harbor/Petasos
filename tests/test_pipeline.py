@@ -826,3 +826,167 @@ class TestMinimalScannerError:
         )
         result = await pipe.inspect("hello world")
         assert result.safe is False
+
+
+# ===================================================================
+# PET-169 test-8 load-bearing arms (6 tests)
+#
+# Every key the config-surface honesty audit newly classified `live-partial`
+# gets an arm proving the caveat's claim is true for the consumer that caveat
+# names. The `live-partial` verdict itself says the key is inert on a base
+# install (MinimalScanner only); these arms are the other half, and without them
+# a caveat ships on the strength of a read trace alone, which is the exact
+# substitution PET-143 D-A and PET-151 forbid.
+#
+# The three PET-151 normalization toggles are exempt (transcribed, pins already
+# shipped as test_normalize_nfkc_is_an_ml_control and its two siblings above).
+# `hash_key` is exempt with its rationale recorded: it is consumed only under
+# mode == "hash", an engine-path mode, and config.py:233 rejects anonymize=True
+# with redaction_mode="hash" and hash_key=None at construction, so no
+# extras-free configuration exists in which flipping it changes anything. Its
+# caveat rests on the redaction_mode arm plus the read trace.
+#
+# No arm here requires a scanner extra: the PII positive control is a stub
+# Scanner emitting positioned finding_type="pii" findings, necessary because
+# MinimalScanner emits only injection/command/encoding/structural, so the
+# pii_findings filter in Stage 9 is always empty on a base install and an
+# unaided diff would compare two identical results with nothing exercised. The
+# anonymization arms set redaction_mode explicitly to "replace" or "mask": the
+# default is "redact", which routes to the engine path, and an arm written at
+# defaults would pin the ImportError handler rather than anonymization.
+# ===================================================================
+
+
+_PII_TEXT = "Alice met alice@example.com today"
+
+
+def _typed_pii_finding(text: str, needle: str, entity_type: str) -> ScanFinding:
+    """A positioned PII finding whose rule_id recovers to ``entity_type``."""
+    start = text.index(needle)
+    return ScanFinding(
+        rule_id=f"petasos.presidio.{entity_type.lower()}",
+        finding_type="pii",
+        severity=Severity.MEDIUM,
+        confidence=0.9,
+        message=f"PII detected: {entity_type}",
+        scanner_name="pii-stub",
+        position=Position(start=start, end=start + len(needle)),
+        matched_text=needle,
+    )
+
+
+def _pii_stub_pipeline(**overrides: object) -> Pipeline:
+    """A pipeline whose lone ML scanner reports two typed PII spans, standing in
+    for the PII-detecting scanner the anonymization caveats name."""
+    findings = (
+        _typed_pii_finding(_PII_TEXT, "Alice", "PERSON"),
+        _typed_pii_finding(_PII_TEXT, "alice@example.com", "EMAIL_ADDRESS"),
+    )
+    cfg = PetasosConfig(**overrides)  # type: ignore[arg-type]
+    return Pipeline(scanners=[MockScanner("pii-stub", findings=findings)], config=cfg)
+
+
+class TestConfigSurfaceLoadBearingArms:
+    async def test_anonymize_is_a_control_with_a_pii_scanner(self) -> None:
+        # Regression for PET-169: `anonymize` is live once a PII-detecting
+        # scanner is registered, which is what its help_plain caveat claims.
+        on = await _pii_stub_pipeline(anonymize=True, redaction_mode="replace").inspect(_PII_TEXT)
+        off = await _pii_stub_pipeline(anonymize=False, redaction_mode="replace").inspect(
+            _PII_TEXT
+        )
+        assert off.sanitized_content is None
+        assert on.sanitized_content is not None
+        assert "Alice" not in on.sanitized_content
+        assert "<PERSON_1>" in on.sanitized_content
+        # No ImportError arm was taken: the manual replace/mask path is pure
+        # Python, so a missing presidio backend cannot explain this diff.
+        assert not any("presidio not installed" in e for e in on.errors)
+
+    async def test_pii_entities_is_a_control_with_a_pii_scanner(self) -> None:
+        # Regression for PET-169: narrowing pii_entities changes which spans the
+        # anonymize step hides, once something is being hidden at all.
+        wide = await _pii_stub_pipeline(anonymize=True, redaction_mode="replace").inspect(
+            _PII_TEXT
+        )
+        narrowed = await _pii_stub_pipeline(
+            anonymize=True, redaction_mode="replace", pii_entities=("PERSON",)
+        ).inspect(_PII_TEXT)
+        assert wide.sanitized_content is not None and narrowed.sanitized_content is not None
+        assert wide.sanitized_content != narrowed.sanitized_content
+        assert "alice@example.com" not in wide.sanitized_content
+        assert "alice@example.com" in narrowed.sanitized_content
+        assert "Alice" not in narrowed.sanitized_content
+
+    async def test_redaction_mode_is_a_control_with_a_pii_scanner(self) -> None:
+        # Regression for PET-169: "replace" and "mask" both route through the
+        # extras-free manual path and produce different output.
+        replaced = await _pii_stub_pipeline(anonymize=True, redaction_mode="replace").inspect(
+            _PII_TEXT
+        )
+        masked = await _pii_stub_pipeline(anonymize=True, redaction_mode="mask").inspect(_PII_TEXT)
+        assert replaced.sanitized_content is not None and masked.sanitized_content is not None
+        assert replaced.sanitized_content != masked.sanitized_content
+        assert "<PERSON_1>" in replaced.sanitized_content
+        assert "<PERSON_1>" not in masked.sanitized_content
+        assert "*" in masked.sanitized_content
+
+    async def test_scanner_timeout_seconds_is_a_control_with_an_ml_scanner(self) -> None:
+        # Regression for PET-169: the per-scanner deadline is read only inside
+        # _scan_with_breaker, which runs only when an ML scanner is registered.
+        # With one registered the toggle moves `safe`: a timeout counts as a
+        # scanner failure and degraded mode blocks.
+        slow = MockScanner("slow-ml", delay=0.2)
+        tight = Pipeline([slow], config=PetasosConfig(scanner_timeout_seconds=0.01))
+        loose = Pipeline([slow], config=PetasosConfig(scanner_timeout_seconds=5.0))
+        assert (await tight.inspect("hello world")).safe is False
+        assert (await loose.inspect("hello world")).safe is True
+
+    async def test_circuit_breaker_threshold_is_a_control_with_an_ml_scanner(self) -> None:
+        # Regression for PET-169: at threshold 1 the second scan is
+        # short-circuited by the open breaker; at threshold 3 the scanner is
+        # re-awaited and times out again. Distinct error classes, same input.
+        from petasos.pipeline import _BREAKER_OPEN_ERROR_PREFIX, _TIMEOUT_ERROR_PREFIX
+
+        async def _second_scan_error(threshold: int) -> str:
+            pipe = Pipeline(
+                [MockScanner("slow-ml", delay=0.2)],
+                config=PetasosConfig(
+                    scanner_timeout_seconds=0.01,
+                    scanner_circuit_breaker_threshold=threshold,
+                    scanner_circuit_breaker_cooldown_seconds=30.0,
+                ),
+            )
+            await pipe.inspect("hello world")
+            second = await pipe.inspect("hello world")
+            assert second.safe is False
+            errors = [r.error for r in second.scanner_results if r.scanner_name == "slow-ml"]
+            assert len(errors) == 1 and errors[0] is not None
+            return errors[0]
+
+        assert (await _second_scan_error(1)).startswith(_BREAKER_OPEN_ERROR_PREFIX)
+        assert (await _second_scan_error(3)).startswith(_TIMEOUT_ERROR_PREFIX)
+
+    async def test_circuit_breaker_cooldown_is_a_control_with_an_ml_scanner(self) -> None:
+        # Regression for PET-169: with the breaker already open, a cooldown that
+        # has elapsed lets the scanner be re-awaited (timeout error); one that
+        # has not keeps it short-circuited (breaker-open error).
+        from petasos.pipeline import _BREAKER_OPEN_ERROR_PREFIX, _TIMEOUT_ERROR_PREFIX
+
+        async def _error_after_cooldown(cooldown: float) -> str:
+            pipe = Pipeline(
+                [MockScanner("slow-ml", delay=0.2)],
+                config=PetasosConfig(
+                    scanner_timeout_seconds=0.01,
+                    scanner_circuit_breaker_threshold=1,
+                    scanner_circuit_breaker_cooldown_seconds=cooldown,
+                ),
+            )
+            await pipe.inspect("hello world")  # opens the breaker
+            await asyncio.sleep(0.05)
+            after = await pipe.inspect("hello world")
+            errors = [r.error for r in after.scanner_results if r.scanner_name == "slow-ml"]
+            assert len(errors) == 1 and errors[0] is not None
+            return errors[0]
+
+        assert (await _error_after_cooldown(0.01)).startswith(_TIMEOUT_ERROR_PREFIX)
+        assert (await _error_after_cooldown(30.0)).startswith(_BREAKER_OPEN_ERROR_PREFIX)

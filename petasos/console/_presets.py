@@ -164,8 +164,9 @@ _PRESET_REGISTRY: Final[tuple[StrengthPreset, ...]] = (
         "steel",
         "Steel",
         3,
-        "Strict temper. Fail-closed, PII anonymization on, earlier escalation, "
-        "and tighter PII sensitivity. A safe posture for handling third-party data.",
+        "Strict temper. Fail-closed and earlier escalation, plus PII anonymization "
+        "and tighter PII sensitivity wherever a PII scanner is running. A safe "
+        "posture for handling third-party data.",
         {
             "fail_mode": "closed",
             "tier1_threshold": 10.0,
@@ -184,8 +185,9 @@ _PRESET_REGISTRY: Final[tuple[StrengthPreset, ...]] = (
         "titanium",
         "Titanium",
         4,
-        "Strictest temper. Fail-closed, anonymization on, earliest escalation, "
-        "and Tier-3 at the hard floor (30). Maximum teeth for high-stakes deployments.",
+        "Strictest temper. Fail-closed, earliest escalation, Tier-3 at the hard "
+        "floor (30), and anonymization on wherever a PII scanner is running. "
+        "Maximum teeth for high-stakes deployments.",
         {
             "fail_mode": "closed",
             "tier1_threshold": 8.0,

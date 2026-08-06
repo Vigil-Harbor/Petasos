@@ -62,7 +62,17 @@ class PetasosConfig:
     # always-on syntactic posture (not threaded into the scanner by design, no
     # longer a console control); decode_encoded_payloads, by contrast, IS threaded
     # into MinimalScanner's constructor, so turning it off genuinely disables the
-    # decode stage in every pipeline build path.
+    # decode stage.
+    # PET-169 correction: that holds only where Pipeline BUILDS the scanner
+    # (pipeline.py:330-333). A caller-supplied MinimalScanner is adopted as-is
+    # without the flag (pipeline.py:321-328), and the config value first reaches
+    # the adopted instance at the first live rebind (reconfigure ->
+    # set_decode_encoded_payloads, pipeline.py:399). The Hermes shim used to pass a
+    # bare instance, so that deployment ran the decode stage at its default until
+    # the first rebind; PET-174 fixed it by routing both bootstraps through
+    # petasos/scanners/bootstrap.py, which threads the flag at construction
+    # (bootstrap.py:145). An embedder who hands Pipeline a bare MinimalScanner is
+    # still on the old footing. The library verdict for this key is live-library.
     decode_encoded_payloads: bool = True
 
     # Scanning
