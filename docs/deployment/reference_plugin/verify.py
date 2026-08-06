@@ -39,6 +39,22 @@ def check(name: str, fn: Callable[[], CheckResult]) -> None:
 
 
 def check_scanner_imports() -> CheckResult:
+    # PET-174: the plugin/library capability floor, probed FIRST. This function has
+    # two earlier exits (the base-install WARN below and the PASS after it), and
+    # main() counts only FAIL toward fail_count — appended after the tally, this
+    # probe would be skipped on exactly the deployment where it matters most: a
+    # base install with no ML extras, which returns WARN, exits 0, and prints
+    # "All checks passed" over a skew that boots the plugin unenforcing.
+    try:
+        from petasos.scanners import build_scanners  # noqa: F401
+    except ImportError:
+        return (
+            FAIL,
+            "Installed petasos does not export petasos.scanners.build_scanners."
+            " This plugin requires a petasos release that does; sync the plugin"
+            " files and the library together.",
+        )
+
     from petasos.scanners import MinimalScanner  # noqa: F401
 
     available = ["MinimalScanner"]

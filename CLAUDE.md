@@ -82,6 +82,7 @@ petasos/
 ├── pipeline.py          # Pipeline class — central orchestrator
 ├── config.py            # PetasosConfig dataclass
 ├── scanners/
+│   ├── bootstrap.py     # build_scanners (shared config-to-scanner build, base install)
 │   ├── minimal.py       # MinimalScanner (zero-dep, 23 rules across 6 families)
 │   ├── llm_guard.py     # LlmGuardScanner (extras: llm-guard)
 │   ├── llama_firewall.py # LlamaFirewallScanner (extras: llamafirewall)

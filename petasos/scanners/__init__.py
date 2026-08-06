@@ -47,3 +47,14 @@ except ImportError as _exc:
         raise
     _logger.debug("PresidioScanner not available: %s", _exc)
     del _exc
+
+# PET-174: imported AFTER the extras blocks above so the bootstrap module's
+# MinimalScanner import is already satisfied and no partial-initialization cycle
+# is possible. Unconditional - the helper is base install.
+from petasos.scanners.bootstrap import (  # noqa: E402
+    ScannerBuildStatus,
+    ScannerOutcome,
+    build_scanners,
+)
+
+__all__ += ["ScannerBuildStatus", "ScannerOutcome", "build_scanners"]
