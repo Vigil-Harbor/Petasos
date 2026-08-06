@@ -908,6 +908,16 @@ def test_clip_boundaries_take_the_right_branch_and_never_double_scan(
         assert len(head) + len(tail) <= n
 
 
+def test_the_clip_constants_leave_room_for_a_positive_half() -> None:
+    # `half` is `(cap - marker - overlap) // 2`. At zero or below, `result[-half:]` becomes
+    # `result[-0:]` — the WHOLE result — and the budget invariant asserted above would stop
+    # holding silently. Pinned on the constants rather than guarded at runtime: the branch
+    # is unreachable at today's values, and a cap below the marker plus the overlap would
+    # make the head/tail window meaningless anyway.
+    ref = _import_reference_plugin()
+    assert ref._MAX_RESULT_SCAN_CHARS - len(ref._TRUNCATION_MARKER) - ref._SEAM_OVERLAP >= 2
+
+
 def test_a_payload_in_the_last_thousand_chars_is_caught(monkeypatch: pytest.MonkeyPatch) -> None:
     # The tail half of the window is why the clip is head AND tail rather than head alone.
     from petasos.scanners import MinimalScanner

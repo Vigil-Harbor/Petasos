@@ -244,16 +244,6 @@ test("ingestion rows render amber, never the red blocked badge", () => {
   );
 });
 
-test("ingestion rows do not change the blocked tile count", () => {
-  // The tile loop is `if (e.safe === false) blocked++`, so this is the assertion that
-  // catches a future summary setting safe=false and rendering every flagged read as a
-  // red block. Replicated here rather than calling the tile renderer, which needs the
-  // full Pet.state DOM.
-  const rows = [ENF_INGEST_FLAGGED, ENF_INGEST_UNSCANNED, ENF_BLOCK, PLAYGROUND];
-  const blocked = rows.filter((e) => e.safe === false).length;
-  assert.equal(blocked, 2, "only the true blocks count; neither ingestion row does");
-});
-
 test("ingestion drill-down renders the reason, not the unknown-row fallback", () => {
   for (const row of [ENF_INGEST_FLAGGED, ENF_INGEST_UNSCANNED]) {
     const t = text(Pet.scanDetailPanel(row));

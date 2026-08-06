@@ -752,9 +752,9 @@ def test_session_starting_and_ending_inside_window(monkeypatch: pytest.MonkeyPat
 
 def test_record_reason_fits_and_states_caveats(monkeypatch: pytest.MonkeyPatch) -> None:
     # Asserted against the DRAINED summary, not the raw emit, so the read path's 200-char
-    # hard slice is actually exercised. A naive rendering of all four caveats runs ~280-300
-    # characters, and a prefix slice amputates the LAST clause — exactly the one that says
-    # tool results go unscanned in the warm path too.
+    # hard slice is actually exercised. The slice is a PREFIX, so it amputates from the end:
+    # the clause the authored copy must keep inside the cap is the trailing
+    # "syntactic only, dangerous tools only, params only (100k cap)" scope caveat.
     pytest.importorskip("fastapi")
     from petasos.console.server import _enforcement_summary
 
