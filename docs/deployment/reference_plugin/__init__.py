@@ -11,6 +11,10 @@ Deploy: copy this directory to the active Hermes profile's plugin dir:
 Config: add a top-level ``petasos:`` section to the profile's config.yaml
 Env:    PETASOS_LICENSE_KEY, PETASOS_SESSION_SECRET, PETASOS_HASH_KEY,
         PETASOS_AUDIT_FINDING
+Needs:  a ``petasos`` release that exports ``petasos.scanners.build_scanners``;
+        sync this file and the library together. Copying a newer plugin over an
+        older library fails init and leaves every tool call unenforced. Run
+        ``verify.py`` first: its scanner-imports check FAILs on that skew.
 
 Capture window (PET-136): to record per-finding tuning data, open a short
 capture window by setting ``PETASOS_AUDIT_FINDING=1`` (or flipping the
@@ -452,6 +456,18 @@ def _build_config_from_section(section: dict[str, Any]) -> PetasosConfig:
 # Deferred initialization — runs in background thread from register()
 # ---------------------------------------------------------------------------
 
+# PET-174: per-backend not-installed wording, preserved verbatim from the three
+# inline blocks this plugin used before `build_scanners`. Looked up with `.get`
+# and a generic fallback, never `[...]`: a fourth backend added inside
+# `build_scanners` must not raise KeyError inside _deferred_init's outer try,
+# which would latch _init_error and boot the plugin unenforcing. The helper owns
+# the backend set; this table only carries wording.
+_NOT_INSTALLED_MSG = {
+    "llm_guard": "LLM Guard not installed — syntactic-only for that backend",
+    "llama_firewall": "LlamaFirewall not installed — skipped",
+    "presidio": "Presidio not installed — PII detection unavailable",
+}
+
 
 def _deferred_init() -> None:
     global _pipeline, _guard, _initialized, _init_error
@@ -466,7 +482,7 @@ def _deferred_init() -> None:
 
             try:
                 from petasos import PetasosConfig, Pipeline, ToolCallGuard
-                from petasos.scanners import MinimalScanner
+                from petasos.scanners import build_scanners
 
                 raw_config = _config or {}
 
@@ -518,73 +534,35 @@ def _deferred_init() -> None:
                     logger.error("PetasosConfig validation failed: %s — using defaults", exc)
                     config = PetasosConfig()
 
-                scanners = [MinimalScanner()]
+                # PET-174: one shared config-to-scanner build with the console
+                # bootstrap, so the four scanner-construction config fields
+                # (presidio_entities, presidio_entities_extra,
+                # presidio_score_threshold, decode_encoded_payloads) reach the
+                # enforcement pipeline, not just the one that renders the console.
+                # This caller owns only the rendering; every message template and
+                # level below is unchanged from the three inline blocks.
+                scanners, statuses = build_scanners(config)
                 unavailable: list[str] = []
-                try:
-                    from petasos.scanners import LlmGuardScanner
-
-                    instance = LlmGuardScanner()
-                    scanners.append(instance)
-                    avail, reason, _cause = instance.availability()
-                    if avail:
-                        logger.info("LLM Guard backend verified — scanner active")
-                    else:
-                        unavailable.append("llm_guard")
+                for st in statuses:
+                    if st.outcome == "verified":
+                        logger.info("%s backend verified — scanner active", st.display_name)
+                        continue
+                    unavailable.append(st.scanner_id)
+                    if st.outcome == "degraded":
                         logger.warning(
-                            "LLM Guard backend missing — scanner registered degraded "
+                            "%s backend missing — scanner registered degraded "
                             "(every scan will error): %s",
-                            reason,
+                            st.display_name,
+                            st.reason,
                         )
-                except ImportError:
-                    unavailable.append("llm_guard")
-                    logger.info("LLM Guard not installed — syntactic-only for that backend")
-                except Exception as exc:
-                    unavailable.append("llm_guard")
-                    logger.warning("LLM Guard failed to load: %s", exc)
-
-                try:
-                    from petasos.scanners import LlamaFirewallScanner
-
-                    instance = LlamaFirewallScanner()
-                    scanners.append(instance)
-                    avail, reason, _cause = instance.availability()
-                    if avail:
-                        logger.info("LlamaFirewall backend verified — scanner active")
+                    elif st.outcome == "missing":
+                        logger.info(
+                            _NOT_INSTALLED_MSG.get(
+                                st.scanner_id, f"{st.display_name} not installed, skipped"
+                            )
+                        )
                     else:
-                        unavailable.append("llama_firewall")
-                        logger.warning(
-                            "LlamaFirewall backend missing — scanner registered degraded "
-                            "(every scan will error): %s",
-                            reason,
-                        )
-                except ImportError:
-                    unavailable.append("llama_firewall")
-                    logger.info("LlamaFirewall not installed — skipped")
-                except Exception as exc:
-                    unavailable.append("llama_firewall")
-                    logger.warning("LlamaFirewall failed to load: %s", exc)
-
-                try:
-                    from petasos.scanners import PresidioScanner
-
-                    instance = PresidioScanner()
-                    scanners.append(instance)
-                    avail, reason, _cause = instance.availability()
-                    if avail:
-                        logger.info("Presidio backend verified — scanner active")
-                    else:
-                        unavailable.append("presidio")
-                        logger.warning(
-                            "Presidio backend missing — scanner registered degraded "
-                            "(every scan will error): %s",
-                            reason,
-                        )
-                except ImportError:
-                    unavailable.append("presidio")
-                    logger.info("Presidio not installed — PII detection unavailable")
-                except Exception as exc:
-                    unavailable.append("presidio")
-                    logger.warning("Presidio failed to load: %s", exc)
+                        logger.warning("%s failed to load: %s", st.display_name, st.reason)
 
                 _pipeline = Pipeline(
                     config=config,

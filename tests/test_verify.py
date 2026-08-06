@@ -325,6 +325,37 @@ def test_verify_detects_split_brain_non_incident_key(
     assert "anonymize" in detail
 
 
+def test_missing_build_scanners_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    """PET-174 D7: a plugin newer than the library FAILs pre-flight.
+
+    Asserted twice. The base-install shape (no ML extras) is the one that matters:
+    ``check_scanner_imports`` returns WARN there and ``main()`` counts only FAIL,
+    so a probe appended after the availability tally would be skipped on exactly
+    the deployment where the skew boots the plugin unenforcing.
+    """
+    # sys.modules, not the package attribute: tests/test_scanner_init.py reimports
+    # petasos.scanners and restores sys.modules from a snapshot, so the two can
+    # point at different module objects. verify.py's function-local
+    # `from petasos.scanners import ...` reads sys.modules.
+    import sys
+
+    import petasos.scanners  # noqa: F401
+
+    scanners_pkg = sys.modules["petasos.scanners"]
+    verify = _load_verify_module()
+
+    monkeypatch.delattr(scanners_pkg, "build_scanners", raising=False)
+    status, detail = verify.check_scanner_imports()
+    assert status == verify.FAIL
+    assert "build_scanners" in detail
+
+    for class_name in ("LlmGuardScanner", "LlamaFirewallScanner", "PresidioScanner"):
+        monkeypatch.delattr(scanners_pkg, class_name, raising=False)
+    status, detail = verify.check_scanner_imports()
+    assert status == verify.FAIL
+    assert "build_scanners" in detail
+
+
 def test_verify_clean_passes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

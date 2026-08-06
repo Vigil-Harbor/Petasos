@@ -435,6 +435,12 @@ minor update:
    Copy-Item -Recurse "$env:LOCALAPPDATA\hermes\plugins\petasos" "$env:LOCALAPPDATA\hermes\profiles\gibson\plugins\petasos"
    ```
 
+   The plugin files and the `petasos` library in Hermes's venv must move
+   together: the plugin requires a `petasos` release that exports
+   `petasos.scanners.build_scanners`, and a newer plugin over an older library
+   fails init and leaves every tool call unenforced. `verify.py`'s scanner-imports
+   check FAILs on that skew, so run it before restarting.
+
 3. Restart Hermes Desktop.
 
 If the plugin files are absent from the resolved home, enforcement is **silently

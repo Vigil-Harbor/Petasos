@@ -67,11 +67,12 @@ class PetasosConfig:
     # (pipeline.py:330-333). A caller-supplied MinimalScanner is adopted as-is
     # without the flag (pipeline.py:321-328), and the config value first reaches
     # the adopted instance at the first live rebind (reconfigure ->
-    # set_decode_encoded_payloads, pipeline.py:399). The Hermes shim passes a bare
-    # instance (docs/deployment/reference_plugin/__init__.py:521), so that
-    # deployment runs the decode stage at its default until the first rebind. The
-    # one-line shim fix is a detection-behavior change and is tracked as PET-173;
-    # the library verdict for this key is still live-library.
+    # set_decode_encoded_payloads, pipeline.py:399). The Hermes shim used to pass a
+    # bare instance, so that deployment ran the decode stage at its default until
+    # the first rebind; PET-174 fixed it by routing both bootstraps through
+    # petasos/scanners/bootstrap.py, which threads the flag at construction
+    # (bootstrap.py:145). An embedder who hands Pipeline a bare MinimalScanner is
+    # still on the old footing. The library verdict for this key is live-library.
     decode_encoded_payloads: bool = True
 
     # Scanning

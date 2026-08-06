@@ -198,11 +198,12 @@ _FIELD_META: dict[str, dict[str, Any]] = {
             " to use the curated default: the security-relevant types like credit cards,"
             " SSNs, emails, and phone numbers, which deliberately omits noisier types (names,"
             " locations, dates, URLs) that misfire on file paths and code. Set your own list"
-            " here only when you need a fully custom detection set. This applies only to the"
-            " scanner the console builds at startup. A program that imports Petasos as a"
-            " library and constructs its own Presidio scanner passes these settings to that"
-            " scanner directly; installing the presidio extra does not make this field reach"
-            " it."
+            " here only when you need a fully custom detection set. This applies to the"
+            " scanner Petasos builds from config at startup, on both the console and the"
+            " Hermes-plugin bootstrap; a live edit or a profile switch takes effect at the"
+            " next restart. A program that imports Petasos as a library and constructs its"
+            " own Presidio scanner passes these settings to that scanner itself, or calls"
+            " petasos.scanners.build_scanners(config)."
         ),
         "section": "scanning",
     },
@@ -212,10 +213,12 @@ _FIELD_META: dict[str, dict[str, Any]] = {
             "Adds entity types back on top of the curated default without replacing it: for"
             ' example, add "URL" to detect web addresses again. Use this to opt one of the'
             " noisier types back in while keeping the rest of the safe default. Entries are"
-            " uppercased automatically. This applies only to the scanner the console builds"
-            " at startup. A program that imports Petasos as a library and constructs its own"
-            " Presidio scanner passes these settings to that scanner directly; installing the"
-            " presidio extra does not make this field reach it."
+            " uppercased automatically. This applies to the scanner Petasos builds from"
+            " config at startup, on both the console and the Hermes-plugin bootstrap; a live"
+            " edit or a profile switch takes effect at the next restart. A program that"
+            " imports Petasos as a library and constructs its own Presidio scanner passes"
+            " these settings to that scanner itself, or calls"
+            " petasos.scanners.build_scanners(config)."
         ),
         "section": "scanning",
     },
@@ -226,10 +229,11 @@ _FIELD_META: dict[str, dict[str, Any]] = {
             " 0 to 1. Higher means fewer false alarms but more missed items; lower catches"
             " more but gets noisier. Setting it all the way to 0 reports every candidate and"
             " brings back a lot of the noise this scoping is meant to remove. This applies"
-            " only to the scanner the console builds at startup. A program that imports"
-            " Petasos as a library and constructs its own Presidio scanner passes this"
-            " threshold to that scanner directly; installing the presidio extra does not make"
-            " this field reach it."
+            " to the scanner Petasos builds from config at startup, on both the console and"
+            " the Hermes-plugin bootstrap; a live edit or a profile switch takes effect at"
+            " the next restart. A program that imports Petasos as a library and constructs"
+            " its own Presidio scanner passes this threshold to that scanner itself, or"
+            " calls petasos.scanners.build_scanners(config)."
         ),
         "section": "scanning",
         "constraints": {"min": 0, "max": 1},

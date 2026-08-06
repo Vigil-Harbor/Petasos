@@ -14,8 +14,11 @@ Verdicts are read-site facts. Each maps onto one of PET-151's three dispositions
                    changes none of `safe`, `findings` (as {(rule_id, severity)}),
                    `sanitized_content`, `errors`, or `escalation_tier`, for all
                    inputs.  -> Caveat (D-C): name the true consumer in help_plain.
-    live-shim      Read only by the deployment shim or the console bootstrap;
-                   inert for a library embedder.  -> Caveat (D-C).
+    live-shim      Read only by the deployment shim, or by a scanner bootstrap
+                   (the console's, the Hermes plugin's, or the shared
+                   `build_scanners` helper both call since PET-174); inert for a
+                   library embedder who constructs the scanner themselves and
+                   hands it to `Pipeline`.  -> Caveat (D-C).
     not-a-control  A read exists but reaches no outcome-affecting consumer;
                    retained deliberately for parity.  -> Retire (D-A).
     dead           No read site anywhere; inert by accident, not by design.
@@ -55,7 +58,7 @@ _CAVEAT_VERDICTS = frozenset({"live-partial", "live-shim"})
 _M_NORM = "does not gate built-in findings"
 _M_ANON = "needs the presidio extra and a registered PII-detecting scanner"
 _M_MLSCAN = "has no effect until you add an ML scanner"
-_M_CONSOLE = "applies only to the scanner the console builds at startup"
+_M_CONSOLE = "applies to the scanner Petasos builds from config at startup"
 _M_PLUGIN = "enforced by the Hermes plugin, not by the Petasos library alone"
 _M_INITWAIT = "no effect when Petasos is embedded directly as a library"
 
@@ -121,9 +124,16 @@ _CLASSIFICATION: dict[str, tuple[str, str, str | None]] = {
     # Pipeline(scanners=[PresidioScanner()]) still gets nothing from these three:
     # the extra is installed and they are still inert. An "extras dependency"
     # caveat would be false prose shipped inside an honesty audit.
-    "presidio_entities": ("live-shim", "petasos/console/_standalone.py:109", _M_CONSOLE),
-    "presidio_entities_extra": ("live-shim", "petasos/console/_standalone.py:109", _M_CONSOLE),
-    "presidio_score_threshold": ("live-shim", "petasos/console/_standalone.py:111", _M_CONSOLE),
+    # PET-174 moved the read out of the console bootstrap into the shared
+    # build_scanners helper both bootstraps now call, so these three reach the
+    # enforcing Hermes pipeline as well as the console one. The verdict stays
+    # live-shim: Pipeline still never constructs a PresidioScanner, so an embedder
+    # who passes Pipeline(scanners=[PresidioScanner()]) still gets nothing from
+    # them (test_config_surface_inertness.py holds that line). What changed is the
+    # anchor and what the caveat must say.
+    "presidio_entities": ("live-shim", "petasos/scanners/bootstrap.py:99", _M_CONSOLE),
+    "presidio_entities_extra": ("live-shim", "petasos/scanners/bootstrap.py:99", _M_CONSOLE),
+    "presidio_score_threshold": ("live-shim", "petasos/scanners/bootstrap.py:101", _M_CONSOLE),
     # --- Feature gates (via Pipeline._FEATURE_GATES, pipeline.py:568-574) ----
     "frequency_enabled": ("live-library", "petasos/pipeline.py:978", None),
     "escalation_enabled": ("live-library", "petasos/pipeline.py:998", None),

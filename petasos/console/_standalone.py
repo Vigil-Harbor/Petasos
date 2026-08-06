@@ -21,7 +21,6 @@ self-initialized summary). Do not reword them without updating those tests.
 from __future__ import annotations
 
 import base64
-import importlib
 import logging
 import os
 from typing import TYPE_CHECKING
@@ -53,7 +52,7 @@ def build_dashboard_pipeline(raw_config: dict[str, Any]) -> Pipeline:
     silently unattested spool reads.
     """
     from petasos import PetasosConfig, Pipeline
-    from petasos.scanners import MinimalScanner
+    from petasos.scanners import build_scanners
 
     # Defensive copy: the builder mutates (pops + injects), so a caller's dict is
     # left untouched.
@@ -84,60 +83,26 @@ def build_dashboard_pipeline(raw_config: dict[str, Any]) -> Pipeline:
         logger.warning("config.yaml rejected (%s); falling back to defaults", exc)
         config = PetasosConfig()
 
-    scanners = [MinimalScanner(decode_encoded_payloads=config.decode_encoded_payloads)]
+    # PET-174: one shared config-to-scanner build, so the four scanner-construction
+    # config fields reach the enforcement path too. This caller owns only the
+    # rendering; every message template below is unchanged from the inline loop.
+    scanners, statuses = build_scanners(config)
     unavailable: list[str] = []
-    for name, cls_path in [
-        ("LLM Guard", "petasos.scanners.LlmGuardScanner"),
-        ("LlamaFirewall", "petasos.scanners.LlamaFirewallScanner"),
-        ("Presidio", "petasos.scanners.PresidioScanner"),
-    ]:
-        try:
-            mod, cls = cls_path.rsplit(".", 1)
-
-            m = importlib.import_module(mod)
-            if name == "Presidio":
-                # PET-109: build Presidio from config (entities + score_threshold)
-                # instead of the bare no-arg ctor. resolve_presidio_entities lives in
-                # presidio.py, whose module imports are stdlib + petasos._types only —
-                # importing it does NOT import the presidio backend, so the
-                # "importable without the extra" invariant holds and the surrounding
-                # try/except ImportError still catches a genuinely-absent backend.
-                from petasos.scanners.presidio import resolve_presidio_entities
-
-                instance = getattr(m, cls)(
-                    entities=resolve_presidio_entities(
-                        config.presidio_entities, config.presidio_entities_extra
-                    ),
-                    score_threshold=config.presidio_score_threshold,
-                )
-            else:
-                instance = getattr(m, cls)()
-            scanners.append(instance)
-            probe = getattr(instance, "availability", None)
-            if probe is not None:
-                # PET-103 D4: arity-tolerant extraction — availability() is
-                # duck-typed here (getattr), so tolerate both the legacy 2-tuple
-                # and the widened 3-tuple (ok, reason, cause).
-                probe_result = probe()
-                avail = bool(probe_result[0])
-                reason = probe_result[1] if len(probe_result) > 1 else None
-                if avail:
-                    logger.info("Dashboard scanner %s: backend verified", name)
-                else:
-                    unavailable.append(name)
-                    logger.warning(
-                        "Dashboard scanner %s: backend missing — registered degraded: %s",
-                        name,
-                        reason,
-                    )
-            else:
-                logger.info("Dashboard scanner %s: backend verified", name)
-        except ImportError:
-            unavailable.append(name)
-            logger.warning("Dashboard scanner %s: import failed", name)
-        except Exception as exc:
-            unavailable.append(name)
-            logger.warning("Dashboard scanner %s failed: %s", name, exc)
+    for st in statuses:
+        if st.outcome == "verified":
+            logger.info("Dashboard scanner %s: backend verified", st.display_name)
+            continue
+        unavailable.append(st.display_name)
+        if st.outcome == "degraded":
+            logger.warning(
+                "Dashboard scanner %s: backend missing — registered degraded: %s",
+                st.display_name,
+                st.reason,
+            )
+        elif st.outcome == "missing":
+            logger.warning("Dashboard scanner %s: import failed", st.display_name)
+        else:
+            logger.warning("Dashboard scanner %s failed: %s", st.display_name, st.reason)
 
     pipeline = Pipeline(config=config, scanners=scanners, host_id="dashboard")
 

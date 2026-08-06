@@ -97,14 +97,18 @@ def _reduce(result: PipelineResult) -> dict[str, Any]:
 @pytest.mark.parametrize(
     ("field", "on_value", "off_value"),
     [
-        # The three PET-109 Presidio detection-scope keys. Their only reads are
-        # inside build_dashboard_pipeline (petasos/console/_standalone.py:109,
-        # :111), reachable only from the console entrypoints. Pipeline never
-        # constructs a PresidioScanner; it fans out over whatever the caller
-        # supplied. So an embedder running `pip install petasos[presidio]` and
-        # passing Pipeline(scanners=[PresidioScanner()]) gets nothing from these
+        # The three PET-109 Presidio detection-scope keys. Since PET-174 their only
+        # reads are inside the shared build_scanners helper
+        # (petasos/scanners/bootstrap.py:99, :101), which both the console and the
+        # Hermes-plugin bootstrap call — so they are honored at startup on the
+        # enforcement path too, not just the console one. What did NOT change is
+        # the claim this row pins: Pipeline never constructs a PresidioScanner, it
+        # fans out over whatever the caller supplied. So an embedder running
+        # `pip install petasos[presidio]` and passing
+        # Pipeline(scanners=[PresidioScanner()]) still gets nothing from these
         # three: the extra is installed and they are still inert. That is why
-        # their caveat names the console bootstrap and not the extra.
+        # their caveat names the bootstrap and not the extra, and why it now also
+        # points that embedder at build_scanners(config).
         ("presidio_entities", ("EMAIL_ADDRESS",), None),
         ("presidio_entities_extra", ("URL",), ()),
         ("presidio_score_threshold", 0.99, 0.01),
