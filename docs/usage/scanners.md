@@ -209,6 +209,11 @@ separate anonymization stage acts on what is found:
   mask).
 - `hash_key`: the secret key used when `redaction_mode` is `hash`.
 
+The three `presidio_*` fields are read where the scanner is constructed, so an
+embedder who builds a `PresidioScanner` itself has to pass them through, or call
+`petasos.scanners.build_scanners(config)` and hand the returned list to
+`Pipeline` (that is the helper both bundled bootstraps use).
+
 See [the configuration guide](configuration.md) for the full walkthrough of these
 fields.
 

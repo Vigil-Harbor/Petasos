@@ -4,6 +4,39 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Added
+
+- **`petasos.scanners.build_scanners(config)`**, plus the `ScannerBuildStatus`
+  record and `ScannerOutcome` literal it returns (PET-174). One published helper
+  that turns a `PetasosConfig` into the scanner list a `Pipeline` needs: the
+  `MinimalScanner` carrying `decode_encoded_payloads`, then each optional backend
+  that constructed, with Presidio built from `presidio_entities`,
+  `presidio_entities_extra`, and `presidio_score_threshold`. It returns data and
+  never logs, so a caller keeps its own wording and levels, and it never raises
+  for an optional-backend failure. Embedders who construct their own `Pipeline`
+  can call it instead of hand-wiring each scanner's config.
+
+### Fixed
+
+- **Presidio detection config and the payload-decode flag now reach the
+  enforcement path** (PET-174). Petasos built its scanner list twice by hand: the
+  console bootstrap wired `presidio_entities`, `presidio_entities_extra`,
+  `presidio_score_threshold`, and `decode_encoded_payloads` into the scanner
+  constructors, and the reference plugin's bootstrap, which serves the Hermes
+  hook that actually blocks tool calls, wired none of them. Setting any of the
+  four was therefore honored by the pipeline that renders the console and dropped
+  by the pipeline that enforces, including through all five console posture
+  presets. Both bootstraps now route through `build_scanners`, and a structural
+  test fails the build if a third bootstrap constructs scanners by hand. Log
+  wording, levels, and ordering on both paths are unchanged. These fields still
+  apply at construction time only: a live config edit or a Hermes-profile
+  re-bind takes effect at the next restart.
+- **Plugin/library sync requirement.** The reference plugin now imports
+  `build_scanners`, so it requires a `petasos` release that exports it. Copy the
+  plugin files and upgrade the library together; a newer plugin over an older
+  library fails init and leaves tool calls unenforced. `verify.py`'s
+  scanner-imports check FAILs on that skew before boot.
+
 ## [0.2.0] - 2026-06-30
 
 Headline release since 0.1.2: Hermes-agent profile/role awareness end to end,
