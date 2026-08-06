@@ -31,10 +31,12 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import concurrent.futures  # PET-170: dep-light (stdlib; the run_coroutine_threadsafe timeout)
 import contextlib
 import logging
 import math  # PET-167: dep-light (stdlib; isfinite guard on the raw init-wait budget)
 import os
+import sys  # PET-170: dep-light (stdlib; the transform_tool_result availability probe)
 import threading
 import time
 import uuid
@@ -46,6 +48,7 @@ from petasos.normalize import canonicalize_tool_name  # PET-118: dep-light (re +
 from petasos.session.formatting import (  # PET-77: dep-light (string formatting over dataclasses)
     format_block_message,
     format_content_block,
+    format_result_notice,
 )
 from petasos.session.guard import READ_ONLY_TOOLS
 
@@ -366,10 +369,32 @@ def _ensure_async_loop() -> None:
             threading.Event().wait(0.01)
 
 
-def _run_async(coro):
+def _run_async(coro, timeout: float = 15):
+    """Submit ``coro`` onto the shared loop and block for its result.
+
+    PET-170: the timeout is now a parameter (the ingestion scan needs a bound derived from
+    ``scanner_timeout_seconds``, not the fixed 15 s), and a timeout now CANCELS the future
+    and re-raises instead of leaving the coroutine running.
+
+    ``concurrent.futures.TimeoutError`` is named explicitly rather than caught as built-in
+    ``TimeoutError``: on the 3.10 gate interpreter they are not the same class. Re-raising is
+    load-bearing twice over: the ingestion handler's own
+    ``except concurrent.futures.TimeoutError`` arm is what distinguishes ``cause=timeout``
+    from the weaker ``cause=boundary``, and ``_pre_tool_call`` reads ``result.selfmod_target``
+    off this return value, so swallowing to ``None`` here would ``AttributeError`` there.
+
+    ``run_coroutine_threadsafe`` returns a future that is still PENDING on timeout, so
+    ``.cancel()`` succeeds and propagates ``Task.cancel()``; ``Pipeline.inspect``'s
+    ``BaseException`` boundary absorbs it and returns, freeing the loop. It does NOT help
+    against a synchronous wedge that reaches no await point.
+    """
     _ensure_async_loop()
     future = asyncio.run_coroutine_threadsafe(coro, _async_loop)
-    return future.result(timeout=15)
+    try:
+        return future.result(timeout=timeout)
+    except concurrent.futures.TimeoutError:
+        future.cancel()
+        raise
 
 
 # ---------------------------------------------------------------------------
@@ -1033,14 +1058,19 @@ def _emit_enforcement_event(
 # PET-167: durable cold-start visibility — the at-most-once marker latch
 # ---------------------------------------------------------------------------
 
+# PET-170: the "(warm path too)" parenthetical is dropped from both variants — this ticket
+# makes it false. PET-167's Done-when 8 is RESTATED, not dropped: the cold window still
+# records that tool results went unscanned during it; only the claim about the warm path
+# goes away, because the warm path now scans ingestion-tool results at
+# ``transform_tool_result``.
 _COLD_START_REASON = (
-    "scanners not up; tool results unscanned (warm path too); syntactic only,"
+    "scanners not up; tool results unscanned; syntactic only,"
     " dangerous tools only, params only (100k cap)"
 )
 # The escape-hatch variant names its trigger: no wait ever ran there, so the cause-neutral
 # opener alone would send an operator chasing a timeout that never happened.
 _COLD_START_REASON_NO_INIT = (
-    "scanners not up (no init in flight); tool results unscanned (warm path too);"
+    "scanners not up (no init in flight); tool results unscanned;"
     " syntactic only, dangerous tools only, params only (100k cap)"
 )
 _INIT_FAILED_REASON_PREFIX = (
@@ -1782,6 +1812,247 @@ def _post_tool_call(
         logger.debug("Petasos taint capture failed: %s; skipping", exc)
 
 
+# ---------------------------------------------------------------------------
+# PET-170: ingestion-result scan + annotation at the transform_tool_result seam
+# ---------------------------------------------------------------------------
+
+# Measured window. A full `inspect()` on the base install costs ~7.3 ms normalized
+# (~11.7 ms raw on the slower bench box) at 8 KB versus ~14.2 / ~23 ms at 16 KB. The
+# 100_000 in `_fallback_pre_tool_call` is NOT a precedent for this number: that is the
+# cold-window path running MinimalScanner only. The live parameter cap is
+# `guard._MAX_PARAM_TEXT_LEN = 1_000_000`.
+_MAX_RESULT_SCAN_CHARS = 8_000
+_TRUNCATION_MARKER = "\n...[petasos: scan window truncated]...\n"
+# Extends head coverage past the head/tail boundary. NOT seam-safety in general: for a
+# large result, head and tail are separated by an unscanned gap that nothing covers.
+_SEAM_OVERLAP = 512
+# The outer bound sits ABOVE the per-scanner timeout, with the INPUT clamped rather than
+# the sum, so the margin survives at the top of the validated (0, 60] range (60 -> 65).
+# Below the per-scanner timeout, an abandoned outer future would never let `_scan_one`
+# return its timeout-prefixed ScanResult, so the pipeline's consecutive-timeout breaker
+# would never open on this path.
+_RESULT_SCAN_TIMEOUT_MARGIN_S = 5.0
+_DEFAULT_SCANNER_TIMEOUT_S = 10.0
+# Operator-facing (rides the enforcement event's `reason`), never model-facing — the
+# PET-77 split. The two _RESULT_NOTICE strings are the model-facing half.
+_RESULT_SCAN_ERROR_REASON = "result scan unavailable"
+
+# Set once in register() by the availability probe (Decision 1). One of "available",
+# "hook_absent", "no_host_module", "probe_failed". Registration happens in all four cases;
+# allowlist membership is a PROXY for dispatch, recorded as such.
+_result_scan_status = "unprobed"
+
+
+def _clip_result(result: str) -> tuple[str, bool]:
+    """Return ``(text_to_scan, truncated)`` for an ingestion-tool result.
+
+    Head + tail with a marker between them. The overlap comes out of the TAIL so the
+    budget invariant holds exactly: ``len(scanned) <= _MAX_RESULT_SCAN_CHARS`` always. The
+    whole-result short-circuit means head and tail never overlap in the original, so
+    nothing is scanned twice.
+
+    Clipping governs only what is SCANNED. The handler always returns the whole result.
+    """
+    if len(result) <= _MAX_RESULT_SCAN_CHARS:
+        return result, False
+    half = (_MAX_RESULT_SCAN_CHARS - len(_TRUNCATION_MARKER) - _SEAM_OVERLAP) // 2
+    head = result[: half + _SEAM_OVERLAP]
+    tail = result[-half:]
+    return head + _TRUNCATION_MARKER + tail, True
+
+
+def _result_scan_timeout() -> float:
+    """The outer bound for the ingestion scan, derived from ``scanner_timeout_seconds``.
+
+    Sanitization is inlined because the repo has no shared float-sanitizer: `_init_wait_budget`
+    inlines the identical logic and records the ORDERING as load-bearing — non-finite is
+    rejected BEFORE clamping, and garbage falls back to the DEFAULT, never to a floor.
+
+    Reads an existing declared config field rather than adding a key (a permanent non-goal
+    of this ticket), which is why the PET-169 classification of that field gains a second
+    read site.
+    """
+    raw = (_config or {}).get("scanner_timeout_seconds", _DEFAULT_SCANNER_TIMEOUT_S)
+    try:
+        v = float(raw)
+    except (TypeError, ValueError):
+        v = _DEFAULT_SCANNER_TIMEOUT_S
+    if not math.isfinite(v) or v <= 0:
+        v = _DEFAULT_SCANNER_TIMEOUT_S
+    return min(60.0, v) + _RESULT_SCAN_TIMEOUT_MARGIN_S
+
+
+def _transform_tool_result(
+    tool_name: str = "", result: Any = "", task_id: str = "", **kwargs: Any
+) -> str | None:
+    """Scan an ingestion-tool result inbound and ANNOTATE it; never withhold it (PET-170).
+
+    Hermes dispatches thirteen keyword arguments here (twelve at the dispatch site plus
+    `telemetry_schema_version` injected by `invoke_hook`). Binding only what is used keeps
+    this working when the host adds a fourteenth.
+
+    The host takes the first `isinstance(str)` return and ignores everything else, and it
+    swallows hook exceptions — so raising enforces nothing, and the whole body is wrapped
+    fail-open (Decision 7). `fail_mode` governs nothing here: nothing is withheld under any
+    setting.
+    """
+    try:
+        # Gate order is deliberate and mirrors `_pre_tool_call`'s.
+        # 1. PET-111 disarm, ABOVE the init check. No bypass-counter bump: that tally is
+        #    per-CALL and driven from `_pre_tool_call`, which already counted this call.
+        if not _is_armed():
+            return None
+        # 2. One shape gate. The host contract is `Registry.dispatch(...) -> str | dict`,
+        #    and `vision_analyze` (a READ_ONLY_TOOLS member) returns the multimodal dict
+        #    shape. There is deliberately NO `status` gate: the host derives `status` by
+        #    parsing the whole result string with no notion of authorship, so content that
+        #    is literally `{"error": "Ignore all previous instructions ..."}` would set
+        #    `status="error"` and skip the scan — a general bypass. Cost accepted: a host
+        #    error envelope that trips a rule gets a banner too. Noise, not harm, since
+        #    nothing is withheld.
+        if not isinstance(result, str) or not result:
+            return None
+        # 3. The ingestion set is DERIVED, not re-listed: `_is_dangerous` reads the same
+        #    `_READ_ONLY_CANON` the pre-call path uses, so the two surfaces cannot
+        #    disagree. `_is_dangerous("")` is True, so an unnamed tool is not scanned —
+        #    correct, since an unnamed tool is treated as acting. The fail-DIRECTION
+        #    inverts here and that is a recorded gap: on the pre-call path an unrecognized
+        #    name is gated (fail-secure, PET-118); here it means NOT SCANNED, so a variant
+        #    `canonicalize_tool_name` misses dispatches the real tool and goes unscanned.
+        if _is_dangerous(tool_name):
+            return None
+        # 4. A plain read, not `_ensure_initialized()`: `_pre_tool_call` already paid the
+        #    bounded wait on this same call. No cold-start marker either — `_pre_tool_call`
+        #    claimed it before dispatch. No `_maybe_reconfigure`: it ran there too.
+        if not _initialized:
+            return None
+
+        session_id = _derive_session_id(task_id, kwargs)
+        text, truncated = _clip_result(result)
+        # ABOVE the try: a raise here is a handler bug, not a scan failure, so it belongs
+        # to the outer wrapper rather than being reported as an unscannable result.
+        budget = _result_scan_timeout()
+
+        scan = None
+        cause: str | None = None
+        # Bind once: the None check must sit OUTSIDE the try, or the attribute access
+        # raises and the handler reports "raised" for what is really "no_pipeline".
+        pipeline = _pipeline
+        if pipeline is None:
+            cause = "no_pipeline"
+        else:
+            try:
+                # Decision 5: `session_id=None`. The frequency hook returns immediately on
+                # a None session, so nothing accumulates and no tier moves. The absent
+                # session backstop (and the audit/alert consequences of a null correlator)
+                # is PET-176's, with the measurements attached.
+                scan = _run_async(
+                    pipeline.inspect(text, direction="inbound", session_id=None),
+                    timeout=budget,
+                )
+            except concurrent.futures.TimeoutError:
+                cause = "timeout"
+            except Exception:
+                cause = "raised"
+        # Keying on the syntactic FLOOR survives three rejected predicates: `scan.errors`
+        # non-empty is not a scanner signal (a dead audit webhook appends there);
+        # `any(r.error ...)` is permanently true wherever an optional backend imports but
+        # is unusable, which is the shape of most real interpreters; and omitting the
+        # empty-tuple check would let a MemoryError pass content with no banner at all.
+        # `all_results` always leads with the floor and Pipeline synthesizes one if absent,
+        # so an empty tuple / missing floor can only mean the inspect() boundary fired.
+        floor = (
+            next((r for r in scan.scanner_results if r.scanner_name == "minimal"), None)
+            if scan is not None
+            else None
+        )
+        if cause is None:
+            if scan is None or not scan.scanner_results or floor is None:
+                cause = "boundary"
+            elif floor.error is not None:
+                cause = "floor_error"
+
+        if cause is not None:
+            logger.warning(
+                "PETASOS_INGEST_UNSCANNED tool=%s session=%s cause=%s len=%d",
+                tool_name,
+                session_id,
+                cause,
+                len(result),
+            )
+            # NOT `PETASOS_QUARANTINE`: that token is block-class everywhere it appears
+            # (five sites, all returning `{"action": "block"}`), the operator runbook
+            # publishes it in a table whose Action column reads "Block", and a console
+            # reconciliation test uses it as the "a block happened" signal. Reusing it
+            # would make a passed-through read grep as a block. One log line per emit
+            # preserves the PET-131 D1/D4 invariant.
+            _emit_enforcement_event(
+                session_id=session_id,
+                tool=tool_name,
+                event_type="ingest_unscanned",
+                reason=f"{_RESULT_SCAN_ERROR_REASON} cause={cause} len={len(result)}",
+            )
+            return format_result_notice("scan_unavailable", tool_name) + "\n\n" + result
+
+        # PET-112 ordinal gate, partitioned by finding type. PII produces NO banner and NO
+        # ingestion event: reading a file containing PII is the ordinary case, the model
+        # gains nothing from being told, and the boundary that matters is defended on the
+        # pre-call path of every egress sink. That is the one visibility gap this accepts
+        # (ingestion PII still reaches the alert channel via the un-session-gated
+        # PII-volume rule).
+        blocking = [f for f in scan.findings if _blocks(f.severity)]
+        non_pii = [f for f in blocking if f.finding_type != "pii"]
+        if non_pii:
+            worst = _worst(non_pii)
+            logger.warning(
+                "PETASOS_INGEST_FLAGGED tool=%s session=%s rule=%s severity=%s",
+                tool_name,
+                session_id,
+                worst.rule_id,
+                worst.severity.name,
+            )
+            # Message FIRST: `_enforcement_summary` clips head-keep / tail-drop at
+            # `_MAX_REASON_LEN`, so message-last would cut the payload evidence this field
+            # exists to preserve. Message-first loses only metadata the uncapped log line
+            # above already carries.
+            _emit_enforcement_event(
+                session_id=session_id,
+                tool=tool_name,
+                event_type="ingest_flagged",
+                severity=worst.severity.name,
+                rule_id=worst.rule_id,
+                reason=(
+                    f"{worst.message} (tool result len={len(result)}, "
+                    f"truncated={truncated}, scanned={len(text)})"
+                ),
+            )
+            return (
+                format_result_notice(
+                    "findings", tool_name, worst, len(non_pii), len(text), len(result)
+                )
+                + "\n\n"
+                + result
+            )
+
+        if truncated:
+            # INFO, not DEBUG: nothing configures the `petasos.plugin` logger, so a DEBUG
+            # line would not be delivered. No event — a clean scan is not a record class.
+            logger.info(
+                "PETASOS_RESULT_TRUNCATED tool=%s len=%d scanned=%d",
+                tool_name,
+                len(result),
+                len(text),
+            )
+        return None
+    except Exception as exc:
+        logger.warning(
+            "PETASOS_RESULT_SCAN_ERROR tool=%s: %s; content passed through untouched",
+            tool_name,
+            exc,
+        )
+        return None
+
+
 def _on_session_start(**kwargs) -> None:
     logger.info("PETASOS_SESSION_START — Petasos content security active")
 
@@ -1921,6 +2192,59 @@ def register(ctx) -> None:
         # host without on_profile_change degrades to "restart required" (Decision 8)
         # rather than crashing; on every host today it is simply never fired (dormant).
         _try_register_hook(ctx, "on_profile_change", _on_profile_change)
+
+        # PET-170: the ingestion-result scan seam. Detection is a PROBE, not an exception.
+        # `register_hook` NEVER raises on an unknown name (unknown names "are still stored
+        # so forward-compatible plugins don't break"), so try/except around registration
+        # cannot detect a host without the seam; and importing `hermes_cli.plugins` would
+        # be this plugin's first direct host import (everything else goes through `ctx` or
+        # `petasos.console._paths`). So read `sys.modules`, entirely inside one
+        # try/except Exception.
+        #
+        # The guard is load-bearing, not defensive habit: this block sits between the three
+        # mandatory `register_hook` calls above and `_hooks_registered = True` below. An
+        # escape here leaves the latch False while `register_hook` has already appended the
+        # callbacks (`_hooks.setdefault(name, []).append(cb)`, NO dedup), so PET-132's
+        # forced rediscovery would re-run the block and double-bind `_pre_tool_call`.
+        global _result_scan_status
+        _probe_status = "probe_failed"
+        _cotenant = False
+        try:
+            _hp = sys.modules.get("hermes_cli.plugins")
+            _valid = getattr(_hp, "VALID_HOOKS", None) if _hp is not None else None
+            if _hp is None:
+                _probe_status = "no_host_module"
+            elif _valid is None or not hasattr(_valid, "__contains__"):
+                _probe_status = "probe_failed"
+            elif "transform_tool_result" in _valid:
+                _probe_status = "available"
+            else:
+                _probe_status = "hook_absent"
+            # Co-tenancy: `invoke_hook` iterates in load order and the host takes the FIRST
+            # string, so a plugin ordered before Petasos can discard the annotation. Read
+            # the host's module-level `has_hook` through the same handle, only when it
+            # resolved and is callable.
+            _has_hook = getattr(_hp, "has_hook", None) if _hp is not None else None
+            _cotenant = bool(callable(_has_hook) and _has_hook("transform_tool_result"))
+        except Exception:
+            _probe_status = "probe_failed"
+        _result_scan_status = _probe_status
+        # Four outcomes, four tokens. A single "host has no hook" message would be a false
+        # statement every time Petasos runs outside Hermes, including in its own test suite.
+        if _probe_status != "available":
+            logger.warning("PETASOS_INGESTION_SCAN_UNAVAILABLE reason=%s", _probe_status)
+        if _cotenant:
+            # An observation, not an error. Expect it on stock installs: Hermes bundles
+            # `plugins/security-guidance`, which registers here unconditionally, but its
+            # target set is disjoint from `_READ_ONLY_CANON`, so it can never contend.
+            logger.info(
+                "PETASOS_INGESTION_SCAN_COTENANT: another plugin already registers "
+                "transform_tool_result; the host takes the first string return in load "
+                "order, so an earlier plugin can discard the Petasos annotation"
+            )
+        # Registration happens in all four cases: allowlist membership is a PROXY for
+        # dispatch, and a forward-compatible host that gains the seam later still works.
+        _try_register_hook(ctx, "transform_tool_result", _transform_tool_result)
 
         _hooks_registered = True
 

@@ -26,6 +26,19 @@ if TYPE_CHECKING:
     from petasos.session.lineage import LineageRegistry
     from petasos.session.profiles import ResolvedProfile
 
+# This set now has TWO enforcement consumers with opposite fail directions, and the
+# distinction is a property of the set itself rather than of either consumer:
+#
+#   1. Tool ARGUMENTS. Membership exempts a tool from argument-side content blocking, on
+#      the rationale that a read-only tool cannot act. An unrecognized name is NOT a
+#      member, so it is gated — fail-secure.
+#   2. Tool RESULTS. Membership selects a tool for inbound scanning of what it RETURNS,
+#      on the rationale that a read-only tool is exactly the one that ingests untrusted
+#      content. Here an unrecognized name means NOT SCANNED — the fail direction inverts.
+#
+# So a name that misses canonicalization is gated on (1) and invisible on (2). Adding or
+# removing a member moves both surfaces at once, in opposite directions. Deliberately not
+# named here: which deployment artifact hosts consumer (2).
 READ_ONLY_TOOLS: frozenset[str] = frozenset(
     {
         "read_file",

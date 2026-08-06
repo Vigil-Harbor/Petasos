@@ -55,6 +55,12 @@ _VALID_DIRECTIONS = frozenset({"inbound", "outbound"})
 # the per-session reconciliation tally. `bypassed_disarmed` is a visible-but-not-
 # blocked heartbeat and is deliberately excluded.
 _BLOCK_EVENT_TYPES = frozenset({"block", "quarantine", "tier3"})
+# PET-170: the ingestion-scan classes. Deliberately NOT in _BLOCK_EVENT_TYPES — they are
+# not blocks, nothing was withheld, and the frontend keys the blocked tile and the red
+# badge off `safe`, not off the event type. They do carry `finding_count = 1` (a flagged
+# scan did find something; an unscanned one has a record worth counting) while `safe`
+# stays True, exactly the PET-167 cold-start / PET-164 selfmod pattern.
+_FLAGGED_EVENT_TYPES = frozenset({"ingest_flagged", "ingest_unscanned"})
 # Bound on the per-session block tally (drop-oldest by session), mirroring the
 # config.max_terminated_tombstones discipline. Independent of the 500-entry ring.
 _MAX_TALLY_SESSIONS = 10_000
@@ -252,6 +258,10 @@ def _enforcement_summary(ev: dict[str, Any], *, provenance: str = "unattested") 
     tile-math change; a `bypassed_disarmed` event sets `safe=True` (visible row,
     never counted as blocked).
 
+    PET-170: the ingestion classes (`_FLAGGED_EVENT_TYPES`) also keep `safe=True` so they
+    never inflate the blocked tile, but carry `finding_count=1` so the row is not read as
+    a clean scan. Neither blocked nor clean is exactly the state they describe.
+
     PET-139: `provenance` (one of "genuine"/"unverifiable"/"unattested", D4) carries the
     spool-integrity verdict to the drill-down "is this legit?" line. Keyword-only and
     DEFAULTED so existing callers (playground summaries, the PET-131/137/138 enforcement
@@ -277,7 +287,7 @@ def _enforcement_summary(ev: dict[str, Any], *, provenance: str = "unattested") 
         "scan_id": ev.get("scan_id"),
         "source": "enforcement",
         "safe": not is_block,
-        "finding_count": 1 if is_block else 0,
+        "finding_count": 1 if (is_block or event_type in _FLAGGED_EVENT_TYPES) else 0,
         "duration_ms": 0.0,
         "direction": "tool_call",
         "session_id": ev.get("session_id"),

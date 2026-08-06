@@ -10,3 +10,8 @@ hooks:
   # only; lineage-linked escalation (A) no-ops.
   - subagent_start
   - subagent_stop
+  # PET-170: ingestion-result scan seam. Fires after post_tool_call and before the result
+  # reaches model context; a string return replaces the result. Petasos returns the content
+  # WHOLE behind a warning banner, never withholding it. Documentation only, like every
+  # other entry here: the host parser reads provides_hooks, never this key.
+  - transform_tool_result

@@ -154,6 +154,7 @@ Two files required:
 
 ### `plugin.yaml`
 
+<!-- PET-170-MANIFEST-START -->
 ```yaml
 name: petasos
 version: 1.0.0
@@ -167,7 +168,19 @@ hooks:
   # the host build does not emit them (the lineage half simply no-ops).
   - subagent_start
   - subagent_stop
+  # Ingestion-result scan seam, optional: scans what a read-only tool RETURNS
+  # (file, web page, MCP record) and prefixes a warning banner when the content
+  # matches known injection patterns. Nothing is withheld. Safe to register on a
+  # host that does not dispatch it (Petasos logs which of the four availability
+  # outcomes it saw and carries on).
+  - transform_tool_result
 ```
+<!-- PET-170-MANIFEST-END -->
+
+This block is documentation parity with the shipped
+`docs/deployment/reference_plugin/plugin.yaml`, not a parser input: the Hermes
+plugin loader reads `provides_hooks`, never `hooks:`. The two are pinned equal by
+`tests/test_reference_plugin_block_messages.py`.
 
 ### Sub-agent (delegate_task) session intelligence
 
