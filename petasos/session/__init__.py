@@ -13,6 +13,7 @@ from petasos.session.formatting import (
     format_block_message,
     format_content_block,
     format_pipeline_block_message,
+    format_result_notice,
     shorten_rule_id,
 )
 from petasos.session.frequency import FrequencyTracker, FrequencyUpdateResult, SessionToken
@@ -40,6 +41,7 @@ __all__ = [
     "format_block_message",
     "format_content_block",
     "format_pipeline_block_message",
+    "format_result_notice",
     "LicenseClaims",
     "LicenseState",
     "LicenseValidator",

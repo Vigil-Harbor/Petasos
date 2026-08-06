@@ -93,8 +93,10 @@ const ENF_DEGRADED = {
   safe: true, // non-blocking marker: not counted as a block
   event_type: "cold_start_degraded",
   tool: "write_file",
+  // PET-170: refreshed in lockstep with the shim's _COLD_START_REASON, which dropped the
+  // "(warm path too)" parenthetical this ticket made false.
   reason:
-    "scanners not up; tool results unscanned (warm path too); syntactic only, dangerous tools only, params only (100k cap)",
+    "scanners not up; tool results unscanned; syntactic only, dangerous tools only, params only (100k cap)",
   armed: true,
   session_id: "sess-cold",
   duration_ms: 0,

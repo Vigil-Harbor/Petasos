@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import importlib
+from typing import Any
 
 import pytest
 
@@ -176,3 +177,85 @@ def test_benchmark_full_pipeline(benchmark, valid_key) -> None:  # type: ignore[
 
     benchmark.pedantic(run, warmup_rounds=3, rounds=30)
     loop.close()
+
+
+# ---------------------------------------------------------------------------
+# PET-170: the ingestion path (transform_tool_result). Decision 8 evidence.
+# ---------------------------------------------------------------------------
+#
+# Measure-only under the module-level skipif, for the same reason as every benchmark
+# above: shared CI runners are too slow and noisy for a wall-clock assertion. The budget
+# these numbers are read against is stated in CLAUDE.md (12 ms of scan at the 8,000-char
+# cap; ~15 ms end to end), and the correctness of the clipping that keeps the input inside
+# that cap is pinned deterministically in tests/test_reference_plugin_tool_result.py.
+
+
+def _ingestion_plugin(pipeline: object) -> Any:
+    """A post-init, armed plugin module wired to a real pipeline, driven synchronously."""
+    import importlib.util
+    from pathlib import Path
+
+    path = (
+        Path(__file__).resolve().parent.parent
+        / "docs"
+        / "deployment"
+        / "reference_plugin"
+        / "__init__.py"
+    )
+    spec = importlib.util.spec_from_file_location("petasos_reference_plugin_bench", str(path))
+    assert spec is not None and spec.loader is not None
+    ref = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ref)
+    ref_any: Any = ref
+    ref_any._initialized = True
+    ref_any._init_error = None
+    ref_any._is_armed = lambda: True
+    ref_any._config = {}
+    ref_any._pipeline = pipeline
+    ref_any._emit_enforcement_event = lambda **kwargs: True
+    return ref_any
+
+
+def _ingestion_case(  # type: ignore[no-untyped-def]
+    benchmark, payload: str, *, tool: str = "read_file", armed: bool = True
+) -> None:
+    loop = asyncio.new_event_loop()
+    pipeline = Pipeline(config=PetasosConfig())
+    ref: Any = _ingestion_plugin(pipeline)
+    ref._is_armed = lambda: armed
+    ref._run_async = lambda coro, timeout=15: loop.run_until_complete(coro)
+
+    def run() -> None:
+        ref._transform_tool_result(tool_name=tool, result=payload, task_id="bench")
+
+    benchmark.pedantic(run, warmup_rounds=3, rounds=20)
+    loop.close()
+
+
+def test_benchmark_ingestion_result_1kb(benchmark) -> None:  # type: ignore[no-untyped-def]
+    """1 KB: well inside the window, so the whole result is scanned and no clipping runs."""
+    _ingestion_case(benchmark, "an ordinary line of file content\n" * 32)
+
+
+def test_benchmark_ingestion_result_8kb(benchmark) -> None:  # type: ignore[no-untyped-def]
+    """8 KB: the sizing case. This is the input the 8,000-char cap was chosen against
+    (~7.3 ms normalized for a base-install inspect(), versus ~14.2 ms at 16 KB)."""
+    _ingestion_case(benchmark, "an ordinary line of file content\n" * 256)
+
+
+def test_benchmark_ingestion_result_100kb(benchmark) -> None:  # type: ignore[no-untyped-def]
+    """100 KB: over the cap, so this measures clip + scan. The scan cost must stay flat
+    against the 8 KB case; only the clip (a slice and a concat) scales with the result."""
+    _ingestion_case(benchmark, "an ordinary line of file content\n" * 3_200)
+
+
+def test_benchmark_ingestion_non_ingestion_tool_large_result(benchmark) -> None:  # type: ignore[no-untyped-def]
+    """A dangerous tool with a large result: gate 3 returns before any scan or clip, so
+    this is the cost the hook adds to every NON-ingestion call. It should be negligible."""
+    _ingestion_case(benchmark, "x" * 100_000, tool="write_file")
+
+
+def test_benchmark_ingestion_disarmed_no_op(benchmark) -> None:  # type: ignore[no-untyped-def]
+    """The PET-111 disarm gate, above everything else: zero added scan cost while
+    Unequipped, which is the invariant the whole disarm design rests on."""
+    _ingestion_case(benchmark, "x" * 100_000, armed=False)

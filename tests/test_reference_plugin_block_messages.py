@@ -369,6 +369,13 @@ def test_no_internal_reason_strings_leak(monkeypatch: pytest.MonkeyPatch) -> Non
     )
     # PET-167: the cold-window no-finding block joins the catalogue.
     messages.append(_drive_cold_window_no_finding(monkeypatch)["message"])
+    # PET-170: the two ingestion-annotation notices are model-facing too, so they join the
+    # catalogue that is checked AGAINST `forbidden`. They must not also go into `forbidden`
+    # — that tuple is a deny-list checked against these very messages, so a string in both
+    # halves would assert itself absent from itself.
+    ref = _import_reference_plugin()
+    messages.append(ref.format_result_notice("findings", "read_file", _non_pii("injection"), 3))
+    messages.append(ref.format_result_notice("scan_unavailable", "read_file"))
 
     forbidden = (
         "exempt-with-scan",
@@ -378,6 +385,9 @@ def test_no_internal_reason_strings_leak(monkeypatch: pytest.MonkeyPatch) -> Non
         "Security finding (PII,",
         "Parameter scan flagged",
         "Security scan (init in progress)",
+        # PET-170: the operator-facing half of the ingestion split. It rides the
+        # enforcement event's `reason` to the dashboard and must never reach the model.
+        ref._RESULT_SCAN_ERROR_REASON,
     )
     for msg in messages:
         for token in forbidden:
@@ -425,6 +435,10 @@ def test_shim_imports_formatter() -> None:
     assert "from petasos.session.formatting import" in src
     assert "format_block_message" in src
     assert "format_content_block" in src
+    # PET-170: the ingestion-annotation notice is the same contract in the other
+    # direction — an ad-hoc f-string banner in the shim would bypass the no-matched-text
+    # guarantee the library formatter enforces.
+    assert "format_result_notice" in src
 
 
 def test_shim_emits_branding() -> None:
@@ -453,8 +467,14 @@ def test_shim_routes_every_block_site_through_formatter() -> None:
     # taint_egress site was added without bumping the assertion, leaving it unguarded — and
     # PET-167's cold-window no-finding block is the eighth. The reconciliation is done here
     # so the number is exact rather than merely non-decreasing.
+    #
+    # Regression for PET-170: bumped 8 -> 10, and `format_result_notice` joins the watched
+    # set. Its two sites are the ingestion handler's findings and scan_unavailable returns.
+    # Watching it here is what stops a future edit from hand-rolling a banner and quietly
+    # re-injecting the attacker's decoded payload, which is exactly what the formatter's
+    # no-matched-text rule exists to prevent.
     tree = ast.parse(_shim_source())
-    targets = {"format_block_message", "format_content_block"}
+    targets = {"format_block_message", "format_content_block", "format_result_notice"}
     call_sites = sum(
         1
         for node in ast.walk(tree)
@@ -462,4 +482,37 @@ def test_shim_routes_every_block_site_through_formatter() -> None:
         and isinstance(node.func, ast.Name)
         and node.func.id in targets
     )
-    assert call_sites == 8, f"expected 8 formatter call sites in the shim, found {call_sites}"
+    assert call_sites == 10, f"expected 10 formatter call sites in the shim, found {call_sites}"
+
+
+def test_manifest_and_runbook_hook_lists_agree() -> None:
+    """Regression for PET-170: the shipped ``plugin.yaml`` and the runbook's copy of it
+    must list the same hooks.
+
+    Both are documentation, not parser input — the host reads ``provides_hooks``, never
+    ``hooks:`` — which is precisely why they drift silently. The runbook block is fenced by
+    HTML-comment markers so this parity check has an anchor that does not depend on which
+    of the runbook's four yaml fences comes first (the PET-153 markers elsewhere in that
+    file are a different pair and are untouched).
+    """
+    manifest = (_REF_PLUGIN_PATH.parent / "plugin.yaml").read_text(encoding="utf-8")
+    runbook = (_REF_PLUGIN_PATH.parent.parent / "hermes-desktop.md").read_text(encoding="utf-8")
+
+    start, end = "<!-- PET-170-MANIFEST-START -->", "<!-- PET-170-MANIFEST-END -->"
+    assert start in runbook and end in runbook, "the runbook manifest markers are missing"
+    block = runbook.split(start, 1)[1].split(end, 1)[0]
+
+    def hooks(text: str) -> list[str]:
+        out = []
+        for raw in text.splitlines():
+            line = raw.strip()
+            if line.startswith("- ") and not line.startswith("- #"):
+                out.append(line[2:].strip())
+        return out
+
+    manifest_hooks, runbook_hooks = hooks(manifest), hooks(block)
+    assert manifest_hooks, "no hooks parsed out of plugin.yaml"
+    assert manifest_hooks == runbook_hooks, (
+        f"plugin.yaml lists {manifest_hooks} but the runbook lists {runbook_hooks}"
+    )
+    assert "transform_tool_result" in manifest_hooks

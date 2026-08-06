@@ -111,6 +111,15 @@ petasos/
 - Target: 300+ tests, 90%+ line coverage on pipeline/frequency/guard/audit/alerting.
 - Scanner wrappers use integration tests against real backends, not mocks.
 - Latency budgets: syntactic-only < 5ms, single ML scanner < 100ms, full pipeline < 250ms (CPU).
+- **Ingestion-path budget (PET-170).** The 5ms syntactic figure above was written for
+  parameter-sized input and does not govern the `transform_tool_result` seam, which scans
+  up to an 8,000-char window of a tool *result*. Budget there: **12ms of scan** at the cap
+  (measured ~7.3ms normalized for a base-install `inspect()`; 8.9-10.8ms raw across real
+  clipped files on the slower bench box), or ~15ms end to end once the banner concatenation
+  and the second observer-field derivation the extra hook costs are included. The ML
+  configuration does not fit this budget, and did not fit the 250ms one before this ticket
+  (~922ms at 1KB); that gap is tracked as its own follow-up, not waived here. Evidence:
+  `tests/test_benchmarks.py`, measure-only under the existing skipif.
 - **Scanner-extra / CI-lane pairing (PET-106).** Every scanner-backend extra in
   `pyproject.toml [project.optional-dependencies]` (currently `llm-guard`,
   `llamafirewall`, `presidio`; `console` excluded — not a scanner) MUST have a

@@ -148,7 +148,9 @@ when to stop calling one that keeps failing.*
   different checks per direction.
 - `scanner_timeout_seconds`: how long to wait for a slow scanner before giving up
   on it for that scan (0.01 to 60 seconds). A timeout counts as a scanner
-  failure, so the fail mode setting decides what happens next.
+  failure, so the fail mode setting decides what happens next. On a Hermes
+  deployment the plugin also derives the overall deadline for scanning what a
+  read-only tool returns from this value.
 - `scanner_circuit_breaker_threshold`: how many consecutive timeouts before a
   scanner is temporarily benched (minimum 1). Any scan that does not time out
   resets the count.

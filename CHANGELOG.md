@@ -32,6 +32,29 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
 
 ### Added
 
+- **Ingestion-tool results are scanned and annotated (PET-170).** The reference plugin now
+  registers Hermes's `transform_tool_result` hook, which fires after `post_tool_call` and
+  before the result reaches model context. What a read-only tool returns (a file, a web
+  page, an MCP record) is scanned inbound through the same pipeline the parameter path
+  uses, over a measured 8,000-character window taken head and tail. On a HIGH or CRITICAL
+  non-PII finding the content is returned **whole**, prefixed with a banner naming the rule
+  id and severity, and an enforcement event is recorded. Nothing is withheld: this is an
+  annotation, not a block, so the model still sees everything it asked for and no tool call
+  is stopped. Read-only tools are still never blocked for their arguments, the egress
+  fences are unchanged, and no session counter moves. The banner quotes none of the matched
+  text, so a decoded payload can never be replayed to the model inside a frame it reads as
+  trustworthy; the raw finding message reaches the operator through the event instead. When
+  the scan cannot run at all, the content comes back with a "could not scan" notice rather
+  than silently. Requires a Hermes build that dispatches the hook: Petasos probes for it,
+  logs which of four availability outcomes it saw, and runs unchanged either way.
+- **`petasos.session.formatting.format_result_notice`**, re-exported from `petasos` and
+  `petasos.session`. Formats the model-facing banner for an annotated tool result. It is
+  deliberately not a `format_content_block` path: that formatter hardcodes "was NOT
+  executed", and nothing on this path is blocked.
+- **Two console event classes, `ingest_flagged` and `ingest_unscanned`.** Both render amber
+  in the Observability history, with a drill-down stating that the content was passed
+  through to the model. Neither counts toward the blocked tile or the per-session block
+  tally, because neither is a block.
 - **`petasos.scanners.build_scanners(config)`**, plus the `ScannerBuildStatus`
   record and `ScannerOutcome` literal it returns (PET-174). One published helper
   that turns a `PetasosConfig` into the scanner list a `Pipeline` needs: the

@@ -1108,6 +1108,12 @@
     // terminal "Unknown row kind" else, where `reason` (the whole payload) is never
     // rendered at all.
     var isColdStart = isEnf && (et === "cold_start_degraded" || et === "init_failed");
+    // PET-170: ingestion-result scan rows fall into the same trap the comment above
+    // records. They need an arm here even though the badge chain already has one — the two
+    // chains are independent, and `reason` is the operator's ONLY copy of the evidence
+    // (the model-facing banner deliberately quotes none of the matched text), so a flagged
+    // row landing in the terminal "Unknown row kind" else is a dead end.
+    var isIngest = isEnf && (et === "ingest_flagged" || et === "ingest_unscanned");
     var isEnfDecision = isEnf && !!ENF_KINDS[et];
     var isPlayground = (e.source == null || e.source === "" || e.source === "playground");
 
@@ -1127,6 +1133,11 @@
     else if (isColdStart) scanRan = (et === "init_failed")
       ? "no (enforcement disabled; init failed)"
       : "partial (syntactic scan only; ML scanners still starting)";
+    // PET-170: same reason the chain above needed its own arm. A row whose whole purpose
+    // is to state ingestion-scan coverage must never read "unknown" here.
+    else if (isIngest) scanRan = (et === "ingest_unscanned")
+      ? "no (scan unavailable; content passed through unverified)"
+      : "yes (tool result content, scanned inbound)";
     else if (isEnfDecision || isPlayground) scanRan = "yes";
     else scanRan = "unknown";
     var armedStr;
@@ -1192,6 +1203,21 @@
           : "Scanners were still starting: this session ran on the fast pattern scan only."),
         Pet.h("div", { className: "sd-sub" }, "One record per session, not per call. It marks coverage; blocks made during the window appear as their own rows.")));
       wrap.appendChild(fld("tool", e.tool));
+      wrap.appendChild(fld("reason", e.reason));
+      wrap.appendChild(fld("session", e.session_id));
+    } else if (isIngest) {
+      // PET-170: ingestion-result scan drill-down. Detection only, by design: the content
+      // reached the model whole behind a banner. `reason` carries the raw finding message
+      // (or the cause= / len= shape on the unscanned path) and is the operator's only copy
+      // of the evidence, so it is rendered here.
+      wrap.appendChild(Pet.h("div", { className: "sd-heartbeat" },
+        Pet.h("div", {}, (et === "ingest_unscanned")
+          ? "A tool result could not be scanned: the content was passed through to the model unverified."
+          : "A tool result matched known prompt-injection patterns."),
+        Pet.h("div", { className: "sd-sub" }, "Detection only: the content was passed through to the model, prefixed with a warning banner. Nothing was withheld and no tool call was blocked.")));
+      wrap.appendChild(fld("tool", e.tool));
+      wrap.appendChild(fld("rule", e.rule_id));
+      wrap.appendChild(fld("severity", e.severity));
       wrap.appendChild(fld("reason", e.reason));
       wrap.appendChild(fld("session", e.session_id));
     } else if (isEnfDecision) {
@@ -1306,6 +1332,14 @@
       // meaning "we did not scan" must never wear the green safe pill. Amber for both:
       // never green ok, never red err.
       var isColdStart = isEnforcement && (et === "cold_start_degraded" || et === "init_failed");
+      // PET-170: ingestion-result scan rows. The content was passed through to the model
+      // whole, so these are not blocks and the summary carries safe=true (they stay out of
+      // _BLOCK_EVENT_TYPES and never inflate the blocked tile). But a row meaning "this
+      // content matched an injection pattern" must never wear the green safe pill either.
+      // Amber, like cold-start and self-tamper, with the two classes labelled apart the way
+      // isColdStart labels its pair: calling an unscanned result "flagged" would assert a
+      // finding that by definition does not exist on that path.
+      var isFlagged = isEnforcement && (et === "ingest_flagged" || et === "ingest_unscanned");
       var isBlocked = (e.safe === false); // strict ===false; truthy-but-not-false is not "blocked"
 
       // PET-165: severity-differentiated self-tamper badge. Severity rides the badge TEXT
@@ -1323,12 +1357,14 @@
             ? ("self-tamper" + (selfmodSev ? (" (" + selfmodSev + ")") : ""))
             : (isColdStart
                 ? (et === "init_failed" ? "unenforced" : "degraded")
-                : (isBlocked ? "blocked" : "safe")));
+                : (isFlagged
+                    ? (et === "ingest_unscanned" ? "unscanned" : "flagged")
+                    : (isBlocked ? "blocked" : "safe"))));
       var badgeClass = isBypass
         ? "warn"
         : (isSelfmodRow
             ? (selfmodSev === "critical" ? "err" : "warn")
-            : (isColdStart ? "warn" : (isBlocked ? "err" : "ok")));
+            : (isColdStart ? "warn" : (isFlagged ? "warn" : (isBlocked ? "err" : "ok"))));
       var badge = Pet.h("span", { className: "pill " + badgeClass, style: { justifyContent: "center" } }, badgeText);
 
       var rowEls = [];

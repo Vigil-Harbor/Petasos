@@ -89,6 +89,12 @@ _CLASSIFICATION: dict[str, tuple[str, str, str | None]] = {
     "fail_mode": ("live-library", "petasos/pipeline.py:215", None),
     # Read only inside _scan_with_breaker, constructed only under
     # `elif self._ml_scanners:` (pipeline.py:722).
+    # PET-170 added a SECOND read site outside the library:
+    # docs/deployment/reference_plugin/__init__.py `_result_scan_timeout`, which derives
+    # the ingestion-scan deadline from this field. Recorded as a comment rather than a
+    # second anchor because test_verdicts_and_evidence_wellformed validates exactly one
+    # path:line per row (the file's own convention, see the note above). The verdict stays
+    # live-partial: the library-side read is still ML-only, so the caveat marker holds.
     "scanner_timeout_seconds": ("live-partial", "petasos/pipeline.py:952", _M_MLSCAN),
     "scanner_circuit_breaker_threshold": ("live-partial", "petasos/pipeline.py:925", _M_MLSCAN),
     "scanner_circuit_breaker_cooldown_seconds": (

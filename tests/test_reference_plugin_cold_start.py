@@ -752,9 +752,9 @@ def test_session_starting_and_ending_inside_window(monkeypatch: pytest.MonkeyPat
 
 def test_record_reason_fits_and_states_caveats(monkeypatch: pytest.MonkeyPatch) -> None:
     # Asserted against the DRAINED summary, not the raw emit, so the read path's 200-char
-    # hard slice is actually exercised. A naive rendering of all four caveats runs ~280-300
-    # characters, and a prefix slice amputates the LAST clause — exactly the one that says
-    # tool results go unscanned in the warm path too.
+    # hard slice is actually exercised. The slice is a PREFIX, so it amputates from the end:
+    # the clause the authored copy must keep inside the cap is the trailing
+    # "syntactic only, dangerous tools only, params only (100k cap)" scope caveat.
     pytest.importorskip("fastapi")
     from petasos.console.server import _enforcement_summary
 
@@ -794,8 +794,16 @@ def test_record_reason_fits_and_states_caveats(monkeypatch: pytest.MonkeyPatch) 
     # the 4a quarantine carry none by design.
     for row in by_type["cold_start_degraded"]:
         reason = str(row["reason"])
-        assert "tool results unscanned (warm path too)" in reason, (
-            "Done-when 8: recorded as unscanned WITHOUT implying the warm path scans it"
+        # PET-170 re-worded this assertion; PET-167's Done-when 8 is RESTATED, not dropped.
+        # The cold window must still record that tool results went unscanned DURING it.
+        # The "(warm path too)" parenthetical came out because PET-170 made it false: the
+        # warm path now scans ingestion-tool results at transform_tool_result.
+        assert "tool results unscanned" in reason, (
+            "Done-when 8 (PET-167, restated by PET-170): the cold window records that tool "
+            "results went unscanned during it"
+        )
+        assert "warm path too" not in reason, (
+            "PET-170: the warm path scans ingestion-tool results now, so the claim is stale"
         )
         assert "syntactic only" in reason
         assert "dangerous tools only" in reason

@@ -178,3 +178,96 @@ test("enforcement labels carry no banned dash (em / en / double-hyphen)", () => 
   assert.ok(!t.includes("–"), "no en dash in labels");
   assert.ok(!t.includes("--"), "no double-hyphen in labels");
 });
+
+// ── PET-170: ingestion-result scan rows (Test plan 14) ──────────────────────
+//
+// Two independent discriminator chains needed an arm: the badge chain in
+// scanHistoryRows and the drill-down chain in scanDetailPanel. Both precedents
+// (PET-167 cold-start, PET-164 selfmod) shipped a pin for exactly this, because a
+// body-only edit leaves the row in the terminal "Unknown row kind" else where
+// `reason` is never rendered at all. `reason` is the operator's ONLY copy of the
+// evidence here: the model-facing banner deliberately quotes none of the matched text.
+
+const ENF_INGEST_FLAGGED = {
+  source: "enforcement",
+  safe: true, // annotation, not a block: the content reached the model whole
+  event_type: "ingest_flagged",
+  tool: "read_file",
+  rule_id: "petasos.syntactic.injection.ignore-previous",
+  severity: "HIGH",
+  reason:
+    "Injection pattern matched: ignore-previous (tool result len=42000, truncated=True, scanned=8000)",
+  armed: true,
+  session_id: "sess-ing",
+  duration_ms: 0,
+  finding_count: 1,
+  timestamp: 1700000000,
+  scan_id: "e-ing1",
+};
+const ENF_INGEST_UNSCANNED = {
+  source: "enforcement",
+  safe: true,
+  event_type: "ingest_unscanned",
+  tool: "web_search",
+  reason: "result scan unavailable cause=timeout len=120345",
+  armed: true,
+  session_id: "sess-ing",
+  duration_ms: 0,
+  finding_count: 1,
+  timestamp: 1700000000,
+  scan_id: "e-ing2",
+  // rule_id / severity deliberately absent: no finding exists on this path
+};
+
+test("ingestion rows render amber, never the red blocked badge", () => {
+  for (const row of [ENF_INGEST_FLAGGED, ENF_INGEST_UNSCANNED]) {
+    const tree = Pet.scanHistoryRows([row]);
+    assert.equal(
+      findEl(tree, hasClass("err")),
+      null,
+      `${row.event_type} must not wear a red (err) badge`
+    );
+    const badge = findEl(tree, hasClass("warn"));
+    assert.ok(badge, `${row.event_type} must wear an amber (warn) badge`);
+    assert.ok(!/undefined/.test(text(tree)), "no 'undefined' for absent rule/severity/tier");
+    assert.ok(text(tree).includes(row.tool), "tool rendered");
+  }
+  // The two classes are labelled apart: calling an unscanned result "flagged" would
+  // assert a finding that by definition does not exist on that path.
+  assert.equal(
+    findEl(Pet.scanHistoryRows([ENF_INGEST_FLAGGED]), hasClass("warn")).textContent,
+    "flagged"
+  );
+  assert.equal(
+    findEl(Pet.scanHistoryRows([ENF_INGEST_UNSCANNED]), hasClass("warn")).textContent,
+    "unscanned"
+  );
+});
+
+test("ingestion drill-down renders the reason, not the unknown-row fallback", () => {
+  for (const row of [ENF_INGEST_FLAGGED, ENF_INGEST_UNSCANNED]) {
+    const t = text(Pet.scanDetailPanel(row));
+    assert.ok(!t.includes("Unknown row kind"), `${row.event_type} must not hit the unknown branch`);
+    assert.ok(t.includes(row.reason), "reason rendered (the operator's only copy of the evidence)");
+    assert.ok(t.includes(row.tool), "tool rendered");
+    assert.ok(t.includes(row.session_id), "session rendered");
+    assert.ok(
+      t.includes("Detection only: the content was passed through to the model"),
+      "the drill-down states that nothing was withheld"
+    );
+    assert.ok(!t.includes("scan ran: unknown"), "never falls through to 'unknown' coverage");
+  }
+  assert.ok(
+    text(Pet.scanDetailPanel(ENF_INGEST_FLAGGED)).includes(ENF_INGEST_FLAGGED.rule_id),
+    "flagged row surfaces the rule id"
+  );
+  assert.ok(
+    text(Pet.scanDetailPanel(ENF_INGEST_UNSCANNED)).includes("passed through to the model unverified"),
+    "unscanned explainer rendered"
+  );
+});
+
+test("ingestion rows never throw on partial input", () => {
+  assert.doesNotThrow(() => Pet.scanHistoryRows([{ source: "enforcement", event_type: "ingest_flagged" }]));
+  assert.doesNotThrow(() => Pet.scanDetailPanel({ source: "enforcement", event_type: "ingest_unscanned" }));
+});

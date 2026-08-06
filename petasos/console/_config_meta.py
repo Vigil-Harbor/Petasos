@@ -117,6 +117,9 @@ _FIELD_META: dict[str, dict[str, Any]] = {
             " happens next. This deadline bounds the optional ML scanners only, so it"
             " has no effect until you add an ML scanner: the built-in zero-dependency"
             " pattern check is never run under it."
+            " On a Hermes deployment it has one further effect (PET-170): the plugin"
+            " derives the overall deadline for scanning what a read-only tool returns from"
+            " this value, so raising it also gives that scan longer to finish."
         ),
         "section": "scanning",
         "constraints": {"min": 0.01, "max": 60},
