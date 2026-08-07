@@ -449,10 +449,23 @@ minor update:
    ```
 
    The plugin files and the `petasos` library in Hermes's venv must move
-   together: the plugin requires a `petasos` release that exports
-   `petasos.scanners.build_scanners`, and a newer plugin over an older library
-   fails init and leaves every tool call unenforced. `verify.py`'s scanner-imports
-   check FAILs on that skew, so run it before restarting.
+   together. The plugin imports `format_result_notice` at module level and
+   `build_scanners` inside its deferred init, and `build_scanners` shipped
+   first, so any library too old for this plugin also misses
+   `format_result_notice`: the plugin does not import at all and nothing is
+   enforced. Check the host's plugin-load error, and treat the absence of the
+   `Petasos plugin registered` INFO line in the startup log above as the
+   reliable signal. An old-library skew therefore does not latch init. A
+   library *newer* than a stale plugin copy still can, if a symbol or
+   signature the deferred init uses has moved. Run `verify.py` before
+   restarting, but note its scanner-imports check probes `build_scanners`, not
+   the module-level floor: it FAILs a library too old for `build_scanners`,
+   and PASSes one that has `build_scanners` but still lacks
+   `format_result_notice`. Init otherwise latches on a config or pipeline
+   construction error, and the session then runs on the syntactic fallback:
+   dangerous tool calls are blocked under the default `degraded` fail-mode,
+   read-only tools are still allowed, until the process is restarted. The
+   latched error text appears in the console's `init_failed` row.
 
 3. Restart Hermes Desktop.
 

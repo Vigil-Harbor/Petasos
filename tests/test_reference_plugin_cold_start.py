@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import importlib.util
 import json
+import logging
 import math
 import threading
 import time
@@ -667,7 +668,9 @@ def test_degraded_then_init_failed_records_both(monkeypatch: pytest.MonkeyPatch)
     assert len(_of_type("init_failed")) == 1
 
 
-def test_blocking_cold_call_emits_block_class_event(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_blocking_cold_call_emits_block_class_event(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
     # Regression for PET-167: block-class or the console renders a real enforcement block
     # as a green "safe" row. _BLOCK_EVENT_TYPES drives the blocked tile, the per-session
     # block tally and the red badge.
@@ -675,12 +678,18 @@ def test_blocking_cold_call_emits_block_class_event(monkeypatch: pytest.MonkeyPa
     _open_window(monkeypatch, ref, fail_mode="degraded")
     _install_fallback_scanner(monkeypatch, ref)
 
+    caplog.set_level(logging.WARNING)
     out = ref._pre_tool_call("write_file", {"text": "x"}, task_id="s1")
     assert out is not None and out["action"] == "block"
     quarantines = _of_type("quarantine")
     assert len(quarantines) == 1
     assert quarantines[0]["param_scan_degraded"] is True
     assert quarantines[0]["tool"] == "write_file"
+    # PET-171: the cold branch's own operator-facing log text and reason constant are
+    # UNCHANGED by the extraction. `log_cause` is a separate parameter from `block_reason`
+    # precisely so a shared helper cannot silently rewrite this string.
+    assert "cold window, scan outcome=clean" in caplog.text
+    assert quarantines[0]["reason"] == ref._COLD_BLOCK_REASON
 
 
 def test_syntactic_finding_block_emits_exactly_one_quarantine(
@@ -697,17 +706,243 @@ def test_syntactic_finding_block_emits_exactly_one_quarantine(
     assert len(_of_type("quarantine")) == 1
 
 
-def test_init_failed_emits_record_and_still_allows(monkeypatch: pytest.MonkeyPatch) -> None:
-    # The allow/deny behavior of this branch is UNCHANGED: this makes a total, silent
-    # enforcement loss visible, it does not start blocking.
+# ---------------------------------------------------------------------------
+# PET-171: the latched branch runs the syntactic fallback instead of allowing
+# ---------------------------------------------------------------------------
+
+
+def test_init_failed_blocks_on_finding(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    # Regression for PET-171: this test previously asserted the OPPOSITE — that a latched
+    # _init_error allows every tool call unscanned. A process whose scanner init failed
+    # enforced nothing for its whole lifetime, which is strictly weaker than the sibling
+    # cold_start_degraded branch handling the LESS severe condition.
     ref = _import_reference_plugin()
     _open_window(monkeypatch, ref)
+    _install_fallback_scanner(monkeypatch, ref, findings=(_finding(),))
     _set(ref, "_init_error", "No module named 'x'")
 
-    assert ref._pre_tool_call("write_file", {"text": "x"}, task_id="s1") is None
+    caplog.set_level(logging.WARNING)
+    out = ref._pre_tool_call("write_file", {"text": "x"}, task_id="s1")
+    assert out is not None and out["action"] == "block"
+    assert "Top finding:" in out["message"], "routed through format_content_block('init', ...)"
+
     records = _of_type("init_failed")
-    assert len(records) == 1
+    assert len(records) == 1, "the marker is still once per session"
     assert "No module named 'x'" in records[0]["reason"]
+
+    quarantines = _of_type("quarantine")
+    assert len(quarantines) == 1, "the fallback emitted its own; the gate must not double it"
+    assert quarantines[0]["reason"] == "injection finding"
+
+    # The only test that reaches the shared callee's block log line.
+    assert "PETASOS_FALLBACK_BLOCK" in caplog.text
+    assert "syntactic fallback, scan found:" in caplog.text
+    assert "init in progress" not in caplog.text, "the shared callee's copy is cause-neutral now"
+
+
+def test_init_failed_policy_block_carries_its_own_reason(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    # The no-finding sub-path: a clean scan under the DEFAULT fail_mode still blocks a
+    # dangerous call, and it must be attributable to the latch rather than to the cold
+    # window — the two are the same shape but only one is permanent.
+    ref = _import_reference_plugin()
+    _open_window(monkeypatch, ref, fail_mode="degraded")
+    _install_fallback_scanner(monkeypatch, ref)
+    _set(ref, "_init_error", "boom")
+
+    caplog.set_level(logging.WARNING)
+    out = ref._pre_tool_call("write_file", {"text": "x"}, task_id="s1")
+    assert out is not None and out["action"] == "block"
+    assert out["message"].startswith("[BLOCKED by Petasos]")
+
+    quarantines = _of_type("quarantine")
+    assert len(quarantines) == 1
+    assert quarantines[0]["reason"] == ref._INIT_FAILED_BLOCK_REASON
+    assert quarantines[0]["reason"] != ref._COLD_BLOCK_REASON, (
+        "a shared helper must not homogenize the two branches' operator-facing reasons"
+    )
+    assert quarantines[0]["param_scan_degraded"] is True
+    assert "init failed, scan outcome=clean" in caplog.text
+
+
+def test_degenerate_tool_names_fail_secure_on_both_branches(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    # Two behavior flips, both fail-secure. `_is_dangerous("")` is True (the empty string is
+    # not in _READ_ONLY_CANON), so an empty name flips allow -> block on the latched branch.
+    # A non-string name raises inside `_is_dangerous`, which `_fallback_pre_tool_call`
+    # evaluates OUTSIDE its own try: on the latched branch that is allow -> block, and on the
+    # cold branch raise -> block. The caller region has no try, so an unswallowed raise would
+    # reach the host.
+    #
+    # Stage A: fail_mode at its degraded default.
+    ref = _import_reference_plugin()
+    _open_window(monkeypatch, ref, fail_mode="degraded")
+    _install_fallback_scanner(monkeypatch, ref)
+    _set(ref, "_init_error", "boom")
+
+    caplog.set_level(logging.WARNING)
+    empty = ref._pre_tool_call("", {"text": "x"}, task_id="s1")
+    assert empty is not None and empty["action"] == "block"
+
+    bad = ref._pre_tool_call(123, {"text": "x"}, task_id="s1")
+    assert bad is not None and bad["action"] == "block", "a non-string name must not propagate"
+    assert getattr(ref._fallback_state, "outcome", None) is None, "cleared on every exit"
+    assert "PETASOS_FALLBACK_DISPATCH_FAILED" in caplog.text
+
+    # Same two names on the COLD branch, where the non-string case is raise -> block.
+    cold = _import_reference_plugin()
+    _open_window(monkeypatch, cold, fail_mode="degraded")
+    _install_fallback_scanner(monkeypatch, cold)
+    assert cold._init_error is None, "this stage must exercise the cold branch, not the latch"
+    cold_empty = cold._pre_tool_call("", {"text": "x"}, task_id="s2")
+    assert cold_empty is not None and cold_empty["action"] == "block"
+    cold_bad = cold._pre_tool_call(123, {"text": "x"}, task_id="s2")
+    assert cold_bad is not None and cold_bad["action"] == "block"
+
+    # Stage B: fail_mode `open`, patching _config ALONE. Re-calling _open_window would run
+    # _reset_init_state(), clearing _init_error and silently moving this row onto the cold
+    # branch where it passes for the wrong reason. `open` is load-bearing: under `degraded` a
+    # stale "clean" blocks anyway, so this row would pin nothing without it.
+    monkeypatch.setattr(ref, "_config", {"fail_mode": "open", "init_wait_timeout_seconds": 0.05})
+    assert ref._init_error is not None, "still on the latched branch"
+    ref._fallback_state.outcome = "clean"
+    stale = ref._pre_tool_call(123, {"text": "x"}, task_id="s1")
+    assert stale is not None and stale["action"] == "block", (
+        "the entry clear must discard a residue left on this pooled thread"
+    )
+
+
+def test_init_failed_read_only_tools_still_allowed(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The carve-out sits AHEAD of the outcome read, so the new fail-secure default can never
+    # mass-block the read-only class for the process lifetime. NOT `search_files`, which is
+    # absent from READ_ONLY_TOOLS and is therefore dangerous today (PET-179's work).
+    ref = _import_reference_plugin()
+    _open_window(monkeypatch, ref, fail_mode="degraded")
+    _install_fallback_scanner(monkeypatch, ref)
+    _set(ref, "_init_error", "boom")
+
+    for tool in ("read_file", "search", "list_directory", "web_search"):
+        assert ref._pre_tool_call(tool, {"path": "x"}, task_id="s1") is None, tool
+    assert _of_type("quarantine") == [], "no read-only call may produce a block-class row"
+    assert len(_of_type("init_failed")) == 1, "a read-only-only session still leaves a record"
+
+
+def test_realistic_latch_blocks_dangerous_and_allows_read_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Driven through the real _deferred_init rather than a hand-set global: it raises at the
+    # `raw_config.pop` AFTER its two imports resolved from cache, which is the shape every
+    # reachable latch has (config validation, build_scanners internals, Pipeline /
+    # ToolCallGuard construction). A broken petasos install does NOT reach here — it takes
+    # `import petasos` down at the plugin's module-level imports, so the plugin never loads.
+    ref = _import_reference_plugin()
+    _open_window(monkeypatch, ref, fail_mode="degraded")
+
+    class _BoomConfig(dict):  # type: ignore[type-arg]
+        def pop(self, *args: Any, **kwargs: Any) -> Any:
+            raise ValueError("bad config section")
+
+    monkeypatch.setattr(ref, "_config", _BoomConfig({"x": 1}))
+    ref._deferred_init()
+    assert ref._init_error is not None and "bad config section" in ref._init_error
+
+    monkeypatch.setattr(ref, "_config", {"fail_mode": "degraded"})
+    _install_fallback_scanner(monkeypatch, ref)
+
+    blocked = ref._pre_tool_call("write_file", {"text": "x"}, task_id="s1")
+    assert blocked is not None and blocked["action"] == "block"
+    assert ref._pre_tool_call("read_file", {"path": "x"}, task_id="s1") is None
+
+
+def test_unusable_fallback_scanner_fails_secure_forever(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Option (a): let `errored` block. The feared "petasos itself is unimportable" state is
+    # unreachable in-process — petasos.scanners is cached before any test body runs, because
+    # the plugin's module-level `from petasos._types import ...` initializes it — so this
+    # drives the residual that IS reachable: a raising MinimalScanner() constructor. Every
+    # dangerous call re-attempts construction and blocks; read-only calls are unaffected.
+    ref = _import_reference_plugin()
+    _open_window(monkeypatch, ref, fail_mode="degraded")
+
+    def boom() -> Any:
+        raise ImportError("No module named 'petasos.scanners'")
+
+    monkeypatch.setattr(ref, "_get_fallback_scanner", boom)
+    _set(ref, "_init_error", "boom")
+
+    for _ in range(3):
+        out = ref._pre_tool_call("write_file", {"text": "x"}, task_id="s1")
+        assert out is not None and out["action"] == "block"
+    assert ref._pre_tool_call("read_file", {"path": "x"}, task_id="s1") is None
+    assert len(_of_type("quarantine")) == 3, "one block-class row per dangerous call"
+
+
+def test_init_failed_open_allows_clean_dangerous_call(monkeypatch: pytest.MonkeyPatch) -> None:
+    ref = _import_reference_plugin()
+    _open_window(monkeypatch, ref, fail_mode="open")
+    _install_fallback_scanner(monkeypatch, ref)
+    _set(ref, "_init_error", "boom")
+
+    assert ref._pre_tool_call("write_file", {"text": "x"}, task_id="s1") is None
+    assert _of_type("quarantine") == []
+
+
+@pytest.mark.parametrize("fail_mode", ["degraded", "closed", "garbage"])
+def test_init_failed_non_open_fail_modes_fail_secure(
+    monkeypatch: pytest.MonkeyPatch, fail_mode: str
+) -> None:
+    ref = _import_reference_plugin()
+    _open_window(monkeypatch, ref, fail_mode=fail_mode)
+    _install_fallback_scanner(monkeypatch, ref)
+    _set(ref, "_init_error", "boom")
+
+    out = ref._pre_tool_call("write_file", {"text": "x"}, task_id="s1")
+    assert out is not None and out["action"] == "block"
+
+
+def test_init_failed_open_still_blocks_non_clean_outcomes(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The `open` axis crossed with a non-clean outcome, which is where the fail-secure
+    # default is load-bearing rather than incidental: a regression here allows every
+    # dangerous call unscanned for the PROCESS LIFETIME, restoring the ticket's original
+    # defect under a config this ticket newly makes reachable.
+    ref = _import_reference_plugin()
+    _open_window(monkeypatch, ref, fail_mode="open")
+    _install_fallback_scanner(monkeypatch, ref, raises=True)
+    _set(ref, "_init_error", "boom")
+
+    errored = ref._pre_tool_call("write_file", {"text": "x"}, task_id="s1")
+    assert errored is not None and errored["action"] == "block", "open + raising scanner"
+
+    ref2 = _import_reference_plugin()
+    _open_window(monkeypatch, ref2, fail_mode="open")
+
+    def dispatch_boom(*a: Any, **k: Any) -> Any:
+        raise RuntimeError("dispatch boom")
+
+    monkeypatch.setattr(ref2, "_fallback_pre_tool_call", dispatch_boom)
+    _set(ref2, "_init_error", "boom")
+    failed = ref2._pre_tool_call("write_file", {"text": "x"}, task_id="s2")
+    assert failed is not None and failed["action"] == "block", "open + dispatch failure"
+
+
+def test_init_failed_marker_once_but_every_block_visible(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The marker is still latched to one record, but it is now ACCOMPANIED by per-call
+    # blocks: the console's blocked tile counts per row, so suppressing them would
+    # under-report enforcement.
+    ref = _import_reference_plugin()
+    _open_window(monkeypatch, ref, fail_mode="degraded")
+    _install_fallback_scanner(monkeypatch, ref)
+    _set(ref, "_init_error", "boom")
+
+    for _ in range(4):
+        out = ref._pre_tool_call("write_file", {"text": "x"}, task_id="s1")
+        assert out is not None and out["action"] == "block"
+
+    assert len(_of_type("init_failed")) == 1
+    assert len(_of_type("quarantine")) == 4
 
 
 def test_empty_exception_message_still_latches_visibly(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -729,7 +964,12 @@ def test_empty_exception_message_still_latches_visibly(monkeypatch: pytest.Monke
     assert ref._init_done.is_set(), "the finally wraps the WHOLE body, including this exit"
 
     monkeypatch.setattr(ref, "_config", {})
-    assert ref._pre_tool_call("write_file", {"text": "x"}, task_id="s1") is None
+    # PET-171: was `is None`. Deliberately keeps the REAL MinimalScanner and the real
+    # _run_async — this test installs no fallback stub — so it is the end-to-end companion
+    # to the realistic-latch test: a genuine clean syntactic pass under an absent fail_mode
+    # still blocks. Do not "fix" it by adding _install_fallback_scanner.
+    out = ref._pre_tool_call("write_file", {"text": "x"}, task_id="s1")
+    assert out is not None and out["action"] == "block"
     assert len(_of_type("init_failed")) == 1
     assert _of_type("cold_start_degraded") == [], "a failed init is not 'still starting'"
 
@@ -790,8 +1030,25 @@ def test_record_reason_fits_and_states_caveats(monkeypatch: pytest.MonkeyPatch) 
             assert len(reason) <= 200
             assert "—" not in reason
 
-    # The caveats are carried by the two cold_start_degraded variants only; init_failed and
-    # the 4a quarantine carry none by design.
+    # PET-171: the reason-length budget, pinned as arithmetic rather than as an observed
+    # row, so a later copy edit fails loudly instead of silently amputating the operator's
+    # only copy of the init error (_enforcement_summary truncates as a PREFIX).
+    assert len(ref._INIT_FAILED_REASON_PREFIX) + ref._MAX_INIT_ERROR_CHARS <= 200
+
+    # PET-171: init_failed now runs the syntactic fallback, so its prefix states the
+    # coverage that scan actually gives. "only" is the clause that keeps the marker honest
+    # in the errored steady state, where no scan succeeded: an edit dropping it turns a
+    # scope claim into a false success claim.
+    init_failed_reason = str(by_type["init_failed"][0]["reason"])
+    assert "syntactic fallback only" in init_failed_reason
+    assert "tool results unscanned" in init_failed_reason
+    assert "100k cap" in init_failed_reason
+    assert "enforcement disabled" not in init_failed_reason, "retired by PET-171"
+
+    # The five cold-window caveat clauses are carried by the two cold_start_degraded
+    # variants only. The loop is deliberately NOT widened to init_failed: three of the five
+    # are cold-window-specific copy the new prefix does not carry, and its own clauses are
+    # asserted directly above.
     for row in by_type["cold_start_degraded"]:
         reason = str(row["reason"])
         # PET-170 re-worded this assertion; PET-167's Done-when 8 is RESTATED, not dropped.

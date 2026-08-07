@@ -80,11 +80,27 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
   wording, levels, and ordering on both paths are unchanged. These fields still
   apply at construction time only: a live config edit or a Hermes-profile
   re-bind takes effect at the next restart.
+- **A permanently failed scanner init no longer disables enforcement (PET-171).**
+  The reference plugin's `init_failed` branch now runs the zero-dependency syntactic
+  scanner and honors `fail_mode`, instead of allowing every tool call unscanned.
+  Operator-visible change: under the default `degraded` fail-mode, a process whose
+  scanner init failed now blocks every dangerous tool call until it is restarted,
+  while read-only tools are still allowed. Tool results remain unscanned on that
+  branch. The console marker, provenance line, drill-down explainer and badge were
+  corrected: they previously said enforcement was disabled and calls ran unscanned,
+  which is no longer true. Sync `petasos/console/static/petasos.js` with the plugin
+  files when you upgrade; an old console over a new plugin keeps showing the retired
+  copy.
 - **Plugin/library sync requirement.** The reference plugin now imports
   `build_scanners`, so it requires a `petasos` release that exports it. Copy the
-  plugin files and upgrade the library together; a newer plugin over an older
-  library fails init and leaves tool calls unenforced. `verify.py`'s
-  scanner-imports check FAILs on that skew before boot.
+  plugin files and upgrade the library together. `build_scanners` shipped before
+  `format_result_notice`, which the plugin imports at module level, so a library too old
+  for the plugin fails that import first: the plugin does not load at all and nothing is
+  enforced. An old-library skew therefore does not latch init; a library newer than a
+  stale plugin copy still can, and init also latches on a config or pipeline construction
+  error, in which case the session runs on the syntactic fallback. `verify.py`'s
+  scanner-imports check probes `build_scanners`, not the module-level floor, so confirm
+  from the log that the plugin loaded.
 
 ## [0.2.0] - 2026-06-30
 

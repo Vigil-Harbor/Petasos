@@ -166,6 +166,15 @@ tampering (that is PET-83's domain).
 | `closed` | Everything in `degraded`, plus early-exit block on CRITICAL findings from the syntactic pre-filter | Strictest posture; latency-sensitive blocking on the always-on layer |
 | `open` | ML failures ignored — content passes with whatever the remaining scanners say | Only if availability beats detection. **Warning:** `open` + an ML outage = syntactic-only coverage, silently. |
 
+**The reference plugin reads this same dial after a failed init.** A process whose scanner
+init failed permanently runs the syntactic fallback under `fail_mode`: under `degraded` it
+allows read-only tools and blocks every other tool call until the process is restarted, with
+no in-process recovery (`_deferred_init` returns early once `_init_error` latches,
+`docs/deployment/reference_plugin/__init__.py:505`). Note `search_files` is not in
+`READ_ONLY_TOOLS` (`petasos/session/guard.py:42-62`), so it is blocked too.
+
+**Checklist:**
+
 - [ ] Keep `degraded` unless you have a written reason not to.
 - [ ] If you choose `open`, pair it with alerting on scanner health so an
       outage is loud somewhere else.

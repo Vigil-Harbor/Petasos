@@ -11,10 +11,14 @@ Deploy: copy this directory to the active Hermes profile's plugin dir:
 Config: add a top-level ``petasos:`` section to the profile's config.yaml
 Env:    PETASOS_LICENSE_KEY, PETASOS_SESSION_SECRET, PETASOS_HASH_KEY,
         PETASOS_AUDIT_FINDING
-Needs:  a ``petasos`` release that exports ``petasos.scanners.build_scanners``;
-        sync this file and the library together. Copying a newer plugin over an
-        older library fails init and leaves every tool call unenforced. Run
-        ``verify.py`` first: its scanner-imports check FAILs on that skew.
+Needs:  a ``petasos`` release exporting ``petasos.scanners.build_scanners`` AND the
+        module-level symbols imported below; sync this file and the library together.
+        ``build_scanners`` shipped first, so a library too old for this file also
+        misses ``format_result_notice``: it does not import at all and nothing is
+        enforced. An old-library skew therefore does not latch init; a library newer
+        than a stale copy of this file still can. ``verify.py`` probes
+        ``build_scanners``, not the module-level floor. Init otherwise latches on a
+        config or pipeline error, and the session runs on the syntactic fallback.
 
 Capture window (PET-136): to record per-finding tuning data, open a short
 capture window by setting ``PETASOS_AUDIT_FINDING=1`` (or flipping the
@@ -925,8 +929,12 @@ def _fallback_pre_tool_call(
             # MinimalScanner emits no PII findings (syntactic only), so no egress logic here.
             worst = _worst(result.findings)
             if _blocks(worst.severity):
+                # PET-171: cause-neutral. This callee now serves both cold-window branches
+                # and cannot know which one called it, so "init in progress" would be a lie
+                # on the init-failed branch. The operator correlates through the
+                # cold_start_degraded / init_failed marker row instead.
                 logger.warning(
-                    "PETASOS_FALLBACK_BLOCK tool=%s — init in progress, syntactic scan found: %s",
+                    "PETASOS_FALLBACK_BLOCK tool=%s — syntactic fallback, scan found: %s",
                     tool_name,
                     worst.rule_id,
                 )
@@ -953,6 +961,101 @@ def _fallback_pre_tool_call(
         return None
     _fallback_state.outcome = "clean"
     return None
+
+
+def _run_fallback_gate(
+    tool_name: str, args: dict, task_id: str, **kwargs
+) -> tuple[dict[str, str] | None, str | None]:
+    """PET-171: dispatch the syntactic fallback and take its out-of-band outcome.
+    Never raises ``Exception``.
+
+    ``_fallback_pre_tool_call`` evaluates ``_is_dangerous`` OUTSIDE its own ``try``,
+    so a non-string tool name raises there. Before this ticket that could not escape the
+    init-failed branch, because the branch returned before any dispatch; routing through
+    the fallback would newly let it reach the host, and the caller region has no ``try``
+    (see _release_cold_start_claim's docstring on why one must not be added).
+
+    The entry clear is what makes the swallow fail-secure. ``finally`` runs AFTER the
+    ``except`` body, so assigning ``outcome`` inside the arm would be overwritten; clearing
+    on entry instead guarantees the value read below is one THIS invocation wrote, never a
+    residue of the previous call on this pooled thread. Every value other than "clean"
+    fails secure downstream, and an unwritten outcome reads as None -> "unreadable".
+
+    ``BaseException`` is deliberately NOT swallowed -- ``SystemExit``, ``KeyboardInterrupt``
+    and ``asyncio.CancelledError`` (a ``BaseException`` since 3.8, reachable out of
+    ``_run_async``'s future) must propagate, matching ``_fallback_pre_tool_call``'s own
+    ``except Exception`` boundary.
+    """
+    out = None
+    _fallback_state.outcome = None
+    try:
+        out = _fallback_pre_tool_call(tool_name, args, task_id, **kwargs)
+    except Exception as exc:
+        logger.warning("PETASOS_FALLBACK_DISPATCH_FAILED tool=%r — %s", tool_name, exc)
+        out = None
+    finally:
+        outcome = getattr(_fallback_state, "outcome", None)
+        _fallback_state.outcome = None
+    return out, outcome
+
+
+def _fallback_decision(
+    tool_name: str,
+    outcome: str | None,
+    *,
+    session_id: str,
+    log_cause: str,
+    block_reason: str,
+) -> dict[str, str] | None:
+    """PET-171: the fail-secure gate shared by both cold-window branches.
+
+    ``log_cause`` and ``block_reason`` are separate so each caller keeps its own
+    operator-facing log wording while the enforcement event carries the branch-specific
+    reason. Homogenizing the two log lines would be an unrequested behavior change hiding
+    inside a parity fix (PET-174's recorded shape: a shared helper returns data, callers
+    keep their own message).
+    """
+    try:
+        dangerous = _is_dangerous(tool_name)
+    except Exception:
+        dangerous = True  # an unclassifiable name fails secure, it does not raise
+    if not dangerous:
+        # AHEAD of the outcome read, so the fail-secure default below can never
+        # mass-block read_file / search / web_search / list_directory.
+        return None
+    if outcome == "clean" and (_config or {}).get("fail_mode") == "open":
+        # Only `open` can allow a dangerous call, and only when the syntactic scan actually
+        # ran and came back clean. Any fail_mode value that is not exactly "open" is treated
+        # as degraded, mirroring _compute_safe's invalid-value fallback — garbage fails
+        # secure by construction. An unreadable outcome (None or unrecognized) is treated as
+        # errored and blocks under every fail_mode.
+        return None
+    logger.warning(
+        "PETASOS_QUARANTINE tool=%s session=%s — %s, scan outcome=%s",
+        tool_name,
+        session_id,
+        log_cause,
+        outcome if outcome in ("clean", "errored") else "unreadable",
+    )
+    # Block-class so the operator surface counts it: _BLOCK_EVENT_TYPES drives the blocked
+    # tile, the per-session tally and the red badge. Without it a real enforcement block
+    # renders as a green "safe" row. NOT emitted on the finding-driven path, which already
+    # emitted its own.
+    _emit_enforcement_event(
+        session_id=session_id,
+        tool=tool_name,
+        event_type="quarantine",
+        param_scan_degraded=True,
+        reason=block_reason,
+    )
+    return {
+        "action": "block",
+        # No finding to format on this sub-path. "degraded" is an existing ContentBlockPath
+        # whose reason is exactly this branch's semantics; a new token would encode a
+        # distinction that does not exist. The operator-facing distinction rides the
+        # enforcement event's reason instead.
+        "message": format_content_block("degraded", tool_name, ()),
+    }
 
 
 def _is_armed() -> bool:
@@ -1073,10 +1176,19 @@ _COLD_START_REASON_NO_INIT = (
     "scanners not up (no init in flight); tool results unscanned;"
     " syntactic only, dangerous tools only, params only (100k cap)"
 )
+# PET-171: the branch no longer allows unscanned, so the old "enforcement disabled" copy is
+# retired. "syntactic fallback only" is a SCOPE claim deliberately weaker than "enforcing":
+# the marker is emitted above the dispatch, before any outcome exists, so a claim that the
+# scan succeeded would be false in the errored steady state. The per-call PETASOS_QUARANTINE
+# line carries scan outcome=clean|errored|unreadable, which is where that is legible.
 _INIT_FAILED_REASON_PREFIX = (
-    "scanner init failed; enforcement disabled for this session; calls allowed unscanned: "
+    "scanner init failed; syntactic fallback only (dangerous tools, params, 100k cap);"
+    " tool results unscanned; no ML scanners: "
 )
 _COLD_BLOCK_REASON = "cold-window block: scanners not up, no finding; blocked by fail-mode policy"
+_INIT_FAILED_BLOCK_REASON = (
+    "init-failed block: scanners permanently unavailable, no finding; blocked by fail-mode policy"
+)
 _MAX_INIT_ERROR_CHARS = 60
 
 
@@ -1526,9 +1638,10 @@ def _pre_tool_call(
             None if (not task_id and kwargs.get("_agent") is None) else cold_session_id
         )
         if _init_error is not None:
-            logger.debug("Petasos init failed — allowing tool call")
-            # Allow/deny behavior on this branch is deliberately UNCHANGED; the record makes
-            # a total, silent enforcement loss visible, it does not start blocking.
+            logger.debug("Petasos init failed — running syntactic fallback")
+            # PET-171: the marker stays ABOVE the dispatch for the reason the cold branch
+            # below explains — the fallback returns early for read-only tools, so a
+            # read_file-only session would otherwise leave no record.
             _emit_cold_start_marker(
                 latch_key=latch_key,
                 session_id=cold_session_id,
@@ -1536,7 +1649,29 @@ def _pre_tool_call(
                 event_type="init_failed",
                 reason=(_INIT_FAILED_REASON_PREFIX + (_init_error or "")[:_MAX_INIT_ERROR_CHARS]),
             )
-            return None
+            # The cold branch's `_initialized` re-check is deliberately NOT carried here:
+            # `_deferred_init` returns early once `_init_error` latches, and `_initialized =
+            # True` is the last statement of its inner try, so the two globals are mutually
+            # exclusive by construction. The arm could never be taken, and if it somehow
+            # were it would fall through to the warm path with `_pipeline` still None.
+            #
+            # Latency residual, accepted: if the shared async loop is unusable every
+            # dangerous call takes the `errored` path, and `_run_async`'s default 15s
+            # timeout bounds each one — up to 15s per dangerous call before reaching a
+            # block that was foregone anyway. There is deliberately no demote-after-N
+            # circuit here (a wedged loop breaks the warm path too, so it is not specific
+            # to this branch). If it is ever observed in the field the fix is a shorter
+            # timeout on THIS call site, not a new state machine.
+            out, outcome = _run_fallback_gate(tool_name, args, task_id, **kwargs)
+            if out is not None:
+                return out
+            return _fallback_decision(
+                tool_name,
+                outcome,
+                session_id=cold_session_id,
+                log_cause="init failed",
+                block_reason=_INIT_FAILED_BLOCK_REASON,
+            )
 
         # Marker first, BEFORE the dispatch and independent of _is_dangerous — the fallback
         # returns early for read-only tools, so a read_file-only cold session would
@@ -1558,12 +1693,7 @@ def _pre_tool_call(
         # Init still in progress — use MinimalScanner fallback so we don't
         # silently allow during the cold-start window (fail_mode=closed
         # means we should be blocking, not passing through).
-        out = _fallback_pre_tool_call(tool_name, args, task_id, **kwargs)
-        # Read the out-of-band outcome, then CLEAR it on every exit: a stale value surviving
-        # on a pooled gateway thread would route the next cold-window call around the
-        # fail-secure default (a leftover "skipped" maps to allow).
-        outcome = getattr(_fallback_state, "outcome", None)
-        _fallback_state.outcome = None
+        out, outcome = _run_fallback_gate(tool_name, args, task_id, **kwargs)
         if out is not None:
             # A finding-driven block is returned UNCONDITIONALLY, even if init completed
             # mid-scan: it is justified by a real syntactic finding regardless of init
@@ -1571,48 +1701,15 @@ def _pre_tool_call(
             # Falling through here would discard the block while leaving a block-class row
             # on the console for a call that was allowed.
             return out
-        if _initialized:
-            pass  # init landed mid-scan: fall through to the main path rather than block
-        elif not _is_dangerous(tool_name):
-            # Read-only tools are allowed in the window exactly as the warm path allows
-            # them. This gate sits AHEAD of the outcome read, so the fail-secure default
-            # below can never mass-block read_file / search / web_search / list_directory.
-            return None
-        elif outcome == "clean" and (_config or {}).get("fail_mode") == "open":
-            # Only `open` can allow a dangerous call, and only when the syntactic scan
-            # actually ran and came back clean. Any fail_mode value that is not exactly
-            # "open" is treated as degraded, mirroring _compute_safe's invalid-value
-            # fallback — garbage fails secure by construction. An unreadable outcome
-            # (None or unrecognized) is treated as errored and blocks under every fail_mode.
-            return None
-        else:
-            logger.warning(
-                "PETASOS_QUARANTINE tool=%s session=%s — cold window, scan outcome=%s",
+        if not _initialized:
+            return _fallback_decision(
                 tool_name,
-                cold_session_id,
-                outcome if outcome in ("clean", "errored") else "unreadable",
-            )
-            # Block-class so the operator surface counts it: _BLOCK_EVENT_TYPES drives the
-            # blocked tile, the per-session tally and the red badge. Without it a real
-            # enforcement block renders as a green "safe" row. NOT emitted on the
-            # finding-driven path above, which already emitted its own.
-            _emit_enforcement_event(
+                outcome,
                 session_id=cold_session_id,
-                tool=tool_name,
-                event_type="quarantine",
-                param_scan_degraded=True,
-                reason=_COLD_BLOCK_REASON,
+                log_cause="cold window",
+                block_reason=_COLD_BLOCK_REASON,
             )
-            return {
-                "action": "block",
-                # No finding to format on this sub-path. "degraded" is an existing
-                # ContentBlockPath whose reason is exactly this branch's semantics; a new
-                # token would encode a distinction that does not exist (the warm-path
-                # param_scan_degraded block at the bottom of this function is the same
-                # decision under the same policy). The operator-facing distinction rides
-                # the enforcement event instead.
-                "message": format_content_block("degraded", tool_name, ()),
-            }
+        # init landed mid-scan: fall through to the main path rather than block
 
     # PET-126: initialized here — pick up any live config.yaml change before this
     # call is evaluated. Self-guarded and fail-safe; never blocks the tool call.
