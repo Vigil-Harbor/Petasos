@@ -1130,8 +1130,10 @@
     else if (isSelfmod) scanRan = "n/a (tool argument classification, not a content scan)";
     // PET-167: this chain is separate from the body branches below, so a body-only edit
     // would leave a row whose entire purpose is to state scan coverage reading "unknown".
+    // PET-171: init_failed now runs the syntactic fallback, so "no (enforcement disabled)"
+    // became false. Both arms state partial coverage; the difference is permanence.
     else if (isColdStart) scanRan = (et === "init_failed")
-      ? "no (enforcement disabled; init failed)"
+      ? "partial (syntactic scan only; ML scanners unavailable)"
       : "partial (syntactic scan only; ML scanners still starting)";
     // PET-170: same reason the chain above needed its own arm. A row whose whole purpose
     // is to state ingestion-scan coverage must never read "unknown" here.
@@ -1199,9 +1201,14 @@
       // coverage this session actually got, it is not itself a decision.
       wrap.appendChild(Pet.h("div", { className: "sd-heartbeat" },
         Pet.h("div", {}, (et === "init_failed")
-          ? "Scanner startup failed: enforcement was disabled for this session and calls ran unscanned."
+          ? "Scanner startup failed permanently: this session runs on the fast pattern scan only."
           : "Scanners were still starting: this session ran on the fast pattern scan only."),
-        Pet.h("div", { className: "sd-sub" }, "One record per session, not per call. It marks coverage; blocks made during the window appear as their own rows.")));
+        // PET-171: the sub-line is SHARED. "during the window" was false for init_failed,
+        // whose blocks continue for the process lifetime with no window. And with no
+        // task_id and no _agent the latch is a pair of process-wide booleans while every
+        // call mints a fresh anon session, so "one per session" alone would tell an
+        // operator that the neighbouring marker-less sessions ran fine.
+        Pet.h("div", { className: "sd-sub" }, "At most one such record per session, and one per process when calls cannot be correlated. It marks coverage; blocks appear as their own rows.")));
       wrap.appendChild(fld("tool", e.tool));
       wrap.appendChild(fld("reason", e.reason));
       wrap.appendChild(fld("session", e.session_id));
@@ -1356,7 +1363,9 @@
         : (isSelfmodRow
             ? ("self-tamper" + (selfmodSev ? (" (" + selfmodSev + ")") : ""))
             : (isColdStart
-                ? (et === "init_failed" ? "unenforced" : "degraded")
+                // PET-171: "unenforced" is now false. Not reused as "degraded" either:
+                // that would erase the transient-versus-permanent distinction at a glance.
+                ? (et === "init_failed" ? "syntactic only" : "degraded")
                 : (isFlagged
                     ? (et === "ingest_unscanned" ? "unscanned" : "flagged")
                     : (isBlocked ? "blocked" : "safe"))));

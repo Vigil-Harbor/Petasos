@@ -108,8 +108,11 @@ const ENF_DEGRADED = {
 const ENF_INIT_FAILED = {
   ...ENF_DEGRADED,
   event_type: "init_failed",
+  // PET-171: refreshed in lockstep with the shim's _INIT_FAILED_REASON_PREFIX. The branch
+  // now runs the syntactic fallback, so "enforcement disabled ... allowed unscanned" is
+  // false. Test INPUT carrying the Python-side prefix, not a fourth JS string.
   reason:
-    "scanner init failed; enforcement disabled for this session; calls allowed unscanned: No module named 'x'",
+    "scanner init failed; syntactic fallback only (dangerous tools, params, 100k cap); tool results unscanned; no ML scanners: No module named 'x'",
   scan_id: "e-cs2",
 };
 
@@ -118,7 +121,9 @@ const ENF_INIT_FAILED = {
 test("cold-start badges are amber and never the green safe pill", () => {
   for (const [row, label] of [
     [ENF_DEGRADED, "degraded"],
-    [ENF_INIT_FAILED, "unenforced"],
+    // PET-171: was "unenforced". Not folded into "degraded" either: that would erase the
+    // transient-versus-permanent distinction an operator scanning history most needs.
+    [ENF_INIT_FAILED, "syntactic only"],
   ]) {
     const tree = Pet.scanHistoryRows([row]);
     assert.equal(
@@ -152,8 +157,8 @@ test("cold-start provenance states coverage, never 'unknown'", () => {
 
   const failed = text(Pet.scanDetailPanel(ENF_INIT_FAILED));
   assert.ok(
-    failed.includes("scan ran: no (enforcement disabled; init failed)"),
-    "init_failed states that nothing was scanned"
+    failed.includes("scan ran: partial (syntactic scan only; ML scanners unavailable)"),
+    "init_failed states the partial coverage the session actually got"
   );
   assert.ok(!failed.includes("scan ran: unknown"), "never falls through to 'unknown'");
 });
@@ -173,7 +178,9 @@ test("cold-start detail renders the reason, not the unknown-row fallback", () =>
     "degraded explainer rendered"
   );
   assert.ok(
-    text(Pet.scanDetailPanel(ENF_INIT_FAILED)).includes("enforcement was disabled"),
+    text(Pet.scanDetailPanel(ENF_INIT_FAILED)).includes(
+      "Scanner startup failed permanently: this session runs on the fast pattern scan only."
+    ),
     "init_failed explainer rendered"
   );
 });
