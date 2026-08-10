@@ -67,26 +67,26 @@ _CLASSIFICATION: dict[str, tuple[str, str, str | None]] = {
     # --- Normalization -----------------------------------------------------
     # PET-151, transcribed not re-derived (spec Decision 6). Pins already
     # shipped: tests/adversarial/normalization/test_unicode_bypass.py:323.
-    "normalize_nfkc": ("live-partial", "petasos/pipeline.py:686", _M_NORM),
-    "strip_zero_width": ("live-partial", "petasos/pipeline.py:687", _M_NORM),
-    "map_homoglyphs": ("live-partial", "petasos/pipeline.py:688", _M_NORM),
+    "normalize_nfkc": ("live-partial", "petasos/pipeline.py:706", _M_NORM),
+    "strip_zero_width": ("live-partial", "petasos/pipeline.py:707", _M_NORM),
+    "map_homoglyphs": ("live-partial", "petasos/pipeline.py:708", _M_NORM),
     # PET-151 D-A, transcribed. Pin: test_unicode_bypass.py:347.
-    "detect_rtl_override": ("not-a-control", "petasos/pipeline.py:689", None),
+    "detect_rtl_override": ("not-a-control", "petasos/pipeline.py:709", None),
     # PET-143 D-A, transcribed. Pin: test_unicode_bypass.py:250.
-    "fold_leet": ("not-a-control", "petasos/pipeline.py:690", None),
+    "fold_leet": ("not-a-control", "petasos/pipeline.py:710", None),
     # Threaded into MinimalScanner's constructor when Pipeline builds its own
     # instance. A caller-supplied MinimalScanner is adopted WITHOUT the flag
     # (pipeline.py:321-328); the value first reaches it at the next reconfigure
     # (pipeline.py:399). That is a deployment-axis defect, recorded in the audit
     # table and routed to a follow-up ticket; the library verdict is unaffected.
-    "decode_encoded_payloads": ("live-library", "petasos/pipeline.py:332", None),
+    "decode_encoded_payloads": ("live-library", "petasos/pipeline.py:334", None),
     # --- Scanning ----------------------------------------------------------
-    "direction": ("live-library", "petasos/pipeline.py:637", None),
+    "direction": ("live-library", "petasos/pipeline.py:655", None),
     # The base-install diff is _compute_safe's syntactic-error arm at :215, which
     # sits BEFORE the `if ml_total == 0` short-circuit at :218. pipeline.py:714 is
     # a supplementary read site only: early_exit needs a CRITICAL finding, which
     # already forces safe=False under every mode.
-    "fail_mode": ("live-library", "petasos/pipeline.py:215", None),
+    "fail_mode": ("live-library", "petasos/pipeline.py:216", None),
     # Read only inside _scan_with_breaker, constructed only under
     # `elif self._ml_scanners:` (pipeline.py:722).
     # PET-170 added a SECOND read site outside the library:
@@ -95,17 +95,17 @@ _CLASSIFICATION: dict[str, tuple[str, str, str | None]] = {
     # second anchor because test_verdicts_and_evidence_wellformed validates exactly one
     # path:line per row (the file's own convention, see the note above). The verdict stays
     # live-partial: the library-side read is still ML-only, so the caveat marker holds.
-    "scanner_timeout_seconds": ("live-partial", "petasos/pipeline.py:952", _M_MLSCAN),
-    "scanner_circuit_breaker_threshold": ("live-partial", "petasos/pipeline.py:925", _M_MLSCAN),
+    "scanner_timeout_seconds": ("live-partial", "petasos/pipeline.py:972", _M_MLSCAN),
+    "scanner_circuit_breaker_threshold": ("live-partial", "petasos/pipeline.py:945", _M_MLSCAN),
     "scanner_circuit_breaker_cooldown_seconds": (
         "live-partial",
-        "petasos/pipeline.py:966",
+        "petasos/pipeline.py:986",
         _M_MLSCAN,
     ),
     # PET-167, grandfathered: the shim is its only consumer.
     "init_wait_timeout_seconds": (
         "live-shim",
-        "docs/deployment/reference_plugin/__init__.py:766",
+        "docs/deployment/reference_plugin/__init__.py:761",
         _M_INITWAIT,
     ),
     # --- Anonymization -----------------------------------------------------
@@ -114,15 +114,15 @@ _CLASSIFICATION: dict[str, tuple[str, str, str | None]] = {
     # and pii_findings filters `merged` on finding_type == "pii", which only
     # PresidioScanner emits. MinimalScanner emits injection/command/encoding/
     # structural, so the whole block is unreachable and the handler never fires.
-    "anonymize": ("live-partial", "petasos/pipeline.py:836", _M_ANON),
-    "pii_entities": ("live-partial", "petasos/pipeline.py:843", _M_ANON),
-    "redaction_mode": ("live-partial", "petasos/pipeline.py:857", _M_ANON),
+    "anonymize": ("live-partial", "petasos/pipeline.py:856", _M_ANON),
+    "pii_entities": ("live-partial", "petasos/pipeline.py:863", _M_ANON),
+    "redaction_mode": ("live-partial", "petasos/pipeline.py:877", _M_ANON),
     # Exempt from a test-8 load-bearing arm: hash_key is consumed only under
     # mode == "hash", an engine-path mode, and config.py:233 rejects
     # anonymize=True + redaction_mode="hash" + hash_key=None at construction, so
     # no extras-free configuration exists in which flipping it changes anything.
     # Its caveat rests on the redaction_mode arm plus this read trace.
-    "hash_key": ("live-partial", "petasos/pipeline.py:858", _M_ANON),
+    "hash_key": ("live-partial", "petasos/pipeline.py:878", _M_ANON),
     # Read ONLY by build_dashboard_pipeline, reachable only from
     # console/__main__.py and console/hermes/plugin_api.py. Pipeline never
     # constructs a PresidioScanner; it fans out over whatever the caller supplied
@@ -141,34 +141,34 @@ _CLASSIFICATION: dict[str, tuple[str, str, str | None]] = {
     "presidio_entities_extra": ("live-shim", "petasos/scanners/bootstrap.py:99", _M_CONSOLE),
     "presidio_score_threshold": ("live-shim", "petasos/scanners/bootstrap.py:101", _M_CONSOLE),
     # --- Feature gates (via Pipeline._FEATURE_GATES, pipeline.py:568-574) ----
-    "frequency_enabled": ("live-library", "petasos/pipeline.py:978", None),
-    "escalation_enabled": ("live-library", "petasos/pipeline.py:998", None),
-    "profile_name": ("live-library", "petasos/pipeline.py:587", None),
+    "frequency_enabled": ("live-library", "petasos/pipeline.py:1002", None),
+    "escalation_enabled": ("live-library", "petasos/pipeline.py:1049", None),
+    "profile_name": ("live-library", "petasos/pipeline.py:604", None),
     # The ticket's original premise said this was dead config. Refuted
     # 2026-08-03: the enforcement site asks is_feature_enabled("tool_guard") by
     # FEATURE name, which _FEATURE_GATES maps to the attribute, and
     # _FEATURE_DISABLED is allowed=True, so turning it off allows every tool call
     # unscanned. tests/test_guard.py::TestFeatureGate already pins the difference.
-    "tool_guard_enabled": ("live-library", "petasos/session/guard.py:440", None),
-    "audit_enabled": ("live-library", "petasos/pipeline.py:1011", None),
-    "alert_enabled": ("live-library", "petasos/pipeline.py:1023", None),
+    "tool_guard_enabled": ("live-library", "petasos/session/guard.py:459", None),
+    "audit_enabled": ("live-library", "petasos/pipeline.py:1062", None),
+    "alert_enabled": ("live-library", "petasos/pipeline.py:1074", None),
     # --- Alerting (all read inside AlertManager, a base-install consumer) ----
     "alert_cooldown_seconds": ("live-library", "petasos/session/alerting.py:149", None),
     "alert_per_minute_cap": ("live-library", "petasos/session/alerting.py:173", None),
     "alert_per_hour_cap": ("live-library", "petasos/session/alerting.py:179", None),
     "alert_critical_per_minute_cap": ("live-library", "petasos/session/alerting.py:141", None),
     "alert_high_severity_threshold": ("live-library", "petasos/session/alerting.py:312", None),
-    "alert_rapid_fire_count": ("live-library", "petasos/session/alerting.py:356", None),
-    "alert_rapid_fire_window_seconds": ("live-library", "petasos/session/alerting.py:353", None),
-    "alert_cross_session_burst_count": ("live-library", "petasos/session/alerting.py:410", None),
+    "alert_rapid_fire_count": ("live-library", "petasos/session/alerting.py:369", None),
+    "alert_rapid_fire_window_seconds": ("live-library", "petasos/session/alerting.py:366", None),
+    "alert_cross_session_burst_count": ("live-library", "petasos/session/alerting.py:426", None),
     "alert_cross_session_burst_window_seconds": (
         "live-library",
-        "petasos/session/alerting.py:394",
+        "petasos/session/alerting.py:410",
         None,
     ),
-    "alert_pii_volume_threshold": ("live-library", "petasos/session/alerting.py:442", None),
-    "alert_pii_volume_window_seconds": ("live-library", "petasos/session/alerting.py:439", None),
-    "alert_ring_buffer_capacity": ("live-library", "petasos/session/alerting.py:349", None),
+    "alert_pii_volume_threshold": ("live-library", "petasos/session/alerting.py:458", None),
+    "alert_pii_volume_window_seconds": ("live-library", "petasos/session/alerting.py:455", None),
+    "alert_ring_buffer_capacity": ("live-library", "petasos/session/alerting.py:362", None),
     "alert_per_session_contribution_cap": (
         "live-library",
         "petasos/session/alerting.py:167",
@@ -183,45 +183,45 @@ _CLASSIFICATION: dict[str, tuple[str, str, str | None]] = {
     "audit_verbosity": ("live-library", "petasos/session/audit.py:110", None),
     "audit_emit_findings": ("live-library", "petasos/session/audit.py:111", None),
     # --- Frequency / escalation --------------------------------------------
-    "frequency_half_life_seconds": ("live-library", "petasos/session/frequency.py:80", None),
-    "frequency_weights": ("live-library", "petasos/session/frequency.py:104", None),
-    "rolling_window_seconds": ("live-library", "petasos/session/frequency.py:81", None),
-    "rolling_threshold": ("live-library", "petasos/session/frequency.py:82", None),
+    "frequency_half_life_seconds": ("live-library", "petasos/session/frequency.py:86", None),
+    "frequency_weights": ("live-library", "petasos/session/frequency.py:110", None),
+    "rolling_window_seconds": ("live-library", "petasos/session/frequency.py:87", None),
+    "rolling_threshold": ("live-library", "petasos/session/frequency.py:88", None),
     "tier1_threshold": ("live-library", "petasos/session/escalation.py:80", None),
     "tier2_threshold": ("live-library", "petasos/session/escalation.py:80", None),
     "tier3_threshold": ("live-library", "petasos/session/escalation.py:73", None),
     # --- Session management -------------------------------------------------
-    "max_sessions": ("live-library", "petasos/session/frequency.py:83", None),
-    "session_ttl_seconds": ("live-library", "petasos/session/frequency.py:84", None),
-    "max_new_sessions_per_minute": ("live-library", "petasos/session/frequency.py:85", None),
-    "max_terminated_tombstones": ("live-library", "petasos/session/frequency.py:131", None),
+    "max_sessions": ("live-library", "petasos/session/frequency.py:89", None),
+    "session_ttl_seconds": ("live-library", "petasos/session/frequency.py:90", None),
+    "max_new_sessions_per_minute": ("live-library", "petasos/session/frequency.py:91", None),
+    "max_terminated_tombstones": ("live-library", "petasos/session/frequency.py:137", None),
     # Excluded from the console for SECRECY, which is an axis orthogonal to the
     # taxonomy (spec Decision 7): live-library AND excluded. Its consumers are the
     # guard's session binding and the console spool HMAC, neither of which is one
     # of the five compared PipelineResult fields, so the boundary-scope rule
     # applies and the component read is the anchor.
-    "session_secret": ("live-library", "petasos/session/guard.py:669", None),
+    "session_secret": ("live-library", "petasos/session/guard.py:764", None),
     # --- Tool guard / lineage / taint (read inside guard + registries) -------
-    "subagent_lineage_enabled": ("live-library", "petasos/session/guard.py:698", None),
-    "delegate_fanout_enabled": ("live-library", "petasos/session/guard.py:517", None),
+    "subagent_lineage_enabled": ("live-library", "petasos/session/guard.py:793", None),
+    "delegate_fanout_enabled": ("live-library", "petasos/session/guard.py:604", None),
     "lineage_max_depth": ("live-library", "petasos/session/lineage.py:37", None),
     "lineage_max_edges": ("live-library", "petasos/session/lineage.py:38", None),
     "lineage_edge_ttl_seconds": ("live-library", "petasos/session/lineage.py:39", None),
-    "delegate_max_fanout_per_window": ("live-library", "petasos/session/guard.py:651", None),
-    "delegate_fanout_window_seconds": ("live-library", "petasos/session/guard.py:234", None),
-    "delegate_tool_names": ("live-library", "petasos/session/guard.py:218", None),
+    "delegate_max_fanout_per_window": ("live-library", "petasos/session/guard.py:746", None),
+    "delegate_fanout_window_seconds": ("live-library", "petasos/session/guard.py:243", None),
+    "delegate_tool_names": ("live-library", "petasos/session/guard.py:227", None),
     # Only behavior reads are the shim's: the canonicalized sink set is built from
     # config at reference_plugin/__init__.py:685 and rebuilt on rebind at :1245.
     # Inside petasos/ the name appears only in config.py validation/coercion, its
     # _FIELD_META entry, a scope comment, and a taint.py docstring mention.
     "egress_sink_tools": (
         "live-shim",
-        "docs/deployment/reference_plugin/__init__.py:685",
+        "docs/deployment/reference_plugin/__init__.py:715",
         _M_PLUGIN,
     ),
     "source_taint_namespaces": (
         "live-shim",
-        "docs/deployment/reference_plugin/__init__.py:704",
+        "docs/deployment/reference_plugin/__init__.py:734",
         _M_PLUGIN,
     ),
     # The third knob of the same fence, and the named exemption: unlike its two

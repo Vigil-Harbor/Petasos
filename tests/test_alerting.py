@@ -202,10 +202,13 @@ class TestHighSeverityFinding:
 
 
 class TestRapidFire:
+    # PET-176 D8: the rule counts findings-or-unsafe scans, not all scans, so
+    # the firing cases below drive findings-carrying results.
+
     def test_below_threshold_does_not_fire(self) -> None:
         mgr = AlertManager(_cfg(alert_rapid_fire_count=5))
         for _ in range(4):
-            alerts = mgr.evaluate(_result(), "s1", None)
+            alerts = mgr.evaluate(_result(findings=(_finding(),)), "s1", None)
         rf = [a for a in alerts if a.rule_id == "rapid_fire"]
         assert len(rf) == 0
 
@@ -213,24 +216,59 @@ class TestRapidFire:
         mgr = AlertManager(_cfg(alert_rapid_fire_count=5, alert_cooldown_seconds=0.001))
         all_alerts: list[Alert] = []
         for _ in range(5):
-            alerts = mgr.evaluate(_result(), "s1", None)
+            alerts = mgr.evaluate(_result(findings=(_finding(),)), "s1", None)
             all_alerts.extend(alerts)
         rf = [a for a in all_alerts if a.rule_id == "rapid_fire"]
         assert len(rf) == 1
 
+    def test_clean_and_safe_scans_are_not_counted(self) -> None:
+        # PET-176 D8: with the ingestion correlator live, an ordinary agent
+        # loop would keep the all-scans count permanently true. 20 clean-and-
+        # safe scans inside the window must not fire.
+        mgr = AlertManager(_cfg(alert_rapid_fire_count=10, alert_cooldown_seconds=0.001))
+        all_alerts: list[Alert] = []
+        for _ in range(20):
+            all_alerts.extend(mgr.evaluate(_result(), "s1", None))
+        assert not [a for a in all_alerts if a.rule_id == "rapid_fire"]
+
+    def test_finding_free_unsafe_scans_still_count(self) -> None:
+        # The downed-scanner-stack shape under the `degraded`/`closed` fail
+        # modes: safe=False with findings == () and errors == (). `errors`
+        # NEVER carries scanner failures (they live in ScanResult.error and
+        # _build_result froze the tuple before the alert hook), which is the
+        # whole point of the `result.safe` term in the gate — detection
+        # failure must not silence the one rate-based rule.
+        mgr = AlertManager(_cfg(alert_rapid_fire_count=10, alert_cooldown_seconds=0.001))
+        all_alerts: list[Alert] = []
+        for _ in range(10):
+            r = _result(safe=False)
+            assert r.findings == () and r.errors == ()
+            all_alerts.extend(mgr.evaluate(r, "s1", None))
+        rf = [a for a in all_alerts if a.rule_id == "rapid_fire"]
+        assert len(rf) == 1
+
+    def test_message_names_the_counted_unit(self) -> None:
+        mgr = AlertManager(_cfg(alert_rapid_fire_count=2, alert_cooldown_seconds=0.001))
+        all_alerts: list[Alert] = []
+        for _ in range(2):
+            all_alerts.extend(mgr.evaluate(_result(findings=(_finding(),)), "s1", None))
+        rf = [a for a in all_alerts if a.rule_id == "rapid_fire"]
+        assert len(rf) == 1
+        assert "findings-or-unsafe" in rf[0].message
+
     def test_session_scoped_no_cross_contamination(self) -> None:
         mgr = AlertManager(_cfg(alert_rapid_fire_count=3, alert_cooldown_seconds=0.001))
         for _ in range(2):
-            mgr.evaluate(_result(), "s1", None)
+            mgr.evaluate(_result(findings=(_finding(),)), "s1", None)
         for _ in range(2):
-            mgr.evaluate(_result(), "s2", None)
-        s1_alerts = mgr.evaluate(_result(), "s1", None)
+            mgr.evaluate(_result(findings=(_finding(),)), "s2", None)
+        s1_alerts = mgr.evaluate(_result(findings=(_finding(),)), "s1", None)
         rf = [a for a in s1_alerts if a.rule_id == "rapid_fire"]
         assert len(rf) == 1
 
     def test_skipped_when_session_none(self) -> None:
         mgr = AlertManager(_cfg(alert_rapid_fire_count=1))
-        alerts = mgr.evaluate(_result(), None, None)
+        alerts = mgr.evaluate(_result(findings=(_finding(),)), None, None)
         rf = [a for a in alerts if a.rule_id == "rapid_fire"]
         assert len(rf) == 0
 
@@ -246,7 +284,7 @@ class TestRapidFire:
             mock_time.time.return_value = base
             for i in range(3):
                 mock_time.monotonic.return_value = base + i * 2.0
-                alerts = mgr.evaluate(_result(), "s1", None)
+                alerts = mgr.evaluate(_result(findings=(_finding(),)), "s1", None)
         rf = [a for a in alerts if a.rule_id == "rapid_fire"]
         assert len(rf) == 0
 
@@ -582,7 +620,7 @@ class TestRingBuffer:
     def test_buffer_respects_maxlen(self) -> None:
         mgr = AlertManager(_cfg(alert_ring_buffer_capacity=5, alert_rapid_fire_count=5))
         for _ in range(10):
-            mgr.evaluate(_result(), "s1", None)
+            mgr.evaluate(_result(findings=(_finding(),)), "s1", None)
         buf = mgr._ring_buffers.get("rapid_fire|s1")
         assert buf is not None
         assert len(buf) == 5

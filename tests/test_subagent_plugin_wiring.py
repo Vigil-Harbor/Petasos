@@ -124,6 +124,34 @@ class TestDeferredInitWiring:
         assert "delegate_task" in ref._guard._delegate_tool_names
         assert ref._guard._config.delegate_fanout_enabled is True
 
+    def test_reordered_construction_unifies_tracker_and_keeps_pinning(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # PET-176 D1: the tracker is now built BEFORE the Pipeline (with the
+        # registry's pin/unpin callbacks already bound) and injected, so the
+        # pipeline's Stage-6 writer and the guard's tier reader are ONE
+        # instance — and PET-107 lineage pinning survives the reorder.
+        ref = _import_reference_plugin()
+        _prep_init(ref, monkeypatch)
+        monkeypatch.setattr(ref, "_subagent_hooks_available", True)
+        ref._deferred_init()
+        assert ref._pipeline is not None and ref._guard is not None
+        tracker = ref._guard._frequency_tracker
+        assert ref._pipeline._frequency_tracker is tracker  # D1: unified
+        registry = ref._lineage_registry
+        assert registry is not None
+        assert tracker._is_pinned == registry.is_pinned  # bound at construction
+        assert tracker._on_terminate == registry.unregister
+
+    def test_unified_tracker_without_lineage_too(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        ref = _import_reference_plugin()
+        _prep_init(ref, monkeypatch)
+        monkeypatch.setattr(ref, "_subagent_hooks_available", False)
+        ref._deferred_init()
+        assert ref._pipeline is not None and ref._guard is not None
+        assert ref._pipeline._frequency_tracker is ref._guard._frequency_tracker
+        assert ref._guard._frequency_tracker._is_pinned is None
+
 
 # ---------------------------------------------------------------------------
 # Hook handlers respect the trust boundary + lazy registry

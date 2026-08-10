@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import os
 import re
 import threading
@@ -203,6 +204,20 @@ class SpawnBudget:
             return True
 
 
+# PET-176 D3/D4: the per-scan weight step is min(tier1_prof, tier1_cfg) / this.
+# 4 is calibrated, not arbitrary: divisor 3 stops tool dispatch after 6
+# consecutive flagged ingestion reads (below the 8-read floor), divisor 5 drops
+# the shipped cap to 3.0, losing sub-step benign immunity for a single
+# 3.0-weight rule. See the PET-176 spec's D4 for the full derivation.
+_SCAN_WEIGHT_CAP_DIVISOR: float = 4.0
+
+# PET-176 D4 upper band: the raw weight of a maximally-poisoned 8,000-char scan
+# window as measured for the ingestion seam. Once the per-scan step exceeds it,
+# no scan can ever reach one step, every scan quantizes to 0.0, and the session
+# backstop is inert without failing anything -- hence the tripwire.
+_MAX_POISONED_SCAN_WEIGHT: float = 80.0
+
+
 class ToolCallGuard:
     def __init__(
         self,
@@ -247,6 +262,12 @@ class ToolCallGuard:
         self._spawn_budget = SpawnBudget(config.delegate_fanout_window_seconds)
         self._selfmod_owned_cache: tuple[float, frozenset[str]] = (0.0, frozenset())
         self._selfmod_empty_warned: bool = False
+        # PET-176 D3/D4: warn-once latch for the scan_weight_cap tripwires
+        # (non-positive tier1 / sub-2.0 tier2:tier1 ratio / sub-3.0 step).
+        # Plain boolean in the _selfmod_empty_warned / _ring_overflow_warned
+        # idiom; reset in apply_config because the warned-about thresholds are
+        # reconfigurable.
+        self._cap_threshold_warned: bool = False
 
     def selfmod_target_paths(self) -> frozenset[str]:
         """Build the owned-path set from ``_paths.py`` resolvers with 1 s TTL cache."""
@@ -427,8 +448,12 @@ class ToolCallGuard:
           on every session (FREQ-03, Decision 2);
         - recomputes ``_delegate_tool_names`` through the guard's own normalizer;
         - resizes the ``_spawn_budget`` window in place (preserving counters);
-        - delegates to its OWN ``_frequency_tracker.apply_config`` (which holds the
-          tracker secret immutable).
+        - delegates to ``_frequency_tracker.apply_config`` (which holds the
+          tracker secret immutable). Since PET-176 D1 the tracker may be the
+          pipeline's own injected instance rather than a guard-private one, in
+          which case a reference-plugin reconfigure applies the same config to
+          it twice; ``apply_config`` is idempotent over an already-validated
+          config, so the second application is a no-op (D7).
 
         Preserved: ``SpawnBudget._events`` / ``_last_sweep``, the guard tracker's
         session/tombstone state, and ``_config.session_secret``.
@@ -441,7 +466,85 @@ class ToolCallGuard:
             if n
         )
         self._spawn_budget.set_window(new_config.delegate_fanout_window_seconds)
+        # PET-176: thresholds are reconfigurable, so the warned-about condition
+        # can clear; re-arm the cap tripwire (same shape as the
+        # _selfmod_empty_warned self-clear above).
+        self._cap_threshold_warned = False
         self._frequency_tracker.apply_config(self._config)
+
+    @property
+    def scan_weight_cap(self) -> float:
+        """Per-scan weight STEP for large input (ingestion results, tool parameters).
+
+        A capped scan contributes exactly this value or exactly 0.0, never
+        anything between (PET-176 D2 quantizes rather than truncates). Sized so
+        no single scan can cross a tier on EITHER threshold source (D3): the
+        guard's tier read prefers the profile's tier_thresholds, but the
+        tracker's irreversible termination latch is always config-sourced, so
+        the cap takes the minimum of both tier1 readings. Hosts that construct
+        ToolCallGuard with a profile get that profile's bound; the reference
+        plugin passes no profile, so config governs.
+        """
+        tier1 = float(self._config.tier1_threshold)
+        if self._profile and self._profile.tier_thresholds:
+            tier1 = min(tier1, float(self._profile.tier_thresholds.tier1))
+        if tier1 <= 0:
+            # Reachable degenerate case, not non-finite: _validate_tier_thresholds
+            # rejects NaN/inf but never requires tier1 > 0, so
+            # TierThresholds(0.0, 1.0, 30.0) validates. derive_tier already
+            # returns at least tier1 for every non-negative score under such a
+            # profile, so contributing nothing is coherent.
+            if not self._cap_threshold_warned:
+                self._cap_threshold_warned = True
+                _logger.warning(
+                    "non-positive tier1 threshold (%r) — per-scan clamp set to 0.0; "
+                    "large-input scans will not accumulate",
+                    tier1,
+                )
+            return 0.0
+        # D4's operator tripwires, on the GOVERNING axis (the tier2 read is what
+        # stops tool dispatch). Denominator: the same min-of-both tier1 the cap
+        # uses. Numerator: min-of-both tier2, NOT the guard-observed tier2 the
+        # published identity uses -- min <= tier2_guard, so this can only
+        # over-warn, never miss. Deliberate. Sits AFTER the tier1 <= 0 return,
+        # or the division raises ZeroDivisionError out of a property read inside
+        # _scan_params, whose bare `except Exception` would convert it into
+        # "every tool call unsafe". Ratio is checked before either step band
+        # because a sub-ratio configuration is the most urgent of the three.
+        if not self._cap_threshold_warned:
+            tier2 = float(self._config.tier2_threshold)
+            if self._profile and self._profile.tier_thresholds:
+                tier2 = min(tier2, float(self._profile.tier_thresholds.tier2))
+            cap = tier1 / _SCAN_WEIGHT_CAP_DIVISOR
+            if tier2 / tier1 < 2.0:
+                self._cap_threshold_warned = True
+                _logger.warning(
+                    "tier2/tier1 ratio %.2f is below the recommended 2.0: as few as %d "
+                    "consecutive flagged reads can stop tool dispatch once a session "
+                    "reaches tier2 (recommended floor: 8)",
+                    tier2 / tier1,
+                    math.ceil(_SCAN_WEIGHT_CAP_DIVISOR * tier2 / tier1),
+                )
+            elif cap <= 3.0:
+                self._cap_threshold_warned = True
+                _logger.warning(
+                    "tier1 %.1f gives a per-scan step of %.3f, at or below the lowest "
+                    "syntactic rule weight (3.0): single-rule false positives will "
+                    "accumulate instead of being absorbed",
+                    tier1,
+                    cap,
+                )
+            elif cap > _MAX_POISONED_SCAN_WEIGHT:
+                self._cap_threshold_warned = True
+                _logger.warning(
+                    "tier1 %.1f gives a per-scan step of %.3f, above the maximally-poisoned "
+                    "scan window (%.1f): every large-input scan quantizes to zero, leaving "
+                    "the ingestion-path session backstop inert",
+                    tier1,
+                    cap,
+                    _MAX_POISONED_SCAN_WEIGHT,
+                )
+        return tier1 / _SCAN_WEIGHT_CAP_DIVISOR
 
     async def evaluate(
         self,
@@ -610,7 +713,15 @@ class ToolCallGuard:
         )
 
     def _record_selfmod_weight(self, session_id: str, finding: ScanFinding) -> None:
-        """Apply the selfmod frequency update to the guard's own tracker (Decision 3)."""
+        """Apply the selfmod frequency update to the guard's tracker (Decision 3).
+
+        Since PET-176 D1 that tracker is the same one the pipeline's ingestion
+        and parameter scans write, so selfmod weight composes into one
+        per-session score. It stays deliberately UNCLAMPED: a selfmod finding is
+        a single rule id from a parameter-sized scan, bounded at 10.0, and a
+        config-write attempt moving a full tier step immediately is the designed
+        response, not an accident of the PET-176 clamp.
+        """
         try:
             if self._frequency_tracker.requires_token:
                 token = self._frequency_tracker.mint_token(session_id, self._pipeline.host_id)
@@ -764,7 +875,10 @@ class ToolCallGuard:
                 param_text = param_text[:_MAX_PARAM_TEXT_LEN]
 
             result = await self._pipeline.inspect(
-                param_text, direction="outbound", session_id=session_id
+                param_text,
+                direction="outbound",
+                session_id=session_id,
+                weight_cap=self.scan_weight_cap,
             )
 
             if result.errors and not result.findings:

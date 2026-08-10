@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import hashlib
 import logging
+import math
 import os
 import time
 from collections.abc import Callable
@@ -302,6 +303,7 @@ class Pipeline:
         on_audit: Callable[[AuditEvent], None] | None = None,
         on_alert: Callable[[Alert], None] | None = None,
         host_id: str = "",
+        frequency_tracker: FrequencyTracker | None = None,
     ) -> None:
         self._config = replace(config) if config is not None else PetasosConfig()
         self._host_id = host_id
@@ -332,7 +334,19 @@ class Pipeline:
                 decode_encoded_payloads=self._config.decode_encoded_payloads
             )
 
-        self._frequency_tracker = FrequencyTracker(self._config)
+        if frequency_tracker is not None:
+            # PET-176 D1: an injected tracker and this pipeline must agree on
+            # session_secret, or _frequency_hook's token/bare-string choice
+            # (pipeline._config) and _resolve_session_id's enforcement
+            # (tracker._session_secret) disagree and EVERY update() raises into
+            # Stage 6's errors[] with a green-looking result.
+            if frequency_tracker.requires_token != (self._config.session_secret is not None):
+                raise ValueError(
+                    "frequency_tracker.requires_token must match config.session_secret being set"
+                )
+            self._frequency_tracker = frequency_tracker
+        else:
+            self._frequency_tracker = FrequencyTracker(self._config)
         self._profile_resolver = ProfileResolver()
         # PET-126: retain the raw constructor `profile` arg so reconfigure can
         # re-resolve _default_profile with the same precedence (a pinned profile
@@ -376,7 +390,9 @@ class Pipeline:
         2. Apply the only fail-prone step FIRST: ``FrequencyTracker.apply_config``
            stages the weight parse then commits. If it raises (malformed weights),
            ``self._config`` is untouched and the pipeline stays wholly on the prior
-           config.
+           config. Note the tracker may be shared with the guard (PET-176 D1
+           injection), in which case a reconfigure through the reference plugin
+           applies the same config to it twice — idempotent by design (D7).
         3. Apply the infallible steps: audit, alert, and the MinimalScanner decode
            flag.
         4. Commit the swap and re-resolve the profile.
@@ -632,6 +648,7 @@ class Pipeline:
         direction: Direction | None = None,
         session_id: str | None = None,
         profile: str | ResolvedProfile | dict[str, Any] | None = None,
+        weight_cap: float | None = None,
     ) -> PipelineResult:
         resolved_direction: Direction = (
             direction if direction is not None else self._config.direction
@@ -650,6 +667,7 @@ class Pipeline:
                 direction=resolved_direction,
                 session_id=session_id,
                 active_profile=active_profile,
+                weight_cap=weight_cap,
             )
         except BaseException as exc:
             if not isinstance(exc, Exception):
@@ -672,6 +690,7 @@ class Pipeline:
         direction: Direction,
         session_id: str | None,
         active_profile: ResolvedProfile | None,
+        weight_cap: float | None = None,
     ) -> PipelineResult:
         freq_result: FrequencyUpdateResult | None = None
         escalation_tier: str | None = None
@@ -812,7 +831,7 @@ class Pipeline:
 
         # Stage 6: Frequency hook
         try:
-            freq_result = await self._frequency_hook(merged, session_id)
+            freq_result = await self._frequency_hook(merged, session_id, weight_cap=weight_cap)
         except Exception as exc:
             errors.append(f"frequency hook: {exc}")
 
@@ -973,21 +992,52 @@ class Pipeline:
         return result
 
     async def _frequency_hook(
-        self, findings: tuple[ScanFinding, ...], session_id: str | None
+        self,
+        findings: tuple[ScanFinding, ...],
+        session_id: str | None,
+        *,
+        weight_cap: float | None = None,
     ) -> FrequencyUpdateResult | None:
         if not self._is_enabled("frequency"):
             return None
         if session_id is None:
             return None
+        # PET-176 D2: validate the cap HERE, ahead of update(), then re-raise so
+        # Stage 6 still records an errors[] entry. A malformed cap would
+        # otherwise vanish into a green-looking PipelineResult (Stage 6 catches
+        # into errors[], _compute_safe never reads errors). Validating ahead of
+        # the call — rather than catching ValueError around it — keeps the
+        # message honest: a bare `except ValueError` would also swallow
+        # _resolve_session_id's HMAC / bare-string failures and blame a cap for
+        # a token problem. update()'s own unconditional check remains the
+        # contract; this hook only makes a *reachable* violation debuggable.
+        if weight_cap is not None and (weight_cap < 0 or not math.isfinite(weight_cap)):
+            sid_fp = hashlib.sha256(session_id.encode()).hexdigest()[:8]
+            _logger.warning(
+                "session %s...: rejected weight_cap %r (must be non-negative and "
+                "finite); frequency update skipped for this scan",
+                sid_fp,
+                weight_cap,
+            )
+            raise ValueError(f"weight_cap must be non-negative and finite: {weight_cap!r}")
         rule_ids = [f.rule_id for f in findings]
         if self._config.session_secret is not None:
             token = self._frequency_tracker.mint_token(session_id, self._host_id)
-            result = self._frequency_tracker.update(token, rule_ids)
+            result = self._frequency_tracker.update(token, rule_ids, weight_cap=weight_cap)
         else:
-            result = self._frequency_tracker.update(session_id, rule_ids)
+            result = self._frequency_tracker.update(session_id, rule_ids, weight_cap=weight_cap)
         if result.rate_limited:
-            sid_fp = hashlib.sha256((session_id or "").encode()).hexdigest()[:8]
-            _logger.info("session %s... rate-limited (frequency cap reached)", sid_fp)
+            sid_fp = hashlib.sha256(session_id.encode()).hexdigest()[:8]
+            if rule_ids:
+                # PET-176 D2: the backstop failing open on a scan that carried
+                # findings is a WARNING, not an INFO curiosity.
+                _logger.warning(
+                    "session %s... rate-limited (frequency cap reached) on a scan "
+                    "WITH findings; the session backstop is failing open",
+                    sid_fp,
+                )
+            else:
+                _logger.info("session %s... rate-limited (frequency cap reached)", sid_fp)
         return result
 
     async def _escalation_hook(

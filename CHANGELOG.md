@@ -29,9 +29,55 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
 - **Strength-dial descriptions qualified.** Steel and Titanium no longer assert
   PII anonymization as an unconditional posture; both now scope the claim to
   deployments where a PII scanner is running.
+- **The rapid-fire alert now counts findings-or-unsafe scans, not all scans**
+  (PET-176). With ingestion scans carrying a real session id, an ordinary agent
+  loop would keep the old all-scans count permanently over threshold. A scan
+  with no findings still counts when it is unsafe (the shape of a downed
+  scanner stack under the `degraded` or `closed` fail modes), so detection
+  failure cannot silence the one rate-based rule. A genuinely clean high-volume
+  flood no longer alerts; a volume signal is a recorded follow-up.
+- **The parameter path's `tier_escalation` sensitivity is reduced by the
+  per-scan cap, in two ways** (PET-176). A maximally-poisoned parameter scan
+  (measured 89.0 raw weight) fired a critical alert on the first call; capped,
+  the same scan produces no alert on call 1, a warning at call 4, and a
+  critical at call 14. And a scan whose entire raw weight is below one step (a
+  single `command.*` or `encoding.*` rule at 3.0 under the shipped cap of 3.75)
+  now contributes nothing at all, on either the ingestion or the parameter
+  path. The self-tamper channel (`petasos.selfmod.*`) stays unclamped, so a
+  config-write attempt still moves a full tier step immediately.
 
 ### Added
 
+- **The ingestion-path session backstop (PET-176).** Flagged tool-result reads now
+  accumulate session weight through the same `FrequencyTracker` the tool-call
+  guard enforces on, so the escalation ladder underneath PET-170's annotation
+  banner actually gates: on the shipped defaults, eight consecutive flagged reads
+  (nine at one-second spacing) stop tool dispatch for that session. On the
+  pure-ingestion axis that stop is a reversible throttle that decays back below
+  tier2, not a termination. Ingestion scans also carry a real session id now
+  (when the host supplies a `task_id` or `_agent`), so ingestion audit rows are
+  session-bearing and ingestion alerts get per-session dedup buckets instead of
+  sharing one process-wide bucket.
+- **`Pipeline(frequency_tracker=...)`, `inspect(weight_cap=...)`,
+  `FrequencyTracker.update(weight_cap=...)`, and `ToolCallGuard.scan_weight_cap`
+  (PET-176).** The injected tracker lets a host unify the pipeline's accumulator
+  with the guard's; the guard publishes the per-scan cap as
+  `min(tier1_profile, tier1_config) / 4`. `weight_cap` **quantizes rather than
+  truncates**: a capped scan contributes exactly `weight_cap` or exactly `0.0`,
+  never anything between, and a zero-contribution capped scan appends no
+  rolling-window entry. `weight_cap=0.0` is therefore a sentinel meaning "no
+  contribution of any kind", not merely the limit of small caps (a cap of `1e-12`
+  still counts toward the rolling-window promotion), and a host whose cap
+  expression underflows to exactly zero crosses that behaviour boundary rather
+  than degrading continuously.
+- **Operator tripwires on `scan_weight_cap` (PET-176).** Threshold configurations
+  that quietly break the backstop now log a one-time warning naming the cause:
+  a `tier2/tier1` ratio below 2.0 (as few as five flagged reads can stop
+  dispatch, which is self-DoS territory), a per-scan step at or below the lowest
+  syntactic rule weight of 3.0 (single-rule false positives accumulate instead
+  of being absorbed), and a per-scan step above the maximally-poisoned scan
+  window of 80.0 (every large-input scan quantizes to zero and the backstop goes
+  inert). The ratio is checked first as the most urgent of the three.
 - **Ingestion-tool results are scanned and annotated (PET-170).** The reference plugin now
   registers Hermes's `transform_tool_result` hook, which fires after `post_tool_call` and
   before the result reaches model context. What a read-only tool returns (a file, a web
@@ -39,9 +85,11 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
   uses, over a measured 8,000-character window taken head and tail. On a HIGH or CRITICAL
   non-PII finding the content is returned **whole**, prefixed with a banner naming the rule
   id and severity, and an enforcement event is recorded. Nothing is withheld: this is an
-  annotation, not a block, so the model still sees everything it asked for and no tool call
-  is stopped. Read-only tools are still never blocked for their arguments, the egress
-  fences are unchanged, and no session counter moves. The banner quotes none of the matched
+  annotation, not a block, so the model still sees everything it asked for. (As of PET-176,
+  above, flagged reads also move the session's frequency counter, and enough of them in a
+  short window stop later tool dispatch for that session; the read whose result was scanned
+  is itself never blocked for its content, and the egress fences are unchanged.) The banner
+  quotes none of the matched
   text, so a decoded payload can never be replayed to the model inside a frame it reads as
   trustworthy; the raw finding message reaches the operator through the event instead. When
   the scan cannot run at all, the content comes back with a "could not scan" notice rather

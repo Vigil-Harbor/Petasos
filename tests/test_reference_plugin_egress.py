@@ -642,7 +642,11 @@ def _guard_with(monkeypatch: pytest.MonkeyPatch, result: PipelineResult) -> Tool
     pipe = Pipeline(config=cfg)
 
     async def _fake_inspect(
-        text: str, *, direction: str = "inbound", session_id: str | None = None
+        text: str,
+        *,
+        direction: str = "inbound",
+        session_id: str | None = None,
+        weight_cap: float | None = None,
     ) -> PipelineResult:
         return result
 

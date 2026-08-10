@@ -29,6 +29,12 @@ DEFAULT_FREQUENCY_WEIGHTS: dict[str, float] = {
     # a single shell-heavy param cannot terminate a session. The weight is a
     # documented constraint, not a free parameter: a nudge above 3.0 would cross
     # the maximally-stacked single scan into tier2 territory.
+    # PET-176: the constraint above governs UNCAPPED update() callers only. On
+    # capped paths (ingestion results and tool parameters, weight_cap =
+    # min(tier1)/4) the clamp binds before this map in both directions: the
+    # ceiling caps a maximally-stacked scan at one step, and the quantization
+    # floor drops any scan below one step to zero — so a single 3.0-weight
+    # command rule scores nothing under the shipped cap of 3.75.
     "petasos.syntactic.command.*": 3.0,
     "petasos.selfmod.config_write": 10.0,
     "petasos.selfmod.config_ref": 3.0,
@@ -231,8 +237,26 @@ class FrequencyTracker:
         return session.session_id
 
     def update(
-        self, session: str | SessionToken, rule_ids: Sequence[str]
+        self,
+        session: str | SessionToken,
+        rule_ids: Sequence[str],
+        *,
+        weight_cap: float | None = None,
     ) -> FrequencyUpdateResult:
+        """Score one scan's findings into the session and evaluate its tier.
+
+        ``weight_cap`` (PET-176) quantizes rather than truncates: a capped scan
+        contributes exactly ``weight_cap`` (when its raw weight reaches the cap)
+        or exactly ``0.0`` (when it falls below), never anything between, and a
+        zero-contribution capped scan also appends no rolling-window entry.
+        ``weight_cap=0.0`` is therefore a sentinel meaning "this scan contributes
+        nothing of any kind", not merely the limit of small caps — a cap of
+        ``1e-12`` still counts toward the rolling-window promotion.
+        ``weight_cap=None`` (the default, and every pre-PET-176 caller) applies
+        no clamp and is byte-identical to the previous behaviour.
+        """
+        if weight_cap is not None and (weight_cap < 0 or not math.isfinite(weight_cap)):
+            raise ValueError(f"weight_cap must be non-negative and finite: {weight_cap!r}")
         with self._lock:
             session_id = self._resolve_session_id(session)
             now = time.monotonic()
@@ -322,6 +346,15 @@ class FrequencyTracker:
             total_weight = 0.0
             for rid in rule_ids:
                 total_weight += self._match_weight(rid)
+            if weight_cap is not None:
+                # QUANTIZED, not merely truncated: a capped scan contributes one
+                # full step or nothing. The floor half is what bounds the
+                # benign-re-read trajectory (PET-176 D4) — a scan whose ENTIRE
+                # raw weight is below one step is, by the weight map's own
+                # calibration, not a poisoning event worth accumulating. The
+                # ceiling half is what bounds the poisoned one. weight_cap ==
+                # 0.0 collapses both to "contributes nothing".
+                total_weight = weight_cap if total_weight >= weight_cap else 0.0
 
             # Step 6: Decay previous score
             elapsed = max(0.0, now - state.last_update)
@@ -339,7 +372,15 @@ class FrequencyTracker:
                 state.rolling_findings and (now - state.rolling_findings[0]) > self._rolling_window
             ):
                 state.rolling_findings.popleft()
-            if rule_ids:
+            # PET-176: the rolling-window append is a second, COUNT-based
+            # promotion channel the weight clamp cannot bound (Step 9 promotes
+            # at rolling_threshold findings-scans regardless of score). A capped
+            # scan that contributed no weight must not arm it either — otherwise
+            # a zero-weight finding (e.g. `petasos.llmguard.injection`, which
+            # matches no glob in DEFAULT_FREQUENCY_WEIGHTS and resolves to 0.0)
+            # would promote a session to tier1 at score 0.0. Uncapped callers
+            # keep today's behaviour exactly.
+            if rule_ids and (weight_cap is None or total_weight > 0.0):
                 state.rolling_findings.append(now)
 
             # Step 9: Evaluate tier

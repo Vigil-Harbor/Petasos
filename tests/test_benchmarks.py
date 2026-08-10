@@ -243,6 +243,35 @@ def test_benchmark_ingestion_result_8kb(benchmark) -> None:  # type: ignore[no-u
     _ingestion_case(benchmark, "an ordinary line of file content\n" * 256)
 
 
+def test_benchmark_ingestion_result_8kb_armed_correlator(benchmark) -> None:  # type: ignore[no-untyped-def]
+    """PET-176 re-measure: the same 8 KB case with the correlator and cap LIVE.
+
+    The pre-PET-176 figures were taken with session_id=None, which short-circuited
+    _frequency_hook (an RLock acquisition plus the Step-1 TTL drain), _escalation_hook,
+    two session-keyed alert rules, and session-bearing audit rows. D6 arms all of them,
+    so the CLAUDE.md 12 ms budget is re-measured here rather than asserted; record the
+    measured headroom in the PR.
+    """
+    from petasos.session.frequency import FrequencyTracker
+    from petasos.session.guard import ToolCallGuard
+
+    loop = asyncio.new_event_loop()
+    cfg = PetasosConfig()
+    tracker = FrequencyTracker(cfg)
+    pipeline = Pipeline(config=cfg, frequency_tracker=tracker)
+    guard = ToolCallGuard(pipeline, tracker, cfg)
+    ref: Any = _ingestion_plugin(pipeline)
+    ref._guard = guard
+    ref._run_async = lambda coro, timeout=15: loop.run_until_complete(coro)
+    payload = "an ordinary line of file content\n" * 256
+
+    def run() -> None:
+        ref._transform_tool_result(tool_name="read_file", result=payload, task_id="bench-armed")
+
+    benchmark.pedantic(run, warmup_rounds=3, rounds=20)
+    loop.close()
+
+
 def test_benchmark_ingestion_result_100kb(benchmark) -> None:  # type: ignore[no-untyped-def]
     """100 KB: over the cap, so this measures clip + scan. The scan cost must stay flat
     against the 8 KB case; only the clip (a slice and a concat) scales with the result."""
