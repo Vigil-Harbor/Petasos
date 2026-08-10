@@ -962,8 +962,16 @@ class TestScanWeightCap:
                 None,
                 "at or below the lowest",
             ),
+            # (e4) tier1=400 clears the ratio (2.0) and the lower band, but the
+            # step (100.0) exceeds the maximally-poisoned scan window (80.0), so
+            # every large-input scan quantizes to zero -- D4's upper band edge.
+            (
+                {"tier1_threshold": 400.0, "tier2_threshold": 800.0, "tier3_threshold": 1000.0},
+                None,
+                "above the maximally-poisoned",
+            ),
         ],
-        ids=["config-ratio", "profile-dragged-ratio", "sub-step"],
+        ids=["config-ratio", "profile-dragged-ratio", "sub-step", "inert-step"],
     )
     def test_tripwires_warn_once_with_their_own_cause(
         self,
@@ -984,7 +992,9 @@ class TestScanWeightCap:
         warned = [
             r
             for r in caplog.records
-            if "recommended 2.0" in r.getMessage() or "at or below the lowest" in r.getMessage()
+            if "recommended 2.0" in r.getMessage()
+            or "at or below the lowest" in r.getMessage()
+            or "above the maximally-poisoned" in r.getMessage()
         ]
         assert len(warned) == 1, "exactly one WARNING across repeated reads"
         assert expected_fragment in warned[0].getMessage()

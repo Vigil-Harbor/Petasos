@@ -1027,7 +1027,7 @@ class Pipeline:
         else:
             result = self._frequency_tracker.update(session_id, rule_ids, weight_cap=weight_cap)
         if result.rate_limited:
-            sid_fp = hashlib.sha256((session_id or "").encode()).hexdigest()[:8]
+            sid_fp = hashlib.sha256(session_id.encode()).hexdigest()[:8]
             if rule_ids:
                 # PET-176 D2: the backstop failing open on a scan that carried
                 # findings is a WARNING, not an INFO curiosity.

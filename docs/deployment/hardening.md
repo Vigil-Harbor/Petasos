@@ -352,8 +352,10 @@ step, and a scan below it contributes nothing at all. On the shipped defaults
 4 reads, tier2 at 8, and termination at 14 at burst. Both collapse to one
 identity each:
 
-    reads-that-land = ceil(4 * tier2_guard        / min(tier1))
-    N-to-term       = ceil(4 * max(tier3_cfg, 30) / min(tier1))
+```text
+reads-that-land = ceil(4 * tier2_guard        / min(tier1))
+N-to-term       = ceil(4 * max(tier3_cfg, 30) / min(tier1))
+```
 
 Because the step is proportional to `tier1`, both depend only on threshold
 *ratios*, never absolute magnitudes -- with two operator hazards as the

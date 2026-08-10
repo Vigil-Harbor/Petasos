@@ -70,6 +70,14 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
   still counts toward the rolling-window promotion), and a host whose cap
   expression underflows to exactly zero crosses that behaviour boundary rather
   than degrading continuously.
+- **Operator tripwires on `scan_weight_cap` (PET-176).** Threshold configurations
+  that quietly break the backstop now log a one-time warning naming the cause:
+  a `tier2/tier1` ratio below 2.0 (as few as five flagged reads can stop
+  dispatch, which is self-DoS territory), a per-scan step at or below the lowest
+  syntactic rule weight of 3.0 (single-rule false positives accumulate instead
+  of being absorbed), and a per-scan step above the maximally-poisoned scan
+  window of 80.0 (every large-input scan quantizes to zero and the backstop goes
+  inert). The ratio is checked first as the most urgent of the three.
 - **Ingestion-tool results are scanned and annotated (PET-170).** The reference plugin now
   registers Hermes's `transform_tool_result` hook, which fires after `post_tool_call` and
   before the result reaches model context. What a read-only tool returns (a file, a web

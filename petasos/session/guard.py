@@ -211,6 +211,12 @@ class SpawnBudget:
 # 3.0-weight rule. See the PET-176 spec's D4 for the full derivation.
 _SCAN_WEIGHT_CAP_DIVISOR: float = 4.0
 
+# PET-176 D4 upper band: the raw weight of a maximally-poisoned 8,000-char scan
+# window as measured for the ingestion seam. Once the per-scan step exceeds it,
+# no scan can ever reach one step, every scan quantizes to 0.0, and the session
+# backstop is inert without failing anything -- hence the tripwire.
+_MAX_POISONED_SCAN_WEIGHT: float = 80.0
+
 
 class ToolCallGuard:
     def __init__(
@@ -503,8 +509,8 @@ class ToolCallGuard:
         # over-warn, never miss. Deliberate. Sits AFTER the tier1 <= 0 return,
         # or the division raises ZeroDivisionError out of a property read inside
         # _scan_params, whose bare `except Exception` would convert it into
-        # "every tool call unsafe". Ratio is checked before step because a
-        # sub-ratio configuration is the more urgent of the two.
+        # "every tool call unsafe". Ratio is checked before either step band
+        # because a sub-ratio configuration is the most urgent of the three.
         if not self._cap_threshold_warned:
             tier2 = float(self._config.tier2_threshold)
             if self._profile and self._profile.tier_thresholds:
@@ -527,6 +533,16 @@ class ToolCallGuard:
                     "accumulate instead of being absorbed",
                     tier1,
                     cap,
+                )
+            elif cap > _MAX_POISONED_SCAN_WEIGHT:
+                self._cap_threshold_warned = True
+                _logger.warning(
+                    "tier1 %.1f gives a per-scan step of %.3f, above the maximally-poisoned "
+                    "scan window (%.1f): every large-input scan quantizes to zero, leaving "
+                    "the ingestion-path session backstop inert",
+                    tier1,
+                    cap,
+                    _MAX_POISONED_SCAN_WEIGHT,
                 )
         return tier1 / _SCAN_WEIGHT_CAP_DIVISOR
 

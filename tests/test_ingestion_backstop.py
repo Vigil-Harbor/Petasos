@@ -759,7 +759,12 @@ def test_composed_call_trajectory_selfmod(monkeypatch: pytest.MonkeyPatch) -> No
     import os
 
     _cfg, tracker, pipeline, guard, _reg = _stack()
-    owned = os.path.normcase(str(Path("C:/fake-petasos-home/config.yaml").resolve()))
+    # Platform-absolute, so the owned entry and _classify_selfmod's normalization
+    # of the tool parameter agree on both POSIX and Windows. A literal "C:/..."
+    # is absolute only on Windows; on POSIX it resolves against the cwd and the
+    # two sides never match.
+    target = Path(Path.cwd().anchor) / "fake-petasos-home" / "config.yaml"
+    owned = os.path.normcase(str(target.resolve()))
     monkeypatch.setattr(guard, "selfmod_target_paths", lambda: frozenset({owned}))
 
     crossed_tier1_at: int | None = None
@@ -770,7 +775,7 @@ def test_composed_call_trajectory_selfmod(monkeypatch: pytest.MonkeyPatch) -> No
             verdict = asyncio.run(
                 guard.evaluate(
                     "write_file",
-                    {"path": "C:/fake-petasos-home/config.yaml", "text": _POISON},
+                    {"path": str(target), "text": _POISON},
                     "s-sm",
                 )
             )
