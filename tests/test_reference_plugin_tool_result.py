@@ -117,7 +117,12 @@ def _scan(
 
 
 class _StubPipeline:
-    """Records every ``inspect`` call so the session_id=None invariant is assertable."""
+    """Records every ``inspect`` call so the correlator/cap invariants are assertable.
+
+    PET-176: the stub accepts ``weight_cap`` FIRST — without it every handler
+    call dies as ``cause="raised"`` on a ``TypeError`` and every PET-170
+    assertion fails for the wrong reason.
+    """
 
     def __init__(self, result: Any = None, *, raises: BaseException | None = None) -> None:
         self.result = result if result is not None else _scan()
@@ -125,9 +130,21 @@ class _StubPipeline:
         self.calls: list[dict[str, Any]] = []
 
     async def inspect(
-        self, text: str, *, direction: str = "inbound", session_id: str | None = None
+        self,
+        text: str,
+        *,
+        direction: str = "inbound",
+        session_id: str | None = None,
+        weight_cap: float | None = None,
     ) -> PipelineResult:
-        self.calls.append({"text": text, "direction": direction, "session_id": session_id})
+        self.calls.append(
+            {
+                "text": text,
+                "direction": direction,
+                "session_id": session_id,
+                "weight_cap": weight_cap,
+            }
+        )
         if self.raises is not None:
             raise self.raises
         return self.result
@@ -665,15 +682,22 @@ def test_a_raising_timeout_helper_passes_content_through(
 # ---------------------------------------------------------------------------
 
 
-def test_inspect_is_always_called_with_a_null_session(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_no_guard_shape_passes_null_session_and_zero_cap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # PET-176 D6: `_plugin` leaves the module's `_guard` at its boot default of
+    # None, so even a correlatable task_id must NOT arm — only session_id=None
+    # is PET-170-equivalent, and the cap rides the same `armed` predicate.
     stub = _StubPipeline(_scan((_finding(),)))
     ref = _plugin(monkeypatch, pipeline=stub)
+    ref._reset_cold_start_records()
 
     for i in range(3):
         ref._transform_tool_result(tool_name="read_file", result=f"c{i}", task_id="s-null")
 
     assert len(stub.calls) == 3
     assert all(c["session_id"] is None for c in stub.calls)
+    assert all(c["weight_cap"] == 0.0 for c in stub.calls)
     assert all(c["direction"] == "inbound" for c in stub.calls)
     # The EVENT still carries a real session id, so console rows correlate with the rest
     # of the plugin's output even though the tracker never sees the session.
@@ -682,23 +706,45 @@ def test_inspect_is_always_called_with_a_null_session(monkeypatch: pytest.Monkey
     assert all(r["session_id"] == "s-null" for r in rows)
 
 
-def test_against_a_real_pipeline_no_tier_moves_and_no_session_is_created(
+def test_armed_shape_passes_real_session_and_guard_cap(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The measurement that made this a separate ticket: against a REAL ``Pipeline`` and a
-    REAL ``FrequencyTracker``, a result tripping many distinct injection rules must leave
-    the session tier where it was and create no tracker session at all.
+    # PET-176 D6: with a guard present AND a correlatable task_id, the real
+    # correlator and the guard-published cap travel together.
+    stub = _StubPipeline(_scan((_finding(),)))
+    ref = _plugin(monkeypatch, pipeline=stub)
+    guard_stub = type("G", (), {"scan_weight_cap": 3.75})()
+    monkeypatch.setattr(ref, "_guard", guard_stub)
+    ref._reset_cold_start_records()
 
-    The frequency hook returns immediately on a ``None`` session, so nothing accumulates.
-    Reconnecting the accumulator needs a tracker topology, a clamp derived from a
-    trajectory rather than a threshold, and a recalibrated rapid-fire rule; that is
-    PET-176, not this ticket.
+    ref._transform_tool_result(tool_name="read_file", result="c", task_id="s-armed")
+    # Uncorrelatable call on the same armed module: no task_id, no _agent.
+    ref._transform_tool_result(tool_name="read_file", result="c", task_id="")
+
+    assert stub.calls[0]["session_id"] == "s-armed"
+    assert stub.calls[0]["weight_cap"] == 3.75
+    assert stub.calls[1]["session_id"] is None
+    assert stub.calls[1]["weight_cap"] == 0.0
+
+
+def test_against_a_real_pipeline_the_backstop_arms_through_the_guard(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """PET-176 inverts what this test originally pinned. Against a REAL
+    ``Pipeline`` sharing its ``FrequencyTracker`` with a REAL guard (the D1
+    unified topology), a rule-dense result read repeatedly through the handler
+    must accumulate on the tracker the guard enforces on — quantized to one
+    step per scan, reaching the tier2 dispatch stop at the published 8 reads
+    and never terminating on this axis.
+
+    (Pre-PET-176 this test asserted the opposite: two trackers, no session
+    created, no tier moved. That split is exactly what D1 removed.)
     """
     cfg = PetasosConfig()
     tracker = FrequencyTracker(cfg)
     # No scanners passed: Pipeline synthesizes the syntactic floor itself, which is the
     # base-install shape and all this test needs.
-    pipeline = Pipeline(config=cfg)
+    pipeline = Pipeline(config=cfg, frequency_tracker=tracker)
     guard = ToolCallGuard(pipeline=pipeline, frequency_tracker=tracker, config=cfg)
 
     ref = _import_reference_plugin()
@@ -731,18 +777,25 @@ def test_against_a_real_pipeline_no_tier_moves_and_no_session_is_created(
     probe = asyncio.run(pipeline.inspect(poisoned, direction="inbound", session_id=None))
     assert len({f.rule_id for f in probe.findings}) >= 8, "the payload must trip 8+ rules"
 
-    before = asyncio.run(pipeline.inspect("hello", session_id="s-real")).escalation_tier
-    for _ in range(8):
-        ref._transform_tool_result(tool_name="read_file", result=poisoned, task_id="s-real")
-    after = asyncio.run(pipeline.inspect("hello", session_id="s-real")).escalation_tier
+    from unittest.mock import patch as _patch
 
-    assert after == before
-    # The ingestion scans created no session on the tracker the GUARD reads — which is the
-    # tracker every tier decision that blocks consults, and a different instance from the
-    # one Pipeline constructs privately. That split is half of why the accumulator is
-    # PET-176's to reconnect.
+    cap = guard.scan_weight_cap
+    assert cap == pytest.approx(15.0 / 4.0)
+    # A pinned clock makes this a true burst (zero decay between reads), so the
+    # sum is exactly 8 steps rather than epsilon under it.
+    with _patch("petasos.session.frequency.time.monotonic", return_value=1000.0):
+        for n in range(1, 9):
+            ref._transform_tool_result(tool_name="read_file", result=poisoned, task_id="s-real")
+            state = tracker.get_state("s-real")
+            assert state is not None, "the armed correlator must create the session"
+            # Quantized: a many-rule scan contributes exactly ONE step, so even a
+            # burst of 8 dense reads lands at 8*cap == tier2 exactly, not 8*80.
+            assert state.last_score == pytest.approx(n * cap)
+
+        tier = asyncio.run(guard.evaluate("read_file", {}, "s-real")).tier
+    assert tier == "tier2", "8 capped steps == 30.0 reads as tier2 on the enforcing surface"
     assert guard._frequency_tracker is tracker
-    assert tracker.get_state("s-real") is None
+    assert tracker.is_terminated("s-real") is False
 
 
 # ---------------------------------------------------------------------------

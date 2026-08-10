@@ -342,6 +342,77 @@ short-circuit `_pre_tool_call` before any scan runs, so a disarmed pipeline neve
 reaches tier evaluation or rule matching. Do not mistake the floor for
 self-disarm protection.
 
+**The ingestion-path session backstop (PET-176).** Flagged tool-result reads now
+write the same frequency tracker the guard enforces on, clamped to a per-scan
+step of `min(tier1_profile, tier1_config) / 4`. The step is quantized, not
+truncated: a scan whose raw weight reaches the step contributes exactly one
+step, and a scan below it contributes nothing at all. On the shipped defaults
+(15/30/50, step 3.75) **8 consecutive flagged reads stop tool dispatch** (9 at
+1-second spacing); the model figures absent the guard's own block are tier1 at
+4 reads, tier2 at 8, and termination at 14 at burst. Both collapse to one
+identity each:
+
+    reads-that-land = ceil(4 * tier2_guard        / min(tier1))
+    N-to-term       = ceil(4 * max(tier3_cfg, 30) / min(tier1))
+
+Because the step is proportional to `tier1`, both depend only on threshold
+*ratios*, never absolute magnitudes -- with two operator hazards as the
+corollary:
+
+- **Keep `tier2/tier1 >= 2`.** The 8-read floor holds iff
+  `ceil(4 * tier2/tier1) >= 8` (exactly: `tier2/tier1 > 7/4`; the guard's
+  one-time warning uses the round `>= 2` deliberately, so it can over-warn on
+  the `1.75..2.0` band where the floor still technically holds). Both shipped
+  defaults sit exactly at 2.00, so an ordinary-looking hardening edit such as
+  `tier1=20, tier2=25, tier3=30` validates and silently stops dispatch after
+  **5** flagged reads -- self-DoS territory.
+- **Keep `12 < min(tier1) <~ 320`.** Below 12 the step falls to 3.0 or less and
+  a single `encoding.*`/`command.*` false positive (weight 3.0) costs a full
+  step instead of being absorbed; above ~320 the step exceeds the measured
+  maximally-poisoned window (80.0 raw) and every scan quantizes to zero,
+  leaving the backstop silently inert. `scan_weight_cap` logs a one-time
+  warning on either violation, with a distinct message per cause (the ratio is
+  checked first).
+
+On the pure-ingestion axis the block is a reversible throttle, not a
+termination: the score is bounded above by `tier2_guard + step`, so the
+config-sourced termination latch is never reached iff
+`tier2_guard + step < max(tier3_cfg, 30)`. Long-run maxima at 1 s: default
+33.40, `admin` 22.27, `research` 48.23 against a floor of 50 -- `research` is
+the narrowest, and a custom profile setting `tier2` above `tier3_cfg - step`
+puts this axis back onto the tombstone.
+
+**The slow drip is a documented limitation, per scan-event.** Escalation needs
+the geometric asymptote `step/(1 - 2^(-interval/60))` to exceed tier1, so one
+poisoned *read* per minute (step 3.75) never escalates. The bound is per
+scan-event, not per tool call: a composed call landing both a parameter and an
+ingestion scan steps 7.5, whose 60 s asymptote is exactly tier1 on the shipped
+defaults (approached from below; published as never). Slow-drip poisoning
+remains covered by the per-read annotation banner (PET-170), not by
+escalation.
+
+**Benign re-reads.** The quantization floor makes a benign file tripping one
+sub-step rule free at any rate. A benign file tripping a full `injection.*`
+rule is the stated residual: nine re-reads at 1 s stop dispatch (eight at
+burst), and no accumulation-shaped mechanism can separate that trajectory from
+the poisoning the backstop exists to catch -- the discriminator is scanner
+precision (PET-135) and weight-map coverage. Under an `admin`-profiled guard
+(tier1=10, step 2.5) the sub-step immunity is unavailable at all: a single
+3.0-weight false positive costs a full step, and no divisor choice can satisfy
+both the 8-read floor and sub-step immunity at tier1=10. The shipped wiring
+passes no profile, so config governs there.
+
+**The parameter path is capped the same way (D5), damping its alert channel
+in two ways.** A maximally-poisoned parameter scan (measured 89.0 raw) fired a
+critical `tier_escalation` alert on the first `write_file`; capped, the same
+scan produces no alert on call 1, a warning at call 4, and a critical at call
+14. And a parameter scan whose entire raw weight is below one step (a single
+`command.*` rule at 3.0 under the shipped step of 3.75) now contributes
+nothing and appends no rolling-window entry, so that channel alone never
+crosses tier1 where today it eventually does. The designed self-tamper signal
+is unaffected: `petasos.selfmod.*` weights stay unclamped, so a config-write
+attempt still moves a full 10.0 immediately.
+
 ### Self-tamper detection (`petasos.selfmod.*`, PET-164)
 
 When `tool_guard_enabled` is on, `ToolCallGuard` classifies non-read-only

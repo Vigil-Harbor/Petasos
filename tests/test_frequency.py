@@ -658,3 +658,75 @@ class TestLineagePinning:
         assert tracker.size == 1
         assert tracker.get_state("a") is None
         assert tracker.get_state("b") is not None
+
+
+# ---------------------------------------------------------------------------
+# PET-176 D2: the quantized per-scan clamp, in isolation
+# ---------------------------------------------------------------------------
+
+
+class TestWeightCapQuantization:
+    def test_raw_below_cap_contributes_nothing(self) -> None:
+        tracker = FrequencyTracker(_cfg())
+        t0 = 1000.0
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0):
+            res = tracker.update("s1", ["petasos.syntactic.encoding.base64"], weight_cap=3.75)
+        assert res.current_score == 0.0
+        state = tracker.get_state("s1")
+        assert state is not None
+        assert state.last_score == 0.0
+
+    def test_raw_at_or_above_cap_contributes_exactly_the_cap(self) -> None:
+        tracker = FrequencyTracker(_cfg())
+        t0 = 1000.0
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0):
+            # Raw 10.0 against cap 3.75: exactly one step, never anything between.
+            res = tracker.update("s1", ["petasos.syntactic.injection.x"], weight_cap=3.75)
+            assert res.current_score == 3.75
+            # Raw == cap is a full step too (>=, not >).
+            res = tracker.update("s2", ["petasos.syntactic.injection.x"], weight_cap=10.0)
+            assert res.current_score == 10.0
+
+    def test_omitting_the_keyword_is_byte_identical(self) -> None:
+        capped = FrequencyTracker(_cfg())
+        plain = FrequencyTracker(_cfg())
+        rids = ["petasos.syntactic.injection.x", "petasos.syntactic.encoding.y"]
+        t0 = 1000.0
+        with patch("petasos.session.frequency.time.monotonic", return_value=t0):
+            a = plain.update("s", rids)
+            b = capped.update("s", rids, weight_cap=None)
+        assert a == b
+        assert a.current_score == 13.0
+
+    def test_step8_suppressed_when_capped_contribution_is_zero(self) -> None:
+        # Both zero-contribution shapes: a sub-step mapped id, and an UNMAPPED
+        # id resolving to 0.0 (the extras-scanner shape, e.g.
+        # petasos.llmguard.injection) — neither may arm the count-based
+        # rolling-window promotion channel the clamp cannot bound.
+        tracker = FrequencyTracker(_cfg(rolling_threshold=3))
+        t0 = 1000.0
+        for n in range(6):
+            with patch("petasos.session.frequency.time.monotonic", return_value=t0 + n):
+                res_sub = tracker.update(
+                    "s-sub", ["petasos.syntactic.encoding.b64"], weight_cap=3.75
+                )
+                res_unmapped = tracker.update(
+                    "s-ml", ["petasos.llmguard.injection"], weight_cap=3.75
+                )
+        assert res_sub.tier == "none"
+        assert res_unmapped.tier == "none"
+        for sid in ("s-sub", "s-ml"):
+            state = tracker.get_state(sid)
+            assert state is not None
+            assert len(state.rolling_findings) == 0
+
+    def test_step8_unchanged_for_uncapped_callers(self) -> None:
+        # Pre-PET-176 behaviour pinned: an UNCAPPED zero-weight finding still
+        # appends (rule_ids non-empty), so the rolling promotion still fires.
+        tracker = FrequencyTracker(_cfg(rolling_threshold=3))
+        t0 = 1000.0
+        for n in range(3):
+            with patch("petasos.session.frequency.time.monotonic", return_value=t0 + n):
+                res = tracker.update("s-un", ["petasos.llmguard.injection"])
+        assert res.tier == "tier1"
+        assert res.current_score == 0.0

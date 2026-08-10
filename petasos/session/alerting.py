@@ -117,7 +117,7 @@ class AlertManager:
         if alert is not None:
             candidates.append(alert)
 
-        alert = self._check_rapid_fire(session_id, now)
+        alert = self._check_rapid_fire(result, session_id, now)
         if alert is not None:
             candidates.append(alert)
 
@@ -338,10 +338,23 @@ class AlertManager:
 
     def _check_rapid_fire(
         self,
+        result: PipelineResult,
         session_id: str | None,
         now: float,
     ) -> Alert | None:
         if session_id is None:
+            return None
+        # PET-176 D8: count findings-or-unsafe scans, not all scans. With the
+        # ingestion correlator live (D6), an ordinary agent loop would keep the
+        # all-scans count permanently over threshold. Empty findings means
+        # EITHER clean content OR detection failure; skip only the
+        # clean-AND-safe case, so a scan that produced nothing because the
+        # scanners are down still counts toward the one rate-based rule.
+        # `result.safe` is the surface that carries scanner failure under the
+        # `degraded`/`closed` fail modes; `result.errors` never does (scanner
+        # errors live in ScanResult.error, and _build_result froze `errors`
+        # before the alert hook runs).
+        if not result.findings and not result.errors and result.safe:
             return None
 
         buf_key = f"rapid_fire|{session_id}"
@@ -360,7 +373,10 @@ class AlertManager:
                 rule_id="rapid_fire",
                 severity="warning",
                 session_id=session_id,
-                message=f"Rapid fire: {count} scans from session in {window}s window",
+                message=(
+                    f"Rapid fire: {count} findings-or-unsafe scans from session "
+                    f"in {window}s window"
+                ),
                 context=MappingProxyType(
                     {
                         "session_id": session_id,

@@ -107,16 +107,24 @@ _fallback_state = threading.local()
 # init_failed, and a session-only key would silently swallow the more severe second state.
 # Insertion-ordered dict used as a set with drop-oldest at _MAX_COLD_START_KEYS, mirroring
 # _bypass_counts/_MAX_DISARM_SESSIONS. `_KEYS` not `_SESSIONS`: it holds up to two entries
-# per session. The two booleans cover the uncorrelatable shape (no task_id, no _agent), where
-# _derive_session_id mints a fresh anon-<uuid> per call that would defeat the latch entirely
-# (the PET-134 D1b discriminator); they are mutated under the same lock. The lock is
-# dedicated and non-reentrant, acquired independently and NEVER held across
+# per session. The four process-wide booleans below are mutated under the same lock: the
+# PET-167 pair (_cold_start_anon_*) covers the uncorrelatable shape (no task_id, no _agent),
+# where _derive_session_id mints a fresh anon-<uuid> per call that would defeat the latch
+# entirely (the PET-134 D1b discriminator); the PET-176 pair (_no_arm_warned_*) is the
+# once-per-cause tripwire for an ingestion scan that cannot arm the session backstop. The
+# lock is dedicated and non-reentrant, acquired independently and NEVER held across
 # _derive_session_id, _emit_enforcement_event, or _init_done.wait() (PET-138 Decision 4).
 _cold_start_lock = threading.Lock()
 _cold_start_records: dict[tuple[str, str], None] = {}
 _MAX_COLD_START_KEYS = 10_000
 _cold_start_anon_degraded = False
 _cold_start_anon_init_failed = False
+# PET-176 D6: once-per-process-PER-CAUSE latches for the ingestion no-arm tripwire
+# (_note_uncorrelated_ingest). Two booleans, not one, for the same reason the
+# PET-167 pair above keeps two: whichever cause arrives first must not
+# permanently silence the other.
+_no_arm_warned_no_guard: bool = False
+_no_arm_warned_uncorrelatable: bool = False
 # Dedicated rate-limit clock for the failed-spool-write warning (the PET-126
 # _last_reload_fail_log idiom). The retry itself is deliberately unbounded — a later call may
 # find the spool writable again — but on a persistently dead spool an init_failed process
@@ -222,12 +230,16 @@ def _reset_init_state() -> None:
 
 def _reset_cold_start_records() -> None:
     """Test seam — clear the PET-167 per-session marker latch, both process-wide
-    uncorrelatable booleans, and the failed-write warning clock."""
+    uncorrelatable booleans, both PET-176 ingestion no-arm latches, and the
+    failed-write warning clock."""
     global _cold_start_anon_degraded, _cold_start_anon_init_failed, _last_cold_start_fail_log
+    global _no_arm_warned_no_guard, _no_arm_warned_uncorrelatable
     with _cold_start_lock:
         _cold_start_records.clear()
         _cold_start_anon_degraded = False
         _cold_start_anon_init_failed = False
+        _no_arm_warned_no_guard = False
+        _no_arm_warned_uncorrelatable = False
     with _cold_start_log_lock:
         _last_cold_start_fail_log = 0.0
 
@@ -593,12 +605,34 @@ def _deferred_init() -> None:
                     else:
                         logger.warning("%s failed to load: %s", st.display_name, st.reason)
 
+                from petasos import FrequencyTracker, LineageRegistry
+
+                if _subagent_hooks_available:
+                    # PET-176 D1 (A + C): construct ONE registry before the
+                    # tracker, wire the tracker's pin/unpin callbacks to it, and
+                    # hand both to the guard below. Deliberately NOT published to
+                    # _lineage_registry here: Pipeline(...) below can raise (D1's
+                    # requires_token check) and so can _pipeline.activate() in
+                    # the license block. A published registry on a failed-init
+                    # boot would keep accepting host lineage edges via
+                    # _subagent_start/_subagent_stop (which gate only on
+                    # `reg is None`, never on _initialized) into a registry no
+                    # guard reads.
+                    registry = LineageRegistry(config)
+                    tracker = FrequencyTracker(
+                        config, is_pinned=registry.is_pinned, on_terminate=registry.unregister
+                    )
+                else:
+                    registry = None
+                    tracker = FrequencyTracker(config)
+
                 _pipeline = Pipeline(
                     config=config,
                     scanners=scanners,
                     host_id=host_id,
                     on_audit=_handle_audit,
                     on_alert=_handle_alert,
+                    frequency_tracker=tracker,
                 )
 
                 # PET-139: install the enforcement-spool HMAC key (D3) so writer-side events are
@@ -646,31 +680,27 @@ def _deferred_init() -> None:
                         "(license is optional)"
                     )
 
-                from petasos import FrequencyTracker, LineageRegistry, SessionTaintStore
+                from petasos import SessionTaintStore
 
+                # PET-176 D1: the guard shares the tracker injected into the
+                # Pipeline above, so the tier the guard enforces on reads the
+                # same accumulator Pipeline.inspect's Stage-6 frequency hook
+                # writes. Hooks carry raw session_ids; the registry keys on raw
+                # ids (matching is_terminated); the guard mints per-ancestor
+                # tokens for get_state. _lineage_registry is published
+                # atomically with _guard, past every raise site, so a
+                # failed-init boot never leaves a registry accepting edges no
+                # guard reads.
                 global _lineage_registry
+                _guard = ToolCallGuard(_pipeline, tracker, config, lineage=registry)
+                _lineage_registry = registry
                 if _subagent_hooks_available:
-                    # A + C: construct ONE registry before the tracker, wire the
-                    # tracker's pin/unpin callbacks to it, and hand it to the guard.
-                    # Hooks carry raw session_ids; the registry keys on raw ids
-                    # (matching is_terminated); the guard mints per-ancestor tokens
-                    # for get_state.
-                    registry = LineageRegistry(config)
-                    _lineage_registry = registry
-                    tracker = FrequencyTracker(
-                        config,
-                        is_pinned=registry.is_pinned,
-                        on_terminate=registry.unregister,
-                    )
-                    _guard = ToolCallGuard(_pipeline, tracker, config, lineage=registry)
                     logger.info(
                         "Petasos sub-agent lineage (A) + delegation fan-out gate (C) active"
                     )
                 else:
                     # C only: no sub-agent hooks, so lineage no-ops (no chain walk,
                     # no pinning). The fan-out gate still rate-limits delegate spawns.
-                    tracker = FrequencyTracker(config)
-                    _guard = ToolCallGuard(_pipeline, tracker, config, lineage=None)
                     logger.info(
                         "Petasos delegation fan-out gate (C) active; sub-agent lineage (A) "
                         "inactive (sub-agent hooks unavailable)"
@@ -1251,6 +1281,42 @@ def _release_cold_start_claim(session_id: str | None, event_type: str) -> None:
                 _cold_start_anon_degraded = False
             return
         _cold_start_records.pop((session_id, event_type), None)
+
+
+def _note_uncorrelated_ingest(tool_name: str, cause: str) -> None:
+    """One WARNING per process PER CAUSE for an ingestion scan that cannot arm.
+
+    PET-176 D6: the no-arm posture is a boot-shaped property of the host's
+    dispatch contract, constant for the process — every scan still runs, costs
+    its budget, and emits its banner while contributing nothing to the session
+    backstop, and an operator asking "why did ten poisoned reads not escalate"
+    needs a line to grep. Log-only, no enforcement event: one spool row per
+    process would be redundant, and one per call would be exactly the flood
+    this latch exists to prevent. `cause` is "no_guard" or "uncorrelatable",
+    mirroring _note_cold_start_session's `event_type` discriminator rather
+    than a positional bool. The latch lives in this helper — which owns the
+    `global` and the lock — because an inline `_no_arm_warned = True` inside
+    `transform_tool_result` would bind the name function-local for the entire
+    function and raise UnboundLocalError on every call, which the fail-open
+    wrapper would swallow into a banner-deleting no-op (see the PET-112
+    "`global` is MANDATORY" warning at the egress-sink publication).
+    """
+    global _no_arm_warned_no_guard, _no_arm_warned_uncorrelatable
+    with _cold_start_lock:
+        if cause == "no_guard":
+            if _no_arm_warned_no_guard:
+                return
+            _no_arm_warned_no_guard = True
+        else:
+            if _no_arm_warned_uncorrelatable:
+                return
+            _no_arm_warned_uncorrelatable = True
+    logger.warning(
+        "PETASOS_INGEST_UNCORRELATED tool=%s cause=%s "
+        "-- ingestion scans will not accumulate; session backstop inert",
+        tool_name,
+        cause,
+    )
 
 
 def _log_cold_start_emit_failure(event_type: str, session_id: str, reason: str) -> None:
@@ -2034,17 +2100,47 @@ def _transform_tool_result(
         cause: str | None = None
         # Bind once: the None check must sit OUTSIDE the try, or the attribute access
         # raises and the handler reports "raised" for what is really "no_pipeline".
+        # Same for `guard`: a rebind to None between two reads of the module global
+        # would be swallowed as cause="raised" even though inspect() never ran.
         pipeline = _pipeline
+        guard = _guard
+        # PET-176 D6 / PET-134 D1b: no task_id and no _agent drives
+        # _derive_session_id into a fresh anon-<uuid> per call. Accumulating
+        # under it is a guaranteed fail-open plus orphan-session growth, so
+        # that shape keeps PET-170's behaviour exactly. ONE predicate for both
+        # keywords: splitting them (correlator on `correlatable`, cap on
+        # `guard is not None`) leaves the `guard is None and correlatable`
+        # branch passing a REAL session id with a zero cap -- which still
+        # creates a tracker row, consumes max_new_sessions_per_minute budget,
+        # appends to _ttl_deque, and arms both session-keyed alert rules. Only
+        # session_id=None is PET-170-equivalent (it short-circuits the
+        # frequency hook AND both session-keyed alert rules at their first
+        # line).
+        correlatable = bool(task_id) or kwargs.get("_agent") is not None
+        armed = guard is not None and correlatable
         if pipeline is None:
             cause = "no_pipeline"
         else:
+            # INSIDE the else, so a no-pipeline boot reports itself as
+            # PETASOS_INGEST_UNSCANNED cause=no_pipeline and does not burn this
+            # latch. Placing it merely *after* the if/else would still run on
+            # that path.
+            if not armed:
+                _note_uncorrelated_ingest(
+                    tool_name, "no_guard" if guard is None else "uncorrelatable"
+                )
             try:
-                # Decision 5: `session_id=None`. The frequency hook returns immediately on
-                # a None session, so nothing accumulates and no tier moves. The absent
-                # session backstop (and the audit/alert consequences of a null correlator)
-                # is PET-176's, with the measurements attached.
+                # PET-176 D6: the real correlator and the guard-published cap
+                # travel together behind the single `armed` predicate. The
+                # frequency hook returns immediately on a None session, so the
+                # no-arm branches accumulate nothing and no tier moves.
                 scan = _run_async(
-                    pipeline.inspect(text, direction="inbound", session_id=None),
+                    pipeline.inspect(
+                        text,
+                        direction="inbound",
+                        session_id=session_id if armed else None,
+                        weight_cap=guard.scan_weight_cap if armed else 0.0,
+                    ),
                     timeout=budget,
                 )
             except concurrent.futures.TimeoutError:

@@ -373,10 +373,13 @@ _FIELD_META: dict[str, dict[str, Any]] = {
         "constraints": {"values": ["critical", "high", "medium", "low", "info"]},
     },
     "alert_rapid_fire_count": {
-        "description": "Scan count that triggers the rapid-fire alert within the window.",
+        "description": (
+            "Findings-or-unsafe scan count that triggers the rapid-fire alert within the window."
+        ),
         "help_plain": (
-            "How many scans from one conversation, inside the time window, count as a"
-            " rapid-fire burst worth alerting on. Lower = more sensitive."
+            "How many findings-or-unsafe scans from one conversation, inside the time"
+            " window, count as a rapid-fire burst worth alerting on. Clean scans that"
+            " pass safely are not counted. Lower = more sensitive."
         ),
         "section": "alerting",
         "constraints": {"min": 1},
@@ -384,8 +387,9 @@ _FIELD_META: dict[str, dict[str, Any]] = {
     "alert_rapid_fire_window_seconds": {
         "description": "Time window for rapid-fire detection.",
         "help_plain": (
-            "The time span, in seconds, over which one conversation's scans are counted for"
-            " rapid-fire detection. A longer window also catches slower bursts."
+            "The time span, in seconds, over which one conversation's findings-or-unsafe"
+            " scans are counted for rapid-fire detection. A longer window also catches"
+            " slower bursts."
         ),
         "section": "alerting",
         "constraints": {"min": 0.01},

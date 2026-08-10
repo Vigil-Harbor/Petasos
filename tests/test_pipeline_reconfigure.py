@@ -244,3 +244,34 @@ def test_reconfigure_rejects_subfloor_or_unordered_tiers() -> None:
         PetasosConfig.from_dict({**base, "tier1_threshold": 40.0})  # tier1 > tier2
 
     assert pipe.config is before  # never reached reconfigure with an invalid config
+
+
+# ---------------------------------------------------------------------------
+# PET-176 D7: one shared tracker, two apply_config calls per reconfigure
+# ---------------------------------------------------------------------------
+
+
+def test_shared_tracker_double_apply_is_idempotent_and_preserves_scores() -> None:
+    from petasos.session.frequency import FrequencyTracker
+    from petasos.session.guard import ToolCallGuard
+
+    cfg = PetasosConfig()
+    tracker = FrequencyTracker(cfg)
+    pipeline = Pipeline(config=cfg, frequency_tracker=tracker)
+    guard = ToolCallGuard(pipeline, tracker, cfg)
+
+    tracker.update("s-keep", ["petasos.syntactic.injection.x"])
+    before = tracker.get_state("s-keep")
+    assert before is not None and before.last_score == 10.0
+
+    # The shim's commit order: pipeline.reconfigure then guard.apply_config —
+    # the SAME tracker now sees apply_config twice, from two independently
+    # merged configs. Idempotent over an already-validated config; session
+    # state survives both.
+    new_cfg = PetasosConfig(frequency_half_life_seconds=120.0)
+    pipeline.reconfigure(new_cfg)
+    guard.apply_config(new_cfg)
+
+    after = tracker.get_state("s-keep")
+    assert after is not None and after.last_score == before.last_score
+    assert tracker._half_life == 120.0

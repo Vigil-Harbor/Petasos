@@ -907,3 +907,114 @@ class TestEncodedPayloadOutbound:
             and f.severity == Severity.HIGH
             for f in result.findings
         )
+
+
+# ---------------------------------------------------------------------------
+# PET-176 D3/D4: scan_weight_cap — sizing, degenerate case, tripwires
+# ---------------------------------------------------------------------------
+
+
+class TestScanWeightCap:
+    def test_no_profile_config_governs(self) -> None:
+        g = _guard()
+        assert g.scan_weight_cap == pytest.approx(15.0 / 4.0)
+
+    def test_admin_profile_min_of_both(self) -> None:
+        g = _guard(profile=_profile(tier_thresholds=TierThresholds(10.0, 20.0, 35.0)))
+        assert g.scan_weight_cap == pytest.approx(2.5)
+
+    def test_research_profile_config_is_the_min(self) -> None:
+        g = _guard(profile=_profile(tier_thresholds=TierThresholds(25.0, 45.0, 70.0)))
+        assert g.scan_weight_cap == pytest.approx(3.75)
+
+    def test_nonpositive_tier1_returns_zero_with_one_warning(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        # A VALIDLY constructed degenerate profile: _validate_tier_thresholds
+        # requires finite + ascending + tier3 >= 30, never tier1 > 0. The ratio
+        # branch must sit AFTER this return or the division raises
+        # ZeroDivisionError out of a property read inside _scan_params.
+        g = _guard(profile=_profile(tier_thresholds=TierThresholds(0.0, 1.0, 30.0)))
+        import logging as _logging
+
+        with caplog.at_level(_logging.WARNING, logger="petasos.session.guard"):
+            for _ in range(3):
+                assert g.scan_weight_cap == 0.0
+        warned = [r for r in caplog.records if "non-positive tier1" in r.getMessage()]
+        assert len(warned) == 1
+
+    @pytest.mark.parametrize(
+        ("config_kw", "thresholds", "expected_fragment"),
+        [
+            # (e1) config-only set with tier2/tier1 < 2.0.
+            (
+                {"tier1_threshold": 20.0, "tier2_threshold": 25.0, "tier3_threshold": 30.0},
+                None,
+                "below the recommended 2.0",
+            ),
+            # (e2) a guard profile whose tier2 drags the min below 2.0 while
+            # config alone (15/30 = 2.0) would not.
+            ({}, TierThresholds(10.0, 12.0, 30.0), "below the recommended 2.0"),
+            # (e3) tier1=10 with tier2=30 clears the ratio (3.0) but trips the
+            # step-below-3.0 arm (D4's lower band edge).
+            (
+                {"tier1_threshold": 10.0, "tier2_threshold": 30.0, "tier3_threshold": 50.0},
+                None,
+                "at or below the lowest",
+            ),
+        ],
+        ids=["config-ratio", "profile-dragged-ratio", "sub-step"],
+    )
+    def test_tripwires_warn_once_with_their_own_cause(
+        self,
+        caplog: pytest.LogCaptureFixture,
+        config_kw: dict[str, float],
+        thresholds: TierThresholds | None,
+        expected_fragment: str,
+    ) -> None:
+        import logging as _logging
+
+        g = _guard(
+            config=_cfg(**config_kw),
+            profile=_profile(tier_thresholds=thresholds) if thresholds else None,
+        )
+        with caplog.at_level(_logging.WARNING, logger="petasos.session.guard"):
+            for _ in range(3):
+                assert g.scan_weight_cap > 0.0
+        warned = [
+            r
+            for r in caplog.records
+            if "recommended 2.0" in r.getMessage() or "at or below the lowest" in r.getMessage()
+        ]
+        assert len(warned) == 1, "exactly one WARNING across repeated reads"
+        assert expected_fragment in warned[0].getMessage()
+
+    def test_apply_config_rearms_the_latch(self, caplog: pytest.LogCaptureFixture) -> None:
+        import logging as _logging
+
+        bad = _cfg(tier1_threshold=20.0, tier2_threshold=25.0, tier3_threshold=30.0)
+        g = _guard(config=bad)
+        with caplog.at_level(_logging.WARNING, logger="petasos.session.guard"):
+            _ = g.scan_weight_cap
+            g.apply_config(bad)  # thresholds are reconfigurable: re-arm
+            _ = g.scan_weight_cap
+        warned = [r for r in caplog.records if "recommended 2.0" in r.getMessage()]
+        assert len(warned) == 2
+
+    async def test_selfmod_boundary_under_admin_reaches_tier1(self) -> None:
+        # (f) D1's pinned boundary: one UNCLAMPED config_write record (10.0)
+        # under an admin-profiled guard (tier1 = 10.0, derive_tier promotes on
+        # >=) reads as tier1 through _guard.evaluate — the designed response to
+        # a config-write attempt, not an accident of the clamp.
+        g = _guard(profile=_profile(tier_thresholds=TierThresholds(10.0, 20.0, 35.0)))
+        finding = ScanFinding(
+            rule_id="petasos.selfmod.config_write",
+            finding_type="selfmod",
+            severity=Severity.CRITICAL,
+            confidence=1.0,
+            message="test",
+            scanner_name="tool_guard",
+        )
+        g._record_selfmod_weight("s-sm", finding)
+        result = await g.evaluate("read_file", {}, "s-sm")
+        assert result.tier == "tier1"

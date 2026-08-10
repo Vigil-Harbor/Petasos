@@ -278,10 +278,11 @@ the defaults cover the common cases.*
 - `alert_high_severity_threshold`: the minimum seriousness a finding needs to
   trigger the high-severity alert. One of `critical`, `high`, `medium`, `low`, or
   `info`; lower fires for almost everything.
-- `alert_rapid_fire_count`: how many scans from one conversation inside the window
-  count as a rapid-fire burst (minimum 1). Lower is more sensitive.
+- `alert_rapid_fire_count`: how many findings-or-unsafe scans from one
+  conversation inside the window count as a rapid-fire burst (minimum 1). Clean
+  scans that pass safely are not counted. Lower is more sensitive.
 - `alert_rapid_fire_window_seconds`: the time span over which one conversation's
-  scans are counted for rapid-fire detection (minimum 0.01).
+  findings-or-unsafe scans are counted for rapid-fire detection (minimum 0.01).
 - `alert_cross_session_burst_count`: how many different conversations must show
   findings within the window before the coordinated-burst alert fires
   (minimum 1).
