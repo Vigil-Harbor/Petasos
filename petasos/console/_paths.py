@@ -278,22 +278,24 @@ def read_petasos_section(res: HermesConfigResolution) -> dict[str, Any]:
     return section
 
 
-def spool_path() -> str:
+def spool_path(res: HermesConfigResolution | None = None) -> str:
     """Resolve the enforcement-spool path beside the active config.
 
     Recomputed per call so a transient active_profile fallback cannot leave
     writer and reader on different files.  Shared single source for the guard
-    owned-set, the spool writer, and tests.
+    owned-set, the spool writer, and tests.  *res* replaces the source of the
+    resolution for read-scoped callers (PET-166 D1); it never introduces a
+    cache, and the test override keeps winning unconditionally.
     """
     if _SPOOL_PATH_OVERRIDE is not None:
         return _SPOOL_PATH_OVERRIDE
-    res = resolve_hermes_config_path()
-    return os.path.join(str(res.path.parent), _SPOOL_FILENAME)
+    r = res if res is not None else resolve_hermes_config_path()
+    return os.path.join(str(r.path.parent), _SPOOL_FILENAME)
 
 
-def spool_rot_path() -> str:
+def spool_rot_path(res: HermesConfigResolution | None = None) -> str:
     """The ``.rot`` sibling of the resolved spool path."""
-    return spool_path() + _ROT_SUFFIX
+    return spool_path(res) + _ROT_SUFFIX
 
 
 def display_path(path: Path | str) -> str:

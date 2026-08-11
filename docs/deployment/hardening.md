@@ -114,6 +114,14 @@ below with class `sig-mismatch`.
 surfaced and counted exactly as before PET-139. Setting the secret is opt-in;
 not setting it is the documented no-regression posture, not a downgrade.
 
+**Rows read under a profile scope.** A console read scoped to a profile this
+dashboard is not bound to (PET-166) marks every returned row `foreign`: rows
+read from a profile this dashboard is not bound to, signed with a key we do not
+hold, so not verifiable from here. `foreign` is not a tamper verdict and never
+feeds the integrity window or the trusted-block tally; verifying properly would
+mean reading another profile's secret material into this process, which the
+read scope deliberately does not do.
+
 **Upgrade step (do this once, when first enabling integrity).** On a host that
 has already been running, the spool on disk still holds pre-PET-139 unsigned
 events. Those are genuine but unattestable, so they would surface as a one-time

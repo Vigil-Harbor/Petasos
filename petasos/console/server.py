@@ -15,10 +15,15 @@ import hashlib
 import hmac
 import json
 import logging
+import math
+import os
+import sys
 import time
 import uuid
 from collections import deque
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
+from urllib.parse import quote, unquote
 
 from petasos.console import _history
 from petasos.console._config_meta import generate_config_metadata, generate_section_metadata
@@ -29,6 +34,8 @@ from petasos.console._paths import (
     read_petasos_section_checked,
     resolve_hermes_config_path,
     resolve_profile_config_path,
+    spool_path,
+    spool_rot_path,
 )
 from petasos.console._presets import generate_preset_metadata, resolve_active_preset
 from petasos.console._ring_buffer import RingBuffer
@@ -37,6 +44,7 @@ from petasos.console._validation import SessionIdError, sanitize_session_id
 from petasos.normalize import normalize
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
     from pathlib import Path
 
     from fastapi import FastAPI
@@ -109,6 +117,13 @@ _INTEGRITY_KEY_OFF_NOTE = (
 # long decoded-payload message cannot bloat the ring buffer / SSE frame — matching the
 # 200-char block-message truncation in petasos/session/formatting.py.
 _MAX_REASON_LEN = 200
+
+# PET-166 (D3): byte cap on each non-equipped enforcement-spool segment read. A
+# non-equipped profile's live spool has no enforced bound (SPOOL_CAP_BYTES is honored
+# only by a running dashboard, which a non-equipped profile by definition lacks), so
+# the foreign read is tail-windowed. Mirrors SPOOL_CAP_BYTES's value; module-level so
+# a test seam can shrink it (the same reason _events.SPOOL_CAP_BYTES is settable).
+_FOREIGN_SPOOL_READ_CAP = 2_000_000
 
 # PET-148 (D-DRIFT): single source of truth for the in-memory scan-history ring capacity.
 # Promoted from the inline `RingBuffer(maxlen=500)` literal so the ring window and the
@@ -266,6 +281,11 @@ def _enforcement_summary(ev: dict[str, Any], *, provenance: str = "unattested") 
     spool-integrity verdict to the drill-down "is this legit?" line. Keyword-only and
     DEFAULTED so existing callers (playground summaries, the PET-131/137/138 enforcement
     tests) stay green untouched — the default reflects "no key configured".
+
+    PET-166 (D15): a fourth value, "foreign", marks rows read from a profile this
+    dashboard is not bound to — signed with a key we do not hold, so not verifiable from
+    here. Never a tamper verdict; the non-equipped merged read passes it directly and
+    never routes those rows through the live verifier.
     """
     event_type = ev.get("event_type")
     is_block = event_type in _BLOCK_EVENT_TYPES
@@ -335,11 +355,73 @@ def _history_disk_row(summary: dict[str, Any]) -> dict[str, Any]:
     return row
 
 
-def _history_cursor_token(row: dict[str, Any]) -> str | None:
+def read_spool_tail(path: str) -> tuple[list[dict[str, Any]], bool]:
+    """Bounded, non-destructive tail read of a foreign enforcement-spool segment (PET-166 D3).
+
+    A small local reader, deliberately not a change to ``_events``:
+    ``drain_enforcement_events`` is the live path's reader and advances offsets; this one
+    stores nothing and never mutates. Reads at most ``_FOREIGN_SPOOL_READ_CAP`` trailing
+    bytes; when the window did not start at byte 0 the leading partial line is sliced off
+    explicitly at the first newline, and a window holding no newline at all yields no
+    events (no line in it is known-complete). Returns ``(events, truncated)`` where
+    ``truncated`` is ``size > cap`` and only that — a sub-cap file holding one in-flight
+    partial line yields no events but is NOT truncated (the live sibling treats exactly
+    those bytes as benign). The stat-then-read is a benign TOCTOU: a concurrent foreign
+    rotation degrades to the fail-safe empty read. Never raises.
+    """
+    try:
+        size = os.path.getsize(path)
+    except OSError:
+        return [], False
+    truncated = size > _FOREIGN_SPOOL_READ_CAP
+    try:
+        with open(path, "rb") as f:
+            f.seek(max(0, size - _FOREIGN_SPOOL_READ_CAP))
+            data = f.read()
+    except OSError:
+        return [], truncated
+    if truncated:
+        nl = data.find(b"\n")
+        if nl < 0:
+            return [], True
+        data = data[nl + 1 :]
+    events: list[dict[str, Any]] = []
+    for raw in data.split(b"\n")[:-1]:  # drop the trailing partial, as the live reader does
+        if not raw:
+            continue
+        try:
+            obj = json.loads(raw.decode("utf-8"))
+        except Exception:
+            continue
+        if isinstance(obj, dict):
+            events.append(obj)
+    return events, truncated
+
+
+def _cursor_esc(s: str) -> str:
+    """Escape one cursor segment (PET-166 D18). ``quote`` alone does not do it: ``~`` is in
+    ``_ALWAYS_SAFE`` (RFC 3986 unreserved) and ``safe=`` only adds to that set, so the
+    structural separator would survive unescaped. The ``.replace`` is unambiguous because
+    ``quote(safe="")`` has already turned every literal ``%`` into ``%25``."""
+    return quote(s, safe="").replace("~", "%7E")
+
+
+def _cursor_unesc(s: str) -> str:
+    """Reverse ``_cursor_esc`` in a single pass."""
+    return unquote(s)
+
+
+def _history_cursor_token(row: dict[str, Any], scope_name: str | None = None) -> str | None:
     """Mint the opaque ``before`` cursor token for *row* (PET-148 D-CURSOR), or None.
 
-    Format ``f"{timestamp!r}~{scan_id}"``: a float repr contains no ``~`` and ``scan_id``
-    (``s-<hex>`` / ``e-<hex>``) is ``~``-free, so ``rsplit("~", 1)`` round-trips cleanly.
+    Unscoped format ``f"{timestamp!r}~{scan_id}"``: a float repr contains no ``~`` and our
+    own writers' ``scan_id`` (``s-<hex>`` / ``e-<hex>``) is ``~``-free, so ``rsplit("~", 1)``
+    round-trips cleanly. PET-166 D18: when *scope_name* is set (a ``profile`` parameter was
+    sent — equipped or not), the token is scope-bound:
+    ``f"{esc(name)}|{timestamp!r}~{esc(scan_id)}"`` with BOTH variable segments escaped,
+    because the merged read is the first path that mints a cursor from a row written by a
+    process we do not control (a foreign ``scan_id`` may carry ``~`` or ``|``). With both
+    segments escaped the token has exactly one structural ``|`` and one structural ``~``.
     Returns None for a row that cannot be ordered (non-numeric ``timestamp`` or non-string
     ``scan_id``) so the caller emits ``next_before: null`` rather than a broken token.
     """
@@ -347,28 +429,49 @@ def _history_cursor_token(row: dict[str, Any]) -> str | None:
     sid = row.get("scan_id")
     if isinstance(ts, bool) or not isinstance(ts, (int, float)) or not isinstance(sid, str):
         return None
-    return f"{float(ts)!r}~{sid}"
+    if scope_name is None:
+        return f"{float(ts)!r}~{sid}"
+    return f"{_cursor_esc(scope_name)}|{float(ts)!r}~{_cursor_esc(sid)}"
 
 
-def _parse_history_cursor(before: str | None) -> tuple[tuple[float, str] | None, bool]:
+def _parse_history_cursor(
+    before: str | None, scope_name: str | None = None
+) -> tuple[tuple[float, str] | None, str]:
     """Parse a ``before`` cursor token fail-safe (PET-148 D-CURSOR). Never raises.
 
-    Returns ``(cursor, malformed)``: ``(None, False)`` when *before* is absent (the live
-    window — the intended default); ``(None, True)`` when it is present but unparseable (an
-    empty page, NOT a snap-back to the live head — a teleport from deep history to the newest
-    500 is a wrong answer the operator did not ask for); ``((timestamp, scan_id), False)``
-    for a valid token. The arity check (exactly one ``~`` split into two parts) plus the
-    ``float()`` try are the only two ways a token is rejected.
+    Returns ``(cursor, status)`` with a THREE-way status (PET-166 D18):
+
+    - ``"ok"`` — absent (the live window) or a valid token for this scope.
+    - ``"malformed"`` — present but unparseable: an empty page at 200, NOT a snap-back to
+      the live head (a teleport from deep history to the newest 500 is a wrong answer the
+      operator did not ask for).
+    - ``"scope_mismatch"`` — the token's scope prefix does not match the request's scope,
+      in EITHER direction (a prefixed token with no ``profile`` parameter, an unprefixed
+      token under one, or a prefix naming a different profile). Mapped to a 422 on
+      ``before`` by the routes — never a plausible, non-contiguous page under a scope the
+      token was not minted for.
+
+    The three ways a token is rejected: the scope check above, the arity check (exactly one
+    ``~`` split into two parts), and the ``float()`` try.
     """
     if before is None:
-        return None, False
-    parts = before.rsplit("~", 1)
+        return None, "ok"
+    prefix: str | None = None
+    body = before
+    if "|" in before:
+        head, body = before.split("|", 1)
+        prefix = _cursor_unesc(head)
+    if (prefix is None) != (scope_name is None) or (prefix is not None and prefix != scope_name):
+        return None, "scope_mismatch"
+    parts = body.rsplit("~", 1)
     if len(parts) != 2:
-        return None, True
+        return None, "malformed"
     try:
-        return (float(parts[0]), parts[1]), False
+        ts = float(parts[0])
     except (ValueError, TypeError):
-        return None, True
+        return None, "malformed"
+    sid = _cursor_unesc(parts[1]) if prefix is not None else parts[1]
+    return (ts, sid), "ok"
 
 
 def _persist_config(validated_config: Any, *, target_path: "Path | None" = None) -> bool:
@@ -455,6 +558,86 @@ class ProfileNotFoundError(Exception):
     A plain ``Exception`` (not ``ValueError``) so it is never swallowed by the
     ``from_dict`` ``(ValueError, TypeError)`` handlers downstream.
     """
+
+
+class ProfileNotEquippedError(Exception):
+    """An arm/disarm targeted a profile that is not the equipped binding (PET-166 D6).
+
+    Carries the equipped name so the 409 body can state what arming would actually
+    act on. Raised by ``set_armed``; both routes catch it into a 409 BEFORE the
+    ``ok`` check, so a policy refusal can never surface as the 503 persistence body.
+    """
+
+    def __init__(self, selected: str, equipped: str | None) -> None:
+        self.equipped = equipped
+        target = f"the equipped profile {equipped!r}" if equipped else "this dashboard's binding"
+        super().__init__(
+            f"Profile {selected!r} is not the equipped profile; arming targets {target}"
+        )
+
+
+class CursorScopeMismatchError(Exception):
+    """A ``before`` token's scope prefix does not match the request's scope (PET-166 D18).
+
+    Mapped by the routes to a 422 on the ``before`` field — never the PET-148
+    empty-page 200, which would serve a plausible, non-contiguous page under a scope
+    the token was not minted for.
+    """
+
+
+@dataclass(frozen=True)
+class _ReadScope:
+    """The resolved read scope of one request (PET-166 D10). Internal; the wire payload
+    is built by ``_read_scope_payload`` and does not carry ``profile_count``."""
+
+    name: str | None  # None => no selector sent
+    resolution: "HermesConfigResolution"  # equipped binding when name is None
+    equipped_name: str | None  # the is_active enumeration entry, or None
+    equipped_tier: str  # "profile" | "hermes_home" | "root"
+    state: str  # "equipped" | "not_equipped" | "unknown"
+    profile_count: int  # len(list_hermes_profiles()), for D20
+
+
+def _resolve_read_scope(profile: str | None) -> "_ReadScope":
+    """Resolve a request's read scope, once per request (PET-166 D10).
+
+    Raises ``ProfileNotFoundError`` for a named non-member (routes map to 422).
+    ``state`` is decided by ORDERED checks, never a flat comparison: with both sides
+    unresolvable a flat equality would evaluate ``None == None`` as equipped and let
+    a scoped disarm through the D6 guard into a write against the running agent.
+    """
+    equipped_res = resolve_hermes_config_path()
+    profiles = list_hermes_profiles()
+    equipped_entry = next((p for p in profiles if p.get("is_active")), None)
+    equipped_name = equipped_entry["name"] if equipped_entry is not None else None
+    equipped_tier = "profile" if equipped_entry is not None else equipped_res.tier
+    count = len(profiles)
+    if profile is None:
+        return _ReadScope(None, equipped_res, equipped_name, equipped_tier, "equipped", count)
+    target = resolve_profile_config_path(profile)
+    if target is None:
+        raise ProfileNotFoundError(f"Profile {profile!r} not found")
+    equipped_norm = _resolved_normcase(equipped_res.path)
+    if equipped_norm is None:
+        state = "unknown"
+    else:
+        target_norm = _resolved_normcase(target.path)
+        if target_norm is None or target_norm != equipped_norm:
+            state = "not_equipped"
+        else:
+            state = "equipped"
+    return _ReadScope(profile, target, equipped_name, equipped_tier, state, count)
+
+
+def _read_scope_payload(scope: "_ReadScope") -> dict[str, Any]:
+    """The one wire object every scoped surface reports (PET-166 D19)."""
+    return {
+        "selected": scope.name,
+        "equipped": scope.equipped_name,
+        "equipped_tier": scope.equipped_tier,
+        "live": scope.state == "equipped",
+        "state": scope.state,
+    }
 
 
 def _hermes_profile_label(res: "HermesConfigResolution") -> str:
@@ -598,6 +781,17 @@ class ConsoleHandlers:
         # boot/preflight WARNING (D7), mirroring `_ring_overflow_warned`/`_history_sink_warned`.
         self._integrity_recent: deque[tuple[str, str | None]] = deque(maxlen=_INTEGRITY_WINDOW)
         self._integrity_preflight_emitted = False
+        # PET-166 (D20): set to True by plugin_api at registration and never by
+        # build_app, so the unscoped-read tripwire below cannot fire on the
+        # standalone console (which legitimately never sends a scope).
+        self._embedded = False
+        # One-shot guard for PETASOS_SCOPE_UNSCOPED_READ (the shipped one-shot
+        # convention; an instance attribute so console-suite fixtures reset it).
+        self._unscoped_read_warned = False
+        # PET-166 (D9): idle (non-equipped) SSE stream counter. Instance attribute so
+        # both route surfaces share the bound through the shared handlers object; the
+        # limit is handlers.sse.max_subscribers so the two arms cannot drift.
+        self._idle_stream_count = 0
 
         pipeline.add_audit_listener(self._on_audit)
         pipeline.add_alert_listener(self._on_alert)
@@ -888,6 +1082,22 @@ class ConsoleHandlers:
             # switch). Stale byte offsets index a different (possibly smaller) file and
             # would skip its events, so reset to 0 and read the new spool from the start.
             if path != self._enforcement_spool_path:
+                # PET-166 (D17): a binding change also clears the ring — after an
+                # equipped flip the equipped head read would otherwise serve the OLD
+                # binding's rows under the new profile's name, and the client's
+                # invalidation re-seed would actively repaint them. Guarded on the
+                # attribute read BEFORE the reassignment below: it is None on every
+                # process's FIRST drain by construction, and an unguarded clear would
+                # wipe pre-drain playground rows in embedded mode (standalone is
+                # masked by build_app's preflight drain; embedded has none). Named
+                # residual: a binding that moves before the first drain is invisible
+                # to this guard. Reassignment, not a clear() method — RingBuffer
+                # exposes exactly push/to_list/__len__ and nothing else holds a
+                # reference (every use is an attribute access off self).
+                if self._enforcement_spool_path is not None:
+                    self.scan_history = RingBuffer[dict[str, Any]](
+                        maxlen=_SCAN_HISTORY_RING_CAPACITY
+                    )
                 self._enforcement_offset = 0
                 self._rot_offset = 0
                 self._enforcement_spool_path = path
@@ -953,6 +1163,67 @@ class ConsoleHandlers:
                 loop.create_task(self.sse.broadcast("alert", data))
         except Exception:
             _logger.debug("Console alert broadcast failed", exc_info=True)
+
+    def _note_unscoped_read(self, scope: "_ReadScope") -> None:
+        """PET-166 (D20): one-shot INFO tripwire for the direction the client cannot see.
+
+        Fires the first time a scoped route is hit through the embedded bridge with no
+        ``profile`` while the box has more than one profile AND one of them is active —
+        the stale-bundle-against-a-fresh-backend leg lives here because the detector
+        cannot live in the artifact that is stale. Requiring an active member (not
+        merely two entries) excludes D16's legitimate ``equipped_name is null``
+        configuration, where the client correctly omits the parameter. Reads the count
+        and the active flag off the ``_ReadScope`` the request already built, so the
+        predicate costs no extra enumeration. Never raises.
+        """
+        if (
+            self._unscoped_read_warned
+            or not self._embedded
+            or scope.name is not None
+            or scope.profile_count <= 1
+            or scope.equipped_name is None
+        ):
+            return
+        self._unscoped_read_warned = True
+        _logger.info(
+            "PETASOS_SCOPE_UNSCOPED_READ a scoped console route was called with no profile "
+            "selector on a multi-profile box with an active profile; the console bundle may "
+            "predate profile-scoped reads. Remediation: re-sync the hand-synced plugin bundle. "
+            "Logged once per run."
+        )
+
+    def resolve_events_scope(self, profile: str | None) -> "_ReadScope":
+        """Shared scope resolution for BOTH ``/api/events`` routes (PET-166 D13/D20).
+
+        Keeps the D10 once-per-request rule (the routes hold the returned scope) and
+        gives the events surface its tripwire call site in shared code rather than
+        two per-route copies. Raises ``ProfileNotFoundError`` for a non-member.
+        """
+        scope = _resolve_read_scope(profile)
+        self._note_unscoped_read(scope)
+        return scope
+
+    async def idle_scope_stream(self, scope: "_ReadScope") -> "AsyncIterator[str]":
+        """The non-equipped SSE stream (PET-166 D9): one ``read_scope`` frame, then a bare
+        keepalive loop that never completes and never touches the live subscriber pool.
+
+        The slot is acquired in the generator's preamble and released in ``finally`` —
+        never in the route — because in the installed starlette a client disconnect
+        between ``http.response.start`` and the first body pull raises out of ``send``
+        with the generator never started: its ``finally`` would never run, and a slot
+        acquired at the route would leak permanently, once per aborted open. A
+        never-started generator never acquired, so the counter is self-healing; the
+        cost is a transient over-admit bounded by concurrent opens.
+        """
+        self._idle_stream_count += 1
+        try:
+            frame = json.dumps(_read_scope_payload(scope))
+            yield f"event: read_scope\ndata: {frame}\n\n"
+            while True:
+                await asyncio.sleep(15.0)
+                yield ":keepalive\n\n"
+        finally:
+            self._idle_stream_count -= 1
 
     async def get_config(self, profile: str | None = None) -> dict[str, Any]:
         # PET-146 D1: the active binding identity + its (possibly dangling-pointer)
@@ -1342,13 +1613,20 @@ class ConsoleHandlers:
             "remediation": remediation,
         }
 
-    async def get_health(self) -> dict[str, Any]:
+    async def get_health(self, profile: str | None = None) -> dict[str, Any]:
+        # PET-166 (D8): health stays PROCESS-scoped — every field below describes the
+        # running pipeline, none of which is knowable for a non-equipped profile, and
+        # synthesizing it would substitute a new lie for the one being removed. The
+        # route accepts and validates `profile` (D7) and reports its scope honestly
+        # via the D19 object; it never fabricates per-profile health.
+        scope = _resolve_read_scope(profile)
+        self._note_unscoped_read(scope)
         cfg = self.pipeline.config
         config_hash = hashlib.sha256(
             json.dumps(cfg.to_dict(redact_secrets=True), sort_keys=True, default=str).encode()
         ).hexdigest()[:16]
 
-        return {
+        payload: dict[str, Any] = {
             "pipeline": {
                 "fail_mode": cfg.fail_mode,
                 "scanner_count": len(self.pipeline.scanner_health()),
@@ -1368,9 +1646,12 @@ class ConsoleHandlers:
             # keys; no change to any other field or HTTP response shape.
             "integrity": self._integrity_health(),
         }
+        if profile is not None:  # D2/D19: scope-gated; an unscoped body is byte-identical
+            payload["read_scope"] = _read_scope_payload(scope)
+        return payload
 
     async def get_scan_history(
-        self, limit: int = 100, before: str | None = None
+        self, limit: int = 100, before: str | None = None, profile: str | None = None
     ) -> dict[str, Any]:
         # PET-131: drain-on-read is the floor that surfaces live enforcement on the
         # gated-mode polling fallback (PET-83) and in the embedded Hermes plugin path
@@ -1378,41 +1659,177 @@ class ConsoleHandlers:
         # latency optimization on top; both share the exactly-once drain. PET-148: the
         # drain now also rotates the history sink (in its own _history_lock block, after
         # its _enforcement_lock body), bounding growth on the tailer + read paths.
+        # PET-166 (D3): hoisted ABOVE the scope branch — we always drain our own
+        # binding, we never drain anyone else's. The client's 30 s scoped poll keeps
+        # calling this route while parked on a foreign profile, which is what keeps
+        # our own fold and spool rotation alive in embedded mode (no background tailer).
         await self._drain_enforcement_into_history()
+        scope = _resolve_read_scope(profile)  # D7/D10: raises for a non-member -> 422
+        self._note_unscoped_read(scope)
         clamped = min(max(1, limit), 1000)
-        # PET-148 (D-CURSOR): additive `before` cursor. Absent => today's live window
-        # (byte-identical `entries`); present => reverse-scan the on-disk sink for rows
-        # strictly older than the cursor. The response gains additive `next_before` +
-        # `older_truncated` keys; PET-144's `entries`/`scans_total` shape is preserved, so
-        # existing consumers ignore the new keys.
+        cursor, status = _parse_history_cursor(before, scope.name)
+        if status == "scope_mismatch":
+            # D18: a token replayed across scopes (either direction) is a 422 on
+            # `before`, never a plausible, non-contiguous page.
+            raise CursorScopeMismatchError(
+                "before cursor was minted under a different scope; re-page from the head"
+            )
+        malformed = status == "malformed"
         rows: list[dict[str, Any]]
         older_truncated: bool
-        cursor, malformed = _parse_history_cursor(before)
-        if malformed:
-            # Present-but-unparseable: an EMPTY page, never a snap-back to the live head
-            # (a teleport from deep history to the newest 500 is a wrong answer; edge F-4).
-            _logger.debug(
-                "PETASOS_HISTORY malformed before cursor %r; returning empty page", before
-            )
-            rows = []
-            older_truncated = False
-        elif cursor is not None:
-            # Paged-back: key-ordered reverse-scan of live + .rot, under _history_lock so a
-            # concurrent rotate cannot interleave the read (closes the os.replace race).
-            async with self._history_lock:
-                rows, older_truncated = _history.read_history_page(
-                    _history._history_path(), before=cursor, limit=clamped
+        spool_truncated = False
+        has_older = False
+        if scope.state == "equipped":
+            # PET-148 (D-CURSOR): additive `before` cursor. Absent => today's live window
+            # (byte-identical `entries`); present => reverse-scan the on-disk sink for rows
+            # strictly older than the cursor. The response gains additive `next_before` +
+            # `older_truncated` keys; PET-144's `entries`/`scans_total` shape is preserved,
+            # so existing consumers ignore the new keys.
+            if malformed:
+                # Present-but-unparseable: an EMPTY page, never a snap-back to the live
+                # head (a teleport from deep history to the newest 500 is a wrong answer;
+                # edge F-4).
+                _logger.debug(
+                    "PETASOS_HISTORY malformed before cursor %r; returning empty page", before
                 )
-            rows = [self._attach_history_provenance(r) for r in rows]
+                rows = []
+                older_truncated = False
+            elif cursor is not None:
+                # Paged-back: key-ordered reverse-scan of live + .rot, under _history_lock
+                # so a concurrent rotate cannot interleave the read (os.replace race).
+                async with self._history_lock:
+                    rows, older_truncated = _history.read_history_page(
+                        _history._history_path(), before=cursor, limit=clamped
+                    )
+                rows = [self._attach_history_provenance(r) for r in rows]
+            else:
+                # Default (before absent): byte-identical to today — most-recent-first
+                # ring window.
+                rows = list(reversed(self.scan_history.to_list(clamped)))
+                older_truncated = False
         else:
-            # Default (before absent): byte-identical to today — most-recent-first ring window.
-            rows = list(reversed(self.scan_history.to_list(clamped)))
-            older_truncated = False
+            # PET-166 (D3/D4): the non-equipped merged read. Read-only, drain-free, four
+            # segments (sink live+rot via read_history_page, spool live and rot via two
+            # explicit read_spool_tail calls — drain_enforcement_events has no .rot
+            # awareness and .rot recovery on the live path unlinks). Nothing here
+            # advances an offset, rotates, unlinks, or appends. Deliberately does NOT
+            # take _history_lock: that lock serializes OUR rotation against OUR drain; a
+            # foreign sink shares no state with either, and taking it would couple an
+            # uncapped foreign read to our own rotation's availability.
+            sink = _history._history_path(scope.resolution)
+            spool = spool_path(scope.resolution)
+            rot = spool_rot_path(scope.resolution)
+
+            # limit=sys.maxsize, NOT 0/-1 (the helper slices those to an empty page).
+            # The sink read is size-gated per segment like the spool reads (closes the
+            # D3 residual): an over-cap foreign sink is skipped rather than loaded
+            # whole — read_history_page has no tail mode, and a partial parse of an
+            # attacker-grown file buys nothing — and the loss is reported through
+            # `spool_truncated` like the capped spool reads.
+            sink_over_cap = False
+            for seg in (sink, sink + _history._ROT_SUFFIX):
+                try:
+                    if os.path.getsize(seg) > _FOREIGN_SPOOL_READ_CAP:
+                        sink_over_cap = True
+                except OSError:
+                    pass  # absent segment: nothing to read, nothing to cap
+            sink_rows: list[dict[str, Any]] = []
+            if not sink_over_cap:
+                sink_rows, _ = _history.read_history_page(sink, before=None, limit=sys.maxsize)
+            live_ev, trunc_a = read_spool_tail(spool)
+            rot_ev, trunc_b = read_spool_tail(rot)
+            spool_truncated = trunc_a or trunc_b or sink_over_cap
+
+            # D15: every row on this branch is `foreign` — this process holds no key
+            # for these rows (they may legitimately be signed with another profile's
+            # secret), so verifying here would assert forgery about an innocent file.
+            # _attach_history_provenance is NOT called; the sink row's internal sig is
+            # stripped explicitly. Nothing feeds _integrity_recent or _selfmod_total.
+            merged: list[dict[str, Any]] = []
+            for r in sink_rows:
+                fr = dict(r)
+                fr.pop("sig", None)
+                fr["provenance"] = "foreign"
+                merged.append(fr)
+            merged.extend(_enforcement_summary(e, provenance="foreign") for e in live_ev + rot_ev)
+
+            # D4 step 2: EXACTLY read_history_page's orderability predicate plus its
+            # OverflowError/isfinite guard, so the two branches cannot drift. Rows
+            # failing it are dropped (foreign spools admit any JSON object; a string
+            # timestamp must not 500 a GET).
+            keyed: list[tuple[tuple[float, str], dict[str, Any]]] = []
+            for r in merged:
+                ts = r.get("timestamp")
+                sid = r.get("scan_id")
+                if isinstance(ts, bool) or not isinstance(ts, (int, float)):
+                    continue
+                if not isinstance(sid, str):
+                    continue
+                try:
+                    ts_f = float(ts)
+                except OverflowError:
+                    continue
+                if not math.isfinite(ts_f):
+                    continue
+                keyed.append(((ts_f, sid), r))
+
+            # D4 step 3: dedup by scan_id across the ENTIRE merged set, sink row wins
+            # (sink rows were appended first, so keep-first is sink-wins) — chosen for
+            # determinism, the two sides being equivalent by construction.
+            seen: set[str] = set()
+            deduped: list[tuple[tuple[float, str], dict[str, Any]]] = []
+            for key, r in keyed:
+                if key[1] in seen:
+                    continue
+                seen.add(key[1])
+                deduped.append((key, r))
+            # D4 step 4: the same (timestamp, scan_id) descending order the sink
+            # reader uses.
+            deduped.sort(key=lambda kv: kv[0], reverse=True)
+
+            if malformed:
+                _logger.debug(
+                    "PETASOS_HISTORY malformed before cursor %r; returning empty page", before
+                )
+                rows = []
+                older_truncated = False
+            else:
+                global_oldest = deduped[-1][0] if deduped else None
+                if cursor is not None:
+                    post_filter = [kv for kv in deduped if kv[0] < cursor]
+                else:
+                    post_filter = deduped
+                rows = [r for _, r in post_filter[:clamped]]
+                # D12: has_older is true iff the POST-cursor-filter merged list
+                # exceeded `limit` before the clamp — a different fact from
+                # older_truncated (rotation loss): a head read can be
+                # has_older=True, older_truncated=False.
+                has_older = len(post_filter) > clamped
+                # older_truncated over the MERGED set (the helper's own flag would
+                # report a true bottom whenever the older rows live in the spool).
+                older_truncated = (
+                    cursor is not None
+                    and not rows
+                    and global_oldest is not None
+                    and cursor < global_oldest
+                )
         # next_before = cursor token of the oldest returned row (rows are most-recent-first),
         # or null when the page is empty — so the frontend's first "Older" click off the live
         # head has a cursor without minting one client-side (float-repr parity, edge F-4).
-        next_before = _history_cursor_token(rows[-1]) if rows else None
-        return {"entries": rows, "next_before": next_before, "older_truncated": older_truncated}
+        # PET-166 (D18): scope-bound — prefixed iff a `profile` parameter was sent (equipped
+        # or not), so the embedded console's ordinary case mints what its parser expects.
+        next_before = _history_cursor_token(rows[-1], scope.name) if rows else None
+        payload: dict[str, Any] = {
+            "entries": rows,
+            "next_before": next_before,
+            "older_truncated": older_truncated,
+        }
+        if profile is not None:  # D2/D19: every new key is scope-gated
+            payload["read_scope"] = _read_scope_payload(scope)
+            payload["spool_truncated"] = spool_truncated
+            if scope.state != "equipped":  # D12: merged non-equipped branch only
+                payload["has_older"] = has_older
+        return payload
 
     async def get_profiles(self) -> dict[str, Any]:
         return {"profiles": self.pipeline.list_profiles()}
@@ -1443,16 +1860,34 @@ class ConsoleHandlers:
             ],
         }
 
-    async def get_armed(self) -> dict[str, Any]:
+    async def get_armed(self, profile: str | None = None) -> dict[str, Any]:
         # PET-111: the Equipped/Unequipped master bit. File-backed (petasos.enabled)
         # via the shared _paths resolver — the dashboard reads what the gateway reads.
+        # PET-166 (D1): a scoped read serves the SELECTED profile's bit from its own
+        # config.yaml; the write binding never moves.
         from petasos.console._armed import read_armed
 
-        return {"armed": read_armed()}
+        scope = _resolve_read_scope(profile)
+        self._note_unscoped_read(scope)
+        payload: dict[str, Any] = {"armed": read_armed(scope.resolution)}
+        if profile is not None:  # D2/D19: scope-gated
+            payload["read_scope"] = _read_scope_payload(scope)
+        return payload
 
-    async def set_armed(self, armed: bool) -> tuple[dict[str, Any], bool]:
+    async def set_armed(
+        self, armed: bool, profile: str | None = None
+    ) -> tuple[dict[str, Any], bool]:
         from petasos.console._armed import write_armed
 
+        # PET-166 (D6): arming a non-equipped profile is REFUSED. Raised (not returned
+        # as ok=False) so the routes map it to a 409 BEFORE the ok check — the 503
+        # persistence body must never dress up a deliberate policy refusal. `unknown`
+        # also refuses a NAMED scope: when the equipped path cannot be resolved, a
+        # scoped write cannot be proven to target what the operator sees (D10 step 4).
+        scope = _resolve_read_scope(profile)
+        self._note_unscoped_read(scope)
+        if profile is not None and scope.state != "equipped":
+            raise ProfileNotEquippedError(profile, scope.equipped_name)
         ok = write_armed(armed)
         if ok:
             # PET-116: live cross-tab sync. Broadcast the authoritative value only
@@ -1464,7 +1899,10 @@ class ConsoleHandlers:
             # payload is trivially serializable and broadcast suppresses QueueFull
             # internally over a list() snapshot, so it cannot raise here.
             await self.sse.broadcast("armed", {"armed": armed})
-        return {"armed": armed, "persisted": ok}, ok
+        result: dict[str, Any] = {"armed": armed, "persisted": ok}
+        if profile is not None:  # D2/D19: scope-gated; the {armed, persisted} shape holds
+            result["read_scope"] = _read_scope_payload(scope)
+        return result, ok
 
 
 def _extract_field_from_error(msg: str, body: dict[str, Any]) -> str:
@@ -1700,21 +2138,83 @@ def build_app(pipeline: "Pipeline", *, auth_token: str | None = None) -> "FastAP
             )
 
     @app.get("/api/health")
-    async def api_get_health() -> dict[str, Any]:
-        return await handlers.get_health()
+    async def api_get_health(profile: str | None = None) -> Any:
+        # PET-166 (D7/D8): validates the selector; health itself stays process-scoped.
+        try:
+            return await handlers.get_health(profile=profile)
+        except ProfileNotFoundError as exc:
+            return JSONResponse(
+                status_code=422,
+                content={"detail": [{"field": "profile", "message": str(exc)}]},
+            )
 
     @app.get("/api/scan-history")
-    async def api_get_scan_history(limit: int = 100, before: str | None = None) -> dict[str, Any]:
+    async def api_get_scan_history(
+        limit: int = 100, before: str | None = None, profile: str | None = None
+    ) -> Any:
         # PET-148: additive `before` cursor for back-pages; absent => today's live window.
-        return await handlers.get_scan_history(limit, before)
+        # PET-166: optional read scope; a non-member 422s, a cross-scope cursor 422s on
+        # `before` (D7/D18).
+        try:
+            return await handlers.get_scan_history(limit, before, profile=profile)
+        except ProfileNotFoundError as exc:
+            return JSONResponse(
+                status_code=422,
+                content={"detail": [{"field": "profile", "message": str(exc)}]},
+            )
+        except CursorScopeMismatchError as exc:
+            return JSONResponse(
+                status_code=422,
+                content={"detail": [{"field": "before", "message": str(exc)}]},
+            )
 
     @app.get("/api/profiles")
     async def api_get_profiles() -> dict[str, Any]:
         return await handlers.get_profiles()
 
     @app.get("/api/events")
-    async def api_events() -> StreamingResponse:
-        q = handlers.sse.subscribe()
+    async def api_events(profile: str | None = None) -> Any:
+        # PET-166 (D7/D9): validation happens BEFORE any stream object is built, so a
+        # failure is an ordinary JSON response, never an error frame inside a
+        # text/event-stream.
+        try:
+            scope = handlers.resolve_events_scope(profile)
+        except ProfileNotFoundError as exc:
+            # Both arguments by keyword, matching every shipped 422 site.
+            return JSONResponse(
+                status_code=422,
+                content={"detail": [{"field": "profile", "message": str(exc)}]},
+            )
+        if scope.state != "equipped":
+            # D9: check here (so the refusal is a JSON 503, not a frame in a stream),
+            # but the slot is acquired INSIDE the generator — a never-started generator
+            # must not hold a slot. scope_refusal is the terminal marker; the
+            # equipped-arm 503 below stays unmarked so the shipped client
+            # retry-then-fallback path is preserved there.
+            if handlers._idle_stream_count >= handlers.sse.max_subscribers:
+                return JSONResponse(
+                    status_code=503,
+                    content={
+                        "detail": [
+                            {"field": "profile", "message": "idle scope streams at capacity"}
+                        ],
+                        "scope_refusal": "capacity",
+                    },
+                )
+            return StreamingResponse(
+                handlers.idle_scope_stream(scope),
+                media_type="text/event-stream",
+                headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+            )
+        try:
+            q = handlers.sse.subscribe()
+        except RuntimeError:
+            # PET-166: today a full subscriber pool 500s out of this route; map it to
+            # an honest 503 (unmarked — the client's shipped retry path is correct here).
+            return JSONResponse(
+                status_code=503,
+                content={"detail": [{"field": "profile", "message": "event stream at capacity"}]},
+            )
         return StreamingResponse(
             handlers.sse.stream(q),
             media_type="text/event-stream",
@@ -1726,11 +2226,30 @@ def build_app(pipeline: "Pipeline", *, auth_token: str | None = None) -> "FastAP
         return await handlers.get_about()
 
     @app.get("/api/armed")
-    async def api_get_armed() -> dict[str, Any]:
-        return await handlers.get_armed()
+    async def api_get_armed(profile: str | None = None) -> Any:
+        try:
+            return await handlers.get_armed(profile=profile)
+        except ProfileNotFoundError as exc:
+            return JSONResponse(
+                status_code=422,
+                content={"detail": [{"field": "profile", "message": str(exc)}]},
+            )
 
     @app.post("/api/armed")
-    async def api_set_armed(request: Request) -> Any:
+    async def api_set_armed(request: Request, profile: str | None = None) -> Any:
+        # PET-166 (D6): the selector rides in the BODY on a write (the PET-146
+        # update_config precedent). A query-borne selector is itself a 422 — silently
+        # ignoring it would resolve the scope to equipped and disarm the running agent
+        # while the UI names another profile.
+        if profile is not None:
+            return JSONResponse(
+                status_code=422,
+                content={
+                    "detail": [
+                        {"field": "profile", "message": "selector must ride in the request body"}
+                    ]
+                },
+            )
         try:
             body = await request.json()
         except Exception:
@@ -1745,7 +2264,26 @@ def build_app(pipeline: "Pipeline", *, auth_token: str | None = None) -> "FastAP
                 status_code=422,
                 content={"detail": [{"field": "armed", "message": "Must be a boolean"}]},
             )
-        result, ok = await handlers.set_armed(body["armed"])
+        body_profile = body.get("profile")
+        if body_profile is not None and not isinstance(body_profile, str):
+            return JSONResponse(
+                status_code=422,
+                content={"detail": [{"field": "profile", "message": "Must be a string"}]},
+            )
+        try:
+            result, ok = await handlers.set_armed(body["armed"], profile=body_profile)
+        except ProfileNotFoundError as exc:
+            return JSONResponse(
+                status_code=422,
+                content={"detail": [{"field": "profile", "message": str(exc)}]},
+            )
+        except ProfileNotEquippedError as exc:
+            # D6: caught BEFORE the ok check — a policy refusal never wears the 503
+            # persistence body.
+            return JSONResponse(
+                status_code=409,
+                content={"detail": [{"field": "profile", "message": str(exc)}]},
+            )
         if not ok:
             return JSONResponse(
                 status_code=503,

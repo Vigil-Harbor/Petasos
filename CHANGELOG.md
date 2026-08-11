@@ -48,6 +48,23 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
 
 ### Added
 
+- **Profile-scoped console read surfaces (PET-166).** Scan history, the armed
+  indicator, health, and the live event stream now take the host-selected
+  profile as an explicit, validated read scope, so selecting profile X in the
+  Hermes switcher shows X's enforcement data instead of the process binding's
+  under X's name. A selection that is not the equipped profile is rendered
+  honestly: read-only rows served from that profile's own files and marked
+  `foreign` in the drill-down (not a tamper verdict; this process holds no key
+  for them), an idle labelled event stream with a new SCOPED connection state,
+  a 30 second history refresh, arming refused with a 409, and the history
+  subtitle naming the profile with a client-derived freshness label. Unknown,
+  deleted, blank, or config-less profile names return a structured 422 on
+  every scoped surface. Requests that send no profile are byte-identical to
+  before, so standalone consoles and existing embedders see no change; the
+  write binding never moves with the selector. The embedded bridge logs a
+  one-shot `PETASOS_SCOPE_UNSCOPED_READ` token when a stale bundle stops
+  sending the scope on a multi-profile box.
+
 - **The ingestion-path session backstop (PET-176).** Flagged tool-result reads now
   accumulate session weight through the same `FrequencyTracker` the tool-call
   guard enforces on, so the escalation ladder underneath PET-170's annotation

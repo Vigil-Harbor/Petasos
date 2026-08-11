@@ -45,7 +45,7 @@ def armed_state(monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str, bool]]:
     """
     state = {"armed": True}
 
-    def _read() -> bool:
+    def _read(res: object = None) -> bool:
         return state["armed"]
 
     def _write(value: bool) -> bool:

@@ -15,14 +15,23 @@ _logger = logging.getLogger(__name__)
 
 _SENTINEL = object()
 
+# PET-166 D9: named so the idle-stream counter reads the live pool bound
+# rather than a shared literal that could drift from it.
+DEFAULT_MAX_SUBSCRIBERS = 10
+
 
 class SSEBroadcaster:
     """Fan-out SSE events to multiple subscriber queues."""
 
-    def __init__(self, *, max_subscribers: int = 10) -> None:
+    def __init__(self, *, max_subscribers: int = DEFAULT_MAX_SUBSCRIBERS) -> None:
         self._subscribers: list[asyncio.Queue[Any]] = []
         self._max_subscribers = max_subscribers
         self._seq = 0
+
+    @property
+    def max_subscribers(self) -> int:
+        """The constructed subscriber bound (read-only; PET-166 D9)."""
+        return self._max_subscribers
 
     def subscribe(self) -> asyncio.Queue[Any]:
         if len(self._subscribers) >= self._max_subscribers:
