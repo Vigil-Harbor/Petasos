@@ -4,6 +4,20 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-11
+
+Headline release since 0.2.0: the ingestion path gains bounded scanning and
+session gating. Read-only tool results are scanned inbound over an
+8,000-character window taken head and tail and annotated, never withheld, and
+repeated flagged reads now move the session ladder and stop later tool
+dispatch. The window is the bound, not a whole-payload guarantee: the middle
+of a larger result reaches the model unscanned and unannotated. Also: the
+console's read surfaces follow the Hermes profile switcher with an honest
+foreign-data model, a new self-tamper detection family watches Petasos's own
+control surfaces, and two enforcement-reaching bugs are fixed (scanner config
+that never reached the enforcing pipeline; a failed init that used to disable
+enforcement entirely).
+
 ### Changed
 
 - **Config-surface honesty audit (PET-169).** Every one of the 64 `PetasosConfig`
@@ -129,6 +143,35 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
   never logs, so a caller keeps its own wording and levels, and it never raises
   for an optional-backend failure. Embedders who construct their own `Pipeline`
   can call it instead of hand-wiring each scanner's config.
+- **Bounded init wait and durable cold-start visibility (PET-167).** A cold
+  process's first tool calls previously queued on the init lock for the full
+  scanner startup (about 12 seconds with ML extras), which meant the degraded
+  fallback written for that window was structurally unreachable. They now wait
+  up to a process-wide deadline (new `PetasosConfig.init_wait_timeout_seconds`),
+  and on expiry the branch is governed by `fail_mode` and runs the
+  zero-dependency syntactic scanner. Two enforcement-spool markers,
+  `cold_start_degraded` and `init_failed`, make the window durable: the console
+  renders both with an amber badge and an honest provenance line, so a session
+  that ran before scanners came up is distinguishable after the fact.
+- **Console self-tamper surfacing (PET-165).** The Observability tab gains an
+  eviction-proof self-tamper tile (survives the 500-entry ring), a history
+  filter narrowing to self-tamper rows with scope-aware empty states, and
+  severity-differentiated badges (critical renders red, high amber) with live
+  SSE increments.
+- **Self-tamper detection family `petasos.selfmod.*` (PET-164).** Tool-call
+  argument classification (not a content scan) that raises a finding when a
+  tool call targets Petasos's own control surfaces: the resolved `config.yaml`
+  set across all profile homes, the enforcement spool, and the console API on a
+  401. Detection-only by design: the findings are unsuppressible by
+  construction (profile suppression cannot drop them), never block on their
+  own, and render as a distinct amber `self-tamper` badge so red stays reserved
+  for actual blocks. The family lives in the tool guard's evaluate path, so it
+  runs only while `tool_guard_enabled` is on: disabling the guard bypasses
+  self-tamper classification along with tool-call tier evaluation. Profile
+  suppression still cannot drop the findings when they are raised, and the
+  content-scan escalation floor is a separate mechanism, unaffected by the
+  guard toggle. `READ_ONLY_TOOLS` is promoted to a public export of
+  `petasos.session.guard`.
 
 ### Fixed
 
@@ -352,7 +395,9 @@ First public release. Every feature ships free and keyless: no license key, no t
 - **Tool-name canonicalization parity**: enforcement and classification share one canonical primitive, closing case / homoglyph / namespace / CamelCase / `_tool`-suffix variant-named egress bypasses
 - **PII-egress hardening**: egress-scoped guard blocking, corrected ordinal severity ranking (a lone CRITICAL now blocks), and a parse-time PII-entity vocabulary guard
 
-[Unreleased]: https://github.com/Vigil-Harbor/Petasos/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/Vigil-Harbor/Petasos/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/Vigil-Harbor/Petasos/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/Vigil-Harbor/Petasos/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/Vigil-Harbor/Petasos/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/Vigil-Harbor/Petasos/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/Vigil-Harbor/Petasos/releases/tag/v0.1.0
