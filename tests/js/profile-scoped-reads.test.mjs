@@ -417,6 +417,39 @@ test("js/read-scope-invalidation: a rebind clears every payload-derived fact", a
   assert.equal(Pet.isForeignScope(), false);
 });
 
+test("js/fallback-poll-drops-superseded-scope: an in-flight resolve across a rebind never lands", async () => {
+  // D17 uniformity: the fallback history poll captures _scopeGen at send time like
+  // the other four scoped readers. Hold its request open across a real rebind, then
+  // settle it with the PREVIOUS profile's rows — nothing may land.
+  resetState();
+  embedded("beta");
+  let resolveHistory;
+  const origGet = Pet.api.getScanHistory;
+  Pet.api.getScanHistory = function () {
+    return new Promise(function (res) { resolveHistory = res; });
+  };
+  const origConnect = Pet.sse.connect;
+  Pet.sse.connect = function () {};
+  sandbox.window.__HERMES_PLUGIN_SDK__ = {
+    fetchJSON: function () { return Promise.resolve({}); },
+    profileScope: { profile: "gamma", currentProfile: "alpha", profiles: [], subscribe: function () { return function () {}; } },
+  };
+  try {
+    Pet._poll.startFallback();   // issues the initial read, held open above
+    Pet.hostProfile._rebind();   // bumps the scope generation mid-flight
+    resolveHistory({ entries: [{ scan_id: "s-beta-stale" }], read_scope: scope("not_equipped", "beta") });
+    await flush();
+    assert.equal(Pet.state.scanHistory.length, 0, "stale rows dropped");
+    assert.equal(Pet.state.historyReadScope, null, "stale scope label dropped");
+    assert.equal(Object.keys(Pet.state.bypassBySession).length, 0, "no bypass accrual off a dropped page");
+  } finally {
+    Pet.api.getScanHistory = origGet;
+    Pet.sse.connect = origConnect;
+    delete sandbox.window.__HERMES_PLUGIN_SDK__;
+    Pet.unmount(); // clears the fallback timer so later tests see a quiet slate
+  }
+});
+
 test("js/history-filter-survives-scope-change", async () => {
   resetState();
   embedded("beta");

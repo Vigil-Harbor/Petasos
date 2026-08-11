@@ -177,9 +177,11 @@
 .pet .live.polling .blip { background: var(--warn); box-shadow: none; animation: none; }
 /* PET-166 (D9): scoped (non-equipped) stream = muted SCOPED with a static blip. A
    deliberate state, not an outage, so NOT --warn; and never the LIVE green or its
-   pulsing dot, which would keep saying "live" on a permanently silent connection. */
-.pet .live.scoped { color: var(--tx-faint); }
-.pet .live.scoped .blip { background: var(--tx-faint); box-shadow: none; animation: none; }
+   pulsing dot, which would keep saying "live" on a permanently silent connection.
+   --tx-mut, not --tx-faint: the chip is a status readout, so it must clear WCAG
+   1.4.3 (4.5:1) against the pane header; faint's 65% alpha lands near 2.25:1. */
+.pet .live.scoped { color: var(--tx-mut); }
+.pet .live.scoped .blip { background: var(--tx-mut); box-shadow: none; animation: none; }
 /* PET-13: protection-weakening Apply confirm — mirrors the disarm banner's amber confirm register. */
 .pet .btn-primary.confirm-weaken { background: var(--med-soft); color: var(--warn); border-color: var(--warn); }
 

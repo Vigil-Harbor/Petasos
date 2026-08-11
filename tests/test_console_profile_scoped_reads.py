@@ -20,6 +20,7 @@ import math
 import os
 import platform
 import time
+import unicodedata
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -370,6 +371,35 @@ async def test_oversized_foreign_spool_is_bounded(env: _Env) -> None:
     assert all(str(r["scan_id"]).startswith("e-") for r in out["entries"])
 
 
+@pytest.mark.parametrize("segment", ["live", "rot"])
+async def test_oversized_foreign_sink_is_skipped_and_reported(env: _Env, segment: str) -> None:
+    # The sink read carries the same per-segment size gate as the spool reads: an
+    # over-cap segment (either live or .rot) skips the whole sink rather than load
+    # an attacker-grown file, and the loss surfaces through spool_truncated. Spool
+    # rows still serve — the gate bounds memory, it does not blank the page.
+    server_mod._FOREIGN_SPOOL_READ_CAP = 400
+    big = [_sink_row(f"s-{i}", float(i), pad="x" * 60) for i in range(20)]
+    env.beta.seed(
+        sink=big if segment == "live" else None,
+        sink_rot=big if segment == "rot" else None,
+        spool=[_spool_event("e-1", 1.0)],
+    )
+    h = _make_handlers()
+    out = await h.get_scan_history(profile="beta")
+    assert out["spool_truncated"] is True
+    assert [r["scan_id"] for r in out["entries"]] == ["e-1"]  # sink skipped, spool served
+
+
+async def test_subcap_foreign_sink_still_reads_whole(env: _Env) -> None:
+    # The gate is per-segment size, not row count: a sub-cap sink reads in full and
+    # reports no truncation.
+    env.beta.seed(sink=[_sink_row(f"s-{i}", float(i)) for i in range(5)])
+    h = _make_handlers()
+    out = await h.get_scan_history(profile="beta")
+    assert out["spool_truncated"] is False
+    assert len(out["entries"]) == 5
+
+
 def test_spool_window_without_newline_yields_no_events(env: _Env) -> None:
     server_mod._FOREIGN_SPOOL_READ_CAP = 20
     env.beta.spool.write_text("x" * 500, encoding="utf-8")
@@ -410,10 +440,16 @@ async def test_unknown_profile_422_on_every_scoped_route(env: _Env, route: str) 
 @pytest.mark.parametrize("name", ["nfd", "nfc"])
 async def test_unknown_profile_422_unicode_normalization(env: _Env, name: str) -> None:
     # D7: matching is byte-exact; NFD and NFC forms of one name are distinct, so a
-    # macOS-decomposed leaf name is a known non-member. Pinned, not incidental.
-    _Home(env.root, "café")  # NFC on disk
+    # macOS-decomposed leaf name is a known non-member. Derived, not literal: two
+    # visually identical source literals survive neither an editor nor a formatter
+    # round-trip reliably, and a silent re-normalization would flip the nfd arm
+    # into probing a real member with no visible cause.
+    nfc = unicodedata.normalize("NFC", "café")
+    nfd = unicodedata.normalize("NFD", nfc)
+    assert nfc != nfd  # the premise: the two forms are distinct byte sequences
+    _Home(env.root, nfc)  # NFC on disk
     h = _make_handlers()
-    probe = "café" if name == "nfc" else "café"
+    probe = nfc if name == "nfc" else nfd
     if name == "nfc":
         out = await h.get_scan_history(profile=probe)
         assert out["read_scope"]["selected"] == probe

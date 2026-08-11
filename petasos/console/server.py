@@ -1721,12 +1721,24 @@ class ConsoleHandlers:
             rot = spool_rot_path(scope.resolution)
 
             # limit=sys.maxsize, NOT 0/-1 (the helper slices those to an empty page).
-            # The sink read is deliberately uncapped — a named residual (D3): its bound
-            # is enforced only by the process bound to that profile.
-            sink_rows, _ = _history.read_history_page(sink, before=None, limit=sys.maxsize)
+            # The sink read is size-gated per segment like the spool reads (closes the
+            # D3 residual): an over-cap foreign sink is skipped rather than loaded
+            # whole — read_history_page has no tail mode, and a partial parse of an
+            # attacker-grown file buys nothing — and the loss is reported through
+            # `spool_truncated` like the capped spool reads.
+            sink_over_cap = False
+            for seg in (sink, sink + _history._ROT_SUFFIX):
+                try:
+                    if os.path.getsize(seg) > _FOREIGN_SPOOL_READ_CAP:
+                        sink_over_cap = True
+                except OSError:
+                    pass  # absent segment: nothing to read, nothing to cap
+            sink_rows: list[dict[str, Any]] = []
+            if not sink_over_cap:
+                sink_rows, _ = _history.read_history_page(sink, before=None, limit=sys.maxsize)
             live_ev, trunc_a = read_spool_tail(spool)
             rot_ev, trunc_b = read_spool_tail(rot)
-            spool_truncated = trunc_a or trunc_b
+            spool_truncated = trunc_a or trunc_b or sink_over_cap
 
             # D15: every row on this branch is `foreign` — this process holds no key
             # for these rows (they may legitimately be signed with another profile's

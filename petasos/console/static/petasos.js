@@ -980,24 +980,30 @@
 
   function startFallbackPolling() {
     if (_fallbackPollInterval) return;
-    function onHistory(d) {
-      if (Pet.auth.on401(d)) return; // PET-129 D4: on401 nulls _fallbackPollInterval before the reschedule .then runs, so the re-arm below no-ops
-      if (_scopeGuardHistory(d)) return; // PET-166 D7/D17: gen drop + coherent 422 state
-      if (!d.error && d.entries && Array.isArray(d.entries)) {
-        Pet.state.scanHistory = d.entries;
-        Pet.accrueBypass(d.entries); // PET-138: SSE-down path also feeds bypass state
-        _adoptHistoryScope(d);       // PET-166 D19: fallback assignments are writer sites too
-        if (Pet.state.tab === "obs" && _container) Pet.renderDashboard(_container);
-      }
+    function send() {
+      var gen = _scopeGen; // PET-166 D17: captured at send time, per request
+      return Pet.api.getScanHistory(100).then(function (d) {
+        if (Pet.auth.on401(d)) return; // PET-129 D4: on401 nulls _fallbackPollInterval before the reschedule .then runs, so the re-arm below no-ops
+        if (gen !== _scopeGen) return; // PET-166 D17: superseded scope — drop
+        if (_scopeGuardHistory(d)) return; // PET-166 D7: coherent 422 state
+        if (!d.error && d.entries && Array.isArray(d.entries)) {
+          Pet.state.scanHistory = d.entries;
+          Pet.accrueBypass(d.entries); // PET-138: SSE-down path also feeds bypass state
+          _adoptHistoryScope(d);       // PET-166 D19: fallback assignments are writer sites too
+          if (Pet.state.tab === "obs" && _container) Pet.renderDashboard(_container);
+        }
+      });
     }
+    // Both arms re-arm: a rejected tick (render throw, network reject) must not end
+    // the chain for the rest of the mount — the setInterval form it replaced survived
+    // a failed tick, and the 401 stop already runs through the nulled-interval guard.
+    function rearm() { if (_fallbackPollInterval) schedule(); }
     function schedule() {
       _fallbackPollInterval = setTimeout(function () {
-        Pet.api.getScanHistory(100).then(onHistory).then(function () {
-          if (_fallbackPollInterval) schedule();
-        });
+        send().then(rearm, rearm);
       }, 10000);
     }
-    Pet.api.getScanHistory(100).then(onHistory);
+    send();
     schedule();
   }
   function stopFallbackPolling() {
@@ -2628,8 +2634,12 @@
     // PET-111: fetch the authoritative armed bit once per obs ENTRY (guarded by
     // _armedSeeded — reset in mount/unmount/switchTab→obs) — never on every
     // SSE/poll re-render. Skip while a write is in flight so it can't clobber an
-    // optimistic value; paintBanner re-queries the live node.
-    if (!_armedSeeded && !_armedBusy) {
+    // optimistic value; paintBanner re-queries the live node. The !scopeError arm:
+    // a profile 422 resets the latch below (the bit was never read for that scope)
+    // and paints scopeError BEFORE its re-render, so this gate is what keeps the
+    // error re-render from re-fetching in a loop; the re-seed runs once a 200 on
+    // any scoped surface clears the error.
+    if (!_armedSeeded && !_armedBusy && !Pet.state.scopeError) {
       _armedSeeded = true;
       var _armedGen = _scopeGen; // PET-166 D17: captured at send time
       Pet.api.getArmed().then(function (d) {
@@ -2637,7 +2647,11 @@
         if (_armedGen !== _scopeGen) { _armedSeeded = false; return; } // superseded scope: leave un-seeded for the new scope's render
         if (Pet.isProfile422(d)) {
           // PET-166 D7: the coherent error state; never leave the prior bit painted
-          // as this profile's (the guard below would silently drop the 422).
+          // as this profile's (the guard below would silently drop the 422). The
+          // latch resets so the bit is re-read once the 422 clears — without this
+          // the banner keeps the previous scope's enforcement state for the rest
+          // of the scope (only mount/unmount/_invalidateScopeState reset it).
+          _armedSeeded = false;
           var _e0 = d.detail.filter(function (x) { return x && x.field === "profile"; })[0];
           Pet.state.scopeError = { surface: "armed", message: (_e0 && _e0.message) || "profile not found" };
           if (Pet.state.tab === "obs" && _container) Pet.renderDashboard(_container);
@@ -2708,7 +2722,7 @@
     // SSE-driven re-renders don't restart the fetch; it is reset only in
     // mount/unmount (never switchTab), so an obs→other→obs round-trip reuses
     // the SSE-maintained buffer rather than re-seeding.
-    if (!_historySeeded) {
+    if (!_historySeeded && !Pet.state.scopeError) { // !scopeError: same anti-loop arm as the armed seed above
       _historySeeded = true;
       // PET-148: every (re-)seed starts at the live head — drop any paged-back state from a
       // prior mount/profile (a `before` cursor is only meaningful within its own profile).
@@ -2718,7 +2732,7 @@
       Pet.api.getScanHistory(500).then(function (d) {
         if (Pet.auth.on401(d)) return; // PET-129 D3/§1: first statement, before the shape-guarded seed-merge
         if (_seedGen !== _scopeGen) { _historySeeded = false; return; } // PET-166: superseded scope
-        if (_scopeGuardHistory(d)) return; // PET-166 D7
+        if (_scopeGuardHistory(d)) { _historySeeded = false; return; } // PET-166 D7; un-latch so the seed re-runs once the 422 clears
         // startFallbackPolling response-shape guard, NOT the bare !d.error check:
         // _req never rejects on HTTP error (it resolves an error envelope), and a
         // 200 {} body lacking .entries would make the merge throw on .scan_id.
