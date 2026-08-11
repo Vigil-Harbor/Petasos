@@ -6,12 +6,16 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
 
 ## [0.3.0] - 2026-08-11
 
-Headline release since 0.2.0: the ingestion path is now guarded end to end
-(tool results scanned and annotated, with a session backstop that actually
-gates), the console's read surfaces follow the Hermes profile switcher with an
-honest foreign-data model, a new self-tamper detection family watches Petasos's
-own files, and two enforcement-reaching bugs are fixed (scanner config that
-never reached the enforcing pipeline; a failed init that used to disable
+Headline release since 0.2.0: the ingestion path gains bounded scanning and
+session gating. Read-only tool results are scanned inbound over an
+8,000-character window taken head and tail and annotated, never withheld, and
+repeated flagged reads now move the session ladder and stop later tool
+dispatch. The window is the bound, not a whole-payload guarantee: the middle
+of a larger result reaches the model unscanned and unannotated. Also: the
+console's read surfaces follow the Hermes profile switcher with an honest
+foreign-data model, a new self-tamper detection family watches Petasos's own
+control surfaces, and two enforcement-reaching bugs are fixed (scanner config
+that never reached the enforcing pipeline; a failed init that used to disable
 enforcement entirely).
 
 ### Changed
@@ -161,7 +165,12 @@ enforcement entirely).
   401. Detection-only by design: the findings are unsuppressible by
   construction (profile suppression cannot drop them), never block on their
   own, and render as a distinct amber `self-tamper` badge so red stays reserved
-  for actual blocks. `READ_ONLY_TOOLS` is promoted to a public export of
+  for actual blocks. The family lives in the tool guard's evaluate path, so it
+  runs only while `tool_guard_enabled` is on: disabling the guard bypasses
+  self-tamper classification along with tool-call tier evaluation. Profile
+  suppression still cannot drop the findings when they are raised, and the
+  content-scan escalation floor is a separate mechanism, unaffected by the
+  guard toggle. `READ_ONLY_TOOLS` is promoted to a public export of
   `petasos.session.guard`.
 
 ### Fixed
