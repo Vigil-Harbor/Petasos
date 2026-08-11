@@ -221,7 +221,7 @@ def client(request: pytest.FixtureRequest) -> Iterator[tuple[Any, str]]:
 
 
 def test_get_armed_reflects_read(client: tuple[Any, str], monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(armed_mod, "read_armed", lambda: False)
+    monkeypatch.setattr(armed_mod, "read_armed", lambda res=None: False)
     tc, path = client
     r = tc.get(path)
     assert r.status_code == 200

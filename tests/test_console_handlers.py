@@ -547,7 +547,7 @@ async def test_get_armed_reflects_read(
 ) -> None:
     import petasos.console._armed as armed_mod
 
-    monkeypatch.setattr(armed_mod, "read_armed", lambda: False)
+    monkeypatch.setattr(armed_mod, "read_armed", lambda res=None: False)
     assert await handlers.get_armed() == {"armed": False}
 
 

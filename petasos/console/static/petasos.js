@@ -339,10 +339,25 @@
     // past the oldest seeded row, so the first "Older" click skipped the band between the current
     // oldest buffered row and the stale boundary. The head boundary is now re-minted via a fresh
     // server round-trip on every head->older transition, and the "Older" affordance off the head
-    // gates on scanHistoryHasOlder(buffered, scans_total). The single "of N" total stays
-    // /health.scans_total (D-RESTART); paged views never compute a competing total.
+    // gates on scanHistoryHasOlder(buffered, scans_total) on the equipped branch; a
+    // non-equipped scope reads the server's has_older (PET-166 D12). The single "of N"
+    // total stays /health.scans_total (D-RESTART); paged views never compute a competing total.
     historyAtHead: true,
     historyStack: [],
+    // PET-166 (D19): payload-derived read-scope facts. readScope is the cross-surface
+    // scope object (null = the equipped form; all of standalone stays null);
+    // historyReadScope is the history panel's OWN copy, written only by scan-history
+    // 200s, because its two facts arrive on different endpoints. historyHasOlder is
+    // the server-emitted "Older" gate for the non-equipped branch; spoolTruncated is
+    // the D3 retention fact; scopeError is the D7 coherent 422 state; scopeNotice is
+    // the D20 "showing: equipped binding" client notice. All reset on scope change
+    // and unmount (D17).
+    readScope: null,
+    historyReadScope: null,
+    historyHasOlder: false,
+    spoolTruncated: false,
+    scopeError: null,
+    scopeNotice: false,
     // PET-138: session_id -> cumulative count of tool calls bypassed while disarmed.
     // Dedicated, eviction-proof state (the count rides a single rate-limited
     // heartbeat row that ages out of scanHistory); fed by Pet.accrueBypass.
@@ -456,6 +471,9 @@
       Pet.state.authRequired = true;
       stopPolling();
       stopFallbackPolling();
+      // PET-166 (D3): the scoped 30 s poll stops with the other transports; the gate
+      // in _syncScopePoll reads authRequired, so this clears the singleton timer.
+      if (typeof _syncScopePoll === "function") _syncScopePoll();
       if (Pet.sse) Pet.sse.disconnect(); // aborts SSE, resets _usingFallback, stops the fallback poll
       _armedSeeded = false;   // force a re-seed from server truth after re-auth (edge F-3)
       _historySeeded = false; // ditto for the scan-history buffer
@@ -575,15 +593,51 @@
     _put: function (path, body) {
       return this._req(path, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     },
+    // PET-166 (D10): the ONE derivation of the read scope the client sends. Empty
+    // string means "omit the parameter entirely" — all of standalone (source "none"),
+    // and an embedded host reporting no named profile, send nothing. The sole source
+    // is Pet.state.selectedHermesProfile (two writers, host path + in-console picker);
+    // reading hostProfile.profile directly would be a second derivation that diverges
+    // under the picker.
+    _scopeParam: function () {
+      if (!Pet.hostProfile || Pet.hostProfile.source === "none") return "";
+      var v = Pet.state.selectedHermesProfile;
+      return String(v == null ? "" : v).trim();
+    },
     getConfig: function (profile) { return this._get("/config" + (profile ? ("?profile=" + encodeURIComponent(profile)) : "")); },
     putConfig: function (patch) { return this._put("/config", patch); },
+    // postScan is deliberately NOT scoped (D10): a playground scan is a write against
+    // the equipped binding; the playground renders a note instead.
     postScan: function (text, dir, sid) { return this._post("/scan", { text: text, direction: dir, session_id: sid }); },
-    getHealth: function () { return this._get("/health"); },
-    getScanHistory: function (limit, before) { return this._get("/scan-history?limit=" + (limit || 100) + (before ? "&before=" + encodeURIComponent(before) : "")); },
+    getHealth: function () {
+      var p = this._scopeParam();
+      return this._get("/health" + (p ? "?profile=" + encodeURIComponent(p) : ""));
+    },
+    // PET-166 (D10): profile ALWAYS joins with "&" here — the path already carries
+    // "?limit=", so a "?profile=" append would parse as part of the before value (or
+    // limit) and silently fall back to the equipped scope on the primary surface.
+    getScanHistory: function (limit, before) {
+      var p = this._scopeParam();
+      return this._get("/scan-history?limit=" + (limit || 100)
+        + (before ? "&before=" + encodeURIComponent(before) : "")
+        + (p ? "&profile=" + encodeURIComponent(p) : ""));
+    },
     getProfiles: function () { return this._get("/profiles"); },
     getAbout: function () { return this._get("/about"); },
-    getArmed: function () { return this._get("/armed"); },
-    setArmed: function (a) { return this._post("/armed", { armed: a }); },
+    getArmed: function () {
+      var p = this._scopeParam();
+      return this._get("/armed" + (p ? "?profile=" + encodeURIComponent(p) : ""));
+    },
+    // PET-166 (D6): the write's selector rides in the BODY (never the query — the
+    // server 422s a query-borne one). opts.unscoped sends no selector: D16's
+    // equipped-name-null and unknown-binding states arm the process binding directly.
+    setArmed: function (a, opts) {
+      opts = opts || {};
+      var body = { armed: a };
+      var p = opts.unscoped ? "" : this._scopeParam();
+      if (p) body.profile = p;
+      return this._post("/armed", body);
+    },
   };
 
   // ── SSE client (fetch-based for auth header support) ──
@@ -599,6 +653,8 @@
     _reader: null,
     _abortCtrl: null,
     _usingFallback: false,        // D8: "polling is currently active" — true during transient backoff AND terminal concede
+    _scopeLive: true,             // PET-166 D9: false while the open stream is the idle (non-equipped) one
+    _scopeRefusal: null,          // PET-166 D9: "profile" | "capacity" | null — why a terminal refusal downgraded the chip
     _reconnectTimer: null,        // pending reconnect setTimeout handle, or null
     _reconnectAttempts: 0,        // consecutive failed attempts since the last durable stream
     _healthyTimer: null,          // pending durable-reset setTimeout handle (D11), or null
@@ -620,7 +676,18 @@
       var self = this;
       var gen = (self._gen += 1);                    // D12: this connection's generation
       if (self._abortCtrl) self._abortCtrl.abort();  // defensive; inert on the reconnect path (disconnect nulled it)
+      // PET-166 (D9): the reset point lives HERE, not in connect() — _scheduleReconnect
+      // calls _openStream directly (bypassing connect), and with the reset in connect()
+      // only, a reconnect landing on an equipped stream would leave the chip reading
+      // SCOPED over a live stream forever (the read_scope frame that clears it is
+      // emitted only on the non-equipped stream). Repainted before the fetch resolves.
+      self._scopeLive = true;
+      self._scopeRefusal = null;
+      if (Pet.updateConnStatus) Pet.updateConnStatus();
+      if (typeof _syncScopePoll === "function") _syncScopePoll();
       var url = Pet.api.baseUrl + "/events";
+      var _sp = Pet.api._scopeParam();
+      if (_sp) url += "?profile=" + encodeURIComponent(_sp);
       var headers = { "Accept": "text/event-stream" };
       // PET-129 D1/D5 (edge F-7): sse.connect is the single SSE client for both modes,
       // so exactly ONE credential is attached, keyed on the SAME embedded predicate as
@@ -651,6 +718,36 @@
           // reject or a non-401 non-ok status) still throws below -> the .catch keeps
           // PET-142's bounded-backoff reconnect, so the live/polling indicator is intact.
           if (resp.status === 401) { Pet.auth.on401({ _status: 401 }); return; }
+          // PET-166 (D9): a 422 (profile deleted between renders, D7) is TERMINAL —
+          // no reconnect, no fallback — and must itself downgrade the chip, because
+          // no stream opens so the read_scope frame that would clear _scopeLive
+          // never arrives. Same for the idle-arm 503 below, which is discriminated
+          // by its scope_refusal:"capacity" body marker; an UNMARKED 503 (the
+          // equipped stream's subscriber-cap refusal) keeps the shipped
+          // retry-then-fallback path.
+          if (resp.status === 422) {
+            self._scopeLive = false;
+            self._scopeRefusal = "profile";
+            if (Pet.updateConnStatus) Pet.updateConnStatus();
+            if (typeof _syncScopePoll === "function") _syncScopePoll();
+            return;
+          }
+          if (resp.status === 503) {
+            resp.json().then(function (b) {
+              if (gen !== self._gen) return;
+              if (b && b.scope_refusal === "capacity") {
+                self._scopeLive = false;
+                self._scopeRefusal = "capacity";
+                if (Pet.updateConnStatus) Pet.updateConnStatus();
+                if (typeof _syncScopePoll === "function") _syncScopePoll();
+                return;                        // terminal: an idle stream refused for capacity is not an outage
+              }
+              self._scheduleReconnect();       // unmarked 503: shipped retry-then-fallback
+            }).catch(function () {
+              if (gen === self._gen) self._scheduleReconnect();
+            });
+            return;
+          }
           if (!resp.ok) throw new Error(resp.status);
           if (!resp.body) throw new Error("no response body");
           var reader = resp.body.getReader();
@@ -794,6 +891,19 @@
       } else if (evType === "alert") {
         Pet.state.alerts.unshift(d);
         if (Pet.state.alerts.length > 200) Pet.state.alerts.length = 200;
+      } else if (evType === "read_scope") {
+        // PET-166 (D9/D19): the idle (non-equipped) stream's first frame. live:false
+        // downgrades the chip to SCOPED and starts the D3 scoped poll; the frame
+        // carries exactly the read_scope object, so it is adopted as-is.
+        if (d && typeof d === "object") {
+          Pet.state.readScope = d;
+          if (d.live === false) {
+            this._scopeLive = false;
+            this._scopeRefusal = null;
+            if (Pet.updateConnStatus) Pet.updateConnStatus();
+            if (typeof _syncScopePoll === "function") _syncScopePoll();
+          }
+        }
       } else if (evType === "armed") {
         // PET-116: live cross-tab sync of the Equipped/Unequipped bit. _dispatch
         // cannot call paintBanner (a renderDashboard-local closure); it adopts the
@@ -840,10 +950,21 @@
   function startPolling() {
     if (_pollInterval) return;
     _pollInterval = setInterval(function () {
+      var gen = _scopeGen; // PET-166 D17: captured at send time
       Pet.api.getHealth().then(function (d) {
-        if (Pet.auth.on401(d)) return; // PET-129 D3/D4: first statement; a 401 stops the poll, never an empty-success no-op
+        if (Pet.auth.on401(d)) return; // PET-129 D3/D4/§1: first statement; a 401 stops the poll, never an empty-success no-op
+        if (gen !== _scopeGen) return; // PET-166: superseded scope
+        if (Pet.isProfile422(d)) {
+          // PET-166 D7: a 422 body carries no `error`; without this branch the shape
+          // gate below would wipe the health/integrity panels every 10 s.
+          var e0 = d.detail.filter(function (x) { return x && x.field === "profile"; })[0];
+          Pet.state.scopeError = { surface: "health", message: (e0 && e0.message) || "profile not found" };
+          if (Pet.state.tab === "obs" && _container) Pet.renderDashboard(_container);
+          return;
+        }
         if (!d.error) {
           _healthLoaded = true;  // PET-127: a poll settle that beats a slow in-render fetch flips the gate, not the skeleton
+          _adoptReadScope(d);    // PET-166 D19: health 200s are a readScope writer
           Pet.state.scannerHealth = d.scanners || [];
           Pet.state.pipelineHealth = d.pipeline || null;
           Pet.state.integrityHealth = d.integrity || null; // PET-157: mirror pipelineHealth (recurring poll)
@@ -859,32 +980,158 @@
 
   function startFallbackPolling() {
     if (_fallbackPollInterval) return;
+    function onHistory(d) {
+      if (Pet.auth.on401(d)) return; // PET-129 D4: on401 nulls _fallbackPollInterval before the reschedule .then runs, so the re-arm below no-ops
+      if (_scopeGuardHistory(d)) return; // PET-166 D7/D17: gen drop + coherent 422 state
+      if (!d.error && d.entries && Array.isArray(d.entries)) {
+        Pet.state.scanHistory = d.entries;
+        Pet.accrueBypass(d.entries); // PET-138: SSE-down path also feeds bypass state
+        _adoptHistoryScope(d);       // PET-166 D19: fallback assignments are writer sites too
+        if (Pet.state.tab === "obs" && _container) Pet.renderDashboard(_container);
+      }
+    }
     function schedule() {
       _fallbackPollInterval = setTimeout(function () {
-        Pet.api.getScanHistory(100).then(function (d) {
-          if (Pet.auth.on401(d)) return; // PET-129 D4: on401 nulls _fallbackPollInterval before the reschedule .then runs, so the re-arm below no-ops
-          if (!d.error && d.entries && Array.isArray(d.entries)) {
-            Pet.state.scanHistory = d.entries;
-            Pet.accrueBypass(d.entries); // PET-138: SSE-down path also feeds bypass state
-            if (Pet.state.tab === "obs" && _container) Pet.renderDashboard(_container);
-          }
-        }).then(function () {
+        Pet.api.getScanHistory(100).then(onHistory).then(function () {
           if (_fallbackPollInterval) schedule();
         });
       }, 10000);
     }
-    Pet.api.getScanHistory(100).then(function (d) {
-      if (Pet.auth.on401(d)) return; // PET-129 D4: a 401 on the initial fallback read enters the authenticate state
-      if (!d.error && d.entries && Array.isArray(d.entries)) {
-        Pet.state.scanHistory = d.entries;
-        Pet.accrueBypass(d.entries); // PET-138: SSE-down path also feeds bypass state
-        if (Pet.state.tab === "obs" && _container) Pet.renderDashboard(_container);
-      }
-    });
+    Pet.api.getScanHistory(100).then(onHistory);
     schedule();
   }
   function stopFallbackPolling() {
     if (_fallbackPollInterval) { clearTimeout(_fallbackPollInterval); _fallbackPollInterval = null; }
+  }
+
+  // ── PET-166: read-scope plumbing (D3/D17/D19/D20) ──
+
+  // Scope generation: bumped on every scope change (either axis); captured by every
+  // scoped fetch at send time so a superseded resolve is dropped (_cfgRenderGen pattern
+  // extended to all five new surfaces).
+  var _scopeGen = 0;
+
+  // D3: the 30 s scoped history poll. A SINGLETON with an idempotent start (the
+  // startFallbackPolling / _scheduleReconnect guard pattern): a scope change re-uses
+  // the running timer rather than starting a second — the poll is keyed on "a foreign
+  // scope is on screen", not on which profile it is. Gate: !_scopeLive || foreign.
+  // Keyed on the stream's own liveness as well as the scope so the SDK-fallback
+  // equipped flip (which triggers no rebind and no reconnect) cannot strand a frozen
+  // panel: the poll keeps running until a stream that is actually live replaces the
+  // idle one. The hoisted server drain rides every one of these calls, keeping our
+  // own fold and rotation alive while parked on a foreign profile.
+  var _scopePollTimer = null;
+  var _SCOPE_POLL_MS = 30000;
+  function _syncScopePoll() {
+    var want = !Pet.state.authRequired
+      && Pet.hostProfile && Pet.hostProfile.source !== "none"
+      && (!(Pet.sse && Pet.sse._scopeLive) || Pet.isForeignScope());
+    if (!want) {
+      if (_scopePollTimer) { clearInterval(_scopePollTimer); _scopePollTimer = null; }
+      return;
+    }
+    if (_scopePollTimer) return; // singleton: one timer regardless of switch count
+    _scopePollTimer = setInterval(function () {
+      var gen = _scopeGen;
+      Pet.api.getScanHistory(100).then(function (d) {
+        if (Pet.auth.on401(d)) return;            // PET-129 §1: on401 first, always
+        if (gen !== _scopeGen) return;            // superseded scope: drop
+        if (_scopeGuardHistory(d)) return;
+        if (!d.error && d.entries && Array.isArray(d.entries)) {
+          Pet.state.scanHistory = d.entries;
+          Pet.accrueBypass(d.entries);
+          _adoptHistoryScope(d);
+          if (Pet.state.tab === "obs" && _container) Pet.renderDashboard(_container);
+        }
+      });
+    }, _SCOPE_POLL_MS);
+  }
+
+  // D19: adopt a scan-history 200's scope facts. Called from ALL FOUR scan-history
+  // writer sites (mount seed, both fallback assignments, the 30 s scoped poll) —
+  // never a subset. "Believes it scoped" is derived per call from the same
+  // _scopeParam the request was built with (the request and this adoption run
+  // within one scope generation; a moved generation was dropped above).
+  function _adoptHistoryScope(d) {
+    if (!d || typeof d !== "object") return;
+    var sentScoped = Pet.api._scopeParam() !== "";
+    var rs = d.read_scope;
+    if (rs && typeof rs === "object") {
+      Pet.state.readScope = rs;
+      // Written on EVERY carrying 200, equipped included — a label that can only
+      // hold a foreign value has no way back to equipped (D19).
+      Pet.state.historyReadScope = rs;
+      Pet.state.spoolTruncated = d.spool_truncated === true;
+      if (rs.state !== "equipped" && typeof d.has_older === "boolean") {
+        Pet.state.historyHasOlder = d.has_older; // non-equipped writer only (D12)
+      }
+      if (sentScoped) Pet.state.scopeNotice = rs.selected == null; // D20 (defensive arm)
+    } else if (sentScoped) {
+      // A 200 the client believes it scoped that carries no read_scope clears the
+      // fields (stale backend / bundle skew) and raises the D20 notice.
+      Pet.state.readScope = null;
+      Pet.state.historyReadScope = null;
+      Pet.state.spoolTruncated = false;
+      Pet.state.historyHasOlder = false;
+      Pet.state.scopeNotice = true;
+    }
+    Pet.state.scopeError = null; // a 200 on this surface clears the D7 error state
+    _syncScopePoll();
+  }
+
+  // D19: the health/armed flavor of the adoption above (those payloads carry only
+  // read_scope). Only 200s call this; a 422/409/503 leaves readScope untouched.
+  function _adoptReadScope(d) {
+    if (!d || typeof d !== "object") return;
+    var sentScoped = Pet.api._scopeParam() !== "";
+    if (d.read_scope && typeof d.read_scope === "object") {
+      Pet.state.readScope = d.read_scope;
+      if (sentScoped) Pet.state.scopeNotice = d.read_scope.selected == null;
+    } else if (sentScoped) {
+      Pet.state.readScope = null;
+      Pet.state.scopeNotice = true;
+    }
+    Pet.state.scopeError = null;
+    _syncScopePoll();
+  }
+
+  // D7: shared 422 branch for the scoped readers. Sets the ONE coherent error state
+  // (never four independent error boxes) and reports true so the caller returns
+  // before its shape-guarded body can wipe healthy panels with a detail-only body.
+  function _scopeGuardHistory(d) {
+    if (!Pet.isProfile422(d)) return false;
+    var e0 = d.detail.filter(function (x) { return x && x.field === "profile"; })[0];
+    Pet.state.scopeError = { surface: "scan-history", message: (e0 && e0.message) || "profile not found" };
+    if (Pet.state.tab === "obs" && _container) Pet.renderDashboard(_container);
+    return true;
+  }
+
+  // D17: invalidate every scoped surface on a host-profile change, on EITHER axis
+  // (management selection or equipped flip). Pet.state.armed deliberately does NOT
+  // reset (a null paints a false EQUIPPED); Pet.state.historyFilter deliberately
+  // survives (a view preference, not profile data).
+  function _invalidateScopeState() {
+    _scopeGen++;
+    _historySeeded = false;
+    _armedSeeded = false;
+    _historyPaging = false;
+    _historyPagingGen++;         // drop an in-flight PET-152 two-fetch re-mint chain
+    clearArmedConfirm();         // a confirm window formed about the previous profile
+    Pet.state.scanHistory = [];
+    Pet.state.bypassBySession = {};
+    Pet.state.historyStack = [];
+    Pet.state.historyAtHead = true;
+    Pet.state.readScope = null;           // null = the equipped form until the first 200 lands
+    Pet.state.historyReadScope = null;
+    Pet.state.historyHasOlder = false;
+    Pet.state.spoolTruncated = false;
+    Pet.state.scopeError = null;
+    Pet.state.scopeNotice = false;
+    if (!Pet.state.authRequired) {
+      Pet.sse.connect();         // disconnect + reconnect with the new scope, exactly once
+    }
+    _syncScopePoll();
+    if (Pet.state.tab === "obs" && _container) Pet.renderDashboard(_container);
   }
 
   // PET-129 D4: read-only testability seam over the module-private poll timers
@@ -900,6 +1147,14 @@
   };
   // Convenience alias for the read-only probe (some call sites reference Pet._pollState).
   Pet._pollState = Pet._poll.state;
+
+  // PET-166: read-only testability seam over the IIFE-private armed latches (the
+  // PET-129 D4 poll-timer seam pattern: exposes state, adds no behavior), plus the
+  // scoped-poll probe so js/scope-poll-is-singleton can count timers.
+  Pet._armedTestState = function () {
+    return { busy: _armedBusy, seeded: _armedSeeded, confirmPending: _armedConfirmPending };
+  };
+  Pet._scopePollState = function () { return { running: !!_scopePollTimer }; };
 
   // ── Surface renderers ──
 
@@ -1160,8 +1415,11 @@
       // "genuine" / "unverifiable" map through — an absent / non-string / unknown value
       // renders as "unattested" (not a crash, not a false "genuine"), gated the way the
       // PET-138 bypassed_count path guards its input. No-em-dash house style for the copy.
+      // PET-166 (D15): `foreign` joins the map — rows read from a profile this
+      // dashboard is not bound to, signed with a key we do not hold. Muted copy,
+      // never tamper copy; an unknown value still collapses to unattested.
       var prv = e.provenance;
-      var provState = (prv === "genuine" || prv === "unverifiable") ? prv : "unattested";
+      var provState = (prv === "genuine" || prv === "unverifiable" || prv === "foreign") ? prv : "unattested";
       var attClass, attText;
       if (provState === "genuine") {
         attClass = "sd-prov-att sd-prov-genuine";
@@ -1169,6 +1427,9 @@
       } else if (provState === "unverifiable") {
         attClass = "sd-prov-att sd-prov-unverifiable";
         attText = "Unverified: signature missing or invalid; this row may not be a genuine Petasos decision.";
+      } else if (provState === "foreign") {
+        attClass = "sd-prov-att sd-prov-foreign";
+        attText = "Signed by another profile's key; not verifiable from here.";
       } else {
         attClass = "sd-prov-att sd-prov-unattested";
         attText = "Integrity not configured: no signing key is set, so this row cannot be attested.";
@@ -1588,6 +1849,181 @@
     return Number.isFinite(b) && Number.isFinite(t) && b > 0 && t > b;
   };
 
+  // ── PET-166: read-scope pure seams ──
+  // Every one of these is pure over its arguments (no DOM, no network), matching the
+  // discipline of every other history label in this file, and for the same stated
+  // reason: no tests/js module drives renderDashboard, so a decision living inline
+  // at the render site would be unassertable.
+
+  // D19: THE one non-equipped predicate. Zero-arg form reads Pet.state.readScope; the
+  // history panel passes Pet.state.historyReadScope explicitly (its facts arrive on a
+  // different endpoint). null/undefined (all of standalone; the pre-first-200 window)
+  // is the equipped form — never a bare .state dereference anywhere else.
+  Pet.isForeignScope = function (scope) {
+    if (arguments.length === 0) scope = Pet.state.readScope;
+    return !!scope && scope.state !== "equipped";
+  };
+
+  // D7: the shared "is this a scoped-profile 422" test. Status-keyed (a 422 body
+  // carries no `error`, so the readers' `!d.error` gates would treat it as an empty
+  // success and wipe healthy panels). Checked AFTER Pet.auth.on401 in every reader.
+  Pet.isProfile422 = function (d) {
+    return !!(d && d._status === 422 && Array.isArray(d.detail)
+      && d.detail.some(function (e) { return e && e.field === "profile"; }));
+  };
+
+  // D12: staleness derived client-side from the newest row of the UNFILTERED head
+  // buffer. Returns null (age clause dropped) for no rows or a non-numeric
+  // timestamp; a future timestamp clamps to "just now" rather than taking the fresh
+  // branch off a bogus negative age. { label, stale } with stale at >= 1 h.
+  Pet.scanHistoryAge = function (rows) {
+    if (!rows || !rows.length) return null;
+    var r = rows[0];
+    var ts = (r && typeof r === "object") ? r.timestamp : null;
+    if (typeof ts !== "number" || !isFinite(ts)) return null;
+    var age = (Date.now() / 1000) - ts;
+    if (age < 0) age = 0; // skewed profile clocks: clamp, never a negative "freshest" age
+    var d = new Date(ts * 1000);
+    var hh = ("0" + d.getHours()).slice(-2), mm = ("0" + d.getMinutes()).slice(-2);
+    var ago;
+    if (age < 60) ago = "just now";
+    else if (age < 3600) ago = Math.floor(age / 60) + "m ago";
+    else if (age < 86400) ago = Math.floor(age / 3600) + "h ago";
+    else ago = Math.floor(age / 86400) + "d ago";
+    return { label: "newest " + hh + ":" + mm + " (" + ago + ")", stale: age >= 3600 };
+  };
+
+  // D12: the scoped subtitle seam beside the shipped scanHistorySubtitle (whose
+  // two-argument signature is deliberately NOT widened). `body` is a string, not a
+  // count, so one seam mints both foreign forms: "showing last 12" at head and the
+  // historyPageLabel when paged. It emits the trailing self-tamper clause ITSELF
+  // from filterOn — the render site skips PET-165's append on the seam arms so the
+  // clause can never render twice.
+  Pet.scopedHistorySubtitle = function (body, profileName, ageLabel, stale, filterOn) {
+    var s = String(body == null ? "" : body) + " for " + String(profileName == null ? "" : profileName);
+    if (ageLabel) s += " · " + ageLabel;
+    if (stale) s += " · stale";
+    if (filterOn) s += " · self-tamper only";
+    return s;
+  };
+
+  // D12: the foreign "Older" gate. Keeps scanHistoryHasOlder's b > 0 term (a
+  // transiently-empty buffer is a per-switch event now, and paging off it re-mints
+  // from the Nth-newest row and silently omits the head band — PET-152 E-2/E-4);
+  // only the total moves to the server-emitted has_older boolean.
+  Pet.scopedHistoryHasOlder = function (bufferLength, hasOlder) {
+    var b = Number(bufferLength);
+    return Number.isFinite(b) && b > 0 && hasOlder === true;
+  };
+
+  // D12: the empty-state ladder, PET-165's arm order preserved exactly with one new
+  // arm appended and scope-aware copy inside. Returns { arm, text } when the render
+  // site should print an empty-state body, and null when it should call
+  // Pet.scanHistoryRows — null for arm 4 AND arm 3's equipped branch, which is what
+  // keeps the "no scans yet" literal owned solely by scanHistoryRows. The !histPaged
+  // guard on arm 3 is load-bearing: while paged, the live buffer emptying underneath
+  // must not replace fetched rows with an empty-state sentence (PET-148).
+  Pet.historyEmptyState = function (hist, histRowsData, histPaged, histEffFilter, isForeign, profileName) {
+    hist = hist || [];
+    histRowsData = histRowsData || [];
+    if (histPaged && histRowsData.length === 0) {
+      return { arm: 1, text: Pet.historyPageLabel(histPaged) }; // positional, never named (D12)
+    }
+    if (histEffFilter === "selfmod" && histRowsData.length === 0) {
+      if (isForeign) {
+        if (hist.length === 0) {
+          // the filter is not why anything is missing; the copy is arm 3's
+          return { arm: 3, text: "no scans retained for " + String(profileName || "") };
+        }
+        return { arm: 2, text: "no self-tamper events among the rows retained for " + String(profileName || "") };
+      }
+      return { arm: 2, text: "No self-tamper events in the buffered window." }; // PET-165 verbatim
+    }
+    if (!histPaged && hist.length === 0 && isForeign) {
+      return { arm: 3, text: "no scans retained for " + String(profileName || "") };
+    }
+    return null;
+  };
+
+  // D8: the self-tamper tile keeps its value under a foreign scope and RELABELS to
+  // name the binding it counts — it is a lifetime fact about the process that is
+  // actually enforcing, and suppressing it would hide a live security signal to
+  // avoid a labelling problem. The HelpTip is amended in the same seam because
+  // "the scan history below" is another profile's file under a foreign scope.
+  Pet.selfmodTileLabel = function (isForeign) {
+    if (isForeign) {
+      return {
+        label: "self-tamper (this dashboard's binding)",
+        help: "<b>Self-tamper</b>: tool calls that tried to write or read Petasos's own config, profile homes, or enforcement spool. Counted since this console started, for the profile this dashboard is bound to; the scan history below shows the selected profile instead. Detection only: these calls were not blocked.",
+      };
+    }
+    return {
+      label: "self-tamper",
+      help: "<b>Self-tamper</b>: tool calls that tried to write or read Petasos's own config, profile homes, or enforcement spool. Counted since this console started, so it does not fall when older rows age out of the scan history below. Detection only: these calls were not blocked.",
+    };
+  };
+
+  // D9: the connection chip's three-state decision, in a fixed order: POLLING
+  // outranks SCOPED (a dead connection is the more urgent fact), else SCOPED, else
+  // LIVE. The refusal titles never name the refused profile — the SCOPED tooltip
+  // must not assert a scoped read of a name the server just declined to resolve.
+  Pet.connChipView = function (usingFallback, scopeLive, refusal) {
+    if (usingFallback) {
+      return { className: "live polling", label: "POLLING", title: "Live stream unavailable; polling every 10s." };
+    }
+    if (!scopeLive) {
+      var title;
+      if (refusal === "profile") title = "live stream refused: profile not found";
+      else if (refusal === "capacity") title = "live stream refused: event stream at capacity";
+      else {
+        var sel = Pet.state.selectedHermesProfile;
+        title = "Viewing " + (sel ? String(sel) : "another profile") + "; live events stream only for the equipped profile. History refreshes every 30s.";
+      }
+      return { className: "live scoped", label: "SCOPED", title: title };
+    }
+    return { className: "live", label: "LIVE", title: "Live updates streaming." };
+  };
+
+  // D10: the playground note decision. A playground scan runs through the live
+  // pipeline (a write against the equipped binding), so a foreign read scope gets a
+  // one-line note instead of a result that never appears in the panel below.
+  Pet.playgroundScopeNote = function (scope) {
+    return Pet.isForeignScope(scope)
+      ? "this scan ran against the equipped binding; it will not appear in the selected profile's history"
+      : null;
+  };
+
+  // D17: the armed-write resolution decision (the PET-129 D3 bannerView extraction
+  // pattern: the decision is a pure seam, paintBanner stays the render-local
+  // painter). The caller clears _armedBusy FIRST and routes 401 SECOND; this seam
+  // then decides. On a moved scope generation it says drop-and-re-read: never
+  // reconcile the stale optimistic bit, never banner the prior scope's message.
+  Pet.armedWriteView = function (ctx) {
+    ctx = ctx || {};
+    var d = ctx.response || {};
+    if (ctx.scopeMoved) {
+      return { action: "drop", armedSeeded: false, banner: null, reread: true };
+    }
+    if (d._status === 409) {
+      var e0 = Array.isArray(d.detail) ? d.detail[0] : null;
+      return {
+        action: "refused", armedSeeded: false, reread: true,
+        banner: (e0 && e0.message) || "arming refused: not the equipped profile",
+        armed: !ctx.next, // revert the optimistic bit; the re-read lands server truth
+      };
+    }
+    if (Pet.isProfile422(d)) {
+      var e1 = d.detail.filter(function (x) { return x && x.field === "profile"; })[0];
+      return {
+        action: "rejected", armedSeeded: false, reread: true,
+        banner: (e1 && e1.message) || "profile rejected",
+        armed: !ctx.next,
+      };
+    }
+    var ok = d && !d.error && (!d._status || d._status < 400) && typeof d.armed === "boolean";
+    return { action: "reconcile", armedSeeded: true, banner: null, reread: false, armed: ok ? d.armed : !ctx.next };
+  };
+
   // PET-148: positional label for a paged-back history view (D-RESTART). NEVER a numeric
   // total — the only "of N" headline anywhere stays scanHistorySubtitle (scans_total from
   // /health). An empty page is retention-honest: "no older retained history" when the
@@ -1816,9 +2252,21 @@
       var mark = b.querySelector(".equip-mark");
       if (mark) mark.src = Pet.asset(view.on ? "img/petasos-equipped.png" : "img/petasos-unequipped.png");
     };
+    // PET-166 (D16): the arm control is the ONE consumer that reads scope state
+    // directly (it discriminates three states, not two), through a null guard so the
+    // absent case (all of standalone) takes the ordinary equipped affordance.
+    var _armScope = Pet.state.readScope || {};
+    var _armSt = _armScope.state;
+    var _armDisabled = _armSt === "not_equipped" && _armScope.equipped != null;
+    // equipped_name null (a HERMES_HOME/root binding outside profiles/) or an
+    // unresolvable equipped path: keep the toggle ENABLED but send NO scope — an
+    // unscoped arm targets the process binding, the only arming target that exists.
+    var _armUnscoped = (Pet.state.readScope != null)
+      && (_armSt === "unknown" || _armScope.equipped == null);
     var doToggle = function () {
       if (Pet.state.authRequired) return; // PET-129 D3: no toggling (or EQUIPPED repaint) while unauthenticated
       if (_armedBusy) return;  // ignore rapid re-clicks while a write is in flight
+      if (_armDisabled) return; // PET-166 D6/D16: arming a non-equipped profile is refused client-side too
       var on = Pet.state.armed !== false;
       // Disarming is the high-stakes direction: require a confirming 2nd click.
       // Arming protection back ON stays one click.
@@ -1831,16 +2279,44 @@
       clearArmedConfirm();
       var next = !on;
       _armedBusy = true;
+      var gen = _scopeGen; // PET-166 D17: captured at send time, checked at resolve
       Pet.state.armed = next; paintBanner();  // optimistic (live re-query, survives re-render)
-      Pet.api.setArmed(next).then(function (d) {
+      Pet.api.setArmed(next, { unscoped: _armUnscoped }).then(function (d) {
+        // PET-166 D17: the order below is the deliverable. (1) the latch clears
+        // unconditionally — a return above this line strands the toggle dead for the
+        // rest of the mount; (2) 401 enters the authenticate state even on a
+        // superseded scope (PET-129 §1); (3) the scope-generation drop; (4) reconcile.
         _armedBusy = false; // cleared on EVERY path (incl. the 401 route below) so re-auth can re-seed
-        // PET-129 D3: a toggle that 401s also enters the authenticate state (on401
-        // already re-renders); route it through the chokepoint before reconciling.
         if (Pet.auth.on401(d)) return;
-        _armedSeeded = true;  // a settled write IS a fresh seed -> no spurious follow-up GET
-        var ok = d && !d.error && (!d._status || d._status < 400) && typeof d.armed === "boolean";
-        Pet.state.armed = ok ? d.armed : !next;  // reconcile to authoritative value, else revert
-        paintBanner();
+        var view = Pet.armedWriteView({ scopeMoved: gen !== _scopeGen, response: d, next: next });
+        _armedSeeded = view.armedSeeded;
+        if (view.action === "drop") {
+          // leave the re-seed to the render path (:re-seed guard) so the new scope's
+          // bit is re-read from the server rather than inherited or reconciled.
+          if (Pet.state.tab === "obs" && _container) Pet.renderDashboard(_container);
+          return;
+        }
+        if (view.armed !== undefined) Pet.state.armed = view.armed;
+        if (view.banner) {
+          // D16/D6: render the refusal in the banner sub line and announce for AT.
+          var subEl = _container && _container.querySelector(".equip-banner .equip-sub");
+          if (subEl) subEl.textContent = view.banner;
+          if (Pet.announce) Pet.announce(view.banner);
+        } else {
+          paintBanner();
+        }
+        if (view.reread) {
+          Pet.api.getArmed().then(function (rd) {
+            if (Pet.auth.on401(rd)) return;
+            if (gen !== _scopeGen) return;
+            if (_armedBusy) return;
+            _adoptReadScope(rd);
+            if (rd && !rd.error && typeof rd.armed === "boolean") {
+              Pet.state.armed = rd.armed;
+              paintBanner();
+            }
+          });
+        }
       });
     };
     var armedOn = Pet.state.armed !== false;
@@ -1850,6 +2326,7 @@
       role: "switch", ariaChecked: armedOn ? "true" : "false",
       ariaLabel: "Petasos enforcement: " + (armedOn ? "equipped, click to unequip" : "unequipped, click to equip")
     });
+    if (_armDisabled) armedSwitch.disabled = true;
     armedSwitch.addEventListener("keydown", function (e) {
       if (e.key === "Enter" || e.key === " ") { e.preventDefault(); doToggle(); }
     });
@@ -1862,6 +2339,35 @@
       Pet.HelpTip("<b>Equipped</b>: master switch. <b>Unequipped</b> disables <b>all</b> Petasos enforcement (scan, guard, audit) for this and running sessions, applied by the next tool call. Backed by <code>petasos.enabled</code>."),
       armedSwitch
     ));
+    // PET-166 (D16): label the arm control with what it will act on. Three states:
+    // not_equipped with a named equipped profile -> disabled with a reason; equipped
+    // name null -> enabled, unscoped, labelled; binding unresolvable -> same.
+    if (_armDisabled) {
+      wrapper.appendChild(Pet.h("div", { className: "mono", role: "status", style: { fontSize: "11px", color: "var(--tx-faint)" } },
+        "arming is disabled here: " + String(_armScope.selected || "the selected profile") + " is not the equipped profile (" + String(_armScope.equipped) + " is)"));
+    } else if (_armUnscoped) {
+      wrapper.appendChild(Pet.h("div", { className: "mono", role: "status", style: { fontSize: "11px", color: "var(--tx-faint)" } },
+        _armSt === "unknown"
+          ? "could not verify this dashboard's binding; arming targets it directly"
+          : "arming targets this dashboard's binding, not the selected profile"));
+    }
+    // PET-166 (D20): the client-side scope notice — a 200 the client believes it
+    // scoped came back without a confirmed scope, so what is shown below is the
+    // equipped binding's data, said out loud rather than misattributed.
+    if (Pet.state.scopeNotice) {
+      wrapper.appendChild(Pet.h("div", { role: "status", className: "notice" },
+        Pet.Icon("warn"),
+        Pet.h("span", {}, "showing: equipped binding. The backend did not confirm the selected profile scope; re-sync the console bundle if this persists.")));
+    }
+    // PET-166 (D7): the coherent scoped-422 state — ONE box, not four independent
+    // error panels, and the stale panels below are not painted under it.
+    if (Pet.state.scopeError) {
+      wrapper.appendChild(Pet.h("div", { role: "alert", className: "notice" },
+        Pet.Icon("warn"),
+        Pet.h("span", {}, "this profile has no Petasos configuration yet (" + String(Pet.state.scopeError.message || "profile not resolved") + ")")));
+      container.appendChild(wrapper);
+      return;
+    }
 
     // ── Metric tiles, computed from the in-memory scan-history buffer ──
     // (PET-102) The SSE scan_result handler maintains Pet.state.scanHistory and
@@ -1939,9 +2445,14 @@
     // counters in the row, so the buffer-scoped four read as a block and the two
     // differently-scaled ones are neighbours rather than scattered among them. The
     // HelpTip carries the scale, since a bare number cannot say which window it counts.
-    metricsRow.appendChild(valueTile("self-tamper", selfmodTotal, selfmodTotal > 0, {
+    // PET-166 (D8): under a foreign scope the tile keeps its value and RELABELS to
+    // name the binding it counts (a lifetime fact about the process actually
+    // enforcing); the HelpTip is amended in the same seam because "the scan history
+    // below" is another profile's file there.
+    var selfmodView = Pet.selfmodTileLabel(Pet.isForeignScope());
+    metricsRow.appendChild(valueTile(selfmodView.label, selfmodTotal, selfmodTotal > 0, {
       tone: "amber",
-      help: Pet.HelpTip("<b>Self-tamper</b>: tool calls that tried to write or read Petasos's own config, profile homes, or enforcement spool. Counted since this console started, so it does not fall when older rows age out of the scan history below. Detection only: these calls were not blocked."),
+      help: Pet.HelpTip(selfmodView.help),
     }));
     wrapper.appendChild(metricsRow);
 
@@ -1992,28 +2503,63 @@
     var histRowsData = histPaged
       ? (Array.isArray(histPaged.entries) ? histPaged.entries : [])
       : Pet.filterHistoryRows(hist, histEffFilter);
-    var histSubtitle = histPaged
-      ? Pet.historyPageLabel(histPaged)
-      : Pet.scanHistorySubtitle(
-          hist.length,
-          Pet.state.pipelineHealth && Pet.state.pipelineHealth.scans_total
-        );
+    // PET-166 (D19): the WHOLE history panel reads one source — the scan-history
+    // payload's own scope copy — never Pet.state.readScope, whose health-poll writer
+    // can land first after a switch and would paint "no scans retained for beta"
+    // over a buffer D17 just emptied.
+    var histForeign = Pet.isForeignScope(Pet.state.historyReadScope);
+    var histProfileName = histForeign && Pet.state.historyReadScope && Pet.state.historyReadScope.selected
+      ? String(Pet.state.historyReadScope.selected) : "";
+    // D12: the age label is computed over the UNFILTERED head buffer, never the
+    // filtered rows (a fresh profile with no selfmod rows must not read stale), and
+    // it is head-only (a back-page is older than the head by construction).
+    var histAge = histPaged ? null : Pet.scanHistoryAge(hist);
+    // PET-166 (D12): four-state subtitle selector. paged+equipped -> the positional
+    // page label (unchanged); paged+foreign -> the scoped seam with the page label
+    // as body (the view reaching furthest into another profile's data must say
+    // whose it is); head+foreign -> the scoped seam with the count as body (no
+    // "of N" — we have no lifetime count for a process we are not); head+equipped ->
+    // the shipped seam, with the age clause appended at the render site so its
+    // two-argument signature stays untouched.
+    var histFilterOn = histEffFilter === "selfmod";
+    var histSubtitle;
+    if (histPaged) {
+      histSubtitle = histForeign
+        ? Pet.scopedHistorySubtitle(Pet.historyPageLabel(histPaged), histProfileName, null, false, histFilterOn)
+        : Pet.historyPageLabel(histPaged);
+    } else if (histForeign) {
+      histSubtitle = Pet.scopedHistorySubtitle(
+        "showing last " + hist.length, histProfileName,
+        histAge && histAge.label, !!(histAge && histAge.stale), histFilterOn
+      );
+    } else {
+      histSubtitle = Pet.scanHistorySubtitle(
+        hist.length,
+        Pet.state.pipelineHealth && Pet.state.pipelineHealth.scans_total
+      );
+      if (histAge) histSubtitle = histSubtitle + " · " + histAge.label + (histAge.stale ? " · stale" : "");
+    }
     // PET-165: the filter APPENDS to the subtitle, never rewrites it. The counts stay the
     // unfiltered window's (so "showing last 500 of 1200" keeps meaning what PET-144 made
     // it mean), but a list showing 2 of 500 buffered rows under a bare "recent evaluations"
     // would misdescribe itself. One trailing clause fixes that without minting a second,
     // filter-scoped total the operator would have to reconcile against the tile.
-    if (histEffFilter === "selfmod") histSubtitle = histSubtitle + " · self-tamper only";
+    // PET-166 (D12): SKIPPED on the scopedHistorySubtitle arms — the seam emits the
+    // clause itself from filterOn, so appending here would render it twice.
+    if (histFilterOn && !histForeign) histSubtitle = histSubtitle + " · self-tamper only";
     // PET-152: "Older" is offered when an older cursor exists (the paged view's next_before) or,
     // off the live head, when scanHistoryHasOlder reports retained rows older than the live window
-    // — gated on the SAME lifetime scans_total the subtitle reads (:1631), never a cached seed
+    // — gated on the SAME lifetime scans_total the subtitle reads on the equipped branch; a
+    // non-equipped scope reads the server's has_older (PET-166 D12) — never a cached seed
     // cursor that goes stale after ring eviction. "Newer" only when paged back.
     var histCanOlder = histPaged
-      ? (histPaged.nextBefore != null)
-      : Pet.scanHistoryHasOlder(
-          hist.length,
-          Pet.state.pipelineHealth && Pet.state.pipelineHealth.scans_total
-        );
+      ? (histPaged.nextBefore != null)                       // shipped paged arm, unchanged
+      : Pet.isForeignScope(Pet.state.historyReadScope)       // D19: the panel's own scope copy
+        ? Pet.scopedHistoryHasOlder(hist.length, Pet.state.historyHasOlder)
+        : Pet.scanHistoryHasOlder(
+            hist.length,
+            Pet.state.pipelineHealth && Pet.state.pipelineHealth.scans_total
+          );
 
     // PET-152: the "Older"/"Newer" handlers are now module-scoped (Pet.pageHistoryOlder /
     // Pet.pageHistoryNewer), defined once rather than rebuilt per render so they provably share
@@ -2031,16 +2577,14 @@
         ariaLabel: "Show newer scan history", onClick: Pet.pageHistoryNewer,
       }, "Newer"));
     }
-    // Body: rows for the active view, or the retention-honest empty state when a paged-back
-    // view came back empty (never "no scans yet" — that is the live-head empty state).
+    // Body: rows for the active view, or the empty-state ladder (PET-166 D12 —
+    // PET-165's arm order preserved exactly, scope-aware copy inside, one new arm
+    // for the foreign nothing-retained state; the seam owns the copy so tests/js
+    // can drive the full matrix without renderDashboard).
     var histBody;
-    if (histPaged && histRowsData.length === 0) {
-      histBody = Pet.h("div", { className: "mono", style: { color: "var(--tx-faint)", fontSize: "12px" } }, Pet.historyPageLabel(histPaged));
-    } else if (histEffFilter === "selfmod" && histRowsData.length === 0) {
-      // PET-165: filtered-empty is its own honest state, distinct from the loading skeleton
-      // and from "no scans yet". Phrased against the WINDOW because the PET-144 eviction
-      // subtitle still applies: this is a view of the <=500-row buffer, not of all history.
-      histBody = Pet.h("div", { className: "mono", style: { color: "var(--tx-faint)", fontSize: "12px" } }, "No self-tamper events in the buffered window.");
+    var histEmpty = Pet.historyEmptyState(hist, histRowsData, histPaged, histEffFilter, histForeign, histProfileName);
+    if (histEmpty) {
+      histBody = Pet.h("div", { className: "mono", style: { color: "var(--tx-faint)", fontSize: "12px" } }, histEmpty.text);
     } else {
       histBody = Pet.scanHistoryRows(histRowsData);
     }
@@ -2069,7 +2613,12 @@
       // rewrites the eviction headline into a false "showing last 3 of N".
       place: histSubtitle,
       right: histFilterSeg,
-      help: Pet.HelpTip("<b>Scan History</b>: recent pipeline scans with severity, direction, and timing. Each row is one <code>Pipeline.evaluate()</code> call. <b>Older</b>/<b>Newer</b> page through retained history beyond the live window."),
+      // PET-166 (D3): the spool retention notice rides the shipped HelpTip (the
+      // established idiom for a scope/scale disclosure) rather than a new note element.
+      help: Pet.HelpTip("<b>Scan History</b>: recent pipeline scans with severity, direction, and timing. Each row is one <code>Pipeline.evaluate()</code> call. <b>Older</b>/<b>Newer</b> page through retained history beyond the live window."
+        + (histForeign && Pet.state.spoolTruncated
+          ? " Older enforcement events for this profile were not read (spool exceeds the read cap)."
+          : "")),
       content: Pet.h("div", { style: { padding: "12px" } }, histBody, histControls),
     });
     wrapper.appendChild(historyPanel);
@@ -2082,9 +2631,20 @@
     // optimistic value; paintBanner re-queries the live node.
     if (!_armedSeeded && !_armedBusy) {
       _armedSeeded = true;
+      var _armedGen = _scopeGen; // PET-166 D17: captured at send time
       Pet.api.getArmed().then(function (d) {
-        if (Pet.auth.on401(d)) return; // PET-129 D3: first statement; a 401 here must not be read as armed
+        if (Pet.auth.on401(d)) return; // PET-129 D3/§1: first statement; a 401 here must not be read as armed
+        if (_armedGen !== _scopeGen) { _armedSeeded = false; return; } // superseded scope: leave un-seeded for the new scope's render
+        if (Pet.isProfile422(d)) {
+          // PET-166 D7: the coherent error state; never leave the prior bit painted
+          // as this profile's (the guard below would silently drop the 422).
+          var _e0 = d.detail.filter(function (x) { return x && x.field === "profile"; })[0];
+          Pet.state.scopeError = { surface: "armed", message: (_e0 && _e0.message) || "profile not found" };
+          if (Pet.state.tab === "obs" && _container) Pet.renderDashboard(_container);
+          return;
+        }
         if (_armedBusy) return;
+        _adoptReadScope(d); // PET-166 D19: armed 200s are a readScope writer
         if (d && !d.error && typeof d.armed === "boolean") {
           Pet.state.armed = d.armed;
           paintBanner();
@@ -2093,10 +2653,21 @@
     }
 
     // Fetch initial data and render scanner health
+    var _healthGen = _scopeGen; // PET-166 D17: captured at send time
     Pet.api.getHealth().then(function (d) {
-      if (Pet.auth.on401(d)) return; // PET-129 D3: first statement, before the _healthLoaded flip / shape gate
+      if (Pet.auth.on401(d)) return; // PET-129 D3/§1: first statement, before the _healthLoaded flip / shape gate
+      if (_healthGen !== _scopeGen) return; // PET-166: superseded scope
+      if (Pet.isProfile422(d)) {
+        // PET-166 D7: a 422 body carries no `error`, so without this the shape gate
+        // below would wipe scannerHealth/pipelineHealth/integrityHealth every render.
+        var _e0 = d.detail.filter(function (x) { return x && x.field === "profile"; })[0];
+        Pet.state.scopeError = { surface: "health", message: (_e0 && _e0.message) || "profile not found" };
+        if (Pet.state.tab === "obs" && _container) Pet.renderDashboard(_container);
+        return;
+      }
       _healthLoaded = true;  // PET-127: settled (either arm) -> stop painting the skeleton
       if (!d.error) {
+        _adoptReadScope(d); // PET-166 D19: health 200s are a readScope writer
         // PET-144: capture BEFORE the assignment whether this settle is the first to
         // populate pipelineHealth, so the cold-mount re-render below fires on the
         // null->set transition only.
@@ -2143,12 +2714,16 @@
       // prior mount/profile (a `before` cursor is only meaningful within its own profile).
       Pet.state.historyAtHead = true;
       Pet.state.historyStack = [];
+      var _seedGen = _scopeGen; // PET-166 D17: captured at send time
       Pet.api.getScanHistory(500).then(function (d) {
-        if (Pet.auth.on401(d)) return; // PET-129 D3: first statement, before the shape-guarded seed-merge
+        if (Pet.auth.on401(d)) return; // PET-129 D3/§1: first statement, before the shape-guarded seed-merge
+        if (_seedGen !== _scopeGen) { _historySeeded = false; return; } // PET-166: superseded scope
+        if (_scopeGuardHistory(d)) return; // PET-166 D7
         // startFallbackPolling response-shape guard, NOT the bare !d.error check:
         // _req never rejects on HTTP error (it resolves an error envelope), and a
         // 200 {} body lacking .entries would make the merge throw on .scan_id.
         if (!d.error && d.entries && Array.isArray(d.entries)) {
+          _adoptHistoryScope(d); // PET-166 D19: the mount seed is a writer site
           // PET-148/PET-152: the seed merges the live-head window but no longer captures a head
           // cursor. PET-152 dropped that cached cursor: it went stale once the ring evicted past
           // the oldest seeded row, so the first "Older" click skipped the band between the current
@@ -2463,6 +3038,13 @@
   Pet.renderPlayground = function (container) {
     container.innerHTML = "";
     var wrapper = Pet.h("div", { style: { display: "flex", flexDirection: "column", gap: "16px", height: "100%" } });
+    // PET-166 (D10): a playground scan runs through the live pipeline — a write
+    // against the equipped binding — so under a foreign read scope the result would
+    // never appear in the selected profile's history. Say so, once, up front.
+    var _pgNote = Pet.playgroundScopeNote(Pet.state.readScope);
+    if (_pgNote) {
+      wrapper.appendChild(Pet.h("div", { role: "status", className: "mono", style: { fontSize: "11px", color: "var(--tx-faint)" } }, _pgNote));
+    }
 
     var textArea = Pet.h("textarea", {
       className: "input mono",
@@ -3007,11 +3589,13 @@
     );
     host.appendChild(row);
 
-    // ── binding read-out: which config.yaml, which tier ──
+    // ── resolution read-out: HOW the path was resolved (PET-166 D16: relabelled from
+    // "binding:" so it reads as a resolution-mechanism line and no longer competes
+    // with the scope panel's identity claim on the HERMES_HOME-aliasing config) ──
     var tier = d && d.config_tier ? String(d.config_tier) : "root";
     var home = d && d.profile_home ? String(d.profile_home) : "";
     host.appendChild(Pet.h("div", { className: "pet-hermes-binding mono" },
-      "binding: " + (d && d.hermes_profile ? String(d.hermes_profile) : "root") + " · tier " + tier + (home ? (" · " + home) : "")));
+      "resolved via: " + (d && d.hermes_profile ? String(d.hermes_profile) : "root") + " · tier " + tier + (home ? (" · " + home) : "")));
 
     // ── dangling-pointer warning, labeled as the ACTIVE binding (edge round-2 F-7) ──
     if (d && d.config_warning) {
@@ -3073,11 +3657,12 @@
       Pet.h("label", { className: "pet-hermes-label" }, "Hermes agent profile"),
       Pet.h("span", { className: "pet-hermes-bound mono" }, display)));
 
-    // ── binding read-out: which config.yaml, which tier (reused from PET-146) ──
+    // ── resolution read-out (reused from PET-146; PET-166 D16 relabel, see the
+    // twin site in renderHermesProfileSelector) ──
     var tier = d && d.config_tier ? String(d.config_tier) : "root";
     var home = d && d.profile_home ? String(d.profile_home) : "";
     host.appendChild(Pet.h("div", { className: "pet-hermes-binding mono" },
-      "binding: " + (d && d.hermes_profile ? String(d.hermes_profile) : "root") + " · tier " + tier + (home ? (" · " + home) : "")));
+      "resolved via: " + (d && d.hermes_profile ? String(d.hermes_profile) : "root") + " · tier " + tier + (home ? (" · " + home) : "")));
 
     // ── read-only safety warnings (dangling active-binding pointer / selected-profile parse) ──
     if (d && d.config_warning) {
@@ -3307,6 +3892,9 @@
         self.profiles = Array.isArray(scope.profiles) ? scope.profiles.slice() : self.profiles;
         Pet.state.selectedHermesProfile = np;
         self._gen++;
+        // PET-166 (D17): a change on EITHER axis (management selection or equipped
+        // flip) invalidates every scoped read surface and re-subscribes SSE.
+        _invalidateScopeState();
         if (Pet.state.tab === "cfg" && _container) Pet.renderConfig(_container);
         return;
       }
@@ -3319,6 +3907,7 @@
       self.profile = newProfile;
       Pet.state.selectedHermesProfile = newProfile;
       self._gen++;
+      _invalidateScopeState(); // PET-166 (D17)
       // refresh equipped/current for the new selection, then settle the banner.
       self.refreshCurrent().then(function () {
         if (Pet.state.tab === "cfg" && _container) Pet.renderConfig(_container);
@@ -4158,6 +4747,19 @@
     _healthLoaded = false;   // PET-127: re-show the scanner-health skeleton on (re-)mount
     _armedSeeded = false;    // PET-111: re-fetch the armed bit on (re-)mount
     clearArmedConfirm();     // drop any stale disarm-confirm + timer from a skipped unmount
+    // PET-166 (D17/D19): a re-mount that skipped unmount must not inherit stale scope
+    // facts (a foreign readScope from the prior mount would render another profile's
+    // name before the first 200 lands).
+    _scopeGen++;
+    if (_scopePollTimer) { clearInterval(_scopePollTimer); _scopePollTimer = null; }
+    Pet.sse._scopeLive = true;
+    Pet.sse._scopeRefusal = null;
+    Pet.state.readScope = null;
+    Pet.state.historyReadScope = null;
+    Pet.state.historyHasOlder = false;
+    Pet.state.spoolTruncated = false;
+    Pet.state.scopeError = null;
+    Pet.state.scopeNotice = false;
     // PET-155: resolve the host profile + arm the switcher observer once per mount, so
     // a sidebar flip is observed even before the Config tab is first opened (§E).
     // attach() is idempotent — it tears down a stale patch left by a skipped unmount.
@@ -4231,13 +4833,19 @@
   // it survives the dashboard's per-frame re-render of _container.
   Pet.updateConnStatus = function () {
     if (!_connStatus) return;
-    var polling = !!(Pet.sse && Pet.sse._usingFallback);
-    _connStatus.className = "live" + (polling ? " polling" : "");
+    // PET-166 (D9): three states in a fixed order — POLLING outranks SCOPED (a dead
+    // connection is the more urgent fact), else SCOPED (an idle non-equipped stream
+    // or a terminal refusal), else LIVE. The decision is the pure Pet.connChipView
+    // seam; this stays the painter.
+    var v = Pet.connChipView(
+      !!(Pet.sse && Pet.sse._usingFallback),
+      !(Pet.sse && Pet.sse._scopeLive === false),
+      Pet.sse ? Pet.sse._scopeRefusal : null
+    );
+    _connStatus.className = v.className;
     var lbl = _connStatus.querySelector(".live-label");
-    if (lbl) lbl.textContent = polling ? "POLLING" : "LIVE";
-    _connStatus.setAttribute("title", polling
-      ? "Live stream unavailable; polling every 10s."
-      : "Live updates streaming.");
+    if (lbl) lbl.textContent = v.label;
+    _connStatus.setAttribute("title", v.title);
   };
 
   // PET-13: push a short message into the off-screen live region for AT.
@@ -4249,6 +4857,18 @@
     _cfgRenderGen += 1;      // PET-155: supersede any in-flight renderConfig/save continuation so a late /config or PUT resolve can't mutate state after teardown
     Pet.sse.disconnect();
     stopPolling();
+    // PET-166 (D3/D17/D19): stop the scoped poll and reset the payload-derived scope
+    // facts on teardown (the D19 reset set is the D17 list AND unmount).
+    _scopeGen++;
+    if (_scopePollTimer) { clearInterval(_scopePollTimer); _scopePollTimer = null; }
+    Pet.sse._scopeLive = true;
+    Pet.sse._scopeRefusal = null;
+    Pet.state.readScope = null;
+    Pet.state.historyReadScope = null;
+    Pet.state.historyHasOlder = false;
+    Pet.state.spoolTruncated = false;
+    Pet.state.scopeError = null;
+    Pet.state.scopeNotice = false;
     Pet.hostProfile.detach();   // PET-155: un-patch history / unsubscribe (§E); idempotent + foreign-safe
     _container = null;
     _tabStrip = null;

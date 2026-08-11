@@ -100,3 +100,28 @@ must extend to **all** profile homes (every `profiles/*/config.yaml` plus the
 v0.15 root and any `$HERMES_HOME`), not only the active one: a read-only mount or
 write-denying ACL that covers just the equipped profile leaves the pre-stage
 vector open. Treat the whole `profiles/` tree as security-bearing.
+
+## Read scope vs write binding (PET-166)
+
+The console's read surfaces (scan history, armed indicator, health, the event
+stream) take an optional `profile` read scope: the client sends the
+host-selected profile and the server serves that profile's on-disk state,
+validated through the same membership gate the Config Editor uses. The scope
+selects only what the operator is shown. Every write keeps resolving the
+process binding: the enforcement pipeline, the drain, spool rotation, and the
+armed write never move with the selector, and arming a non-equipped profile is
+refused with a 409. A non-equipped read is served read-only from that profile's
+files, marked `foreign` in the drill-down, and its live event stream stays
+idle (this process holds no other profile's events).
+
+**The `PETASOS_SCOPE_UNSCOPED_READ` tripwire.** The embedded bridge logs this
+INFO token once per run the first time a scoped route is called with no
+`profile` selector while the box has more than one profile and one of them is
+active. That combination usually means the hand-synced console bundle predates
+profile-scoped reads, so the panel may attribute the equipped profile's data to
+whichever profile the host sidebar shows. Remediation: re-sync the hand-synced
+plugin bundle. Excluded case: a host that reports no named profile (a
+`HERMES_HOME` or root binding with no active member) legitimately omits the
+selector; the tripwire requires an active member precisely so that supported
+configuration never trips it, and operators in that configuration should know
+the tripwire is not watching for them.

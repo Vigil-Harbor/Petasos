@@ -8,14 +8,21 @@ arm. Never raises out of ``read_armed``/``write_armed``.
 PET-130: ``read_armed`` takes an optional ``res`` resolution. The gateway passes
 its boot-pinned resolution so a profile session never re-resolves to the global
 config mid-session; the standalone console passes ``None`` and re-resolves from
-environment. Precondition: the ``(mtime_ns, size)`` cache is keyed by stat
-metadata, not path, so a single process must use one binding consistently
-(gateway always pinned, console always ``None``). If a future surface ever runs
-both in one process, the cache must be re-keyed to include ``res.path``.
+environment. PET-166 D5: the cache is keyed by ``(normcase(path), mtime_ns,
+size)`` and bounded, because the console now serves scoped reads of non-equipped
+profiles in the same process as the equipped armed poll — two profiles' configs
+can share a ``(mtime_ns, size)`` stat key (a copied or templated profile home is
+ordinary), so path is part of the key. Raw ``os.path.normcase``, deliberately not
+``_resolved_normcase``: a raw key can only cause an extra cache miss (one extra
+YAML parse), never a false hit, and ``read_armed`` sits on the gateway's
+per-tool-call path whose documented budget is one ``os.stat`` per call. The
+sibling ``_reload.py`` cache keeps stat-only keying because no surface reads a
+non-equipped profile's reload state; re-key it if one ever does.
 """
 
 from __future__ import annotations
 
+import os.path
 import threading
 import time
 from typing import Any
@@ -28,15 +35,27 @@ from petasos.console._paths import (
 
 _ARMED_LOCK = threading.Lock()
 _ARMED_TTL_S = 1.0
-# (key, armed, monotonic_ts) | None  — key is (st_mtime_ns, st_size)
-_ARMED_CACHE: tuple[tuple[int, int], bool, float] | None = None
+# PET-166 D5: bounded so alternating equipped/scoped reads cannot grow the dict
+# without bound; drop-oldest by insertion order under _ARMED_LOCK (mirrors the
+# _MAX_TALLY_SESSIONS discipline — the repo does not ship inline cap literals).
+_ARMED_CACHE_MAX = 8
+# {(normcase(path), st_mtime_ns, st_size): (armed, monotonic_ts)}
+_ARMED_CACHE: dict[tuple[str, int, int], tuple[bool, float]] = {}
 
 
 def _reset_armed_cache() -> None:
-    """Test seam: drop the cache so a new (mtime, size) key can't be served stale."""
-    global _ARMED_CACHE
+    """Test seam: drop the cache so a new key can't be served stale."""
     with _ARMED_LOCK:
-        _ARMED_CACHE = None
+        _ARMED_CACHE.clear()
+
+
+def _cache_store(key: tuple[str, int, int], armed: bool, now: float) -> None:
+    """Store under _ARMED_LOCK, evicting oldest-inserted past _ARMED_CACHE_MAX."""
+    with _ARMED_LOCK:
+        _ARMED_CACHE.pop(key, None)
+        _ARMED_CACHE[key] = (armed, now)
+        while len(_ARMED_CACHE) > _ARMED_CACHE_MAX:
+            _ARMED_CACHE.pop(next(iter(_ARMED_CACHE)))
 
 
 def read_armed(res: HermesConfigResolution | None = None) -> bool:
@@ -51,23 +70,21 @@ def read_armed(res: HermesConfigResolution | None = None) -> bool:
     boot-pinned resolution and skips the per-call ambient resolve. When ``None``
     (the standalone console path), it re-resolves from environment as before.
     """
-    global _ARMED_CACHE
     res = res if res is not None else resolve_hermes_config_path()
     try:
         st = res.path.stat()
-        key = (st.st_mtime_ns, st.st_size)
+        key = (os.path.normcase(str(res.path)), st.st_mtime_ns, st.st_size)
     except OSError:
         return True  # cannot stat (missing/locked) -> armed (Decision 5)
     now = time.monotonic()
     with _ARMED_LOCK:
-        c = _ARMED_CACHE
-        if c is not None and c[0] == key and (now - c[2]) < _ARMED_TTL_S:
-            return c[1]
+        c = _ARMED_CACHE.get(key)
+        if c is not None and (now - c[1]) < _ARMED_TTL_S:
+            return c[0]
     section = read_petasos_section(res)  # never raises (D3)
     raw = section.get("enabled", True)
     armed = raw if isinstance(raw, bool) else True  # non-bool -> armed
-    with _ARMED_LOCK:
-        _ARMED_CACHE = (key, armed, now)
+    _cache_store(key, armed, now)
     return armed
 
 
@@ -77,7 +94,6 @@ def write_armed(armed: bool) -> bool:
     Returns ``True`` on success, ``False`` on any failure (Windows file lock,
     missing parent dir, etc.) — never raises out to the caller.
     """
-    global _ARMED_CACHE
     import contextlib
     import os
     import tempfile
@@ -114,8 +130,8 @@ def write_armed(armed: bool) -> bool:
     # Refresh this process's cache so a same-process read reflects the write at once.
     try:
         st = res.path.stat()
-        with _ARMED_LOCK:
-            _ARMED_CACHE = ((st.st_mtime_ns, st.st_size), bool(armed), time.monotonic())
+        key = (os.path.normcase(str(res.path)), st.st_mtime_ns, st.st_size)
+        _cache_store(key, bool(armed), time.monotonic())
     except OSError:
         _reset_armed_cache()
     return True

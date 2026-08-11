@@ -39,12 +39,16 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import math
 import os
 import time
 import uuid
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from petasos.console._paths import resolve_hermes_config_path
+
+if TYPE_CHECKING:
+    from petasos.console._paths import HermesConfigResolution
 
 _HISTORY_FILENAME = "petasos-scan-history.jsonl"
 _ROT_SUFFIX = ".rot"
@@ -63,12 +67,17 @@ _HISTORY_CAP_BYTES = 2_000_000
 _HISTORY_PATH_OVERRIDE: str | None = None
 
 
-def _history_path() -> str:
-    """Resolve the sink path beside the active config (recomputed per call)."""
+def _history_path(res: HermesConfigResolution | None = None) -> str:
+    """Resolve the sink path beside the active config (recomputed per call).
+
+    *res* replaces the source of the resolution for read-scoped callers
+    (PET-166 D1); it never introduces a cache, and the test override keeps
+    winning unconditionally.
+    """
     if _HISTORY_PATH_OVERRIDE is not None:
         return _HISTORY_PATH_OVERRIDE
-    res = resolve_hermes_config_path()
-    return os.path.join(str(res.path.parent), _HISTORY_FILENAME)
+    r = res if res is not None else resolve_hermes_config_path()
+    return os.path.join(str(r.path.parent), _HISTORY_FILENAME)
 
 
 def _reset_history_state(path: str | None = None, cap: int | None = None) -> None:
@@ -206,7 +215,17 @@ def read_history_page(
                 continue
             if not isinstance(sid, str):
                 continue
-            key = (float(ts), sid)
+            # PET-166 D4: this helper is now pointed at bytes written by processes
+            # we do not control (a non-equipped profile's sink), so an
+            # arbitrary-precision int (float() raises OverflowError) or an
+            # inf/nan timestamp must drop the row, not raise out of the GET.
+            try:
+                ts_f = float(ts)
+            except OverflowError:
+                continue
+            if not math.isfinite(ts_f):
+                continue
+            key = (ts_f, sid)
             if global_oldest is None or key < global_oldest:
                 global_oldest = key
             if before is None or key < before:

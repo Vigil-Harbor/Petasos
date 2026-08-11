@@ -29,10 +29,12 @@ config; changing one never touches another.
 ## Where it is
 
 The selector sits at the top of the **Config Editor** tab, above the Strength
-dial. Under it, a binding read-out names exactly what you are editing:
+dial. Under it, a resolution read-out states how the edited path was resolved
+(PET-166 renamed this line from `binding:` so the identity claim lives with the
+scope panel, and this line answers the diagnostic question instead):
 
 ```text
-binding: gibson · tier profile · ~\AppData\Local\hermes\profiles\gibson
+resolved via: gibson · tier profile · ~\AppData\Local\hermes\profiles\gibson
 ```
 
 `tier` is `profile` (a `profiles/<name>/config.yaml`), `hermes_home`

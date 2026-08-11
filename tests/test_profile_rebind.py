@@ -25,6 +25,7 @@ import importlib.util
 import logging
 import sys
 import threading
+import os
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -212,9 +213,12 @@ def test_rebind_survives_mtime_size_collision(
     monkeypatch.setattr(ref, "_session_resolution", _make_resolution(w_home / "config.yaml"))
 
     st = (x_home / "config.yaml").stat()
-    x_key = (st.st_mtime_ns, st.st_size)
-    # Seed the armed cache as if W's armed bit were cached under X's exact key (collision).
-    armed_mod._ARMED_CACHE = (x_key, True, time.monotonic())
+    # PET-166 D5 re-keyed the cache by (normcase(path), mtime_ns, size), so a bare
+    # (mtime, size) collision from another profile can no longer serve a stale bit.
+    # The PET-132 premise this test pins is re-expressed under the new key: a stale
+    # armed=True cached under X's OWN full key must still lose to the re-bind reset.
+    x_key = (os.path.normcase(str(x_res.path)), st.st_mtime_ns, st.st_size)
+    armed_mod._ARMED_CACHE[x_key] = (True, time.monotonic())
     # Control: with the stale entry present, a read at X's key HITS and returns True.
     assert armed_mod.read_armed(x_res) is True
 

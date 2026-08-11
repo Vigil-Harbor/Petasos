@@ -37,6 +37,10 @@ async def test_full_queue_silently_dropped() -> None:
 
 async def test_subscriber_limit() -> None:
     sse = SSEBroadcaster(max_subscribers=2)
+    # PET-166 D9: the read-only property reports the constructed bound, so the idle
+    # stream counter reads the live pool bound rather than a drifting literal
+    # (relied on by test_idle_stream_limit_tracks_broadcaster_bound).
+    assert sse.max_subscribers == 2
     sse.subscribe()
     sse.subscribe()
     with pytest.raises(RuntimeError, match="Too many"):

@@ -36,6 +36,11 @@ def init_handlers(pipeline: Any) -> None:
     from petasos.console.server import ConsoleHandlers
 
     _handlers = ConsoleHandlers(pipeline)
+    # PET-166 (D20): mark the handlers as embedded so the shared
+    # PETASOS_SCOPE_UNSCOPED_READ tripwire can fire only through this bridge —
+    # build_app never sets this, so the standalone console (which legitimately
+    # never sends a scope) can never false-positive.
+    _handlers._embedded = True
 
 
 def _load_config() -> dict[str, Any]:
@@ -181,14 +186,46 @@ async def run_scan(request: Request) -> Any:
 
 
 @router.get("/health")
-async def get_health() -> Any:
-    return await _require_handlers().get_health()
+async def get_health(profile: str | None = None) -> Any:
+    # PET-166 (D13): the embedded bridge is the primary operator surface, so every
+    # scoped surface forwards the selector — a selector the bridge does not forward
+    # silently no-ops exactly where it matters most (the PET-146 edge F-1 precedent).
+    from fastapi.responses import JSONResponse
+
+    from petasos.console.server import ProfileNotFoundError
+
+    try:
+        return await _require_handlers().get_health(profile=profile)
+    except ProfileNotFoundError as exc:
+        return JSONResponse(
+            status_code=422,
+            content={"detail": [{"field": "profile", "message": str(exc)}]},
+        )
 
 
 @router.get("/scan-history")
-async def get_scan_history(limit: int = 100, before: str | None = None) -> Any:
+async def get_scan_history(
+    limit: int = 100, before: str | None = None, profile: str | None = None
+) -> Any:
     # PET-148: additive `before` cursor for back-pages; absent => today's live window.
-    return await _require_handlers().get_scan_history(limit, before)
+    # PET-166 (D13): forwards the read scope; a non-member 422s, a cross-scope cursor
+    # 422s on `before`.
+    from fastapi.responses import JSONResponse
+
+    from petasos.console.server import CursorScopeMismatchError, ProfileNotFoundError
+
+    try:
+        return await _require_handlers().get_scan_history(limit, before, profile=profile)
+    except ProfileNotFoundError as exc:
+        return JSONResponse(
+            status_code=422,
+            content={"detail": [{"field": "profile", "message": str(exc)}]},
+        )
+    except CursorScopeMismatchError as exc:
+        return JSONResponse(
+            status_code=422,
+            content={"detail": [{"field": "before", "message": str(exc)}]},
+        )
 
 
 @router.get("/profiles")
@@ -197,11 +234,46 @@ async def get_profiles() -> Any:
 
 
 @router.get("/events")
-async def events() -> Any:
-    from fastapi.responses import StreamingResponse
+async def events(profile: str | None = None) -> Any:
+    # PET-166 (D9/D13): both route surfaces move in lockstep — the 422, the idle arm
+    # (with its slot check against the SHARED handlers counter), and the RuntimeError
+    # -> 503 mapping (both routes 500 on a full pool today) are all present here, not
+    # only on the standalone route. A bridge that checked without incrementing would
+    # admit unbounded idle generators; the increment lives inside the shared
+    # idle_scope_stream generator, so both routes feed one counter.
+    from fastapi.responses import JSONResponse, StreamingResponse
+
+    from petasos.console.server import ProfileNotFoundError
 
     h = _require_handlers()
-    q = h.sse.subscribe()
+    try:
+        scope = h.resolve_events_scope(profile)
+    except ProfileNotFoundError as exc:
+        return JSONResponse(
+            status_code=422,
+            content={"detail": [{"field": "profile", "message": str(exc)}]},
+        )
+    if scope.state != "equipped":
+        if h._idle_stream_count >= h.sse.max_subscribers:
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "detail": [{"field": "profile", "message": "idle scope streams at capacity"}],
+                    "scope_refusal": "capacity",
+                },
+            )
+        return StreamingResponse(
+            h.idle_scope_stream(scope),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+    try:
+        q = h.sse.subscribe()
+    except RuntimeError:
+        return JSONResponse(
+            status_code=503,
+            content={"detail": [{"field": "profile", "message": "event stream at capacity"}]},
+        )
     return StreamingResponse(
         h.sse.stream(q),
         media_type="text/event-stream",
@@ -215,14 +287,38 @@ async def get_about() -> Any:
 
 
 @router.get("/armed")
-async def get_armed() -> Any:
-    return await _require_handlers().get_armed()
+async def get_armed(profile: str | None = None) -> Any:
+    from fastapi.responses import JSONResponse
+
+    from petasos.console.server import ProfileNotFoundError
+
+    try:
+        return await _require_handlers().get_armed(profile=profile)
+    except ProfileNotFoundError as exc:
+        return JSONResponse(
+            status_code=422,
+            content={"detail": [{"field": "profile", "message": str(exc)}]},
+        )
 
 
 @router.post("/armed")
-async def set_armed(request: Request) -> Any:
+async def set_armed(request: Request, profile: str | None = None) -> Any:
     from fastapi.responses import JSONResponse
 
+    from petasos.console.server import ProfileNotEquippedError, ProfileNotFoundError
+
+    # PET-166 (D6): the selector rides in the BODY on a write; a query-borne selector
+    # is itself a 422 — silently ignoring it would resolve the scope to equipped and
+    # disarm the running agent while the UI names another profile.
+    if profile is not None:
+        return JSONResponse(
+            status_code=422,
+            content={
+                "detail": [
+                    {"field": "profile", "message": "selector must ride in the request body"}
+                ]
+            },
+        )
     h = _require_handlers()
     try:
         body = await request.json()
@@ -236,7 +332,24 @@ async def set_armed(request: Request) -> Any:
             status_code=422,
             content={"detail": [{"field": "armed", "message": "Must be a boolean"}]},
         )
-    result, ok = await h.set_armed(body["armed"])
+    body_profile = body.get("profile")
+    if body_profile is not None and not isinstance(body_profile, str):
+        return JSONResponse(
+            status_code=422,
+            content={"detail": [{"field": "profile", "message": "Must be a string"}]},
+        )
+    try:
+        result, ok = await h.set_armed(body["armed"], profile=body_profile)
+    except ProfileNotFoundError as exc:
+        return JSONResponse(
+            status_code=422,
+            content={"detail": [{"field": "profile", "message": str(exc)}]},
+        )
+    except ProfileNotEquippedError as exc:
+        return JSONResponse(
+            status_code=409,
+            content={"detail": [{"field": "profile", "message": str(exc)}]},
+        )
     if not ok:
         return JSONResponse(
             status_code=503,

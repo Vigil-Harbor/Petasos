@@ -175,6 +175,11 @@
 /* PET-13: connection state. Streaming = green LIVE (pulse); SSE-fallback = amber POLLING (steady). */
 .pet .live.polling { color: var(--warn); }
 .pet .live.polling .blip { background: var(--warn); box-shadow: none; animation: none; }
+/* PET-166 (D9): scoped (non-equipped) stream = muted SCOPED with a static blip. A
+   deliberate state, not an outage, so NOT --warn; and never the LIVE green or its
+   pulsing dot, which would keep saying "live" on a permanently silent connection. */
+.pet .live.scoped { color: var(--tx-faint); }
+.pet .live.scoped .blip { background: var(--tx-faint); box-shadow: none; animation: none; }
 /* PET-13: protection-weakening Apply confirm — mirrors the disarm banner's amber confirm register. */
 .pet .btn-primary.confirm-weaken { background: var(--med-soft); color: var(--warn); border-color: var(--warn); }
 
@@ -437,6 +442,9 @@
 .pet .sd-prov-genuine { color: var(--ok); border-color: rgba(63,185,80,.3); background: var(--ok-soft); }
 .pet .sd-prov-unverifiable { color: var(--warn); border-color: rgba(232,177,58,.3); background: var(--med-soft); }
 .pet .sd-prov-unattested { color: var(--tx-faint); }
+/* PET-166 (D15): rows read from a profile this dashboard is not bound to. Muted like
+   unattested, never the warn tone: this is not a tamper signal. */
+.pet .sd-prov-foreign { color: var(--tx-faint); }
 .pet .sd-section { font-size: 10px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--tx-faint); margin-top: 4px; }
 .pet .sd-field { display: flex; gap: 8px; align-items: baseline; font-size: 12px; }
 .pet .sd-k { flex: 0 0 84px; color: var(--tx-faint); }
