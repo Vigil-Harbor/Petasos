@@ -4,6 +4,25 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Fixed
+
+- **The arming banner now describes the binding its toggle writes (PET-185).**
+  A regression shipped with 0.3.0's profile-scoped console reads (PET-166): a
+  scoped `GET /api/armed` served the selected profile's `petasos.enabled` while
+  the unscoped arm toggle wrote the process binding's config, so on a
+  `HERMES_HOME`-pinned dashboard with a named profile selected, an Unequip
+  landed in one file and the banner kept repainting from the other. Worse, the
+  banner could read EQUIPPED while the binding the toggle governs was disarmed.
+  The armed bit is now always sourced from the write binding, in every scope
+  state, and the caption under the control names the binding the banner
+  describes. Operator-visible consequence: the console no longer reports a
+  non-equipped profile's own arming bit anywhere; that per-profile read is
+  withdrawn (it remains readable on disk at `profiles/<name>/config.yaml`).
+  Plugin/bundle sync requirement: the console bundle must travel with the
+  backend on hand-synced deployments; copy `petasos/console/static/petasos.js`
+  together with the library upgrade, or the caption will assert the new
+  semantics against a backend still serving the old ones.
+
 ## [0.3.0] - 2026-08-11
 
 Headline release since 0.2.0: the ingestion path gains bounded scanning and

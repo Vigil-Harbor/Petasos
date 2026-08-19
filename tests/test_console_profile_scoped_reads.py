@@ -567,18 +567,25 @@ def test_cursor_scope_name_is_escaped() -> None:
 # ── Armed ─────────────────────────────────────────────────────────────────
 
 
-async def test_armed_reads_selected_profile(env: _Env) -> None:
+async def test_armed_reads_write_binding_not_selected_profile(env: _Env) -> None:
+    # PET-185: the armed bit ALWAYS describes the binding the toggle writes (the
+    # equipped/ambient binding), never the selected profile's own config. The old
+    # PET-166 expectation (profile="beta" serves beta's bit) inverted here for the
+    # beta case: reading beta while alpha is equipped now reports alpha's bit.
     env.alpha.set_armed(True)
     env.beta.set_armed(False)
     h = _make_handlers()
     assert (await h.get_armed(profile="alpha"))["armed"] is True
-    assert (await h.get_armed(profile="beta"))["armed"] is False
+    assert (await h.get_armed(profile="beta"))["armed"] is True  # alpha's bit, not beta's
     assert (await h.get_armed())["armed"] is True  # unscoped -> the equipped binding
 
 
 async def test_armed_cache_not_confused_by_identical_stat_key(env: _Env) -> None:
     # Two configs with equal size and forced-equal mtime: the pre-PET-166 stat-only
-    # key would serve one profile's bit for the other.
+    # key would serve one profile's bit for the other. The property (path is part of
+    # the _armed.py cache key) lives in read_armed itself, so it is exercised there:
+    # after PET-185, get_armed reads one file for every selector and would make this
+    # test vacuous.
     env.alpha.set_armed(True)
     env.beta.set_armed(False)
     a_cfg, b_cfg = env.alpha.dir / "config.yaml", env.beta.dir / "config.yaml"
@@ -592,10 +599,17 @@ async def test_armed_cache_not_confused_by_identical_stat_key(env: _Env) -> None
     assert b_cfg.stat().st_mtime_ns == a_cfg.stat().st_mtime_ns
     armed_mod._reset_armed_cache()
 
-    h = _make_handlers()
-    assert (await h.get_armed(profile="alpha"))["armed"] is True
-    assert (await h.get_armed(profile="beta"))["armed"] is False
-    assert (await h.get_armed(profile="alpha"))["armed"] is True
+    # Bind and pin the resolutions FIRST: read_armed(None) silently re-resolves
+    # ambient, and alpha IS the ambient binding here, so a None from a membership
+    # regression would let both alpha assertions pass while testing nothing.
+    a_res = paths_mod.resolve_profile_config_path("alpha")
+    b_res = paths_mod.resolve_profile_config_path("beta")
+    assert a_res is not None and b_res is not None
+    _assert_under(str(a_res.path), env.alpha)
+    _assert_under(str(b_res.path), env.beta)
+    assert armed_mod.read_armed(a_res) is True
+    assert armed_mod.read_armed(b_res) is False
+    assert armed_mod.read_armed(a_res) is True
 
 
 def test_armed_cache_bounded(env: _Env) -> None:
