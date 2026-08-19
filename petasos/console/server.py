@@ -1862,15 +1862,23 @@ class ConsoleHandlers:
 
     async def get_armed(self, profile: str | None = None) -> dict[str, Any]:
         # PET-111: the Equipped/Unequipped master bit. File-backed (petasos.enabled)
-        # via the shared _paths resolver — the dashboard reads what the gateway reads.
-        # PET-166 (D1): a scoped read serves the SELECTED profile's bit from its own
-        # config.yaml; the write binding never moves.
+        # via the shared _paths resolver - the dashboard reads what the gateway reads.
+        # PET-166 D1 NARROWED BY PET-185: every other scoped read serves the SELECTED
+        # profile's own config.yaml, but this one does not. The armed bit follows the
+        # WRITE binding, because the control it renders can only write there.
         from petasos.console._armed import read_armed
 
         scope = _resolve_read_scope(profile)
         self._note_unscoped_read(scope)
-        payload: dict[str, Any] = {"armed": read_armed(scope.resolution)}
-        if profile is not None:  # D2/D19: scope-gated
+        # PET-185: the bit ALWAYS describes the binding `set_armed` writes, in every scope
+        # state. `write_armed` takes no resolution and re-resolves ambient, so passing None
+        # here puts the read on the same resolver call with no path copied between the two
+        # sides. Agreement holds per resolution epoch: a binding that moves mid-request
+        # (active_profile rewritten, HERMES_HOME mutated in-process) can still skew this
+        # payload's `armed` against its own `read_scope`, exactly as it can skew a GET
+        # against a following POST. That window is not new and is not closed here.
+        payload: dict[str, Any] = {"armed": read_armed(None)}
+        if profile is not None:  # D2/D19: scope-gated, unchanged
             payload["read_scope"] = _read_scope_payload(scope)
         return payload
 
