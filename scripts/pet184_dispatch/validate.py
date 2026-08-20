@@ -13,17 +13,19 @@ Usage:
   validate.py <schema.json> <document.json>
   validate.py <schema.json> --stdin        # document on stdin, UTF-8
 """
+
 import json
 import sys
+from typing import Any
 
 
-def _load(path):
+def _load(path: str) -> Any:
     # utf-8-sig tolerates a BOM if some other writer ever introduces one.
-    with open(path, "r", encoding="utf-8-sig") as fh:
+    with open(path, encoding="utf-8-sig") as fh:
         return json.load(fh)
 
 
-def main(argv):
+def main(argv: list[str]) -> int:
     if len(argv) != 3:
         print("usage: validate.py <schema.json> <document.json|--stdin>")
         return 2
@@ -32,8 +34,8 @@ def main(argv):
 
     try:
         schema = _load(schema_path)
-    except Exception as exc:                      # noqa: BLE001
-        print("SCHEMA-UNREADABLE %s: %s" % (schema_path, exc))
+    except Exception as exc:  # noqa: BLE001
+        print(f"SCHEMA-UNREADABLE {schema_path}: {exc}")
         return 2
 
     try:
@@ -45,8 +47,8 @@ def main(argv):
                 return 1
         else:
             doc = _load(doc_arg)
-    except Exception as exc:                      # noqa: BLE001
-        print("DOC-UNPARSEABLE: %s" % exc)
+    except Exception as exc:  # noqa: BLE001
+        print(f"DOC-UNPARSEABLE: {exc}")
         return 1
 
     try:
@@ -63,7 +65,7 @@ def main(argv):
 
     for err in errors:
         loc = "/".join(str(p) for p in err.path) or "(root)"
-        print("VIOL %s :: %s" % (loc, err.message))
+        print(f"VIOL {loc} :: {err.message}")
     return 1
 
 
