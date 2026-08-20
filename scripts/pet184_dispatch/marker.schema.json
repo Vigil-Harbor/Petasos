@@ -1,0 +1,46 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PET-184 in-flight dispatch marker",
+  "description": "raw/inflight/<stem-leaf>.json. Written before launch with pid/startTime null, rewritten after launch with the real identity, deleted on every terminal path. This file is the single authority for the marker's field set; the spec references it and does not restate it.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "kind", "stem", "area", "units", "pass", "expected_units",
+    "model", "prompt_path", "output_path", "invocation",
+    "schema_path", "schema_sha256",
+    "pid", "startTime", "dispatchedAt", "deadlineSeconds",
+    "attempt", "retriesSpent"
+  ],
+  "properties": {
+    "kind":            { "enum": ["codex", "http"] },
+    "stem":            { "type": "string", "minLength": 1,
+                         "description": "Full stem path. Every consumer resolves artifacts from this; the filename is never parsed." },
+    "area":            { "type": "string", "minLength": 1,
+                         "description": "1-5, 6a, 6b, 6c, sweep, smoke, or a PETRT-nnn finding id." },
+    "units":           { "type": "array", "minItems": 1, "items": { "type": "string" },
+                         "description": "The bullets or parts this dispatch actually carries, enumerated. NOT the literal 'all' -- that is a stem token only. attempts.json charges every key in this list." },
+    "pass":            { "enum": ["first", "resplit", "requote", "contest", "readjudicate", "fallback", "sanity"] },
+    "expected_units":  { "type": "integer", "minimum": 1,
+                         "description": "Decision 4 rule 5's denominator. Equals units.length; recorded so the rule has a persisted home." },
+    "model":           { "type": "string", "minLength": 1, "description": "Unslugged model id." },
+    "prompt_path":     { "type": "string", "minLength": 1 },
+    "output_path":     { "type": "string", "minLength": 1 },
+    "invocation":      { "type": "string", "minLength": 1 },
+    "schema_path":     { "type": "string", "minLength": 1 },
+    "schema_sha256":   { "type": "string", "pattern": "^[0-9A-Fa-f]{64}$" },
+    "pid":             { "type": ["integer", "null"],
+                         "description": "codex: the child's PID. http: the launching shell's $PID, so the poller has a kill target. null only in the pre-launch write." },
+    "startTime":       { "type": ["string", "null"], "description": "ISO 8601 round-trip ('o'). null only in the pre-launch write." },
+    "dispatchedAt":    { "type": "string", "minLength": 1, "description": "ISO 8601 round-trip ('o')." },
+    "deadlineSeconds": { "type": "integer", "minimum": 1 },
+    "attempt":         { "type": "integer", "minimum": 1 },
+    "retriesSpent":    { "type": "integer", "minimum": 0 },
+    "base_url":        { "type": "string", "description": "http kind only." }
+  },
+  "allOf": [
+    {
+      "if":   { "properties": { "kind": { "const": "http" } } },
+      "then": { "required": ["base_url"] }
+    }
+  ]
+}

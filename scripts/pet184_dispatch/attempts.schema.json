@@ -1,0 +1,41 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PET-184 retry-budget ledger (attempts.json)",
+  "description": "<REPORT_DIR>/attempts.json. The authoritative retry counter, keyed <area>.<sub-probe> (or sweep.N). Written at classification time by Add-AttemptRecord in dispatch.ps1 and read before every dispatch via Get-AttemptsSpent; the marker's retriesSpent is a convenience copy for the in-flight case only. A whole-area dispatch charges every key in its units list; a resplit or requote part inherits its parent sub-probe's spent count because it records under the same key -- that inheritance is the sole termination guarantee for the rule-4 resplit loop. The literal 'all' is a stem token, never a ledger key: the writer refuses it and propertyNames below rejects it. An unparseable ledger is halt-and-surface, never a fresh start (a silently reset budget un-terminates the loop). This file is the single authority for the ledger's shape; the spec references it and does not restate it.",
+  "type": "object",
+  "propertyNames": {
+    "allOf": [
+      { "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$" },
+      { "not": { "const": "all" } }
+    ]
+  },
+  "additionalProperties": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["spent", "attempts"],
+    "properties": {
+      "spent": {
+        "type": "integer",
+        "minimum": 0,
+        "description": "Retries consumed against this key. Decision 4: at most 2, then the sub-probe is BLOCKED."
+      },
+      "attempts": {
+        "type": "array",
+        "description": "Per-dispatch audit records under this key, including per-part attempts of a split. Appended for every classification, charging or not.",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["stem", "pass", "class", "rule", "charged", "at"],
+          "properties": {
+            "stem":    { "type": "string", "minLength": 1, "description": "The dispatch stem; encodes the part identity for a split." },
+            "pass":    { "enum": ["first", "resplit", "requote", "contest", "readjudicate", "fallback", "sanity"] },
+            "class":   { "type": "string", "minLength": 1, "description": "The Decision 4 class this dispatch resolved to." },
+            "rule":    { "type": "string", "minLength": 1, "description": "The Decision 4 rule (or resume pre-classification) that fired." },
+            "charged": { "type": "boolean", "description": "true only when the class consumes the retry budget (Test-ChargesRetry: INFRASTRUCTURE_FAILURE, TRUNCATED_OR_MALFORMED, UNGROUNDED_RESPONSE)." },
+            "at":      { "type": "string", "minLength": 1, "description": "ISO 8601 round-trip ('o')." }
+          }
+        }
+      }
+    }
+  }
+}

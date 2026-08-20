@@ -1,0 +1,37 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["dispatch_id", "entries"],
+  "properties": {
+    "dispatch_id": { "type": "string" },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["area", "sub_probe", "status", "evidence_quotes", "findings"],
+        "properties": {
+          "area": { "type": "string" },
+          "sub_probe": { "type": "string" },
+          "status": { "enum": ["findings", "no-findings", "declined"] },
+          "evidence_quotes": { "type": "array", "items": { "type": "string" } },
+          "findings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["severity", "file", "line", "claim", "repro_sketch"],
+              "properties": {
+                "severity": { "enum": ["critical", "high", "medium", "low"] },
+                "file": { "type": "string" },
+                "line": { "type": "integer" },
+                "claim": { "type": "string" },
+                "repro_sketch": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
