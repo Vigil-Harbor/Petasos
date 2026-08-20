@@ -105,6 +105,11 @@ module = [
     # this override is belt-and-suspenders against a later refactor of the guard.
     "tomli",
     "tomli.*",
+    # PET-184: scripts/pet184_dispatch/validate.py is the runner's JSON-Schema
+    # validator (PS 5.1 has no Test-Json -Schema). jsonschema is a tooling-only
+    # import that never reaches the package or any install extra.
+    "jsonschema",
+    "jsonschema.*",
 ]
 ignore_missing_imports = true
 
