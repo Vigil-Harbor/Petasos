@@ -235,50 +235,16 @@ async def get_profiles() -> Any:
 
 @router.get("/events")
 async def events(profile: str | None = None) -> Any:
-    # PET-166 (D9/D13): both route surfaces move in lockstep — the 422, the idle arm
-    # (with its slot check against the SHARED handlers counter), and the RuntimeError
-    # -> 503 mapping (both routes 500 on a full pool today) are all present here, not
-    # only on the standalone route. A bridge that checked without incrementing would
-    # admit unbounded idle generators; the increment lives inside the shared
-    # idle_scope_stream generator, so both routes feed one counter.
-    from fastapi.responses import JSONResponse, StreamingResponse
+    # PET-166 D13 / PET-191: both surfaces are one line into the shared builder, so the
+    # 422, the two capacity refusals, and the slot lease cannot drift between them.
+    #
+    # Limit worth stating: the lease releases on response teardown, which FastAPI's
+    # route wrapper always runs (PET-191 Decision 1) as long as no function-scoped
+    # `yield` dependency sits on the route. A host that mounts this router with one of
+    # its own would reopen the leak, and that composition is outside what this repo pins.
+    from petasos.console._sse_route import events_response
 
-    from petasos.console.server import ProfileNotFoundError
-
-    h = _require_handlers()
-    try:
-        scope = h.resolve_events_scope(profile)
-    except ProfileNotFoundError as exc:
-        return JSONResponse(
-            status_code=422,
-            content={"detail": [{"field": "profile", "message": str(exc)}]},
-        )
-    if scope.state != "equipped":
-        if h._idle_stream_count >= h.sse.max_subscribers:
-            return JSONResponse(
-                status_code=503,
-                content={
-                    "detail": [{"field": "profile", "message": "idle scope streams at capacity"}],
-                    "scope_refusal": "capacity",
-                },
-            )
-        return StreamingResponse(
-            h.idle_scope_stream(scope),
-            media_type="text/event-stream",
-            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-        )
-    try:
-        q = h.sse.subscribe()
-    except RuntimeError:
-        return JSONResponse(
-            status_code=503,
-            content={"detail": [{"field": "profile", "message": "event stream at capacity"}]},
-        )
-    return StreamingResponse(
-        h.sse.stream(q),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
+    return events_response(_require_handlers(), profile)
 
 
 @router.get("/about")

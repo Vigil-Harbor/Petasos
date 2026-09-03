@@ -1203,27 +1203,44 @@ class ConsoleHandlers:
         self._note_unscoped_read(scope)
         return scope
 
+    def reserve_idle_slot(self) -> bool:
+        """Reserve an idle-stream slot; False when the idle pool is at its bound.
+
+        Shared by BOTH ``/api/events`` routes through the builder (PET-166 D13).
+        Synchronous check-and-increment: the caller holds the event loop for both, so
+        two concurrent opens cannot both observe a count below the bound (PET-191
+        retires the PET-166 D9 over-admit). Released by the response teardown, never
+        by the generator.
+        """
+        bound = self.sse.max_subscribers
+        if self._idle_stream_count >= bound:
+            _logger.warning("idle scope stream limit reached (%d), rejecting", bound)
+            return False
+        self._idle_stream_count += 1
+        return True
+
+    def release_idle_slot(self) -> None:
+        """Release one idle-stream slot (PET-191); paired with ``reserve_idle_slot``."""
+        # A counting release, NOT idempotent: LeasedStreamingResponse calls it exactly
+        # once per reserved response, and nothing else may. The clamp keeps the check
+        # above honest; it is not machinery for a reachable state (PET-171).
+        self._idle_stream_count = max(0, self._idle_stream_count - 1)
+
     async def idle_scope_stream(self, scope: "_ReadScope") -> "AsyncIterator[str]":
         """The non-equipped SSE stream (PET-166 D9): one ``read_scope`` frame, then a bare
         keepalive loop that never completes and never touches the live subscriber pool.
 
-        The slot is acquired in the generator's preamble and released in ``finally`` —
-        never in the route — because in the installed starlette a client disconnect
-        between ``http.response.start`` and the first body pull raises out of ``send``
-        with the generator never started: its ``finally`` would never run, and a slot
-        acquired at the route would leak permanently, once per aborted open. A
-        never-started generator never acquired, so the counter is self-healing; the
-        cost is a transient over-admit bounded by concurrent opens.
+        The generator owns no accounting (PET-191). Its slot is reserved by
+        ``reserve_idle_slot`` in the shared route builder, atomically with the capacity
+        check, and released by the response's ASGI teardown, which runs whether or not
+        this generator ever took its first step. That is the property a ``finally`` here
+        could not give: a never-started generator never runs one.
         """
-        self._idle_stream_count += 1
-        try:
-            frame = json.dumps(_read_scope_payload(scope))
-            yield f"event: read_scope\ndata: {frame}\n\n"
-            while True:
-                await asyncio.sleep(15.0)
-                yield ":keepalive\n\n"
-        finally:
-            self._idle_stream_count -= 1
+        frame = json.dumps(_read_scope_payload(scope))
+        yield f"event: read_scope\ndata: {frame}\n\n"
+        while True:
+            await asyncio.sleep(15.0)
+            yield ":keepalive\n\n"
 
     async def get_config(self, profile: str | None = None) -> dict[str, Any]:
         # PET-146 D1: the active binding identity + its (possibly dangling-pointer)
@@ -1963,10 +1980,11 @@ def build_app(pipeline: "Pipeline", *, auth_token: str | None = None) -> "FastAP
 
     from fastapi import Depends, Header, HTTPException, Request
     from fastapi import FastAPI as _FastAPI
-    from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+    from fastapi.responses import HTMLResponse, JSONResponse
     from fastapi.staticfiles import StaticFiles
 
     import petasos
+    from petasos.console._sse_route import events_response
 
     # PET-141: bind the package version once so both FastAPI constructions (and the
     # package) can never drift — D3 single source for the OpenAPI version field.
@@ -2174,52 +2192,10 @@ def build_app(pipeline: "Pipeline", *, auth_token: str | None = None) -> "FastAP
 
     @app.get("/api/events")
     async def api_events(profile: str | None = None) -> Any:
-        # PET-166 (D7/D9): validation happens BEFORE any stream object is built, so a
-        # failure is an ordinary JSON response, never an error frame inside a
-        # text/event-stream.
-        try:
-            scope = handlers.resolve_events_scope(profile)
-        except ProfileNotFoundError as exc:
-            # Both arguments by keyword, matching every shipped 422 site.
-            return JSONResponse(
-                status_code=422,
-                content={"detail": [{"field": "profile", "message": str(exc)}]},
-            )
-        if scope.state != "equipped":
-            # D9: check here (so the refusal is a JSON 503, not a frame in a stream),
-            # but the slot is acquired INSIDE the generator — a never-started generator
-            # must not hold a slot. scope_refusal is the terminal marker; the
-            # equipped-arm 503 below stays unmarked so the shipped client
-            # retry-then-fallback path is preserved there.
-            if handlers._idle_stream_count >= handlers.sse.max_subscribers:
-                return JSONResponse(
-                    status_code=503,
-                    content={
-                        "detail": [
-                            {"field": "profile", "message": "idle scope streams at capacity"}
-                        ],
-                        "scope_refusal": "capacity",
-                    },
-                )
-            return StreamingResponse(
-                handlers.idle_scope_stream(scope),
-                media_type="text/event-stream",
-                headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-            )
-        try:
-            q = handlers.sse.subscribe()
-        except RuntimeError:
-            # PET-166: today a full subscriber pool 500s out of this route; map it to
-            # an honest 503 (unmarked — the client's shipped retry path is correct here).
-            return JSONResponse(
-                status_code=503,
-                content={"detail": [{"field": "profile", "message": "event stream at capacity"}]},
-            )
-        return StreamingResponse(
-            handlers.sse.stream(q),
-            media_type="text/event-stream",
-            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-        )
+        # PET-191: one builder for both surfaces. It owns the PET-166 D7/D9 reasoning
+        # (validation before any stream object; the two refusal bodies) and the slot
+        # lease whose release is bound to the response teardown.
+        return events_response(handlers, profile)
 
     @app.get("/api/about")
     async def api_get_about() -> dict[str, Any]:

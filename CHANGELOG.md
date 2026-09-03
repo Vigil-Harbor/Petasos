@@ -4,6 +4,26 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Fixed
+
+- **SSE subscriber slots no longer leak on an aborted open (PET-191, PET-184 finding
+  PETRT-003).** A `/api/events` request whose stream generator never took its first
+  step used to hold one of the ten live subscriber slots for the life of the process,
+  because the slot was reserved in the route and released only when the generator
+  finished; ten such opens denied the event stream to every later client with a 503.
+  Slots are now released when the response's ASGI call tears down, which runs whether
+  or not the generator started. The idle (non-equipped) arm moves onto the same
+  reservation, retiring the check-then-act over-admit PET-166 D9 had accepted as
+  transient, and its capacity refusal now logs like the live arm's. Both console
+  surfaces share one route builder. The cap is still ten; the 503 bodies are unchanged.
+  What `tests/test_console_sse_route.py` demonstrates, stated exactly: a `send` that
+  fails at `http.response.start` stranded a never-started generator and leaked a slot
+  on both console surfaces and on both starlette 1.1.0 response branches, including
+  the one uvicorn 0.48.0 selects. A plain early client disconnect did **not** leak on
+  that stack, and uvicorn's own h11 `send` returns early rather than raising when the
+  client is gone, so the leak is not reachable from a bare uvicorn client abort; it is
+  reachable through any host, ASGI middleware, or transport whose `send` raises there.
+
 ## [0.3.0] - 2026-08-11
 
 Headline release since 0.2.0: the ingestion path gains bounded scanning and

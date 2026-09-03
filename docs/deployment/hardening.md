@@ -335,6 +335,9 @@ Operational notes:
 - **Forward-looking invariant:** the dependency gates by the `/api/` path prefix,
   so every sensitive route must live under `/api/`. A future non-asset route
   added outside `/api/` would be served unauthenticated.
+- The event stream pool is small and fixed. A slot is released when its response
+  tears down, so a client that opens `/api/events` and disconnects before the first
+  frame cannot pin one (PET-191).
 
 ### The floor that survives a hostile config
 

@@ -3,9 +3,11 @@
 The handler-level semantics live in ``test_console_profile_scoped_reads.py``;
 this module pins what only a route can show: the 422/409 status mapping, the
 query-borne-selector rejection on the write, the SSE idle arm (its terminal
-``scope_refusal`` marker, its slot accounting, and the never-iterated-response
-leak), and the D13 requirement that the embedded bridge moves in lockstep with
-the standalone routes rather than one of them being ported later.
+``scope_refusal`` marker), and the D13 requirement that the embedded bridge moves
+in lockstep with the standalone routes rather than one of them being ported later.
+
+Slot accounting and the never-started-generator leak moved to
+``test_console_sse_route.py`` with PET-191, where the reservation now lives.
 """
 
 import json
@@ -212,9 +214,10 @@ async def test_events_non_equipped_emits_scope_frame_and_stays_open(
     assert payload["live"] is False
     assert payload["selected"] == "beta"
     assert subscribed == []  # consumes no live subscriber slot
-    assert h._idle_stream_count == 1  # holds an idle slot while open
+    # PET-191: the generator owns no accounting any more (the slot is reserved and
+    # released by the response lease), so there is nothing to assert around it here.
+    # tests/test_console_sse_route.py T-3/T-4/T-8 carry that meaning.
     await gen.aclose()
-    assert h._idle_stream_count == 0  # and releases it in the finally
 
 
 def test_events_equipped_unchanged(client: tuple[Any, str], profiles: Path) -> None:
@@ -242,32 +245,19 @@ def test_events_subscriber_limit_is_503_unmarked(client: tuple[Any, str], profil
     assert "scope_refusal" not in r.json()
 
 
-async def test_idle_stream_limit_is_503_and_slot_is_released(
-    client: tuple[Any, str], profiles: Path
-) -> None:
+def test_idle_stream_limit_is_503_marked(client: tuple[Any, str], profiles: Path) -> None:
+    # A full IDLE pool is a 503 carrying the D9 terminal marker, on both surfaces.
+    # PET-191 moved the release half of this test to test_console_sse_route.py, where
+    # the reservation now lives; the refusal contract is what a route can still show.
     tc, base = client
     h = _handlers(client)
     h._idle_stream_count = h.sse.max_subscribers
-    r = tc.get(base + "/events", params={"profile": "beta"})
-    assert r.status_code == 503
-    assert r.json()["scope_refusal"] == "capacity"  # the D9 terminal marker
-
-    h._idle_stream_count = 0
-    # Closing an idle stream frees its slot (the generator's finally), so the next
-    # one is admitted rather than inheriting a leaked count.
-    await _first_frame(h, "beta")
-    assert h._idle_stream_count == 0
-
-
-def test_abandoned_idle_response_holds_no_slot(client: tuple[Any, str], profiles: Path) -> None:
-    # Build the generator and NEVER iterate it: a never-started generator's finally
-    # never runs, so an increment placed in the ROUTE would leak permanently, once
-    # per aborted open. This is the only way that leak is observable.
-    h = _handlers(client)
-    scope = h.resolve_events_scope("beta")
-    for _ in range(h.sse.max_subscribers + 2):
-        h.idle_scope_stream(scope)  # constructed, never awaited
-    assert h._idle_stream_count == 0
+    try:
+        r = tc.get(base + "/events", params={"profile": "beta"})
+        assert r.status_code == 503
+        assert r.json()["scope_refusal"] == "capacity"
+    finally:
+        h._idle_stream_count = 0
 
 
 async def test_idle_stream_limit_tracks_broadcaster_bound(profiles: Path) -> None:
@@ -278,8 +268,14 @@ async def test_idle_stream_limit_tracks_broadcaster_bound(profiles: Path) -> Non
     h = server_mod.ConsoleHandlers(_make_pipeline())
     h.sse = SSEBroadcaster(max_subscribers=3)
     assert h.sse.max_subscribers == 3
-    h._idle_stream_count = 3
-    assert h._idle_stream_count >= h.sse.max_subscribers  # the idle arm refuses here
+    # PET-191: drive the real owner of the check rather than comparing two values the
+    # test itself wrote. Three reservations fit, the fourth is refused, and three
+    # releases hand the capacity back.
+    assert [h.reserve_idle_slot() for _ in range(3)] == [True, True, True]
+    assert h.reserve_idle_slot() is False
+    for _ in range(3):
+        h.release_idle_slot()
+    assert h._idle_stream_count == 0
 
 
 async def test_bridge_and_standalone_agree_on_every_scoped_contract(
