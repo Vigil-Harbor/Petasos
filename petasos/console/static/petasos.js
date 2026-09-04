@@ -2145,6 +2145,47 @@
     };
   };
 
+  // PET-185: the ONE derivation of the arm control's scope state and the caption that
+  // names which binding the banner above it describes. Pure (readScope in, plain object
+  // out) so the node:vm harness can assert the labelling directly. PET-166 D16's three
+  // states are preserved exactly; only the caption text gains the binding name.
+  Pet.armScopeView = function (readScope) {
+    var s = readScope || null;
+    if (!s) return { disabled: false, unscoped: false, notice: null };
+    var st = s.state;
+    var selected = String(s.selected || "the selected profile");
+    var disabled = st === "not_equipped" && s.equipped != null;
+    var unscoped = st === "unknown" || s.equipped == null;
+    // The binding's parenthetical is emitted ONLY for a tier that names something an
+    // operator can act on. `equipped_tier` falls back to the raw resolution tier when no
+    // member is active (server.py:613), so "profile" IS reachable here (an active_profile
+    // pointing at a directory with no config.yaml: _paths.py:104 admits the dir, and
+    // list_hermes_profiles skips it at _paths.py:184). "(this profile)" would name nothing
+    // and read as a contradiction, so that tier and an absent tier get no parenthetical.
+    var where = st === "unknown" ? ""
+      : (s.equipped_tier === "hermes_home" ? " (HERMES_HOME)"
+        : (s.equipped_tier === "root" ? " (the root Hermes home)" : ""));
+    if (disabled) {
+      return { disabled: true, unscoped: false,
+        notice: "arming is disabled here: " + selected + " is not the equipped profile ("
+          + String(s.equipped) + " is). The banner above shows " + String(s.equipped)
+          + "'s state, not " + selected + "'s." };
+    }
+    if (unscoped) {
+      // The two branches deliberately say DIFFERENT things. In the unknown row the
+      // binding is unreachable, so read_armed returns its fail-secure True and a write
+      // 503s (Decision 1): claiming the banner "describes" that binding would be the
+      // same false confidence this ticket is removing.
+      return { disabled: false, unscoped: true,
+        notice: (st === "unknown"
+          ? "could not verify this dashboard's binding. The banner shows the fail-secure state, and arming may not persist. It does not describe "
+            + selected + "."
+          : "the banner and the toggle both describe this dashboard's binding" + where
+            + ", not " + selected + ". Arming here does not change " + selected + "'s enforcement.") };
+    }
+    return { disabled: false, unscoped: false, notice: null };
+  };
+
   // PET-129 D2: the authenticate panel rendered (instead of the dashboard tiles) while
   // Pet.state.authRequired is set. Shows the honest banner (bannerView authRequired ->
   // AUTHENTICATE, never EQUIPPED), a token field + Unlock submit, and an explicit
@@ -2258,17 +2299,13 @@
       var mark = b.querySelector(".equip-mark");
       if (mark) mark.src = Pet.asset(view.on ? "img/petasos-equipped.png" : "img/petasos-unequipped.png");
     };
-    // PET-166 (D16): the arm control is the ONE consumer that reads scope state
-    // directly (it discriminates three states, not two), through a null guard so the
-    // absent case (all of standalone) takes the ordinary equipped affordance.
-    var _armScope = Pet.state.readScope || {};
-    var _armSt = _armScope.state;
-    var _armDisabled = _armSt === "not_equipped" && _armScope.equipped != null;
-    // equipped_name null (a HERMES_HOME/root binding outside profiles/) or an
-    // unresolvable equipped path: keep the toggle ENABLED but send NO scope — an
-    // unscoped arm targets the process binding, the only arming target that exists.
-    var _armUnscoped = (Pet.state.readScope != null)
-      && (_armSt === "unknown" || _armScope.equipped == null);
+    // PET-166 (D16) via PET-185: the arm control is the ONE consumer that reads scope
+    // state directly (it discriminates three states, not two). The derivation lives in
+    // the pure Pet.armScopeView seam; both booleans are bit-identical to the old inline
+    // form for every input, including the null-readScope standalone path.
+    var _armView = Pet.armScopeView(Pet.state.readScope);
+    var _armDisabled = _armView.disabled;
+    var _armUnscoped = _armView.unscoped;
     var doToggle = function () {
       if (Pet.state.authRequired) return; // PET-129 D3: no toggling (or EQUIPPED repaint) while unauthenticated
       if (_armedBusy) return;  // ignore rapid re-clicks while a write is in flight
@@ -2345,17 +2382,12 @@
       Pet.HelpTip("<b>Equipped</b>: master switch. <b>Unequipped</b> disables <b>all</b> Petasos enforcement (scan, guard, audit) for this and running sessions, applied by the next tool call. Backed by <code>petasos.enabled</code>."),
       armedSwitch
     ));
-    // PET-166 (D16): label the arm control with what it will act on. Three states:
-    // not_equipped with a named equipped profile -> disabled with a reason; equipped
-    // name null -> enabled, unscoped, labelled; binding unresolvable -> same.
-    if (_armDisabled) {
-      wrapper.appendChild(Pet.h("div", { className: "mono", role: "status", style: { fontSize: "11px", color: "var(--tx-faint)" } },
-        "arming is disabled here: " + String(_armScope.selected || "the selected profile") + " is not the equipped profile (" + String(_armScope.equipped) + " is)"));
-    } else if (_armUnscoped) {
-      wrapper.appendChild(Pet.h("div", { className: "mono", role: "status", style: { fontSize: "11px", color: "var(--tx-faint)" } },
-        _armSt === "unknown"
-          ? "could not verify this dashboard's binding; arming targets it directly"
-          : "arming targets this dashboard's binding, not the selected profile"));
+    // PET-166 (D16) via PET-185: label the arm control with the binding the banner
+    // describes. The caption text is armScopeView's; a role="status" readout must
+    // clear WCAG 1.4.3, hence --tx-mut rather than --tx-faint (petasos.css:179-183).
+    if (_armView.notice) {
+      wrapper.appendChild(Pet.h("div", { className: "mono", role: "status", style: { fontSize: "11px", color: "var(--tx-mut)" } },
+        _armView.notice));
     }
     // PET-166 (D20): the client-side scope notice — a 200 the client believes it
     // scoped came back without a confirmed scope, so what is shown below is the

@@ -103,14 +103,15 @@ vector open. Treat the whole `profiles/` tree as security-bearing.
 
 ## Read scope vs write binding (PET-166)
 
-The console's read surfaces (scan history, armed indicator, health, the event
-stream) take an optional `profile` read scope: the client sends the
-host-selected profile and the server serves that profile's on-disk state,
-validated through the same membership gate the Config Editor uses. The scope
-selects only what the operator is shown. Every write keeps resolving the
-process binding: the enforcement pipeline, the drain, spool rotation, and the
-armed write never move with the selector, and arming a non-equipped profile is
-refused with a 409. A non-equipped read is served read-only from that profile's
+The console's read surfaces (scan history, health, the event stream) take an
+optional `profile` read scope: the client sends the host-selected profile and
+the server serves that profile's on-disk state, validated through the same
+membership gate the Config Editor uses. The scope selects only what the
+operator is shown. Every write keeps resolving the process binding: the
+enforcement pipeline, the drain, spool rotation, and the armed write never
+move with the selector, and arming a non-equipped profile is refused with a
+409. The armed bit is the one read that follows the write binding in every
+scope state, because the control under it can only write there (PET-185). A non-equipped read is served read-only from that profile's
 files, marked `foreign` in the drill-down, and its live event stream stays
 idle (this process holds no other profile's events).
 
