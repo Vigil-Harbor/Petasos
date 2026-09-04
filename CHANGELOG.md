@@ -18,9 +18,10 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
   surfaces share one route builder. The cap is still ten; the 503 bodies are unchanged.
   What `tests/test_console_sse_route.py` demonstrates, stated exactly: a `send` that
   fails at `http.response.start` stranded a never-started generator and leaked a slot
-  on both console surfaces and on both starlette 1.1.0 response branches, including
-  the one uvicorn 0.48.0 selects. A plain early client disconnect did **not** leak on
-  that stack, and uvicorn's own h11 `send` returns early rather than raising when the
+  on both console surfaces and on both of Starlette's streaming-response branches
+  (ASGI `spec_version` 2.3 and 2.4), the 2.3 branch being the one the tested host
+  advertises. A plain early client disconnect did **not** leak on the tested stack
+  (uvicorn 0.48.0), whose own h11 `send` returns early rather than raising when the
   client is gone, so the leak is not reachable from a bare uvicorn client abort; it is
   reachable through any host, ASGI middleware, or transport whose `send` raises there.
 
