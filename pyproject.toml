@@ -123,11 +123,21 @@ module = [
     "petasos.console.*",
     "fastapi",
     "fastapi.*",
+    # PET-191: _sse_route's TYPE_CHECKING import of starlette.types must resolve to
+    # Any in the CI typecheck lane, which installs only .[dev] (no fastapi/starlette).
+    "starlette",
+    "starlette.*",
     "uvicorn",
     "uvicorn.*",
 ]
 ignore_missing_imports = true
 disallow_untyped_decorators = false
+
+# PET-191: LeasedStreamingResponse subclasses StreamingResponse, which is Any in
+# the CI typecheck lane (no fastapi installed). Scoped to the one module that needs it.
+[[tool.mypy.overrides]]
+module = "petasos.console._sse_route"
+disallow_subclassing_any = false
 
 [[tool.mypy.overrides]]
 module = ["reference_plugin", "reference_plugin.*"]
