@@ -457,13 +457,15 @@ def _file_has_petasos_key(path: Path) -> bool:
 
 
 def main() -> int:
-    from petasos.console._paths import resolve_hermes_config_path
+    from petasos.console._paths import hermes_root, resolve_hermes_config_path
 
     res = resolve_hermes_config_path()
 
+    # Profile-tier `.env` wins; a profile without one falls back to the root
+    # `.env`, mirroring how the plugin's env overlay reaches a profile run.
     env_path = res.path.parent / ".env"
     if not env_path.exists():
-        root_env = res.path.parent / ".env"
+        root_env = hermes_root() / ".env"
         if root_env.exists():
             env_path = root_env
 

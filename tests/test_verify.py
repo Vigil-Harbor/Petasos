@@ -787,6 +787,62 @@ def test_verify_main_prints_new_rows(
     assert int(match.group(1)) >= 1
 
 
+def test_verify_main_preloads_root_env_for_profile_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A profile run with no profile `.env` falls back to the root `.env`.
+
+    The fallback used to recompute the profile path, so a PETASOS_HASH_KEY living
+    only in the root `.env` was invisible to a profile-tier run and the env-vars
+    row FAILed on a key the deployment actually had.
+    """
+    _clean_env(monkeypatch)
+    _reset_armed()
+    root = _setup_clean_install(
+        tmp_path,
+        monkeypatch,
+        profile="gibson",
+        root_section={"fail_mode": "degraded"},
+        profile_section={"fail_mode": "degraded"},
+    )
+    (root / ".env").write_text(
+        "PETASOS_SESSION_SECRET=c2VjcmV0\nPETASOS_HASH_KEY=root-hash-key\n",
+        encoding="utf-8",
+    )
+    assert not (root / "profiles" / "gibson" / ".env").exists()
+
+    verify = _load_verify_module()
+    rc = verify.main()
+    out = capsys.readouterr().out
+
+    assert os.environ.get("PETASOS_HASH_KEY") == "root-hash-key"
+    assert "Missing required" not in out, out
+    assert rc == 0, out
+
+
+def test_verify_main_prefers_profile_env_over_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """When both tiers carry a `.env`, the profile's wins and the root's is not read."""
+    _clean_env(monkeypatch)
+    _reset_armed()
+    root = _setup_clean_install(tmp_path, monkeypatch, profile="gibson")
+    (root / ".env").write_text(
+        "PETASOS_SESSION_SECRET=root-secret\nPETASOS_HASH_KEY=root-hash-key\n",
+        encoding="utf-8",
+    )
+    (root / "profiles" / "gibson" / ".env").write_text(
+        "PETASOS_SESSION_SECRET=profile-secret\n", encoding="utf-8"
+    )
+
+    verify = _load_verify_module()
+    verify.main()
+    capsys.readouterr()
+
+    assert os.environ.get("PETASOS_SESSION_SECRET") == "profile-secret"
+    assert os.environ.get("PETASOS_HASH_KEY") is None
+
+
 # --- Parity ----------------------------------------------------------------
 
 
