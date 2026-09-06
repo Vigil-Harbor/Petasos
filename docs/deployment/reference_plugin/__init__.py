@@ -16,7 +16,11 @@ Needs:  a ``petasos`` release exporting ``petasos.scanners.build_scanners`` AND 
         ``build_scanners`` shipped first, so a library too old for this file also
         misses ``format_result_notice``: it does not import at all and nothing is
         enforced. An old-library skew therefore does not latch init; a library newer
-        than a stale copy of this file still can. ``verify.py`` probes ``build_scanners``
+        than a stale copy of this file still can. PET-190 adds
+        ``petasos.session.guard.render_param_text`` and ``PARAM_SCAN_DIRECTION`` to that
+        floor; a library that has ``format_result_notice`` but predates them fails the
+        ``petasos.session.guard`` import instead, with the same result.
+        ``verify.py`` probes ``build_scanners``
         and (PET-189) imports this module, so the floor surfaces on its config and feature
         rows. Init latches on a config or pipeline error; the session runs on the fallback.
 
@@ -54,7 +58,7 @@ from petasos.session.formatting import (  # PET-77: dep-light (string formatting
     format_content_block,
     format_result_notice,
 )
-from petasos.session.guard import READ_ONLY_TOOLS
+from petasos.session.guard import PARAM_SCAN_DIRECTION, READ_ONLY_TOOLS, render_param_text
 
 if TYPE_CHECKING:
     from petasos import PetasosConfig
@@ -944,16 +948,29 @@ def _fallback_pre_tool_call(
     out-of-band on ``_fallback_state`` instead, so the cold-window branch in
     ``_pre_tool_call`` can tell "scanned clean" from "scan errored" from "read-only, never
     scanned". Every return path writes it.
+
+    PET-190: parameter text comes from ``render_param_text``, the same derivation the
+    healthy guard uses, at the same cap and direction.
     """
     if not _is_dangerous(tool_name):
         _fallback_state.outcome = "skipped"
         return None
     try:
-        import json
-
+        session_id = _derive_session_id(task_id, kwargs)
         scanner = _get_fallback_scanner()
-        param_text = json.dumps(args, default=str)[:100_000]
-        result = _run_async(scanner.scan(param_text, direction="inbound"))
+        rendered = render_param_text(args)
+        if rendered.truncated:
+            logger.warning(
+                "PETASOS_PARAM_TRUNCATED tool=%s session=%s len=%d scanned=%d",
+                tool_name,
+                session_id,
+                rendered.original_len,
+                len(rendered.text),
+            )
+        if not rendered.text:
+            _fallback_state.outcome = "clean"
+            return None
+        result = _run_async(scanner.scan(rendered.text, direction=PARAM_SCAN_DIRECTION))
         if result.findings:
             # PET-112: ordinal gate (a lone CRITICAL now blocks; MEDIUM/LOW no longer do).
             # MinimalScanner emits no PII findings (syntactic only), so no egress logic here.
@@ -971,7 +988,7 @@ def _fallback_pre_tool_call(
                 # PET-131: a cold-start (init-window) block is still a gateway block the
                 # operator must see — emit it beside the log line like the main path.
                 _emit_enforcement_event(
-                    session_id=_derive_session_id(task_id, kwargs),
+                    session_id=session_id,
                     tool=tool_name,
                     event_type="quarantine",
                     severity=worst.severity.name,
@@ -1981,9 +1998,9 @@ def _post_tool_call(
 
 # Measured window. A full `inspect()` on the base install costs ~7.3 ms normalized
 # (~11.7 ms raw on the slower bench box) at 8 KB versus ~14.2 / ~23 ms at 16 KB. The
-# 100_000 in `_fallback_pre_tool_call` is NOT a precedent for this number: that is the
-# cold-window path running MinimalScanner only. The live parameter cap is
-# `guard._MAX_PARAM_TEXT_LEN = 1_000_000`.
+# parameter cap (`guard._MAX_PARAM_TEXT_LEN = 1_000_000`, shared by the live guard and
+# `_fallback_pre_tool_call` since PET-190) is NOT a precedent for this number: that
+# bounds tool *arguments*; this bounds a tool *result* at the ingestion seam.
 _MAX_RESULT_SCAN_CHARS = 8_000
 _TRUNCATION_MARKER = "\n...[petasos: scan window truncated]...\n"
 # Extends head coverage past the head/tail boundary. NOT seam-safety in general: for a

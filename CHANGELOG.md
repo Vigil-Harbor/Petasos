@@ -6,6 +6,35 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
 
 ### Fixed
 
+- **The failed-init fallback scans the same parameter text as the healthy guard
+  (PET-190, PET-184 finding PETRT-002).** The reference plugin's cold-start and
+  `init_failed` branches scanned the first 100,000 characters of the JSON-encoded,
+  ASCII-escaped arguments as inbound text, while the
+  healthy guard scans up to 1,000,000 characters of the raw parameter values as outbound
+  text and warns when it truncates. An injection past
+  the smaller window was invisible on exactly the branch that runs when scanner init has
+  already failed; under `fail_mode: open` that window decided allow versus block, and the
+  reduction was never disclosed. Both paths now call one `render_param_text` in
+  `petasos/session/guard.py`: same cap, same serialization, same `outbound` direction, and
+  each logs its own truncation warning (`PETASOS_PARAM_TRUNCATED` on the plugin). Values
+  with no JSON encoding (`bytes`, paths) are rendered as placeholders on both paths, as the
+  healthy guard already did. The plugin's module-level import now also carries
+  `render_param_text` and `PARAM_SCAN_DIRECTION`; a library without them fails the plugin's
+  import the same way the 0.3.0 sync note describes, and `verify.py` reports it on the
+  config-validation and feature-activation rows. Tool results on that branch remain
+  unscanned. Under the default `degraded` no allow/block outcome changes on that branch.
+  Under `open` the following change on that branch, each toward blocking unless noted:
+  - The PET-94 command family (`curl ... | sh` and kin) now runs there.
+  - Raw text reaches the scanner, so homoglyph substitution, zero-width characters inside
+    words, and newline-spanning obfuscation are now unwound where the ASCII escaping hid
+    them.
+  - Parameter text above `MinimalScanner`'s payload ceiling (measured in UTF-8 bytes, so
+    multibyte text reaches it at fewer characters) now also raises the structural
+    oversized-payload rule, which blocks on its own, as it already did on the healthy path.
+  - A non-mapping argument payload now blocks.
+  - A circular or over-deep argument payload, which used to block because JSON encoding
+    raised, is now scanned as sanitized text and allowed when clean, matching the healthy
+    guard.
 - **verify.py reads the root `.env` for a profile run that has none (PET-189 follow-up).**
   The root-home fallback recomputed the profile path, so it never fired. A
   `PETASOS_HASH_KEY` or `PETASOS_SESSION_SECRET` kept only in the root `.env` was invisible

@@ -179,7 +179,14 @@ init failed permanently runs the syntactic fallback under `fail_mode`: under `de
 allows read-only tools and blocks every other tool call until the process is restarted, with
 no in-process recovery (`_deferred_init` returns early once `_init_error` latches,
 `docs/deployment/reference_plugin/__init__.py:505`). Note `search_files` is not in
-`READ_ONLY_TOOLS` (`petasos/session/guard.py:42-62`), so it is blocked too.
+`READ_ONLY_TOOLS` (`petasos/session/guard.py:42-62`), so it is blocked too. The fallback
+scans the same parameter text as the healthy guard, to the same cap
+(`_MAX_PARAM_TEXT_LEN` in `petasos/session/guard.py`), in the same direction, and each path
+logs its own truncation warning (PET-190). On both paths, text above `MinimalScanner`'s
+`max_payload_bytes` also raises the structural oversized-payload rule, which blocks on its
+own whatever else the scan finds. Under `open`, that scan's outcome is the only thing
+standing between a dangerous call and execution on this branch; under `degraded` the branch
+blocks every dangerous call whatever the scan finds.
 
 **Checklist:**
 
