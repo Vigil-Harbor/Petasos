@@ -418,12 +418,15 @@ Expected output: rows for scanner imports, plugin files, config validation,
 environment variables, license, feature activation, arming state, injection
 detection, and config split-brain. The header shows which config file was
 resolved, the winning tier, and which plugin copy the script imported. The
-config, feature activation, and arming state rows are all read from that config
-file, built by the plugin's own config builder, and each detail line names the
-file. A WARN on feature activation lists the session features that config turns
-off. A WARN on arming state means `petasos.enabled` is false (Unequipped in the
-console) and nothing is enforced, or that no boolean was there to read and the
-fail-secure default armed it. The script reads the config file and executes the
+config validation and feature activation rows are read from that config file
+and built by the plugin's own config builder; the arming state row reads the same
+file through the console's own arming reader. Each detail line names the file. A
+WARN on feature activation lists the session features that config turns off. A
+WARN on arming state means either that `petasos.enabled` is false (Unequipped in
+the console) and nothing is enforced, or that no boolean was there to read (no
+config file, an unreadable section, or a non-boolean value) and the fail-secure
+default armed it. An absent `petasos.enabled` is not a warning: it PASSes with a
+note saying the default armed it. The script reads the config file and executes the
 plugin file it sits beside; it reports what those two files say, so compare its
 resolved path with the `loading config from ...` INFO line in the gateway log
 rather than treating either file as tamper-evident, and restart after a config
@@ -472,9 +475,11 @@ minor update:
    restarting. Its scanner-imports check still probes `build_scanners` only, so
    that row FAILs a library too old for `build_scanners` and PASSes one that has
    `build_scanners` but still lacks `format_result_notice`. Since PET-189 the
-   config validation, feature activation, and arming state rows import this
-   plugin file, so that module-level skew FAILs there with the import error
-   instead of passing unseen. Init otherwise latches on a config or pipeline
+   config validation and feature activation rows import this plugin file, so that
+   module-level skew FAILs there with the import error instead of passing unseen.
+   The arming state row stays independent of that import, so the armed bit is
+   still readable when the plugin copy is skewed. Init otherwise latches on a
+   config or pipeline
    construction error, and the session then runs on the syntactic fallback:
    dangerous tool calls are blocked under the default `degraded` fail-mode,
    read-only tools are still allowed, until the process is restarted. The

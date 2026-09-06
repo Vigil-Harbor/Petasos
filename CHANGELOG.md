@@ -17,8 +17,10 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
   fail-secure default armed it without a boolean ever being read. The `Config validation`
   row uses the same derivation and drops its drifted copy of the env overlay. The RESULT
   line now carries the warning count. Because the script now imports the sibling plugin
-  module, a library too old for the plugin's module-level imports fails those two rows with
-  the import error, closing the verify.py blind spot 0.3.0 disclosed. The bootstrap's
+  module, a library too old for the plugin's module-level imports fails the config
+  validation and feature activation rows with the import error, closing the verify.py blind
+  spot 0.3.0 disclosed. The arming state row does not import the plugin, so the armed bit
+  stays readable through that skew. The bootstrap's
   missing-section warning no longer claims defaults disable features; they enable all five.
   The script still reads the config file, not the running gateway.
 - **SSE subscriber slots no longer leak on an aborted open (PET-191, PET-184 finding
