@@ -6,6 +6,12 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
 
 ### Fixed
 
+- **verify.py reads the root `.env` for a profile run that has none (PET-189 follow-up).**
+  The root-home fallback recomputed the profile path, so it never fired. A
+  `PETASOS_HASH_KEY` or `PETASOS_SESSION_SECRET` kept only in the root `.env` was invisible
+  to a profile-tier run: the environment-variables row failed on a key the deployment had,
+  and the feature row could under-report anonymization as off. A profile `.env` still wins
+  when both exist.
 - **The verify.py feature row now reports the deployed config (PET-189, PET-184 finding
   PETRT-001).** The `Feature activation` row built its own `PetasosConfig` with every
   session flag forced on and reported `PASS: All 5 session features available` over any
