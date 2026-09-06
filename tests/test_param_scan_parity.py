@@ -308,9 +308,7 @@ def test_both_paths_hand_the_scanner_identical_text_and_direction(
     # A fake returning the wrong type is swallowed by _scan_params' fail-secure except, which
     # would make "identical captures" trivially true because both stay empty.
     assert result.param_scan_unsafe is False
-    assert not [
-        r for r in caplog.records if "_scan_params failed unexpectedly" in r.getMessage()
-    ]
+    assert not [r for r in caplog.records if "_scan_params failed unexpectedly" in r.getMessage()]
 
     if args:
         assert guard_seen, "guard-side capture must be non-empty"
