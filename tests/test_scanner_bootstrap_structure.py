@@ -69,8 +69,8 @@ _DEFINITION_MODULES = frozenset(
 #       fallback; spec Decision 4 keeps it.
 #   reference_plugin/__init__.py :: _get_fallback_scanner - the cold-window
 #       fast-path fallback; spec Decision 7 keeps it bare.
-#   reference_plugin/verify.py :: check_features / check_injection_scan - a
-#       verification script, not a bootstrap.
+#   reference_plugin/verify.py :: check_injection_scan - a verification script,
+#       not a bootstrap.
 # The function is QUALIFIED (ClassName.method): a bare "__init__" key would exempt
 # every __init__ in pipeline.py, present and future. A module-scope construction
 # is never allowlisted.
@@ -78,7 +78,6 @@ _ALLOWLIST = frozenset(
     {
         ("petasos/pipeline.py", "Pipeline.__init__"),
         ("docs/deployment/reference_plugin/__init__.py", "_get_fallback_scanner"),
-        ("docs/deployment/reference_plugin/verify.py", "check_features"),
         ("docs/deployment/reference_plugin/verify.py", "check_injection_scan"),
     }
 )
@@ -298,7 +297,6 @@ def test_allowlist_is_exactly_the_documented_rows() -> None:
         {
             ("petasos/pipeline.py", "Pipeline.__init__"),
             ("docs/deployment/reference_plugin/__init__.py", "_get_fallback_scanner"),
-            ("docs/deployment/reference_plugin/verify.py", "check_features"),
             ("docs/deployment/reference_plugin/verify.py", "check_injection_scan"),
         }
     )

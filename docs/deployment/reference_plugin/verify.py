@@ -5,21 +5,26 @@ Run with Hermes's Python:
     %LOCALAPPDATA%\\hermes\\hermes-agent\\venv\\Scripts\\python.exe verify.py
 
 Checks: scanner imports, config validation, credentials, license activation,
-session features, a synthetic injection scan, plugin file presence, and
-config split-brain detection between root and profile homes.
+session-feature state read from the deployed config, arming state, a synthetic
+injection scan, plugin file presence, and config split-brain detection between
+root and profile homes.
 """
 
 from __future__ import annotations
 
 import asyncio
-import base64
+import importlib.util
 import os
 import sys
-from typing import TYPE_CHECKING
+from dataclasses import dataclass
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-    from pathlib import Path
+
+    from petasos import PetasosConfig
+    from petasos.console._paths import HermesConfigResolution
 
 PASS = "PASS"
 FAIL = "FAIL"
@@ -28,6 +33,112 @@ WARN = "WARN"
 CheckResult = tuple[str, str]
 
 results: list[tuple[str, str, str]] = []
+
+# PET-189: the plugin copy this script sits beside. The config and feature rows
+# report what THIS directory's __init__.py would boot from, because verify.py and
+# __init__.py are deployed together as one directory copy.
+# resolve() guarded like _paths_are_same_file below: an unresolvable cwd or a
+# symlink loop must not stop this script importing, or the scanner-imports row
+# never gets to report the skew it exists to catch.
+try:
+    _PLUGIN_INIT_PATH = Path(__file__).resolve().with_name("__init__.py")
+except (OSError, RuntimeError):
+    _PLUGIN_INIT_PATH = Path(__file__).with_name("__init__.py")
+
+# Mirrors Pipeline._FEATURE_GATES, order included; pinned by
+# test_session_feature_table_matches_pipeline.
+_SESSION_FEATURES: tuple[tuple[str, str], ...] = (
+    ("frequency", "frequency_enabled"),
+    ("escalation", "escalation_enabled"),
+    ("tool_guard", "tool_guard_enabled"),
+    ("audit", "audit_enabled"),
+    ("alerting", "alert_enabled"),
+)
+
+
+def _where(res: HermesConfigResolution) -> str:
+    """The one label operators compare against the gateway's 'loading config from' line."""
+    return f"{res.path} [tier={res.tier}]"
+
+
+class PluginSkewError(RuntimeError):
+    """The sibling __init__.py cannot supply the plugin's config builder."""
+
+
+@dataclass(frozen=True)
+class ResolvedConfig:
+    res: HermesConfigResolution
+    origin: str  # "section" | "missing-file" | "missing-section" | "malformed" | "rejected"
+    config: PetasosConfig
+    error: str | None  # builder exception text when origin == "rejected"
+
+    @property
+    def where(self) -> str:
+        return _where(self.res)
+
+
+_resolved: ResolvedConfig | None = None
+
+
+def _plugin_builder() -> Callable[[dict[str, Any]], PetasosConfig]:
+    """Load the sibling plugin and return its config builder (PET-126 Decision 10).
+
+    No local re-implementation: the builder that runs here must be the one the
+    deployed plugin's boot and live-reload paths share, whatever version was copied.
+    """
+    spec = importlib.util.spec_from_file_location(
+        "petasos_reference_plugin_verify", _PLUGIN_INIT_PATH
+    )
+    if spec is None or spec.loader is None:
+        raise PluginSkewError(f"Cannot load sibling plugin at {_PLUGIN_INIT_PATH}")
+    mod = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(mod)
+    except ImportError as exc:
+        raise PluginSkewError(
+            f"Sibling plugin {_PLUGIN_INIT_PATH} does not import against the installed"
+            f" petasos ({type(exc).__name__}: {exc}); the host would not load it either."
+            " Sync plugin files and library together."
+        ) from exc
+    except Exception as exc:
+        raise PluginSkewError(
+            f"Sibling plugin {_PLUGIN_INIT_PATH} failed at import"
+            f" ({type(exc).__name__}: {exc}); the copy may be truncated or mismatched."
+            " Re-sync the plugin directory."
+        ) from exc
+    builder = getattr(mod, "_build_config_from_section", None)
+    if builder is None:
+        raise PluginSkewError(
+            f"Sibling plugin {_PLUGIN_INIT_PATH} defines no _build_config_from_section;"
+            " sync plugin files and library together."
+        )
+    return cast("Callable[[dict[str, Any]], PetasosConfig]", builder)
+
+
+def resolve_deployed_config() -> ResolvedConfig:
+    """The config the plugin would boot from in this environment. Memoised per process."""
+    global _resolved
+    if _resolved is not None:
+        return _resolved
+    from petasos import PetasosConfig
+    from petasos.console._paths import read_petasos_section_checked, resolve_hermes_config_path
+
+    res = resolve_hermes_config_path()
+    builder = _plugin_builder()  # PluginSkewError propagates; nothing is memoised
+    section: dict[str, Any]
+    if not res.path.is_file():
+        section, origin = {}, "missing-file"
+    else:
+        section, ok = read_petasos_section_checked(res)
+        origin = "section" if (ok and section) else ("missing-section" if ok else "malformed")
+    error: str | None = None
+    try:
+        config = builder(section)
+    except (TypeError, ValueError) as exc:
+        # Mirrors _deferred_init's swallow: the plugin would boot on defaults.
+        config, origin, error = PetasosConfig(), "rejected", str(exc)
+    _resolved = ResolvedConfig(res=res, origin=origin, config=config, error=error)
+    return _resolved
 
 
 def check(name: str, fn: Callable[[], CheckResult]) -> None:
@@ -87,29 +198,28 @@ def check_scanner_imports() -> CheckResult:
 
 
 def check_config() -> CheckResult:
-    from petasos import PetasosConfig
-    from petasos.console._paths import read_petasos_section, resolve_hermes_config_path
-
-    res = resolve_hermes_config_path()
-    if not res.path.is_file():
-        return FAIL, f"Config not found at {res.path}"
-
-    section = read_petasos_section(res)
-    if not section:
-        return FAIL, "No 'petasos:' section in config.yaml"
-
-    clean = {k: v for k, v in section.items() if k not in ("host_id", "enabled")}
-    hash_key = os.environ.get("PETASOS_HASH_KEY")
-    if hash_key:
-        clean["hash_key"] = hash_key
-    session_secret_b64 = os.environ.get("PETASOS_SESSION_SECRET")
-    if session_secret_b64:
-        import contextlib
-
-        with contextlib.suppress(Exception):
-            clean["session_secret"] = base64.b64decode(session_secret_b64)
-    config = PetasosConfig.from_dict(clean)
-    return PASS, f"fail_mode={config.fail_mode}, anonymize={config.anonymize}"
+    try:
+        rc = resolve_deployed_config()
+    except PluginSkewError as exc:
+        return FAIL, str(exc)
+    if rc.origin == "missing-file":
+        return FAIL, f"Config not found at {rc.res.path}"
+    if rc.origin == "missing-section":
+        return FAIL, f"No usable 'petasos:' section (absent or empty) in {rc.where}"
+    if rc.origin == "malformed":
+        return FAIL, (
+            f"petasos: section at {rc.where} is unreadable (malformed YAML or not a"
+            " mapping); the plugin would boot on library defaults"
+        )
+    if rc.origin == "rejected":
+        return FAIL, (
+            f"petasos: section at {rc.where} rejected by the plugin config builder:"
+            f" {rc.error}; the plugin would boot on library defaults"
+        )
+    return PASS, (
+        f"fail_mode={rc.config.fail_mode}, anonymize={rc.config.anonymize}"
+        f" from {rc.where}, built by {_PLUGIN_INIT_PATH}"
+    )
 
 
 def check_env_vars() -> CheckResult:
@@ -147,30 +257,78 @@ def check_license() -> CheckResult:
 
 
 def check_features() -> CheckResult:
-    from petasos import PetasosConfig, Pipeline
-    from petasos.scanners import MinimalScanner
+    try:
+        rc = resolve_deployed_config()
+    except PluginSkewError as exc:
+        return FAIL, str(exc)
+    total = len(_SESSION_FEATURES)
+    off = [name for name, attr in _SESSION_FEATURES if not getattr(rc.config, attr)]
+    on = total - len(off)
+    off_note = f"; off: {', '.join(off)}" if off else ""
+    if rc.origin == "rejected":
+        return FAIL, (
+            f"Feature state not trustworthy: petasos: section at {rc.where} rejected"
+            f" ({rc.error}); the plugin would boot on library defaults"
+            f" ({on}/{total} on{off_note})"
+        )
+    if rc.origin != "section":
+        reason = {
+            "missing-file": "config file missing",
+            "missing-section": "no usable petasos: section",
+            "malformed": "petasos: section unreadable",
+        }[rc.origin]
+        return WARN, (
+            f"Reporting library defaults, not a validated section ({reason} at"
+            f" {rc.where}): {on}/{total} session features on{off_note}"
+        )
+    if off:
+        return WARN, (
+            f"Session features OFF in deployed config: {', '.join(off)}"
+            f" ({on}/{total} on) from {rc.where}"
+        )
+    return PASS, f"All {total} session features on in deployed config from {rc.where}"
 
-    config = PetasosConfig(
-        fail_mode="closed",
-        frequency_enabled=True,
-        escalation_enabled=True,
-        tool_guard_enabled=True,
-        audit_enabled=True,
-        alert_enabled=True,
-    )
-    pipeline = Pipeline(config=config, scanners=[MinimalScanner()], host_id="verify-test")
 
-    key = os.environ.get("PETASOS_LICENSE_KEY", "")
-    if key:
-        pipeline.activate(key)
+def check_armed() -> CheckResult:
+    """Report petasos.enabled via the reader the console and gateway share.
 
-    missing = []
-    for feat in ("frequency", "escalation", "tool_guard", "audit", "alerting"):
-        if not pipeline.is_feature_enabled(feat):
-            missing.append(feat)
-    if missing:
-        return WARN, f"Features not active: {', '.join(missing)}"
-    return PASS, "All 5 session features available"
+    Deliberately independent of the sibling plugin import: the armed bit must stay
+    readable on a deployment whose plugin copy is skewed (Decision 4). read_armed is
+    fail-secure True on a file it cannot read, so the three shapes where it never
+    saw a boolean WARN rather than PASS, and each names what was not read.
+    """
+    from petasos.console._armed import read_armed
+    from petasos.console._paths import read_petasos_section_checked, resolve_hermes_config_path
+
+    res = resolve_hermes_config_path()
+    where = _where(res)
+
+    if not res.path.is_file():
+        return WARN, (
+            f"Reporting the fail-secure default (armed): no config file at {res.path},"
+            " so petasos.enabled was never read"
+        )
+    section, ok = read_petasos_section_checked(res)
+    if not ok:
+        return WARN, (
+            f"Reporting the fail-secure default (armed): the petasos: section at {where}"
+            " is unreadable (malformed YAML or not a mapping), so petasos.enabled was"
+            " never read"
+        )
+    if not read_armed(res):
+        return WARN, (
+            f"DISARMED (Unequipped in the console): petasos.enabled is false at {where};"
+            " nothing is enforced until re-armed (console banner or config edit)"
+        )
+    if "enabled" not in section:
+        return PASS, f"Armed by fail-secure default (no boolean petasos.enabled at {where})"
+    raw = section["enabled"]
+    if not isinstance(raw, bool):
+        return WARN, (
+            f"Reporting the fail-secure default (armed): petasos.enabled at {where} is"
+            f" {raw!r}, not a boolean; the console writes true or false"
+        )
+    return PASS, f"petasos.enabled is true (armed) at {where}"
 
 
 def check_injection_scan() -> CheckResult:
@@ -319,7 +477,8 @@ def main() -> int:
     print("=" * 60)
     print("Petasos Deployment Verification")
     print("=" * 60)
-    print(f"  Config: {res.path} [tier={res.tier}]")
+    print(f"  Config: {_where(res)}")
+    print(f"  Plugin: {_PLUGIN_INIT_PATH}")
     if res.warning:
         print(f"  WARNING: {res.warning}")
     print()
@@ -330,22 +489,31 @@ def main() -> int:
     check("Environment variables", check_env_vars)
     check("License validation", check_license)
     check("Feature activation", check_features)
+    check("Arming state", check_armed)
     check("Injection detection", check_injection_scan)
     check("Config split-brain", check_config_split_brain)
 
     print()
     fail_count = 0
+    warn_count = 0
     for name, status, detail in results:
         marker = {"PASS": "+", "FAIL": "!", "WARN": "~"}[status]
         print(f"  [{marker}] {status:4s}  {name}")
         print(f"         {detail}")
         if status == FAIL:
             fail_count += 1
+        elif status == WARN:
+            warn_count += 1
     print()
 
     if fail_count:
         print(f"RESULT: {fail_count} check(s) FAILED")
         return 1
+    if warn_count:
+        # Exit status still counts only FAIL; the tally stops a run with WARNs
+        # from ending in an unqualified "All checks passed".
+        print(f"RESULT: All checks passed ({warn_count} warning(s), review above)")
+        return 0
     print("RESULT: All checks passed")
     return 0
 
