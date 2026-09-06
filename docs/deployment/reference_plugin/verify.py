@@ -463,8 +463,11 @@ def main() -> int:
 
     # Profile-tier `.env` wins; a profile without one falls back to the root
     # `.env`, mirroring how the plugin's env overlay reaches a profile run.
+    # Only the profile tier falls back: a HERMES_HOME override is a different
+    # installation, and reading the canonical root's secrets for it would
+    # report the wrong deployment.
     env_path = res.path.parent / ".env"
-    if not env_path.exists():
+    if not env_path.exists() and res.tier == "profile":
         root_env = hermes_root() / ".env"
         if root_env.exists():
             env_path = root_env

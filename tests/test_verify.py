@@ -843,6 +843,31 @@ def test_verify_main_prefers_profile_env_over_root(
     assert os.environ.get("PETASOS_HASH_KEY") is None
 
 
+def test_verify_main_hermes_home_does_not_read_root_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A HERMES_HOME override without a `.env` never borrows the canonical root's.
+
+    The override names a different installation; its verification report must not
+    be built from another install's secrets.
+    """
+    _clean_env(monkeypatch)
+    _reset_armed()
+    root = _setup_root(tmp_path, monkeypatch, system="Windows")
+    _write_config(root / "config.yaml", {"fail_mode": "degraded"})
+    (root / ".env").write_text("PETASOS_HASH_KEY=root-hash-key\n", encoding="utf-8")
+    custom = tmp_path / "custom"
+    _write_config(custom / "config.yaml", {"fail_mode": "degraded"})
+    monkeypatch.setenv("HERMES_HOME", str(custom))
+    assert not (custom / ".env").exists()
+
+    verify = _load_verify_module()
+    verify.main()
+    capsys.readouterr()
+
+    assert os.environ.get("PETASOS_HASH_KEY") is None
+
+
 # --- Parity ----------------------------------------------------------------
 
 
