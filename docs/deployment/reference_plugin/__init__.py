@@ -16,9 +16,9 @@ Needs:  a ``petasos`` release exporting ``petasos.scanners.build_scanners`` AND 
         ``build_scanners`` shipped first, so a library too old for this file also
         misses ``format_result_notice``: it does not import at all and nothing is
         enforced. An old-library skew therefore does not latch init; a library newer
-        than a stale copy of this file still can. ``verify.py`` probes
-        ``build_scanners``, not the module-level floor. Init otherwise latches on a
-        config or pipeline error, and the session runs on the syntactic fallback.
+        than a stale copy of this file still can. ``verify.py`` probes ``build_scanners``
+        and (PET-189) imports this module, so the floor surfaces on its config and feature
+        rows. Init latches on a config or pipeline error; the session runs on the fallback.
 
 Capture window (PET-136): to record per-finding tuning data, open a short
 capture window by setting ``PETASOS_AUDIT_FINDING=1`` (or flipping the
@@ -437,9 +437,9 @@ def _load_config(res: HermesConfigResolution | None = None) -> dict[str, Any]:
     section = read_petasos_section(res)
     if not section:
         logger.warning(
-            "No 'petasos:' section in config.yaml — Petasos running with "
-            "defaults (all features disabled). Add a petasos: section to "
-            "enable enforcement."
+            "No 'petasos:' section in config.yaml. Petasos running with library "
+            "defaults (all five session features enabled, fail_mode=degraded). "
+            "Add a petasos: section to tune enforcement."
         )
     return section
 

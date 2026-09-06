@@ -414,9 +414,20 @@ checks all components, including split-brain detection:
 %LOCALAPPDATA%\hermes\hermes-agent\venv\Scripts\python.exe plugins/petasos/verify.py
 ```
 
-Expected output: checks for scanner imports, plugin files, config validation,
-env vars, injection detection, and config split-brain, all PASS. The header line
-shows which config file was resolved and the winning tier.
+Expected output: rows for scanner imports, plugin files, config validation,
+environment variables, license, feature activation, arming state, injection
+detection, and config split-brain. The header shows which config file was
+resolved, the winning tier, and which plugin copy the script imported. The
+config, feature activation, and arming state rows are all read from that config
+file, built by the plugin's own config builder, and each detail line names the
+file. A WARN on feature activation lists the session features that config turns
+off. A WARN on arming state means `petasos.enabled` is false (Unequipped in the
+console) and nothing is enforced, or that no boolean was there to read and the
+fail-secure default armed it. The script reads the config file and executes the
+plugin file it sits beside; it reports what those two files say, so compare its
+resolved path with the `loading config from ...` INFO line in the gateway log
+rather than treating either file as tamper-evident, and restart after a config
+edit before trusting either.
 
 ### Upgrading Hermes orphans plugins
 
@@ -458,10 +469,12 @@ minor update:
    reliable signal. An old-library skew therefore does not latch init. A
    library *newer* than a stale plugin copy still can, if a symbol or
    signature the deferred init uses has moved. Run `verify.py` before
-   restarting, but note its scanner-imports check probes `build_scanners`, not
-   the module-level floor: it FAILs a library too old for `build_scanners`,
-   and PASSes one that has `build_scanners` but still lacks
-   `format_result_notice`. Init otherwise latches on a config or pipeline
+   restarting. Its scanner-imports check still probes `build_scanners` only, so
+   that row FAILs a library too old for `build_scanners` and PASSes one that has
+   `build_scanners` but still lacks `format_result_notice`. Since PET-189 the
+   config validation, feature activation, and arming state rows import this
+   plugin file, so that module-level skew FAILs there with the import error
+   instead of passing unseen. Init otherwise latches on a config or pipeline
    construction error, and the session then runs on the syntactic fallback:
    dangerous tool calls are blocked under the default `degraded` fail-mode,
    read-only tools are still allowed, until the process is restarted. The
