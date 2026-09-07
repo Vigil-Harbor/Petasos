@@ -10,7 +10,7 @@ from collections import deque
 from dataclasses import dataclass, replace
 from pathlib import Path
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, NamedTuple
+from typing import TYPE_CHECKING, Any, Final, NamedTuple
 
 from petasos._types import ScanFinding, Severity
 from petasos.normalize import _NAMESPACE_PREFIX_RE as _NAMESPACE_PREFIX_RE
@@ -21,6 +21,9 @@ from petasos.session.escalation import derive_tier, evaluate_tier, max_tier
 _logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from petasos._types import Direction
     from petasos.config import PetasosConfig
     from petasos.pipeline import Pipeline
     from petasos.session.frequency import FrequencyTracker, SessionState
@@ -96,6 +99,53 @@ DEFAULT_TOOL_ALIASES: MappingProxyType[str, str] = MappingProxyType(
 )
 
 _MAX_PARAM_TEXT_LEN = 1_000_000
+
+# PET-190: the one direction both parameter scans use. Tool parameters are agent
+# output (PET-94 Decision 2), so the outbound-only command family runs on them.
+PARAM_SCAN_DIRECTION: Final[Direction] = "outbound"
+
+
+@dataclass(frozen=True)
+class RenderedParams:
+    """PET-190: scan text plus the length it had before the cap was applied."""
+
+    text: str
+    original_len: int
+
+    @property
+    def truncated(self) -> bool:
+        return self.original_len > len(self.text)
+
+
+def render_param_text(tool_params: Mapping[str, Any]) -> RenderedParams:
+    """PET-190: the single derivation of scan text from a tool call's parameters.
+
+    Both ``ToolCallGuard._scan_params`` and the reference plugin's
+    ``_fallback_pre_tool_call`` call this, so cap and serialization cannot drift
+    between the healthy and degraded paths. Falsy input renders empty. ``None``
+    values are dropped, string values pass through raw (no JSON escaping between
+    the scanner and the bytes the agent emitted), everything else goes through
+    ``safe_json_dumps``, and the parts are newline-joined. Text over
+    ``_MAX_PARAM_TEXT_LEN`` is cut there; the caller reads ``truncated`` and logs
+    in its own vocabulary (PET-174 shape: the helper returns data, never logs).
+    Never raises on a mapping; a non-mapping raises ``AttributeError`` into the
+    caller's existing fail-secure handler.
+    """
+    if not tool_params:
+        return RenderedParams("", 0)
+    parts: list[str] = []
+    for value in tool_params.values():
+        if value is None:
+            continue
+        if isinstance(value, str):
+            parts.append(value)
+        else:
+            parts.append(safe_json_dumps(value))
+    text = "\n".join(parts)
+    original_len = len(text)
+    if original_len > _MAX_PARAM_TEXT_LEN:
+        text = text[:_MAX_PARAM_TEXT_LEN]
+    return RenderedParams(text, original_len)
 
 
 @dataclass(frozen=True)
@@ -852,31 +902,21 @@ class ToolCallGuard:
             if not tool_params:
                 return (), False, False
 
-            parts: list[str] = []
-            for value in tool_params.values():
-                if value is None:
-                    continue
-                if isinstance(value, str):
-                    parts.append(value)
-                else:
-                    parts.append(safe_json_dumps(value))
-
-            param_text = "\n".join(parts)
-            if not param_text:
+            rendered = render_param_text(tool_params)
+            if not rendered.text:
                 return (), False, False
-
-            if len(param_text) > _MAX_PARAM_TEXT_LEN:
+            if rendered.truncated:
                 _logger.warning(
                     "param text exceeds length cap (%d > %d chars), truncating; session=%s",
-                    len(param_text),
+                    rendered.original_len,
                     _MAX_PARAM_TEXT_LEN,
                     session_id,
                 )
-                param_text = param_text[:_MAX_PARAM_TEXT_LEN]
+            param_text = rendered.text
 
             result = await self._pipeline.inspect(
                 param_text,
-                direction="outbound",
+                direction=PARAM_SCAN_DIRECTION,
                 session_id=session_id,
                 weight_cap=self.scan_weight_cap,
             )

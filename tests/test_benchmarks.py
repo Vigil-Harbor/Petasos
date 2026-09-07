@@ -288,3 +288,24 @@ def test_benchmark_ingestion_disarmed_no_op(benchmark) -> None:  # type: ignore[
     """The PET-111 disarm gate, above everything else: zero added scan cost while
     Unequipped, which is the invariant the whole disarm design rests on."""
     _ingestion_case(benchmark, "x" * 100_000, armed=False)
+
+
+def test_benchmark_fallback_param_scan_1mb(benchmark) -> None:  # type: ignore[no-untyped-def]
+    """PET-190 T-8, measure-only: a full-cap parameter scan on the failed-init fallback.
+
+    Driven through the plugin's real ``_run_async``, so the number is the loop-blocked
+    duration a queued call inherits, not the scan in isolation. ``MinimalScanner.scan`` has
+    no await point, so once scheduled it runs to completion and the 15 s timeout bounds only
+    the caller's wait. ``pedantic`` with 3 rounds: the default calibration would spend
+    minutes of wall clock on a 1 MB scan. No assertion; the recorded figure is the artifact.
+    """
+    from petasos.session.guard import _MAX_PARAM_TEXT_LEN
+
+    ref: Any = _ingestion_plugin(Pipeline(config=PetasosConfig()))
+    ref._init_error = "bench"
+    args = {"data": "x" * _MAX_PARAM_TEXT_LEN}
+
+    def run() -> None:
+        ref._fallback_pre_tool_call("write_file", args, "s1")
+
+    benchmark.pedantic(run, rounds=3, iterations=1)
