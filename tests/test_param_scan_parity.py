@@ -276,30 +276,23 @@ def test_both_paths_hand_the_scanner_identical_text_and_direction(
 ) -> None:
     # T-3 and T-4. The 150,000-character shape is the behavioral backstop: any re-hand-rolled
     # cap on either side fails it regardless of the syntax used to write it.
+    #
+    # The fallback side runs the REAL MinimalScanner through _Recorder, which records what it
+    # was handed on the way past (tests/** must not mock the scanner protocol boundary). The
+    # guard side has to fake Pipeline.inspect instead: that is the pipeline boundary, one level
+    # above the scanner, and it is the only place the guard's derived text is observable.
     guard_seen: list[tuple[str, str]] = []
-    fallback_seen: list[tuple[str, str]] = []
 
     async def fake_inspect(text: str, **kwargs: Any) -> PipelineResult:
         guard_seen.append((text, kwargs["direction"]))
         return PipelineResult(safe=True, findings=())
 
-    async def fake_scan(
-        text: str, *, direction: str = "inbound", session_id: str | None = None
-    ) -> ScanResult:
-        fallback_seen.append((text, direction))
-        return ScanResult(scanner_name="minimal", findings=())
-
     guard = _make_guard(monkeypatch)
     monkeypatch.setattr(guard._pipeline, "inspect", fake_inspect)
 
     ref = _import_reference_plugin()
-    _latch_failed_init(monkeypatch, ref)
-
-    class _Stub:
-        name = "minimal"
-        scan = staticmethod(fake_scan)
-
-    monkeypatch.setattr(ref, "_get_fallback_scanner", lambda: _Stub())
+    recorder = _latch_failed_init(monkeypatch, ref)
+    monkeypatch.setattr(ref, "_emit_enforcement_event", lambda **kw: None)
 
     with caplog.at_level(logging.ERROR, logger="petasos.session.guard"):
         result = asyncio.run(guard.evaluate("write_file", args, "s1"))
@@ -312,14 +305,14 @@ def test_both_paths_hand_the_scanner_identical_text_and_direction(
 
     if args:
         assert guard_seen, "guard-side capture must be non-empty"
-        assert fallback_seen, "fallback-side capture must be non-empty"
-        assert guard_seen[0][0] == fallback_seen[0][0]
-        assert guard_seen[0][1] == fallback_seen[0][1]
+        assert recorder.texts, "fallback-side capture must be non-empty"
+        assert guard_seen[0][0] == recorder.texts[0]
+        assert guard_seen[0][1] == recorder.directions[0]
         assert guard_seen[0][1] == guard_mod.PARAM_SCAN_DIRECTION == "outbound"
     else:
         # Falsy args render empty on both sides: neither path calls the scanner at all.
         assert guard_seen == []
-        assert fallback_seen == []
+        assert recorder.texts == []
 
 
 # ---------------------------------------------------------------------------
