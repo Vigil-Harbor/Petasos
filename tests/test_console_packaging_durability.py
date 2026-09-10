@@ -24,6 +24,7 @@ import json
 import pathlib
 import subprocess
 import sys
+from importlib.resources import files
 
 # Module-level import of the entrypoint (the spec's fastapi-free contract): this
 # import must succeed with no fastapi installed, so it may NOT live behind an
@@ -41,6 +42,26 @@ _FRAGILE_MARKER = (
     "<!-- PET-153-D2-FRAGILE: in-tree dashboard copy is wiped every Hermes update; "
     "not the durable path -->"
 )
+
+_CONSOLE_SCRIPT_FILES = [
+    "petasos-core.js",
+    "petasos-transport.js",
+    "petasos-observability.js",
+    "petasos-dashboard.js",
+    "petasos-playground.js",
+    "petasos-config.js",
+    "petasos-shell.js",
+]
+
+
+def test_console_static_script_resources_are_exact() -> None:
+    """PET-183: the installed package carries the complete module set only."""
+    static = files("petasos.console").joinpath("static")
+    scripts = sorted(entry.name for entry in static.iterdir() if entry.name.endswith(".js"))
+    assert scripts == sorted(_CONSOLE_SCRIPT_FILES)
+    assert "petasos.js" not in scripts
+    for name in _CONSOLE_SCRIPT_FILES:
+        assert static.joinpath(name).read_text(encoding="utf-8")
 
 
 # --------------------------------------------------------------------------- #

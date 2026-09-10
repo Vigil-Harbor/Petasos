@@ -43,7 +43,7 @@ from petasos.scanners.minimal import MinimalScanner  # noqa: E402
 pytestmark = pytest.mark.anyio
 
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
-_PETASOS_JS = _REPO_ROOT / "petasos" / "console" / "static" / "petasos.js"
+_PETASOS_JS = _REPO_ROOT / "petasos" / "console" / "static" / "petasos-transport.js"
 _SESSION_SECRET = b"0123456789abcdef0123456789abcdef"  # 32 bytes, fixed for determinism
 
 
@@ -517,5 +517,5 @@ async def test_ring_capacity_single_source() -> None:
     assert _SCAN_HISTORY_RING_CAPACITY == 500
     js = _PETASOS_JS.read_text(encoding="utf-8")
     m = re.search(r"/\*\s*@ring-cap\s*\*/\s*(\d+)", js)
-    assert m is not None, "missing /* @ring-cap */ marker in petasos.js"
+    assert m is not None, "missing /* @ring-cap */ marker in petasos-transport.js"
     assert int(m.group(1)) == _SCAN_HISTORY_RING_CAPACITY

@@ -9,7 +9,36 @@
 </head>
 <body>
   <div id="root" class="pet pet-standalone"></div>
-  <script src="/static/petasos.js"></script>
-  <script>window.__PETASOS_CONSOLE__.mount(document.getElementById("root"));</script>
+  <script src="/static/petasos-core.js"></script>
+  <script src="/static/petasos-transport.js"></script>
+  <script src="/static/petasos-observability.js"></script>
+  <script src="/static/petasos-dashboard.js"></script>
+  <script src="/static/petasos-playground.js"></script>
+  <script src="/static/petasos-config.js"></script>
+  <script src="/static/petasos-shell.js"></script>
+  <script>
+    var Pet = window.__PETASOS_CONSOLE__;
+    if (!(Pet && Pet._moduleState && Pet._moduleState.ready === true)) {
+      var root = document.getElementById("root");
+      if (root) {
+        root.innerHTML = "";
+        var failure = document.createElement("div");
+        failure.setAttribute("role", "alert");
+        failure.style.cssText = "box-sizing:border-box;max-width:520px;margin:10vh auto;padding:24px;color:#f0f3f6;text-align:center";
+        var message = document.createElement("p");
+        message.textContent = "Petasos console failed to initialize.";
+        var retry = document.createElement("button");
+        retry.type = "button";
+        retry.className = "btn btn-primary";
+        retry.textContent = "Retry";
+        retry.addEventListener("click", function () { window.location.reload(); });
+        failure.appendChild(message);
+        failure.appendChild(retry);
+        root.appendChild(failure);
+      }
+      throw new Error("Petasos console initialization failed before mount");
+    }
+    Pet.mount(document.getElementById("root"));
+  </script>
 </body>
 </html>

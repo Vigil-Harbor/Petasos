@@ -4,6 +4,17 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Changed
+
+- **The console now ships as seven ordered classic scripts (PET-183).** The
+  private `/static/petasos.js` implementation asset was removed. Standalone and
+  hand-synced Hermes deployments must carry the complete ordered bundle:
+  `petasos-core.js`, `petasos-transport.js`, `petasos-observability.js`,
+  `petasos-dashboard.js`, `petasos-playground.js`, `petasos-config.js`, and
+  `petasos-shell.js`. The supported standalone `index.html` and embedded Hermes
+  plugin entry points load this bundle automatically; no build step or npm
+  dependency was added.
+
 ### Fixed
 
 - **Clipped tool-result boundary limits are now explicit (PET-193, PET-184
@@ -104,9 +115,11 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
   non-equipped profile's own arming bit anywhere; that per-profile read is
   withdrawn (it remains readable on disk at `profiles/<name>/config.yaml`).
   Plugin/bundle sync requirement: the console bundle must travel with the
-  backend on hand-synced deployments; copy `petasos/console/static/petasos.js`
-  together with the library upgrade, or the caption will assert the new
-  semantics against a backend still serving the old ones.
+  backend on hand-synced deployments; copy all seven ordered static scripts
+  (`petasos-core.js`, `petasos-transport.js`, `petasos-observability.js`,
+  `petasos-dashboard.js`, `petasos-playground.js`, `petasos-config.js`, and
+  `petasos-shell.js`) together with the library upgrade, or the caption will
+  assert the new semantics against a backend still serving the old ones.
 
 ## [0.3.0] - 2026-08-11
 
@@ -302,9 +315,11 @@ enforcement entirely).
   while read-only tools are still allowed. Tool results remain unscanned on that
   branch. The console marker, provenance line, drill-down explainer and badge were
   corrected: they previously said enforcement was disabled and calls ran unscanned,
-  which is no longer true. Sync `petasos/console/static/petasos.js` with the plugin
-  files when you upgrade; an old console over a new plugin keeps showing the retired
-  copy.
+  which is no longer true. Sync the complete ordered seven-file console bundle
+  (`petasos-core.js`, `petasos-transport.js`, `petasos-observability.js`,
+  `petasos-dashboard.js`, `petasos-playground.js`, `petasos-config.js`, and
+  `petasos-shell.js`) with the plugin files when you upgrade; an old console over
+  a new plugin keeps showing the retired copy.
 - **Plugin/library sync requirement.** The reference plugin now imports
   `build_scanners`, so it requires a `petasos` release that exports it. Copy the
   plugin files and upgrade the library together. `build_scanners` shipped before
