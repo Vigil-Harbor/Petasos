@@ -17,10 +17,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
-import vm from "node:vm";
+import { createDOM, loadConsole } from "./harness.mjs";
 
 // ── Extended DOM shim (PET-103 D10) ────────────────────────────────────────
 // Models the surface Pet.h touches that the richtext shim does not: `style`
@@ -28,57 +25,19 @@ import vm from "node:vm";
 // `undefined`), plus plain `className`/`title` slots. `textContent` keeps the
 // aggregating GETTER (so `errEl.textContent === message` reads work) AND gains a
 // throwing SETTER — so a regression to the old `errEl.textContent = ...` pattern
-// fails loudly here instead of being a silent no-op. Both accessors are defined
-// together (a `get`/`set` literal pair) so adding the setter does not drop the
-// getter.
-function makeNode(nodeType) {
-  return {
-    nodeType, // 1 = element, 3 = text, 11 = fragment
-    childNodes: [],
-    style: {},
-    className: "",
-    title: "",
-    appendChild(child) {
-      this.childNodes.push(child);
-      return child;
-    },
-    get textContent() {
-      if (this.nodeType === 3) return this.nodeValue;
-      return this.childNodes.map((c) => c.textContent).join("");
-    },
-    set textContent(_v) {
-      throw new Error(
-        "PET-103 D10: textContent assignment is banned in this shim — pass the " +
-          "message as a Pet.h text child, not `errEl.textContent = ...`."
-      );
-    },
-  };
-}
+// fails loudly here instead of being a silent no-op. The shared factory defines
+// both accessors in one descriptor so the setter does not drop the getter.
+const { makeDocument } = createDOM({
+  title: true,
+  textContent: "strict",
+});
 
-const document = {
-  createDocumentFragment() {
-    return makeNode(11);
-  },
-  createElement(tag) {
-    const el = makeNode(1);
-    el.tagName = tag.toUpperCase(); // mirrors real DOM (uppercase for HTML)
-    el.localName = tag;
-    return el;
-  },
-  createTextNode(t) {
-    const node = makeNode(3);
-    node.nodeValue = String(t);
-    return node;
-  },
-};
+const document = makeDocument();
 
 // ── Load the real petasos.js under a sandbox ──────────────────────────────
-const here = dirname(fileURLToPath(import.meta.url));
-const petasosJsPath = join(here, "..", "..", "petasos", "console", "static", "petasos.js");
-const src = readFileSync(petasosJsPath, "utf8");
 
 const sandbox = { window: {}, document };
-vm.runInNewContext(src, sandbox);
+loadConsole(sandbox);
 const Pet = sandbox.window.__PETASOS_CONSOLE__;
 
 // ── Helpers ───────────────────────────────────────────────────────────────

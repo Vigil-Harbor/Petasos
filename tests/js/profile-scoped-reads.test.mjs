@@ -14,34 +14,13 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
-import vm from "node:vm";
+import { createDOM, loadConsole } from "./harness.mjs";
 
-function makeNode(nodeType) {
-  return {
-    nodeType,
-    childNodes: [],
-    style: {},
-    className: "",
-    attrs: {},
-    appendChild(child) { this.childNodes.push(child); return child; },
-    setAttribute(k, v) { this.attrs[k] = v; },
-    removeAttribute(k) { delete this.attrs[k]; },
-    querySelector() { return null; },
-    querySelectorAll() { return []; },
-    addEventListener() {},
-  };
-}
-const document = {
-  createDocumentFragment() { return makeNode(11); },
-  createElement(tag) { const el = makeNode(1); el.tagName = tag.toUpperCase(); return el; },
-  createTextNode(t) { const n = makeNode(3); n.nodeValue = String(t); return n; },
-};
+const { makeDocument } = createDOM({
+  attributes: "raw", events: "noop", selectors: "empty", localName: false,
+});
+const document = makeDocument();
 
-const here = dirname(fileURLToPath(import.meta.url));
-const petasosJsPath = join(here, "..", "..", "petasos", "console", "static", "petasos.js");
 // AbortController / TextDecoder / fetch are runtime APIs petasos.js already relies
 // on (the SSE pump); the shim provides them so _openStream can be driven headlessly.
 const sandbox = {
@@ -50,7 +29,7 @@ const sandbox = {
   AbortController, TextDecoder,
   fetch: function () { return new Promise(function () {}); },
 };
-vm.runInNewContext(readFileSync(petasosJsPath, "utf8"), sandbox);
+loadConsole(sandbox);
 const Pet = sandbox.window.__PETASOS_CONSOLE__;
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));

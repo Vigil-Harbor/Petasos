@@ -22,57 +22,23 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
-import vm from "node:vm";
+import { createDOM, loadConsole } from "./harness.mjs";
 
 // ── Minimal DOM shim ────────────────────────────────────────────────────────
 // The armed arm needs no real DOM (its re-render is _container-guarded and
 // _container is null headlessly), but loading petasos.js under vm requires
 // `document` to exist. Mirror the scanner-health shim shape.
-function makeNode(nodeType) {
-  return {
-    nodeType,
-    childNodes: [],
-    style: {},
-    className: "",
-    title: "",
-    appendChild(child) {
-      this.childNodes.push(child);
-      return child;
-    },
-    get textContent() {
-      if (this.nodeType === 3) return this.nodeValue;
-      return this.childNodes.map((c) => c.textContent).join("");
-    },
-  };
-}
+const { makeDocument } = createDOM({
+  title: true,
+  textContent: "readonly",
+});
 
-const document = {
-  createDocumentFragment() {
-    return makeNode(11);
-  },
-  createElement(tag) {
-    const el = makeNode(1);
-    el.tagName = tag.toUpperCase();
-    el.localName = tag;
-    return el;
-  },
-  createTextNode(t) {
-    const node = makeNode(3);
-    node.nodeValue = String(t);
-    return node;
-  },
-};
+const document = makeDocument();
 
 // ── Load the real petasos.js under a sandbox ────────────────────────────────
-const here = dirname(fileURLToPath(import.meta.url));
-const petasosJsPath = join(here, "..", "..", "petasos", "console", "static", "petasos.js");
-const src = readFileSync(petasosJsPath, "utf8");
 
 const sandbox = { window: {}, document };
-vm.runInNewContext(src, sandbox);
+loadConsole(sandbox);
 const Pet = sandbox.window.__PETASOS_CONSOLE__;
 
 // ── Tests ───────────────────────────────────────────────────────────────────

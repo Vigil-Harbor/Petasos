@@ -18,80 +18,22 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { createDOM, loadConsole } from "./harness.mjs";
 import assertLoose from "node:assert";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
-import vm from "node:vm";
 
 // ── Interactive DOM shim ────────────────────────────────────────────────────
-function makeNode(nodeType) {
-  return {
-    nodeType,
-    childNodes: [],
-    style: {},
-    dataset: {},
-    attributes: {},
-    handlers: {},
-    className: "",
-    title: "",
-    tabIndex: undefined,
-    appendChild(child) {
-      this.childNodes.push(child);
-      return child;
-    },
-    setAttribute(k, v) {
-      this.attributes[k] = String(v);
-    },
-    getAttribute(k) {
-      return Object.prototype.hasOwnProperty.call(this.attributes, k) ? this.attributes[k] : null;
-    },
-    addEventListener(type, fn) {
-      (this.handlers[type] = this.handlers[type] || []).push(fn);
-    },
-    get textContent() {
-      if (this.nodeType === 3) return this.nodeValue;
-      return this.childNodes.map((c) => c.textContent).join("");
-    },
-    set textContent(v) {
-      const t = makeNode(3);
-      t.nodeValue = String(v);
-      this.childNodes = [t];
-    },
-  };
-}
+const { makeDocument } = createDOM({
+  title: true, dataset: true, tabIndex: true,
+  attributes: "record", events: "record",
+  textContent: "replace", svg: "namespace",
+});
 
-const document = {
-  createDocumentFragment() {
-    return makeNode(11);
-  },
-  createElement(tag) {
-    const el = makeNode(1);
-    el.tagName = tag.toUpperCase();
-    el.localName = tag;
-    return el;
-  },
-  createElementNS(ns, tag) {
-    const el = makeNode(1);
-    el.tagName = tag.toUpperCase();
-    el.localName = tag;
-    el.namespaceURI = ns;
-    return el;
-  },
-  createTextNode(t) {
-    const node = makeNode(3);
-    node.nodeValue = String(t);
-    return node;
-  },
-};
+const document = makeDocument();
 
 // ── Load the real petasos.js under a sandbox ───────────────────────────────
-const here = dirname(fileURLToPath(import.meta.url));
-const petasosJsPath = join(here, "..", "..", "petasos", "console", "static", "petasos.js");
-const src = readFileSync(petasosJsPath, "utf8");
 
 const sandbox = { window: {}, document };
-vm.runInNewContext(src, sandbox);
+loadConsole(sandbox);
 const Pet = sandbox.window.__PETASOS_CONSOLE__;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

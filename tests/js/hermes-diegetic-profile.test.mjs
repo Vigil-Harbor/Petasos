@@ -23,85 +23,23 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { createDOM, loadConsole } from "./harness.mjs";
 import assertLoose from "node:assert";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
-import vm from "node:vm";
 
 // ── Interactive DOM shim (superset of hermes-profile-selector's) ────────────
-function makeNode(nodeType) {
-  return {
-    nodeType, // 1 = element, 3 = text, 11 = fragment
-    childNodes: [],
-    style: {},
-    dataset: {},
-    attributes: {},
-    handlers: {},
-    className: "",
-    title: "",
-    value: undefined,
-    parentNode: null,
-    tabIndex: undefined,
-    appendChild(child) {
-      child.parentNode = this;
-      this.childNodes.push(child);
-      return child;
-    },
-    removeChild(child) {
-      const i = this.childNodes.indexOf(child);
-      if (i !== -1) this.childNodes.splice(i, 1);
-      child.parentNode = null;
-      return child;
-    },
-    insertBefore(node, ref) {
-      node.parentNode = this;
-      if (ref == null) { this.childNodes.push(node); return node; }
-      const i = this.childNodes.indexOf(ref);
-      if (i === -1) this.childNodes.push(node);
-      else this.childNodes.splice(i, 0, node);
-      return node;
-    },
-    remove() {
-      if (this.parentNode) this.parentNode.removeChild(this);
-    },
-    setAttribute(k, v) {
-      this.attributes[k] = String(v);
-    },
-    getAttribute(k) {
-      return Object.prototype.hasOwnProperty.call(this.attributes, k) ? this.attributes[k] : null;
-    },
-    addEventListener(type, fn) {
-      (this.handlers[type] = this.handlers[type] || []).push(fn);
-    },
-    querySelector(sel) {
-      return matchAll(this, sel)[0] || null;
-    },
-    querySelectorAll(sel) {
-      return matchAll(this, sel);
-    },
-    get firstChild() {
-      return this.childNodes[0] || null;
-    },
-    get textContent() {
-      if (this.nodeType === 3) return this.nodeValue;
-      return this.childNodes.map((c) => c.textContent).join("");
-    },
-    set textContent(v) {
-      const t = makeNode(3);
-      t.nodeValue = String(v);
-      t.parentNode = this;
-      this.childNodes = [t];
-    },
-    set innerHTML(v) {
-      // The console only ever assigns "" (a wipe). Treat any value as a clear.
-      this.childNodes = [];
-    },
-    get innerHTML() {
-      return "";
-    },
-  };
-}
+const { makeNode, makeDocument } = createDOM({
+  title: true, dataset: true, tabIndex: true,
+  attributes: "record", events: "record",
+  textContent: "replace", svg: "namespace",
+  tree: { parents: true, remove: true, detach: true, insert: true, first: true }, head: true, innerHTML: "readWrite",
+  extendNode(node) {
+    Object.assign(node, {
+      value: undefined,
+      querySelector(sel) { return matchAll(this, sel)[0] || null; },
+      querySelectorAll(sel) { return matchAll(this, sel); },
+    });
+  },
+});
 
 // Single-token selector matcher: ".class" | "tag" | "[data-x]" | "[data-x=\"v\"]".
 // (Compound selectors like '.tab[data-key="x"]' are only used on keydown, untested.)
@@ -134,31 +72,6 @@ function matchAll(root, sel) {
   };
   walk(root);
   return out;
-}
-
-function makeDocument() {
-  return {
-    head: makeNode(1),
-    createDocumentFragment() { return makeNode(11); },
-    createElement(tag) {
-      const el = makeNode(1);
-      el.tagName = tag.toUpperCase();
-      el.localName = tag;
-      return el;
-    },
-    createElementNS(ns, tag) {
-      const el = makeNode(1);
-      el.tagName = tag.toUpperCase();
-      el.localName = tag;
-      el.namespaceURI = ns;
-      return el;
-    },
-    createTextNode(t) {
-      const node = makeNode(3);
-      node.nodeValue = String(t);
-      return node;
-    },
-  };
 }
 
 // Distinguishable original-history return values, so the patch's "return the captured
@@ -202,9 +115,6 @@ function makeWindow(opts) {
 }
 
 // ── Load a fresh petasos.js per test (state + history patch must not leak) ──
-const here = dirname(fileURLToPath(import.meta.url));
-const petasosJsPath = join(here, "..", "..", "petasos", "console", "static", "petasos.js");
-const src = readFileSync(petasosJsPath, "utf8");
 
 function load(opts) {
   opts = opts || {};
@@ -219,7 +129,7 @@ function load(opts) {
     clearInterval: () => {},
     fetch: () => Promise.resolve({ ok: true, status: 200, statusText: "OK", json: () => Promise.resolve({}) }),
   };
-  vm.runInNewContext(src, sandbox);
+  loadConsole(sandbox);
   const Pet = win.__PETASOS_CONSOLE__;
   return { Pet, win };
 }

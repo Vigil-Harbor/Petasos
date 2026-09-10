@@ -21,10 +21,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
-import vm from "node:vm";
+import { createDOM, loadConsole } from "./harness.mjs";
 
 // ── Extended DOM shim (PET-99) ──────────────────────────────────────────────
 // Superset of the scanner-health shim. Differences (see spec Test plan):
@@ -36,68 +33,18 @@ import vm from "node:vm";
 //   * innerHTML setter clears childNodes (the `resultArea.innerHTML = ""` clear
 //     idiom — real-DOM semantics, so children don't accumulate across calls).
 //   * no-op addEventListener / setAttribute (Pet.HelpTip / Pet.svg touch them).
-function makeNode(nodeType) {
-  return {
-    nodeType, // 1 = element, 3 = text, 11 = fragment
-    childNodes: [],
-    style: {},
-    className: "",
-    title: "",
-    appendChild(child) {
-      this.childNodes.push(child);
-      return child;
-    },
-    addEventListener(_type, _fn) {},
-    setAttribute(_k, _v) {},
-    get textContent() {
-      if (this.nodeType === 3) return this.nodeValue;
-      return this.childNodes.map((c) => c.textContent).join("");
-    },
-    set textContent(v) {
-      // Real-DOM semantics: clear children; for a non-empty value, append one
-      // text node. (Empty string clears to no children.)
-      this.childNodes = [];
-      const s = v == null ? "" : String(v);
-      if (s !== "") {
-        const n = makeNode(3);
-        n.nodeValue = s;
-        this.childNodes.push(n);
-      }
-    },
-    set innerHTML(_v) {
-      // Only `... = ""` is used in production; model the clear, ignore the value.
-      this.childNodes = [];
-    },
-  };
-}
+const { makeDocument } = createDOM({
+  title: true,
+  attributes: "noop", events: "noop",
+  textContent: "clear", innerHTML: "clear", svg: "alias",
+});
 
-const document = {
-  createDocumentFragment() {
-    return makeNode(11);
-  },
-  createElement(tag) {
-    const el = makeNode(1);
-    el.tagName = tag.toUpperCase(); // mirrors real DOM (uppercase for HTML)
-    el.localName = tag;
-    return el;
-  },
-  createElementNS(_ns, tag) {
-    return this.createElement(tag); // Pet.svg path
-  },
-  createTextNode(t) {
-    const node = makeNode(3);
-    node.nodeValue = String(t);
-    return node;
-  },
-};
+const document = makeDocument();
 
 // ── Load the real petasos.js under a sandbox ──────────────────────────────
-const here = dirname(fileURLToPath(import.meta.url));
-const petasosJsPath = join(here, "..", "..", "petasos", "console", "static", "petasos.js");
-const src = readFileSync(petasosJsPath, "utf8");
 
 const sandbox = { window: {}, document };
-vm.runInNewContext(src, sandbox);
+loadConsole(sandbox);
 const Pet = sandbox.window.__PETASOS_CONSOLE__;
 
 // ── Helpers ───────────────────────────────────────────────────────────────
