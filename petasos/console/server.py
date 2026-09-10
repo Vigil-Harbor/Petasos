@@ -10,6 +10,8 @@ TYPE_CHECKING-only names in module-level signatures are quoted instead.
 """
 
 import asyncio
+import base64
+import binascii
 import contextlib
 import hashlib
 import hmac
@@ -398,17 +400,42 @@ def read_spool_tail(path: str) -> tuple[list[dict[str, Any]], bool]:
     return events, truncated
 
 
+_CURSOR_SURROGATE_PREFIX = "!u!"
+
+
 def _cursor_esc(s: str) -> str:
-    """Escape one cursor segment (PET-166 D18). ``quote`` alone does not do it: ``~`` is in
-    ``_ALWAYS_SAFE`` (RFC 3986 unreserved) and ``safe=`` only adds to that set, so the
-    structural separator would survive unescaped. The ``.replace`` is unambiguous because
-    ``quote(safe="")`` has already turned every literal ``%`` into ``%25``."""
-    return quote(s, safe="").replace("~", "%7E")
+    """Escape one cursor segment (PET-166 D18; PET-195).
+
+    ``quote`` alone does not escape ``~`` because RFC 3986 declares it unreserved, so the
+    structural separator needs the explicit replacement. It also rejects unpaired Unicode
+    surrogates. Those are valid in parsed JSON strings, so encode that narrow case as
+    URL-safe base64 over surrogate-preserving UTF-8. The literal ``!`` sentinel cannot
+    collide with the ordinary path: ``quote(safe="")`` emits it as ``%21``.
+    """
+    try:
+        return quote(s, safe="").replace("~", "%7E")
+    except UnicodeEncodeError:
+        raw = s.encode("utf-8", errors="surrogatepass")
+        payload = base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+        return _CURSOR_SURROGATE_PREFIX + payload
 
 
-def _cursor_unesc(s: str) -> str:
-    """Reverse ``_cursor_esc`` in a single pass."""
-    return unquote(s)
+def _cursor_unesc(s: str) -> str | None:
+    """Reverse ``_cursor_esc`` in a single pass; return ``None`` when malformed."""
+    if not s.startswith(_CURSOR_SURROGATE_PREFIX):
+        return unquote(s)
+    payload = s[len(_CURSOR_SURROGATE_PREFIX) :]
+    if not payload:
+        return None
+    try:
+        padded = payload + "=" * (-len(payload) % 4)
+        raw = base64.b64decode(padded, altchars=b"-_", validate=True)
+        decoded = raw.decode("utf-8", errors="surrogatepass")
+    except (binascii.Error, UnicodeError, ValueError):
+        return None
+    # Accept only the one spelling the mint produces. This rejects padding, alternate
+    # encodings, and sentinel-prefixed scalar-only text that belongs on the ordinary path.
+    return decoded if _cursor_esc(decoded) == s else None
 
 
 def _history_cursor_token(row: dict[str, Any], scope_name: str | None = None) -> str | None:
@@ -451,8 +478,8 @@ def _parse_history_cursor(
       ``before`` by the routes — never a plausible, non-contiguous page under a scope the
       token was not minted for.
 
-    The three ways a token is rejected: the scope check above, the arity check (exactly one
-    ``~`` split into two parts), and the ``float()`` try.
+    A token is rejected by the scope check above, the arity check (exactly one ``~`` split
+    into two parts), the ``float()`` conversion, or malformed PET-195 fallback encoding.
     """
     if before is None:
         return None, "ok"
@@ -461,6 +488,8 @@ def _parse_history_cursor(
     if "|" in before:
         head, body = before.split("|", 1)
         prefix = _cursor_unesc(head)
+        if prefix is None:
+            return None, "malformed"
     if (prefix is None) != (scope_name is None) or (prefix is not None and prefix != scope_name):
         return None, "scope_mismatch"
     parts = body.rsplit("~", 1)
@@ -471,6 +500,8 @@ def _parse_history_cursor(
     except (ValueError, TypeError):
         return None, "malformed"
     sid = _cursor_unesc(parts[1]) if prefix is not None else parts[1]
+    if sid is None:
+        return None, "malformed"
     return (ts, sid), "ok"
 
 

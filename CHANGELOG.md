@@ -17,6 +17,15 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
 
 ### Fixed
 
+- **Profile-scoped history cursors tolerate surrogate-bearing stored IDs
+  (PET-195, PET-184 finding PETRT-007).** The supported Hermes and playground
+  writers mint their own UUID-backed IDs, but direct internal-writer use and
+  hand-authored, legacy, or foreign-profile JSONL can contain an unpaired
+  Unicode surrogate. Such a row no longer raises while the console mints its
+  `next_before` cursor. A fallback ASCII encoding preserves the exact ID and
+  contiguous pagination; ordinary cursor tokens remain byte-identical, and
+  malformed fallback tokens retain the existing fail-safe empty-page behavior.
+
 - **Clipped tool-result boundary limits are now explicit (PET-193, PET-184
   finding PETRT-005).** Renamed the reference plugin's private `_SEAM_OVERLAP`
   constant to `_RESULT_SCAN_HEAD_BIAS` to describe its budget role. The hardening
