@@ -49,7 +49,7 @@ _MARKER_PREFIX = "petasos-doc-assert:"
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _SCANNERS_DOC = _REPO_ROOT / "docs" / "usage" / "scanners.md"
 _CONFIG_DOC = _REPO_ROOT / "docs" / "usage" / "configuration.md"
-_CONSOLE_JS = _REPO_ROOT / "petasos" / "console" / "static" / "petasos.js"
+_CONSOLE_JS = _REPO_ROOT / "petasos" / "console" / "static" / "petasos-shell.js"
 
 
 def _parse_doc_asserts(

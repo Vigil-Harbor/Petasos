@@ -10,6 +10,7 @@ so the whole module ``importorskip``s fastapi and runs on the ``[dev,console]`` 
 from __future__ import annotations
 
 import logging
+import re
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -154,6 +155,30 @@ def test_routes_mounted_not_404() -> None:
     assert tc.get("/api/config").status_code != 404
     assert tc.get("/api/armed").status_code != 404
     assert tc.post("/api/scan", json={"text": "hello"}).status_code != 404
+
+
+def test_index_and_every_declared_console_script_are_served() -> None:
+    """PET-183: standalone HTML and each ordered static module are reachable."""
+    tc = _client(create_app(build_dashboard_pipeline({})))
+    response = tc.get("/")
+    assert response.status_code == 200
+    scripts = re.findall(r'<script src="([^"]+\.js)"></script>', response.text)
+    assert scripts == [
+        f"/static/{name}"
+        for name in (
+            "petasos-core.js",
+            "petasos-transport.js",
+            "petasos-observability.js",
+            "petasos-dashboard.js",
+            "petasos-playground.js",
+            "petasos-config.js",
+            "petasos-shell.js",
+        )
+    ]
+    for script in scripts:
+        asset = tc.get(script)
+        assert asset.status_code == 200, script
+        assert asset.text.strip(), script
 
 
 def test_auth_parity_token_set() -> None:

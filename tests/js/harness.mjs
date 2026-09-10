@@ -4,12 +4,35 @@
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 
-export const consoleSource = readFileSync(new URL("../../petasos/console/static/petasos.js", import.meta.url), "utf8");
+export const consoleScriptFiles = [
+  "petasos-core.js",
+  "petasos-transport.js",
+  "petasos-observability.js",
+  "petasos-dashboard.js",
+  "petasos-playground.js",
+  "petasos-config.js",
+  "petasos-shell.js",
+];
+
+export const consoleSources = consoleScriptFiles.map((filename) => ({
+  filename,
+  source: readFileSync(new URL(`../../petasos/console/static/${filename}`, import.meta.url), "utf8"),
+}));
+
+// Text-only compatibility surface for source assertions. Never execute this join.
+export const consoleSource = consoleSources.map(({ source }) => source).join("\n");
 
 // Suites supply fresh sandboxes when they need fresh realms; no globals are added.
 // Compare realm objects by keys/values, not host-realm prototype identity.
 export function loadConsole(sandbox) {
-  vm.runInNewContext(consoleSource, sandbox);
+  const context = vm.createContext(sandbox);
+  for (const entry of consoleSources) {
+    if (sandbox.document.currentScript && sandbox.document.currentScript.src) {
+      const src = sandbox.document.currentScript.src;
+      sandbox.document.currentScript.src = src.slice(0, src.lastIndexOf("/") + 1) + entry.filename;
+    }
+    vm.runInContext(entry.source, context, { filename: entry.filename });
+  }
   return sandbox.window.__PETASOS_CONSOLE__;
 }
 

@@ -9,7 +9,19 @@
 </head>
 <body>
   <div id="root" class="pet pet-standalone"></div>
-  <script src="/static/petasos.js"></script>
-  <script>window.__PETASOS_CONSOLE__.mount(document.getElementById("root"));</script>
+  <script src="/static/petasos-core.js"></script>
+  <script src="/static/petasos-transport.js"></script>
+  <script src="/static/petasos-observability.js"></script>
+  <script src="/static/petasos-dashboard.js"></script>
+  <script src="/static/petasos-playground.js"></script>
+  <script src="/static/petasos-config.js"></script>
+  <script src="/static/petasos-shell.js"></script>
+  <script>
+    var Pet = window.__PETASOS_CONSOLE__;
+    if (!(Pet && Pet._moduleState && Pet._moduleState.ready === true)) {
+      throw new Error("Petasos console initialization failed before mount");
+    }
+    Pet.mount(document.getElementById("root"));
+  </script>
 </body>
 </html>
