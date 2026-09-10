@@ -289,9 +289,11 @@ enforcement entirely).
   by the pipeline that enforces, including through all five console posture
   presets. Both bootstraps now route through `build_scanners`, and a structural
   test fails the build if a third bootstrap constructs scanners by hand. Log
-  wording, levels, and ordering on both paths are unchanged. These fields still
-  apply at construction time only: a live config edit or a Hermes-profile
-  re-bind takes effect at the next restart.
+  wording, levels, and ordering on both paths are unchanged. The three Presidio
+  fields still apply at construction time only: changes from a live config edit
+  or a Hermes-profile re-bind take effect at the next restart.
+  `decode_encoded_payloads` is propagated live to the existing `MinimalScanner`
+  by `Pipeline.reconfigure()`; no restart is required for that flag.
 - **A permanently failed scanner init no longer disables enforcement (PET-171).**
   The reference plugin's `init_failed` branch now runs the zero-dependency syntactic
   scanner and honors `fail_mode`, instead of allowing every tool call unscanned.
