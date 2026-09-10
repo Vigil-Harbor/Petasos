@@ -505,13 +505,15 @@
     // double-submit cannot let the wrong token's stale 401 tear down the correct
     // token's session (edge F-6). authRequired is cleared ONLY after the verification
     // read returns a non-401, well-shaped body (not optimistically on submit).
+    // PET-192: both continuations also drop a superseded host scope (PET-166 D17).
     _resume: function () {
       var gen = Pet.auth._gen;
+      var scopeGen = _scopeGen; // PET-192 / D17: one send-time scope for the whole resume
       _armedSeeded = false;   // re-derive from server truth, regardless of any stray frame (edge F-3)
       _historySeeded = false;
       _historyPaging = false; _historyPagingGen++; // PET-152: supersede any in-flight paging re-mint across the re-auth resume
       return Pet.api.getArmed().then(function (d) {
-        if (gen !== Pet.auth._gen) return { ok: false, stale: true }; // superseded; drop (incl. a stale 401)
+        if (gen !== Pet.auth._gen || scopeGen !== _scopeGen) return { ok: false, stale: true }; // superseded; drop (incl. a stale 401)
         if (d && d._status === 401) return { ok: false, message: "Authentication failed. Check the token and retry." };
         // round-2 edge F-3: a transient non-401 error (no boolean armed) keeps the
         // authenticate state and re-enables the control with a distinct message.
@@ -520,12 +522,12 @@
         Pet.state.armed = d.armed; // seed from the authenticated read, not the stale default
         _armedSeeded = true;       // armed is verified; skip the dashboard's mount re-fetch
         return Pet.api.getHealth().then(function (h) {
-          // A token set/clear during the /health round-trip supersedes this resume (a
-          // newer submit, or a clearToken, now owns the outcome). Drop the whole stale
+          // A token set/clear or host scope change during the /health round-trip
+          // supersedes this resume. Drop the whole stale
           // continuation — not just the health seed — so it cannot restart transports
           // or re-render the dashboard under a superseded generation (e.g. re-arming
           // polling/SSE that a concurrent clearToken just tore down).
-          if (gen !== Pet.auth._gen) return { ok: false, stale: true };
+          if (gen !== Pet.auth._gen || scopeGen !== _scopeGen) return { ok: false, stale: true };
           if (h && !h.error && h._status !== 401) {
             _healthLoaded = true;
             Pet.state.scannerHealth = h.scanners || [];
