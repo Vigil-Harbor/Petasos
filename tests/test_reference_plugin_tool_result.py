@@ -962,13 +962,15 @@ def test_clip_boundaries_take_the_right_branch_and_never_double_scan(
 
 
 def test_the_clip_constants_leave_room_for_a_positive_half() -> None:
-    # `half` is `(cap - marker - overlap) // 2`. At zero or below, `result[-half:]` becomes
+    # `half` is `(cap - marker - head_bias) // 2`. At zero or below, `result[-half:]` becomes
     # `result[-0:]` — the WHOLE result — and the budget invariant asserted above would stop
     # holding silently. Pinned on the constants rather than guarded at runtime: the branch
-    # is unreachable at today's values, and a cap below the marker plus the overlap would
+    # is unreachable at today's values, and a cap below the marker plus the head bias would
     # make the head/tail window meaningless anyway.
     ref = _import_reference_plugin()
-    assert ref._MAX_RESULT_SCAN_CHARS - len(ref._TRUNCATION_MARKER) - ref._SEAM_OVERLAP >= 2
+    assert (
+        ref._MAX_RESULT_SCAN_CHARS - len(ref._TRUNCATION_MARKER) - ref._RESULT_SCAN_HEAD_BIAS >= 2
+    )
 
 
 def test_a_payload_in_the_last_thousand_chars_is_caught(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -989,10 +991,10 @@ def test_a_payload_at_the_exact_midpoint_is_missed_pinned_gap(
 ) -> None:
     """The mid-window gap, pinned rather than left to be rediscovered.
 
-    ``_SEAM_OVERLAP`` extends head coverage 512 chars past the boundary; it is not
-    seam-safety in general. For a large result, head and tail are separated by an unscanned
-    gap, and content landing there is invisible to this seam. The banner says what was
-    scanned, never that the content is clean.
+    ``_RESULT_SCAN_HEAD_BIAS`` makes the head 512 chars longer than the tail within the
+    fixed budget. The retained spans are disjoint, with no boundary-spanning pass.
+    Content in the gap is invisible to this scan; a trigger split across either cut can
+    also lose its finding. Clipping alone adds no banner when the retained scan is clean.
     """
     ref = _import_reference_plugin()
     filler = "filler line\n" * 40_000

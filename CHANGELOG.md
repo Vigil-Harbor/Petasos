@@ -6,6 +6,14 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
 
 ### Fixed
 
+- **Clipped tool-result boundary limits are now explicit (PET-193, PET-184
+  finding PETRT-005).** Renamed the reference plugin's private `_SEAM_OVERLAP`
+  constant to `_RESULT_SCAN_HEAD_BIAS` to describe its budget role. The hardening
+  guide now states that injections crossing either head/gap or gap/tail cut can
+  lose findings, even when most of the trigger is retained. This is a naming and
+  documentation correction: detection coverage and the 8,000-character scan
+  budget are unchanged; clipping alone adds no banner when the scan is clean.
+
 - **Re-authentication discards responses from a superseded host scope (PET-192,
   PET-184 finding PETRT-004).** Armed and health verification now check the scope
   generation captured when resume starts, alongside the token generation. Changing
