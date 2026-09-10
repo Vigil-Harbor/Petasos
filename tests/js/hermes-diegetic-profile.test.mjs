@@ -961,3 +961,70 @@ test("#32 deferred post-save render is dropped after new edits, tab change, supe
   deferred.fn();
   assert.equal(renderCalls, callsAfterSupersedingRender, "unmount suppresses the detached-container render");
 });
+
+test("#33 save completion clears only unchanged submitted entries and preserves pending edits", async () => {
+  let putResolve = null;
+  const timers = [];
+  const sdk = {
+    calls: [],
+    profileScope: makeScope({ profile: "alpha", currentProfile: "alpha" }),
+    fetchJSON(url, o) {
+      this.calls.push({ url: String(url), opts: o });
+      if (/\/profiles\/active/.test(url)) return Promise.resolve({ active: "", current: "" });
+      if (/\/profiles(\?|$)/.test(url)) return Promise.resolve({ profiles: [] });
+      if (o && o.method === "PUT") return new Promise((resolve) => { putResolve = resolve; });
+      if (/config/.test(url)) return Promise.resolve({ config: { tier1_threshold: 10 }, fields: [], presets: [] });
+      return Promise.resolve({});
+    },
+  };
+  const { Pet } = load({
+    sdk,
+    setTimeout(fn, ms) { timers.push({ fn, ms }); return timers.length; },
+  });
+  stubMount(Pet);
+  const el = host();
+  Pet.mount(el);
+  const containerEl = el.querySelector(".content");
+  Pet.switchTab("cfg");
+  await flush();
+
+  Pet.state.configDirty = { tier1_threshold: 99, tier2_threshold: 88 };
+  click(findButtonByText(containerEl, "Apply"));
+  assert.ok(putResolve, "Apply issued a pending PUT");
+  Pet.state.configDirty.tier1_threshold = 55;
+  Pet.state.configDirty.new_field = "newer";
+
+  putResolve({ config: { tier1_threshold: 99, tier2_threshold: 88 }, applied: true });
+  await flush();
+  assert.equal(Pet.state.configDirty.tier1_threshold, 55, "changed submitted field survives");
+  assert.equal(Pet.state.configDirty.new_field, "newer", "new field survives");
+  assert.ok(!Object.prototype.hasOwnProperty.call(Pet.state.configDirty, "tier2_threshold"), "unchanged submitted field clears");
+
+  const deferred = timers.find((timer) => timer.ms === 1500);
+  let renderCalls = 0;
+  const originalRenderConfig = Pet.renderConfig;
+  Pet.renderConfig = function (container) { renderCalls += 1; return originalRenderConfig(container); };
+  deferred.fn();
+  assert.equal(renderCalls, 0, "preserved edits suppress the deferred server-state render");
+});
+
+test("#34 malformed config responses render the API error state without throwing", async () => {
+  const cases = [
+    { response: null, message: "Unexpected response from API" },
+    { response: { error: "offline" }, message: "Config unavailable: offline" },
+    { response: { fields: [] }, message: "Unexpected response from API" },
+    { response: { config: {}, fields: {} }, message: "Unexpected response from API" },
+  ];
+  for (const entry of cases) {
+    const sdk = makeSdk({ configResolver: () => Promise.resolve(entry.response) });
+    sdk.profileScope = makeScope({ profile: "alpha", currentProfile: "alpha" });
+    const { Pet } = load({ sdk });
+    stubMount(Pet);
+    const el = host();
+    Pet.mount(el);
+    const containerEl = el.querySelector(".content");
+    Pet.switchTab("cfg");
+    await flush();
+    assert.ok(containerEl.textContent.includes(entry.message), entry.message);
+  }
+});

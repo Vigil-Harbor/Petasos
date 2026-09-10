@@ -960,10 +960,10 @@
         Pet.renderConfig(container);
         return;
       }
-      if (d.error || !d.config || !d.fields) {
+      if (!d || d.error || !d.config || !Array.isArray(d.fields)) {
         formArea.innerHTML = "";
         formArea.appendChild(Pet.h("div", { style: { padding: "20px", color: "var(--err)", fontSize: "12px", fontFamily: "var(--font-mono)" } },
-          d.error ? "Config unavailable: " + d.error : "Unexpected response from API"));
+          d && d.error ? "Config unavailable: " + d.error : "Unexpected response from API"));
         return;
       }
       Pet.state.config = d.config;
@@ -1293,7 +1293,9 @@
             // save against an empty on-disk section would reset a profile's posture,
             // edge round-2 F-6) and, when a non-equipped profile is in view, tag it
             // with `profile` so update_config persists-only (D4).
-            var savePatch = Pet.buildSavePatch(Pet.state.configDirty, viewingActive, Pet.state.selectedHermesProfile);
+            var submittedDirty = {};
+            Object.keys(Pet.state.configDirty).forEach(function (k) { submittedDirty[k] = Pet.state.configDirty[k]; });
+            var savePatch = Pet.buildSavePatch(submittedDirty, viewingActive, Pet.state.selectedHermesProfile);
             Pet.api.putConfig(savePatch).then(function (d) {
               if (_renderGen !== Pet._runtime.configRenderGen) return; // PET-155: a host rebind/unmount superseded this render — drop the stale save so it can't wipe the new profile's dirty edits or clobber its config
               if (Pet.auth.on401(d)) return; // PET-129: a config-save 401 enters the auth state, not a validation error
@@ -1344,7 +1346,10 @@
                 return;
               }
               Pet.state.config = d.config || Pet.state.config;
-              Pet.state.configDirty = {};
+              Object.keys(submittedDirty).forEach(function (k) {
+                if (Object.prototype.hasOwnProperty.call(Pet.state.configDirty, k) &&
+                    Pet.state.configDirty[k] === submittedDirty[k]) delete Pet.state.configDirty[k];
+              });
               // PET-146 D5: a non-equipped save persisted-only (applied === false) —
               // say so honestly (takes effect on equip/restart) rather than claiming
               // it hit the running pipeline. The re-render below re-shows the banner.
