@@ -2003,9 +2003,9 @@ def _post_tool_call(
 # bounds tool *arguments*; this bounds a tool *result* at the ingestion seam.
 _MAX_RESULT_SCAN_CHARS = 8_000
 _TRUNCATION_MARKER = "\n...[petasos: scan window truncated]...\n"
-# Extends head coverage past the head/tail boundary. NOT seam-safety in general: for a
-# large result, head and tail are separated by an unscanned gap that nothing covers.
-_SEAM_OVERLAP = 512
+# Head-minus-tail length within the fixed scan budget; not an overlap. The retained
+# spans are disjoint, with no scan spanning either cut into the omitted middle.
+_RESULT_SCAN_HEAD_BIAS = 512
 # The outer bound sits ABOVE the per-scanner timeout, with the INPUT clamped rather than
 # the sum, so the margin survives at the top of the validated (0, 60] range (60 -> 65).
 # Below the per-scanner timeout, an abandoned outer future would never let `_scan_one`
@@ -2026,17 +2026,18 @@ _result_scan_status = "unprobed"
 def _clip_result(result: str) -> tuple[str, bool]:
     """Return ``(text_to_scan, truncated)`` for an ingestion-tool result.
 
-    Head + tail with a marker between them. The overlap comes out of the TAIL so the
-    budget invariant holds exactly: ``len(scanned) <= _MAX_RESULT_SCAN_CHARS`` always. The
-    whole-result short-circuit means head and tail never overlap in the original, so
-    nothing is scanned twice.
+    Head + tail with a marker between them, biased toward the head within the fixed
+    budget: ``len(scanned) <= _MAX_RESULT_SCAN_CHARS`` always. When clipping, the retained
+    spans are disjoint in the original, so nothing is scanned twice. The omitted middle
+    is unscanned, and no pass spans either head/gap or gap/tail cut: an injection split
+    across either cut can lose its finding even when most of its text is retained.
 
     Clipping governs only what is SCANNED. The handler always returns the whole result.
     """
     if len(result) <= _MAX_RESULT_SCAN_CHARS:
         return result, False
-    half = (_MAX_RESULT_SCAN_CHARS - len(_TRUNCATION_MARKER) - _SEAM_OVERLAP) // 2
-    head = result[: half + _SEAM_OVERLAP]
+    half = (_MAX_RESULT_SCAN_CHARS - len(_TRUNCATION_MARKER) - _RESULT_SCAN_HEAD_BIAS) // 2
+    head = result[: half + _RESULT_SCAN_HEAD_BIAS]
     tail = result[-half:]
     return head + _TRUNCATION_MARKER + tail, True
 
