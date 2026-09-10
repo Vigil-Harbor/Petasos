@@ -55,9 +55,11 @@ backend examines every character it receives.
 Clipping governs the scan input only: the model still receives the **whole result**.
 The hook adds a banner for a HIGH/CRITICAL non-PII finding or scan unavailability;
 clipping alone adds no banner or ingestion enforcement event when the retained
-scan is clean (it logs `PETASOS_RESULT_TRUNCATED` at INFO). PET-193 corrects the
-name and disclosure; detection coverage is unchanged. Full-result coverage with
-overlapping chunks is tracked separately in PET-178.
+scan is clean (it logs `PETASOS_RESULT_TRUNCATED` at INFO). These disjoint windows
+and boundary blind spots predate PET-193: this correction only renames the constant
+and documents the existing behavior. The head/tail slices, cut positions, and
+8,000-character budget are identical to the prior implementation. Full-result
+coverage with overlapping chunks is tracked separately in PET-178.
 
 ## 2. Console binding
 
