@@ -546,7 +546,7 @@ async def test_equipped_named_cursor_round_trips(env: _Env) -> None:
     assert cursor is not None and cursor[0] == 6.0
 
 
-@pytest.mark.parametrize("sid", ["e-a|b", "e-a~b", "e-a~b|c", "e-a%b"])
+@pytest.mark.parametrize("sid", ["e-a|b", "e-a~b", "e-a~b|c", "e-a%b", "!u!literal"])
 def test_delimiter_bearing_scan_id_round_trips(sid: str) -> None:
     tok = server_mod._history_cursor_token({"timestamp": 1.5, "scan_id": sid}, "beta")
     assert tok is not None
@@ -562,6 +562,56 @@ def test_cursor_scope_name_is_escaped() -> None:
     tok = server_mod._history_cursor_token({"timestamp": 1.0, "scan_id": "s-a"}, "we|ird~name")
     assert tok is not None and tok.count("|") == 1 and tok.count("~") == 1
     assert server_mod._parse_history_cursor(tok, "we|ird~name")[1] == "ok"
+
+
+@pytest.mark.parametrize("sid", ["\ud800", "\udfff", "a\ud800b", "\ud83d\ude00"])
+def test_surrogate_bearing_scan_id_round_trips_as_ascii(sid: str) -> None:
+    tok = server_mod._history_cursor_token({"timestamp": 1.5, "scan_id": sid}, "beta")
+    assert tok is not None and tok.isascii()
+    assert tok.count("|") == 1
+    assert tok.count("~") == 1
+    assert server_mod._parse_history_cursor(tok, "beta") == ((1.5, sid), "ok")
+
+
+def test_surrogate_bearing_scope_name_round_trips_as_ascii() -> None:
+    scope = "be\udfffta"
+    tok = server_mod._history_cursor_token({"timestamp": 1.0, "scan_id": "s-a"}, scope)
+    assert tok is not None and tok.isascii()
+    assert tok.count("|") == 1
+    assert tok.count("~") == 1
+    assert server_mod._parse_history_cursor(tok, scope) == ((1.0, "s-a"), "ok")
+
+
+@pytest.mark.parametrize(
+    "tok",
+    [
+        "beta|1.0~!u!not*base64",
+        "!u!not*base64|1.0~s-a",
+        "beta|1.0~!u!_w",
+    ],
+)
+def test_malformed_surrogate_fallback_is_fail_safe(tok: str) -> None:
+    assert server_mod._parse_history_cursor(tok, "beta") == (None, "malformed")
+
+
+async def test_surrogate_bearing_stored_row_keeps_foreign_pagination_contiguous(
+    env: _Env,
+) -> None:
+    surrogate_id = "s-newest-\ud800"
+    env.beta.seed(
+        sink=[
+            _sink_row("s-older", 1.0),
+            _sink_row(surrogate_id, 2.0),
+        ]
+    )
+    h = _make_handlers()
+
+    first = await h.get_scan_history(limit=1, profile="beta")
+    assert [r["scan_id"] for r in first["entries"]] == [surrogate_id]
+    assert first["next_before"] is not None and first["next_before"].isascii()
+
+    second = await h.get_scan_history(limit=1, before=first["next_before"], profile="beta")
+    assert [r["scan_id"] for r in second["entries"]] == ["s-older"]
 
 
 # ── Armed ─────────────────────────────────────────────────────────────────
