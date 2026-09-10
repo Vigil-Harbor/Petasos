@@ -24,59 +24,17 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
-import vm from "node:vm";
-
-const here = dirname(fileURLToPath(import.meta.url));
-const petasosJsPath = join(here, "..", "..", "petasos", "console", "static", "petasos.js");
-const SRC = readFileSync(petasosJsPath, "utf8");
+import { createDOM, loadConsole } from "./harness.mjs";
 
 const enc = new TextEncoder();
 const POLL_MS = 10000; // startFallbackPolling delay (petasos.js:545) — fixed, not a Pet.sse constant
 
 // ── Minimal DOM shim (same shape as armed-sync / scanner-health) ────────────
-function makeNode(nodeType) {
-  return {
-    nodeType,
-    childNodes: [],
-    style: {},
-    className: "",
-    title: "",
-    appendChild(c) {
-      this.childNodes.push(c);
-      return c;
-    },
-    setAttribute() {},
-    querySelector() {
-      return null;
-    },
-    get textContent() {
-      if (this.nodeType === 3) return this.nodeValue;
-      return this.childNodes.map((c) => c.textContent).join("");
-    },
-  };
-}
-function makeDocument() {
-  return {
-    currentScript: null, // _assetBase falls back to "/static/"
-    createDocumentFragment() {
-      return makeNode(11);
-    },
-    createElement(tag) {
-      const el = makeNode(1);
-      el.tagName = tag.toUpperCase();
-      el.localName = tag;
-      return el;
-    },
-    createTextNode(t) {
-      const n = makeNode(3);
-      n.nodeValue = String(t);
-      return n;
-    },
-  };
-}
+const { makeDocument } = createDOM({
+  title: true,
+  attributes: "noop", selectors: "null",
+  textContent: "readonly", currentScript: null,
+});
 
 // ── Promise/microtask helpers ───────────────────────────────────────────────
 function makeDeferred() {
@@ -256,7 +214,7 @@ function setup(opts = {}) {
       debug: () => {},
     },
   };
-  vm.runInNewContext(SRC, sandbox);
+  loadConsole(sandbox);
   const Pet = sandbox.window.__PETASOS_CONSOLE__;
 
   return {

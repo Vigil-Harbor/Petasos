@@ -11,55 +11,24 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
-import vm from "node:vm";
+import { createDOM, loadConsole } from "./harness.mjs";
 
 // ── Minimal DOM shim ──────────────────────────────────────────────────────
 // Models exactly the surface richText touches. richText only ever appends
 // freshly-created nodes (never re-parents, never appends a fragment into a
 // node), so the shim does not model real-DOM appendChild re-parenting or
 // DocumentFragment flattening — see spec D3 "Fidelity boundary".
-function makeNode(nodeType) {
-  return {
-    nodeType, // 1 = element, 3 = text, 11 = fragment
-    childNodes: [],
-    appendChild(child) {
-      this.childNodes.push(child);
-      return child;
-    },
-    get textContent() {
-      if (this.nodeType === 3) return this.nodeValue;
-      return this.childNodes.map((c) => c.textContent).join("");
-    },
-  };
-}
+const { makeDocument } = createDOM({
+  styled: false,
+  textContent: "readonly",
+});
 
-const document = {
-  createDocumentFragment() {
-    return makeNode(11);
-  },
-  createElement(tag) {
-    const el = makeNode(1);
-    el.tagName = tag.toUpperCase(); // mirrors real DOM (uppercase for HTML)
-    el.localName = tag;
-    return el;
-  },
-  createTextNode(t) {
-    const node = makeNode(3);
-    node.nodeValue = String(t);
-    return node;
-  },
-};
+const document = makeDocument();
 
 // ── Load the real petasos.js under a sandbox ──────────────────────────────
-const here = dirname(fileURLToPath(import.meta.url));
-const petasosJsPath = join(here, "..", "..", "petasos", "console", "static", "petasos.js");
-const src = readFileSync(petasosJsPath, "utf8");
 
 const sandbox = { window: {}, document };
-vm.runInNewContext(src, sandbox);
+loadConsole(sandbox);
 const Pet = sandbox.window.__PETASOS_CONSOLE__;
 
 // Guards spec D5: the export ran and richText is present.

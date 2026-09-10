@@ -16,79 +16,19 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
-import vm from "node:vm";
+import { createDOM, loadConsole } from "./harness.mjs";
 
 // ── DOM shim (extends playground.test.mjs's with insertBefore + firstChild) ──
-function makeNode(nodeType) {
-  return {
-    nodeType,
-    childNodes: [],
-    style: {},
-    className: "",
-    title: "",
-    appendChild(child) {
-      this.childNodes.push(child);
-      return child;
-    },
-    insertBefore(node, ref) {
-      const i = ref ? this.childNodes.indexOf(ref) : -1;
-      if (i < 0) this.childNodes.push(node);
-      else this.childNodes.splice(i, 0, node);
-      return node;
-    },
-    get firstChild() {
-      return this.childNodes[0] || null;
-    },
-    addEventListener(_type, _fn) {},
-    setAttribute(_k, _v) {},
-    get textContent() {
-      if (this.nodeType === 3) return this.nodeValue;
-      return this.childNodes.map((c) => c.textContent).join("");
-    },
-    set textContent(v) {
-      this.childNodes = [];
-      const s = v == null ? "" : String(v);
-      if (s !== "") {
-        const n = makeNode(3);
-        n.nodeValue = s;
-        this.childNodes.push(n);
-      }
-    },
-    set innerHTML(_v) {
-      this.childNodes = [];
-    },
-  };
-}
+const { makeDocument } = createDOM({
+  title: true,
+  attributes: "noop", events: "noop",
+  textContent: "clear", innerHTML: "clear", svg: "alias",
+  tree: { insert: true, first: true },
+});
 
-const document = {
-  createDocumentFragment() {
-    return makeNode(11);
-  },
-  createElement(tag) {
-    const el = makeNode(1);
-    el.tagName = tag.toUpperCase();
-    el.localName = tag;
-    return el;
-  },
-  createElementNS(_ns, tag) {
-    return this.createElement(tag);
-  },
-  createTextNode(t) {
-    const node = makeNode(3);
-    node.nodeValue = String(t);
-    return node;
-  },
-};
+const document = makeDocument();
 
 // ── Load the real petasos.js under a sandbox ──────────────────────────────
-const here = dirname(fileURLToPath(import.meta.url));
-const src = readFileSync(
-  join(here, "..", "..", "petasos", "console", "static", "petasos.js"),
-  "utf8"
-);
 // setTimeout fires SHORT timers (the inter-shot delay) immediately and ignores
 // LONG ones (the 8s per-shot hang guard) so a resolved postScan wins the race;
 // the timeout test injects a short shotTimeoutMs to exercise the guard directly.
@@ -98,7 +38,7 @@ const sandbox = {
   setTimeout: (fn, ms) => { if ((ms || 0) <= 1000) fn(); },
   clearTimeout: () => {},
 };
-vm.runInNewContext(src, sandbox);
+loadConsole(sandbox);
 const Pet = sandbox.window.__PETASOS_CONSOLE__;
 
 // ── Helpers ───────────────────────────────────────────────────────────────

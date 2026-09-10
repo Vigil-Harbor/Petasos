@@ -25,99 +25,20 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
-import vm from "node:vm";
+import { createDOM, loadConsole } from "./harness.mjs";
 
 // ── DOM shim (mirrors trap-burst.test.mjs, + value/disabled/attrs for the panel) ──
-function makeNode(nodeType) {
-  return {
-    nodeType,
-    childNodes: [],
-    style: {},
-    className: "",
-    title: "",
-    value: "",
-    disabled: false,
-    attrs: {},
-    dataset: {},
-    appendChild(child) {
-      this.childNodes.push(child);
-      return child;
-    },
-    insertBefore(node, ref) {
-      const i = ref ? this.childNodes.indexOf(ref) : -1;
-      if (i < 0) this.childNodes.push(node);
-      else this.childNodes.splice(i, 0, node);
-      return node;
-    },
-    get firstChild() {
-      return this.childNodes[0] || null;
-    },
-    addEventListener(_type, _fn) {},
-    setAttribute(k, v) {
-      this.attrs[k] = String(v);
-    },
-    removeAttribute(k) {
-      delete this.attrs[k];
-    },
-    getAttribute(k) {
-      return this.attrs[k];
-    },
-    querySelector() {
-      return null;
-    },
-    querySelectorAll() {
-      return [];
-    },
-    get textContent() {
-      if (this.nodeType === 3) return this.nodeValue;
-      return this.childNodes.map((c) => c.textContent).join("");
-    },
-    set textContent(v) {
-      this.childNodes = [];
-      const s = v == null ? "" : String(v);
-      if (s !== "") {
-        const n = makeNode(3);
-        n.nodeValue = s;
-        this.childNodes.push(n);
-      }
-    },
-    set innerHTML(_v) {
-      this.childNodes = [];
-    },
-  };
-}
-
-function makeDocument() {
-  return {
-    createDocumentFragment() {
-      return makeNode(11);
-    },
-    createElement(tag) {
-      const el = makeNode(1);
-      el.tagName = tag.toUpperCase();
-      el.localName = tag;
-      return el;
-    },
-    createElementNS(_ns, tag) {
-      return this.createElement(tag);
-    },
-    createTextNode(t) {
-      const node = makeNode(3);
-      node.nodeValue = String(t);
-      return node;
-    },
-  };
-}
+const { makeDocument } = createDOM({
+  title: true, dataset: true,
+  attributes: "attrs", events: "noop", selectors: "empty",
+  textContent: "clear", innerHTML: "clear", svg: "alias",
+  tree: { insert: true, first: true },
+  extendNode(node) {
+    Object.assign(node, { value: "", disabled: false });
+  },
+});
 
 // ── Sandbox helpers ──────────────────────────────────────────────────────────
-const here = dirname(fileURLToPath(import.meta.url));
-const src = readFileSync(
-  join(here, "..", "..", "petasos", "console", "static", "petasos.js"),
-  "utf8"
-);
 
 // Load the real petasos.js into a fresh vm context. Every option is overridable so a
 // test can inject its own fetch / timers / sessionStorage / window.
@@ -151,7 +72,7 @@ function loadPet(opts = {}) {
   // "sessionStorage" present as a key (even = undefined) means the test controls it;
   // otherwise hand the store a working in-memory sessionStorage.
   sandbox.sessionStorage = "sessionStorage" in opts ? opts.sessionStorage : makeSessionStorage();
-  vm.runInNewContext(src, sandbox);
+  loadConsole(sandbox);
   return { Pet: sandbox.window.__PETASOS_CONSOLE__, sandbox, document };
 }
 

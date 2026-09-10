@@ -22,112 +22,46 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { createDOM, loadConsole } from "./harness.mjs";
 // Legacy (non-strict) assert: its deepEqual ignores object prototypes. Values
 // returned from the node:vm sandbox carry the sandbox realm's Object/Array
 // prototypes, so assert/strict's deepStrictEqual rejects them even when
 // structurally identical (profile-picker.test.mjs:24-29). Structural comparisons
 // of sandbox-origin values use this; primitive comparisons keep strict `assert`.
 import assertLoose from "node:assert";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
-import vm from "node:vm";
 
 // ── Extended interactive DOM shim ──────────────────────────────────────────
-function makeNode(nodeType) {
-  return {
-    nodeType, // 1 = element, 3 = text, 11 = fragment
-    childNodes: [],
-    style: {},
-    dataset: {},
-    attributes: {},
-    handlers: {},
-    className: "",
-    title: "",
-    value: undefined,
-    parentNode: null,
-    tabIndex: undefined,
-    appendChild(child) {
-      child.parentNode = this;
-      this.childNodes.push(child);
-      return child;
-    },
-    removeChild(child) {
-      const i = this.childNodes.indexOf(child);
-      if (i !== -1) this.childNodes.splice(i, 1);
-      child.parentNode = null;
-      return child;
-    },
-    remove() {
-      if (this.parentNode) this.parentNode.removeChild(this);
-    },
-    setAttribute(k, v) {
-      this.attributes[k] = String(v);
-    },
-    getAttribute(k) {
-      return Object.prototype.hasOwnProperty.call(this.attributes, k) ? this.attributes[k] : null;
-    },
-    addEventListener(type, fn) {
-      (this.handlers[type] = this.handlers[type] || []).push(fn);
-    },
-    // Minimal descendant ".class" matcher (the only selector the seam uses).
-    querySelector(sel) {
-      const cls = sel.startsWith(".") ? sel.slice(1) : sel;
-      const hit = (node) => {
-        for (const c of node.childNodes) {
-          if (c.nodeType === 1) {
-            if ((c.className || "").split(/\s+/).includes(cls)) return c;
-            const deep = hit(c);
-            if (deep) return deep;
+const { makeNode, makeDocument } = createDOM({
+  title: true, dataset: true, tabIndex: true,
+  attributes: "record", events: "record",
+  textContent: "replace", svg: "namespace",
+  tree: { parents: true, remove: true, detach: true },
+  extendNode(node) {
+    Object.assign(node, {
+      value: undefined,
+      querySelector(sel) {
+        const cls = sel.startsWith(".") ? sel.slice(1) : sel;
+        const hit = (node) => {
+          for (const c of node.childNodes) {
+            if (c.nodeType === 1) {
+              if ((c.className || "").split(/\s+/).includes(cls)) return c;
+              const deep = hit(c);
+              if (deep) return deep;
+            }
           }
-        }
-        return null;
-      };
-      return hit(this);
-    },
-    get textContent() {
-      if (this.nodeType === 3) return this.nodeValue;
-      return this.childNodes.map((c) => c.textContent).join("");
-    },
-    set textContent(v) {
-      const t = makeNode(3);
-      t.nodeValue = String(v);
-      t.parentNode = this;
-      this.childNodes = [t];
-    },
-  };
-}
+          return null;
+        };
+        return hit(this);
+      },
+    });
+  },
+});
 
-const document = {
-  createDocumentFragment() {
-    return makeNode(11);
-  },
-  createElement(tag) {
-    const el = makeNode(1);
-    el.tagName = tag.toUpperCase();
-    el.localName = tag;
-    return el;
-  },
-  createElementNS(ns, tag) {
-    const el = makeNode(1);
-    el.tagName = tag.toUpperCase();
-    el.localName = tag;
-    el.namespaceURI = ns;
-    return el;
-  },
-  createTextNode(t) {
-    const node = makeNode(3);
-    node.nodeValue = String(t);
-    return node;
-  },
-};
+const document = makeDocument();
 
 // ── Load the real petasos.js under a sandbox ───────────────────────────────
-const here = dirname(fileURLToPath(import.meta.url));
-const petasosJsPath = join(here, "..", "..", "petasos", "console", "static", "petasos.js");
-const src = readFileSync(petasosJsPath, "utf8");
 const sandbox = { window: {}, document };
-vm.runInNewContext(src, sandbox);
+loadConsole(sandbox);
 const Pet = sandbox.window.__PETASOS_CONSOLE__;
 
 // ── Helpers ────────────────────────────────────────────────────────────────
