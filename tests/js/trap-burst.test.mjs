@@ -199,6 +199,23 @@ test("runTrapBurst: a rejection and an {error} envelope both surface an error + 
   assert.equal(trapBtn.disabled, false, "button restored after error envelope");
 });
 
+test("runTrapBurst: a 401 enters authentication without rendering a trap error", async () => {
+  const resultArea = document.createElement("div");
+  const trapBtn = document.createElement("button");
+  Pet.state.authRequired = false;
+
+  await Pet.runTrapBurst({
+    resultArea,
+    trapBtn,
+    api: { postScan: () => Promise.resolve({ _status: 401, detail: "Unauthorized" }) },
+  });
+
+  assert.equal(Pet.state.authRequired, true);
+  assert.equal(findEl(vizRoot(resultArea), isErrorBlock), null);
+  assert.equal(trapBtn.disabled, false, "button restored after authentication transition");
+  Pet.state.authRequired = false;
+});
+
 test("runTrapBurst: a hung scan hits the per-shot timeout, surfaces error + restores", async () => {
   const resultArea = document.createElement("div");
   const trapBtn = document.createElement("button");

@@ -187,6 +187,17 @@ test("duplicate-name payload: profileNames and profileDescriptions both first-wi
   assertLoose.deepEqual(Pet.profileDescriptions(dup), { x: "A" });
 });
 
+test("profile tips treat prototype-like names as data and ignore inherited descriptions", () => {
+  const descriptions = Pet.profileDescriptions([{ name: "__proto__", description: "Own tip" }]);
+  assert.equal(Object.getPrototypeOf(descriptions), null);
+  assert.equal(descriptions.__proto__, "Own tip");
+
+  const inherited = Object.create({ toString: "Inherited tip" });
+  const seg = build(null, null);
+  seg._petRebuild(["toString"], inherited);
+  assert.equal(tipText(tipAfter(seg, btnByVal(seg, "toString"))), FALLBACK_TIP);
+});
+
 // ── 7. Unknown/custom profile fallback (render seam) ─────────────────────────
 test("render seam: a custom/unknown value renders as a selectable option with the fallback tip", () => {
   let seg;

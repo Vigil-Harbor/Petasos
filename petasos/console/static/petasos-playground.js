@@ -281,6 +281,7 @@
       shot++;
       var payload = Pet.TRAP_PAYLOADS[(shot - 1) % Pet.TRAP_PAYLOADS.length];
       return _trapTimeout(api.postScan(payload, "inbound", sid), shotTimeout).then(function (d) {
+        if (Pet.auth.on401(d)) { done(); return; }
         if (d && (d.error || d.detail)) { viz.error(shot); done(); return; }
         // Scan fields are nested under .result (mirrors Pet.renderScanResult).
         var res = (d && d.result) || {};

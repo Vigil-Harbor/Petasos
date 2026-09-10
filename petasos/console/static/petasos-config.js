@@ -220,7 +220,7 @@
   // (caller falls back to neutral tip copy). First occurrence of a name wins, so a
   // duplicate-name payload agrees with profileNames. Values are never undefined/empty.
   Pet.profileDescriptions = function (profiles) {
-    var out = {};
+    var out = Object.create(null);
     if (!Array.isArray(profiles)) return out;
     for (var i = 0; i < profiles.length; i++) {
       var p = profiles[i];
@@ -329,7 +329,9 @@
       // paint, or getProfiles rejected/empty): "(none)" + current value, selectable,
       // NO tips, no console error (D3). tipFor() encodes that split.
       var enriched = list.length > 0;
-      function tipFor(name) { return enriched ? (map[name] || PROFILE_FALLBACK_TIP) : null; }
+      function tipFor(name) {
+        return enriched && Object.prototype.hasOwnProperty.call(map, name) ? map[name] : (enriched ? PROFILE_FALLBACK_TIP : null);
+      }
 
       addButton(PROFILE_NONE_LABEL, null, null);   // structural unset, writes null, never a tip
       var sel = currentSelection();
@@ -1354,7 +1356,10 @@
                 className: "notice",
                 style: { background: "var(--ok-soft)", borderColor: "rgba(63,185,80,.3)", color: "var(--ok)", marginBottom: "8px" }
               }, Pet.Icon("check"), Pet.h("span", {}, Pet.h("b", {}, "Configuration saved."), savedTail)), formArea.firstChild);
-              setTimeout(function () { if (Pet.state.tab === "cfg") Pet.renderConfig(container); }, 1500);
+              var savedRenderGen = _renderGen;
+              setTimeout(function () {
+                if (Pet.state.tab === "cfg" && savedRenderGen === Pet._runtime.configRenderGen) Pet.renderConfig(container);
+              }, 1500);
             }).then(function () { applyBtn.disabled = false; }, function () { applyBtn.disabled = false; });
           } }, Pet.Icon("check"), applyLabel);
           return applyBtn;

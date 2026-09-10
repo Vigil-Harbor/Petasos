@@ -123,7 +123,7 @@ function load(opts) {
     window: win,
     document: makeDocument(),
     console: win.console,
-    setTimeout: () => 0,
+    setTimeout: opts.setTimeout || (() => 0),
     clearTimeout: () => {},
     setInterval: () => 0,
     clearInterval: () => {},
@@ -903,4 +903,54 @@ test("#31 a /config resolving after unmount cannot clobber state", async () => {
 
   assert.equal(Pet.state.config.sentinel, true, "state.config not overwritten after unmount");
   assert.ok(!Pet.state.config.clobbered, "the post-unmount resolve did not write");
+});
+
+test("#32 deferred post-save render is dropped after tab change, superseding render, or unmount", async () => {
+  const timers = [];
+  const sdk = {
+    calls: [],
+    profileScope: makeScope({ profile: "alpha", currentProfile: "alpha" }),
+    fetchJSON(url, o) {
+      this.calls.push({ url: String(url), opts: o });
+      if (/\/profiles\/active/.test(url)) return Promise.resolve({ active: "", current: "" });
+      if (/\/profiles(\?|$)/.test(url)) return Promise.resolve({ profiles: [] });
+      if (o && o.method === "PUT") return Promise.resolve({ config: { tier1_threshold: 99 }, applied: true });
+      if (/config/.test(url)) return Promise.resolve({ config: { tier1_threshold: 10 }, fields: [], presets: [] });
+      return Promise.resolve({});
+    },
+  };
+  const { Pet } = load({
+    sdk,
+    setTimeout(fn, ms) { timers.push({ fn, ms }); return timers.length; },
+  });
+  stubMount(Pet);
+  const el = host();
+  Pet.mount(el);
+  const containerEl = el.querySelector(".content");
+  Pet.switchTab("cfg");
+  await flush();
+
+  Pet.state.configDirty = { tier1_threshold: 99 };
+  click(findButtonByText(containerEl, "Apply"));
+  await flush();
+  const deferred = timers.find((timer) => timer.ms === 1500);
+  assert.ok(deferred, "successful save scheduled the deferred render");
+
+  let renderCalls = 0;
+  const originalRenderConfig = Pet.renderConfig;
+  Pet.renderConfig = function (container) { renderCalls += 1; return originalRenderConfig(container); };
+  Pet.state.tab = "about";
+  deferred.fn();
+  assert.equal(renderCalls, 0, "tab change suppresses the deferred render");
+
+  Pet.state.tab = "cfg";
+  Pet.renderConfig(containerEl);
+  await flush();
+  const callsAfterSupersedingRender = renderCalls;
+  deferred.fn();
+  assert.equal(renderCalls, callsAfterSupersedingRender, "a superseding generation suppresses the deferred render");
+
+  Pet.unmount();
+  deferred.fn();
+  assert.equal(renderCalls, callsAfterSupersedingRender, "unmount suppresses the detached-container render");
 });

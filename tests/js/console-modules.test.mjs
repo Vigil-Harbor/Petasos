@@ -42,11 +42,200 @@ function runEntry(context, entry) {
 }
 
 function executableText(source) {
-  return source
-    .replace(/\/\*[\s\S]*?\*\//g, " ")
-    .replace(/\/\/[^\r\n]*/g, " ")
-    .replace(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/g, " ");
+  let out = "";
+  let i = 0;
+  let canStartRegex = true;
+  let mode = "code";
+  const templateDepth = [];
+  const parenKinds = [];
+  let pendingControlParen = false;
+  const mask = (ch) => (ch === "\n" || ch === "\r" ? ch : " ");
+
+  while (i < source.length) {
+    const ch = source[i];
+    const next = source[i + 1];
+
+    if (mode === "line-comment") {
+      out += mask(ch);
+      i += 1;
+      if (ch === "\n" || ch === "\r") mode = "code";
+      continue;
+    }
+    if (mode === "block-comment") {
+      out += mask(ch);
+      i += 1;
+      if (ch === "*" && next === "/") {
+        out += " ";
+        i += 1;
+        mode = "code";
+      }
+      continue;
+    }
+    if (mode === "single" || mode === "double") {
+      const quote = mode === "single" ? "'" : '"';
+      out += mask(ch);
+      i += 1;
+      if (ch === "\\" && i < source.length) {
+        out += mask(source[i]);
+        i += 1;
+      } else if (ch === quote || ch === "\n" || ch === "\r") {
+        mode = "code";
+        canStartRegex = false;
+      }
+      continue;
+    }
+    if (mode === "template") {
+      out += mask(ch);
+      i += 1;
+      if (ch === "\\" && i < source.length) {
+        out += mask(source[i]);
+        i += 1;
+      } else if (ch === "$" && next === "{") {
+        out += " ";
+        i += 1;
+        templateDepth.push(1);
+        mode = "code";
+        canStartRegex = true;
+      } else if (ch === "`") {
+        mode = "code";
+        canStartRegex = false;
+      }
+      continue;
+    }
+
+    if (/\s/.test(ch)) {
+      out += ch;
+      i += 1;
+      continue;
+    }
+    if (templateDepth.length && ch === "}") {
+      const depth = templateDepth.length - 1;
+      templateDepth[depth] -= 1;
+      out += templateDepth[depth] === 0 ? " " : ch;
+      i += 1;
+      if (templateDepth[depth] === 0) {
+        templateDepth.pop();
+        mode = "template";
+      } else {
+        canStartRegex = false;
+      }
+      continue;
+    }
+    if (ch === "'" || ch === '"' || ch === "`") {
+      out += " ";
+      i += 1;
+      mode = ch === "'" ? "single" : ch === '"' ? "double" : "template";
+      continue;
+    }
+    if (ch === "/" && next === "/") {
+      out += "  ";
+      i += 2;
+      mode = "line-comment";
+      continue;
+    }
+    if (ch === "/" && next === "*") {
+      out += "  ";
+      i += 2;
+      mode = "block-comment";
+      continue;
+    }
+    if (ch === "/" && canStartRegex) {
+      let inClass = false;
+      out += " ";
+      i += 1;
+      while (i < source.length) {
+        const part = source[i];
+        out += mask(part);
+        i += 1;
+        if (part === "\\" && i < source.length) {
+          out += mask(source[i]);
+          i += 1;
+        } else if (part === "[") {
+          inClass = true;
+        } else if (part === "]") {
+          inClass = false;
+        } else if (part === "/" && !inClass) {
+          while (i < source.length && /[a-z]/i.test(source[i])) {
+            out += " ";
+            i += 1;
+          }
+          break;
+        } else if (part === "\n" || part === "\r") {
+          break;
+        }
+      }
+      canStartRegex = false;
+      continue;
+    }
+    if (/[A-Za-z_$]/.test(ch)) {
+      let token = ch;
+      while (i + token.length < source.length && /[\w$]/.test(source[i + token.length])) {
+        token += source[i + token.length];
+      }
+      out += token;
+      i += token.length;
+      canStartRegex = /^(?:await|case|delete|do|else|in|instanceof|new|return|throw|typeof|void|yield)$/.test(token);
+      pendingControlParen = /^(?:catch|for|if|switch|while|with)$/.test(token);
+      continue;
+    }
+    if (/[0-9]/.test(ch)) {
+      let token = ch;
+      while (i + token.length < source.length && /[\w.]/.test(source[i + token.length])) {
+        token += source[i + token.length];
+      }
+      out += token;
+      i += token.length;
+      canStartRegex = false;
+      continue;
+    }
+    if ((ch === "+" || ch === "-") && next === ch) {
+      out += ch + next;
+      i += 2;
+      canStartRegex = false;
+      continue;
+    }
+    if (ch === "(") {
+      parenKinds.push(pendingControlParen ? "control" : "group");
+      pendingControlParen = false;
+      out += ch;
+      i += 1;
+      canStartRegex = true;
+      continue;
+    }
+    if (ch === ")") {
+      canStartRegex = parenKinds.pop() === "control";
+      pendingControlParen = false;
+      out += ch;
+      i += 1;
+      continue;
+    }
+    if (templateDepth.length && ch === "{") templateDepth[templateDepth.length - 1] += 1;
+    pendingControlParen = false;
+    out += ch;
+    i += 1;
+    canStartRegex = !/[)\]}.]/.test(ch);
+  }
+  return out;
 }
+
+test("executableText masks literals without hiding later executable identifiers", () => {
+  const code = executableText([
+    'var url = "https://host/path//still-a-string"; _container;',
+    "var marker = '/* still a string */'; _scopeGen;",
+    String.raw`var pattern = /https?:\/\/[^/*]+\/\*literal\*\//g; _historyPaging;`,
+    "if (ready) /_scopePollTimer/.test(value); _scopeGuardHistory;",
+    "var quotient = total / count; _healthLoaded;",
+    "var template = `masked ${_armedBusy}`; _armedSeeded;",
+    "// _armedConfirmPending",
+    "/* _armedConfirmTimer */",
+  ].join("\n"));
+  for (const identifier of ["_container", "_scopeGen", "_historyPaging", "_scopeGuardHistory", "_healthLoaded", "_armedBusy", "_armedSeeded"]) {
+    assert.match(code, new RegExp(`\\b${identifier}\\b`), `${identifier} remains executable`);
+  }
+  for (const identifier of ["_scopePollTimer", "_armedConfirmPending", "_armedConfirmTimer"]) {
+    assert.doesNotMatch(code, new RegExp(`\\b${identifier}\\b`), `${identifier} is masked`);
+  }
+});
 
 test("runtime loaders and harness share the exact seven-file order", () => {
   assert.deepEqual(standaloneFiles(), consoleScriptFiles);
@@ -173,6 +362,27 @@ function renderDOM() {
     },
   });
 }
+
+test("standalone bootstrap renders a retry diagnostic before throwing when modules are unready", () => {
+  const inline = /<script>\s*([\s\S]*?)<\/script>/.exec(indexSource);
+  assert.ok(inline, "standalone bootstrap script is present");
+  const { makeDocument } = renderDOM();
+  const document = makeDocument();
+  const root = document.createElement("div");
+  document.getElementById = (id) => (id === "root" ? root : null);
+  let reloads = 0;
+  const window = { location: { reload() { reloads += 1; } } };
+
+  assert.throws(
+    () => vm.runInNewContext(inline[1], { window, document }),
+    /Petasos console initialization failed before mount/,
+  );
+  assert.match(root.textContent, /Petasos console failed to initialize/);
+  const retry = matchingDescendants(root, "button")[0];
+  assert.equal(retry?.textContent, "Retry");
+  retry.handlers.click[0]();
+  assert.equal(reloads, 1);
+});
 
 test("standalone order executes and all four tabs render in one audited realm", async () => {
   const { makeDocument } = renderDOM();
