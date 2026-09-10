@@ -905,7 +905,7 @@ test("#31 a /config resolving after unmount cannot clobber state", async () => {
   assert.ok(!Pet.state.config.clobbered, "the post-unmount resolve did not write");
 });
 
-test("#32 deferred post-save render is dropped after tab change, superseding render, or unmount", async () => {
+test("#32 deferred post-save render is dropped after new edits, tab change, superseding render, or unmount", async () => {
   const timers = [];
   const sdk = {
     calls: [],
@@ -939,6 +939,13 @@ test("#32 deferred post-save render is dropped after tab change, superseding ren
   let renderCalls = 0;
   const originalRenderConfig = Pet.renderConfig;
   Pet.renderConfig = function (container) { renderCalls += 1; return originalRenderConfig(container); };
+
+  Pet.state.configDirty = { tier1_threshold: 55 };
+  deferred.fn();
+  assert.equal(renderCalls, 0, "new edits suppress the deferred render");
+  assert.equal(Pet.state.configDirty.tier1_threshold, 55, "new edits remain intact");
+
+  Pet.state.configDirty = {};
   Pet.state.tab = "about";
   deferred.fn();
   assert.equal(renderCalls, 0, "tab change suppresses the deferred render");

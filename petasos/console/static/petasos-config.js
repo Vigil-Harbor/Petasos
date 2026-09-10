@@ -1358,7 +1358,8 @@
               }, Pet.Icon("check"), Pet.h("span", {}, Pet.h("b", {}, "Configuration saved."), savedTail)), formArea.firstChild);
               var savedRenderGen = _renderGen;
               setTimeout(function () {
-                if (Pet.state.tab === "cfg" && savedRenderGen === Pet._runtime.configRenderGen) Pet.renderConfig(container);
+                if (Pet.state.tab === "cfg" && savedRenderGen === Pet._runtime.configRenderGen &&
+                    Object.keys(Pet.state.configDirty).length === 0) Pet.renderConfig(container);
               }, 1500);
             }).then(function () { applyBtn.disabled = false; }, function () { applyBtn.disabled = false; });
           } }, Pet.Icon("check"), applyLabel);
