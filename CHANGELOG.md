@@ -6,6 +6,12 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
 
 ### Fixed
 
+- **Re-authentication discards responses from a superseded host scope (PET-192,
+  PET-184 finding PETRT-004).** Armed and health verification now check the scope
+  generation captured when resume starts, alongside the token generation. Changing
+  the selected or equipped host profile during either read can no longer let that
+  old response seed console state or finish resume by restarting polling/SSE.
+
 - **The failed-init fallback scans the same parameter text as the healthy guard
   (PET-190, PET-184 finding PETRT-002).** The reference plugin's cold-start and
   `init_failed` branches scanned the first 100,000 characters of the JSON-encoded,

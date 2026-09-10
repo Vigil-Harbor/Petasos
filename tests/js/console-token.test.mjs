@@ -41,6 +41,7 @@ function makeNode(nodeType) {
     value: "",
     disabled: false,
     attrs: {},
+    dataset: {},
     appendChild(child) {
       this.childNodes.push(child);
       return child;
@@ -679,4 +680,157 @@ test("test_config_tab_in_authenticate_state_renders_panel_no_reads", () => {
   assert.ok(/AUTHENTICATE/.test(container.textContent), "config tab shows the authenticate panel");
   assert.ok(!/EQUIPPED/.test(container.textContent), "never EQUIPPED");
   assert.equal(calls.length, 0, "no /config or /profiles reads issued while authRequired");
+});
+
+// PET-192: hold real API requests across the real SDK host-rebind lifecycle.
+function resumeScopeHarness() {
+  const timers = makeTimers();
+  const pending = [];
+  const scope = {
+    profile: "alpha", currentProfile: "alpha", profiles: ["alpha", "beta"],
+    subscribe() { return () => {}; },
+  };
+  const { Pet, document } = loadPet({
+    ...timers,
+    window: { __HERMES_PLUGIN_SDK__: {
+      profileScope: scope,
+      fetchJSON(url) {
+        return new Promise((resolve) => pending.push({ url, resolve }));
+      },
+    } },
+  });
+  const effects = { connects: 0, renders: 0, connectivity: 0 };
+  Pet.sse.connect = () => { effects.connects++; };
+  Pet.renderDashboard = () => { effects.renders++; };
+  Pet.updateConnStatus = () => { effects.connectivity++; };
+  // Mount creates the real private container, so render assertions are non-vacuous.
+  Pet.mount(document.createElement("div"));
+  Pet.auth.on401({ _status: 401 });
+  assert.equal(Pet._poll.state().health, false);
+  assert.equal(pending.length, 0);
+  return {
+    Pet, pending, scope,
+    effects: () => ({ ...effects, intervals: timers.totalIntervals }),
+    rebind(axis) {
+      const authGen = Pet.auth._gen;
+      if (axis === "management") scope.profile = "beta";
+      if (axis === "equipped") scope.currentProfile = "beta";
+      Pet.hostProfile._rebind();
+      assert.equal(Pet.auth._gen, authGen, "scope rebind does not supersede the token");
+      assert.equal(Pet.state.selectedHermesProfile, scope.profile);
+      assert.equal(Pet.hostProfile.current, scope.currentProfile);
+    },
+  };
+}
+
+for (const axis of ["management", "equipped"]) {
+  // Regression for PET-192: an old armed answer must not authorize a new scope.
+  test(`PET-192: ${axis} rebind during armed drops the old response`, async () => {
+    const h = resumeScopeHarness();
+    const result = h.Pet.auth.submitToken("valid");
+    assert.equal(h.pending[0].url, "/api/armed?profile=alpha");
+    h.rebind(axis);
+    const before = h.effects();
+    h.pending[0].resolve({ armed: true });
+    await flush();
+    assert.equal(h.pending.length, 1, "superseded armed never issues health");
+    const res = await result;
+    assert.equal(res.ok, false);
+    assert.equal(res.stale, true);
+    assert.equal(h.Pet.state.authRequired, true);
+    assert.equal(h.Pet.state.armed, null);
+    assert.equal(h.Pet._armedTestState().seeded, false);
+    assert.equal(h.pending.length, 1, "superseded armed never issues health");
+    assert.equal(h.Pet._poll.state().health, false);
+    assert.deepEqual(h.effects(), before, "stale resume has no transport/UI effects");
+  });
+
+  // Regression for PET-192: the whole health continuation belongs to its send scope.
+  test(`PET-192: ${axis} rebind during health drops state and restart effects`, async () => {
+    const h = resumeScopeHarness();
+    const result = h.Pet.auth.submitToken("valid");
+    h.pending[0].resolve({ armed: true });
+    await flush();
+    assert.equal(h.pending[1].url, "/api/health?profile=alpha");
+    assert.equal(h.Pet.state.authRequired, false, "armed verification already completed");
+    h.rebind(axis);
+    const before = h.effects();
+    const { scannerHealth, pipelineHealth, integrityHealth, selfmodTotal } = h.Pet.state;
+    h.pending[1].resolve({
+      scanners: [{ name: "old-scope", status: "healthy" }],
+      pipeline: { selfmod_total: 192 }, integrity: { status: "old-scope" },
+    });
+    const res = await result;
+    assert.equal(res.ok, false);
+    assert.equal(res.stale, true);
+    assert.equal(h.Pet.state.scannerHealth, scannerHealth);
+    assert.equal(h.Pet.state.pipelineHealth, pipelineHealth);
+    assert.equal(h.Pet.state.integrityHealth, integrityHealth);
+    assert.equal(h.Pet.state.selfmodTotal, selfmodTotal);
+    assert.equal(h.Pet._poll.state().health, false);
+    assert.deepEqual(h.effects(), before, "no extra effects after the legitimate rebind");
+  });
+}
+
+for (const [label, body] of [
+  ["401", { _status: 401, detail: "Unauthorized" }],
+  ["malformed", {}],
+  ["error", { error: "unavailable", _status: 503 }],
+]) {
+  // Regression for PET-192: scope supersession wins over armed status/shape handling.
+  test(`PET-192: stale armed ${label} returns stale`, async () => {
+    const h = resumeScopeHarness();
+    const result = h.Pet.auth.submitToken("valid");
+    h.rebind("management");
+    h.pending[0].resolve(body);
+    const res = await result;
+    assert.equal(res.stale, true);
+    assert.equal(res.ok, false);
+    assert.equal(h.pending.length, 1);
+  });
+}
+
+// Regression for PET-192: even a stale health 401 must not complete resume.
+test("PET-192: stale health 401 cannot restart transports", async () => {
+  const h = resumeScopeHarness();
+  const result = h.Pet.auth.submitToken("valid");
+  h.pending[0].resolve({ armed: false });
+  await flush();
+  h.rebind("management");
+  const before = h.effects();
+  h.pending[1].resolve({ _status: 401, detail: "Unauthorized" });
+  const res = await result;
+  assert.equal(res.stale, true);
+  assert.equal(res.ok, false);
+  assert.equal(h.Pet._poll.state().health, false);
+  assert.deepEqual(h.effects(), before);
+});
+
+// Regression for PET-192: an unchanged host scope must still complete re-auth.
+test("PET-192: no-op rebind preserves same-scope resume", async () => {
+  const h = resumeScopeHarness();
+  const result = h.Pet.auth.submitToken("valid");
+  h.rebind("unchanged");
+  h.pending[0].resolve({ armed: false });
+  await flush();
+  h.rebind("unchanged");
+  const before = h.effects();
+  h.pending[1].resolve({
+    scanners: [{ name: "current", status: "healthy" }],
+    pipeline: { selfmod_total: 7 }, integrity: { status: "clean" },
+  });
+  const res = await result;
+  assert.equal(res.ok, true);
+  assert.equal(h.Pet.state.authRequired, false);
+  assert.equal(h.Pet.state.armed, false);
+  assert.equal(h.Pet._armedTestState().seeded, true);
+  assert.equal(h.Pet.state.scannerHealth[0].name, "current");
+  assert.equal(h.Pet.state.pipelineHealth.selfmod_total, 7);
+  assert.equal(h.Pet.state.integrityHealth.status, "clean");
+  assert.equal(h.Pet.state.selfmodTotal, 7);
+  assert.equal(h.Pet._poll.state().health, true);
+  assert.deepEqual(h.effects(), {
+    connects: before.connects + 1, renders: before.renders + 1,
+    connectivity: before.connectivity + 1, intervals: before.intervals + 1,
+  });
 });
