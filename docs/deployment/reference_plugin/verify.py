@@ -198,20 +198,32 @@ def check_scanner_imports() -> CheckResult:
 
 
 def check_guard_exports() -> CheckResult:
-    # PET-179: sibling of check_scanner_imports, not folded inside it. A separate
-    # check() call runs unconditionally, so check_scanner_imports's early WARN/PASS
-    # returns cannot skip a missing INGESTION_TOOLS. Wording matches the scanner
-    # probe: sync the plugin files and the library together.
+    # PET-179 / PET-181: sibling of check_scanner_imports, not folded inside it.
+    # A separate check() call runs unconditionally, so check_scanner_imports's
+    # early WARN/PASS returns cannot skip a missing export. Wording matches the
+    # scanner probe: sync the plugin files and the library together. FAIL names
+    # whichever of INGESTION_TOOLS / NON_INGESTING_TOOLS is missing.
     try:
-        from petasos.session.guard import INGESTION_TOOLS  # noqa: F401
+        from petasos.session import guard as guard_mod
     except ImportError:
         return (
             FAIL,
-            "Installed petasos does not export petasos.session.guard.INGESTION_TOOLS."
+            "Installed petasos does not export petasos.session.guard."
             " This plugin requires a petasos release that does; sync the plugin"
             " files and the library together.",
         )
-    return PASS, "INGESTION_TOOLS exported"
+    missing = [
+        name for name in ("INGESTION_TOOLS", "NON_INGESTING_TOOLS") if not hasattr(guard_mod, name)
+    ]
+    if missing:
+        listed = ", ".join(f"petasos.session.guard.{n}" for n in missing)
+        return (
+            FAIL,
+            f"Installed petasos does not export {listed}."
+            " This plugin requires a petasos release that does; sync the plugin"
+            " files and the library together.",
+        )
+    return PASS, "INGESTION_TOOLS and NON_INGESTING_TOOLS exported"
 
 
 def check_config() -> CheckResult:

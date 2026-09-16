@@ -301,9 +301,21 @@ def test_benchmark_ingestion_result_100kb(benchmark) -> None:  # type: ignore[no
 
 
 def test_benchmark_ingestion_non_ingestion_tool_large_result(benchmark) -> None:  # type: ignore[no-untyped-def]
-    """A dangerous tool with a large result: gate 3 returns before any scan or clip, so
-    this is the cost the hook adds to every NON-ingestion call. It should be negligible."""
+    """An excluded tool with a large result: gate 3 returns before any scan or clip, so
+    this is the cost the hook adds to every excluded call. It should be negligible."""
     _ingestion_case(benchmark, "x" * 100_000, tool="write_file")
+
+
+def test_benchmark_ingestion_unknown_tool_8kb(benchmark) -> None:  # type: ignore[no-untyped-def]
+    """PET-181: unknown-tool cap-window case. Same payload as the 8 KB read_file
+    case. K=1 (one petasos-async loop); shed rate 0 by construction; capacity
+    1/S; P=8 is measured (see 8-wide concurrent); P=80 is a PET-178 residual.
+    """
+    _ingestion_case(
+        benchmark,
+        "an ordinary line of file content\n" * 256,
+        tool="definitely_not_a_registered_tool",
+    )
 
 
 def test_benchmark_ingestion_disarmed_no_op(benchmark) -> None:  # type: ignore[no-untyped-def]

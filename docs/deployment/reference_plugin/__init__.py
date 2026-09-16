@@ -12,21 +12,23 @@ Config: add a top-level ``petasos:`` section to the profile's config.yaml
 Env:    PETASOS_LICENSE_KEY, PETASOS_SESSION_SECRET, PETASOS_HASH_KEY,
         PETASOS_AUDIT_FINDING
 Needs:  a ``petasos`` release exporting ``petasos.scanners.build_scanners``,
-        ``petasos.session.formatting.format_result_notice``, AND
-        ``petasos.session.guard.INGESTION_TOOLS``; sync this file and the library
-        together. ``build_scanners`` shipped first, so a library too old for this
-        file also misses ``format_result_notice``: it does not import at all and
-        nothing is enforced. An old-library skew therefore does not latch init; a
-        library newer than a stale copy of this file still can. PET-190 adds
-        ``petasos.session.guard.render_param_text`` and ``PARAM_SCAN_DIRECTION`` to
-        that floor; PET-179 adds ``INGESTION_TOOLS``. A library that has
+        ``petasos.session.formatting.format_result_notice``,
+        ``petasos.session.guard.INGESTION_TOOLS``, AND
+        ``petasos.session.guard.NON_INGESTING_TOOLS``; sync this file and the
+        library together. ``build_scanners`` shipped first, so a library too old
+        for this file also misses ``format_result_notice``: it does not import at
+        all and nothing is enforced. An old-library skew therefore does not latch
+        init; a library newer than a stale copy of this file still can. PET-190
+        adds ``petasos.session.guard.render_param_text`` and
+        ``PARAM_SCAN_DIRECTION`` to that floor; PET-179 adds ``INGESTION_TOOLS``;
+        PET-181 adds ``NON_INGESTING_TOOLS``. A library that has
         ``format_result_notice`` but predates those guard exports fails the
         ``petasos.session.guard`` import instead, with the same result.
         ``verify.py`` probes ``build_scanners`` (scanner-imports check) and
-        ``INGESTION_TOOLS`` (guard-exports check) and (PET-189) imports this
-        module, so the floor surfaces on those rows plus its config and feature
-        rows. Init latches on a config or pipeline error; the session runs on the
-        fallback.
+        ``INGESTION_TOOLS`` / ``NON_INGESTING_TOOLS`` (guard-exports check) and
+        (PET-189) imports this module, so the floor surfaces on those rows plus
+        its config and feature rows. Init latches on a config or pipeline error;
+        the session runs on the fallback.
 
 Capture window (PET-136): to record per-finding tuning data, open a short
 capture window by setting ``PETASOS_AUDIT_FINDING=1`` (or flipping the
@@ -64,6 +66,7 @@ from petasos.session.formatting import (  # PET-77: dep-light (string formatting
 )
 from petasos.session.guard import (
     INGESTION_TOOLS,
+    NON_INGESTING_TOOLS,
     PARAM_SCAN_DIRECTION,
     READ_ONLY_TOOLS,
     render_param_text,
@@ -186,15 +189,25 @@ _bypass_lock = threading.Lock()
 _bypass_counts: dict[str, int] = {}
 _MAX_DISARM_SESSIONS = 10_000
 
-# PET-179: first-sighting skip logs for gate 2 (not-string) and gate 3
-# (not-classified). Own clock and lock: a new rate-limited stream must not be
-# able to suppress PETASOS_DISARMED. Keyed on (canon[:64], kind) so an
-# unbounded model-supplied tool_name cannot grow the map; cap 512 sits above
-# the ~81-tool census and far below _MAX_DISARM_SESSIONS. Drop-oldest.
+# PET-179 / PET-181: first-sighting skip logs for gate 2 (not-string) and
+# gate 3 (excluded). Own clock and lock: a new rate-limited stream must not
+# be able to suppress PETASOS_DISARMED. Keyed on (canon[:64], kind) so an
+# unbounded MCP wire name cannot grow the map. Cap 512 still bounds memory
+# for unbounded MCP not-string first-sighting; drop-oldest duplicates DEBUG
+# rather than suppressing it. The eight exclusion latches cannot fill the
+# cap; the map is not split (PET-181). Far below _MAX_DISARM_SESSIONS.
 _ingest_log_lock = threading.Lock()
 _ingest_log_seen: dict[tuple[str, str], None] = {}
 _MAX_INGEST_LOG_KEYS = 512
 _INGEST_LOG_KEY_LEN = 64
+
+# PET-181: ingest_unscanned log+event share one clock (PET-131 D1/D4). Sibling
+# of _DISARM_LOG_EVERY_S with its own lock and {key: monotonic} map so a burst
+# of timeouts cannot suppress PETASOS_DISARMED. Drop-oldest at
+# _MAX_DISARM_SESSIONS. Never suppress the banner.
+_ingest_unscanned_log_lock = threading.Lock()
+_last_ingest_unscanned_log: dict[str, float] = {}
+_INGEST_UNSCANNED_LOG_EVERY_S = _DISARM_LOG_EVERY_S
 
 # PET-126: live config reload. The cross-process re-read (petasos.console._reload)
 # detects a config.yaml change on the hot path and _maybe_reconfigure applies it
@@ -300,20 +313,26 @@ _async_thread: threading.Thread | None = None
 # ASCII and canonicalizes non-empty, so the filter is a no-op today, a regression guard
 # tomorrow.
 #
-# PET-179: _INGESTION_CANON is the result-axis sibling. It is also built at module
-# load, but for a different reason: the table is immutable and has no rebuild
-# trigger, so parking it in _deferred_init would pick up an _apply_reconfigure
-# path and lock discipline it does not need. Gate 3 sits above the _initialized
-# check; an empty set would return None anyway, which gate 4 would do regardless.
-# The `if c` empty-drop INVERTS on this axis: a listed tool that canonicalizes
-# away is never scanned (fail-open, silently). A module-load warning names any
-# such raw name; test_no_row_canonicalizes_away pins len equality so a collision
-# cannot hide either.
+# PET-179: _INGESTION_CANON is the named-subset cache (INGESTION_TOOLS hygiene
+# only; _is_ingestion does not consult it). Built at module load: the table is
+# immutable and has no rebuild trigger, so parking it in _deferred_init would
+# pick up an _apply_reconfigure path and lock discipline it does not need.
+# A listed named-subset tool that canonicalizes away is a hygiene warning, not
+# a scan-skip. PET-181: _NON_INGESTING_CANON is the seam's gate. An exclusion
+# name that canonicalizes away is scanned (fail toward scrutiny), the opposite
+# polarity of the old inclusion empty-drop. test_no_row_canonicalizes_away pins
+# both len equalities so a collision cannot hide either.
 _READ_ONLY_CANON = frozenset(c for c in (canonicalize_tool_name(t) for t in READ_ONLY_TOOLS) if c)
 _INGESTION_CANON = frozenset(c for c in (canonicalize_tool_name(t) for t in INGESTION_TOOLS) if c)
+_NON_INGESTING_CANON = frozenset(
+    c for c in (canonicalize_tool_name(t) for t in NON_INGESTING_TOOLS) if c
+)
 _dropped_ingestion_names = tuple(t for t in INGESTION_TOOLS if not canonicalize_tool_name(t))
 if _dropped_ingestion_names:
     logger.warning("PETASOS_INGESTION_NAME_DROPPED names=%r", _dropped_ingestion_names)
+_dropped_exclusion_names = tuple(t for t in NON_INGESTING_TOOLS if not canonicalize_tool_name(t))
+if _dropped_exclusion_names:
+    logger.warning("PETASOS_EXCLUSION_NAME_DROPPED names=%r", _dropped_exclusion_names)
 
 
 def _is_dangerous(tool_name: str) -> bool:
@@ -321,7 +340,10 @@ def _is_dangerous(tool_name: str) -> bool:
 
 
 def _is_ingestion(tool_name: str) -> bool:
-    return canonicalize_tool_name(tool_name) in _INGESTION_CANON
+    canon = canonicalize_tool_name(tool_name)
+    if not canon:
+        return False  # named-tool floor; blank/missing/whitespace-only
+    return canon not in _NON_INGESTING_CANON
 
 
 # ---------------------------------------------------------------------------
@@ -1187,6 +1209,12 @@ def _reset_ingest_log() -> None:
         _ingest_log_seen.clear()
 
 
+def _reset_ingest_unscanned_log() -> None:
+    """Test seam — reset the PET-181 ingest_unscanned cadence map."""
+    with _ingest_unscanned_log_lock:
+        _last_ingest_unscanned_log.clear()
+
+
 def _note_ingest_skip(canon: str, kind: str, message: str, *args: object) -> None:
     """Emit ``message`` at DEBUG once per (canon, kind); drop-oldest at the cap."""
     key = (canon[:_INGEST_LOG_KEY_LEN], kind)
@@ -1198,6 +1226,57 @@ def _note_ingest_skip(canon: str, kind: str, message: str, *args: object) -> Non
             del _ingest_log_seen[oldest]
         _ingest_log_seen[key] = None
     logger.debug(message, *args)
+
+
+def _ingest_unscanned_cadence_key(
+    task_id: object, kwargs: dict[str, Any], derived_session_id: str
+) -> str:
+    """Per-session cadence key. Does not mint ids and does not read _session_ids.
+
+    Host ``session_id`` if it is a non-empty str; else ``task_id`` if a non-empty
+    str; else the already-derived ``desktop-{uuid12}`` when ``_agent`` is
+    present; else the one process-global ``"uncorrelated"`` bucket. Empty-string
+    host ``session_id`` (Hermes ``session_id or ""``) falls through. A truthy
+    non-str is never used as a dict key.
+    """
+    host = kwargs.get("session_id")
+    if isinstance(host, str) and host.strip():
+        return host
+    if isinstance(task_id, str) and task_id.strip():
+        return task_id
+    if kwargs.get("_agent") is not None and (
+        isinstance(derived_session_id, str) and derived_session_id.strip()
+    ):
+        return derived_session_id
+    return "uncorrelated"
+
+
+def _log_ingest_unscanned(
+    tool_name: str,
+    session_id: str,
+    cause: str,
+    result_len: int,
+    task_id: object,
+    kwargs: dict[str, Any],
+) -> bool:
+    """Rate-limited WARNING. Returns True iff this call logged (event shares clock)."""
+    key = _ingest_unscanned_cadence_key(task_id, kwargs, session_id)
+    now = time.monotonic()
+    with _ingest_unscanned_log_lock:
+        last = _last_ingest_unscanned_log.get(key, 0.0)
+        if now - last < _INGEST_UNSCANNED_LOG_EVERY_S:
+            return False
+        _last_ingest_unscanned_log[key] = now
+        if len(_last_ingest_unscanned_log) > _MAX_DISARM_SESSIONS:
+            del _last_ingest_unscanned_log[next(iter(_last_ingest_unscanned_log))]
+    logger.warning(
+        "PETASOS_INGEST_UNSCANNED tool=%s session=%s cause=%s len=%d",
+        tool_name,
+        session_id,
+        cause,
+        result_len,
+    )
+    return True
 
 
 def _log_disarmed_bypass(tool_name: str) -> bool:
@@ -2181,23 +2260,22 @@ def _transform_tool_result(
                     kind,
                 )
             return None
-        # 3. The ingestion set is DERIVED from INGESTION_TOOLS, not from the
-        #    argument-axis exemption. After the PET-179 split the two surfaces
-        #    disagree by design and `_is_dangerous` no longer governs this axis.
-        #    `_is_ingestion("")` is False, so an unnamed tool is not scanned —
-        #    the fail-direction matches today's `_is_dangerous("")` being True,
-        #    reached by the opposite predicate. The fail-DIRECTION inverts here
-        #    and that is a recorded gap: on the pre-call path an unrecognized
-        #    name is gated (fail-secure, PET-118); here it means NOT SCANNED, so a variant
-        #    `canonicalize_tool_name` misses dispatches the real tool and goes unscanned.
-        #    PET-179 widens that gap from 4 tools to 17 including the browser family.
+        # 3. Exclusion plus a named-tool floor (PET-181). Unknown non-empty
+        #    names scan. Blank/missing/whitespace-only still skip, silently.
+        #    `_is_dangerous` still does not govern this axis. An MCP wire name
+        #    that strips onto an exclusion member is that Hermes tool, not
+        #    "unknown MCP". PETASOS_INGEST_EXCLUDED is string-result-only:
+        #    gate 2 already returned for empty/non-string excluded results.
         if not _is_ingestion(tool_name):
+            canon = canonicalize_tool_name(tool_name)
+            if not canon:
+                return None
             _note_ingest_skip(
-                canonicalize_tool_name(tool_name),
-                "unclassified",
-                "PETASOS_INGEST_NOT_CLASSIFIED tool=%s canon=%s",
+                canon,
+                "excluded",
+                "PETASOS_INGEST_EXCLUDED tool=%s canon=%s",
                 tool_name,
-                canonicalize_tool_name(tool_name),
+                canon,
             )
             return None
         # 4. A plain read, not `_ensure_initialized()`: `_pre_tool_call` already paid the
@@ -2282,25 +2360,27 @@ def _transform_tool_result(
                 cause = "floor_error"
 
         if cause is not None:
-            logger.warning(
-                "PETASOS_INGEST_UNSCANNED tool=%s session=%s cause=%s len=%d",
-                tool_name,
-                session_id,
-                cause,
-                len(result),
-            )
-            # NOT `PETASOS_QUARANTINE`: that token is block-class everywhere it appears
-            # (five sites, all returning `{"action": "block"}`), the operator runbook
-            # publishes it in a table whose Action column reads "Block", and a console
-            # reconciliation test uses it as the "a block happened" signal. Reusing it
-            # would make a passed-through read grep as a block. One log line per emit
-            # preserves the PET-131 D1/D4 invariant.
-            _emit_enforcement_event(
-                session_id=session_id,
-                tool=tool_name,
-                event_type="ingest_unscanned",
-                reason=f"{_RESULT_SCAN_ERROR_REASON} cause={cause} len={len(result)}",
-            )
+            # Cadence-helper exception must not take the banner (outer fail-open
+            # would return None). PET-131 D1/D4: log and event share one clock.
+            # NOT `PETASOS_QUARANTINE`: that token is block-class everywhere it
+            # appears (five sites, all returning `{"action": "block"}`).
+            try:
+                logged = _log_ingest_unscanned(
+                    tool_name, session_id, cause, len(result), task_id, kwargs
+                )
+                if logged:
+                    _emit_enforcement_event(
+                        session_id=session_id,
+                        tool=tool_name,
+                        event_type="ingest_unscanned",
+                        reason=(f"{_RESULT_SCAN_ERROR_REASON} cause={cause} len={len(result)}"),
+                    )
+            except Exception:
+                logger.warning(
+                    "PETASOS_INGEST_UNSCANNED_CADENCE_ERROR tool=%s cause=%s",
+                    tool_name,
+                    cause,
+                )
             return format_result_notice("scan_unavailable", tool_name) + "\n\n" + result
 
         # PET-112 ordinal gate, partitioned by finding type. PII produces NO banner and NO
@@ -2543,9 +2623,11 @@ def register(ctx) -> None:
         if _probe_status != "available":
             logger.warning("PETASOS_INGESTION_SCAN_UNAVAILABLE reason=%s", _probe_status)
         if _cotenant:
-            # An observation, not an error. Expect it on stock installs: Hermes bundles
-            # `plugins/security-guidance`, which registers here unconditionally, but its
-            # target set is disjoint from `_INGESTION_CANON`, so it can never contend.
+            # An observation, not an error. Expect it on stock installs: Hermes
+            # bundles `plugins/security-guidance`, which registers here
+            # unconditionally for {write_file, patch, skill_manage}. write_file
+            # and patch stay excluded; skill_manage inherits ingest and can
+            # contend under host first-string-wins (PET-170 / PET-181 D11).
             logger.info(
                 "PETASOS_INGESTION_SCAN_COTENANT: another plugin already registers "
                 "transform_tool_result; the host takes the first string return in load "
