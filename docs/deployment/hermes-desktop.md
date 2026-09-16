@@ -218,9 +218,14 @@ behaviors to preserve in any custom integration:
   with `run_coroutine_threadsafe().result()`.
 - **Inverted tool coverage.** Instead of enumerating dangerous tools
   (incomplete, there are 70+), maintain a `READ_ONLY_TOOLS` frozenset.
-  Membership governs the **argument** axis only; result scanning derives from
-  the `ingests` axis / `INGESTION_TOOLS`. Everything not in `READ_ONLY_TOOLS`
-  is treated as dangerous for `param_scan_unsafe` enforcement.
+  Membership governs the **argument** axis only. Result scanning inverts:
+  unknown non-empty names are scanned; `NON_INGESTING_TOOLS` is the
+  exclusion set the `transform_tool_result` seam gates on.
+  `INGESTION_TOOLS` remains the named hook-reaching ingesting subset and
+  is no longer the seam's membership test. Everything not in
+  `READ_ONLY_TOOLS` is treated as dangerous for `param_scan_unsafe`
+  enforcement. Until PET-178, ML on this widened population is
+  observability plus a base-install floor.
 - **Graceful degradation.** Missing `PETASOS_SESSION_SECRET` disables HMAC
   binding; a missing config section falls back to defaults (all features
   enabled). The plugin never crashes Hermes.

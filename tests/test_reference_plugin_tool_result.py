@@ -38,7 +38,7 @@ from petasos import (
     Severity,
     ToolCallGuard,
 )
-from petasos.session.guard import INGESTION_TOOLS
+from petasos.session.guard import INGESTION_TOOLS, NON_INGESTING_TOOLS
 
 if TYPE_CHECKING:
     import types
@@ -309,12 +309,11 @@ def test_canonicalizing_variants_are_scanned(monkeypatch: pytest.MonkeyPatch, to
     assert len(stub.calls) == 1
 
 
-@pytest.mark.parametrize("tool", ["write_file", "exec", "terminal", "send_email", ""])
-def test_dangerous_and_unnamed_tools_are_not_scanned(
+@pytest.mark.parametrize("tool", ["write_file", ""])
+def test_excluded_and_unnamed_tools_are_not_scanned(
     monkeypatch: pytest.MonkeyPatch, tool: str
 ) -> None:
-    # An unnamed tool is not scanned, and that is correct rather than an oversight:
-    # _is_ingestion("") is False, so an unnamed tool is treated as not ingesting.
+    # write_file is excluded. An unnamed tool is not scanned: named-tool floor.
     stub = _StubPipeline(_scan((_finding(),)))
     ref = _plugin(monkeypatch, pipeline=stub)
 
@@ -323,38 +322,46 @@ def test_dangerous_and_unnamed_tools_are_not_scanned(
     assert _events() == []
 
 
-@pytest.mark.parametrize("tool", ["readfile", "Read__File", "mcp__vigil_harbor__memory_search"])
-def test_non_canonicalizing_variants_go_unscanned_pinned_gap(
+@pytest.mark.parametrize("tool", ["exec", "terminal", "send_email"])
+def test_unknown_acting_tools_are_result_scanned(
     monkeypatch: pytest.MonkeyPatch, tool: str
 ) -> None:
-    """The fail DIRECTION inverts here, and that is a recorded gap, not a bug fixed
-    elsewhere.
+    """Regression for PET-181: unknown non-empty names scan on the result axis."""
+    stub = _StubPipeline(_scan((_finding(),)))
+    ref = _plugin(monkeypatch, pipeline=stub)
 
-    On the pre-call path an unrecognized name is gated (fail-secure, PET-118). Here an
-    unrecognized name means NOT SCANNED. ``canonicalize_tool_name`` documents the variants
-    it misses and Hermes hands the hook the RAW name, so these dispatch the real tool and
-    go unscanned. Pinned so a canonicalizer change fails loudly rather than silently
-    widening or narrowing the ingestion set.
+    assert isinstance(ref._transform_tool_result(tool_name=tool, result="c", task_id="s"), str)
+    assert len(stub.calls) == 1
+
+
+@pytest.mark.parametrize("tool", ["readfile", "Read__File", "mcp__vigil_harbor__memory_search"])
+def test_non_canonicalizing_variants_are_scanned(
+    monkeypatch: pytest.MonkeyPatch, tool: str
+) -> None:
+    """PET-181 closed the result-axis fail-open: these non-empty names scan.
+
+    The argument axis still fail-secures unknowns (unchanged).
     """
     stub = _StubPipeline(_scan((_finding(),)))
     ref = _plugin(monkeypatch, pipeline=stub)
 
-    assert ref._transform_tool_result(tool_name=tool, result="c", task_id="s") is None
-    assert stub.calls == []
+    assert isinstance(ref._transform_tool_result(tool_name=tool, result="c", task_id="s"), str)
+    assert len(stub.calls) == 1
 
 
 def test_monkeypatching_the_canon_set_moves_the_scanned_set(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # Proves derivation rather than a coincidental re-listing: move the source of truth and
-    # the ingestion surface moves with it, in both directions.
+    # Proves exclusion derivation: empty exclusion scans write_file; adding
+    # read_file to exclusion skips it.
     stub = _StubPipeline(_scan((_finding(),)))
     ref = _plugin(monkeypatch, pipeline=stub)
-    monkeypatch.setattr(ref, "_INGESTION_CANON", frozenset({"write_file"}))
+    monkeypatch.setattr(ref, "_NON_INGESTING_CANON", frozenset())
 
     assert isinstance(
         ref._transform_tool_result(tool_name="write_file", result="c", task_id="s"), str
     )
+    monkeypatch.setattr(ref, "_NON_INGESTING_CANON", frozenset({"read_file"}))
     assert ref._transform_tool_result(tool_name="read_file", result="c", task_id="s") is None
     assert len(stub.calls) == 1
 
@@ -362,6 +369,7 @@ def test_monkeypatching_the_canon_set_moves_the_scanned_set(
 def test_no_row_canonicalizes_away() -> None:
     ref = _import_reference_plugin()
     assert len(ref._INGESTION_CANON) == len(INGESTION_TOOLS)
+    assert len(ref._NON_INGESTING_CANON) == len(NON_INGESTING_TOOLS)
 
 
 def test_browser_navigate_poisoned_page_is_flagged(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -401,7 +409,7 @@ def test_browser_vision_dict_shape_is_skipped(monkeypatch: pytest.MonkeyPatch) -
     assert _events() == []
 
 
-def test_ingest_not_classified_emits_once(
+def test_ingest_excluded_emits_once(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     ref = _plugin(monkeypatch, pipeline=_StubPipeline(_scan((_finding(),))))
@@ -409,11 +417,10 @@ def test_ingest_not_classified_emits_once(
     with caplog.at_level(logging.DEBUG, logger="petasos.plugin"):
         ref._transform_tool_result(tool_name="write_file", result="c", task_id="s-a")
         ref._transform_tool_result(tool_name="write_file", result="c", task_id="s-b")
-    msgs = [
-        r.getMessage() for r in caplog.records if "PETASOS_INGEST_NOT_CLASSIFIED" in r.getMessage()
-    ]
+    msgs = [r.getMessage() for r in caplog.records if "PETASOS_INGEST_EXCLUDED" in r.getMessage()]
     assert len(msgs) == 1
     assert "write_file" in msgs[0]
+    assert not any("PETASOS_INGEST_NOT_CLASSIFIED" in r.getMessage() for r in caplog.records)
 
 
 def test_ingest_not_string_kind_discriminates(
@@ -440,6 +447,92 @@ def test_ingest_not_string_kind_discriminates(
     ]
     assert len(dict_msgs) == 1
     assert len(empty_msgs) == 1
+
+
+def test_unregistered_tool_poisoned_result_is_flagged(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Regression for PET-181: unknown names take the HIGH+ annotate path."""
+    from petasos.scanners import MinimalScanner
+
+    content = f"Welcome.\n{_INJECTION}\nThanks."
+    pipeline = Pipeline(scanners=[MinimalScanner()], config=PetasosConfig())
+    ref = _plugin(monkeypatch, pipeline=pipeline)
+
+    out = ref._transform_tool_result(
+        tool_name="definitely_not_a_registered_tool", result=content, task_id="s-unk"
+    )
+
+    assert isinstance(out, str)
+    assert out.startswith("[Petasos] Output from tool 'definitely_not_a_registered_tool'.")
+    assert out.endswith(content)
+    assert "injection.ignore-previous" in out
+    rows = _events("ingest_flagged")
+    assert len(rows) == 1
+    assert rows[0]["tool"] == "definitely_not_a_registered_tool"
+    assert rows[0]["rule_id"] == "petasos.syntactic.injection.ignore-previous"
+
+
+def test_unknown_mcp_wire_name_poisoned_result_is_flagged(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression for PET-181: MCP wire name that does not collide with exclusion."""
+    from petasos.scanners import MinimalScanner
+
+    content = f"Welcome.\n{_INJECTION}\nThanks."
+    pipeline = Pipeline(scanners=[MinimalScanner()], config=PetasosConfig())
+    ref = _plugin(monkeypatch, pipeline=pipeline)
+
+    out = ref._transform_tool_result(
+        tool_name="mcp__some_server__some_tool", result=content, task_id="s-mcp"
+    )
+
+    assert isinstance(out, str)
+    assert out.startswith("[Petasos] Output from tool 'mcp__some_server__some_tool'.")
+    assert out.endswith(content)
+    assert "injection.ignore-previous" in out
+    rows = _events("ingest_flagged")
+    assert len(rows) == 1
+    assert rows[0]["tool"] == "mcp__some_server__some_tool"
+    assert rows[0]["rule_id"] == "petasos.syntactic.injection.ignore-previous"
+
+
+@pytest.mark.parametrize("tool", ["write_file", "kanban_create", "kanban_comment", "patch"])
+def test_excluded_tools_are_not_scanned(monkeypatch: pytest.MonkeyPatch, tool: str) -> None:
+    stub = _StubPipeline(_scan((_finding(),)))
+    ref = _plugin(monkeypatch, pipeline=stub)
+
+    assert ref._transform_tool_result(tool_name=tool, result="content", task_id="s") is None
+    assert stub.calls == []
+
+
+def test_blank_tool_name_is_not_scanned(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    stub = _StubPipeline(_scan((_finding(),)))
+    ref = _plugin(monkeypatch, pipeline=stub)
+    ref._reset_ingest_log()
+    with caplog.at_level(logging.DEBUG, logger="petasos.plugin"):
+        assert ref._transform_tool_result(tool_name="", result="content", task_id="s") is None
+        assert ref._transform_tool_result(tool_name="   ", result="content", task_id="s") is None
+        # Gate 2 still wins on an empty result before the named-tool floor.
+        assert ref._transform_tool_result(tool_name="", result="", task_id="s") is None
+    assert stub.calls == []
+    msgs = [r.getMessage() for r in caplog.records]
+    assert not any("PETASOS_INGEST_EXCLUDED" in m for m in msgs)
+    assert not any("PETASOS_INGEST_NOT_CLASSIFIED" in m for m in msgs)
+
+
+@pytest.mark.parametrize("tool", ["mcp__acme__write_file", "mcp__acme__patch"])
+def test_mcp_wire_name_that_strips_onto_exclusion_is_excluded(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, tool: str
+) -> None:
+    stub = _StubPipeline(_scan((_finding(),)))
+    ref = _plugin(monkeypatch, pipeline=stub)
+    ref._reset_ingest_log()
+    with caplog.at_level(logging.DEBUG, logger="petasos.plugin"):
+        assert ref._transform_tool_result(tool_name=tool, result="content", task_id="s") is None
+    assert stub.calls == []
+    msgs = [r.getMessage() for r in caplog.records if "PETASOS_INGEST_EXCLUDED" in r.getMessage()]
+    assert len(msgs) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -603,6 +696,115 @@ def test_every_unscannable_cause_annotates_with_a_distinguishable_token(
     # No finding exists on this path, so these must stay empty rather than be invented.
     assert rows[0]["rule_id"] is None
     assert rows[0]["severity"] is None
+
+
+def test_ingest_unscanned_cadence_second_call_keeps_banner(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """PET-181: log+event share one clock; banner is never suppressed."""
+    ref = _plugin(monkeypatch, pipeline=None)
+    ref._reset_ingest_unscanned_log()
+    content = "the content" * 10
+    with caplog.at_level(logging.WARNING, logger="petasos.plugin"):
+        out1 = ref._transform_tool_result(tool_name="read_file", result=content, task_id="s-1")
+        out2 = ref._transform_tool_result(tool_name="read_file", result=content, task_id="s-1")
+    assert isinstance(out1, str) and "could not scan" in out1
+    assert isinstance(out2, str) and "could not scan" in out2
+    warns = [
+        r.getMessage()
+        for r in caplog.records
+        if "PETASOS_INGEST_UNSCANNED" in r.getMessage() and "CADENCE_ERROR" not in r.getMessage()
+    ]
+    assert len(warns) == 1
+    assert "s-1" in warns[0]
+    assert "PETASOS_INGEST_UNSCANNED" in warns[0]
+    assert len(_events("ingest_unscanned")) == 1
+
+
+def test_host_session_id_shares_ingest_unscanned_clock_and_does_not_correlate(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    stub = _StubPipeline(_scan())
+    ref = _plugin(monkeypatch, pipeline=stub)
+    ref._reset_ingest_unscanned_log()
+
+    ref._transform_tool_result(
+        tool_name="read_file", result="content", task_id="", session_id="host-1"
+    )
+    ref._transform_tool_result(
+        tool_name="read_file", result="content", task_id="", session_id="host-1"
+    )
+    assert stub.calls[0]["session_id"] is None
+    assert stub.calls[0]["weight_cap"] == 0.0
+    assert stub.calls[1]["session_id"] is None
+    assert stub.calls[1]["weight_cap"] == 0.0
+
+    monkeypatch.setattr(ref, "_pipeline", None)
+    with caplog.at_level(logging.WARNING, logger="petasos.plugin"):
+        out_a = ref._transform_tool_result(
+            tool_name="read_file", result="content", task_id="t-a", session_id="host-1"
+        )
+        out_b = ref._transform_tool_result(
+            tool_name="read_file", result="content", task_id="t-b", session_id="host-1"
+        )
+        out_c = ref._transform_tool_result(
+            tool_name="read_file", result="content", task_id="t-c", session_id="host-2"
+        )
+    assert all(isinstance(o, str) and "could not scan" in o for o in (out_a, out_b, out_c))
+    assert len(_events("ingest_unscanned")) == 2
+
+
+def test_uncorrelated_bucket_shares_ingest_unscanned_clock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ref = _plugin(monkeypatch, pipeline=None)
+    ref._reset_ingest_unscanned_log()
+    out1 = ref._transform_tool_result(
+        tool_name="read_file", result="content", task_id="", session_id=""
+    )
+    out2 = ref._transform_tool_result(
+        tool_name="read_file", result="content", task_id="", session_id=""
+    )
+    assert isinstance(out1, str) and "could not scan" in out1
+    assert isinstance(out2, str) and "could not scan" in out2
+    assert len(_events("ingest_unscanned")) == 1
+
+
+def test_same_agent_shares_ingest_unscanned_clock_different_agents_do_not(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ref = _plugin(monkeypatch, pipeline=None)
+    ref._reset_ingest_unscanned_log()
+    agent_a = object()
+    agent_b = object()
+    out1 = ref._transform_tool_result(
+        tool_name="read_file", result="content", task_id="", _agent=agent_a
+    )
+    out2 = ref._transform_tool_result(
+        tool_name="read_file", result="content", task_id="", _agent=agent_a
+    )
+    out3 = ref._transform_tool_result(
+        tool_name="read_file", result="content", task_id="", _agent=agent_b
+    )
+    assert all(isinstance(o, str) and "could not scan" in o for o in (out1, out2, out3))
+    assert len(_events("ingest_unscanned")) == 2
+
+
+@pytest.mark.parametrize("host_session", [None, 123])
+def test_non_str_host_session_id_falls_through_and_keeps_banner(
+    monkeypatch: pytest.MonkeyPatch, host_session: object
+) -> None:
+    ref = _plugin(monkeypatch, pipeline=None)
+    ref._reset_ingest_unscanned_log()
+    out1 = ref._transform_tool_result(
+        tool_name="read_file", result="content", task_id="s-fall", session_id=host_session
+    )
+    out2 = ref._transform_tool_result(
+        tool_name="read_file", result="content", task_id="s-fall", session_id=host_session
+    )
+    assert isinstance(out1, str) and "could not scan" in out1
+    assert isinstance(out2, str) and "could not scan" in out2
+    assert len(_events("ingest_unscanned")) == 1
 
 
 @pytest.mark.parametrize(
@@ -1276,11 +1478,14 @@ def test_a_ctx_rejecting_only_the_new_hook_is_tolerated(
     assert "transform_tool_result" not in ctx.registered
 
 
-def test_bundled_security_guidance_target_set_can_never_contend() -> None:
-    """Hermes bundles ``plugins/security-guidance``, which registers on this same hook
-    unconditionally. It can never discard a Petasos annotation because its target set is
-    disjoint from the ingestion set: it acts on tools that WRITE."""
+def test_bundled_security_guidance_write_targets_stay_excluded() -> None:
+    """Hermes bundles ``plugins/security-guidance`` for write_file / patch /
+    skill_manage. write_file and patch stay excluded; skill_manage inherits
+    ingest and can contend under host first-string-wins (PET-181 D11).
+    """
     ref = _import_reference_plugin()
-    security_guidance_targets = {"write_file", "patch", "skill_manage"}
-
-    assert not (security_guidance_targets & ref._INGESTION_CANON)
+    assert "write_file" in NON_INGESTING_TOOLS
+    assert "patch" in NON_INGESTING_TOOLS
+    assert "write_file" in ref._NON_INGESTING_CANON
+    assert "patch" in ref._NON_INGESTING_CANON
+    assert "skill_manage" not in NON_INGESTING_TOOLS

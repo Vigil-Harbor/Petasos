@@ -14,6 +14,7 @@ from petasos.session.guard import (
     _TOOL_AXES,
     _TOOL_AXES_ROWS,
     INGESTION_TOOLS,
+    NON_INGESTING_TOOLS,
     READ_ONLY_TOOLS,
     ToolAxes,
     _build_axes,
@@ -65,6 +66,17 @@ _EXPECTED_INGESTION = (
     "web_search",
 )
 
+_EXPECTED_NON_INGESTING = (
+    "clarify",
+    "delegate_task",
+    "kanban_comment",
+    "kanban_create",
+    "memory",
+    "patch",
+    "todo",
+    "write_file",
+)
+
 
 def test_browser_navigate_is_scanned_and_still_argument_gated() -> None:
     """Regression for PET-179: both halves for one tool, which one frozenset cannot satisfy."""
@@ -79,6 +91,7 @@ def test_browser_navigate_is_scanned_and_still_argument_gated() -> None:
 def test_derive_is_the_only_source() -> None:
     assert _derive(_TOOL_AXES, acts=False) == READ_ONLY_TOOLS
     assert _derive(_TOOL_AXES, ingests=True, reaches_hook=True) == INGESTION_TOOLS
+    assert _derive(_TOOL_AXES, ingests=False) == NON_INGESTING_TOOLS
 
     synthetic = _build_axes(
         (
@@ -95,11 +108,28 @@ def test_derive_is_the_only_source() -> None:
 
 
 def test_unknown_tool_defaults_stated_per_axis() -> None:
-    """Unknown names are gated on arguments and unscanned on results. PET-181 owns the latter."""
+    """Unknown names are gated on arguments and scanned on results (PET-181 invert)."""
     unknown = "definitely_not_a_registered_tool"
     assert unknown not in READ_ONLY_TOOLS
-    assert unknown not in INGESTION_TOOLS
+    assert unknown not in NON_INGESTING_TOOLS
+    assert unknown not in INGESTION_TOOLS  # named-set completeness, not the seam's gate
     assert unknown not in _TOOL_AXES
+
+
+def test_exclusion_members_are_pinned() -> None:
+    assert frozenset(_EXPECTED_NON_INGESTING) == NON_INGESTING_TOOLS
+    assert "" not in NON_INGESTING_TOOLS
+
+
+def test_execute_code_and_terminal_are_not_excluded() -> None:
+    for name in (
+        "execute_code",
+        "terminal",
+        "video_analyze",
+        "skill_view",
+        "skills_list",
+    ):
+        assert name not in NON_INGESTING_TOOLS, name
 
 
 def test_every_row_carries_a_structured_evidence_anchor() -> None:
@@ -131,9 +161,10 @@ def test_phantom_names_are_gone() -> None:
 def test_published_counts() -> None:
     mcp_rows = {n for n in _TOOL_AXES if n.startswith("mcp_")}
     browser_rows = {n for n in _TOOL_AXES if n.startswith("browser_")}
-    assert len(_TOOL_AXES) == 33
+    assert len(_TOOL_AXES) == 37
     assert len(READ_ONLY_TOOLS) == 16
     assert len(INGESTION_TOOLS) == 17
+    assert len(NON_INGESTING_TOOLS) == 8
     assert sum(1 for a in _TOOL_AXES.values() if a.ingests) == 29
     assert INGESTION_TOOLS - mcp_rows - browser_rows - {"search_files"} == {
         "read_file",
@@ -154,9 +185,10 @@ def test_table_is_immutable_and_has_no_duplicate_keys() -> None:
                 ("a", ToolAxes(False, True, True, "hermes x::y")),
             )
         )
-    assert len(_TOOL_AXES_ROWS) == len(_TOOL_AXES) == 33
+    assert len(_TOOL_AXES_ROWS) == len(_TOOL_AXES) == 37
 
 
 def test_full_membership_is_pinned() -> None:
     assert tuple(sorted(READ_ONLY_TOOLS)) == _EXPECTED_READ_ONLY
     assert tuple(sorted(INGESTION_TOOLS)) == _EXPECTED_INGESTION
+    assert tuple(sorted(NON_INGESTING_TOOLS)) == _EXPECTED_NON_INGESTING

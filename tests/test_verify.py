@@ -398,6 +398,44 @@ def test_missing_ingestion_tools_fails_main(
     assert "INGESTION_TOOLS" in captured
 
 
+def test_missing_non_ingesting_tools_fails_main(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """PET-181: Guard exports FAILs when NON_INGESTING_TOOLS is missing."""
+    import petasos.session.guard as guard_mod
+
+    _setup_clean_install(
+        tmp_path,
+        monkeypatch,
+        profile="gibson",
+        root_section={"fail_mode": "degraded"},
+        profile_section={"fail_mode": "degraded"},
+    )
+    monkeypatch.delattr(guard_mod, "NON_INGESTING_TOOLS", raising=False)
+    verify = _load_verify_module()
+    rc = verify.main()
+    captured = capsys.readouterr().out
+    assert rc != 0
+    assert "Guard exports" in captured
+    assert "FAIL" in captured
+    assert "NON_INGESTING_TOOLS" in captured
+
+
+def test_guard_exports_pass_names_both(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _setup_clean_install(
+        tmp_path,
+        monkeypatch,
+        profile="gibson",
+        root_section={"fail_mode": "degraded"},
+        profile_section={"fail_mode": "degraded"},
+    )
+    verify = _load_verify_module()
+    status, detail = verify.check_guard_exports()
+    assert status == verify.PASS
+    assert "INGESTION_TOOLS" in detail
+    assert "NON_INGESTING_TOOLS" in detail
+
+
 def test_verify_clean_passes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

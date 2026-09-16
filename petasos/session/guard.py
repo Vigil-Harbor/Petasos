@@ -6,14 +6,15 @@ vocabulary with PET-134's ``source_taint_namespaces``:
 - ``acts`` governs argument-side content blocking. Unknown names default to
   acting (fail-secure). ``READ_ONLY_TOOLS`` is the ``acts=False`` derivation.
 - ``ingests`` governs result-side scanning of what a tool returns. Unknown
-  names default to not ingesting (fail-open; PET-181 owns closing that).
-  ``INGESTION_TOOLS`` is the ``ingests=True AND reaches_hook=True`` derivation:
-  the set the ``transform_tool_result`` seam *selects for scanning*, not the
-  set that is scanned. Gate 2 still drops a non-string result, so of the four
-  tools scanned before PET-179 only three (``read_file``, ``web_extract``,
-  ``web_search``) are reliably string-shaped; ``vision_analyze`` (and
-  ``browser_vision``) return a multimodal dict on the default native-vision
-  path. Widening gate 2 is PET-178.
+  names default to ingesting (fail toward scrutiny; PET-181 closed the
+  fail-open). ``INGESTION_TOOLS`` is the named ``ingests=True AND
+  reaches_hook=True`` subset the ``transform_tool_result`` seam *used to*
+  select; the seam now gates on ``NON_INGESTING_TOOLS``. Gate 2 still drops
+  a non-string result, so of the four tools scanned before PET-179 only
+  three (``read_file``, ``web_extract``, ``web_search``) are reliably
+  string-shaped; ``vision_analyze`` (and ``browser_vision``) return a
+  multimodal dict on the default native-vision path. Widening gate 2 is
+  PET-178.
 - ``source_taint_namespaces`` governs whether already-scanned content may
   leave via an egress sink. No tool is classified twice for the same question.
 
@@ -60,8 +61,10 @@ if TYPE_CHECKING:
 
 
 class ToolAxes(NamedTuple):
-    """Per-tool classification. A row exists only where a tool deviates from the
-    defaults: ``acts=True``, ``ingests=False``, ``reaches_hook=True``."""
+    """Per-tool classification. A row exists where a tool **deviates** from the
+    defaults (``acts=True``, ``ingests=True``, ``reaches_hook=True``) **or**
+    already carries a per-row evidence pin (the PET-179 browser family, which
+    now matches the default and must not be dropped)."""
 
     acts: bool
     ingests: bool
@@ -395,6 +398,42 @@ _TOOL_AXES_ROWS: tuple[tuple[str, ToolAxes], ...] = (
             evidence="hermes tools/delegate_tool.py::delegate_task",
         ),
     ),
+    (
+        "write_file",
+        ToolAxes(
+            acts=True,
+            ingests=False,
+            reaches_hook=True,
+            evidence="hermes tools/file_tools.py::_handle_write_file",
+        ),
+    ),
+    (
+        "kanban_create",
+        ToolAxes(
+            acts=True,
+            ingests=False,
+            reaches_hook=True,
+            evidence="hermes tools/kanban_tools.py::_handle_create",
+        ),
+    ),
+    (
+        "kanban_comment",
+        ToolAxes(
+            acts=True,
+            ingests=False,
+            reaches_hook=True,
+            evidence="hermes tools/kanban_tools.py::_handle_comment",
+        ),
+    ),
+    (
+        "patch",
+        ToolAxes(
+            acts=True,
+            ingests=False,
+            reaches_hook=True,
+            evidence="hermes tools/file_tools.py::_handle_patch",
+        ),
+    ),
 )
 
 _TOOL_AXES: MappingProxyType[str, ToolAxes] = _build_axes(_TOOL_AXES_ROWS)
@@ -403,9 +442,11 @@ _TOOL_AXES_VERIFIED_AGAINST = "hermes-agent b415029b6 (2026-08-06)"
 # Argument-axis exemption set (published name; membership means the tool cannot
 # act, so its arguments skip content blocking). Unknown names are gated.
 READ_ONLY_TOOLS: frozenset[str] = _derive(_TOOL_AXES, acts=False)
-# Result-axis selection set: tools whose results the transform_tool_result seam
-# selects for scanning. Unknown names are unscanned (fail-open; PET-181).
+# Named hook-reaching ingesting subset. The seam gates on NON_INGESTING_TOOLS;
+# this set cannot name tools that are not in the table, which is the point of
+# invert, so it is no longer the membership test.
 INGESTION_TOOLS: frozenset[str] = _derive(_TOOL_AXES, ingests=True, reaches_hook=True)
+NON_INGESTING_TOOLS: frozenset[str] = _derive(_TOOL_AXES, ingests=False)
 
 _READ_ONLY_CANON: frozenset[str] = frozenset(
     c for c in (canonicalize_tool_name(t) for t in READ_ONLY_TOOLS) if c

@@ -6,6 +6,18 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
 
 ### Changed
 
+- **Unknown tools are result-scanned by default (PET-181).** After PET-179, an
+  unrecognised tool name was gated on arguments and not scanned on results.
+  The table default is now `ingests=True`; the seam gates on the eight-member
+  `NON_INGESTING_TOOLS` exclusion set (`write_file`, `kanban_create`,
+  `kanban_comment`, `patch`, plus the four PET-179 `ingests=False` rows).
+  `INGESTION_TOOLS` remains the named hook-reaching ingesting subset and is
+  no longer the seam's gate. Until PET-178 drops per-scan cost, ML coverage
+  is observability plus a base-install floor. Capacity is K=1 (one
+  `petasos-async` loop); shed rate is 0 by construction; P=8 is measured,
+  P=80 is a PET-178 residual. `ingest_unscanned` log+event share a
+  per-session 30s cadence; the banner is never suppressed.
+
 - **`READ_ONLY_TOOLS` is now derived from a two-axis table (PET-179).** Argument
   exemption and result scanning are no longer the same frozenset. `search` and
   `list_directory` are removed (neither matches a Hermes tool; a non-Hermes
@@ -28,12 +40,19 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
 
 ### Added
 
-- **`petasos.session.guard.INGESTION_TOOLS` (PET-179).** The result-axis
-  selection set, derived from the same `_TOOL_AXES` table as `READ_ONLY_TOOLS`.
+- **`petasos.session.guard.NON_INGESTING_TOOLS` (PET-181).** The result-axis
+  exclusion set, derived from `_TOOL_AXES` (`ingests=False`). Not re-exported
+  from `petasos`, matching `READ_ONLY_TOOLS` / `INGESTION_TOOLS`. The reference
+  plugin requires a `petasos` release exporting both
+  `petasos.session.guard.INGESTION_TOOLS` and
+  `petasos.session.guard.NON_INGESTING_TOOLS`; `verify.py` FAILs on that skew.
+
+- **`petasos.session.guard.INGESTION_TOOLS` (PET-179).** The named hook-reaching
+  ingesting subset, derived from the same `_TOOL_AXES` table as `READ_ONLY_TOOLS`.
   Not re-exported from `petasos`, matching `READ_ONLY_TOOLS`. The reference
   plugin requires a `petasos` release exporting
   `petasos.session.guard.INGESTION_TOOLS`; `verify.py` FAILs on that skew via
-  a sibling Guard exports check.
+  a sibling Guard exports check. PET-181: no longer the seam's membership test.
 
 ### Fixed
 
