@@ -99,6 +99,21 @@ def _is_strippable(ch: str) -> bool:
     return unicodedata.category(ch) in _STRIP_CATEGORIES or ch in INVISIBLE_NON_CF
 
 
+def _replace_strippable_runs_with_space(text: str) -> str:
+    """Collapse each maximal run of ``_is_strippable`` characters to one U+0020."""
+    out: list[str] = []
+    in_run = False
+    for ch in text:
+        if _is_strippable(ch):
+            if not in_run:
+                out.append(" ")
+                in_run = True
+        else:
+            out.append(ch)
+            in_run = False
+    return "".join(out)
+
+
 _HOMOGLYPH_TABLE = str.maketrans(
     {
         # Cyrillic lowercase
@@ -261,6 +276,13 @@ def normalize(
     records no ``transformations_applied`` entry (digit-bearing benign text
     would flag on every input — the observability carrier is the injection
     finding's message instead).
+
+    The separator view (PET-198) is also a side channel: when invisible
+    characters were stripped, it emits a match-only space-restored candidate
+    into ``separator_views`` for the injection pass, leaves ``normalized``
+    concatenating, and records no ``transformations_applied`` entry. Empty
+    when nothing was stripped, stripping is off, or the finished view equals
+    ``normalized``.
     """
     if not text:
         return NormalizedText(
@@ -345,6 +367,27 @@ def normalize(
             view_l = text_after_homoglyph.translate(_LEET_TABLE_L)
             leet_views = (view_i,) if view_l == view_i else (view_i, view_l)
 
+    # Match-only separator view (PET-198): each maximal strippable run in
+    # original becomes one U+0020, then the same later stages as the concat
+    # path. Not recorded in transformations_applied. Not leet-folded here.
+    separator_views: tuple[str, ...] = ()
+    if stripped_count > 0:
+        view = _replace_strippable_runs_with_space(original)
+        if nfkc:
+            view = unicodedata.normalize("NFKC", view)
+            view = _replace_strippable_runs_with_space(view)
+            view_nfd = unicodedata.normalize("NFD", view)
+            mn_count = sum(1 for ch in view_nfd if unicodedata.category(ch) == "Mn")
+            if mn_count > 0:
+                view = unicodedata.normalize(
+                    "NFC",
+                    "".join(ch for ch in view_nfd if unicodedata.category(ch) != "Mn"),
+                )
+        if map_homoglyphs:
+            view = view.translate(_HOMOGLYPH_TABLE)
+        if view != text_after_homoglyph:
+            separator_views = (view,)
+
     return NormalizedText(
         original=original,
         normalized=text_after_homoglyph,
@@ -353,4 +396,5 @@ def normalize(
         confusables_normalized=confusables,
         rtl_overrides_detected=rtl_detected,
         leet_views=leet_views,
+        separator_views=separator_views,
     )

@@ -37,6 +37,18 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
 
 ### Fixed
 
+- **Zero-width word separators no longer hide injection phrases from the
+  syntactic battery (PET-198).** `normalize()` still concatenates after
+  stripping invisible characters, so intra-word ZWSP keeps reading as one
+  word. A new match-only `separator_views` field turns each run of
+  strippable characters into a space for the injection pass only. The
+  separator-replacing form of "ignore all previous instructions" now
+  matches at HIGH. Role-switch, command, agent-directive, and encoded-blob
+  rescan do not see the view. A hit on the view has no span. Residuals:
+  a phrase that needs both leet-fold and separator restoration in one
+  candidate is not a cartesian product; decode-rescan of a raw blob still
+  does not treat U+200B as whitespace.
+
 - **Non-JSON tool-parameter values now contribute str() text to both scan
   paths (PET-197).** `safe_json_dumps` used to replace `bytes`, `Path`,
   `datetime`, and other non-JSON leaves with `[Unserializable: <type>]`, so

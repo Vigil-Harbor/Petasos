@@ -189,6 +189,10 @@ class NormalizedText:
     # folds of `normalized`, consumed by the injection pass only. Empty when
     # no foldable character is present or fold_leet=False.
     leet_views: tuple[str, ...] = ()
+    # Match-only separator-restored candidate views (PET-198): not
+    # length-preserving. Empty when nothing was stripped, stripping is off,
+    # or the finished view equals `normalized`.
+    separator_views: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
