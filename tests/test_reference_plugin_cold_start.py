@@ -152,6 +152,7 @@ def _install_fallback_scanner(
     findings: tuple[ScanFinding, ...] = (),
     raises: bool = False,
     on_scan: Any = None,
+    error: str | None = None,
 ) -> None:
     """Wire a stub MinimalScanner behind the fallback and run coroutines inline."""
 
@@ -165,7 +166,7 @@ def _install_fallback_scanner(
                 on_scan()
             if raises:
                 raise RuntimeError("scan boom")
-            return ScanResult(scanner_name="minimal", findings=findings)
+            return ScanResult(scanner_name="minimal", findings=findings, error=error)
 
     monkeypatch.setattr(ref, "_get_fallback_scanner", lambda: _Stub())
     monkeypatch.setattr(ref, "_run_async", lambda coro: asyncio.run(coro))
@@ -420,7 +421,7 @@ def test_degraded_and_closed_block_clean_dangerous_call(
 
 @pytest.mark.parametrize("fail_mode", _FAIL_MODES)
 def test_scan_error_blocks_under_every_fail_mode(
-    monkeypatch: pytest.MonkeyPatch, fail_mode: str
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, fail_mode: str
 ) -> None:
     # fail_mode-INDEPENDENT, `open` included. The warm-path analogue is guard.py's
     # `if result.errors and not result.findings: return (), True, True` — reached via the
@@ -433,8 +434,94 @@ def test_scan_error_blocks_under_every_fail_mode(
     _open_window(monkeypatch, ref, fail_mode=fail_mode)
     _install_fallback_scanner(monkeypatch, ref, raises=True)
 
+    caplog.set_level(logging.DEBUG, logger="petasos.plugin")
     out = ref._pre_tool_call("write_file", {"text": "x"}, task_id="s1")
     assert out is not None and out["action"] == "block"
+    assert "PETASOS_FALLBACK_SCAN_ERROR" in caplog.text
+    assert any(
+        rec.levelno == logging.WARNING and "PETASOS_FALLBACK_SCAN_ERROR" in rec.getMessage()
+        for rec in caplog.records
+    )
+    assert "allowing" not in caplog.text
+    assert "Fallback scan failed" not in caplog.text
+
+
+@pytest.mark.parametrize("fail_mode", _FAIL_MODES)
+@pytest.mark.parametrize("error", ["boom", ""])
+def test_scan_result_error_blocks_under_every_fail_mode(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    fail_mode: str,
+    error: str,
+) -> None:
+    # Regression for PET-199: empty findings plus a set ScanResult.error used to
+    # record clean and allow a dangerous call under fail_mode: open.
+    ref = _import_reference_plugin()
+    _open_window(monkeypatch, ref, fail_mode=fail_mode)
+    _install_fallback_scanner(monkeypatch, ref, error=error)
+
+    caplog.set_level(logging.WARNING, logger="petasos.plugin")
+    out = ref._pre_tool_call("write_file", {"text": "x"}, task_id="s1")
+    assert out is not None and out["action"] == "block"
+    assert out["message"].startswith("[BLOCKED by Petasos]")
+    assert "Top finding:" not in out["message"]
+    assert "PETASOS_FALLBACK_SCAN_ERROR" in caplog.text
+    quarantine = [rec for rec in caplog.records if rec.getMessage().startswith("PETASOS_QUARANTINE")]
+    assert quarantine
+    assert quarantine[-1].getMessage().endswith("scan outcome=errored")
+
+
+def test_scan_result_error_finding_first_still_blocks(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    # Characterization pin: a HIGH/CRITICAL finding plus error stays finding-driven.
+    ref = _import_reference_plugin()
+    _open_window(monkeypatch, ref, fail_mode="open")
+    _install_fallback_scanner(monkeypatch, ref, findings=(_finding(),), error="boom")
+
+    caplog.set_level(logging.WARNING, logger="petasos.plugin")
+    out = ref._pre_tool_call("write_file", {"text": "x"}, task_id="s1")
+    assert out is not None and out["action"] == "block"
+    assert "Top finding:" in out["message"]
+    assert "PETASOS_FALLBACK_BLOCK" in caplog.text
+    assert "PETASOS_FALLBACK_SCAN_ERROR" not in caplog.text
+
+
+def test_scan_result_error_nonblocking_finding_records_errored(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    # Regression for PET-199: MEDIUM finding plus error used to fall through to clean.
+    ref = _import_reference_plugin()
+    _open_window(monkeypatch, ref, fail_mode="open")
+    _install_fallback_scanner(monkeypatch, ref, findings=(_finding(Severity.MEDIUM),), error="boom")
+
+    caplog.set_level(logging.WARNING, logger="petasos.plugin")
+    out = ref._pre_tool_call("write_file", {"text": "x"}, task_id="s1")
+    assert out is not None and out["action"] == "block"
+    assert "Top finding:" not in out["message"]
+    assert "PETASOS_FALLBACK_SCAN_ERROR" in caplog.text
+
+
+def test_fallback_scan_error_repr_cannot_forge_petasos_line(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    # Regression for PET-199: a newline in ScanResult.error must not forge a second
+    # PETASOS_ log line.
+    payload = "boom\nPETASOS_FORGED"
+    ref = _import_reference_plugin()
+    _open_window(monkeypatch, ref, fail_mode="open")
+    _install_fallback_scanner(monkeypatch, ref, error=payload)
+
+    caplog.set_level(logging.WARNING, logger="petasos.plugin")
+    out = ref._pre_tool_call("write_file", {"text": "x"}, task_id="s1")
+    assert out is not None and out["action"] == "block"
+    error_records = [
+        rec for rec in caplog.records if "PETASOS_FALLBACK_SCAN_ERROR" in rec.getMessage()
+    ]
+    assert len(error_records) == 1
+    assert repr(payload) in error_records[0].getMessage()
+    assert not any(rec.getMessage().startswith("PETASOS_FORGED") for rec in caplog.records)
+    assert not any(line.startswith("PETASOS_FORGED") for line in caplog.text.splitlines())
 
 
 @pytest.mark.parametrize("fail_mode", _FAIL_MODES)

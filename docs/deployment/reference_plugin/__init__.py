@@ -1039,8 +1039,24 @@ def _fallback_pre_tool_call(
                     # prefix, tool name, NOT executed, top-finding clause).
                     "message": format_content_block("init", tool_name, result.findings),
                 }
+        if result.error is not None:
+            # PET-199: empty findings plus a set error is not a clean scan. MinimalScanner
+            # never raises; it returns error=str(exc). Recording errored blocks under every
+            # fail_mode, including open — stricter than healthy _compute_safe open, because
+            # the fallback has only this scanner.
+            logger.warning(
+                "PETASOS_FALLBACK_SCAN_ERROR tool=%s error=%r",
+                tool_name,
+                result.error,
+            )
+            _fallback_state.outcome = "errored"
+            return None
     except Exception as exc:
-        logger.debug("Fallback scan failed: %s — allowing", exc)
+        logger.warning(
+            "PETASOS_FALLBACK_SCAN_ERROR tool=%s error=%r",
+            tool_name,
+            str(exc),
+        )
         _fallback_state.outcome = "errored"
         return None
     _fallback_state.outcome = "clean"
