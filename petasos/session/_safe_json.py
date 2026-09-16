@@ -21,7 +21,10 @@ def safe_json_dumps(
     seen: set[int] = set()
 
     def _default(obj: object) -> str:
-        return f"[Unserializable: {type(obj).__name__}]"
+        try:
+            return str(obj)
+        except Exception:
+            return f"[Unserializable: {type(obj).__name__}]"
 
     def _walk(obj: Any, depth: int) -> Any:
         if depth > max_depth:

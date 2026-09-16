@@ -37,6 +37,22 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
 
 ### Fixed
 
+- **Non-JSON tool-parameter values now contribute str() text to both scan
+  paths (PET-197).** `safe_json_dumps` used to replace `bytes`, `Path`,
+  `datetime`, and other non-JSON leaves with `[Unserializable: <type>]`, so
+  an injection in those values was invisible on the healthy guard and on the
+  failed-init fallback. `_default` now returns `str(obj)` and keeps the typed
+  placeholder only when `__str__` raises. Existing `max_size` still bounds
+  the dump. Type-specific codecs (UTF-8 decode, `os.fspath`, ISO datetime)
+  are not added. Residuals: peak memory is the full `str()` plus the dumps
+  buffer, and a MemoryError in dumps replaces that whole value (nested
+  siblings included) with `"[Unserializable]"`; large `bytes` now consume
+  the shared 1e6 cap and MinimalScanner's 524,288-byte ceiling, so they can
+  crowd out later params and can block via oversized-payload where a
+  placeholder previously passed; only text that remains a contiguous
+  substring of `str(obj)` after JSON encoding is scannable (NULs,
+  non-printables, UTF-8-in-bytes, and ^-anchored rules stay blind).
+
 - **Profile-scoped history cursors tolerate surrogate-bearing stored IDs
   (PET-195, PET-184 finding PETRT-007).** The supported Hermes and playground
   writers mint their own UUID-backed IDs, but direct internal-writer use and
@@ -71,9 +87,9 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
   already failed; under `fail_mode: open` that window decided allow versus block, and the
   reduction was never disclosed. Both paths now call one `render_param_text` in
   `petasos/session/guard.py`: same cap, same serialization, same `outbound` direction, and
-  each logs its own truncation warning (`PETASOS_PARAM_TRUNCATED` on the plugin). Values
-  with no JSON encoding (`bytes`, paths) are rendered as placeholders on both paths, as the
-  healthy guard already did. The plugin's module-level import now also carries
+  each logs its own truncation warning (`PETASOS_PARAM_TRUNCATED` on the plugin). Non-JSON
+  values used to render as type-name placeholders on both paths; PET-197 scans str() of those
+  values instead. The plugin's module-level import now also carries
   `render_param_text` and `PARAM_SCAN_DIRECTION`; a library without them fails the plugin's
   import the same way the 0.3.0 sync note describes, and `verify.py` reports it on the
   config-validation and feature-activation rows. Tool results on that branch remain
