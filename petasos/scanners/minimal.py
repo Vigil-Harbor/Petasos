@@ -644,6 +644,8 @@ class MinimalScanner:
         normalized = normalize(text)
 
         # Step 3: Injection patterns on normalized text + leet views (PET-97)
+        # + separator views (PET-198). Role-switch / command / agent-directive
+        # stay on canonical text.
         injection_matched = self._check_injection(normalized, findings)
 
         # Step 4: Role-switch detection on normalized text
@@ -763,23 +765,19 @@ class MinimalScanner:
         return max_depth
 
     def _check_injection(self, normalized: NormalizedText, findings: list[ScanFinding]) -> bool:
-        # Plain text plus the leet-decoded views (PET-97). The fold is 1:1
-        # length-preserving, so a match span on a view is a valid span in
-        # `normalized` — matched_text shows the original (leet) attack bytes
-        # while the decoded form is named in the message. Role-switch triggers
-        # deliberately never see the views (PET-97 Decision 2: decode FPs).
+        # Plain text, then leet-decoded views (PET-97), then separator views
+        # (PET-198). Leet is 1:1 length-preserving, so a match span on a leet
+        # view is a valid span in `normalized`. Separator views are not 1:1:
+        # a hit on that kind omits position and matched_text. Role-switch
+        # triggers deliberately never see either view family.
         #
         # Gate each candidate by the cheap anchor first: a candidate matching no
         # injection-pattern anchor cannot match any pattern, so it skips the
         # 8-pattern battery entirely (PET-97 latency — see _INJECTION_ANCHOR).
-        candidates = [
-            (text, is_view)
-            for text, is_view in (
-                (normalized.normalized, False),
-                *((v, True) for v in normalized.leet_views),
-            )
-            if _INJECTION_ANCHOR.search(text)
-        ]
+        raw_candidates: list[tuple[str, str]] = [(normalized.normalized, "plain")]
+        raw_candidates.extend((v, "leet") for v in normalized.leet_views)
+        raw_candidates.extend((v, "separator") for v in normalized.separator_views)
+        candidates = [c for c in raw_candidates if _INJECTION_ANCHOR.search(c[0])]
         if not candidates:
             return False
         any_matched = False
@@ -787,14 +785,20 @@ class MinimalScanner:
             rule_id = f"petasos.syntactic.injection.{slug}"
             if rule_id in self._suppress_rules:
                 continue
-            for text, is_view in candidates:
+            for text, kind in candidates:
                 m = pattern.search(text)
                 if m is None:
                     continue
                 any_matched = True
                 # Truncated: \s+ runs make m.group() attacker-inflatable
                 # (cf. the base64-in-text [:50] cap).
-                decoded = f" (leet-decoded: {m.group()[:80]!r})" if is_view else ""
+                decoded = f" (leet-decoded: {m.group()[:80]!r})" if kind == "leet" else ""
+                if kind == "separator":
+                    position = None
+                    matched_text = None
+                else:
+                    position = Position(start=m.start(), end=m.end())
+                    matched_text = normalized.normalized[m.start() : m.end()]
                 findings.append(
                     ScanFinding(
                         rule_id=rule_id,
@@ -803,8 +807,8 @@ class MinimalScanner:
                         confidence=1.0,
                         message=f"Injection pattern matched: {slug}{decoded}",
                         scanner_name=self.name,
-                        position=Position(start=m.start(), end=m.end()),
-                        matched_text=normalized.normalized[m.start() : m.end()],
+                        position=position,
+                        matched_text=matched_text,
                     )
                 )
                 break
