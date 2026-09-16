@@ -466,7 +466,9 @@ def test_scan_result_error_blocks_under_every_fail_mode(
     assert out["message"].startswith("[BLOCKED by Petasos]")
     assert "Top finding:" not in out["message"]
     assert "PETASOS_FALLBACK_SCAN_ERROR" in caplog.text
-    quarantine = [rec for rec in caplog.records if rec.getMessage().startswith("PETASOS_QUARANTINE")]
+    quarantine = [
+        rec for rec in caplog.records if rec.getMessage().startswith("PETASOS_QUARANTINE")
+    ]
     assert quarantine
     assert quarantine[-1].getMessage().endswith("scan outcome=errored")
 
@@ -493,7 +495,9 @@ def test_scan_result_error_nonblocking_finding_records_errored(
     # Regression for PET-199: MEDIUM finding plus error used to fall through to clean.
     ref = _import_reference_plugin()
     _open_window(monkeypatch, ref, fail_mode="open")
-    _install_fallback_scanner(monkeypatch, ref, findings=(_finding(Severity.MEDIUM),), error="boom")
+    _install_fallback_scanner(
+        monkeypatch, ref, findings=(_finding(Severity.MEDIUM),), error="boom"
+    )
 
     caplog.set_level(logging.WARNING, logger="petasos.plugin")
     out = ref._pre_tool_call("write_file", {"text": "x"}, task_id="s1")
@@ -1275,3 +1279,25 @@ def test_finding_driven_block_survives_the_same_race(monkeypatch: pytest.MonkeyP
     assert out is not None and out["action"] == "block"
     assert len(_of_type("quarantine")) == 1
     assert guard.calls == [], "a justified block is returned, not re-decided by the guard"
+
+
+def test_scan_result_error_still_blocks_when_init_lands_mid_scan(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Regression for PET-199: recording errored must not be discarded if init
+    # completes during the fallback scan. The warm path under open would allow.
+    ref = _import_reference_plugin()
+    _open_window(monkeypatch, ref, fail_mode="open")
+    guard = _GuardSpy()
+    monkeypatch.setattr(ref, "_guard", guard)
+
+    def land_init() -> None:
+        _set(ref, "_initialized", True)
+        ref._init_done.set()
+
+    _install_fallback_scanner(monkeypatch, ref, error="boom", on_scan=land_init)
+
+    out = ref._pre_tool_call("write_file", {"text": "x"}, task_id="s1")
+    assert out is not None and out["action"] == "block"
+    assert "Top finding:" not in out["message"]
+    assert guard.calls == [], "errored fallback must not fall through to the warm path"
