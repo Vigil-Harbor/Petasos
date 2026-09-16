@@ -11,18 +11,22 @@ Deploy: copy this directory to the active Hermes profile's plugin dir:
 Config: add a top-level ``petasos:`` section to the profile's config.yaml
 Env:    PETASOS_LICENSE_KEY, PETASOS_SESSION_SECRET, PETASOS_HASH_KEY,
         PETASOS_AUDIT_FINDING
-Needs:  a ``petasos`` release exporting ``petasos.scanners.build_scanners`` AND the
-        module-level symbols imported below; sync this file and the library together.
-        ``build_scanners`` shipped first, so a library too old for this file also
-        misses ``format_result_notice``: it does not import at all and nothing is
-        enforced. An old-library skew therefore does not latch init; a library newer
-        than a stale copy of this file still can. PET-190 adds
-        ``petasos.session.guard.render_param_text`` and ``PARAM_SCAN_DIRECTION`` to that
-        floor; a library that has ``format_result_notice`` but predates them fails the
+Needs:  a ``petasos`` release exporting ``petasos.scanners.build_scanners``,
+        ``petasos.session.formatting.format_result_notice``, AND
+        ``petasos.session.guard.INGESTION_TOOLS``; sync this file and the library
+        together. ``build_scanners`` shipped first, so a library too old for this
+        file also misses ``format_result_notice``: it does not import at all and
+        nothing is enforced. An old-library skew therefore does not latch init; a
+        library newer than a stale copy of this file still can. PET-190 adds
+        ``petasos.session.guard.render_param_text`` and ``PARAM_SCAN_DIRECTION`` to
+        that floor; PET-179 adds ``INGESTION_TOOLS``. A library that has
+        ``format_result_notice`` but predates those guard exports fails the
         ``petasos.session.guard`` import instead, with the same result.
-        ``verify.py`` probes ``build_scanners``
-        and (PET-189) imports this module, so the floor surfaces on its config and feature
-        rows. Init latches on a config or pipeline error; the session runs on the fallback.
+        ``verify.py`` probes ``build_scanners`` (scanner-imports check) and
+        ``INGESTION_TOOLS`` (guard-exports check) and (PET-189) imports this
+        module, so the floor surfaces on those rows plus its config and feature
+        rows. Init latches on a config or pipeline error; the session runs on the
+        fallback.
 
 Capture window (PET-136): to record per-finding tuning data, open a short
 capture window by setting ``PETASOS_AUDIT_FINDING=1`` (or flipping the
@@ -58,7 +62,12 @@ from petasos.session.formatting import (  # PET-77: dep-light (string formatting
     format_content_block,
     format_result_notice,
 )
-from petasos.session.guard import PARAM_SCAN_DIRECTION, READ_ONLY_TOOLS, render_param_text
+from petasos.session.guard import (
+    INGESTION_TOOLS,
+    PARAM_SCAN_DIRECTION,
+    READ_ONLY_TOOLS,
+    render_param_text,
+)
 
 if TYPE_CHECKING:
     from petasos import PetasosConfig
@@ -177,6 +186,16 @@ _bypass_lock = threading.Lock()
 _bypass_counts: dict[str, int] = {}
 _MAX_DISARM_SESSIONS = 10_000
 
+# PET-179: first-sighting skip logs for gate 2 (not-string) and gate 3
+# (not-classified). Own clock and lock: a new rate-limited stream must not be
+# able to suppress PETASOS_DISARMED. Keyed on (canon[:64], kind) so an
+# unbounded model-supplied tool_name cannot grow the map; cap 512 sits above
+# the ~81-tool census and far below _MAX_DISARM_SESSIONS. Drop-oldest.
+_ingest_log_lock = threading.Lock()
+_ingest_log_seen: dict[tuple[str, str], None] = {}
+_MAX_INGEST_LOG_KEYS = 512
+_INGEST_LOG_KEY_LEN = 64
+
 # PET-126: live config reload. The cross-process re-read (petasos.console._reload)
 # detects a config.yaml change on the hot path and _maybe_reconfigure applies it
 # to the running pipeline + guard + lineage registry. Two rate-limited streams
@@ -280,11 +299,29 @@ _async_thread: threading.Thread | None = None
 # `assert`, which `python -O` / PYTHONOPTIMIZE would strip. Every current entry is plain
 # ASCII and canonicalizes non-empty, so the filter is a no-op today, a regression guard
 # tomorrow.
+#
+# PET-179: _INGESTION_CANON is the result-axis sibling. It is also built at module
+# load, but for a different reason: the table is immutable and has no rebuild
+# trigger, so parking it in _deferred_init would pick up an _apply_reconfigure
+# path and lock discipline it does not need. Gate 3 sits above the _initialized
+# check; an empty set would return None anyway, which gate 4 would do regardless.
+# The `if c` empty-drop INVERTS on this axis: a listed tool that canonicalizes
+# away is never scanned (fail-open, silently). A module-load warning names any
+# such raw name; test_no_row_canonicalizes_away pins len equality so a collision
+# cannot hide either.
 _READ_ONLY_CANON = frozenset(c for c in (canonicalize_tool_name(t) for t in READ_ONLY_TOOLS) if c)
+_INGESTION_CANON = frozenset(c for c in (canonicalize_tool_name(t) for t in INGESTION_TOOLS) if c)
+_dropped_ingestion_names = tuple(t for t in INGESTION_TOOLS if not canonicalize_tool_name(t))
+if _dropped_ingestion_names:
+    logger.warning("PETASOS_INGESTION_NAME_DROPPED names=%r", _dropped_ingestion_names)
 
 
 def _is_dangerous(tool_name: str) -> bool:
     return canonicalize_tool_name(tool_name) not in _READ_ONLY_CANON
+
+
+def _is_ingestion(tool_name: str) -> bool:
+    return canonicalize_tool_name(tool_name) in _INGESTION_CANON
 
 
 # ---------------------------------------------------------------------------
@@ -1126,6 +1163,25 @@ def _reset_disarm_log() -> None:
     global _last_disarm_log
     with _disarm_log_lock:
         _last_disarm_log = 0.0
+
+
+def _reset_ingest_log() -> None:
+    """Test seam — reset the PET-179 first-sighting ingest skip latches."""
+    with _ingest_log_lock:
+        _ingest_log_seen.clear()
+
+
+def _note_ingest_skip(canon: str, kind: str, message: str, *args: object) -> None:
+    """Emit ``message`` at DEBUG once per (canon, kind); drop-oldest at the cap."""
+    key = (canon[:_INGEST_LOG_KEY_LEN], kind)
+    with _ingest_log_lock:
+        if key in _ingest_log_seen:
+            return
+        if len(_ingest_log_seen) >= _MAX_INGEST_LOG_KEYS:
+            oldest = next(iter(_ingest_log_seen))
+            del _ingest_log_seen[oldest]
+        _ingest_log_seen[key] = None
+    logger.debug(message, *args)
 
 
 def _log_disarmed_bypass(tool_name: str) -> bool:
@@ -2084,23 +2140,44 @@ def _transform_tool_result(
         if not _is_armed():
             return None
         # 2. One shape gate. The host contract is `Registry.dispatch(...) -> str | dict`,
-        #    and `vision_analyze` (a READ_ONLY_TOOLS member) returns the multimodal dict
+        #    and `vision_analyze` (an INGESTION_TOOLS member) returns the multimodal dict
         #    shape. There is deliberately NO `status` gate: the host derives `status` by
         #    parsing the whole result string with no notion of authorship, so content that
         #    is literally `{"error": "Ignore all previous instructions ..."}` would set
         #    `status="error"` and skip the scan — a general bypass. Cost accepted: a host
         #    error envelope that trips a rule gets a banner too. Noise, not harm, since
-        #    nothing is withheld.
+        #    nothing is withheld. When the tool is classified as ingesting, emit
+        #    PETASOS_INGEST_NOT_STRING once per (canon, kind) so the shape-gate caveat
+        #    on vision_analyze / browser_vision is falsifiable in a real deployment.
         if not isinstance(result, str) or not result:
+            if _is_ingestion(tool_name):
+                kind = "empty" if isinstance(result, str) else type(result).__name__
+                _note_ingest_skip(
+                    canonicalize_tool_name(tool_name),
+                    kind,
+                    "PETASOS_INGEST_NOT_STRING tool=%s kind=%s",
+                    tool_name,
+                    kind,
+                )
             return None
-        # 3. The ingestion set is DERIVED, not re-listed: `_is_dangerous` reads the same
-        #    `_READ_ONLY_CANON` the pre-call path uses, so the two surfaces cannot
-        #    disagree. `_is_dangerous("")` is True, so an unnamed tool is not scanned —
-        #    correct, since an unnamed tool is treated as acting. The fail-DIRECTION
-        #    inverts here and that is a recorded gap: on the pre-call path an unrecognized
+        # 3. The ingestion set is DERIVED from INGESTION_TOOLS, not from the
+        #    argument-axis exemption. After the PET-179 split the two surfaces
+        #    disagree by design and `_is_dangerous` no longer governs this axis.
+        #    `_is_ingestion("")` is False, so an unnamed tool is not scanned —
+        #    the fail-direction matches today's `_is_dangerous("")` being True,
+        #    reached by the opposite predicate. The fail-DIRECTION inverts here
+        #    and that is a recorded gap: on the pre-call path an unrecognized
         #    name is gated (fail-secure, PET-118); here it means NOT SCANNED, so a variant
         #    `canonicalize_tool_name` misses dispatches the real tool and goes unscanned.
-        if _is_dangerous(tool_name):
+        #    PET-179 widens that gap from 4 tools to 17 including the browser family.
+        if not _is_ingestion(tool_name):
+            _note_ingest_skip(
+                canonicalize_tool_name(tool_name),
+                "unclassified",
+                "PETASOS_INGEST_NOT_CLASSIFIED tool=%s canon=%s",
+                tool_name,
+                canonicalize_tool_name(tool_name),
+            )
             return None
         # 4. A plain read, not `_ensure_initialized()`: `_pre_tool_call` already paid the
         #    bounded wait on this same call. No cold-start marker either — `_pre_tool_call`
@@ -2447,7 +2524,7 @@ def register(ctx) -> None:
         if _cotenant:
             # An observation, not an error. Expect it on stock installs: Hermes bundles
             # `plugins/security-guidance`, which registers here unconditionally, but its
-            # target set is disjoint from `_READ_ONLY_CANON`, so it can never contend.
+            # target set is disjoint from `_INGESTION_CANON`, so it can never contend.
             logger.info(
                 "PETASOS_INGESTION_SCAN_COTENANT: another plugin already registers "
                 "transform_tool_result; the host takes the first string return in load "

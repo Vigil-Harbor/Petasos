@@ -204,8 +204,8 @@ tampering (that is PET-83's domain).
 init failed permanently runs the syntactic fallback under `fail_mode`: under `degraded` it
 allows read-only tools and blocks every other tool call until the process is restarted, with
 no in-process recovery (`_deferred_init` returns early once `_init_error` latches,
-`docs/deployment/reference_plugin/__init__.py:505`). Note `search_files` is not in
-`READ_ONLY_TOOLS` (`petasos/session/guard.py:42-62`), so it is blocked too. The fallback
+`docs/deployment/reference_plugin/__init__.py:505`). `search_files` is in
+`READ_ONLY_TOOLS` (PET-179), so the fallback allows it. The fallback
 scans the same parameter text as the healthy guard, to the same cap
 (`_MAX_PARAM_TEXT_LEN` in `petasos/session/guard.py`), in the same direction, and each path
 logs its own truncation warning (PET-190). On both paths, text above `MinimalScanner`'s
@@ -494,7 +494,14 @@ path was matched in that case. The OS boundary remains the containment
 mechanism; this layer is a
 tripwire. An unlisted read-only tool whose top-level arg *is* the owned path
 classifies as `config_write` even when the tool only reads (accepted FP
-direction; widen `READ_ONLY_TOOLS` as needed). Console 401 probe attempts
+direction; add an `acts=False` row to **`_TOOL_AXES_ROWS`** in
+`petasos/session/guard.py` (not `_TOOL_AXES`, which is the immutable
+`MappingProxyType` built from it), give the row a conforming `evidence`
+anchor, then update the membership and count pins in
+`tests/test_tool_axes.py`, noting this does not by itself add ingestion
+scanning). `search_files` is newly exempt from `config_ref` on the same
+accepted-FP footing; the ingestion scan is the compensating control.
+Console 401 probe attempts
 (`petasos.selfmod.console_probe`) surface via alerts and the audit trail only:
 they write no enforcement-spool event, so they do not appear in the console
 scan history, its self-tamper filter, or the self-tamper tile.

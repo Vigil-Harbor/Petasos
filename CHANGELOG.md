@@ -6,6 +6,17 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
 
 ### Changed
 
+- **`READ_ONLY_TOOLS` is now derived from a two-axis table (PET-179).** Argument
+  exemption and result scanning are no longer the same frozenset. `search` and
+  `list_directory` are removed (neither matches a Hermes tool; a non-Hermes
+  embedder using those names loses the argument-side exemption). `search_files`
+  is added on both axes: its arguments skip content blocking and its results
+  are scanned. `browser_navigate` and the rest of the browser family stay
+  argument-gated and become result-scanned. The ingestion handler still
+  withholds nothing, but both axes share one `Pipeline`, so a tripped ML
+  breaker on a result scan blocks dangerous tool calls for the 30-second
+  cooldown; PET-178 owns that coupling.
+
 - **The console now ships as seven ordered classic scripts (PET-183).** The
   private `/static/petasos.js` implementation asset was removed. Standalone and
   hand-synced Hermes deployments must carry the complete ordered bundle:
@@ -14,6 +25,15 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
   `petasos-shell.js`. The supported standalone `index.html` and embedded Hermes
   plugin entry points load this bundle automatically; no build step or npm
   dependency was added.
+
+### Added
+
+- **`petasos.session.guard.INGESTION_TOOLS` (PET-179).** The result-axis
+  selection set, derived from the same `_TOOL_AXES` table as `READ_ONLY_TOOLS`.
+  Not re-exported from `petasos`, matching `READ_ONLY_TOOLS`. The reference
+  plugin requires a `petasos` release exporting
+  `petasos.session.guard.INGESTION_TOOLS`; `verify.py` FAILs on that skew via
+  a sibling Guard exports check.
 
 ### Fixed
 

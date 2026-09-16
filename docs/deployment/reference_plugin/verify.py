@@ -197,6 +197,23 @@ def check_scanner_imports() -> CheckResult:
     return PASS, f"{len(available)} scanners: {', '.join(available)}"
 
 
+def check_guard_exports() -> CheckResult:
+    # PET-179: sibling of check_scanner_imports, not folded inside it. A separate
+    # check() call runs unconditionally, so check_scanner_imports's early WARN/PASS
+    # returns cannot skip a missing INGESTION_TOOLS. Wording matches the scanner
+    # probe: sync the plugin files and the library together.
+    try:
+        from petasos.session.guard import INGESTION_TOOLS  # noqa: F401
+    except ImportError:
+        return (
+            FAIL,
+            "Installed petasos does not export petasos.session.guard.INGESTION_TOOLS."
+            " This plugin requires a petasos release that does; sync the plugin"
+            " files and the library together.",
+        )
+    return PASS, "INGESTION_TOOLS exported"
+
+
 def check_config() -> CheckResult:
     try:
         rc = resolve_deployed_config()
@@ -489,6 +506,7 @@ def main() -> int:
     print()
 
     check("Scanner imports", check_scanner_imports)
+    check("Guard exports", check_guard_exports)
     check("Plugin files", check_plugin_files)
     check("Config validation", check_config)
     check("Environment variables", check_env_vars)

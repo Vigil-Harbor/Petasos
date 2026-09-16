@@ -382,8 +382,8 @@ def test_expired_wait_reaches_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_read_only_tool_never_blocks_in_window(monkeypatch: pytest.MonkeyPatch) -> None:
     # The block decision is _is_dangerous-gated BEFORE fail_mode is consulted, mirroring
-    # the warm path. Without that gate the cold window would block read_file / search /
-    # web_search / list_directory for its whole duration under the DEFAULT fail_mode —
+    # the warm path. Without that gate the cold window would block read_file /
+    # web_search / search_files for its whole duration under the DEFAULT fail_mode —
     # strictly more aggressive than the warm path, on the tool class the warm path exempts
     # by design, and on the very first call of a typical one-shot session.
     ref = _import_reference_plugin()
@@ -818,14 +818,14 @@ def test_degenerate_tool_names_fail_secure_on_both_branches(
 
 def test_init_failed_read_only_tools_still_allowed(monkeypatch: pytest.MonkeyPatch) -> None:
     # The carve-out sits AHEAD of the outcome read, so the new fail-secure default can never
-    # mass-block the read-only class for the process lifetime. NOT `search_files`, which is
-    # absent from READ_ONLY_TOOLS and is therefore dangerous today (PET-179's work).
+    # mass-block the read-only class for the process lifetime. PET-179 put search_files on
+    # both axes (acts=False), so it is in this carve-out.
     ref = _import_reference_plugin()
     _open_window(monkeypatch, ref, fail_mode="degraded")
     _install_fallback_scanner(monkeypatch, ref)
     _set(ref, "_init_error", "boom")
 
-    for tool in ("read_file", "search", "list_directory", "web_search"):
+    for tool in ("read_file", "search_files", "web_search"):
         assert ref._pre_tool_call(tool, {"path": "x"}, task_id="s1") is None, tool
     assert _of_type("quarantine") == [], "no read-only call may produce a block-class row"
     assert len(_of_type("init_failed")) == 1, "a read-only-only session still leaves a record"
@@ -984,7 +984,7 @@ def test_session_starting_and_ending_inside_window(monkeypatch: pytest.MonkeyPat
     assert ref._pre_tool_call("read_file", {"path": "a"}, task_id="one-shot") is None
     blocked = ref._pre_tool_call("write_file", {"text": "x"}, task_id="one-shot")
     assert blocked is not None and blocked["action"] == "block"
-    assert ref._pre_tool_call("search", {"q": "x"}, task_id="one-shot") is None
+    assert ref._pre_tool_call("search_files", {"q": "x"}, task_id="one-shot") is None
 
     assert len(_of_type("cold_start_degraded")) == 1, "one durable record for the session"
     assert len(_of_type("quarantine")) == 1, "the block is separately visible"

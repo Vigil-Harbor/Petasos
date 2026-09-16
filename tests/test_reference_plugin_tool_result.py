@@ -12,8 +12,8 @@ non-PII finding the content comes back **whole** behind a banner, with an enforc
 event recorded. Nothing is withheld.
 
 Backend-free, following the load seam at ``tests/test_reference_plugin_egress.py``:
-``_pipeline.inspect`` is a stub and ``_run_async`` is monkeypatched. The two tests that
-exercise real cancellation and a real ``Pipeline`` say so in place.
+``_pipeline.inspect`` is a stub and ``_run_async`` is monkeypatched. Tests that
+exercise real cancellation or a real ``Pipeline`` say so in place.
 """
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ from petasos import (
     Severity,
     ToolCallGuard,
 )
-from petasos.session.guard import READ_ONLY_TOOLS
+from petasos.session.guard import INGESTION_TOOLS
 
 if TYPE_CHECKING:
     import types
@@ -276,12 +276,18 @@ def test_read_only_tool_still_never_blocked_for_its_arguments(
 
 
 # ---------------------------------------------------------------------------
-# 3. Done-when 6 — the scanned set is DERIVED, and the fail-direction gap is pinned
+# 3. Done-when 6 — the scanned set is DERIVED from INGESTION_TOOLS
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("tool", sorted(READ_ONLY_TOOLS))
-def test_every_read_only_tool_is_scanned(monkeypatch: pytest.MonkeyPatch, tool: str) -> None:
+@pytest.mark.parametrize("tool", sorted(INGESTION_TOOLS))
+def test_every_ingestion_tool_is_scanned(monkeypatch: pytest.MonkeyPatch, tool: str) -> None:
+    """Gate-3 membership under a string-shaped result, not end-to-end coverage.
+
+    The body passes ``result="content"``, so gate 2 is trivial for every
+    parameter. ``vision_analyze`` and ``browser_vision`` are gate-2 suppressed
+    in production on the default native-vision path.
+    """
     stub = _StubPipeline(_scan((_finding(),)))
     ref = _plugin(monkeypatch, pipeline=stub)
 
@@ -293,8 +299,9 @@ def test_every_read_only_tool_is_scanned(monkeypatch: pytest.MonkeyPatch, tool: 
 
 @pytest.mark.parametrize("tool", ["Read_File", "READ_FILE", " read_file "])
 def test_canonicalizing_variants_are_scanned(monkeypatch: pytest.MonkeyPatch, tool: str) -> None:
-    # The set is derived through the SAME canonicalizer the pre-call path uses, so the
-    # two surfaces cannot disagree on a name that canonicalizes.
+    # Canonicalizer is shared; after PET-179 the two surfaces disagree by design
+    # on membership, but a name that canonicalizes onto an INGESTION_TOOLS member
+    # is still scanned.
     stub = _StubPipeline(_scan((_finding(),)))
     ref = _plugin(monkeypatch, pipeline=stub)
 
@@ -307,7 +314,7 @@ def test_dangerous_and_unnamed_tools_are_not_scanned(
     monkeypatch: pytest.MonkeyPatch, tool: str
 ) -> None:
     # An unnamed tool is not scanned, and that is correct rather than an oversight:
-    # _is_dangerous("") is True, and an unnamed tool is treated as ACTING.
+    # _is_ingestion("") is False, so an unnamed tool is treated as not ingesting.
     stub = _StubPipeline(_scan((_finding(),)))
     ref = _plugin(monkeypatch, pipeline=stub)
 
@@ -343,13 +350,96 @@ def test_monkeypatching_the_canon_set_moves_the_scanned_set(
     # the ingestion surface moves with it, in both directions.
     stub = _StubPipeline(_scan((_finding(),)))
     ref = _plugin(monkeypatch, pipeline=stub)
-    monkeypatch.setattr(ref, "_READ_ONLY_CANON", frozenset({"write_file"}))
+    monkeypatch.setattr(ref, "_INGESTION_CANON", frozenset({"write_file"}))
 
     assert isinstance(
         ref._transform_tool_result(tool_name="write_file", result="c", task_id="s"), str
     )
     assert ref._transform_tool_result(tool_name="read_file", result="c", task_id="s") is None
     assert len(stub.calls) == 1
+
+
+def test_no_row_canonicalizes_away() -> None:
+    ref = _import_reference_plugin()
+    assert len(ref._INGESTION_CANON) == len(INGESTION_TOOLS)
+
+
+def test_browser_navigate_poisoned_page_is_flagged(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Regression for PET-179 Done-when 1: finding, banner, ingest_flagged event.
+
+    Real ``Pipeline`` + ``MinimalScanner``: a stubbed precomputed finding would
+    pass even if the handler never scanned the page.
+    """
+    from petasos.scanners import MinimalScanner
+
+    content = f"Welcome.\n{_INJECTION}\nThanks."
+    pipeline = Pipeline(scanners=[MinimalScanner()], config=PetasosConfig())
+    ref = _plugin(monkeypatch, pipeline=pipeline)
+
+    out = ref._transform_tool_result(tool_name="browser_navigate", result=content, task_id="s-nav")
+
+    assert isinstance(out, str)
+    assert out.startswith("[Petasos] Output from tool 'browser_navigate'.")
+    assert out.endswith(content)
+    assert "injection.ignore-previous" in out
+    rows = _events("ingest_flagged")
+    assert len(rows) == 1
+    assert rows[0]["tool"] == "browser_navigate"
+    assert rows[0]["rule_id"] == "petasos.syntactic.injection.ignore-previous"
+
+
+def test_browser_vision_dict_shape_is_skipped(monkeypatch: pytest.MonkeyPatch) -> None:
+    stub = _StubPipeline(_scan((_finding(),)))
+    ref = _plugin(monkeypatch, pipeline=stub)
+    payload = {"_multimodal": True, "content": [{"type": "image", "data": "..."}]}
+
+    assert (
+        ref._transform_tool_result(tool_name="browser_vision", result=payload, task_id="s-vis")
+        is None
+    )
+    assert stub.calls == []
+    assert _events() == []
+
+
+def test_ingest_not_classified_emits_once(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    ref = _plugin(monkeypatch, pipeline=_StubPipeline(_scan((_finding(),))))
+    ref._reset_ingest_log()
+    with caplog.at_level(logging.DEBUG, logger="petasos.plugin"):
+        ref._transform_tool_result(tool_name="write_file", result="c", task_id="s-a")
+        ref._transform_tool_result(tool_name="write_file", result="c", task_id="s-b")
+    msgs = [
+        r.getMessage() for r in caplog.records if "PETASOS_INGEST_NOT_CLASSIFIED" in r.getMessage()
+    ]
+    assert len(msgs) == 1
+    assert "write_file" in msgs[0]
+
+
+def test_ingest_not_string_kind_discriminates(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    ref = _plugin(monkeypatch, pipeline=_StubPipeline(_scan((_finding(),))))
+    ref._reset_ingest_log()
+    with caplog.at_level(logging.DEBUG, logger="petasos.plugin"):
+        ref._transform_tool_result(
+            tool_name="vision_analyze",
+            result={"_multimodal": True},
+            task_id="s-d",
+        )
+        ref._transform_tool_result(tool_name="vision_analyze", result="", task_id="s-e")
+    dict_msgs = [
+        r.getMessage()
+        for r in caplog.records
+        if "PETASOS_INGEST_NOT_STRING" in r.getMessage() and "kind=dict" in r.getMessage()
+    ]
+    empty_msgs = [
+        r.getMessage()
+        for r in caplog.records
+        if "PETASOS_INGEST_NOT_STRING" in r.getMessage() and "kind=empty" in r.getMessage()
+    ]
+    assert len(dict_msgs) == 1
+    assert len(empty_msgs) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -891,7 +981,7 @@ def test_non_string_and_empty_results_are_skipped(
     monkeypatch: pytest.MonkeyPatch, result: Any
 ) -> None:
     # One shape gate. The host contract is `dispatch(...) -> str | dict`, and
-    # `vision_analyze` (a READ_ONLY_TOOLS member) returns exactly the multimodal dict.
+    # `vision_analyze` (an INGESTION_TOOLS member) returns exactly the multimodal dict.
     stub = _StubPipeline(_scan((_finding(),)))
     ref = _plugin(monkeypatch, pipeline=stub)
 
@@ -1193,4 +1283,4 @@ def test_bundled_security_guidance_target_set_can_never_contend() -> None:
     ref = _import_reference_plugin()
     security_guidance_targets = {"write_file", "patch", "skill_manage"}
 
-    assert not (security_guidance_targets & ref._READ_ONLY_CANON)
+    assert not (security_guidance_targets & ref._INGESTION_CANON)

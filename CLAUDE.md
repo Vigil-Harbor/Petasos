@@ -111,15 +111,23 @@ petasos/
 - Target: 300+ tests, 90%+ line coverage on pipeline/frequency/guard/audit/alerting.
 - Scanner wrappers use integration tests against real backends, not mocks.
 - Latency budgets: syntactic-only < 5ms, single ML scanner < 100ms, full pipeline < 250ms (CPU).
-- **Ingestion-path budget (PET-170).** The 5ms syntactic figure above was written for
+- **Ingestion-path budget (PET-170 / PET-179).** The 5ms syntactic figure above was written for
   parameter-sized input and does not govern the `transform_tool_result` seam, which scans
   up to an 8,000-char window of a tool *result*. Budget there: **12ms of scan** at the cap
   (measured ~7.3ms normalized for a base-install `inspect()`; 8.9-10.8ms raw across real
   clipped files on the slower bench box), or ~15ms end to end once the banner concatenation
-  and the second observer-field derivation the extra hook costs are included. The ML
-  configuration does not fit this budget, and did not fit the 250ms one before this ticket
-  (~922ms at 1KB); that gap is tracked as its own follow-up, not waived here. Evidence:
-  `tests/test_benchmarks.py`, measure-only under the existing skipif.
+  and the second observer-field derivation the extra hook costs are included. That 12ms
+  figure describes the **serial** shape. At 8-wide on a base install the batch completes
+  in ~48ms with no overlap, so per-result latency runs ~6ms at the first slot to ~48ms at
+  the eighth (mean ~27ms): the 12ms budget is first breached at the third slot and reaches
+  4x at the eighth. The ML configuration does not fit this budget, and did not fit the
+  250ms one before PET-170; cost saturates rather than scaling linearly with input size
+  (measured ~692ms at 500 chars to ~1,101ms at 8,000 chars). A tripped ML breaker is a
+  30s duty cycle, not a permanent short-circuit, and both axes share one `Pipeline`, so
+  an ingestion-side trip blocks dangerous tool calls for the cooldown window. PET-178
+  owns that coupling. Evidence: `tests/test_benchmarks.py` (`test_benchmark_ingestion_result_8kb`
+  for the serial cap; `test_benchmark_ingestion_result_8wide_concurrent` for the 8-wide
+  overrun), measure-only under the existing skipif.
 - **Scanner-extra / CI-lane pairing (PET-106).** Every scanner-backend extra in
   `pyproject.toml [project.optional-dependencies]` (currently `llm-guard`,
   `llamafirewall`, `presidio`; `console` excluded — not a scanner) MUST have a

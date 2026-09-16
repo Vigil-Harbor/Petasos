@@ -218,8 +218,9 @@ behaviors to preserve in any custom integration:
   with `run_coroutine_threadsafe().result()`.
 - **Inverted tool coverage.** Instead of enumerating dangerous tools
   (incomplete, there are 70+), maintain a `READ_ONLY_TOOLS` frozenset.
-  Everything not in that set is treated as dangerous for `param_scan_unsafe`
-  enforcement.
+  Membership governs the **argument** axis only; result scanning derives from
+  the `ingests` axis / `INGESTION_TOOLS`. Everything not in `READ_ONLY_TOOLS`
+  is treated as dangerous for `param_scan_unsafe` enforcement.
 - **Graceful degradation.** Missing `PETASOS_SESSION_SECRET` disables HMAC
   binding; a missing config section falls back to defaults (all features
   enabled). The plugin never crashes Hermes.
@@ -327,10 +328,17 @@ consequences:
   and add false matches). Use the **full wire name** wherever you name the tool.
   Note these are two separate mechanisms, not two config steps:
   `egress_sink_tools` is an operator knob in `config.yaml` (below), while the
-  read-only set is *code* (the plugin's `READ_ONLY_TOOLS` constant,
+  read-only set is *code* (`_TOOL_AXES_ROWS` in `petasos/session/guard.py`,
+  not `_TOOL_AXES`, the immutable `MappingProxyType` built from it),
   canonicalized at load into `_READ_ONLY_CANON`, which `_is_dangerous()`
-  consults directly). Customize the read-only set by editing the plugin, not
-  `config.yaml`.
+  consults directly. Customize either axis by adding a row to
+  `_TOOL_AXES_ROWS` with a conforming `evidence` anchor, then update the
+  membership and count pins in `tests/test_tool_axes.py`. Adding an
+  `acts=False` row grants an argument-side exemption and does not by itself
+  add ingestion scanning; `search_files` is `acts=False` so a
+  `config_ref` selfmod finding on a search of an owned path is an accepted
+  FP, compensated by the ingestion scan. Edit the table in
+  `petasos/session/guard.py`, not `config.yaml`.
 
   ```yaml
   # Right: full single-underscore wire name; its case / CamelCase / _tool
