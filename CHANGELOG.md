@@ -37,6 +37,21 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
 
 ### Fixed
 
+- **Fallback scan errors no longer pass a dangerous call under `open`
+  (PET-199).** `_fallback_pre_tool_call` used to treat an empty findings
+  tuple as clean even when `ScanResult.error` was set, so a
+  scanner-internal failure allowed the call under `fail_mode: open`.
+  After the findings gate, a set error now logs
+  `PETASOS_FALLBACK_SCAN_ERROR` at WARNING and records outcome
+  `errored`, which blocks under every fail_mode. The raise path uses
+  the same token and no longer describes the failure as allowing.
+  This is stricter than the healthy `_compute_safe` `open` path, which
+  ignores a syntactic error; the fallback has only MinimalScanner, so
+  an error means nothing scanned the call. Residuals: findings-plus-error
+  is exercised only via the test stub (the real scanner never returns
+  both); `PETASOS_RESULT_SCAN_ERROR` on the result-scan seam still
+  uses `%s`.
+
 - **Zero-width word separators no longer hide injection phrases from the
   syntactic battery (PET-198).** `normalize()` still concatenates after
   stripping invisible characters, so intra-word ZWSP keeps reading as one

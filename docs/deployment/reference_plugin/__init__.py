@@ -1039,8 +1039,24 @@ def _fallback_pre_tool_call(
                     # prefix, tool name, NOT executed, top-finding clause).
                     "message": format_content_block("init", tool_name, result.findings),
                 }
+        if result.error is not None:
+            # PET-199: empty findings plus a set error is not a clean scan. MinimalScanner
+            # never raises; it returns error=str(exc). Recording errored blocks under every
+            # fail_mode, including open — stricter than healthy _compute_safe open, because
+            # the fallback has only this scanner.
+            logger.warning(
+                "PETASOS_FALLBACK_SCAN_ERROR tool=%s error=%r",
+                tool_name,
+                result.error,
+            )
+            _fallback_state.outcome = "errored"
+            return None
     except Exception as exc:
-        logger.debug("Fallback scan failed: %s — allowing", exc)
+        logger.warning(
+            "PETASOS_FALLBACK_SCAN_ERROR tool=%s error=%r",
+            tool_name,
+            str(exc),
+        )
         _fallback_state.outcome = "errored"
         return None
     _fallback_state.outcome = "clean"
@@ -1840,7 +1856,12 @@ def _pre_tool_call(
             # Falling through here would discard the block while leaving a block-class row
             # on the console for a call that was allowed.
             return out
-        if not _initialized:
+        if outcome != "clean" or not _initialized:
+            # PET-199: a non-clean fallback (errored, unreadable) must still hit
+            # _fallback_decision if init landed mid-scan. The warm path under open
+            # ignores a syntactic ScanResult.error, which would undo the allow-to-block.
+            # A clean scan plus init-completed still falls through — that TOCTOU is the
+            # existing "do not false-block after scanners came up" pin.
             return _fallback_decision(
                 tool_name,
                 outcome,
@@ -1848,7 +1869,7 @@ def _pre_tool_call(
                 log_cause="cold window",
                 block_reason=_COLD_BLOCK_REASON,
             )
-        # init landed mid-scan: fall through to the main path rather than block
+        # init landed mid-scan on a clean syntactic scan: fall through to the main path
 
     # PET-126: initialized here — pick up any live config.yaml change before this
     # call is evaluated. Self-guarded and fail-safe; never blocks the tool call.
