@@ -224,8 +224,8 @@ behaviors to preserve in any custom integration:
   `INGESTION_TOOLS` remains the named hook-reaching ingesting subset and
   is no longer the seam's membership test. Everything not in
   `READ_ONLY_TOOLS` is treated as dangerous for `param_scan_unsafe`
-  enforcement. Until PET-178, ML on this widened population is
-  observability plus a base-install floor.
+  enforcement. ML on this widened population is the 2,048-character
+  `inspect()` head plus a base-install syntactic floor.
 - **Graceful degradation.** Missing `PETASOS_SESSION_SECRET` disables HMAC
   binding; a missing config section falls back to defaults (all features
   enabled). The plugin never crashes Hermes.

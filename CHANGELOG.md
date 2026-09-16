@@ -6,16 +6,32 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
 
 ### Changed
 
+- **Ingestion results use a layered scan on a dedicated K=1 loop (PET-178).**
+  Each ingesting result takes a 2,048-character `inspect()` head plus overlapping
+  65,536-character syntactic chunks (8,192 overlap) via
+  `scan_ingestion_result`. `_clip_result` / the 8,000-character window / the
+  truncation marker are gone. Banner and `ingest_flagged` reason name
+  `coverage=full|ceiling`. Above 1,000,000 characters, `path="ceiling"` banner;
+  never claim clean. Parameter scans stay on `petasos-async`. The PET-170 tail
+  half of the 8k `inspect()` window is dropped: Presidio and both ML wrappers
+  see only the 2,048-character prefix of a large result. Residuals: admission
+  pool / shed / P=80; gate-2 dict skip; ML-head coupling (shared pipeline, 30s
+  breaker, inspect mutex held across head ML); max-size base64 and hex blobs
+  can split at a cut; chunk findings do not step `weight_cap` and skip profile
+  Stage 4b/5b/5c; ceiling-clean is banner + log, not a new event type; at the
+  ceiling the PET-98 decode-rescan budget is per chunk.
+
 - **Unknown tools are result-scanned by default (PET-181).** After PET-179, an
   unrecognised tool name was gated on arguments and not scanned on results.
   The table default is now `ingests=True`; the seam gates on the eight-member
   `NON_INGESTING_TOOLS` exclusion set (`write_file`, `kanban_create`,
   `kanban_comment`, `patch`, plus the four PET-179 `ingests=False` rows).
   `INGESTION_TOOLS` remains the named hook-reaching ingesting subset and is
-  no longer the seam's gate. Until PET-178 drops per-scan cost, ML coverage
-  is observability plus a base-install floor. Capacity is K=1 (one
-  `petasos-async` loop); shed rate is 0 by construction; P=8 is measured,
-  P=80 is a PET-178 residual. `ingest_unscanned` log+event share a
+  no longer the seam's gate. ML coverage on this population is the 2,048-character
+  head plus the base-install syntactic floor (PET-178). Capacity is K=1 (one
+  `petasos-async` loop for parameter scans; one `petasos-ingest` loop for
+  results); shed rate is 0 by construction; P=8 is measured,
+  P=80 remains a residual. `ingest_unscanned` log+event share a
   per-session 30s cadence; the banner is never suppressed.
 
 - **`READ_ONLY_TOOLS` is now derived from a two-axis table (PET-179).** Argument
@@ -25,9 +41,9 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
   is added on both axes: its arguments skip content blocking and its results
   are scanned. `browser_navigate` and the rest of the browser family stay
   argument-gated and become result-scanned. The ingestion handler still
-  withholds nothing, but both axes share one `Pipeline`, so a tripped ML
-  breaker on a result scan blocks dangerous tool calls for the 30-second
-  cooldown; PET-178 owns that coupling.
+  withholds nothing. Both axes share one `Pipeline`, so a tripped ML
+  breaker on a result-scan head still blocks dangerous tool calls for the
+  30-second cooldown (PET-178 residual).
 
 - **The console now ships as seven ordered classic scripts (PET-183).** The
   private `/static/petasos.js` implementation asset was removed. Standalone and
@@ -39,6 +55,10 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
   dependency was added.
 
 ### Added
+
+- **`petasos.session.ingest.scan_ingestion_result` and `IngestionScanResult`
+  (PET-178).** Re-exported from `petasos` and `petasos.session`. The plugin
+  deep-imports the implementing module. `IngestionCoverage` is not in `__all__`.
 
 - **`petasos.session.guard.NON_INGESTING_TOOLS` (PET-181).** The result-axis
   exclusion set, derived from `_TOOL_AXES` (`ingests=False`). Not re-exported
@@ -55,6 +75,11 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
   a sibling Guard exports check. PET-181: no longer the seam's membership test.
 
 ### Fixed
+
+- **The PET-170 8,000-character mid-window gap is closed below 1,000,000
+  characters (PET-178).** A payload at the midpoint of a large ingestion result
+  is found. Chunk-boundary straddles are found. Offsets are original-result
+  coordinates.
 
 - **Fallback scan errors no longer pass a dangerous call under `open`
   (PET-199).** `_fallback_pre_tool_call` used to treat an empty findings

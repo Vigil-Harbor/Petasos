@@ -92,6 +92,7 @@ petasos/
 │   ├── escalation.py    # 3-tier escalation (Tier 3 cannot be disabled)
 │   ├── profiles.py      # 5 built-in + custom profiles
 │   ├── guard.py         # ToolCallGuard
+│   ├── ingest.py        # scan_ingestion_result, IngestionScanResult, head/chunk/ceiling constants
 │   ├── audit.py         # AuditEmitter (verbosity-gated)
 │   ├── alerting.py      # AlertManager (5 rules + rate limiting)
 │   └── license.py       # JWT validation (local, parked for future use)
@@ -111,23 +112,18 @@ petasos/
 - Target: 300+ tests, 90%+ line coverage on pipeline/frequency/guard/audit/alerting.
 - Scanner wrappers use integration tests against real backends, not mocks.
 - Latency budgets: syntactic-only < 5ms, single ML scanner < 100ms, full pipeline < 250ms (CPU).
-- **Ingestion-path budget (PET-170 / PET-179).** The 5ms syntactic figure above was written for
-  parameter-sized input and does not govern the `transform_tool_result` seam, which scans
-  up to an 8,000-char window of a tool *result*. Budget there: **12ms of scan** at the cap
-  (measured ~7.3ms normalized for a base-install `inspect()`; 8.9-10.8ms raw across real
-  clipped files on the slower bench box), or ~15ms end to end once the banner concatenation
-  and the second observer-field derivation the extra hook costs are included. That 12ms
-  figure describes the **serial** shape. At 8-wide on a base install the batch completes
-  in ~48ms with no overlap, so per-result latency runs ~6ms at the first slot to ~48ms at
-  the eighth (mean ~27ms): the 12ms budget is first breached at the third slot and reaches
-  4x at the eighth. The ML configuration does not fit this budget, and did not fit the
-  250ms one before PET-170; cost saturates rather than scaling linearly with input size
-  (measured ~692ms at 500 chars to ~1,101ms at 8,000 chars). A tripped ML breaker is a
-  30s duty cycle, not a permanent short-circuit, and both axes share one `Pipeline`, so
-  an ingestion-side trip blocks dangerous tool calls for the cooldown window. PET-178
-  owns that coupling. Evidence: `tests/test_benchmarks.py` (`test_benchmark_ingestion_result_8kb`
-  for the serial cap; `test_benchmark_ingestion_result_8wide_concurrent` for the 8-wide
-  overrun), measure-only under the existing skipif.
+- **Ingestion-path budget (PET-178).** Ceiling is 1,000,000 characters (imported
+  `_MAX_PARAM_TEXT_LEN`). Each ingesting result takes one `inspect()` of `HEAD_CHARS`
+  (2,048) plus overlapping `MinimalScanner.scan` chunks (`CHUNK_CHARS` 65,536, overlap
+  8,192). Serial curve evidence: `test_benchmark_ingestion_result_8kb`,
+  `test_benchmark_ingestion_result_100kb`, `test_benchmark_ingestion_result_1e6`
+  (measure-only under the existing skipif; ship-time means on this box: ~6.1ms at
+  8k, ~53ms at 100k, ~453ms at 1e6). 8-wide `inspect()` remains the overrun anchor
+  (`test_benchmark_ingestion_result_8wide_concurrent`, payload `HEAD_CHARS`). 8-wide
+  through the helper is K=1 serial (`test_benchmark_ingestion_helper_8wide_serial`).
+  ML still does not fit the 250ms parameter-scan budget. A tripped ML breaker is a 30s
+  duty cycle, not a permanent short-circuit. Remaining coupling: one shared `Pipeline`,
+  the shared 30s breaker, and the inspect mutex held across the head's ML `await`.
 - **Scanner-extra / CI-lane pairing (PET-106).** Every scanner-backend extra in
   `pyproject.toml [project.optional-dependencies]` (currently `llm-guard`,
   `llamafirewall`, `presidio`; `console` excluded — not a scanner) MUST have a

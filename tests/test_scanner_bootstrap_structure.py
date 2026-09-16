@@ -71,6 +71,8 @@ _DEFINITION_MODULES = frozenset(
 #       fast-path fallback; spec Decision 7 keeps it bare.
 #   reference_plugin/verify.py :: check_injection_scan - a verification script,
 #       not a bootstrap.
+#   petasos/session/ingest.py :: scan_ingestion_result - PET-178 private sweep
+#       scanner; Decision 12 keeps it off pipeline._minimal_scanner.
 # The function is QUALIFIED (ClassName.method): a bare "__init__" key would exempt
 # every __init__ in pipeline.py, present and future. A module-scope construction
 # is never allowlisted.
@@ -79,6 +81,7 @@ _ALLOWLIST = frozenset(
         ("petasos/pipeline.py", "Pipeline.__init__"),
         ("docs/deployment/reference_plugin/__init__.py", "_get_fallback_scanner"),
         ("docs/deployment/reference_plugin/verify.py", "check_injection_scan"),
+        ("petasos/session/ingest.py", "scan_ingestion_result"),
     }
 )
 
@@ -298,6 +301,7 @@ def test_allowlist_is_exactly_the_documented_rows() -> None:
             ("petasos/pipeline.py", "Pipeline.__init__"),
             ("docs/deployment/reference_plugin/__init__.py", "_get_fallback_scanner"),
             ("docs/deployment/reference_plugin/verify.py", "check_injection_scan"),
+            ("petasos/session/ingest.py", "scan_ingestion_result"),
         }
     )
     assert documented == _ALLOWLIST

@@ -35,31 +35,23 @@ than waving it through (`petasos/config.py:56`).
       (the console health panel and scanner init logs tell the truth —
       PET-87).
 
-### Tool-result scan coverage (PET-170, PET-193)
+### Tool-result scan coverage (PET-178)
 
 The reference plugin scans ingestion-tool results through `_transform_tool_result`
-(`docs/deployment/reference_plugin/__init__.py`). `_clip_result` limits the scan
-input to **8,000 characters, including the inserted truncation marker**. Results
-within that cap are passed to the pipeline whole; larger results contribute two
-**disjoint** spans from the head and tail. `_RESULT_SCAN_HEAD_BIAS` allocates 512
-more characters to the head than the tail within that budget. It provides no
-overlap or boundary-spanning scan.
+(`docs/deployment/reference_plugin/__init__.py`) via
+`petasos.session.ingest.scan_ingestion_result`. Below 1,000,000 characters every
+ingesting result is scanned with no unscanned gap: one `Pipeline.inspect()` on a
+2,048-character head, plus overlapping `MinimalScanner.scan` chunks (65,536
+characters, 8,192 overlap) over the original text. Findings map back to
+original-result coordinates. The plugin runs that work on a dedicated K=1
+`petasos-ingest` loop so a Stage 2 wedge cannot fail-open `_pre_tool_call`.
 
-The omitted middle is unscanned. An injection crossing either the **head/gap**
-or **gap/tail** cut can also lose its finding, even when most of the trigger is
-inside the retained span: the scanner no longer receives the complete trigger.
-A clean retained-window scan therefore does not establish that the whole result
-is clean. These are input-window limits; they do not guarantee that each scanner
-backend examines every character it receives.
-
-Clipping governs the scan input only: the model still receives the **whole result**.
-The hook adds a banner for a HIGH/CRITICAL non-PII finding or scan unavailability;
-clipping alone adds no banner or ingestion enforcement event when the retained
-scan is clean (it logs `PETASOS_RESULT_TRUNCATED` at INFO). These disjoint windows
-and boundary blind spots predate PET-193: this correction only renames the constant
-and documents the existing behavior. The head/tail slices, cut positions, and
-8,000-character budget are identical to the prior implementation. Full-result
-coverage with overlapping chunks is tracked separately in PET-178.
+Above 1,000,000 characters the helper scans `result[:1_000_000]` and names
+`coverage=ceiling`. The handler still returns the **whole result**
+(annotate-never-withhold). A clean result below the ceiling is pass-through; a
+clean result above the ceiling gets a `path="ceiling"` banner and an INFO
+`PETASOS_RESULT_CEILING` line. HIGH+ non-PII findings take `ingest_flagged` with
+`coverage=full|ceiling`. ML backends still see only the 2,048-character head.
 
 ## 2. Console binding
 
