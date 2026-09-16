@@ -12,8 +12,8 @@ non-PII finding the content comes back **whole** behind a banner, with an enforc
 event recorded. Nothing is withheld.
 
 Backend-free, following the load seam at ``tests/test_reference_plugin_egress.py``:
-``_pipeline.inspect`` is a stub and ``_run_async`` is monkeypatched. The two tests that
-exercise real cancellation and a real ``Pipeline`` say so in place.
+``_pipeline.inspect`` is a stub and ``_run_async`` is monkeypatched. Tests that
+exercise real cancellation or a real ``Pipeline`` say so in place.
 """
 
 from __future__ import annotations
@@ -365,18 +365,27 @@ def test_no_row_canonicalizes_away() -> None:
 
 
 def test_browser_navigate_poisoned_page_is_flagged(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Regression for PET-179 Done-when 1: finding, banner, ingest_flagged event."""
+    """Regression for PET-179 Done-when 1: finding, banner, ingest_flagged event.
+
+    Real ``Pipeline`` + ``MinimalScanner``: a stubbed precomputed finding would
+    pass even if the handler never scanned the page.
+    """
+    from petasos.scanners import MinimalScanner
+
     content = f"Welcome.\n{_INJECTION}\nThanks."
-    ref = _plugin(monkeypatch, pipeline=_StubPipeline(_scan((_finding(),))))
+    pipeline = Pipeline(scanners=[MinimalScanner()], config=PetasosConfig())
+    ref = _plugin(monkeypatch, pipeline=pipeline)
 
     out = ref._transform_tool_result(tool_name="browser_navigate", result=content, task_id="s-nav")
 
     assert isinstance(out, str)
     assert out.startswith("[Petasos] Output from tool 'browser_navigate'.")
     assert out.endswith(content)
+    assert "injection.ignore-previous" in out
     rows = _events("ingest_flagged")
     assert len(rows) == 1
     assert rows[0]["tool"] == "browser_navigate"
+    assert rows[0]["rule_id"] == "petasos.syntactic.injection.ignore-previous"
 
 
 def test_browser_vision_dict_shape_is_skipped(monkeypatch: pytest.MonkeyPatch) -> None:
