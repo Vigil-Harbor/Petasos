@@ -161,11 +161,23 @@ class TestReadOnlyExclusion:
         assert result.selfmod_finding is None
         assert result.selfmod_target is None
 
-    async def test_search_no_classification(self, guard_pair: _GuardPair) -> None:
-        """search is read-only, should not trigger selfmod."""
+    async def test_search_files_no_classification(self, guard_pair: _GuardPair) -> None:
+        """search_files is acts=False (PET-179 Decision 3). The config_ref
+        silence is an accepted cost: the tool only reads, and the ingestion
+        scan is the compensating control. Path-blocklisting was rejected at
+        PET-125.
+        """
         pipeline, guard, tracker, owned = guard_pair
-        result = await guard.evaluate("search", {"query": "secret", "path": owned}, "s1")
+        result = await guard.evaluate("search_files", {"query": "secret", "path": owned}, "s1")
         assert result.selfmod_finding is None
+
+    async def test_write_file_owned_path_still_classifies(self, guard_pair: _GuardPair) -> None:
+        """Sibling of the search_files silence: the same owned path still
+        fires on a write tool, so the short-circuit is what carries the
+        silence rather than a dead rule."""
+        pipeline, guard, tracker, owned = guard_pair
+        result = await guard.evaluate("write_file", {"path": owned, "content": "x"}, "s1")
+        assert result.selfmod_finding is not None
 
     async def test_web_search_no_classification(self, guard_pair: _GuardPair) -> None:
         """web_search is read-only, should not trigger selfmod."""

@@ -371,6 +371,33 @@ def test_missing_build_scanners_fails(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "build_scanners" in detail
 
 
+def test_missing_ingestion_tools_fails_main(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """PET-179: Guard exports is a sibling check() in main(), so a missing
+    INGESTION_TOOLS FAILs even when scanner-imports WARNs on a base install.
+    Pinning check_guard_exports() in isolation would still pass on an
+    unregistered probe.
+    """
+    import petasos.session.guard as guard_mod
+
+    _setup_clean_install(
+        tmp_path,
+        monkeypatch,
+        profile="gibson",
+        root_section={"fail_mode": "degraded"},
+        profile_section={"fail_mode": "degraded"},
+    )
+    monkeypatch.delattr(guard_mod, "INGESTION_TOOLS", raising=False)
+    verify = _load_verify_module()
+    rc = verify.main()
+    captured = capsys.readouterr().out
+    assert rc != 0
+    assert "Guard exports" in captured
+    assert "FAIL" in captured
+    assert "INGESTION_TOOLS" in captured
+
+
 def test_verify_clean_passes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

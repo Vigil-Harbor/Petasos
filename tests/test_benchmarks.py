@@ -272,6 +272,28 @@ def test_benchmark_ingestion_result_8kb_armed_correlator(benchmark) -> None:  # 
     loop.close()
 
 
+def test_benchmark_ingestion_result_8wide_concurrent(benchmark) -> None:  # type: ignore[no-untyped-def]
+    """PET-179 Decision 5: 8 concurrent cap-window scans on a base install.
+
+    ``_ingestion_case`` drives a single ``run_until_complete`` and cannot express
+    a batch. This gathers eight ``inspect()`` calls at the 8,000-char cap so the
+    CLAUDE.md 8-wide overrun has an in-repo anchor. Measure-only: GIL serialization
+    of ``MinimalScanner`` makes per-result latency equal the total wall time.
+    """
+    payload = "an ordinary line of file content\n" * 256
+    loop = asyncio.new_event_loop()
+    pipeline = Pipeline(config=PetasosConfig())
+
+    async def batch() -> None:
+        await asyncio.gather(*[pipeline.inspect(payload, direction="inbound") for _ in range(8)])
+
+    def run() -> None:
+        loop.run_until_complete(batch())
+
+    benchmark.pedantic(run, warmup_rounds=1, rounds=5)
+    loop.close()
+
+
 def test_benchmark_ingestion_result_100kb(benchmark) -> None:  # type: ignore[no-untyped-def]
     """100 KB: over the cap, so this measures clip + scan. The scan cost must stay flat
     against the 8 KB case; only the clip (a slice and a concat) scales with the result."""
