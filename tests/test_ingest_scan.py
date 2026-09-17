@@ -184,17 +184,17 @@ async def test_inspect_lock_poll_releases_on_success_and_does_not_steal_on_cance
 
 async def test_private_scanner_is_not_pipeline_minimal_scanner() -> None:
     pipeline = _RecordingPipeline()
-    seen: list[int] = []
-    original_scan = MinimalScanner.scan
 
-    async def _wrap(self: MinimalScanner, text: str, **kwargs: Any) -> ScanResult:
-        seen.append(id(self))
-        return await original_scan(self, text, **kwargs)
+    class _Sentinel:
+        def __init__(self) -> None:
+            self.called = False
 
-    MinimalScanner.scan = _wrap  # type: ignore[method-assign]
-    try:
-        await scan_ingestion_result(pipeline, "hello world")  # type: ignore[arg-type]
-    finally:
-        MinimalScanner.scan = original_scan  # type: ignore[method-assign]
-    assert seen
-    assert all(i != id(pipeline._minimal_scanner) for i in seen)
+        async def scan(self, *args: Any, **kwargs: Any) -> ScanResult:
+            self.called = True
+            raise AssertionError("pipeline._minimal_scanner must not be used")
+
+    sentinel = _Sentinel()
+    pipeline._minimal_scanner = sentinel  # type: ignore[assignment]
+    result = await scan_ingestion_result(pipeline, "hello world")  # type: ignore[arg-type]
+    assert not result.errors
+    assert sentinel.called is False
