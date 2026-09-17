@@ -682,10 +682,10 @@ def _drive_unavailable(monkeypatch: pytest.MonkeyPatch, cause: str) -> tuple[Any
         )
     elif cause == "sweep_error":
 
-        async def _chunk_boom(self: MinimalScanner, text: str, **kwargs: Any) -> ScanResult:
+        def _chunk_boom(self: MinimalScanner, text: str, direction: str) -> list[ScanFinding]:
             raise RuntimeError("chunk exploded")
 
-        monkeypatch.setattr(MinimalScanner, "scan", _chunk_boom)
+        monkeypatch.setattr(MinimalScanner, "_scan_impl", _chunk_boom)
     else:  # pragma: no cover - the parametrization is closed
         raise AssertionError(cause)
     out = ref._transform_tool_result(
@@ -1005,11 +1005,11 @@ def test_held_inspect_lock_still_honours_ingest_budget(
 def test_sweep_error_does_not_hide_high_findings(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def _boom(self: MinimalScanner, text: str, **kwargs: Any) -> ScanResult:
+    def _boom(self: MinimalScanner, text: str, direction: str) -> list[ScanFinding]:
         raise RuntimeError("chunk exploded")
 
     ref = _plugin(monkeypatch, pipeline=_StubPipeline(_scan((_finding(),))))
-    monkeypatch.setattr(MinimalScanner, "scan", _boom)
+    monkeypatch.setattr(MinimalScanner, "_scan_impl", _boom)
 
     out = ref._transform_tool_result(
         tool_name="read_file", result="# notes\nrest of the file\n", task_id="s-sweep-flag"

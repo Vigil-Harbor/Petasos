@@ -1,4 +1,8 @@
-"""PET-178: library helper unit tests for ``scan_ingestion_result``."""
+"""PET-178: library helper unit tests for ``scan_ingestion_result``.
+
+Async tests bind to the anyio runner via ``anyio_mode = "auto"`` (no inline
+marker, PET-149).
+"""
 
 from __future__ import annotations
 
@@ -8,7 +12,7 @@ from typing import Any
 
 import pytest
 
-from petasos import PetasosConfig, PipelineResult, ScanResult
+from petasos import PetasosConfig, PipelineResult, ScanFinding, ScanResult
 from petasos.scanners.minimal import MinimalScanner
 from petasos.session.guard import _MAX_PARAM_TEXT_LEN
 from petasos.session.ingest import (
@@ -71,13 +75,13 @@ def test_chunk_origins_cover_the_prefix(length: int) -> None:
             assert overlap == CHUNK_OVERLAP_CHARS
 
 
-def test_midpoint_payload_maps_to_original_coordinates() -> None:
+async def test_midpoint_payload_maps_to_original_coordinates() -> None:
     pipeline = _RecordingPipeline()
     length = 100_000
     mid = length // 2
     text = ("x" * mid) + _INJECTION + ("y" * (length - mid - len(_INJECTION)))
 
-    result = asyncio.run(scan_ingestion_result(pipeline, text))  # type: ignore[arg-type]
+    result = await scan_ingestion_result(pipeline, text)  # type: ignore[arg-type]
 
     assert result.coverage.regime == "full"
     assert result.findings
@@ -87,7 +91,7 @@ def test_midpoint_payload_maps_to_original_coordinates() -> None:
     assert any(abs(s - mid) < len(_INJECTION) for s in starts)
 
 
-def test_payload_straddling_every_origin_in_a_three_chunk_fixture_is_found() -> None:
+async def test_payload_straddling_every_origin_in_a_three_chunk_fixture_is_found() -> None:
     pipeline = _RecordingPipeline()
     origins = (0, _STRIDE, 2 * _STRIDE)
     # Three chunks: plant the phrase on each origin.
@@ -99,22 +103,20 @@ def test_payload_straddling_every_origin_in_a_three_chunk_fixture_is_found() -> 
         buf[start : start + len(phrase)] = list(phrase)
     text = "".join(buf)
 
-    result = asyncio.run(scan_ingestion_result(pipeline, text))  # type: ignore[arg-type]
+    result = await scan_ingestion_result(pipeline, text)  # type: ignore[arg-type]
 
     assert result.findings
     assert result.coverage.chunk_count >= 3
 
 
-def test_inspect_is_called_once_on_the_head_prefix_with_weight_cap() -> None:
+async def test_inspect_is_called_once_on_the_head_prefix_with_weight_cap() -> None:
     pipeline = _RecordingPipeline()
     text = "a" * 50_000
-    asyncio.run(
-        scan_ingestion_result(
-            pipeline,  # type: ignore[arg-type]
-            text,
-            session_id="s",
-            weight_cap=3.75,
-        )
+    await scan_ingestion_result(
+        pipeline,  # type: ignore[arg-type]
+        text,
+        session_id="s",
+        weight_cap=3.75,
     )
     assert len(pipeline.calls) == 1
     assert pipeline.calls[0]["text"] == text[:HEAD_CHARS]
@@ -122,10 +124,10 @@ def test_inspect_is_called_once_on_the_head_prefix_with_weight_cap() -> None:
     assert pipeline.calls[0]["session_id"] == "s"
 
 
-def test_ceiling_slice_excludes_the_character_past_one_million() -> None:
+async def test_ceiling_slice_excludes_the_character_past_one_million() -> None:
     pipeline = _RecordingPipeline()
     text = ("a" * 1_000_000) + "Z"
-    result = asyncio.run(scan_ingestion_result(pipeline, text))  # type: ignore[arg-type]
+    result = await scan_ingestion_result(pipeline, text)  # type: ignore[arg-type]
     assert result.coverage.regime == "ceiling"
     assert result.coverage.scanned_chars == 1_000_000
     origins = _chunk_origins(len(text))
@@ -134,61 +136,53 @@ def test_ceiling_slice_excludes_the_character_past_one_million() -> None:
     assert last + CHUNK_CHARS >= 1_000_000
 
 
-def test_helper_never_raises_on_a_raising_inspect() -> None:
+async def test_helper_never_raises_on_a_raising_inspect() -> None:
     class _Boom(_RecordingPipeline):
         async def inspect(self, text: str, **kwargs: Any) -> PipelineResult:
             raise RuntimeError("inspect exploded")
 
-    result = asyncio.run(scan_ingestion_result(_Boom(), "hello"))  # type: ignore[arg-type]
+    result = await scan_ingestion_result(_Boom(), "hello")  # type: ignore[arg-type]
     assert result.errors
     assert result.head is None
 
 
-def test_failed_chunk_scan_is_recorded_and_does_not_raise() -> None:
+async def test_failed_chunk_scan_is_recorded_and_does_not_raise(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     pipeline = _RecordingPipeline()
-    original_scan = MinimalScanner.scan
 
-    async def _boom(self: MinimalScanner, text: str, **kwargs: Any) -> ScanResult:
+    def _boom(self: MinimalScanner, text: str, direction: str) -> list[ScanFinding]:
         raise RuntimeError("chunk exploded")
 
-    MinimalScanner.scan = _boom  # type: ignore[method-assign]
-    try:
-        result = asyncio.run(scan_ingestion_result(pipeline, "hello"))  # type: ignore[arg-type]
-    finally:
-        MinimalScanner.scan = original_scan  # type: ignore[method-assign]
+    monkeypatch.setattr(MinimalScanner, "_scan_impl", _boom)
+    result = await scan_ingestion_result(pipeline, "hello")  # type: ignore[arg-type]
     assert result.findings == ()
     assert any("chunk exploded" in err for err in result.errors)
     assert result.coverage.regime == "full"
 
 
-def test_inspect_lock_poll_releases_on_success_and_does_not_steal_on_cancel() -> None:
+async def test_inspect_lock_poll_releases_on_success_and_does_not_steal_on_cancel() -> None:
     pipeline = _RecordingPipeline()
     lock = threading.Lock()
 
-    result = asyncio.run(
-        scan_ingestion_result(pipeline, "hello", inspect_lock=lock)  # type: ignore[arg-type]
-    )
+    result = await scan_ingestion_result(pipeline, "hello", inspect_lock=lock)  # type: ignore[arg-type]
     assert not result.errors
     assert lock.acquire(blocking=False)
     lock.release()
 
     lock.acquire()
-
-    async def _cancelled() -> None:
-        task = asyncio.create_task(
-            scan_ingestion_result(pipeline, "hello", inspect_lock=lock)  # type: ignore[arg-type]
-        )
-        await asyncio.sleep(0.05)
-        task.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await task
-        assert not lock.acquire(blocking=False)
-
-    asyncio.run(_cancelled())
+    task = asyncio.create_task(
+        scan_ingestion_result(pipeline, "hello", inspect_lock=lock)  # type: ignore[arg-type]
+    )
+    await asyncio.sleep(0.05)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert not lock.acquire(blocking=False)
     lock.release()
 
 
-def test_private_scanner_is_not_pipeline_minimal_scanner() -> None:
+async def test_private_scanner_is_not_pipeline_minimal_scanner() -> None:
     pipeline = _RecordingPipeline()
     seen: list[int] = []
     original_scan = MinimalScanner.scan
@@ -199,7 +193,7 @@ def test_private_scanner_is_not_pipeline_minimal_scanner() -> None:
 
     MinimalScanner.scan = _wrap  # type: ignore[method-assign]
     try:
-        asyncio.run(scan_ingestion_result(pipeline, "hello world"))  # type: ignore[arg-type]
+        await scan_ingestion_result(pipeline, "hello world")  # type: ignore[arg-type]
     finally:
         MinimalScanner.scan = original_scan  # type: ignore[method-assign]
     assert seen

@@ -164,6 +164,8 @@ async def scan_ingestion_result(
                     raise
                 errors.append(f"{type(exc).__name__}: {exc}")
                 continue
+            if result.error is not None:
+                errors.append(result.error)
             mapped.extend(_map_finding(f, origin) for f in result.findings)
 
         head_findings: tuple[ScanFinding, ...] = () if head is None else head.findings
