@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 from typing import Any
 
 import pytest
@@ -108,8 +109,11 @@ def test_inspect_is_called_once_on_the_head_prefix_with_weight_cap() -> None:
     pipeline = _RecordingPipeline()
     text = "a" * 50_000
     asyncio.run(
-        scan_ingestion_result(  # type: ignore[arg-type]
-            pipeline, text, session_id="s", weight_cap=3.75
+        scan_ingestion_result(
+            pipeline,  # type: ignore[arg-type]
+            text,
+            session_id="s",
+            weight_cap=3.75,
         )
     )
     assert len(pipeline.calls) == 1
@@ -138,6 +142,50 @@ def test_helper_never_raises_on_a_raising_inspect() -> None:
     result = asyncio.run(scan_ingestion_result(_Boom(), "hello"))  # type: ignore[arg-type]
     assert result.errors
     assert result.head is None
+
+
+def test_failed_chunk_scan_is_recorded_and_does_not_raise() -> None:
+    pipeline = _RecordingPipeline()
+    original_scan = MinimalScanner.scan
+
+    async def _boom(self: MinimalScanner, text: str, **kwargs: Any) -> ScanResult:
+        raise RuntimeError("chunk exploded")
+
+    MinimalScanner.scan = _boom  # type: ignore[method-assign]
+    try:
+        result = asyncio.run(scan_ingestion_result(pipeline, "hello"))  # type: ignore[arg-type]
+    finally:
+        MinimalScanner.scan = original_scan  # type: ignore[method-assign]
+    assert result.findings == ()
+    assert any("chunk exploded" in err for err in result.errors)
+    assert result.coverage.regime == "full"
+
+
+def test_inspect_lock_poll_releases_on_success_and_does_not_steal_on_cancel() -> None:
+    pipeline = _RecordingPipeline()
+    lock = threading.Lock()
+
+    result = asyncio.run(
+        scan_ingestion_result(pipeline, "hello", inspect_lock=lock)  # type: ignore[arg-type]
+    )
+    assert not result.errors
+    assert lock.acquire(blocking=False)
+    lock.release()
+
+    lock.acquire()
+
+    async def _cancelled() -> None:
+        task = asyncio.create_task(
+            scan_ingestion_result(pipeline, "hello", inspect_lock=lock)  # type: ignore[arg-type]
+        )
+        await asyncio.sleep(0.05)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert not lock.acquire(blocking=False)
+
+    asyncio.run(_cancelled())
+    lock.release()
 
 
 def test_private_scanner_is_not_pipeline_minimal_scanner() -> None:

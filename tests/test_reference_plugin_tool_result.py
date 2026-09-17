@@ -38,6 +38,7 @@ from petasos import (
     Severity,
     ToolCallGuard,
 )
+from petasos.scanners.minimal import MinimalScanner
 from petasos.session.guard import INGESTION_TOOLS, NON_INGESTING_TOOLS
 
 if TYPE_CHECKING:
@@ -679,6 +680,12 @@ def _drive_unavailable(monkeypatch: pytest.MonkeyPatch, cause: str) -> tuple[Any
             "_pipeline",
             _StubPipeline(_scan(scanner_results=(_floor(error="MemoryError"),))),
         )
+    elif cause == "sweep_error":
+
+        async def _chunk_boom(self: MinimalScanner, text: str, **kwargs: Any) -> ScanResult:
+            raise RuntimeError("chunk exploded")
+
+        monkeypatch.setattr(MinimalScanner, "scan", _chunk_boom)
     else:  # pragma: no cover - the parametrization is closed
         raise AssertionError(cause)
     out = ref._transform_tool_result(
@@ -687,7 +694,10 @@ def _drive_unavailable(monkeypatch: pytest.MonkeyPatch, cause: str) -> tuple[Any
     return out, cause
 
 
-@pytest.mark.parametrize("cause", ["no_pipeline", "raised", "timeout", "boundary", "floor_error"])
+@pytest.mark.parametrize(
+    "cause",
+    ["no_pipeline", "raised", "timeout", "boundary", "floor_error", "sweep_error"],
+)
 def test_every_unscannable_cause_annotates_with_a_distinguishable_token(
     monkeypatch: pytest.MonkeyPatch, cause: str
 ) -> None:
@@ -960,6 +970,55 @@ def test_wedged_coroutine_is_cancelled_and_the_handler_returns_within_its_bound(
             break
         time.sleep(0.02)
     assert cancelled["seen"], "future.cancel() did not propagate Task.cancel()"
+
+
+def test_held_inspect_lock_still_honours_ingest_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A blocking acquire would freeze petasos-ingest so wait_for could not fire."""
+    import time
+
+    ref = _import_reference_plugin()
+    monkeypatch.setattr(ref, "_initialized", True)
+    monkeypatch.setattr(ref, "_init_error", None)
+    monkeypatch.setattr(ref, "_is_armed", lambda: True)
+    monkeypatch.setattr(ref, "_config", {})
+    monkeypatch.setattr(ref, "_pipeline", _StubPipeline(_scan()))
+    monkeypatch.setattr(ref, "_result_scan_timeout", lambda: 0.15)
+
+    ref._inspect_lock.acquire()
+    try:
+        started = time.monotonic()
+        out = ref._transform_tool_result(tool_name="read_file", result="content", task_id="s-lock")
+        elapsed = time.monotonic() - started
+    finally:
+        ref._inspect_lock.release()
+
+    assert isinstance(out, str)
+    assert "could not scan" in out
+    assert elapsed < 5.0
+    rows = _events("ingest_unscanned")
+    assert len(rows) == 1
+    assert "cause=timeout" in rows[0]["reason"]
+
+
+def test_sweep_error_does_not_hide_high_findings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _boom(self: MinimalScanner, text: str, **kwargs: Any) -> ScanResult:
+        raise RuntimeError("chunk exploded")
+
+    ref = _plugin(monkeypatch, pipeline=_StubPipeline(_scan((_finding(),))))
+    monkeypatch.setattr(MinimalScanner, "scan", _boom)
+
+    out = ref._transform_tool_result(
+        tool_name="read_file", result="# notes\nrest of the file\n", task_id="s-sweep-flag"
+    )
+
+    assert isinstance(out, str)
+    assert "prompt-injection" in out
+    assert _events("ingest_flagged")
+    assert _events("ingest_unscanned") == []
 
 
 def test_a_raising_timeout_helper_passes_content_through(
@@ -1385,14 +1444,13 @@ def test_wedged_ingest_sweep_does_not_fail_open_pre_tool_call(
     """
     import time
 
-    from petasos.scanners.minimal import MinimalScanner
     from petasos.session import ingest as ingest_mod
 
     entered = threading.Event()
     release = threading.Event()
 
     class _BlockingScanner(MinimalScanner):
-        async def scan(self, text: str, **kwargs: Any) -> ScanResult:  # type: ignore[override]
+        async def scan(self, text: str, **kwargs: Any) -> ScanResult:
             entered.set()
             if not release.wait(timeout=30):
                 raise AssertionError("isolation test never released the sweep")

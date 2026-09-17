@@ -51,7 +51,9 @@ Above 1,000,000 characters the helper scans `result[:1_000_000]` and names
 (annotate-never-withhold). A clean result below the ceiling is pass-through; a
 clean result above the ceiling gets a `path="ceiling"` banner and an INFO
 `PETASOS_RESULT_CEILING` line. HIGH+ non-PII findings take `ingest_flagged` with
-`coverage=full|ceiling`. ML backends still see only the 2,048-character head.
+`coverage=full|ceiling`. A syntactic-chunk exception with no HIGH+ finding is
+`ingest_unscanned` `cause=sweep_error` (the helper's length-based coverage is
+not treated as clean). ML backends still see only the 2,048-character head.
 
 ## 2. Console binding
 

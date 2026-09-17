@@ -2402,17 +2402,24 @@ def _transform_tool_result(
                 cause = "raised"
         # Floor lives on the head PipelineResult. Helper never-throws, so a raising
         # inspect is PET-205; timeout / no_pipeline / floor_error / boundary stay here.
+        # A failed syntactic chunk is ``sweep_error``: coverage still names full/ceiling
+        # from length, so the plugin must not treat empty findings as clean.
         head = getattr(scan, "head", None) if scan is not None else None
         floor = (
             next((r for r in head.scanner_results if r.scanner_name == "minimal"), None)
             if head is not None
             else None
         )
+        findings = () if scan is None else scan.findings
+        blocking = [f for f in findings if _blocks(f.severity)]
+        non_pii = [f for f in blocking if f.finding_type != "pii"]
         if cause is None:
             if scan is None or head is None or not head.scanner_results or floor is None:
                 cause = "boundary"
             elif floor.error is not None:
                 cause = "floor_error"
+            elif not non_pii and scan.errors:
+                cause = "sweep_error"
 
         if cause is not None:
             # Cadence-helper exception must not take the banner (outer fail-open
@@ -2444,9 +2451,8 @@ def _transform_tool_result(
         # gains nothing from being told, and the boundary that matters is defended on the
         # pre-call path of every egress sink. That is the one visibility gap this accepts
         # (ingestion PII still reaches the alert channel via the un-session-gated
-        # PII-volume rule).
-        blocking = [f for f in scan.findings if _blocks(f.severity)]
-        non_pii = [f for f in blocking if f.finding_type != "pii"]
+        # PII-volume rule). HIGH+ non-PII findings already won above the sweep_error
+        # gate, so a partial sweep still flags rather than hiding behind unavailable.
         if non_pii:
             worst = _worst(non_pii)
             logger.warning(

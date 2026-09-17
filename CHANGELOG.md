@@ -79,7 +79,10 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
 - **The PET-170 8,000-character mid-window gap is closed below 1,000,000
   characters (PET-178).** A payload at the midpoint of a large ingestion result
   is found. Chunk-boundary straddles are found. Offsets are original-result
-  coordinates.
+  coordinates. A failed syntactic chunk with no HIGH+ finding is
+  `ingest_unscanned` `cause=sweep_error`, not a clean pass-through. The inspect
+  mutex is polled with a held-flag release so the ingest `wait_for` budget
+  still fires and cancellation cannot leak the lock.
 
 - **Fallback scan errors no longer pass a dangerous call under `open`
   (PET-199).** `_fallback_pre_tool_call` used to treat an empty findings
