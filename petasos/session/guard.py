@@ -14,7 +14,7 @@ vocabulary with PET-134's ``source_taint_namespaces``:
   three (``read_file``, ``web_extract``, ``web_search``) are reliably
   string-shaped; ``vision_analyze`` (and ``browser_vision``) return a
   multimodal dict on the default native-vision path. Widening gate 2 is
-  PET-178.
+  a residual (not PET-178).
 - ``source_taint_namespaces`` governs whether already-scanned content may
   leave via an egress sink. No tool is classified twice for the same question.
 

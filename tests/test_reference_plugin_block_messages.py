@@ -376,6 +376,11 @@ def test_no_internal_reason_strings_leak(monkeypatch: pytest.MonkeyPatch) -> Non
     ref = _import_reference_plugin()
     messages.append(ref.format_result_notice("findings", "read_file", _non_pii("injection"), 3))
     messages.append(ref.format_result_notice("scan_unavailable", "read_file"))
+    messages.append(
+        ref.format_result_notice(
+            "ceiling", "read_file", None, 0, 1_000_000, 1_000_001, coverage="ceiling"
+        )
+    )
 
     forbidden = (
         "exempt-with-scan",
@@ -473,6 +478,8 @@ def test_shim_routes_every_block_site_through_formatter() -> None:
     # Watching it here is what stops a future edit from hand-rolling a banner and quietly
     # re-injecting the attacker's decoded payload, which is exactly what the formatter's
     # no-matched-text rule exists to prevent.
+    # Regression for PET-178: bumped 10 -> 11 for the ceiling-clean
+    # ``format_result_notice("ceiling", ...)`` site.
     tree = ast.parse(_shim_source())
     targets = {"format_block_message", "format_content_block", "format_result_notice"}
     call_sites = sum(
@@ -482,7 +489,7 @@ def test_shim_routes_every_block_site_through_formatter() -> None:
         and isinstance(node.func, ast.Name)
         and node.func.id in targets
     )
-    assert call_sites == 10, f"expected 10 formatter call sites in the shim, found {call_sites}"
+    assert call_sites == 11, f"expected 11 formatter call sites in the shim, found {call_sites}"
 
 
 def test_manifest_and_runbook_hook_lists_agree() -> None:

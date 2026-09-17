@@ -13,6 +13,7 @@ Env:    PETASOS_LICENSE_KEY, PETASOS_SESSION_SECRET, PETASOS_HASH_KEY,
         PETASOS_AUDIT_FINDING
 Needs:  a ``petasos`` release exporting ``petasos.scanners.build_scanners``,
         ``petasos.session.formatting.format_result_notice``,
+        ``petasos.session.ingest.scan_ingestion_result``,
         ``petasos.session.guard.INGESTION_TOOLS``, AND
         ``petasos.session.guard.NON_INGESTING_TOOLS``; sync this file and the
         library together. ``build_scanners`` shipped first, so a library too old
@@ -21,7 +22,8 @@ Needs:  a ``petasos`` release exporting ``petasos.scanners.build_scanners``,
         init; a library newer than a stale copy of this file still can. PET-190
         adds ``petasos.session.guard.render_param_text`` and
         ``PARAM_SCAN_DIRECTION`` to that floor; PET-179 adds ``INGESTION_TOOLS``;
-        PET-181 adds ``NON_INGESTING_TOOLS``. A library that has
+        PET-181 adds ``NON_INGESTING_TOOLS``; PET-178 adds
+        ``scan_ingestion_result``. A library that has
         ``format_result_notice`` but predates those guard exports fails the
         ``petasos.session.guard`` import instead, with the same result.
         ``verify.py`` probes ``build_scanners`` (scanner-imports check) and
@@ -70,6 +72,9 @@ from petasos.session.guard import (
     PARAM_SCAN_DIRECTION,
     READ_ONLY_TOOLS,
     render_param_text,
+)
+from petasos.session.ingest import (  # PET-178: dep-light (chunked result scan)
+    scan_ingestion_result,
 )
 
 if TYPE_CHECKING:
@@ -302,6 +307,13 @@ _subagent_hooks_available = False
 # but Hermes invoke_hook is sync).
 _async_loop: asyncio.AbstractEventLoop | None = None
 _async_thread: threading.Thread | None = None
+# PET-178: ingestion helper runs on its own K=1 loop so a Stage 2 wedge cannot
+# starve ``_pre_tool_call``. The inspect mutex serializes the short head inspect
+# with ``_guard.evaluate``; the syntactic sweep does not take it.
+_ingest_loop: asyncio.AbstractEventLoop | None = None
+_ingest_thread: threading.Thread | None = None
+_ingest_lock: asyncio.Lock | None = None
+_inspect_lock = threading.Lock()
 
 # PET-118: derived sibling canonical set. READ_ONLY_TOOLS stays the immutable raw
 # source-of-truth; _READ_ONLY_CANON is canonicalized at MODULE LOAD (not _deferred_init)
@@ -474,6 +486,78 @@ def _run_async(coro, timeout: float = 15):
     except concurrent.futures.TimeoutError:
         future.cancel()
         raise
+
+
+def _start_ingest_loop() -> None:
+    global _ingest_loop, _ingest_lock
+    _ingest_loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(_ingest_loop)
+    _ingest_lock = asyncio.Lock()
+    _ingest_loop.run_forever()
+
+
+def _ensure_ingest_loop() -> None:
+    global _ingest_thread
+    if _ingest_thread is None or not _ingest_thread.is_alive():
+        _ingest_thread = threading.Thread(
+            target=_start_ingest_loop,
+            daemon=True,
+            name="petasos-ingest",
+        )
+        _ingest_thread.start()
+        while _ingest_loop is None:
+            threading.Event().wait(0.01)
+
+
+def _run_ingest_async(coro):
+    """Submit ``coro`` onto the ingest loop and block for its result.
+
+    Not ``_run_async``'s twin: there is no scan-budget timeout on the submit.
+    The budget is applied inside ``_ingest_one`` after the K=1 ingest lock is
+    held. Cancel-and-re-raise only if the host is tearing down.
+    """
+    _ensure_ingest_loop()
+    future = asyncio.run_coroutine_threadsafe(coro, _ingest_loop)
+    return future.result()
+
+
+async def _ingest_one(
+    pipeline: Any,
+    result: str,
+    session_id: str | None,
+    armed: bool,
+    guard: Any,
+    budget: float,
+) -> Any:
+    lock = _ingest_lock
+    if lock is None:
+        lock = asyncio.Lock()
+    async with lock:
+        return await asyncio.wait_for(
+            scan_ingestion_result(
+                pipeline,
+                result,
+                direction="inbound",
+                session_id=session_id if armed else None,
+                weight_cap=guard.scan_weight_cap if armed else 0.0,
+                inspect_lock=_inspect_lock,
+            ),
+            timeout=budget,
+        )
+
+
+async def _evaluate_with_inspect_lock(tool_name: str, args: dict, session_id: str) -> Any:
+    """Serialize ``_guard.evaluate`` with the ingest-head ``inspect()``.
+
+    Yields ``_async_loop`` while waiting for the mutex so a held ingest head
+    cannot deadlock reconfigure. Held-flag cancel-safety of ``to_thread(acquire)``
+    is PET-208.
+    """
+    await asyncio.to_thread(_inspect_lock.acquire)
+    try:
+        return await _guard.evaluate(tool_name, args, session_id)
+    finally:
+        _inspect_lock.release()
 
 
 # ---------------------------------------------------------------------------
@@ -1561,9 +1645,11 @@ def _log_reload_failure(detail: str) -> None:
 async def _apply_reconfigure(cfg: PetasosConfig) -> None:
     """Apply a reloaded config to the live gateway as one uninterrupted unit.
 
-    Dispatched onto _async_loop via _run_async (PET-126 Decision 6), so it is
-    serialized with scans between await points. The body is fully synchronous (it
-    never yields), so the steps are atomic with respect to any other loop task.
+    Dispatched onto _async_loop via _run_async (PET-126 Decision 6). Atomicity
+    wrt ``inspect()`` is the inspect mutex, not "no await in the coroutine":
+    this waits with ``asyncio.to_thread(_inspect_lock.acquire)`` so it yields
+    ``_async_loop`` while an ingest head holds the lock. After the lock is
+    held the body stays synchronous. Cancel-safety of that acquire is PET-208.
 
     Two-phase (Decision 5): validate everything that can fail BEFORE committing
     anything, then commit. Because guard.validate_config and the apply tracker
@@ -1572,6 +1658,14 @@ async def _apply_reconfigure(cfg: PetasosConfig) -> None:
     apply. The gateway owns the guard, lineage registry, and egress set, which the
     pipeline cannot reach, so all four are reconfigured here (Decision 4).
     """
+    await asyncio.to_thread(_inspect_lock.acquire)
+    try:
+        _apply_reconfigure_body(cfg)
+    finally:
+        _inspect_lock.release()
+
+
+def _apply_reconfigure_body(cfg: PetasosConfig) -> None:
     # Phase 1: validate (no mutation) — D8 overlap + frequency_weights trial.
     _guard.validate_config(cfg)
     # Phase 2: commit.
@@ -1960,7 +2054,7 @@ def _pre_tool_call(
     session_id = _derive_session_id(task_id, kwargs)
 
     try:
-        result = _run_async(_guard.evaluate(tool_name, args, session_id))
+        result = _run_async(_evaluate_with_inspect_lock(tool_name, args, session_id))
     except Exception as exc:
         logger.error("Petasos guard evaluation failed: %s — allowing tool call", exc)
         return None
@@ -2149,24 +2243,14 @@ def _post_tool_call(
 
 
 # ---------------------------------------------------------------------------
-# PET-170: ingestion-result scan + annotation at the transform_tool_result seam
+# PET-170 / PET-178: ingestion-result scan + annotation at the transform_tool_result seam
 # ---------------------------------------------------------------------------
 
-# Measured window. A full `inspect()` on the base install costs ~7.3 ms normalized
-# (~11.7 ms raw on the slower bench box) at 8 KB versus ~14.2 / ~23 ms at 16 KB. The
-# parameter cap (`guard._MAX_PARAM_TEXT_LEN = 1_000_000`, shared by the live guard and
-# `_fallback_pre_tool_call` since PET-190) is NOT a precedent for this number: that
-# bounds tool *arguments*; this bounds a tool *result* at the ingestion seam.
-_MAX_RESULT_SCAN_CHARS = 8_000
-_TRUNCATION_MARKER = "\n...[petasos: scan window truncated]...\n"
-# Head-minus-tail length within the fixed scan budget; not an overlap. The retained
-# spans are disjoint, with no scan spanning either cut into the omitted middle.
-_RESULT_SCAN_HEAD_BIAS = 512
 # The outer bound sits ABOVE the per-scanner timeout, with the INPUT clamped rather than
 # the sum, so the margin survives at the top of the validated (0, 60] range (60 -> 65).
 # Below the per-scanner timeout, an abandoned outer future would never let `_scan_one`
 # return its timeout-prefixed ScanResult, so the pipeline's consecutive-timeout breaker
-# would never open on this path.
+# would never open on this path. Applied after the K=1 ingest lock is held, not at submit.
 _RESULT_SCAN_TIMEOUT_MARGIN_S = 5.0
 _DEFAULT_SCANNER_TIMEOUT_S = 10.0
 # Operator-facing (rides the enforcement event's `reason`), never model-facing — the
@@ -2177,25 +2261,6 @@ _RESULT_SCAN_ERROR_REASON = "result scan unavailable"
 # "hook_absent", "no_host_module", "probe_failed". Registration happens in all four cases;
 # allowlist membership is a PROXY for dispatch, recorded as such.
 _result_scan_status = "unprobed"
-
-
-def _clip_result(result: str) -> tuple[str, bool]:
-    """Return ``(text_to_scan, truncated)`` for an ingestion-tool result.
-
-    Head + tail with a marker between them, biased toward the head within the fixed
-    budget: ``len(scanned) <= _MAX_RESULT_SCAN_CHARS`` always. When clipping, the retained
-    spans are disjoint in the original, so nothing is scanned twice. The omitted middle
-    is unscanned, and no pass spans either head/gap or gap/tail cut: an injection split
-    across either cut can lose its finding even when most of its text is retained.
-
-    Clipping governs only what is SCANNED. The handler always returns the whole result.
-    """
-    if len(result) <= _MAX_RESULT_SCAN_CHARS:
-        return result, False
-    half = (_MAX_RESULT_SCAN_CHARS - len(_TRUNCATION_MARKER) - _RESULT_SCAN_HEAD_BIAS) // 2
-    head = result[: half + _RESULT_SCAN_HEAD_BIAS]
-    tail = result[-half:]
-    return head + _TRUNCATION_MARKER + tail, True
 
 
 def _result_scan_timeout() -> float:
@@ -2285,7 +2350,6 @@ def _transform_tool_result(
             return None
 
         session_id = _derive_session_id(task_id, kwargs)
-        text, truncated = _clip_result(result)
         # ABOVE the try: a raise here is a handler bug, not a scan failure, so it belongs
         # to the outer wrapper rather than being reported as an unscannable result.
         budget = _result_scan_timeout()
@@ -2328,36 +2392,34 @@ def _transform_tool_result(
                 # travel together behind the single `armed` predicate. The
                 # frequency hook returns immediately on a None session, so the
                 # no-arm branches accumulate nothing and no tier moves.
-                scan = _run_async(
-                    pipeline.inspect(
-                        text,
-                        direction="inbound",
-                        session_id=session_id if armed else None,
-                        weight_cap=guard.scan_weight_cap if armed else 0.0,
-                    ),
-                    timeout=budget,
+                # PET-178: helper on the ingest loop; budget starts after K=1 lock.
+                scan = _run_ingest_async(
+                    _ingest_one(pipeline, result, session_id, armed, guard, budget)
                 )
-            except concurrent.futures.TimeoutError:
+            except (TimeoutError, concurrent.futures.TimeoutError):
                 cause = "timeout"
             except Exception:
                 cause = "raised"
-        # Keying on the syntactic FLOOR survives three rejected predicates: `scan.errors`
-        # non-empty is not a scanner signal (a dead audit webhook appends there);
-        # `any(r.error ...)` is permanently true wherever an optional backend imports but
-        # is unusable, which is the shape of most real interpreters; and omitting the
-        # empty-tuple check would let a MemoryError pass content with no banner at all.
-        # `all_results` always leads with the floor and Pipeline synthesizes one if absent,
-        # so an empty tuple / missing floor can only mean the inspect() boundary fired.
+        # Floor lives on the head PipelineResult. Helper never-throws, so a raising
+        # inspect is PET-205; timeout / no_pipeline / floor_error / boundary stay here.
+        # A failed syntactic chunk is ``sweep_error``: coverage still names full/ceiling
+        # from length, so the plugin must not treat empty findings as clean.
+        head = getattr(scan, "head", None) if scan is not None else None
         floor = (
-            next((r for r in scan.scanner_results if r.scanner_name == "minimal"), None)
-            if scan is not None
+            next((r for r in head.scanner_results if r.scanner_name == "minimal"), None)
+            if head is not None
             else None
         )
+        findings = () if scan is None else scan.findings
+        blocking = [f for f in findings if _blocks(f.severity)]
+        non_pii = [f for f in blocking if f.finding_type != "pii"]
         if cause is None:
-            if scan is None or not scan.scanner_results or floor is None:
+            if scan is None or head is None or not head.scanner_results or floor is None:
                 cause = "boundary"
             elif floor.error is not None:
                 cause = "floor_error"
+            elif not non_pii and scan.errors:
+                cause = "sweep_error"
 
         if cause is not None:
             # Cadence-helper exception must not take the banner (outer fail-open
@@ -2383,14 +2445,14 @@ def _transform_tool_result(
                 )
             return format_result_notice("scan_unavailable", tool_name) + "\n\n" + result
 
+        coverage = scan.coverage
         # PET-112 ordinal gate, partitioned by finding type. PII produces NO banner and NO
         # ingestion event: reading a file containing PII is the ordinary case, the model
         # gains nothing from being told, and the boundary that matters is defended on the
         # pre-call path of every egress sink. That is the one visibility gap this accepts
         # (ingestion PII still reaches the alert channel via the un-session-gated
-        # PII-volume rule).
-        blocking = [f for f in scan.findings if _blocks(f.severity)]
-        non_pii = [f for f in blocking if f.finding_type != "pii"]
+        # PII-volume rule). HIGH+ non-PII findings already won above the sweep_error
+        # gate, so a partial sweep still flags rather than hiding behind unavailable.
         if non_pii:
             worst = _worst(non_pii)
             logger.warning(
@@ -2412,25 +2474,42 @@ def _transform_tool_result(
                 rule_id=worst.rule_id,
                 reason=(
                     f"{worst.message} (tool result len={len(result)}, "
-                    f"truncated={truncated}, scanned={len(text)})"
+                    f"coverage={coverage.regime}, scanned={coverage.scanned_chars})"
                 ),
             )
             return (
                 format_result_notice(
-                    "findings", tool_name, worst, len(non_pii), len(text), len(result)
+                    "findings",
+                    tool_name,
+                    worst,
+                    len(non_pii),
+                    coverage.scanned_chars,
+                    coverage.total_chars,
+                    coverage=coverage.regime,
                 )
                 + "\n\n"
                 + result
             )
 
-        if truncated:
-            # INFO, not DEBUG: nothing configures the `petasos.plugin` logger, so a DEBUG
-            # line would not be delivered. No event — a clean scan is not a record class.
+        if coverage.regime == "ceiling":
             logger.info(
-                "PETASOS_RESULT_TRUNCATED tool=%s len=%d scanned=%d",
+                "PETASOS_RESULT_CEILING tool=%s len=%d scanned=%d",
                 tool_name,
-                len(result),
-                len(text),
+                coverage.total_chars,
+                coverage.scanned_chars,
+            )
+            return (
+                format_result_notice(
+                    "ceiling",
+                    tool_name,
+                    None,
+                    0,
+                    coverage.scanned_chars,
+                    coverage.total_chars,
+                    coverage="ceiling",
+                )
+                + "\n\n"
+                + result
             )
         return None
     except Exception as exc:

@@ -213,6 +213,7 @@ def _ingestion_plugin(pipeline: object) -> Any:
     ref_any._config = {}
     ref_any._pipeline = pipeline
     ref_any._emit_enforcement_event = lambda **kwargs: True
+    ref_any._ingest_lock = None
     return ref_any
 
 
@@ -224,6 +225,8 @@ def _ingestion_case(  # type: ignore[no-untyped-def]
     ref: Any = _ingestion_plugin(pipeline)
     ref._is_armed = lambda: armed
     ref._run_async = lambda coro, timeout=15: loop.run_until_complete(coro)
+    ref._run_ingest_async = lambda coro: loop.run_until_complete(coro)
+    ref._ingest_lock = None
 
     def run() -> None:
         ref._transform_tool_result(tool_name=tool, result=payload, task_id="bench")
@@ -238,8 +241,7 @@ def test_benchmark_ingestion_result_1kb(benchmark) -> None:  # type: ignore[no-u
 
 
 def test_benchmark_ingestion_result_8kb(benchmark) -> None:  # type: ignore[no-untyped-def]
-    """8 KB: the sizing case. This is the input the 8,000-char cap was chosen against
-    (~7.3 ms normalized for a base-install inspect(), versus ~14.2 ms at 16 KB)."""
+    """8 KB: still the serial-curve first point. Head inspect plus one syntactic chunk."""
     _ingestion_case(benchmark, "an ordinary line of file content\n" * 256)
 
 
@@ -263,6 +265,8 @@ def test_benchmark_ingestion_result_8kb_armed_correlator(benchmark) -> None:  # 
     ref: Any = _ingestion_plugin(pipeline)
     ref._guard = guard
     ref._run_async = lambda coro, timeout=15: loop.run_until_complete(coro)
+    ref._run_ingest_async = lambda coro: loop.run_until_complete(coro)
+    ref._ingest_lock = None
     payload = "an ordinary line of file content\n" * 256
 
     def run() -> None:
@@ -273,14 +277,16 @@ def test_benchmark_ingestion_result_8kb_armed_correlator(benchmark) -> None:  # 
 
 
 def test_benchmark_ingestion_result_8wide_concurrent(benchmark) -> None:  # type: ignore[no-untyped-def]
-    """PET-179 Decision 5: 8 concurrent cap-window scans on a base install.
+    """PET-179 Decision 5: 8 concurrent head-sized inspect() calls on a base install.
 
-    ``_ingestion_case`` drives a single ``run_until_complete`` and cannot express
-    a batch. This gathers eight ``inspect()`` calls at the 8,000-char cap so the
-    CLAUDE.md 8-wide overrun has an in-repo anchor. Measure-only: GIL serialization
-    of ``MinimalScanner`` makes per-result latency equal the total wall time.
+    K=1 helper serialization is a different axis (see
+    ``test_benchmark_ingestion_helper_8wide_serial``). This gathers eight
+    ``inspect()`` calls at ``HEAD_CHARS`` so the CLAUDE.md 8-wide overrun has an
+    in-repo anchor. Measure-only.
     """
-    payload = "an ordinary line of file content\n" * 256
+    from petasos.session.ingest import HEAD_CHARS
+
+    payload = "x" * HEAD_CHARS
     loop = asyncio.new_event_loop()
     pipeline = Pipeline(config=PetasosConfig())
 
@@ -295,9 +301,38 @@ def test_benchmark_ingestion_result_8wide_concurrent(benchmark) -> None:  # type
 
 
 def test_benchmark_ingestion_result_100kb(benchmark) -> None:  # type: ignore[no-untyped-def]
-    """100 KB: over the cap, so this measures clip + scan. The scan cost must stay flat
-    against the 8 KB case; only the clip (a slice and a concat) scales with the result."""
+    """100 KB: no longer flat against 8 KB; the syntactic sweep now covers the whole result."""
     _ingestion_case(benchmark, "an ordinary line of file content\n" * 3_200)
+
+
+def test_benchmark_ingestion_result_1e6(benchmark) -> None:  # type: ignore[no-untyped-def]
+    """1,000,000 characters: ceiling-inclusive full coverage (head inspect + 18 chunks)."""
+    _ingestion_case(benchmark, "x" * 1_000_000)
+
+
+def test_benchmark_ingestion_helper_8wide_serial(benchmark) -> None:  # type: ignore[no-untyped-def]
+    """Eight helper runs on a lock-equivalent in-process path. Measure-only; records K=1
+    serialization. Does not assert every slot finishes inside the scan budget."""
+    from petasos.session.ingest import scan_ingestion_result
+
+    payload = "an ordinary line of file content\n" * 256
+    loop = asyncio.new_event_loop()
+    pipeline = Pipeline(config=PetasosConfig())
+    lock = asyncio.Lock()
+
+    async def _one() -> None:
+        async with lock:
+            await scan_ingestion_result(pipeline, payload, direction="inbound")
+
+    async def batch() -> None:
+        for _ in range(8):
+            await _one()
+
+    def run() -> None:
+        loop.run_until_complete(batch())
+
+    benchmark.pedantic(run, warmup_rounds=1, rounds=3)
+    loop.close()
 
 
 def test_benchmark_ingestion_non_ingestion_tool_large_result(benchmark) -> None:  # type: ignore[no-untyped-def]
