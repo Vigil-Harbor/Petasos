@@ -51,9 +51,38 @@ Above 1,000,000 characters the helper scans `result[:1_000_000]` and names
 (annotate-never-withhold). A clean result below the ceiling is pass-through; a
 clean result above the ceiling gets a `path="ceiling"` banner and an INFO
 `PETASOS_RESULT_CEILING` line. HIGH+ non-PII findings take `ingest_flagged` with
-`coverage=full|ceiling`. A syntactic-chunk exception with no HIGH+ finding is
-`ingest_unscanned` `cause=sweep_error` (the helper's length-based coverage is
-not treated as clean). ML backends still see only the 2,048-character head.
+`coverage=full|ceiling`. Any helper `scan.errors` is `scan_unavailable` even
+when HIGH+ findings exist (PET-209). `unavailable_with_findings` is not a HIGH+
+flag. Incomplete coverage is not a clean sample. ML backends still see only the
+2,048-character head.
+
+### HIGH+ calibration (PET-200)
+
+The HIGH+ annotate gate was remeasured through `_transform_tool_result` on a
+frozen constructed corpus (templates under `tests/fixtures/pet200/` plus listed
+in-repo text files in `manifest.json`) at baseline commit `bda619b`, base
+install, layered PET-178 coverage. Scanner rules and `_BLOCK_RANK` did not
+change in PET-200. Manifest SHA-256 (newline-normalized UTF-8):
+`53d7a6023e1b83f3c31d8fe245abd48b71c02bfd122514b7dee600aa790ba715`.
+
+Family-level banner rates, benign, coverage=full, S0+S1, n=200 per family.
+Unavailable samples are excluded from the rate (PET-209). Table A (`base`)
+only; ML extras were not measured. Policy: retain HIGH+.
+
+| family | n | CRITICAL-only | HIGH+ | MEDIUM+ | unavailable | mean_ms |
+|---|---|---|---|---|---|---|
+| F-browser | 200 | 0.00% | 0.00% | 0.00% | 0 | 3.36 |
+| F-mcp | 200 | 0.00% | 0.00% | 0.00% | 0 | 3.44 |
+| F-stdout | 200 | 0.00% | 0.00% | 0.00% | 0 | 3.87 |
+| F-file (control) | 200 | 0.00% | 0.00% | 0.00% | 0 | 4.27 |
+
+This is a baseline, not a final calibration of expanded scanner rules. Remeasure
+the same freeze on PET-201's merge SHA before claiming that. Wilson 95% upper
+bound on a 0/200 cell is about 3.7% (representativeness limit, not a fail line).
+S3 and S-ceiling n is smaller than the fatigue core. S2+ `oversized-payload` is
+evaluated per chunk/head (`CHUNK_CHARS` / `HEAD_CHARS`), not on the whole
+result. The PET-170 816-file 6.5%/0.5% figures are historical; they are not
+current evidence for this gate.
 
 ## 2. Console binding
 
