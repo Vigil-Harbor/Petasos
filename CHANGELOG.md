@@ -137,7 +137,11 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
   stripping. A bounded `composed_views` field is the leet fold of the one
   PET-198 separator view (at most two strings). Injection searches it;
   role-switch, command, and agent-directive search separator and composed
-  views as well as canonical text. Decode-rescan searches separator-restored
+  views as well as canonical text. Role-switch selects the trigger view
+  first, then searches the capability grant across every view, so a
+  canonical trigger with a separator- or composed-only grant is
+  `role-switch-capability` HIGH on both the direct and decode-rescan paths.
+  Decode-rescan searches separator-restored
   extras of each existing candidate under the same blob and byte caps.
   Canonical text is unchanged. Hits on a non-1:1 view still omit span.
   Intra-word ZWSP still concatenates. Residual: caret-anchored
