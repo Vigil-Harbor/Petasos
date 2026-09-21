@@ -12,7 +12,7 @@ from typing import Any
 
 import pytest
 
-from petasos import PetasosConfig, Pipeline, PipelineResult, ScanFinding, ScanResult
+from petasos import Direction, PetasosConfig, Pipeline, PipelineResult, ScanFinding, ScanResult
 from petasos.scanners.minimal import MinimalScanner
 from petasos.session.guard import _MAX_PARAM_TEXT_LEN
 from petasos.session.ingest import (
@@ -260,7 +260,7 @@ async def test_cancelled_sweep_stops_before_the_next_chunk(
     calls = {"n": 0}
     orig = MinimalScanner._scan_impl
 
-    def _impl(self: MinimalScanner, text: str, direction: str) -> list[ScanFinding]:
+    def _impl(self: MinimalScanner, text: str, direction: Direction) -> list[ScanFinding]:
         calls["n"] += 1
         if calls["n"] == 1:
             task = asyncio.current_task()
