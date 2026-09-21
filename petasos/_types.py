@@ -193,6 +193,11 @@ class NormalizedText:
     # length-preserving. Empty when nothing was stripped, stripping is off,
     # or the finished view equals `normalized`.
     separator_views: tuple[str, ...] = ()
+    # Match-only composed candidate views (PET-201): leet fold of the one
+    # separator view. Not length-preserving. Empty when fold_leet is off,
+    # there is no separator view, or the leet fold of that view equals an
+    # already-emitted string.
+    composed_views: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

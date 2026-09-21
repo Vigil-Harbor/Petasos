@@ -140,8 +140,9 @@ _INJECTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
 #     rests on one-finding-per-rule-per-scan (_check_command uses search-then-
 #     next-rule, no finditer): N non-overlapping same-rule matches would each
 #     survive merge dedup and each count.
-#   * patterns run on NORMALIZED text (same input as _check_injection), so
-#     homoglyph/invisible-char obfuscation is already unwound by PET-43/44/90.
+#   * patterns run on canonical normalized text plus separator/composed views
+#     (PET-201; same NormalizedText as _check_injection), so homoglyph /
+#     invisible-char obfuscation is already unwound by PET-43/44/90.
 #   * case-sensitive (shell command names are; IGNORECASE buys FPs, not recall).
 #
 # Confidence tiers make every overlapping-span merge deterministic (PIPE-04
@@ -269,9 +270,10 @@ _ROLE_GRANTS: list[re.Pattern[str]] = [
 # execute ACTION (factor 2) and an external-RESOURCE cue (factor 3), all within a
 # single physical line. The marker is the precision lever — a README describes an
 # install; it does not address the agent. Direction-blind, unsuppressible, HIGH
-# (never CRITICAL). Patterns run on NORMALIZED text (same input as
-# _check_injection), so homoglyph/invisible-char obfuscation is already unwound,
-# and via the PET-98 rescan path for decoded carriers. Final patterns refined
+# (never CRITICAL). Patterns run on canonical normalized text plus
+# separator/composed views (PET-201; same NormalizedText as _check_injection),
+# so homoglyph/invisible-char obfuscation is already unwound, and via the
+# PET-98 rescan path for decoded carriers. Final patterns refined
 # against AGENT_DIRECTIVE_BENIGN per PET-93 widen-then-retreat.
 
 # STRONG directed-at markers — rarely benign, so they pair with ANY external
@@ -485,6 +487,54 @@ def _resolve_finding_shape(cand: _DecodeCandidate, m: re.Match[str]) -> tuple[Po
     return Position(start=m.start(), end=m.end()), cand.origin_text[m.start() : m.end()]
 
 
+def _family_search_views(normalized: NormalizedText) -> tuple[str, ...]:
+    """Canonical text, then unique separator and composed extras (PET-201)."""
+    views: list[str] = [normalized.normalized]
+    seen = {normalized.normalized}
+    for extra in (*normalized.separator_views, *normalized.composed_views):
+        if extra not in seen:
+            views.append(extra)
+            seen.add(extra)
+    return tuple(views)
+
+
+def _search_role_grant(views: tuple[str, ...]) -> re.Match[str] | None:
+    """First ``_ROLE_GRANTS`` hit across all views (view-outer, pattern-inner)."""
+    for text in views:
+        for pat in _ROLE_GRANTS:
+            grant_match = pat.search(text)
+            if grant_match:
+                return grant_match
+    return None
+
+
+def _extra_match_views(scan_text: str, nt: NormalizedText) -> tuple[str, ...]:
+    """Unique separator/composed strings that differ from ``scan_text``."""
+    extras: list[str] = []
+    seen = {scan_text}
+    for extra in (*nt.separator_views, *nt.composed_views):
+        if extra not in seen:
+            extras.append(extra)
+            seen.add(extra)
+    return tuple(extras)
+
+
+def _decode_view_shape(
+    cand: _DecodeCandidate,
+    m: re.Match[str],
+    *,
+    extra: bool,
+) -> tuple[Position | None, str | None]:
+    """Finding shape for a decode match, including PET-201 extra views.
+
+    Blob candidates keep the carrier span even on an extra view. ROT13 extras
+    are non-1:1, so they omit span rather than indexing ``origin_text``.
+    """
+    if extra and cand.position is None:
+        return None, None
+    return _resolve_finding_shape(cand, m)
+
+
 # Cheap necessary-condition gate for the injection battery (PET-97 latency).
 # Every _INJECTION_PATTERNS match contains one of these literal substrings:
 #   inst   — "instructions" (ignore-*, disregard A/B, new-instructions),
@@ -493,7 +543,7 @@ def _resolve_finding_shape(cand: _DecodeCandidate, m: re.Match[str]) -> tuple[Po
 #   disregard — "disregard your" (disregard branch C, the lone no-"inst" branch)
 #   now    — "you are/'re now" (you-are-now)
 # so a candidate matching none cannot match any pattern and skips the 8-pattern
-# scan. This collapses the digit-dense worst case (8 patterns x up to 3 leet
+# scan. This collapses the digit-dense worst case (8 patterns x up to 6
 # candidates) to one membership pass per candidate, holding the <5ms syntactic
 # budget. MUST remain a superset of the pattern anchors if a rule is added or
 # widened — test_injection_anchor_is_sound pins it and the full detection suite
@@ -644,23 +694,26 @@ class MinimalScanner:
         normalized = normalize(text)
 
         # Step 3: Injection patterns on normalized text + leet views (PET-97)
-        # + separator views (PET-198). Role-switch / command / agent-directive
-        # stay on canonical text.
+        # + separator views (PET-198) + composed views (PET-201). Named
+        # families search canonical, separator, and composed views in their
+        # own helpers.
         injection_matched = self._check_injection(normalized, findings)
 
-        # Step 4: Role-switch detection on normalized text
-        self._check_role_switch(normalized.normalized, findings)
+        # Step 4: Role-switch detection on canonical + separator + composed
+        self._check_role_switch(normalized, findings)
 
         # Step 4c: Agent-directed fetch/install directive (PET-154) — injection
         # class, direction-blind (Decision D2), exactly like Steps 3-4. The
         # boolean feeds the Step-7 escalation co-occurrence flag (Decision DS2).
-        agent_directive_matched = self._check_agent_directive(normalized.normalized, findings)
+        # Searches canonical + separator + composed (PET-201).
+        agent_directive_matched = self._check_agent_directive(normalized, findings)
 
         # Step 4b: Destructive/obfuscated command family (PET-94) — outbound
         # only (Decision 2). The `direction` parameter goes from accepted-but-
-        # ignored to used; the public scan() signature is unchanged.
+        # ignored to used; the public scan() signature is unchanged. Searches
+        # canonical + separator + composed (PET-201).
         if direction == "outbound":
-            self._check_command(normalized.normalized, findings)
+            self._check_command(normalized, findings)
         elif direction not in ("inbound", "outbound"):
             # Silent-off is the worst failure mode for a security family: an
             # off-Literal direction from an untyped host (e.g. "OUTBOUND",
@@ -765,11 +818,12 @@ class MinimalScanner:
         return max_depth
 
     def _check_injection(self, normalized: NormalizedText, findings: list[ScanFinding]) -> bool:
-        # Plain text, then leet-decoded views (PET-97), then separator views
-        # (PET-198). Leet is 1:1 length-preserving, so a match span on a leet
-        # view is a valid span in `normalized`. Separator views are not 1:1:
-        # a hit on that kind omits position and matched_text. Role-switch
-        # triggers deliberately never see either view family.
+        # Four kinds: plain, leet (PET-97), separator (PET-198), composed
+        # (PET-201). Leet is 1:1 length-preserving, so a match span on a leet
+        # view is a valid span in `normalized`. Separator and composed views
+        # are not 1:1: a hit on those kinds omits position and matched_text
+        # and does not write a leet-decoded suffix. Named families consume
+        # extra views in their own helpers.
         #
         # Gate each candidate by the cheap anchor first: a candidate matching no
         # injection-pattern anchor cannot match any pattern, so it skips the
@@ -777,6 +831,7 @@ class MinimalScanner:
         raw_candidates: list[tuple[str, str]] = [(normalized.normalized, "plain")]
         raw_candidates.extend((v, "leet") for v in normalized.leet_views)
         raw_candidates.extend((v, "separator") for v in normalized.separator_views)
+        raw_candidates.extend((v, "composed") for v in normalized.composed_views)
         candidates = [c for c in raw_candidates if _INJECTION_ANCHOR.search(c[0])]
         if not candidates:
             return False
@@ -793,7 +848,7 @@ class MinimalScanner:
                 # Truncated: \s+ runs make m.group() attacker-inflatable
                 # (cf. the base64-in-text [:50] cap).
                 decoded = f" (leet-decoded: {m.group()[:80]!r})" if kind == "leet" else ""
-                if kind == "separator":
+                if kind in ("separator", "composed"):
                     position = None
                     matched_text = None
                 else:
@@ -814,12 +869,13 @@ class MinimalScanner:
                 break
         return any_matched
 
-    def _check_command(self, normalized_text: str, findings: list[ScanFinding]) -> None:
-        # Pre-gate first (Decision 6): a candidate matching no command anchor
-        # cannot match any pattern, so skip the 5-pattern fan-out — the no-match
-        # fast path that holds the <5ms outbound budget. The exact
-        # _check_injection shape.
-        if not _COMMAND_ANCHOR.search(normalized_text):
+    def _check_command(self, normalized: NormalizedText, findings: list[ScanFinding]) -> None:
+        # Per-view pre-gate (Decision 6 / PET-201): a candidate matching no
+        # command anchor cannot match any pattern, so skip the 5-pattern
+        # fan-out on that view — the no-match fast path that holds the <5ms
+        # outbound budget. Slug-outer, view-inner, first-hit per rule_id.
+        views = _family_search_views(normalized)
+        if not any(_COMMAND_ANCHOR.search(v) for v in views):
             return
         for slug, pattern, confidence in _COMMAND_PATTERNS:
             rule_id = f"petasos.syntactic.command.{slug}"
@@ -829,97 +885,131 @@ class MinimalScanner:
             # per scan. This is a hard invariant — Decision 3.2's <=15 frequency
             # ceiling depends on it (N non-overlapping same-rule matches would
             # each survive merge dedup and each count).
-            m = pattern.search(normalized_text)
-            if m is None:
-                continue
-            findings.append(
-                ScanFinding(
-                    rule_id=rule_id,
-                    finding_type="command",
-                    severity=Severity.HIGH,
-                    confidence=confidence,
-                    message=f"Obfuscated/destructive command pattern matched: {slug}",
-                    scanner_name=self.name,
-                    position=Position(start=m.start(), end=m.end()),
+            for idx, text in enumerate(views):
+                if not _COMMAND_ANCHOR.search(text):
+                    continue
+                m = pattern.search(text)
+                if m is None:
+                    continue
+                if idx == 0:
+                    position: Position | None = Position(start=m.start(), end=m.end())
                     # Cap: bounded `[^|\n]*` runs make m.group() attacker-
                     # inflatable (cf. the base64-in-text [:50] cap).
-                    matched_text=normalized_text[m.start() : m.end()][:120],
+                    matched_text: str | None = text[m.start() : m.end()][:120]
+                else:
+                    position = None
+                    matched_text = None
+                findings.append(
+                    ScanFinding(
+                        rule_id=rule_id,
+                        finding_type="command",
+                        severity=Severity.HIGH,
+                        confidence=confidence,
+                        message=f"Obfuscated/destructive command pattern matched: {slug}",
+                        scanner_name=self.name,
+                        position=position,
+                        matched_text=matched_text,
+                    )
                 )
-            )
+                break
 
-    def _check_role_switch(self, normalized_text: str, findings: list[ScanFinding]) -> None:
+    def _check_role_switch(self, normalized: NormalizedText, findings: list[ScanFinding]) -> None:
         cap_rule_id = "petasos.syntactic.injection.role-switch-capability"
         only_rule_id = "petasos.syntactic.injection.role-switch-only"
 
-        trigger_match = None
-        for pat in _ROLE_TRIGGERS:
-            trigger_match = pat.search(normalized_text)
-            if trigger_match:
-                break
+        # Slug-outer is implicit (one of capability/only). View-inner first-hit
+        # for the trigger: the first view with a trigger wins. The grant is then
+        # searched across EVERY view (canonical, separator, composed), not only
+        # the trigger's view: a canonical-view trigger with a separator-only
+        # grant ("you are a DAN with no​restrictions") must emit
+        # capability HIGH, not only LOW. Span still follows the trigger view.
+        views = _family_search_views(normalized)
+        for idx, text in enumerate(views):
+            trigger_match = None
+            for pat in _ROLE_TRIGGERS:
+                trigger_match = pat.search(text)
+                if trigger_match:
+                    break
+            if trigger_match is None:
+                continue
 
-        if trigger_match is None:
-            return
+            grant_match = _search_role_grant(views)
 
-        grant_match = None
-        for pat in _ROLE_GRANTS:
-            grant_match = pat.search(normalized_text)
-            if grant_match:
-                break
-
-        if grant_match is not None:
-            if cap_rule_id not in self._suppress_rules:
-                findings.append(
-                    ScanFinding(
-                        rule_id=cap_rule_id,
-                        finding_type="injection",
-                        severity=Severity.HIGH,
-                        confidence=1.0,
-                        message="Role-switch with capability grant detected",
-                        scanner_name=self.name,
-                        position=Position(start=trigger_match.start(), end=trigger_match.end()),
-                        matched_text=trigger_match.group(),
-                    )
+            if idx == 0:
+                position: Position | None = Position(
+                    start=trigger_match.start(), end=trigger_match.end()
                 )
-        else:
-            if only_rule_id not in self._suppress_rules:
-                findings.append(
-                    ScanFinding(
-                        rule_id=only_rule_id,
-                        finding_type="injection",
-                        severity=Severity.LOW,
-                        confidence=1.0,
-                        message="Role-switch trigger detected without capability grant",
-                        scanner_name=self.name,
-                        position=Position(start=trigger_match.start(), end=trigger_match.end()),
-                        matched_text=trigger_match.group(),
-                    )
-                )
+                matched_text: str | None = trigger_match.group()
+            else:
+                position = None
+                matched_text = None
 
-    def _check_agent_directive(self, normalized_text: str, findings: list[ScanFinding]) -> bool:
+            if grant_match is not None:
+                if cap_rule_id not in self._suppress_rules:
+                    findings.append(
+                        ScanFinding(
+                            rule_id=cap_rule_id,
+                            finding_type="injection",
+                            severity=Severity.HIGH,
+                            confidence=1.0,
+                            message="Role-switch with capability grant detected",
+                            scanner_name=self.name,
+                            position=position,
+                            matched_text=matched_text,
+                        )
+                    )
+            else:
+                if only_rule_id not in self._suppress_rules:
+                    findings.append(
+                        ScanFinding(
+                            rule_id=only_rule_id,
+                            finding_type="injection",
+                            severity=Severity.LOW,
+                            confidence=1.0,
+                            message="Role-switch trigger detected without capability grant",
+                            scanner_name=self.name,
+                            position=position,
+                            matched_text=matched_text,
+                        )
+                    )
+            break
+
+    def _check_agent_directive(
+        self, normalized: NormalizedText, findings: list[ScanFinding]
+    ) -> bool:
         # PET-154: agent-address marker × fetch/install/execute action × external
         # resource, per physical line (the _agent_directive_line_hit conjunction).
         # The suppress check is omitted because the rule_id is stripped from
         # _suppress_rules at construction (Decision D1) — same idiom as the rescan
-        # injection battery. At most one finding per scan (Decision DS3).
-        hit = _agent_directive_line_hit(normalized_text)
-        if hit is None:
-            return False
-        start, end = hit
-        findings.append(
-            ScanFinding(
-                rule_id="petasos.syntactic.injection.agent-directed-fetch",
-                finding_type="injection",
-                severity=Severity.HIGH,
-                confidence=1.0,
-                message="Agent-directed fetch/install directive detected",
-                scanner_name=self.name,
-                position=Position(start=start, end=end),
+        # injection battery. At most one finding per scan (Decision DS3). PET-201:
+        # canonical first, then separator, then composed; omit span on extras.
+        for idx, text in enumerate(_family_search_views(normalized)):
+            hit = _agent_directive_line_hit(text)
+            if hit is None:
+                continue
+            start, end = hit
+            if idx == 0:
+                position: Position | None = Position(start=start, end=end)
                 # Cap: marker patterns contain \s+ runs -> attacker-inflatable
                 # group (cf. the base64-in-text [:50] cap).
-                matched_text=normalized_text[start:end][:120],
+                matched_text: str | None = text[start:end][:120]
+            else:
+                position = None
+                matched_text = None
+            findings.append(
+                ScanFinding(
+                    rule_id="petasos.syntactic.injection.agent-directed-fetch",
+                    finding_type="injection",
+                    severity=Severity.HIGH,
+                    confidence=1.0,
+                    message="Agent-directed fetch/install directive detected",
+                    scanner_name=self.name,
+                    position=position,
+                    matched_text=matched_text,
+                )
             )
-        )
-        return True
+            return True
+        return False
 
     def _check_encoded_payloads(
         self,
@@ -998,62 +1088,72 @@ class MinimalScanner:
         seen_rule_ids: set[str],
     ) -> bool:
         matched = False
+        nt = normalize(cand.scan_text)
+        extras = _extra_match_views(cand.scan_text, nt)
+        decode_views: tuple[tuple[str, bool], ...] = (
+            (cand.scan_text, False),
+            *tuple((v, True) for v in extras),
+        )
 
-        # Injection battery — anchor-gated exactly as _check_injection gates leet
-        # views: a candidate carrying no injection anchor skips the 8-pattern
-        # battery. The suppress check is omitted because injection rule_ids are
-        # stripped from _suppress_rules at construction (Decision 3).
-        if _INJECTION_ANCHOR.search(cand.scan_text):
+        # Injection battery — anchor-gated per view exactly as _check_injection
+        # gates candidates. Extra separator/composed views of the decoded text
+        # (PET-201) are searched after scan_text. The suppress check is omitted
+        # because injection rule_ids are stripped from _suppress_rules at
+        # construction (Decision 3).
+        gated = [(text, extra) for text, extra in decode_views if _INJECTION_ANCHOR.search(text)]
+        if gated:
             for slug, pattern in _INJECTION_PATTERNS:
-                m = pattern.search(cand.scan_text)
-                if m is None:
-                    continue
-                # PET-160 (D1/D2/D3): one injection finding per rule_id per scan.
-                # injection.* carries the 10.0 frequency weight (frequency.py), so N
-                # repeated base64/hex carriers of one slug would otherwise emit N
-                # findings -> the 50.0 Tier-3 floor -> terminate a session from a
-                # single crafted payload. matched is set BEFORE the dedup continue
-                # (D3): a decoded injection WAS present even when its finding is
-                # suppressed, so the escalation co-occurrence flag must still see it.
-                # The guard keys on the specific rule_id and the loop does NOT break,
-                # so distinct slugs on one candidate each still fire once (per-append,
-                # not whole-rescan; cross-path + cross-candidate). Pinned by
-                # tests/adversarial/syntactic/test_decode_rescan_dedup.py.
-                matched = True
-                rule_id = f"petasos.syntactic.injection.{slug}"
-                if rule_id in seen_rule_ids:
-                    continue
-                seen_rule_ids.add(rule_id)
-                position, matched_text = _resolve_finding_shape(cand, m)
-                snippet = m.group()[:_DECODE_SNIPPET_CAP]
-                findings.append(
-                    ScanFinding(
-                        rule_id=rule_id,
-                        finding_type="injection",
-                        severity=Severity.HIGH,
-                        confidence=1.0,
-                        message=(
-                            f"Injection pattern matched: {slug} "
-                            f"({cand.carrier}-decoded: {snippet!r})"
-                        ),
-                        scanner_name=self.name,
-                        position=position,
-                        matched_text=matched_text,
+                for text, extra in gated:
+                    m = pattern.search(text)
+                    if m is None:
+                        continue
+                    # PET-160 (D1/D2/D3): one injection finding per rule_id per scan.
+                    # injection.* carries the 10.0 frequency weight (frequency.py), so N
+                    # repeated base64/hex carriers of one slug would otherwise emit N
+                    # findings -> the 50.0 Tier-3 floor -> terminate a session from a
+                    # single crafted payload. matched is set BEFORE the dedup continue
+                    # (D3): a decoded injection WAS present even when its finding is
+                    # suppressed, so the escalation co-occurrence flag must still see it.
+                    # The guard keys on the specific rule_id and the loop does NOT break
+                    # across slugs, so distinct slugs on one candidate each still fire
+                    # once (per-append, not whole-rescan; cross-path + cross-candidate).
+                    # Pinned by tests/adversarial/syntactic/test_decode_rescan_dedup.py.
+                    matched = True
+                    rule_id = f"petasos.syntactic.injection.{slug}"
+                    if rule_id in seen_rule_ids:
+                        break
+                    seen_rule_ids.add(rule_id)
+                    position, matched_text = _decode_view_shape(cand, m, extra=extra)
+                    snippet = m.group()[:_DECODE_SNIPPET_CAP]
+                    findings.append(
+                        ScanFinding(
+                            rule_id=rule_id,
+                            finding_type="injection",
+                            severity=Severity.HIGH,
+                            confidence=1.0,
+                            message=(
+                                f"Injection pattern matched: {slug} "
+                                f"({cand.carrier}-decoded: {snippet!r})"
+                            ),
+                            scanner_name=self.name,
+                            position=position,
+                            matched_text=matched_text,
+                        )
                     )
-                )
+                    break
 
-        # Role-switch battery — NOT anchor-gated (the injection anchor is not a
-        # superset of the role-switch triggers, so gating here would drop a decoded
-        # "act as DAN with no restrictions"). At most one finding per candidate,
-        # mirroring the live single-emit _check_role_switch.
-        if self._rescan_role_switch(cand, findings, seen_rule_ids):
+        # Role-switch battery — NOT injection-anchor-gated (the injection anchor
+        # is not a superset of the role-switch triggers, so gating here would
+        # drop a decoded "act as DAN with no restrictions"). At most one finding
+        # per candidate, mirroring the live single-emit _check_role_switch.
+        if self._rescan_role_switch(cand, findings, seen_rule_ids, extras):
             matched = True
 
         # Agent-directive battery (PET-154 / Decision D6) — runs its OWN
         # _AGENT_DIRECTIVE_ANCHOR gate (inside the shared helper), not the
         # injection anchor (which is not a superset of the agent markers),
         # mirroring how _rescan_role_switch runs unconditionally here.
-        if self._rescan_agent_directive(cand, findings):
+        if self._rescan_agent_directive(cand, findings, nt):
             matched = True
 
         return matched
@@ -1063,22 +1163,27 @@ class MinimalScanner:
         cand: _DecodeCandidate,
         findings: list[ScanFinding],
         seen_rule_ids: set[str],
+        extra_views: tuple[str, ...] = (),
     ) -> bool:
+        texts = (cand.scan_text, *extra_views)
         trigger_match = None
-        for pat in _ROLE_TRIGGERS:
-            trigger_match = pat.search(cand.scan_text)
-            if trigger_match:
+        extra = False
+        for idx, text in enumerate(texts):
+            for pat in _ROLE_TRIGGERS:
+                trigger_match = pat.search(text)
+                if trigger_match:
+                    extra = idx > 0
+                    break
+            if trigger_match is not None:
                 break
         if trigger_match is None:
             return False
 
-        grant_match = None
-        for pat in _ROLE_GRANTS:
-            grant_match = pat.search(cand.scan_text)
-            if grant_match:
-                break
+        # Grant searched across the decoded text AND its separator/composed
+        # extras, mirroring _check_role_switch; span follows the trigger view.
+        grant_match = _search_role_grant(texts)
 
-        position, matched_text = _resolve_finding_shape(cand, trigger_match)
+        position, matched_text = _decode_view_shape(cand, trigger_match, extra=extra)
         if grant_match is not None:
             rule_id = "petasos.syntactic.injection.role-switch-capability"
             severity = Severity.HIGH
@@ -1114,7 +1219,12 @@ class MinimalScanner:
         )
         return True
 
-    def _rescan_agent_directive(self, cand: _DecodeCandidate, findings: list[ScanFinding]) -> bool:
+    def _rescan_agent_directive(
+        self,
+        cand: _DecodeCandidate,
+        findings: list[ScanFinding],
+        nt: NormalizedText,
+    ) -> bool:
         # One-finding-per-scan invariant (DS3): the agent-directive rule's 10.0
         # frequency weight is only safe if a single scan emits at most ONE such
         # finding — five would reach the 50.0 Tier-3 floor and terminate a session
@@ -1136,38 +1246,45 @@ class MinimalScanner:
         # Blob candidates carry RAW decoded text (scan_text=decoded above), so a
         # base64/hex-wrapped directive with a zero-width char inside `install` or a
         # homoglyph in the marker would evade what the normalized plain path
-        # catches. Normalize the blob branch before the conjunction; its finding
+        # catches. Search concat first (reuse the NormalizedText from
+        # _rescan_candidate), then unique separator/composed extras. The finding
         # reports the fixed carrier span (cand.position/.matched_text), so detecting
         # on a normalized view does not disturb offset mapping. The ROT13 branch
-        # must stay raw — its hit offsets index 1:1 into origin_text and NFKC would
-        # desync them (origin_text is itself normalized-space).
-        scan_text = (
-            normalize(cand.scan_text).normalized if cand.position is not None else cand.scan_text
-        )
-        hit = _agent_directive_line_hit(scan_text)
-        if hit is None:
-            return False
-        start, end = hit
-        if cand.position is not None:  # blob candidate: fixed raw-space blob span
-            assert cand.matched_text is not None
-            position, matched_text = cand.position, cand.matched_text
-        else:  # ROT13 view: per-match in normalized space (offsets map 1:1)
-            position = Position(start=start, end=end)
-            matched_text = cand.origin_text[start:end]
-        message = f"Agent-directed fetch/install directive detected ({cand.carrier}-decoded)"
-        findings.append(
-            ScanFinding(
-                rule_id="petasos.syntactic.injection.agent-directed-fetch",
-                finding_type="injection",
-                severity=Severity.HIGH,
-                confidence=1.0,
-                message=message,
-                scanner_name=self.name,
-                position=position,
-                matched_text=matched_text,
+        # must stay raw as the primary — its hit offsets index 1:1 into origin_text
+        # and NFKC would desync them (origin_text is itself normalized-space).
+        primary = nt.normalized if cand.position is not None else cand.scan_text
+        texts = (primary, *_extra_match_views(primary, nt))
+        for idx, scan_text in enumerate(texts):
+            hit = _agent_directive_line_hit(scan_text)
+            if hit is None:
+                continue
+            start, end = hit
+            extra = idx > 0
+            if cand.position is not None:  # blob candidate: fixed raw-space blob span
+                assert cand.matched_text is not None
+                position: Position | None = cand.position
+                matched_text: str | None = cand.matched_text
+            elif extra:
+                position = None
+                matched_text = None
+            else:  # ROT13 view: per-match in normalized space (offsets map 1:1)
+                position = Position(start=start, end=end)
+                matched_text = cand.origin_text[start:end]
+            message = f"Agent-directed fetch/install directive detected ({cand.carrier}-decoded)"
+            findings.append(
+                ScanFinding(
+                    rule_id="petasos.syntactic.injection.agent-directed-fetch",
+                    finding_type="injection",
+                    severity=Severity.HIGH,
+                    confidence=1.0,
+                    message=message,
+                    scanner_name=self.name,
+                    position=position,
+                    matched_text=matched_text,
+                )
             )
-        )
-        return True
+            return True
+        return False
 
     def _check_encoding(
         self,
