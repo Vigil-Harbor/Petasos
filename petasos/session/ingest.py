@@ -174,6 +174,9 @@ async def scan_ingestion_result(
         for origin in origins:
             chunk = covered[origin : origin + CHUNK_CHARS]
             try:
+                # MinimalScanner.scan() never awaits; yield so wait_for can stop
+                # the sweep between chunks instead of after the last one.
+                await asyncio.sleep(0)
                 result = await scanner.scan(chunk, direction=direction)
             except Exception as exc:
                 errors.append(f"{type(exc).__name__}: {exc}")

@@ -88,6 +88,8 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
   The helper restores task cancellation swallowed by `Pipeline.inspect()` so
   the ingest deadline remains effective and the inspect mutex is released.
   A head that reports `CancelledError` also skips the sweep and returns errors.
+  The syntactic sweep yields between chunks so a deadline that fires after
+  the head still stops the loop.
 
 - **Fallback scan errors no longer pass a dangerous call under `open`
   (PET-199).** `_fallback_pre_tool_call` used to treat an empty findings
