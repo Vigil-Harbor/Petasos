@@ -12,7 +12,7 @@ from typing import Any
 
 import pytest
 
-from petasos import PetasosConfig, PipelineResult, ScanFinding, ScanResult
+from petasos import PetasosConfig, Pipeline, PipelineResult, ScanFinding, ScanResult
 from petasos.scanners.minimal import MinimalScanner
 from petasos.session.guard import _MAX_PARAM_TEXT_LEN
 from petasos.session.ingest import (
@@ -198,3 +198,64 @@ async def test_private_scanner_is_not_pipeline_minimal_scanner() -> None:
     result = await scan_ingestion_result(pipeline, "hello world")  # type: ignore[arg-type]
     assert not result.errors
     assert sentinel.called is False
+
+
+@pytest.mark.parametrize("cancel_mode", ["explicit", "deadline"])
+async def test_cancelled_real_inspect_never_starts_sweep(
+    monkeypatch: pytest.MonkeyPatch, cancel_mode: str
+) -> None:
+    """Pipeline.inspect converts cancellation to errors; the helper must restore it."""
+    pipeline = Pipeline()
+    entered = asyncio.Event()
+    lock = threading.Lock()
+    sweep_calls: list[str] = []
+
+    async def _wait(*args: Any, **kwargs: Any) -> PipelineResult:
+        entered.set()
+        await asyncio.Event().wait()
+        raise AssertionError("inspect must be cancelled")
+
+    async def _scan(self: MinimalScanner, text: str, **kwargs: Any) -> ScanResult:
+        sweep_calls.append(text)
+        return ScanResult(scanner_name="minimal", findings=())
+
+    monkeypatch.setattr(pipeline, "_inspect_inner", _wait)
+    monkeypatch.setattr(MinimalScanner, "scan", _scan)
+    coro = scan_ingestion_result(pipeline, "a" * 100_000, inspect_lock=lock)
+    if cancel_mode == "deadline":
+        with pytest.raises(TimeoutError):
+            await asyncio.wait_for(coro, timeout=0.05)
+    else:
+        task = asyncio.create_task(coro)
+        await asyncio.wait_for(entered.wait(), timeout=1)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    assert entered.is_set()
+    assert sweep_calls == []
+    assert lock.acquire(blocking=False)
+    lock.release()
+
+
+@pytest.mark.parametrize("error", ["CancelledError", "CancelledError: scan cancelled"])
+async def test_reported_cancellation_never_starts_sweep(
+    monkeypatch: pytest.MonkeyPatch, error: str
+) -> None:
+    class _Cancelled(_RecordingPipeline):
+        async def inspect(self, text: str, **kwargs: Any) -> PipelineResult:
+            return PipelineResult(safe=False, findings=(), errors=(error,))
+
+    sweep_calls: list[str] = []
+
+    async def _scan(self: MinimalScanner, text: str, **kwargs: Any) -> ScanResult:
+        sweep_calls.append(text)
+        return ScanResult(scanner_name="minimal", findings=())
+
+    monkeypatch.setattr(MinimalScanner, "scan", _scan)
+    lock = threading.Lock()
+    result = await scan_ingestion_result(_Cancelled(), "hello", inspect_lock=lock)  # type: ignore[arg-type]
+    assert result.errors == (error,)
+    assert result.coverage.chunk_count == 0
+    assert sweep_calls == []
+    assert not lock.locked()

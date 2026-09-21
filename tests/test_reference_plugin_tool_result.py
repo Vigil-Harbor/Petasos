@@ -933,10 +933,9 @@ def test_wedged_coroutine_is_cancelled_and_the_handler_returns_within_its_bound(
 
     cancelled = {"seen": False}
 
-    class _Wedge:
-        config = PetasosConfig()
-
-        async def inspect(self, text: str, **kwargs: Any) -> PipelineResult:
+    class _Wedge(Pipeline):
+        # Keep the real inspect() boundary, which absorbs CancelledError.
+        async def _inspect_inner(self, text: str, **kwargs: Any) -> PipelineResult:
             try:
                 await asyncio.sleep(30)
             except asyncio.CancelledError:

@@ -112,7 +112,8 @@ async def scan_ingestion_result(
 ) -> IngestionScanResult:
     """Scan an ingesting tool result with no unscanned gap below the 1e6 ceiling.
 
-    Never throws. One ``pipeline.inspect`` on the ML-sized head, then overlapping
+    Scan failures are returned; task cancellation propagates. One
+    ``pipeline.inspect`` on the ML-sized head, then overlapping
     ``MinimalScanner.scan`` chunks over the covered prefix. Finding positions are
     original-result coordinates. The inspect mutex, when provided, is held only
     around the head ``inspect()``.
@@ -121,7 +122,6 @@ async def scan_ingestion_result(
 
     errors: list[str] = []
     head: PipelineResult | None = None
-    origins = _chunk_origins(len(text))
     try:
         covered = text[:_MAX_PARAM_TEXT_LEN]
         try:
@@ -145,14 +145,30 @@ async def scan_ingestion_result(
                 acquired = True
             head = await _inspect_head()
         except Exception as exc:
-            if isinstance(exc, asyncio.CancelledError):
-                raise
             errors.append(f"{type(exc).__name__}: {exc}")
             head = None
         finally:
             if acquired and inspect_lock is not None:
                 inspect_lock.release()
 
+        # inspect() catches BaseException and can turn our wait_for cancellation
+        # into a PipelineResult. Restore it after releasing the mutex so the
+        # expired budget cannot fall through into an unbounded syntactic sweep.
+        task = asyncio.current_task()
+        if task is not None and task.cancelling():
+            raise asyncio.CancelledError
+        if head is not None and any(
+            error == "CancelledError" or error.startswith("CancelledError:")
+            for error in head.errors
+        ):
+            return IngestionScanResult(
+                findings=head.findings,
+                coverage=_coverage_for(text, 0),
+                head=head,
+                errors=(*errors, *head.errors),
+            )
+
+        origins = _chunk_origins(len(text))
         scanner = MinimalScanner(decode_encoded_payloads=decode_flag)
         mapped: list[ScanFinding] = []
         for origin in origins:
@@ -160,8 +176,6 @@ async def scan_ingestion_result(
             try:
                 result = await scanner.scan(chunk, direction=direction)
             except Exception as exc:
-                if isinstance(exc, asyncio.CancelledError):
-                    raise
                 errors.append(f"{type(exc).__name__}: {exc}")
                 continue
             if result.error is not None:
@@ -182,8 +196,6 @@ async def scan_ingestion_result(
             errors=tuple(errors),
         )
     except Exception as exc:
-        if isinstance(exc, asyncio.CancelledError):
-            raise
         errors.append(f"{type(exc).__name__}: {exc}")
         return IngestionScanResult(
             findings=(),

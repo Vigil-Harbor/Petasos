@@ -84,6 +84,11 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
   mutex is polled with a held-flag release so the ingest `wait_for` budget
   still fires and cancellation cannot leak the lock.
 
+- **Cancelled ingestion heads no longer start a syntactic sweep (PET-206).**
+  The helper restores task cancellation swallowed by `Pipeline.inspect()` so
+  the ingest deadline remains effective and the inspect mutex is released.
+  A head that reports `CancelledError` also skips the sweep and returns errors.
+
 - **Fallback scan errors no longer pass a dangerous call under `open`
   (PET-199).** `_fallback_pre_tool_call` used to treat an empty findings
   tuple as clean even when `ScanResult.error` was set, so a
