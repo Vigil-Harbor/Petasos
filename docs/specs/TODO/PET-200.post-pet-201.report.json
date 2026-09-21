@@ -1,0 +1,641 @@
+{
+  "schema_version": 1,
+  "ticket": "PET-200",
+  "phase": "post-pet-201",
+  "scanner_commit": {
+    "git": "efe6974b001a5a510fc3ae84ef63e0a8a4f4d503",
+    "minimal_py": "6173e1d0f54da1ac9465cd2d24920cd348e757900307d3f6c063eb21dc781b63",
+    "normalize_py": "f6b0a14fa9aab20e2191b50690c274f33351f65cb1ab979f8fac8d01d0727d4f"
+  },
+  "plugin_commit": "efe6974b001a5a510fc3ae84ef63e0a8a4f4d503",
+  "manifest_sha256": "53d7a6023e1b83f3c31d8fe245abd48b71c02bfd122514b7dee600aa790ba715",
+  "config_label": "base",
+  "extras_status": [
+    {
+      "name": "llm-guard",
+      "status": "not measured \u2014 extras-llm-guard unavailable"
+    },
+    {
+      "name": "llamafirewall",
+      "status": "not measured \u2014 extras-llamafirewall unavailable"
+    },
+    {
+      "name": "presidio",
+      "status": "not measured \u2014 extras-presidio unavailable"
+    }
+  ],
+  "python": "3.14.3 (tags/v3.14.3:323c59a, Feb  3 2026, 16:04:56) [MSC v.1944 64 bit (AMD64)]",
+  "generated_at": "2026-09-21T19:45:02.743915+00:00",
+  "cells": [
+    {
+      "family": "F-browser",
+      "stratum": "S-ceiling",
+      "label": "benign",
+      "n": 5,
+      "n_eff": 5,
+      "flagged_high_plus": 0,
+      "flagged_critical_only": 0,
+      "flagged_medium_plus": null,
+      "unavailable_n": 0,
+      "unavailable_with_findings": null,
+      "pii_suppressed": null,
+      "ceiling_n": 5,
+      "mean_ms": 538.283639983274,
+      "rule_histogram": {},
+      "wilson95": {
+        "low": 0.0,
+        "high": 0.43449149475208104,
+        "centre": 0.21724574737604052
+      }
+    },
+    {
+      "family": "F-browser",
+      "stratum": "S0",
+      "label": "benign",
+      "n": 100,
+      "n_eff": 100,
+      "flagged_high_plus": 0,
+      "flagged_critical_only": 0,
+      "flagged_medium_plus": null,
+      "unavailable_n": 0,
+      "unavailable_with_findings": null,
+      "pii_suppressed": null,
+      "ceiling_n": 0,
+      "mean_ms": 2.055670008994639,
+      "rule_histogram": {},
+      "wilson95": {
+        "low": 0.0,
+        "high": 0.03699480747600191,
+        "centre": 0.018497403738000955
+      }
+    },
+    {
+      "family": "F-browser",
+      "stratum": "S0",
+      "label": "planted-positive",
+      "n": 3,
+      "n_eff": 3,
+      "flagged_high_plus": 3,
+      "flagged_critical_only": 0,
+      "flagged_medium_plus": null,
+      "unavailable_n": 0,
+      "unavailable_with_findings": null,
+      "pii_suppressed": null,
+      "ceiling_n": 0,
+      "mean_ms": 2.1459332977732024,
+      "rule_histogram": {
+        "injection.ignore-previous": 3
+      },
+      "wilson95": {
+        "low": 0.43849391955098227,
+        "high": 1.0,
+        "centre": 0.7192469597754911
+      }
+    },
+    {
+      "family": "F-browser",
+      "stratum": "S1",
+      "label": "benign",
+      "n": 100,
+      "n_eff": 100,
+      "flagged_high_plus": 0,
+      "flagged_critical_only": 0,
+      "flagged_medium_plus": null,
+      "unavailable_n": 0,
+      "unavailable_with_findings": null,
+      "pii_suppressed": null,
+      "ceiling_n": 0,
+      "mean_ms": 6.224310996476561,
+      "rule_histogram": {},
+      "wilson95": {
+        "low": 0.0,
+        "high": 0.03699480747600191,
+        "centre": 0.018497403738000955
+      }
+    },
+    {
+      "family": "F-browser",
+      "stratum": "S1",
+      "label": "planted-positive",
+      "n": 7,
+      "n_eff": 7,
+      "flagged_high_plus": 7,
+      "flagged_critical_only": 0,
+      "flagged_medium_plus": null,
+      "unavailable_n": 0,
+      "unavailable_with_findings": null,
+      "pii_suppressed": null,
+      "ceiling_n": 0,
+      "mean_ms": 8.147528594625848,
+      "rule_histogram": {
+        "injection.ignore-previous": 7
+      },
+      "wilson95": {
+        "low": 0.6456611570247934,
+        "high": 1.0,
+        "centre": 0.8228305785123967
+      }
+    },
+    {
+      "family": "F-browser",
+      "stratum": "S2",
+      "label": "benign",
+      "n": 30,
+      "n_eff": 30,
+      "flagged_high_plus": 0,
+      "flagged_critical_only": 0,
+      "flagged_medium_plus": null,
+      "unavailable_n": 0,
+      "unavailable_with_findings": null,
+      "pii_suppressed": null,
+      "ceiling_n": 0,
+      "mean_ms": 40.30093332209314,
+      "rule_histogram": {},
+      "wilson95": {
+        "low": 0.0,
+        "high": 0.113517091390478,
+        "centre": 0.05675854569523899
+      }
+    },
+    {
+      "family": "F-browser",
+      "stratum": "S3",
+      "label": "benign",
+      "n": 10,
+      "n_eff": 10,
+      "flagged_high_plus": 0,
+      "flagged_critical_only": 0,
+      "flagged_medium_plus": null,
+      "unavailable_n": 0,
+      "unavailable_with_findings": null,
+      "pii_suppressed": null,
+      "ceiling_n": 0,
+      "mean_ms": 54.47272000601515,
+      "rule_histogram": {},
+      "wilson95": {
+        "low": 0.0,
+        "high": 0.2775401687666166,
+        "centre": 0.13877008438330826
+      }
+    },
+    {
+      "family": "F-file",
+      "stratum": "S-ceiling",
+      "label": "benign",
+      "n": 5,
+      "n_eff": 5,
+      "flagged_high_plus": 1,
+      "flagged_critical_only": 1,
+      "flagged_medium_plus": null,
+      "unavailable_n": 0,
+      "unavailable_with_findings": null,
+      "pii_suppressed": null,
+      "ceiling_n": 4,
+      "mean_ms": 600.1938399858773,
+      "rule_histogram": {
+        "structural.excessive-depth": 1
+      },
+      "wilson95": {
+        "low": 0.03622316096978745,
+        "high": 0.6244717358814613,
+        "centre": 0.33034744842562436
+      }
+    },
+    {
+      "family": "F-file",
+      "stratum": "S0",
+      "label": "benign",
+      "n": 100,
+      "n_eff": 100,
+      "flagged_high_plus": 0,
+      "flagged_critical_only": 0,
+      "flagged_medium_plus": null,
+      "unavailable_n": 0,
+      "unavailable_with_findings": null,
+      "pii_suppressed": null,
+      "ceiling_n": 0,
+      "mean_ms": 2.0996749913319945,
+      "rule_histogram": {},
+      "wilson95": {
+        "low": 0.0,
+        "high": 0.03699480747600191,
+        "centre": 0.018497403738000955
+      }
+    },
+    {
+      "family": "F-file",
+      "stratum": "S0",
+      "label": "planted-positive",
+      "n": 3,
+      "n_eff": 3,
+      "flagged_high_plus": 3,
+      "flagged_critical_only": 0,
+      "flagged_medium_plus": null,
+      "unavailable_n": 0,
+      "unavailable_with_findings": null,
+      "pii_suppressed": null,
+      "ceiling_n": 0,
+      "mean_ms": 2.744099978978435,
+      "rule_histogram": {
+        "injection.ignore-previous": 3
+      },
+      "wilson95": {
+        "low": 0.43849391955098227,
+        "high": 1.0,
+        "centre": 0.7192469597754911
+      }
+    },
+    {
+      "family": "F-file",
+      "stratum": "S1",
+      "label": "benign",
+      "n": 100,
+      "n_eff": 100,
+      "flagged_high_plus": 0,
+      "flagged_critical_only": 0,
+      "flagged_medium_plus": null,
+      "unavailable_n": 0,
+      "unavailable_with_findings": null,
+      "pii_suppressed": null,
+      "ceiling_n": 0,
+      "mean_ms": 6.252334992168471,
+      "rule_histogram": {},
+      "wilson95": {
+        "low": 0.0,
+        "high": 0.03699480747600191,
+        "centre": 0.018497403738000955
+      }
+    },
+    {
+      "family": "F-file",
+      "stratum": "S1",
+      "label": "planted-positive",
+      "n": 7,
+      "n_eff": 7,
+      "flagged_high_plus": 7,
+      "flagged_critical_only": 0,
+      "flagged_medium_plus": null,
+      "unavailable_n": 0,
+      "unavailable_with_findings": null,
+      "pii_suppressed": null,
+      "ceiling_n": 0,
+      "mean_ms": 7.92237143364868,
+      "rule_histogram": {
+        "injection.ignore-previous": 7
+      },
+      "wilson95": {
+        "low": 0.6456611570247934,
+        "high": 1.0,
+        "centre": 0.8228305785123967
+      }
+    },
+    {
+      "family": "F-file",
+      "stratum": "S2",
+      "label": "benign",
+      "n": 30,
+      "n_eff": 30,
+      "flagged_high_plus": 0,
+      "flagged_critical_only": 0,
+      "flagged_medium_plus": null,
+      "unavailable_n": 0,
+      "unavailable_with_findings": null,
+      "pii_suppressed": null,
+      "ceiling_n": 0,
+      "mean_ms": 42.66154666741689,
+      "rule_histogram": {},
+      "wilson95": {
+        "low": 0.0,
+        "high": 0.113517091390478,
+        "centre": 0.05675854569523899
+      }
+    },
+    {
+      "family": "F-file",
+      "stratum": "S3",
+      "label": "benign",
+      "n": 10,
+      "n_eff": 10,
+      "flagged_high_plus": 0,
+      "flagged_critical_only": 0,
+      "flagged_medium_plus": null,
+      "unavailable_n": 0,
+      "unavailable_with_findings": null,
+      "pii_suppressed": null,
+      "ceiling_n": 0,
+      "mean_ms": 60.52695999387652,
+      "rule_histogram": {},
+      "wilson95": {
+        "low": 0.0,
+        "high": 0.2775401687666166,
+        "centre": 0.13877008438330826
+      }
+    },
+    {
+      "family": "F-mcp",
+      "stratum": "S-ceiling",
+      "label": "benign",
+      "n": 5,
+      "n_eff": 5,
+      "flagged_high_plus": 0,
+      "flagged_critical_only": 0,
+      "flagged_medium_plus": null,
+      "unavailable_n": 0,
+      "unavailable_with_findings": null,
+      "pii_suppressed": null,
+      "ceiling_n": 5,
+      "mean_ms": 455.8965199859813,
+      "rule_histogram": {},
+      "wilson95": {
+        "low": 0.0,
+        "high": 0.43449149475208104,
+        "centre": 0.21724574737604052
+      }
+    },
+    {
+      "family": "F-mcp",
+      "stratum": "S0",
+      "label": "benign",
+      "n": 100,
+      "n_eff": 100,
+      "flagged_high_plus": 0,
+      "flagged_critical_only": 0,
+      "flagged_medium_plus": null,
+      "unavailable_n": 0,
+      "unavailable_with_findings": null,
+      "pii_suppressed": null,
+      "ceiling_n": 0,
+      "mean_ms": 1.715543003519997,
+      "rule_histogram": {},
+      "wilson95": {
+        "low": 0.0,
+        "high": 0.03699480747600191,
+        "centre": 0.018497403738000955
+      }
+    },
+    {
+      "family": "F-mcp",
+      "stratum": "S0",
+      "label": "planted-positive",
+      "n": 3,
+      "n_eff": 3,
+      "flagged_high_plus": 3,
+      "flagged_critical_only": 0,
+      "flagged_medium_plus": null,
+      "unavailable_n": 0,
+      "unavailable_with_findings": null,
+      "pii_suppressed": null,
+      "ceiling_n": 0,
+      "mean_ms": 1.1328333445514243,
+      "rule_histogram": {
+        "injection.ignore-previous": 3
+      },
+      "wilson95": {
+        "low": 0.43849391955098227,
+        "high": 1.0,
+        "centre": 0.7192469597754911
+      }
+    },
+    {
+      "family": "F-mcp",
+      "stratum": "S1",
+      "label": "benign",
+      "n": 100,
+      "n_eff": 100,
+      "flagged_high_plus": 0,
+      "flagged_critical_only": 0,
+      "flagged_medium_plus": null,
+      "unavailable_n": 0,
+      "unavailable_with_findings": null,
+      "pii_suppressed": null,
+      "ceiling_n": 0,
+      "mean_ms": 5.1729340048041195,
+      "rule_histogram": {},
+      "wilson95": {
+        "low": 0.0,
+        "high": 0.03699480747600191,
+        "centre": 0.018497403738000955
+      }
+    },
+    {
+      "family": "F-mcp",
+      "stratum": "S1",
+      "label": "planted-positive",
+      "n": 7,
+      "n_eff": 7,
+      "flagged_high_plus": 7,
+      "flagged_critical_only": 0,
+      "flagged_medium_plus": null,
+      "unavailable_n": 0,
+      "unavailable_with_findings": null,
+      "pii_suppressed": null,
+      "ceiling_n": 0,
+      "mean_ms": 7.092100002669862,
+      "rule_histogram": {
+        "injection.ignore-previous": 7
+      },
+      "wilson95": {
+        "low": 0.6456611570247934,
+        "high": 1.0,
+        "centre": 0.8228305785123967
+      }
+    },
+    {
+      "family": "F-mcp",
+      "stratum": "S2",
+      "label": "benign",
+      "n": 30,
+      "n_eff": 30,
+      "flagged_high_plus": 0,
+      "flagged_critical_only": 0,
+      "flagged_medium_plus": null,
+      "unavailable_n": 0,
+      "unavailable_with_findings": null,
+      "pii_suppressed": null,
+      "ceiling_n": 0,
+      "mean_ms": 33.20139666320756,
+      "rule_histogram": {},
+      "wilson95": {
+        "low": 0.0,
+        "high": 0.113517091390478,
+        "centre": 0.05675854569523899
+      }
+    },
+    {
+      "family": "F-mcp",
+      "stratum": "S3",
+      "label": "benign",
+      "n": 10,
+      "n_eff": 10,
+      "flagged_high_plus": 0,
+      "flagged_critical_only": 0,
+      "flagged_medium_plus": null,
+      "unavailable_n": 0,
+      "unavailable_with_findings": null,
+      "pii_suppressed": null,
+      "ceiling_n": 0,
+      "mean_ms": 47.03396001132205,
+      "rule_histogram": {},
+      "wilson95": {
+        "low": 0.0,
+        "high": 0.2775401687666166,
+        "centre": 0.13877008438330826
+      }
+    },
+    {
+      "family": "F-stdout",
+      "stratum": "S-ceiling",
+      "label": "benign",
+      "n": 5,
+      "n_eff": 5,
+      "flagged_high_plus": 0,
+      "flagged_critical_only": 0,
+      "flagged_medium_plus": null,
+      "unavailable_n": 0,
+      "unavailable_with_findings": null,
+      "pii_suppressed": null,
+      "ceiling_n": 5,
+      "mean_ms": 490.32424001488835,
+      "rule_histogram": {},
+      "wilson95": {
+        "low": 0.0,
+        "high": 0.43449149475208104,
+        "centre": 0.21724574737604052
+      }
+    },
+    {
+      "family": "F-stdout",
+      "stratum": "S0",
+      "label": "benign",
+      "n": 100,
+      "n_eff": 100,
+      "flagged_high_plus": 0,
+      "flagged_critical_only": 0,
+      "flagged_medium_plus": null,
+      "unavailable_n": 0,
+      "unavailable_with_findings": null,
+      "pii_suppressed": null,
+      "ceiling_n": 0,
+      "mean_ms": 1.4894180023111403,
+      "rule_histogram": {},
+      "wilson95": {
+        "low": 0.0,
+        "high": 0.03699480747600191,
+        "centre": 0.018497403738000955
+      }
+    },
+    {
+      "family": "F-stdout",
+      "stratum": "S0",
+      "label": "planted-positive",
+      "n": 3,
+      "n_eff": 3,
+      "flagged_high_plus": 3,
+      "flagged_critical_only": 0,
+      "flagged_medium_plus": null,
+      "unavailable_n": 0,
+      "unavailable_with_findings": null,
+      "pii_suppressed": null,
+      "ceiling_n": 0,
+      "mean_ms": 1.3305666313196223,
+      "rule_histogram": {
+        "injection.ignore-previous": 3
+      },
+      "wilson95": {
+        "low": 0.43849391955098227,
+        "high": 1.0,
+        "centre": 0.7192469597754911
+      }
+    },
+    {
+      "family": "F-stdout",
+      "stratum": "S1",
+      "label": "benign",
+      "n": 100,
+      "n_eff": 100,
+      "flagged_high_plus": 0,
+      "flagged_critical_only": 0,
+      "flagged_medium_plus": null,
+      "unavailable_n": 0,
+      "unavailable_with_findings": null,
+      "pii_suppressed": null,
+      "ceiling_n": 0,
+      "mean_ms": 5.686990001704544,
+      "rule_histogram": {},
+      "wilson95": {
+        "low": 0.0,
+        "high": 0.03699480747600191,
+        "centre": 0.018497403738000955
+      }
+    },
+    {
+      "family": "F-stdout",
+      "stratum": "S1",
+      "label": "planted-positive",
+      "n": 7,
+      "n_eff": 7,
+      "flagged_high_plus": 7,
+      "flagged_critical_only": 0,
+      "flagged_medium_plus": null,
+      "unavailable_n": 0,
+      "unavailable_with_findings": null,
+      "pii_suppressed": null,
+      "ceiling_n": 0,
+      "mean_ms": 7.103971455113164,
+      "rule_histogram": {
+        "injection.ignore-previous": 7
+      },
+      "wilson95": {
+        "low": 0.6456611570247934,
+        "high": 1.0,
+        "centre": 0.8228305785123967
+      }
+    },
+    {
+      "family": "F-stdout",
+      "stratum": "S2",
+      "label": "benign",
+      "n": 30,
+      "n_eff": 30,
+      "flagged_high_plus": 0,
+      "flagged_critical_only": 0,
+      "flagged_medium_plus": null,
+      "unavailable_n": 0,
+      "unavailable_with_findings": null,
+      "pii_suppressed": null,
+      "ceiling_n": 0,
+      "mean_ms": 35.510180001923196,
+      "rule_histogram": {},
+      "wilson95": {
+        "low": 0.0,
+        "high": 0.113517091390478,
+        "centre": 0.05675854569523899
+      }
+    },
+    {
+      "family": "F-stdout",
+      "stratum": "S3",
+      "label": "benign",
+      "n": 10,
+      "n_eff": 10,
+      "flagged_high_plus": 0,
+      "flagged_critical_only": 0,
+      "flagged_medium_plus": null,
+      "unavailable_n": 0,
+      "unavailable_with_findings": null,
+      "pii_suppressed": null,
+      "ceiling_n": 0,
+      "mean_ms": 50.072740006726235,
+      "rule_histogram": {},
+      "wilson95": {
+        "low": 0.0,
+        "high": 0.2775401687666166,
+        "centre": 0.13877008438330826
+      }
+    }
+  ],
+  "measurement": "complete",
+  "policy_recommendation": {
+    "kind": "retain_high_plus"
+  }
+}

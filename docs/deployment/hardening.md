@@ -51,9 +51,75 @@ Above 1,000,000 characters the helper scans `result[:1_000_000]` and names
 (annotate-never-withhold). A clean result below the ceiling is pass-through; a
 clean result above the ceiling gets a `path="ceiling"` banner and an INFO
 `PETASOS_RESULT_CEILING` line. HIGH+ non-PII findings take `ingest_flagged` with
-`coverage=full|ceiling`. A syntactic-chunk exception with no HIGH+ finding is
-`ingest_unscanned` `cause=sweep_error` (the helper's length-based coverage is
-not treated as clean). ML backends still see only the 2,048-character head.
+`coverage=full|ceiling`. Any helper `scan.errors` is `scan_unavailable` even
+when HIGH+ findings exist (PET-209). `unavailable_with_findings` is not a HIGH+
+flag. Incomplete coverage is not a clean sample. ML backends still see only the
+2,048-character head.
+
+### HIGH+ calibration (PET-200)
+
+The HIGH+ annotate gate was remeasured through `_transform_tool_result` on a
+frozen constructed corpus (templates under `tests/fixtures/pet200/` plus listed
+in-repo text files in `manifest.json`). Base install, layered PET-178
+coverage. Scanner rules and `_BLOCK_RANK` did not change in PET-200. Manifest
+SHA-256 (newline-normalized UTF-8):
+`53d7a6023e1b83f3c31d8fe245abd48b71c02bfd122514b7dee600aa790ba715`.
+
+**Current evidence: post-PET-201 remeasure.** Measured shipped master is
+`751a01cee5c16ca6382c3c690d105e5ba975de72` (PET-201, PR #186, squash-merged;
+the PR head `5d35ce6` is not an ancestor of master). The harness ran at
+calibration-run commit `efe6974b001a5a510fc3ae84ef63e0a8a4f4d503`, which is a
+merge of that master into the PET-200 branch and is what the report records
+as `scanner_commit.git` / `plugin_commit`. The two SHAs are deliberately
+distinct: the first names the scanner tree being measured, the second names
+the tree the harness and corpus were run from. Report:
+`docs/specs/TODO/PET-200.post-pet-201.report.json`
+(`phase=post-pet-201`, `--remeasure`, no `--limit`, `measurement=complete`,
+`config_label=base`, `scanner_commit.minimal_py`
+`6173e1d0f54da1ac9465cd2d24920cd348e757900307d3f6c063eb21dc781b63`).
+
+Family-level banner rates, benign, coverage=full, S0+S1, n=200 per family.
+Unavailable samples are excluded from the rate (PET-209). Table A (`base`)
+only; ML extras were not measured (`extras-llm-guard`, `extras-llamafirewall`,
+`extras-presidio` each `not measured`). Policy recommendation:
+`retain_high_plus`, from a complete measured core (both S0 and S1 observed
+for all four families, 0 unavailable). An empty, partial, or all-unavailable
+run is insufficient evidence, not a retain recommendation; a family lacking
+either its S0 or its S1 benign stratum is partial.
+
+| family | n | n_eff | CRITICAL-only | HIGH+ | MEDIUM+ | unavailable | mean_ms |
+|---|---|---|---|---|---|---|---|
+| F-browser | 200 | 200 | 0 (0.00%) | 0 (0.00%) | not measured | 0 | 4.14 |
+| F-mcp | 200 | 200 | 0 (0.00%) | 0 (0.00%) | not measured | 0 | 3.44 |
+| F-stdout | 200 | 200 | 0 (0.00%) | 0 (0.00%) | not measured | 0 | 3.59 |
+| F-file (control) | 200 | 200 | 0 (0.00%) | 0 (0.00%) | not measured | 0 | 4.18 |
+
+Outside the core: S2 (n=30 per family) and S3 (n=10 per family) benign are
+0 HIGH+ in every family. S-ceiling (n=5 per family, payload above 1,000,000
+characters): browser, MCP, and stdout are 0 HIGH+ with all five samples
+`ceiling_clean`; F-file has 1 of 5 flagged CRITICAL
+`structural.excessive-depth` (an in-repo file repeated past the ceiling).
+Planted positives (S0 n=3, S1 n=7 per family) are 10/10 flagged
+`injection.ignore-previous` in every family.
+
+MEDIUM+, PII-suppressed, and unavailable-with-findings need helper observation
+(PET-219). HIGH+ and CRITICAL-only are operator-visible banner rates.
+
+**Historical baseline (superseded as evidence).** The first run was at
+calibration-run commit `4ba9e09f7999d2a5d258964b67f451ed1a57be58` against
+scanner baseline `bda619b` (pre-PET-201; that commit does not contain this
+corpus). It reported the same 0/200 HIGH+ core rates per family and
+`retain_high_plus`. It is the baseline, not the PET-201 calibration. A
+diagnostic replay of the same freeze at `fed5e39` (pre-PET-201 scanner) and
+`efe6974` (post-PET-201 scanner) produced count-identical results in all 28
+cells, including the single F-file S-ceiling `excessive-depth` flag.
+
+Wilson 95% upper bound on a 0/200 family rollup is about 1.88%
+(representativeness limit, not a fail line). A 0/100 stratum has an upper
+bound of about 3.7%. S3 and S-ceiling n is smaller than the fatigue core.
+S2+ `oversized-payload` is evaluated per chunk/head (`CHUNK_CHARS` /
+`HEAD_CHARS`), not on the whole result. The PET-170 816-file 6.5%/0.5%
+figures are historical; they are not current evidence for this gate.
 
 ## 2. Console binding
 
