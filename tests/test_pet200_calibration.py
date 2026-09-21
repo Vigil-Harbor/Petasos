@@ -327,6 +327,10 @@ def test_ingest_flagged_counts_medium_plus(harness: Any) -> None:
     acc.add("clean", 1.0, None, None)
     assert acc.flagged_high_plus == 2
     assert acc.flagged_medium_plus == 2
+    acc.add("ingest_flagged", 1.0, "injection.ignore-previous", "MEDIUM")
+    assert acc.flagged_high_plus == 3
+    assert acc.flagged_medium_plus == 3
+    assert acc.flagged_critical_only == 1
 
 
 def test_planted_payloads_stay_in_stratum(harness: Any) -> None:
