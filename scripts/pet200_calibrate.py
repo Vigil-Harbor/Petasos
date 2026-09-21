@@ -536,6 +536,9 @@ def _finalize_cell(family: str, stratum: str, label: str, acc: CellAccum) -> dic
     }
 
 
+_CORE_STRATA: frozenset[str] = frozenset({"S0", "S1"})
+
+
 def policy_from_cells(
     cells: list[dict[str, Any]],
     *,
@@ -544,14 +547,18 @@ def policy_from_cells(
     """Family-level S0∪S1 benign fatigue test (Decision 3).
 
     Retain requires usable core evidence for every required family. Empty,
-    partial, and unavailable cores are not keep-gate evidence.
+    partial, and unavailable cores are not keep-gate evidence. A family's core
+    is complete only when BOTH the S0 and the S1 benign strata were observed;
+    a family with one stratum missing is partial and never retains.
     """
     if not complete:
         return {"kind": "insufficient_evidence", "reason": "partial"}
     by_family: dict[str, tuple[int, int, dict[str, int]]] = {}
+    strata_seen: dict[str, set[str]] = {}
     for cell in cells:
         if cell["label"] != "benign" or cell["stratum"] not in ("S0", "S1"):
             continue
+        strata_seen.setdefault(cell["family"], set()).add(cell["stratum"])
         flagged, n_eff, hist = by_family.get(cell["family"], (0, 0, {}))
         merged = dict(hist)
         for rule, count in cell["rule_histogram"].items():
@@ -561,7 +568,7 @@ def policy_from_cells(
             n_eff + int(cell["n_eff"]),
             merged,
         )
-    missing = [family for family in FAMILIES if family not in by_family]
+    missing = [family for family in FAMILIES if strata_seen.get(family, set()) != _CORE_STRATA]
     if missing:
         return {
             "kind": "insufficient_evidence",

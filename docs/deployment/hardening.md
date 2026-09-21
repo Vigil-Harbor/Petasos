@@ -71,7 +71,8 @@ Family-level banner rates, benign, coverage=full, S0+S1, n=200 per family.
 Unavailable samples are excluded from the rate (PET-209). Table A (`base`)
 only; ML extras were not measured. Policy: retain HIGH+, from a complete
 measured core. An empty, partial, or all-unavailable run is insufficient
-evidence, not a retain recommendation.
+evidence, not a retain recommendation; a family lacking either its S0 or
+its S1 benign stratum is partial.
 
 | family | n | CRITICAL-only | HIGH+ | MEDIUM+ | unavailable | mean_ms |
 |---|---|---|---|---|---|---|

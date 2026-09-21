@@ -411,6 +411,29 @@ def test_one_unavailable_family_does_not_retain(harness: Any) -> None:
     assert rec["families"] == ["F-browser"]
 
 
+def test_s0_only_core_does_not_retain(harness: Any) -> None:
+    # Regression (CodeRabbit #187): one S0 cell per family with no S1 evidence
+    # used to satisfy the family-presence check and retain HIGH+. Every
+    # required family must have exactly both S0 and S1 benign strata.
+    cells = [_benign_core_cell(family, "S0", n_eff=100) for family in harness.FAMILIES]
+    rec = harness.policy_from_cells(cells)
+    assert rec["kind"] == "insufficient_evidence"
+    assert rec["reason"] == "partial"
+    assert rec["families"] == list(harness.FAMILIES)
+
+
+def test_one_family_missing_s1_does_not_retain(harness: Any) -> None:
+    cells: list[dict[str, Any]] = []
+    for family in harness.FAMILIES:
+        cells.append(_benign_core_cell(family, "S0", n_eff=100))
+        if family != "F-stdout":
+            cells.append(_benign_core_cell(family, "S1", n_eff=100))
+    rec = harness.policy_from_cells(cells)
+    assert rec["kind"] == "insufficient_evidence"
+    assert rec["reason"] == "partial"
+    assert rec["families"] == ["F-stdout"]
+
+
 def test_measured_complete_core_retains(harness: Any) -> None:
     rec = harness.policy_from_cells(_complete_core(harness, n_eff=100, flagged=0))
     assert rec == {"kind": "retain_high_plus"}

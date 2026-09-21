@@ -15,7 +15,8 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
   (benign, coverage=full, S0+S1, n=200 per family): browser 0.00%; unknown/MCP
   0.00%; stdout 0.00%; read_file control 0.00%. Unavailable samples are excluded
   from those rates (PET-209). Empty, partial, or all-unavailable cores do
-  not recommend retaining the gate. The HIGH+ ordinal is unchanged. Final
+  not recommend retaining the gate; a family lacking either its S0 or its S1
+  benign stratum is partial. The HIGH+ ordinal is unchanged. Final
   calibration of PET-201 rule edits requires remeasure of the same freeze.
   Residuals: constructed corpus (no production traffic); ML extras
   not measured; helper-only MEDIUM+/PII columns not measured (PET-219);
