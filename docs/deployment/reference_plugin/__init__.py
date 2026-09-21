@@ -2514,7 +2514,7 @@ def _transform_tool_result(
         return None
     except Exception as exc:
         logger.warning(
-            "PETASOS_RESULT_SCAN_ERROR tool=%s: %s; content passed through untouched",
+            "PETASOS_RESULT_SCAN_ERROR tool=%s: %r; content passed through untouched",
             tool_name,
             exc,
         )
