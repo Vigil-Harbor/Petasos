@@ -178,6 +178,11 @@ def test_config_labels_base_and_missing_extras(harness: Any) -> None:
     )
     assert report["config_label"] == "base"
     assert report["config_label"] != "ml"
+    assert ml["policy_recommendation"]["kind"] == "insufficient_evidence"
+    assert ml["policy_recommendation"]["reason"] == "not_measured"
+    assert report["measurement"] == "partial"
+    assert report["policy_recommendation"]["kind"] == "insufficient_evidence"
+    assert report["policy_recommendation"]["reason"] == "partial"
 
 
 def test_benign_s0_smoke_no_planted_phrase(harness: Any, plugin: Any) -> None:
@@ -312,6 +317,10 @@ def test_wilson_null_when_n_eff_zero(harness: Any) -> None:
     interval = harness.wilson95(0, 200)
     assert interval is not None
     assert interval["low"] <= interval["centre"] <= interval["high"]
+    assert 0.018 < interval["high"] < 0.019
+    stratum = harness.wilson95(0, 100)
+    assert stratum is not None
+    assert 0.036 < stratum["high"] < 0.038
 
 
 def test_ingest_flagged_counts_medium_plus(harness: Any) -> None:
@@ -347,3 +356,72 @@ def test_planted_payloads_stay_in_stratum(harness: Any) -> None:
         if sample.offset == "beyond_head":
             assert payload.find(harness.PLANTED_PHRASE) >= harness.BEYOND_HEAD_OFFSET
     assert planted == 40
+
+
+def _benign_core_cell(
+    family: str, stratum: str, *, n_eff: int, flagged: int = 0
+) -> dict[str, Any]:
+    return {
+        "family": family,
+        "stratum": stratum,
+        "label": "benign",
+        "n": n_eff,
+        "n_eff": n_eff,
+        "flagged_high_plus": flagged,
+        "rule_histogram": {},
+    }
+
+
+def _complete_core(harness: Any, *, n_eff: int = 100, flagged: int = 0) -> list[dict[str, Any]]:
+    cells: list[dict[str, Any]] = []
+    for family in harness.FAMILIES:
+        cells.append(_benign_core_cell(family, "S0", n_eff=n_eff, flagged=flagged))
+        cells.append(_benign_core_cell(family, "S1", n_eff=n_eff, flagged=flagged))
+    return cells
+
+
+def test_empty_cells_do_not_retain(harness: Any) -> None:
+    rec = harness.policy_from_cells([])
+    assert rec["kind"] == "insufficient_evidence"
+    assert rec["reason"] == "empty"
+
+
+def test_partial_run_does_not_retain(harness: Any) -> None:
+    rec = harness.policy_from_cells(_complete_core(harness), complete=False)
+    assert rec["kind"] == "insufficient_evidence"
+    assert rec["reason"] == "partial"
+
+
+def test_all_unavailable_core_does_not_retain(harness: Any) -> None:
+    rec = harness.policy_from_cells(_complete_core(harness, n_eff=0))
+    assert rec["kind"] == "insufficient_evidence"
+    assert rec["reason"] == "unavailable"
+    assert rec["families"] == list(harness.FAMILIES)
+
+
+def test_one_unavailable_family_does_not_retain(harness: Any) -> None:
+    cells: list[dict[str, Any]] = []
+    for family in harness.FAMILIES:
+        n_eff = 0 if family == "F-browser" else 100
+        cells.append(_benign_core_cell(family, "S0", n_eff=n_eff))
+        cells.append(_benign_core_cell(family, "S1", n_eff=n_eff))
+    rec = harness.policy_from_cells(cells)
+    assert rec["kind"] == "insufficient_evidence"
+    assert rec["reason"] == "unavailable"
+    assert rec["families"] == ["F-browser"]
+
+
+def test_measured_complete_core_retains(harness: Any) -> None:
+    rec = harness.policy_from_cells(_complete_core(harness, n_eff=100, flagged=0))
+    assert rec == {"kind": "retain_high_plus"}
+
+
+def test_finalized_helper_only_fields_are_not_measured(harness: Any) -> None:
+    acc = harness.CellAccum()
+    acc.add("ingest_flagged", 1.0, "injection.ignore-previous", "HIGH")
+    cell = harness._finalize_cell("F-file", "S0", "planted-positive", acc)
+    assert cell["flagged_high_plus"] == 1
+    assert cell["flagged_critical_only"] == 0
+    assert cell["flagged_medium_plus"] is None
+    assert cell["unavailable_with_findings"] is None
+    assert cell["pii_suppressed"] is None

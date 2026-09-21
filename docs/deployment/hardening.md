@@ -69,18 +69,24 @@ SHA-256 (newline-normalized UTF-8):
 
 Family-level banner rates, benign, coverage=full, S0+S1, n=200 per family.
 Unavailable samples are excluded from the rate (PET-209). Table A (`base`)
-only; ML extras were not measured. Policy: retain HIGH+.
+only; ML extras were not measured. Policy: retain HIGH+, from a complete
+measured core. An empty, partial, or all-unavailable run is insufficient
+evidence, not a retain recommendation.
 
 | family | n | CRITICAL-only | HIGH+ | MEDIUM+ | unavailable | mean_ms |
 |---|---|---|---|---|---|---|
-| F-browser | 200 | 0.00% | 0.00% | 0.00% | 0 | 3.36 |
-| F-mcp | 200 | 0.00% | 0.00% | 0.00% | 0 | 3.44 |
-| F-stdout | 200 | 0.00% | 0.00% | 0.00% | 0 | 3.87 |
-| F-file (control) | 200 | 0.00% | 0.00% | 0.00% | 0 | 4.27 |
+| F-browser | 200 | 0.00% | 0.00% | not measured | 0 | 3.36 |
+| F-mcp | 200 | 0.00% | 0.00% | not measured | 0 | 3.44 |
+| F-stdout | 200 | 0.00% | 0.00% | not measured | 0 | 3.87 |
+| F-file (control) | 200 | 0.00% | 0.00% | not measured | 0 | 4.27 |
+
+MEDIUM+, PII-suppressed, and unavailable-with-findings need helper observation
+(PET-219). HIGH+ and CRITICAL-only are operator-visible banner rates.
 
 This is a baseline, not a final calibration of expanded scanner rules. Remeasure
 the same freeze on PET-201's merge SHA before claiming that. Wilson 95% upper
-bound on a 0/200 cell is about 3.7% (representativeness limit, not a fail line).
+bound on a 0/200 family rollup is about 1.88% (representativeness limit, not a
+fail line). A 0/100 stratum has an upper bound of about 3.7%.
 S3 and S-ceiling n is smaller than the fatigue core. S2+ `oversized-payload` is
 evaluated per chunk/head (`CHUNK_CHARS` / `HEAD_CHARS`), not on the whole
 result. The PET-170 816-file 6.5%/0.5% figures are historical; they are not

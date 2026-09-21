@@ -14,10 +14,12 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
   base install, layered PET-178 coverage). Family-level HIGH+ banner rates
   (benign, coverage=full, S0+S1, n=200 per family): browser 0.00%; unknown/MCP
   0.00%; stdout 0.00%; read_file control 0.00%. Unavailable samples are excluded
-  from those rates (PET-209). The HIGH+ ordinal is unchanged. Final
+  from those rates (PET-209). Empty, partial, or all-unavailable cores do
+  not recommend retaining the gate. The HIGH+ ordinal is unchanged. Final
   calibration of PET-201 rule edits requires remeasure of the same freeze.
   Residuals: constructed corpus (no production traffic); ML extras
-  not measured; S3/S-ceiling n is smaller than the fatigue core.
+  not measured; helper-only MEDIUM+/PII columns not measured (PET-219);
+  S3/S-ceiling n is smaller than the fatigue core.
 
 - **Ingestion results use a layered scan on a dedicated K=1 loop (PET-178).**
   Each ingesting result takes a 2,048-character `inspect()` head plus overlapping

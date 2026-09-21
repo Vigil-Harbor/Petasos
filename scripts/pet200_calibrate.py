@@ -524,10 +524,11 @@ def _finalize_cell(family: str, stratum: str, label: str, acc: CellAccum) -> dic
         "n_eff": n_eff,
         "flagged_high_plus": acc.flagged_high_plus,
         "flagged_critical_only": acc.flagged_critical_only,
-        "flagged_medium_plus": acc.flagged_medium_plus,
+        # Handler-only observation cannot see helper-only MEDIUM/PII (PET-219).
+        "flagged_medium_plus": None,
         "unavailable_n": acc.unavailable_n,
-        "unavailable_with_findings": acc.unavailable_with_findings,
-        "pii_suppressed": acc.pii_suppressed,
+        "unavailable_with_findings": None,
+        "pii_suppressed": None,
         "ceiling_n": acc.ceiling_n,
         "mean_ms": mean_ms,
         "rule_histogram": dict(sorted(acc.rule_histogram.items())),
@@ -535,8 +536,18 @@ def _finalize_cell(family: str, stratum: str, label: str, acc: CellAccum) -> dic
     }
 
 
-def policy_from_cells(cells: list[dict[str, Any]]) -> dict[str, Any]:
-    """Family-level S0∪S1 benign fatigue test (Decision 3)."""
+def policy_from_cells(
+    cells: list[dict[str, Any]],
+    *,
+    complete: bool = True,
+) -> dict[str, Any]:
+    """Family-level S0∪S1 benign fatigue test (Decision 3).
+
+    Retain requires usable core evidence for every required family. Empty,
+    partial, and unavailable cores are not keep-gate evidence.
+    """
+    if not complete:
+        return {"kind": "insufficient_evidence", "reason": "partial"}
     by_family: dict[str, tuple[int, int, dict[str, int]]] = {}
     for cell in cells:
         if cell["label"] != "benign" or cell["stratum"] not in ("S0", "S1"):
@@ -550,9 +561,23 @@ def policy_from_cells(cells: list[dict[str, Any]]) -> dict[str, Any]:
             n_eff + int(cell["n_eff"]),
             merged,
         )
+    missing = [family for family in FAMILIES if family not in by_family]
+    if missing:
+        return {
+            "kind": "insufficient_evidence",
+            "reason": "empty" if not by_family else "partial",
+            "families": list(missing),
+        }
+    unavailable_families = [
+        family for family, (_flagged, n_eff, _hist) in by_family.items() if n_eff == 0
+    ]
+    if unavailable_families:
+        return {
+            "kind": "insufficient_evidence",
+            "reason": "unavailable",
+            "families": unavailable_families,
+        }
     for family, (flagged, n_eff, hist) in by_family.items():
-        if n_eff == 0:
-            continue
         rate = flagged / n_eff
         if rate > 0.01:
             top_rule = max(hist, key=lambda rule: hist[rule]) if hist else "unknown"
@@ -596,7 +621,11 @@ def build_ml_report(*, phase: PhaseKind, git_sha: str, manifest_sha: str) -> dic
         "python": sys.version,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "cells": [],
-        "policy_recommendation": {"kind": "retain_high_plus"},
+        "measurement": "not_measured",
+        "policy_recommendation": {
+            "kind": "insufficient_evidence",
+            "reason": "not_measured",
+        },
     }
 
 
@@ -636,6 +665,7 @@ def run_table_a(
         _finalize_cell(family, stratum, label, bucket)
         for (family, stratum, label), bucket in sorted(acc.items())
     ]
+    complete = limit is None
     return {
         "schema_version": SCHEMA_VERSION,
         "ticket": TICKET,
@@ -648,7 +678,8 @@ def run_table_a(
         "python": sys.version,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "cells": cells,
-        "policy_recommendation": policy_from_cells(cells),
+        "measurement": "complete" if complete else "partial",
+        "policy_recommendation": policy_from_cells(cells, complete=complete),
     }
 
 
