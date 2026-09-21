@@ -316,11 +316,22 @@ def test_wilson_null_when_n_eff_zero(harness: Any) -> None:
     assert harness.wilson95(0, 0) is None
     interval = harness.wilson95(0, 200)
     assert interval is not None
-    assert interval["low"] <= interval["centre"] <= interval["high"]
+    assert interval["low"] == 0.0
+    assert interval["low"] <= interval["centre"] <= interval["high"] <= 1.0
     assert 0.018 < interval["high"] < 0.019
     stratum = harness.wilson95(0, 100)
     assert stratum is not None
+    assert stratum["low"] == 0.0
     assert 0.036 < stratum["high"] < 0.038
+    # S2 n=30 undershoots 0; a saturated n=5 overshoots 1. Both must clamp.
+    undershoot = harness.wilson95(0, 30)
+    assert undershoot is not None
+    assert undershoot["low"] == 0.0
+    assert 0.0 < undershoot["centre"] <= undershoot["high"] <= 1.0
+    saturated = harness.wilson95(5, 5)
+    assert saturated is not None
+    assert saturated["high"] == 1.0
+    assert 0.0 <= saturated["low"] <= saturated["centre"] <= 1.0
 
 
 def test_ingest_flagged_counts_medium_plus(harness: Any) -> None:

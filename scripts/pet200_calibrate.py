@@ -199,7 +199,11 @@ def git_head(repo: Path = _REPO) -> str:
 
 
 def wilson95(k: int, n: int) -> dict[str, float] | None:
-    """Wilson score interval at z=1.96. ``None`` when ``n == 0``."""
+    """Wilson score interval at z=1.96. ``None`` when ``n == 0``.
+
+    Endpoints are clamped to ``[0.0, 1.0]``. The closed form can leave that
+    range by a few ulps when ``k`` is ``0`` or ``n``.
+    """
     if n == 0:
         return None
     z = 1.96
@@ -210,8 +214,8 @@ def wilson95(k: int, n: int) -> dict[str, float] | None:
     inner = p * (1.0 - p) / n + z2 / (4.0 * n * n)
     half = z * math.sqrt(inner) / denom
     return {
-        "low": centre - half,
-        "high": centre + half,
+        "low": min(1.0, max(0.0, centre - half)),
+        "high": min(1.0, max(0.0, centre + half)),
         "centre": centre,
     }
 
