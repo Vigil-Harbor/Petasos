@@ -19,9 +19,12 @@ exercise real cancellation, loop isolation, or a real ``Pipeline`` say so in pla
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
+import contextlib
 import importlib.util
 import logging
 import threading
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -39,7 +42,7 @@ from petasos import (
     ToolCallGuard,
 )
 from petasos.scanners.minimal import MinimalScanner
-from petasos.session.guard import INGESTION_TOOLS, NON_INGESTING_TOOLS
+from petasos.session.guard import INGESTION_TOOLS, NON_INGESTING_TOOLS, GuardResult
 
 if TYPE_CHECKING:
     import types
@@ -1563,6 +1566,374 @@ def test_apply_reconfigure_waits_for_inspect_lock_and_yields_async_loop(
     finally:
         ref._inspect_lock.release()
     fut.result(timeout=5)
+
+
+# ---------------------------------------------------------------------------
+# PET-208: cancel-safe inspect-mutex ownership on plugin waiters
+# ---------------------------------------------------------------------------
+
+_EVAL_SENTINEL = object()
+
+
+class _StubGuard:
+    def __init__(self, result: Any = _EVAL_SENTINEL) -> None:
+        self.result = result
+        self.calls = 0
+
+    async def evaluate(self, tool_name: str, args: dict[str, Any], session_id: str) -> Any:
+        self.calls += 1
+        return self.result
+
+
+def _allowed_guard_result() -> GuardResult:
+    return GuardResult(
+        allowed=True,
+        reason="ok",
+        findings=(),
+        tier="none",
+        param_scan_unsafe=False,
+    )
+
+
+async def _with_captured_task(slot: list[asyncio.Task[Any]], coro: Any) -> Any:
+    task = asyncio.current_task()
+    assert task is not None
+    slot.append(task)
+    return await coro
+
+
+def _wait_for_slot(slot: list[asyncio.Task[Any]], timeout: float = 5.0) -> asyncio.Task[Any]:
+    deadline = time.monotonic() + timeout
+    while not slot:
+        if time.monotonic() >= deadline:
+            raise AssertionError("loop task was never captured")
+        time.sleep(0.01)
+    return slot[0]
+
+
+def _submit_waiter(
+    orig: Any, loop: asyncio.AbstractEventLoop, coro: Any
+) -> tuple[concurrent.futures.Future[Any], list[asyncio.Task[Any]]]:
+    slot: list[asyncio.Task[Any]] = []
+    fut = orig(_with_captured_task(slot, coro), loop)
+    return fut, slot
+
+
+def _ping_async_loop(orig: Any, loop: asyncio.AbstractEventLoop) -> None:
+    orig(asyncio.sleep(0), loop).result(timeout=2)
+
+
+def _cancel_and_join(
+    orig: Any, loop: asyncio.AbstractEventLoop, slot: list[asyncio.Task[Any]]
+) -> None:
+    task = _wait_for_slot(slot)
+
+    async def _join() -> None:
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    orig(_join(), loop).result(timeout=5)
+
+
+def _join_loop_task(
+    orig: Any, loop: asyncio.AbstractEventLoop, slot: list[asyncio.Task[Any]]
+) -> None:
+    task = _wait_for_slot(slot)
+
+    async def _join() -> None:
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await task
+
+    orig(_join(), loop).result(timeout=5)
+
+
+def _install_threadsafe_capture(
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[Any, list[asyncio.Task[Any]]]:
+    """Wrap ``asyncio.run_coroutine_threadsafe`` so ``_run_async`` retains a Task.
+
+    ``_run_async`` ``Future.cancel()`` marks the concurrent future done immediately
+    and only schedules ``Task.cancel()`` on ``_async_loop``. Do not treat
+    ``fut.done()`` as waiter-exited. Test-side joins must use the returned
+    original submitter.
+    """
+    slot: list[asyncio.Task[Any]] = []
+    orig = asyncio.run_coroutine_threadsafe
+
+    def _wrapped(coro: Any, loop: asyncio.AbstractEventLoop) -> concurrent.futures.Future[Any]:
+        return orig(_with_captured_task(slot, coro), loop)
+
+    monkeypatch.setattr(asyncio, "run_coroutine_threadsafe", _wrapped)
+    return orig, slot
+
+
+def _assert_no_wrong_release(lock: threading.Lock) -> None:
+    assert not lock.acquire(blocking=False)
+
+
+def _assert_no_steal(lock: threading.Lock) -> None:
+    assert lock.acquire(blocking=False)
+    lock.release()
+
+
+def test_cancel_apply_before_acquire_does_not_steal_or_wrong_release(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Regression for PET-208: cancelled apply waiter must not steal or wrong-release.
+    ref = _import_reference_plugin()
+    applied = {"n": 0}
+    monkeypatch.setattr(
+        ref, "_apply_reconfigure_body", lambda cfg: applied.__setitem__("n", applied["n"] + 1)
+    )
+    ref._ensure_async_loop()
+    assert ref._async_loop is not None
+    orig = asyncio.run_coroutine_threadsafe
+    lock = ref._inspect_lock
+    lock.acquire()
+    try:
+        fut, slot = _submit_waiter(orig, ref._async_loop, ref._apply_reconfigure(PetasosConfig()))
+        _wait_for_slot(slot)
+        _ping_async_loop(orig, ref._async_loop)
+        assert not fut.done()
+        _cancel_and_join(orig, ref._async_loop, slot)
+        _assert_no_wrong_release(lock)
+    finally:
+        if lock.locked():
+            lock.release()
+    _assert_no_steal(lock)
+    orig(ref._apply_reconfigure(PetasosConfig()), ref._async_loop).result(timeout=5)
+    assert applied["n"] == 1
+    _assert_no_steal(lock)
+
+
+def test_cancel_evaluate_before_acquire_does_not_steal_or_wrong_release(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Regression for PET-208: cancelled evaluate waiter must not steal or wrong-release.
+    ref = _import_reference_plugin()
+    guard = _StubGuard()
+    monkeypatch.setattr(ref, "_guard", guard)
+    ref._ensure_async_loop()
+    assert ref._async_loop is not None
+    orig = asyncio.run_coroutine_threadsafe
+    lock = ref._inspect_lock
+    lock.acquire()
+    try:
+        fut, slot = _submit_waiter(
+            orig,
+            ref._async_loop,
+            ref._evaluate_with_inspect_lock("write_file", {"path": "ok.txt"}, "s-208"),
+        )
+        _wait_for_slot(slot)
+        _ping_async_loop(orig, ref._async_loop)
+        assert not fut.done()
+        _cancel_and_join(orig, ref._async_loop, slot)
+        _assert_no_wrong_release(lock)
+    finally:
+        if lock.locked():
+            lock.release()
+    _assert_no_steal(lock)
+    out = orig(
+        ref._evaluate_with_inspect_lock("write_file", {"path": "ok.txt"}, "s-208"),
+        ref._async_loop,
+    ).result(timeout=5)
+    assert out is _EVAL_SENTINEL
+    assert guard.calls == 1
+    _assert_no_steal(lock)
+
+
+def test_run_async_timeout_while_apply_waits_does_not_strand_mutex(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Regression for PET-208: PET-126 apply timeout must not strand the mutex.
+    ref = _import_reference_plugin()
+    applied = {"n": 0}
+    monkeypatch.setattr(
+        ref, "_apply_reconfigure_body", lambda cfg: applied.__setitem__("n", applied["n"] + 1)
+    )
+    ref._ensure_async_loop()
+    assert ref._async_loop is not None
+    orig, slot = _install_threadsafe_capture(monkeypatch)
+    lock = ref._inspect_lock
+    lock.acquire()
+    try:
+        with pytest.raises(concurrent.futures.TimeoutError):
+            ref._run_async(ref._apply_reconfigure(PetasosConfig()), timeout=0.2)
+        _join_loop_task(orig, ref._async_loop, slot)
+        _assert_no_wrong_release(lock)
+    finally:
+        if lock.locked():
+            lock.release()
+    _assert_no_steal(lock)
+    orig(ref._apply_reconfigure(PetasosConfig()), ref._async_loop).result(timeout=5)
+    assert applied["n"] == 1
+    _assert_no_steal(lock)
+
+
+def test_run_async_timeout_while_evaluate_waits_fail_opens_one_call(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    # Regression for PET-208: evaluate timeout fail-opens that one call, not later ones.
+    ref = _import_reference_plugin()
+    guard = _StubGuard()
+    monkeypatch.setattr(ref, "_initialized", True)
+    monkeypatch.setattr(ref, "_init_error", None)
+    monkeypatch.setattr(ref, "_is_armed", lambda: True)
+    monkeypatch.setattr(ref, "_maybe_reconfigure", lambda: None)
+    monkeypatch.setattr(ref, "_config", {})
+    monkeypatch.setattr(ref, "_pipeline", object())
+    monkeypatch.setattr(ref, "_guard", guard)
+    ref._ensure_async_loop()
+    assert ref._async_loop is not None
+    orig, slot = _install_threadsafe_capture(monkeypatch)
+    lock = ref._inspect_lock
+    lock.acquire()
+    try:
+        with pytest.raises(concurrent.futures.TimeoutError):
+            ref._run_async(
+                ref._evaluate_with_inspect_lock("write_file", {"path": "ok.txt"}, "s-208"),
+                timeout=0.2,
+            )
+        _join_loop_task(orig, ref._async_loop, slot)
+        _assert_no_wrong_release(lock)
+    finally:
+        if lock.locked():
+            lock.release()
+    _assert_no_steal(lock)
+    out = ref._run_async(
+        ref._evaluate_with_inspect_lock("write_file", {"path": "ok.txt"}, "s-208")
+    )
+    assert out is _EVAL_SENTINEL
+    guard.result = _allowed_guard_result()
+    with caplog.at_level(logging.ERROR, logger="petasos.plugin"):
+        started = time.monotonic()
+        pre = ref._pre_tool_call("write_file", {"path": "ok.txt"}, task_id="s-208")
+        elapsed = time.monotonic() - started
+    assert elapsed < 5.0
+    assert pre is None
+    assert not any("guard evaluation failed" in r.getMessage() for r in caplog.records)
+    _assert_no_steal(lock)
+
+
+def test_cancel_evaluate_after_acquire_releases_then_progresses(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Regression for PET-208: cancel after acquire still releases; later evaluate progresses.
+    ref = _import_reference_plugin()
+    held = asyncio.Event()
+
+    class _HeldGuard:
+        calls = 0
+
+        async def evaluate(self, tool_name: str, args: dict[str, Any], session_id: str) -> Any:
+            self.calls += 1
+            held.set()
+            await asyncio.Event().wait()
+            return _EVAL_SENTINEL
+
+    guard = _HeldGuard()
+    monkeypatch.setattr(ref, "_guard", guard)
+    ref._ensure_async_loop()
+    assert ref._async_loop is not None
+    orig = asyncio.run_coroutine_threadsafe
+    lock = ref._inspect_lock
+    fut, slot = _submit_waiter(
+        orig,
+        ref._async_loop,
+        ref._evaluate_with_inspect_lock("write_file", {"path": "ok.txt"}, "s-208"),
+    )
+    orig(held.wait(), ref._async_loop).result(timeout=5)
+    assert lock.locked()
+    assert not fut.done()
+    _cancel_and_join(orig, ref._async_loop, slot)
+    _assert_no_steal(lock)
+    monkeypatch.setattr(ref, "_guard", _StubGuard())
+    out = orig(
+        ref._evaluate_with_inspect_lock("write_file", {"path": "ok.txt"}, "s-208"),
+        ref._async_loop,
+    ).result(timeout=5)
+    assert out is _EVAL_SENTINEL
+    _assert_no_steal(lock)
+
+
+def test_successful_uncontended_wait_still_releases(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Regression for PET-208: a successful wait still releases the mutex.
+    ref = _import_reference_plugin()
+    applied = {"n": 0}
+    monkeypatch.setattr(
+        ref, "_apply_reconfigure_body", lambda cfg: applied.__setitem__("n", applied["n"] + 1)
+    )
+    guard = _StubGuard()
+    monkeypatch.setattr(ref, "_guard", guard)
+    ref._ensure_async_loop()
+    assert ref._async_loop is not None
+    orig = asyncio.run_coroutine_threadsafe
+    orig(ref._apply_reconfigure(PetasosConfig()), ref._async_loop).result(timeout=5)
+    assert applied["n"] == 1
+    _assert_no_steal(ref._inspect_lock)
+    out = orig(
+        ref._evaluate_with_inspect_lock("write_file", {"path": "ok.txt"}, "s-208"),
+        ref._async_loop,
+    ).result(timeout=5)
+    assert out is _EVAL_SENTINEL
+    assert guard.calls == 1
+    _assert_no_steal(ref._inspect_lock)
+
+
+def test_run_async_timeout_after_apply_acquired_still_releases(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Regression for PET-208: timeout after acquire still finishes the sync body and release.
+    ref = _import_reference_plugin()
+    started = threading.Event()
+
+    def _slow_body(cfg: PetasosConfig) -> None:
+        started.set()
+        time.sleep(0.3)
+
+    monkeypatch.setattr(ref, "_apply_reconfigure_body", _slow_body)
+    ref._ensure_async_loop()
+    assert ref._async_loop is not None
+    orig, slot = _install_threadsafe_capture(monkeypatch)
+    with pytest.raises(concurrent.futures.TimeoutError):
+        ref._run_async(ref._apply_reconfigure(PetasosConfig()), timeout=0.05)
+    assert started.wait(timeout=5)
+    _join_loop_task(orig, ref._async_loop, slot)
+    _assert_no_steal(ref._inspect_lock)
+    applied = {"n": 0}
+    monkeypatch.setattr(
+        ref, "_apply_reconfigure_body", lambda cfg: applied.__setitem__("n", applied["n"] + 1)
+    )
+    orig(ref._apply_reconfigure(PetasosConfig()), ref._async_loop).result(timeout=5)
+    assert applied["n"] == 1
+    _assert_no_steal(ref._inspect_lock)
+
+
+def test_apply_body_raises_still_releases(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Regression for PET-208: apply body exception still releases; a later apply proceeds.
+    ref = _import_reference_plugin()
+
+    def _boom(cfg: PetasosConfig) -> None:
+        raise RuntimeError("apply exploded")
+
+    monkeypatch.setattr(ref, "_apply_reconfigure_body", _boom)
+    ref._ensure_async_loop()
+    assert ref._async_loop is not None
+    orig = asyncio.run_coroutine_threadsafe
+    fut = orig(ref._apply_reconfigure(PetasosConfig()), ref._async_loop)
+    with pytest.raises(RuntimeError, match="apply exploded"):
+        fut.result(timeout=5)
+    _assert_no_steal(ref._inspect_lock)
+    applied = {"n": 0}
+    monkeypatch.setattr(
+        ref, "_apply_reconfigure_body", lambda cfg: applied.__setitem__("n", applied["n"] + 1)
+    )
+    orig(ref._apply_reconfigure(PetasosConfig()), ref._async_loop).result(timeout=5)
+    assert applied["n"] == 1
+    _assert_no_steal(ref._inspect_lock)
 
 
 # ---------------------------------------------------------------------------
