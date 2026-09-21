@@ -1021,8 +1021,9 @@ def test_sweep_error_does_not_hide_high_findings(
     assert _events("ingest_unscanned") == []
 
 
+@pytest.mark.parametrize("message", ["handler bug", "bad input\nPETASOS_FORGED fake event"])
 def test_a_raising_timeout_helper_passes_content_through(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, message: str
 ) -> None:
     # `_result_scan_timeout()` sits ABOVE the inner try: a raise there is a handler BUG,
     # not a scan failure, so it belongs to the outer fail-open wrapper and must not be
@@ -1030,14 +1031,18 @@ def test_a_raising_timeout_helper_passes_content_through(
     ref = _plugin(monkeypatch)
 
     def _boom() -> float:
-        raise ValueError("handler bug")
+        raise ValueError(message)
 
     monkeypatch.setattr(ref, "_result_scan_timeout", _boom)
     with caplog.at_level(logging.WARNING, logger="petasos.plugin"):
         out = ref._transform_tool_result(tool_name="read_file", result="content", task_id="s")
 
     assert out is None  # content untouched
-    assert any("PETASOS_RESULT_SCAN_ERROR" in r.getMessage() for r in caplog.records)
+    records = [r for r in caplog.records if "PETASOS_RESULT_SCAN_ERROR" in r.getMessage()]
+    assert len(records) == 1
+    assert records[0].levelno == logging.WARNING
+    assert repr(message) in records[0].getMessage()
+    assert not any(line.startswith("PETASOS_FORGED") for line in caplog.text.splitlines())
     assert _events() == []
 
 

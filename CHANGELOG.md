@@ -96,8 +96,9 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
   ignores a syntactic error; the fallback has only MinimalScanner, so
   an error means nothing scanned the call. Residuals: findings-plus-error
   is exercised only via the test stub (the real scanner never returns
-  both); `PETASOS_RESULT_SCAN_ERROR` on the result-scan seam still
-  uses `%s`.
+  both). **PET-204:** `PETASOS_RESULT_SCAN_ERROR` on the result-scan seam
+  now uses `%r`, escaping embedded newlines so error text cannot forge a
+  second `PETASOS_` log line.
 
 - **Zero-width word separators no longer hide injection phrases from the
   syntactic battery (PET-198).** `normalize()` still concatenates after
