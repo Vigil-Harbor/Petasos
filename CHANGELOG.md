@@ -91,6 +91,16 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
 
 ### Fixed
 
+- **Guard and reconfigure waits no longer leak the shared inspect mutex
+  (PET-208).** `_evaluate_with_inspect_lock` and `_apply_reconfigure` poll
+  the same non-blocking acquire the ingestion helper uses, and release only
+  if this task acquired. Cancelling or timing out a waiter that has not
+  acquired cannot steal or strand the lock; a later guard evaluation or
+  reconfigure can proceed. `_maybe_reconfigure` still waits up to 15 s
+  through `_run_async` and retries an uncommitted change on the next call.
+  `_dispatch_reconfigure` stays untimed. `Pipeline.inspect` cancellation
+  is unchanged.
+
 - **Failed ingestion windows no longer claim complete coverage (PET-209).**
   Head-floor errors join chunk errors in `IngestionScanResult.errors`. The
   reference plugin reports `scan_unavailable` / `ingest_unscanned` for a failed

@@ -94,14 +94,16 @@ def _coverage_for(text: str, chunk_count: int) -> IngestionCoverage:
 
 
 async def _acquire_inspect_lock(lock: threading.Lock) -> None:
-    """Poll a non-blocking acquire so the ingest loop can honour ``wait_for``.
+    """Poll a non-blocking acquire so waiters can honour cancellation.
 
-    A blocking ``Lock.acquire()`` freezes this event loop, so the scan budget
-    cannot fire while another holder (guard evaluate / reconfigure) has the
-    mutex. ``asyncio.to_thread(Lock.acquire)`` is cancel-unsafe (PET-208): the
-    worker can still acquire after this coroutine is cancelled and leak the
-    lock. Yielding between non-blocking attempts keeps cancellation at an
-    ``await`` that has not yet acquired.
+    Shared cancel-safe acquire for the ingest head and the two plugin waiters
+    (``_evaluate_with_inspect_lock``, ``_apply_reconfigure``). A blocking
+    ``Lock.acquire()`` freezes this event loop, so the scan budget cannot fire
+    while another holder (guard evaluate / reconfigure / ingest head) has the
+    mutex. ``asyncio.to_thread(Lock.acquire)`` is cancel-unsafe: the worker can
+    still acquire after this coroutine is cancelled and leak the lock.
+    Cancellation is delivered at an ``await`` that has not yet acquired. Poll
+    interval stays ``0.01``.
     """
     while not lock.acquire(blocking=False):
         await asyncio.sleep(0.01)
