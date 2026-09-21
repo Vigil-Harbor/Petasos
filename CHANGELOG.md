@@ -9,18 +9,35 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
 - **HIGH+ ingestion annotation remeasured on the inverted surface (PET-200).**
   The PET-170 816-file, 8,000-character, read-shaped table is no longer the
   evidence for this gate. A frozen constructed corpus plus listed in-repo
-  files was replayed through `_transform_tool_result` at calibration-run
-  `4ba9e09f7999d2a5d258964b67f451ed1a57be58` (scanner baseline `bda619b`;
-  base install, layered PET-178 coverage). Family-level HIGH+ banner rates
-  (benign, coverage=full, S0+S1, n=200 per family): browser 0.00%; unknown/MCP
-  0.00%; stdout 0.00%; read_file control 0.00%. Unavailable samples are excluded
-  from those rates (PET-209). Empty, partial, or all-unavailable cores do
-  not recommend retaining the gate; a family lacking either its S0 or its S1
-  benign stratum is partial. The HIGH+ ordinal is unchanged. Final
-  calibration of PET-201 rule edits requires remeasure of the same freeze.
+  files (manifest SHA-256
+  `53d7a6023e1b83f3c31d8fe245abd48b71c02bfd122514b7dee600aa790ba715`) is
+  replayed through `_transform_tool_result` (base install, layered PET-178
+  coverage). Current evidence is the post-PET-201 remeasure of that freeze
+  against shipped master `751a01cee5c16ca6382c3c690d105e5ba975de72`
+  (PET-201, PR #186). The run itself was executed at calibration-run commit
+  `efe6974b001a5a510fc3ae84ef63e0a8a4f4d503` (a merge of that master into the
+  PET-200 branch; recorded as `scanner_commit.git` / `plugin_commit` in
+  `docs/specs/TODO/PET-200.post-pet-201.report.json`). Measurement complete
+  (no `--limit`). Family-level HIGH+ banner rates (benign, coverage=full,
+  S0+S1, n=200 per family, 0 unavailable): browser 0/200 (0.00%); unknown/MCP
+  0/200 (0.00%); stdout 0/200 (0.00%); read_file control 0/200 (0.00%).
+  CRITICAL-only 0/200 in every family. Policy recommendation
+  `retain_high_plus`. The HIGH+ ordinal is unchanged.
+  The earlier baseline (calibration-run
+  `4ba9e09f7999d2a5d258964b67f451ed1a57be58`, scanner baseline `bda619b`,
+  pre-PET-201) reported the same 0.00% core rates and is retained as
+  historical context only; it is not the PET-201 calibration. A pre/post
+  replay of the same freeze at `fed5e39` (pre-PET-201 scanner) and
+  `efe6974` (post-PET-201 scanner) produced count-identical results in all
+  28 cells. Unavailable samples are excluded from those rates (PET-209).
+  Empty, partial, or all-unavailable cores do not recommend retaining the
+  gate; a family lacking either its S0 or its S1 benign stratum is partial.
   Residuals: constructed corpus (no production traffic); ML extras
   not measured; helper-only MEDIUM+/PII columns not measured (PET-219);
-  S3/S-ceiling n is smaller than the fatigue core.
+  S3/S-ceiling n is smaller than the fatigue core; one of five read_file
+  S-ceiling benign samples (an in-repo file repeated past 1,000,000
+  characters) flags CRITICAL `structural.excessive-depth`, both before and
+  after PET-201; that stratum is outside the S0+S1 keep-gate core.
 
 - **Ingestion results use a layered scan on a dedicated K=1 loop (PET-178).**
   Each ingesting result takes a 2,048-character `inspect()` head plus overlapping
