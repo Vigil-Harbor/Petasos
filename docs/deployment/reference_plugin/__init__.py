@@ -23,7 +23,9 @@ Needs:  a ``petasos`` release exporting ``petasos.scanners.build_scanners``,
         adds ``petasos.session.guard.render_param_text`` and
         ``PARAM_SCAN_DIRECTION`` to that floor; PET-179 adds ``INGESTION_TOOLS``;
         PET-181 adds ``NON_INGESTING_TOOLS``; PET-178 adds
-        ``scan_ingestion_result``. A library that has
+        ``scan_ingestion_result``. PET-208 additionally imports the private
+        ``_acquire_inspect_lock`` from the same module (shipped with PET-178;
+        not an export). A library that has
         ``format_result_notice`` but predates those guard exports fails the
         ``petasos.session.guard`` import instead, with the same result.
         ``verify.py`` probes ``build_scanners`` (scanner-imports check) and
@@ -74,6 +76,7 @@ from petasos.session.guard import (
     render_param_text,
 )
 from petasos.session.ingest import (  # PET-178: dep-light (chunked result scan)
+    _acquire_inspect_lock,
     scan_ingestion_result,
 )
 
@@ -549,15 +552,18 @@ async def _ingest_one(
 async def _evaluate_with_inspect_lock(tool_name: str, args: dict, session_id: str) -> Any:
     """Serialize ``_guard.evaluate`` with the ingest-head ``inspect()``.
 
-    Yields ``_async_loop`` while waiting for the mutex so a held ingest head
-    cannot deadlock reconfigure. Held-flag cancel-safety of ``to_thread(acquire)``
-    is PET-208.
+    Yields ``_async_loop`` while polling the mutex so a held ingest head cannot
+    deadlock reconfigure. ``acquired`` is set synchronously after the helper
+    returns; ``release()`` runs only if this task acquired.
     """
-    await asyncio.to_thread(_inspect_lock.acquire)
+    acquired = False
     try:
+        await _acquire_inspect_lock(_inspect_lock)
+        acquired = True
         return await _guard.evaluate(tool_name, args, session_id)
     finally:
-        _inspect_lock.release()
+        if acquired:
+            _inspect_lock.release()
 
 
 # ---------------------------------------------------------------------------
@@ -1647,9 +1653,10 @@ async def _apply_reconfigure(cfg: PetasosConfig) -> None:
 
     Dispatched onto _async_loop via _run_async (PET-126 Decision 6). Atomicity
     wrt ``inspect()`` is the inspect mutex, not "no await in the coroutine":
-    this waits with ``asyncio.to_thread(_inspect_lock.acquire)`` so it yields
-    ``_async_loop`` while an ingest head holds the lock. After the lock is
-    held the body stays synchronous. Cancel-safety of that acquire is PET-208.
+    this polls ``_acquire_inspect_lock`` so it yields ``_async_loop`` while an
+    ingest head holds the lock. ``acquired`` is set synchronously after the
+    helper returns; ``release()`` runs only if this task acquired. After the
+    lock is held the body stays synchronous.
 
     Two-phase (Decision 5): validate everything that can fail BEFORE committing
     anything, then commit. Because guard.validate_config and the apply tracker
@@ -1658,11 +1665,14 @@ async def _apply_reconfigure(cfg: PetasosConfig) -> None:
     apply. The gateway owns the guard, lineage registry, and egress set, which the
     pipeline cannot reach, so all four are reconfigured here (Decision 4).
     """
-    await asyncio.to_thread(_inspect_lock.acquire)
+    acquired = False
     try:
+        await _acquire_inspect_lock(_inspect_lock)
+        acquired = True
         _apply_reconfigure_body(cfg)
     finally:
-        _inspect_lock.release()
+        if acquired:
+            _inspect_lock.release()
 
 
 def _apply_reconfigure_body(cfg: PetasosConfig) -> None:
