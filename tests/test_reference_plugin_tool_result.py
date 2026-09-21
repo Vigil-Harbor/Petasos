@@ -1580,7 +1580,7 @@ class _StubGuard:
         self.result = result
         self.calls = 0
 
-    async def evaluate(self, tool_name: str, args: dict, session_id: str) -> Any:
+    async def evaluate(self, tool_name: str, args: dict[str, Any], session_id: str) -> Any:
         self.calls += 1
         return self.result
 
@@ -1826,7 +1826,7 @@ def test_cancel_evaluate_after_acquire_releases_then_progresses(
     class _HeldGuard:
         calls = 0
 
-        async def evaluate(self, tool_name: str, args: dict, session_id: str) -> Any:
+        async def evaluate(self, tool_name: str, args: dict[str, Any], session_id: str) -> Any:
             self.calls += 1
             held.set()
             await asyncio.Event().wait()
