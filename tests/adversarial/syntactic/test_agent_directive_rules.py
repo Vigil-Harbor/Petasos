@@ -127,6 +127,22 @@ async def test_canonical_both_directions_and_pipeline_unsafe() -> None:
     assert any(f.rule_id == RID for f in result.findings)
 
 
+async def test_zwsp_separated_conjunction_fires() -> None:
+    # Regression for PET-201: a one-line ZWSP-separated marker × action ×
+    # resource conjunction fires agent-directed-fetch HIGH with span omitted,
+    # and still emits exactly one finding.
+    payload = "\u200b".join(AGENT_DIRECTIVE_CANONICAL.split())
+    r = await MinimalScanner().scan(payload)
+    hits = _agent_findings(r.findings)
+    assert len(hits) == 1
+    assert hits[0].severity == Severity.HIGH
+    assert hits[0].position is None
+    invis = next(
+        f for f in r.findings if f.rule_id == "petasos.syntactic.encoding.invisible-chars"
+    )
+    assert invis.severity == Severity.HIGH
+
+
 # §B — Benign twins & disjointness (Done-when 4) ------------------------------
 
 
