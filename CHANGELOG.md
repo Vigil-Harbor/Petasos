@@ -76,10 +76,16 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
 
 ### Fixed
 
+- **Failed ingestion windows no longer claim complete coverage (PET-209).**
+  Head-floor errors join chunk errors in `IngestionScanResult.errors`. The
+  reference plugin reports `scan_unavailable` / `ingest_unscanned` for a failed
+  window even when another window found HIGH+ content, preserving the whole
+  result without advertising `coverage=full` or `coverage=ceiling`.
+
 - **The PET-170 8,000-character mid-window gap is closed below 1,000,000
   characters (PET-178).** A payload at the midpoint of a large ingestion result
   is found. Chunk-boundary straddles are found. Offsets are original-result
-  coordinates. A failed syntactic chunk with no HIGH+ finding is
+  coordinates. A failed syntactic chunk, including with a HIGH+ finding (PET-209), is
   `ingest_unscanned` `cause=sweep_error`, not a clean pass-through. The inspect
   mutex is polled with a held-flag release so the ingest `wait_for` budget
   still fires and cancellation cannot leak the lock.

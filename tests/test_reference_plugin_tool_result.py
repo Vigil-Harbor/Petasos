@@ -1001,7 +1001,7 @@ def test_held_inspect_lock_still_honours_ingest_budget(
     assert "cause=timeout" in rows[0]["reason"]
 
 
-def test_sweep_error_does_not_hide_high_findings(
+def test_sweep_error_with_high_findings_does_not_claim_full_coverage(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     def _boom(self: MinimalScanner, text: str, direction: str) -> list[ScanFinding]:
@@ -1015,9 +1015,52 @@ def test_sweep_error_does_not_hide_high_findings(
     )
 
     assert isinstance(out, str)
-    assert "prompt-injection" in out
-    assert _events("ingest_flagged")
-    assert _events("ingest_unscanned") == []
+    assert "could not scan" in out
+    assert "Coverage:" not in out
+    assert _events("ingest_flagged") == []
+    assert "cause=sweep_error" in _events("ingest_unscanned")[0]["reason"]
+
+
+@pytest.mark.parametrize("with_finding", [False, True])
+@pytest.mark.parametrize("length", [100_000, 1_000_001])
+def test_lone_surrogate_in_second_chunk_reports_unavailable(
+    monkeypatch: pytest.MonkeyPatch, with_finding: bool, length: int
+) -> None:
+    """Exercise the real scanner: chunk 1 succeeds and chunk 2 cannot encode UTF-8."""
+    prefix = _INJECTION if with_finding else "harmless notes"
+    text = prefix + " " * (70_000 - len(prefix)) + "\ud800"
+    text += " " * (length - len(text))
+    ref = _plugin(monkeypatch)
+    monkeypatch.setattr(ref, "_result_scan_timeout", lambda: 10.0)
+
+    out = ref._transform_tool_result(tool_name="read_file", result=text, task_id="s-gap")
+
+    assert isinstance(out, str) and out.endswith(text)
+    notice = out[: -len(text)]
+    assert "could not scan" in notice
+    assert "Coverage:" not in notice
+    assert "Scanned" not in notice
+    assert _events("ingest_flagged") == []
+    rows = _events("ingest_unscanned")
+    assert len(rows) == 1
+    assert "cause=sweep_error" in rows[0]["reason"]
+
+
+def test_head_floor_error_with_sweep_findings_reports_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ref = _plugin(
+        monkeypatch,
+        pipeline=_StubPipeline(_scan(scanner_results=(_floor(error="floor failed"),))),
+    )
+    text = " " * 3_000 + _INJECTION
+    out = ref._transform_tool_result(tool_name="read_file", result=text, task_id="s-floor")
+
+    assert isinstance(out, str) and out.endswith(text)
+    assert "could not scan" in out[: -len(text)]
+    assert "Coverage:" not in out[: -len(text)]
+    assert _events("ingest_flagged") == []
+    assert "cause=floor_error" in _events("ingest_unscanned")[0]["reason"]
 
 
 @pytest.mark.parametrize("message", ["handler bug", "bad input\nPETASOS_FORGED fake event"])

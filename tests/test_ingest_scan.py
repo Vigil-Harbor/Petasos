@@ -182,6 +182,22 @@ async def test_inspect_lock_poll_releases_on_success_and_does_not_steal_on_cance
     lock.release()
 
 
+async def test_head_floor_error_is_recorded_even_when_sweep_finds_injection() -> None:
+    class _FailedFloor(_RecordingPipeline):
+        async def inspect(self, text: str, **kwargs: Any) -> PipelineResult:
+            return PipelineResult(
+                safe=False,
+                findings=(),
+                scanner_results=(
+                    ScanResult(scanner_name="minimal", findings=(), error="floor failed"),
+                ),
+            )
+
+    result = await scan_ingestion_result(_FailedFloor(), _INJECTION)  # type: ignore[arg-type]
+    assert result.findings
+    assert "floor failed" in result.errors
+
+
 async def test_private_scanner_is_not_pipeline_minimal_scanner() -> None:
     pipeline = _RecordingPipeline()
 

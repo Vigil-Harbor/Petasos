@@ -38,6 +38,12 @@ class IngestionCoverage:
 
 @dataclass(frozen=True)
 class IngestionScanResult:
+    """Scan findings and the requested coverage, with failures kept separately.
+
+    Nonempty ``errors`` invalidate any complete-coverage claim, even when
+    successful windows produced findings. Hosts must surface scan unavailability.
+    """
+
     findings: tuple[ScanFinding, ...]
     coverage: IngestionCoverage
     head: PipelineResult | None
@@ -144,6 +150,11 @@ async def scan_ingestion_result(
                 await _acquire_inspect_lock(inspect_lock)
                 acquired = True
             head = await _inspect_head()
+            errors.extend(
+                result.error
+                for result in head.scanner_results
+                if result.scanner_name == "minimal" and result.error is not None
+            )
         except Exception as exc:
             errors.append(f"{type(exc).__name__}: {exc}")
             head = None
