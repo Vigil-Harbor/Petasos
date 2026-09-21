@@ -154,6 +154,8 @@ class CellAccum:
             return
         if outcome == "ingest_flagged":
             self.flagged_high_plus += 1
+            if severity in {"MEDIUM", "HIGH", "CRITICAL"}:
+                self.flagged_medium_plus += 1
             if severity == "CRITICAL":
                 self.flagged_critical_only += 1
             if rule_id:
@@ -398,6 +400,8 @@ def generate_payload(
             len(json.dumps(obj, ensure_ascii=False, separators=(",", ":"))),
         )
     target = _stratum_length(sample.stratum, rng, min_len)
+    if sample.label == "planted-positive":
+        target = max(min_len, target - len(PLANTED_PHRASE))
     filler = _fit_family(sample.family, base, target)
     if sample.label != "planted-positive":
         return filler

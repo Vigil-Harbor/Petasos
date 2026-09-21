@@ -9,8 +9,9 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
 - **HIGH+ ingestion annotation remeasured on the inverted surface (PET-200).**
   The PET-170 816-file, 8,000-character, read-shaped table is no longer the
   evidence for this gate. A frozen constructed corpus plus listed in-repo
-  files was replayed through `_transform_tool_result` at `bda619b`
-  (base install, layered PET-178 coverage). Family-level HIGH+ banner rates
+  files was replayed through `_transform_tool_result` at calibration-run
+  `4ba9e09f7999d2a5d258964b67f451ed1a57be58` (scanner baseline `bda619b`;
+  base install, layered PET-178 coverage). Family-level HIGH+ banner rates
   (benign, coverage=full, S0+S1, n=200 per family): browser 0.00%; unknown/MCP
   0.00%; stdout 0.00%; read_file control 0.00%. Unavailable samples are excluded
   from those rates (PET-209). The HIGH+ ordinal is unchanged. Final

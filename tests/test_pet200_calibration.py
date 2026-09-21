@@ -312,3 +312,34 @@ def test_wilson_null_when_n_eff_zero(harness: Any) -> None:
     interval = harness.wilson95(0, 200)
     assert interval is not None
     assert interval["low"] <= interval["centre"] <= interval["high"]
+
+
+def test_ingest_flagged_counts_medium_plus(harness: Any) -> None:
+    acc = harness.CellAccum()
+    acc.add("ingest_flagged", 1.0, "injection.ignore-previous", "HIGH")
+    assert acc.flagged_high_plus == 1
+    assert acc.flagged_medium_plus == 1
+    assert acc.flagged_critical_only == 0
+    acc.add("ingest_flagged", 1.0, "injection.ignore-previous", "CRITICAL")
+    assert acc.flagged_high_plus == 2
+    assert acc.flagged_medium_plus == 2
+    assert acc.flagged_critical_only == 1
+    acc.add("clean", 1.0, None, None)
+    assert acc.flagged_high_plus == 2
+    assert acc.flagged_medium_plus == 2
+
+
+def test_planted_payloads_stay_in_stratum(harness: Any) -> None:
+    manifest = harness.load_manifest()
+    planted = 0
+    for sample in harness.iter_samples():
+        if sample.label != "planted-positive":
+            continue
+        planted += 1
+        payload = harness.generate_payload(sample, manifest, generated=True)
+        lo, hi = harness.STRATUM_BOUNDS[sample.stratum]
+        assert lo <= len(payload) <= hi, (sample, len(payload), lo, hi)
+        assert harness.PLANTED_PHRASE in payload
+        if sample.offset == "beyond_head":
+            assert payload.find(harness.PLANTED_PHRASE) >= harness.BEYOND_HEAD_OFFSET
+    assert planted == 40

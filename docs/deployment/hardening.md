@@ -60,9 +60,11 @@ flag. Incomplete coverage is not a clean sample. ML backends still see only the
 
 The HIGH+ annotate gate was remeasured through `_transform_tool_result` on a
 frozen constructed corpus (templates under `tests/fixtures/pet200/` plus listed
-in-repo text files in `manifest.json`) at baseline commit `bda619b`, base
-install, layered PET-178 coverage. Scanner rules and `_BLOCK_RANK` did not
-change in PET-200. Manifest SHA-256 (newline-normalized UTF-8):
+in-repo text files in `manifest.json`) at calibration-run commit
+`4ba9e09f7999d2a5d258964b67f451ed1a57be58` (scanner baseline `bda619b`; the
+baseline commit does not contain this corpus). Base install, layered PET-178
+coverage. Scanner rules and `_BLOCK_RANK` did not change in PET-200. Manifest
+SHA-256 (newline-normalized UTF-8):
 `53d7a6023e1b83f3c31d8fe245abd48b71c02bfd122514b7dee600aa790ba715`.
 
 Family-level banner rates, benign, coverage=full, S0+S1, n=200 per family.
