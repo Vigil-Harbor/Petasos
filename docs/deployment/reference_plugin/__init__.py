@@ -2403,7 +2403,8 @@ def _transform_tool_result(
         # Floor lives on the head PipelineResult. Helper never-throws, so a raising
         # inspect is PET-205; timeout / no_pipeline / floor_error / boundary stay here.
         # A failed syntactic chunk is ``sweep_error``: coverage still names full/ceiling
-        # from length, so the plugin must not treat empty findings as clean.
+        # from length, so any failed window invalidates the coverage claim,
+        # including when a successful window found HIGH+ content (PET-209).
         head = getattr(scan, "head", None) if scan is not None else None
         floor = (
             next((r for r in head.scanner_results if r.scanner_name == "minimal"), None)
@@ -2418,7 +2419,7 @@ def _transform_tool_result(
                 cause = "boundary"
             elif floor.error is not None:
                 cause = "floor_error"
-            elif not non_pii and scan.errors:
+            elif scan.errors:
                 cause = "sweep_error"
 
         if cause is not None:
@@ -2451,8 +2452,8 @@ def _transform_tool_result(
         # gains nothing from being told, and the boundary that matters is defended on the
         # pre-call path of every egress sink. That is the one visibility gap this accepts
         # (ingestion PII still reaches the alert channel via the un-session-gated
-        # PII-volume rule). HIGH+ non-PII findings already won above the sweep_error
-        # gate, so a partial sweep still flags rather than hiding behind unavailable.
+        # PII-volume rule). Only a successful scan reaches the findings path;
+        # partial failures use scan_unavailable without claiming full coverage.
         if non_pii:
             worst = _worst(non_pii)
             logger.warning(
