@@ -330,9 +330,7 @@ class ObservedSample:
 _ATTRIBUTABLE_EVENTS = frozenset({"ingest_flagged", "ingest_unscanned"})
 
 
-def _collapse_attributable(
-    events: list[dict[str, Any]], task_id: str
-) -> list[dict[str, Any]]:
+def _collapse_attributable(events: list[dict[str, Any]], task_id: str) -> list[dict[str, Any]]:
     kept: list[dict[str, Any]] = []
     seen: set[tuple[str, str, str]] = set()
     for event in events:
@@ -789,9 +787,7 @@ def _finalize_cell(family: str, stratum: str, label: str, acc: CellAccum) -> dic
     mean_ms = (acc.ms_total / acc.n) if acc.n else 0.0
     measured = acc.observation_gaps == 0 and acc.helper_samples == acc.n
     flagged_medium_plus: int | None = acc.flagged_medium_plus if measured else None
-    unavailable_with_findings: int | None = (
-        acc.unavailable_with_findings if measured else None
-    )
+    unavailable_with_findings: int | None = acc.unavailable_with_findings if measured else None
     pii_suppressed: int | None = acc.pii_suppressed if measured else None
     return {
         "family": family,

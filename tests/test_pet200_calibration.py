@@ -582,9 +582,7 @@ def test_benign_clean_sample_has_no_event_and_zero_helpers(harness: Any) -> None
     assert cell["flagged_high_plus"] == 0
 
 
-def _patch_unavailable(
-    monkeypatch: pytest.MonkeyPatch, ref: Any, *, clock: float = 30.0
-) -> None:
+def _patch_unavailable(monkeypatch: pytest.MonkeyPatch, ref: Any, *, clock: float = 30.0) -> None:
     monkeypatch.setattr(ref.time, "monotonic", lambda: clock)
     original = ref._observation_scan
 
@@ -766,7 +764,11 @@ def test_parser_collapses_spool_noise(harness: Any, tmp_path: Path) -> None:
     }
     path = tmp_path / "spool.jsonl"
     path.write_bytes(
-        b"{not json}\n" + json.dumps(foreign).encode() + b"\n" + json.dumps(line).encode() + b"\n"
+        b"{not json}\n"
+        + json.dumps(foreign).encode()
+        + b"\n"
+        + json.dumps(line).encode()
+        + b"\n"
         + json.dumps(line).encode()
         + b"\n"
     )
