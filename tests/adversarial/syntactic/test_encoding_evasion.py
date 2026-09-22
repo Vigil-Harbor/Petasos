@@ -15,7 +15,7 @@ import codecs
 
 import pytest
 
-from petasos._types import Severity
+from petasos._types import Position, Severity
 from petasos.config import PetasosConfig
 from petasos.pipeline import Pipeline
 from petasos.scanners.minimal import MinimalScanner
@@ -92,7 +92,7 @@ async def test_base64_separator_role_switch_keeps_carrier_span() -> None:
     result = await MinimalScanner().scan(blob)
     role = [f for f in result.findings if f.rule_id == _ROLE_CAPABILITY]
     assert len(role) == 1
-    assert role[0].position is not None
+    assert role[0].position == Position(start=0, end=len(blob))
     assert "base64-decoded" in role[0].message
 
 

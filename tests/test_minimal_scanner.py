@@ -599,7 +599,7 @@ class TestSeparatorViewInjection:
         assert len(role) == 1
         assert role[0].rule_id == "petasos.syntactic.injection.role-switch-only"
         assert role[0].severity == Severity.LOW
-        assert role[0].position is not None
+        assert role[0].position == Position(start=0, end=len(payload))
 
     async def test_react_zwsp_fold_is_not_role_switch(self) -> None:
         # Regression for PET-211: the composed fold of this string used to
@@ -630,7 +630,8 @@ class TestSeparatorViewInjection:
         role = [f for f in r.findings if "role-switch" in f.rule_id]
         assert [f.rule_id for f in role] == ["petasos.syntactic.injection.role-switch-capability"]
         assert role[0].severity == Severity.HIGH
-        assert role[0].position is not None
+        prefix = len("payload: ")
+        assert role[0].position == Position(start=prefix, end=len(payload))
         assert "base64-decoded" in role[0].message
 
     async def test_command_zwsp_separated_destructive_recursive(self) -> None:
