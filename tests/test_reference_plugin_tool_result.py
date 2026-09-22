@@ -43,6 +43,7 @@ from petasos import (
 )
 from petasos.scanners.minimal import MinimalScanner
 from petasos.session.guard import INGESTION_TOOLS, NON_INGESTING_TOOLS, GuardResult
+from petasos.session.ingest import scan_ingestion_result
 
 if TYPE_CHECKING:
     import types
@@ -723,6 +724,137 @@ def test_every_unscannable_cause_annotates_with_a_distinguishable_token(
     # No finding exists on this path, so these must stay empty rather than be invented.
     assert rows[0]["rule_id"] is None
     assert rows[0]["severity"] is None
+
+
+@pytest.mark.parametrize("with_finding", [False, True])
+def test_raising_inspect_through_real_helper_emits_inspect_error(
+    monkeypatch: pytest.MonkeyPatch, with_finding: bool
+) -> None:
+    # Regression for PET-205: a raising inspect observed only through a stubbed
+    # helper labeled the real helper's head-is-None result as boundary.
+    content = _INJECTION if with_finding else "harmless notes about the weather"
+    if with_finding:
+        scanned = asyncio.run(
+            scan_ingestion_result(
+                _StubPipeline(raises=RuntimeError("inspect exploded")),  # type: ignore[arg-type]
+                content,
+            )
+        )
+        assert scanned.inspect_failed is True
+        assert scanned.head is None
+        assert any(
+            finding.severity in (Severity.HIGH, Severity.CRITICAL) for finding in scanned.findings
+        )
+
+    ref = _plugin(monkeypatch, pipeline=_StubPipeline(raises=RuntimeError("inspect exploded")))
+    out = ref._transform_tool_result(tool_name="read_file", result=content, task_id="s-inspect")
+
+    assert isinstance(out, str)
+    assert "could not scan the content below" in out
+    assert out.endswith(content)
+    notice = out[: -len(content)]
+    assert "Scanned" not in notice
+    assert "Coverage:" not in notice
+
+    rows = _events("ingest_unscanned")
+    assert len(rows) == 1
+    reason = rows[0]["reason"]
+    assert isinstance(reason, str)
+    assert reason.startswith("result scan unavailable")
+    assert "cause=inspect_error" in reason
+    assert f"len={len(content)}" in reason
+    assert len(reason) <= 200
+    assert "RuntimeError" not in reason
+    assert "inspect exploded" not in reason
+    assert rows[0]["rule_id"] is None
+    assert rows[0]["severity"] is None
+    assert _events("ingest_flagged") == []
+
+
+def test_lock_acquire_failure_stays_boundary(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Regression for PET-205: a lock-acquire failure stays boundary.
+    async def _boom(lock: threading.Lock) -> None:
+        raise RuntimeError("lock exploded")
+
+    monkeypatch.setattr("petasos.session.ingest._acquire_inspect_lock", _boom)
+
+    async def _helper() -> None:
+        pipeline = _StubPipeline()
+        result = await scan_ingestion_result(
+            pipeline,  # type: ignore[arg-type]
+            "hello",
+            inspect_lock=threading.Lock(),
+        )
+        assert result.inspect_failed is False
+        assert result.head is None
+        assert pipeline.calls == []
+
+    asyncio.run(_helper())
+
+    pipeline = _StubPipeline()
+    ref = _plugin(monkeypatch, pipeline=pipeline)
+    content = "the content"
+    out = ref._transform_tool_result(tool_name="read_file", result=content, task_id="s-lock-fail")
+    assert isinstance(out, str)
+    assert "could not scan the content below" in out
+    assert out.endswith(content)
+    assert pipeline.calls == []
+    rows = _events("ingest_unscanned")
+    assert len(rows) == 1
+    assert "cause=boundary" in rows[0]["reason"]
+
+
+class _RaisingScannerResults:
+    def __iter__(self) -> Any:
+        raise RuntimeError("scanner_results exploded")
+
+
+class _HeadWithRaisingResults:
+    findings: tuple[ScanFinding, ...] = ()
+    errors: tuple[str, ...] = ()
+
+    @property
+    def scanner_results(self) -> _RaisingScannerResults:
+        return _RaisingScannerResults()
+
+
+class _RaisingResultsPipeline:
+    def __init__(self) -> None:
+        self.config = PetasosConfig()
+
+    async def inspect(
+        self,
+        text: str,
+        *,
+        direction: str = "inbound",
+        session_id: str | None = None,
+        weight_cap: float | None = None,
+    ) -> Any:
+        return _HeadWithRaisingResults()
+
+
+def test_floor_copy_exception_stays_boundary(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Regression for PET-205: a floor-copy exception clears head and is not inspect_error.
+    async def _helper() -> None:
+        result = await scan_ingestion_result(
+            _RaisingResultsPipeline(),  # type: ignore[arg-type]
+            "harmless notes",
+        )
+        assert result.inspect_failed is False
+        assert result.head is None
+
+    asyncio.run(_helper())
+
+    ref = _plugin(monkeypatch, pipeline=_RaisingResultsPipeline())
+    content = "harmless notes"
+    out = ref._transform_tool_result(tool_name="read_file", result=content, task_id="s-floor-copy")
+    assert isinstance(out, str)
+    assert "could not scan the content below" in out
+    assert out.endswith(content)
+    rows = _events("ingest_unscanned")
+    assert len(rows) == 1
+    assert "cause=boundary" in rows[0]["reason"]
+    assert "cause=inspect_error" not in rows[0]["reason"]
 
 
 def test_ingest_unscanned_cadence_second_call_keeps_banner(

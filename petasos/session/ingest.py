@@ -42,12 +42,15 @@ class IngestionScanResult:
 
     Nonempty ``errors`` invalidate any complete-coverage claim, even when
     successful windows produced findings. Hosts must surface scan unavailability.
+    ``inspect_failed`` means the head ``inspect()`` call raised. Hosts must not
+    report that flag as ``boundary``.
     """
 
     findings: tuple[ScanFinding, ...]
     coverage: IngestionCoverage
     head: PipelineResult | None
     errors: tuple[str, ...]
+    inspect_failed: bool = False
 
 
 def _chunk_origins(length: int) -> tuple[int, ...]:
@@ -130,6 +133,7 @@ async def scan_ingestion_result(
 
     errors: list[str] = []
     head: PipelineResult | None = None
+    inspect_failed = False
     try:
         covered = text[:_MAX_PARAM_TEXT_LEN]
         try:
@@ -151,15 +155,25 @@ async def scan_ingestion_result(
             if inspect_lock is not None:
                 await _acquire_inspect_lock(inspect_lock)
                 acquired = True
-            head = await _inspect_head()
-            errors.extend(
-                result.error
-                for result in head.scanner_results
-                if result.scanner_name == "minimal" and result.error is not None
-            )
         except Exception as exc:
             errors.append(f"{type(exc).__name__}: {exc}")
-            head = None
+        else:
+            try:
+                head = await _inspect_head()
+            except Exception as exc:
+                errors.append(f"{type(exc).__name__}: {exc}")
+                head = None
+                inspect_failed = True
+            else:
+                try:
+                    errors.extend(
+                        result.error
+                        for result in head.scanner_results
+                        if result.scanner_name == "minimal" and result.error is not None
+                    )
+                except Exception as exc:
+                    errors.append(f"{type(exc).__name__}: {exc}")
+                    head = None
         finally:
             if acquired and inspect_lock is not None:
                 inspect_lock.release()
@@ -179,6 +193,7 @@ async def scan_ingestion_result(
                 coverage=_coverage_for(text, 0),
                 head=head,
                 errors=(*errors, *head.errors),
+                inspect_failed=inspect_failed,
             )
 
         origins = _chunk_origins(len(text))
@@ -210,6 +225,7 @@ async def scan_ingestion_result(
             coverage=_coverage_for(text, len(origins)),
             head=head,
             errors=tuple(errors),
+            inspect_failed=inspect_failed,
         )
     except Exception as exc:
         errors.append(f"{type(exc).__name__}: {exc}")
@@ -218,4 +234,5 @@ async def scan_ingestion_result(
             coverage=_coverage_for(text, 0),
             head=head,
             errors=tuple(errors),
+            inspect_failed=inspect_failed,
         )

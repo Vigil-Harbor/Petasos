@@ -109,6 +109,13 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
 
 ### Fixed
 
+- **A raising ingestion inspect is reported as inspect_error (PET-205).**
+  A raising `inspect()` through `scan_ingestion_result` sets
+  `IngestionScanResult.inspect_failed` and the reference plugin emits
+  `ingest_unscanned` `cause=inspect_error`. Empty `scanner_results` stays
+  `cause=boundary`. `cause=raised` stays the helper-callable failure.
+  Unavailability still wins when the sweep also has a HIGH+ finding.
+
 - **Named families no longer read composed views, and role-switch pairs
   on one view (PET-211, PET-212).** Role-switch, command, and
   agent-directive search canonical text plus unique separator views.

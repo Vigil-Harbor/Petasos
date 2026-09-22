@@ -2410,11 +2410,13 @@ def _transform_tool_result(
                 cause = "timeout"
             except Exception:
                 cause = "raised"
-        # Floor lives on the head PipelineResult. Helper never-throws, so a raising
-        # inspect is PET-205; timeout / no_pipeline / floor_error / boundary stay here.
-        # A failed syntactic chunk is ``sweep_error``: coverage still names full/ceiling
-        # from length, so any failed window invalidates the coverage claim,
-        # including when a successful window found HIGH+ content (PET-209).
+        # Floor lives on the head PipelineResult. A raising ``inspect()`` through
+        # the real helper sets ``inspect_failed`` and is ``cause=inspect_error``.
+        # timeout / no_pipeline / raised / floor_error / boundary / sweep_error
+        # stay on their own pins. A failed syntactic chunk is ``sweep_error``:
+        # coverage still names full/ceiling from length, so any failed window
+        # invalidates the coverage claim, including when a successful window
+        # found HIGH+ content (PET-209).
         head = getattr(scan, "head", None) if scan is not None else None
         floor = (
             next((r for r in head.scanner_results if r.scanner_name == "minimal"), None)
@@ -2425,7 +2427,9 @@ def _transform_tool_result(
         blocking = [f for f in findings if _blocks(f.severity)]
         non_pii = [f for f in blocking if f.finding_type != "pii"]
         if cause is None:
-            if scan is None or head is None or not head.scanner_results or floor is None:
+            if scan is not None and getattr(scan, "inspect_failed", False):
+                cause = "inspect_error"
+            elif scan is None or head is None or not head.scanner_results or floor is None:
                 cause = "boundary"
             elif floor.error is not None:
                 cause = "floor_error"
