@@ -144,6 +144,7 @@ async def test_helper_never_raises_on_a_raising_inspect() -> None:
     result = await scan_ingestion_result(_Boom(), "hello")  # type: ignore[arg-type]
     assert result.errors
     assert result.head is None
+    assert result.inspect_failed is True
 
 
 async def test_failed_chunk_scan_is_recorded_and_does_not_raise(
@@ -159,6 +160,7 @@ async def test_failed_chunk_scan_is_recorded_and_does_not_raise(
     assert result.findings == ()
     assert any("chunk exploded" in err for err in result.errors)
     assert result.coverage.regime == "full"
+    assert result.inspect_failed is False
 
 
 async def test_inspect_lock_poll_releases_on_success_and_does_not_steal_on_cancel() -> None:
@@ -195,7 +197,9 @@ async def test_head_floor_error_is_recorded_even_when_sweep_finds_injection() ->
 
     result = await scan_ingestion_result(_FailedFloor(), _INJECTION)  # type: ignore[arg-type]
     assert result.findings
+    assert result.head is not None
     assert "floor failed" in result.errors
+    assert result.inspect_failed is False
 
 
 async def test_private_scanner_is_not_pipeline_minimal_scanner() -> None:
