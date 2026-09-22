@@ -2,15 +2,7 @@ $ C:\Python314\python.exe -m pytest tests/test_ingest_scan.py tests/test_referen
 ........................................................................ [ 45%]
 ........................................................................ [ 90%]
 ................                                                         [100%]
-============================== warnings summary ===============================
-tests/test_reference_plugin_tool_result.py::test_read_only_tool_still_never_blocked_for_its_arguments
-  C:\Users\zioni\Documents\Vigil-Harbor\PET-205-worktree\docs\deployment\reference_plugin\__init__.py:2067: RuntimeWarning: coroutine '_evaluate_with_inspect_lock' was never awaited
-    result = _run_async(_evaluate_with_inspect_lock(tool_name, args, session_id))
-  Enable tracemalloc to get traceback where the object was allocated.
-  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
-
--- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-160 passed, 1 warning in 6.62s
+160 passed in 8.54s
 
 [exit 0]
 
@@ -28,4 +20,3 @@ $ C:\Python314\python.exe -m mypy --strict petasos/session/ingest.py
 Success: no issues found in 1 source file
 
 [exit 0]
-

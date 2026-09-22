@@ -283,7 +283,16 @@ def test_read_only_tool_still_never_blocked_for_its_arguments(
         tier="none",
         param_scan_unsafe=True,
     )
-    monkeypatch.setattr(ref, "_run_async", lambda coro, timeout=15: guard_result)
+
+    def _return_guard(coro: object, timeout: float = 15) -> GuardResult:
+        # The read-only short-circuit never awaits this guard. Close it so
+        # pytest does not warn that the coroutine was never awaited.
+        closer = getattr(coro, "close", None)
+        if closer is not None:
+            closer()
+        return guard_result
+
+    monkeypatch.setattr(ref, "_run_async", _return_guard)
 
     out = ref._pre_tool_call("read_file", {"path": _INJECTION}, task_id="s-arg")
 
