@@ -33,11 +33,22 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
   Empty, partial, or all-unavailable cores do not recommend retaining the
   gate; a family lacking either its S0 or its S1 benign stratum is partial.
   Residuals: constructed corpus (no production traffic); ML extras
-  not measured; helper-only MEDIUM+/PII columns not measured (PET-219);
-  S3/S-ceiling n is smaller than the fatigue core; one of five read_file
+  not measured; the committed report's helper columns stay unmeasured,
+  and a new schema-2 run fills them; S3/S-ceiling n is smaller than the
+  fatigue core; one of five read_file
   S-ceiling benign samples (an in-repo file repeated past 1,000,000
   characters) flags CRITICAL `structural.excessive-depth`, both before and
   after PET-201; that stratum is outside the S0+S1 keep-gate core.
+
+- **Calibration observes real enforcement events and helper findings (PET-218, PET-219).**
+  `scripts/pet200_calibrate.py` no longer replaces `_emit_enforcement_event`.
+  Each run writes `ingest_flagged` and `ingest_unscanned` to a temporary spool
+  and checks those lines against the handler return. A wrap of
+  `scan_ingestion_result` keeps the helper result so `flagged_medium_plus`,
+  `unavailable_with_findings`, and `pii_suppressed` are counted from findings.
+  A written table A report is schema 2 with `observation` set to `complete`.
+  A gap exits 3 and does not write or replace `--out`. The published PET-200
+  report stays schema 1, with those three columns null.
 
 - **Ingestion results use a layered scan on a dedicated K=1 loop (PET-178).**
   Each ingesting result takes a 2,048-character `inspect()` head plus overlapping

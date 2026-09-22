@@ -1,12 +1,15 @@
 """PET-200: HIGH+ calibration freeze, detection, and retain pins.
 
 Regression for PET-200: unmeasured widening of the inverted ingestion surface.
+Regression for PET-218: real enforcement events must agree with the handler.
+Regression for PET-219: helper findings fill the schema-2 columns.
 """
 
 from __future__ import annotations
 
 import asyncio
 import importlib.util
+import json
 import sys
 from dataclasses import replace
 from pathlib import Path
@@ -15,8 +18,9 @@ from typing import Any
 import pytest
 
 from petasos import PetasosConfig, Pipeline
-from petasos._types import Severity
-from petasos.session.ingest import HEAD_CHARS
+from petasos._types import Direction, ScanFinding, ScanResult, Severity
+from petasos.console._events import drain_enforcement_events
+from petasos.session.ingest import HEAD_CHARS, IngestionCoverage, IngestionScanResult
 
 _REPO = Path(__file__).resolve().parent.parent
 _SCRIPT = _REPO / "scripts" / "pet200_calibrate.py"
@@ -43,7 +47,8 @@ def plugin(harness: Any) -> Any:
     pipeline = Pipeline(config=PetasosConfig())
     ref = harness.load_plugin(pipeline, loop)
     ref._pet200_loop = loop
-    yield ref
+    with harness.isolated_observation(ref):
+        yield ref
     loop.close()
 
 
@@ -139,13 +144,13 @@ def test_planted_beyond_head_flags_each_family(harness: Any, plugin: Any) -> Non
 def test_unavailable_is_not_clean(
     harness: Any, plugin: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    original = plugin.scan_ingestion_result
+    original = plugin._observation_scan
 
     async def _errors(*args: Any, **kwargs: Any) -> Any:
         result = await original(*args, **kwargs)
         return replace(result, errors=("boom",))
 
-    monkeypatch.setattr(plugin, "scan_ingestion_result", _errors)
+    monkeypatch.setattr(plugin, "_observation_scan", _errors)
     out = _transform(plugin, "read_file", "the content" * 10, "pet200-unavail")
     outcome = harness.classify_handler_return(out)
     assert outcome == "unavailable"
@@ -334,23 +339,30 @@ def test_wilson_null_when_n_eff_zero(harness: Any) -> None:
     assert 0.0 <= saturated["low"] <= saturated["centre"] <= 1.0
 
 
-def test_ingest_flagged_counts_medium_plus(harness: Any) -> None:
+def test_plane_split_visible_counts_ignore_helper_marks(harness: Any) -> None:
+    # Regression for PET-218: the handler plane does not fill helper columns.
     acc = harness.CellAccum()
     acc.add("ingest_flagged", 1.0, "injection.ignore-previous", "HIGH")
     assert acc.flagged_high_plus == 1
-    assert acc.flagged_medium_plus == 1
     assert acc.flagged_critical_only == 0
-    acc.add("ingest_flagged", 1.0, "injection.ignore-previous", "CRITICAL")
+    assert acc.flagged_medium_plus == 0
+    assert acc.unavailable_with_findings == 0
+    assert acc.pii_suppressed == 0
+    acc.add("ingest_flagged", 1.0, "structural.excessive-depth", "CRITICAL")
     assert acc.flagged_high_plus == 2
-    assert acc.flagged_medium_plus == 2
     assert acc.flagged_critical_only == 1
-    acc.add("clean", 1.0, None, None)
+    assert acc.flagged_medium_plus == 0
+    acc.record_helper("clean", _capture(_finding("encoding", Severity.MEDIUM)), _Blocks())
+    assert acc.flagged_medium_plus == 1
     assert acc.flagged_high_plus == 2
-    assert acc.flagged_medium_plus == 2
-    acc.add("ingest_flagged", 1.0, "injection.ignore-previous", "MEDIUM")
-    assert acc.flagged_high_plus == 3
-    assert acc.flagged_medium_plus == 3
-    assert acc.flagged_critical_only == 1
+    assert acc.helper_samples == 1
+    bare = harness.CellAccum()
+    bare.add("ingest_flagged", 1.0, "injection.ignore-previous", "HIGH")
+    cell = harness._finalize_cell("F-file", "S0", "planted-positive", bare)
+    assert cell["flagged_high_plus"] == 1
+    assert cell["flagged_medium_plus"] is None
+    assert cell["unavailable_with_findings"] is None
+    assert cell["pii_suppressed"] is None
 
 
 def test_planted_payloads_stay_in_stratum(harness: Any) -> None:
@@ -450,12 +462,500 @@ def test_measured_complete_core_retains(harness: Any) -> None:
     assert rec == {"kind": "retain_high_plus"}
 
 
-def test_finalized_helper_only_fields_are_not_measured(harness: Any) -> None:
-    acc = harness.CellAccum()
-    acc.add("ingest_flagged", 1.0, "injection.ignore-previous", "HIGH")
-    cell = harness._finalize_cell("F-file", "S0", "planted-positive", acc)
-    assert cell["flagged_high_plus"] == 1
-    assert cell["flagged_critical_only"] == 0
+def _finding(finding_type: str, severity: Severity) -> ScanFinding:
+    return ScanFinding(
+        rule_id=f"petasos.test.{finding_type}",
+        finding_type=finding_type,
+        severity=severity,
+        confidence=1.0,
+        message="probe",
+        scanner_name="helper-probe",
+    )
+
+
+def _capture(*findings: ScanFinding) -> IngestionScanResult:
+    return IngestionScanResult(
+        findings=findings,
+        coverage=IngestionCoverage(
+            regime="full",
+            scanned_chars=1,
+            total_chars=1,
+            head_chars=1,
+            chunk_count=1,
+        ),
+        head=None,
+        errors=(),
+    )
+
+
+class _Blocks:
+    @staticmethod
+    def _blocks(severity: Severity) -> bool:
+        return severity in {Severity.HIGH, Severity.CRITICAL}
+
+
+class _ProbeScanner:
+    def __init__(self, finding: ScanFinding) -> None:
+        self._finding = finding
+
+    @property
+    def name(self) -> str:
+        return "helper-probe"
+
+    async def scan(
+        self,
+        text: str,
+        *,
+        direction: Direction = "inbound",
+        session_id: str | None = None,
+    ) -> ScanResult:
+        del text, direction, session_id
+        return ScanResult(scanner_name=self.name, findings=(self._finding,))
+
+
+def _loaded(
+    harness: Any, pipeline: Pipeline | None = None
+) -> tuple[Any, asyncio.AbstractEventLoop]:
+    loop = asyncio.new_event_loop()
+    pipe = pipeline if pipeline is not None else Pipeline(config=PetasosConfig())
+    return harness.load_plugin(pipe, loop), loop
+
+
+def _close(loop: asyncio.AbstractEventLoop) -> None:
+    loop.close()
+
+
+def test_planted_high_sample_writes_one_correlated_event(harness: Any) -> None:
+    # Regression for PET-218: a HIGH+ banner and one real ingest_flagged line agree.
+    ref, loop = _loaded(harness)
+    try:
+        with harness.isolated_observation(ref) as spool:
+            bucket = harness.CellAccum()
+            observed = harness.observe_sample(
+                ref,
+                spool,
+                bucket,
+                index=0,
+                tool_name="read_file",
+                payload=harness.PLANTED_PHRASE,
+                task_id="pet200-planted",
+            )
+    finally:
+        _close(loop)
+    assert observed.outcome == "ingest_flagged"
+    assert observed.gaps == []
+    assert observed.severity == "HIGH"
+    assert observed.rule_id == "injection.ignore-previous"
+    flagged = [event for event in observed.events if event.get("event_type") == "ingest_flagged"]
+    assert len(flagged) == 1
+    assert flagged[0]["session_id"] == "pet200-planted"
+    assert flagged[0]["rule_id"] == "petasos.syntactic.injection.ignore-previous"
+    assert flagged[0]["severity"] == "HIGH"
+    assert bucket.rule_histogram == {"injection.ignore-previous": 1}
+    assert bucket.flagged_high_plus == 1
+
+
+def test_benign_clean_sample_has_no_event_and_zero_helpers(harness: Any) -> None:
+    # Regression for PET-218: a clean handler return is observed emptiness.
+    ref, loop = _loaded(harness)
+    try:
+        with harness.isolated_observation(ref) as spool:
+            bucket = harness.CellAccum()
+            observed = harness.observe_sample(
+                ref,
+                spool,
+                bucket,
+                index=0,
+                tool_name="read_file",
+                payload="the content" * 10,
+                task_id="pet200-clean",
+            )
+    finally:
+        _close(loop)
+    assert observed.outcome == "clean"
+    assert observed.gaps == []
+    assert observed.events == []
+    cell = harness._finalize_cell("F-file", "S0", "benign", bucket)
+    assert cell["flagged_medium_plus"] == 0
+    assert cell["unavailable_with_findings"] == 0
+    assert cell["pii_suppressed"] == 0
+    assert cell["flagged_high_plus"] == 0
+
+
+def _patch_unavailable(
+    monkeypatch: pytest.MonkeyPatch, ref: Any, *, clock: float = 30.0
+) -> None:
+    monkeypatch.setattr(ref.time, "monotonic", lambda: clock)
+    original = ref._observation_scan
+
+    async def _errors(*args: Any, **kwargs: Any) -> Any:
+        result = await original(*args, **kwargs)
+        return replace(result, errors=("boom",))
+
+    monkeypatch.setattr(ref, "_observation_scan", _errors)
+
+
+def test_forced_unavailable_writes_one_unscanned_event(
+    harness: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Regression for PET-218: unavailable agrees with one correlated ingest_unscanned.
+    ref, loop = _loaded(harness)
+    _patch_unavailable(monkeypatch, ref)
+    try:
+        with harness.isolated_observation(ref) as spool:
+            bucket = harness.CellAccum()
+            observed = harness.observe_sample(
+                ref,
+                spool,
+                bucket,
+                index=0,
+                tool_name="read_file",
+                payload="the content" * 10,
+                task_id="pet200-unavail",
+            )
+    finally:
+        _close(loop)
+    assert observed.outcome == "unavailable"
+    assert observed.gaps == []
+    assert bucket.flagged_high_plus == 0
+    unscanned = [
+        event for event in observed.events if event.get("event_type") == "ingest_unscanned"
+    ]
+    assert len(unscanned) == 1
+    assert unscanned[0]["session_id"] == "pet200-unavail"
+    assert not any(event.get("event_type") == "ingest_flagged" for event in observed.events)
+
+
+def test_unavailable_with_findings_stays_unflagged(
+    harness: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Regression for PET-219: findings on an unavailable scan do not become HIGH+.
+    ref, loop = _loaded(harness)
+    _patch_unavailable(monkeypatch, ref)
+    try:
+        with harness.isolated_observation(ref) as spool:
+            bucket = harness.CellAccum()
+            observed = harness.observe_sample(
+                ref,
+                spool,
+                bucket,
+                index=0,
+                tool_name="read_file",
+                payload=harness.PLANTED_PHRASE,
+                task_id="pet200-unavail-findings",
+            )
+    finally:
+        _close(loop)
+    assert observed.outcome == "unavailable"
+    assert observed.gaps == []
+    assert bucket.unavailable_with_findings == 1
+    assert bucket.flagged_high_plus == 0
+    assert not any(event.get("event_type") == "ingest_flagged" for event in observed.events)
+
+
+def test_helper_only_medium_increments_medium_not_high(harness: Any) -> None:
+    # Regression for PET-219: a non-blocking MEDIUM finding is helper-only.
+    pipeline = Pipeline(
+        scanners=(_ProbeScanner(_finding("encoding", Severity.MEDIUM)),),
+        config=PetasosConfig(),
+    )
+    ref, loop = _loaded(harness, pipeline)
+    try:
+        with harness.isolated_observation(ref) as spool:
+            bucket = harness.CellAccum()
+            observed = harness.observe_sample(
+                ref,
+                spool,
+                bucket,
+                index=0,
+                tool_name="read_file",
+                payload="garden notes for the north stall",
+                task_id="pet200-medium",
+            )
+    finally:
+        _close(loop)
+    assert observed.outcome == "clean"
+    assert observed.gaps == []
+    assert bucket.flagged_medium_plus == 1
+    assert bucket.flagged_high_plus == 0
+    assert not any(event.get("event_type") == "ingest_flagged" for event in observed.events)
+
+
+def test_pii_only_is_suppressed_without_a_banner(harness: Any) -> None:
+    # Regression for PET-219: blocking PII is withheld from the banner and the spool.
+    pipeline = Pipeline(
+        scanners=(_ProbeScanner(_finding("pii", Severity.HIGH)),),
+        config=PetasosConfig(),
+    )
+    ref, loop = _loaded(harness, pipeline)
+    try:
+        with harness.isolated_observation(ref) as spool:
+            bucket = harness.CellAccum()
+            observed = harness.observe_sample(
+                ref,
+                spool,
+                bucket,
+                index=0,
+                tool_name="read_file",
+                payload="garden notes for the north stall",
+                task_id="pet200-pii",
+            )
+    finally:
+        _close(loop)
+    assert observed.outcome == "clean"
+    assert observed.gaps == []
+    assert bucket.pii_suppressed == 1
+    assert bucket.flagged_high_plus == 0
+    assert bucket.flagged_medium_plus == 0
+    assert not any(event.get("event_type") == "ingest_flagged" for event in observed.events)
+
+
+def test_cross_sample_clean_ignores_earlier_flagged_event(harness: Any) -> None:
+    # Regression for PET-218: a later clean sample does not inherit an earlier event.
+    ref, loop = _loaded(harness)
+    try:
+        with harness.isolated_observation(ref) as spool:
+            flagged = harness.CellAccum()
+            clean = harness.CellAccum()
+            first = harness.observe_sample(
+                ref,
+                spool,
+                flagged,
+                index=0,
+                tool_name="read_file",
+                payload=harness.PLANTED_PHRASE,
+                task_id="pet200-0",
+            )
+            second = harness.observe_sample(
+                ref,
+                spool,
+                clean,
+                index=1,
+                tool_name="read_file",
+                payload="the content" * 10,
+                task_id="pet200-1",
+            )
+    finally:
+        _close(loop)
+    assert first.outcome == "ingest_flagged"
+    assert first.gaps == []
+    assert second.outcome == "clean"
+    assert second.gaps == []
+    assert second.events == []
+    cell = harness._finalize_cell("F-file", "S0", "benign", clean)
+    assert cell["flagged_high_plus"] == 0
+    assert cell["flagged_medium_plus"] == 0
+    assert cell["pii_suppressed"] == 0
+    assert flagged.flagged_high_plus == 1
+
+
+def test_parser_collapses_spool_noise(harness: Any, tmp_path: Path) -> None:
+    # Regression for PET-218: agreement uses collapsed attributable lines only.
+    task = "pet200-9"
+    line = {
+        "session_id": task,
+        "event_type": "ingest_flagged",
+        "rule_id": "petasos.syntactic.injection.ignore-previous",
+        "severity": "HIGH",
+    }
+    foreign = {
+        "session_id": "other-session",
+        "event_type": "ingest_flagged",
+        "rule_id": "petasos.syntactic.injection.other",
+        "severity": "HIGH",
+    }
+    path = tmp_path / "spool.jsonl"
+    path.write_bytes(
+        b"{not json}\n" + json.dumps(foreign).encode() + b"\n" + json.dumps(line).encode() + b"\n"
+        + json.dumps(line).encode()
+        + b"\n"
+    )
+    events, _offset = drain_enforcement_events(str(path), 0)
+    assert (
+        harness.attribute_new_events(
+            events,
+            task_id=task,
+            outcome="ingest_flagged",
+            rule_id="injection.ignore-previous",
+            severity="HIGH",
+            earlier_unscanned=False,
+        )
+        == "agreed"
+    )
+    other = dict(line)
+    other["rule_id"] = "petasos.syntactic.injection.other"
+    assert (
+        harness.attribute_new_events(
+            [line, other],
+            task_id=task,
+            outcome="ingest_flagged",
+            rule_id="injection.ignore-previous",
+            severity="HIGH",
+            earlier_unscanned=False,
+        )
+        == "agreement"
+    )
+
+
+def test_cadence_second_unavailable_reuses_the_earlier_line(
+    harness: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Regression for PET-218: a suppressed repeat agrees and does not recount the first row.
+    ref, loop = _loaded(harness)
+    _patch_unavailable(monkeypatch, ref)
+    try:
+        with harness.isolated_observation(ref) as spool:
+            first_bucket = harness.CellAccum()
+            second_bucket = harness.CellAccum()
+            payload = "the content" * 10
+            first = harness.observe_sample(
+                ref,
+                spool,
+                first_bucket,
+                index=0,
+                tool_name="read_file",
+                payload=payload,
+                task_id="pet200-cadence",
+            )
+            snapshot = (
+                first_bucket.n,
+                first_bucket.unavailable_n,
+                first_bucket.flagged_high_plus,
+                first_bucket.helper_samples,
+            )
+            second = harness.observe_sample(
+                ref,
+                spool,
+                second_bucket,
+                index=1,
+                tool_name="read_file",
+                payload=payload,
+                task_id="pet200-cadence",
+            )
+            stored, _offset = drain_enforcement_events(spool, 0)
+    finally:
+        _close(loop)
+    assert first.outcome == "unavailable"
+    assert second.outcome == "unavailable"
+    assert first.gaps == []
+    assert second.gaps == []
+    assert (
+        first_bucket.n,
+        first_bucket.unavailable_n,
+        first_bucket.flagged_high_plus,
+        first_bucket.helper_samples,
+    ) == snapshot
+    unscanned = [event for event in stored if event.get("event_type") == "ingest_unscanned"]
+    assert len(unscanned) == 1
+    assert unscanned[0]["session_id"] == "pet200-cadence"
+
+
+def test_isolated_observation_restores_sentinel_after_an_exception(
+    harness: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # Regression for PET-218: a failed run leaves the operator spool and cadence untouched.
+    import petasos.console._events as events
+    import petasos.console._paths as paths
+
+    sentinel = tmp_path / "sentinel.jsonl"
+    sentinel.write_bytes(b"MARKER\n")
+    paths._SPOOL_PATH_OVERRIDE = str(sentinel)
+    saved_key = events._SPOOL_KEY
+    ref, loop = _loaded(harness)
+    ref._last_ingest_unscanned_log["keep"] = 1.5
+    before = dict(ref._last_ingest_unscanned_log)
+
+    def _boom(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("resolve_hermes_config_path")
+
+    monkeypatch.setattr(paths, "resolve_hermes_config_path", _boom)
+    parent: Path | None = None
+    try:
+        with (
+            pytest.raises(RuntimeError, match="forced"),
+            harness.isolated_observation(ref) as spool,
+        ):
+            parent = Path(spool).parent
+            raw = ref._transform_tool_result(
+                tool_name="read_file",
+                result=harness.PLANTED_PHRASE,
+                task_id="pet200-sentinel",
+            )
+            assert harness.classify_handler_return(raw) == "ingest_flagged"
+            raise RuntimeError("forced")
+    finally:
+        _close(loop)
+    assert parent is not None
+    assert not parent.exists()
+    assert sentinel.read_bytes() == b"MARKER\n"
+    assert str(sentinel) == paths._SPOOL_PATH_OVERRIDE
+    assert events._SPOOL_KEY is saved_key
+    assert dict(ref._last_ingest_unscanned_log) == before
+
+
+def test_helper_missing_exits_3_without_replacing_out(
+    harness: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # Regression for PET-218: an unobserved sample is a gap, not a numeric zero.
+    async def _raise(*_args: Any, **_kwargs: Any) -> Any:
+        raise RuntimeError("no result")
+
+    monkeypatch.setattr("petasos.session.ingest.scan_ingestion_result", _raise)
+    ref, loop = _loaded(harness)
+    try:
+        with harness.isolated_observation(ref) as spool:
+            bucket = harness.CellAccum()
+            observed = harness.observe_sample(
+                ref,
+                spool,
+                bucket,
+                index=0,
+                tool_name="read_file",
+                payload="the content" * 10,
+                task_id="pet200-missing",
+            )
+    finally:
+        _close(loop)
+    assert observed.outcome == "unavailable"
+    assert any(gap.reason == "helper_missing" for gap in observed.gaps)
+    cell = harness._finalize_cell("F-file", "S0", "benign", bucket)
     assert cell["flagged_medium_plus"] is None
     assert cell["unavailable_with_findings"] is None
     assert cell["pii_suppressed"] is None
+    seeded = tmp_path / "out.json"
+    seeded.write_bytes(b'{"keep": true}\n')
+    seed = seeded.read_bytes()
+    missing = tmp_path / "missing.json"
+    code = harness.main(
+        ["--config", "base", "--phase", "baseline", "--out", str(seeded), "--limit", "1"]
+    )
+    assert code == 3
+    assert seeded.read_bytes() == seed
+    missing_code = harness.main(
+        ["--config", "base", "--phase", "baseline", "--out", str(missing), "--limit", "1"]
+    )
+    assert missing_code == 3
+    assert not missing.exists()
+
+
+def test_schema_smoke_partial_run_is_observed(harness: Any) -> None:
+    # Regression for PET-218: a limited run can still be fully observed.
+    report = harness.run_table_a(
+        phase="baseline",
+        git_sha=harness.git_head(),
+        manifest=harness.load_manifest(),
+        limit=2,
+    )
+    assert report["schema_version"] == 2
+    assert report["measurement"] == "partial"
+    assert report["observation"] == "complete"
+    assert report["cells"]
+    for cell in report["cells"]:
+        assert isinstance(cell["flagged_medium_plus"], int)
+        assert isinstance(cell["unavailable_with_findings"], int)
+        assert isinstance(cell["pii_suppressed"], int)
+    ml = harness.build_ml_report(phase="baseline", git_sha="abc", manifest_sha="def")
+    assert ml["schema_version"] == 2
+    assert ml["measurement"] == "not_measured"
+    assert ml["observation"] == "not_measured"
+    assert ml["cells"] == []
