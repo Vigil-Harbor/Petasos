@@ -267,6 +267,17 @@ async def test_command_family_critical_override_ordering() -> None:
     assert result.escalation_tier != "tier3"
 
 
+async def test_outbound_zwsp_leet_pipe_is_not_command() -> None:
+    # Regression for PET-211: "echo" ZWSP "|" ZWSP "5h" folds to "echo | sh"
+    # only on the composed view. Command does not read that view, outbound
+    # or inbound, and there is no decode-rescan variant of this pin.
+    payload = "echo\u200b|\u200b5h"
+    outbound, _ = await _inspect_outbound(payload)
+    assert outbound == []
+    inbound, _ = await _inspect_outbound(payload, direction="inbound")
+    assert inbound == []
+
+
 async def test_command_family_survives_research_floor() -> None:
     # Regression for PET-94 (Design §1 confidence constraint): pipe-to-shell
     # (confidence 0.7) survives the research profile's confidence_floor of 0.7 —

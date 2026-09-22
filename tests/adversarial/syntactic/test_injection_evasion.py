@@ -19,6 +19,7 @@ from petasos.scanners.minimal import (
     MinimalScanner,
 )
 from tests.adversarial.syntactic.benign_corpus import BENIGN_CORPUS
+from tests.test_minimal_scanner import _LEET_FOLD_PINS
 
 if TYPE_CHECKING:
     import re
@@ -403,3 +404,18 @@ async def test_role_trigger_not_leet_folded() -> None:
         result = await scanner.scan(snippet)
         role_hits = [f.rule_id for f in result.findings if "role-switch" in f.rule_id]
         assert role_hits == [], f"{snippet!r} fired role rules {role_hits}"
+
+
+async def test_zwsp_leet_fold_twins_are_not_role_switch() -> None:
+    """PET-211: ZWSP twins of the leet false-positive surface.
+
+    ASCII spaces in each _LEET_FOLD_PINS entry become U+200B. Named families
+    do not read the composed fold, so none of these emit a role-switch rule.
+    """
+    # Regression for PET-211: separator-restored leet twins stay off role-switch
+    scanner = MinimalScanner()
+    for snippet in _LEET_FOLD_PINS:
+        payload = snippet.replace(" ", "\u200b")
+        result = await scanner.scan(payload)
+        role_hits = [f.rule_id for f in result.findings if "role-switch" in f.rule_id]
+        assert role_hits == [], f"{payload!r} fired role rules {role_hits}"
