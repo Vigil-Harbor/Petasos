@@ -1,6 +1,6 @@
 # PET-178 — Retire the ingestion scan window: full-coverage result scanning with no unscanned gap
 
-> Brief: `docs/specs/TODO/PET-178.brief.md`
+> Brief: `docs/specs/DONE/PET-178/brief.md`
 > Plane: PET-178 (`4564b436-896f-4190-a38c-7126cb4717f2`, Backlog)
 > Tree anchor: current `master` (PET-181 `df1ef53` invert-only already on the seam).
 

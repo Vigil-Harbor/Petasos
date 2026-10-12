@@ -1,7 +1,7 @@
 # Reconciliation Report: PET-178
 
 > Date: 2026-09-17
-> Spec: docs/specs/TODO/PET-178.spec.md
+> Spec: docs/specs/DONE/PET-178/spec.md
 > Merge: PR #181 / `21d8dff`
 > Plane state: Done (group: completed)
 
