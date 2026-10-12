@@ -73,6 +73,7 @@ from petasos.session.guard import (
     NON_INGESTING_TOOLS,
     PARAM_SCAN_DIRECTION,
     READ_ONLY_TOOLS,
+    GuardResult,
     render_param_text,
 )
 from petasos.session.ingest import (  # PET-178: dep-light (chunked result scan)
@@ -288,6 +289,12 @@ def _reset_cold_start_records() -> None:
         _last_cold_start_fail_log = 0.0
 
 
+def _reset_eval_error_log() -> None:
+    """Test seam — clear the PET-224 once-per-session evaluation-failure log latch."""
+    with _eval_error_log_lock:
+        _eval_error_logged.clear()
+
+
 def _reset_rebind_log() -> None:
     """Test seam — reset the dedicated re-bind rate-limit clock (Decision 6)."""
     global _last_rebind_log
@@ -301,6 +308,23 @@ def _reset_rebind_log() -> None:
 # handlers therefore reference the registry lazily through this module global —
 # a hook firing before init completes (registry None) is a safe no-op.
 _lineage_registry = None
+# PET-224: published beside ``_guard`` / ``_lineage_registry`` once init succeeds.
+# Stays None through the cold window and a failed init. The evaluation-failure
+# arm reads it directly; it does not reach through the guard.
+_frequency_tracker = None
+# PET-224: once-per-session error log for a raising guard evaluation. Later
+# calls for the same key log at debug. Insertion-ordered dict used as a set,
+# drop-oldest at the cold-start cap. ``None`` is the process key for the
+# uncorrelatable shape (no task_id and no ``_agent``), matching the cold-start
+# marker. The lock is not held across emit, derive, or await. Live reconfigure
+# does not clear it.
+_eval_error_log_lock = threading.Lock()
+_eval_error_logged: dict[str | None, None] = {}
+_MAX_EVAL_ERROR_LOG_KEYS = 10_000
+_EVAL_TIMEOUT_CAUSE = "evaluation_timeout"
+_EVAL_ERROR_CAUSE = "evaluation_error"
+_EVAL_TIMEOUT_REASON = "guard evaluation unavailable: evaluation_timeout"
+_EVAL_ERROR_REASON = "guard evaluation unavailable: evaluation_error"
 # True iff BOTH subagent hooks registered. A is wired only when both are present
 # (an edge store created but never dropped-on-stop would leak edges); otherwise
 # A degrades fully to C (lineage=None). Set in register(), read in _deferred_init.
@@ -844,9 +868,10 @@ def _deferred_init() -> None:
                 # atomically with _guard, past every raise site, so a
                 # failed-init boot never leaves a registry accepting edges no
                 # guard reads.
-                global _lineage_registry
+                global _lineage_registry, _frequency_tracker
                 _guard = ToolCallGuard(_pipeline, tracker, config, lineage=registry)
                 _lineage_registry = registry
+                _frequency_tracker = tracker
                 if _subagent_hooks_available:
                     logger.info(
                         "Petasos sub-agent lineage (A) + delegation fan-out gate (C) active"
@@ -1219,13 +1244,15 @@ def _fallback_decision(
     log_cause: str,
     block_reason: str,
 ) -> dict[str, str] | None:
-    """PET-171: the fail-secure gate shared by both cold-window branches.
+    """PET-171: the fail-secure gate shared by both cold-window branches and the
+    warm-path ``_pre_tool_call`` except arm (PET-224).
 
     ``log_cause`` and ``block_reason`` are separate so each caller keeps its own
     operator-facing log wording while the enforcement event carries the branch-specific
-    reason. Homogenizing the two log lines would be an unrequested behavior change hiding
-    inside a parity fix (PET-174's recorded shape: a shared helper returns data, callers
-    keep their own message).
+    reason. The warm-path except arm passes the same string for both arguments.
+    Cold-window callers keep their own wording. Homogenizing the two log lines would
+    be an unrequested behavior change hiding inside a parity fix (PET-174's recorded
+    shape: a shared helper returns data, callers keep their own message).
     """
     try:
         dangerous = _is_dangerous(tool_name)
@@ -1268,6 +1295,88 @@ def _fallback_decision(
         # enforcement event's reason instead.
         "message": format_content_block("degraded", tool_name, ()),
     }
+
+
+def _note_eval_unavailable(
+    task_id: str,
+    session_id: str,
+    kwargs: dict[str, Any],
+    exc: BaseException,
+    cause: str,
+) -> None:
+    """Log a raising evaluation once per latch key at error, then at debug.
+
+    The latch key is ``None`` when there is no ``task_id`` and no ``_agent``
+    (``_derive_session_id`` would mint a fresh anon id and defeat a session latch).
+    Otherwise it is the already-derived ``session_id``.
+    """
+    key: str | None = None if (not task_id and kwargs.get("_agent") is None) else session_id
+    message = "Petasos guard evaluation failed: %s — guard evaluation unavailable: %s"
+    with _eval_error_log_lock:
+        first = key not in _eval_error_logged
+        if first:
+            _eval_error_logged[key] = None
+            if len(_eval_error_logged) > _MAX_EVAL_ERROR_LOG_KEYS:
+                _eval_error_logged.pop(next(iter(_eval_error_logged)), None)
+    if first:
+        logger.error(message, exc, cause)
+    else:
+        logger.debug(message, exc, cause)
+
+
+def _terminated_floor(session_id: str) -> bool:
+    """True when a raising evaluation must take the tier-3 block.
+
+    True when the tracker is missing, this session is terminated, any ancestor
+    id from ``LineageRegistry.ancestors`` is terminated, or any of those calls
+    raises. Does not read ``subagent_lineage_enabled`` and does not call the
+    guard. ``is_terminated`` returns before ``ancestors()`` is called, and
+    ``ancestors()`` returns its snapshot before the next ``is_terminated``.
+    """
+    tracker = _frequency_tracker
+    if tracker is None:
+        logger.error(
+            "terminated-floor check failed for session=%s — returning tier3 fail-secure",
+            session_id,
+        )
+        return True
+    try:
+        if tracker.is_terminated(session_id):
+            return True
+        registry = _lineage_registry
+        if registry is not None:
+            ancestors = registry.ancestors(session_id)
+            for ancestor_id in ancestors:
+                if tracker.is_terminated(ancestor_id):
+                    return True
+        return False
+    except Exception:
+        logger.exception(
+            "terminated-floor check failed for session=%s — returning tier3 fail-secure",
+            session_id,
+        )
+        return True
+
+
+def _tier3_unavailable_block(tool_name: str, session_id: str) -> dict[str, str]:
+    """Tier-3 block for the evaluation-failure arm. One event, not the fallback."""
+    logger.critical(
+        "PETASOS_TIER3 tool=%s session=%s — all tool calls blocked", tool_name, session_id
+    )
+    _emit_enforcement_event(
+        session_id=session_id, tool=tool_name, event_type="tier3", tier="tier3"
+    )
+    message = format_block_message(
+        GuardResult(
+            allowed=False,
+            reason="session terminated (tier3)",
+            findings=(),
+            tier="tier3",
+            param_scan_unsafe=False,
+        ),
+        tool_name,
+    )
+    return {"action": "block", "message": message}
 
 
 def _is_armed() -> bool:
@@ -2066,8 +2175,22 @@ def _pre_tool_call(
     try:
         result = _run_async(_evaluate_with_inspect_lock(tool_name, args, session_id))
     except Exception as exc:
-        logger.error("Petasos guard evaluation failed: %s — allowing tool call", exc)
-        return None
+        if isinstance(exc, concurrent.futures.TimeoutError):
+            cause = _EVAL_TIMEOUT_CAUSE
+            reason = _EVAL_TIMEOUT_REASON
+        else:
+            cause = _EVAL_ERROR_CAUSE
+            reason = _EVAL_ERROR_REASON
+        _note_eval_unavailable(task_id, session_id, kwargs, exc, cause)
+        if _terminated_floor(session_id):
+            return _tier3_unavailable_block(tool_name, session_id)
+        return _fallback_decision(
+            tool_name,
+            "errored",
+            session_id=session_id,
+            log_cause=reason,
+            block_reason=reason,
+        )
 
     if result.selfmod_target is not None:
         try:

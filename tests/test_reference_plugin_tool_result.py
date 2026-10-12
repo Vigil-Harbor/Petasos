@@ -33,6 +33,7 @@ import pytest
 import petasos.console._events as evmod
 from petasos import (
     FrequencyTracker,
+    LineageRegistry,
     PetasosConfig,
     Pipeline,
     PipelineResult,
@@ -42,6 +43,7 @@ from petasos import (
     ToolCallGuard,
 )
 from petasos.scanners.minimal import MinimalScanner
+from petasos.session.formatting import format_block_message
 from petasos.session.guard import INGESTION_TOOLS, NON_INGESTING_TOOLS, GuardResult
 from petasos.session.ingest import scan_ingestion_result
 
@@ -1915,7 +1917,9 @@ def test_run_async_timeout_while_apply_waits_does_not_strand_mutex(
 def test_run_async_timeout_while_evaluate_waits_fail_opens_one_call(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    # Regression for PET-208: evaluate timeout fail-opens that one call, not later ones.
+    # Regression for PET-208: a timed-out evaluate waiter releases the inspect mutex
+    # so a later call can acquire it. This timeout is a direct ``_run_async`` of
+    # ``_evaluate_with_inspect_lock``, not the ``_pre_tool_call`` except arm.
     ref = _import_reference_plugin()
     guard = _StubGuard()
     monkeypatch.setattr(ref, "_initialized", True)
@@ -2238,3 +2242,330 @@ def test_bundled_security_guidance_write_targets_stay_excluded() -> None:
     assert "write_file" in ref._NON_INGESTING_CANON
     assert "patch" in ref._NON_INGESTING_CANON
     assert "skill_manage" not in NON_INGESTING_TOOLS
+
+
+# ---------------------------------------------------------------------------
+# PET-224: a raising guard evaluation fails closed
+# ---------------------------------------------------------------------------
+
+
+def _tier3_block_text(tool_name: str) -> str:
+    return format_block_message(
+        GuardResult(
+            allowed=False,
+            reason="session terminated (tier3)",
+            findings=(),
+            tier="tier3",
+            param_scan_unsafe=False,
+        ),
+        tool_name,
+    )
+
+
+def _eval_failed_records(records: list[logging.LogRecord], level: int) -> list[logging.LogRecord]:
+    return [
+        record
+        for record in records
+        if record.levelno == level and "guard evaluation failed" in record.getMessage()
+    ]
+
+
+def _eval_failure_plugin(
+    monkeypatch: pytest.MonkeyPatch,
+    exc: BaseException,
+    *,
+    fail_mode: str = "degraded",
+    tracker: Any = ...,
+    lineage: Any = ...,
+) -> types.ModuleType:
+    """Armed, initialized plugin whose ``_run_async`` raises ``exc`` immediately.
+
+    Publishes a non-terminated ``FrequencyTracker`` unless ``tracker`` is ``None``
+    (the PET-224 floor-missing case). ``_lineage_registry`` stays the module
+    initial ``None`` unless ``lineage`` is passed.
+    """
+    ref = _import_reference_plugin()
+    monkeypatch.setattr(ref, "_initialized", True)
+    monkeypatch.setattr(ref, "_init_error", None)
+    monkeypatch.setattr(ref, "_is_armed", lambda: True)
+    monkeypatch.setattr(ref, "_maybe_reconfigure", lambda: None)
+    monkeypatch.setattr(ref, "_config", {"fail_mode": fail_mode})
+    monkeypatch.setattr(ref, "_guard", _StubGuard())
+
+    def _raise(coro: Any, timeout: float = 15) -> Any:
+        coro.close()
+        raise exc
+
+    monkeypatch.setattr(ref, "_run_async", _raise)
+    if tracker is ...:
+        tracker = FrequencyTracker(PetasosConfig())
+    if tracker is not None:
+        monkeypatch.setattr(ref, "_frequency_tracker", tracker)
+    if lineage is not ...:
+        monkeypatch.setattr(ref, "_lineage_registry", lineage)
+    return ref
+
+
+@pytest.mark.parametrize("fail_mode", ["degraded", "closed", "open"])
+def test_pet224_generic_exception_blocks_dangerous_under_every_fail_mode(
+    monkeypatch: pytest.MonkeyPatch, fail_mode: str
+) -> None:
+    ref = _eval_failure_plugin(monkeypatch, RuntimeError("eval down"), fail_mode=fail_mode)
+
+    out = ref._pre_tool_call("write_file", {"path": "a.txt"}, task_id="s-eval")
+
+    assert out is not None
+    assert out["action"] == "block"
+    events = _events("quarantine")
+    assert len(events) == 1
+    assert events[0]["param_scan_degraded"] is True
+    assert events[0]["reason"] == "guard evaluation unavailable: evaluation_error"
+    assert _events("tier3") == []
+
+
+def test_pet224_timeout_classifies_as_evaluation_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ref = _eval_failure_plugin(monkeypatch, concurrent.futures.TimeoutError())
+
+    out = ref._pre_tool_call("write_file", {"path": "a.txt"}, task_id="s-timeout")
+
+    assert out is not None
+    assert out["action"] == "block"
+    events = _events("quarantine")
+    assert len(events) == 1
+    assert events[0]["param_scan_degraded"] is True
+    assert events[0]["reason"] == "guard evaluation unavailable: evaluation_timeout"
+    assert _events("tier3") == []
+
+
+def test_pet224_real_run_async_timeout_blocks_with_timeout_reason(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ref = _import_reference_plugin()
+    guard = _StubGuard()
+    tracker = FrequencyTracker(PetasosConfig())
+    monkeypatch.setattr(ref, "_initialized", True)
+    monkeypatch.setattr(ref, "_init_error", None)
+    monkeypatch.setattr(ref, "_is_armed", lambda: True)
+    monkeypatch.setattr(ref, "_maybe_reconfigure", lambda: None)
+    monkeypatch.setattr(ref, "_config", {})
+    monkeypatch.setattr(ref, "_pipeline", object())
+    monkeypatch.setattr(ref, "_guard", guard)
+    monkeypatch.setattr(ref, "_frequency_tracker", tracker)
+    monkeypatch.setattr(ref, "_lineage_registry", None)
+    ref._ensure_async_loop()
+    assert ref._async_loop is not None
+    original_run = ref._run_async
+
+    def _short(coro: Any, timeout: float = 15) -> Any:
+        return original_run(coro, timeout=0.05)
+
+    monkeypatch.setattr(ref, "_run_async", _short)
+    orig, slot = _install_threadsafe_capture(monkeypatch)
+    lock = ref._inspect_lock
+    lock.acquire()
+    try:
+        started = time.monotonic()
+        out = ref._pre_tool_call("write_file", {"path": "ok.txt"}, task_id="s-real-to")
+        elapsed = time.monotonic() - started
+        _join_loop_task(orig, ref._async_loop, slot)
+        _assert_no_wrong_release(lock)
+    finally:
+        if lock.locked():
+            lock.release()
+    _assert_no_steal(lock)
+
+    assert elapsed < 2.0
+    assert out is not None
+    assert out["action"] == "block"
+    events = _events("quarantine")
+    assert len(events) == 1
+    assert events[0]["reason"] == "guard evaluation unavailable: evaluation_timeout"
+    assert events[0]["param_scan_degraded"] is True
+    assert _events("tier3") == []
+    assert guard.calls == 0
+    assert tracker.is_terminated("s-real-to") is False
+    assert tracker.get_state("s-real-to") is None
+
+
+@pytest.mark.parametrize("exc", [RuntimeError("eval down"), concurrent.futures.TimeoutError()])
+def test_pet224_read_only_passes_when_evaluation_raises(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    exc: BaseException,
+) -> None:
+    ref = _eval_failure_plugin(monkeypatch, exc)
+
+    with caplog.at_level(logging.DEBUG, logger="petasos.plugin"):
+        out = ref._pre_tool_call("read_file", {"path": "notes.txt"}, task_id="s-ro")
+
+    assert out is None
+    assert _events("quarantine") == []
+    assert _events("tier3") == []
+    failed = _eval_failed_records(caplog.records, logging.ERROR)
+    assert failed
+    assert all("allowing tool call" not in record.getMessage() for record in failed)
+
+
+def test_pet224_eval_error_logged_once_per_session_and_survives_reconfigure(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    ref = _eval_failure_plugin(monkeypatch, RuntimeError("eval down"))
+
+    with caplog.at_level(logging.DEBUG, logger="petasos.plugin"):
+        first = ref._pre_tool_call("write_file", {"path": "a.txt"}, task_id="s-latch")
+        second = ref._pre_tool_call("write_file", {"path": "a.txt"}, task_id="s-latch")
+
+    assert first is not None and first["action"] == "block"
+    assert second is not None and second["action"] == "block"
+    errors = _eval_failed_records(caplog.records, logging.ERROR)
+    debugs = _eval_failed_records(caplog.records, logging.DEBUG)
+    assert len(errors) == 1
+    assert "evaluation_error" in errors[0].getMessage()
+    assert len(debugs) == 1
+    assert "evaluation_error" in debugs[0].getMessage()
+    assert len(_events("quarantine")) == 2
+
+    class _NoopGuard:
+        def validate_config(self, cfg: PetasosConfig) -> None:
+            return None
+
+        def apply_config(self, cfg: PetasosConfig) -> None:
+            return None
+
+    class _NoopPipeline:
+        def reconfigure(self, cfg: PetasosConfig) -> None:
+            return None
+
+    monkeypatch.setattr(ref, "_guard", _NoopGuard())
+    monkeypatch.setattr(ref, "_pipeline", _NoopPipeline())
+    monkeypatch.setattr(ref, "_lineage_registry", None)
+    monkeypatch.setattr(ref, "_egress_sink_tools", frozenset())
+    monkeypatch.setattr(ref, "_source_taint_namespaces", frozenset())
+    monkeypatch.setattr(ref, "_taint_store", None)
+    monkeypatch.setattr(evmod, "set_spool_key", lambda _key: None)
+    ref._apply_reconfigure_body(PetasosConfig())
+
+    caplog.clear()
+    with caplog.at_level(logging.DEBUG, logger="petasos.plugin"):
+        third = ref._pre_tool_call("write_file", {"path": "a.txt"}, task_id="s-latch")
+    assert third is not None and third["action"] == "block"
+    assert _eval_failed_records(caplog.records, logging.ERROR) == []
+    assert len(_eval_failed_records(caplog.records, logging.DEBUG)) == 1
+    assert len(_events("quarantine")) == 3
+
+    ref._reset_eval_error_log()
+    caplog.clear()
+    with caplog.at_level(logging.DEBUG, logger="petasos.plugin"):
+        fourth = ref._pre_tool_call("write_file", {"path": "a.txt"}, task_id="s-latch")
+    assert fourth is not None and fourth["action"] == "block"
+    assert len(_eval_failed_records(caplog.records, logging.ERROR)) == 1
+
+    caplog.clear()
+    with caplog.at_level(logging.DEBUG, logger="petasos.plugin"):
+        other = ref._pre_tool_call("write_file", {"path": "a.txt"}, task_id="s-other")
+    assert other is not None and other["action"] == "block"
+    assert len(_eval_failed_records(caplog.records, logging.ERROR)) == 1
+
+    caplog.clear()
+    with caplog.at_level(logging.DEBUG, logger="petasos.plugin"):
+        anon_first = ref._pre_tool_call("write_file", {"path": "a.txt"}, task_id="")
+        anon_second = ref._pre_tool_call("write_file", {"path": "a.txt"}, task_id="")
+    assert anon_first is not None and anon_first["action"] == "block"
+    assert anon_second is not None and anon_second["action"] == "block"
+    assert len(_eval_failed_records(caplog.records, logging.ERROR)) == 1
+    assert len(_eval_failed_records(caplog.records, logging.DEBUG)) == 1
+
+
+def test_pet224_terminated_session_blocks_every_tool(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tracker = FrequencyTracker(PetasosConfig())
+    tracker.terminate_session("s-dead")
+    ref = _eval_failure_plugin(monkeypatch, RuntimeError("eval down"), tracker=tracker)
+
+    for tool_name in ("read_file", "write_file"):
+        out = ref._pre_tool_call(tool_name, {"path": "a.txt"}, task_id="s-dead")
+        assert out is not None
+        assert out["action"] == "block"
+        assert out["message"] == _tier3_block_text(tool_name)
+
+    assert len(_events("tier3")) == 2
+    assert _events("quarantine") == []
+
+
+def test_pet224_terminated_ancestor_blocks_read_only_when_lineage_flag_off(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tracker = FrequencyTracker(PetasosConfig())
+    registry = LineageRegistry(PetasosConfig(subagent_lineage_enabled=False))
+    registry.register("child", "parent")
+    tracker.terminate_session("parent")
+    ref = _eval_failure_plugin(
+        monkeypatch, RuntimeError("eval down"), tracker=tracker, lineage=registry
+    )
+
+    out = ref._pre_tool_call("read_file", {"path": "a.txt"}, task_id="child")
+
+    assert registry.ancestors("child") == ["parent"]
+    assert out is not None
+    assert out["action"] == "block"
+    assert out["message"] == _tier3_block_text("read_file")
+    assert len(_events("tier3")) == 1
+    assert _events("quarantine") == []
+
+
+def test_pet224_ancestor_walk_stops_at_lineage_max_depth(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tracker = FrequencyTracker(PetasosConfig())
+    registry = LineageRegistry(PetasosConfig(lineage_max_depth=1))
+    registry.register("parent", "grandparent")
+    registry.register("child", "parent")
+    tracker.terminate_session("grandparent")
+    ref = _eval_failure_plugin(
+        monkeypatch, RuntimeError("eval down"), tracker=tracker, lineage=registry
+    )
+
+    out = ref._pre_tool_call("read_file", {"path": "a.txt"}, task_id="child")
+
+    assert registry.ancestors("child") == ["parent"]
+    assert out is None
+    assert _events("quarantine") == []
+    assert _events("tier3") == []
+
+
+def test_pet224_missing_registry_uses_session_only_floor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ref = _eval_failure_plugin(monkeypatch, RuntimeError("eval down"))
+
+    read = ref._pre_tool_call("read_file", {"path": "a.txt"}, task_id="s-live")
+    write = ref._pre_tool_call("write_file", {"path": "a.txt"}, task_id="s-live")
+
+    assert read is None
+    assert write is not None
+    assert write["action"] == "block"
+    quarantined = _events("quarantine")
+    assert len(quarantined) == 1
+    assert quarantined[0]["reason"] == "guard evaluation unavailable: evaluation_error"
+    assert _events("tier3") == []
+
+
+def test_pet224_floor_fail_secure_when_tracker_missing_or_raising(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _RaisingTracker:
+        def is_terminated(self, session_id: str) -> bool:
+            raise RuntimeError(f"tracker down for {session_id}")
+
+    for tracker in (None, _RaisingTracker()):
+        ref = _eval_failure_plugin(monkeypatch, RuntimeError("eval down"), tracker=tracker)
+        out = ref._pre_tool_call("read_file", {"path": "a.txt"}, task_id="s-floor")
+        assert out is not None
+        assert out["action"] == "block"
+        assert out["message"] == _tier3_block_text("read_file")
+
+    assert len(_events("tier3")) == 2
+    assert _events("quarantine") == []
