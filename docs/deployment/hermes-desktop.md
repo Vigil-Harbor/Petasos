@@ -333,6 +333,16 @@ blocked solely because the scan is degraded. If YOLO turns on or the profile
 re-binds to block, that later call blocks unless the key is always-approved.
 A command finding on that later call still asks or blocks on the command key.
 
+Petasos does not see how Hermes answers that first degraded prompt. The
+once-per-session record is written when the approve is returned, not when the
+operator approves. So the first degraded call fails closed in Hermes when
+nobody answers, and a later degraded-only call in the same session is allowed
+without a prompt even if the first one was denied or timed out. The record is
+in-process: a restart re-arms the prompt. disabled_scanners is read at
+startup, so disabling an unusable backend there takes effect at the next
+restart and removes the degraded condition itself. Re-arming on deny or
+timeout is tracked in Plane as PET-227.
+
 YOLO (HERMES_YOLO_MODE set, or the session yolo flag) auto-approves a plugin
 approve return. Petasos therefore returns block instead of approve for both
 the degraded case and a HIGH command finding while YOLO is on, except a key

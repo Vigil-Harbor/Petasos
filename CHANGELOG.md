@@ -18,8 +18,10 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
   suppresses `destructive-recursive`, `fetch-exec`, `decode-exec`, or
   `alias-escape` (`pipe-to-shell` stays suppressed). A degraded scan and a HIGH
   command finding on a dangerous tool ask Hermes for approval instead of
-  quarantining, after the independent blocks. The degraded approve is once per
-  session. An operator always on a rule key is honored for that key, including
+  quarantining, after the independent blocks. The degraded approve is returned
+  once per session, recorded when it is returned: Petasos does not observe the
+  Hermes answer, so a later degraded-only call in that session is allowed
+  without a prompt (re-arming on deny or timeout is PET-227). An operator always on a rule key is honored for that key, including
   under the block posture and under YOLO, from the active Hermes profile home.
   Hosts without the approve directive, and YOLO on an unlisted key, still block.
 
@@ -136,6 +138,21 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
   a sibling Guard exports check. PET-181: no longer the seam's membership test.
 
 ### Fixed
+
+- **A raising or timed-out guard evaluation no longer allows the tool call
+  (PET-224).** The reference plugin's `pre_tool_call` hook returned `None` from
+  its `except` arm, which Hermes treats as "run the tool". Dangerous tools now
+  block under every `fail_mode`, including `open`; read-only tools pass; a
+  terminated session, or a child of one, still gets the tier-3 block. The
+  quarantine event reason is `guard evaluation unavailable: evaluation_timeout`
+  or `guard evaluation unavailable: evaluation_error`. Under ML load a call that
+  waits past the 15 s budget now blocks instead of running.
+
+- **`code_generation` description no longer calls `curl | sh` a non-finding
+  (PET-226).** Only `pipe-to-shell` is suppressed, so a bare `... | sh` with no
+  fetch or decode stage is not a finding; `curl/wget ... | sh` and
+  `base64 -d ... | sh` still fire `fetch-exec` / `decode-exec` and route to
+  Hermes approval under the approve posture. Pinned by a real-guard test.
 
 - **A raising ingestion inspect is reported as inspect_error (PET-205).**
   A raising `inspect()` through `scan_ingestion_result` sets

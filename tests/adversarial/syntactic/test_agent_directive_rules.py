@@ -355,6 +355,23 @@ async def test_base64_wrapped_obfuscated_directive_normalized_before_match() -> 
     assert decoded.position == Position(start=0, end=len(blob))
 
 
+async def test_base64_wrapped_zwsp_separated_directive_detected_at_blob_span() -> None:
+    # Pin from the PET-213 close: a base64 carrier whose decoded directive has a
+    # ZWSP (U+200B) between every word takes the separator-extras view. The
+    # restored view still matches the agent-directive rule at HIGH, and the
+    # finding keeps the fixed carrier (blob) span, not a transformed-text span.
+    zwsp = chr(0x200B)
+    separated = AGENT_DIRECTIVE_CANONICAL.replace(" ", zwsp)
+    assert " " not in separated
+    blob = base64.b64encode(separated.encode()).decode()
+    r = await MinimalScanner().scan(blob)
+    hits = _agent_findings(r.findings)
+    assert hits, "ZWSP-separated base64-wrapped directive missed"
+    decoded = next(f for f in hits if "base64-decoded" in f.message)
+    assert decoded.severity == Severity.HIGH
+    assert decoded.position == Position(start=0, end=len(blob))
+
+
 async def test_base64_decode_fires_when_base64_flag_suppressed() -> None:
     # Regression for PET-154 (D6 / PET-98 Decision 3): the decode stage runs even
     # when the LOW base64-in-text flag is suppressed; the HIGH agent-directive
