@@ -5,7 +5,7 @@ import json
 import logging
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Any
+from typing import Any, Literal
 
 from petasos._types import FloorScope, Severity
 from petasos.config import _validate_tier_thresholds
@@ -16,6 +16,7 @@ from petasos.scanners.presidio import KNOWN_PII_ENTITIES
 _logger = logging.getLogger(__name__)
 
 _VALID_FLOOR_SCOPES: frozenset[str] = frozenset({"all", "inbound"})
+_VALID_POSTURES: frozenset[str] = frozenset({"block", "approve"})
 
 
 def _validate_injection_floor_scope(value: Any) -> FloorScope:
@@ -28,6 +29,19 @@ def _validate_injection_floor_scope(value: Any) -> FloorScope:
         return "inbound"
     raise ValueError(
         f"injection_floor_scope must be one of {sorted(_VALID_FLOOR_SCOPES)}, got {value!r}"
+    )
+
+
+def _validate_dangerous_tool_posture(value: Any) -> Literal["block", "approve"]:
+    # PET-221: same fail-loud contract as injection_floor_scope. A typo must not
+    # silently become block inside the dataclass; the plugin's reader still
+    # treats anything other than the exact string "approve" as block.
+    if value == "block":
+        return "block"
+    if value == "approve":
+        return "approve"
+    raise ValueError(
+        f"dangerous_tool_posture must be one of {sorted(_VALID_POSTURES)}, got {value!r}"
     )
 
 
@@ -75,12 +89,17 @@ class ResolvedProfile:
     # PET-162 Part 2: "all" (default) keeps the syntactic injection floor absolute
     # on every direction; "inbound" relaxes it for the agent's own outbound only.
     injection_floor_scope: FloorScope = "all"
+    # PET-221: block is the floor. code_generation sets approve. Anything else
+    # raises here; the plugin additionally treats a non-exact "approve" as block.
+    dangerous_tool_posture: Literal["block", "approve"] = "block"
 
     def __post_init__(self) -> None:
         # PET-162 Part 2: validate the scope BEFORE the suppress re-strip, so an
         # invalid scope (e.g. a direct ``ResolvedProfile(..., injection_floor_scope=
         # "Inbound")`` typo) raises cleanly rather than first emitting a spurious
         # "stripped unsuppressible rules" warning from a scope-mismatched strip.
+        # PET-221: posture is validated in the same pre-strip pass.
+        _validate_dangerous_tool_posture(self.dangerous_tool_posture)
         scope = _validate_injection_floor_scope(self.injection_floor_scope)
         cleaned = _validate_suppress_rules(self.suppress_rules, scope)
         if cleaned != self.suppress_rules:
@@ -106,6 +125,7 @@ class ResolvedProfile:
             "tool_alias_map": dict(self.tool_alias_map),
             "description": self.description,
             "injection_floor_scope": self.injection_floor_scope,
+            "dangerous_tool_posture": self.dangerous_tool_posture,
         }
 
 
@@ -212,6 +232,7 @@ def _parse_profile(data: dict[str, Any]) -> ResolvedProfile:
     # PET-162 Part 2: parse the scope before the suppress strip so an "inbound"
     # profile retains its injection openers (the runtime floor drops them later).
     scope = _validate_injection_floor_scope(data.get("injection_floor_scope", "all"))
+    posture = _validate_dangerous_tool_posture(data.get("dangerous_tool_posture", "block"))
 
     return ResolvedProfile(
         name=data["name"],
@@ -224,6 +245,7 @@ def _parse_profile(data: dict[str, Any]) -> ResolvedProfile:
         tool_alias_map=MappingProxyType(dict(alias_map)),
         description=desc,
         injection_floor_scope=scope,
+        dangerous_tool_posture=posture,
     )
 
 
@@ -237,6 +259,10 @@ def _merge_with_base(
     scope = base.injection_floor_scope
     if "injection_floor_scope" in overrides:
         scope = _validate_injection_floor_scope(overrides["injection_floor_scope"])
+
+    posture = base.dangerous_tool_posture
+    if "dangerous_tool_posture" in overrides:
+        posture = _validate_dangerous_tool_posture(overrides["dangerous_tool_posture"])
 
     suppress = base.suppress_rules
     if "suppress_rules" in overrides:
@@ -330,6 +356,7 @@ def _merge_with_base(
         tool_alias_map=MappingProxyType(alias),
         description=description,
         injection_floor_scope=scope,
+        dangerous_tool_posture=posture,
     )
 
 

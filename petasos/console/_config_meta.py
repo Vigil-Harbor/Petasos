@@ -241,6 +241,19 @@ _FIELD_META: dict[str, dict[str, Any]] = {
         "section": "scanning",
         "constraints": {"min": 0, "max": 1},
     },
+    "disabled_scanners": {
+        "description": "Optional scanner backends to skip at startup.",
+        "help_plain": (
+            "Lists optional backends (llm_guard, llama_firewall, presidio) that Petasos"
+            " should not load. A listed backend is not registered and is reported as"
+            " disabled instead of a load failure. Use this when a backend is installed"
+            " but unusable and you would rather opt out than have every scan error."
+            " This applies to the scanner Petasos builds from config at startup."
+            " A program that imports Petasos as a library and passes its own scanner"
+            " list never reads this field. An unknown id is rejected."
+        ),
+        "section": "scanning",
+    },
     "redaction_mode": {
         "description": "How to hide PII: redact, replace, hash, or mask.",
         "help_plain": (

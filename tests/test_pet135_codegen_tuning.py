@@ -56,7 +56,13 @@ _BLOCKING_SEVERITIES = {Severity.CRITICAL, Severity.HIGH}
 # PET-162 Part 2 to suppress the full injection family on outbound (retained in
 # the resolved set under injection_floor_scope="inbound"; the runtime
 # direction-aware floor drops them on outbound and keeps them on inbound).
-_EXPECTED_SUPPRESS = _ENCODING_RULE_IDS | _COMMAND_RULE_IDS | _ALL_INJECTION_IDS
+# PET-221: pipe-to-shell stays suppressed. The other four command rules are active.
+_EXPECTED_SUPPRESS = (
+    _ENCODING_RULE_IDS
+    | _ALL_INJECTION_IDS
+    | frozenset({"petasos.syntactic.command.pipe-to-shell"})
+)
+_RETURNED_COMMAND_IDS = _COMMAND_RULE_IDS - frozenset({"petasos.syntactic.command.pipe-to-shell"})
 # PET-162 Part 1 added the LlamaFirewall PromptGuard demote alongside PET-135's
 # LLM Guard injection demote (both ML prompt-injection verdicts, both non-floor).
 _EXPECTED_SEVERITY_OVERRIDES = {
@@ -80,7 +86,7 @@ _EM_DASH = "—"
 # dash or silently drops the trade-off note trips review. Kept on one line so the
 # equality is character-for-character against the code_generation.json string;
 # E501 is suppressed deliberately for the pin (D-PROFILE-CONTRACT).
-_EXPECTED_DESCRIPTION = "Tuned for coding agents. Suppresses encoding and shell-command rules that fire constantly on legitimate code (base64, homoglyphs, pipe-to-shell, decode/fetch-exec, recursive deletes), raises the confidence floor to 0.6, downgrades the two ML prompt-injection verdicts (LLM Guard's petasos.llmguard.injection and LlamaFirewall's petasos.llamafirewall.prompt-guard) to non-blocking, and direction-scopes the syntactic injection floor (injection_floor_scope=inbound) so the agent's own outbound tool calls may carry injection-shaped text as data. Those ML classifiers flag ordinary outbound tool calls (ls, curl, git status, file searches over security docs, heredocs that process attack strings as data) as injection at confidence 0.5-1.0, so the 0.6 floor cannot tame them; the overrides keep the findings visible for audit (still logged at low, and still counted toward session frequency/escalation, so an armed session may sit at a non-blocking tier1) without blocking. The syntactic injection, role-switch, and agent-directive rules are suppressed on outbound only: an inbound injection attempt (someone trying to manipulate THIS model) still blocks at full strength under this profile. Unlike the ML downgrades, a suppressed outbound injection is dropped before merge: it leaves only a debug-log trace, does not appear in the audit spool, and is not counted toward frequency or escalation. For: code-writing and dev-tooling agents on a trusted operator's own machine. Trade-off: the suppressed command family means destructive shell commands DO NOT BLOCK under this profile: a real `rm -rf /` (petasos.syntactic.command.destructive-recursive) passes; ML prompt-injection on tool-call params no longer blocks; and outbound syntactic injection no longer blocks. The ML injection downgrades are direction-blind, so if this profile is ever used on an inbound surface, ML injection blocking is off there too; the syntactic injection relaxation is direction-scoped, but it is only safe if the host labels untrusted content direction=inbound (the per-call default falls back to config.direction, so keep that set to inbound), and second-order egress (an induced outbound attack payload) is guarded by the egress fence (PET-134/133/112) where that fence is deployed; if it is not present, the second-order egress path is uncovered, so arm this profile only if you accept that residual. Still blocking: structural anomalies (unsuppressible on every direction), inbound syntactic injection + role-switch + agent-directive rules, and Presidio PII egress (PET-135, PET-162)."  # noqa: E501
+_EXPECTED_DESCRIPTION = "Tuned for coding agents. Suppresses encoding rules and the pipe-to-shell command rule that fire on legitimate code (base64, homoglyphs, pipe-to-shell), raises the confidence floor to 0.6, downgrades the two ML prompt-injection verdicts (LLM Guard's petasos.llmguard.injection and LlamaFirewall's petasos.llamafirewall.prompt-guard) to non-blocking, and direction-scopes the syntactic injection floor (injection_floor_scope=inbound) so the agent's own outbound tool calls may carry injection-shaped text as data. Those ML classifiers flag ordinary outbound tool calls (ls, curl, git status, file searches over security docs, heredocs that process attack strings as data) as injection at confidence 0.5-1.0, so the 0.6 floor cannot tame them; the overrides keep the findings visible for audit (still logged at low, and still counted toward session frequency/escalation, so an armed session may sit at a non-blocking tier1) without blocking. The syntactic injection, role-switch, and agent-directive rules are suppressed on outbound only: an inbound injection attempt (someone trying to manipulate THIS model) still blocks at full strength under this profile. Unlike the ML downgrades, a suppressed outbound injection is dropped before merge: it leaves only a debug-log trace, does not appear in the audit spool, and is not counted toward frequency or escalation. For: code-writing and dev-tooling agents on a trusted operator's own machine. Trade-off: pipe-to-shell stays suppressed, so a literal curl | sh is not a Petasos finding under this profile (Hermes's own approval patterns still prompt on that literal form). The other four command rules (destructive-recursive, fetch-exec, decode-exec, alias-escape) stay active. With dangerous_tool_posture=approve they route a dangerous tool call to Hermes approval instead of a Petasos quarantine, keyed by the worst command finding; an unanswered or denied approval fails closed in Hermes. Under YOLO, or on a host without the approve directive, those same findings block. ML prompt-injection on tool-call params no longer blocks, and outbound syntactic injection no longer blocks. The ML injection downgrades are direction-blind, so if this profile is ever used on an inbound surface, ML injection blocking is off there too; the syntactic injection relaxation is direction-scoped, but it is only safe if the host labels untrusted content direction=inbound (the per-call default falls back to config.direction, so keep that set to inbound), and second-order egress (an induced outbound attack payload) is guarded by the egress fence (PET-134/133/112) where that fence is deployed; if it is not present, the second-order egress path is uncovered, so arm this profile only if you accept that residual. Still blocking: structural anomalies (unsuppressible on every direction), inbound syntactic injection, role-switch, and agent-directive rules, Presidio PII egress (PET-135, PET-162), source-taint egress, non-command HIGH findings, and tier-2 or tier-3 escalation."  # noqa: E501
 
 
 def _blocking(findings: tuple[ScanFinding, ...]) -> list[ScanFinding]:
@@ -291,6 +297,9 @@ class TestSuppressionSetIsExactlyDecided:
         assert profile.suppress_rules == _EXPECTED_SUPPRESS, (
             f"suppress_rules drifted: {sorted(profile.suppress_rules)}"
         )
+        assert _RETURNED_COMMAND_IDS.isdisjoint(profile.suppress_rules)
+        for rule_id in sorted(_RETURNED_COMMAND_IDS):
+            assert rule_id not in profile.suppress_rules
         assert profile.confidence_floor == _EXPECTED_CONFIDENCE_FLOOR
         assert dict(profile.severity_overrides) == _EXPECTED_SEVERITY_OVERRIDES, (
             f"severity_overrides drifted: {dict(profile.severity_overrides)}"
@@ -307,9 +316,11 @@ class TestSuppressionSetIsExactlyDecided:
         for phrase in (
             "petasos.llmguard.injection",
             "petasos.llamafirewall.prompt-guard",
-            "DO NOT BLOCK",
             "direction-blind",
             "still counted toward session frequency/escalation",
+            "pipe-to-shell stays suppressed",
+            "dangerous_tool_posture=approve",
+            "Hermes approval",
         ):
             assert phrase in profile.description, (
                 f"description dropped trade-off phrase: {phrase!r}"

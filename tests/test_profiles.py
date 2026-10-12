@@ -460,6 +460,13 @@ class TestPiiEntityValidation:
             assert known in KNOWN_PII_ENTITIES
         assert "EMAIL" not in KNOWN_PII_ENTITIES
 
+
+class TestDangerousToolPostureField:
+    def test_to_dict_includes_posture(self) -> None:
+        resolver = ProfileResolver()
+        assert resolver.resolve("general").to_dict()["dangerous_tool_posture"] == "block"
+        assert resolver.resolve("code_generation").to_dict()["dangerous_tool_posture"] == "approve"
+
     def test_profiles_import_does_not_load_presidio(self) -> None:
         # Zero-dep guard (PET-117): importing the profile package must not pull in
         # presidio_analyzer/presidio_anonymizer (the validator imports only the

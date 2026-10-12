@@ -725,8 +725,8 @@ def _active_profile_overrides(view_profile: "ResolvedProfile | None") -> dict[st
     safe).  Surfaces ``confidence_floor`` (the live finding-dropping floor that is
     not a ``PetasosConfig`` field), ``suppress_rules``, ``severity_overrides``,
     ``pii_entities_extra``, ``tier_thresholds``, ``tool_exempt_list``,
-    ``tool_alias_map`` — what the internal profile adds, without pretending they
-    are config fields.
+    ``tool_alias_map``, ``dangerous_tool_posture`` — what the internal profile
+    adds, without pretending they are config fields.
     """
     if view_profile is None:
         return None

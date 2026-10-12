@@ -81,6 +81,9 @@ class PetasosConfig:
     # degraded: partial or total ML failure → safe=False
     # closed: same as degraded + early-exit on CRITICAL from syntactic pre-filter
     fail_mode: Literal["open", "closed", "degraded"] = "degraded"
+    # PET-221: optional backends the operator has opted out of. An id here is
+    # not constructed and is reported ``disabled``. Empty leaves today's build.
+    disabled_scanners: tuple[str, ...] = ()
 
     # Per-scanner timeout + circuit breaker (PIPE-03). The 10s default is a
     # generous deadlock backstop for cold-start model loads while bounding the
@@ -235,6 +238,25 @@ class PetasosConfig:
             raise ValueError(
                 f"fail_mode must be 'open', 'closed', or 'degraded', got {self.fail_mode!r}"
             )
+        # PET-221: function-local so the id set cannot drift from _BACKENDS.
+        # A bare str must not be iterated into characters.
+        if isinstance(self.disabled_scanners, str):
+            raise ValueError(
+                "disabled_scanners must be an iterable of scanner ids, not a string, "
+                f"got {self.disabled_scanners!r}"
+            )
+        if not isinstance(self.disabled_scanners, tuple):
+            object.__setattr__(self, "disabled_scanners", tuple(self.disabled_scanners))
+        from petasos.scanners.bootstrap import _BACKENDS
+
+        known_scanners = {row[0] for row in _BACKENDS}
+        for scanner_id in self.disabled_scanners:
+            if not isinstance(scanner_id, str):
+                raise ValueError(f"disabled_scanners entries must be strings, got {scanner_id!r}")
+            if scanner_id not in known_scanners:
+                raise ValueError(
+                    f"unknown disabled_scanners id {scanner_id!r}; known: {sorted(known_scanners)}"
+                )
         if self.redaction_mode not in ("redact", "replace", "hash", "mask"):
             raise ValueError(
                 f"redaction_mode must be 'redact', 'replace', 'hash', or 'mask', "

@@ -427,6 +427,14 @@ def _worst(findings):
 # Atomic name rebind — no torn read under the GIL.
 _egress_sink_tools: frozenset[str] = frozenset()
 
+# PET-221: one probe at first register. Default False so a host without the
+# approve directive, and every existing test that never calls register(), blocks
+# where an approve would have been returned.
+_approve_directive_available: bool = False
+_always_read_warned: bool = False
+_degraded_approve_sessions: set[str] = set()
+_COMMAND_RULE_PREFIX = "petasos.syntactic.command."
+
 
 def _is_egress_sink(tool_name: str) -> bool:
     return canonicalize_tool_name(tool_name) in _egress_sink_tools
@@ -765,13 +773,20 @@ def _deferred_init() -> None:
                     if st.outcome == "verified":
                         logger.info("%s backend verified — scanner active", st.display_name)
                         continue
+                    if st.outcome == "disabled":
+                        logger.info(
+                            "%s backend disabled by config — not registered", st.display_name
+                        )
+                        continue
                     unavailable.append(st.scanner_id)
                     if st.outcome == "degraded":
                         logger.warning(
-                            "%s backend missing — scanner registered degraded "
-                            "(every scan will error): %s",
+                            "%s backend unusable — scanner registered degraded "
+                            "(every scan will error): %s. Install the backend's runtime, "
+                            "or add %s to disabled_scanners.",
                             st.display_name,
                             st.reason,
+                            st.scanner_id,
                         )
                     elif st.outcome == "missing":
                         logger.info(
@@ -2049,6 +2064,251 @@ def _rebind_to_profile(profile_home: Any) -> None:
     _rebind_to_resolution(res)
 
 
+def _reset_degraded_approve_sessions() -> None:
+    """Test seam — clear the once-per-session degraded-approve record (PET-221)."""
+    _degraded_approve_sessions.clear()
+
+
+def _probe_approve_directive() -> bool:
+    """True when Hermes can route an approve return into its own prompt."""
+    try:
+        import hermes_cli.plugins as module
+
+        fn = getattr(module, "get_pre_tool_call_directive", None)
+        return callable(fn)
+    except Exception:
+        return False
+
+
+def _warn_always_read_unavailable() -> None:
+    """Log once when tools.approval is loaded and neither always-read exists."""
+    global _always_read_warned
+    if _always_read_warned:
+        return
+    module = sys.modules.get("tools.approval")
+    if module is None:
+        return
+    try:
+        fn = getattr(module, "_is_permanently_approved", None)
+        patterns = getattr(module, "_permanent_approved", None)
+    except Exception:
+        return
+    if callable(fn) or isinstance(patterns, set):
+        return
+    _always_read_warned = True
+    logger.warning(
+        "always-approval read unavailable; operator always will not waive Petasos blocks"
+    )
+
+
+def _yolo_active() -> bool:
+    """True when Hermes would auto-approve a plugin approve return."""
+    if "HERMES_YOLO_MODE" in os.environ:
+        return True
+    if not _approve_directive_available:
+        return False
+    try:
+        import tools.approval as module
+
+        fn = getattr(module, "is_current_session_yolo_enabled", None)
+        if not callable(fn):
+            return True
+        return bool(fn())
+    except Exception:
+        return True
+
+
+def _rule_always_approved(rule_key: str) -> bool:
+    """True when the active Hermes profile home has always'd this rule key.
+
+    Prefer ``_is_permanently_approved`` so a routed profile home is not judged
+    by the launch profile's set. Fall back to ``_permanent_approved`` only when
+    that function is absent. Membership only; do not iterate or copy the set.
+    The unlocked set read is intentional. Do not import ``tools.approval``.
+    """
+    module = sys.modules.get("tools.approval")
+    if module is None:
+        return False
+    try:
+        fn = getattr(module, "_is_permanently_approved", None)
+        if callable(fn):
+            return bool(fn("plugin_rule:" + rule_key))
+        patterns = getattr(module, "_permanent_approved", None)
+        if isinstance(patterns, set):
+            return ("plugin_rule:" + rule_key) in patterns
+        _warn_always_read_unavailable()
+        return False
+    except Exception:
+        return False
+
+
+def _always_approved(rule_key: str) -> bool:
+    """Pin G at the decision site. A raising predicate is false, not an allow."""
+    try:
+        return _rule_always_approved(rule_key)
+    except Exception:
+        return False
+
+
+def _read_posture() -> str:
+    """``approve`` or ``block``. Anything else, including a failed read, is block."""
+    try:
+        profile = _pipeline.default_profile if _pipeline is not None else None
+        raw = (
+            getattr(profile, "dangerous_tool_posture", "block") if profile is not None else "block"
+        )
+        return raw if raw == "approve" else "block"
+    except Exception:
+        return "block"
+
+
+def _approve_return(tool_name: str, session_id: str, rule_key: str) -> dict[str, str]:
+    if rule_key == "petasos.degraded":
+        message = (
+            f"Petasos asks for approval before running '{tool_name}'. "
+            "Parameter scan is unreliable (petasos.degraded)."
+        )
+    else:
+        message = f"Petasos asks for approval before running '{tool_name}'. Rule: {rule_key}."
+    logger.info("PETASOS_APPROVE tool=%s session=%s rule_key=%s", tool_name, session_id, rule_key)
+    return {"action": "approve", "rule_key": rule_key, "message": message}
+
+
+def _dangerous_tool_directive(
+    tool_name: str,
+    args: dict[str, Any],
+    session_id: str,
+    result: Any,
+    egress: bool,
+    posture: str,
+    approve_available: bool,
+    yolo: bool,
+) -> dict[str, str] | None:
+    """Decision 14 for a dangerous tool after the read-only gate.
+
+    The cold window and the PET-224 guard-evaluation arm do not call this.
+    """
+    approve_effective = posture == "approve" and approve_available and not yolo
+    blocking = [f for f in result.findings if _blocks(f.severity)]
+    non_pii = [f for f in blocking if f.finding_type != "pii"]
+    pii = [f for f in blocking if f.finding_type == "pii"]
+    command = [f for f in non_pii if str(f.rule_id).startswith(_COMMAND_RULE_PREFIX)]
+    other = [f for f in non_pii if not str(f.rule_id).startswith(_COMMAND_RULE_PREFIX)]
+
+    if egress and _source_taint_namespaces and _taint_store is not None:
+        tainted_ns = _taint_store.tainted_source(session_id, args)
+        if tainted_ns is not None:
+            reason = f"source-taint egress: {tainted_ns} -> {tool_name}"
+            logger.warning(
+                "PETASOS_QUARANTINE tool=%s session=%s — %s", tool_name, session_id, reason
+            )
+            _emit_enforcement_event(
+                session_id=session_id,
+                tool=tool_name,
+                event_type="quarantine",
+                reason=reason,
+            )
+            return {
+                "action": "block",
+                "message": format_content_block("taint_egress", tool_name, ()),
+            }
+
+    if other:
+        worst = _worst(other)
+        logger.warning(
+            "PETASOS_QUARANTINE tool=%s session=%s — %s finding: %s",
+            tool_name,
+            session_id,
+            worst.severity.name,
+            worst.message,
+        )
+        _emit_enforcement_event(
+            session_id=session_id,
+            tool=tool_name,
+            event_type="quarantine",
+            severity=worst.severity.name,
+            rule_id=worst.rule_id,
+            reason=worst.message,
+        )
+        return {
+            "action": "block",
+            "message": format_content_block("non_pii_param", tool_name, tuple(other)),
+        }
+
+    if pii and egress:
+        worst = _worst(pii)
+        logger.warning(
+            "PETASOS_QUARANTINE tool=%s session=%s — PII to egress sink: %s",
+            tool_name,
+            session_id,
+            worst.message,
+        )
+        _emit_enforcement_event(
+            session_id=session_id,
+            tool=tool_name,
+            event_type="quarantine",
+            severity=worst.severity.name,
+            rule_id=worst.rule_id,
+            reason=worst.message,
+        )
+        return {
+            "action": "block",
+            "message": format_content_block("pii_egress", tool_name, tuple(pii)),
+        }
+
+    if result.param_scan_degraded:
+        if _always_approved("petasos.degraded"):
+            pass
+        elif not approve_effective:
+            logger.warning(
+                "PETASOS_QUARANTINE tool=%s session=%s — param scan degraded",
+                tool_name,
+                session_id,
+            )
+            _emit_enforcement_event(
+                session_id=session_id,
+                tool=tool_name,
+                event_type="quarantine",
+                param_scan_degraded=True,
+                reason="param scan degraded",
+            )
+            return {
+                "action": "block",
+                "message": format_content_block("degraded", tool_name, tuple(blocking)),
+            }
+        elif session_id in _degraded_approve_sessions:
+            pass
+        else:
+            _degraded_approve_sessions.add(session_id)
+            return _approve_return(tool_name, session_id, "petasos.degraded")
+
+    remaining = [f for f in command if not _always_approved(f.rule_id)]
+    if remaining:
+        worst = _worst(remaining)
+        if approve_effective:
+            return _approve_return(tool_name, session_id, worst.rule_id)
+        logger.warning(
+            "PETASOS_QUARANTINE tool=%s session=%s — %s finding: %s",
+            tool_name,
+            session_id,
+            worst.severity.name,
+            worst.message,
+        )
+        _emit_enforcement_event(
+            session_id=session_id,
+            tool=tool_name,
+            event_type="quarantine",
+            severity=worst.severity.name,
+            rule_id=worst.rule_id,
+            reason=worst.message,
+        )
+        return {
+            "action": "block",
+            "message": format_content_block("non_pii_param", tool_name, tuple(remaining)),
+        }
+    return None
+
+
 def _pre_tool_call(
     tool_name: str, args: dict, task_id: str = "", **kwargs
 ) -> dict[str, str] | None:
@@ -2240,108 +2500,16 @@ def _pre_tool_call(
     if not _is_dangerous(tool_name):
         return None
 
-    egress = _is_egress_sink(tool_name)
-    # HIGH/CRITICAL only, via the ordinal gate (D-CAVEAT) — partitioned by finding type.
-    blocking = [f for f in result.findings if _blocks(f.severity)]
-    non_pii_blocking = [f for f in blocking if f.finding_type != "pii"]
-    pii_blocking = [f for f in blocking if f.finding_type == "pii"]
-
-    # 0. PET-134 source-taint egress fence: the FIRST block check, additive to and
-    #    independent of the PII-egress block below. Content a tool in a declared source
-    #    namespace returned may not leave, verbatim, via an egress sink, regardless of
-    #    whether it also matches PII. All three short-circuits collapse to a fast empty-set
-    #    check on the default, so the feature-off / untainted path is byte-identical to the
-    #    pre-PET-134 behavior. Direction-orthogonal: tainted_source is a pure substring
-    #    test that never consults Direction and never calls the pipeline scan. The
-    #    model-facing message carries no source/sink detail (PET-77); the provenance
-    #    namespace and sink go only to the operator log line + enforcement event (D-OBSERV).
-    if egress and _source_taint_namespaces and _taint_store is not None:
-        tainted_ns = _taint_store.tainted_source(session_id, args)
-        if tainted_ns is not None:
-            reason = f"source-taint egress: {tainted_ns} -> {tool_name}"
-            logger.warning(
-                "PETASOS_QUARANTINE tool=%s session=%s — %s", tool_name, session_id, reason
-            )
-            _emit_enforcement_event(
-                session_id=session_id,
-                tool=tool_name,
-                event_type="quarantine",
-                reason=reason,
-            )
-            return {
-                "action": "block",
-                "message": format_content_block("taint_egress", tool_name, ()),
-            }
-
-    # 1. Scan degraded/unreliable -> block ALL dangerous tools (fail-mode; cannot trust the
-    #    scan). Independent of finding type, so a degraded scanner co-occurring with a PII
-    #    finding still blocks (D-DEGRADED, closes the degraded+PII hole).
-    if result.param_scan_degraded:
-        logger.warning(
-            "PETASOS_QUARANTINE tool=%s session=%s — param scan degraded",
-            tool_name,
-            session_id,
-        )
-        _emit_enforcement_event(
-            session_id=session_id,
-            tool=tool_name,
-            event_type="quarantine",
-            param_scan_degraded=True,
-            reason="param scan degraded",
-        )
-        return {
-            "action": "block",
-            "message": format_content_block("degraded", tool_name, tuple(blocking)),  # PET-77
-        }
-
-    # 2. Non-PII finding (injection/command/structural/credential) at HIGH+ -> block ALL
-    #    dangerous tools (D3 posture; credentials are deliberately NOT egress-scoped).
-    if non_pii_blocking:
-        worst = _worst(non_pii_blocking)
-        logger.warning(
-            "PETASOS_QUARANTINE tool=%s session=%s — %s finding: %s",
-            tool_name,
-            session_id,
-            worst.severity.name,
-            worst.message,
-        )
-        _emit_enforcement_event(
-            session_id=session_id,
-            tool=tool_name,
-            event_type="quarantine",
-            severity=worst.severity.name,
-            rule_id=worst.rule_id,
-            reason=worst.message,
-        )
-        return {
-            "action": "block",
-            "message": format_content_block("non_pii_param", tool_name, tuple(non_pii_blocking)),
-        }
-
-    # 3. PII at HIGH+ -> block ONLY egress sinks (D-EGRESS). Internal tools are exempt, so
-    #    an agent's own local write/terminal/edit of PII is permitted.
-    if pii_blocking and egress:
-        worst = _worst(pii_blocking)
-        logger.warning(
-            "PETASOS_QUARANTINE tool=%s session=%s — PII to egress sink: %s",
-            tool_name,
-            session_id,
-            worst.message,
-        )
-        _emit_enforcement_event(
-            session_id=session_id,
-            tool=tool_name,
-            event_type="quarantine",
-            severity=worst.severity.name,
-            rule_id=worst.rule_id,
-            reason=worst.message,
-        )
-        return {
-            "action": "block",
-            "message": format_content_block("pii_egress", tool_name, tuple(pii_blocking)),
-        }
-
-    return None
+    return _dangerous_tool_directive(
+        tool_name,
+        args,
+        session_id,
+        result,
+        _is_egress_sink(tool_name),
+        _read_posture(),
+        _approve_directive_available,
+        _yolo_active(),
+    )
 
 
 def _post_tool_call(
@@ -2853,6 +3021,15 @@ def register(ctx) -> None:
         # Registration happens in all four cases: allowlist membership is a PROXY for
         # dispatch, and a forward-compatible host that gains the seam later still works.
         _try_register_hook(ctx, "transform_tool_result", _transform_tool_result)
+
+        # PET-221: one probe, one boolean. A second register() does not probe again.
+        global _approve_directive_available
+        _approve_directive_available = _probe_approve_directive()
+        logger.info(
+            "PETASOS_HOST_CAPS approve_directive=%s",
+            "available" if _approve_directive_available else "unavailable",
+        )
+        _warn_always_read_unavailable()
 
         _hooks_registered = True
 

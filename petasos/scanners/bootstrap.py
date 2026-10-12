@@ -38,7 +38,7 @@ if TYPE_CHECKING:
     from petasos._types import Scanner
     from petasos.config import PetasosConfig
 
-ScannerOutcome = Literal["verified", "degraded", "missing", "failed"]
+ScannerOutcome = Literal["verified", "degraded", "missing", "failed", "disabled"]
 """How one optional backend fared during :func:`build_scanners`.
 
 ``verified`` - constructed and its availability probe said the backend is usable.
@@ -50,6 +50,8 @@ unusable (every scan will error).
 raising a non-``ImportError`` registers nothing, while a throwing availability
 probe leaves the instance registered. Read the returned scanner list, not this
 value, to learn what is registered.
+``disabled`` - operator opt-out via ``PetasosConfig.disabled_scanners``. Nothing
+was constructed and nothing was registered.
 """
 
 
@@ -147,6 +149,12 @@ def build_scanners(
     statuses: list[ScannerBuildStatus] = []
 
     for scanner_id, display_name, build in _BACKENDS:
+        # PET-221: operator opt-out. Do not construct, probe, or register.
+        if scanner_id in config.disabled_scanners:
+            statuses.append(
+                ScannerBuildStatus(scanner_id, display_name, "disabled", "disabled by config")
+            )
+            continue
         # Build stage. An ImportError here means the wrapper module (or the
         # backend a future wrapper imports at module level) did not import, so
         # nothing is registered -> `missing`.

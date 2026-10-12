@@ -137,9 +137,10 @@ _CLASSIFICATION: dict[str, tuple[str, str, str | None]] = {
     # who passes Pipeline(scanners=[PresidioScanner()]) still gets nothing from
     # them (test_config_surface_inertness.py holds that line). What changed is the
     # anchor and what the caveat must say.
-    "presidio_entities": ("live-shim", "petasos/scanners/bootstrap.py:99", _M_CONSOLE),
-    "presidio_entities_extra": ("live-shim", "petasos/scanners/bootstrap.py:99", _M_CONSOLE),
-    "presidio_score_threshold": ("live-shim", "petasos/scanners/bootstrap.py:101", _M_CONSOLE),
+    "presidio_entities": ("live-shim", "petasos/scanners/bootstrap.py:101", _M_CONSOLE),
+    "presidio_entities_extra": ("live-shim", "petasos/scanners/bootstrap.py:101", _M_CONSOLE),
+    "presidio_score_threshold": ("live-shim", "petasos/scanners/bootstrap.py:103", _M_CONSOLE),
+    "disabled_scanners": ("live-shim", "petasos/scanners/bootstrap.py:153", _M_CONSOLE),
     # --- Feature gates (via Pipeline._FEATURE_GATES, pipeline.py:568-574) ----
     "frequency_enabled": ("live-library", "petasos/pipeline.py:1002", None),
     "escalation_enabled": ("live-library", "petasos/pipeline.py:1049", None),
@@ -357,6 +358,7 @@ def test_verdict_sets_pinned() -> None:
             "presidio_entities",
             "presidio_entities_extra",
             "presidio_score_threshold",
+            "disabled_scanners",
             "egress_sink_tools",
             "source_taint_namespaces",
         }

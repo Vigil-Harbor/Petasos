@@ -34,6 +34,7 @@ from petasos.scanners.minimal import (
 from petasos.session.profiles import (
     ProfileResolver,
     ResolvedProfile,
+    _merge_with_base,
     _parse_profile,
     _validate_suppress_rules,
 )
@@ -332,3 +333,32 @@ class TestInjectionSuppressSetPin:
         prof = ProfileResolver().resolve("code_generation")
         injection_entries = {r for r in prof.suppress_rules if r in _ALL_INJECTION_IDS}
         assert injection_entries == _ALL_INJECTION_IDS
+
+
+class TestDangerousToolPosture:
+    """PET-221: omitted key is block; code_generation is approve; merge keeps it."""
+
+    def test_omitted_key_parses_as_block(self) -> None:
+        prof = _parse_profile({"name": "custom-omit"})
+        assert prof.dangerous_tool_posture == "block"
+
+    def test_builtins(self) -> None:
+        resolver = ProfileResolver()
+        assert resolver.resolve("code_generation").dangerous_tool_posture == "approve"
+        for name in ("admin", "customer_service", "general", "research"):
+            assert resolver.resolve(name).dangerous_tool_posture == "block", name
+
+    def test_to_dict_round_trips(self) -> None:
+        prof = ProfileResolver().resolve("code_generation")
+        again = _parse_profile(prof.to_dict())
+        assert again.dangerous_tool_posture == "approve"
+        assert prof.to_dict()["dangerous_tool_posture"] == "approve"
+
+    def test_unknown_value_raises(self) -> None:
+        with pytest.raises(ValueError, match="dangerous_tool_posture"):
+            _parse_profile({"name": "bad", "dangerous_tool_posture": "Approve"})
+
+    def test_merge_onto_code_generation_keeps_approve(self) -> None:
+        base = ProfileResolver().resolve("code_generation")
+        merged = _merge_with_base(base, {"confidence_floor": 0.5})
+        assert merged.dangerous_tool_posture == "approve"

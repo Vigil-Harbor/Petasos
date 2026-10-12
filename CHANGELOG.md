@@ -4,7 +4,24 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Added
+
+- **Dangerous-tool posture, scanner opt-out, and a disabled build outcome (PET-221).**
+  `ResolvedProfile.dangerous_tool_posture` (`block` or `approve`),
+  `PetasosConfig.disabled_scanners`, and `ScannerOutcome` value `disabled`.
+  No deprecation.
+
 ### Changed
+
+- **Reference-plugin dangerous-tool enforcement under approve posture (PET-221).**
+  `code_generation` sets `dangerous_tool_posture` to `approve` and no longer
+  suppresses `destructive-recursive`, `fetch-exec`, `decode-exec`, or
+  `alias-escape` (`pipe-to-shell` stays suppressed). A degraded scan and a HIGH
+  command finding on a dangerous tool ask Hermes for approval instead of
+  quarantining, after the independent blocks. The degraded approve is once per
+  session. An operator always on a rule key is honored for that key, including
+  under the block posture and under YOLO, from the active Hermes profile home.
+  Hosts without the approve directive, and YOLO on an unlisted key, still block.
 
 - **HIGH+ ingestion annotation remeasured on the inverted surface (PET-200).**
   The PET-170 816-file, 8,000-character, read-shaped table is no longer the
