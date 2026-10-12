@@ -4,12 +4,24 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
 
 ## [Unreleased]
 
-### Added
+## [0.4.0] - 2026-10-12
 
-- **Dangerous-tool posture, scanner opt-out, and a disabled build outcome (PET-221).**
-  `ResolvedProfile.dangerous_tool_posture` (`block` or `approve`),
-  `PetasosConfig.disabled_scanners`, and `ScannerOutcome` value `disabled`.
-  No deprecation.
+Headline release since 0.3.0: the ingestion path now scans whole results and
+the tool-call hook fails closed. Every ingesting result below 1,000,000
+characters is covered end to end by a layered scan on its own loop, closing
+the 0.3.0 mid-window gap; tool classification splits into an argument axis
+and a result axis so unknown tools are result-scanned by default; and a
+failed or cancelled window reports incomplete coverage instead of a clean
+verdict. The reference plugin no longer runs a dangerous tool when guard
+evaluation raises or times out, under any fail mode. Coding agents gain a
+dangerous-tool posture: under code_generation a degraded scan or a HIGH
+command finding asks Hermes for approval instead of quarantining, only
+pipe-to-shell stays suppressed while fetched or decoded pipes still fire, and
+operators can disable an optional scanner by name. The HIGH+ ingestion gate
+was remeasured on a frozen constructed corpus at 0/200 benign HIGH+ per
+family and retained. Scanner evasion fixes cover zero-width word separators,
+composed separator-plus-leet views, and cross-view role-switch grants. The
+console ships as seven ordered classic scripts.
 
 ### Changed
 
@@ -118,6 +130,11 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
   dependency was added.
 
 ### Added
+
+- **Dangerous-tool posture, scanner opt-out, and a disabled build outcome (PET-221).**
+  `ResolvedProfile.dangerous_tool_posture` (`block` or `approve`),
+  `PetasosConfig.disabled_scanners`, and `ScannerOutcome` value `disabled`.
+  No deprecation.
 
 - **`petasos.session.ingest.scan_ingestion_result` and `IngestionScanResult`
   (PET-178).** Re-exported from `petasos` and `petasos.session`. The plugin
@@ -768,7 +785,8 @@ First public release. Every feature ships free and keyless: no license key, no t
 - **Tool-name canonicalization parity**: enforcement and classification share one canonical primitive, closing case / homoglyph / namespace / CamelCase / `_tool`-suffix variant-named egress bypasses
 - **PII-egress hardening**: egress-scoped guard blocking, corrected ordinal severity ranking (a lone CRITICAL now blocks), and a parse-time PII-entity vocabulary guard
 
-[Unreleased]: https://github.com/Vigil-Harbor/Petasos/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/Vigil-Harbor/Petasos/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/Vigil-Harbor/Petasos/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/Vigil-Harbor/Petasos/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Vigil-Harbor/Petasos/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/Vigil-Harbor/Petasos/compare/v0.1.1...v0.1.2
