@@ -10,7 +10,7 @@
 | conventions | F-2 | `policy_from_cells` does not read only `flagged_high_plus` and `n_eff` | CLOSED | spec § Decision 6 line 102: `wilson95` still reads `flagged_high_plus` and `n_eff`; `policy_from_cells` gains no read of the three helper fields and still reads `flagged_high_plus`, `n_eff`, `label`, `stratum`, `family`, and the shortened `rule_histogram`. Matches `policy_from_cells` at `scripts/pet200_calibrate.py:546-611` on `723cdc5`. |
 | conventions | F-3 | Per-sample reader reimplements `drain_enforcement_events` | CLOSED | spec § Decision 3 lines 54–61 take the offset from `spool_size`, keep `spool_truncated` because drain treats `size <= offset` as no events (`petasos/console/_events.py:207-208`), parse with `drain_enforcement_events`, and forbid a second decoder. § Design line 145 keeps `attribute_new_events` as the pure step over those dicts. |
 | conventions | F-4 | Under-30 monotonic failure is a spec-level addition | CLOSED | spec § Decision 3 line 74 names that fail-closed clock outcome as a spec-level addition so a young monotonic clock is not mistaken for cadence agreement. |
-| edge-cases | — | (no findings in round 2) | CLOSED | `docs/specs/TODO/PET-218.reviews/round-2/edge-cases.md` Findings section is "No findings." |
+| edge-cases | — | (no findings in round 2) | CLOSED | `docs/specs/DONE/PET-218/reviews/round-2/edge-cases.md` Findings section is "No findings." |
 
 No `## Deferred — follow-up required` section. `scale_lens` is off; no scalability report was read. Plane memory was available: PET-218 (`30fc3612-cb5e-43f8-b6b0-9cf06ed664a5`, Backlog) and PET-219 (`09461d7c-6ddf-4551-9143-b64fcabc851b`, Backlog). Anchors were checked with `git show 723cdc5956d024195b3b3afdde09004618266aa6`, not the diverged worktree.
 

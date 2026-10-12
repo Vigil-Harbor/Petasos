@@ -1,7 +1,7 @@
 # Reconciliation Report: PET-218 / PET-219
 
 > Date: 2026-09-22
-> Spec: docs/specs/TODO/PET-218.spec.md
+> Spec: docs/specs/DONE/PET-218/spec.md
 > Merge: PR #190 / `9e9848a8bd2cff1eba9342227ce54b81de3e7acf`
 > Plane state: unreachable from this host (last known PET-218 and PET-219 Backlog; group: backlog)
 > Close mode: partial-close; Plane was not transitioned
@@ -20,7 +20,7 @@ PR #190 closes the single PET-218 spec and its PET-219 co-ticket together. It ob
 
 Unexpected files in diff (not in spec):
 
-- `docs/specs/TODO/PET-218.test-output.txt` — tracked ship-time pytest, lint, and mypy evidence for the close archive.
+- `docs/specs/DONE/PET-218/test-output.txt` — tracked ship-time pytest, lint, and mypy evidence for the close archive.
 
 ## Decisions
 
@@ -61,7 +61,7 @@ Unexpected files in diff (not in spec):
 | Exception cleanup and untouched sentinel | Yes | `tests/test_pet200_calibration.py:855` |
 | Missing helper fails with exit 3 and preserves output | Yes | `tests/test_pet200_calibration.py:898` |
 | Schema-2 limited smoke | Yes | `tests/test_pet200_calibration.py:943` |
-| Ship-time commands | Yes | `docs/specs/TODO/PET-218.test-output.txt` — 34 tests passed; ruff and mypy passed. |
+| Ship-time commands | Yes | `docs/specs/DONE/PET-218/test-output.txt` — 34 tests passed; ruff and mypy passed. |
 
 ## Wiki-ready
 

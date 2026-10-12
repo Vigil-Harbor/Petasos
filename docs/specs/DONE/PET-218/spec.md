@@ -2,7 +2,7 @@
 
 Base: `origin/master` `723cdc5956d024195b3b3afdde09004618266aa6` (PR #188). Ship-spec cuts the worktree from `origin/master`. Local `master` at `38fa604` is two archive commits ahead of the pre-PET-200 divergence and does not contain `scripts/pet200_calibrate.py`. Every file:line anchor below is `723cdc5`.
 
-Authority: `docs/specs/TODO/PET-218-219.observation-brief.md`. Plane PET-218 (`30fc3612-cb5e-43f8-b6b0-9cf06ed664a5`, Backlog) and PET-219 (`09461d7c-6ddf-4551-9143-b64fcabc851b`, Backlog). Artifact id is PET-218 because the brief filename's ticket prefix is PET-218. PET-219 is a co-ticket of this same spec, not a second spec.
+Authority: `docs/specs/DONE/PET-218/observation-brief.md`. Plane PET-218 (`30fc3612-cb5e-43f8-b6b0-9cf06ed664a5`, Backlog) and PET-219 (`09461d7c-6ddf-4551-9143-b64fcabc851b`, Backlog). Artifact id is PET-218 because the brief filename's ticket prefix is PET-218. PET-219 is a co-ticket of this same spec, not a second spec.
 
 Preflight: `upstream: skipped (no remote)`; `origin: behind-7 (diverged — proceeded)`; `scale-lens: off`. No `## Scale` section in the brief.
 

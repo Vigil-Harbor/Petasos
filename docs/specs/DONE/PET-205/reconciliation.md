@@ -1,7 +1,7 @@
 # Reconciliation Report: PET-205
 
 > Date: 2026-09-22
-> Spec: docs/specs/TODO/PET-205.spec.md
+> Spec: docs/specs/DONE/PET-205/spec.md
 > Merge: PR #189 / `78fa933d382fba17cc114e1cd38abadbb12238f1`
 > Plane state: unreachable from this host (last known Backlog; group: backlog)
 > Close mode: partial-close; Plane was not transitioned
@@ -22,7 +22,7 @@ PR #189 implements the real-helper inspect-failure attribution contract without 
 
 Unexpected files in diff (not in spec):
 
-- `docs/specs/TODO/PET-205.test-output.txt` — tracked ship-time test, lint, format, and mypy evidence for the close archive.
+- `docs/specs/DONE/PET-205/test-output.txt` — tracked ship-time test, lint, format, and mypy evidence for the close archive.
 
 ## Decisions
 
@@ -40,7 +40,7 @@ Unexpected files in diff (not in spec):
 |---|---|---|---|
 | 1 | A raising real `pipeline.inspect()` produces the unavailable banner, exact original suffix, one bounded `ingest_unscanned cause=inspect_error`, and no flagged event. | Met | `tests/test_reference_plugin_tool_result.py:739-780`; the committed artifact reports the focused suite passing. |
 | 2 | Cause vocabulary remains distinct and is not inferred from exception strings. | Met | `docs/deployment/reference_plugin/__init__.py:2430-2439`; `tests/test_reference_plugin_tool_result.py:714` and `:773`. |
-| 3 | Existing `no_pipeline`, `raised`, `timeout`, `boundary`, `floor_error`, and `sweep_error` pins stay green. | Met | `tests/test_reference_plugin_tool_result.py:714`; `docs/specs/TODO/PET-205.test-output.txt` records 160 passing focused tests. |
+| 3 | Existing `no_pipeline`, `raised`, `timeout`, `boundary`, `floor_error`, and `sweep_error` pins stay green. | Met | `tests/test_reference_plugin_tool_result.py:714`; `docs/specs/DONE/PET-205/test-output.txt` records 160 passing focused tests. |
 | 4 | HIGH+ findings do not override inspect unavailability. | Met | Parametrized regression at `tests/test_reference_plugin_tool_result.py:739` asserts unavailable/no flagged for both payload variants. |
 | 5 | Ordinary failures remain non-throwing; cancellation, locking, and timeout surface are unchanged. | Met | `tests/test_ingest_scan.py:139-202` pins inspect, chunk, and floor-error behavior; full focused suites passed. |
 
@@ -54,7 +54,7 @@ Unexpected files in diff (not in spec):
 | Floor-copy failure remains boundary | Yes | `tests/test_reference_plugin_tool_result.py:845` |
 | Helper inspect/chunk/floor flags | Yes | `tests/test_ingest_scan.py:139`, `:150`, `:187` |
 | Sweep/floor unavailability precedence | Yes | `tests/test_reference_plugin_tool_result.py:1148`, `:1193` |
-| Ship-time commands | Yes | `docs/specs/TODO/PET-205.test-output.txt` — 160 tests passed; ruff check/format and mypy passed. |
+| Ship-time commands | Yes | `docs/specs/DONE/PET-205/test-output.txt` — 160 tests passed; ruff check/format and mypy passed. |
 
 ## Wiki-ready
 

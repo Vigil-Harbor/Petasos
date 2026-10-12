@@ -2,7 +2,7 @@
 
 Base: `origin/master` `723cdc5956d024195b3b3afdde09004618266aa6` (PR #188). Ship-spec cuts the worktree from `origin/master`. Local `master` at `38fa604` is two archive commits ahead of the pre-PET-204 divergence and seven commits behind `origin/master`. It does not contain PET-204, PET-206, PET-209, PET-208, PET-201, PET-200, or PET-211. Every file:line anchor below is `723cdc5`. Verify code claims with `git show 723cdc5:<path>`, not the working tree.
 
-Authority: `docs/specs/TODO/PET-205.brief.md`. Plane PET-205 (`8953365f-4ecb-4d85-8b31-bc487e9245b9`, Backlog, high) is the 2026-09-16 parent text. Its suggested remediation still maps `scan.head is None` to `cause=raised`. That sentence is stale against the landed helper. This spec is the reconciliation the brief requires. The Plane description is not the implementation contract.
+Authority: `docs/specs/DONE/PET-205/brief.md`. Plane PET-205 (`8953365f-4ecb-4d85-8b31-bc487e9245b9`, Backlog, high) is the 2026-09-16 parent text. Its suggested remediation still maps `scan.head is None` to `cause=raised`. That sentence is stale against the landed helper. This spec is the reconciliation the brief requires. The Plane description is not the implementation contract.
 
 Preflight: `upstream: skipped (no remote)`; `origin: behind-7 (diverged — proceeded)`; `scale-lens: off`. No `## Scale` section in the brief.
 
