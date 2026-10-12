@@ -138,6 +138,7 @@ class TestDeferredInitWiring:
         assert ref._pipeline is not None and ref._guard is not None
         tracker = ref._guard._frequency_tracker
         assert ref._pipeline._frequency_tracker is tracker  # D1: unified
+        assert ref._frequency_tracker is tracker
         registry = ref._lineage_registry
         assert registry is not None
         assert tracker._is_pinned == registry.is_pinned  # bound at construction
@@ -150,6 +151,7 @@ class TestDeferredInitWiring:
         ref._deferred_init()
         assert ref._pipeline is not None and ref._guard is not None
         assert ref._pipeline._frequency_tracker is ref._guard._frequency_tracker
+        assert ref._frequency_tracker is ref._guard._frequency_tracker
         assert ref._guard._frequency_tracker._is_pinned is None
 
 
