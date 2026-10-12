@@ -974,48 +974,77 @@ def test_disabled_scanners_validation() -> None:
         PetasosConfig(disabled_scanners="llm_guard")  # type: ignore[arg-type]
 
 
+_PET224_POSTURES = ("code_generation", "customer_service")
+_PET224_YOLO_STATES = ("off", "env", "session", "import_failure")
+_PET224_FAILURES = {
+    "timeout": "guard evaluation unavailable: evaluation_timeout",
+    "error": "guard evaluation unavailable: evaluation_error",
+}
+
+
+def _apply_pet224_yolo(monkeypatch: pytest.MonkeyPatch, state: str) -> None:
+    """Install one YOLO state. ``off`` is a live session predicate that returns False."""
+    monkeypatch.delenv("HERMES_YOLO_MODE", raising=False)
+    if state == "import_failure":
+        monkeypatch.delitem(sys.modules, "tools.approval", raising=False)
+        monkeypatch.delitem(sys.modules, "tools", raising=False)
+        return
+    approval = _fake("tools.approval")
+    approval.is_current_session_yolo_enabled = lambda: state == "session"
+    _install_approval(monkeypatch, approval)
+    if state == "env":
+        monkeypatch.setenv("HERMES_YOLO_MODE", "")
+    elif state not in ("off", "session"):
+        raise AssertionError(state)
+
+
+@pytest.mark.parametrize("profile", _PET224_POSTURES)
+@pytest.mark.parametrize("yolo_state", _PET224_YOLO_STATES)
+@pytest.mark.parametrize("failure", tuple(_PET224_FAILURES))
 def test_pet224_timeout_and_error_never_approve(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    profile: str,
+    yolo_state: str,
+    failure: str,
 ) -> None:
     ref = _import_reference_plugin()
-    if "evaluation_timeout" not in inspect.getsource(ref._pre_tool_call):
+    # PET-224's reason literals live in module constants. The arm itself calls
+    # _note_eval_unavailable; that call is absent until the arm has landed.
+    if "_note_eval_unavailable" not in inspect.getsource(ref._pre_tool_call):
         pytest.skip("PET-224 guard-evaluation arm is not on this tree yet")
     monkeypatch.setattr(ref, "_initialized", True)
     monkeypatch.setattr(ref, "_init_error", None)
     monkeypatch.setattr(ref, "_is_armed", lambda: True)
     monkeypatch.setattr(ref, "_maybe_reconfigure", lambda: None)
-    monkeypatch.setattr(ref, "_pipeline", _pipeline("code_generation"))
+    monkeypatch.setattr(ref, "_pipeline", _pipeline(profile))
     monkeypatch.setattr(ref, "_approve_directive_available", True)
     monkeypatch.setattr(ref, "_rule_always_approved", lambda _key: True)
     monkeypatch.setattr(ref, "_lineage_registry", None)
     monkeypatch.setattr(ref, "_frequency_tracker", FrequencyTracker(PetasosConfig()))
     ref._degraded_approve_sessions.add("s-224")
-    monkeypatch.delenv("HERMES_YOLO_MODE", raising=False)
+    _apply_pet224_yolo(monkeypatch, yolo_state)
 
-    def _raise(exc: BaseException) -> Any:
-        def _run(_coro: Any, timeout: float = 15) -> Any:
-            raise exc
+    exc: BaseException = (
+        concurrent.futures.TimeoutError() if failure == "timeout" else RuntimeError("down")
+    )
 
-        return _run
+    def _run(_coro: Any, timeout: float = 15) -> Any:
+        raise exc
 
-    for exc, reason in (
-        (concurrent.futures.TimeoutError(), "guard evaluation unavailable: evaluation_timeout"),
-        (RuntimeError("down"), "guard evaluation unavailable: evaluation_error"),
-    ):
-        emitted: list[dict[str, Any]] = []
+    emitted: list[dict[str, Any]] = []
 
-        def _emit(bucket: list[dict[str, Any]] = emitted, **kw: Any) -> bool:
-            bucket.append(kw)
-            return True
+    def _emit(**kw: Any) -> bool:
+        emitted.append(kw)
+        return True
 
-        monkeypatch.setattr(ref, "_emit_enforcement_event", _emit)
-        monkeypatch.setattr(ref, "_run_async", _raise(exc))
-        with caplog.at_level(logging.INFO, logger="petasos.plugin"):
-            out = ref._pre_tool_call("write_file", {"path": "a.txt"}, task_id="s-224")
-        assert out is not None and out["action"] == "block"
-        quarantines = [event for event in emitted if event.get("event_type") == "quarantine"]
-        assert len(quarantines) == 1
-        assert quarantines[0]["reason"] == reason
-        assert not any(event.get("event_type") == "tier3" for event in emitted)
-        assert not any("PETASOS_APPROVE" in record.getMessage() for record in caplog.records)
-        caplog.clear()
+    monkeypatch.setattr(ref, "_emit_enforcement_event", _emit)
+    monkeypatch.setattr(ref, "_run_async", _run)
+    with caplog.at_level(logging.INFO, logger="petasos.plugin"):
+        out = ref._pre_tool_call("write_file", {"path": "a.txt"}, task_id="s-224")
+    assert out is not None and out["action"] == "block"
+    quarantines = [event for event in emitted if event.get("event_type") == "quarantine"]
+    assert len(quarantines) == 1
+    assert quarantines[0]["reason"] == _PET224_FAILURES[failure]
+    assert not any(event.get("event_type") == "tier3" for event in emitted)
+    assert not any("PETASOS_APPROVE" in record.getMessage() for record in caplog.records)
