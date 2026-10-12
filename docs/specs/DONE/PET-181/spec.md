@@ -1,6 +1,6 @@
 # PET-181 — Invert the ingestion-axis default: scan unknown tools by default
 
-Brief: `docs/specs/TODO/PET-181.brief.md`
+Brief: `docs/specs/DONE/PET-181/brief.md`
 Plane: PET-181 (`082ef382-60ea-4027-a3a6-6eda00e243ef`, Backlog, high) — namespace `petasos`
 Base: `9c4f2b9` (origin/master tip at preflight; PET-179 `0ee58ab` is the classification split this inverts)
 Vintage of per-row evidence: `_TOOL_AXES_VERIFIED_AGAINST = "hermes-agent b415029b6 (2026-08-06)"` (`petasos/session/guard.py:401`), checked against the local `hermes-agent-PET-158` tree.

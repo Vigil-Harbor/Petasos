@@ -1,7 +1,7 @@
 # Reconciliation Report: PET-181
 
 > Date: 2026-09-16
-> Spec: docs/specs/TODO/PET-181.spec.md
+> Spec: docs/specs/DONE/PET-181/spec.md
 > Merge: PR #179 (`df1ef53`)
 > Plane state: Done (group: completed)
 
@@ -24,7 +24,7 @@ Invert-only shipped as specified. Unknown non-empty tool names are result-scanne
 | `docs/deployment/hermes-desktop.md` | Yes | Inverted default documented |
 
 Unexpected files in diff (not in spec):
-- `docs/specs/TODO/PET-181.test-output.txt` — ship-spec test-output artifact (force-added; gitignored specs dir)
+- `docs/specs/DONE/PET-181/test-output.txt` — ship-spec test-output artifact (force-added; gitignored specs dir)
 
 ## Decisions
 
