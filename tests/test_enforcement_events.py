@@ -381,13 +381,14 @@ def test_armed_pre_tool_call_invokes_guard_evaluate(
     _setup_plugin(ref, monkeypatch, armed=True)
 
     eval_calls: list[Any] = []
-    monkeypatch.setattr(
-        ref,
-        "_guard",
-        type("SpyGuard", (), {"evaluate": lambda self, *a, **k: eval_calls.append(a)})(),
-    )
-    # _run_async ignores the (recorded) coroutine arg and returns an allowed result.
-    monkeypatch.setattr(ref, "_run_async", lambda coro: _guard_result())
+
+    class SpyGuard:
+        async def evaluate(self, *a: Any, **k: Any) -> GuardResult:
+            eval_calls.append(a)
+            return _guard_result()
+
+    monkeypatch.setattr(ref, "_guard", SpyGuard())
+    monkeypatch.setattr(ref, "_run_async", lambda coro, timeout=15: asyncio.run(coro))
 
     ref._pre_tool_call("send_email", {"text": "x"}, task_id="sess-E")
     assert eval_calls, "_guard.evaluate must run on the armed branch"

@@ -100,8 +100,8 @@ class TestReferencePluginInitLogging:
             ref._deferred_init()
 
         messages = [r.message for r in caplog.records]
-        assert any("backend missing" in m for m in messages), (
-            f"Expected 'backend missing' in logs, got: {messages}"
+        assert any("backend unusable" in m for m in messages), (
+            f"Expected 'backend unusable' in logs, got: {messages}"
         )
         assert not any("scanner loaded" in m.lower() for m in messages), (
             f"Should not see 'scanner loaded' with blocked backends: {messages}"
@@ -124,8 +124,8 @@ class TestReferencePluginInitLogging:
         assert not any("scanner loaded" in m.lower() for m in messages), (
             f"Should not see old 'scanner loaded' wording: {messages}"
         )
-        assert any("backend verified" in m or "backend missing" in m for m in messages), (
-            f"Expected probe-based log ('backend verified' or 'backend missing'), got: {messages}"
+        assert any("backend verified" in m or "backend unusable" in m for m in messages), (
+            f"Expected probe-based log ('backend verified' or 'backend unusable'), got: {messages}"
         )
 
 
@@ -151,8 +151,8 @@ class TestPluginApiInitLogging:
             plugin_api._self_init()
 
         messages = [r.message for r in caplog.records]
-        assert any("backend missing" in m for m in messages), (
-            f"Expected 'backend missing' in logs, got: {messages}"
+        assert any("backend unusable" in m for m in messages), (
+            f"Expected 'backend unusable' in logs, got: {messages}"
         )
         assert not any("Dashboard loaded scanner" in m for m in messages), (
             f"Old wording 'Dashboard loaded scanner' should not appear: {messages}"
@@ -173,6 +173,6 @@ class TestPluginApiInitLogging:
         assert not any("Dashboard loaded scanner" in m for m in messages), (
             f"Old wording 'Dashboard loaded scanner' should not appear: {messages}"
         )
-        assert any("backend verified" in m or "backend missing" in m for m in messages), (
-            f"Expected probe-based log ('backend verified' or 'backend missing'), got: {messages}"
+        assert any("backend verified" in m or "backend unusable" in m for m in messages), (
+            f"Expected probe-based log ('backend verified' or 'backend unusable'), got: {messages}"
         )

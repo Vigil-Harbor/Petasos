@@ -1,0 +1,97 @@
+PET-211 test gate
+Worktree: C:\Users\zioni\Documents\Vigil-Harbor\PET-211-worktree
+PYTHONPATH set to the worktree so imports do not use the primary-tree editable install.
+Interpreter: C:\Python314\python.exe
+
+=== ruff ===
+C:\Python314\python.exe -m ruff check petasos/scanners/minimal.py tests/test_minimal_scanner.py tests/adversarial/syntactic/test_injection_evasion.py tests/adversarial/syntactic/test_encoding_evasion.py tests/adversarial/syntactic/test_command_rules.py tests/adversarial/syntactic/test_agent_directive_rules.py tests/adversarial/syntactic/test_decode_rescan_dedup.py
+[1;32mAll checks passed![0m
+
+ruff exit 0
+
+=== mypy ===
+C:\Python314\python.exe -m mypy --strict petasos/scanners/minimal.py
+Success: no issues found in 1 source file
+
+mypy exit 0
+
+=== pytest ===
+C:\Python314\python.exe -m pytest tests/test_minimal_scanner.py tests/test_normalize.py tests/test_pet200_calibration.py tests/adversarial/syntactic/test_injection_evasion.py tests/adversarial/syntactic/test_encoding_evasion.py tests/adversarial/syntactic/test_command_rules.py tests/adversarial/syntactic/test_agent_directive_rules.py tests/adversarial/syntactic/test_decode_rescan_dedup.py -q --tb=short
+........................................................................ [ 15%]
+........................................................................ [ 31%]
+........................................................................ [ 46%]
+........................................................................ [ 62%]
+........................................................................ [ 77%]
+........................................................................ [ 93%]
+...............................                                          [100%]
+463 passed in 8.03s
+
+pytest exit 0
+
+=== calibrate ===
+C:\Python314\python.exe scripts/pet200_calibrate.py --config base --phase post-pet-201 --remeasure --out docs/specs/TODO/PET-211.calibration-report.json
+wrote docs\specs\TODO\PET-211.calibration-report.json phase=post-pet-201 config_label=base policy=retain_high_plus
+PETASOS_INGEST_UNCORRELATED tool=browser_navigate cause=no_guard -- ingestion scans will not accumulate; session backstop inert
+PETASOS_INGEST_FLAGGED tool=browser_navigate session=pet200-245 rule=petasos.syntactic.injection.ignore-previous severity=HIGH
+PETASOS_INGEST_FLAGGED tool=browser_navigate session=pet200-246 rule=petasos.syntactic.injection.ignore-previous severity=HIGH
+PETASOS_INGEST_FLAGGED tool=browser_navigate session=pet200-247 rule=petasos.syntactic.injection.ignore-previous severity=HIGH
+PETASOS_INGEST_FLAGGED tool=browser_navigate session=pet200-248 rule=petasos.syntactic.injection.ignore-previous severity=HIGH
+PETASOS_INGEST_FLAGGED tool=browser_navigate session=pet200-249 rule=petasos.syntactic.injection.ignore-previous severity=HIGH
+PETASOS_INGEST_FLAGGED tool=browser_navigate session=pet200-250 rule=petasos.syntactic.injection.ignore-previous severity=HIGH
+PETASOS_INGEST_FLAGGED tool=browser_navigate session=pet200-251 rule=petasos.syntactic.injection.ignore-previous severity=HIGH
+PETASOS_INGEST_FLAGGED tool=browser_navigate session=pet200-252 rule=petasos.syntactic.injection.ignore-previous severity=HIGH
+PETASOS_INGEST_FLAGGED tool=browser_navigate session=pet200-253 rule=petasos.syntactic.injection.ignore-previous severity=HIGH
+PETASOS_INGEST_FLAGGED tool=browser_navigate session=pet200-254 rule=petasos.syntactic.injection.ignore-previous severity=HIGH
+PETASOS_INGEST_FLAGGED tool=mcp__some_server__some_tool session=pet200-500 rule=petasos.syntactic.injection.ignore-previous severity=HIGH
+PETASOS_INGEST_FLAGGED tool=mcp__some_server__some_tool session=pet200-501 rule=petasos.syntactic.injection.ignore-previous severity=HIGH
+PETASOS_INGEST_FLAGGED tool=mcp__some_server__some_tool session=pet200-502 rule=petasos.syntactic.injection.ignore-previous severity=HIGH
+PETASOS_INGEST_FLAGGED tool=mcp__some_server__some_tool session=pet200-503 rule=petasos.syntactic.injection.ignore-previous severity=HIGH
+PETASOS_INGEST_FLAGGED tool=mcp__some_server__some_tool session=pet200-504 rule=petasos.syntactic.injection.ignore-previous severity=HIGH
+PETASOS_INGEST_FLAGGED tool=mcp__some_server__some_tool session=pet200-505 rule=petasos.syntactic.injection.ignore-previous severity=HIGH
+PETASOS_INGEST_FLAGGED tool=mcp__some_server__some_tool session=pet200-506 rule=petasos.syntactic.injection.ignore-previous severity=HIGH
+PETASOS_INGEST_FLAGGED tool=mcp__some_server__some_tool session=pet200-507 rule=petasos.syntactic.injection.ignore-previous severity=HIGH
+PETASOS_INGEST_FLAGGED tool=mcp__some_server__some_tool session=pet200-508 rule=petasos.syntactic.injection.ignore-previous severity=HIGH
+PETASOS_INGEST_FLAGGED tool=mcp__some_server__some_tool session=pet200-509 rule=petasos.syntactic.injection.ignore-previous severity=HIGH
+PETASOS_INGEST_FLAGGED tool=terminal session=pet200-755 rule=petasos.syntactic.injection.ignore-previous severity=HIGH
+PETASOS_INGEST_FLAGGED tool=execute_code session=pet200-756 rule=petasos.syntactic.injection.ignore-previous severity=HIGH
+PETASOS_INGEST_FLAGGED tool=terminal session=pet200-757 rule=petasos.syntactic.injection.ignore-previous severity=HIGH
+PETASOS_INGEST_FLAGGED tool=terminal session=pet200-758 rule=petasos.syntactic.injection.ignore-previous severity=HIGH
+PETASOS_INGEST_FLAGGED tool=execute_code session=pet200-759 rule=petasos.syntactic.injection.ignore-previous severity=HIGH
+PETASOS_INGEST_FLAGGED tool=terminal session=pet200-760 rule=petasos.syntactic.injection.ignore-previous severity=HIGH
+PETASOS_INGEST_FLAGGED tool=execute_code session=pet200-761 rule=petasos.syntactic.injection.ignore-previous severity=HIGH
+PETASOS_INGEST_FLAGGED tool=terminal session=pet200-762 rule=petasos.syntactic.injection.ignore-previous severity=HIGH
+PETASOS_INGEST_FLAGGED tool=execute_code session=pet200-763 rule=petasos.syntactic.injection.ignore-previous severity=HIGH
+PETASOS_INGEST_FLAGGED tool=terminal session=pet200-764 rule=petasos.syntactic.injection.ignore-previous severity=HIGH
+PETASOS_INGEST_FLAGGED tool=read_file session=pet200-1007 rule=petasos.syntactic.structural.excessive-depth severity=CRITICAL
+PETASOS_INGEST_FLAGGED tool=read_file session=pet200-1010 rule=petasos.syntactic.injection.ignore-previous severity=HIGH
+PETASOS_INGEST_FLAGGED tool=read_file session=pet200-1011 rule=petasos.syntactic.injection.ignore-previous severity=HIGH
+PETASOS_INGEST_FLAGGED tool=read_file session=pet200-1012 rule=petasos.syntactic.injection.ignore-previous severity=HIGH
+PETASOS_INGEST_FLAGGED tool=read_file session=pet200-1013 rule=petasos.syntactic.injection.ignore-previous severity=HIGH
+PETASOS_INGEST_FLAGGED tool=read_file session=pet200-1014 rule=petasos.syntactic.injection.ignore-previous severity=HIGH
+PETASOS_INGEST_FLAGGED tool=read_file session=pet200-1015 rule=petasos.syntactic.injection.ignore-previous severity=HIGH
+PETASOS_INGEST_FLAGGED tool=read_file session=pet200-1016 rule=petasos.syntactic.injection.ignore-previous severity=HIGH
+PETASOS_INGEST_FLAGGED tool=read_file session=pet200-1017 rule=petasos.syntactic.injection.ignore-previous severity=HIGH
+PETASOS_INGEST_FLAGGED tool=read_file session=pet200-1018 rule=petasos.syntactic.injection.ignore-previous severity=HIGH
+PETASOS_INGEST_FLAGGED tool=read_file session=pet200-1019 rule=petasos.syntactic.injection.ignore-previous severity=HIGH
+
+calibrate exit 0
+
+=== benchmarks ===
+C:\Python314\python.exe -m pytest tests/test_benchmarks.py::test_benchmark_syntactic_separator_leet_worst_case tests/test_benchmarks.py::test_benchmark_ingestion_result_8kb tests/test_benchmarks.py::test_benchmark_ingestion_result_100kb tests/test_benchmarks.py::test_benchmark_ingestion_result_1e6 -q --tb=line
+....                                                                     [100%]
+
+----------------------------------------------------------------------------------------------------- benchmark: 4 tests -----------------------------------------------------------------------------------------------------
+Name (time in ms)                                           Min                 Max                Mean             StdDev              Median                 IQR            Outliers       OPS            Rounds  Iterations
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+test_benchmark_ingestion_result_8kb                      7.1847 (1.0)        7.6010 (1.0)        7.3058 (1.0)       0.1094 (1.0)        7.2858 (1.0)        0.1083 (1.0)           4;2  136.8775 (1.0)          20           1
+test_benchmark_syntactic_separator_leet_worst_case      10.7804 (1.50)      15.0186 (1.98)      11.1036 (1.52)      0.6223 (5.69)      10.9699 (1.51)       0.1410 (1.30)          3;4   90.0609 (0.66)         50           1
+test_benchmark_ingestion_result_100kb                   46.9420 (6.53)      82.9329 (10.91)     76.0785 (10.41)     8.4874 (77.57)     79.4408 (10.90)      3.9092 (36.11)         2;2   13.1443 (0.10)         20           1
+test_benchmark_ingestion_result_1e6                    497.2077 (69.20)    753.6444 (99.15)    676.3959 (92.58)    74.2019 (678.15)   694.9534 (95.38)    110.3418 (>1000.0)       5;0    1.4784 (0.01)         20           1
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+Legend:
+  Outliers: 1 Standard Deviation from Mean; 1.5 IQR (InterQuartile Range) from 1st Quartile and 3rd Quartile.
+  OPS: Operations Per Second, computed as 1 / Mean
+4 passed in 18.28s
+
+benchmarks exit 0

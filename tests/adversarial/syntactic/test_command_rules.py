@@ -91,6 +91,18 @@ async def test_command_family_inbound_silent(payload: str, _suffix: str) -> None
     assert [f for f in result.findings if f.rule_id in _COMMAND_RULE_IDS] == []
 
 
+async def test_zwsp_separated_destructive_recursive_fires_outbound() -> None:
+    # Regression for PET-201: ZWSP-separated expected-TP still fires outbound
+    # with span omitted; inbound adds no command finding.
+    payload = "\u200b".join(["rm", "-Rf", "/"])
+    cmd, _ = await _inspect_outbound(payload)
+    assert len(cmd) == 1
+    assert cmd[0].rule_id == f"{_PREFIX}destructive-recursive"
+    assert cmd[0].position is None
+    inbound, _ = await _inspect_outbound(payload, direction="inbound")
+    assert inbound == []
+
+
 @pytest.mark.parametrize("snippet", COMMAND_BENIGN)
 async def test_command_benign_corpus_zero_fp(snippet: str) -> None:
     # Regression for PET-94 (Decision 5, binary budget): every benign snippet
@@ -253,6 +265,17 @@ async def test_command_family_critical_override_ordering() -> None:
     assert len(cmd) >= 1
     assert all(f.severity == Severity.CRITICAL for f in cmd)
     assert result.escalation_tier != "tier3"
+
+
+async def test_outbound_zwsp_leet_pipe_is_not_command() -> None:
+    # Regression for PET-211: "echo" ZWSP "|" ZWSP "5h" folds to "echo | sh"
+    # only on the composed view. Command does not read that view, outbound
+    # or inbound, and there is no decode-rescan variant of this pin.
+    payload = "echo\u200b|\u200b5h"
+    outbound, _ = await _inspect_outbound(payload)
+    assert outbound == []
+    inbound, _ = await _inspect_outbound(payload, direction="inbound")
+    assert inbound == []
 
 
 async def test_command_family_survives_research_floor() -> None:

@@ -250,6 +250,15 @@ _LEET_TABLE_I = str.maketrans({**_LEET_COMMON, ord("1"): "i"})
 _LEET_TABLE_L = str.maketrans({**_LEET_COMMON, ord("1"): "l"})
 
 
+def _leet_fold(text: str) -> tuple[str, ...]:
+    """Apply the PET-97 I-then-L tables. Empty when no foldable character."""
+    view_i = text.translate(_LEET_TABLE_I)
+    if view_i == text:
+        return ()
+    view_l = text.translate(_LEET_TABLE_L)
+    return (view_i,) if view_l == view_i else (view_i, view_l)
+
+
 def normalize(
     text: str,
     *,
@@ -279,10 +288,16 @@ def normalize(
 
     The separator view (PET-198) is also a side channel: when invisible
     characters were stripped, it emits a match-only space-restored candidate
-    into ``separator_views`` for the injection pass, leaves ``normalized``
+    into ``separator_views`` for injection and the named ``\\s+`` families
+    (role-switch, command, agent-directive), leaves ``normalized``
     concatenating, and records no ``transformations_applied`` entry. Empty
     when nothing was stripped, stripping is off, or the finished view equals
     ``normalized``.
+
+    Composed views (PET-201) are the leet fold of that one separator string
+    (at most two candidates). Match-only, not length-preserving, empty when
+    ``fold_leet`` is off, there is no separator view, or the fold equals an
+    already-emitted string. No ``transformations_applied`` entry.
     """
     if not text:
         return NormalizedText(
@@ -358,19 +373,16 @@ def normalize(
     # Step 7: Leet fold (PET-97) — match-only candidate views. Runs on the
     # final normalized text so homoglyph+leet compositions decode correctly.
     # ``view_l`` can only differ from the base when ``view_i`` does (both
-    # tables map the identical character set), so the equality check below
-    # doubles as the no-foldable-chars early-out.
-    leet_views: tuple[str, ...] = ()
-    if fold_leet:
-        view_i = text_after_homoglyph.translate(_LEET_TABLE_I)
-        if view_i != text_after_homoglyph:
-            view_l = text_after_homoglyph.translate(_LEET_TABLE_L)
-            leet_views = (view_i,) if view_l == view_i else (view_i, view_l)
+    # tables map the identical character set), so the equality check in
+    # ``_leet_fold`` doubles as the no-foldable-chars early-out.
+    leet_views: tuple[str, ...] = _leet_fold(text_after_homoglyph) if fold_leet else ()
 
     # Match-only separator view (PET-198): each maximal strippable run in
     # original becomes one U+0020, then the same later stages as the concat
-    # path. Not recorded in transformations_applied. Not leet-folded here.
+    # path. Not recorded in transformations_applied. Composed views (PET-201)
+    # are the leet fold of this one string, dropping duplicates.
     separator_views: tuple[str, ...] = ()
+    composed_views: tuple[str, ...] = ()
     if stripped_count > 0:
         view = _replace_strippable_runs_with_space(original)
         if nfkc:
@@ -387,6 +399,9 @@ def normalize(
             view = view.translate(_HOMOGLYPH_TABLE)
         if view != text_after_homoglyph:
             separator_views = (view,)
+            if fold_leet:
+                already = {text_after_homoglyph, *leet_views, view}
+                composed_views = tuple(v for v in _leet_fold(view) if v not in already)
 
     return NormalizedText(
         original=original,
@@ -397,4 +412,5 @@ def normalize(
         rtl_overrides_detected=rtl_detected,
         leet_views=leet_views,
         separator_views=separator_views,
+        composed_views=composed_views,
     )

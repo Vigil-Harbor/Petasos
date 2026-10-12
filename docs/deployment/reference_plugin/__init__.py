@@ -13,6 +13,7 @@ Env:    PETASOS_LICENSE_KEY, PETASOS_SESSION_SECRET, PETASOS_HASH_KEY,
         PETASOS_AUDIT_FINDING
 Needs:  a ``petasos`` release exporting ``petasos.scanners.build_scanners``,
         ``petasos.session.formatting.format_result_notice``,
+        ``petasos.session.ingest.scan_ingestion_result``,
         ``petasos.session.guard.INGESTION_TOOLS``, AND
         ``petasos.session.guard.NON_INGESTING_TOOLS``; sync this file and the
         library together. ``build_scanners`` shipped first, so a library too old
@@ -21,7 +22,10 @@ Needs:  a ``petasos`` release exporting ``petasos.scanners.build_scanners``,
         init; a library newer than a stale copy of this file still can. PET-190
         adds ``petasos.session.guard.render_param_text`` and
         ``PARAM_SCAN_DIRECTION`` to that floor; PET-179 adds ``INGESTION_TOOLS``;
-        PET-181 adds ``NON_INGESTING_TOOLS``. A library that has
+        PET-181 adds ``NON_INGESTING_TOOLS``; PET-178 adds
+        ``scan_ingestion_result``. PET-208 additionally imports the private
+        ``_acquire_inspect_lock`` from the same module (shipped with PET-178;
+        not an export). A library that has
         ``format_result_notice`` but predates those guard exports fails the
         ``petasos.session.guard`` import instead, with the same result.
         ``verify.py`` probes ``build_scanners`` (scanner-imports check) and
@@ -69,7 +73,12 @@ from petasos.session.guard import (
     NON_INGESTING_TOOLS,
     PARAM_SCAN_DIRECTION,
     READ_ONLY_TOOLS,
+    GuardResult,
     render_param_text,
+)
+from petasos.session.ingest import (  # PET-178: dep-light (chunked result scan)
+    _acquire_inspect_lock,
+    scan_ingestion_result,
 )
 
 if TYPE_CHECKING:
@@ -280,6 +289,12 @@ def _reset_cold_start_records() -> None:
         _last_cold_start_fail_log = 0.0
 
 
+def _reset_eval_error_log() -> None:
+    """Test seam — clear the PET-224 once-per-session evaluation-failure log latch."""
+    with _eval_error_log_lock:
+        _eval_error_logged.clear()
+
+
 def _reset_rebind_log() -> None:
     """Test seam — reset the dedicated re-bind rate-limit clock (Decision 6)."""
     global _last_rebind_log
@@ -293,6 +308,23 @@ def _reset_rebind_log() -> None:
 # handlers therefore reference the registry lazily through this module global —
 # a hook firing before init completes (registry None) is a safe no-op.
 _lineage_registry = None
+# PET-224: published beside ``_guard`` / ``_lineage_registry`` once init succeeds.
+# Stays None through the cold window and a failed init. The evaluation-failure
+# arm reads it directly; it does not reach through the guard.
+_frequency_tracker = None
+# PET-224: once-per-session error log for a raising guard evaluation. Later
+# calls for the same key log at debug. Insertion-ordered dict used as a set,
+# drop-oldest at the cold-start cap. ``None`` is the process key for the
+# uncorrelatable shape (no task_id and no ``_agent``), matching the cold-start
+# marker. The lock is not held across emit, derive, or await. Live reconfigure
+# does not clear it.
+_eval_error_log_lock = threading.Lock()
+_eval_error_logged: dict[str | None, None] = {}
+_MAX_EVAL_ERROR_LOG_KEYS = 10_000
+_EVAL_TIMEOUT_CAUSE = "evaluation_timeout"
+_EVAL_ERROR_CAUSE = "evaluation_error"
+_EVAL_TIMEOUT_REASON = "guard evaluation unavailable: evaluation_timeout"
+_EVAL_ERROR_REASON = "guard evaluation unavailable: evaluation_error"
 # True iff BOTH subagent hooks registered. A is wired only when both are present
 # (an edge store created but never dropped-on-stop would leak edges); otherwise
 # A degrades fully to C (lineage=None). Set in register(), read in _deferred_init.
@@ -302,6 +334,13 @@ _subagent_hooks_available = False
 # but Hermes invoke_hook is sync).
 _async_loop: asyncio.AbstractEventLoop | None = None
 _async_thread: threading.Thread | None = None
+# PET-178: ingestion helper runs on its own K=1 loop so a Stage 2 wedge cannot
+# starve ``_pre_tool_call``. The inspect mutex serializes the short head inspect
+# with ``_guard.evaluate``; the syntactic sweep does not take it.
+_ingest_loop: asyncio.AbstractEventLoop | None = None
+_ingest_thread: threading.Thread | None = None
+_ingest_lock: asyncio.Lock | None = None
+_inspect_lock = threading.Lock()
 
 # PET-118: derived sibling canonical set. READ_ONLY_TOOLS stays the immutable raw
 # source-of-truth; _READ_ONLY_CANON is canonicalized at MODULE LOAD (not _deferred_init)
@@ -387,6 +426,14 @@ def _worst(findings):
 # before _initialized flips; read lock-free in _pre_tool_call (which only runs post-init).
 # Atomic name rebind — no torn read under the GIL.
 _egress_sink_tools: frozenset[str] = frozenset()
+
+# PET-221: one probe at first register. Default False so a host without the
+# approve directive, and every existing test that never calls register(), blocks
+# where an approve would have been returned.
+_approve_directive_available: bool = False
+_always_read_warned: bool = False
+_degraded_approve_sessions: set[str] = set()
+_COMMAND_RULE_PREFIX = "petasos.syntactic.command."
 
 
 def _is_egress_sink(tool_name: str) -> bool:
@@ -474,6 +521,81 @@ def _run_async(coro, timeout: float = 15):
     except concurrent.futures.TimeoutError:
         future.cancel()
         raise
+
+
+def _start_ingest_loop() -> None:
+    global _ingest_loop, _ingest_lock
+    _ingest_loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(_ingest_loop)
+    _ingest_lock = asyncio.Lock()
+    _ingest_loop.run_forever()
+
+
+def _ensure_ingest_loop() -> None:
+    global _ingest_thread
+    if _ingest_thread is None or not _ingest_thread.is_alive():
+        _ingest_thread = threading.Thread(
+            target=_start_ingest_loop,
+            daemon=True,
+            name="petasos-ingest",
+        )
+        _ingest_thread.start()
+        while _ingest_loop is None:
+            threading.Event().wait(0.01)
+
+
+def _run_ingest_async(coro):
+    """Submit ``coro`` onto the ingest loop and block for its result.
+
+    Not ``_run_async``'s twin: there is no scan-budget timeout on the submit.
+    The budget is applied inside ``_ingest_one`` after the K=1 ingest lock is
+    held. Cancel-and-re-raise only if the host is tearing down.
+    """
+    _ensure_ingest_loop()
+    future = asyncio.run_coroutine_threadsafe(coro, _ingest_loop)
+    return future.result()
+
+
+async def _ingest_one(
+    pipeline: Any,
+    result: str,
+    session_id: str | None,
+    armed: bool,
+    guard: Any,
+    budget: float,
+) -> Any:
+    lock = _ingest_lock
+    if lock is None:
+        lock = asyncio.Lock()
+    async with lock:
+        return await asyncio.wait_for(
+            scan_ingestion_result(
+                pipeline,
+                result,
+                direction="inbound",
+                session_id=session_id if armed else None,
+                weight_cap=guard.scan_weight_cap if armed else 0.0,
+                inspect_lock=_inspect_lock,
+            ),
+            timeout=budget,
+        )
+
+
+async def _evaluate_with_inspect_lock(tool_name: str, args: dict, session_id: str) -> Any:
+    """Serialize ``_guard.evaluate`` with the ingest-head ``inspect()``.
+
+    Yields ``_async_loop`` while polling the mutex so a held ingest head cannot
+    deadlock reconfigure. ``acquired`` is set synchronously after the helper
+    returns; ``release()`` runs only if this task acquired.
+    """
+    acquired = False
+    try:
+        await _acquire_inspect_lock(_inspect_lock)
+        acquired = True
+        return await _guard.evaluate(tool_name, args, session_id)
+    finally:
+        if acquired:
+            _inspect_lock.release()
 
 
 # ---------------------------------------------------------------------------
@@ -651,13 +773,20 @@ def _deferred_init() -> None:
                     if st.outcome == "verified":
                         logger.info("%s backend verified — scanner active", st.display_name)
                         continue
+                    if st.outcome == "disabled":
+                        logger.info(
+                            "%s backend disabled by config — not registered", st.display_name
+                        )
+                        continue
                     unavailable.append(st.scanner_id)
                     if st.outcome == "degraded":
                         logger.warning(
-                            "%s backend missing — scanner registered degraded "
-                            "(every scan will error): %s",
+                            "%s backend unusable — scanner registered degraded "
+                            "(every scan will error): %s. Install the backend's runtime, "
+                            "or add %s to disabled_scanners.",
                             st.display_name,
                             st.reason,
+                            st.scanner_id,
                         )
                     elif st.outcome == "missing":
                         logger.info(
@@ -754,9 +883,10 @@ def _deferred_init() -> None:
                 # atomically with _guard, past every raise site, so a
                 # failed-init boot never leaves a registry accepting edges no
                 # guard reads.
-                global _lineage_registry
+                global _lineage_registry, _frequency_tracker
                 _guard = ToolCallGuard(_pipeline, tracker, config, lineage=registry)
                 _lineage_registry = registry
+                _frequency_tracker = tracker
                 if _subagent_hooks_available:
                     logger.info(
                         "Petasos sub-agent lineage (A) + delegation fan-out gate (C) active"
@@ -1129,13 +1259,15 @@ def _fallback_decision(
     log_cause: str,
     block_reason: str,
 ) -> dict[str, str] | None:
-    """PET-171: the fail-secure gate shared by both cold-window branches.
+    """PET-171: the fail-secure gate shared by both cold-window branches and the
+    warm-path ``_pre_tool_call`` except arm (PET-224).
 
     ``log_cause`` and ``block_reason`` are separate so each caller keeps its own
     operator-facing log wording while the enforcement event carries the branch-specific
-    reason. Homogenizing the two log lines would be an unrequested behavior change hiding
-    inside a parity fix (PET-174's recorded shape: a shared helper returns data, callers
-    keep their own message).
+    reason. The warm-path except arm passes the same string for both arguments.
+    Cold-window callers keep their own wording. Homogenizing the two log lines would
+    be an unrequested behavior change hiding inside a parity fix (PET-174's recorded
+    shape: a shared helper returns data, callers keep their own message).
     """
     try:
         dangerous = _is_dangerous(tool_name)
@@ -1178,6 +1310,88 @@ def _fallback_decision(
         # enforcement event's reason instead.
         "message": format_content_block("degraded", tool_name, ()),
     }
+
+
+def _note_eval_unavailable(
+    task_id: str,
+    session_id: str,
+    kwargs: dict[str, Any],
+    exc: BaseException,
+    cause: str,
+) -> None:
+    """Log a raising evaluation once per latch key at error, then at debug.
+
+    The latch key is ``None`` when there is no ``task_id`` and no ``_agent``
+    (``_derive_session_id`` would mint a fresh anon id and defeat a session latch).
+    Otherwise it is the already-derived ``session_id``.
+    """
+    key: str | None = None if (not task_id and kwargs.get("_agent") is None) else session_id
+    message = "Petasos guard evaluation failed: %s — guard evaluation unavailable: %s"
+    with _eval_error_log_lock:
+        first = key not in _eval_error_logged
+        if first:
+            _eval_error_logged[key] = None
+            if len(_eval_error_logged) > _MAX_EVAL_ERROR_LOG_KEYS:
+                _eval_error_logged.pop(next(iter(_eval_error_logged)), None)
+    if first:
+        logger.error(message, exc, cause)
+    else:
+        logger.debug(message, exc, cause)
+
+
+def _terminated_floor(session_id: str) -> bool:
+    """True when a raising evaluation must take the tier-3 block.
+
+    True when the tracker is missing, this session is terminated, any ancestor
+    id from ``LineageRegistry.ancestors`` is terminated, or any of those calls
+    raises. Does not read ``subagent_lineage_enabled`` and does not call the
+    guard. ``is_terminated`` returns before ``ancestors()`` is called, and
+    ``ancestors()`` returns its snapshot before the next ``is_terminated``.
+    """
+    tracker = _frequency_tracker
+    if tracker is None:
+        logger.error(
+            "terminated-floor check failed for session=%s — returning tier3 fail-secure",
+            session_id,
+        )
+        return True
+    try:
+        if tracker.is_terminated(session_id):
+            return True
+        registry = _lineage_registry
+        if registry is not None:
+            ancestors = registry.ancestors(session_id)
+            for ancestor_id in ancestors:
+                if tracker.is_terminated(ancestor_id):
+                    return True
+        return False
+    except Exception:
+        logger.exception(
+            "terminated-floor check failed for session=%s — returning tier3 fail-secure",
+            session_id,
+        )
+        return True
+
+
+def _tier3_unavailable_block(tool_name: str, session_id: str) -> dict[str, str]:
+    """Tier-3 block for the evaluation-failure arm. One event, not the fallback."""
+    logger.critical(
+        "PETASOS_TIER3 tool=%s session=%s — all tool calls blocked", tool_name, session_id
+    )
+    _emit_enforcement_event(
+        session_id=session_id, tool=tool_name, event_type="tier3", tier="tier3"
+    )
+    message = format_block_message(
+        GuardResult(
+            allowed=False,
+            reason="session terminated (tier3)",
+            findings=(),
+            tier="tier3",
+            param_scan_unsafe=False,
+        ),
+        tool_name,
+    )
+    return {"action": "block", "message": message}
 
 
 def _is_armed() -> bool:
@@ -1561,9 +1775,12 @@ def _log_reload_failure(detail: str) -> None:
 async def _apply_reconfigure(cfg: PetasosConfig) -> None:
     """Apply a reloaded config to the live gateway as one uninterrupted unit.
 
-    Dispatched onto _async_loop via _run_async (PET-126 Decision 6), so it is
-    serialized with scans between await points. The body is fully synchronous (it
-    never yields), so the steps are atomic with respect to any other loop task.
+    Dispatched onto _async_loop via _run_async (PET-126 Decision 6). Atomicity
+    wrt ``inspect()`` is the inspect mutex, not "no await in the coroutine":
+    this polls ``_acquire_inspect_lock`` so it yields ``_async_loop`` while an
+    ingest head holds the lock. ``acquired`` is set synchronously after the
+    helper returns; ``release()`` runs only if this task acquired. After the
+    lock is held the body stays synchronous.
 
     Two-phase (Decision 5): validate everything that can fail BEFORE committing
     anything, then commit. Because guard.validate_config and the apply tracker
@@ -1572,6 +1789,17 @@ async def _apply_reconfigure(cfg: PetasosConfig) -> None:
     apply. The gateway owns the guard, lineage registry, and egress set, which the
     pipeline cannot reach, so all four are reconfigured here (Decision 4).
     """
+    acquired = False
+    try:
+        await _acquire_inspect_lock(_inspect_lock)
+        acquired = True
+        _apply_reconfigure_body(cfg)
+    finally:
+        if acquired:
+            _inspect_lock.release()
+
+
+def _apply_reconfigure_body(cfg: PetasosConfig) -> None:
     # Phase 1: validate (no mutation) — D8 overlap + frequency_weights trial.
     _guard.validate_config(cfg)
     # Phase 2: commit.
@@ -1836,6 +2064,251 @@ def _rebind_to_profile(profile_home: Any) -> None:
     _rebind_to_resolution(res)
 
 
+def _reset_degraded_approve_sessions() -> None:
+    """Test seam — clear the once-per-session degraded-approve record (PET-221)."""
+    _degraded_approve_sessions.clear()
+
+
+def _probe_approve_directive() -> bool:
+    """True when Hermes can route an approve return into its own prompt."""
+    try:
+        import hermes_cli.plugins as module
+
+        fn = getattr(module, "get_pre_tool_call_directive", None)
+        return callable(fn)
+    except Exception:
+        return False
+
+
+def _warn_always_read_unavailable() -> None:
+    """Log once when tools.approval is loaded and neither always-read exists."""
+    global _always_read_warned
+    if _always_read_warned:
+        return
+    module = sys.modules.get("tools.approval")
+    if module is None:
+        return
+    try:
+        fn = getattr(module, "_is_permanently_approved", None)
+        patterns = getattr(module, "_permanent_approved", None)
+    except Exception:
+        return
+    if callable(fn) or isinstance(patterns, set):
+        return
+    _always_read_warned = True
+    logger.warning(
+        "always-approval read unavailable; operator always will not waive Petasos blocks"
+    )
+
+
+def _yolo_active() -> bool:
+    """True when Hermes would auto-approve a plugin approve return."""
+    if "HERMES_YOLO_MODE" in os.environ:
+        return True
+    if not _approve_directive_available:
+        return False
+    try:
+        import tools.approval as module
+
+        fn = getattr(module, "is_current_session_yolo_enabled", None)
+        if not callable(fn):
+            return True
+        return bool(fn())
+    except Exception:
+        return True
+
+
+def _rule_always_approved(rule_key: str) -> bool:
+    """True when the active Hermes profile home has always'd this rule key.
+
+    Prefer ``_is_permanently_approved`` so a routed profile home is not judged
+    by the launch profile's set. Fall back to ``_permanent_approved`` only when
+    that function is absent. Membership only; do not iterate or copy the set.
+    The unlocked set read is intentional. Do not import ``tools.approval``.
+    """
+    module = sys.modules.get("tools.approval")
+    if module is None:
+        return False
+    try:
+        fn = getattr(module, "_is_permanently_approved", None)
+        if callable(fn):
+            return bool(fn("plugin_rule:" + rule_key))
+        patterns = getattr(module, "_permanent_approved", None)
+        if isinstance(patterns, set):
+            return ("plugin_rule:" + rule_key) in patterns
+        _warn_always_read_unavailable()
+        return False
+    except Exception:
+        return False
+
+
+def _always_approved(rule_key: str) -> bool:
+    """Pin G at the decision site. A raising predicate is false, not an allow."""
+    try:
+        return _rule_always_approved(rule_key)
+    except Exception:
+        return False
+
+
+def _read_posture() -> str:
+    """``approve`` or ``block``. Anything else, including a failed read, is block."""
+    try:
+        profile = _pipeline.default_profile if _pipeline is not None else None
+        raw = (
+            getattr(profile, "dangerous_tool_posture", "block") if profile is not None else "block"
+        )
+        return raw if raw == "approve" else "block"
+    except Exception:
+        return "block"
+
+
+def _approve_return(tool_name: str, session_id: str, rule_key: str) -> dict[str, str]:
+    if rule_key == "petasos.degraded":
+        message = (
+            f"Petasos asks for approval before running '{tool_name}'. "
+            "Parameter scan is unreliable (petasos.degraded)."
+        )
+    else:
+        message = f"Petasos asks for approval before running '{tool_name}'. Rule: {rule_key}."
+    logger.info("PETASOS_APPROVE tool=%s session=%s rule_key=%s", tool_name, session_id, rule_key)
+    return {"action": "approve", "rule_key": rule_key, "message": message}
+
+
+def _dangerous_tool_directive(
+    tool_name: str,
+    args: dict[str, Any],
+    session_id: str,
+    result: Any,
+    egress: bool,
+    posture: str,
+    approve_available: bool,
+    yolo: bool,
+) -> dict[str, str] | None:
+    """Decision 14 for a dangerous tool after the read-only gate.
+
+    The cold window and the PET-224 guard-evaluation arm do not call this.
+    """
+    approve_effective = posture == "approve" and approve_available and not yolo
+    blocking = [f for f in result.findings if _blocks(f.severity)]
+    non_pii = [f for f in blocking if f.finding_type != "pii"]
+    pii = [f for f in blocking if f.finding_type == "pii"]
+    command = [f for f in non_pii if str(f.rule_id).startswith(_COMMAND_RULE_PREFIX)]
+    other = [f for f in non_pii if not str(f.rule_id).startswith(_COMMAND_RULE_PREFIX)]
+
+    if egress and _source_taint_namespaces and _taint_store is not None:
+        tainted_ns = _taint_store.tainted_source(session_id, args)
+        if tainted_ns is not None:
+            reason = f"source-taint egress: {tainted_ns} -> {tool_name}"
+            logger.warning(
+                "PETASOS_QUARANTINE tool=%s session=%s — %s", tool_name, session_id, reason
+            )
+            _emit_enforcement_event(
+                session_id=session_id,
+                tool=tool_name,
+                event_type="quarantine",
+                reason=reason,
+            )
+            return {
+                "action": "block",
+                "message": format_content_block("taint_egress", tool_name, ()),
+            }
+
+    if other:
+        worst = _worst(other)
+        logger.warning(
+            "PETASOS_QUARANTINE tool=%s session=%s — %s finding: %s",
+            tool_name,
+            session_id,
+            worst.severity.name,
+            worst.message,
+        )
+        _emit_enforcement_event(
+            session_id=session_id,
+            tool=tool_name,
+            event_type="quarantine",
+            severity=worst.severity.name,
+            rule_id=worst.rule_id,
+            reason=worst.message,
+        )
+        return {
+            "action": "block",
+            "message": format_content_block("non_pii_param", tool_name, tuple(other)),
+        }
+
+    if pii and egress:
+        worst = _worst(pii)
+        logger.warning(
+            "PETASOS_QUARANTINE tool=%s session=%s — PII to egress sink: %s",
+            tool_name,
+            session_id,
+            worst.message,
+        )
+        _emit_enforcement_event(
+            session_id=session_id,
+            tool=tool_name,
+            event_type="quarantine",
+            severity=worst.severity.name,
+            rule_id=worst.rule_id,
+            reason=worst.message,
+        )
+        return {
+            "action": "block",
+            "message": format_content_block("pii_egress", tool_name, tuple(pii)),
+        }
+
+    if result.param_scan_degraded:
+        if _always_approved("petasos.degraded"):
+            pass
+        elif not approve_effective:
+            logger.warning(
+                "PETASOS_QUARANTINE tool=%s session=%s — param scan degraded",
+                tool_name,
+                session_id,
+            )
+            _emit_enforcement_event(
+                session_id=session_id,
+                tool=tool_name,
+                event_type="quarantine",
+                param_scan_degraded=True,
+                reason="param scan degraded",
+            )
+            return {
+                "action": "block",
+                "message": format_content_block("degraded", tool_name, tuple(blocking)),
+            }
+        elif session_id in _degraded_approve_sessions:
+            pass
+        else:
+            _degraded_approve_sessions.add(session_id)
+            return _approve_return(tool_name, session_id, "petasos.degraded")
+
+    remaining = [f for f in command if not _always_approved(f.rule_id)]
+    if remaining:
+        worst = _worst(remaining)
+        if approve_effective:
+            return _approve_return(tool_name, session_id, worst.rule_id)
+        logger.warning(
+            "PETASOS_QUARANTINE tool=%s session=%s — %s finding: %s",
+            tool_name,
+            session_id,
+            worst.severity.name,
+            worst.message,
+        )
+        _emit_enforcement_event(
+            session_id=session_id,
+            tool=tool_name,
+            event_type="quarantine",
+            severity=worst.severity.name,
+            rule_id=worst.rule_id,
+            reason=worst.message,
+        )
+        return {
+            "action": "block",
+            "message": format_content_block("non_pii_param", tool_name, tuple(remaining)),
+        }
+    return None
+
+
 def _pre_tool_call(
     tool_name: str, args: dict, task_id: str = "", **kwargs
 ) -> dict[str, str] | None:
@@ -1960,10 +2433,24 @@ def _pre_tool_call(
     session_id = _derive_session_id(task_id, kwargs)
 
     try:
-        result = _run_async(_guard.evaluate(tool_name, args, session_id))
+        result = _run_async(_evaluate_with_inspect_lock(tool_name, args, session_id))
     except Exception as exc:
-        logger.error("Petasos guard evaluation failed: %s — allowing tool call", exc)
-        return None
+        if isinstance(exc, concurrent.futures.TimeoutError):
+            cause = _EVAL_TIMEOUT_CAUSE
+            reason = _EVAL_TIMEOUT_REASON
+        else:
+            cause = _EVAL_ERROR_CAUSE
+            reason = _EVAL_ERROR_REASON
+        _note_eval_unavailable(task_id, session_id, kwargs, exc, cause)
+        if _terminated_floor(session_id):
+            return _tier3_unavailable_block(tool_name, session_id)
+        return _fallback_decision(
+            tool_name,
+            "errored",
+            session_id=session_id,
+            log_cause=reason,
+            block_reason=reason,
+        )
 
     if result.selfmod_target is not None:
         try:
@@ -2013,108 +2500,16 @@ def _pre_tool_call(
     if not _is_dangerous(tool_name):
         return None
 
-    egress = _is_egress_sink(tool_name)
-    # HIGH/CRITICAL only, via the ordinal gate (D-CAVEAT) — partitioned by finding type.
-    blocking = [f for f in result.findings if _blocks(f.severity)]
-    non_pii_blocking = [f for f in blocking if f.finding_type != "pii"]
-    pii_blocking = [f for f in blocking if f.finding_type == "pii"]
-
-    # 0. PET-134 source-taint egress fence: the FIRST block check, additive to and
-    #    independent of the PII-egress block below. Content a tool in a declared source
-    #    namespace returned may not leave, verbatim, via an egress sink, regardless of
-    #    whether it also matches PII. All three short-circuits collapse to a fast empty-set
-    #    check on the default, so the feature-off / untainted path is byte-identical to the
-    #    pre-PET-134 behavior. Direction-orthogonal: tainted_source is a pure substring
-    #    test that never consults Direction and never calls the pipeline scan. The
-    #    model-facing message carries no source/sink detail (PET-77); the provenance
-    #    namespace and sink go only to the operator log line + enforcement event (D-OBSERV).
-    if egress and _source_taint_namespaces and _taint_store is not None:
-        tainted_ns = _taint_store.tainted_source(session_id, args)
-        if tainted_ns is not None:
-            reason = f"source-taint egress: {tainted_ns} -> {tool_name}"
-            logger.warning(
-                "PETASOS_QUARANTINE tool=%s session=%s — %s", tool_name, session_id, reason
-            )
-            _emit_enforcement_event(
-                session_id=session_id,
-                tool=tool_name,
-                event_type="quarantine",
-                reason=reason,
-            )
-            return {
-                "action": "block",
-                "message": format_content_block("taint_egress", tool_name, ()),
-            }
-
-    # 1. Scan degraded/unreliable -> block ALL dangerous tools (fail-mode; cannot trust the
-    #    scan). Independent of finding type, so a degraded scanner co-occurring with a PII
-    #    finding still blocks (D-DEGRADED, closes the degraded+PII hole).
-    if result.param_scan_degraded:
-        logger.warning(
-            "PETASOS_QUARANTINE tool=%s session=%s — param scan degraded",
-            tool_name,
-            session_id,
-        )
-        _emit_enforcement_event(
-            session_id=session_id,
-            tool=tool_name,
-            event_type="quarantine",
-            param_scan_degraded=True,
-            reason="param scan degraded",
-        )
-        return {
-            "action": "block",
-            "message": format_content_block("degraded", tool_name, tuple(blocking)),  # PET-77
-        }
-
-    # 2. Non-PII finding (injection/command/structural/credential) at HIGH+ -> block ALL
-    #    dangerous tools (D3 posture; credentials are deliberately NOT egress-scoped).
-    if non_pii_blocking:
-        worst = _worst(non_pii_blocking)
-        logger.warning(
-            "PETASOS_QUARANTINE tool=%s session=%s — %s finding: %s",
-            tool_name,
-            session_id,
-            worst.severity.name,
-            worst.message,
-        )
-        _emit_enforcement_event(
-            session_id=session_id,
-            tool=tool_name,
-            event_type="quarantine",
-            severity=worst.severity.name,
-            rule_id=worst.rule_id,
-            reason=worst.message,
-        )
-        return {
-            "action": "block",
-            "message": format_content_block("non_pii_param", tool_name, tuple(non_pii_blocking)),
-        }
-
-    # 3. PII at HIGH+ -> block ONLY egress sinks (D-EGRESS). Internal tools are exempt, so
-    #    an agent's own local write/terminal/edit of PII is permitted.
-    if pii_blocking and egress:
-        worst = _worst(pii_blocking)
-        logger.warning(
-            "PETASOS_QUARANTINE tool=%s session=%s — PII to egress sink: %s",
-            tool_name,
-            session_id,
-            worst.message,
-        )
-        _emit_enforcement_event(
-            session_id=session_id,
-            tool=tool_name,
-            event_type="quarantine",
-            severity=worst.severity.name,
-            rule_id=worst.rule_id,
-            reason=worst.message,
-        )
-        return {
-            "action": "block",
-            "message": format_content_block("pii_egress", tool_name, tuple(pii_blocking)),
-        }
-
-    return None
+    return _dangerous_tool_directive(
+        tool_name,
+        args,
+        session_id,
+        result,
+        _is_egress_sink(tool_name),
+        _read_posture(),
+        _approve_directive_available,
+        _yolo_active(),
+    )
 
 
 def _post_tool_call(
@@ -2149,24 +2544,14 @@ def _post_tool_call(
 
 
 # ---------------------------------------------------------------------------
-# PET-170: ingestion-result scan + annotation at the transform_tool_result seam
+# PET-170 / PET-178: ingestion-result scan + annotation at the transform_tool_result seam
 # ---------------------------------------------------------------------------
 
-# Measured window. A full `inspect()` on the base install costs ~7.3 ms normalized
-# (~11.7 ms raw on the slower bench box) at 8 KB versus ~14.2 / ~23 ms at 16 KB. The
-# parameter cap (`guard._MAX_PARAM_TEXT_LEN = 1_000_000`, shared by the live guard and
-# `_fallback_pre_tool_call` since PET-190) is NOT a precedent for this number: that
-# bounds tool *arguments*; this bounds a tool *result* at the ingestion seam.
-_MAX_RESULT_SCAN_CHARS = 8_000
-_TRUNCATION_MARKER = "\n...[petasos: scan window truncated]...\n"
-# Head-minus-tail length within the fixed scan budget; not an overlap. The retained
-# spans are disjoint, with no scan spanning either cut into the omitted middle.
-_RESULT_SCAN_HEAD_BIAS = 512
 # The outer bound sits ABOVE the per-scanner timeout, with the INPUT clamped rather than
 # the sum, so the margin survives at the top of the validated (0, 60] range (60 -> 65).
 # Below the per-scanner timeout, an abandoned outer future would never let `_scan_one`
 # return its timeout-prefixed ScanResult, so the pipeline's consecutive-timeout breaker
-# would never open on this path.
+# would never open on this path. Applied after the K=1 ingest lock is held, not at submit.
 _RESULT_SCAN_TIMEOUT_MARGIN_S = 5.0
 _DEFAULT_SCANNER_TIMEOUT_S = 10.0
 # Operator-facing (rides the enforcement event's `reason`), never model-facing — the
@@ -2177,25 +2562,6 @@ _RESULT_SCAN_ERROR_REASON = "result scan unavailable"
 # "hook_absent", "no_host_module", "probe_failed". Registration happens in all four cases;
 # allowlist membership is a PROXY for dispatch, recorded as such.
 _result_scan_status = "unprobed"
-
-
-def _clip_result(result: str) -> tuple[str, bool]:
-    """Return ``(text_to_scan, truncated)`` for an ingestion-tool result.
-
-    Head + tail with a marker between them, biased toward the head within the fixed
-    budget: ``len(scanned) <= _MAX_RESULT_SCAN_CHARS`` always. When clipping, the retained
-    spans are disjoint in the original, so nothing is scanned twice. The omitted middle
-    is unscanned, and no pass spans either head/gap or gap/tail cut: an injection split
-    across either cut can lose its finding even when most of its text is retained.
-
-    Clipping governs only what is SCANNED. The handler always returns the whole result.
-    """
-    if len(result) <= _MAX_RESULT_SCAN_CHARS:
-        return result, False
-    half = (_MAX_RESULT_SCAN_CHARS - len(_TRUNCATION_MARKER) - _RESULT_SCAN_HEAD_BIAS) // 2
-    head = result[: half + _RESULT_SCAN_HEAD_BIAS]
-    tail = result[-half:]
-    return head + _TRUNCATION_MARKER + tail, True
 
 
 def _result_scan_timeout() -> float:
@@ -2285,7 +2651,6 @@ def _transform_tool_result(
             return None
 
         session_id = _derive_session_id(task_id, kwargs)
-        text, truncated = _clip_result(result)
         # ABOVE the try: a raise here is a handler bug, not a scan failure, so it belongs
         # to the outer wrapper rather than being reported as an unscannable result.
         budget = _result_scan_timeout()
@@ -2328,36 +2693,39 @@ def _transform_tool_result(
                 # travel together behind the single `armed` predicate. The
                 # frequency hook returns immediately on a None session, so the
                 # no-arm branches accumulate nothing and no tier moves.
-                scan = _run_async(
-                    pipeline.inspect(
-                        text,
-                        direction="inbound",
-                        session_id=session_id if armed else None,
-                        weight_cap=guard.scan_weight_cap if armed else 0.0,
-                    ),
-                    timeout=budget,
+                # PET-178: helper on the ingest loop; budget starts after K=1 lock.
+                scan = _run_ingest_async(
+                    _ingest_one(pipeline, result, session_id, armed, guard, budget)
                 )
-            except concurrent.futures.TimeoutError:
+            except (TimeoutError, concurrent.futures.TimeoutError):
                 cause = "timeout"
             except Exception:
                 cause = "raised"
-        # Keying on the syntactic FLOOR survives three rejected predicates: `scan.errors`
-        # non-empty is not a scanner signal (a dead audit webhook appends there);
-        # `any(r.error ...)` is permanently true wherever an optional backend imports but
-        # is unusable, which is the shape of most real interpreters; and omitting the
-        # empty-tuple check would let a MemoryError pass content with no banner at all.
-        # `all_results` always leads with the floor and Pipeline synthesizes one if absent,
-        # so an empty tuple / missing floor can only mean the inspect() boundary fired.
+        # Floor lives on the head PipelineResult. A raising ``inspect()`` through
+        # the real helper sets ``inspect_failed`` and is ``cause=inspect_error``.
+        # timeout / no_pipeline / raised / floor_error / boundary / sweep_error
+        # stay on their own pins. A failed syntactic chunk is ``sweep_error``:
+        # coverage still names full/ceiling from length, so any failed window
+        # invalidates the coverage claim, including when a successful window
+        # found HIGH+ content (PET-209).
+        head = getattr(scan, "head", None) if scan is not None else None
         floor = (
-            next((r for r in scan.scanner_results if r.scanner_name == "minimal"), None)
-            if scan is not None
+            next((r for r in head.scanner_results if r.scanner_name == "minimal"), None)
+            if head is not None
             else None
         )
+        findings = () if scan is None else scan.findings
+        blocking = [f for f in findings if _blocks(f.severity)]
+        non_pii = [f for f in blocking if f.finding_type != "pii"]
         if cause is None:
-            if scan is None or not scan.scanner_results or floor is None:
+            if scan is not None and getattr(scan, "inspect_failed", False):
+                cause = "inspect_error"
+            elif scan is None or head is None or not head.scanner_results or floor is None:
                 cause = "boundary"
             elif floor.error is not None:
                 cause = "floor_error"
+            elif scan.errors:
+                cause = "sweep_error"
 
         if cause is not None:
             # Cadence-helper exception must not take the banner (outer fail-open
@@ -2383,14 +2751,14 @@ def _transform_tool_result(
                 )
             return format_result_notice("scan_unavailable", tool_name) + "\n\n" + result
 
+        coverage = scan.coverage
         # PET-112 ordinal gate, partitioned by finding type. PII produces NO banner and NO
         # ingestion event: reading a file containing PII is the ordinary case, the model
         # gains nothing from being told, and the boundary that matters is defended on the
         # pre-call path of every egress sink. That is the one visibility gap this accepts
         # (ingestion PII still reaches the alert channel via the un-session-gated
-        # PII-volume rule).
-        blocking = [f for f in scan.findings if _blocks(f.severity)]
-        non_pii = [f for f in blocking if f.finding_type != "pii"]
+        # PII-volume rule). Only a successful scan reaches the findings path;
+        # partial failures use scan_unavailable without claiming full coverage.
         if non_pii:
             worst = _worst(non_pii)
             logger.warning(
@@ -2412,30 +2780,47 @@ def _transform_tool_result(
                 rule_id=worst.rule_id,
                 reason=(
                     f"{worst.message} (tool result len={len(result)}, "
-                    f"truncated={truncated}, scanned={len(text)})"
+                    f"coverage={coverage.regime}, scanned={coverage.scanned_chars})"
                 ),
             )
             return (
                 format_result_notice(
-                    "findings", tool_name, worst, len(non_pii), len(text), len(result)
+                    "findings",
+                    tool_name,
+                    worst,
+                    len(non_pii),
+                    coverage.scanned_chars,
+                    coverage.total_chars,
+                    coverage=coverage.regime,
                 )
                 + "\n\n"
                 + result
             )
 
-        if truncated:
-            # INFO, not DEBUG: nothing configures the `petasos.plugin` logger, so a DEBUG
-            # line would not be delivered. No event — a clean scan is not a record class.
+        if coverage.regime == "ceiling":
             logger.info(
-                "PETASOS_RESULT_TRUNCATED tool=%s len=%d scanned=%d",
+                "PETASOS_RESULT_CEILING tool=%s len=%d scanned=%d",
                 tool_name,
-                len(result),
-                len(text),
+                coverage.total_chars,
+                coverage.scanned_chars,
+            )
+            return (
+                format_result_notice(
+                    "ceiling",
+                    tool_name,
+                    None,
+                    0,
+                    coverage.scanned_chars,
+                    coverage.total_chars,
+                    coverage="ceiling",
+                )
+                + "\n\n"
+                + result
             )
         return None
     except Exception as exc:
         logger.warning(
-            "PETASOS_RESULT_SCAN_ERROR tool=%s: %s; content passed through untouched",
+            "PETASOS_RESULT_SCAN_ERROR tool=%s: %r; content passed through untouched",
             tool_name,
             exc,
         )
@@ -2636,6 +3021,15 @@ def register(ctx) -> None:
         # Registration happens in all four cases: allowlist membership is a PROXY for
         # dispatch, and a forward-compatible host that gains the seam later still works.
         _try_register_hook(ctx, "transform_tool_result", _transform_tool_result)
+
+        # PET-221: one probe, one boolean. A second register() does not probe again.
+        global _approve_directive_available
+        _approve_directive_available = _probe_approve_directive()
+        logger.info(
+            "PETASOS_HOST_CAPS approve_directive=%s",
+            "available" if _approve_directive_available else "unavailable",
+        )
+        _warn_always_read_unavailable()
 
         _hooks_registered = True
 

@@ -127,6 +127,22 @@ async def test_canonical_both_directions_and_pipeline_unsafe() -> None:
     assert any(f.rule_id == RID for f in result.findings)
 
 
+async def test_zwsp_separated_conjunction_fires() -> None:
+    # Regression for PET-201: a one-line ZWSP-separated marker × action ×
+    # resource conjunction fires agent-directed-fetch HIGH with span omitted,
+    # and still emits exactly one finding.
+    payload = "\u200b".join(AGENT_DIRECTIVE_CANONICAL.split())
+    r = await MinimalScanner().scan(payload)
+    hits = _agent_findings(r.findings)
+    assert len(hits) == 1
+    assert hits[0].severity == Severity.HIGH
+    assert hits[0].position is None
+    invis = next(
+        f for f in r.findings if f.rule_id == "petasos.syntactic.encoding.invisible-chars"
+    )
+    assert invis.severity == Severity.HIGH
+
+
 # §B — Benign twins & disjointness (Done-when 4) ------------------------------
 
 
@@ -334,6 +350,23 @@ async def test_base64_wrapped_obfuscated_directive_normalized_before_match() -> 
     r = await MinimalScanner().scan(blob)
     hits = _agent_findings(r.findings)
     assert hits, "obfuscated base64-wrapped directive missed — blob branch not normalized"
+    decoded = next(f for f in hits if "base64-decoded" in f.message)
+    assert decoded.severity == Severity.HIGH
+    assert decoded.position == Position(start=0, end=len(blob))
+
+
+async def test_base64_wrapped_zwsp_separated_directive_detected_at_blob_span() -> None:
+    # Pin from the PET-213 close: a base64 carrier whose decoded directive has a
+    # ZWSP (U+200B) between every word takes the separator-extras view. The
+    # restored view still matches the agent-directive rule at HIGH, and the
+    # finding keeps the fixed carrier (blob) span, not a transformed-text span.
+    zwsp = chr(0x200B)
+    separated = AGENT_DIRECTIVE_CANONICAL.replace(" ", zwsp)
+    assert " " not in separated
+    blob = base64.b64encode(separated.encode()).decode()
+    r = await MinimalScanner().scan(blob)
+    hits = _agent_findings(r.findings)
+    assert hits, "ZWSP-separated base64-wrapped directive missed"
     decoded = next(f for f in hits if "base64-decoded" in f.message)
     assert decoded.severity == Severity.HIGH
     assert decoded.position == Position(start=0, end=len(blob))

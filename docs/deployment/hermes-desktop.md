@@ -224,8 +224,8 @@ behaviors to preserve in any custom integration:
   `INGESTION_TOOLS` remains the named hook-reaching ingesting subset and
   is no longer the seam's membership test. Everything not in
   `READ_ONLY_TOOLS` is treated as dangerous for `param_scan_unsafe`
-  enforcement. Until PET-178, ML on this widened population is
-  observability plus a base-install floor.
+  enforcement. ML on this widened population is the 2,048-character
+  `inspect()` head plus a base-install syntactic floor.
 - **Graceful degradation.** Missing `PETASOS_SESSION_SECRET` disables HMAC
   binding; a missing config section falls back to defaults (all features
   enabled). The plugin never crashes Hermes.
@@ -296,9 +296,78 @@ petasos:
 
 | Key | Default | Production | Why |
 |-----|---------|------------|-----|
-| `fail_mode` | `"degraded"` | `"closed"` | Degraded is too permissive: it blocks on total ML failure but passes on partial |
+| `fail_mode` | `"degraded"` | `"closed"` | Degraded blocks on partial or total ML failure. Production still prefers closed because closed also stops immediately on a critical pattern-scan finding. |
 | `host_id` | `""` | Set to a stable ID | HMAC session binding needs a non-empty `host_id`; changing it invalidates all session tokens |
 | `anonymize` | `false` | `true` | PII detection plus hash anonymization for audit correlation |
+
+## How Petasos composes with Hermes approvals
+
+Petasos does not replace Hermes approval. On a dangerous tool the plugin may
+return action "approve" with a rule_key and a message. Hermes at or after
+commit 64a6f42cb3 (2026-08-24) routes that return into its own operator
+prompt when hermes_cli.plugins.get_pre_tool_call_directive is present, and
+fails closed when nobody answers. Silence is not consent. An operator
+"always" is stored under plugin_rule:<rule_key> in command_allowlist. The
+keys Petasos sends are the finding rule id, or petasos.degraded. Petasos
+honors always for that key: the key is not blocked and not prompted, including
+under YOLO and under the block posture. Always on petasos.degraded skips the
+degraded block and the degraded prompt, then the call still faces any other
+key. Always on one command key leaves a different command key on the same
+call to be approved or blocked on its own. Injection, source-taint, and PII
+egress still block. command_allowlist is one store per Hermes profile home.
+An always entry in the active profile home applies across Petasos profiles
+on that home, including from code_generation to customer_service. It does
+not waive a key while a routed secondary profile is active. It still applies
+to that rule_key only.
+
+code_generation sets dangerous_tool_posture to approve. The other built-in
+profiles set block, which is also the default. Under block, a degraded scan
+and a HIGH command finding quarantine the dangerous tool, except a key the
+operator has marked always. Under approve, those two cases ask Hermes, and
+only after source-taint egress, a non-command HIGH finding, and HIGH PII sent
+to an egress sink have been checked. Those still block. The degraded approve
+is returned once per session, and only while approve is still effective.
+A later call in that session, still under approve with YOLO off and the
+directive available, is not prompted again for petasos.degraded and is not
+blocked solely because the scan is degraded. If YOLO turns on or the profile
+re-binds to block, that later call blocks unless the key is always-approved.
+A command finding on that later call still asks or blocks on the command key.
+
+Petasos does not see how Hermes answers that first degraded prompt. The
+once-per-session record is written when the approve is returned, not when the
+operator approves. So the first degraded call fails closed in Hermes when
+nobody answers, and a later degraded-only call in the same session is allowed
+without a prompt even if the first one was denied or timed out. The record is
+in-process: a restart re-arms the prompt. disabled_scanners is read at
+startup, so disabling an unusable backend there takes effect at the next
+restart and removes the degraded condition itself. Re-arming on deny or
+timeout is tracked in Plane as PET-227.
+
+YOLO (HERMES_YOLO_MODE set, or the session yolo flag) auto-approves a plugin
+approve return. Petasos therefore returns block instead of approve for both
+the degraded case and a HIGH command finding while YOLO is on, except a key
+already marked always. Operators who run YOLO and want no Petasos quarantine
+should set petasos.enabled to false. Hermes keeps its own hard-line command
+patterns under YOLO.
+
+On a host that does not expose the approve directive (absent at c6b0eb4de0,
+2026-06-15), an approve return would be ignored and the tool would run.
+Petasos probes once at startup and returns block wherever it would have
+returned approve.
+
+fail_mode degraded marks content unsafe on partial or total ML failure. It is
+not a permissive mode. Zero ML scanners leave the syntactic verdict. A backend
+that is installed but unusable stays registered so it fails loudly. Add its
+id to disabled_scanners to opt out a probe-failed backend. A pipeline hook
+error with no findings (frequency, escalation, anonymize, audit, or alert)
+still sets param_scan_degraded. The operator log carries that pipeline error.
+The key is still petasos.degraded. The cold-start window still blocks
+dangerous tools under every fail mode except open, and does not use posture.
+A guard evaluation that fails before a guard result exists is PET-224: the
+reasons "guard evaluation unavailable: evaluation_timeout" and "guard
+evaluation unavailable: evaluation_error" always block a dangerous tool.
+They are not an approve, and always and the once-per-session record do not
+apply to them.
 
 ### What stays at defaults
 

@@ -373,6 +373,16 @@ class Pipeline:
     def config(self) -> PetasosConfig:
         return self._config
 
+    @property
+    def default_profile(self) -> ResolvedProfile | None:
+        """The live resolved default profile, or None when none is bound.
+
+        ``reconfigure`` replaces ``_default_profile``, so a later read sees the
+        new ``dangerous_tool_posture``. The object is frozen; this returns it
+        directly.
+        """
+        return self._default_profile
+
     def reconfigure(self, new_config: PetasosConfig) -> None:
         """Atomically swap ``self._config`` and propagate it into every
         subcomponent that cached config, without resetting accumulated session

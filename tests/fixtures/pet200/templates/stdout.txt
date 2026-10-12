@@ -1,0 +1,9 @@
+============================= test session starts ==============================
+collected 4 items
+
+test_garden.py::test_count PASSED
+test_garden.py::test_sort PASSED
+test_garden.py::test_export PASSED
+test_garden.py::test_summary PASSED
+
+============================== 4 passed in 0.12s ===============================

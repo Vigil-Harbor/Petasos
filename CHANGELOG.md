@@ -4,7 +4,85 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Added
+
+- **Dangerous-tool posture, scanner opt-out, and a disabled build outcome (PET-221).**
+  `ResolvedProfile.dangerous_tool_posture` (`block` or `approve`),
+  `PetasosConfig.disabled_scanners`, and `ScannerOutcome` value `disabled`.
+  No deprecation.
+
 ### Changed
+
+- **Reference-plugin dangerous-tool enforcement under approve posture (PET-221).**
+  `code_generation` sets `dangerous_tool_posture` to `approve` and no longer
+  suppresses `destructive-recursive`, `fetch-exec`, `decode-exec`, or
+  `alias-escape` (`pipe-to-shell` stays suppressed). A degraded scan and a HIGH
+  command finding on a dangerous tool ask Hermes for approval instead of
+  quarantining, after the independent blocks. The degraded approve is returned
+  once per session, recorded when it is returned: Petasos does not observe the
+  Hermes answer, so a later degraded-only call in that session is allowed
+  without a prompt (re-arming on deny or timeout is PET-227). An operator always on a rule key is honored for that key, including
+  under the block posture and under YOLO, from the active Hermes profile home.
+  Hosts without the approve directive, and YOLO on an unlisted key, still block.
+
+- **HIGH+ ingestion annotation remeasured on the inverted surface (PET-200).**
+  The PET-170 816-file, 8,000-character, read-shaped table is no longer the
+  evidence for this gate. A frozen constructed corpus plus listed in-repo
+  files (manifest SHA-256
+  `53d7a6023e1b83f3c31d8fe245abd48b71c02bfd122514b7dee600aa790ba715`) is
+  replayed through `_transform_tool_result` (base install, layered PET-178
+  coverage). Current evidence is the post-PET-201 remeasure of that freeze
+  against shipped master `751a01cee5c16ca6382c3c690d105e5ba975de72`
+  (PET-201, PR #186). The run itself was executed at calibration-run commit
+  `efe6974b001a5a510fc3ae84ef63e0a8a4f4d503` (a merge of that master into the
+  PET-200 branch; recorded as `scanner_commit.git` / `plugin_commit` in
+  `docs/specs/TODO/PET-200.post-pet-201.report.json`). Measurement complete
+  (no `--limit`). Family-level HIGH+ banner rates (benign, coverage=full,
+  S0+S1, n=200 per family, 0 unavailable): browser 0/200 (0.00%); unknown/MCP
+  0/200 (0.00%); stdout 0/200 (0.00%); read_file control 0/200 (0.00%).
+  CRITICAL-only 0/200 in every family. Policy recommendation
+  `retain_high_plus`. The HIGH+ ordinal is unchanged.
+  The earlier baseline (calibration-run
+  `4ba9e09f7999d2a5d258964b67f451ed1a57be58`, scanner baseline `bda619b`,
+  pre-PET-201) reported the same 0.00% core rates and is retained as
+  historical context only; it is not the PET-201 calibration. A pre/post
+  replay of the same freeze at `fed5e39` (pre-PET-201 scanner) and
+  `efe6974` (post-PET-201 scanner) produced count-identical results in all
+  28 cells. Unavailable samples are excluded from those rates (PET-209).
+  Empty, partial, or all-unavailable cores do not recommend retaining the
+  gate; a family lacking either its S0 or its S1 benign stratum is partial.
+  Residuals: constructed corpus (no production traffic); ML extras
+  not measured; the committed report's helper columns stay unmeasured,
+  and a new schema-2 run fills them; S3/S-ceiling n is smaller than the
+  fatigue core; one of five read_file
+  S-ceiling benign samples (an in-repo file repeated past 1,000,000
+  characters) flags CRITICAL `structural.excessive-depth`, both before and
+  after PET-201; that stratum is outside the S0+S1 keep-gate core.
+
+- **Calibration observes real enforcement events and helper findings (PET-218, PET-219).**
+  `scripts/pet200_calibrate.py` no longer replaces `_emit_enforcement_event`.
+  Each run writes `ingest_flagged` and `ingest_unscanned` to a temporary spool
+  and checks those lines against the handler return. A wrap of
+  `scan_ingestion_result` keeps the helper result so `flagged_medium_plus`,
+  `unavailable_with_findings`, and `pii_suppressed` are counted from findings.
+  A written table A report is schema 2 with `observation` set to `complete`.
+  A gap exits 3 and does not write or replace `--out`. The published PET-200
+  report stays schema 1, with those three columns null.
+
+- **Ingestion results use a layered scan on a dedicated K=1 loop (PET-178).**
+  Each ingesting result takes a 2,048-character `inspect()` head plus overlapping
+  65,536-character syntactic chunks (8,192 overlap) via
+  `scan_ingestion_result`. `_clip_result` / the 8,000-character window / the
+  truncation marker are gone. Banner and `ingest_flagged` reason name
+  `coverage=full|ceiling`. Above 1,000,000 characters, `path="ceiling"` banner;
+  never claim clean. Parameter scans stay on `petasos-async`. The PET-170 tail
+  half of the 8k `inspect()` window is dropped: Presidio and both ML wrappers
+  see only the 2,048-character prefix of a large result. Residuals: admission
+  pool / shed / P=80; gate-2 dict skip; ML-head coupling (shared pipeline, 30s
+  breaker, inspect mutex held across head ML); max-size base64 and hex blobs
+  can split at a cut; chunk findings do not step `weight_cap` and skip profile
+  Stage 4b/5b/5c; ceiling-clean is banner + log, not a new event type; at the
+  ceiling the PET-98 decode-rescan budget is per chunk.
 
 - **Unknown tools are result-scanned by default (PET-181).** After PET-179, an
   unrecognised tool name was gated on arguments and not scanned on results.
@@ -12,10 +90,11 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
   `NON_INGESTING_TOOLS` exclusion set (`write_file`, `kanban_create`,
   `kanban_comment`, `patch`, plus the four PET-179 `ingests=False` rows).
   `INGESTION_TOOLS` remains the named hook-reaching ingesting subset and is
-  no longer the seam's gate. Until PET-178 drops per-scan cost, ML coverage
-  is observability plus a base-install floor. Capacity is K=1 (one
-  `petasos-async` loop); shed rate is 0 by construction; P=8 is measured,
-  P=80 is a PET-178 residual. `ingest_unscanned` log+event share a
+  no longer the seam's gate. ML coverage on this population is the 2,048-character
+  head plus the base-install syntactic floor (PET-178). Capacity is K=1 (one
+  `petasos-async` loop for parameter scans; one `petasos-ingest` loop for
+  results); shed rate is 0 by construction; P=8 is measured,
+  P=80 remains a residual. `ingest_unscanned` log+event share a
   per-session 30s cadence; the banner is never suppressed.
 
 - **`READ_ONLY_TOOLS` is now derived from a two-axis table (PET-179).** Argument
@@ -25,9 +104,9 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
   is added on both axes: its arguments skip content blocking and its results
   are scanned. `browser_navigate` and the rest of the browser family stay
   argument-gated and become result-scanned. The ingestion handler still
-  withholds nothing, but both axes share one `Pipeline`, so a tripped ML
-  breaker on a result scan blocks dangerous tool calls for the 30-second
-  cooldown; PET-178 owns that coupling.
+  withholds nothing. Both axes share one `Pipeline`, so a tripped ML
+  breaker on a result-scan head still blocks dangerous tool calls for the
+  30-second cooldown (PET-178 residual).
 
 - **The console now ships as seven ordered classic scripts (PET-183).** The
   private `/static/petasos.js` implementation asset was removed. Standalone and
@@ -39,6 +118,10 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
   dependency was added.
 
 ### Added
+
+- **`petasos.session.ingest.scan_ingestion_result` and `IngestionScanResult`
+  (PET-178).** Re-exported from `petasos` and `petasos.session`. The plugin
+  deep-imports the implementing module. `IngestionCoverage` is not in `__all__`.
 
 - **`petasos.session.guard.NON_INGESTING_TOOLS` (PET-181).** The result-axis
   exclusion set, derived from `_TOOL_AXES` (`ingests=False`). Not re-exported
@@ -56,6 +139,71 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
 
 ### Fixed
 
+- **A raising or timed-out guard evaluation no longer allows the tool call
+  (PET-224).** The reference plugin's `pre_tool_call` hook returned `None` from
+  its `except` arm, which Hermes treats as "run the tool". Dangerous tools now
+  block under every `fail_mode`, including `open`; read-only tools pass; a
+  terminated session, or a child of one, still gets the tier-3 block. The
+  quarantine event reason is `guard evaluation unavailable: evaluation_timeout`
+  or `guard evaluation unavailable: evaluation_error`. Under ML load a call that
+  waits past the 15 s budget now blocks instead of running.
+
+- **`code_generation` description no longer calls `curl | sh` a non-finding
+  (PET-226).** Only `pipe-to-shell` is suppressed, so a bare `... | sh` with no
+  fetch or decode stage is not a finding; `curl/wget ... | sh` and
+  `base64 -d ... | sh` still fire `fetch-exec` / `decode-exec` and route to
+  Hermes approval under the approve posture. Pinned by a real-guard test.
+
+- **A raising ingestion inspect is reported as inspect_error (PET-205).**
+  A raising `inspect()` through `scan_ingestion_result` sets
+  `IngestionScanResult.inspect_failed` and the reference plugin emits
+  `ingest_unscanned` `cause=inspect_error`. Empty `scanner_results` stays
+  `cause=boundary`. `cause=raised` stays the helper-callable failure.
+  Unavailability still wins when the sweep also has a HIGH+ finding.
+
+- **Named families no longer read composed views, and role-switch pairs
+  on one view (PET-211, PET-212).** Role-switch, command, and
+  agent-directive search canonical text plus unique separator views.
+  Injection still searches composed views. Role-switch emits
+  `role-switch-capability` HIGH from the first view that contains both a
+  trigger and a grant, and `role-switch-only` LOW from the first
+  trigger-only view when no view contains both. Decode-rescan uses that
+  pairing for role-switch and separator extras for agent-directive.
+  Command stays off decode-rescan. `act as DAN with n0\u200brestrictions`
+  was `role-switch-capability` HIGH at `751a01c` / `7bb508a` and is
+  `role-switch-only` LOW after this change.
+
+- **Guard and reconfigure waits no longer leak the shared inspect mutex
+  (PET-208).** `_evaluate_with_inspect_lock` and `_apply_reconfigure` poll
+  the same non-blocking acquire the ingestion helper uses, and release only
+  if this task acquired. Cancelling or timing out a waiter that has not
+  acquired cannot steal or strand the lock; a later guard evaluation or
+  reconfigure can proceed. `_maybe_reconfigure` still waits up to 15 s
+  through `_run_async` and retries an uncommitted change on the next call.
+  `_dispatch_reconfigure` stays untimed. `Pipeline.inspect` cancellation
+  is unchanged.
+
+- **Failed ingestion windows no longer claim complete coverage (PET-209).**
+  Head-floor errors join chunk errors in `IngestionScanResult.errors`. The
+  reference plugin reports `scan_unavailable` / `ingest_unscanned` for a failed
+  window even when another window found HIGH+ content, preserving the whole
+  result without advertising `coverage=full` or `coverage=ceiling`.
+
+- **The PET-170 8,000-character mid-window gap is closed below 1,000,000
+  characters (PET-178).** A payload at the midpoint of a large ingestion result
+  is found. Chunk-boundary straddles are found. Offsets are original-result
+  coordinates. A failed syntactic chunk, including with a HIGH+ finding (PET-209), is
+  `ingest_unscanned` `cause=sweep_error`, not a clean pass-through. The inspect
+  mutex is polled with a held-flag release so the ingest `wait_for` budget
+  still fires and cancellation cannot leak the lock.
+
+- **Cancelled ingestion heads no longer start a syntactic sweep (PET-206).**
+  The helper restores task cancellation swallowed by `Pipeline.inspect()` so
+  the ingest deadline remains effective and the inspect mutex is released.
+  A head that reports `CancelledError` also skips the sweep and returns errors.
+  The syntactic sweep yields between chunks so a deadline that fires after
+  the head still stops the loop.
+
 - **Fallback scan errors no longer pass a dangerous call under `open`
   (PET-199).** `_fallback_pre_tool_call` used to treat an empty findings
   tuple as clean even when `ScanResult.error` was set, so a
@@ -68,20 +216,33 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
   ignores a syntactic error; the fallback has only MinimalScanner, so
   an error means nothing scanned the call. Residuals: findings-plus-error
   is exercised only via the test stub (the real scanner never returns
-  both); `PETASOS_RESULT_SCAN_ERROR` on the result-scan seam still
-  uses `%s`.
+  both). **PET-204:** `PETASOS_RESULT_SCAN_ERROR` on the result-scan seam
+  now uses `%r`, escaping embedded newlines so error text cannot forge a
+  second `PETASOS_` log line.
 
 - **Zero-width word separators no longer hide injection phrases from the
   syntactic battery (PET-198).** `normalize()` still concatenates after
   stripping invisible characters, so intra-word ZWSP keeps reading as one
-  word. A new match-only `separator_views` field turns each run of
-  strippable characters into a space for the injection pass only. The
-  separator-replacing form of "ignore all previous instructions" now
-  matches at HIGH. Role-switch, command, agent-directive, and encoded-blob
-  rescan do not see the view. A hit on the view has no span. Residuals:
-  a phrase that needs both leet-fold and separator restoration in one
-  candidate is not a cartesian product; decode-rescan of a raw blob still
-  does not treat U+200B as whitespace.
+  word. A match-only `separator_views` field turns each run of strippable
+  characters into a space. The separator-replacing form of "ignore all
+  previous instructions" now matches at HIGH. A hit on a non-1:1 view has
+  no span. Residual: caret-anchored `system-prefix` on a leading-space
+  view only; plain `normalized` still matches.
+
+- **Separator-restored views now compose with leet and reach the other
+  syntactic families (PET-201).** `normalize()` still concatenates after
+  stripping. A bounded `composed_views` field is the leet fold of the one
+  PET-198 separator view (at most two strings). Injection searches it.
+  PET-211/212 supersedes the named-family and cross-view grant sentences
+  that shipped with this bullet: role-switch, command, and agent-directive
+  search canonical text plus separator views, and a grant is read only on
+  the same view as its trigger. Decode-rescan searches separator-restored
+  extras of each existing candidate under the same blob and byte caps.
+  Injection decode extras still include composed views.
+  Canonical text is unchanged. Hits on a non-1:1 view still omit span.
+  Intra-word ZWSP still concatenates. Residual: caret-anchored
+  `system-prefix` on a leading-space view only; plain `normalized` still
+  matches.
 
 - **Non-JSON tool-parameter values now contribute str() text to both scan
   paths (PET-197).** `safe_json_dumps` used to replace `bytes`, `Path`,

@@ -92,12 +92,21 @@ def build_dashboard_pipeline(raw_config: dict[str, Any]) -> Pipeline:
         if st.outcome == "verified":
             logger.info("Dashboard scanner %s: backend verified", st.display_name)
             continue
+        if st.outcome == "disabled":
+            logger.info(
+                "Dashboard scanner %s: backend disabled by config — not registered",
+                st.display_name,
+            )
+            continue
         unavailable.append(st.display_name)
         if st.outcome == "degraded":
             logger.warning(
-                "Dashboard scanner %s: backend missing — registered degraded: %s",
+                "Dashboard scanner %s: backend unusable — scanner registered degraded "
+                "(every scan will error): %s. Install the backend's runtime, "
+                "or add %s to disabled_scanners.",
                 st.display_name,
                 st.reason,
+                st.scanner_id,
             )
         elif st.outcome == "missing":
             logger.warning("Dashboard scanner %s: import failed", st.display_name)

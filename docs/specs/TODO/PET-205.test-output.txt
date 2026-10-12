@@ -1,0 +1,22 @@
+$ C:\Python314\python.exe -m pytest tests/test_ingest_scan.py tests/test_reference_plugin_tool_result.py -q --tb=short
+........................................................................ [ 45%]
+........................................................................ [ 90%]
+................                                                         [100%]
+160 passed in 8.54s
+
+[exit 0]
+
+$ C:\Python314\python.exe -m ruff check petasos/session/ingest.py docs/deployment/reference_plugin/__init__.py tests/test_ingest_scan.py tests/test_reference_plugin_tool_result.py
+[1;32mAll checks passed![0m
+
+[exit 0]
+
+$ C:\Python314\python.exe -m ruff format --check petasos/session/ingest.py docs/deployment/reference_plugin/__init__.py tests/test_ingest_scan.py tests/test_reference_plugin_tool_result.py
+4 files already formatted
+
+[exit 0]
+
+$ C:\Python314\python.exe -m mypy --strict petasos/session/ingest.py
+Success: no issues found in 1 source file
+
+[exit 0]

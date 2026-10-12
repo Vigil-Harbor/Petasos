@@ -389,3 +389,30 @@ class TestFormatResultNotice:
         out = format_result_notice("findings", "mcp_vigil_harbor_memory_search", _finding(), 1)
 
         assert "'mcp_vigil_harbor_memory_search'" in out
+
+    def test_coverage_line_present_iff_coverage_is_passed(self) -> None:
+        without = format_result_notice("findings", "read_file", _finding(), 1, 100, 500)
+        assert "Coverage:" not in without
+        with_full = format_result_notice(
+            "findings", "read_file", _finding(), 1, 100, 500, coverage="full"
+        )
+        assert "Coverage: full." in with_full
+        with_ceiling = format_result_notice(
+            "findings", "read_file", _finding(), 1, 1_000_000, 1_000_001, coverage="ceiling"
+        )
+        assert "Coverage: ceiling." in with_ceiling
+
+    def test_ceiling_clean_has_no_injection_sentence_and_names_the_regime(self) -> None:
+        out = format_result_notice(
+            "ceiling", "read_file", None, 0, 1_000_000, 1_000_001, coverage="ceiling"
+        )
+        assert "prompt-injection" not in out
+        assert "Top finding:" not in out
+        assert _RESULT_NOTICE["ceiling"] in out
+        assert "Coverage: ceiling." in out
+        assert "Scanned 1000000 of 1000001 characters." in out
+
+    def test_findings_path_with_none_finding_still_carries_the_injection_sentence(self) -> None:
+        out = format_result_notice("findings", "read_file", None, 0, 100, 500)
+        assert "prompt-injection" in out
+        assert _RESULT_NOTICE["findings"] in out
