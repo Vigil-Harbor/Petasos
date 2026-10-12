@@ -131,7 +131,8 @@ _INJECTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
 # commands as tool params (direction="outbound" via ToolCallGuard._scan_params),
 # not a human *mentioning* them inbound (curl|sh is the documented installer for
 # half the ecosystem). Suppressible (Decision 1 — NOT in _UNSUPPRESSIBLE_RULE_IDS)
-# and suppressed by default in code_generation (Decision 4).
+# and suppressed by default in code_generation for pipe-to-shell only
+# (PET-221). The other four command rules stay active under that profile.
 #
 # Family invariants (load-bearing — pinned by tests):
 #   * severity is HIGH, never CRITICAL (Decision 3) — caps both Tier-3 paths.
@@ -659,7 +660,8 @@ _ALL_INJECTION_IDS = (
 # profile-driven evasion of *injection detection* (SYN-08/PROF-04); command
 # rules detect *content dangerous to execute*, not content that manipulates the
 # model, and legitimate workloads (code generation) routinely emit it, so
-# code_generation suppresses the family by config. A future family-author who
+# code_generation suppresses pipe-to-shell only and leaves the other four
+# command rules active (PET-221). A future family-author who
 # wants a non-suppressible command rule must re-decide this consciously.
 _UNSUPPRESSIBLE_RULE_IDS = _STRUCTURAL_RULE_IDS | _ALL_INJECTION_IDS
 

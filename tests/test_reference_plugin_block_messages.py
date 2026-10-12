@@ -480,6 +480,9 @@ def test_shim_routes_every_block_site_through_formatter() -> None:
     # no-matched-text rule exists to prevent.
     # Regression for PET-178: bumped 10 -> 11 for the ceiling-clean
     # ``format_result_notice("ceiling", ...)`` site.
+    # Regression for PET-221: bumped 11 -> 12. The single non-PII content block
+    # is now two formatter sites: non-command findings, and the command-family
+    # remainder after always-approval. Both still call ``format_content_block``.
     tree = ast.parse(_shim_source())
     targets = {"format_block_message", "format_content_block", "format_result_notice"}
     call_sites = sum(
@@ -489,7 +492,7 @@ def test_shim_routes_every_block_site_through_formatter() -> None:
         and isinstance(node.func, ast.Name)
         and node.func.id in targets
     )
-    assert call_sites == 11, f"expected 11 formatter call sites in the shim, found {call_sites}"
+    assert call_sites == 12, f"expected 12 formatter call sites in the shim, found {call_sites}"
 
 
 def test_manifest_and_runbook_hook_lists_agree() -> None:

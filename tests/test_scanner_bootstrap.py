@@ -394,7 +394,9 @@ class TestCallerFormatting:
         assert rendered["Dashboard scanner LLM Guard: backend verified"] == logging.INFO
         assert (
             rendered[
-                "Dashboard scanner LlamaFirewall: backend missing — registered degraded: no model"
+                "Dashboard scanner LlamaFirewall: backend unusable — scanner registered degraded "
+                "(every scan will error): no model. Install the backend's runtime, "
+                "or add llama_firewall to disabled_scanners."
             ]
             == logging.WARNING
         )
@@ -419,8 +421,9 @@ class TestCallerFormatting:
         assert rendered["LLM Guard backend verified — scanner active"] == logging.INFO
         assert (
             rendered[
-                "LlamaFirewall backend missing — scanner registered degraded "
-                "(every scan will error): no model"
+                "LlamaFirewall backend unusable — scanner registered degraded "
+                "(every scan will error): no model. Install the backend's runtime, "
+                "or add llama_firewall to disabled_scanners."
             ]
             == logging.WARNING
         )
@@ -506,3 +509,19 @@ class TestEnforcementParity:
         minimal = ref._pipeline._minimal_scanner
         assert minimal is not None
         assert minimal._decode_encoded_payloads is False
+
+
+class TestDisabledScanners:
+    def test_disabled_backend_is_skipped_and_still_statused(self) -> None:
+        config = PetasosConfig(disabled_scanners=("llm_guard",))
+        scanners, statuses = build_scanners(config)
+        by_id = {status.scanner_id: status for status in statuses}
+        assert [status.scanner_id for status in statuses] == [
+            "llm_guard",
+            "llama_firewall",
+            "presidio",
+        ]
+        assert by_id["llm_guard"].outcome == "disabled"
+        assert by_id["llm_guard"].reason == "disabled by config"
+        assert [scanner.name for scanner in scanners if scanner.name == "llm_guard"] == []
+        assert scanners[0].name == "minimal"

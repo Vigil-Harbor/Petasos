@@ -16,5 +16,6 @@
   },
   "pii_entities_extra": [],
   "tool_exempt_list": [],
-  "tool_alias_map": {}
+  "tool_alias_map": {},
+  "dangerous_tool_posture": "block"
 }
