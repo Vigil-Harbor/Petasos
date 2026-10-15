@@ -13,5 +13,11 @@ hooks:
   # PET-170: ingestion-result scan seam. Fires after post_tool_call and before the result
   # reaches model context; a string return replaces the result. Petasos returns the content
   # WHOLE behind a warning banner, never withholding it. Documentation only, like every
-  # other entry here: the host parser reads provides_hooks, never this key.
+  # other entry here: this file's hooks: list is what current Hermes stores as
+  # provides_hooks when that key is absent. Runtime delivery remains ctx.register_hook
+  # in register(). Declaring a name without registering it does not deliver callbacks.
   - transform_tool_result
+  # PET-222: Hermes approval observers. Return values are ignored. Recorded even
+  # while Petasos enforcement is disarmed.
+  - pre_approval_request
+  - post_approval_response

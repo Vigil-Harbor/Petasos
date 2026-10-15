@@ -54,6 +54,7 @@ import contextlib
 import logging
 import math  # PET-167: dep-light (stdlib; isfinite guard on the raw init-wait budget)
 import os
+import re  # PET-222: dep-light (stdlib; approval command tool-name regex)
 import sys  # PET-170: dep-light (stdlib; the transform_tool_result availability probe)
 import threading
 import time
@@ -2869,6 +2870,148 @@ def _subagent_stop(child_session_id: str = "", **kwargs) -> None:
         reg.unregister(child_session_id)
 
 
+# PET-222: same integer as petasos.console.server._MAX_REASON_LEN. Pinned by
+# tests/test_pet222_approval_observe.py. This module does not import the console
+# server; it lazy-imports narrow console submodules at the call site.
+_APPROVAL_FIELD_MAX = 200
+_APPROVAL_TOOL_RE = re.compile(r"^<([^>\n]+)> \(plugin approval rule\)$")
+
+
+def _approval_text(value: object) -> str:
+    """Coerce a hook field to str, then cap it. A non-str becomes empty."""
+    if not isinstance(value, str):
+        return ""
+    if len(value) > _APPROVAL_FIELD_MAX:
+        return value[:_APPROVAL_FIELD_MAX]
+    return value
+
+
+def _approval_pattern_keys(value: object) -> list[str]:
+    """Keep str elements only, cap each, and stop at 8. A non-list is empty."""
+    if not isinstance(value, list):
+        return []
+    kept: list[str] = []
+    for item in value:
+        if isinstance(item, str):
+            kept.append(_approval_text(item))
+            if len(kept) == 8:
+                break
+    return kept
+
+
+def _approval_session_id(session_id: object, session_key: object) -> str:
+    """Prefer a non-empty str session_id, else a non-empty str session_key."""
+    if isinstance(session_id, str) and session_id:
+        chosen: object = session_id
+    elif isinstance(session_key, str) and session_key:
+        chosen = session_key
+    else:
+        chosen = ""
+    return _approval_text(chosen)
+
+
+def _approval_choice(phase: str, raw: object) -> str | None:
+    """Request phase is always null. A response stores str(choice), or null."""
+    if phase == "request" or raw is None:
+        return None
+    return _approval_text(str(raw))
+
+
+def _approval_decided_by(value: object) -> str | None:
+    """A str is capped. Anything else is null (not an empty string)."""
+    if not isinstance(value, str):
+        return None
+    return _approval_text(value)
+
+
+def _approval_tool(command: str) -> str:
+    """Bracketed plugin-rule display target, else empty (shell and other prompts)."""
+    match = _APPROVAL_TOOL_RE.match(command)
+    if match is None:
+        return ""
+    name = match.group(1)
+    return name if isinstance(name, str) else ""
+
+
+def _emit_approval_observation(phase: str, *, choice: object = None, **kwargs: Any) -> None:
+    """Append one approval observation. The whole body is fail-open.
+
+    PET-222: Hermes owns the prompt. This stamps armed, appends one spool row, and
+    logs. It does not scan, prompt, or return an action. A raised writer and a false
+    return are the same outcome: debug log, return None, approval wait continues.
+    """
+    try:
+        command = _approval_text(kwargs.get("command"))
+        description = _approval_text(kwargs.get("description"))
+        session_key = _approval_text(kwargs.get("session_key"))
+        surface = _approval_text(kwargs.get("surface"))
+        tool_call_id = _approval_text(kwargs.get("tool_call_id"))
+        turn_id = _approval_text(kwargs.get("turn_id"))
+        pattern_keys = _approval_pattern_keys(kwargs.get("pattern_keys"))
+        decided_by = _approval_decided_by(kwargs.get("decided_by"))
+        stored_choice = _approval_choice(phase, choice)
+        rule_id = _approval_text(kwargs.get("pattern_key"))
+        tool = _approval_tool(command)
+        session_id = _approval_session_id(kwargs.get("session_id"), kwargs.get("session_key"))
+        coalesced = kwargs.get("coalesced") is True
+        armed = _is_armed()
+        reason = "approval requested" if phase == "request" else "approval response"
+        from petasos.console._events import emit_enforcement_event
+
+        wrote = emit_enforcement_event(
+            {
+                "event_type": "approval",
+                "phase": phase,
+                "choice": stored_choice,
+                "rule_id": rule_id,
+                "pattern_keys": pattern_keys,
+                "tool": tool,
+                "session_id": session_id,
+                "session_key": session_key,
+                "surface": surface,
+                "tool_call_id": tool_call_id,
+                "turn_id": turn_id,
+                "command": command,
+                "description": description,
+                "decided_by": decided_by,
+                "coalesced": coalesced,
+                "reason": reason,
+                "armed": armed,
+                "tier": None,
+                "severity": None,
+                "param_scan_degraded": False,
+                "direction": "tool_call",
+                "bypassed_count": None,
+            }
+        )
+        if not wrote:
+            logger.debug("PETASOS_APPROVAL emit failed phase=%s", phase)
+            return
+        logger.info(
+            "PETASOS_APPROVAL phase=%s choice=%s tool=%s session_id=%s rule_id=%s surface=%s",
+            phase,
+            "" if stored_choice is None else stored_choice,
+            tool,
+            session_id,
+            rule_id,
+            surface,
+        )
+    except Exception as exc:
+        logger.debug("PETASOS_APPROVAL emit failed phase=%s error=%r", phase, exc)
+
+
+def _pre_approval_request(**kwargs: Any) -> None:
+    """PET-222: phase request, choice forced null, even if the caller passed one."""
+    kwargs.pop("choice", None)
+    _emit_approval_observation("request", choice=None, **kwargs)
+
+
+def _post_approval_response(**kwargs: Any) -> None:
+    """PET-222: phase response. None stays null; every other choice is str()'d."""
+    raw_choice = kwargs.pop("choice", None)
+    _emit_approval_observation("response", choice=raw_choice, **kwargs)
+
+
 def _try_register_hook(ctx, name: str, handler) -> bool:
     """Register an optional hook, tolerating a host that rejects the name.
 
@@ -2943,6 +3086,11 @@ def register(ctx) -> None:
         ctx.register_hook("pre_tool_call", _pre_tool_call)
         ctx.register_hook("post_tool_call", _post_tool_call)
         ctx.register_hook("on_session_start", _on_session_start)
+        # PET-222: direct register_hook inside this latch, not _try_register_hook.
+        # Hermes stores an unknown name instead of raising, and a second register()
+        # must not bind these twice.
+        ctx.register_hook("pre_approval_request", _pre_approval_request)
+        ctx.register_hook("post_approval_response", _post_approval_response)
 
         # PET-107: sub-agent lineage hooks (Option A). Registered defensively — both
         # must be accepted, else A degrades fully to C (an edge store that never sees

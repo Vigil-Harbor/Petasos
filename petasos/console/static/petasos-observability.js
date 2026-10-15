@@ -233,6 +233,9 @@
     // row landing in the terminal "Unknown row kind" else is a dead end.
     var isIngest = isEnf && (et === "ingest_flagged" || et === "ingest_unscanned");
     var isEnfDecision = isEnf && !!ENF_KINDS[et];
+    // PET-222: Hermes approval observation. Not an enforcement decision, so without
+    // this arm the panel falls through to "Unknown row kind".
+    var isApproval = isEnf && et === "approval";
     var isPlayground = (e.source == null || e.source === "" || e.source === "playground");
 
     function fld(k, val) {
@@ -258,6 +261,9 @@
     else if (isIngest) scanRan = (et === "ingest_unscanned")
       ? "no (scan unavailable; content passed through unverified)"
       : "yes (tool result content, scanned inbound)";
+    // PET-222: this chain is separate from the body below. An approval row states
+    // that no content scan ran.
+    else if (isApproval) scanRan = "n/a (Hermes approval observation, not a content scan)";
     else if (isEnfDecision || isPlayground) scanRan = "yes";
     else scanRan = "unknown";
     var armedStr;
@@ -359,6 +365,23 @@
       wrap.appendChild(fld("severity", e.severity));
       wrap.appendChild(fld("reason", e.reason));
       wrap.appendChild(fld("session", e.session_id));
+    } else if (isApproval) {
+      // PET-222: observation only. Hermes asked; Petasos recorded the prompt.
+      wrap.appendChild(Pet.h("div", { className: "sd-heartbeat" },
+        Pet.h("div", {}, "Hermes approval observation."),
+        Pet.h("div", { className: "sd-sub" }, "Recorded from the approval hooks. Petasos did not decide this prompt.")));
+      wrap.appendChild(fld("phase", e.phase));
+      wrap.appendChild(fld("choice", e.choice));
+      wrap.appendChild(fld("tool", e.tool));
+      wrap.appendChild(fld("rule", e.rule_id));
+      wrap.appendChild(fld("surface", e.surface));
+      wrap.appendChild(fld("session", e.session_id));
+      wrap.appendChild(fld("session key", e.session_key));
+      wrap.appendChild(fld("command", e.command));
+      wrap.appendChild(fld("description", e.description));
+      wrap.appendChild(fld("decided_by", e.decided_by));
+      wrap.appendChild(fld("coalesced", e.coalesced));
+      wrap.appendChild(fld("tool_call_id", e.tool_call_id));
     } else if (isPlayground) {
       var det = e.detail;
       if (!det || typeof det !== "object") {
@@ -471,6 +494,15 @@
       // isColdStart labels its pair: calling an unscanned result "flagged" would assert a
       // finding that by definition does not exist on that path.
       var isFlagged = isEnforcement && (et === "ingest_flagged" || et === "ingest_unscanned");
+      // PET-222: safe stays true, so without this arm the badge falls through to "safe".
+      // Text is the choice string, or "pending" when choice is null or empty.
+      var isApproval = isEnforcement && et === "approval";
+      var approvalChoice = (typeof e.choice === "string") ? e.choice : "";
+      var approvalBadge = approvalChoice !== "" ? approvalChoice : "pending";
+      var approvalClass = (approvalBadge === "once" || approvalBadge === "session"
+          || approvalBadge === "always" || approvalBadge === "smart_approve")
+        ? "ok"
+        : ((approvalBadge === "deny" || approvalBadge === "smart_deny") ? "err" : "warn");
       var isBlocked = (e.safe === false); // strict ===false; truthy-but-not-false is not "blocked"
 
       // PET-165: severity-differentiated self-tamper badge. Severity rides the badge TEXT
@@ -482,22 +514,32 @@
       // renders "undefined".
       var selfmodSev = "";
       if (isSelfmodRow && (e.severity === "critical" || e.severity === "high")) selfmodSev = e.severity;
-      var badgeText = isBypass
-        ? "bypassed (disarmed)"
-        : (isSelfmodRow
-            ? ("self-tamper" + (selfmodSev ? (" (" + selfmodSev + ")") : ""))
-            : (isColdStart
-                // PET-171: "unenforced" is now false. Not reused as "degraded" either:
-                // that would erase the transient-versus-permanent distinction at a glance.
-                ? (et === "init_failed" ? "syntactic only" : "degraded")
-                : (isFlagged
-                    ? (et === "ingest_unscanned" ? "unscanned" : "flagged")
-                    : (isBlocked ? "blocked" : "safe"))));
-      var badgeClass = isBypass
-        ? "warn"
-        : (isSelfmodRow
-            ? (selfmodSev === "critical" ? "err" : "warn")
-            : (isColdStart ? "warn" : (isFlagged ? "warn" : (isBlocked ? "err" : "ok"))));
+      var badgeText;
+      var badgeClass;
+      if (isApproval) {
+        badgeText = approvalBadge;
+        badgeClass = approvalClass;
+      } else if (isBypass) {
+        badgeText = "bypassed (disarmed)";
+        badgeClass = "warn";
+      } else if (isSelfmodRow) {
+        badgeText = "self-tamper" + (selfmodSev ? (" (" + selfmodSev + ")") : "");
+        badgeClass = (selfmodSev === "critical" ? "err" : "warn");
+      } else if (isColdStart) {
+        // PET-171: "unenforced" is now false. Not reused as "degraded" either:
+        // that would erase the transient-versus-permanent distinction at a glance.
+        badgeText = (et === "init_failed" ? "syntactic only" : "degraded");
+        badgeClass = "warn";
+      } else if (isFlagged) {
+        badgeText = (et === "ingest_unscanned" ? "unscanned" : "flagged");
+        badgeClass = "warn";
+      } else if (isBlocked) {
+        badgeText = "blocked";
+        badgeClass = "err";
+      } else {
+        badgeText = "safe";
+        badgeClass = "ok";
+      }
       var badge = Pet.h("span", { className: "pill " + badgeClass, style: { justifyContent: "center" } }, badgeText);
 
       var rowEls = [];
