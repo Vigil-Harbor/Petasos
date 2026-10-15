@@ -294,6 +294,19 @@ def _enforcement_summary(ev: dict[str, Any], *, provenance: str = "unattested") 
     reason = ev.get("reason")
     if isinstance(reason, str) and len(reason) > _MAX_REASON_LEN:
         reason = reason[:_MAX_REASON_LEN]
+    # PET-222: same isinstance gate as reason. A null choice stays null. pattern_keys
+    # is copied only when it is a list (the writer already applied its own bounds).
+    command = ev.get("command")
+    if isinstance(command, str) and len(command) > _MAX_REASON_LEN:
+        command = command[:_MAX_REASON_LEN]
+    description = ev.get("description")
+    if isinstance(description, str) and len(description) > _MAX_REASON_LEN:
+        description = description[:_MAX_REASON_LEN]
+    choice = ev.get("choice")
+    if isinstance(choice, str) and len(choice) > _MAX_REASON_LEN:
+        choice = choice[:_MAX_REASON_LEN]
+    raw_pattern_keys = ev.get("pattern_keys")
+    pattern_keys = list(raw_pattern_keys) if isinstance(raw_pattern_keys, list) else None
     # PET-138: only a bypassed_disarmed heartbeat carries a count; gate on the event
     # type so a malformed/legacy non-bypass event that stamps a stray bypassed_count
     # can never feed the tile. Then normalize to a positive int (or None): a float or
@@ -327,6 +340,20 @@ def _enforcement_summary(ev: dict[str, Any], *, provenance: str = "unattested") 
         # PET-138: cumulative per-session disarmed-bypass count (bypassed_disarmed
         # heartbeats only; None elsewhere). Drives the "bypassed (disarmed)" tile.
         "bypassed_count": bypassed_count,
+        # PET-222: approval observation fields. Absent on older event types (None).
+        # approval is not a block and is not an ingest class, so safe/finding_count
+        # above stay true/0. Provenance stays the last key.
+        "phase": ev.get("phase"),
+        "choice": choice,
+        "pattern_keys": pattern_keys,
+        "surface": ev.get("surface"),
+        "session_key": ev.get("session_key"),
+        "command": command,
+        "description": description,
+        "decided_by": ev.get("decided_by"),
+        "coalesced": ev.get("coalesced"),
+        "tool_call_id": ev.get("tool_call_id"),
+        "turn_id": ev.get("turn_id"),
         # PET-139: spool-integrity verdict for the drill-down "is this legit?" line (D4).
         "provenance": provenance,
     }

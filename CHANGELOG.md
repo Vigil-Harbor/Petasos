@@ -4,6 +4,18 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Added
+
+- **Hermes approval decisions observed as enforcement events (PET-222).**
+  The reference plugin records every `pre_approval_request` and
+  `post_approval_response` on the enforcement spool as `event_type` `approval`.
+  The request row carries a null choice. The response row carries the operator
+  choice. The Observability scan-history list shows that choice, or `pending`
+  when there is none, instead of a green safe badge. Disarm does not skip the
+  record. The command stays on the row, capped at 200 characters, and is not
+  written on the `PETASOS_APPROVAL` log line. The once-per-session degraded
+  approve policy is unchanged (re-arming on deny or timeout remains PET-227).
+
 ## [0.4.0] - 2026-10-12
 
 Headline release since 0.3.0: the ingestion path now scans whole results and

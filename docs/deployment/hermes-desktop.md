@@ -174,13 +174,26 @@ hooks:
   # host that does not dispatch it (Petasos logs which of the four availability
   # outcomes it saw and carries on).
   - transform_tool_result
+  # Hermes approval observers. Return values are ignored. Recorded even while
+  # Petasos enforcement is disarmed.
+  - pre_approval_request
+  - post_approval_response
 ```
 <!-- PET-170-MANIFEST-END -->
 
 This block is documentation parity with the shipped
-`docs/deployment/reference_plugin/plugin.yaml`, not a parser input: the Hermes
-plugin loader reads `provides_hooks`, never `hooks:`. The two are pinned equal by
+`docs/deployment/reference_plugin/plugin.yaml`. This file's `hooks:` list is what
+current Hermes stores as `provides_hooks` when that key is absent. Runtime delivery
+remains `ctx.register_hook` in `register()`. Declaring the names without registering
+them does not deliver callbacks. Registering them without declaring them still
+delivers callbacks and fails the parity test once the runbook and yaml diverge.
+The two lists are pinned equal by
 `tests/test_reference_plugin_block_messages.py`.
+
+`pre_approval_request` and `post_approval_response` record Hermes approval prompts
+on the enforcement spool (`event_type` approval). The request row has no choice.
+The response row carries the operator choice. Disarm does not skip these records.
+Petasos does not answer the prompt.
 
 ### Sub-agent (delegate_task) session intelligence
 
@@ -333,11 +346,13 @@ blocked solely because the scan is degraded. If YOLO turns on or the profile
 re-binds to block, that later call blocks unless the key is always-approved.
 A command finding on that later call still asks or blocks on the command key.
 
-Petasos does not see how Hermes answers that first degraded prompt. The
-once-per-session record is written when the approve is returned, not when the
-operator approves. So the first degraded call fails closed in Hermes when
-nobody answers, and a later degraded-only call in the same session is allowed
-without a prompt even if the first one was denied or timed out. The record is
+Petasos records that Hermes prompt on the enforcement spool as an approval
+event (a request row, then the choice on the response). That observation does
+not feed the once-per-session degraded policy. The once-per-session record is
+written when the approve is returned, not when the operator approves. So the
+first degraded call fails closed in Hermes when nobody answers, and a later
+degraded-only call in the same session is allowed without a prompt even if
+the first one was denied or timed out. The once-per-session record is
 in-process: a restart re-arms the prompt. disabled_scanners is read at
 startup, so disabling an unusable backend there takes effect at the next
 restart and removes the degraded condition itself. Re-arming on deny or
