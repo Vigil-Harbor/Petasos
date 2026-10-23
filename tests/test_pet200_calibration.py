@@ -940,6 +940,58 @@ def test_helper_missing_exits_3_without_replacing_out(
     assert not missing.exists()
 
 
+def test_first_unavailable_below_30s_exits_3(
+    harness: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # Regression for PET-229: a first unavailable sample below the 30s cadence is a
+    # gap and exits 3.
+    original = harness.load_plugin
+
+    def _wrapped(pipeline: Any, loop: asyncio.AbstractEventLoop) -> Any:
+        ref = original(pipeline, loop)
+        _patch_unavailable(monkeypatch, ref, clock=5.0)
+        return ref
+
+    monkeypatch.setattr(harness, "load_plugin", _wrapped)
+
+    with pytest.raises(harness.ObservationError) as exc_info:
+        harness.run_table_a(
+            phase="baseline",
+            git_sha=harness.git_head(),
+            manifest=harness.load_manifest(),
+            limit=1,
+        )
+    err = exc_info.value
+    assert len(err.gaps) == 1
+    gap = err.gaps[0]
+    assert gap.index == 0
+    assert gap.task_id == "pet200-0"
+    assert gap.reason == "agreement"
+    assert gap.handler_class == "unavailable"
+
+    seeded = tmp_path / "out.json"
+    seeded.write_bytes(b'{"keep": true}\n')
+    seed = seeded.read_bytes()
+    missing = tmp_path / "missing.json"
+    code = harness.main(
+        ["--config", "base", "--phase", "baseline", "--out", str(seeded), "--limit", "1"]
+    )
+    missing_code = harness.main(
+        ["--config", "base", "--phase", "baseline", "--out", str(missing), "--limit", "1"]
+    )
+    captured = capsys.readouterr()
+    assert code == 3
+    assert missing_code == 3
+    assert "reason=agreement" in captured.err
+    assert "handler=unavailable" in captured.err
+    assert "helper_missing" not in captured.err
+    assert seeded.read_bytes() == seed
+    assert not missing.exists()
+
+
 def test_schema_smoke_partial_run_is_observed(harness: Any) -> None:
     # Regression for PET-218: a limited run can still be fully observed.
     report = harness.run_table_a(
