@@ -434,6 +434,13 @@ _egress_sink_tools: frozenset[str] = frozenset()
 _approve_directive_available: bool = False
 _always_read_warned: bool = False
 _degraded_approve_sessions: set[str] = set()
+# PET-227: pending degraded approves, keyed by the Hermes tuple that both
+# hooks see. The value is the Petasos session id. Bounded like the disarm map.
+# The sessions set stays unbounded (PET-221 tests seed it with .add).
+_DEGRADED_CONFIRMED_CHOICES: frozenset[str] = frozenset({"session", "always"})
+_degraded_approve_pending: dict[tuple[str, str, str], str] = {}
+_degraded_approve_lock = threading.Lock()
+_MAX_DEGRADED_PENDING = _MAX_DISARM_SESSIONS
 _COMMAND_RULE_PREFIX = "petasos.syntactic.command."
 
 
@@ -2066,8 +2073,77 @@ def _rebind_to_profile(profile_home: Any) -> None:
 
 
 def _reset_degraded_approve_sessions() -> None:
-    """Test seam — clear the once-per-session degraded-approve record (PET-221)."""
-    _degraded_approve_sessions.clear()
+    """Test seam — clear the degraded-approve record and its pending map."""
+    with _degraded_approve_lock:
+        _degraded_approve_sessions.clear()
+        _degraded_approve_pending.clear()
+
+
+def _degraded_component(value: object) -> str:
+    """Keep a Hermes key component only when it is already a str."""
+    return value if isinstance(value, str) else ""
+
+
+def _degraded_pending_key(
+    hermes_session_id: object, turn_id: object, tool_call_id: object
+) -> tuple[str, str, str] | None:
+    """Build the pending key. An empty or non-str tool_call_id stores nothing."""
+    if not isinstance(tool_call_id, str) or tool_call_id == "":
+        return None
+    return (
+        _degraded_component(hermes_session_id),
+        _degraded_component(turn_id),
+        tool_call_id,
+    )
+
+
+def _degraded_session_recorded(session_id: str) -> bool:
+    """True when a confirmed session or always already recorded this session."""
+    with _degraded_approve_lock:
+        return session_id in _degraded_approve_sessions
+
+
+def _note_degraded_approve_pending(
+    petasos_session_id: str,
+    hermes_session_id: object,
+    turn_id: object,
+    tool_call_id: object,
+) -> None:
+    """Remember a degraded approve until Hermes confirms it. Never raises."""
+    try:
+        key = _degraded_pending_key(hermes_session_id, turn_id, tool_call_id)
+        if key is None:
+            return
+        with _degraded_approve_lock:
+            _degraded_approve_pending[key] = petasos_session_id
+            if len(_degraded_approve_pending) > _MAX_DEGRADED_PENDING:
+                oldest = next(iter(_degraded_approve_pending))
+                del _degraded_approve_pending[oldest]
+    except Exception as exc:
+        logger.debug("PETASOS_DEGRADED_PENDING note failed error=%r", exc)
+
+
+def _apply_degraded_approve_response(
+    choice: object,
+    pattern_key: object,
+    hermes_session_id: object,
+    turn_id: object,
+    tool_call_id: object,
+) -> None:
+    """Record the Petasos session only for a confirmed degraded approve."""
+    try:
+        if pattern_key != "plugin_rule:petasos.degraded":
+            return
+        key = _degraded_pending_key(hermes_session_id, turn_id, tool_call_id)
+        if key is None:
+            return
+        confirmed = isinstance(choice, str) and choice in _DEGRADED_CONFIRMED_CHOICES
+        with _degraded_approve_lock:
+            session = _degraded_approve_pending.pop(key, None)
+            if confirmed and session is not None:
+                _degraded_approve_sessions.add(session)
+    except Exception as exc:
+        logger.debug("PETASOS_DEGRADED_PENDING apply failed error=%r", exc)
 
 
 def _probe_approve_directive() -> bool:
@@ -2277,10 +2353,9 @@ def _dangerous_tool_directive(
                 "action": "block",
                 "message": format_content_block("degraded", tool_name, tuple(blocking)),
             }
-        elif session_id in _degraded_approve_sessions:
+        elif _degraded_session_recorded(session_id):
             pass
         else:
-            _degraded_approve_sessions.add(session_id)
             return _approve_return(tool_name, session_id, "petasos.degraded")
 
     remaining = [f for f in command if not _always_approved(f.rule_id)]
@@ -2501,7 +2576,7 @@ def _pre_tool_call(
     if not _is_dangerous(tool_name):
         return None
 
-    return _dangerous_tool_directive(
+    directive = _dangerous_tool_directive(
         tool_name,
         args,
         session_id,
@@ -2511,6 +2586,18 @@ def _pre_tool_call(
         _approve_directive_available,
         _yolo_active(),
     )
+    if (
+        isinstance(directive, dict)
+        and directive.get("action") == "approve"
+        and directive.get("rule_key") == "petasos.degraded"
+    ):
+        _note_degraded_approve_pending(
+            session_id,
+            kwargs.get("session_id"),
+            kwargs.get("turn_id"),
+            kwargs.get("tool_call_id"),
+        )
+    return directive
 
 
 def _post_tool_call(
@@ -3007,8 +3094,22 @@ def _pre_approval_request(**kwargs: Any) -> None:
 
 
 def _post_approval_response(**kwargs: Any) -> None:
-    """PET-222: phase response. None stays null; every other choice is str()'d."""
+    """PET-222: phase response. None stays null; every other choice is str()'d.
+
+    PET-227 records a confirmed degraded approve beside that spool append.
+    The apply call has its own try so a raise cannot skip the emit.
+    """
     raw_choice = kwargs.pop("choice", None)
+    try:
+        _apply_degraded_approve_response(
+            raw_choice,
+            kwargs.get("pattern_key"),
+            kwargs.get("session_id"),
+            kwargs.get("turn_id"),
+            kwargs.get("tool_call_id"),
+        )
+    except Exception as exc:
+        logger.debug("PETASOS_DEGRADED_PENDING apply failed error=%r", exc)
     _emit_approval_observation("response", choice=raw_choice, **kwargs)
 
 

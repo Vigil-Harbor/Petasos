@@ -13,8 +13,16 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
   choice. The Observability scan-history list shows that choice, or `pending`
   when there is none, instead of a green safe badge. Disarm does not skip the
   record. The command stays on the row, capped at 200 characters, and is not
-  written on the `PETASOS_APPROVAL` log line. The once-per-session degraded
-  approve policy is unchanged (re-arming on deny or timeout remains PET-227).
+  written on the `PETASOS_APPROVAL` log line. PET-227 writes that
+  once-per-session record on a `session` or `always` response.
+
+### Changed
+
+- **Degraded approve re-arms until a confirmed session or always (PET-227).**
+  The reference plugin records the once-per-session degraded approve on a
+  confirmed `session` or `always` response, and re-arms the prompt on deny or
+  timeout. The record is in-memory state beside the existing approval row. No
+  new event type is added.
 
 ## [0.4.0] - 2026-10-12
 
