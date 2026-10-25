@@ -129,6 +129,9 @@ def _drive(
     args: dict[str, object] | None = None,
     yolo_env: str | None = None,
     yolo_session: bool | None = False,
+    tool_call_id: str = "",
+    hermes_session_id: str = "",
+    turn_id: str = "",
 ) -> Any:
     if pipeline is not None:
         monkeypatch.setattr(ref, "_pipeline", pipeline)
@@ -147,7 +150,14 @@ def _drive(
         approval.is_current_session_yolo_enabled = lambda: yolo_session
         _install_approval(monkeypatch, approval)
     monkeypatch.setattr(ref, "_run_async", lambda coro: guard)
-    return ref._pre_tool_call(tool, {} if args is None else args, task_id=task_id)
+    return ref._pre_tool_call(
+        tool,
+        {} if args is None else args,
+        task_id=task_id,
+        tool_call_id=tool_call_id,
+        session_id=hermes_session_id,
+        turn_id=turn_id,
+    )
 
 
 def _false(_key: str) -> bool:
@@ -624,16 +634,41 @@ def test_degraded_approve_once_per_session(
 ) -> None:
     with caplog.at_level(logging.INFO, logger="petasos.plugin"):
         first = _drive(
-            monkeypatch, ref, "terminal", _guard(degraded=True), predicate=_false, task_id="sess"
+            monkeypatch,
+            ref,
+            "terminal",
+            _guard(degraded=True),
+            predicate=_false,
+            task_id="sess",
+            tool_call_id="tc-once",
+            hermes_session_id="hs-once",
+            turn_id="turn-once",
         )
     assert first["action"] == "approve"
     assert first["rule_key"] == _DEGRADED
     assert first["message"] == _APPROVE_DEGRADED.format(tool="terminal")
-    assert "sess" in ref._degraded_approve_sessions
+    assert "sess" not in ref._degraded_approve_sessions
     assert any("PETASOS_APPROVE" in record.getMessage() for record in caplog.records)
+    assert (
+        ref._post_approval_response(
+            pattern_key="plugin_rule:petasos.degraded",
+            choice="session",
+            tool_call_id="tc-once",
+            session_id="hs-once",
+            turn_id="turn-once",
+        )
+        is None
+    )
+    assert "sess" in ref._degraded_approve_sessions
 
     second = _drive(
-        monkeypatch, ref, "terminal", _guard(degraded=True), predicate=_false, task_id="sess"
+        monkeypatch,
+        ref,
+        "terminal",
+        _guard(degraded=True),
+        predicate=_false,
+        task_id="sess",
+        tool_call_id="tc-once-2",
     )
     assert second is None
 
@@ -730,7 +765,7 @@ def test_anonymous_calls_each_approve(monkeypatch: pytest.MonkeyPatch, ref: Any)
     second = ref_call(monkeypatch, ref)
     assert first["rule_key"] == _DEGRADED and second["rule_key"] == _DEGRADED
     anon = {sid for sid in ref._degraded_approve_sessions if sid.startswith("anon-")}
-    assert len(anon) == 2
+    assert len(anon) == 0
 
 
 def ref_call(monkeypatch: pytest.MonkeyPatch, ref: Any) -> Any:
