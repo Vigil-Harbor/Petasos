@@ -323,6 +323,10 @@ Custom integrations implement the same pattern: construct a `Pipeline`, call `aw
 
 Before deploying, read the [deployment hardening checklist](docs/deployment/hardening.md). Petasos is a detection layer, not a security boundary, and the checklist covers what to pair it with (console binding, secrets handling, fail-mode, OS-level isolation).
 
+## Built by Vigil Harbor
+
+Petasos is built and maintained by [Vigil Harbor](https://vigilharbor.com), which designs and runs private AI systems for companies, including the sanitization layer Petasos grew out of.
+
 ## License
 
 [MIT](LICENSE)
