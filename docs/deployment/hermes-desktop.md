@@ -339,24 +339,28 @@ and a HIGH command finding quarantine the dangerous tool, except a key the
 operator has marked always. Under approve, those two cases ask Hermes, and
 only after source-taint egress, a non-command HIGH finding, and HIGH PII sent
 to an egress sink have been checked. Those still block. The degraded approve
-is returned once per session, and only while approve is still effective.
-A later call in that session, still under approve with YOLO off and the
-directive available, is not prompted again for petasos.degraded and is not
-blocked solely because the scan is degraded. If YOLO turns on or the profile
-re-binds to block, that later call blocks unless the key is always-approved.
-A command finding on that later call still asks or blocks on the command key.
+is returned on every degraded-only dangerous call until a confirmed session
+or always response for plugin_rule:petasos.degraded records the session. A
+once answer, a deny, a timeout, a cancelled answer, a notify failure, an
+empty choice, and no answer leave the session unrecorded, and the next
+degraded-only call asks again. A later YOLO or block posture still blocks a
+recorded session unless the key is always-approved. After a confirmed session
+or always, a command finding on a later call asks or blocks on the command
+key. Until then, a degraded call that also has a command finding is prompted
+as petasos.degraded.
 
 Petasos records that Hermes prompt on the enforcement spool as an approval
-event (a request row, then the choice on the response). That observation does
-not feed the once-per-session degraded policy. The once-per-session record is
-written when the approve is returned, not when the operator approves. So the
-first degraded call fails closed in Hermes when nobody answers, and a later
-degraded-only call in the same session is allowed without a prompt even if
-the first one was denied or timed out. The once-per-session record is
-in-process: a restart re-arms the prompt. disabled_scanners is read at
+event (a request row, then the choice on the response). The spool approval
+row remains the persisted record, and the gate does not read it back. Hosts
+that never fire the post hook do not fall back to recording the session when
+the approve is returned. A call that reaches pre_tool_call without a Hermes
+session_id or turn_id (for example, tools dispatched from code execution or
+the tools MCP bridge) is prompted on every degraded-only dangerous call,
+because the plugin cannot match a response to a session without them. The
+once-per-session record is in-process: a restart re-arms the prompt.
+disabled_scanners is read at
 startup, so disabling an unusable backend there takes effect at the next
-restart and removes the degraded condition itself. Re-arming on deny or
-timeout is tracked in Plane as PET-227.
+restart and removes the degraded condition itself.
 
 YOLO (HERMES_YOLO_MODE set, or the session yolo flag) auto-approves a plugin
 approve return. Petasos therefore returns block instead of approve for both
