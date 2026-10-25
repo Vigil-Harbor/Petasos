@@ -2079,22 +2079,25 @@ def _reset_degraded_approve_sessions() -> None:
         _degraded_approve_pending.clear()
 
 
-def _degraded_component(value: object) -> str:
-    """Keep a Hermes key component only when it is already a str."""
-    return value if isinstance(value, str) else ""
-
-
 def _degraded_pending_key(
     hermes_session_id: object, turn_id: object, tool_call_id: object
 ) -> tuple[str, str, str] | None:
-    """Build the pending key. An empty or non-str tool_call_id stores nothing."""
-    if not isinstance(tool_call_id, str) or tool_call_id == "":
-        return None
-    return (
-        _degraded_component(hermes_session_id),
-        _degraded_component(turn_id),
-        tool_call_id,
-    )
+    """Build the pending key.
+
+    All three Hermes components must be non-empty strings. An empty, missing,
+    or non-str component stores nothing and pops nothing. The Petasos session
+    id is the stored value and is not part of this guard.
+    """
+    if (
+        isinstance(hermes_session_id, str)
+        and hermes_session_id != ""
+        and isinstance(turn_id, str)
+        and turn_id != ""
+        and isinstance(tool_call_id, str)
+        and tool_call_id != ""
+    ):
+        return (hermes_session_id, turn_id, tool_call_id)
+    return None
 
 
 def _degraded_session_recorded(session_id: str) -> bool:

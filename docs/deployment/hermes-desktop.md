@@ -353,8 +353,12 @@ Petasos records that Hermes prompt on the enforcement spool as an approval
 event (a request row, then the choice on the response). The spool approval
 row remains the persisted record, and the gate does not read it back. Hosts
 that never fire the post hook do not fall back to recording the session when
-the approve is returned. The once-per-session record is
-in-process: a restart re-arms the prompt. disabled_scanners is read at
+the approve is returned. A call that reaches pre_tool_call without a Hermes
+session_id or turn_id (for example, tools dispatched from code execution or
+the tools MCP bridge) is prompted on every degraded-only dangerous call,
+because the plugin cannot match a response to a session without them. The
+once-per-session record is in-process: a restart re-arms the prompt.
+disabled_scanners is read at
 startup, so disabling an unusable backend there takes effect at the next
 restart and removes the degraded condition itself.
 

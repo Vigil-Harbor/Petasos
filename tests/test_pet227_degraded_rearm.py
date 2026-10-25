@@ -257,10 +257,130 @@ def test_empty_tool_call_id_is_not_stored(monkeypatch: pytest.MonkeyPatch, ref: 
     assert "sess" not in ref._degraded_approve_sessions
 
 
-def test_non_str_tool_call_id_is_not_stored(monkeypatch: pytest.MonkeyPatch, ref: Any) -> None:
-    _assert_degraded(_drive(monkeypatch, ref, _guard(degraded=True), tool_call_id=7))
+@pytest.mark.parametrize(
+    ("session_id", "turn_id"),
+    [
+        ("", "turn-1"),
+        (None, "turn-1"),
+        ("hs-1", ""),
+        ("hs-1", None),
+    ],
+)
+def test_empty_session_id_or_turn_id_is_not_stored(
+    monkeypatch: pytest.MonkeyPatch,
+    ref: Any,
+    session_id: object,
+    turn_id: object,
+) -> None:
+    _assert_degraded(
+        _drive(
+            monkeypatch,
+            ref,
+            _guard(degraded=True),
+            session_id=session_id,
+            turn_id=turn_id,
+            tool_call_id="tc-1",
+        )
+    )
     assert ref._degraded_approve_pending == {}
-    assert _post(ref, "session", tool_call_id=7) is None
+    assert (
+        _post(
+            ref,
+            "session",
+            session_id=session_id,
+            turn_id=turn_id,
+            tool_call_id="tc-1",
+        )
+        is None
+    )
+    assert "sess" not in ref._degraded_approve_sessions
+    _assert_degraded(
+        _drive(
+            monkeypatch,
+            ref,
+            _guard(degraded=True),
+            session_id=session_id,
+            turn_id=turn_id,
+            tool_call_id="tc-2",
+        )
+    )
+    assert "sess" not in ref._degraded_approve_sessions
+
+
+def test_response_guard_rejects_empty_components(ref: Any) -> None:
+    ref._degraded_approve_pending[("", "turn-1", "tc-1")] = "sess"
+    assert _post(ref, "session", session_id="", turn_id="turn-1", tool_call_id="tc-1") is None
+    assert ref._degraded_approve_pending[("", "turn-1", "tc-1")] == "sess"
+    assert "sess" not in ref._degraded_approve_sessions
+
+
+def test_empty_ids_do_not_collide_across_sessions(
+    monkeypatch: pytest.MonkeyPatch, ref: Any
+) -> None:
+    _assert_degraded(
+        _drive(
+            monkeypatch,
+            ref,
+            _guard(degraded=True),
+            task_id="sess-a",
+            session_id=None,
+            turn_id=None,
+            tool_call_id="call_0",
+        )
+    )
+    _assert_degraded(
+        _drive(
+            monkeypatch,
+            ref,
+            _guard(degraded=True),
+            task_id="sess-b",
+            session_id=None,
+            turn_id=None,
+            tool_call_id="call_0",
+        )
+    )
+    assert ref._degraded_approve_pending == {}
+    assert _post(ref, "session", session_id=None, turn_id=None, tool_call_id="call_0") is None
+    assert "sess-a" not in ref._degraded_approve_sessions
+    assert "sess-b" not in ref._degraded_approve_sessions
+
+
+@pytest.mark.parametrize(
+    ("session_id", "turn_id", "tool_call_id"),
+    [
+        ("hs-1", "turn-1", 7),
+        (7, "turn-1", "tc-1"),
+        ("hs-1", 7, "tc-1"),
+    ],
+)
+def test_non_str_tool_call_id_is_not_stored(
+    monkeypatch: pytest.MonkeyPatch,
+    ref: Any,
+    session_id: object,
+    turn_id: object,
+    tool_call_id: object,
+) -> None:
+    _assert_degraded(
+        _drive(
+            monkeypatch,
+            ref,
+            _guard(degraded=True),
+            session_id=session_id,
+            turn_id=turn_id,
+            tool_call_id=tool_call_id,
+        )
+    )
+    assert ref._degraded_approve_pending == {}
+    assert (
+        _post(
+            ref,
+            "session",
+            session_id=session_id,
+            turn_id=turn_id,
+            tool_call_id=tool_call_id,
+        )
+        is None
+    )
     assert "sess" not in ref._degraded_approve_sessions
 
 
@@ -291,6 +411,40 @@ def test_later_deny_does_not_unrecord(monkeypatch: pytest.MonkeyPatch, ref: Any)
     assert _post(ref, "deny", tool_call_id="tc-b") is None
     assert "sess" in ref._degraded_approve_sessions
     assert _key(tool_call_id="tc-b") not in ref._degraded_approve_pending
+
+
+def test_same_session_different_turn_id_does_not_cross_record(
+    monkeypatch: pytest.MonkeyPatch, ref: Any
+) -> None:
+    _assert_degraded(
+        _drive(
+            monkeypatch,
+            ref,
+            _guard(degraded=True),
+            task_id="sess-a",
+            session_id="hs-shared",
+            turn_id="turn-a",
+            tool_call_id="call_0",
+        )
+    )
+    _assert_degraded(
+        _drive(
+            monkeypatch,
+            ref,
+            _guard(degraded=True),
+            task_id="sess-b",
+            session_id="hs-shared",
+            turn_id="turn-b",
+            tool_call_id="call_0",
+        )
+    )
+    assert (
+        _post(ref, "session", session_id="hs-shared", turn_id="turn-a", tool_call_id="call_0")
+        is None
+    )
+    assert "sess-a" in ref._degraded_approve_sessions
+    assert "sess-b" not in ref._degraded_approve_sessions
+    assert ref._degraded_approve_pending[_key("hs-shared", "turn-b", "call_0")] == "sess-b"
 
 
 def test_cross_session_same_tool_call_id_does_not_cross_record(

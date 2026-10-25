@@ -130,6 +130,8 @@ def _drive(
     yolo_env: str | None = None,
     yolo_session: bool | None = False,
     tool_call_id: str = "",
+    hermes_session_id: str = "",
+    turn_id: str = "",
 ) -> Any:
     if pipeline is not None:
         monkeypatch.setattr(ref, "_pipeline", pipeline)
@@ -153,6 +155,8 @@ def _drive(
         {} if args is None else args,
         task_id=task_id,
         tool_call_id=tool_call_id,
+        session_id=hermes_session_id,
+        turn_id=turn_id,
     )
 
 
@@ -637,6 +641,8 @@ def test_degraded_approve_once_per_session(
             predicate=_false,
             task_id="sess",
             tool_call_id="tc-once",
+            hermes_session_id="hs-once",
+            turn_id="turn-once",
         )
     assert first["action"] == "approve"
     assert first["rule_key"] == _DEGRADED
@@ -648,6 +654,8 @@ def test_degraded_approve_once_per_session(
             pattern_key="plugin_rule:petasos.degraded",
             choice="session",
             tool_call_id="tc-once",
+            session_id="hs-once",
+            turn_id="turn-once",
         )
         is None
     )
