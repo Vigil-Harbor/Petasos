@@ -18,6 +18,13 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
 
 ### Changed
 
+- **Calibration spool errors are observation gaps (PET-228).**
+  A stat or read error on the schema-2 calibration spool is an observation
+  gap (`spool_unreadable`) and the harness exits 3 without writing `--out`.
+  A missing or zero-byte spool still counts as observed-clean. A spool that
+  disappears after a positive offset is `spool_truncated`. `spool_size` and
+  `drain_enforcement_events` are unchanged.
+
 - **Degraded approve re-arms until a confirmed session or always (PET-227).**
   The reference plugin records the once-per-session degraded approve on a
   confirmed `session` or `always` response, and re-arms the prompt on deny or

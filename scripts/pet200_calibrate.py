@@ -41,11 +41,7 @@ if str(_REPO) not in sys.path:
 
 from petasos import PetasosConfig, Pipeline  # noqa: E402
 from petasos._types import Severity  # noqa: E402
-from petasos.console._events import (  # noqa: E402
-    SPOOL_CAP_BYTES,
-    drain_enforcement_events,
-    spool_size,
-)
+from petasos.console._events import SPOOL_CAP_BYTES  # noqa: E402
 from petasos.session.formatting import shorten_rule_id  # noqa: E402
 from petasos.session.guard import _MAX_PARAM_TEXT_LEN  # noqa: E402
 from petasos.session.ingest import (  # noqa: E402
@@ -387,22 +383,76 @@ def attribute_new_events(
     return "agreement"
 
 
-def _earlier_unscanned(path: str, task_id: str) -> bool:
-    events, _offset = drain_enforcement_events(path, 0)
-    return any(
-        event.get("session_id") == task_id and event.get("event_type") == "ingest_unscanned"
-        for event in events
+_SpoolKind = Literal["missing", "ok", "unreadable"]
+
+
+def _spool_getsize(path: str) -> int:
+    return os.path.getsize(path)
+
+
+def _spool_read_from(path: str, offset: int) -> bytes:
+    with open(path, "rb") as handle:
+        handle.seek(offset)
+        return handle.read()
+
+
+def _stat_spool(path: str) -> tuple[_SpoolKind, int, OSError | None]:
+    try:
+        return "ok", _spool_getsize(path), None
+    except FileNotFoundError as exc:
+        if os.path.isdir(os.path.dirname(path)):
+            return "missing", 0, None
+        return "unreadable", 0, exc
+    except OSError as exc:
+        return "unreadable", 0, exc
+
+
+def _parse_spool_bytes(data: bytes) -> list[dict[str, Any]]:
+    newline = data.rfind(b"\n")
+    if newline == -1:
+        return []
+    events: list[dict[str, Any]] = []
+    for raw in data[: newline + 1].split(b"\n"):
+        if not raw:
+            continue
+        try:
+            obj = json.loads(raw.decode("utf-8"))
+        except Exception:
+            continue
+        if isinstance(obj, dict):
+            events.append(obj)
+    return events
+
+
+def _strict_tail(path: str, offset: int) -> tuple[str | None, list[dict[str, Any]]]:
+    return None, _parse_spool_bytes(_spool_read_from(path, offset))
+
+
+def _report_spool_unreadable(stage: str, task_id: str, exc: BaseException) -> None:
+    print(
+        f"spool_unreadable stage={stage} task_id={task_id} error={type(exc).__name__}: {exc}",
+        file=sys.stderr,
     )
 
 
-def _spool_tail(path: str, offset: int) -> tuple[str | None, list[dict[str, Any]]]:
-    size = spool_size(path)
-    if os.path.exists(path) and size < offset:
-        return "spool_truncated", []
-    if size > SPOOL_CAP_BYTES:
-        return "spool_unbounded", []
-    events, _new_offset = drain_enforcement_events(path, offset)
-    return None, events
+def _earlier_unscanned(
+    path: str,
+    task_id: str,
+    *,
+    kind: _SpoolKind,
+    size: int,
+) -> tuple[str | None, bool, OSError | None]:
+    if kind == "missing" or size == 0:
+        return None, False, None
+    try:
+        events = _parse_spool_bytes(_spool_read_from(path, 0))
+    except OSError as exc:
+        return "spool_unreadable", False, exc
+    earlier = any(
+        event.get("session_id") == task_id and event.get("event_type") == "ingest_unscanned"
+        for event in events
+    )
+    return None, earlier, None
 
 
 @contextlib.contextmanager
@@ -440,8 +490,22 @@ def observe_sample(
 ) -> ObservedSample:
     """Classify one handler return and record helper marks only when it agrees."""
     ref._observation_results.clear()
-    offset = spool_size(spool)
-    earlier = _earlier_unscanned(spool, task_id)
+    kind, size, stat_error = _stat_spool(spool)
+    reasons: list[str] = []
+    events: list[dict[str, Any]] = []
+    earlier = False
+    if kind == "unreadable":
+        assert stat_error is not None
+        _report_spool_unreadable("pre_stat", task_id, stat_error)
+        reasons.append("spool_unreadable")
+        offset = 0
+    else:
+        offset = size
+        scan_reason, earlier, scan_error = _earlier_unscanned(spool, task_id, kind=kind, size=size)
+        if scan_reason is not None:
+            assert scan_error is not None
+            _report_spool_unreadable("earlier_read", task_id, scan_error)
+            reasons.append(scan_reason)
     t0 = time.perf_counter()
     raw = ref._transform_tool_result(
         tool_name=tool_name,
@@ -451,21 +515,42 @@ def observe_sample(
     elapsed_ms = (time.perf_counter() - t0) * 1000.0
     outcome = classify_handler_return(raw)
     rule_id, severity = parse_top_finding(raw)
-    spool_reason, events = _spool_tail(spool, offset)
-    reasons: list[str] = []
-    if spool_reason is not None:
-        reasons.append(spool_reason)
-    else:
-        agreement = attribute_new_events(
-            events,
-            task_id=task_id,
-            outcome=outcome,
-            rule_id=rule_id,
-            severity=severity,
-            earlier_unscanned=earlier,
-        )
-        if agreement != "agreed":
-            reasons.append(agreement)
+    if not reasons:
+        post_kind, post_size, post_error = _stat_spool(spool)
+        spool_reason: str | None = None
+        if post_kind == "unreadable":
+            assert post_error is not None
+            _report_spool_unreadable("post_stat", task_id, post_error)
+            spool_reason = "spool_unreadable"
+        elif post_kind == "missing":
+            if offset > 0:
+                spool_reason = "spool_truncated"
+        elif post_size < offset:
+            spool_reason = "spool_truncated"
+        elif post_size > SPOOL_CAP_BYTES:
+            spool_reason = "spool_unbounded"
+        elif post_size <= offset:
+            pass
+        else:
+            try:
+                spool_reason, events = _strict_tail(spool, offset)
+            except OSError as exc:
+                _report_spool_unreadable("tail_read", task_id, exc)
+                spool_reason = "spool_unreadable"
+                events = []
+        if spool_reason is not None:
+            reasons.append(spool_reason)
+        else:
+            agreement = attribute_new_events(
+                events,
+                task_id=task_id,
+                outcome=outcome,
+                rule_id=rule_id,
+                severity=severity,
+                earlier_unscanned=earlier,
+            )
+            if agreement != "agreed":
+                reasons.append(agreement)
     captured = list(ref._observation_results)
     capture: IngestionScanResult | None = None
     if len(captured) == 0:

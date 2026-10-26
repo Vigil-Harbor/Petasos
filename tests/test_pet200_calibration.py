@@ -13,7 +13,7 @@ import json
 import sys
 from dataclasses import replace
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -1013,3 +1013,513 @@ def test_schema_smoke_partial_run_is_observed(harness: Any) -> None:
     assert ml["measurement"] == "not_measured"
     assert ml["observation"] == "not_measured"
     assert ml["cells"] == []
+
+
+def _deny_spool_stat(spool: str) -> Any:
+    def _getsize(path: str) -> int:
+        if path == spool:
+            raise PermissionError("denied")
+        raise AssertionError(path)
+
+    return _getsize
+
+
+def _assert_spool_unreadable(observed: Any, handler: str) -> None:
+    assert observed.outcome == handler
+    assert any(
+        gap.reason == "spool_unreadable" and gap.handler_class == handler for gap in observed.gaps
+    )
+    assert not any(gap.reason == "agreement" for gap in observed.gaps)
+
+
+def test_clean_stat_error_is_spool_unreadable(
+    harness: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A clean sample whose spool cannot be stat'd is spool_unreadable."""
+    ref, loop = _loaded(harness)
+    try:
+        with harness.isolated_observation(ref) as spool:
+            monkeypatch.setattr(harness, "_spool_getsize", _deny_spool_stat(spool))
+            bucket = harness.CellAccum()
+            observed = harness.observe_sample(
+                ref,
+                spool,
+                bucket,
+                index=0,
+                tool_name="read_file",
+                payload="the content" * 10,
+                task_id="pet200-clean",
+            )
+    finally:
+        _close(loop)
+    _assert_spool_unreadable(observed, "clean")
+    assert bucket.helper_samples == 0
+    cell = harness._finalize_cell("F-file", "S0", "benign", bucket)
+    assert cell["flagged_medium_plus"] is None
+    assert cell["unavailable_with_findings"] is None
+    assert cell["pii_suppressed"] is None
+
+
+def test_clean_earlier_scan_read_error_is_spool_unreadable(
+    harness: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A read error while scanning earlier lines is spool_unreadable."""
+    ref, loop = _loaded(harness)
+    try:
+        with harness.isolated_observation(ref) as spool:
+            Path(spool).write_bytes(b'{"session_id":"other","event_type":"note"}\n')
+
+            def _deny_read(_path: str, _offset: int) -> bytes:
+                raise PermissionError("earlier")
+
+            monkeypatch.setattr(harness, "_spool_read_from", _deny_read)
+            bucket = harness.CellAccum()
+            observed = harness.observe_sample(
+                ref,
+                spool,
+                bucket,
+                index=0,
+                tool_name="read_file",
+                payload="the content" * 10,
+                task_id="pet200-clean",
+            )
+    finally:
+        _close(loop)
+    _assert_spool_unreadable(observed, "clean")
+
+
+def test_clean_tail_read_error_is_spool_unreadable(
+    harness: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A tail read error after a positive offset is spool_unreadable."""
+    ref, loop = _loaded(harness)
+    real_read = harness._spool_read_from
+    try:
+        with harness.isolated_observation(ref) as spool:
+            Path(spool).write_bytes(b'{"event_type":"note"}\n')
+            real_transform = ref._transform_tool_result
+
+            def _read(path: str, offset: int) -> bytes:
+                if offset > 0:
+                    raise PermissionError("tail")
+                return cast("bytes", real_read(path, offset))
+
+            def _grow(**kwargs: Any) -> object:
+                try:
+                    return real_transform(**kwargs)
+                finally:
+                    with open(spool, "ab") as handle:
+                        handle.write(b'{"event_type":"more"}\n')
+
+            monkeypatch.setattr(harness, "_spool_read_from", _read)
+            monkeypatch.setattr(ref, "_transform_tool_result", _grow)
+            bucket = harness.CellAccum()
+            observed = harness.observe_sample(
+                ref,
+                spool,
+                bucket,
+                index=0,
+                tool_name="read_file",
+                payload="the content" * 10,
+                task_id="pet200-clean",
+            )
+    finally:
+        _close(loop)
+    _assert_spool_unreadable(observed, "clean")
+
+
+def test_ceiling_clean_stat_error_is_spool_unreadable(
+    harness: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A ceiling_clean sample whose spool cannot be stat'd is spool_unreadable."""
+    ref, loop = _loaded(harness)
+    monkeypatch.setattr(harness, "classify_handler_return", lambda _result: "ceiling_clean")
+    try:
+        with harness.isolated_observation(ref) as spool:
+            monkeypatch.setattr(harness, "_spool_getsize", _deny_spool_stat(spool))
+            bucket = harness.CellAccum()
+            observed = harness.observe_sample(
+                ref,
+                spool,
+                bucket,
+                index=0,
+                tool_name="read_file",
+                payload="the content" * 10,
+                task_id="pet200-ceiling",
+            )
+    finally:
+        _close(loop)
+    _assert_spool_unreadable(observed, "ceiling_clean")
+
+
+def test_ingest_flagged_stat_error_is_spool_unreadable(
+    harness: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An ingest_flagged sample whose spool cannot be stat'd is spool_unreadable."""
+    ref, loop = _loaded(harness)
+    try:
+        with harness.isolated_observation(ref) as spool:
+            monkeypatch.setattr(harness, "_spool_getsize", _deny_spool_stat(spool))
+            bucket = harness.CellAccum()
+            observed = harness.observe_sample(
+                ref,
+                spool,
+                bucket,
+                index=0,
+                tool_name="read_file",
+                payload=harness.PLANTED_PHRASE,
+                task_id="pet200-planted",
+            )
+    finally:
+        _close(loop)
+    _assert_spool_unreadable(observed, "ingest_flagged")
+
+
+def test_first_unavailable_stat_error_is_spool_unreadable(
+    harness: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A first unavailable sample whose spool cannot be stat'd is spool_unreadable."""
+    ref, loop = _loaded(harness)
+    _patch_unavailable(monkeypatch, ref)
+    try:
+        with harness.isolated_observation(ref) as spool:
+            monkeypatch.setattr(harness, "_spool_getsize", _deny_spool_stat(spool))
+            bucket = harness.CellAccum()
+            observed = harness.observe_sample(
+                ref,
+                spool,
+                bucket,
+                index=0,
+                tool_name="read_file",
+                payload="the content" * 10,
+                task_id="pet200-unavail",
+            )
+    finally:
+        _close(loop)
+    _assert_spool_unreadable(observed, "unavailable")
+
+
+def test_later_unavailable_post_stat_error_is_spool_unreadable(
+    harness: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A later unavailable sample gaps when only the post-call stat fails."""
+    ref, loop = _loaded(harness)
+    _patch_unavailable(monkeypatch, ref)
+    real_getsize = harness._spool_getsize
+    real_transform = ref._transform_tool_result
+    after_transform = {"done": False}
+
+    def _transform(**kwargs: Any) -> object:
+        try:
+            return real_transform(**kwargs)
+        finally:
+            after_transform["done"] = True
+
+    def _getsize(path: str) -> int:
+        if after_transform["done"]:
+            raise PermissionError("post")
+        return cast("int", real_getsize(path))
+
+    try:
+        with harness.isolated_observation(ref) as spool:
+            first_bucket = harness.CellAccum()
+            first = harness.observe_sample(
+                ref,
+                spool,
+                first_bucket,
+                index=0,
+                tool_name="read_file",
+                payload="the content" * 10,
+                task_id="pet200-later",
+            )
+            assert first.gaps == []
+            snapshot = (first_bucket.n, first_bucket.helper_samples)
+            monkeypatch.setattr(ref, "_transform_tool_result", _transform)
+            monkeypatch.setattr(harness, "_spool_getsize", _getsize)
+            second = harness.observe_sample(
+                ref,
+                spool,
+                harness.CellAccum(),
+                index=1,
+                tool_name="read_file",
+                payload="the content" * 10,
+                task_id="pet200-later",
+            )
+    finally:
+        _close(loop)
+    assert (first_bucket.n, first_bucket.helper_samples) == snapshot
+    _assert_spool_unreadable(second, "unavailable")
+
+
+def test_vanished_mid_run_is_spool_truncated(
+    harness: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A spool removed after a positive offset is spool_truncated."""
+    ref, loop = _loaded(harness)
+    real_transform = ref._transform_tool_result
+    try:
+        with harness.isolated_observation(ref) as spool:
+            Path(spool).write_bytes(b'{"event_type":"note"}\n')
+
+            def _unlink(**kwargs: Any) -> object:
+                try:
+                    return real_transform(**kwargs)
+                finally:
+                    Path(spool).unlink()
+
+            monkeypatch.setattr(ref, "_transform_tool_result", _unlink)
+            bucket = harness.CellAccum()
+            observed = harness.observe_sample(
+                ref,
+                spool,
+                bucket,
+                index=0,
+                tool_name="read_file",
+                payload="the content" * 10,
+                task_id="pet200-clean",
+            )
+    finally:
+        _close(loop)
+    assert observed.outcome == "clean"
+    assert any(
+        gap.reason == "spool_truncated" and gap.handler_class == "clean" for gap in observed.gaps
+    )
+    assert not any(gap.reason == "spool_unreadable" for gap in observed.gaps)
+    assert not any(gap.reason == "agreement" for gap in observed.gaps)
+
+
+def test_tail_read_file_not_found_after_stat_is_spool_unreadable(
+    harness: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A tail FileNotFoundError after a successful stat is spool_unreadable."""
+    ref, loop = _loaded(harness)
+    real_read = harness._spool_read_from
+    real_transform = ref._transform_tool_result
+    try:
+        with harness.isolated_observation(ref) as spool:
+            Path(spool).write_bytes(b'{"event_type":"note"}\n')
+
+            def _read(path: str, offset: int) -> bytes:
+                if offset > 0:
+                    raise FileNotFoundError("gone")
+                return cast("bytes", real_read(path, offset))
+
+            def _grow(**kwargs: Any) -> object:
+                try:
+                    return real_transform(**kwargs)
+                finally:
+                    with open(spool, "ab") as handle:
+                        handle.write(b'{"event_type":"more"}\n')
+
+            monkeypatch.setattr(harness, "_spool_read_from", _read)
+            monkeypatch.setattr(ref, "_transform_tool_result", _grow)
+            observed = harness.observe_sample(
+                ref,
+                spool,
+                harness.CellAccum(),
+                index=0,
+                tool_name="read_file",
+                payload="the content" * 10,
+                task_id="pet200-clean",
+            )
+    finally:
+        _close(loop)
+    _assert_spool_unreadable(observed, "clean")
+
+
+def test_existing_shrink_is_spool_truncated(harness: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A spool truncated below the pre-call offset is spool_truncated."""
+    ref, loop = _loaded(harness)
+    real_transform = ref._transform_tool_result
+    try:
+        with harness.isolated_observation(ref) as spool:
+            Path(spool).write_bytes(b'{"event_type":"note"}\n')
+
+            def _truncate(**kwargs: Any) -> object:
+                try:
+                    return real_transform(**kwargs)
+                finally:
+                    Path(spool).write_bytes(b"")
+
+            monkeypatch.setattr(ref, "_transform_tool_result", _truncate)
+            observed = harness.observe_sample(
+                ref,
+                spool,
+                harness.CellAccum(),
+                index=0,
+                tool_name="read_file",
+                payload="the content" * 10,
+                task_id="pet200-clean",
+            )
+    finally:
+        _close(loop)
+    assert observed.outcome == "clean"
+    assert any(gap.reason == "spool_truncated" for gap in observed.gaps)
+
+
+def test_confirmed_empty_spool_stays_observed_clean(harness: Any) -> None:
+    """A zero-byte spool on a clean sample stays observed-clean."""
+    ref, loop = _loaded(harness)
+    try:
+        with harness.isolated_observation(ref) as spool:
+            Path(spool).write_bytes(b"")
+            bucket = harness.CellAccum()
+            observed = harness.observe_sample(
+                ref,
+                spool,
+                bucket,
+                index=0,
+                tool_name="read_file",
+                payload="the content" * 10,
+                task_id="pet200-clean",
+            )
+    finally:
+        _close(loop)
+    assert observed.outcome == "clean"
+    assert observed.gaps == []
+    cell = harness._finalize_cell("F-file", "S0", "benign", bucket)
+    assert cell["flagged_medium_plus"] == 0
+    assert cell["unavailable_with_findings"] == 0
+    assert cell["pii_suppressed"] == 0
+
+
+def test_missing_parent_directory_is_spool_unreadable(harness: Any) -> None:
+    """A missing spool parent directory is spool_unreadable."""
+    ref, loop = _loaded(harness)
+    try:
+        with harness.isolated_observation(ref) as spool:
+            Path(spool).parent.rmdir()
+            observed = harness.observe_sample(
+                ref,
+                spool,
+                harness.CellAccum(),
+                index=0,
+                tool_name="read_file",
+                payload="the content" * 10,
+                task_id="pet200-clean",
+            )
+    finally:
+        _close(loop)
+    _assert_spool_unreadable(observed, "clean")
+
+
+def test_spool_unreadable_prints_the_pre_stat_stage(
+    harness: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A pre-call stat error prints one stderr line naming stage pre_stat."""
+    ref, loop = _loaded(harness)
+    try:
+        with harness.isolated_observation(ref) as spool:
+            monkeypatch.setattr(harness, "_spool_getsize", _deny_spool_stat(spool))
+            observed = harness.observe_sample(
+                ref,
+                spool,
+                harness.CellAccum(),
+                index=0,
+                tool_name="read_file",
+                payload="the content" * 10,
+                task_id="pet200-clean",
+            )
+    finally:
+        _close(loop)
+    err = capsys.readouterr().err
+    assert (
+        "spool_unreadable stage=pre_stat task_id=pet200-clean error=PermissionError: denied"
+        in err.splitlines()
+    )
+    assert any(gap.reason == "spool_unreadable" for gap in observed.gaps)
+
+
+def test_spool_stat_error_exits_3_without_replacing_out(
+    harness: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A spool stat error under main exits 3 and leaves --out untouched."""
+    original = harness._spool_getsize
+
+    def _scoped(path: str) -> int:
+        parsed = Path(path)
+        if parsed.name == "enforcement.jsonl" and parsed.parent.name.startswith("pet218-"):
+            raise PermissionError("denied")
+        return cast("int", original(path))
+
+    monkeypatch.setattr(harness, "_spool_getsize", _scoped)
+    seeded = tmp_path / "out.json"
+    seeded.write_bytes(b'{"keep": true}\n')
+    seed = seeded.read_bytes()
+    missing = tmp_path / "missing.json"
+    code = harness.main(
+        ["--config", "base", "--phase", "baseline", "--out", str(seeded), "--limit", "1"]
+    )
+    missing_code = harness.main(
+        ["--config", "base", "--phase", "baseline", "--out", str(missing), "--limit", "1"]
+    )
+    captured = capsys.readouterr()
+    assert code == 3
+    assert missing_code == 3
+    assert "reason=spool_unreadable" in captured.err
+    assert "handler=clean" in captured.err
+    assert "helper_missing" not in captured.err
+    assert seeded.read_bytes() == seed
+    assert not missing.exists()
+
+
+def test_strict_tail_matches_drain(harness: Any, tmp_path: Path) -> None:
+    """_strict_tail returns the same dicts as drain_enforcement_events."""
+    task = "pet200-9"
+    line = {
+        "session_id": task,
+        "event_type": "ingest_flagged",
+        "rule_id": "petasos.syntactic.injection.ignore-previous",
+        "severity": "HIGH",
+    }
+    foreign = {
+        "session_id": "other-session",
+        "event_type": "ingest_flagged",
+        "rule_id": "petasos.syntactic.injection.other",
+        "severity": "HIGH",
+    }
+    path = tmp_path / "spool.jsonl"
+    path.write_bytes(
+        b"{not json}\n"
+        + b"[]\n"
+        + json.dumps(foreign).encode()
+        + b"\n"
+        + json.dumps(line).encode()
+        + b"\n"
+        + json.dumps(line).encode()
+        + b"\n"
+        + b'{"partial":'
+    )
+    reason, events = harness._strict_tail(str(path), 0)
+    drained, _offset = drain_enforcement_events(str(path), 0)
+    assert reason is None
+    assert events == drained
+
+
+def test_unchanged_spool_above_cap_is_unbounded(
+    harness: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A spool that stays above the cap and does not grow is spool_unbounded."""
+    ref, loop = _loaded(harness)
+    try:
+        with harness.isolated_observation(ref) as spool:
+            Path(spool).write_bytes(b'{"event_type":"note"}\n')
+            monkeypatch.setattr(harness, "SPOOL_CAP_BYTES", Path(spool).stat().st_size - 1)
+            observed = harness.observe_sample(
+                ref,
+                spool,
+                harness.CellAccum(),
+                index=0,
+                tool_name="read_file",
+                payload="the content" * 10,
+                task_id="pet200-clean",
+            )
+    finally:
+        _close(loop)
+    assert observed.outcome == "clean"
+    assert any(gap.reason == "spool_unbounded" for gap in observed.gaps)
