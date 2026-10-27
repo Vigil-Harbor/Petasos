@@ -1818,11 +1818,10 @@ def _apply_reconfigure_body(cfg: PetasosConfig) -> None:
     _pipeline.reconfigure(cfg)
     # PET-139: re-derive the enforcement-spool HMAC key from the adopted config (idempotent
     # per D3 — session_secret is restart-required and env-reinjected, so this re-installs
-    # identical bytes). This single chokepoint covers BOTH the PET-126 hot-apply and the
-    # PET-132 re-bind, which reach the live pipeline only through `_apply_reconfigure`; do not
-    # add a separate call on the re-bind early-return branch (no `cfg` is built there, so a
-    # `set_spool_key(cfg...)` would NameError). Wrapped fail-safe: a failure degrades to
-    # integrity-off, never breaks the reconfigure.
+    # identical bytes). A live apply reaches this chokepoint. A rebind that keeps last-good
+    # (no section, or a failed apply) does not, so `_rebind_to_resolution` installs the live
+    # pipeline secret onto the new spool path. Path-keyed keys do not follow the file.
+    # Wrapped fail-safe: a failure degrades to integrity-off, never breaks the reconfigure.
     try:
         from petasos.console._events import set_spool_key
         from petasos.console._paths import spool_path
@@ -2032,6 +2031,14 @@ def _rebind_to_resolution(res: HermesConfigResolution) -> None:
         if _guard is not None:
             _guard._selfmod_home = res
             _guard._selfmod_owned_cache = (0.0, frozenset())
+        if _pipeline is not None:
+            try:
+                from petasos.console._events import set_spool_key
+                from petasos.console._paths import spool_path
+
+                set_spool_key(_pipeline.config.session_secret, path=spool_path(res))
+            except Exception as exc:  # pragma: no cover - integrity is best-effort
+                logger.warning("PETASOS_INTEGRITY spool-key install failed on rebind: %s", exc)
         _reset_armed_cache()  # Decision 5: drop W's (mtime,size)-keyed bit
         _reset_reload_cache()  # Decision 5: force the new profile to read as a change
         logger.info("PETASOS_ARMED_RESOLUTION tier=%s path=%s", res.tier, res.path)

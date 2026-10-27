@@ -115,12 +115,19 @@ def _install_sync_dispatch(ref: types.ModuleType, monkeypatch: pytest.MonkeyPatc
 
 
 def _wire_live(
-    ref: types.ModuleType, monkeypatch: pytest.MonkeyPatch, section: dict[str, Any]
+    ref: types.ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    section: dict[str, Any],
+    *,
+    host_id: str | None = None,
 ) -> tuple[Any, Any]:
     """Build a real live pipeline + guard from ``section`` and mark the module
     initialized, so the re-bind worker takes its live-apply branch deterministically."""
     cfg = ref._build_config_from_section(section)
-    pipe = Pipeline(scanners=[MinimalScanner()], config=cfg)
+    pipe_kwargs: dict[str, Any] = {}
+    if host_id is not None:
+        pipe_kwargs["host_id"] = host_id
+    pipe = Pipeline(scanners=[MinimalScanner()], config=cfg, **pipe_kwargs)
     tracker = FrequencyTracker(cfg)
     guard = ToolCallGuard(pipe, tracker, cfg, lineage=None)
     monkeypatch.setattr(ref, "_pipeline", pipe)
@@ -360,6 +367,53 @@ def test_rebind_to_sectionless_profile_keeps_lastgood(
     assert pipe.config.fail_mode == "closed"  # W's last-good pipeline policy kept
     stale = [r for r in caplog.records if "PETASOS_REBIND_CONFIG_STALE" in r.getMessage()]
     assert len(stale) == 1
+
+
+def test_sectionless_rebind_signs_the_new_spool(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A sectionless rebind installs the live secret on the new spool path."""
+    import base64
+
+    import petasos.console._events as events_mod
+    import petasos.console._paths as paths_mod
+
+    saved = paths_mod._SPOOL_PATH_OVERRIDE
+    paths_mod._SPOOL_PATH_OVERRIDE = None
+    events_mod._reset_spool_key()
+    try:
+        ref = _import_reference_plugin()
+        secret = b"k" * 32
+        monkeypatch.setenv("PETASOS_SESSION_SECRET", base64.b64encode(secret).decode("ascii"))
+        pipe, _guard = _wire_live(
+            ref,
+            monkeypatch,
+            {"enabled": True, "fail_mode": "closed"},
+            host_id="test-host",
+        )
+        assert pipe.config.session_secret == secret
+        w_home = _profile_home(tmp_path, "w", {"enabled": True, "fail_mode": "closed"})
+        x_home = _profile_home(tmp_path, "x", None)
+        monkeypatch.setattr(ref, "_session_resolution", _make_resolution(w_home / "config.yaml"))
+        ref._on_profile_change(profile_name="x", profile_home=str(x_home))
+        new_spool = paths_mod.spool_path(ref._session_resolution)
+        assert os.path.normcase(new_spool) in events_mod._SPOOL_KEYS
+        assert events_mod.emit_enforcement_event(
+            {
+                "scan_id": "e-rebind",
+                "session_id": "s",
+                "tool": "t",
+                "event_type": "block",
+                "timestamp": 12.0,
+            },
+            res=ref._session_resolution,
+        )
+        text = Path(new_spool).read_text(encoding="utf-8")
+        assert "e-rebind" in text
+        assert '"sig"' in text
+    finally:
+        paths_mod._SPOOL_PATH_OVERRIDE = saved
+        events_mod._reset_spool_key()
 
 
 # ── init-window correctness ─────────────────────────────────────────────────────
