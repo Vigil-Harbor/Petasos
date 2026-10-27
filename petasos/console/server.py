@@ -553,7 +553,7 @@ def _persist_config(validated_config: Any, *, target_path: "Path | None" = None)
     import yaml
 
     if target_path is None:
-        res = resolve_hermes_config_path()
+        res = resolve_hermes_config_path(use_override=False)
         if res.warning is not None:
             _logger.warning("Hermes profile resolution: %s", res.warning)
         config_path = res.path
@@ -656,7 +656,7 @@ class _ReadScope:
     profile_count: int  # len(list_hermes_profiles()), for D20
 
 
-def _resolve_read_scope(profile: str | None) -> "_ReadScope":
+def _resolve_read_scope(profile: str | None, *, use_override: bool = True) -> "_ReadScope":
     """Resolve a request's read scope, once per request (PET-166 D10).
 
     Raises ``ProfileNotFoundError`` for a named non-member (routes map to 422).
@@ -664,8 +664,8 @@ def _resolve_read_scope(profile: str | None) -> "_ReadScope":
     unresolvable a flat equality would evaluate ``None == None`` as equipped and let
     a scoped disarm through the D6 guard into a write against the running agent.
     """
-    equipped_res = resolve_hermes_config_path()
-    profiles = list_hermes_profiles()
+    equipped_res = resolve_hermes_config_path(use_override=use_override)
+    profiles = list_hermes_profiles(use_override=use_override)
     equipped_entry = next((p for p in profiles if p.get("is_active")), None)
     equipped_name = equipped_entry["name"] if equipped_entry is not None else None
     equipped_tier = "profile" if equipped_entry is not None else equipped_res.tier
@@ -702,12 +702,18 @@ def _hermes_profile_label(res: "HermesConfigResolution") -> str:
     """PET-146 D1 human label for a binding resolution.
 
     The ``profiles/<name>`` leaf for ``tier == "profile"``, ``"HERMES_HOME"`` for
-    ``tier == "hermes_home"``, ``"root"`` for ``tier == "root"``.
+    ``tier == "hermes_home"``, the profile leaf or ``"override"`` for tier
+    ``override``, and ``"root"`` for ``tier == "root"``.
     """
     if res.tier == "profile":
         return res.path.parent.name
     if res.tier == "hermes_home":
         return "HERMES_HOME"
+    if res.tier == "override":
+        parent = res.path.parent
+        if parent.parent.name == "profiles":
+            return parent.name
+        return "override"
     return "root"
 
 
@@ -1135,7 +1141,7 @@ class ConsoleHandlers:
         from petasos.console import _events
 
         async with self._enforcement_lock:
-            path = _events._spool_path()
+            path = _events._spool_path(use_override=False)
             # The resolved spool can move mid-session (a Hermes profile/config path
             # switch). Stale byte offsets index a different (possibly smaller) file and
             # would skip its events, so reset to 0 and read the new spool from the start.
@@ -1257,7 +1263,7 @@ class ConsoleHandlers:
         gives the events surface its tripwire call site in shared code rather than
         two per-route copies. Raises ``ProfileNotFoundError`` for a non-member.
         """
-        scope = _resolve_read_scope(profile)
+        scope = _resolve_read_scope(profile, use_override=False)
         self._note_unscoped_read(scope)
         return scope
 
@@ -1306,11 +1312,11 @@ class ConsoleHandlers:
         # uses. The active binding's config_warning is carried in EVERY payload,
         # regardless of the selected profile (edge F-5), so the dangling-pointer
         # signal never vanishes while the operator browses a non-active profile.
-        active_res = resolve_hermes_config_path()
+        active_res = resolve_hermes_config_path(use_override=False)
         active_norm = _resolved_normcase(active_res.path)
 
         # PET-146 D1: the profile list (fail-soft active-only on []).
-        profiles = list_hermes_profiles()
+        profiles = list_hermes_profiles(use_override=False)
         if not profiles:
             # Caller-owned diagnostic (keeps _paths.py logging-free): WARN only when
             # the profiles/ dir is present but enumerated empty — a benign
@@ -1431,7 +1437,7 @@ class ConsoleHandlers:
         if selector is None:
             selector = profile
 
-        active_res = resolve_hermes_config_path()
+        active_res = resolve_hermes_config_path(use_override=False)
         active_norm = _resolved_normcase(active_res.path)
         target_res = resolve_profile_config_path(selector) if selector is not None else None
 
@@ -1694,7 +1700,7 @@ class ConsoleHandlers:
         # synthesizing it would substitute a new lie for the one being removed. The
         # route accepts and validates `profile` (D7) and reports its scope honestly
         # via the D19 object; it never fabricates per-profile health.
-        scope = _resolve_read_scope(profile)
+        scope = _resolve_read_scope(profile, use_override=False)
         self._note_unscoped_read(scope)
         cfg = self.pipeline.config
         config_hash = hashlib.sha256(
@@ -1739,7 +1745,9 @@ class ConsoleHandlers:
         # calling this route while parked on a foreign profile, which is what keeps
         # our own fold and spool rotation alive in embedded mode (no background tailer).
         await self._drain_enforcement_into_history()
-        scope = _resolve_read_scope(profile)  # D7/D10: raises for a non-member -> 422
+        scope = _resolve_read_scope(
+            profile, use_override=False
+        )  # D7/D10: raises for a non-member -> 422
         self._note_unscoped_read(scope)
         clamped = min(max(1, limit), 1000)
         cursor, status = _parse_history_cursor(before, scope.name)
@@ -1774,7 +1782,7 @@ class ConsoleHandlers:
                 # so a concurrent rotate cannot interleave the read (os.replace race).
                 async with self._history_lock:
                     rows, older_truncated = _history.read_history_page(
-                        _history._history_path(), before=cursor, limit=clamped
+                        _history._history_path(use_override=False), before=cursor, limit=clamped
                     )
                 rows = [self._attach_history_provenance(r) for r in rows]
             else:
@@ -1943,16 +1951,16 @@ class ConsoleHandlers:
         # WRITE binding, because the control it renders can only write there.
         from petasos.console._armed import read_armed
 
-        scope = _resolve_read_scope(profile)
+        scope = _resolve_read_scope(profile, use_override=False)
         self._note_unscoped_read(scope)
-        # PET-185: the bit ALWAYS describes the binding `set_armed` writes, in every scope
-        # state. `write_armed` takes no resolution and re-resolves ambient, so passing None
-        # here puts the read on the same resolver call with no path copied between the two
-        # sides. Agreement holds per resolution epoch: a binding that moves mid-request
-        # (active_profile rewritten, HERMES_HOME mutated in-process) can still skew this
-        # payload's `armed` against its own `read_scope`, exactly as it can skew a GET
-        # against a following POST. That window is not new and is not closed here.
-        payload: dict[str, Any] = {"armed": read_armed(None)}
+        # PET-185: both sides resolve the process binding with use_override=False,
+        # so agreement holds on one resolution rule with no path copied between them.
+        # A binding that moves mid-request (active_profile rewritten, HERMES_HOME
+        # mutated in-process) can still skew this payload's `armed` against its own
+        # `read_scope`, exactly as it can skew a GET against a following POST.
+        payload: dict[str, Any] = {
+            "armed": read_armed(resolve_hermes_config_path(use_override=False))
+        }
         if profile is not None:  # D2/D19: scope-gated, unchanged
             payload["read_scope"] = _read_scope_payload(scope)
         return payload
@@ -1967,7 +1975,7 @@ class ConsoleHandlers:
         # persistence body must never dress up a deliberate policy refusal. `unknown`
         # also refuses a NAMED scope: when the equipped path cannot be resolved, a
         # scoped write cannot be proven to target what the operator sees (D10 step 4).
-        scope = _resolve_read_scope(profile)
+        scope = _resolve_read_scope(profile, use_override=False)
         self._note_unscoped_read(scope)
         if profile is not None and scope.state != "equipped":
             raise ProfileNotEquippedError(profile, scope.equipped_name)

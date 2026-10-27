@@ -15,6 +15,7 @@ sandbox rather than monkeypatching internals.
 
 from __future__ import annotations
 
+import os
 import platform
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -109,3 +110,130 @@ def test_resolve_profile_config_path_member_and_traversal(
     assert resolve_profile_config_path("does_not_exist") is None
     assert resolve_profile_config_path("../../etc") is None
     assert resolve_profile_config_path("..") is None
+
+
+def _install_override(monkeypatch: pytest.MonkeyPatch, value: object) -> None:
+    import sys
+    import types
+
+    mod = types.ModuleType("hermes_constants")
+    if value is not _MISSING:
+
+        def _fn() -> object:
+            if isinstance(value, BaseException):
+                raise value
+            return value
+
+        mod.get_hermes_home_override = _fn  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "hermes_constants", mod)
+
+
+class _Missing:
+    pass
+
+
+_MISSING = _Missing()
+
+
+def test_override_present_resolves_override_tier(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A usable override is tier override and does not fall through."""
+    home = tmp_path / "gibson"
+    _install_override(monkeypatch, str(home))
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "root"))
+    res = resolve_hermes_config_path()
+    assert res.tier == "override"
+    assert res.warning is None
+    assert res.path == home / "config.yaml"
+
+
+def test_override_absent_with_hermes_home_is_hermes_home(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """None from an importable override keeps the HERMES_HOME tier."""
+    _install_override(monkeypatch, None)
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "task"))
+    res = resolve_hermes_config_path()
+    assert res.tier == "hermes_home"
+    assert res.path == tmp_path / "task" / "config.yaml"
+
+
+def test_override_absent_with_active_profile_keeps_profile_tier(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An importable override of None does not delete the profile tier."""
+    root = _point_root_at(tmp_path, monkeypatch)
+    _write_profile(root, "cli", active=True)
+    _install_override(monkeypatch, None)
+    res = resolve_hermes_config_path()
+    assert res.tier == "profile"
+    assert res.path == root / "profiles" / "cli" / "config.yaml"
+
+
+def test_hermes_constants_none_in_sys_modules_keeps_three_tiers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A blocked hermes_constants import falls through to HERMES_HOME."""
+    import sys
+
+    monkeypatch.setitem(sys.modules, "hermes_constants", None)
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "standalone"))
+    res = resolve_hermes_config_path()
+    assert res.tier == "hermes_home"
+    assert res.path == tmp_path / "standalone" / "config.yaml"
+
+
+def test_unusable_override_falls_through_without_raising(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Whitespace, a missing attribute, and a raising override fall through."""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "env"))
+    _install_override(monkeypatch, "   ")
+    assert resolve_hermes_config_path().tier == "hermes_home"
+    _install_override(monkeypatch, _MISSING)
+    assert resolve_hermes_config_path().tier == "hermes_home"
+    _install_override(monkeypatch, RuntimeError("boom"))
+    res = resolve_hermes_config_path()
+    assert res.tier == "hermes_home"
+    assert res.path == tmp_path / "env" / "config.yaml"
+
+
+def test_override_expands_user_and_vars(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """~/ and $VAR / %VAR% expand before config.yaml is joined."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    monkeypatch.setenv("PET231_VAR", "expanded")
+    _install_override(monkeypatch, "~/pet231")
+    tilde = resolve_hermes_config_path()
+    assert tilde.tier == "override"
+    assert tilde.path == tmp_path / "pet231" / "config.yaml"
+    _install_override(monkeypatch, "$PET231_VAR/home")
+    dollar = resolve_hermes_config_path()
+    assert dollar.path == Path("expanded") / "home" / "config.yaml"
+    _install_override(monkeypatch, "%PET231_VAR%/home")
+    percent = resolve_hermes_config_path()
+    # expandvars expands %VAR% on Windows and leaves it literal elsewhere.
+    assert percent.path == Path(os.path.expandvars("%PET231_VAR%/home")) / "config.yaml"
+
+
+def test_relative_override_stays_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A relative override stays tier override and does not fall through."""
+    monkeypatch.setenv("HERMES_HOME", "/should/not/win")
+    _install_override(monkeypatch, "rel/home")
+    res = resolve_hermes_config_path()
+    assert res.tier == "override"
+    assert res.warning is None
+    assert res.path == Path("rel/home") / "config.yaml"
+    assert not res.path.is_absolute()
+
+
+def test_use_override_false_ignores_override(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """use_override=False returns the env result while an override is set."""
+    _install_override(monkeypatch, str(tmp_path / "override"))
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "launch"))
+    res = resolve_hermes_config_path(use_override=False)
+    assert res.tier == "hermes_home"
+    assert res.path == tmp_path / "launch" / "config.yaml"

@@ -607,7 +607,7 @@ def test_spool_path_identical_under_dangling_profile(
     ev._reset_events_state(None)  # use the real resolver path for this test
     root_cfg = tmp_path / "config.yaml"
     res = HermesConfigResolution(path=root_cfg, tier="root", warning="active_profile dangling")
-    monkeypatch.setattr(_paths, "resolve_hermes_config_path", lambda: res)
+    monkeypatch.setattr(_paths, "resolve_hermes_config_path", lambda **_k: res)
 
     p1 = ev._spool_path()  # "gateway"
     p2 = ev._spool_path()  # "dashboard"
@@ -991,3 +991,47 @@ async def test_ingestion_events_never_increment_the_block_tally(
     ]
     assert len(ingestion_rows) == 4
     assert all(r["safe"] is True for r in ingestion_rows)
+
+
+def test_path_keyed_spool_key_and_fallback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two spool paths keep two keys, and omitting path installs the fallback."""
+    from petasos.console import _paths
+    from petasos.console._paths import HermesConfigResolution
+
+    saved = _paths._SPOOL_PATH_OVERRIDE
+    _paths._SPOOL_PATH_OVERRIDE = None
+    ev._reset_spool_key()
+    try:
+        monkeypatch.setenv("HERMES_HOME", str(tmp_path / "launch"))
+        (tmp_path / "launch").mkdir()
+        gibson = tmp_path / "gibson"
+        ops = tmp_path / "ops"
+        gibson.mkdir()
+        ops.mkdir()
+        g_res = HermesConfigResolution(path=gibson / "config.yaml", tier="override")
+        o_res = HermesConfigResolution(path=ops / "config.yaml", tier="profile")
+        ev.set_spool_key(b"g" * 32, path=str(gibson / "petasos-enforcement.jsonl"))
+        ev.set_spool_key(b"o" * 32, path=str(ops / "petasos-enforcement.jsonl"))
+        assert ev.emit_enforcement_event(
+            {"scan_id": "e-g", "session_id": "s", "tool": "t", "event_type": "block"},
+            res=g_res,
+        )
+        assert ev.emit_enforcement_event(
+            {"scan_id": "e-o", "session_id": "s", "tool": "t", "event_type": "block"},
+            res=o_res,
+        )
+        g_line = (gibson / "petasos-enforcement.jsonl").read_text(encoding="utf-8")
+        o_line = (ops / "petasos-enforcement.jsonl").read_text(encoding="utf-8")
+        assert "e-g" in g_line and "sig" in g_line
+        assert "e-o" in o_line and g_line != o_line
+        ev.set_spool_key(b"f" * 32)
+        assert ev.emit_enforcement_event(
+            {"scan_id": "e-f", "session_id": "s", "tool": "t", "event_type": "block"}
+        )
+        launch = tmp_path / "launch" / "petasos-enforcement.jsonl"
+        assert "e-f" in launch.read_text(encoding="utf-8")
+    finally:
+        _paths._SPOOL_PATH_OVERRIDE = saved
+        ev._reset_spool_key()

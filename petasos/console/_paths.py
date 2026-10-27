@@ -19,7 +19,7 @@ _ROT_SUFFIX = ".rot"
 
 _SPOOL_PATH_OVERRIDE: str | None = None
 
-Tier = Literal["hermes_home", "profile", "root"]
+Tier = Literal["override", "hermes_home", "profile", "root"]
 
 
 @dataclass(frozen=True)
@@ -110,12 +110,52 @@ def resolve_active_profile_dir(
     )
 
 
-def resolve_hermes_config_path() -> HermesConfigResolution:
+def _override_home() -> Path | None:
+    """Usable Hermes context-local home, or None to fall through.
+
+    A missing module, ``sys.modules["hermes_constants"] is None``, a missing
+    attribute, a non-str, an empty or whitespace-only value, or any exception
+    falls through. A usable string is expanded with ``expandvars`` then
+    ``expanduser``. A relative result is still usable.
+    """
+    try:
+        import hermes_constants  # type: ignore[import-not-found]
+    except Exception:
+        return None
+    try:
+        fn = getattr(hermes_constants, "get_hermes_home_override", None)
+        if not callable(fn):
+            return None
+        value = fn()
+    except Exception:
+        return None
+    if not isinstance(value, str):
+        return None
+    stripped = value.strip()
+    if not stripped:
+        return None
+    try:
+        expanded = os.path.expanduser(os.path.expandvars(stripped))
+    except Exception:
+        return None
+    return Path(expanded)
+
+
+def resolve_hermes_config_path(*, use_override: bool = True) -> HermesConfigResolution:
     """Resolve the effective Hermes config.yaml path.
 
-    Precedence: HERMES_HOME env (tier 1) -> active-profile pointer
-    (tier 2) -> v0.15 root (tier 3).  Total: never raises.
+    Precedence: context-local override (when *use_override*) -> HERMES_HOME
+    env -> active-profile pointer -> v0.15 root.  Total: never raises.
     """
+    if use_override:
+        override = _override_home()
+        if override is not None:
+            return HermesConfigResolution(
+                path=override / "config.yaml",
+                tier="override",
+                warning=None,
+            )
+
     hermes_home = os.environ.get("HERMES_HOME", "").strip()
     if hermes_home:
         return HermesConfigResolution(
@@ -160,7 +200,7 @@ def _resolved_normcase(path: Path) -> str | None:
         return None
 
 
-def list_hermes_profiles() -> list[dict[str, Any]]:
+def list_hermes_profiles(*, use_override: bool = True) -> list[dict[str, Any]]:
     """Enumerate ``profiles/*/config.yaml`` under the Hermes root.
 
     Returns ``[{name, path, is_active, tier}]`` — one entry per profile dir that
@@ -175,7 +215,9 @@ def list_hermes_profiles() -> list[dict[str, Any]]:
     try:
         base = hermes_root() / "profiles"
         base_resolved = base.resolve(strict=False)
-        active_norm = _resolved_normcase(resolve_hermes_config_path().path)
+        active_norm = _resolved_normcase(
+            resolve_hermes_config_path(use_override=use_override).path
+        )
         out: list[dict[str, Any]] = []
         for child in sorted(base.iterdir()):
             if not child.is_dir():
@@ -278,24 +320,25 @@ def read_petasos_section(res: HermesConfigResolution) -> dict[str, Any]:
     return section
 
 
-def spool_path(res: HermesConfigResolution | None = None) -> str:
-    """Resolve the enforcement-spool path beside the active config.
+def spool_path(res: HermesConfigResolution | None = None, *, use_override: bool = True) -> str:
+    """Resolve the enforcement-spool path beside the resolved config.
 
-    Recomputed per call so a transient active_profile fallback cannot leave
-    writer and reader on different files.  Shared single source for the guard
-    owned-set, the spool writer, and tests.  *res* replaces the source of the
-    resolution for read-scoped callers (PET-166 D1); it never introduces a
-    cache, and the test override keeps winning unconditionally.
+    *res* selects the file. When *res* is omitted, the path is resolved again
+    on this call (``use_override`` selects the override probe). A caller that
+    passes a captured resolution and a caller that resolves the process
+    binding can name different files. Shared single source for the guard
+    owned-set, the spool writer, and tests. It never introduces a cache, and
+    the test override keeps winning unconditionally.
     """
     if _SPOOL_PATH_OVERRIDE is not None:
         return _SPOOL_PATH_OVERRIDE
-    r = res if res is not None else resolve_hermes_config_path()
+    r = res if res is not None else resolve_hermes_config_path(use_override=use_override)
     return os.path.join(str(r.path.parent), _SPOOL_FILENAME)
 
 
-def spool_rot_path(res: HermesConfigResolution | None = None) -> str:
+def spool_rot_path(res: HermesConfigResolution | None = None, *, use_override: bool = True) -> str:
     """The ``.rot`` sibling of the resolved spool path."""
-    return spool_path(res) + _ROT_SUFFIX
+    return spool_path(res, use_override=use_override) + _ROT_SUFFIX
 
 
 def display_path(path: Path | str) -> str:

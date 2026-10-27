@@ -18,6 +18,12 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
 
 ### Changed
 
+- **Override-aware Hermes home resolution (PET-231).**
+  `resolve_hermes_config_path` reads Hermes's context-local home override
+  first, at tier `override`, then `HERMES_HOME`, the active-profile pointer,
+  and the v0.15 root. The enforcement binding stays the resolution captured
+  at `register()`. Console equipped surfaces stay on the process binding.
+
 - **Calibration spool errors are observation gaps (PET-228).**
   A stat or read error on the schema-2 calibration spool is an observation
   gap (`spool_unreadable`) and the harness exits 3 without writing `--out`.

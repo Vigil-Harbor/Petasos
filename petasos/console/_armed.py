@@ -16,8 +16,8 @@ ordinary), so path is part of the key. Raw ``os.path.normcase``, deliberately no
 ``_resolved_normcase``: a raw key can only cause an extra cache miss (one extra
 YAML parse), never a false hit, and ``read_armed`` sits on the gateway's
 per-tool-call path whose documented budget is one ``os.stat`` per call. The
-sibling ``_reload.py`` cache keeps stat-only keying because no surface reads a
-non-equipped profile's reload state; re-key it if one ever does.
+sibling ``_reload.py`` cache is keyed by the normcase resolution path and bounded
+to 8 slots; this armed cache stays ``(normcase(path), mtime_ns, size)``.
 """
 
 from __future__ import annotations
@@ -100,7 +100,7 @@ def write_armed(armed: bool) -> bool:
 
     import yaml
 
-    res = resolve_hermes_config_path()
+    res = resolve_hermes_config_path(use_override=False)
     try:
         full: dict[str, Any] = {}
         if res.path.is_file():

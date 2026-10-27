@@ -418,3 +418,71 @@ class TestGuardResultSerialization:
         assert isinstance(d["selfmod_finding"], dict)
         assert d["selfmod_finding"]["rule_id"] == "petasos.selfmod.config_write"
         assert d["selfmod_finding"]["severity"] == "critical"
+
+
+async def test_gibson_guard_owns_root_config_and_sibling_spool(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A directly built gibson guard still classifies the root config and an ops spool."""
+    import platform
+
+    import petasos.console._paths as paths_mod
+    from petasos.console._paths import HermesConfigResolution, hermes_root
+
+    saved = paths_mod._SPOOL_PATH_OVERRIDE
+    paths_mod._SPOOL_PATH_OVERRIDE = None
+    try:
+        monkeypatch.delenv("HERMES_HOME", raising=False)
+        if platform.system() == "Windows":
+            monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+        else:
+            monkeypatch.setenv("HOME", str(tmp_path))
+        root = hermes_root()
+        (root / "profiles" / "gibson").mkdir(parents=True)
+        (root / "profiles" / "ops").mkdir(parents=True)
+        root_cfg = root / "config.yaml"
+        gibson_cfg = root / "profiles" / "gibson" / "config.yaml"
+        ops_cfg = root / "profiles" / "ops" / "config.yaml"
+        root_cfg.write_text("petasos: {}\n", encoding="utf-8")
+        gibson_cfg.write_text("petasos: {}\n", encoding="utf-8")
+        ops_cfg.write_text("petasos: {}\n", encoding="utf-8")
+        monkeypatch.setenv("HERMES_HOME", str(root))
+        home = HermesConfigResolution(path=gibson_cfg, tier="override")
+        config = _cfg()
+        pipeline = Pipeline(config=config)
+        tracker = FrequencyTracker(config)
+        guard = ToolCallGuard(pipeline, tracker, config, home=home)
+        owned = guard.selfmod_target_paths()
+        ops_spool = os.path.normcase(str((ops_cfg.parent / "petasos-enforcement.jsonl").resolve()))
+        root_owned = os.path.normcase(str(root_cfg.resolve()))
+        assert root_owned in owned
+        assert ops_spool in owned
+        for target in (root_owned, ops_spool):
+            result = await guard.evaluate("write_file", {"path": target, "content": "x"}, "s1")
+            assert result.selfmod_finding is not None
+            assert result.selfmod_finding.rule_id == "petasos.selfmod.config_write"
+    finally:
+        paths_mod._SPOOL_PATH_OVERRIDE = saved
+
+
+async def test_guard_without_home_resolves_ambiently(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A guard constructed without home still builds an owned set from the resolvers."""
+    import platform
+
+    from petasos.console._paths import hermes_root
+
+    if platform.system() == "Windows":
+        monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    else:
+        monkeypatch.setenv("HOME", str(tmp_path))
+    root = hermes_root()
+    root.mkdir(parents=True, exist_ok=True)
+    cfg = root / "config.yaml"
+    cfg.write_text("petasos: {}\n", encoding="utf-8")
+    monkeypatch.setenv("HERMES_HOME", str(root))
+    config = _cfg()
+    guard = ToolCallGuard(Pipeline(config=config), FrequencyTracker(config), config)
+    owned = guard.selfmod_target_paths()
+    assert os.path.normcase(str(cfg.resolve())) in owned

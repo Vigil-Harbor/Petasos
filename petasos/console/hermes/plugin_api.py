@@ -45,7 +45,7 @@ def init_handlers(pipeline: Any) -> None:
 
 def _load_config() -> dict[str, Any]:
     """Read petasos: section from the resolved Hermes config.yaml."""
-    res = resolve_hermes_config_path()
+    res = resolve_hermes_config_path(use_override=False)
     logger.info("loading config from %s [tier=%s]", res.path, res.tier)
     if res.warning:
         logger.warning("Hermes profile resolution: %s", res.warning)

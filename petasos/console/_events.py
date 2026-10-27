@@ -24,9 +24,8 @@ Posture (matches the family):
 * **Reader is fail-safe.** ``drain_enforcement_events`` returns
   ``([], after_offset)`` (keep last-good) on any error and reads strictly forward,
   so a drained event is surfaced exactly once and no ``scan_id`` seen-set is needed.
-* **Path recomputed per call** over ``resolve_hermes_config_path()`` so a transient
-  dangling-``active_profile`` fallback to the ``root`` tier cannot leave the writer
-  and reader on different files (spec edge F-6).
+* **Writer path.** The plugin writer passes its captured resolution. The console
+  drain resolves the process binding (``use_override=False``).
 
 Never raises out of any public function.
 """
@@ -42,9 +41,8 @@ import uuid
 from typing import Any
 
 from petasos.console import _paths as _paths_mod
-from petasos.console._paths import (
-    _ROT_SUFFIX as _ROT_SUFFIX,
-)
+from petasos.console._paths import _ROT_SUFFIX as _ROT_SUFFIX
+from petasos.console._paths import HermesConfigResolution
 
 # The resolver lives in _paths (single source for guard, writer, and tests); this
 # module keeps its historical private name for server.py and the test seams.
@@ -72,6 +70,8 @@ def _reset_events_state(path: str | None = None, cap: int | None = None) -> None
 # _reset_events_state's path/cap reset, so a `_reset_events_state` call after `set_spool_key`
 # cannot silently disarm signing.
 _SPOOL_KEY: bytes | None = None
+# Path-keyed writer keys. Lookup is this map, then the fallback ``_SPOOL_KEY``.
+_SPOOL_KEYS: dict[str, bytes] = {}
 
 
 def _derive_spool_key(secret: bytes) -> bytes:
@@ -83,22 +83,38 @@ def _derive_spool_key(secret: bytes) -> bytes:
     return hmac.new(secret, b"petasos/enforcement-spool/v1", hashlib.sha256).digest()
 
 
-def set_spool_key(secret: bytes | None) -> None:
+def set_spool_key(secret: bytes | None, *, path: str | None = None) -> None:
     """Install the spool HMAC key derived from *secret*, or ``None`` to disable integrity.
 
-    Idempotent: re-deriving from the same secret installs identical bytes (session_secret is
-    restart-required and env-reinjected, so the derived key is invariant for a process
-    lifetime, D3). Order note: ``_reset_events_state`` does NOT touch the key, so a test that
-    needs both should call ``_reset_events_state(...)`` first, then ``set_spool_key(...)``.
+    *path* stores the derived key under ``normcase(path)``. Omitting *path* stores the
+    fallback ``_SPOOL_KEY`` so single-home callers keep working. Idempotent: re-deriving
+    from the same secret installs identical bytes (session_secret is restart-required and
+    env-reinjected, so the derived key is invariant for a process lifetime, D3). Order
+    note: ``_reset_events_state`` does NOT touch the key, so a test that needs both should
+    call ``_reset_events_state(...)`` first, then ``set_spool_key(...)``.
     """
     global _SPOOL_KEY
-    _SPOOL_KEY = _derive_spool_key(secret) if secret else None
+    derived = _derive_spool_key(secret) if secret else None
+    if path is None:
+        _SPOOL_KEY = derived
+        return
+    slot = os.path.normcase(path)
+    if derived is None:
+        _SPOOL_KEYS.pop(slot, None)
+    else:
+        _SPOOL_KEYS[slot] = derived
 
 
 def _reset_spool_key() -> None:
-    """Test seam: clear the writer key independently of path/cap reset."""
+    """Test seam: clear the writer keys independently of path/cap reset."""
     global _SPOOL_KEY
     _SPOOL_KEY = None
+    _SPOOL_KEYS.clear()
+
+
+def _spool_key_for(path: str) -> bytes | None:
+    """Key for *path*, else the fallback. Never raises."""
+    return _SPOOL_KEYS.get(os.path.normcase(path), _SPOOL_KEY)
 
 
 def verify_event(ev: object, key: bytes | None) -> bool:
@@ -145,7 +161,9 @@ def classify_integrity_failure(record: object) -> str:
     return "sig-mismatch"
 
 
-def emit_enforcement_event(event: dict[str, Any]) -> bool:
+def emit_enforcement_event(
+    event: dict[str, Any], *, res: HermesConfigResolution | None = None
+) -> bool:
     """Append one enforcement event as a JSONL line. O(1), fail-open.
 
     Stamps a unique ``scan_id`` (prefix ``e-``) and a ``timestamp`` if absent.
@@ -169,11 +187,13 @@ def emit_enforcement_event(event: dict[str, Any]) -> bool:
         # discipline. `None` key => integrity off (unsigned line, read as "unattested"). Stays
         # inside the fail-open try (D6): a signing error returns False, never raises into the
         # tool call. CPU-only microseconds — no fsync, no extra handle, O(1) append preserved.
-        if _SPOOL_KEY is not None:
+        spool = _spool_path(res)
+        key = _spool_key_for(spool)
+        if key is not None:
             preimage = json.dumps(rec, sort_keys=True, separators=(",", ":"), default=str)
-            rec["sig"] = hmac.new(_SPOOL_KEY, preimage.encode("utf-8"), hashlib.sha256).hexdigest()
+            rec["sig"] = hmac.new(key, preimage.encode("utf-8"), hashlib.sha256).hexdigest()
         line = json.dumps(rec, default=str) + "\n"
-        with open(_spool_path(), "a", encoding="utf-8") as f:
+        with open(spool, "a", encoding="utf-8") as f:
             f.write(line)
         return True
     except Exception:

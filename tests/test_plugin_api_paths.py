@@ -484,3 +484,23 @@ def test_reference_plugin_parity_missing_config(
     ref_result = ref_mod._load_config()
 
     assert plugin_result == ref_result == {}
+
+
+def test_load_config_uses_process_binding(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """_load_config resolves with use_override=False."""
+    pytest.importorskip("fastapi")
+    import petasos.console.hermes.plugin_api as plugin_api_mod
+    from petasos.console._paths import resolve_hermes_config_path
+
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "launch"))
+    (tmp_path / "launch").mkdir()
+    seen: list[object] = []
+    real = resolve_hermes_config_path
+
+    def _recording(**kwargs: object) -> object:
+        seen.append(kwargs.get("use_override", True))
+        return real(use_override=False)
+
+    monkeypatch.setattr(plugin_api_mod, "resolve_hermes_config_path", _recording)
+    plugin_api_mod._load_config()
+    assert seen == [False]

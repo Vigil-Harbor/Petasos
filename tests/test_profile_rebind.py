@@ -528,6 +528,8 @@ def test_forced_rediscovery_rebinds(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     ref.register(_FakeCtx())
 
     assert _same_config(ref._session_resolution.path, x_home)  # re-pinned to X, no leaked W
+    assert ref._guard._selfmod_home.path == ref._session_resolution.path
+    assert ref._guard._selfmod_owned_cache == (0.0, frozenset())
     assert pipe.config.fail_mode == "closed"  # X applied through the real loader
     assert ref._is_egress_sink("x_tool") is True  # X's egress set is live
     assert ref._is_egress_sink("w_tool") is False  # W's is gone
@@ -649,7 +651,7 @@ def test_concurrent_rebinds_converge(tmp_path: Path, monkeypatch: pytest.MonkeyP
     assert _same_config(ref._session_resolution.path, z_home)  # binding still moved
     # worker-top reset + on_error reset: the failed apply must additionally reset the cache.
     assert reset_calls["n"] >= 2
-    assert reload_mod._RELOAD_CACHE is None  # not left committed to a superseded profile
+    assert reload_mod._RELOAD_CACHE == {}  # not left committed to a superseded profile
 
 
 # ── PET-147: the dormant re-bind handler is host-callable (end-to-end) ──────────

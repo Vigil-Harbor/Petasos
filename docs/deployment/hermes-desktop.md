@@ -243,10 +243,11 @@ behaviors to preserve in any custom integration:
   binding; a missing config section falls back to defaults (all features
   enabled). The plugin never crashes Hermes.
 - **Profile-aware config resolution.** The plugin uses
-  `resolve_hermes_config_path()` to find `config.yaml` across `HERMES_HOME`,
-  then the active profile, then the v0.15 root. The agent plugin and the
-  dashboard plugin share this resolver so they always read the same file (no
-  split-brain).
+  `resolve_hermes_config_path()` to find `config.yaml`. When Hermes has set a
+  home override, that home wins and the resolution tier is `override`. With no
+  usable override the order is `HERMES_HOME`, then the active profile, then
+  the v0.15 root. The agent plugin and the dashboard plugin share this resolver
+  so they always read the same file (no split-brain).
 
 ## 4. Enable the plugin
 

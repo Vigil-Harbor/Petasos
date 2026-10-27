@@ -18,8 +18,8 @@ Posture (matches the family):
   gathered) on any error and never raises; it parses both segments (live + ``.rot``) and
   orders by ``(timestamp, scan_id)`` key, not by segment, so a row appended during a
   rotation race stays correctly placed.
-* **Path recomputed per call** over ``resolve_hermes_config_path()`` so the sink is
-  per-Hermes-profile automatically (one profile's rows cannot land in another's state dir).
+* **Path.** The sink is the process binding. Append, size, and rotate pass
+  ``use_override=False`` when they resolve the path themselves.
 
 Two deliberate divergences from ``_events.py``:
 
@@ -67,16 +67,17 @@ _HISTORY_CAP_BYTES = 2_000_000
 _HISTORY_PATH_OVERRIDE: str | None = None
 
 
-def _history_path(res: HermesConfigResolution | None = None) -> str:
+def _history_path(res: HermesConfigResolution | None = None, *, use_override: bool = True) -> str:
     """Resolve the sink path beside the active config (recomputed per call).
 
     *res* replaces the source of the resolution for read-scoped callers
     (PET-166 D1); it never introduces a cache, and the test override keeps
-    winning unconditionally.
+    winning unconditionally. Append, size, and rotate pass ``use_override=False``
+    so the sink stays on the process binding.
     """
     if _HISTORY_PATH_OVERRIDE is not None:
         return _HISTORY_PATH_OVERRIDE
-    r = res if res is not None else resolve_hermes_config_path()
+    r = res if res is not None else resolve_hermes_config_path(use_override=use_override)
     return os.path.join(str(r.path.parent), _HISTORY_FILENAME)
 
 
@@ -150,7 +151,7 @@ def append_history_row(row: dict[str, Any], key: bytes | None) -> bool:
             preimage = json.dumps(rec, sort_keys=True, separators=(",", ":"), default=str)
             rec["sig"] = hmac.new(key, preimage.encode("utf-8"), hashlib.sha256).hexdigest()
         line = json.dumps(rec, default=str) + "\n"
-        with open(_history_path(), "a", encoding="utf-8") as f:
+        with open(_history_path(use_override=False), "a", encoding="utf-8") as f:
             f.write(line)
         return True
     except Exception:
@@ -160,7 +161,7 @@ def append_history_row(row: dict[str, Any], key: bytes | None) -> bool:
 def history_size(path: str | None = None) -> int:
     """Byte size of the live sink segment, or 0 if absent/unstattable. Never raises."""
     try:
-        return os.path.getsize(path if path is not None else _history_path())
+        return os.path.getsize(path if path is not None else _history_path(use_override=False))
     except OSError:
         return 0
 
@@ -248,7 +249,7 @@ def rotate_history(path: str | None = None) -> bool:
     (no-op) when the live segment is absent or the OS refuses (e.g. a Windows sharing
     violation while an append handle is briefly open) — retried next cycle.
     """
-    p = path if path is not None else _history_path()
+    p = path if path is not None else _history_path(use_override=False)
     rot = p + _ROT_SUFFIX
     try:
         if os.path.exists(rot):

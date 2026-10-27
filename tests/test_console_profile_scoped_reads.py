@@ -917,3 +917,96 @@ async def test_scope_tripwire_silent_without_an_active_profile(
     with caplog.at_level("INFO", logger="petasos.console.server"):
         await h.get_scan_history()
     assert "PETASOS_SCOPE_UNSCOPED_READ" not in caplog.text
+
+
+def _install_override(monkeypatch: pytest.MonkeyPatch, home: str) -> None:
+    import sys
+    import types
+
+    mod = types.ModuleType("hermes_constants")
+    mod.get_hermes_home_override = lambda: home  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "hermes_constants", mod)
+
+
+async def test_equipped_console_ignores_override(
+    env: _Env, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Armed, config, and events scope stay on the launch binding under an override."""
+    (env.root / "config.yaml").write_text("petasos:\n  enabled: true\n", encoding="utf-8")
+    env.beta.set_armed(True)
+    monkeypatch.setenv("HERMES_HOME", str(env.root))
+    armed_mod._reset_armed_cache()
+    _install_override(monkeypatch, str(env.beta.dir))
+    h = _make_handlers()
+    assert (await h.get_armed())["armed"] is True
+    _, ok = await h.set_armed(False)
+    assert ok is True
+    loaded = yaml_load(env.root / "config.yaml")
+    assert loaded["petasos"]["enabled"] is False
+    assert "enabled: true" in env.beta.dir.joinpath("config.yaml").read_text(encoding="utf-8")
+    body = await h.get_config()
+    assert body["config_tier"] == "hermes_home"
+    assert all(not row["is_active"] for row in body["hermes_profiles"])
+    scope = h.resolve_events_scope(None)
+    assert scope.state == "equipped"
+    assert scope.resolution.path == env.root / "config.yaml"
+    beta_before = (env.beta.dir / "config.yaml").read_bytes()
+    updated, errors = await h.update_config({"fail_mode": "open"})
+    assert errors is None and updated is not None
+    assert (env.beta.dir / "config.yaml").read_bytes() == beta_before
+    assert h.pipeline.config.fail_mode == "open"
+    health = await h.get_health()
+    assert health["pipeline"]["fail_mode"] == "open"
+    assert health["pipeline"]["config_hash"]
+
+
+def yaml_load(path: Path) -> dict[str, Any]:
+    import yaml
+
+    loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
+    assert isinstance(loaded, dict)
+    return loaded
+
+
+async def test_history_sink_and_scoped_spool_follow_their_bindings(
+    env: _Env, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A launch drain and playground scan stay off the override sink; a direct read sees gibson."""
+    (env.root / "config.yaml").write_text("petasos:\n  enabled: true\n", encoding="utf-8")
+    monkeypatch.setenv("HERMES_HOME", str(env.root))
+    _install_override(monkeypatch, str(env.beta.dir))
+    before = env.beta.sink.read_bytes() if env.beta.sink.exists() else b""
+    h = _make_handlers()
+    launch = paths_mod.HermesConfigResolution(path=env.root / "config.yaml", tier="hermes_home")
+    assert events_mod.emit_enforcement_event(
+        {
+            "scan_id": "e-launch",
+            "session_id": "s",
+            "tool": "t",
+            "event_type": "block",
+            "timestamp": 10.0,
+        },
+        res=launch,
+    )
+    await h._drain_enforcement_into_history()
+    await h.run_scan("hello from the launch console")
+    launch_sink = env.root / "petasos-scan-history.jsonl"
+    assert launch_sink.is_file()
+    assert launch_sink.stat().st_size > 0
+    after = env.beta.sink.read_bytes() if env.beta.sink.exists() else b""
+    assert after == before
+    beta_res = paths_mod.resolve_profile_config_path("beta")
+    assert beta_res is not None
+    assert events_mod.emit_enforcement_event(
+        {
+            "scan_id": "e-beta",
+            "session_id": "s",
+            "tool": "t",
+            "event_type": "block",
+            "timestamp": 11.0,
+        },
+        res=beta_res,
+    )
+    out = await h.get_scan_history(profile="beta")
+    assert any(row.get("scan_id") == "e-beta" for row in out["entries"])
+    assert all(row.get("scan_id") != "e-beta" for row in h.scan_history.to_list())

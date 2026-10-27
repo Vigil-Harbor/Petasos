@@ -843,8 +843,9 @@ def _deferred_init() -> None:
                 # to integrity-off (no `sig`), never breaks boot.
                 try:
                     from petasos.console._events import set_spool_key
+                    from petasos.console._paths import spool_path
 
-                    set_spool_key(config.session_secret)
+                    set_spool_key(config.session_secret, path=spool_path(_session_resolution))
                 except Exception as exc:  # pragma: no cover - defensive; integrity is best-effort
                     logger.warning(
                         "PETASOS_INTEGRITY spool-key install failed at boot: %s — integrity off",
@@ -892,7 +893,9 @@ def _deferred_init() -> None:
                 # failed-init boot never leaves a registry accepting edges no
                 # guard reads.
                 global _lineage_registry, _frequency_tracker
-                _guard = ToolCallGuard(_pipeline, tracker, config, lineage=registry)
+                _guard = ToolCallGuard(
+                    _pipeline, tracker, config, lineage=registry, home=_session_resolution
+                )
                 _lineage_registry = registry
                 _frequency_tracker = tracker
                 if _subagent_hooks_available:
@@ -1571,7 +1574,8 @@ def _emit_enforcement_event(
                 "direction": "tool_call",
                 "armed": armed,
                 "bypassed_count": bypassed_count,
-            }
+            },
+            res=_session_resolution,
         )
     except Exception:
         return False
@@ -1821,8 +1825,9 @@ def _apply_reconfigure_body(cfg: PetasosConfig) -> None:
     # integrity-off, never breaks the reconfigure.
     try:
         from petasos.console._events import set_spool_key
+        from petasos.console._paths import spool_path
 
-        set_spool_key(cfg.session_secret)
+        set_spool_key(cfg.session_secret, path=spool_path(_session_resolution))
     except Exception as exc:  # pragma: no cover - defensive; integrity is best-effort
         logger.warning(
             "PETASOS_INTEGRITY spool-key re-install failed on reconfigure: %s — integrity off", exc
@@ -2024,6 +2029,9 @@ def _rebind_to_resolution(res: HermesConfigResolution) -> None:
 
     with _rebind_lock:
         _session_resolution = res  # re-pin; the armed bit follows immediately
+        if _guard is not None:
+            _guard._selfmod_home = res
+            _guard._selfmod_owned_cache = (0.0, frozenset())
         _reset_armed_cache()  # Decision 5: drop W's (mtime,size)-keyed bit
         _reset_reload_cache()  # Decision 5: force the new profile to read as a change
         logger.info("PETASOS_ARMED_RESOLUTION tier=%s path=%s", res.tier, res.path)
@@ -3072,7 +3080,8 @@ def _emit_approval_observation(phase: str, *, choice: object = None, **kwargs: A
                 "param_scan_degraded": False,
                 "direction": "tool_call",
                 "bypassed_count": None,
-            }
+            },
+            res=_session_resolution,
         )
         if not wrote:
             logger.debug("PETASOS_APPROVAL emit failed phase=%s", phase)
@@ -3136,6 +3145,21 @@ def _try_register_hook(ctx, name: str, handler) -> bool:
 # Plugin registration — called by Hermes plugin loader
 # ---------------------------------------------------------------------------
 
+_override_not_absolute_warned = False
+
+
+def _log_relative_override_once(res: HermesConfigResolution) -> None:
+    """Log a non-absolute override capture once per plugin module copy."""
+    global _override_not_absolute_warned
+    if _override_not_absolute_warned:
+        return
+    if res.tier == "override" and not res.path.is_absolute():
+        logger.warning(
+            "PETASOS_ARMED_RESOLUTION_WARNING tier=override path=%s reason=not_absolute",
+            res.path,
+        )
+        _override_not_absolute_warned = True
+
 
 def register(ctx) -> None:
     global _config, _subagent_hooks_available, _session_resolution
@@ -3152,14 +3176,17 @@ def register(ctx) -> None:
     # registered or the init thread starts — so the first _pre_tool_call cannot
     # observe a None binding and fall back to an ambient resolve. Pre-clear to None
     # so a re-register whose capture fails cannot leave a stale prior binding. The
-    # binding source is the operator-trusted boot environment, never in-session
-    # state (PET-125 / Decision 2). On the forced-rediscovery route Hermes has set the
-    # env to the new profile, so this re-captures the new profile here too.
+    # binding source is the Hermes home override set before register(), else the
+    # operator-trusted boot environment. The capture does not read tool arguments,
+    # session text, or the console request body. On the forced-rediscovery route
+    # Hermes has set the env to the new profile, so this re-captures the new profile
+    # here too.
     _session_resolution = None
     try:
         from petasos.console._paths import resolve_hermes_config_path
 
         _session_resolution = resolve_hermes_config_path()
+        _log_relative_override_once(_session_resolution)
     except Exception as exc:  # resolve_hermes_config_path never raises; stay safe
         logger.warning(
             "PETASOS_ARMED_RESOLUTION tier=unresolved path=ambient: boot capture "
