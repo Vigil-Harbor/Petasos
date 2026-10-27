@@ -416,6 +416,45 @@ def test_sectionless_rebind_signs_the_new_spool(
         events_mod._reset_spool_key()
 
 
+def test_reconfigure_keeps_live_spool_key_when_section_omits_secret(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A rebind whose section omits session_secret still signs with the live secret."""
+    import base64
+
+    import petasos.console._events as events_mod
+    import petasos.console._paths as paths_mod
+
+    saved = paths_mod._SPOOL_PATH_OVERRIDE
+    paths_mod._SPOOL_PATH_OVERRIDE = None
+    events_mod._reset_spool_key()
+    try:
+        ref = _import_reference_plugin()
+        secret = b"k" * 32
+        monkeypatch.setenv("PETASOS_SESSION_SECRET", base64.b64encode(secret).decode("ascii"))
+        pipe, _guard = _wire_live(
+            ref,
+            monkeypatch,
+            {"enabled": True, "fail_mode": "closed"},
+            host_id="test-host",
+        )
+        assert pipe.config.session_secret == secret
+        monkeypatch.delenv("PETASOS_SESSION_SECRET", raising=False)
+        w_home = _profile_home(tmp_path, "w", {"enabled": True, "fail_mode": "closed"})
+        x_home = _profile_home(tmp_path, "x", {"enabled": True, "fail_mode": "open"})
+        monkeypatch.setattr(ref, "_session_resolution", _make_resolution(w_home / "config.yaml"))
+        ref._on_profile_change(profile_name="x", profile_home=str(x_home))
+        assert pipe.config.session_secret == secret
+        assert pipe.config.fail_mode == "open"
+        new_spool = paths_mod.spool_path(ref._session_resolution)
+        assert events_mod._SPOOL_KEYS[os.path.normcase(new_spool)] == events_mod._derive_spool_key(
+            secret
+        )
+    finally:
+        paths_mod._SPOOL_PATH_OVERRIDE = saved
+        events_mod._reset_spool_key()
+
+
 # ── init-window correctness ─────────────────────────────────────────────────────
 
 

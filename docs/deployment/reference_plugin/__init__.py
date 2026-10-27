@@ -1816,17 +1816,17 @@ def _apply_reconfigure_body(cfg: PetasosConfig) -> None:
     _guard.validate_config(cfg)
     # Phase 2: commit.
     _pipeline.reconfigure(cfg)
-    # PET-139: re-derive the enforcement-spool HMAC key from the adopted config (idempotent
-    # per D3 — session_secret is restart-required and env-reinjected, so this re-installs
-    # identical bytes). A live apply reaches this chokepoint. A rebind that keeps last-good
-    # (no section, or a failed apply) does not, so `_rebind_to_resolution` installs the live
-    # pipeline secret onto the new spool path. Path-keyed keys do not follow the file.
+    # PET-139: re-derive the enforcement-spool HMAC key from the live secret.
+    # ``reconfigure`` preserves that secret (restart-required). The incoming section
+    # can carry None when ``PETASOS_SESSION_SECRET`` is unset, and installing that
+    # would drop the path key. A rebind that keeps last-good never reaches here, so
+    # ``_rebind_to_resolution`` installs the same live secret onto the new spool path.
     # Wrapped fail-safe: a failure degrades to integrity-off, never breaks the reconfigure.
     try:
         from petasos.console._events import set_spool_key
         from petasos.console._paths import spool_path
 
-        set_spool_key(cfg.session_secret, path=spool_path(_session_resolution))
+        set_spool_key(_pipeline.config.session_secret, path=spool_path(_session_resolution))
     except Exception as exc:  # pragma: no cover - defensive; integrity is best-effort
         logger.warning(
             "PETASOS_INTEGRITY spool-key re-install failed on reconfigure: %s — integrity off", exc
