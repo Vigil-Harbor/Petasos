@@ -18,6 +18,12 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
 
 ### Changed
 
+- **Excluded ingest latches survive not-string skip keys (PET-203).**
+  `kind="excluded"` first-sighting is stored apart from the 512-key
+  drop-oldest map, so MCP not-string skips cannot evict
+  `PETASOS_INGEST_EXCLUDED`. Other skip kinds still share that map.
+  Who is scanned does not change.
+
 - **Calibration spool errors are observation gaps (PET-228).**
   A stat or read error on the schema-2 calibration spool is an observation
   gap (`spool_unreadable`) and the harness exits 3 without writing `--out`.
