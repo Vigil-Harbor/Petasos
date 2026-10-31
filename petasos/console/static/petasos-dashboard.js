@@ -102,7 +102,7 @@
         authRequired: Pet.state.authRequired,
         armed: Pet.state.armed,
         confirming: Pet._runtime.armedConfirmPending,
-        protection: Pet.state.protection,
+        protection: Pet._scope.bannerProtection(),
       });
       b.className = view.cls;
       var lbl = b.querySelector(".equip-label");
@@ -123,7 +123,7 @@
     // state directly (it discriminates three states, not two). The derivation lives in
     // the pure Pet.armScopeView seam; both booleans are bit-identical to the old inline
     // form for every input, including the null-readScope standalone path.
-    var _armView = Pet.armScopeView(Pet.state.readScope, Pet.state.protection);
+    var _armView = Pet.armScopeView(Pet.state.readScope, Pet._scope.bannerProtection());
     var _armDisabled = _armView.disabled;
     var _armUnscoped = _armView.unscoped;
     var doToggle = function () {
@@ -188,7 +188,7 @@
       authRequired: Pet.state.authRequired,
       armed: armedOn,
       confirming: Pet._runtime.armedConfirmPending,
-      protection: Pet.state.protection,
+      protection: Pet._scope.bannerProtection(),
     });
     var armedSwitch = Pet.h("button", {
       className: "switch" + (firstView.on && !firstView.confirming ? " on" : ""), type: "button", onClick: doToggle,
@@ -216,7 +216,7 @@
         _armView.notice));
     }
     // PET-236: what the banner cannot say in one line, as text. Nothing here is markup.
-    var _protectionCaption = Pet.protectionNotice(Pet.state.protection, Pet.state.selectedProtection);
+    var _protectionCaption = Pet.state.scopeError ? null : Pet.protectionNotice(Pet.state.protection, Pet.state.selectedProtection);
     if (_protectionCaption) {
       wrapper.appendChild(Pet.h("div", { className: "mono", role: "status", style: { fontSize: "11px", color: "var(--tx-mut)", whiteSpace: "pre-wrap" } },
         _protectionCaption));

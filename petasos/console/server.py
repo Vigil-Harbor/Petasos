@@ -685,6 +685,10 @@ def _resolve_read_scope(profile: str | None, *, use_override: bool = True) -> "_
             state = "not_equipped"
         else:
             state = "equipped"
+    if profile == "default" and state == "equipped":
+        # PET-238: the selected name IS the binding. list_hermes_profiles has no member for
+        # it, and an unnamed binding would caption the toggle as not reaching this profile.
+        equipped_name = "default"
     return _ReadScope(profile, target, equipped_name, equipped_tier, state, count)
 
 
@@ -2313,19 +2317,6 @@ def build_app(pipeline: "Pipeline", *, auth_token: str | None = None) -> "FastAP
 
     @app.post("/api/armed")
     async def api_set_armed(request: Request, profile: str | None = None) -> Any:
-        # PET-166 (D6): the selector rides in the BODY on a write (the PET-146
-        # update_config precedent). A query-borne selector is itself a 422 — silently
-        # ignoring it would resolve the scope to equipped and disarm the running agent
-        # while the UI names another profile.
-        if profile is not None:
-            return JSONResponse(
-                status_code=422,
-                content={
-                    "detail": [
-                        {"field": "profile", "message": "selector must ride in the request body"}
-                    ]
-                },
-            )
         try:
             body = await request.json()
         except Exception:
@@ -2346,8 +2337,23 @@ def build_app(pipeline: "Pipeline", *, auth_token: str | None = None) -> "FastAP
                 status_code=422,
                 content={"detail": [{"field": "profile", "message": "Must be a string"}]},
             )
+        # PET-166 (D6) via PET-238: a query selector must never be ignored, or the scope
+        # resolves to equipped and disarms the running agent while the UI names another
+        # profile. Hermes's SDK appends it to every request, so it is honored; set_armed's
+        # not-equipped refusal still applies. Only a disagreement is refused.
+        if profile is not None and body_profile is not None and profile != body_profile:
+            return JSONResponse(
+                status_code=422,
+                content={
+                    "detail": [
+                        {"field": "profile", "message": "query and body name different profiles"}
+                    ]
+                },
+            )
         try:
-            result, ok = await handlers.set_armed(body["armed"], profile=body_profile)
+            result, ok = await handlers.set_armed(
+                body["armed"], profile=body_profile if body_profile is not None else profile
+            )
         except ProfileNotFoundError as exc:
             return JSONResponse(
                 status_code=422,

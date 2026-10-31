@@ -27,6 +27,16 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
 
 ### Fixed
 
+- **The embedded console works on the default profile (PET-238).**
+  Hermes's dashboard selects the root as `?profile=default`, and every scoped read
+  answered 422, so the banner never got its status and stayed on Equipped under a false
+  "no Petasos configuration" alert. `default` now resolves to the home with no profile,
+  and does not join the profile list. A status from a prior scope is no longer shown
+  under a scope error, and a correct forwarded profile no longer asks to re-sync the
+  console bundle. `POST /armed` now honors a `profile` query selector, because Hermes's
+  SDK appends one to every request, and refuses only a query and body that disagree. A
+  non-equipped selector is still refused with a 409.
+
 - **Embedded console errors carry their status again (PET-236).**
   Current Hermes throws `ApiError` where the console matched a `"<status>: <body>"`
   message, so embedded 401, 422 and 409 handling had stopped working. The embedded

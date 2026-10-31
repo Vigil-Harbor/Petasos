@@ -273,18 +273,6 @@ async def set_armed(request: Request, profile: str | None = None) -> Any:
 
     from petasos.console.server import ProfileNotEquippedError, ProfileNotFoundError
 
-    # PET-166 (D6): the selector rides in the BODY on a write; a query-borne selector
-    # is itself a 422 — silently ignoring it would resolve the scope to equipped and
-    # disarm the running agent while the UI names another profile.
-    if profile is not None:
-        return JSONResponse(
-            status_code=422,
-            content={
-                "detail": [
-                    {"field": "profile", "message": "selector must ride in the request body"}
-                ]
-            },
-        )
     h = _require_handlers()
     try:
         body = await request.json()
@@ -304,8 +292,23 @@ async def set_armed(request: Request, profile: str | None = None) -> Any:
             status_code=422,
             content={"detail": [{"field": "profile", "message": "Must be a string"}]},
         )
+    # PET-166 (D6) via PET-238: a query selector must never be ignored, or the scope
+    # resolves to equipped and disarms the running agent while the UI names another
+    # profile. Hermes's SDK appends it to every request, so it is honored; set_armed's
+    # not-equipped refusal still applies. Only a disagreement is refused.
+    if profile is not None and body_profile is not None and profile != body_profile:
+        return JSONResponse(
+            status_code=422,
+            content={
+                "detail": [
+                    {"field": "profile", "message": "query and body name different profiles"}
+                ]
+            },
+        )
     try:
-        result, ok = await h.set_armed(body["armed"], profile=body_profile)
+        result, ok = await h.set_armed(
+            body["armed"], profile=body_profile if body_profile is not None else profile
+        )
     except ProfileNotFoundError as exc:
         return JSONResponse(
             status_code=422,

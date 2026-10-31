@@ -233,6 +233,52 @@ test("an ApiError with status 0 stays {error}", async () => {
   assert.equal(d._status, undefined);
 });
 
+test("regression PET-238: a forwarded read naming the selected profile clears the re-sync notice", () => {
+  const { P } = embedded();
+  P.state.selectedHermesProfile = "ops";
+  P._scope.adoptRead({ scanners: [] }); // health lands first, with no read_scope
+  assert.equal(P.state.scopeNotice, true);
+  const changed = P._scope.adoptProtection(
+    { armed: true, protection: { status: "hook_can_load", profile: "ops", next_steps: "" } }, "ops");
+  assert.equal(changed, true);
+  assert.equal(P.state.scopeNotice, false);
+  P._scope.adoptRead({ scanners: [] });
+  assert.equal(P.state.scopeNotice, false, "the next poll must not raise it again");
+});
+
+test("the re-sync notice stays for a backend that cannot confirm its scope", () => {
+  for (const body of [
+    { armed: true },
+    { armed: true, protection: { status: "hook_can_load", profile: "alpha", next_steps: "" } },
+  ]) {
+    const { P } = embedded();
+    P.state.selectedHermesProfile = "ops";
+    P._scope.adoptProtection(body, "ops");
+    P._scope.adoptRead({ scanners: [] });
+    assert.equal(P.state.scopeNotice, true);
+  }
+});
+
+test("a confirmation for one profile does not cover the next", () => {
+  const { P } = embedded();
+  P.state.selectedHermesProfile = "ops";
+  P._scope.adoptProtection({ armed: true, protection: { status: "no_copy", profile: "ops", next_steps: "" } }, "ops");
+  P.state.selectedHermesProfile = "gibson";
+  P._scope.adoptRead({ scanners: [] });
+  assert.equal(P.state.scopeNotice, true);
+});
+
+test("regression PET-238: a prior scope's status is not presented under a scope error", () => {
+  const { P } = embedded();
+  P.state.protection = { status: "no_copy", profile: "ops", next_steps: "x", detail: "y" };
+  assert.equal(P._scope.bannerProtection().status, "no_copy");
+  P.state.scopeError = { surface: "health", message: "profile not found" };
+  assert.equal(P.bannerView({ armed: true, protection: P._scope.bannerProtection() }).label, "CANNOT VERIFY");
+  assert.equal(P.state.protection.status, "no_copy", "the field itself is left in place");
+  P.state.protection = { status: "not_enabled", refused: true };
+  assert.equal(P.armScopeView(null, P._scope.bannerProtection()).disabled, false);
+});
+
 test("Pet.responseOk gates on error and status", () => {
   const { P } = embedded();
   assert.equal(P.responseOk({ armed: true }), true);

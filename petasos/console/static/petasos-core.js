@@ -13,6 +13,7 @@
     healthLoaded: false,
     armedSeeded: false,
     protectionSeeded: false,  // PET-236: an `armed` SSE frame sets armedSeeded with no read
+    scopeConfirmedFor: "",    // PET-238: the selector a forwarded armed read proved it served
     armedBusy: false,
     armedConfirmPending: false,
     armedConfirmTimer: null,

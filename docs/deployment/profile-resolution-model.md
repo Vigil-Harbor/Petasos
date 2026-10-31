@@ -113,7 +113,9 @@ move with the selector, and arming a non-equipped profile is refused with a
 409. The armed bit is the one read that follows the write binding in every
 scope state, because the control under it can only write there (PET-185). `armed` and
 `protection` both follow the write binding, and `selected_protection` describes
-the selected profile when it differs from the binding (PET-236). A non-equipped read is served read-only from that profile's
+the selected profile when it differs from the binding (PET-236). The selector `default`
+means the home with no profile, because Hermes's dashboard sends it for the root; it is
+not a member of the profile list (PET-238). A non-equipped read is served read-only from that profile's
 files, marked `foreign` in the drill-down, and its live event stream stays
 idle (this process holds no other profile's events).
 
