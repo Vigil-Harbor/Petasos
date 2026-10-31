@@ -28,6 +28,14 @@ const Pet = sandbox.window.__PETASOS_CONSOLE__;
 
 function view(rs) { return Pet.armScopeView(rs); }
 
+// PET-238: on default the toggle writes where it reads, so no caption says otherwise.
+test("regression PET-238: an equipped default has no caption and a scoped write", () => {
+  const v = view({ state: "equipped", selected: "default", equipped: "default", equipped_tier: "root" });
+  assert.equal(v.notice, null);
+  assert.equal(v.disabled, false);
+  assert.equal(v.unscoped, false);
+});
+
 // PET-236: a write to a refused profile would also get a 404.
 test("a refused protection field disables, and any other leaves the scope's answer", () => {
   const refused = { status: "not_enabled", refused: true };

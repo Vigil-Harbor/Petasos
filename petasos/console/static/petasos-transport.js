@@ -702,7 +702,7 @@
       Pet.state.historyReadScope = null;
       Pet.state.spoolTruncated = false;
       Pet.state.historyHasOlder = false;
-      Pet.state.scopeNotice = true;
+      Pet.state.scopeNotice = !_scopeConfirmed();
     }
     Pet.state.scopeError = null; // a 200 on this surface clears the D7 error state
     _syncScopePoll();
@@ -718,10 +718,23 @@
       if (sentScoped) Pet.state.scopeNotice = d.read_scope.selected == null;
     } else if (sentScoped) {
       Pet.state.readScope = null;
-      Pet.state.scopeNotice = true;
+      Pet.state.scopeNotice = !_scopeConfirmed();
     }
     Pet.state.scopeError = null;
     _syncScopePoll();
+  };
+
+  // PET-238: Hermes strips `profile` from a forwarded request, so a correct forwarded 200
+  // has no read_scope. An armed read naming the selected profile as its binding proves the
+  // scope; a stale backend sends no such field, and still raises the D20 notice.
+  function _scopeConfirmed() {
+    return Pet._runtime.scopeConfirmedFor !== "" && Pet._runtime.scopeConfirmedFor === Pet.api._scopeParam();
+  }
+
+  // PET-238: under a scope error the status on hand belongs to a prior scope, so the banner
+  // must not present it as this one's. The error box says why.
+  Pet._scope.bannerProtection = function () {
+    return Pet.state.scopeError ? { status: "unknown", detail: "", next_steps: "" } : Pet.state.protection;
   };
 
   // PET-236: adopt the protection status from one settled armed read. Returns whether
@@ -736,10 +749,16 @@
   Pet._scope.adoptProtection = function (d, scopeParam) {
     if (d && (d._status === 401 || Pet.isProfile422(d))) return false;
     var before = _protectionKeys();
+    var noticeCleared = false;
     Pet._runtime.protectionSeeded = true;
     if (Pet.responseOk(d) && typeof d.armed === "boolean") {
       Pet.state.protection = d.protection || null;
       Pet.state.selectedProtection = d.selected_protection || null;
+      if (scopeParam && d.protection && d.protection.profile === scopeParam) {
+        Pet._runtime.scopeConfirmedFor = scopeParam;
+        noticeCleared = Pet.state.scopeNotice === true;
+        Pet.state.scopeNotice = false;
+      }
     } else if (scopeParam && d && d._status === 404 && d.detail === "Plugin not found") {
       // Hermes refused this before any Petasos code ran, so only the client can say it.
       Pet.state.protection = {
@@ -761,7 +780,7 @@
       };
       Pet.state.selectedProtection = null;
     }
-    return before !== _protectionKeys();
+    return noticeCleared || before !== _protectionKeys();
   };
 
   // PET-236: the decision for one settled armed read, in the spirit of Pet.armedWriteView.
@@ -801,6 +820,7 @@
     Pet._runtime.historySeeded = false;
     Pet._runtime.armedSeeded = false;
     Pet._runtime.protectionSeeded = false;   // PET-236: the fields stay, like Pet.state.armed, so nothing flashes
+    Pet._runtime.scopeConfirmedFor = "";     // PET-238: each entry to a scope proves itself again
     Pet._runtime.historyPaging = false;
     Pet._runtime.historyPagingGen++;         // drop an in-flight PET-152 two-fetch re-mint chain
     Pet._shell.clearArmedConfirm();         // a confirm window formed about the previous profile

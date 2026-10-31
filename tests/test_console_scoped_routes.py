@@ -2,7 +2,7 @@
 
 The handler-level semantics live in ``test_console_profile_scoped_reads.py``;
 this module pins what only a route can show: the 422/409 status mapping, the
-query-borne-selector rejection on the write, the SSE idle arm (its terminal
+query-borne-selector handling on the write, the SSE idle arm (its terminal
 ``scope_refusal`` marker), and the D13 requirement that the embedded bridge moves
 in lockstep with the standalone routes rather than one of them being ported later.
 
@@ -133,14 +133,44 @@ def test_set_armed_non_equipped_is_409(client: tuple[Any, str], profiles: Path) 
     assert "enabled: true" in beta_cfg.read_text(encoding="utf-8")
 
 
-def test_set_armed_query_profile_is_422(client: tuple[Any, str], profiles: Path) -> None:
-    # Without this the selector arrives None, the scope resolves to equipped, the
-    # 409 never fires, and the running agent is disarmed while the UI names another
-    # profile.
+def test_set_armed_query_profile_is_not_ignored(client: tuple[Any, str], profiles: Path) -> None:
+    # Ignored, the selector arrives None, the scope resolves to equipped, the 409 never
+    # fires, and the running agent is disarmed while the UI names another profile.
     tc, base = client
     r = tc.post(base + "/armed", params={"profile": "beta"}, json={"armed": False})
+    assert r.status_code == 409
+    alpha = profiles / "profiles" / "alpha" / "config.yaml"
+    assert "enabled: true" in alpha.read_text(encoding="utf-8")
+
+
+def test_set_armed_query_profile_unknown_is_422(client: tuple[Any, str], profiles: Path) -> None:
+    tc, base = client
+    r = tc.post(base + "/armed", params={"profile": "ghost"}, json={"armed": False})
     assert r.status_code == 422
-    assert "body" in r.json()["detail"][0]["message"]
+
+
+def test_regression_pet238_set_armed_honors_the_sdk_appended_selector(
+    client: tuple[Any, str], profiles: Path
+) -> None:
+    # Hermes's SDK appends ?profile= to every request, writes included.
+    tc, base = client
+    r = tc.post(base + "/armed", params={"profile": "alpha"}, json={"armed": False})
+    assert r.status_code == 200
+    alpha = profiles / "profiles" / "alpha" / "config.yaml"
+    assert "enabled: false" in alpha.read_text(encoding="utf-8")
+
+
+def test_set_armed_query_and_body_that_disagree_are_422(
+    client: tuple[Any, str], profiles: Path
+) -> None:
+    tc, base = client
+    r = tc.post(
+        base + "/armed", params={"profile": "beta"}, json={"armed": False, "profile": "alpha"}
+    )
+    assert r.status_code == 422
+    assert "different" in r.json()["detail"][0]["message"]
+    alpha = profiles / "profiles" / "alpha" / "config.yaml"
+    assert "enabled: true" in alpha.read_text(encoding="utf-8")
 
 
 def test_set_armed_non_string_profile_422(client: tuple[Any, str], profiles: Path) -> None:
@@ -276,6 +306,42 @@ async def test_idle_stream_limit_tracks_broadcaster_bound(profiles: Path) -> Non
     for _ in range(3):
         h.release_idle_slot()
     assert h._idle_stream_count == 0
+
+
+def test_regression_pet238_default_selector_is_served_not_refused(
+    client: tuple[Any, str], profiles: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Hermes's dashboard sends ?profile=default for the root; every scoped route was a 422.
+    (profiles / "active_profile").unlink()
+    (profiles / "config.yaml").write_text("petasos:\n  enabled: true\n", encoding="utf-8")
+    tc, base = client
+    for route in ("/armed", "/health", "/scan-history"):
+        r = tc.get(base + route, params={"profile": "default"})
+        assert r.status_code == 200, route
+        assert r.json()["read_scope"]["state"] == "equipped", route
+        assert r.json()["read_scope"]["equipped"] == "default", route
+    assert tc.post(base + "/armed", json={"armed": False, "profile": "default"}).status_code == 200
+    assert "enabled: false" in (profiles / "config.yaml").read_text(encoding="utf-8")
+    # And as the browser sends it: Hermes's SDK puts the selector in the query as well.
+    r = tc.post(
+        base + "/armed", params={"profile": "default"}, json={"armed": True, "profile": "default"}
+    )
+    assert r.status_code == 200
+    assert "enabled: true" in (profiles / "config.yaml").read_text(encoding="utf-8")
+
+
+async def test_default_selector_while_a_profile_is_equipped_is_not_equipped(
+    profiles: Path,
+) -> None:
+    (profiles / "config.yaml").write_text("petasos:\n  enabled: true\n", encoding="utf-8")
+    handlers = server_mod.ConsoleHandlers(_make_pipeline())
+    body = await handlers.get_armed(profile="default", include_protection=True)
+    assert body["read_scope"]["state"] == "not_equipped"
+    assert body["read_scope"]["equipped"] == "alpha"
+    assert body["protection"]["profile"] == "alpha"
+    assert body["selected_protection"]["profile"] == "default"
+    with pytest.raises(server_mod.ProfileNotEquippedError):
+        await handlers.set_armed(False, profile="default")
 
 
 async def test_scoped_read_adds_selected_protection_about_the_selected_profile(

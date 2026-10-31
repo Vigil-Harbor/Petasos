@@ -638,6 +638,19 @@ def probe_dash() -> int:
         lp,
     )
 
+    # PET-238: Hermes's dashboard selects the root as ?profile=default, in process.
+    for route in ("armed", "health", "scan-history"):
+        st, body = get(f"/api/plugins/petasos/{route}?profile=default")
+        scope = body.get("read_scope") if isinstance(body, dict) else None
+        check(
+            f"default.{route}_served_as_equipped",
+            st == 200
+            and isinstance(scope, dict)
+            and scope.get("state") == "equipped"
+            and scope.get("equipped") == "default",
+            (st, scope),
+        )
+
     # Secondary profile: forwarded to its own plugin host.
     side.unlink(missing_ok=True)
     st, g = get("/api/plugins/petasos/config?profile=gibson")
@@ -721,6 +734,18 @@ def probe_dash() -> int:
         "armed.launch_post_left_gibson",
         (gibson / "config.yaml").read_text(encoding="utf-8") == gib_cfg,
         "gibson config",
+    )
+
+    # PET-238: the toggle as the browser sends it on the root, selector in query and body.
+    r = c.post(
+        "/api/plugins/petasos/armed?profile=default",
+        json={"armed": True, "profile": "default", "reason": "pet harness"},
+    )
+    check("default.post_with_sdk_selector_ok", r.status_code == 200, (r.status_code, r.text[:160]))
+    check(
+        "default.post_wrote_root",
+        "enabled: true" in (root / "config.yaml").read_text(encoding="utf-8"),
+        "root config",
     )
 
     # A profile with no plugin copy of its own: root's copy, run in ops's host, ops's config.

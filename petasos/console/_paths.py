@@ -220,7 +220,9 @@ def list_hermes_profiles(*, use_override: bool = True) -> list[dict[str, Any]]:
         )
         out: list[dict[str, Any]] = []
         for child in sorted(base.iterdir()):
-            if not child.is_dir():
+            # `default` is reserved for the home with no profile (PET-238), so a folder
+            # with that name must not list a file its selector does not resolve to.
+            if not child.is_dir() or child.name == "default":
                 continue
             cfg = child / "config.yaml"
             if not cfg.is_file():
@@ -245,8 +247,26 @@ def list_hermes_profiles(*, use_override: bool = True) -> list[dict[str, Any]]:
         return []
 
 
+def _default_profile_home() -> Path:
+    """The home Hermes means by the profile name ``default``.
+
+    A ``HERMES_HOME`` that is ``<root>/profiles/<name>`` belongs to that root; any other
+    value is itself the default home (a Docker or custom deployment), as in Hermes's
+    ``get_default_hermes_root``.
+    """
+    env_home = os.environ.get("HERMES_HOME", "").strip()
+    if env_home:
+        home = Path(env_home)
+        return home.parent.parent if home.parent.name == "profiles" else home
+    return hermes_root()
+
+
 def resolve_profile_config_path(name: str) -> HermesConfigResolution | None:
     """Resolve one named profile's config path, traversal-guarded.
+
+    ``default`` is Hermes's reserved name for the home with no profile, and its dashboard
+    sends it as a selector (PET-238). It resolves to that home at tier ``root`` and does
+    not join ``list_hermes_profiles``, which enumerates ``profiles/*`` only.
 
     Returns ``HermesConfigResolution(<root>/profiles/<name>/config.yaml,
     tier="profile", warning=None)`` when *name* is a current
@@ -258,6 +278,12 @@ def resolve_profile_config_path(name: str) -> HermesConfigResolution | None:
     Never raises (D3).
     """
     try:
+        if name == "default":
+            return HermesConfigResolution(
+                path=_default_profile_home() / "config.yaml",
+                tier="root",
+                warning=None,
+            )
         if name not in {p["name"] for p in list_hermes_profiles()}:
             return None
         base = (hermes_root() / "profiles").resolve(strict=False)
