@@ -820,6 +820,7 @@
     Pet._runtime.historySeeded = false;
     Pet._runtime.armedSeeded = false;
     Pet._runtime.protectionSeeded = false;   // PET-236: the fields stay, like Pet.state.armed, so nothing flashes
+    Pet._runtime.scopeConfirmedFor = "";     // PET-238: each entry to a scope proves itself again
     Pet._runtime.historyPaging = false;
     Pet._runtime.historyPagingGen++;         // drop an in-flight PET-152 two-fetch re-mint chain
     Pet._shell.clearArmedConfirm();         // a confirm window formed about the previous profile

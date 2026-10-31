@@ -220,7 +220,9 @@ def list_hermes_profiles(*, use_override: bool = True) -> list[dict[str, Any]]:
         )
         out: list[dict[str, Any]] = []
         for child in sorted(base.iterdir()):
-            if not child.is_dir():
+            # `default` is reserved for the home with no profile (PET-238), so a folder
+            # with that name must not list a file its selector does not resolve to.
+            if not child.is_dir() or child.name == "default":
                 continue
             cfg = child / "config.yaml"
             if not cfg.is_file():

@@ -268,6 +268,17 @@ test("a confirmation for one profile does not cover the next", () => {
   assert.equal(P.state.scopeNotice, true);
 });
 
+test("a scope change expires the confirmation, even on a return to the same profile", () => {
+  const { P } = embedded();
+  P.state.selectedHermesProfile = "ops";
+  P._scope.adoptProtection({ armed: true, protection: { status: "no_copy", profile: "ops", next_steps: "" } }, "ops");
+  P._scope.invalidate();
+  P._scope.adoptRead({ scanners: [] });
+  assert.equal(P.state.scopeNotice, true, "no read has proved this entry yet");
+  P._scope.adoptProtection({ armed: true, protection: { status: "no_copy", profile: "ops", next_steps: "" } }, "ops");
+  assert.equal(P.state.scopeNotice, false);
+});
+
 test("regression PET-238: a prior scope's status is not presented under a scope error", () => {
   const { P } = embedded();
   P.state.protection = { status: "no_copy", profile: "ops", next_steps: "x", detail: "y" };

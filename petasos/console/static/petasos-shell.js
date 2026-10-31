@@ -272,6 +272,7 @@
     Pet._runtime.healthLoaded = false;   // PET-127: re-show the scanner-health skeleton on (re-)mount
     Pet._runtime.armedSeeded = false;    // PET-111: re-fetch the armed bit on (re-)mount
     Pet._runtime.protectionSeeded = false; // PET-236: and the protection status
+    Pet._runtime.scopeConfirmedFor = "";
     Pet._shell.clearArmedConfirm();     // drop any stale disarm-confirm + timer from a skipped unmount
     // PET-166 (D17/D19): a re-mount that skipped unmount must not inherit stale scope
     // facts (a foreign readScope from the prior mount would render another profile's
@@ -405,6 +406,7 @@
     Pet._runtime.healthLoaded = false;   // PET-127: next mount re-shows the scanner-health skeleton
     Pet._runtime.armedSeeded = false;    // PET-111: next mount re-fetches the armed bit
     Pet._runtime.protectionSeeded = false; // PET-236: and the protection status
+    Pet._runtime.scopeConfirmedFor = "";
     Pet._shell.clearArmedConfirm();     // clear the pending-disarm confirm + its 4s timer on teardown
   };
 

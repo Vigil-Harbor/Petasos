@@ -125,6 +125,20 @@ def test_regression_pet238_default_resolves_to_the_root_and_stays_off_the_list(
     assert [p["name"] for p in list_hermes_profiles()] == ["alpha"]
 
 
+def test_a_profiles_default_folder_is_not_listed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Its selector resolves to the root, so listing it would name a file it never reads.
+    root = _point_root_at(tmp_path, monkeypatch)
+    _write_profile(root, "alpha", {"fail_mode": "open"}, active=True)
+    _write_profile(root, "default", {"fail_mode": "closed"}, active=False)
+
+    assert [p["name"] for p in list_hermes_profiles()] == ["alpha"]
+    res = resolve_profile_config_path("default")
+    assert res is not None
+    assert res.path == root / "config.yaml"
+
+
 def test_default_under_hermes_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _point_root_at(tmp_path / "unused", monkeypatch)
     custom = tmp_path / "custom"
