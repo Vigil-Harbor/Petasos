@@ -42,6 +42,7 @@ from petasos import (
     Severity,
     ToolCallGuard,
 )
+from petasos.normalize import canonicalize_tool_name
 from petasos.scanners.minimal import MinimalScanner
 from petasos.session.formatting import format_block_message
 from petasos.session.guard import INGESTION_TOOLS, NON_INGESTING_TOOLS, GuardResult
@@ -559,6 +560,155 @@ def test_mcp_wire_name_that_strips_onto_exclusion_is_excluded(
     assert stub.calls == []
     msgs = [r.getMessage() for r in caplog.records if "PETASOS_INGEST_EXCLUDED" in r.getMessage()]
     assert len(msgs) == 1
+
+
+def _pet203_canons(n: int) -> list[str]:
+    return [f"mcp__pet203__n{i:04d}" for i in range(n)]
+
+
+def _assert_distinct_ingesting_canons(ref: Any, names: list[str]) -> None:
+    canons = [canonicalize_tool_name(name) for name in names]
+    assert len(set(canons)) == len(names)
+    assert max(len(canon) for canon in canons) <= 64
+    assert set(canons).isdisjoint(ref._NON_INGESTING_CANON)
+
+
+def test_excluded_latch_survives_not_string_eviction(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Exclusion first-sighting stays one line after 512 not-string keys."""
+    ref = _plugin(monkeypatch, pipeline=_StubPipeline(_scan((_finding(),))))
+    ref._reset_ingest_log()
+    names = _pet203_canons(512)
+    _assert_distinct_ingesting_canons(ref, names)
+    with caplog.at_level(logging.DEBUG, logger="petasos.plugin"):
+        ref._transform_tool_result(tool_name="write_file", result="c", task_id="s")
+        for name in names:
+            ref._transform_tool_result(tool_name=name, result={}, task_id="s")
+        ref._transform_tool_result(tool_name="write_file", result="c", task_id="s")
+    msgs = [r.getMessage() for r in caplog.records if "PETASOS_INGEST_EXCLUDED" in r.getMessage()]
+    assert msgs == ["PETASOS_INGEST_EXCLUDED tool=write_file canon=write_file"]
+    assert "write_file" in ref._ingest_log_excluded
+    assert ("write_file", "excluded") not in ref._ingest_log_seen
+
+
+def test_not_string_skip_keys_still_drop_oldest(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The shared map re-emits the evicted not-string key and not the newest."""
+    ref = _plugin(monkeypatch, pipeline=_StubPipeline(_scan((_finding(),))))
+    ref._reset_ingest_log()
+    names = _pet203_canons(513)
+    _assert_distinct_ingesting_canons(ref, names)
+    with caplog.at_level(logging.DEBUG, logger="petasos.plugin"):
+        for name in names:
+            ref._transform_tool_result(tool_name=name, result={}, task_id="s")
+        first = "tool=mcp__pet203__n0000 "
+        newest = "tool=mcp__pet203__n0512 "
+
+        def _hits(needle: str) -> int:
+            return sum(
+                1
+                for record in caplog.records
+                if "PETASOS_INGEST_NOT_STRING" in record.getMessage()
+                and needle in record.getMessage()
+            )
+
+        assert _hits(first) == 1
+        assert _hits(newest) == 1
+        ref._transform_tool_result(tool_name=names[0], result={}, task_id="s")
+        assert _hits(first) == 2
+        ref._transform_tool_result(tool_name=names[512], result={}, task_id="s")
+        assert _hits(newest) == 1
+
+
+def test_empty_kind_shares_not_string_drop_oldest(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """An empty-result latch is evicted by not-string keys on the shared map."""
+    ref = _plugin(monkeypatch, pipeline=_StubPipeline(_scan((_finding(),))))
+    ref._reset_ingest_log()
+    names = _pet203_canons(512)
+    _assert_distinct_ingesting_canons(ref, names)
+    with caplog.at_level(logging.DEBUG, logger="petasos.plugin"):
+        ref._transform_tool_result(tool_name="vision_analyze", result="", task_id="s")
+        for name in names:
+            ref._transform_tool_result(tool_name=name, result={}, task_id="s")
+        assert ("vision_analyze", "empty") not in ref._ingest_log_seen
+        empty_hits = sum(
+            1
+            for record in caplog.records
+            if "PETASOS_INGEST_NOT_STRING" in record.getMessage()
+            and "kind=empty" in record.getMessage()
+        )
+        ref._transform_tool_result(tool_name="vision_analyze", result="", task_id="s")
+        empty_after = sum(
+            1
+            for record in caplog.records
+            if "PETASOS_INGEST_NOT_STRING" in record.getMessage()
+            and "kind=empty" in record.getMessage()
+        )
+        assert empty_after == empty_hits + 1
+        newest = "tool=mcp__pet203__n0511 "
+        newest_hits = sum(
+            1
+            for record in caplog.records
+            if "PETASOS_INGEST_NOT_STRING" in record.getMessage() and newest in record.getMessage()
+        )
+        ref._transform_tool_result(tool_name=names[511], result={}, task_id="s")
+        newest_after = sum(
+            1
+            for record in caplog.records
+            if "PETASOS_INGEST_NOT_STRING" in record.getMessage() and newest in record.getMessage()
+        )
+        assert newest_after == newest_hits
+
+
+def test_excluded_latch_set_does_not_grow_past_canon(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A non-member excluded key cannot suppress a real exclusion first-sighting."""
+    ref = _plugin(monkeypatch, pipeline=_StubPipeline(_scan((_finding(),))))
+    ref._reset_ingest_log()
+    outsiders = [f"nm{i}" for i in range(8)]
+    assert len(set(outsiders)) == 8
+    assert set(outsiders).isdisjoint(ref._NON_INGESTING_CANON)
+    with caplog.at_level(logging.DEBUG, logger="petasos.plugin"):
+        for canon in outsiders:
+            ref._note_ingest_skip(
+                canon,
+                "excluded",
+                "PETASOS_INGEST_EXCLUDED tool=%s canon=%s",
+                canon,
+                canon,
+            )
+        assert all(canon not in ref._ingest_log_excluded for canon in outsiders)
+        ref._transform_tool_result(tool_name="write_file", result="c", task_id="s")
+        write_hits = [
+            record.getMessage()
+            for record in caplog.records
+            if record.getMessage() == "PETASOS_INGEST_EXCLUDED tool=write_file canon=write_file"
+        ]
+        assert write_hits == ["PETASOS_INGEST_EXCLUDED tool=write_file canon=write_file"]
+        for tool in sorted(NON_INGESTING_TOOLS):
+            ref._transform_tool_result(tool_name=tool, result="c", task_id="s")
+        assert len(ref._ingest_log_excluded) == len(ref._NON_INGESTING_CANON)
+        ref._note_ingest_skip(
+            "zz-overflow",
+            "excluded",
+            "PETASOS_INGEST_EXCLUDED tool=%s canon=%s",
+            "zz-overflow",
+            "zz-overflow",
+        )
+        assert "zz-overflow" not in ref._ingest_log_excluded
+        assert ("zz-overflow", "excluded") in ref._ingest_log_seen
+        ref._transform_tool_result(tool_name="write_file", result="c", task_id="s")
+        write_after = [
+            record.getMessage()
+            for record in caplog.records
+            if record.getMessage() == "PETASOS_INGEST_EXCLUDED tool=write_file canon=write_file"
+        ]
+        assert write_after == write_hits
 
 
 # ---------------------------------------------------------------------------

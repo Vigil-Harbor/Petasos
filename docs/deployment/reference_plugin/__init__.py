@@ -201,13 +201,16 @@ _MAX_DISARM_SESSIONS = 10_000
 
 # PET-179 / PET-181: first-sighting skip logs for gate 2 (not-string) and
 # gate 3 (excluded). Own clock and lock: a new rate-limited stream must not
-# be able to suppress PETASOS_DISARMED. Keyed on (canon[:64], kind) so an
-# unbounded MCP wire name cannot grow the map. Cap 512 still bounds memory
+# be able to suppress PETASOS_DISARMED. kind="excluded" for a canon in
+# _NON_INGESTING_CANON is stored in _ingest_log_excluded, keyed on
+# canon[:64], capped by that frozenset, and never evicted (PET-203). Every
+# other key, including a non-member kind="excluded", stays on
+# _ingest_log_seen keyed on (canon[:64], kind). Cap 512 still bounds memory
 # for unbounded MCP not-string first-sighting; drop-oldest duplicates DEBUG
-# rather than suppressing it. The eight exclusion latches cannot fill the
-# cap; the map is not split (PET-181). Far below _MAX_DISARM_SESSIONS.
+# rather than suppressing it. Far below _MAX_DISARM_SESSIONS.
 _ingest_log_lock = threading.Lock()
 _ingest_log_seen: dict[tuple[str, str], None] = {}
+_ingest_log_excluded: set[str] = set()
 _MAX_INGEST_LOG_KEYS = 512
 _INGEST_LOG_KEY_LEN = 64
 
@@ -1429,9 +1432,10 @@ def _reset_disarm_log() -> None:
 
 
 def _reset_ingest_log() -> None:
-    """Test seam — reset the PET-179 first-sighting ingest skip latches."""
+    """Test seam — reset both PET-179 first-sighting ingest skip stores."""
     with _ingest_log_lock:
         _ingest_log_seen.clear()
+        _ingest_log_excluded.clear()
 
 
 def _reset_ingest_unscanned_log() -> None:
@@ -1441,15 +1445,26 @@ def _reset_ingest_unscanned_log() -> None:
 
 
 def _note_ingest_skip(canon: str, kind: str, message: str, *args: object) -> None:
-    """Emit ``message`` at DEBUG once per (canon, kind); drop-oldest at the cap."""
-    key = (canon[:_INGEST_LOG_KEY_LEN], kind)
+    """Emit ``message`` at DEBUG once per (canon, kind).
+
+    A member of ``_NON_INGESTING_CANON`` with kind ``excluded`` is stored in
+    ``_ingest_log_excluded`` and is not evicted. Every other key, including
+    kind ``excluded`` for a non-member, uses ``_ingest_log_seen`` and drops
+    the oldest at 512.
+    """
+    short = canon[:_INGEST_LOG_KEY_LEN]
     with _ingest_log_lock:
-        if key in _ingest_log_seen:
-            return
-        if len(_ingest_log_seen) >= _MAX_INGEST_LOG_KEYS:
-            oldest = next(iter(_ingest_log_seen))
-            del _ingest_log_seen[oldest]
-        _ingest_log_seen[key] = None
+        if kind == "excluded" and canon in _NON_INGESTING_CANON:
+            if short in _ingest_log_excluded:
+                return
+            _ingest_log_excluded.add(short)
+        else:
+            key = (short, kind)
+            if key in _ingest_log_seen:
+                return
+            if len(_ingest_log_seen) >= _MAX_INGEST_LOG_KEYS:
+                del _ingest_log_seen[next(iter(_ingest_log_seen))]
+            _ingest_log_seen[key] = None
     logger.debug(message, *args)
 
 

@@ -53,7 +53,9 @@ presidio = [
 console = ["fastapi>=0.110,<1", "uvicorn[standard]>=0.29,<1"]
 all = ["petasos[llm-guard,llamafirewall,presidio,console]"]
 dev = [
-    "pytest>=8.0",
+    # pytest-benchmark 5.3.0 reads node._nodeid, which pytest 9.2.0 removed. Lift the
+    # cap once a pytest-benchmark release supports 9.2.
+    "pytest>=8.0,<9.2",
     "pytest-benchmark>=5.0,<6",
     "pytest-cov>=5.0",
     "anyio[trio]>=4.0",
