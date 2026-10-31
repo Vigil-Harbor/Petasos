@@ -173,6 +173,18 @@ test("runTrapBurst: held below tier3 fires the cap, no throw, button restored", 
   assert.equal(trapBtn.disabled, false);
 });
 
+test("regression PET-236: runTrapBurst treats a non-OK body with no error key as an error", async () => {
+  const resultArea = document.createElement("div");
+  const trapBtn = document.createElement("button");
+  await Pet.runTrapBurst({
+    resultArea,
+    trapBtn,
+    api: { postScan: () => Promise.resolve({ _status: 500 }) },
+  });
+  assert.ok(findEl(vizRoot(resultArea), isErrorBlock), "a status-only 500 is not an allowed shot");
+  assert.equal(trapBtn.disabled, false, "button restored");
+});
+
 test("runTrapBurst: a rejection and an {error} envelope both surface an error + restore", async () => {
   // (a) rejected promise
   let resultArea = document.createElement("div");

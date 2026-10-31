@@ -186,6 +186,33 @@ def test_malformed_manifest_is_skipped_and_not_recursed(tmp_path: Path) -> None:
     assert found.winner == copy
 
 
+def test_regression_pet236_duplicate_key_manifest_is_no_manifest(tmp_path: Path) -> None:
+    # Hermes's parser raises on a duplicate key and loads no hook; PyYAML keeps the last one.
+    home = _home(tmp_path)
+    _folder(home / "plugins", "petasos", "name: petasos\nname: petasos\n")
+    found = protection_status(home)
+    assert found.status == "no_copy"
+    assert found.winner is None
+
+
+def test_nested_duplicate_key_manifest_is_no_manifest(tmp_path: Path) -> None:
+    home = _home(tmp_path)
+    _folder(home / "plugins", "petasos", "name: petasos\nmeta:\n  a: 1\n  a: 2\n")
+    assert protection_status(home).status == "no_copy"
+
+
+def test_duplicate_key_config_is_a_config_failure(tmp_path: Path) -> None:
+    home = _home(tmp_path, "plugins:\n  enabled: [petasos]\nplugins:\n  enabled: []\n")
+    _folder(home / "plugins", "petasos")
+    assert protection_status(home).status == "unknown"
+
+
+def test_yaml_merge_keys_are_not_duplicates(tmp_path: Path) -> None:
+    home = _home(tmp_path)
+    _folder(home / "plugins", "petasos", "base: &b {x: 1}\na: {<<: *b}\nb: {<<: *b}\n")
+    assert protection_status(home).status == "hook_can_load"
+
+
 def test_bom_manifest(tmp_path: Path) -> None:
     home = _home(tmp_path)
     copy = _folder(home / "plugins", "other")
@@ -354,7 +381,7 @@ def test_no_copy_prints_the_exact_commands(tmp_path: Path, shell: bool) -> None:
     source, target = root / "plugins" / "petasos", home / "plugins" / "petasos"
     if shell:
         assert f"New-Item -ItemType Directory -Force '{home / 'plugins'}'" in steps
-        assert f"Copy-Item -Recurse '{source}' '{target}'" in steps
+        assert f"Copy-Item -Recurse -LiteralPath '{source}' -Destination '{target}'" in steps
     else:
         assert f"mkdir -p '{home / 'plugins'}'" in steps
         assert f"cp -R '{source}' '{target}'" in steps
@@ -381,6 +408,8 @@ def test_shadowed_creates_its_destination_first(tmp_path: Path, shell: bool) -> 
     assert str(backups) in lines[0]
     assert ("New-Item" if shell else "mkdir") in lines[0]
     assert str(bak) in lines[1]
+    if shell:  # a claimant named petasos[1] must not act as a wildcard pattern
+        assert lines[1].startswith(f"Move-Item -LiteralPath '{bak}' -Destination ")
     assert "rename one first" in steps
     assert "still loads" in steps
     assert pf._INTENDED_SENTENCE not in steps

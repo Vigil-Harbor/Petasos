@@ -287,6 +287,8 @@ test("the other failed-response gates use Pet.responseOk at the source", () => {
   assert.match(config, /if \(!Pet\.responseOk\(d\)\) \{\s*formArea\.insertBefore/);
   assert.match(config, /else if \(resp && !Pet\.responseOk\(resp\)\)/);
   assert.match(config, /"Config unavailable: " \+ d\.detail/);
+  const playground = consoleSources.find((s) => s.filename === "petasos-playground.js").source;
+  assert.equal(playground.match(/!Pet\.responseOk\(d\) \|\| d\.detail/g).length, 2);
 });
 
 test("standalone: a failed first read stays null and is seeded; after a landed read it is unknown", () => {

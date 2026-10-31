@@ -136,9 +136,10 @@
         // poll/mount reader 401s first; the bearer attach for postScan is via _req.)
         if (Pet.auth.on401(d)) return;
         resultArea.innerHTML = "";
-        if (d && (d.error || d.detail)) {
+        if (d && (!Pet.responseOk(d) || d.detail)) { // PET-236: a non-OK body may hold neither key
           var msg = d.error;
-          if (msg == null) { try { msg = JSON.stringify(d.detail); } catch (_) { msg = String(d.detail); } }
+          if (msg == null && d.detail != null) { try { msg = JSON.stringify(d.detail); } catch (_) { msg = String(d.detail); } }
+          if (msg == null) msg = "HTTP " + d._status;
           resultArea.appendChild(Pet.scanErrorBlock(msg));
           return;
         }
@@ -282,7 +283,7 @@
       var payload = Pet.TRAP_PAYLOADS[(shot - 1) % Pet.TRAP_PAYLOADS.length];
       return _trapTimeout(api.postScan(payload, "inbound", sid), shotTimeout).then(function (d) {
         if (Pet.auth.on401(d)) { done(); return; }
-        if (d && (d.error || d.detail)) { viz.error(shot); done(); return; }
+        if (d && (!Pet.responseOk(d) || d.detail)) { viz.error(shot); done(); return; } // PET-236: a non-OK body may hold neither key
         // Scan fields are nested under .result (mirrors Pet.renderScanResult).
         var res = (d && d.result) || {};
         var score = Number(res.session_score);

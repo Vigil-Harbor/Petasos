@@ -45,6 +45,41 @@ class ProtectionStatus:
     next_steps: str  # empty for hook_can_load; literal paths
 
 
+def _has_duplicate_key(node: Any, visited: set[int]) -> bool:
+    if id(node) in visited:  # an alias can make the node graph cyclic
+        return False
+    visited.add(id(node))
+    if isinstance(node.value, str):
+        return False
+    pairs = node.value
+    if node.id == "mapping":
+        keys = [
+            (key.tag, key.value)
+            for key, _ in pairs
+            if key.id == "scalar" and key.tag != "tag:yaml.org,2002:merge"
+        ]
+        if len(keys) != len(set(keys)):
+            return True
+        children = [child for pair in pairs for child in pair]
+    else:
+        children = pairs
+    return any(_has_duplicate_key(child, visited) for child in children)
+
+
+def _load_yaml(text: str) -> Any:
+    """``yaml.safe_load`` that rejects duplicate keys at any depth, as Hermes's parser does.
+
+    PyYAML keeps the last duplicate, where Hermes raises and the file counts as a parse
+    failure. Without this a manifest with two ``name:`` lines would read as loadable.
+    """
+    import yaml
+
+    root = yaml.compose(text, Loader=yaml.SafeLoader)
+    if root is not None and _has_duplicate_key(root, set()):
+        raise yaml.YAMLError("duplicate key")
+    return yaml.safe_load(text)
+
+
 def _claimed_name(folder: Path) -> tuple[bool, Any]:
     """``(has_manifest_file, claimed_name)``; the name is None when the manifest is unusable.
 
@@ -57,7 +92,7 @@ def _claimed_name(folder: Path) -> tuple[bool, Any]:
         manifest = folder / filename
         if manifest.exists():
             try:
-                data = yaml.safe_load(manifest.read_text(encoding="utf-8-sig")) or {}
+                data = _load_yaml(manifest.read_text(encoding="utf-8-sig")) or {}
             except (OSError, ValueError, yaml.YAMLError):
                 return True, None
             if not isinstance(data, dict):
@@ -125,7 +160,7 @@ def _read_config(home: Path) -> tuple[dict[str, Any], bool]:
     except (OSError, ValueError):
         return {}, False
     try:
-        data = yaml.safe_load(text) or {}
+        data = _load_yaml(text) or {}
     except yaml.YAMLError:
         return {}, False
     if not isinstance(data, dict):
@@ -184,13 +219,17 @@ def _mkdir_command(path: Path) -> str:
 
 def _copy_command(source: Path, target: Path) -> str:
     if _is_windows():
-        return f"Copy-Item -Recurse {_quote(str(source))} {_quote(str(target))}"
+        # -LiteralPath: a folder name holding [ or ] is otherwise a wildcard pattern.
+        return (
+            f"Copy-Item -Recurse -LiteralPath {_quote(str(source))}"
+            f" -Destination {_quote(str(target))}"
+        )
     return f"cp -R {_quote(str(source))} {_quote(str(target))}"
 
 
 def _move_command(source: Path, dest_dir: Path) -> str:
     if _is_windows():
-        return f"Move-Item {_quote(str(source))} {_quote(str(dest_dir))}"
+        return f"Move-Item -LiteralPath {_quote(str(source))} -Destination {_quote(str(dest_dir))}"
     return f"mv {_quote(str(source))} {_quote(str(dest_dir))}"
 
 

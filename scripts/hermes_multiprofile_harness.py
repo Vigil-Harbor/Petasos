@@ -248,6 +248,7 @@ def check_predictor_conformance(root: Path) -> None:
         "claims_something_else": [("petasos", "name: other\n")],
         "pycache": [("__pycache__", "name: petasos\n")],
         "foreign_harness": [(".claude-plugin", "name: petasos\n")],
+        "duplicate_key_manifest": [("petasos", "name: petasos\nname: petasos\n")],
     }
     base = root / "conformance"
     for name, folders in shapes.items():
@@ -473,11 +474,16 @@ def probe_hooks() -> int:
     # 6. Concurrent turns on three homes through copied contexts (the worker-thread route).
     set_enabled(ops, False)
     out: dict[str, list[Any]] = {"gibson": [], "ops": [], "later": []}
+    turns_each = 25
+    worker_errors: list[str] = []
 
     def worker(name: str, home: Path) -> None:
-        for i in range(25):
-            d, _, _ = turn(home, f"c-{name}-{i}")
-            out[name].append(d)
+        try:
+            for i in range(turns_each):
+                d, _, _ = turn(home, f"c-{name}-{i}")
+                out[name].append(d)
+        except Exception as exc:
+            worker_errors.append(f"{name}: {type(exc).__name__}: {exc}")
 
     threads = [
         threading.Thread(target=contextvars.copy_context().run, args=(worker, n, h))
@@ -491,6 +497,12 @@ def probe_hooks() -> int:
     def tally(name: str) -> dict[str, int]:
         return {str(x): out[name].count(x) for x in set(out[name])}
 
+    check("concurrent.no_worker_raised", not worker_errors, worker_errors)
+    check(
+        "concurrent.every_turn_completed",
+        all(len(out[name]) == turns_each for name in out),
+        {name: len(out[name]) for name in out},
+    )
     check(
         "concurrent.gibson_always_blocks",
         all(x == "block" for x in out["gibson"]),
@@ -551,8 +563,7 @@ def probe_hooks() -> int:
         got or child.stderr[-300:],
     )
 
-    finish("hooks")
-    return 0
+    return finish("hooks")
 
 
 # ---------------------------------------------------------------- dashboard probe
@@ -756,16 +767,17 @@ def probe_dash() -> int:
             getattr(host, "stop", lambda: None)()
     except Exception as exc:
         print("host stop:", exc, flush=True)
-    finish("dash")
-    return 0
+    return finish("dash")
 
 
-def finish(mode: str) -> None:
+def finish(mode: str) -> int:
+    """Write results, and return non-zero when any recorded check failed."""
     out = workdir() / f"results-{os.environ['PET_HARNESS_LABEL']}-{mode}.json"
     out.write_text(json.dumps(RESULTS, indent=1, default=str), encoding="utf-8")
     bad = [r["check"] for r in RESULTS if not r["ok"]]
     print(f"\n{mode}: {len(RESULTS) - len(bad)}/{len(RESULTS)} passed; failed={bad}", flush=True)
     sys.stdout.flush()
+    return 1 if bad else 0
 
 
 def main() -> int:
