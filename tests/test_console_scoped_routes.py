@@ -278,6 +278,31 @@ async def test_idle_stream_limit_tracks_broadcaster_bound(profiles: Path) -> Non
     assert h._idle_stream_count == 0
 
 
+async def test_scoped_read_adds_selected_protection_about_the_selected_profile(
+    profiles: Path,
+) -> None:
+    # PET-236: `protection` follows the write binding, as `armed` does (PET-185).
+    alpha_copy = profiles / "profiles" / "alpha" / "plugins" / "petasos"
+    alpha_copy.mkdir(parents=True)
+    (alpha_copy / "plugin.yaml").write_text("name: petasos\n", encoding="utf-8")
+    (alpha_copy / "__init__.py").write_text("", encoding="utf-8")
+    alpha_config = profiles / "profiles" / "alpha" / "config.yaml"
+    alpha_config.write_text(
+        "plugins:\n  enabled: [petasos]\npetasos:\n  enabled: true\n", encoding="utf-8"
+    )
+    handlers = server_mod.ConsoleHandlers(_make_pipeline())
+
+    body = await handlers.get_armed(profile="beta", include_protection=True)
+    assert body["read_scope"]["state"] == "not_equipped"
+    assert body["protection"]["status"] == "hook_can_load"
+    assert body["protection"]["profile"] == "alpha"
+    assert body["selected_protection"]["status"] == "no_copy"
+    assert body["selected_protection"]["profile"] == "beta"
+
+    equipped = await handlers.get_armed(profile="alpha", include_protection=True)
+    assert "selected_protection" not in equipped
+
+
 async def test_bridge_and_standalone_agree_on_every_scoped_contract(
     client: tuple[Any, str], profiles: Path
 ) -> None:

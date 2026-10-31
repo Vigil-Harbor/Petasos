@@ -11,10 +11,14 @@ config, built by the plugin's own builder; a structural pin keeps them there.
 from __future__ import annotations
 
 import ast
+import hashlib
 import importlib.util
+import json
+import logging
 import os
 import re
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -1079,3 +1083,415 @@ def resolve_deployed_config():
 """
     violations_absent = check_no_literal_config(absent)
     assert any("check_features" in v and "expected exactly one" in v for v in violations_absent)
+
+
+# --- PET-236: per-profile rows ---------------------------------------------
+
+_CONFIGURED_ARMED = {"plugins": {"enabled": ["petasos"]}, "petasos": {"enabled": True}}
+_CONFIGURED_DISARMED = {"plugins": {"enabled": ["petasos"]}, "petasos": {"enabled": False}}
+
+
+def _home_config(home: Path, data: dict[str, Any]) -> None:
+    home.mkdir(parents=True, exist_ok=True)
+    (home / "config.yaml").write_text(yaml.safe_dump(data), encoding="utf-8")
+
+
+def _plugin_copy(home: Path, folder: str = "petasos", source: str = "# plugin") -> Path:
+    copy = home / "plugins" / folder
+    copy.mkdir(parents=True)
+    (copy / "plugin.yaml").write_text("name: petasos\n", encoding="utf-8")
+    (copy / "__init__.py").write_text(source, encoding="utf-8")
+    return copy
+
+
+def _state_file(
+    home: Path,
+    served: Any = ("default",),
+    *,
+    gateway_state: str = "running",
+    age: float = 0.0,
+    pid: Any = 4242,
+    naive: bool = False,
+) -> None:
+    stamp = datetime.now(timezone.utc) - timedelta(seconds=age)
+    if naive:
+        stamp = stamp.replace(tzinfo=None)
+    record = {
+        "pid": pid,
+        "gateway_state": gateway_state,
+        "updated_at": stamp.isoformat(),
+        "served_profiles": list(served) if isinstance(served, tuple) else served,
+    }
+    home.mkdir(parents=True, exist_ok=True)
+    (home / "gateway_state.json").write_text(json.dumps(record), encoding="utf-8")
+
+
+def _identity(
+    home: Path,
+    folder: Path,
+    *,
+    pid: int = 4242,
+    digest: str | None = None,
+    stamp: str = "2026-10-31 00:00:00,000",
+    filename: str = "agent.log",
+) -> None:
+    if digest is None:
+        digest = hashlib.sha256((folder / "__init__.py").read_bytes()).hexdigest()
+    logs = home / "logs"
+    logs.mkdir(parents=True, exist_ok=True)
+    with open(logs / filename, "a", encoding="utf-8") as f:
+        f.write(
+            f"{stamp} INFO petasos.plugin: "
+            f"PETASOS_PLUGIN_IDENTITY pid={pid} path={folder} sha256={digest}\n"
+        )
+
+
+def _rows(verify: Any) -> dict[str, tuple[str, str]]:
+    verify.results.clear()
+    verify.check_profile_rows()
+    return {name: (status, detail) for name, status, detail in verify.results}
+
+
+@pytest.fixture()
+def root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    _clean_env(monkeypatch)
+    _reset_armed()
+    home = _setup_root(tmp_path, monkeypatch)
+    home.mkdir(parents=True)
+    return home
+
+
+def _profile(root: Path, name: str, config: dict[str, Any]) -> Path:
+    home = root / "profiles" / name
+    _home_config(home, config)
+    return home
+
+
+def test_regression_pet236_served_armed_copyless_profile_fails(root: Path) -> None:
+    """Done-when 3: an armed profile with no copy must be FAIL when it is served."""
+    _home_config(root, _CONFIGURED_ARMED)
+    _plugin_copy(root)
+    _profile(root, "ops", _CONFIGURED_ARMED)
+    _state_file(root, ("default", "ops"))
+    rows = _rows(_load_verify_module())
+    status, detail = rows["Profile ops"]
+    assert status == "FAIL"
+    assert "Armed with no hook" in detail
+
+
+def test_served_disarmed_copyless_profile_warns(root: Path) -> None:
+    _home_config(root, _CONFIGURED_ARMED)
+    _plugin_copy(root)
+    _profile(root, "ops", _CONFIGURED_DISARMED)
+    _state_file(root, ("default", "ops"))
+    status, detail = _rows(_load_verify_module())["Profile ops"]
+    assert status == "WARN"
+    assert "Not protected" in detail
+
+
+def test_served_unconfigured_copyless_profile_warns_though_read_armed_is_true(root: Path) -> None:
+    _home_config(root, _CONFIGURED_ARMED)
+    _plugin_copy(root)
+    _profile(root, "discord", {"model": {"provider": "x"}})
+    _state_file(root, ("default", "discord"))
+    status, detail = _rows(_load_verify_module())["Profile discord"]
+    assert status == "WARN"
+    assert "not armed" in detail
+
+
+def test_regression_pet236_same_name_folder_winning_fails(root: Path) -> None:
+    """Done-when 4: a same-name folder winning must be FAIL."""
+    _home_config(root, _CONFIGURED_ARMED)
+    _plugin_copy(root)
+    bak = _plugin_copy(root, "petasos.bak-1")
+    _state_file(root, ("default",))
+    status, detail = _rows(_load_verify_module())["Profile default"]
+    assert status == "FAIL"
+    assert str(bak) in detail or bak.name in detail
+
+
+def test_clean_profile_passes_with_a_matching_line(root: Path) -> None:
+    _home_config(root, _CONFIGURED_ARMED)
+    copy = _plugin_copy(root)
+    _state_file(root, ("default",))
+    _identity(root, copy)
+    status, detail = _rows(_load_verify_module())["Profile default"]
+    assert status == "PASS"
+    assert "armed" in detail
+    assert "load checked" in detail
+
+
+@pytest.mark.parametrize(
+    "shape",
+    ["missing", "unreadable", "malformed", "stopped", "stale"],
+)
+def test_no_live_gateway_lists_every_profile_and_cannot_fail_on_a_missing_hook(
+    root: Path, shape: str
+) -> None:
+    _home_config(root, _CONFIGURED_ARMED)
+    _plugin_copy(root)
+    _profile(root, "ops", _CONFIGURED_ARMED)
+    _profile(root, "later", _CONFIGURED_ARMED)
+    state = root / "gateway_state.json"
+    if shape == "unreadable":
+        state.mkdir()
+    elif shape == "malformed":
+        state.write_text("{not json", encoding="utf-8")
+    elif shape == "stopped":
+        _state_file(root, ("default",), gateway_state="stopped")
+    elif shape == "stale":
+        _state_file(root, ("default",), age=500)
+    rows = _rows(_load_verify_module())
+    assert rows["Profile audit"][0] == "WARN"
+    assert "load not checked" in rows["Profile audit"][1]
+    assert rows["Profile ops"][0] == "WARN"
+    assert "if this profile is served" in rows["Profile ops"][1]
+    assert rows["Profile later"][0] == "WARN"
+    assert rows["Profile default"][0] == "PASS"
+    assert "load not checked" in rows["Profile default"][1]
+
+
+def test_no_live_gateway_still_fails_a_shadowed_home(root: Path) -> None:
+    _home_config(root, _CONFIGURED_ARMED)
+    _plugin_copy(root)
+    _plugin_copy(root, "petasos.bak-1")
+    assert _rows(_load_verify_module())["Profile default"][0] == "FAIL"
+
+
+def test_live_with_no_list_lists_every_profile_and_checks_identity(root: Path) -> None:
+    _home_config(root, _CONFIGURED_ARMED)
+    copy = _plugin_copy(root)
+    _profile(root, "ops", _CONFIGURED_ARMED)
+    _state_file(root, [])
+    _identity(root, copy)
+    rows = _rows(_load_verify_module())
+    assert "lists no served profiles" in rows["Profile audit"][1]
+    assert rows["Profile ops"][0] == "WARN"
+    assert "load checked" in rows["Profile default"][1]
+
+
+def test_degraded_is_live_and_naive_updated_at_reads_as_utc(root: Path) -> None:
+    _home_config(root, _CONFIGURED_ARMED)
+    _plugin_copy(root)
+    _state_file(root, ("default",), gateway_state="degraded", naive=True)
+    rows = _rows(_load_verify_module())
+    assert "Profile audit" not in rows
+
+
+def test_hermes_home_tier_reports_one_home_and_opens_nothing_at_the_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _clean_env(monkeypatch)
+    _reset_armed()
+    root = _setup_root(tmp_path, monkeypatch)
+    _home_config(root, _CONFIGURED_ARMED)
+    _state_file(root, ("default", "ops"))
+    _identity(root, _plugin_copy(root))
+    other = tmp_path / "other"
+    _home_config(other, _CONFIGURED_ARMED)
+    monkeypatch.setenv("HERMES_HOME", str(other))
+    rows = _rows(_load_verify_module())
+    assert "sibling profiles were not audited" in rows["Profile audit"][1]
+    assert "load not checked" in rows["Profile audit"][1]
+    profile_rows = [name for name in rows if name != "Profile audit"]
+    assert profile_rows == [f"Profile {other}"]
+    assert "hermes " not in rows[f"Profile {other}"][1]  # no command can reach this home
+
+
+def test_profile_tier_reads_the_active_homes_live_state(root: Path) -> None:
+    gibson = _profile(root, "gibson", _CONFIGURED_ARMED)
+    ops = _profile(root, "ops", _CONFIGURED_ARMED)
+    (root / "active_profile").write_text("gibson", encoding="utf-8")
+    _state_file(root, ("default",), age=500)
+    _state_file(gibson, ("ops",))
+    assert ops.is_dir()
+    rows = _rows(_load_verify_module())
+    assert rows["Profile ops"][0] == "FAIL"
+
+
+def test_a_stale_profile_state_file_is_ignored(root: Path) -> None:
+    gibson = _profile(root, "gibson", _CONFIGURED_ARMED)
+    (root / "active_profile").write_text("gibson", encoding="utf-8")
+    _state_file(root, ("default",), gateway_state="stopped")
+    _state_file(gibson, ("gibson",), age=500)
+    assert "load not checked" in _rows(_load_verify_module())["Profile audit"][1]
+
+
+def test_served_name_with_no_config_warns(root: Path) -> None:
+    _state_file(root, ("gone",))
+    status, detail = _rows(_load_verify_module())["Profile gone"]
+    assert status == "WARN"
+    assert "no config.yaml" in detail
+
+
+def test_traversal_shaped_served_name_resolves_to_nothing(root: Path) -> None:
+    _state_file(root, ("../../etc",))
+    status, detail = _rows(_load_verify_module())["Profile ../../etc"]
+    assert status == "WARN"
+    assert "no config.yaml" in detail
+
+
+def test_one_profile_raising_leaves_the_others_printed(
+    root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _home_config(root, _CONFIGURED_ARMED)
+    _plugin_copy(root)
+    ops = _profile(root, "ops", _CONFIGURED_DISARMED)
+    _state_file(root, ("ops", "default"))
+    verify = _load_verify_module()
+    real = verify._profile_row
+
+    def flaky(home: Path, *args: Any) -> Any:
+        if home == ops:
+            raise RuntimeError("boom")
+        return real(home, *args)
+
+    monkeypatch.setattr(verify, "_profile_row", flaky)
+    rows = _rows(verify)
+    assert rows["Profile ops"] == ("FAIL", "boom")
+    assert rows["Profile default"][0] != "FAIL"
+
+
+def _armed_default(root: Path) -> Path:
+    _home_config(root, _CONFIGURED_ARMED)
+    copy = _plugin_copy(root)
+    _state_file(root, ("default",))
+    return copy
+
+
+def test_identity_other_folder_fails(root: Path) -> None:
+    _armed_default(root)
+    # A sibling that no longer claims the name, such as one renamed since the gateway started.
+    other = _plugin_copy(root, "other-name", "# other")
+    (other / "plugin.yaml").write_text("name: other\n", encoding="utf-8")
+    _identity(root, other)
+    status, detail = _rows(_load_verify_module())["Profile default"]
+    assert status == "FAIL"
+    assert "Gateway loaded" in detail
+    assert "Restart" in detail
+
+
+def test_identity_other_hash_fails(root: Path) -> None:
+    _identity(root, _armed_default(root), digest="0" * 64)
+    status, detail = _rows(_load_verify_module())["Profile default"]
+    assert status == "FAIL"
+    assert "older bytes" in detail
+
+
+def test_identity_another_pid_is_ignored(root: Path) -> None:
+    _identity(root, _armed_default(root), pid=99)
+    status, detail = _rows(_load_verify_module())["Profile default"]
+    assert status == "WARN"
+    assert "inconclusive" in detail
+
+
+def test_identity_line_in_another_homes_log_is_credited_to_its_own_home(root: Path) -> None:
+    _home_config(root, _CONFIGURED_ARMED)
+    root_copy = _plugin_copy(root)
+    ops = _profile(root, "ops", _CONFIGURED_ARMED)
+    ops_copy = _plugin_copy(ops)
+    _state_file(root, ("default", "ops"))
+    _identity(ops, root_copy)  # a record routes by its hermes_home, not the path it names
+    _identity(root, ops_copy)
+    rows = _rows(_load_verify_module())
+    assert rows["Profile default"][0] == "PASS"
+    assert rows["Profile ops"][0] == "PASS"
+
+
+def test_identity_only_in_a_rotated_log(root: Path) -> None:
+    _identity(root, _armed_default(root), filename="agent.log.2")
+    assert _rows(_load_verify_module())["Profile default"][0] == "PASS"
+
+
+def test_identity_line_only_in_the_roots_log(root: Path) -> None:
+    _home_config(root, _CONFIGURED_ARMED)
+    ops = _profile(root, "ops", _CONFIGURED_ARMED)
+    copy = _plugin_copy(ops)
+    _state_file(root, ("ops",))
+    _identity(root, copy)
+    assert _rows(_load_verify_module())["Profile ops"][0] == "PASS"
+
+
+def test_identity_junctioned_copy_gets_credit(root: Path, tmp_path: Path) -> None:
+    _home_config(root, _CONFIGURED_ARMED)
+    real = tmp_path / "elsewhere" / "copy"
+    real.mkdir(parents=True)
+    (real / "plugin.yaml").write_text("name: petasos\n", encoding="utf-8")
+    (real / "__init__.py").write_text("# plugin", encoding="utf-8")
+    (root / "plugins").mkdir()
+    try:
+        os.symlink(real, root / "plugins" / "petasos", target_is_directory=True)
+    except OSError:
+        pytest.skip("symlinks need privileges on this host")
+    _state_file(root, ("default",))
+    _identity(root, real.resolve())
+    assert _rows(_load_verify_module())["Profile default"][0] == "PASS"
+
+
+def test_identity_newest_by_timestamp_across_files(root: Path) -> None:
+    copy = _armed_default(root)
+    _identity(root, copy, stamp="2026-10-31 09:00:00,000", filename="agent.log.1")
+    _identity(root, copy, digest="0" * 64, stamp="2026-10-31 08:00:00,000")
+    assert _rows(_load_verify_module())["Profile default"][0] == "PASS"
+
+
+def test_identity_log_file_raising_is_skipped(root: Path) -> None:
+    copy = _armed_default(root)
+    (root / "logs" / "agent.log.1").mkdir(parents=True)  # opening a folder raises OSError
+    _identity(root, copy)
+    assert _rows(_load_verify_module())["Profile default"][0] == "PASS"
+
+
+def test_identity_no_line_is_inconclusive_and_names_the_causes(root: Path) -> None:
+    _armed_default(root)
+    status, detail = _rows(_load_verify_module())["Profile default"]
+    assert status == "WARN"
+    assert "plugins.isolation: host" in detail
+    assert "log level above INFO" in detail
+
+
+def test_identity_unavailable_digest_is_inconclusive(root: Path) -> None:
+    _identity(root, _armed_default(root), digest="unavailable")
+    assert _rows(_load_verify_module())["Profile default"][0] == "WARN"
+
+
+def test_identity_unreadable_init_is_inconclusive(
+    root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _identity(root, _armed_default(root))
+    verify = _load_verify_module()
+    monkeypatch.setattr(verify, "_file_digest", lambda path: None)
+    assert _rows(verify)["Profile default"][0] == "WARN"
+
+
+def test_identity_round_trip_with_the_real_logging_call(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A line from the plugin's own helper parses here, with a space in the path."""
+    _clean_env(monkeypatch)
+    _reset_armed()
+    root = _setup_root(tmp_path / "with space", monkeypatch)
+    _home_config(root, _CONFIGURED_ARMED)
+    copy = _plugin_copy(root)
+    real = _PROJECT_ROOT / "docs" / "deployment" / "reference_plugin" / "__init__.py"
+    (copy / "__init__.py").write_bytes(real.read_bytes())
+    _state_file(root, ("default",), pid=os.getpid())
+
+    spec = importlib.util.spec_from_file_location("pet236_copy", copy / "__init__.py")
+    assert spec is not None and spec.loader is not None
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = mod
+    try:
+        spec.loader.exec_module(mod)
+        with caplog.at_level(logging.INFO, logger="petasos.plugin"):
+            mod._log_plugin_identity()
+    finally:
+        del sys.modules[spec.name]
+    line = next(
+        r.getMessage() for r in caplog.records if "PETASOS_PLUGIN_IDENTITY" in r.getMessage()
+    )
+    logs = root / "logs"
+    logs.mkdir()
+    (logs / "agent.log").write_text(f"2026-10-31 00:00:00,000 INFO {line}\n", encoding="utf-8")
+    status, detail = _rows(_load_verify_module())["Profile default"]
+    assert status == "PASS", detail

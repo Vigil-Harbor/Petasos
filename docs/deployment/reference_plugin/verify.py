@@ -6,17 +6,22 @@ Run with Hermes's Python:
 
 Checks: scanner imports, config validation, credentials, license activation,
 session-feature state read from the deployed config, arming state, a synthetic
-injection scan, plugin file presence, and config split-brain detection between
-root and profile homes.
+injection scan, plugin file presence, config split-brain detection between root
+and profile homes, and one row per served profile: which folder wins the petasos
+name, whether a hook can load, and whether the gateway's load log agrees.
 """
 
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import importlib.util
+import json
 import os
+import re
 import sys
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
@@ -25,6 +30,7 @@ if TYPE_CHECKING:
 
     from petasos import PetasosConfig
     from petasos.console._paths import HermesConfigResolution
+    from petasos.console._plugin_files import ProtectionStatus
 
 PASS = "PASS"
 FAIL = "FAIL"
@@ -54,6 +60,22 @@ _SESSION_FEATURES: tuple[tuple[str, str], ...] = (
     ("audit", "audit_enabled"),
     ("alerting", "alert_enabled"),
 )
+
+
+# PET-236: Hermes treats a status snapshot older than this as suspect.
+_GATEWAY_STALE_SECONDS = 120
+_GATEWAY_STATE_FILE = "gateway_state.json"
+_IDENTITY_RE = re.compile(
+    r"PETASOS_PLUGIN_IDENTITY pid=(?P<pid>\d+) path=(?P<path>.+) sha256=(?P<digest>\S+)\s*$"
+)
+_LOG_TIMESTAMP_RE = re.compile(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}[,.]\d+")
+
+
+@dataclass(frozen=True)
+class _IdentityLine:
+    stamp: str  # the line's own timestamp; sorts as text, empty when absent
+    folder: str
+    digest: str
 
 
 def _where(res: HermesConfigResolution) -> str:
@@ -485,6 +507,272 @@ def _file_has_petasos_key(path: Path) -> bool:
         return False
 
 
+def _read_gateway_state(path: Path) -> dict[str, Any] | None:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _gateway_is_live(state: dict[str, Any] | None) -> bool:
+    """A stopped gateway's served_profiles persists, so only a fresh running record counts."""
+    if state is None:
+        return False
+    pid = state.get("pid")
+    if not isinstance(pid, int) or isinstance(pid, bool):
+        return False
+    if state.get("gateway_state") not in ("running", "degraded"):
+        return False
+    raw = state.get("updated_at")
+    if not isinstance(raw, str):
+        return False
+    text = raw.strip()
+    if text.endswith(("Z", "z")):
+        text = text[:-1] + "+00:00"
+    try:
+        stamp = datetime.fromisoformat(text)
+    except ValueError:
+        return False
+    if stamp.tzinfo is None:  # Hermes reads a naive updated_at as UTC
+        stamp = stamp.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - stamp).total_seconds() < _GATEWAY_STALE_SECONDS
+
+
+def _live_gateway(res: HermesConfigResolution) -> dict[str, Any] | None:
+    """The live gateway record for this deployment, or None."""
+    from petasos.console._paths import hermes_root
+
+    if res.tier == "hermes_home":
+        candidates = [res.path.parent / _GATEWAY_STATE_FILE]
+    else:
+        # A gateway launched in a profile home writes its state there.
+        candidates = [hermes_root() / _GATEWAY_STATE_FILE]
+        if res.tier == "profile":
+            candidates.append(res.path.parent / _GATEWAY_STATE_FILE)
+    for candidate in candidates:
+        state = _read_gateway_state(candidate)
+        if _gateway_is_live(state):
+            return state
+    return None
+
+
+def _log_files(home: Path) -> list[Path]:
+    """A home's agent logs, oldest first: agent.log.<highest> down to agent.log."""
+    logs = home / "logs"
+    numbered: list[tuple[int, Path]] = []
+    try:
+        for child in logs.iterdir():
+            suffix = child.name[len("agent.log.") :]
+            if child.name.startswith("agent.log.") and suffix.isdigit():
+                numbered.append((int(suffix), child))
+    except OSError:
+        pass
+    ordered = [path for _, path in sorted(numbered, key=lambda item: -item[0])]
+    ordered.append(logs / "agent.log")
+    return ordered
+
+
+def _identity_lines(homes: list[Path], pid: int) -> list[_IdentityLine]:
+    """Every identity line this gateway pid logged, in reading order.
+
+    A record routes by its own hermes_home, not by the path it mentions, so lines are
+    matched to a profile by their folder and never by the log file they sit in.
+    """
+    found: list[_IdentityLine] = []
+    seen: set[str] = set()
+    for home in homes:
+        for path in _log_files(home):
+            key = os.path.normcase(str(path))
+            if key in seen:
+                continue
+            seen.add(key)
+            try:
+                with open(path, encoding="utf-8", errors="replace") as lines:
+                    for line in lines:
+                        match = _IDENTITY_RE.search(line)
+                        if match is None or int(match.group("pid")) != pid:
+                            continue
+                        stamp = _LOG_TIMESTAMP_RE.match(line)
+                        found.append(
+                            _IdentityLine(
+                                stamp=stamp.group(0) if stamp else "",
+                                folder=match.group("path"),
+                                digest=match.group("digest"),
+                            )
+                        )
+            except OSError:
+                continue
+    return found
+
+
+def _newest_line_for_home(
+    lines: list[_IdentityLine], status: ProtectionStatus, home: Path
+) -> _IdentityLine | None:
+    """This home's newest line by timestamp; later reading order breaks ties."""
+    from petasos.console._paths import _resolved_normcase
+
+    own = {_resolved_normcase(folder) for folder in status.claimants}
+    if status.winner is not None:
+        own.add(_resolved_normcase(status.winner))
+    own.discard(None)
+    plugins = _resolved_normcase(home / "plugins")
+    newest: _IdentityLine | None = None
+    for line in lines:
+        folder = Path(line.folder)
+        norm = _resolved_normcase(folder)
+        if norm is None:
+            continue
+        parent = _resolved_normcase(folder.parent)
+        if (norm in own or (plugins is not None and parent == plugins)) and (
+            newest is None or line.stamp >= newest.stamp
+        ):
+            newest = line
+    return newest
+
+
+def _file_digest(path: Path) -> str | None:
+    try:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError:
+        return None
+
+
+def _hook_can_load_row(
+    status: ProtectionStatus,
+    home: Path,
+    state_word: str,
+    lines: list[_IdentityLine] | None,
+) -> CheckResult:
+    from petasos.console._paths import _resolved_normcase
+
+    winner = cast("Path", status.winner)
+    where = f"predicted folder {winner}, {state_word}"
+    if lines is None:
+        return PASS, f"A hook can load: {where}; load not checked"
+    line = _newest_line_for_home(lines, status, home)
+    inconclusive = (
+        f"Load inconclusive: {where}. Possible causes: no turn yet in this home, a line"
+        " rotated out, a plugin copy predating this line, plugins.isolation: host, a log"
+        " level above INFO, the copy or plugins.enabled changed after this gateway started"
+        " (restart), or a file that could not be read"
+    )
+    if line is None:
+        return WARN, inconclusive
+    if _resolved_normcase(Path(line.folder)) != _resolved_normcase(winner):
+        return FAIL, (
+            f"Gateway loaded {line.folder}, files say {winner}; {state_word}. Restart the"
+            " gateway. Expected between a sync and its restart"
+        )
+    today = _file_digest(winner / "__init__.py")
+    if line.digest == "unavailable" or today is None:
+        return WARN, inconclusive
+    if line.digest != today:
+        return FAIL, (
+            f"Gateway runs older bytes of {winner}; {state_word}. Restart the gateway."
+            " Expected between a sync and its restart"
+        )
+    return PASS, f"Gateway loaded this copy: {where}; load checked"
+
+
+def _profile_row(
+    home: Path,
+    profile: str | None,
+    source: str,
+    lines: list[_IdentityLine] | None,
+) -> CheckResult:
+    from petasos.console._armed import read_armed
+    from petasos.console._paths import HermesConfigResolution
+    from petasos.console._plugin_files import protection_status
+
+    status = protection_status(home, profile=profile)
+    # An unconfigured profile's fail-secure default is not intent, so this differs on
+    # purpose from the "Arming state" row, which reports the raw bit.
+    armed = status.configured and read_armed(
+        HermesConfigResolution(path=home / "config.yaml", tier="profile")
+    )
+    state_word = "armed" if armed else "not armed"
+    if status.status == "hook_can_load":
+        return _hook_can_load_row(status, home, state_word, lines)
+    steps = status.next_steps.replace("\n", "\n         ")
+    predicted = status.winner if status.winner is not None else "no folder"
+    body = f"{status.detail} Predicted: {predicted}, {state_word}.\n         {steps}"
+    if status.status == "shadowed":
+        return FAIL, body
+    if status.status in ("no_copy", "not_enabled") and armed:
+        if source == "served":
+            return FAIL, f"Armed with no hook. {body}"
+        return WARN, f"Armed with no hook if this profile is served. {body}"
+    if status.status in ("no_copy", "not_enabled"):
+        return WARN, f"Not protected. {body}"
+    return WARN, body
+
+
+def check_profile_rows() -> None:
+    """PET-236: one row per served profile, plus at most one preamble row."""
+    from petasos.console._paths import (
+        hermes_root,
+        list_hermes_profiles,
+        resolve_hermes_config_path,
+        resolve_profile_config_path,
+    )
+
+    res = resolve_hermes_config_path()
+    preamble: list[str] = []
+    state = _live_gateway(res)
+    served = state.get("served_profiles") if state is not None else None
+    usable = isinstance(served, list) and bool(served) and all(isinstance(n, str) for n in served)
+    if usable:
+        source = "served"
+    else:
+        source = "fallback"
+        preamble.append(
+            "gateway lists no served profiles, listing every profile on disk"
+            if state is not None
+            else "gateway not serving or its state is unavailable, listing every profile"
+            " on disk; load not checked"
+        )
+
+    # (row label, home or None when the name does not resolve, name for commands)
+    targets: list[tuple[str, Path | None, str | None]] = []
+    if res.tier == "hermes_home":
+        # A different installation, as in check_config_split_brain.
+        preamble.append("HERMES_HOME override active, sibling profiles were not audited")
+        install_root = res.path.parent
+        targets.append((str(install_root), install_root, None))
+    else:
+        install_root = hermes_root()
+        names = (
+            cast("list[str]", served)
+            if usable
+            else ["default", *[str(p["name"]) for p in list_hermes_profiles()]]
+        )
+        for name in names:
+            if name == "default":
+                targets.append((name, install_root, name))
+                continue
+            resolved = resolve_profile_config_path(name)
+            targets.append((name, resolved.path.parent if resolved else None, name))
+
+    lines: list[_IdentityLine] | None = None
+    if state is not None:
+        homes = [home for _, home, _ in targets if home is not None]
+        lines = _identity_lines([*homes, install_root], cast("int", state["pid"]))
+
+    if preamble:
+        results.append(("Profile audit", WARN, "; ".join(preamble)))
+    for label, home, name in targets:
+        row = f"Profile {label}"
+        if home is None:
+            results.append((row, WARN, f"Served profile {label!r} has no config.yaml"))
+            continue
+        try:
+            outcome, detail = _profile_row(home, name, source, lines)
+        except Exception as exc:
+            outcome, detail = FAIL, str(exc)
+        results.append((row, outcome, detail))
+
+
 def main() -> int:
     from petasos.console._paths import hermes_root, resolve_hermes_config_path
 
@@ -527,6 +815,10 @@ def main() -> int:
     check("Arming state", check_armed)
     check("Injection detection", check_injection_scan)
     check("Config split-brain", check_config_split_brain)
+    try:
+        check_profile_rows()
+    except Exception as exc:  # a skewed library yields a FAIL row; earlier rows still print
+        results.append(("Profile audit", FAIL, str(exc)))
 
     print()
     fail_count = 0

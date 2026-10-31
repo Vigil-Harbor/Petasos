@@ -16,6 +16,24 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
   written on the `PETASOS_APPROVAL` log line. PET-227 writes that
   once-per-session record on a `session` or `always` response.
 
+- **Per-profile hook status in `verify.py` and the console (PET-236).**
+  `verify.py` adds one row per served Hermes profile, and compares a new
+  `PETASOS_PLUGIN_IDENTITY` load line with the folder Hermes's rules select. The
+  console's armed read gains a `protection` field, and the banner stops showing
+  Equipped where files prove no hook can load or another folder claims the
+  `petasos` name. `armed` keeps its meaning. Copies stay per profile, and a backup
+  folder must sit beside `plugins/`, never inside it. Standalone `/api/armed` adds
+  the field only on a Hermes home.
+
+### Fixed
+
+- **Embedded console errors carry their status again (PET-236).**
+  Current Hermes throws `ApiError` where the console matched a `"<status>: <body>"`
+  message, so embedded 401, 422 and 409 handling had stopped working. The embedded
+  401 now reaches the Authenticate banner, but a reload is what resolves it there,
+  because the embedded path never sends the token. Health, config, save and preset
+  readers now also check the status, so a failed response is never read as success.
+
 ### Changed
 
 - **Override-aware Hermes home resolution (PET-231).**

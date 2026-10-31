@@ -45,6 +45,64 @@ def _import_reference_plugin() -> types.ModuleType:
 
 
 # ---------------------------------------------------------------------------
+# PET-236: load identity
+# ---------------------------------------------------------------------------
+
+
+class _NoHooksCtx:
+    def register_hook(self, *_args: object, **_kwargs: object) -> None:
+        return None
+
+
+def _identity_lines(caplog: pytest.LogCaptureFixture) -> list[str]:
+    return [r.getMessage() for r in caplog.records if "PETASOS_PLUGIN_IDENTITY" in r.getMessage()]
+
+
+def _register_without_init_thread(ref: types.ModuleType, monkeypatch: pytest.MonkeyPatch) -> None:
+    class _Thread:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            return None
+
+        def start(self) -> None:
+            return None
+
+    monkeypatch.setattr(ref.threading, "Thread", _Thread)
+    ref.register(_NoHooksCtx())
+
+
+def test_register_logs_one_identity_line_per_call(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ref = _import_reference_plugin()
+    with caplog.at_level(logging.INFO, logger="petasos.plugin"):
+        _register_without_init_thread(ref, monkeypatch)
+        assert len(_identity_lines(caplog)) == 1
+        _register_without_init_thread(ref, monkeypatch)
+    lines = _identity_lines(caplog)
+    assert len(lines) == 2
+    assert str(_REF_PLUGIN_PATH.parent) in lines[0]
+    assert lines[0].rsplit("sha256=", 1)[1] != "unavailable"
+
+
+def test_identity_hash_read_error_logs_unavailable_and_register_continues(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ref = _import_reference_plugin()
+    real_read = Path.read_bytes
+
+    def fail_on_plugin(self: Path) -> bytes:
+        if self.name == "__init__.py":
+            raise OSError("denied")
+        return real_read(self)
+
+    monkeypatch.setattr(Path, "read_bytes", fail_on_plugin)
+    with caplog.at_level(logging.INFO, logger="petasos.plugin"):
+        _register_without_init_thread(ref, monkeypatch)
+    assert _identity_lines(caplog)[0].endswith("sha256=unavailable")
+    assert ref._hooks_registered is True
+
+
+# ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
 

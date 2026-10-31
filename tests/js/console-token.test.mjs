@@ -244,6 +244,43 @@ test("test_no_bearer_on_embedded_sdk_path", async () => {
   );
 });
 
+// Regression for PET-236: current Hermes's fetchJSON throws ApiError with `status` and
+// `body`, so `_status` must come from those and not only from the old message form.
+function embeddedRejecting(status, body) {
+  const error = Object.assign(new Error("Request failed"), { status, body });
+  return loadPet({
+    window: { __HERMES_PLUGIN_SDK__: { fetchJSON: () => Promise.reject(error) } },
+    fetch: () => Promise.reject(new Error("standalone fetch must not run")),
+  }).Pet;
+}
+
+test("test_regression_pet236_req_builds_status_from_api_error", async () => {
+  const Pet = embeddedRejecting(500, '{"detail":"x"}');
+  const d = await Pet.api.getHealth();
+  assert.equal(d._status, 500);
+  assert.equal(d.detail, "x");
+  assert.equal(d.error, undefined);
+});
+
+test("test_regression_pet236_api_error_401_enters_authenticate", async () => {
+  const Pet = embeddedRejecting(401, '{"detail":"Unauthorized"}');
+  const d = await Pet.api.getHealth();
+  assert.equal(Pet.auth.on401(d), true);
+  assert.equal(Pet.state.authRequired, true);
+});
+
+test("test_regression_pet236_api_error_422_is_a_profile_422", async () => {
+  const Pet = embeddedRejecting(422, '{"detail":[{"field":"profile","message":"nope"}]}');
+  assert.equal(Pet.isProfile422(await Pet.api.getHealth()), true);
+});
+
+test("test_regression_pet236_api_error_409_is_a_refused_write", async () => {
+  const Pet = embeddedRejecting(409, '{"detail":[{"field":"profile","message":"not equipped"}]}');
+  const view = Pet.armedWriteView({ scopeMoved: false, response: await Pet.api.getHealth(), next: false });
+  assert.equal(view.action, "refused");
+  assert.equal(view.banner, "not equipped");
+});
+
 // Standalone SSE connect attaches the bearer (D1).
 test("test_sse_connect_sends_bearer_when_token_set", () => {
   const calls = [];

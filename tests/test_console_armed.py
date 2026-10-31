@@ -9,6 +9,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
+import anyio
 import pytest
 
 pytest.importorskip("fastapi")
@@ -220,12 +221,132 @@ def client(request: pytest.FixtureRequest) -> Iterator[tuple[Any, str]]:
     plugin_mod._handlers = None
 
 
-def test_get_armed_reflects_read(client: tuple[Any, str], monkeypatch: pytest.MonkeyPatch) -> None:
+def _no_hermes_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    # hermes_root() ignores HERMES_HOME, so every path to the real root is moved too.
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
+    monkeypatch.setenv("HOME", str(tmp_path / "user"))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "user"))
+    return home
+
+
+def test_get_armed_reflects_read(
+    client: tuple[Any, str], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _no_hermes_home(tmp_path, monkeypatch)
     monkeypatch.setattr(armed_mod, "read_armed", lambda res=None: False)
     tc, path = client
     r = tc.get(path)
     assert r.status_code == 200
-    assert r.json() == {"armed": False}
+    if path == "/api/armed":
+        assert r.json() == {"armed": False}  # no Hermes markers: today's exact shape
+    else:
+        assert r.json()["armed"] is False
+        assert "protection" in r.json()
+
+
+# ── PET-236: protection travels beside `armed`, which keeps its meaning ───────
+
+
+def _plugin_copy(home: Path, folder: str = "petasos") -> None:
+    copy = home / "plugins" / folder
+    copy.mkdir(parents=True)
+    (copy / "plugin.yaml").write_text("name: petasos\n", encoding="utf-8")
+    (copy / "__init__.py").write_text("", encoding="utf-8")
+
+
+def test_regression_pet236_armed_copyless_home_is_not_hook_can_load(
+    client: tuple[Any, str], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    home = _no_hermes_home(tmp_path, monkeypatch)
+    (home / "plugins").mkdir()
+    tc, path = client
+    body = tc.get(path).json()
+    assert body["armed"] is True
+    assert body["armed"] == read_armed()
+    assert body["protection"]["status"] == "no_copy"
+    assert body["protection"]["status"] != "hook_can_load"
+
+
+def test_regression_pet236_backup_winner_reads_shadowed(
+    client: tuple[Any, str], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    home = _no_hermes_home(tmp_path, monkeypatch)
+    _plugin_copy(home)
+    _plugin_copy(home, "petasos.bak-1")
+    _write_config(home / "config.yaml", {"enabled": True}, {"plugins": {"enabled": ["petasos"]}})
+    tc, path = client
+    protection = tc.get(path).json()["protection"]
+    assert protection["status"] == "shadowed"
+    assert protection["folder"] == "petasos.bak-1"
+    assert protection["claimants"] == ["petasos.bak-1"]
+
+
+def test_protection_names_default_for_a_root_binding(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from petasos.console._paths import hermes_root
+    from petasos.console.server import ConsoleHandlers
+
+    monkeypatch.delenv("HERMES_HOME", raising=False)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
+    monkeypatch.setenv("HOME", str(tmp_path / "user"))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "user"))
+    root = hermes_root()
+    root.mkdir(parents=True)
+    _plugin_copy(root)
+    _write_config(root / "config.yaml", {"enabled": True})
+    (root / "active_profile").write_text("gibson\n", encoding="utf-8")  # names no directory
+
+    body = anyio.run(_get_armed_with_protection, ConsoleHandlers(_make_pipeline()))
+    assert "-p default" in body["protection"]["next_steps"]
+
+
+async def _get_armed_with_protection(handlers: Any) -> dict[str, Any]:
+    result: dict[str, Any] = await handlers.get_armed(include_protection=True)
+    return result
+
+
+def test_handler_default_stays_exactly_armed(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from petasos.console.server import ConsoleHandlers
+
+    home = _no_hermes_home(tmp_path, monkeypatch)
+    (home / "plugins").mkdir()
+    body = anyio.run(ConsoleHandlers(_make_pipeline()).get_armed)
+    assert body == {"armed": True}
+
+
+def _standalone(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> tuple[Any, Path]:
+    from fastapi.testclient import TestClient
+
+    from petasos.console.server import build_app
+
+    home = _no_hermes_home(tmp_path, monkeypatch)
+    return TestClient(build_app(_make_pipeline())), home
+
+
+def test_standalone_on_a_hermes_home_reports_a_copyless_home(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    tc, home = _standalone(monkeypatch, tmp_path)
+    (home / "sessions").mkdir()  # a never-run profile has only bootstrapped folders
+    body = tc.get("/api/armed").json()
+    assert not (home / "config.yaml").exists()
+    assert body["protection"]["status"] == "no_copy"
+
+
+def test_standalone_without_a_hermes_home_stays_exact_after_a_write(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    tc, home = _standalone(monkeypatch, tmp_path)
+    assert tc.get("/api/armed").json() == {"armed": True}
+    assert tc.post("/api/armed", json={"armed": True}).status_code == 200
+    assert (home / "config.yaml").is_file()
+    assert tc.get("/api/armed").json() == {"armed": True}
 
 
 @pytest.mark.parametrize(

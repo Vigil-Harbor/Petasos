@@ -574,7 +574,11 @@ minor update:
    reliable signal. An old-library skew therefore does not latch init. A
    library *newer* than a stale plugin copy still can, if a symbol or
    signature the deferred init uses has moved. Run `verify.py` before
-   restarting. Its scanner-imports check still probes `build_scanners` only, so
+   restarting. Between a sync and its restart the per-profile rows FAIL on the
+   gateway's load line, because the running process still holds the old bytes;
+   that is expected, and the row says to restart. Sync the library before the
+   plugin files: a `dashboard/plugin_api.py` ahead of the library fails `/armed`
+   until the library catches up. The scanner-imports check still probes `build_scanners` only, so
    that row FAILs a library too old for `build_scanners` and PASSes one that has
    `build_scanners` but still lacks `format_result_notice`. Since PET-189 the
    config validation and feature activation rows import this plugin file, so that
@@ -593,6 +597,38 @@ If the plugin files are absent from the resolved home, enforcement is **silently
 off**: no error, no log warning (the plugin simply isn't discovered). The
 `verify.py` script and the `loading config from ...` INFO line are the primary
 diagnostic tools.
+
+### One copy per guarded profile
+
+A multiplexed gateway serves several profiles, and each profile home discovers
+plugins only in its own `plugins/`. The dashboard does fall back to the root, so a
+console can look fine with no hook behind it. Guard a profile by giving that home
+its own copy. A profile with no copy stays unguarded, and that is a supported
+choice: nothing installs itself, and the console and `verify.py` report it as not
+protected, with the next steps and a line saying no action is needed if it is
+intended.
+
+**Backups never go in `plugins/`.** Hermes selects by the manifest `name`, not the
+folder name, and the last folder in sorted order wins. So `petasos.bak-20260728`
+beats `petasos` with no warning, and a sync into `plugins/petasos` changes nothing.
+One folder deeper still loads as a second plugin. Keep backups in
+`<home>/petasos-plugin-backups`, beside `plugins/`. Cloning a home copies whatever
+is in `plugins/`, so do not clone a home that holds a backup.
+
+`verify.py` adds one row per served profile:
+
+| Row | Meaning |
+| --- | --- |
+| PASS | A hook can load. The row says whether the gateway's load line agreed, or that load was not checked. |
+| WARN, not protected | No copy, or `petasos` not enabled. Next steps are printed. |
+| WARN, armed if served | Armed with no hook, but no live gateway says this profile is served. |
+| WARN, inconclusive | Files say a hook can load, and no matching load line exists. The row names the causes. |
+| FAIL, armed with no hook | A live gateway serves this armed profile, and no hook can load. |
+| FAIL, wrong folder | Another folder claims the `petasos` name, or the gateway loaded other bytes than the files hold. |
+
+`verify.py` is the authority. The console reads files only, so a plugin that fails
+at load is invisible to it. When a stale copy also serves the dashboard, the console
+can be missing the new field altogether.
 
 ## Durable console backend across Hermes updates
 

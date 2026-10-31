@@ -136,15 +136,6 @@
     }
   }
 
-  // PET-152: a history fetch counts as a successful read only when it has no error AND no non-OK
-  // HTTP status. _req (:530, :550) sets `_status` on a parsed non-OK body, which for a 403/500 like
-  // `{}` carries NO `error` field — so a bare `!d.error` check would accept a failed read as an
-  // empty older page (silent "no older history" on an auth/server failure). Gate paging on this
-  // instead. `_status == null` covers OK bodies (status never stamped) and the test mocks.
-  function _historyResponseOk(d) {
-    return !!(d && !d.error && (d._status == null || d._status < 400));
-  }
-
   // PET-152: the single shared push for an older page — both the re-mint path and the paged-view
   // path call it, so the shape guard and render trigger live in one place. Module-scoped (never a
   // render-local) because it needs Pet._runtime.container / Pet.renderDashboard. Keeps the Array.isArray shape
@@ -186,7 +177,7 @@
       Pet.api.getScanHistory(plan.remintLimit).then(function (rd) {
         if (gen !== Pet._runtime.historyPagingGen) return;          // superseded by re-seed/401/unmount
         if (Pet.auth.on401(rd)) { Pet._runtime.historyPaging = false; return; }
-        if (!_historyResponseOk(rd)) { Pet._runtime.historyPaging = false; return; } // non-OK re-mint: not a miss, a failed read
+        if (!Pet.responseOk(rd)) { Pet._runtime.historyPaging = false; return; } // non-OK re-mint: not a miss, a failed read
         var freshCursor = rd.next_before || null;
         if (freshCursor == null) {                      // gate said older exist, ring points nowhere
           Pet._runtime.historyPaging = false;
@@ -198,7 +189,7 @@
           if (gen !== Pet._runtime.historyPagingGen) return;
           Pet._runtime.historyPaging = false;
           if (Pet.auth.on401(d)) return;
-          if (_historyResponseOk(d)) { _pushOlderPage(freshCursor, d); }
+          if (Pet.responseOk(d)) { _pushOlderPage(freshCursor, d); }
         });
       }).catch(function () { if (gen === Pet._runtime.historyPagingGen) Pet._runtime.historyPaging = false; });
       return;
@@ -209,7 +200,7 @@
       if (gen !== Pet._runtime.historyPagingGen) return;
       Pet._runtime.historyPaging = false; // clear before any early return so paging can resume
       if (Pet.auth.on401(d)) return; // a 401 stops paging, never a stale page
-      if (_historyResponseOk(d)) { _pushOlderPage(plan.cursor, d); }
+      if (Pet.responseOk(d)) { _pushOlderPage(plan.cursor, d); }
     }).catch(function () { if (gen === Pet._runtime.historyPagingGen) Pet._runtime.historyPaging = false; });
   };
 
@@ -268,7 +259,7 @@
     Pet._runtime.container.innerHTML = "";
     // PET-111: re-fetch the armed bit on each obs ENTRY (armed has no SSE
     // reconciliation, unlike scan history) — but not on every re-render.
-    if (name === "obs") { Pet._runtime.armedSeeded = false; Pet.renderDashboard(Pet._runtime.container); }
+    if (name === "obs") { Pet._runtime.armedSeeded = false; Pet._runtime.protectionSeeded = false; Pet.renderDashboard(Pet._runtime.container); }
     else if (name === "play") Pet.renderPlayground(Pet._runtime.container);
     else if (name === "cfg") Pet.renderConfig(Pet._runtime.container);
     else if (name === "about") Pet.renderAbout(Pet._runtime.container);
@@ -280,6 +271,7 @@
     Pet._runtime.historyPaging = false; Pet._runtime.historyPagingGen++;  // PET-152: cancel any in-flight paging from a skipped unmount
     Pet._runtime.healthLoaded = false;   // PET-127: re-show the scanner-health skeleton on (re-)mount
     Pet._runtime.armedSeeded = false;    // PET-111: re-fetch the armed bit on (re-)mount
+    Pet._runtime.protectionSeeded = false; // PET-236: and the protection status
     Pet._shell.clearArmedConfirm();     // drop any stale disarm-confirm + timer from a skipped unmount
     // PET-166 (D17/D19): a re-mount that skipped unmount must not inherit stale scope
     // facts (a foreign readScope from the prior mount would render another profile's
@@ -412,6 +404,7 @@
     Pet._runtime.historyPaging = false; Pet._runtime.historyPagingGen++;  // PET-152: cancel any in-flight paging re-mint on teardown
     Pet._runtime.healthLoaded = false;   // PET-127: next mount re-shows the scanner-health skeleton
     Pet._runtime.armedSeeded = false;    // PET-111: next mount re-fetches the armed bit
+    Pet._runtime.protectionSeeded = false; // PET-236: and the protection status
     Pet._shell.clearArmedConfirm();     // clear the pending-disarm confirm + its 4s timer on teardown
   };
 
