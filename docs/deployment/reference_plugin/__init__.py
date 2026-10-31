@@ -51,6 +51,7 @@ import asyncio
 import base64
 import concurrent.futures  # PET-170: dep-light (stdlib; the run_coroutine_threadsafe timeout)
 import contextlib
+import hashlib  # PET-236: dep-light (stdlib; the load-identity digest)
 import logging
 import math  # PET-167: dep-light (stdlib; isfinite guard on the raw init-wait budget)
 import os
@@ -3183,9 +3184,27 @@ def _log_relative_override_once(res: HermesConfigResolution) -> None:
         _override_not_absolute_warned = True
 
 
+def _log_plugin_identity() -> None:
+    """PET-236: name the folder and bytes this process loaded. Never raises out of register()."""
+    try:
+        path = Path(__file__).resolve()
+        folder = path.parent
+    except (OSError, RuntimeError):
+        path = Path(__file__)
+        folder = path.parent
+    try:
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    except Exception:
+        digest = "unavailable"
+    logger.info("PETASOS_PLUGIN_IDENTITY pid=%d path=%s sha256=%s", os.getpid(), folder, digest)
+
+
 def register(ctx) -> None:
     global _config, _subagent_hooks_available, _session_resolution
     global _hooks_registered, _init_thread_started
+
+    # PET-236: first, so a later failure in register() still leaves the line.
+    _log_plugin_identity()
 
     # PET-132: a re-runnable register() is the forced-rediscovery re-bind route (Decision
     # 1 fallback / Decision 3). The FIRST register() of an uninitialized process spawns

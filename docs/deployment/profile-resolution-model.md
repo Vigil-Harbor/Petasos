@@ -111,7 +111,9 @@ operator is shown. Every write keeps resolving the process binding: the
 enforcement pipeline, the drain, spool rotation, and the armed write never
 move with the selector, and arming a non-equipped profile is refused with a
 409. The armed bit is the one read that follows the write binding in every
-scope state, because the control under it can only write there (PET-185). A non-equipped read is served read-only from that profile's
+scope state, because the control under it can only write there (PET-185). `armed` and
+`protection` both follow the write binding, and `selected_protection` describes
+the selected profile when it differs from the binding (PET-236). A non-equipped read is served read-only from that profile's
 files, marked `foreign` in the drill-down, and its live event stream stays
 idle (this process holds no other profile's events).
 

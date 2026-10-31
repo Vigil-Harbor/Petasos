@@ -39,6 +39,7 @@ from petasos.console._paths import (
     spool_path,
     spool_rot_path,
 )
+from petasos.console._plugin_files import is_hermes_home, protection_status
 from petasos.console._presets import generate_preset_metadata, resolve_active_preset
 from petasos.console._ring_buffer import RingBuffer
 from petasos.console._sse import SSEBroadcaster
@@ -685,6 +686,20 @@ def _resolve_read_scope(profile: str | None, *, use_override: bool = True) -> "_
         else:
             state = "equipped"
     return _ReadScope(profile, target, equipped_name, equipped_tier, state, count)
+
+
+def _protection_payload(home: "Path", profile: str | None) -> dict[str, Any]:
+    """PET-236: the wire form of one home's protection status."""
+    found = protection_status(home, profile=profile)
+    return {
+        "status": found.status,
+        "configured": found.configured,
+        "profile": profile,
+        "folder": found.winner.name if found.winner is not None else None,
+        "claimants": [folder.name for folder in found.claimants],
+        "next_steps": found.next_steps,
+        "detail": found.detail,
+    }
 
 
 def _read_scope_payload(scope: "_ReadScope") -> dict[str, Any]:
@@ -1943,7 +1958,9 @@ class ConsoleHandlers:
             ],
         }
 
-    async def get_armed(self, profile: str | None = None) -> dict[str, Any]:
+    async def get_armed(
+        self, profile: str | None = None, *, include_protection: bool = False
+    ) -> dict[str, Any]:
         # PET-111: the Equipped/Unequipped master bit. File-backed (petasos.enabled)
         # via the shared _paths resolver - the dashboard reads what the gateway reads.
         # PET-166 D1 NARROWED BY PET-185: every other scoped read serves the SELECTED
@@ -1958,9 +1975,15 @@ class ConsoleHandlers:
         # A binding that moves mid-request (active_profile rewritten, HERMES_HOME
         # mutated in-process) can still skew this payload's `armed` against its own
         # `read_scope`, exactly as it can skew a GET against a following POST.
-        payload: dict[str, Any] = {
-            "armed": read_armed(resolve_hermes_config_path(use_override=False))
-        }
+        binding = resolve_hermes_config_path(use_override=False)
+        payload: dict[str, Any] = {"armed": read_armed(binding)}
+        if include_protection:
+            # PET-236: `protection` describes the home `armed` describes; PET-185 stands.
+            payload["protection"] = _protection_payload(binding.path.parent, scope.equipped_name)
+            if profile is not None and scope.state != "equipped":
+                payload["selected_protection"] = _protection_payload(
+                    scope.resolution.path.parent, profile
+                )
         if profile is not None:  # D2/D19: scope-gated, unchanged
             payload["read_scope"] = _read_scope_payload(scope)
         return payload
@@ -2278,7 +2301,10 @@ def build_app(pipeline: "Pipeline", *, auth_token: str | None = None) -> "FastAP
     @app.get("/api/armed")
     async def api_get_armed(profile: str | None = None) -> Any:
         try:
-            return await handlers.get_armed(profile=profile)
+            return await handlers.get_armed(
+                profile=profile,
+                include_protection=is_hermes_home(resolve_hermes_config_path(use_override=False)),
+            )
         except ProfileNotFoundError as exc:
             return JSONResponse(
                 status_code=422,

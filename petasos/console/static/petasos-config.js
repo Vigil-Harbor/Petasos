@@ -963,7 +963,8 @@
       if (!d || d.error || !d.config || !Array.isArray(d.fields)) {
         formArea.innerHTML = "";
         formArea.appendChild(Pet.h("div", { style: { padding: "20px", color: "var(--err)", fontSize: "12px", fontFamily: "var(--font-mono)" } },
-          d && d.error ? "Config unavailable: " + d.error : "Unexpected response from API"));
+          d && d.error ? "Config unavailable: " + d.error
+            : (d && typeof d.detail === "string" ? "Config unavailable: " + d.detail : "Unexpected response from API")));
         return;
       }
       Pet.state.config = d.config;
@@ -1049,8 +1050,8 @@
               if (!e || typeof e !== "object") return String(e);
               return (e.field || "?") + ": " + (e.message || e.msg || e.detail || String(e));
             }).join("; ");
-          } else if (resp && resp.error) {
-            failMsg = String(resp.error);
+          } else if (resp && !Pet.responseOk(resp)) {
+            failMsg = resp.error ? String(resp.error) : "HTTP " + resp._status;
           }
           if (failMsg !== null) {
             // PET-13: inline error in the dial host, consistent with the Apply
@@ -1337,12 +1338,12 @@
                 }
                 return;
               }
-              if (d.error) {
+              if (!Pet.responseOk(d)) {
                 formArea.insertBefore(Pet.h("div", {
                   role: "alert",
                   className: "pet-field-err",
                   style: { color: "var(--err)", fontSize: "12px", padding: "8px 12px", background: "var(--bg-raised)", borderRadius: "var(--r-card)", marginBottom: "8px" }
-                }, "Couldn't save: " + d.error + ". Your changes are kept; try Apply again."), formArea.firstChild);
+                }, "Couldn't save: " + (d.error || ("HTTP " + d._status)) + ". Your changes are kept; try Apply again."), formArea.firstChild);
                 return;
               }
               Pet.state.config = d.config || Pet.state.config;

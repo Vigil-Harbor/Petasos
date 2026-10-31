@@ -102,6 +102,7 @@
         authRequired: Pet.state.authRequired,
         armed: Pet.state.armed,
         confirming: Pet._runtime.armedConfirmPending,
+        protection: Pet.state.protection,
       });
       b.className = view.cls;
       var lbl = b.querySelector(".equip-label");
@@ -112,17 +113,17 @@
       if (sw) {
         sw.className = "switch" + (view.on && !view.confirming ? " on" : "");
         sw.setAttribute("aria-checked", view.on ? "true" : "false");
-        sw.setAttribute("aria-label", "Petasos enforcement: " + (view.on ? "equipped, click to unequip" : "unequipped, click to equip"));
+        sw.setAttribute("aria-label", view.ariaLabel);
       }
-      // PET-13: two-state helmet art - worn (equipped) when armed, off (unequipped) when not.
+      // PET-13: two-state helmet art - worn (equipped) when protected, off (unequipped) when not.
       var mark = b.querySelector(".equip-mark");
-      if (mark) mark.src = Pet.asset(view.on ? "img/petasos-equipped.png" : "img/petasos-unequipped.png");
+      if (mark) mark.src = Pet.asset(view.protectedLook ? "img/petasos-equipped.png" : "img/petasos-unequipped.png");
     };
     // PET-166 (D16) via PET-185: the arm control is the ONE consumer that reads scope
     // state directly (it discriminates three states, not two). The derivation lives in
     // the pure Pet.armScopeView seam; both booleans are bit-identical to the old inline
     // form for every input, including the null-readScope standalone path.
-    var _armView = Pet.armScopeView(Pet.state.readScope);
+    var _armView = Pet.armScopeView(Pet.state.readScope, Pet.state.protection);
     var _armDisabled = _armView.disabled;
     var _armUnscoped = _armView.unscoped;
     var doToggle = function () {
@@ -171,34 +172,40 @@
           Pet.api.getArmed().then(function (rd) {
             if (Pet.auth.on401(rd)) return;
             if (gen !== Pet._runtime.scopeGen) return;
-            if (Pet._runtime.armedBusy) return;
-            Pet._scope.adoptRead(rd);
-            if (rd && !rd.error && typeof rd.armed === "boolean") {
-              Pet.state.armed = rd.armed;
-              paintBanner();
-            }
+            var rv = Pet._scope.armedReadView({ response: rd, busy: Pet._runtime.armedBusy, scopeMoved: false, scopeParam: Pet.api._scopeParam() });
+            if (rv.adoptRead) Pet._scope.adoptRead(rd);
+            if (rv.adoptArmed) Pet.state.armed = rd.armed;
+            if (rv.protectionChanged && Pet.state.tab === "obs" && Pet._runtime.container) Pet.renderDashboard(Pet._runtime.container);
+            else if (rv.adoptArmed) paintBanner();
           });
         }
       });
     };
+    // PET-236: armedOn keeps today's `!== false` reading of a null bit, so doToggle and
+    // the first paint agree; paintBanner passes the raw bit.
     var armedOn = Pet.state.armed !== false;
-    var confirming = armedOn && Pet._runtime.armedConfirmPending;
+    var firstView = Pet.bannerView({
+      authRequired: Pet.state.authRequired,
+      armed: armedOn,
+      confirming: Pet._runtime.armedConfirmPending,
+      protection: Pet.state.protection,
+    });
     var armedSwitch = Pet.h("button", {
-      className: "switch" + (armedOn && !confirming ? " on" : ""), type: "button", onClick: doToggle,
-      role: "switch", ariaChecked: armedOn ? "true" : "false",
-      ariaLabel: "Petasos enforcement: " + (armedOn ? "equipped, click to unequip" : "unequipped, click to equip")
+      className: "switch" + (firstView.on && !firstView.confirming ? " on" : ""), type: "button", onClick: doToggle,
+      role: "switch", ariaChecked: firstView.on ? "true" : "false",
+      ariaLabel: firstView.ariaLabel
     });
     if (_armDisabled) armedSwitch.disabled = true;
     armedSwitch.addEventListener("keydown", function (e) {
       if (e.key === "Enter" || e.key === " ") { e.preventDefault(); doToggle(); }
     });
-    wrapper.appendChild(Pet.h("div", { className: "equip-banner" + (armedOn ? "" : " disarmed") + (confirming ? " confirming" : "") },
-      Pet.h("img", { className: "equip-mark", src: Pet.asset(armedOn ? "img/petasos-equipped.png" : "img/petasos-unequipped.png"), alt: "" }),
+    wrapper.appendChild(Pet.h("div", { className: firstView.cls },
+      Pet.h("img", { className: "equip-mark", src: Pet.asset(firstView.protectedLook ? "img/petasos-equipped.png" : "img/petasos-unequipped.png"), alt: "" }),
       Pet.h("div", { className: "equip-text" },
-        Pet.h("div", { className: "equip-label" }, confirming ? "CONFIRM UNEQUIP?" : (armedOn ? "EQUIPPED" : "UNEQUIPPED")),
-        Pet.h("div", { className: "equip-sub" }, confirming ? "Click again to disable all enforcement" : (armedOn ? "Enforcement is ON" : "Enforcement is OFF for every session"))
+        Pet.h("div", { className: "equip-label" }, firstView.label),
+        Pet.h("div", { className: "equip-sub" }, firstView.sub)
       ),
-      Pet.HelpTip("<b>Equipped</b>: master switch. <b>Unequipped</b> disables <b>all</b> Petasos enforcement (scan, guard, audit) for this and running sessions, applied by the next tool call. Backed by <code>petasos.enabled</code>."),
+      Pet.HelpTip("<b>Equipped</b>: master switch. <b>Unequipped</b> disables <b>all</b> Petasos enforcement (scan, guard, audit) for this and running sessions, applied by the next tool call. Backed by <code>petasos.enabled</code>. Checked from files when this tab opens. A plugin that fails at load is not visible here; verify.py compares the gateway's load log."),
       armedSwitch
     ));
     // PET-166 (D16) via PET-185: label the arm control with the binding the banner
@@ -207,6 +214,12 @@
     if (_armView.notice) {
       wrapper.appendChild(Pet.h("div", { className: "mono", role: "status", style: { fontSize: "11px", color: "var(--tx-mut)" } },
         _armView.notice));
+    }
+    // PET-236: what the banner cannot say in one line, as text. Nothing here is markup.
+    var _protectionCaption = Pet.protectionNotice(Pet.state.protection, Pet.state.selectedProtection);
+    if (_protectionCaption) {
+      wrapper.appendChild(Pet.h("div", { className: "mono", role: "status", style: { fontSize: "11px", color: "var(--tx-mut)", whiteSpace: "pre-wrap" } },
+        _protectionCaption));
     }
     // PET-166 (D20): the client-side scope notice — a 200 the client believes it
     // scoped came back without a confirmed scope, so what is shown below is the
@@ -490,12 +503,14 @@
     // and paints scopeError BEFORE its re-render, so this gate is what keeps the
     // error re-render from re-fetching in a loop; the re-seed runs once a 200 on
     // any scoped surface clears the error.
-    if (!Pet._runtime.armedSeeded && !Pet._runtime.armedBusy && !Pet.state.scopeError) {
+    if (Pet._scope.armedReadNeeded()) {
       Pet._runtime.armedSeeded = true;
+      Pet._runtime.protectionSeeded = true; // an in-flight or failed read is one read
       var _armedGen = Pet._runtime.scopeGen; // PET-166 D17: captured at send time
+      var _armedScope = Pet.api._scopeParam();
       Pet.api.getArmed().then(function (d) {
         if (Pet.auth.on401(d)) return; // PET-129 D3/§1: first statement; a 401 here must not be read as armed
-        if (_armedGen !== Pet._runtime.scopeGen) { Pet._runtime.armedSeeded = false; return; } // superseded scope: leave un-seeded for the new scope's render
+        if (_armedGen !== Pet._runtime.scopeGen) { Pet._runtime.armedSeeded = false; Pet._runtime.protectionSeeded = false; return; } // superseded scope: leave un-seeded for the new scope's render
         if (Pet.isProfile422(d)) {
           // PET-166 D7: the coherent error state; never leave the prior bit painted
           // as this profile's (the guard below would silently drop the 422). The
@@ -503,17 +518,18 @@
           // the banner keeps the previous scope's enforcement state for the rest
           // of the scope (only mount/unmount/_invalidateScopeState reset it).
           Pet._runtime.armedSeeded = false;
+          Pet._runtime.protectionSeeded = false;
           var _e0 = d.detail.filter(function (x) { return x && x.field === "profile"; })[0];
           Pet.state.scopeError = { surface: "armed", message: (_e0 && _e0.message) || "profile not found" };
           if (Pet.state.tab === "obs" && Pet._runtime.container) Pet.renderDashboard(Pet._runtime.container);
           return;
         }
-        if (Pet._runtime.armedBusy) return;
-        Pet._scope.adoptRead(d); // PET-166 D19: armed 200s are a readScope writer
-        if (d && !d.error && typeof d.armed === "boolean") {
-          Pet.state.armed = d.armed;
-          paintBanner();
-        }
+        var av = Pet._scope.armedReadView({ response: d, busy: Pet._runtime.armedBusy, scopeMoved: false, scopeParam: _armedScope });
+        if (av.adoptRead) Pet._scope.adoptRead(d); // PET-166 D19: armed 200s are a readScope writer
+        if (av.adoptArmed) Pet.state.armed = d.armed;
+        // PET-236: the caption row exists only in a full render; the latches keep it from re-fetching.
+        if (av.protectionChanged && Pet.state.tab === "obs" && Pet._runtime.container) Pet.renderDashboard(Pet._runtime.container);
+        else if (av.adoptArmed) paintBanner();
       });
     }
 
@@ -531,7 +547,7 @@
         return;
       }
       Pet._runtime.healthLoaded = true;  // PET-127: settled (either arm) -> stop painting the skeleton
-      if (!d.error) {
+      if (Pet.responseOk(d)) {
         Pet._scope.adoptRead(d); // PET-166 D19: health 200s are a readScope writer
         // PET-144: capture BEFORE the assignment whether this settle is the first to
         // populate pipelineHealth, so the cold-mount re-render below fires on the

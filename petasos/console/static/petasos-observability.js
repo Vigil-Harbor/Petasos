@@ -1028,32 +1028,84 @@
         on: false,
         confirming: false,
         authRequired: true,
+        protectedLook: false,
+        ariaLabel: "Petasos enforcement: unequipped, click to equip",
+      };
+    }
+    // PET-236: a refused read says nothing about the bit, so it wins over it.
+    var protection = state.protection || null;
+    if (protection && protection.refused) {
+      return {
+        label: "NOT PROTECTED",
+        sub: "No Petasos hook can load for this profile",
+        cls: "equip-banner unknown",
+        on: false,
+        confirming: false,
+        authRequired: false,
+        protectedLook: false,
+        ariaLabel: "Petasos enforcement: not available for this profile",
       };
     }
     var on = state.armed !== false && state.armed != null;
     var confirming = on && !!state.confirming;
+    var label = on ? "EQUIPPED" : "UNEQUIPPED";
+    var sub = on ? "Enforcement is ON" : "Enforcement is OFF for every session";
+    var noHook = false;
+    var unknown = false;
+    if (on && protection) {
+      // PET-236: `on` stays the armed bit, so an operator can still disarm.
+      var st = protection.status;
+      if (st === "no_copy" || st === "not_enabled") {
+        label = "NOT PROTECTED"; sub = "No Petasos hook can load for this profile"; noHook = true;
+      } else if (st === "shadowed") {
+        label = "WRONG PLUGIN COPY"; sub = "Another folder claims the petasos name"; noHook = true;
+      } else if (st === "unknown") {
+        label = "CANNOT VERIFY"; sub = "Armed. Could not check whether a hook can load"; unknown = true;
+      } else if (st === "hook_can_load") {
+        sub = "Armed, and a hook can load";
+      }
+    }
+    var protectedLook = on && !noHook;
     return {
-      label: confirming ? "CONFIRM UNEQUIP?" : (on ? "EQUIPPED" : "UNEQUIPPED"),
-      sub: confirming
-        ? "Click again to disable all enforcement"
-        : (on ? "Enforcement is ON" : "Enforcement is OFF for every session"),
-      cls: "equip-banner" + (on ? "" : " disarmed") + (confirming ? " confirming" : ""),
+      label: confirming ? "CONFIRM UNEQUIP?" : label,
+      sub: confirming ? "Click again to disable all enforcement" : sub,
+      cls: "equip-banner" + (protectedLook ? "" : " disarmed") + (unknown ? " unknown" : "") + (confirming ? " confirming" : ""),
       on: on,
       confirming: confirming,
       authRequired: false,
+      protectedLook: protectedLook,
+      ariaLabel: noHook
+        ? "Petasos enforcement: armed, but no hook can load, click to unequip"
+        : "Petasos enforcement: " + (on ? "equipped, click to unequip" : "unequipped, click to equip"),
     };
+  };
+
+  // PET-236: the caption under the banner. Pure, and text only. It names the selected
+  // profile because the banner describes the binding.
+  Pet.protectionNotice = function (protection, selectedProtection) {
+    function body(p) {
+      return String(p.detail || "") + (p.next_steps ? "\n" + String(p.next_steps) : "");
+    }
+    var parts = [];
+    if (protection && protection.status !== "hook_can_load") parts.push(body(protection));
+    if (selectedProtection && selectedProtection.status !== "hook_can_load") {
+      parts.push("Selected profile " + String(selectedProtection.profile) + ": " + body(selectedProtection));
+    }
+    return parts.length ? parts.join("\n") : null;
   };
 
   // PET-185: the ONE derivation of the arm control's scope state and the caption that
   // names which binding the banner above it describes. Pure (readScope in, plain object
   // out) so the node:vm harness can assert the labelling directly. PET-166 D16's three
   // states are preserved exactly; only the caption text gains the binding name.
-  Pet.armScopeView = function (readScope) {
+  Pet.armScopeView = function (readScope, protection) {
+    // PET-236: a write to a refused profile would also get a 404.
+    var refused = !!(protection && protection.refused);
     var s = readScope || null;
-    if (!s) return { disabled: false, unscoped: false, notice: null };
+    if (!s) return { disabled: refused, unscoped: false, notice: null };
     var st = s.state;
     var selected = String(s.selected || "the selected profile");
-    var disabled = st === "not_equipped" && s.equipped != null;
+    var disabled = refused || (st === "not_equipped" && s.equipped != null);
     var unscoped = st === "unknown" || s.equipped == null;
     // The binding's parenthetical is emitted ONLY for a tier that names something an
     // operator can act on. `equipped_tier` falls back to the raw resolution tier when no

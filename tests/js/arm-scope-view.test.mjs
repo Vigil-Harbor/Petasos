@@ -28,6 +28,14 @@ const Pet = sandbox.window.__PETASOS_CONSOLE__;
 
 function view(rs) { return Pet.armScopeView(rs); }
 
+// PET-236: a write to a refused profile would also get a 404.
+test("a refused protection field disables, and any other leaves the scope's answer", () => {
+  const refused = { status: "not_enabled", refused: true };
+  assert.equal(Pet.armScopeView(null, refused).disabled, true);
+  assert.equal(Pet.armScopeView(null, { status: "no_copy" }).disabled, false);
+  assert.equal(view(null).disabled, false);
+});
+
 test("null readScope: standalone path, all defaults", () => {
   for (const rs of [null, undefined]) {
     const v = view(rs);

@@ -12,6 +12,7 @@
     historyPagingGen: 0,
     healthLoaded: false,
     armedSeeded: false,
+    protectionSeeded: false,  // PET-236: an `armed` SSE frame sets armedSeeded with no read
     armedBusy: false,
     armedConfirmPending: false,
     armedConfirmTimer: null,
@@ -27,6 +28,14 @@
   Pet.asset = function (path) { return _assetBase + path; };
 
   // ── DOM helpers ──
+
+  // PET-152 / PET-236: a read counts as successful only with no error AND no non-OK HTTP
+  // status. _req sets `_status` on a parsed non-OK body, which for a 403/500 like `{}`
+  // carries NO `error` field, so a bare `!d.error` check accepts a failed read. `_status
+  // == null` covers OK bodies (status never stamped) and the test mocks.
+  Pet.responseOk = function (d) {
+    return !!(d && !d.error && (d._status == null || d._status < 400));
+  };
 
   Pet.h = function (tag, attrs) {
     var el = document.createElement(tag);
@@ -386,6 +395,8 @@
     profiles: [],
     about: null,
     armed: true,  // PET-111: master Equipped/Unequipped bit; corrected by the mount fetch
+    protection: null,          // PET-236: the bound home's status from the armed read; null = no claim
+    selectedProtection: null,  // PET-236: the selected profile's, when it differs from the binding
     // PET-129: first-class terminal "authenticate" state. Set true by Pet.auth.on401
     // when a standalone /api call returns 401 (PETASOS_CONSOLE_TOKEN gate, PET-125);
     // distinct from "offline". While true the dashboard renders the authenticate

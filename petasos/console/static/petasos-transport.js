@@ -85,6 +85,7 @@
       if (typeof _syncScopePoll === "function") _syncScopePoll();
       if (Pet.sse) Pet.sse.disconnect(); // aborts SSE, resets _usingFallback, stops the fallback poll
       Pet._runtime.armedSeeded = false;   // force a re-seed from server truth after re-auth (edge F-3)
+      Pet._runtime.protectionSeeded = false; // PET-236: the status is re-read with the bit
       Pet._runtime.historySeeded = false; // ditto for the scan-history buffer
       Pet._runtime.historyPaging = false; Pet._runtime.historyPagingGen++; // PET-152: drop any in-flight paging re-mint; its stale .then checks gen and bails
       Pet.state.armed = null; // unknown until a verified read; bannerView keys authRequired first regardless
@@ -119,6 +120,7 @@
       var gen = Pet.auth._gen;
       var scopeGen = Pet._runtime.scopeGen; // PET-192 / D17: one send-time scope for the whole resume
       Pet._runtime.armedSeeded = false;   // re-derive from server truth, regardless of any stray frame (edge F-3)
+      Pet._runtime.protectionSeeded = false; // PET-236: the status is re-read with the bit
       Pet._runtime.historySeeded = false;
       Pet._runtime.historyPaging = false; Pet._runtime.historyPagingGen++; // PET-152: supersede any in-flight paging re-mint across the re-auth resume
       return Pet.api.getArmed().then(function (d) {
@@ -129,6 +131,7 @@
         if (!(d && typeof d.armed === "boolean")) return { ok: false, message: "Could not verify the token (transient error). Retry." };
         Pet.state.authRequired = false;
         Pet.state.armed = d.armed; // seed from the authenticated read, not the stale default
+        Pet._scope.adoptProtection(d, Pet.api._scopeParam()); // PET-236: the same read carries the status
         Pet._runtime.armedSeeded = true;       // armed is verified; skip the dashboard's mount re-fetch
         return Pet.api.getHealth().then(function (h) {
           // A token set/clear or host scope change during the /health round-trip
@@ -137,7 +140,7 @@
           // or re-render the dashboard under a superseded generation (e.g. re-arming
           // polling/SSE that a concurrent clearToken just tore down).
           if (gen !== Pet.auth._gen || scopeGen !== Pet._runtime.scopeGen) return { ok: false, stale: true };
-          if (h && !h.error && h._status !== 401) {
+          if (Pet.responseOk(h)) {
             Pet._runtime.healthLoaded = true;
             Pet.state.scannerHealth = h.scanners || [];
             Pet.state.pipelineHealth = h.pipeline || null;
@@ -164,6 +167,17 @@
         return sdk.fetchJSON(url, opts)
           .then(function (r) { return r; })
           .catch(function (e) {
+            // PET-236: current Hermes throws ApiError with `status` and `body`. The regex
+            // below stays for older hosts. An error body that is not an object is unparsed.
+            if (e && typeof e.status === "number" && e.status > 0) {
+              var parsed = null;
+              try { parsed = JSON.parse(e.body); } catch (_) {}
+              if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+                parsed._status = e.status;
+                return parsed;
+              }
+              return { error: e.message, _status: e.status };
+            }
             var msg = e.message || "";
             var match = msg.match(/^(\d+):\s*([\s\S]*)/);
             if (match) {
@@ -573,7 +587,7 @@
           if (Pet.state.tab === "obs" && Pet._runtime.container) Pet.renderDashboard(Pet._runtime.container);
           return;
         }
-        if (!d.error) {
+        if (Pet.responseOk(d)) {
           Pet._runtime.healthLoaded = true;  // PET-127: a poll settle that beats a slow in-render fetch flips the gate, not the skeleton
           Pet._scope.adoptRead(d);    // PET-166 D19: health 200s are a readScope writer
           Pet.state.scannerHealth = d.scanners || [];
@@ -710,6 +724,63 @@
     _syncScopePoll();
   };
 
+  // PET-236: adopt the protection status from one settled armed read. Returns whether
+  // the caption's inputs changed. A read that never landed must not leave a prior
+  // scope's value on the banner, so it builds a client field instead.
+  function _protectionKey(p) {
+    return p ? [p.status, p.profile, p.next_steps].join("|") : "";
+  }
+  function _protectionKeys() {
+    return _protectionKey(Pet.state.protection) + "||" + _protectionKey(Pet.state.selectedProtection);
+  }
+  Pet._scope.adoptProtection = function (d, scopeParam) {
+    if (d && (d._status === 401 || Pet.isProfile422(d))) return false;
+    var before = _protectionKeys();
+    Pet._runtime.protectionSeeded = true;
+    if (Pet.responseOk(d) && typeof d.armed === "boolean") {
+      Pet.state.protection = d.protection || null;
+      Pet.state.selectedProtection = d.selected_protection || null;
+    } else if (scopeParam && d && d._status === 404 && d.detail === "Plugin not found") {
+      // Hermes refused this before any Petasos code ran, so only the client can say it.
+      Pet.state.protection = {
+        status: "not_enabled", refused: true, profile: scopeParam, configured: null, folder: null, claimants: [],
+        detail: "Hermes refused this console for " + scopeParam + ": Petasos is not enabled there, or that profile has no dashboard copy.",
+        next_steps: "Run verify.py for the exact commands. If leaving this profile unguarded is intended, no action is needed.",
+      };
+      Pet.state.selectedProtection = null;
+    } else if (Pet.hostProfile.source !== "none" || Pet.state.protection != null) {
+      // Standalone cannot tell whether a Hermes home is behind it until a read lands,
+      // so a failed first read there stays null. verify.py remains the authority.
+      var detail = "The request failed.";
+      if (d && d.error && typeof d.error === "string") detail = d.error;
+      else if (d && d.detail && typeof d.detail === "string") detail = d.detail;
+      else if (d && d._status) detail = "HTTP " + d._status;
+      Pet.state.protection = {
+        status: "unknown", client: true, profile: scopeParam || null, configured: null, folder: null, claimants: [],
+        detail: detail, next_steps: "Run verify.py for the full status.",
+      };
+      Pet.state.selectedProtection = null;
+    }
+    return before !== _protectionKeys();
+  };
+
+  // PET-236: the decision for one settled armed read, in the spirit of Pet.armedWriteView.
+  // Protection adoption runs even while a write is in flight, because this may be the
+  // only read in this entry. The armed bit stays guarded by armedBusy as before.
+  Pet._scope.armedReadView = function (args) {
+    if (args.scopeMoved) return { drop: true, adoptRead: false, adoptArmed: false, protectionChanged: false };
+    var d = args.response;
+    var changed = Pet._scope.adoptProtection(d, args.scopeParam);
+    var landed = !args.busy && Pet.responseOk(d) && typeof d.armed === "boolean";
+    return { drop: false, adoptRead: landed, adoptArmed: landed, protectionChanged: changed };
+  };
+
+  // PET-236: an `armed` SSE frame seeds armedSeeded with no read, so protection has its own latch.
+  Pet._scope.armedReadNeeded = function () {
+    return (!Pet._runtime.armedSeeded || !Pet._runtime.protectionSeeded)
+      && !Pet._runtime.armedBusy && !Pet.state.scopeError;
+  };
+
   // D7: shared 422 branch for the scoped readers. Sets the ONE coherent error state
   // (never four independent error boxes) and reports true so the caller returns
   // before its shape-guarded body can wipe healthy panels with a detail-only body.
@@ -729,6 +800,7 @@
     Pet._runtime.scopeGen++;
     Pet._runtime.historySeeded = false;
     Pet._runtime.armedSeeded = false;
+    Pet._runtime.protectionSeeded = false;   // PET-236: the fields stay, like Pet.state.armed, so nothing flashes
     Pet._runtime.historyPaging = false;
     Pet._runtime.historyPagingGen++;         // drop an in-flight PET-152 two-fetch re-mint chain
     Pet._shell.clearArmedConfirm();         // a confirm window formed about the previous profile

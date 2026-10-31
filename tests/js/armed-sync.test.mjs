@@ -22,7 +22,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createDOM, loadConsole } from "./harness.mjs";
+import { consoleSource, consoleSources, createDOM, loadConsole } from "./harness.mjs";
 
 // ── Minimal DOM shim ────────────────────────────────────────────────────────
 // The armed arm needs no real DOM (its re-render is _container-guarded and
@@ -60,6 +60,250 @@ test("test_armed_adopts_valid_boolean", () => {
   Pet.state.armed = false;
   Pet.sse._dispatch("armed", JSON.stringify({ armed: true }));
   assert.equal(Pet.state.armed, true, "armed:true frame should set state to true");
+});
+
+// ── PET-236: protection adoption, seeding, and the failed-response readers ──
+// Each case gets a fresh realm. The SDK rejects as current Hermes does: ApiError
+// with `status` and `body`, and a plain-sentence message.
+
+function apiError(status, body, message = "Request failed") {
+  return Object.assign(new Error(message), { status, body });
+}
+
+function freshConsole(sdk) {
+  const box = {
+    window: sdk ? { __HERMES_PLUGIN_SDK__: sdk } : {},
+    document: makeDocument(),
+    console, clearInterval, clearTimeout, setTimeout,
+    setInterval: function (fn) { box.__tick = fn; return 1; },
+    AbortController, TextDecoder,
+    fetch: () => new Promise(() => {}),
+  };
+  const P = loadConsole(box);
+  P.sse.connect = () => {}; // no transport under test
+  return { P, tick: () => box.__tick() };
+}
+
+function embedded(reject) {
+  const { P, tick } = freshConsole({
+    fetchJSON: () => (reject ? Promise.reject(reject) : Promise.resolve({})),
+  });
+  P.hostProfile.source = "sdk";
+  return { P, tick };
+}
+
+const flush = () => new Promise((r) => setImmediate(r));
+const GOOD = { status: "hook_can_load", profile: "ops", next_steps: "", detail: "ok" };
+
+test("adoption runs while a write is in flight, and the bit stays guarded", () => {
+  const { P } = embedded();
+  P.state.armed = false;
+  const view = P._scope.armedReadView({
+    response: { armed: true, protection: { status: "no_copy", profile: "ops", next_steps: "x" } },
+    busy: true, scopeMoved: false, scopeParam: "ops",
+  });
+  assert.equal(P.state.protection.status, "no_copy");
+  assert.equal(view.adoptArmed, false);
+  assert.equal(view.adoptRead, false);
+  assert.equal(view.protectionChanged, true);
+  assert.equal(P._runtime.protectionSeeded, true);
+});
+
+test("a superseded read drops and adopts nothing", () => {
+  const { P } = embedded();
+  const view = P._scope.armedReadView({
+    response: { armed: true, protection: GOOD }, busy: false, scopeMoved: true, scopeParam: "ops",
+  });
+  assert.equal(view.drop, true);
+  assert.equal(P.state.protection, null);
+});
+
+test("every failed read after a hook_can_load scope reads CANNOT VERIFY, with no adoptRead", () => {
+  const failures = [
+    { error: "bad gateway", _status: 502 },
+    { error: "timeout", _status: 504 },
+    { detail: "boom", _status: 500 },
+    { error: "network down" },
+    { detail: "Not Found", _status: 404 },
+    { detail: "Profile 'x' does not exist.", _status: 404 },
+  ];
+  for (const response of failures) {
+    const { P } = embedded();
+    P.state.protection = GOOD;
+    const view = P._scope.armedReadView({ response, busy: false, scopeMoved: false, scopeParam: "ops" });
+    assert.equal(P.state.protection.status, "unknown");
+    assert.equal(P.state.protection.client, true);
+    assert.equal(view.adoptRead, false);
+    assert.equal(P.bannerView({ armed: true, protection: P.state.protection }).label, "CANNOT VERIFY");
+  }
+});
+
+test("a failed read's detail is always a string, so Pet.h cannot throw", () => {
+  for (const [response, want] of [
+    [{ detail: [{ msg: "x" }], _status: 500 }, "HTTP 500"],
+    [{}, "The request failed."],
+    [null, "The request failed."],
+  ]) {
+    const { P } = embedded();
+    P._scope.adoptProtection(response, "ops");
+    assert.equal(P.state.protection.detail, want);
+  }
+});
+
+test("401 and 422 are not adopted", () => {
+  const { P } = embedded();
+  P.state.protection = GOOD;
+  P._scope.adoptProtection({ _status: 401, detail: "no" }, "ops");
+  P._scope.adoptProtection({ _status: 422, detail: [{ field: "profile", message: "x" }] }, "ops");
+  assert.equal(P.state.protection.status, "hook_can_load");
+});
+
+test("an SSE frame with no read still reports a read needed; a sent read does not", () => {
+  const { P } = embedded();
+  P.sse._dispatch("armed", JSON.stringify({ armed: true }));
+  assert.equal(P._runtime.armedSeeded, true);
+  assert.equal(P._scope.armedReadNeeded(), true);
+  P._runtime.protectionSeeded = true; // the send site's latch, pending or failed
+  assert.equal(P._scope.armedReadNeeded(), false);
+  P._runtime.armedBusy = true;
+  P._runtime.armedSeeded = false;
+  assert.equal(P._scope.armedReadNeeded(), false);
+});
+
+test("change detection covers status, profile, next steps and selected_protection", () => {
+  const { P } = embedded();
+  const read = (body) => P._scope.adoptProtection({ armed: true, ...body }, "");
+  assert.equal(read({ protection: { status: "no_copy", profile: "a", next_steps: "x" } }), true);
+  assert.equal(read({ protection: { status: "no_copy", profile: "a", next_steps: "x" } }), false);
+  assert.equal(read({ protection: { status: "no_copy", profile: "b", next_steps: "x" } }), true);
+  assert.equal(read({ protection: { status: "no_copy", profile: "b", next_steps: "y" } }), true);
+  assert.equal(read({
+    protection: { status: "no_copy", profile: "b", next_steps: "y" },
+    selected_protection: GOOD,
+  }), true);
+});
+
+test("invalidate keeps the fields and clears the latch", () => {
+  const { P } = embedded();
+  P.state.protection = GOOD;
+  P._runtime.protectionSeeded = true;
+  P._scope.invalidate();
+  assert.equal(P.state.protection.status, "hook_can_load");
+  assert.equal(P._runtime.protectionSeeded, false);
+});
+
+test("regression PET-236: a refused read through ApiError never reads EQUIPPED", async () => {
+  const { P } = embedded(apiError(404, '{"detail":"Plugin not found"}', "Plugin not found"));
+  P.state.selectedHermesProfile = "ops";
+  P.state.protection = GOOD;
+  const d = await P.api.getArmed();
+  assert.equal(d._status, 404);
+  const view = P._scope.armedReadView({ response: d, busy: false, scopeMoved: false, scopeParam: "ops" });
+  assert.equal(view.adoptRead, false);
+  assert.equal(P.state.scopeNotice, false);
+  assert.equal(P.state.protection.refused, true);
+  assert.equal(P.state.protection.profile, "ops");
+  assert.equal(P.state.selectedProtection, null);
+  const banner = P.bannerView({ armed: true, protection: P.state.protection });
+  assert.notEqual(banner.label, "EQUIPPED");
+  assert.equal(banner.label, "NOT PROTECTED");
+  assert.equal(P.armScopeView(null, P.state.protection).disabled, true);
+});
+
+test("the old message form still gives a status", async () => {
+  const { P } = embedded(new Error('404: {"detail":"Plugin not found"}'));
+  const d = await P.api.getArmed();
+  assert.equal(d._status, 404);
+  assert.equal(d.detail, "Plugin not found");
+});
+
+test("an ApiError body that is not an object counts as unparsed", async () => {
+  for (const body of ["[1]", '"text"', "null", "not json"]) {
+    const { P } = embedded(apiError(500, body, "Server error"));
+    const d = await P.api.getArmed();
+    assert.equal(d.error, "Server error");
+    assert.equal(d._status, 500);
+  }
+});
+
+test("an ApiError with status 0 stays {error}", async () => {
+  const { P } = embedded(apiError(0, "", "offline"));
+  const d = await P.api.getArmed();
+  assert.equal(d.error, "offline");
+  assert.equal(d._status, undefined);
+});
+
+test("Pet.responseOk gates on error and status", () => {
+  const { P } = embedded();
+  assert.equal(P.responseOk({ armed: true }), true);
+  assert.equal(P.responseOk({ error: "x" }), false);
+  assert.equal(P.responseOk({ _status: 500 }), false);
+  assert.equal(P.responseOk(null), false);
+});
+
+test("regression PET-236: a failed health poll keeps the panels and the notice, in either order", async () => {
+  for (const body of ['{"detail":"x"}', "{}"]) {
+    for (const armedFirst of [true, false]) {
+      const { P, tick } = embedded(apiError(500, body));
+      P.hostProfile.source = "sdk";
+      P.state.selectedHermesProfile = "ops";
+      P.state.scannerHealth = ["kept"];
+      P.state.scopeNotice = false;
+      const armedRead = async () => {
+        const d = await P.api.getArmed();
+        const v = P._scope.armedReadView({ response: d, busy: false, scopeMoved: false, scopeParam: "ops" });
+        assert.equal(v.adoptRead, false);
+      };
+      if (armedFirst) await armedRead();
+      P._poll.startHealth();
+      tick();
+      await flush();
+      if (!armedFirst) await armedRead();
+      assert.equal(P.state.scannerHealth[0], "kept");
+      assert.equal(P.state.scopeNotice, false);
+      P._poll.stopHealth();
+    }
+  }
+});
+
+test("the health reader after a refused armed read adopts nothing", async () => {
+  const { P, tick } = embedded(apiError(404, '{"detail":"Plugin not found"}'));
+  P.state.selectedHermesProfile = "ops";
+  P.state.scannerHealth = ["kept"];
+  P._scope.adoptProtection(await P.api.getArmed(), "ops");
+  P._poll.startHealth();
+  tick();
+  await flush();
+  assert.equal(P.state.scannerHealth[0], "kept");
+  assert.equal(P.state.scopeNotice, false);
+  P._poll.stopHealth();
+});
+
+test("the other failed-response gates use Pet.responseOk at the source", () => {
+  assert.doesNotMatch(consoleSource, /_historyResponseOk/);
+  const dashboard = consoleSources.find((s) => s.filename === "petasos-dashboard.js").source;
+  assert.match(dashboard, /if \(Pet\.responseOk\(d\)\) \{\s*Pet\._scope\.adoptRead\(d\); \/\/ PET-166 D19: health/);
+  const config = consoleSources.find((s) => s.filename === "petasos-config.js").source;
+  assert.match(config, /if \(!Pet\.responseOk\(d\)\) \{\s*formArea\.insertBefore/);
+  assert.match(config, /else if \(resp && !Pet\.responseOk\(resp\)\)/);
+  assert.match(config, /"Config unavailable: " \+ d\.detail/);
+});
+
+test("standalone: a failed first read stays null and is seeded; after a landed read it is unknown", () => {
+  const { P } = freshConsole();
+  assert.equal(P.hostProfile.source, "none");
+  P._scope.adoptProtection({ error: "offline" }, "");
+  assert.equal(P.state.protection, null);
+  assert.equal(P._runtime.protectionSeeded, true);
+  P._scope.adoptProtection({ armed: true, protection: GOOD }, "");
+  P._scope.adoptProtection({ error: "offline" }, "");
+  assert.equal(P.state.protection.status, "unknown");
+});
+
+test("standalone with no Hermes home: a body with no field keeps null", () => {
+  const { P } = freshConsole();
+  assert.equal(P._scope.adoptProtection({ armed: true }, ""), false);
+  assert.equal(P.state.protection, null);
 });
 
 // Done-when 4: malformed frames never enter Pet.state.armed and never throw.

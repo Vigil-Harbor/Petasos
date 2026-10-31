@@ -259,7 +259,7 @@ async def get_armed(profile: str | None = None) -> Any:
     from petasos.console.server import ProfileNotFoundError
 
     try:
-        return await _require_handlers().get_armed(profile=profile)
+        return await _require_handlers().get_armed(profile=profile, include_protection=True)
     except ProfileNotFoundError as exc:
         return JSONResponse(
             status_code=422,
