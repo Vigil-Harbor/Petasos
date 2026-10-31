@@ -53,11 +53,7 @@ def _has_duplicate_key(node: Any, visited: set[int]) -> bool:
         return False
     pairs = node.value
     if node.id == "mapping":
-        keys = [
-            (key.tag, key.value)
-            for key, _ in pairs
-            if key.id == "scalar" and key.tag != "tag:yaml.org,2002:merge"
-        ]
+        keys = [(key.tag, key.value) for key, _ in pairs if key.id == "scalar"]
         if len(keys) != len(set(keys)):
             return True
         children = [child for pair in pairs for child in pair]

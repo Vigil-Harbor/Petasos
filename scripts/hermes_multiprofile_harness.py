@@ -249,6 +249,10 @@ def check_predictor_conformance(root: Path) -> None:
         "pycache": [("__pycache__", "name: petasos\n")],
         "foreign_harness": [(".claude-plugin", "name: petasos\n")],
         "duplicate_key_manifest": [("petasos", "name: petasos\nname: petasos\n")],
+        "repeated_merge_key": [
+            ("petasos", "a: &a {x: 1}\nb: &b {z: 2}\nc:\n  <<: *a\n  <<: *b\n")
+        ],
+        "single_merge_key": [("petasos", "a: &a {x: 1}\nc:\n  <<: *a\n")],
     }
     base = root / "conformance"
     for name, folders in shapes.items():

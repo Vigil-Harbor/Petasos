@@ -213,6 +213,23 @@ def test_yaml_merge_keys_are_not_duplicates(tmp_path: Path) -> None:
     assert protection_status(home).status == "hook_can_load"
 
 
+def test_regression_pet236_repeated_merge_key_is_a_duplicate(tmp_path: Path) -> None:
+    # Hermes raises on a second << in one mapping; PyYAML would merge both.
+    manifest = "a: &a {x: 1}\nb: &b {y: 2}\nc:\n  <<: *a\n  <<: *b\n"
+    home = _home(tmp_path)
+    _folder(home / "plugins", "petasos", manifest)
+    assert protection_status(home).status == "no_copy"
+
+
+def test_repeated_merge_key_in_config_is_a_config_failure(tmp_path: Path) -> None:
+    config = (
+        "base1: &a {enabled: [petasos]}\nbase2: &b {disabled: []}\nplugins:\n  <<: *a\n  <<: *b\n"
+    )
+    home = _home(tmp_path, config)
+    _folder(home / "plugins", "petasos")
+    assert protection_status(home).status == "unknown"
+
+
 def test_bom_manifest(tmp_path: Path) -> None:
     home = _home(tmp_path)
     copy = _folder(home / "plugins", "other")
