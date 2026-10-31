@@ -18,6 +18,12 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
 
 ### Changed
 
+- **Override-aware Hermes home resolution (PET-231).**
+  `resolve_hermes_config_path` reads Hermes's context-local home override
+  first, at tier `override`, then `HERMES_HOME`, the active-profile pointer,
+  and the v0.15 root. The enforcement binding stays the resolution captured
+  at `register()`. Console equipped surfaces stay on the process binding.
+
 - **Excluded ingest latches survive not-string skip keys (PET-203).**
   `kind="excluded"` first-sighting is stored apart from the 512-key
   drop-oldest map, so MCP not-string skips cannot evict

@@ -115,12 +115,19 @@ def _install_sync_dispatch(ref: types.ModuleType, monkeypatch: pytest.MonkeyPatc
 
 
 def _wire_live(
-    ref: types.ModuleType, monkeypatch: pytest.MonkeyPatch, section: dict[str, Any]
+    ref: types.ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    section: dict[str, Any],
+    *,
+    host_id: str | None = None,
 ) -> tuple[Any, Any]:
     """Build a real live pipeline + guard from ``section`` and mark the module
     initialized, so the re-bind worker takes its live-apply branch deterministically."""
     cfg = ref._build_config_from_section(section)
-    pipe = Pipeline(scanners=[MinimalScanner()], config=cfg)
+    pipe_kwargs: dict[str, Any] = {}
+    if host_id is not None:
+        pipe_kwargs["host_id"] = host_id
+    pipe = Pipeline(scanners=[MinimalScanner()], config=cfg, **pipe_kwargs)
     tracker = FrequencyTracker(cfg)
     guard = ToolCallGuard(pipe, tracker, cfg, lineage=None)
     monkeypatch.setattr(ref, "_pipeline", pipe)
@@ -362,6 +369,92 @@ def test_rebind_to_sectionless_profile_keeps_lastgood(
     assert len(stale) == 1
 
 
+def test_sectionless_rebind_signs_the_new_spool(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A sectionless rebind installs the live secret on the new spool path."""
+    import base64
+
+    import petasos.console._events as events_mod
+    import petasos.console._paths as paths_mod
+
+    saved = paths_mod._SPOOL_PATH_OVERRIDE
+    paths_mod._SPOOL_PATH_OVERRIDE = None
+    events_mod._reset_spool_key()
+    try:
+        ref = _import_reference_plugin()
+        secret = b"k" * 32
+        monkeypatch.setenv("PETASOS_SESSION_SECRET", base64.b64encode(secret).decode("ascii"))
+        pipe, _guard = _wire_live(
+            ref,
+            monkeypatch,
+            {"enabled": True, "fail_mode": "closed"},
+            host_id="test-host",
+        )
+        assert pipe.config.session_secret == secret
+        w_home = _profile_home(tmp_path, "w", {"enabled": True, "fail_mode": "closed"})
+        x_home = _profile_home(tmp_path, "x", None)
+        monkeypatch.setattr(ref, "_session_resolution", _make_resolution(w_home / "config.yaml"))
+        ref._on_profile_change(profile_name="x", profile_home=str(x_home))
+        new_spool = paths_mod.spool_path(ref._session_resolution)
+        assert os.path.normcase(new_spool) in events_mod._SPOOL_KEYS
+        assert events_mod.emit_enforcement_event(
+            {
+                "scan_id": "e-rebind",
+                "session_id": "s",
+                "tool": "t",
+                "event_type": "block",
+                "timestamp": 12.0,
+            },
+            res=ref._session_resolution,
+        )
+        text = Path(new_spool).read_text(encoding="utf-8")
+        assert "e-rebind" in text
+        assert '"sig"' in text
+    finally:
+        paths_mod._SPOOL_PATH_OVERRIDE = saved
+        events_mod._reset_spool_key()
+
+
+def test_reconfigure_keeps_live_spool_key_when_section_omits_secret(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A rebind whose section omits session_secret still signs with the live secret."""
+    import base64
+
+    import petasos.console._events as events_mod
+    import petasos.console._paths as paths_mod
+
+    saved = paths_mod._SPOOL_PATH_OVERRIDE
+    paths_mod._SPOOL_PATH_OVERRIDE = None
+    events_mod._reset_spool_key()
+    try:
+        ref = _import_reference_plugin()
+        secret = b"k" * 32
+        monkeypatch.setenv("PETASOS_SESSION_SECRET", base64.b64encode(secret).decode("ascii"))
+        pipe, _guard = _wire_live(
+            ref,
+            monkeypatch,
+            {"enabled": True, "fail_mode": "closed"},
+            host_id="test-host",
+        )
+        assert pipe.config.session_secret == secret
+        monkeypatch.delenv("PETASOS_SESSION_SECRET", raising=False)
+        w_home = _profile_home(tmp_path, "w", {"enabled": True, "fail_mode": "closed"})
+        x_home = _profile_home(tmp_path, "x", {"enabled": True, "fail_mode": "open"})
+        monkeypatch.setattr(ref, "_session_resolution", _make_resolution(w_home / "config.yaml"))
+        ref._on_profile_change(profile_name="x", profile_home=str(x_home))
+        assert pipe.config.session_secret == secret
+        assert pipe.config.fail_mode == "open"
+        new_spool = paths_mod.spool_path(ref._session_resolution)
+        assert events_mod._SPOOL_KEYS[os.path.normcase(new_spool)] == events_mod._derive_spool_key(
+            secret
+        )
+    finally:
+        paths_mod._SPOOL_PATH_OVERRIDE = saved
+        events_mod._reset_spool_key()
+
+
 # ── init-window correctness ─────────────────────────────────────────────────────
 
 
@@ -528,6 +621,8 @@ def test_forced_rediscovery_rebinds(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     ref.register(_FakeCtx())
 
     assert _same_config(ref._session_resolution.path, x_home)  # re-pinned to X, no leaked W
+    assert ref._guard._selfmod_home.path == ref._session_resolution.path
+    assert ref._guard._selfmod_owned_cache == (0.0, frozenset())
     assert pipe.config.fail_mode == "closed"  # X applied through the real loader
     assert ref._is_egress_sink("x_tool") is True  # X's egress set is live
     assert ref._is_egress_sink("w_tool") is False  # W's is gone
@@ -649,7 +744,7 @@ def test_concurrent_rebinds_converge(tmp_path: Path, monkeypatch: pytest.MonkeyP
     assert _same_config(ref._session_resolution.path, z_home)  # binding still moved
     # worker-top reset + on_error reset: the failed apply must additionally reset the cache.
     assert reset_calls["n"] >= 2
-    assert reload_mod._RELOAD_CACHE is None  # not left committed to a superseded profile
+    assert reload_mod._RELOAD_CACHE == {}  # not left committed to a superseded profile
 
 
 # ── PET-147: the dormant re-bind handler is host-callable (end-to-end) ──────────

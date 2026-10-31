@@ -18,7 +18,7 @@ assertion can go vacuous. Handlers are driven directly.
 import logging
 import os
 import platform
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
@@ -142,29 +142,28 @@ async def test_read_and_write_resolve_the_same_file(
 ) -> None:
     _write_enabled(env.root_cfg, True)
     env.pin_root()
-    rec: list[paths_mod.HermesConfigResolution] = []
+    rec: list[tuple[str, paths_mod.HermesConfigResolution]] = []
     real = paths_mod.resolve_hermes_config_path
 
-    def _recording() -> paths_mod.HermesConfigResolution:
-        res = real()
-        rec.append(res)
-        return res
+    def _recording(label: str) -> Callable[..., paths_mod.HermesConfigResolution]:
+        def _inner(**kwargs: object) -> paths_mod.HermesConfigResolution:
+            assert kwargs.get("use_override") is False
+            res = real(use_override=False)
+            rec.append((label, res))
+            return res
 
-    # Patch the symbol AS IMPORTED INTO _armed: that is what makes the test
-    # observe the real call each side makes, not a path the test computed itself.
-    monkeypatch.setattr(armed_mod, "resolve_hermes_config_path", _recording)
+        return _inner
+
+    # The read resolves in server.py; the write resolves in _armed.py.
+    monkeypatch.setattr(server_mod, "resolve_hermes_config_path", _recording("server"))
+    monkeypatch.setattr(armed_mod, "resolve_hermes_config_path", _recording("armed"))
 
     h = _make_handlers()
     await h.get_armed(profile="alpha")
     await h.set_armed(False)
-    # REQUIRED, and the reason the test is not vacuous: with the pre-PET-185
-    # read_armed(scope.resolution) in place the read leg short-circuits at
-    # _armed.py:73 and never reaches the resolver, leaving one recorded call.
-    assert len(rec) == 2
-    # Read-then-write by drive order; with the arity assertion this uniquely
-    # identifies both legs, so no per-call-site tagging wrapper is needed.
-    assert len({os.path.normcase(str(r.path)) for r in rec}) == 1
-    _assert_under(str(rec[0].path), env.root)
+    assert {label for label, _res in rec} == {"server", "armed"}
+    assert len({os.path.normcase(str(res.path)) for _label, res in rec}) == 1
+    _assert_under(str(rec[0][1].path), env.root)
 
 
 # ── T3: equipped_name null (the D16 row) ──────────────────────────────────

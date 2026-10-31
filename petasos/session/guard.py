@@ -54,6 +54,7 @@ if TYPE_CHECKING:
 
     from petasos._types import Direction
     from petasos.config import PetasosConfig
+    from petasos.console._paths import HermesConfigResolution
     from petasos.pipeline import Pipeline
     from petasos.session.frequency import FrequencyTracker, SessionState
     from petasos.session.lineage import LineageRegistry
@@ -661,11 +662,13 @@ class ToolCallGuard:
         *,
         exempt_param_scan: bool = True,
         lineage: LineageRegistry | None = None,
+        home: HermesConfigResolution | None = None,
     ) -> None:
         self._pipeline = pipeline
         self._frequency_tracker = frequency_tracker
         self._config = config
         self._profile = profile
+        self._selfmod_home = home
         self._exempt_param_scan = exempt_param_scan
         # PET-107 A: lineage edge store (None → chain walk + pinning disabled,
         # behavior is byte-for-byte today's).
@@ -710,19 +713,32 @@ class ToolCallGuard:
             return cached
         try:
             from petasos.console._paths import (
+                HermesConfigResolution,
+                hermes_root,
                 list_hermes_profiles,
                 resolve_hermes_config_path,
                 spool_path,
                 spool_rot_path,
             )
 
+            def _beside(res: HermesConfigResolution) -> list[str]:
+                return [str(res.path), spool_path(res), spool_rot_path(res)]
+
             raw_entries: list[str] = []
-            res = resolve_hermes_config_path()
-            raw_entries.append(str(res.path))
+            if self._selfmod_home is not None:
+                raw_entries.extend(_beside(self._selfmod_home))
+            raw_entries.extend(_beside(resolve_hermes_config_path(use_override=False)))
+            raw_entries.extend(
+                _beside(HermesConfigResolution(path=hermes_root() / "config.yaml", tier="root"))
+            )
             for prof in list_hermes_profiles():
-                raw_entries.append(prof["path"])
-            raw_entries.append(spool_path())
-            raw_entries.append(spool_rot_path())
+                raw_entries.extend(
+                    _beside(HermesConfigResolution(path=Path(prof["path"]), tier="profile"))
+                )
+            if self._selfmod_home is None:
+                raw_entries.append(str(resolve_hermes_config_path().path))
+                raw_entries.append(spool_path())
+                raw_entries.append(spool_rot_path())
 
             result: set[str] = set()
             for raw in raw_entries:

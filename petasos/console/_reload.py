@@ -25,14 +25,14 @@ resolution (mirroring ``read_armed``). The gateway passes its boot-pinned
 resolution so the reload reads the same file the armed bit does; the standalone
 console passes ``None`` and re-resolves. The peek and its matching commit MUST be
 passed the identical ``res`` in one cycle, or the committed key and section would
-describe different files. Precondition: the ``(mtime_ns, size)`` cache is keyed by
-stat metadata, not path; a single process must use one binding consistently. If a
-future surface ever runs gateway and console in one process, re-key the cache to
-include ``res.path``.
+describe different files. The cache is a dict keyed by ``os.path.normcase`` of
+the resolution path, bounded to 8 entries (drop-oldest on insert). The key
+returned to callers stays ``(mtime_ns, size)``.
 """
 
 from __future__ import annotations
 
+import os
 import threading
 import time
 from typing import Any
@@ -45,17 +45,30 @@ from petasos.console._paths import (
 
 _RELOAD_LOCK = threading.Lock()
 _RELOAD_TTL_S = 1.0
-# (seen_key, seen_section, monotonic_ts) | None — seen_key is the
-# (st_mtime_ns, st_size) of the last COMMITTED section; written only by
-# commit_seen / _reset_reload_cache. read_changed_section is a pure reader of it.
-_RELOAD_CACHE: tuple[tuple[int, int], dict[str, Any], float] | None = None
+_RELOAD_CACHE_MAX = 8
+# path-key -> (seen_key, seen_section, monotonic_ts). seen_key is the
+# (st_mtime_ns, st_size) of the last COMMITTED section for that path; written
+# only by commit_seen / the same-key timestamp refresh. read_changed_section
+# is otherwise a pure reader of it.
+_RELOAD_CACHE: dict[str, tuple[tuple[int, int], dict[str, Any], float]] = {}
 
 
 def _reset_reload_cache() -> None:
-    """Test seam: drop the cache (mirrors ``_reset_armed_cache``)."""
-    global _RELOAD_CACHE
+    """Test seam: drop every cache slot (mirrors ``_reset_armed_cache``)."""
     with _RELOAD_LOCK:
-        _RELOAD_CACHE = None
+        _RELOAD_CACHE.clear()
+
+
+def _path_key(res: HermesConfigResolution) -> str:
+    return os.path.normcase(str(res.path))
+
+
+def _store_slot(path_key: str, slot: tuple[tuple[int, int], dict[str, Any], float]) -> None:
+    """Insert under the lock already held. Drop-oldest past ``_RELOAD_CACHE_MAX``."""
+    _RELOAD_CACHE.pop(path_key, None)
+    _RELOAD_CACHE[path_key] = slot
+    while len(_RELOAD_CACHE) > _RELOAD_CACHE_MAX:
+        _RELOAD_CACHE.pop(next(iter(_RELOAD_CACHE)))
 
 
 def read_changed_section(
@@ -82,9 +95,9 @@ def read_changed_section(
     Does not self-advance the seen key; the caller commits via ``commit_seen``.
     Never raises.
     """
-    global _RELOAD_CACHE
     try:
         res = res if res is not None else resolve_hermes_config_path()
+        path_key = _path_key(res)
         try:
             st = res.path.stat()
             key = (st.st_mtime_ns, st.st_size)
@@ -93,7 +106,7 @@ def read_changed_section(
 
         now = time.monotonic()
         with _RELOAD_LOCK:
-            cache = _RELOAD_CACHE
+            cache = _RELOAD_CACHE.get(path_key)
             if cache is not None and cache[0] == key and (now - cache[2]) < _RELOAD_TTL_S:
                 return None  # within TTL at the committed key -> no work
 
@@ -104,12 +117,12 @@ def read_changed_section(
             return None
 
         with _RELOAD_LOCK:
-            cache = _RELOAD_CACHE
+            cache = _RELOAD_CACHE.get(path_key)
             if cache is not None and cache[0] == key and section == cache[1]:
                 # Same key, identical content: not a change. Refresh the timestamp
                 # so a steady state re-parses at most once per TTL (mirrors
                 # read_armed's steady-state cost).
-                _RELOAD_CACHE = (cache[0], cache[1], now)
+                _store_slot(path_key, (cache[0], cache[1], now))
                 return None
             return section, key
     except Exception:
@@ -129,11 +142,11 @@ def commit_seen(key: tuple[int, int], res: HermesConfigResolution | None = None)
     call (PET-130); otherwise the committed section would be re-read from a different
     file than the one ``key`` describes.
     """
-    global _RELOAD_CACHE
     try:
         res = res if res is not None else resolve_hermes_config_path()
+        path_key = _path_key(res)
         section = read_petasos_section(res)
     except Exception:
-        section = {}
+        return
     with _RELOAD_LOCK:
-        _RELOAD_CACHE = (key, section, time.monotonic())
+        _store_slot(path_key, (key, section, time.monotonic()))

@@ -12,6 +12,7 @@ import asyncio
 import base64
 import importlib.util
 import logging
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -138,7 +139,7 @@ def test_reload_empty_section_is_noop(cfg: Path) -> None:
     # A wiped petasos: section (Windows UI model switcher, D-WIN) is "no change".
     _write_config(cfg, petasos_section={})
     assert read_changed_section() is None
-    assert reload_mod._RELOAD_CACHE is None  # key not advanced
+    assert reload_mod._RELOAD_CACHE == {}  # key not advanced
 
 
 def test_reload_wiped_section_keeps_last_good(cfg: Path) -> None:
@@ -155,6 +156,40 @@ def test_reload_malformed_yaml_keeps_last_good(cfg: Path) -> None:
     cfg.parent.mkdir(parents=True, exist_ok=True)
     cfg.write_text("petasos: : : not valid yaml ::\n", encoding="utf-8")
     assert read_changed_section() is None
+
+
+def test_reload_cache_slots_are_per_path(tmp_path: Path) -> None:
+    """Two paths that share a stat key each report their own section."""
+    from petasos.console._paths import HermesConfigResolution
+
+    def _write(path: Path, name: str) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        # Same byte length so a forced mtime can collide the stat key.
+        path.write_text(f"petasos:\n  profile_name: {name}\n", encoding="utf-8")
+
+    left = tmp_path / "left" / "config.yaml"
+    right = tmp_path / "right" / "config.yaml"
+    _write(left, "aaaa")
+    _write(right, "bbbb")
+    stamp = left.stat()
+    os.utime(right, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
+    assert left.stat().st_size == right.stat().st_size
+    assert left.stat().st_mtime_ns == right.stat().st_mtime_ns
+
+    left_res = HermesConfigResolution(path=left, tier="hermes_home")
+    right_res = HermesConfigResolution(path=right, tier="profile")
+    got_left = read_changed_section(left_res)
+    got_right = read_changed_section(right_res)
+    assert got_left is not None and got_right is not None
+    assert got_left[0].get("profile_name") == "aaaa"
+    assert got_right[0].get("profile_name") == "bbbb"
+    assert isinstance(got_left[1], tuple)
+    assert len(got_left[1]) == 2
+    assert all(isinstance(part, int) for part in got_left[1])
+    commit_seen(got_left[1], left_res)
+    commit_seen(got_right[1], right_res)
+    reload_mod._reset_reload_cache()
+    assert reload_mod._RELOAD_CACHE == {}
 
 
 def test_reload_and_armed_resolve_same_path() -> None:
@@ -296,15 +331,15 @@ def test_reload_shares_session_bound_resolution(
     assert section.get("profile_name") == "gibson_profile"  # profile, not root
 
     commit_seen(key, pinned)
-    assert reload_mod._RELOAD_CACHE is not None
-    assert reload_mod._RELOAD_CACHE[1].get("profile_name") == "gibson_profile"
+    gibson_slot = reload_mod._RELOAD_CACHE[os.path.normcase(str(profile_cfg))]
+    assert gibson_slot[1].get("profile_name") == "gibson_profile"
 
     # Drop the res on commit: it re-resolves to ambient root and caches the WRONG
     # section -> the test fails here if the res argument were ever dropped.
     reload_mod._reset_reload_cache()
     commit_seen(key)
-    assert reload_mod._RELOAD_CACHE is not None
-    assert reload_mod._RELOAD_CACHE[1].get("profile_name") == "root_profile"
+    root_slot = reload_mod._RELOAD_CACHE[os.path.normcase(str(root_cfg))]
+    assert root_slot[1].get("profile_name") == "root_profile"
 
 
 def test_profile_disarm_honored_over_global_armed(
