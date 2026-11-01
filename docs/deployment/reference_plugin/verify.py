@@ -209,12 +209,19 @@ def check_scanner_imports() -> CheckResult:
         available.append("PresidioScanner")
     except ImportError:
         pass
+    try:
+        from petasos.scanners import PromptGuardScanner  # noqa: F401
+
+        available.append("PromptGuardScanner")
+    except ImportError:
+        pass
 
     if len(available) == 1:
         return (
             WARN,
             "Only MinimalScanner available (syntactic-only)."
-            " Install petasos[all] for ML backends.",
+            " Declare petasos[presidio,prompt-guard] in the plugin's pyproject.toml"
+            " for ML backends (a Hermes generation venv has no pip).",
         )
     return PASS, f"{len(available)} scanners: {', '.join(available)}"
 

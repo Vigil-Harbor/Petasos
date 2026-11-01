@@ -7,6 +7,7 @@ import math
 import sys
 import threading
 import time
+import warnings
 from typing import Any
 
 from petasos._types import (
@@ -96,6 +97,15 @@ class LlmGuardScanner:
         enable_ban_topics: bool = False,
         ban_topics: list[str] | None = None,
     ) -> None:
+        warnings.warn(
+            "LlmGuardScanner and the llm-guard extra are deprecated and will be removed in"
+            " a later release. PromptGuardScanner and petasos[prompt-guard] replace its"
+            " injection detection only; its other detectors have no replacement in this"
+            " release. The deprecated scanner keeps working on hosts where its dependencies"
+            " still install until then.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         if enable_ban_topics and not ban_topics:
             raise ValueError("ban_topics must be a non-empty list when enable_ban_topics=True")
         self._threshold = threshold

@@ -48,6 +48,16 @@ except ImportError as _exc:
     _logger.debug("PresidioScanner not available: %s", _exc)
     del _exc
 
+try:
+    from petasos.scanners.prompt_guard import PromptGuardScanner  # noqa: F401
+
+    __all__.append("PromptGuardScanner")
+except ImportError as _exc:
+    if not _is_missing_package(_exc, {"torch", "transformers"}):
+        raise
+    _logger.debug("PromptGuardScanner not available: %s", _exc)
+    del _exc
+
 # PET-174: imported AFTER the extras blocks above so the bootstrap module's
 # MinimalScanner import is already satisfied and no partial-initialization cycle
 # is possible. Unconditional - the helper is base install.

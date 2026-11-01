@@ -23,13 +23,17 @@ jobs:
   scanner-tests:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.14"]
     env:
       PETASOS_REQUIRE_PRESIDIO: "1"
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python-version }}
       - run: pip install -e ".[presidio,dev]"
       # spaCy's model-download CLI imports `click`, which is not always pulled in
       # transitively via presidio-analyzer -> spacy -> typer; install it explicitly

@@ -140,7 +140,7 @@ _CLASSIFICATION: dict[str, tuple[str, str, str | None]] = {
     "presidio_entities": ("live-shim", "petasos/scanners/bootstrap.py:101", _M_CONSOLE),
     "presidio_entities_extra": ("live-shim", "petasos/scanners/bootstrap.py:101", _M_CONSOLE),
     "presidio_score_threshold": ("live-shim", "petasos/scanners/bootstrap.py:103", _M_CONSOLE),
-    "disabled_scanners": ("live-shim", "petasos/scanners/bootstrap.py:153", _M_CONSOLE),
+    "disabled_scanners": ("live-shim", "petasos/scanners/bootstrap.py:161", _M_CONSOLE),
     # --- Feature gates (via Pipeline._FEATURE_GATES, pipeline.py:568-574) ----
     "frequency_enabled": ("live-library", "petasos/pipeline.py:1002", None),
     "escalation_enabled": ("live-library", "petasos/pipeline.py:1049", None),

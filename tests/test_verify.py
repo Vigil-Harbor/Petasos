@@ -368,7 +368,12 @@ def test_missing_build_scanners_fails(monkeypatch: pytest.MonkeyPatch) -> None:
     assert status == verify.FAIL
     assert "build_scanners" in detail
 
-    for class_name in ("LlmGuardScanner", "LlamaFirewallScanner", "PresidioScanner"):
+    for class_name in (
+        "LlmGuardScanner",
+        "LlamaFirewallScanner",
+        "PresidioScanner",
+        "PromptGuardScanner",
+    ):
         monkeypatch.delattr(scanners_pkg, class_name, raising=False)
     status, detail = verify.check_scanner_imports()
     assert status == verify.FAIL

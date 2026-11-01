@@ -168,3 +168,12 @@ class TestImportGuardIntegration:
     def test_minimal_always_present(self) -> None:
         mod = self._reload_scanners()
         assert "MinimalScanner" in mod.__all__
+
+
+def test_prompt_guard_scanner_is_exported_on_a_base_install() -> None:
+    # PET-242: the wrapper imports no backend at module level, so the export holds
+    # with no torch or transformers present.
+    import petasos.scanners as scanners_pkg
+
+    assert "PromptGuardScanner" in scanners_pkg.__all__
+    assert scanners_pkg.PromptGuardScanner().name == "prompt_guard"

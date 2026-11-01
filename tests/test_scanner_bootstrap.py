@@ -23,6 +23,7 @@ import pytest
 import petasos.scanners  # noqa: F401  (ensures sys.modules carries the package)
 from petasos import PetasosConfig
 from petasos._types import ScanResult
+from petasos.pipeline import Pipeline
 from petasos.scanners import MinimalScanner, ScannerBuildStatus, build_scanners
 from petasos.scanners.presidio import DEFAULT_PRESIDIO_ENTITIES
 
@@ -217,11 +218,28 @@ def test_scanner_order_and_status_order(monkeypatch: pytest.MonkeyPatch) -> None
         raising=False,
     )
     _patch_presidio(monkeypatch, _fake_class(scanner_name="presidio"))
+    monkeypatch.setattr(
+        _scanners_module(),
+        "PromptGuardScanner",
+        _fake_class(scanner_name="prompt_guard"),
+        raising=False,
+    )
 
     scanners, statuses = build_scanners(PetasosConfig())
 
-    assert [s.name for s in scanners] == ["minimal", "llm_guard", "llama_firewall", "presidio"]
-    assert [s.scanner_id for s in statuses] == ["llm_guard", "llama_firewall", "presidio"]
+    assert [s.name for s in scanners] == [
+        "minimal",
+        "llm_guard",
+        "llama_firewall",
+        "presidio",
+        "prompt_guard",
+    ]
+    assert [s.scanner_id for s in statuses] == [
+        "llm_guard",
+        "llama_firewall",
+        "presidio",
+        "prompt_guard",
+    ]
     # No status record for the MinimalScanner: neither caller logs one.
     assert not any(s.scanner_id == "minimal" for s in statuses)
 
@@ -234,11 +252,21 @@ def test_scanner_id_matches_scanner_name() -> None:
     always import and their constructors only assign attributes, so they are
     constructible on the ML-free lane with no backend present.
     """
-    from petasos.scanners import LlamaFirewallScanner, LlmGuardScanner, PresidioScanner
+    from petasos.scanners import (
+        LlamaFirewallScanner,
+        LlmGuardScanner,
+        PresidioScanner,
+        PromptGuardScanner,
+    )
 
     _, statuses = build_scanners(PetasosConfig())
     by_id = {s.scanner_id for s in statuses}
-    assert by_id == {LlmGuardScanner().name, LlamaFirewallScanner().name, PresidioScanner().name}
+    assert by_id == {
+        LlmGuardScanner().name,
+        LlamaFirewallScanner().name,
+        PresidioScanner().name,
+        PromptGuardScanner().name,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -346,8 +374,9 @@ def test_build_scanners_never_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_presidio(
         monkeypatch, _fake_class(scanner_name="presidio", probe_exc=RuntimeError("probe boom"))
     )
+    monkeypatch.delattr(_scanners_module(), "PromptGuardScanner", raising=False)
     scanners, statuses = build_scanners(PetasosConfig())
-    assert [s.outcome for s in statuses] == ["missing", "failed", "failed"]
+    assert [s.outcome for s in statuses] == ["missing", "failed", "failed", "missing"]
     assert scanners[0].name == "minimal"
 
 
@@ -520,8 +549,77 @@ class TestDisabledScanners:
             "llm_guard",
             "llama_firewall",
             "presidio",
+            "prompt_guard",
         ]
         assert by_id["llm_guard"].outcome == "disabled"
         assert by_id["llm_guard"].reason == "disabled by config"
         assert [scanner.name for scanner in scanners if scanner.name == "llm_guard"] == []
         assert scanners[0].name == "minimal"
+
+
+# ---------------------------------------------------------------------------
+# PET-242 Decision 13: the fourth backend fails toward blocking, not softened
+# ---------------------------------------------------------------------------
+
+
+class TestPromptGuardUpgradeBehavior:
+    _BENIGN = "please list the files in this folder"
+
+    @pytest.fixture(autouse=True)
+    def _no_prompt_guard(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import petasos.scanners.prompt_guard as pg
+
+        pg._reset_for_tests()
+        monkeypatch.setattr(
+            pg, "_availability", lambda: (False, pg._INSTALL_HINT, "absent"), raising=True
+        )
+
+    async def _safe(self, config: PetasosConfig) -> bool:
+        scanners, _statuses = build_scanners(config)
+        return (await Pipeline(scanners=scanners, config=config).inspect(self._BENIGN)).safe
+
+    async def test_three_old_ids_disabled_blocks_until_prompt_guard_is_listed(self) -> None:
+        old = ("llm_guard", "llama_firewall", "presidio")
+        assert await self._safe(PetasosConfig(fail_mode="closed", disabled_scanners=old)) is False
+        assert (
+            await self._safe(
+                PetasosConfig(fail_mode="closed", disabled_scanners=(*old, "prompt_guard"))
+            )
+            is True
+        )
+
+    def test_default_config_reports_old_backends_degraded(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        real_find_spec = importlib.util.find_spec
+
+        def find_spec(name: str, *args: Any) -> Any:
+            if name in {"llm_guard", "llamafirewall"}:
+                return None
+            return real_find_spec(name, *args)
+
+        monkeypatch.setattr(importlib.util, "find_spec", find_spec)
+        monkeypatch.delitem(sys.modules, "llm_guard", raising=False)
+        monkeypatch.delitem(sys.modules, "llamafirewall", raising=False)
+        _, statuses = build_scanners(PetasosConfig())
+        assert _status_by_id(statuses, "llm_guard").outcome == "degraded"
+        assert _status_by_id(statuses, "llama_firewall").outcome == "degraded"
+
+    async def test_healthy_old_backends_block_until_prompt_guard_is_listed(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        for attr, name in (
+            ("LlmGuardScanner", "llm_guard"),
+            ("LlamaFirewallScanner", "llama_firewall"),
+        ):
+            monkeypatch.setattr(
+                _scanners_module(), attr, _fake_class(scanner_name=name), raising=False
+            )
+        _patch_presidio(monkeypatch, _fake_class(scanner_name="presidio"))
+        assert await self._safe(PetasosConfig(fail_mode="degraded")) is False
+        assert (
+            await self._safe(
+                PetasosConfig(fail_mode="degraded", disabled_scanners=("prompt_guard",))
+            )
+            is True
+        )

@@ -38,7 +38,13 @@ if TYPE_CHECKING:
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 _SCANNER_CLASSES = frozenset(
-    {"MinimalScanner", "LlmGuardScanner", "LlamaFirewallScanner", "PresidioScanner"}
+    {
+        "MinimalScanner",
+        "LlmGuardScanner",
+        "LlamaFirewallScanner",
+        "PresidioScanner",
+        "PromptGuardScanner",
+    }
 )
 
 # Dispatch helpers whose *bare* class-name string argument is a construction in
@@ -49,7 +55,7 @@ _MODULE_SCOPE = "<module>"
 
 _SWEEP_ROOTS = ("petasos", "docs/deployment")
 
-# The five modules that DEFINE the scanner classes (and the helper that owns the
+# The six modules that DEFINE the scanner classes (and the helper that owns the
 # one legitimate construction of each). A file list, not a directory one, so a
 # future petasos/scanners/factory.py is swept rather than born invisible.
 # Repo-relative POSIX strings, per the Paths rule below.
@@ -59,6 +65,7 @@ _DEFINITION_MODULES = frozenset(
         "petasos/scanners/llm_guard.py",
         "petasos/scanners/llama_firewall.py",
         "petasos/scanners/presidio.py",
+        "petasos/scanners/prompt_guard.py",
         "petasos/scanners/bootstrap.py",
     }
 )

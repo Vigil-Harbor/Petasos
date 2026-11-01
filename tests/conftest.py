@@ -249,6 +249,15 @@ NONSKIPPING_LANES: tuple[NonSkippingLane, ...] = (
         "TestProfilePresidioScoping",  # PET-119 profile→Presidio wiring contract
         "extras-presidio",
     ),
+    # PET-242: no HF secret on the lane, so the target is a real torch + transformers
+    # forward pass and tokenizer built from config, with no model download.
+    NonSkippingLane(
+        "prompt-guard",
+        "PETASOS_REQUIRE_PROMPT_GUARD",
+        "transformers",
+        "TestPromptGuardRealLibraries",
+        "extras-prompt-guard",
+    ),
 )
 
 

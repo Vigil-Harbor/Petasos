@@ -66,7 +66,7 @@ MINIMAL_PY = _REPO / "petasos" / "scanners" / "minimal.py"
 NORMALIZE_PY = _REPO / "petasos" / "normalize.py"
 PLUGIN_PY = _REPO / "docs" / "deployment" / "reference_plugin" / "__init__.py"
 
-EXTRA_NAMES = ("llm-guard", "llamafirewall", "presidio")
+EXTRA_NAMES = ("llm-guard", "llamafirewall", "presidio", "prompt-guard")
 FamilyId = Literal["F-browser", "F-mcp", "F-stdout", "F-file"]
 StratumId = Literal["S0", "S1", "S2", "S3", "S-ceiling"]
 LabelId = Literal["benign", "planted-positive", "constructed-positive"]

@@ -170,7 +170,7 @@ def test_config_labels_base_and_missing_extras(harness: Any) -> None:
     assert ml["config_label"] == "ml:"
     assert "llm-guard" not in ml["config_label"]
     names = {row["name"] for row in ml["extras_status"]}
-    assert names == {"llm-guard", "llamafirewall", "presidio"}
+    assert names == {"llm-guard", "llamafirewall", "presidio", "prompt-guard"}
     for row in ml["extras_status"]:
         assert row["status"] == f"not measured — extras-{row['name']} unavailable"
     assert ml["cells"] == []

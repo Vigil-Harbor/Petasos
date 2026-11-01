@@ -224,3 +224,10 @@ class TestShieldUnderSlotsStdio:
         result = await scanner.scan(_INJECTION_TEXT)
         assert result.error is None
         assert any(f.rule_id.startswith("petasos.llamafirewall.") for f in result.findings)
+
+
+def test_construction_warns_deprecated_and_behavior_is_unchanged() -> None:
+    # PET-242: deprecated in favor of PromptGuardScanner.
+    with pytest.warns(DeprecationWarning, match="petasos\\[prompt-guard\\]"):
+        scanner = LlamaFirewallScanner()
+    assert scanner.name == "llama_firewall"

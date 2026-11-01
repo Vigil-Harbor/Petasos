@@ -532,3 +532,10 @@ class TestScanSyncEmptyGuard:
         assert calls == ["a", "b"]  # iteration completed over the captured list
         assert findings == []
         assert errors == []
+
+
+def test_construction_warns_deprecated_and_behavior_is_unchanged() -> None:
+    # PET-242: deprecated in favor of PromptGuardScanner for injection detection only.
+    with pytest.warns(DeprecationWarning, match="petasos\\[prompt-guard\\]"):
+        scanner = LlmGuardScanner()
+    assert scanner.name == "llm_guard"

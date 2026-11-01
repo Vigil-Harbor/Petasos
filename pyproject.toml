@@ -44,14 +44,17 @@ Changelog = "https://github.com/Vigil-Harbor/Petasos/blob/master/CHANGELOG.md"
 petasos-console = "petasos.console.__main__:main"
 
 [project.optional-dependencies]
+# PET-242: llm-guard and llamafirewall are deprecated in favor of prompt-guard and
+# will be removed in a later release. Both stay installable by name until then.
 llm-guard = ["llm-guard>=0.3.16,<0.4"]
 llamafirewall = ["llamafirewall"]
+prompt-guard = ["torch>=2.6,<3", "transformers>=4.51,<6", "sentencepiece>=0.2,<1"]
 presidio = [
     "presidio-analyzer>=2.2,<3.0",
     "presidio-anonymizer>=2.2,<3.0",
 ]
 console = ["fastapi>=0.110,<1", "uvicorn[standard]>=0.29,<1"]
-all = ["petasos[llm-guard,llamafirewall,presidio,console]"]
+all = ["petasos[presidio,prompt-guard,console]"]
 dev = [
     # pytest-benchmark 5.3.0 reads node._nodeid, which pytest 9.2.0 removed. Lift the
     # cap once a pytest-benchmark release supports 9.2.
@@ -98,6 +101,10 @@ module = [
     "llamafirewall.*",
     "transformers",
     "transformers.*",
+    "torch",
+    "torch.*",
+    "tokenizers",
+    "tokenizers.*",
     "pytest_benchmark",
     "pytest_benchmark.*",
     "yaml",

@@ -704,6 +704,7 @@ _NOT_INSTALLED_MSG = {
     "llm_guard": "LLM Guard not installed — syntactic-only for that backend",
     "llama_firewall": "LlamaFirewall not installed — skipped",
     "presidio": "Presidio not installed — PII detection unavailable",
+    "prompt_guard": "PromptGuard not installed — ML injection detection unavailable",
 }
 
 

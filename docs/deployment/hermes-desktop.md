@@ -37,9 +37,20 @@ WSL Python. On Windows the venv lives inside the Hermes install directory.
 /c/Users/$USER/AppData/Local/hermes/hermes-agent/venv/Scripts/python.exe -m pip install petasos
 ```
 
-For ML scanner backends (LLM Guard, LlamaFirewall, Presidio), install the
-`all` extra. This adds about 300MB of models. The plugin degrades gracefully
-to syntactic-only if these aren't installed.
+For ML scanner backends (Presidio and PromptGuard), install the `all` extra.
+Measured on Windows with Python 3.14, that is about 1.2 GiB of packages including
+the 425 MiB spaCy model, and it may be larger on Linux. The gated PromptGuard
+weights add about 1.1 GB. A registered backend that is not installed does not
+degrade gracefully: under `closed` or `degraded` it blocks all content until you
+install it or list it in `disabled_scanners`. See
+[Upgrading to the PromptGuard backend](#upgrading-to-the-promptguard-backend).
+
+**Hermes 0.22 generations have no pip.** There, declare the backends in the plugin's
+`pyproject.toml` instead. `docs/deployment/reference_plugin/pyproject.toml` declares
+`petasos[presidio,prompt-guard]` and the spaCy model, and Hermes installs them at its
+next generation rebuild. That manifest is verified on Windows with Python 3.14. It
+installs the ML packages regardless of `disabled_scanners`. It has not been verified
+on Intel macOS.
 
 **macOS:**
 
@@ -59,11 +70,14 @@ to syntactic-only if these aren't installed.
 /c/Users/$USER/AppData/Local/hermes/hermes-agent/venv/Scripts/python.exe -m pip install "petasos[all]"
 ```
 
-**LlamaFirewall prerequisite:** the LlamaFirewall backend needs a Hugging Face
-token (`HF_TOKEN`) with access to the gated `meta-llama/Llama-Prompt-Guard-2-86M`
-model. Accept the model license and set `HF_TOKEN` before first use, or the
-scanner fails to load. Full steps are in
+**PromptGuard prerequisite:** the PromptGuard backend needs the gated
+`meta-llama/Llama-Prompt-Guard-2-86M` model at a pinned revision. Accept the model
+license, then pre-download it or make a token available before first use, or every
+scan through the backend errors. Full steps are in
 [PromptGuard model prerequisites](#promptguard-model-prerequisites) below.
+
+**Deprecated backends:** `llm-guard` and `llamafirewall` still install by name and
+will be removed in a later release. `petasos[all]` no longer includes them.
 
 Verify the install:
 
@@ -465,10 +479,9 @@ Check `agent.log` for the initialization sequence:
 ```text
 INFO  petasos.plugin: loading config from %LOCALAPPDATA%\hermes\profiles\gibson\config.yaml [tier=profile]
 INFO  petasos.plugin: Petasos plugin registered, hooks active, scanner init in background
-INFO  petasos.plugin: LLM Guard backend verified, scanner active
-INFO  petasos.plugin: LlamaFirewall backend verified, scanner active
 INFO  petasos.plugin: Presidio backend verified, scanner active
-INFO  petasos.plugin: Petasos initialized: scanners=['minimal', 'llm_guard', ...], unavailable=[], fail_mode=closed, host_id=...
+INFO  petasos.plugin: PromptGuard backend verified, scanner active
+INFO  petasos.plugin: Petasos initialized: scanners=['minimal', 'presidio', 'prompt_guard'], unavailable=[], fail_mode=closed, host_id=...
 INFO  petasos.plugin: PETASOS_SESSION_START, Petasos content security active
 ```
 
@@ -739,35 +752,64 @@ supervised standalone console above as the durable answer.
 
 ## PromptGuard model prerequisites
 
-The LlamaFirewall PromptGuard component uses the gated Hugging Face model
-`meta-llama/Llama-Prompt-Guard-2-86M`. To use it:
+The `prompt_guard` backend, and the deprecated LlamaFirewall PromptGuard component,
+use the gated Hugging Face model `meta-llama/Llama-Prompt-Guard-2-86M`. To use it:
 
 1. **Accept the license.** Visit
    [the model page](https://huggingface.co/meta-llama/Llama-Prompt-Guard-2-86M)
    and accept the Meta license from the Hugging Face account you will use.
-2. **Set `HF_TOKEN`** for the gateway/dashboard process:
+2. **Pre-download the pinned revision** (recommended). A cached model loads with no
+   network call, and no token is needed afterward:
    ```bash
-   export HF_TOKEN=hf_your_token_here
+   hf download meta-llama/Llama-Prompt-Guard-2-86M --revision a8ded8e697ce7c355e395a0df51f94adb4a2fd27
    ```
-   Alternatively, place the token in `~/.cache/huggingface/token` or set
-   `HF_TOKEN_PATH`.
-3. **Or pre-download the model** on a machine with the token set:
-   ```bash
-   huggingface-cli download meta-llama/Llama-Prompt-Guard-2-86M
-   ```
-   The model is cached under `HF_HOME` (default `~/.cache/huggingface`).
+   The model is cached under `HF_HOME` (default `~/.cache/huggingface`), about 1.1 GB.
+3. **Or make a token available** to the gateway process, through `HF_TOKEN`,
+   `HUGGING_FACE_HUB_TOKEN`, `HF_TOKEN_PATH`, or `<HF_HOME>/token`.
 
-If PromptGuard prerequisites are missing, Petasos fails fast with:
+**Where the token goes on a multiplexed gateway.** Hermes does not load a routed
+profile's `.env` into the process environment, and the scanner runs in that shared
+process, so a token in `profiles/<name>/.env` is not seen. Use a pre-download, the
+launch home's `.env`, the scheduled task's environment, or the token file.
 
-```text
-PromptGuard model unavailable: set HF_TOKEN from a Hugging Face account
-that has accepted the meta-llama/Llama-Prompt-Guard-2-86M license, or
-pre-download the model; see docs/deployment/hermes-desktop.md
-```
+If the prerequisites are missing, every scan through the backend returns an error
+naming the revision and the download command. Petasos never prompts for credentials.
+A later scan recovers with no restart once the model is cached.
 
-Petasos never prompts interactively for credentials: upstream's
-`huggingface_hub.login()` stdin prompt is intercepted and converted to an
-actionable error.
+**Cold start blocks.** The model loads on the first scan that needs it, not at
+startup, so under `closed` or `degraded` a restart blocks tool calls in every guarded
+copy until it is in memory. Measured with three copies on Windows, Python 3.14, CPU
+with 8 torch threads and a warm disk cache: 7 to 9 seconds to the first clean result
+per copy, with one model shared. Expect longer from a cold disk. A truly hung load
+keeps returning the warming-up error, and its thread can delay interpreter exit.
+
+**Memory.** Peak working set in that same measurement: about 3.8 GiB for three copies
+after a concurrent load (3.6 GiB after load alone). PromptGuard alone is about 1.8
+GiB, and it is shared. Presidio alone is about 1.0 GiB, and each guarded copy builds
+its own analyzer. The dashboard's own pipeline counts as one more copy where it runs
+in the gateway.
+
+**torch changes Presidio.** spaCy's `thinc.compat` imports torch when it can, so
+listing `prompt_guard` in `disabled_scanners` neither removes a broken torch's effect
+on Presidio nor reclaims its memory.
+
+### Upgrading to the PromptGuard backend
+
+The new backend registers even when absent, so an upgrade can block all content under
+`closed` or `degraded`:
+
+- A host with `llm_guard`, `llama_firewall` and `presidio` all disabled turns
+  `safe=False` until it adds `prompt_guard` to `disabled_scanners` or installs the
+  extra.
+- A fresh `petasos[all]` host blocks until `disabled_scanners` lists `llm_guard` and
+  `llama_firewall`, which `[all]` no longer installs.
+- A healthy host on the old backends blocks until it installs the extra with the model
+  prerequisites met, or lists `prompt_guard` and keeps running on the old backends.
+
+**Operator note for this deployment.** Root, gibson and ops stay disarmed until the
+live sync under PET-234. Each guarded profile then uses
+`disabled_scanners: [llm_guard, llama_firewall]`, which leaves minimal, presidio and
+prompt_guard.
 
 **Note:** install Petasos scanner extras while the gateway is stopped, or restart
 after installing. A scan landing mid-`pip install` can latch a terminal load
@@ -832,15 +874,16 @@ Check `agent.log` for `Skipping 'petasos'`:
 INFO petasos.plugin: LLM Guard not installed, syntactic-only for that backend
 ```
 
-This is graceful degradation, not an error. Install `petasos[all]` in Hermes's
-venv for ML backends. The syntactic pre-filter (23 regex rules) still runs
-without ML.
+A backend that is missing is not graceful under `closed` or `degraded`: a registered
+backend that cannot load blocks all content. Install it, through the plugin manifest
+on a Hermes generation, or list it in `disabled_scanners`. The syntactic pre-filter
+(23 regex rules) still runs without ML, and under `open` it is all that runs.
 
 **Venv-rebuild dep loss (silent).** A Hermes venv rebuild can drop transitive
 dependencies the ML backends import indirectly. The classic failure is a missing
-`packaging`, which makes spaCy/thinc raise on import and takes Presidio and LLM
-Guard down with it even though `petasos[all]` shows as installed. After any venv
-rebuild, re-install `petasos[all]`, keep the JWT lib pinned at `pyjwt==2.12.1`
+`packaging`, which makes spaCy/thinc raise on import and takes Presidio down with
+it even though the plugin manifest declares it. After any rebuild, check that the
+plugin's `pyproject.toml` still declares the backends, keep the JWT lib pinned at `pyjwt==2.12.1`
 (the version the reference plugin expects), and confirm which backends actually
 loaded from the plugin health endpoint (`/api/plugins/petasos/health`) rather
 than assuming the install succeeded.
