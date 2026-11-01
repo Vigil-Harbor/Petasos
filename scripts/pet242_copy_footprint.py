@@ -83,7 +83,12 @@ def _natural_text(chars: int) -> str:
 
 def _build_pipeline(disabled: tuple[str, ...]) -> Pipeline:
     config = PetasosConfig(disabled_scanners=disabled)
-    scanners, _statuses = build_scanners(config)
+    scanners, statuses = build_scanners(config)
+    # A backend that failed construction is not registered, and a minimal-only scan
+    # would then pass as a clean ML cold start.
+    bad = [s for s in statuses if s.outcome not in ("verified", "disabled")]
+    if bad:
+        raise RuntimeError(f"scanner not verified: {bad}")
     return Pipeline(scanners=scanners, config=config)
 
 

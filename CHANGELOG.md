@@ -11,10 +11,12 @@ absent, and a registered backend that errors blocks all content under `degraded`
 (the default) and `closed`. Three hosts are affected:
 
 - **All three old backends disabled.** This turns `safe=False` until you add
-  `prompt_guard` to `disabled_scanners` or install `petasos[prompt-guard]`.
+  `prompt_guard` to `disabled_scanners` or install `petasos[prompt-guard]` with its
+  model prerequisites met.
 - **A fresh `petasos[all]` install under the default fail mode.** This blocks until
   `disabled_scanners` lists `llm_guard` and `llama_firewall`, which `[all]` no longer
-  installs.
+  installs, and the PromptGuard model prerequisites are met or `prompt_guard` is
+  listed too.
 - **A healthy host running the old backends.** This goes block-all until you install
   the extra with its model prerequisites met, or list `prompt_guard` in
   `disabled_scanners` and keep running on the old backends.
@@ -84,7 +86,9 @@ fails config validation, because an older release rejects the unknown id.
   later release, no earlier than the one after this. `llm-guard` may go sooner if its
   pinned dependencies prove compromised. `PromptGuardScanner` replaces LLM Guard's
   injection detection only: its toxicity, secrets and ban-topics detectors have no
-  replacement in this release. Both extras stay installable by name until then.
+  replacement in this release. It replaces LlamaFirewall's injection detection only:
+  `alignment_check` and `code_shield` have no replacement either. Both extras stay
+  installable by name until then.
 
 ### Changed
 

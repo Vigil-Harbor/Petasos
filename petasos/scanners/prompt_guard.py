@@ -153,7 +153,8 @@ def _prerequisite_message() -> str:
 def _window(text: str) -> str:
     """The text the model is offered: normalized, whitespace-collapsed, head only.
 
-    Padding cannot push content out of the window, and the per-character
+    Whitespace padding cannot push content out of the window, though ordinary
+    words can, and the per-character
     preprocessing loop never sees more than ``_WINDOW_CHARS``.
     """
     # A lone surrogate would raise in the tokenizer and become a no-ML verdict.

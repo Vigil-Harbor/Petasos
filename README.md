@@ -155,7 +155,7 @@ result = await scanner.scan(user_message, direction="inbound")
 <details>
 <summary><strong>LlamaFirewallScanner</strong> (deprecated): Meta's PromptGuard 2 + CodeShield</summary>
 
-Deprecated: removed in a later release. Use `PromptGuardScanner`.
+Deprecated: removed in a later release. `PromptGuardScanner` replaces its injection detection only. AlignmentCheck and CodeShield have no replacement in this release.
 
 Wraps [LlamaFirewall](https://github.com/meta-llama/PurpleLlama/tree/main/LlamaFirewall) with per-component attribution. PromptGuard for injection, AlignmentCheck for instruction-following, CodeShield for code safety. Each component is toggled independently: PromptGuard is on by default; AlignmentCheck and CodeShield are opt-in.
 

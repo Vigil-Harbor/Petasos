@@ -210,9 +210,12 @@ def check_scanner_imports() -> CheckResult:
     except ImportError:
         pass
     try:
-        from petasos.scanners import PromptGuardScanner  # noqa: F401
+        from petasos.scanners import PromptGuardScanner
 
-        available.append("PromptGuardScanner")
+        # The module imports without torch or the model, so only availability() says
+        # whether its scans can work.
+        if PromptGuardScanner().availability()[0]:
+            available.append("PromptGuardScanner")
     except ImportError:
         pass
 

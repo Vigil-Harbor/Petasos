@@ -37,7 +37,13 @@ WSL Python. On Windows the venv lives inside the Hermes install directory.
 /c/Users/$USER/AppData/Local/hermes/hermes-agent/venv/Scripts/python.exe -m pip install petasos
 ```
 
-For ML scanner backends (Presidio and PromptGuard), install the `all` extra.
+For ML scanner backends (Presidio and PromptGuard), install the `all` extra and
+then the spaCy model, which the extra does not include:
+
+```bash
+python -m spacy download en_core_web_lg
+```
+
 Measured on Windows with Python 3.14, that is about 1.2 GiB of packages including
 the 425 MiB spaCy model, and it may be larger on Linux. The gated PromptGuard
 weights add about 1.1 GB. A registered backend that is not installed does not
@@ -758,8 +764,9 @@ use the gated Hugging Face model `meta-llama/Llama-Prompt-Guard-2-86M`. To use i
 1. **Accept the license.** Visit
    [the model page](https://huggingface.co/meta-llama/Llama-Prompt-Guard-2-86M)
    and accept the Meta license from the Hugging Face account you will use.
-2. **Pre-download the pinned revision** (recommended). A cached model loads with no
-   network call, and no token is needed afterward:
+2. **Pre-download the pinned revision** (recommended), with `HF_TOKEN` set for this
+   command or after `hf auth login`. The download needs that account's token. A
+   cached model then loads with no network call, so the token can be removed:
    ```bash
    hf download meta-llama/Llama-Prompt-Guard-2-86M --revision a8ded8e697ce7c355e395a0df51f94adb4a2fd27
    ```
@@ -800,9 +807,10 @@ The new backend registers even when absent, so an upgrade can block all content 
 
 - A host with `llm_guard`, `llama_firewall` and `presidio` all disabled turns
   `safe=False` until it adds `prompt_guard` to `disabled_scanners` or installs the
-  extra.
+  extra with the model prerequisites met.
 - A fresh `petasos[all]` host blocks until `disabled_scanners` lists `llm_guard` and
-  `llama_firewall`, which `[all]` no longer installs.
+  `llama_firewall`, which `[all]` no longer installs, and the model prerequisites are
+  met or `prompt_guard` is listed too.
 - A healthy host on the old backends blocks until it installs the extra with the model
   prerequisites met, or lists `prompt_guard` and keeps running on the old backends.
 

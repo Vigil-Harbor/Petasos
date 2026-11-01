@@ -34,8 +34,11 @@ The pipeline processes one piece of text through a fixed order of stages. The
 6. **Anonymize** (Presidio), if personal data was found and anonymization is on.
 7. **Audit**, then **alerting**.
 
-A scanner that is not installed is skipped at the fan-out stage. The syntactic
-pre-filter at stage 2 always runs regardless of which extras are present.
+A registered scanner that is not installed does not get skipped at the fan-out
+stage: every scan through it errors, which blocks content under `degraded` (the
+default) and `closed`. See the upgrade note under `PromptGuardScanner`, and use
+`disabled_scanners` to leave a backend out. The syntactic pre-filter at stage 2
+always runs regardless of which extras are present.
 
 ## MinimalScanner (always ships, zero dependencies)
 
@@ -106,7 +109,8 @@ rule id and goes away with that deprecated scanner.
 
 **What it detects.** Prompt injection, as one finding with rule id
 `petasos.promptguard.injection`, category `injection`, severity HIGH, in both
-directions. A score of 0.9 or more blocks. The finding message carries the score
+directions. A score of 0.9 or more raises the finding. Whether it blocks depends
+on the active profile: `code_generation` overrides it to LOW. The finding message carries the score
 and never the scanned text. The threshold, model and revision are not
 configurable.
 
@@ -126,8 +130,9 @@ A failed load retries every 30 seconds when the failure can be temporary (any
 failure during a download, and `OSError` or `MemoryError` from a complete local
 copy). Any other failure from a complete local copy lasts until restart.
 
-**What it does not scan.** Whitespace runs collapse first, so padding cannot push
-content out of view. The scanner then reads the first 8,192 characters, and the
+**What it does not scan.** Whitespace runs collapse first, so whitespace padding
+cannot push content out of view. Padding with ordinary words can, because the
+window has a fixed size. The scanner then reads the first 8,192 characters, and the
 model sees at most 512 tokens of those. Text past that window is not scored by
 this backend. `MinimalScanner` still covers it. This matches the LlamaFirewall
 wrapper.
@@ -135,7 +140,8 @@ wrapper.
 **Getting the model.** It is gated. Accept the license on the
 [model page](https://huggingface.co/meta-llama/Llama-Prompt-Guard-2-86M), then
 either make a token available (`HF_TOKEN`, `HUGGING_FACE_HUB_TOKEN`,
-`HF_TOKEN_PATH`, or `<HF_HOME>/token`) or pre-download the pinned revision:
+`HF_TOKEN_PATH`, or `<HF_HOME>/token`) or pre-download the pinned revision. The
+download needs that token too, and it can be removed once the model is cached:
 
 ```bash
 hf download meta-llama/Llama-Prompt-Guard-2-86M --revision a8ded8e697ce7c355e395a0df51f94adb4a2fd27
@@ -149,7 +155,7 @@ upgrade step: a cached host with no token blocks until it downloads the new
 revision.
 
 **What the extra adds.** `pip install petasos[prompt-guard]` installs torch,
-transformers and sentencepiece.
+transformers, sentencepiece and huggingface-hub.
 
 **Upgrading.** The backend registers even when its packages or model are absent,
 and then every scan through it errors. Under `degraded` (the default) and
@@ -193,7 +199,9 @@ its model dependencies and makes this scanner available.
 ## LlamaFirewallScanner (extra: `llamafirewall`)
 
 **Deprecated.** `LlamaFirewallScanner` and the `llamafirewall` extra will be
-removed in a later release. Use `PromptGuardScanner` and `petasos[prompt-guard]`.
+removed in a later release. `PromptGuardScanner` and `petasos[prompt-guard]` replace
+its injection detection only. `alignment_check` and `code_shield` have no replacement
+in this release, so a host that enabled them loses those checks when it migrates.
 
 `LlamaFirewallScanner` wraps Meta's
 [LlamaFirewall](https://github.com/meta-llama/PurpleLlama) and exposes three
