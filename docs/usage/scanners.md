@@ -6,10 +6,12 @@ session, and decides what to do. This page explains what each scanner detects,
 how it works, when it runs, and what you get by installing its optional extra.
 
 Detection ships free and keyless. The zero-dependency syntactic scanner is
-always present. The three machine-learning backends are *dependency-gated*: they
+always present. The four machine-learning backends are *dependency-gated*: they
 are normal pip extras you opt into (`pip install petasos[...]`), not paid or
-licensed tiers. If you do not install an extra, that scanner is simply absent and
-the rest of the pipeline runs without it.
+licensed tiers. A backend you do not want belongs in `disabled_scanners`, which
+leaves it out of the pipeline. A backend that stays registered without its extra
+errors on every scan, which blocks content under `degraded` (the default) and
+`closed`.
 
 > Verified against source at commit `770401e`. Every count and list on this page
 > is pinned to live source by `tests/test_docs_usage_consistency.py`, so the
@@ -178,9 +180,9 @@ syntactic rules.
 **What it detects.** LLM Guard's scanner suite (model-scored prompt-injection and
 related content checks), contributing its findings to the merge stage.
 
-**How it works.** The backend is absent unless you install the extra
-(`pip install petasos[llm-guard]`); until then the scanner reports itself
-unavailable rather than failing a scan. The underlying models load lazily on
+**How it works.** The backend needs the extra (`pip install petasos[llm-guard]`).
+Until then the scanner reports itself unavailable and every scan through it errors,
+unless `disabled_scanners` lists it. The underlying models load lazily on
 first use, with a bounded retry budget (one attempt plus two retries) behind a
 stdio and weakref shield so that structlog's weakref registration cannot crash
 hosts with slots-only stdio (Hermes Desktop is the motivating case).
@@ -190,8 +192,7 @@ The scanner distinguishes two unavailable states for operators: **absent** (the
 installed but the model could not be loaded). The first is a packaging choice;
 the second is something to investigate.
 
-**When it runs.** Stage 3, in the machine-learning fan-out, only when installed
-and enabled.
+**When it runs.** Stage 3, in the machine-learning fan-out, unless disabled.
 
 **What the extra adds.** `pip install petasos[llm-guard]` installs LLM Guard and
 its model dependencies and makes this scanner available.

@@ -38,10 +38,28 @@ WSL Python. On Windows the venv lives inside the Hermes install directory.
 ```
 
 For ML scanner backends (Presidio and PromptGuard), install the `all` extra and
-then the spaCy model, which the extra does not include:
+then the spaCy model, which the extra does not include. Use the same Hermes
+interpreter for both, so the model lands where Hermes can load it.
+
+**macOS:**
 
 ```bash
-python -m spacy download en_core_web_lg
+~/.hermes/hermes-agent/venv/bin/pip install "petasos[all]"
+~/.hermes/hermes-agent/venv/bin/python -m spacy download en_core_web_lg
+```
+
+**Windows (PowerShell / cmd):**
+
+```powershell
+%LOCALAPPDATA%\hermes\hermes-agent\venv\Scripts\python.exe -m pip install "petasos[all]"
+%LOCALAPPDATA%\hermes\hermes-agent\venv\Scripts\python.exe -m spacy download en_core_web_lg
+```
+
+**Windows (Git Bash):**
+
+```bash
+/c/Users/$USER/AppData/Local/hermes/hermes-agent/venv/Scripts/python.exe -m pip install "petasos[all]"
+/c/Users/$USER/AppData/Local/hermes/hermes-agent/venv/Scripts/python.exe -m spacy download en_core_web_lg
 ```
 
 Measured on Windows with Python 3.14, that is about 1.2 GiB of packages including
