@@ -456,7 +456,7 @@ class TestCallerFormatting:
             ]
             == logging.WARNING
         )
-        assert rendered["Presidio not installed — PII detection unavailable"] == logging.INFO
+        assert rendered["Presidio not installed: PII detection unavailable"] == logging.INFO
         assert rendered["Extra Backend failed to load: kaboom"] == logging.WARNING
         # The startup summary keeps snake ids.
         assert any(

@@ -348,10 +348,17 @@ def _map_score(score: float, duration_ms: float) -> ScanResult:
 
 
 def _scan_sync(text: str) -> float | None:
-    """Load and infer off the event loop. ``None`` means nothing to score."""
+    """Load and infer off the event loop. ``None`` means nothing to score.
+
+    Blank input is clean before availability is consulted, so an absent backend
+    reports an error only for text it would have scored.
+    """
     window = _window(text)
     if not window:
         return None
+    ok, reason, _cause = _availability()
+    if not ok:
+        raise _ScanRefused(reason or "prompt_guard unavailable")
     _ensure_model()
     if not _INFER_LOCK.acquire(timeout=_INFER_WAIT_SECONDS):
         # pipeline.py imports petasos.scanners, so this import stays local. The
@@ -400,14 +407,6 @@ class PromptGuardScanner:
             return (time.perf_counter() - start) * 1000
 
         try:
-            ok, reason, _cause = _availability()
-            if not ok:
-                return ScanResult(
-                    scanner_name=self.name,
-                    findings=(),
-                    duration_ms=elapsed(),
-                    error=reason,
-                )
             score = await asyncio.to_thread(_scan_sync, text)
             if score is None:
                 return ScanResult(scanner_name=self.name, findings=(), duration_ms=elapsed())

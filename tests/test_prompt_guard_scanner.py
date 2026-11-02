@@ -173,6 +173,19 @@ class TestPromptGuardMapping:
         assert result.findings == ()
         assert seen == []
 
+    @pytest.mark.parametrize("text", ["", "   ", "\n\t \r\n"])
+    async def test_blank_input_is_clean_when_backend_unavailable(
+        self, monkeypatch: pytest.MonkeyPatch, text: str
+    ) -> None:
+        monkeypatch.setattr(pg, "_availability", lambda: (False, pg._INSTALL_HINT, "absent"))
+        blank = await pg.PromptGuardScanner().scan(text)
+        assert blank.error is None
+        assert blank.findings == ()
+        # The same unavailable backend still errors for text it would have scored.
+        scored = await pg.PromptGuardScanner().scan(_BENIGN)
+        assert scored.error == pg._INSTALL_HINT
+        assert scored.findings == ()
+
     async def test_padding_cannot_push_content_out_of_the_window(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
