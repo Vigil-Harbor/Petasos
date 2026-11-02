@@ -2479,7 +2479,7 @@ def _probe_home_key(text: str) -> str:
 
 
 def _current_captured_key() -> str:
-    """Lazy captured-home key. Cached only while the path exists and the object is current."""
+    """Normcase of the unchanged captured path. Cached while it exists and is current."""
     global _captured_key_obj, _captured_key_value
     res = _session_resolution
     assert res is not None
@@ -2487,7 +2487,7 @@ def _current_captured_key() -> str:
         if _captured_key_obj is res and _captured_key_value is not None:
             return _captured_key_value
     text = str(res.path.parent)
-    key = _comparison_key(text)
+    key = os.path.normcase(text)
     if not os.path.exists(_expanded_home_text(text)):
         return key
     with _home_mismatch_lock:

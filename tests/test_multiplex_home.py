@@ -316,10 +316,10 @@ def test_hook_mismatch_symlink_home_does_not_warn(
         assert _mismatch_lines(caplog) == []
 
 
-def test_hook_mismatch_tilde_hermes_home_does_not_warn(
+def test_hook_mismatch_tilde_hermes_home_warns(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """A ~/ HERMES_HOME capture matches the expanded hook path without a warning."""
+    """A ~/ HERMES_HOME capture warns against the expanded hook home."""
     monkeypatch.setattr(threading.Thread, "start", lambda self: None)
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("HOME", str(tmp_path))
@@ -340,7 +340,11 @@ def test_hook_mismatch_tilde_hermes_home_does_not_warn(
     _override(monkeypatch, str(home))
     with caplog.at_level(logging.WARNING, logger="petasos.plugin"):
         mod._pre_tool_call("shell", {"cmd": "x"}, task_id="s1")
-        assert _mismatch_lines(caplog) == []
+        lines = _mismatch_lines(caplog)
+        assert len(lines) == 1
+        message = lines[0].getMessage()
+        assert "captured=~/tilde-home" in message
+        assert f"hook={home}" in message
     assert mod._session_resolution is captured
     assert not captured.path.is_absolute()
 
