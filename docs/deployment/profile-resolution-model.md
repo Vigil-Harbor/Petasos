@@ -28,7 +28,9 @@ under `profiles/<name>/`. The effective file is resolved by
    **dangling-pointer warning** (surfaced in the editor as a banner labeled as the
    *active* binding).
 
-Hermes lowercases the logged path, and the launch home logs `tier=override`.
+Hermes normalizes the case of the home path in its own log line
+(`os.path.normcase`, so lowercase on Windows and unchanged elsewhere), and
+the launch home logs `tier=override`.
 
 `<root>` is the Hermes root:
 

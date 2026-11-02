@@ -251,8 +251,10 @@ behaviors to preserve in any custom integration:
   the console request body. The plugin enforcement binding is the resolution
   captured at `register()`. Console equipped surfaces pass `use_override=False`
   and read the process binding. Those two files are the same only when the
-  process binding and the captured home are the same path. Hermes lowercases
-  the logged path, and the launch home logs `tier=override`. A hook whose
+  process binding and the captured home are the same path. Hermes normalizes
+  the case of the home path in its own log line (`os.path.normcase`, so
+  lowercase on Windows and unchanged elsewhere), and the launch home logs
+  `tier=override`. A hook whose
   override home disagrees with the captured home logs
   `PETASOS_ARMED_RESOLUTION_WARNING captured=<path> hook=<path> reason=home_mismatch`:
   the homes disagree, and enforcement stays on the capture.
