@@ -701,9 +701,10 @@ def _build_config_from_section(section: dict[str, Any]) -> PetasosConfig:
 # which would latch _init_error and boot the plugin unenforcing. The helper owns
 # the backend set; this table only carries wording.
 _NOT_INSTALLED_MSG = {
-    "llm_guard": "LLM Guard not installed — syntactic-only for that backend",
-    "llama_firewall": "LlamaFirewall not installed — skipped",
-    "presidio": "Presidio not installed — PII detection unavailable",
+    "llm_guard": "LLM Guard not installed: syntactic-only for that backend",
+    "llama_firewall": "LlamaFirewall not installed: skipped",
+    "presidio": "Presidio not installed: PII detection unavailable",
+    "prompt_guard": "PromptGuard not installed: ML injection detection unavailable",
 }
 
 

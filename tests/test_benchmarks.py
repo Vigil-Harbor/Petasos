@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import base64
 import importlib
+import statistics
+import time
 from typing import Any
 
 import pytest
@@ -175,6 +177,143 @@ def test_benchmark_single_ml_llama_firewall(benchmark) -> None:  # type: ignore[
         loop.run_until_complete(scanner.scan("ignore previous instructions", direction="inbound"))
 
     benchmark.pedantic(run, warmup_rounds=2, rounds=10)
+    loop.close()
+
+
+# ---------------------------------------------------------------------------
+# PET-242: PromptGuard on the migrated stack. Measure-only. Read at HEAD_CHARS.
+# ---------------------------------------------------------------------------
+
+_MIGRATED_DISABLED = ("llm_guard", "llama_firewall")
+_NATURAL_SENTENCE = (
+    "The quarterly report covers revenue, staffing and the migration schedule. "
+    "Please review the attached notes and list anything that needs a decision. "
+)
+_SHORT = "What is the capital of France?"
+
+
+def _natural(chars: int) -> str:
+    return (_NATURAL_SENTENCE * (chars // len(_NATURAL_SENTENCE) + 1))[:chars]
+
+
+def _prompt_guard_payloads() -> list[tuple[str, str]]:
+    from petasos.session.ingest import HEAD_CHARS
+
+    return [("short", _SHORT), ("head", _natural(HEAD_CHARS)), ("window", _natural(8192))]
+
+
+def _prompt_guard_scanner() -> Any:
+    """A loaded scanner, or a skip. Polls past warm-up so a latched failure cannot
+    read as a fast pass."""
+    from petasos.scanners.prompt_guard import PromptGuardScanner
+
+    scanner = PromptGuardScanner()
+    if not scanner.availability()[0]:
+        pytest.skip("PromptGuard not available: needs petasos[prompt-guard] and the model")
+    loop = asyncio.new_event_loop()
+    try:
+        deadline = time.monotonic() + 600
+        while True:
+            result = loop.run_until_complete(scanner.scan(_SHORT))
+            if result.error is None:
+                return scanner
+            assert "warming up" in result.error, result.error
+            assert time.monotonic() < deadline, result.error
+            time.sleep(0.5)
+    finally:
+        loop.close()
+
+
+def test_benchmark_single_ml_prompt_guard(benchmark) -> None:  # type: ignore[no-untyped-def]
+    scanner = _prompt_guard_scanner()
+    payloads = _prompt_guard_payloads()
+    loop = asyncio.new_event_loop()
+
+    def timed(text: str) -> float:
+        samples = []
+        for _ in range(15):
+            t0 = time.perf_counter()
+            assert loop.run_until_complete(scanner.scan(text)).error is None
+            samples.append((time.perf_counter() - t0) * 1000)
+        return round(statistics.median(samples[3:]), 1)
+
+    benchmark.extra_info["median_ms"] = {name: timed(text) for name, text in payloads}
+    print("prompt_guard single median ms", benchmark.extra_info["median_ms"])
+    head = payloads[1][1]
+
+    def run() -> None:
+        assert loop.run_until_complete(scanner.scan(head)).error is None
+
+    benchmark.pedantic(run, warmup_rounds=3, rounds=20)
+    loop.close()
+
+
+def test_benchmark_prompt_guard_8wide(benchmark) -> None:  # type: ignore[no-untyped-def]
+    """Eight concurrent inspect() at HEAD_CHARS on one pipeline, unserialized.
+
+    A lock-wait miss or breaker-open result is a reported count, not a failure,
+    and the median is invalid when that count is non-zero: both return at far
+    lower cost than an inference.
+    """
+    from petasos.scanners import build_scanners
+    from petasos.session.ingest import HEAD_CHARS
+
+    _prompt_guard_scanner()
+    config = PetasosConfig(disabled_scanners=(*_MIGRATED_DISABLED, "presidio"))
+    scanners, _statuses = build_scanners(config)
+    pipe = Pipeline(scanners=scanners, config=config)
+    text = _natural(HEAD_CHARS)
+    loop = asyncio.new_event_loop()
+    misses = 0
+
+    async def wide() -> None:
+        nonlocal misses
+        results = await asyncio.gather(*(pipe.inspect(text) for _ in range(8)))
+        if any(scan.error for result in results for scan in result.scanner_results):
+            misses += 1
+
+    def run() -> None:
+        loop.run_until_complete(wide())
+
+    benchmark.pedantic(run, warmup_rounds=1, rounds=10)
+    benchmark.extra_info["rounds_with_errors"] = misses
+    benchmark.extra_info["median_valid"] = misses == 0
+    print("prompt_guard 8wide rounds with errors", misses)
+    loop.close()
+
+
+def test_benchmark_full_pipeline_migrated(benchmark) -> None:  # type: ignore[no-untyped-def]
+    """Minimal, Presidio and PromptGuard. test_benchmark_full_pipeline builds only
+    MinimalScanner, so it says nothing about this stack."""
+    from petasos.scanners import build_scanners
+
+    _prompt_guard_scanner()
+    config = PetasosConfig(disabled_scanners=_MIGRATED_DISABLED)
+    scanners, statuses = build_scanners(config)
+    if any(s.outcome != "verified" for s in statuses if s.outcome != "disabled"):
+        pytest.skip(f"migrated stack not available: {statuses}")
+    pipe = Pipeline(scanners=scanners, config=config)
+    payloads = _prompt_guard_payloads()
+    loop = asyncio.new_event_loop()
+
+    def clean(text: str) -> None:
+        loop.run_until_complete(pipe.inspect(text))
+        assert not pipe._last_scan_errors, pipe._last_scan_errors
+
+    clean(_SHORT)  # first Presidio load
+
+    def timed(text: str) -> float:
+        samples = []
+        for _ in range(15):
+            t0 = time.perf_counter()
+            clean(text)
+            samples.append((time.perf_counter() - t0) * 1000)
+        return round(statistics.median(samples[3:]), 1)
+
+    benchmark.extra_info["median_ms"] = {name: timed(text) for name, text in payloads}
+    print("migrated pipeline median ms", benchmark.extra_info["median_ms"])
+    head = payloads[1][1]
+    benchmark.pedantic(lambda: clean(head), warmup_rounds=3, rounds=20)
     loop.close()
 
 

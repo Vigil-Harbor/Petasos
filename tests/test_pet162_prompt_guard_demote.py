@@ -30,6 +30,7 @@ from petasos._types import Direction, ScanFinding, ScanResult, Severity
 from petasos.config import PetasosConfig
 from petasos.pipeline import Pipeline
 from petasos.scanners.llama_firewall import _COMPONENT_TAXONOMY
+from petasos.scanners.prompt_guard import _RULE_ID
 
 # The rule_id the code_generation severity_override targets (the shipped config
 # contract). Pinned as a literal so a drift between the override key and the real
@@ -134,4 +135,48 @@ class TestPromptGuardStillBlocksElsewhere:
         assert any(f.rule_id == _PROMPT_GUARD_RULE for f in blocking), (
             "customer_service must keep prompt-guard blocking on inbound (the threat surface)"
         )
+        assert res.safe is False
+
+
+class _StubDirectPromptGuardScanner(_StubPromptGuardScanner):
+    """PET-242: the same verdict under the direct adapter's rule id."""
+
+    async def scan(
+        self, text: str, *, direction: Direction = "inbound", session_id: str | None = None
+    ) -> ScanResult:
+        return ScanResult(
+            scanner_name=self.name,
+            findings=(
+                ScanFinding(
+                    rule_id=_RULE_ID,
+                    finding_type="injection",
+                    severity=Severity.HIGH,
+                    confidence=0.998,
+                    message="PromptGuard 2 injection verdict",
+                    scanner_name=self.name,
+                ),
+            ),
+            duration_ms=1.0,
+        )
+
+
+class TestDirectPromptGuardDemote:
+    async def test_downgraded_under_codegen(self) -> None:
+        pipe = Pipeline(
+            config=PetasosConfig(profile_name="code_generation"),
+            scanners=[_StubDirectPromptGuardScanner()],
+        )
+        res = await pipe.inspect("git status && ls -la ~", direction="outbound")
+        hit = [f for f in res.findings if f.rule_id == _RULE_ID]
+        assert hit
+        assert hit[0].severity == Severity.LOW
+        assert not _blocking(res.findings)
+        assert res.safe is True
+
+    async def test_still_blocks_under_general(self) -> None:
+        pipe = Pipeline(
+            config=PetasosConfig(profile_name="general"),
+            scanners=[_StubDirectPromptGuardScanner()],
+        )
+        res = await pipe.inspect("anything", direction="outbound")
         assert res.safe is False

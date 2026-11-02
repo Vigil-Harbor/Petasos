@@ -36,15 +36,18 @@ That's the base install: lightweight, zero ML dependencies. It includes a syntac
 For deeper protection, add ML scanner backends:
 
 ```bash
-pip install "petasos[all]"           # all three backends (~300MB)
+pip install "petasos[all]"           # Presidio, PromptGuard and the console (about 1.2 GiB)
 
 # Or pick what you need:
-pip install "petasos[llm-guard]"     # DeBERTa-v3 prompt injection + toxicity
+pip install "petasos[prompt-guard]"  # Meta's PromptGuard 2 on torch + transformers
 pip install "petasos[presidio]"      # PII detection + anonymization
-pip install "petasos[llamafirewall]" # Meta's PromptGuard 2 + CodeShield
+
+# Deprecated, removed in a later release:
+pip install "petasos[llm-guard]"     # DeBERTa-v3 prompt injection + toxicity
+pip install "petasos[llamafirewall]" # PromptGuard 2 + CodeShield through LlamaFirewall
 ```
 
-The ML extras download model weights on first use. `petasos[llamafirewall]` additionally needs access to the **gated** PromptGuard 2 model on Hugging Face: a quick one-time approval on the model page plus an HF token. See [scanner setup](https://github.com/Vigil-Harbor/Petasos/blob/master/docs/usage/scanners.md) for the steps.
+The size above is measured on Windows with Python 3.14, includes the 425 MiB spaCy model, and may be larger on Linux. `petasos[prompt-guard]` needs access to the **gated** PromptGuard 2 model on Hugging Face (about 1.1 GB): a quick one-time approval on the model page plus an HF token or a pre-download. A backend that is registered but not installed blocks all content under the default fail mode, so list what you do not want in `disabled_scanners`. See [scanner setup](https://github.com/Vigil-Harbor/Petasos/blob/master/docs/usage/scanners.md) for the steps.
 
 Requires Python 3.11+.
 
@@ -78,7 +81,7 @@ Every message passes through a multi-stage pipeline:
 
 2. **Pattern scan**: A fast syntactic scanner (23 rules, always runs, <5ms) checks for known injection signatures, role-switching attempts, obfuscated destructive commands, agent-directed fetch directives, and structural attacks. This is the safety floor: it runs even if ML backends are unavailable.
 
-3. **ML scan**: If installed, multiple ML backends run in parallel. LLM Guard uses DeBERTa-v3 for semantic injection and toxicity detection. LlamaFirewall runs Meta's PromptGuard 2 and CodeShield. Presidio identifies PII. Each backend is isolated: one failing doesn't take down the others.
+3. **ML scan**: ML backends run in parallel. PromptGuard runs Meta's PromptGuard 2 for injection detection. Presidio identifies PII. LLM Guard and LlamaFirewall still work and are deprecated. Each backend is isolated: one failing doesn't take down the others, and the fail mode below decides what its failure means.
 
 4. **Merge & decide**: Findings from all scanners are deduplicated (severity-first, confidence breaks ties), and the pipeline decides whether the content is safe. If any ML scanner is down, the fail-mode policy kicks in: `degraded` (default) blocks on partial failure, `closed` blocks on any failure, `open` passes through.
 
@@ -114,7 +117,26 @@ result = await scanner.scan("ignore previous instructions", direction="inbound")
 </details>
 
 <details>
-<summary><strong>LlmGuardScanner</strong>: DeBERTa-v3 semantic analysis</summary>
+<summary><strong>PromptGuardScanner</strong>: Meta's PromptGuard 2, direct</summary>
+
+Runs PromptGuard 2 on torch and transformers at a pinned model revision. One model is shared across every scanner in the process. Lazy-loads on first scan.
+
+```bash
+pip install "petasos[prompt-guard]"
+```
+
+```python
+from petasos.scanners import PromptGuardScanner
+
+scanner = PromptGuardScanner()
+result = await scanner.scan(user_message, direction="inbound")
+```
+</details>
+
+<details>
+<summary><strong>LlmGuardScanner</strong> (deprecated): DeBERTa-v3 semantic analysis</summary>
+
+Deprecated: removed in a later release. `PromptGuardScanner` replaces its injection detection only; its other detectors have no replacement yet.
 
 Wraps [LLM Guard](https://github.com/protectai/llm-guard) for ML-powered prompt injection, toxicity, ban-topics, invisible text, and secrets detection. Lazy-loads models on first scan.
 
@@ -131,7 +153,9 @@ result = await scanner.scan(user_message, direction="inbound")
 </details>
 
 <details>
-<summary><strong>LlamaFirewallScanner</strong>: Meta's PromptGuard 2 + CodeShield</summary>
+<summary><strong>LlamaFirewallScanner</strong> (deprecated): Meta's PromptGuard 2 + CodeShield</summary>
+
+Deprecated: removed in a later release. `PromptGuardScanner` replaces its injection detection only. AlignmentCheck and CodeShield have no replacement in this release.
 
 Wraps [LlamaFirewall](https://github.com/meta-llama/PurpleLlama/tree/main/LlamaFirewall) with per-component attribution. PromptGuard for injection, AlignmentCheck for instruction-following, CodeShield for code safety. Each component is toggled independently: PromptGuard is on by default; AlignmentCheck and CodeShield are opt-in.
 

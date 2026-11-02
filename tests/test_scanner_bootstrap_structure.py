@@ -38,7 +38,13 @@ if TYPE_CHECKING:
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 _SCANNER_CLASSES = frozenset(
-    {"MinimalScanner", "LlmGuardScanner", "LlamaFirewallScanner", "PresidioScanner"}
+    {
+        "MinimalScanner",
+        "LlmGuardScanner",
+        "LlamaFirewallScanner",
+        "PresidioScanner",
+        "PromptGuardScanner",
+    }
 )
 
 # Dispatch helpers whose *bare* class-name string argument is a construction in
@@ -49,7 +55,7 @@ _MODULE_SCOPE = "<module>"
 
 _SWEEP_ROOTS = ("petasos", "docs/deployment")
 
-# The five modules that DEFINE the scanner classes (and the helper that owns the
+# The six modules that DEFINE the scanner classes (and the helper that owns the
 # one legitimate construction of each). A file list, not a directory one, so a
 # future petasos/scanners/factory.py is swept rather than born invisible.
 # Repo-relative POSIX strings, per the Paths rule below.
@@ -59,6 +65,7 @@ _DEFINITION_MODULES = frozenset(
         "petasos/scanners/llm_guard.py",
         "petasos/scanners/llama_firewall.py",
         "petasos/scanners/presidio.py",
+        "petasos/scanners/prompt_guard.py",
         "petasos/scanners/bootstrap.py",
     }
 )
@@ -71,6 +78,8 @@ _DEFINITION_MODULES = frozenset(
 #       fast-path fallback; spec Decision 7 keeps it bare.
 #   reference_plugin/verify.py :: check_injection_scan - a verification script,
 #       not a bootstrap.
+#   reference_plugin/verify.py :: check_scanner_imports - same script, probes
+#       PromptGuardScanner's availability.
 #   petasos/session/ingest.py :: scan_ingestion_result - PET-178 private sweep
 #       scanner; Decision 12 keeps it off pipeline._minimal_scanner.
 # The function is QUALIFIED (ClassName.method): a bare "__init__" key would exempt
@@ -81,6 +90,7 @@ _ALLOWLIST = frozenset(
         ("petasos/pipeline.py", "Pipeline.__init__"),
         ("docs/deployment/reference_plugin/__init__.py", "_get_fallback_scanner"),
         ("docs/deployment/reference_plugin/verify.py", "check_injection_scan"),
+        ("docs/deployment/reference_plugin/verify.py", "check_scanner_imports"),
         ("petasos/session/ingest.py", "scan_ingestion_result"),
     }
 )
@@ -301,6 +311,7 @@ def test_allowlist_is_exactly_the_documented_rows() -> None:
             ("petasos/pipeline.py", "Pipeline.__init__"),
             ("docs/deployment/reference_plugin/__init__.py", "_get_fallback_scanner"),
             ("docs/deployment/reference_plugin/verify.py", "check_injection_scan"),
+            ("docs/deployment/reference_plugin/verify.py", "check_scanner_imports"),
             ("petasos/session/ingest.py", "scan_ingestion_result"),
         }
     )

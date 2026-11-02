@@ -8,6 +8,7 @@ import os
 import sys
 import threading
 import time
+import warnings
 from contextlib import contextmanager
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
@@ -198,6 +199,14 @@ class LlamaFirewallScanner:
         enable_alignment_check: bool = False,
         enable_code_shield: bool = False,
     ) -> None:
+        warnings.warn(
+            "LlamaFirewallScanner and the llamafirewall extra are deprecated and will be"
+            " removed in a later release. Use PromptGuardScanner and petasos[prompt-guard]."
+            " The deprecated scanner keeps working on hosts where its dependencies still"
+            " install until then.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self._enable_prompt_guard = enable_prompt_guard
         self._enable_alignment_check = enable_alignment_check
         self._enable_code_shield = enable_code_shield

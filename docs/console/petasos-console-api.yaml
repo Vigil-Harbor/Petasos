@@ -677,7 +677,7 @@ components:
       properties:
         name:
           type: string
-          description: Scanner name ("minimal", "llm_guard", "llama_firewall", "presidio")
+          description: Scanner name ("minimal", "llm_guard", "llama_firewall", "presidio", "prompt_guard")
         status:
           type: string
           enum: [healthy, degraded, circuit_open, unavailable]

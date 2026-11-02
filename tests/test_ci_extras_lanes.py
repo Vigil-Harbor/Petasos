@@ -414,3 +414,37 @@ def test_pairing_check_empty_extras_returns_no_violations() -> None:
     """Degenerate input pins the vacuous pass so a future refactor can't add an
     ``assert extras`` precondition that regresses it (spec Done-when teeth)."""
     assert _check_lane_pairing(set(), {}) == []
+
+
+# --------------------------------------------------------------------------- #
+# Tests: PET-242 extras and lane matrix
+# --------------------------------------------------------------------------- #
+
+
+def test_all_extra_excludes_the_deprecated_backends() -> None:
+    with (pathlib.Path(__file__).resolve().parents[1] / "pyproject.toml").open("rb") as f:
+        extras = tomllib.load(f)["project"]["optional-dependencies"]
+    assert extras["all"] == ["petasos[presidio,prompt-guard,console]"]
+
+
+def _matrix(lane: str) -> dict[str, Any]:
+    workflow = _load_workflow(lane)
+    assert isinstance(workflow, dict)
+    job = workflow["jobs"]["scanner-tests"]
+    assert job["strategy"]["fail-fast"] is False
+    matrix = job["strategy"]["matrix"]
+    assert isinstance(matrix, dict)
+    return matrix
+
+
+def test_prompt_guard_lane_has_every_cell() -> None:
+    cells = {(c["os"], c["python-version"]) for c in _matrix("extras-prompt-guard.yml")["include"]}
+    assert cells == {
+        ("ubuntu-latest", "3.11"),
+        ("ubuntu-latest", "3.14"),
+        ("windows-latest", "3.14"),
+    }
+
+
+def test_presidio_lane_has_both_python_versions() -> None:
+    assert _matrix("extras-presidio.yml")["python-version"] == ["3.11", "3.14"]
