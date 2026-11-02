@@ -69,7 +69,9 @@ def _link_dir(link: Path, real: Path) -> None:
             raise
     import _winapi
 
-    _winapi.CreateJunction(str(real), str(link))
+    # Windows-only in typeshed, so the attribute is fetched by name for Linux mypy.
+    create_junction = getattr(_winapi, "CreateJunction")
+    create_junction(str(real), str(link))
 
 
 def _short_name(path: Path) -> str | None:
