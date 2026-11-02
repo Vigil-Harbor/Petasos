@@ -26,7 +26,7 @@ resolution so the reload reads the same file the armed bit does; the standalone
 console passes ``None`` and re-resolves. The peek and its matching commit MUST be
 passed the identical ``res`` in one cycle, or the committed key and section would
 describe different files. The cache is a dict keyed by ``os.path.normcase`` of
-the resolution path, bounded to 8 entries (drop-oldest on insert). The key
+the resolution path, bounded to 16 entries (drop-oldest on insert). The key
 returned to callers stays ``(mtime_ns, size)``.
 """
 
@@ -45,7 +45,11 @@ from petasos.console._paths import (
 
 _RELOAD_LOCK = threading.Lock()
 _RELOAD_TTL_S = 1.0
-_RELOAD_CACHE_MAX = 8
+# Twelve served homes. Stage 1 at cap 8 churned; stage 2 at 16 was 0, so this
+# ships at 16 and is never left at 8. Spare slots are shared with the console
+# process-binding key and with stale (mtime_ns, size) armed keys. Eviction past
+# those occupants costs a re-parse only, not a wrong answer.
+_RELOAD_CACHE_MAX = 16
 # path-key -> (seen_key, seen_section, monotonic_ts). seen_key is the
 # (st_mtime_ns, st_size) of the last COMMITTED section for that path; written
 # only by commit_seen / the same-key timestamp refresh. read_changed_section

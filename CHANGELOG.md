@@ -46,6 +46,14 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
 
 ### Changed
 
+- **Twelve-home cache bound and a hook-time home mismatch warning (PET-237).**
+  Each of the process-wide reload cache and the armed cache ships at 16:
+  stage 1 at cap 8 reproduced the churn, and stage 2 at 16 was 0 at 12 and
+  16 homes. The constants are never left at 8. A hook whose override home
+  disagrees with the home captured at `register()` logs
+  `PETASOS_ARMED_RESOLUTION_WARNING captured=<path> hook=<path> reason=home_mismatch`
+  once per home pair. Enforcement stays on the captured home.
+
 - **Override-aware Hermes home resolution (PET-231).**
   `resolve_hermes_config_path` reads Hermes's context-local home override
   first, at tier `override`, then `HERMES_HOME`, the active-profile pointer,

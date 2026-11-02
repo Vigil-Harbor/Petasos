@@ -246,8 +246,16 @@ behaviors to preserve in any custom integration:
   `resolve_hermes_config_path()` to find `config.yaml`. When Hermes has set a
   home override, that home wins and the resolution tier is `override`. With no
   usable override the order is `HERMES_HOME`, then the active profile, then
-  the v0.15 root. The agent plugin and the dashboard plugin share this resolver
-  so they always read the same file (no split-brain).
+  the v0.15 root. The override is host-controlled: Hermes sets it before
+  `register()`, and the capture does not read tool arguments, session text, or
+  the console request body. The plugin enforcement binding is the resolution
+  captured at `register()`. Console equipped surfaces pass `use_override=False`
+  and read the process binding. Those two files are the same only when the
+  process binding and the captured home are the same path. Hermes lowercases
+  the logged path, and the launch home logs `tier=override`. A hook whose
+  override home disagrees with the captured home logs
+  `PETASOS_ARMED_RESOLUTION_WARNING captured=<path> hook=<path> reason=home_mismatch`:
+  the homes disagree, and enforcement stays on the capture.
 
 ## 4. Enable the plugin
 
