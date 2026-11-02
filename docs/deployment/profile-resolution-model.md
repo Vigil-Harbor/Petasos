@@ -30,7 +30,9 @@ under `profiles/<name>/`. The effective file is resolved by
 
 Hermes normalizes the case of the home path in its own log line
 (`os.path.normcase`, so lowercase on Windows and unchanged elsewhere), and
-the launch home logs `tier=override`.
+the launch home logs `tier=override`. The hook-time mismatch comparison
+resolves symlinks, junctions and Windows short names on both sides and folds
+case where the platform does; only the hook side expands `~`.
 
 `<root>` is the Hermes root:
 

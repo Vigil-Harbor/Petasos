@@ -52,7 +52,10 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
   16 homes. The constants are never left at 8. A hook whose override home
   disagrees with the home captured at `register()` logs
   `PETASOS_ARMED_RESOLUTION_WARNING captured=<path> hook=<path> reason=home_mismatch`
-  once per home pair. Enforcement stays on the captured home.
+  once per home pair. Enforcement stays on the captured home. Both sides of
+  the comparison are resolved, so a symlink, junction or Windows short-name
+  spelling of the captured home does not warn; `~` is expanded only on the
+  hook side.
 
 - **Override-aware Hermes home resolution (PET-231).**
   `resolve_hermes_config_path` reads Hermes's context-local home override

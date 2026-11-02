@@ -11,10 +11,10 @@ import types
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import pytest
+
 if TYPE_CHECKING:
     from types import ModuleType
-
-    import pytest
 
 _PLUGIN = (
     Path(__file__).resolve().parent.parent
@@ -57,6 +57,34 @@ def _override(
 
 def _resolving_key(text: str) -> str:
     return os.path.normcase(str(Path(text).expanduser().resolve()))
+
+
+def _link_dir(link: Path, real: Path) -> None:
+    """Directory symlink, or a junction on Windows without the symlink privilege."""
+    try:
+        link.symlink_to(real, target_is_directory=True)
+        return
+    except OSError:
+        if os.name != "nt":
+            raise
+    import _winapi
+
+    _winapi.CreateJunction(str(real), str(link))
+
+
+def _short_name(path: Path) -> str | None:
+    """The Windows 8.3 spelling of ``path``, or None when unavailable."""
+    if os.name != "nt":
+        return None
+    import ctypes
+
+    windll = getattr(ctypes, "windll", None)
+    if windll is None:
+        return None
+    buf = ctypes.create_unicode_buffer(4096)
+    if not windll.kernel32.GetShortPathNameW(str(path), buf, 4096):
+        return None
+    return buf.value if buf.value != str(path) else None
 
 
 def _write_enabled(home: Path, enabled: bool) -> None:
@@ -306,7 +334,7 @@ def test_hook_mismatch_symlink_home_does_not_warn(
     real = tmp_path / "real"
     link = tmp_path / "link"
     _write_enabled(real, False)
-    link.symlink_to(real, target_is_directory=True)
+    _link_dir(link, real)
     mod = _load("petasos_ref_mismatch_link")
     _override(monkeypatch, str(real.resolve()), key=_resolving_key)
     mod.register(_Ctx())
@@ -365,7 +393,70 @@ def test_hook_mismatch_absent_path_is_not_memoized(
     with caplog.at_level(logging.WARNING, logger="petasos.plugin"):
         mod._pre_tool_call("shell", {"cmd": "x"}, task_id="s1")
     assert str(missing) not in mod._home_mismatch_key_memo
-    missing.symlink_to(real, target_is_directory=True)
+    _link_dir(missing, real)
     with caplog.at_level(logging.WARNING, logger="petasos.plugin"):
         mod._pre_tool_call("shell", {"cmd": "y"}, task_id="s1")
     assert mod._home_mismatch_key_memo[str(missing)] == captured_key
+
+
+def test_hook_mismatch_captured_through_link_does_not_warn(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A home captured through a link keys like its target, so neither spelling warns."""
+    monkeypatch.setattr(threading.Thread, "start", lambda self: None)
+    real = tmp_path / "captured-real"
+    link = tmp_path / "captured-link"
+    _write_enabled(real, False)
+    _link_dir(link, real)
+    mod = _load("petasos_ref_mismatch_captured_link")
+    _override(monkeypatch, str(link), key=_resolving_key)
+    mod.register(_Ctx())
+    captured = mod._session_resolution
+    assert captured is not None
+    assert captured.path == link / "config.yaml"
+    with caplog.at_level(logging.WARNING, logger="petasos.plugin"):
+        mod._pre_tool_call("shell", {"cmd": "x"}, task_id="s1")
+        _override(monkeypatch, str(real), key=_resolving_key)
+        mod._pre_tool_call("shell", {"cmd": "y"}, task_id="s1")
+        assert _mismatch_lines(caplog) == []
+    assert mod._session_resolution is captured
+
+
+def test_hook_mismatch_fallback_key_resolves_links(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Without hermes_home_key, the fallback key still resolves a linked hook home."""
+    monkeypatch.setattr(threading.Thread, "start", lambda self: None)
+    real = tmp_path / "fallback-real"
+    link = tmp_path / "fallback-link"
+    _write_enabled(real, False)
+    _link_dir(link, real)
+    mod = _load("petasos_ref_mismatch_fallback")
+    _override(monkeypatch, str(real))
+    mod.register(_Ctx())
+    _override(monkeypatch, str(link))
+    with caplog.at_level(logging.WARNING, logger="petasos.plugin"):
+        mod._pre_tool_call("shell", {"cmd": "x"}, task_id="s1")
+        assert _mismatch_lines(caplog) == []
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows path spellings")
+def test_hook_mismatch_windows_spellings_do_not_warn(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Case, slash direction and the 8.3 short name of the captured home never warn."""
+    monkeypatch.setattr(threading.Thread, "start", lambda self: None)
+    real = tmp_path / "Spelled-Home"
+    _write_enabled(real, False)
+    mod = _load("petasos_ref_mismatch_spellings")
+    _override(monkeypatch, str(real), key=_resolving_key)
+    mod.register(_Ctx())
+    spellings = [str(real).upper().replace(os.sep, "/"), str(real).lower()]
+    short = _short_name(real)
+    if short is not None:
+        spellings.append(short)
+    with caplog.at_level(logging.WARNING, logger="petasos.plugin"):
+        for spelling in spellings:
+            _override(monkeypatch, spelling, key=_resolving_key)
+            mod._pre_tool_call("shell", {"cmd": "x"}, task_id="s1")
+        assert _mismatch_lines(caplog) == []

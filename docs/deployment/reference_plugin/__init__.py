@@ -2437,8 +2437,16 @@ def _expanded_home_text(text: str) -> str:
         return text
 
 
+def _resolved_text(text: str) -> str:
+    """Resolve symlinks, junctions and short names. A failure returns the original string."""
+    try:
+        return str(Path(text).resolve(strict=False))
+    except Exception:
+        return text
+
+
 def _comparison_key(text: str) -> str:
-    """Home key: hermes_home_key when callable, else expand then normcase."""
+    """Home key: hermes_home_key when callable, else expand, resolve, then normcase."""
     try:
         import hermes_constants  # type: ignore[import-not-found]
 
@@ -2449,7 +2457,7 @@ def _comparison_key(text: str) -> str:
                 return result
     except Exception:
         pass
-    return os.path.normcase(_expanded_home_text(text))
+    return os.path.normcase(_resolved_text(_expanded_home_text(text)))
 
 
 def _store_mismatch_memo(text: str, key: str) -> None:
@@ -2479,7 +2487,12 @@ def _probe_home_key(text: str) -> str:
 
 
 def _current_captured_key() -> str:
-    """Normcase of the unchanged captured path. Cached while it exists and is current."""
+    """Normcase of the resolved, unexpanded captured path. Cached while it exists and is current.
+
+    Resolving follows what ``read_armed`` stats, so a capture through a symlink,
+    a junction or a Windows short name keys like its target. ``~`` is not
+    expanded: a literal ``~`` capture stays detectable as a mismatch.
+    """
     global _captured_key_obj, _captured_key_value
     res = _session_resolution
     assert res is not None
@@ -2487,7 +2500,7 @@ def _current_captured_key() -> str:
         if _captured_key_obj is res and _captured_key_value is not None:
             return _captured_key_value
     text = str(res.path.parent)
-    key = os.path.normcase(text)
+    key = os.path.normcase(_resolved_text(text))
     if not os.path.exists(_expanded_home_text(text)):
         return key
     with _home_mismatch_lock:

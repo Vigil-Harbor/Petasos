@@ -257,7 +257,11 @@ behaviors to preserve in any custom integration:
   `tier=override`. A hook whose
   override home disagrees with the captured home logs
   `PETASOS_ARMED_RESOLUTION_WARNING captured=<path> hook=<path> reason=home_mismatch`:
-  the homes disagree, and enforcement stays on the capture.
+  the homes disagree, and enforcement stays on the capture. The comparison
+  resolves symlinks, junctions and Windows short names on both sides and folds
+  case where the platform does, so two spellings of one directory never warn.
+  Only the hook side expands `~`, so a literal `~` capture warns against its
+  expanded hook home.
 
 ## 4. Enable the plugin
 
