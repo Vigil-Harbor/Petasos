@@ -92,6 +92,17 @@ fails config validation, because an older release rejects the unknown id.
 
 ### Changed
 
+- **Twelve-home cache bound and a hook-time home mismatch warning (PET-237).**
+  Each of the process-wide reload cache and the armed cache ships at 16:
+  stage 1 at cap 8 reproduced the churn, and stage 2 at 16 was 0 at 12 and
+  16 homes. The constants are never left at 8. A hook whose override home
+  disagrees with the home captured at `register()` logs
+  `PETASOS_ARMED_RESOLUTION_WARNING captured=<path> hook=<path> reason=home_mismatch`
+  once per home pair. Enforcement stays on the captured home. Both sides of
+  the comparison are resolved, so a symlink, junction or Windows short-name
+  spelling of the captured home does not warn; `~` is expanded only on the
+  hook side.
+
 - **`petasos[all]` is now presidio, prompt-guard and console (PET-242).** It no longer
   installs LLM Guard or LlamaFirewall, and it now pulls torch and transformers. It is
   about 1.2 GiB on Windows with Python 3.14, including the 425 MiB spaCy model, and may

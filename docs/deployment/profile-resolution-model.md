@@ -13,13 +13,26 @@ A *Hermes profile home* is a directory on disk that holds a `config.yaml` with a
 under `profiles/<name>/`. The effective file is resolved by
 `petasos/console/_paths.py::resolve_hermes_config_path()` with this precedence:
 
-1. **`HERMES_HOME` env** (tier `hermes_home`) — `$HERMES_HOME/config.yaml`.
-2. **active-profile pointer** (tier `profile`) — `<root>/profiles/<name>/config.yaml`,
+1. **Hermes home override** (tier `override`) — `<override>/config.yaml`, only
+   when the caller uses the override. The override is host-controlled: Hermes
+   sets it before `register()`, and the capture does not read tool arguments,
+   session text, or the console request body. The plugin enforcement binding is
+   the resolution `register()` captured. Console equipped surfaces pass
+   `use_override=False` and read the process binding. Those two files are the
+   same only when the process binding and the captured home are the same path.
+2. **`HERMES_HOME` env** (tier `hermes_home`) — `$HERMES_HOME/config.yaml`.
+3. **active-profile pointer** (tier `profile`) — `<root>/profiles/<name>/config.yaml`,
    where `<name>` is read from `<root>/active_profile`.
-3. **v0.15 root** (tier `root`) — `<root>/config.yaml`. If the `active_profile`
+4. **v0.15 root** (tier `root`) — `<root>/config.yaml`. If the `active_profile`
    pointer names a missing directory, resolution falls back to root and carries a
    **dangling-pointer warning** (surfaced in the editor as a banner labeled as the
    *active* binding).
+
+Hermes normalizes the case of the home path in its own log line
+(`os.path.normcase`, so lowercase on Windows and unchanged elsewhere), and
+the launch home logs `tier=override`. The hook-time mismatch comparison
+resolves symlinks, junctions and Windows short names on both sides and folds
+case where the platform does; only the hook side expands `~`.
 
 `<root>` is the Hermes root:
 

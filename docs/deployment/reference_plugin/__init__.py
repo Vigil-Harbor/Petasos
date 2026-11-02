@@ -168,6 +168,16 @@ _last_cold_start_fail_log = 0.0
 # per-call resolve. Never re-derived from in-session-mutable state (PET-125).
 _session_resolution: HermesConfigResolution | None = None
 
+# PET-237: hook-time home-mismatch warning. The captured key is lazy and is
+# compared with ``is`` on the resolution object. The memo and the seen-map are
+# separate, both capped at 16. Neither is an enforcement input.
+_home_mismatch_lock = threading.Lock()
+_home_mismatch_seen: dict[tuple[str, str], None] = {}
+_home_mismatch_key_memo: dict[str, str] = {}
+_HOME_MISMATCH_SEEN_MAX = 16
+_captured_key_obj: object | None = None
+_captured_key_value: str | None = None
+
 
 def _reset_session_resolution() -> None:
     """Test seam — drop the pinned resolution (mirrors _reset_disarm_log)."""
@@ -2420,12 +2430,135 @@ def _dangerous_tool_directive(
     return None
 
 
+def _expanded_home_text(text: str) -> str:
+    """expandvars then expanduser. A failure returns the original string."""
+    try:
+        return os.path.expanduser(os.path.expandvars(text))
+    except Exception:
+        return text
+
+
+def _resolved_text(text: str) -> str:
+    """Resolve symlinks, junctions and short names. A failure returns the original string."""
+    try:
+        return str(Path(text).resolve(strict=False))
+    except Exception:
+        return text
+
+
+def _comparison_key(text: str) -> str:
+    """Home key: hermes_home_key when callable, else expand, resolve, then normcase."""
+    try:
+        import hermes_constants  # type: ignore[import-not-found]
+
+        fn = getattr(hermes_constants, "hermes_home_key", None)
+        if callable(fn):
+            result = fn(text)
+            if isinstance(result, str):
+                return result
+    except Exception:
+        pass
+    return os.path.normcase(_resolved_text(_expanded_home_text(text)))
+
+
+def _store_mismatch_memo(text: str, key: str) -> None:
+    """Insert under the lock already held. Drop-oldest past the cap."""
+    _home_mismatch_key_memo.pop(text, None)
+    _home_mismatch_key_memo[text] = key
+    while len(_home_mismatch_key_memo) > _HOME_MISMATCH_SEEN_MAX:
+        _home_mismatch_key_memo.pop(next(iter(_home_mismatch_key_memo)))
+
+
+def _probe_home_key(text: str) -> str:
+    """Memoized comparison key. Normalize outside the lock; store only if the path exists."""
+    with _home_mismatch_lock:
+        hit = _home_mismatch_key_memo.get(text)
+    if hit is not None:
+        return hit
+    key = _comparison_key(text)
+    store = os.path.exists(_expanded_home_text(text))
+    if not store:
+        return key
+    with _home_mismatch_lock:
+        existing = _home_mismatch_key_memo.get(text)
+        if existing is not None:
+            return existing
+        _store_mismatch_memo(text, key)
+    return key
+
+
+def _current_captured_key() -> str:
+    """Normcase of the resolved, unexpanded captured path. Cached while it exists and is current.
+
+    Resolving follows what ``read_armed`` stats, so a capture through a symlink,
+    a junction or a Windows short name keys like its target. ``~`` is not
+    expanded: a literal ``~`` capture stays detectable as a mismatch.
+    """
+    global _captured_key_obj, _captured_key_value
+    res = _session_resolution
+    assert res is not None
+    with _home_mismatch_lock:
+        if _captured_key_obj is res and _captured_key_value is not None:
+            return _captured_key_value
+    text = str(res.path.parent)
+    key = os.path.normcase(_resolved_text(text))
+    if not os.path.exists(_expanded_home_text(text)):
+        return key
+    with _home_mismatch_lock:
+        _captured_key_obj = res
+        _captured_key_value = key
+    return key
+
+
+def _warn_hook_home_mismatch() -> None:
+    """Log once when the hook override home disagrees with the captured home."""
+    try:
+        res = _session_resolution
+        if res is None:
+            return
+        from petasos.console._paths import _override_home
+
+        probed = _override_home()
+        if probed is None:
+            return
+        captured_key = _current_captured_key()
+        hook_key = _probe_home_key(str(probed))
+        if captured_key == hook_key:
+            return
+        pair = (captured_key, hook_key)
+        with _home_mismatch_lock:
+            if pair in _home_mismatch_seen:
+                return
+            _home_mismatch_seen.pop(pair, None)
+            _home_mismatch_seen[pair] = None
+            while len(_home_mismatch_seen) > _HOME_MISMATCH_SEEN_MAX:
+                _home_mismatch_seen.pop(next(iter(_home_mismatch_seen)))
+        logger.warning(
+            "PETASOS_ARMED_RESOLUTION_WARNING captured=%s hook=%s reason=home_mismatch",
+            res.path.parent,
+            probed,
+        )
+    except Exception:
+        return
+
+
+def _reset_home_mismatch_warned() -> None:
+    """Test seam — clear the mismatch seen-map, key memo, and captured-key cache."""
+    global _captured_key_obj, _captured_key_value
+    with _home_mismatch_lock:
+        _home_mismatch_seen.clear()
+        _home_mismatch_key_memo.clear()
+        _captured_key_obj = None
+        _captured_key_value = None
+
+
 def _pre_tool_call(
     tool_name: str, args: dict, task_id: str = "", **kwargs
 ) -> dict[str, str] | None:
     # PET-111: operator-disarmed -> zero enforcement, pass through. The gate sits
     # ABOVE _ensure_initialized so it covers the initialized, init-failed, and
     # init-in-progress windows uniformly (a disarmed boot skips the fallback scan).
+    _warn_hook_home_mismatch()
     if not _is_armed():
         # PET-138: count EVERY bypassed call (authoritative tally, not a sample),
         # independent of the rate-limited heartbeat below. O(1) locked bump; no
