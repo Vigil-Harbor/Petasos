@@ -343,7 +343,7 @@ def test_hook_mismatch_tilde_hermes_home_warns(
         lines = _mismatch_lines(caplog)
         assert len(lines) == 1
         message = lines[0].getMessage()
-        assert "captured=~/tilde-home" in message
+        assert f"captured={captured.path.parent}" in message
         assert f"hook={home}" in message
     assert mod._session_resolution is captured
     assert not captured.path.is_absolute()
