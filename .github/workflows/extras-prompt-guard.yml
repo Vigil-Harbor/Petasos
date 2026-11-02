@@ -1,0 +1,40 @@
+# PET-242: non-skipping lane with the real prompt-guard extra installed. The repo
+# has no Hugging Face secret, so the lane cannot load the gated weights.
+# PETASOS_REQUIRE_PROMPT_GUARD=1 arms the collection guard in tests/conftest.py, so
+# TestPromptGuardRealLibraries (a real forward pass and tokenizer built from config,
+# no download) must run, never skip. The weights are proven by the Windows proof gate.
+name: extras-prompt-guard
+on:
+  pull_request:
+    paths:
+      - "petasos/scanners/prompt_guard.py"
+      - "petasos/scanners/bootstrap.py"
+      - "tests/test_prompt_guard_scanner.py"
+      - "tests/conftest.py" # home of the fail-loud collection guard this lane arms
+      - "pyproject.toml"
+      - ".github/workflows/extras-prompt-guard.yml"
+  schedule:
+    - cron: "37 7 * * 1" # Mondays 07:37 UTC, off-peak, off-minute, distinct from the other extras lanes
+  workflow_dispatch:
+jobs:
+  scanner-tests:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      PETASOS_REQUIRE_PROMPT_GUARD: "1"
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, python-version: "3.11" }
+          - { os: ubuntu-latest, python-version: "3.14" }
+          - { os: windows-latest, python-version: "3.14" }
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: pip install -e ".[prompt-guard,dev]"
+      - run: pytest tests/test_prompt_guard_scanner.py -v --tb=short
+      # Proves `[all]` resolves on every cell. A real install is proven by the proof gate.
+      - run: pip install --dry-run -e ".[all]"

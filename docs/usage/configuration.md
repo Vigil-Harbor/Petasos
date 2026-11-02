@@ -175,7 +175,7 @@ when to stop calling one that keeps failing.*
   setting it to 0 reports every candidate and brings back the noise the curated
   default is meant to remove.
 - `disabled_scanners`: optional backends to skip at startup (`llm_guard`,
-  `llama_firewall`, `presidio`). A listed backend is not registered and is
+  `llama_firewall`, `presidio`, `prompt_guard`). A listed backend is not registered and is
   reported as disabled. This applies to the scanner Petasos builds from config
   at startup. An unknown id is rejected. A pipeline hook error is not cleared
   by this list.

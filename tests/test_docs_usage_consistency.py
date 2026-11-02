@@ -41,6 +41,7 @@ from petasos.scanners.presidio import (
     DEFAULT_PRESIDIO_ENTITIES,
     NOISY_OPT_IN_ENTITIES,
 )
+from petasos.scanners.prompt_guard import _BLOCK_THRESHOLD, _MODEL_REVISION, _RULE_ID
 
 # Single source of truth for the marker sentinel. The Markdown pages MUST use
 # this identical literal; the parser keys off it.
@@ -149,6 +150,19 @@ def test_docs_llamafirewall_components_match_source() -> None:
     # Regression for PET-128: the three named LlamaFirewall components.
     parsed = _parse_doc_asserts(_SCANNERS_DOC, required=frozenset({"llamafirewall_components"}))
     assert set(_csv(parsed, "llamafirewall_components")) == set(_COMPONENT_TAXONOMY.keys())
+
+
+def test_docs_prompt_guard_marker_matches_source() -> None:
+    # Regression for PET-242: the direct backend's rule id, threshold and pinned revision.
+    parsed = _parse_doc_asserts(
+        _SCANNERS_DOC,
+        required=frozenset(
+            {"prompt_guard_rule_id", "prompt_guard_threshold", "prompt_guard_revision"}
+        ),
+    )
+    assert parsed["prompt_guard_rule_id"] == _RULE_ID
+    assert float(parsed["prompt_guard_threshold"]) == _BLOCK_THRESHOLD
+    assert parsed["prompt_guard_revision"] == _MODEL_REVISION
 
 
 def test_docs_presidio_default_set_matches_source() -> None:

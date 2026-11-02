@@ -4,7 +4,42 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Upgrade note: PET-242 can block all content until you act
+
+The new `prompt_guard` backend registers even when its packages or model are
+absent, and a registered backend that errors blocks all content under `degraded`
+(the default) and `closed`. Three hosts are affected:
+
+- **All three old backends disabled.** This turns `safe=False` until you add
+  `prompt_guard` to `disabled_scanners` or install `petasos[prompt-guard]` with its
+  model prerequisites met.
+- **A fresh `petasos[all]` install under the default fail mode.** This blocks until
+  `disabled_scanners` lists `llm_guard` and `llama_firewall`, which `[all]` no longer
+  installs, and the PromptGuard model prerequisites are met or `prompt_guard` is
+  listed too.
+- **A healthy host running the old backends.** This goes block-all until you install
+  the extra with its model prerequisites met, or list `prompt_guard` in
+  `disabled_scanners` and keep running on the old backends.
+
+This is deliberate: skipping an absent backend would let a package lost in a rebuild
+silently drop a scanner. Going back to an older Petasos with `prompt_guard` listed
+fails config validation, because an older release rejects the unknown id.
+
 ### Added
+
+- **`PromptGuardScanner` and the `prompt-guard` extra (PET-242).** Meta's PromptGuard
+  2 runs directly on torch, transformers and sentencepiece, on Python 3.11 through
+  3.14, proven on native Windows with Python 3.14. Rule id
+  `petasos.promptguard.injection`, severity HIGH, blocks at a score of 0.9, at a
+  pinned model revision loaded from safetensors only. One model is shared across
+  every Hermes profile copy in a process. `code_generation` demotes the new rule to
+  low, as it does the two older ML verdicts. The model is gated: see
+  `docs/usage/scanners.md`.
+
+- **Reference plugin dependency manifest (PET-242).**
+  `docs/deployment/reference_plugin/pyproject.toml` declares `petasos[presidio,prompt-guard]>=0.5.0`
+  and the spaCy model, for Hermes generations, which have no pip. It assumes
+  0.5.0 is the next release number.
 
 - **Hermes approval decisions observed as enforcement events (PET-222).**
   The reference plugin records every `pre_approval_request` and
@@ -44,6 +79,17 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
   because the embedded path never sends the token. Health, config, save and preset
   readers now also check the status, so a failed response is never read as success.
 
+### Deprecated
+
+- **`LlmGuardScanner`, `LlamaFirewallScanner`, and the `llm-guard` and `llamafirewall`
+  extras (PET-242).** Each constructor emits a `DeprecationWarning`. Removal comes in a
+  later release, no earlier than the one after this. `llm-guard` may go sooner if its
+  pinned dependencies prove compromised. `PromptGuardScanner` replaces LLM Guard's
+  injection detection only: its toxicity, secrets and ban-topics detectors have no
+  replacement in this release. It replaces LlamaFirewall's injection detection only:
+  `alignment_check` and `code_shield` have no replacement either. Both extras stay
+  installable by name until then.
+
 ### Changed
 
 - **Twelve-home cache bound and a hook-time home mismatch warning (PET-237).**
@@ -56,6 +102,12 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
   the comparison are resolved, so a symlink, junction or Windows short-name
   spelling of the captured home does not warn; `~` is expanded only on the
   hook side.
+
+- **`petasos[all]` is now presidio, prompt-guard and console (PET-242).** It no longer
+  installs LLM Guard or LlamaFirewall, and it now pulls torch and transformers. It is
+  about 1.2 GiB on Windows with Python 3.14, including the 425 MiB spaCy model, and may
+  be larger on Linux. The gated PromptGuard weights add about 1.1 GB. See the upgrade
+  note above.
 
 - **Override-aware Hermes home resolution (PET-231).**
   `resolve_hermes_config_path` reads Hermes's context-local home override
