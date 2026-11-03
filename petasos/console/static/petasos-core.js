@@ -13,6 +13,9 @@
     healthLoaded: false,
     armedSeeded: false,
     protectionSeeded: false,  // PET-236: an `armed` SSE frame sets armedSeeded with no read
+    refusedSeeded: false,     // PET-223: one refused-approvals fetch per entry, not per render
+    refusedBody: null,
+    refusedFetchSeq: 0,
     scopeConfirmedFor: "",    // PET-238: the selector a forwarded armed read proved it served
     armedBusy: false,
     armedConfirmPending: false,
@@ -345,6 +348,13 @@
     // so a profile switch reloads the same profile after save/discard.
     selectedHermesProfile: null,
     scanHistory: [],
+    // PET-223: refused-approvals panel. Painted from this object; render does not refetch it.
+    refusedQueue: {
+      body: null,
+      note: null,
+      filters: { choice: "all", origin: "all", includeReviewed: false },
+      markError: null,
+    },
     // PET-148/PET-152: scan-history back-page paging state. historyAtHead=true shows the live
     // SSE-maintained scanHistory buffer (the most-recent window); when paged back, historyStack
     // holds the fetched older pages (top = current view). PET-152 dropped the cached

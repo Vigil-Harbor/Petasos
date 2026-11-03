@@ -335,6 +335,12 @@ filesystem scope, not only the single file `resolve_hermes_config_path()` return
 for the active profile. That means the whole `profiles/` tree
 (`profiles/*/config.yaml`), `$HERMES_HOME`, and the legacy v0.15 root: each is a
 home the resolver can bind, so each is a config an agent must not be able to write.
+`petasos-approvals-reviewed.json`, beside that config, is the same kind of
+artifact: keep it outside the agent's writable scope. The standalone token and
+Hermes's dashboard auth stop a caller without credentials. They do not stop a
+same-user shell-capable agent, which only isolation stops. A console mark is
+audited. A direct file edit is not, which is what isolation and the signature
+are for.
 
 **Why all homes, not only the active one.** PET-146's Config Editor selector makes
 every profile home an editable surface, and the three safety levers (`fail_mode`,

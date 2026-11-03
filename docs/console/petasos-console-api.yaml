@@ -265,6 +265,114 @@ paths:
                   total:
                     type: integer
 
+  /api/approvals/refused:
+    get:
+      operationId: getRefusedApprovals
+      summary: Refused Hermes approvals for one profile (PET-223)
+      parameters:
+        - name: profile
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Queue derived from retained approval rows
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - items
+                  - total
+                  - unverifiable_count
+                  - pending
+                  - unknown
+                  - window_oldest
+                  - approval_rows
+                  - truncated
+                  - reviewed_integrity
+                  - review_write
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                  total:
+                    type: integer
+                  unverifiable_count:
+                    type: integer
+                  pending:
+                    type: integer
+                  unknown:
+                    type: integer
+                  window_oldest:
+                    type: number
+                    nullable: true
+                  approval_rows:
+                    type: integer
+                  truncated:
+                    type: boolean
+                  reviewed_integrity:
+                    type: string
+                    enum:
+                      - absent
+                      - io_error
+                      - unreadable
+                      - unsupported_version
+                      - foreign
+                      - unattested
+                      - genuine
+                      - unverifiable
+                  review_write:
+                    type: object
+                    required: [available, reason]
+                    properties:
+                      available:
+                        type: boolean
+                      reason:
+                        type: string
+                        nullable: true
+                        enum: [not_equipped, no_console_token, no_state_dir, null]
+        "422":
+          description: Unknown profile
+
+  /api/approvals/reviewed:
+    post:
+      operationId: markApprovalReviewed
+      summary: Mark one refused approval reviewed (PET-223)
+      parameters:
+        - name: profile
+          in: query
+          required: false
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [item_id]
+              properties:
+                item_id:
+                  type: string
+                  minLength: 1
+                  maxLength: 128
+                profile:
+                  type: string
+      responses:
+        "200":
+          description: Marked, or already reviewed
+        "403":
+          description: Standalone console has no PETASOS_CONSOLE_TOKEN
+        "409":
+          description: Profile is not the equipped binding
+        "422":
+          description: Bad body, unknown profile, or unknown item
+        "503":
+          description: Reviewed file or audit row could not be written
+
 components:
   schemas:
     # ── Core types ──

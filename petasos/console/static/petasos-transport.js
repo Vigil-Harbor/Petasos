@@ -87,6 +87,9 @@
       Pet._runtime.armedSeeded = false;   // force a re-seed from server truth after re-auth (edge F-3)
       Pet._runtime.protectionSeeded = false; // PET-236: the status is re-read with the bit
       Pet._runtime.historySeeded = false; // ditto for the scan-history buffer
+      Pet._runtime.refusedSeeded = false;
+      Pet.state.refusedQueue.body = null;
+      Pet.state.refusedQueue.markError = null;
       Pet._runtime.historyPaging = false; Pet._runtime.historyPagingGen++; // PET-152: drop any in-flight paging re-mint; its stale .then checks gen and bails
       Pet.state.armed = null; // unknown until a verified read; bannerView keys authRequired first regardless
       if (Pet.updateConnStatus) Pet.updateConnStatus(); // F-8: don't leave the blip stuck on POLLING
@@ -122,6 +125,9 @@
       Pet._runtime.armedSeeded = false;   // re-derive from server truth, regardless of any stray frame (edge F-3)
       Pet._runtime.protectionSeeded = false; // PET-236: the status is re-read with the bit
       Pet._runtime.historySeeded = false;
+      Pet._runtime.refusedSeeded = false;
+      Pet.state.refusedQueue.body = null;
+      Pet.state.refusedQueue.markError = null;
       Pet._runtime.historyPaging = false; Pet._runtime.historyPagingGen++; // PET-152: supersede any in-flight paging re-mint across the re-auth resume
       return Pet.api.getArmed().then(function (d) {
         if (gen !== Pet.auth._gen || scopeGen !== Pet._runtime.scopeGen) return { ok: false, stale: true }; // superseded; drop (incl. a stale 401)
@@ -262,6 +268,17 @@
       var p = opts.unscoped ? "" : this._scopeParam();
       if (p) body.profile = p;
       return this._post("/armed", body);
+    },
+    // PET-223: profile rides the query on the read and the body on the write, as setArmed does.
+    getRefusedApprovals: function () {
+      var p = this._scopeParam();
+      return this._get("/approvals/refused" + (p ? "?profile=" + encodeURIComponent(p) : ""));
+    },
+    markApprovalReviewed: function (itemId) {
+      var body = { item_id: itemId };
+      var p = this._scopeParam();
+      if (p) body.profile = p;
+      return this._post("/approvals/reviewed", body);
     },
   };
 
@@ -819,6 +836,9 @@
     Pet._runtime.scopeGen++;
     Pet._runtime.historySeeded = false;
     Pet._runtime.armedSeeded = false;
+    Pet._runtime.refusedSeeded = false;
+    Pet.state.refusedQueue.body = null;
+    Pet.state.refusedQueue.markError = null;
     Pet._runtime.protectionSeeded = false;   // PET-236: the fields stay, like Pet.state.armed, so nothing flashes
     Pet._runtime.scopeConfirmedFor = "";     // PET-238: each entry to a scope proves itself again
     Pet._runtime.historyPaging = false;

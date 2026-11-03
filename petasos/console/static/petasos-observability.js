@@ -264,6 +264,7 @@
     // PET-222: this chain is separate from the body below. An approval row states
     // that no content scan ran.
     else if (isApproval) scanRan = "n/a (Hermes approval observation, not a content scan)";
+    else if (isEnf && et === "approval_reviewed") scanRan = "n/a (operator review mark, not a content scan)";
     else if (isEnfDecision || isPlayground) scanRan = "yes";
     else scanRan = "unknown";
     var armedStr;
@@ -382,6 +383,10 @@
       wrap.appendChild(fld("decided_by", e.decided_by));
       wrap.appendChild(fld("coalesced", e.coalesced));
       wrap.appendChild(fld("tool_call_id", e.tool_call_id));
+    } else if (isEnf && et === "approval_reviewed") {
+      wrap.appendChild(Pet.h("div", { className: "sd-heartbeat" },
+        Pet.h("div", {}, "Operator marked a refused approval reviewed.")));
+      wrap.appendChild(fld("item", e.item_id));
     } else if (isPlayground) {
       var det = e.detail;
       if (!det || typeof det !== "object") {
@@ -427,6 +432,15 @@
       wrap.appendChild(fld("event", et));
     }
     return wrap;
+  };
+
+  // PET-223: one choice-to-class map for scan history and the refused-approvals queue.
+  Pet.approvalBadge = function (choice) {
+    var text = (typeof choice === "string" && choice !== "") ? choice : "pending";
+    var cls = (text === "once" || text === "session" || text === "always" || text === "smart_approve")
+      ? "ok"
+      : ((text === "deny" || text === "smart_deny") ? "err" : "warn");
+    return { text: text, cls: cls };
   };
 
   Pet.scanHistoryRows = function (hist) {
@@ -497,12 +511,8 @@
       // PET-222: safe stays true, so without this arm the badge falls through to "safe".
       // Text is the choice string, or "pending" when choice is null or empty.
       var isApproval = isEnforcement && et === "approval";
-      var approvalChoice = (typeof e.choice === "string") ? e.choice : "";
-      var approvalBadge = approvalChoice !== "" ? approvalChoice : "pending";
-      var approvalClass = (approvalBadge === "once" || approvalBadge === "session"
-          || approvalBadge === "always" || approvalBadge === "smart_approve")
-        ? "ok"
-        : ((approvalBadge === "deny" || approvalBadge === "smart_deny") ? "err" : "warn");
+      var isReviewedMark = isEnforcement && et === "approval_reviewed";
+      var approvalView = Pet.approvalBadge(e.choice);
       var isBlocked = (e.safe === false); // strict ===false; truthy-but-not-false is not "blocked"
 
       // PET-165: severity-differentiated self-tamper badge. Severity rides the badge TEXT
@@ -516,9 +526,12 @@
       if (isSelfmodRow && (e.severity === "critical" || e.severity === "high")) selfmodSev = e.severity;
       var badgeText;
       var badgeClass;
-      if (isApproval) {
-        badgeText = approvalBadge;
-        badgeClass = approvalClass;
+      if (isReviewedMark) {
+        badgeText = "reviewed";
+        badgeClass = "ok";
+      } else if (isApproval) {
+        badgeText = approvalView.text;
+        badgeClass = approvalView.cls;
       } else if (isBypass) {
         badgeText = "bypassed (disarmed)";
         badgeClass = "warn";
@@ -1135,6 +1148,122 @@
             + ", not " + selected + ". Arming here does not change " + selected + "'s enforcement.") };
     }
     return { disabled: false, unscoped: false, notice: null };
+  };
+
+  function _refusedText(value) {
+    if (value == null) return null;
+    return String(value);
+  }
+
+  function _refusedWhen(ts) {
+    var n = Number(ts);
+    if (ts == null || isNaN(n)) return "\u2014";
+    var dt = new Date(n * 1000);
+    if (isNaN(dt.getTime())) return "\u2014";
+    return dt.toISOString().replace("T", " ").replace(/\.\d+Z$/, "Z");
+  }
+
+  // PET-223: pure queue view. Never throws. Band order is the server's order.
+  Pet.refusedQueueView = function (body, filters) {
+    filters = filters || {};
+    var choice = filters.choice || "all";
+    var origin = filters.origin || "all";
+    var includeReviewed = !!filters.includeReviewed;
+    var showUnverifiable = !!filters.showUnverifiable;
+    var empty = {
+      rows: [], unverifiableRows: [], unverifiableLabel: "", unverifiableCollapsed: true,
+      summary: "", note: "", canMark: false,
+    };
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      empty.note = "refused approvals could not be loaded";
+      return empty;
+    }
+    if (body.error || body._status === 422 || !Array.isArray(body.items)) {
+      empty.note = "refused approvals could not be loaded";
+      return empty;
+    }
+    var rows = [];
+    var unverifiableRows = [];
+    for (var i = 0; i < body.items.length; i++) {
+      var item = body.items[i];
+      if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+      if (choice !== "all" && item.choice !== choice) continue;
+      if (origin !== "all" && item.origin !== origin) continue;
+      if (!includeReviewed && item.reviewed === true) continue;
+      if (item.provenance === "unverifiable") unverifiableRows.push(item);
+      else rows.push(item);
+    }
+    var notes = [];
+    if (body.truncated) notes.push("list may be incomplete");
+    var integrity = body.reviewed_integrity;
+    if (integrity === "unverifiable") notes.push("reviewed marks failed verification and are ignored");
+    else if (integrity === "io_error" || integrity === "unsupported_version") {
+      notes.push("reviewed marks could not be read");
+    } else if (integrity === "foreign") {
+      notes.push("reviewed marks come from another profile's file and are not verified here");
+    }
+    var write = body.review_write || {};
+    var reason = write.reason;
+    if (reason === "no_console_token") notes.push("Set PETASOS_CONSOLE_TOKEN to mark items reviewed");
+    else if (reason === "not_equipped") notes.push("Select the equipped profile to mark items reviewed");
+    else if (reason === "no_state_dir") notes.push("This profile has no state directory, so marks cannot be saved");
+    var summary;
+    if (!body.approval_rows) summary = "no approval events recorded in this window";
+    else {
+      summary = (body.total || 0) + " refused \u00b7 " + (body.pending || 0) + " pending \u00b7 "
+        + (body.unknown || 0) + " unknown";
+      if (body.window_oldest != null) summary += " since " + _refusedWhen(body.window_oldest);
+    }
+    var count = typeof body.unverifiable_count === "number" ? body.unverifiable_count : unverifiableRows.length;
+    return {
+      rows: rows,
+      unverifiableRows: unverifiableRows,
+      unverifiableLabel: "failed verification (" + count + ")",
+      unverifiableCollapsed: !showUnverifiable,
+      summary: summary,
+      note: notes.join(" "),
+      canMark: write.available === true,
+    };
+  };
+
+  // PET-223: one DOM row per item. Strings only reach Pet.h. No innerHTML.
+  Pet.refusedApprovalRows = function (rows, onMark, canMark) {
+    var out = [];
+    if (!Array.isArray(rows)) return out;
+    for (var i = 0; i < rows.length; i++) {
+      var item = rows[i];
+      if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+      var badge = Pet.approvalBadge(item.choice);
+      var origin = typeof item.origin === "string" ? item.origin : "";
+      var description = _refusedText(item.description);
+      var command = _refusedText(item.command);
+      var shown = origin === "petasos" ? description : [command, description].filter(Boolean).join(" ");
+      var rule = _refusedText(item.petasos_rule) || _refusedText(item.pattern_key);
+      var tool = _refusedText(item.tool);
+      var flags = [];
+      if (item.coalesced === true) flags.push("coalesced");
+      if (item.provenance && item.provenance !== "genuine" && item.provenance !== "unattested") {
+        flags.push(String(item.provenance));
+      }
+      var children = [
+        Pet.h("span", { className: "pill " + badge.cls }, badge.text),
+        _refusedWhen(item.at),
+        tool,
+        rule,
+        shown,
+        flags.join(" "),
+      ];
+      if (canMark && item.reviewed !== true && typeof onMark === "function") {
+        (function (id) {
+          children.push(Pet.h("button", {
+            type: "button",
+            onClick: function () { onMark(id); },
+          }, "Mark reviewed"));
+        })(_refusedText(item.item_id));
+      }
+      out.push(Pet.h("div", { className: "refused-row" }, children));
+    }
+    return out;
   };
 
 

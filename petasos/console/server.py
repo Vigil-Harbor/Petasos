@@ -17,7 +17,6 @@ import hashlib
 import hmac
 import json
 import logging
-import math
 import os
 import sys
 import time
@@ -27,7 +26,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote, unquote
 
-from petasos.console import _history
+from petasos.console import _approvals, _history
 from petasos.console._config_meta import generate_config_metadata, generate_section_metadata
 from petasos.console._paths import (
     _resolved_normcase,
@@ -120,6 +119,9 @@ _INTEGRITY_KEY_OFF_NOTE = (
 # long decoded-payload message cannot bloat the ring buffer / SSE frame — matching the
 # 200-char block-message truncation in petasos/session/formatting.py.
 _MAX_REASON_LEN = 200
+# PET-223: approval descriptions carry a quoted command excerpt. Every other
+# surfaced string stays at _MAX_REASON_LEN.
+_MAX_APPROVAL_DESCRIPTION_LEN = 400
 
 # PET-166 (D3): byte cap on each non-equipped enforcement-spool segment read. A
 # non-equipped profile's live spool has no enforced bound (SPOOL_CAP_BYTES is honored
@@ -290,7 +292,9 @@ def _enforcement_summary(ev: dict[str, Any], *, provenance: str = "unattested") 
     here. Never a tamper verdict; the non-equipped merged read passes it directly and
     never routes those rows through the live verifier.
     """
-    event_type = ev.get("event_type")
+    raw_event_type = ev.get("event_type")
+    # PET-223 (S24): a non-string event_type must not raise on the set test below.
+    event_type = raw_event_type if isinstance(raw_event_type, str) else None
     is_block = event_type in _BLOCK_EVENT_TYPES
     reason = ev.get("reason")
     if isinstance(reason, str) and len(reason) > _MAX_REASON_LEN:
@@ -301,8 +305,8 @@ def _enforcement_summary(ev: dict[str, Any], *, provenance: str = "unattested") 
     if isinstance(command, str) and len(command) > _MAX_REASON_LEN:
         command = command[:_MAX_REASON_LEN]
     description = ev.get("description")
-    if isinstance(description, str) and len(description) > _MAX_REASON_LEN:
-        description = description[:_MAX_REASON_LEN]
+    if isinstance(description, str) and len(description) > _MAX_APPROVAL_DESCRIPTION_LEN:
+        description = description[:_MAX_APPROVAL_DESCRIPTION_LEN]
     choice = ev.get("choice")
     if isinstance(choice, str) and len(choice) > _MAX_REASON_LEN:
         choice = choice[:_MAX_REASON_LEN]
@@ -355,6 +359,13 @@ def _enforcement_summary(ev: dict[str, Any], *, provenance: str = "unattested") 
         "coalesced": ev.get("coalesced"),
         "tool_call_id": ev.get("tool_call_id"),
         "turn_id": ev.get("turn_id"),
+        # PET-223 (S15): additive. None except on an approval_reviewed audit row,
+        # so the sink still names the marked item after the spool copy is drained.
+        "item_id": (
+            ev.get("item_id")
+            if event_type == "approval_reviewed" and isinstance(ev.get("item_id"), str)
+            else None
+        ),
         # PET-139: spool-integrity verdict for the drill-down "is this legit?" line (D4).
         "provenance": provenance,
     }
@@ -635,6 +646,15 @@ class ProfileNotEquippedError(Exception):
         )
 
 
+class ReviewRefusedError(Exception):
+    """A refused-approval mark was refused (PET-223). Routes map status and field."""
+
+    def __init__(self, status: int, field: str, message: str) -> None:
+        self.status = status
+        self.field = field
+        super().__init__(message)
+
+
 class CursorScopeMismatchError(Exception):
     """A ``before`` token's scope prefix does not match the request's scope (PET-166 D18).
 
@@ -704,6 +724,66 @@ def _protection_payload(home: "Path", profile: str | None) -> dict[str, Any]:
         "next_steps": found.next_steps,
         "detail": found.detail,
     }
+
+
+def _dedupe_queue_rows(
+    ring: list[dict[str, Any]], sink: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Dedup by scan_id. An unverifiable copy never wins. Between trusted copies, sink wins."""
+    chosen: dict[str, tuple[dict[str, Any], str]] = {}
+
+    def consider(row: dict[str, Any], side: str) -> None:
+        scan_id = row.get("scan_id")
+        if not isinstance(scan_id, str):
+            return
+        trusted = row.get("provenance") != "unverifiable"
+        previous = chosen.get(scan_id)
+        if previous is None:
+            chosen[scan_id] = (row, side)
+            return
+        prev_row, _prev_side = previous
+        prev_trusted = prev_row.get("provenance") != "unverifiable"
+        if not trusted:
+            return
+        if not prev_trusted or side == "sink":
+            chosen[scan_id] = (row, side)
+
+    for row in ring:
+        if isinstance(row, dict):
+            consider(row, "ring")
+    for row in sink:
+        if isinstance(row, dict):
+            consider(row, "sink")
+    return [row for row, _side in chosen.values()]
+
+
+def _sink_over_cap(sink: str, cap: int) -> bool:
+    """True when either history segment is larger than *cap*. Absent is not over."""
+    for segment in (sink, sink + _history._ROT_SUFFIX):
+        try:
+            if os.path.getsize(segment) > cap:
+                return True
+        except OSError:
+            pass
+    return False
+
+
+def _sink_unreadable(sink: str) -> bool:
+    """True when an existing segment cannot be opened. Missing is readable-as-absent."""
+    for segment in (sink, sink + _history._ROT_SUFFIX):
+        try:
+            if not os.path.exists(segment):
+                continue
+        except OSError:
+            return True
+        try:
+            with open(segment, "rb"):
+                pass
+        except FileNotFoundError:
+            continue
+        except OSError:
+            return True
+    return False
 
 
 def _read_scope_payload(scope: "_ReadScope") -> dict[str, Any]:
@@ -805,6 +885,9 @@ class ConsoleHandlers:
         # `_enforcement_lock`, which already serializes the read path (no `threading.Lock`
         # needed, unlike the reference plugin's writer-thread module clocks).
         self._integrity_log_last = 0.0
+        # PET-223 (S24): skip-log clock, separate from the integrity tripwire so the
+        # two warnings never suppress each other. Both run under _enforcement_lock.
+        self._record_skip_log_last = 0.0
         # PET-148 (D-ATTEST): reader/writer key for the persistent scan-history sink — a
         # DISTINCT domain-separated subkey of the same session_secret (label
         # b"petasos/scan-history/v1"), never the spool subkey. `None` => integrity off
@@ -812,6 +895,10 @@ class ConsoleHandlers:
         # standalone and embedded modes, parallel to self._spool_key above.
         self._history_key: bytes | None = (
             _history._derive_history_key(s) if (s := pipeline.config.session_secret) else None
+        )
+        # PET-223: reviewed-file key. A distinct domain label from the sink and the spool.
+        self._reviewed_key: bytes | None = (
+            _approvals.reviewed_key(s) if (s := pipeline.config.session_secret) else None
         )
         # PET-148: the sole guard for the history sink's FILE STRUCTURE — every cursor
         # page-read and every rotate_history check acquires it, so a rotation can never
@@ -867,7 +954,13 @@ class ConsoleHandlers:
         # PET-166 (D20): set to True by plugin_api at registration and never by
         # build_app, so the unscoped-read tripwire below cannot fire on the
         # standalone console (which legitimately never sends a scope).
+        # PET-223: also the reviewed-write gate. Embedded relies on Hermes
+        # dashboard auth. Standalone refuses the mark unless build_app saw a token.
         self._embedded = False
+        self._review_auth_configured = False
+        self._review_lock = asyncio.Lock()
+        self._reviewed_unverifiable_warned = False
+        self._reviewed_unreadable_warned = False
         # One-shot guard for PETASOS_SCOPE_UNSCOPED_READ (the shipped one-shot
         # convention; an instance attribute so console-suite fixtures reset it).
         self._unscoped_read_warned = False
@@ -1057,6 +1150,30 @@ class ConsoleHandlers:
         row.pop("sig", None)
         return row
 
+    def _log_record_skipped(self, scan_id: object) -> None:
+        """PET-223 (S24): rate-limited log for one drain record that raised. Never raises."""
+        try:
+            now = time.monotonic()
+            if now - self._record_skip_log_last < _INTEGRITY_LOG_EVERY_S:
+                return
+            self._record_skip_log_last = now
+            shown = scan_id if isinstance(scan_id, str) else ""
+            _logger.warning("PETASOS_ENFORCEMENT_RECORD_SKIPPED scan_id=%.128s", shown)
+        except Exception:
+            pass
+
+    async def _surface_one(self, ev: dict[str, Any]) -> None:
+        """Surface one spool record. A per-record failure is logged and skipped.
+
+        ``asyncio.CancelledError`` is not an ``Exception`` on Python 3.11 and
+        still propagates, so a cancelled drain is not swallowed as a bad record.
+        """
+        try:
+            await self._surface_enforcement_event(ev)
+        except Exception:
+            scan_id = ev.get("scan_id") if isinstance(ev, dict) else None
+            self._log_record_skipped(scan_id)
+
     async def _surface_enforcement_event(self, ev: dict[str, Any]) -> None:
         """Fold one drained enforcement event into scan_history + the tally + SSE.
 
@@ -1069,6 +1186,9 @@ class ConsoleHandlers:
         """
         from petasos.console import _events
 
+        if not isinstance(ev.get("event_type"), str):
+            ev = dict(ev)
+            ev["event_type"] = None
         verified = _events.verify_event(ev, self._spool_key)
         key_on = self._spool_key is not None
         provenance = "unattested" if not key_on else ("genuine" if verified else "unverifiable")
@@ -1136,7 +1256,7 @@ class ConsoleHandlers:
         except Exception:
             events, new_off = [], self._rot_offset
         for ev in events:
-            await self._surface_enforcement_event(ev)
+            await self._surface_one(ev)
         self._rot_offset = new_off
         try:
             os.remove(rot_path)
@@ -1197,7 +1317,7 @@ class ConsoleHandlers:
             except Exception:
                 events, new_offset = [], self._enforcement_offset
             for ev in events:
-                await self._surface_enforcement_event(ev)
+                await self._surface_one(ev)
             self._enforcement_offset = new_offset
             # (2/3) Bounding via reader-owned rotation, off the gateway hot path.
             try:
@@ -1750,6 +1870,54 @@ class ConsoleHandlers:
             payload["read_scope"] = _read_scope_payload(scope)
         return payload
 
+    def _foreign_merged_rows(
+        self, scope: "_ReadScope", *, keep_unverifiable: bool = False
+    ) -> tuple[list[tuple[tuple[float, str], dict[str, Any]]], bool]:
+        """Non-equipped sink+spool merge. The deduped keyed list and spool_truncated.
+
+        PET-166 D3/D4, extracted so the refused-approvals queue shares it (PET-223).
+        ``keep_unverifiable`` leaves a sink row's stored ``unverifiable`` provenance
+        in place instead of overwriting it with ``foreign``.
+        """
+        sink = _history._history_path(scope.resolution)
+        spool = spool_path(scope.resolution)
+        rot = spool_rot_path(scope.resolution)
+        sink_over = _sink_over_cap(sink, _FOREIGN_SPOOL_READ_CAP)
+        sink_rows: list[dict[str, Any]] = []
+        if not sink_over:
+            sink_rows, _ = _history.read_history_page(sink, before=None, limit=sys.maxsize)
+        live_ev, trunc_a = read_spool_tail(spool)
+        rot_ev, trunc_b = read_spool_tail(rot)
+        spool_truncated = trunc_a or trunc_b or sink_over
+        merged: list[dict[str, Any]] = []
+        for raw in sink_rows:
+            copied = dict(raw)
+            stored = copied.get("provenance")
+            copied.pop("sig", None)
+            if keep_unverifiable and stored == "unverifiable":
+                copied["provenance"] = "unverifiable"
+            else:
+                copied["provenance"] = "foreign"
+            merged.append(copied)
+        merged.extend(
+            _enforcement_summary(event, provenance="foreign") for event in live_ev + rot_ev
+        )
+        keyed: list[tuple[tuple[float, str], dict[str, Any]]] = []
+        for row in merged:
+            order_key = _history.orderable_key(row)
+            if order_key is None:
+                continue
+            keyed.append((order_key, row))
+        seen: set[str] = set()
+        deduped: list[tuple[tuple[float, str], dict[str, Any]]] = []
+        for order_key, row in keyed:
+            if order_key[1] in seen:
+                continue
+            seen.add(order_key[1])
+            deduped.append((order_key, row))
+        deduped.sort(key=lambda kv: kv[0], reverse=True)
+        return deduped, spool_truncated
+
     async def get_scan_history(
         self, limit: int = 100, before: str | None = None, profile: str | None = None
     ) -> dict[str, Any]:
@@ -1810,84 +1978,10 @@ class ConsoleHandlers:
                 rows = list(reversed(self.scan_history.to_list(clamped)))
                 older_truncated = False
         else:
-            # PET-166 (D3/D4): the non-equipped merged read. Read-only, drain-free, four
-            # segments (sink live+rot via read_history_page, spool live and rot via two
-            # explicit read_spool_tail calls — drain_enforcement_events has no .rot
-            # awareness and .rot recovery on the live path unlinks). Nothing here
-            # advances an offset, rotates, unlinks, or appends. Deliberately does NOT
-            # take _history_lock: that lock serializes OUR rotation against OUR drain; a
-            # foreign sink shares no state with either, and taking it would couple an
-            # uncapped foreign read to our own rotation's availability.
-            sink = _history._history_path(scope.resolution)
-            spool = spool_path(scope.resolution)
-            rot = spool_rot_path(scope.resolution)
-
-            # limit=sys.maxsize, NOT 0/-1 (the helper slices those to an empty page).
-            # The sink read is size-gated per segment like the spool reads (closes the
-            # D3 residual): an over-cap foreign sink is skipped rather than loaded
-            # whole — read_history_page has no tail mode, and a partial parse of an
-            # attacker-grown file buys nothing — and the loss is reported through
-            # `spool_truncated` like the capped spool reads.
-            sink_over_cap = False
-            for seg in (sink, sink + _history._ROT_SUFFIX):
-                try:
-                    if os.path.getsize(seg) > _FOREIGN_SPOOL_READ_CAP:
-                        sink_over_cap = True
-                except OSError:
-                    pass  # absent segment: nothing to read, nothing to cap
-            sink_rows: list[dict[str, Any]] = []
-            if not sink_over_cap:
-                sink_rows, _ = _history.read_history_page(sink, before=None, limit=sys.maxsize)
-            live_ev, trunc_a = read_spool_tail(spool)
-            rot_ev, trunc_b = read_spool_tail(rot)
-            spool_truncated = trunc_a or trunc_b or sink_over_cap
-
-            # D15: every row on this branch is `foreign` — this process holds no key
-            # for these rows (they may legitimately be signed with another profile's
-            # secret), so verifying here would assert forgery about an innocent file.
-            # _attach_history_provenance is NOT called; the sink row's internal sig is
-            # stripped explicitly. Nothing feeds _integrity_recent or _selfmod_total.
-            merged: list[dict[str, Any]] = []
-            for r in sink_rows:
-                fr = dict(r)
-                fr.pop("sig", None)
-                fr["provenance"] = "foreign"
-                merged.append(fr)
-            merged.extend(_enforcement_summary(e, provenance="foreign") for e in live_ev + rot_ev)
-
-            # D4 step 2: EXACTLY read_history_page's orderability predicate plus its
-            # OverflowError/isfinite guard, so the two branches cannot drift. Rows
-            # failing it are dropped (foreign spools admit any JSON object; a string
-            # timestamp must not 500 a GET).
-            keyed: list[tuple[tuple[float, str], dict[str, Any]]] = []
-            for r in merged:
-                ts = r.get("timestamp")
-                sid = r.get("scan_id")
-                if isinstance(ts, bool) or not isinstance(ts, (int, float)):
-                    continue
-                if not isinstance(sid, str):
-                    continue
-                try:
-                    ts_f = float(ts)
-                except OverflowError:
-                    continue
-                if not math.isfinite(ts_f):
-                    continue
-                keyed.append(((ts_f, sid), r))
-
-            # D4 step 3: dedup by scan_id across the ENTIRE merged set, sink row wins
-            # (sink rows were appended first, so keep-first is sink-wins) — chosen for
-            # determinism, the two sides being equivalent by construction.
-            seen: set[str] = set()
-            deduped: list[tuple[tuple[float, str], dict[str, Any]]] = []
-            for key, r in keyed:
-                if key[1] in seen:
-                    continue
-                seen.add(key[1])
-                deduped.append((key, r))
-            # D4 step 4: the same (timestamp, scan_id) descending order the sink
-            # reader uses.
-            deduped.sort(key=lambda kv: kv[0], reverse=True)
+            # PET-166 (D3/D4): the non-equipped merged read, shared with the queue.
+            # Read-only and drain-free. Nothing here advances an offset, rotates,
+            # unlinks, or appends, and it does not take _history_lock.
+            deduped, spool_truncated = self._foreign_merged_rows(scope)
 
             if malformed:
                 _logger.debug(
@@ -1932,6 +2026,195 @@ class ConsoleHandlers:
             if scope.state != "equipped":  # D12: merged non-equipped branch only
                 payload["has_older"] = has_older
         return payload
+
+    async def _equipped_queue_rows(self) -> tuple[list[dict[str, Any]], bool]:
+        """Ring plus the whole sink, deduped. The bool is the queue's ``truncated``."""
+        sink = _history._history_path(use_override=False)
+        over_cap = _sink_over_cap(sink, 2 * _history._HISTORY_CAP_BYTES)
+        unreadable = False if over_cap else _sink_unreadable(sink)
+        skip_sink = over_cap or unreadable
+        truncated = skip_sink or self._history_sink_warned
+        sink_rows: list[dict[str, Any]] = []
+        if not skip_sink:
+            async with self._history_lock:
+                loaded, _ = _history.read_history_page(sink, before=None, limit=sys.maxsize)
+            for raw in loaded:
+                stored = raw.get("provenance")
+                attached = self._attach_history_provenance(dict(raw))
+                verdict = attached.get("provenance")
+                if stored == "unverifiable" or verdict == "unverifiable":
+                    attached["provenance"] = "unverifiable"
+                sink_rows.append(attached)
+        return _dedupe_queue_rows(list(self.scan_history.to_list()), sink_rows), truncated
+
+    def _take_reviewed(self, scope: "_ReadScope") -> tuple[set[str], str]:
+        path = _approvals.reviewed_path(scope.resolution)
+        foreign = scope.state != "equipped"
+        ids, status = _approvals.read_reviewed(
+            path, None if foreign else self._reviewed_key, foreign=foreign
+        )
+        if (
+            scope.state == "equipped"
+            and status == "unverifiable"
+            and not self._reviewed_unverifiable_warned
+        ):
+            self._reviewed_unverifiable_warned = True
+            _logger.warning(
+                "PETASOS_APPROVAL_REVIEWED_UNVERIFIABLE the file was edited outside the "
+                "console, or the session secret changed since it was written"
+            )
+        if (
+            scope.state == "equipped"
+            and status == "unreadable"
+            and not self._reviewed_unreadable_warned
+        ):
+            self._reviewed_unreadable_warned = True
+            _logger.warning(
+                "PETASOS_APPROVAL_REVIEWED_UNREADABLE the reviewed file could not be read"
+            )
+        return ids, status
+
+    def _review_write_state(self, scope: "_ReadScope") -> dict[str, Any]:
+        if scope.state != "equipped":
+            return {"available": False, "reason": "not_equipped"}
+        parent = os.path.dirname(_approvals.reviewed_path(scope.resolution))
+        if not os.path.isdir(parent):
+            return {"available": False, "reason": "no_state_dir"}
+        if not self._embedded and not self._review_auth_configured:
+            return {"available": False, "reason": "no_console_token"}
+        return {"available": True, "reason": None}
+
+    async def get_refused_approvals(self, profile: str | None = None) -> dict[str, Any]:
+        """Profile-scoped refused-approvals queue (PET-223). Drain first, like history."""
+        await self._drain_enforcement_into_history()
+        scope = _resolve_read_scope(profile, use_override=False)
+        self._note_unscoped_read(scope)
+        if scope.state == "equipped":
+            rows, truncated = await self._equipped_queue_rows()
+        else:
+            keyed, truncated = self._foreign_merged_rows(scope, keep_unverifiable=True)
+            rows = [row for _key, row in keyed]
+        ids, status = self._take_reviewed(scope)
+        derived = _approvals.refused_items(rows, reviewed=frozenset(ids))
+        payload: dict[str, Any] = {
+            "items": derived["items"],
+            "total": derived["total"],
+            "unverifiable_count": derived["unverifiable_count"],
+            "pending": derived["pending"],
+            "unknown": derived["unknown"],
+            "window_oldest": derived["window_oldest"],
+            "approval_rows": derived["approval_rows"],
+            "truncated": truncated,
+            "reviewed_integrity": status,
+            "review_write": self._review_write_state(scope),
+        }
+        if profile is not None:
+            payload["read_scope"] = _read_scope_payload(scope)
+        return payload
+
+    async def mark_approval_reviewed(
+        self, item_id: object, profile: str | None = None
+    ) -> dict[str, Any]:
+        """Mark one refused item reviewed. Audit row first. Raises on every refusal."""
+        if not self._embedded and not self._review_auth_configured:
+            raise ReviewRefusedError(
+                403,
+                "item_id",
+                "Marking a refused approval reviewed requires PETASOS_CONSOLE_TOKEN "
+                "to be configured",
+            )
+        if not isinstance(item_id, str) or not 1 <= len(item_id) <= 128:
+            raise ReviewRefusedError(
+                422, "item_id", "item_id must be a string of 1 to 128 characters"
+            )
+        scope = _resolve_read_scope(profile, use_override=False)
+        self._note_unscoped_read(scope)
+        if profile is not None and scope.state != "equipped":
+            raise ProfileNotEquippedError(profile, scope.equipped_name)
+        async with self._review_lock:
+            await self._drain_enforcement_into_history()
+            rows, truncated = await self._equipped_queue_rows()
+            ids, status = self._take_reviewed(scope)
+            path = _approvals.reviewed_path(scope.resolution)
+            if status == "io_error":
+                raise ReviewRefusedError(
+                    503,
+                    "item_id",
+                    "the reviewed file could not be read; nothing was changed",
+                )
+            if status == "unsupported_version":
+                raise ReviewRefusedError(
+                    503,
+                    "item_id",
+                    "the reviewed file was written by a newer Petasos; nothing was changed",
+                )
+            parent = os.path.dirname(path)
+            if not os.path.isdir(parent):
+                raise ReviewRefusedError(
+                    503,
+                    "item_id",
+                    "the profile's state directory does not exist; nothing was changed",
+                )
+            derived = _approvals.refused_items(rows, reviewed=frozenset(ids))
+            found = derived["items_by_id"].get(item_id)
+            if not isinstance(found, dict):
+                raise ReviewRefusedError(
+                    422,
+                    "item_id",
+                    "not a refused approval in this profile's retained window",
+                )
+            if found.get("reviewed") is True:
+                body: dict[str, Any] = {
+                    "item_id": item_id,
+                    "reviewed": True,
+                    "changed": False,
+                }
+                if profile is not None:
+                    body["read_scope"] = _read_scope_payload(scope)
+                return body
+            from petasos.console import _events
+
+            wrote = _events.emit_console_event(
+                {
+                    "event_type": "approval_reviewed",
+                    "item_id": item_id,
+                    "session_id": found.get("session_id"),
+                    "session_key": found.get("session_key"),
+                    "turn_id": found.get("turn_id"),
+                    "tool_call_id": found.get("tool_call_id"),
+                    "choice": found.get("choice"),
+                    "rule_id": found.get("pattern_key"),
+                    "tool": found.get("tool"),
+                    "command": found.get("command"),
+                    "reason": "approval marked reviewed",
+                    "surface": "console",
+                },
+                key=self._spool_key,
+            )
+            if not wrote:
+                _logger.warning(
+                    "PETASOS_APPROVAL_REVIEW_UNRECORDED item_id=%s audit row not written; "
+                    "mark refused",
+                    item_id,
+                )
+                raise ReviewRefusedError(
+                    503,
+                    "item_id",
+                    "the audit row could not be written; the item was not marked",
+                )
+            live_ids = set(derived["items_by_id"])
+            stored = (set(ids) | {item_id}) if truncated else ((set(ids) & live_ids) | {item_id})
+            if not _approvals.write_reviewed(path, stored, self._reviewed_key):
+                _logger.warning("PETASOS_APPROVAL_REVIEW_WRITE_FAILED item_id=%s", item_id)
+                raise ReviewRefusedError(
+                    503,
+                    "item_id",
+                    "audit row written but the reviewed file could not be saved",
+                )
+            body = {"item_id": item_id, "reviewed": True, "changed": True}
+            if profile is not None:
+                body["read_scope"] = _read_scope_payload(scope)
+            return body
 
     async def get_profiles(self) -> dict[str, Any]:
         return {"profiles": self.pipeline.list_profiles()}
@@ -2137,6 +2420,9 @@ def build_app(pipeline: "Pipeline", *, auth_token: str | None = None) -> "FastAP
         )
 
     handlers = ConsoleHandlers(pipeline)
+    # PET-223: the reviewed-write gate. A configured token means the bearer
+    # dependency above already ran for every /api/* request that reaches a handler.
+    handlers._review_auth_configured = resolved_token is not None
 
     static_dir = importlib.resources.files("petasos.console") / "static"
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
@@ -2285,6 +2571,66 @@ def build_app(pipeline: "Pipeline", *, auth_token: str | None = None) -> "FastAP
             return JSONResponse(
                 status_code=422,
                 content={"detail": [{"field": "before", "message": str(exc)}]},
+            )
+
+    @app.get("/api/approvals/refused")
+    async def api_get_refused_approvals(profile: str | None = None) -> Any:
+        try:
+            return await handlers.get_refused_approvals(profile)
+        except ProfileNotFoundError as exc:
+            return JSONResponse(
+                status_code=422,
+                content={"detail": [{"field": "profile", "message": str(exc)}]},
+            )
+
+    @app.post("/api/approvals/reviewed")
+    async def api_mark_approval_reviewed(request: Request, profile: str | None = None) -> Any:
+        try:
+            body = await request.json()
+        except Exception:
+            return JSONResponse(
+                status_code=422,
+                content={"detail": [{"field": "body", "message": "Invalid JSON"}]},
+            )
+        if not isinstance(body, dict):
+            return JSONResponse(
+                status_code=422,
+                content={"detail": [{"field": "body", "message": "Expected JSON object"}]},
+            )
+        body_profile = body.get("profile")
+        if body_profile is not None and not isinstance(body_profile, str):
+            return JSONResponse(
+                status_code=422,
+                content={"detail": [{"field": "profile", "message": "Must be a string"}]},
+            )
+        # PET-238: Hermes's SDK appends ?profile= to every request. Honor it.
+        # Only a disagreement between query and body is refused.
+        if profile is not None and body_profile is not None and profile != body_profile:
+            return JSONResponse(
+                status_code=422,
+                content={
+                    "detail": [
+                        {"field": "profile", "message": "query and body name different profiles"}
+                    ]
+                },
+            )
+        chosen = body_profile if body_profile is not None else profile
+        try:
+            return await handlers.mark_approval_reviewed(body.get("item_id"), chosen)
+        except ProfileNotFoundError as exc:
+            return JSONResponse(
+                status_code=422,
+                content={"detail": [{"field": "profile", "message": str(exc)}]},
+            )
+        except ProfileNotEquippedError as exc:
+            return JSONResponse(
+                status_code=409,
+                content={"detail": [{"field": "profile", "message": str(exc)}]},
+            )
+        except ReviewRefusedError as exc:
+            return JSONResponse(
+                status_code=exc.status,
+                content={"detail": [{"field": exc.field, "message": str(exc)}]},
             )
 
     @app.get("/api/profiles")

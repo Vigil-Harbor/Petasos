@@ -27,6 +27,14 @@ fails config validation, because an older release rejects the unknown id.
 
 ### Added
 
+- **Refused-approvals queue (PET-223).** Observability lists every hook-recorded
+  approval refusal for the selected profile, with the choice, the command, and
+  the Petasos rule or Hermes pattern key. `GET /api/approvals/refused` and
+  `POST /api/approvals/reviewed` (and the same paths on the embedded plugin
+  router) read that list and mark an item reviewed. Marks are stored in
+  `petasos-approvals-reviewed.json` beside the profile config, and each mark
+  appends an `approval_reviewed` audit row before the file is written.
+
 - **`PromptGuardScanner` and the `prompt-guard` extra (PET-242).** Meta's PromptGuard
   2 runs directly on torch, transformers and sentencepiece, on Python 3.11 through
   3.14, proven on native Windows with Python 3.14. Rule id
@@ -62,6 +70,12 @@ fails config validation, because an older release rejects the unknown id.
 
 ### Fixed
 
+- **One malformed enforcement-spool record no longer stops scan history (PET-223).**
+  A non-string `event_type` used to raise inside the drain before the offset
+  advanced, so every later scan-history read retried the same line and failed.
+  The field is read as a string or absent, and a record that still raises is
+  skipped and logged so the drain moves past it.
+
 - **The embedded console works on the default profile (PET-238).**
   Hermes's dashboard selects the root as `?profile=default`, and every scoped read
   answered 422, so the banner never got its status and stayed on Equipped under a false
@@ -91,6 +105,13 @@ fails config validation, because an older release rejects the unknown id.
   installable by name until then.
 
 ### Changed
+
+- **Approve prompts carry a redacted command excerpt (PET-223).** The message's
+  last clause is `Command (from tool arguments):`, then one `key="value"` part
+  per parameter. Quotes, backslashes, line breaks, and controls are shown
+  escaped. The approval `description` cap is 400 characters. Other approval
+  fields stay at 200. Scan-history rows gain `item_id` (set on
+  `approval_reviewed`, otherwise absent).
 
 - **Twelve-home cache bound and a hook-time home mismatch warning (PET-237).**
   Each of the process-wide reload cache and the armed cache ships at 16:

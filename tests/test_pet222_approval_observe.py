@@ -15,7 +15,12 @@ from typing import TYPE_CHECKING, Any
 import pytest
 
 import petasos.console._events as ev
-from petasos.console.server import _BLOCK_EVENT_TYPES, _MAX_REASON_LEN, _enforcement_summary
+from petasos.console.server import (
+    _BLOCK_EVENT_TYPES,
+    _MAX_APPROVAL_DESCRIPTION_LEN,
+    _MAX_REASON_LEN,
+    _enforcement_summary,
+)
 
 if TYPE_CHECKING:
     import types
@@ -108,6 +113,7 @@ class _Unanswered(str):
 
 def test_approval_field_max_matches_server(ref: types.ModuleType) -> None:
     assert ref._APPROVAL_FIELD_MAX == _MAX_REASON_LEN
+    assert ref._APPROVAL_DESCRIPTION_MAX == _MAX_APPROVAL_DESCRIPTION_LEN == 400
 
 
 @pytest.mark.parametrize("choice", _CHOICES)
