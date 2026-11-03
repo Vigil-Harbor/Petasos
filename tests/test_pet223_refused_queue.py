@@ -738,7 +738,7 @@ def _write_reviewed(path: Path, payload: Any) -> None:
     )
 
 
-def test_read_reviewed_table(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+def test_read_reviewed_table(tmp_path: Path) -> None:
     path = tmp_path / "reviewed.json"
     missing, status = approvals.read_reviewed(str(path), b"k")
     assert (missing, status) == (set(), "absent")
@@ -774,9 +774,6 @@ def test_read_reviewed_table(tmp_path: Path, caplog: pytest.LogCaptureFixture) -
     ids, non_ascii = approvals.read_reviewed(str(path), key)
     assert non_ascii == "unverifiable" and ids == set()
 
-    def _boom(*_a: Any, **_k: Any) -> Any:
-        raise OSError("busy")
-
     # stat raises: io_error. Point at a directory entry and patch stat via the path's parent.
     real_stat = os.stat
 
@@ -793,14 +790,6 @@ def test_read_reviewed_table(tmp_path: Path, caplog: pytest.LogCaptureFixture) -
         assert approvals.read_reviewed(str(path), key)[1] == "io_error"
     finally:
         monkey.undo()
-
-    handler = _handlers(b"secret")
-    approvals._REVIEWED_PATH_OVERRIDE = str(path)
-    path.write_text(json.dumps({"v": 1, "ids": ["a"], "sig": "nope"}), encoding="utf-8")
-    with caplog.at_level(logging.WARNING):
-        asyncio.run(handler.get_refused_approvals(None)) if False else None
-    # The async helper is exercised below without nesting a loop. This sync
-    # table already pinned the reader. The one-shot warnings are handler-level.
 
 
 async def test_reviewed_warnings_are_one_shot(
@@ -1078,13 +1067,9 @@ def test_standalone_token_gate(profiles: Path) -> None:
     from petasos.console.server import build_app as _build
 
     app = _build(_pipeline())
-    assert not any(
-        getattr(route, "path", "") == "/approvals/reviewed"
-        for route in plugin_mod.router.routes
-        if False
-    )
     standalone_paths = {getattr(route, "path", "") for route in app.routes}
     assert "/api/approvals/reviewed" in standalone_paths
+    assert "/approvals/reviewed" not in standalone_paths
 
 
 # ── Plugin excerpt ────────────────────────────────────────────────────────
