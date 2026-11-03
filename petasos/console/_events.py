@@ -161,6 +161,27 @@ def classify_integrity_failure(record: object) -> str:
     return "sig-mismatch"
 
 
+def _append_record(rec: dict[str, Any], spool: str, key: bytes | None) -> None:
+    """Stamp, sign, and append one JSONL record. Raises on failure; callers fail open.
+
+    PET-139 signing is unchanged: HMAC over the canonical serialization of the whole
+    record after the identity fields and before ``sig``. A ``None`` key writes an
+    unsigned line.
+    """
+    # Full uuid hex (not a 6-char prefix): enforcement is high-volume (a 45%-block
+    # session mints thousands of ids) and scan_id feeds the frontend seed-dedup, so
+    # adequate entropy avoids cross-event collisions. The `e-` prefix keeps it
+    # distinct from the playground `s-<hex>` keyspace.
+    rec.setdefault("scan_id", f"e-{uuid.uuid4().hex}")
+    rec.setdefault("timestamp", time.time())
+    if key is not None:
+        preimage = json.dumps(rec, sort_keys=True, separators=(",", ":"), default=str)
+        rec["sig"] = hmac.new(key, preimage.encode("utf-8"), hashlib.sha256).hexdigest()
+    line = json.dumps(rec, default=str) + "\n"
+    with open(spool, "a", encoding="utf-8") as handle:
+        handle.write(line)
+
+
 def emit_enforcement_event(
     event: dict[str, Any], *, res: HermesConfigResolution | None = None
 ) -> bool:
@@ -172,29 +193,22 @@ def emit_enforcement_event(
     """
     try:
         rec = dict(event)
-        # Full uuid hex (not a 6-char prefix): enforcement is high-volume (a 45%-block
-        # session mints thousands of ids) and scan_id feeds the frontend seed-dedup, so
-        # adequate entropy avoids cross-event collisions. The `e-` prefix keeps it
-        # distinct from the playground `s-<hex>` keyspace.
-        rec.setdefault("scan_id", f"e-{uuid.uuid4().hex}")
-        rec.setdefault("timestamp", time.time())
-        # PET-139: stamp a keyed HMAC over the canonical serialization of the whole record
-        # (after the identity fields above, before `sig` is added), so the reader can attest
-        # provenance (D1). Signing the whole record — not a field whitelist — makes the tag
-        # cover every present and future field (e.g. PET-138's `bypassed_count`) automatically.
-        # `sort_keys=True` makes writer and reader agree regardless of insertion order;
-        # `default=str` mirrors the on-disk serialization below so preimage and line share one
-        # discipline. `None` key => integrity off (unsigned line, read as "unattested"). Stays
-        # inside the fail-open try (D6): a signing error returns False, never raises into the
-        # tool call. CPU-only microseconds — no fsync, no extra handle, O(1) append preserved.
         spool = _spool_path(res)
-        key = _spool_key_for(spool)
-        if key is not None:
-            preimage = json.dumps(rec, sort_keys=True, separators=(",", ":"), default=str)
-            rec["sig"] = hmac.new(key, preimage.encode("utf-8"), hashlib.sha256).hexdigest()
-        line = json.dumps(rec, default=str) + "\n"
-        with open(spool, "a", encoding="utf-8") as f:
-            f.write(line)
+        _append_record(rec, spool, _spool_key_for(spool))
+        return True
+    except Exception:
+        return False
+
+
+def emit_console_event(event: dict[str, Any], *, key: bytes | None) -> bool:
+    """Append one console audit row to the process-binding spool (PET-223).
+
+    The key is passed in. This does not touch the process-wide writer map, so a
+    console that shares a process with the plugin cannot retarget plugin signing.
+    """
+    try:
+        rec = dict(event)
+        _append_record(rec, _spool_path(use_override=False), key)
         return True
     except Exception:
         return False

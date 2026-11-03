@@ -52,6 +52,7 @@ import base64
 import concurrent.futures  # PET-170: dep-light (stdlib; the run_coroutine_threadsafe timeout)
 import contextlib
 import hashlib  # PET-236: dep-light (stdlib; the load-identity digest)
+import json  # PET-223: dep-light (stdlib; approval command excerpt)
 import logging
 import math  # PET-167: dep-light (stdlib; isfinite guard on the raw init-wait budget)
 import os
@@ -59,18 +60,24 @@ import re  # PET-222: dep-light (stdlib; approval command tool-name regex)
 import sys  # PET-170: dep-light (stdlib; the transform_tool_result availability probe)
 import threading
 import time
+import unicodedata  # PET-223: dep-light (stdlib; excerpt escape categories)
 import uuid
+from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from petasos._types import Severity  # PET-112: dep-light (enum + dataclasses, no ML imports)
-from petasos.normalize import canonicalize_tool_name  # PET-118: dep-light (re + unicodedata)
+from petasos.normalize import (  # PET-118: dep-light (re + unicodedata)
+    _is_strippable,  # PET-223: the console's canonical invisible-character predicate
+    canonicalize_tool_name,
+)
 from petasos.session.formatting import (  # PET-77: dep-light (string formatting over dataclasses)
     format_block_message,
     format_content_block,
     format_result_notice,
 )
 from petasos.session.guard import (
+    _MAX_PARAM_TEXT_LEN,  # PET-223: excerpt segment budget, same bound as scan text
     INGESTION_TOOLS,
     NON_INGESTING_TOOLS,
     PARAM_SCAN_DIRECTION,
@@ -2284,14 +2291,219 @@ def _read_posture() -> str:
         return "block"
 
 
-def _approve_return(tool_name: str, session_id: str, rule_key: str) -> dict[str, str]:
+_EXCERPT_BUDGET = 160
+_BARE_KEY = re.compile(r"[A-Za-z0-9_.\-]{1,64}")
+
+
+def _excerpt_drop_invisible(text: str) -> tuple[str, bool]:
+    """Drop non-whitespace characters the console's PET-90 predicate strips."""
+    dropped = False
+    kept: list[str] = []
+    for ch in text:
+        if ch.isspace():
+            kept.append(ch)
+            continue
+        if (not ch.isprintable()) or _is_strippable(ch):
+            dropped = True
+            continue
+        kept.append(ch)
+    return "".join(kept), dropped
+
+
+def _excerpt_escape_units(text: str) -> list[str]:
+    """One display unit per source character. An escape is never split later."""
+    units: list[str] = []
+    for ch in text:
+        if ch == '"':
+            units.append('\\"')
+        elif ch == "\\":
+            units.append("\\\\")
+        elif ch == "\n":
+            units.append("\\n")
+        elif ch == "\r":
+            units.append("\\r")
+        elif ch == "\t":
+            units.append("\\t")
+        elif unicodedata.category(ch) in {"Cc", "Zl", "Zp"} or (ch.isspace() and ch != " "):
+            units.append(f"\\u{ord(ch):04x}")
+        else:
+            units.append(ch)
+    return units
+
+
+def _excerpt_part_full(kind: str, content: list[str]) -> str:
+    body = "".join(content)
+    if kind == "bare":
+        return body
+    if kind == "quoted":
+        return f'"{body}"'
+    return f'="{body}"'
+
+
+def _excerpt_part_cut(kind: str, content: list[str], remaining: int) -> tuple[str, int]:
+    """Fit a part into *remaining* display characters. Close an open quote."""
+    if kind == "bare":
+        taken: list[str] = []
+        used = 0
+        for unit in content:
+            if used + len(unit) > remaining:
+                break
+            taken.append(unit)
+            used += len(unit)
+        return "".join(taken), len(taken)
+    reserve = 2 if kind == "quoted" else 3
+    if remaining < reserve:
+        return "", 0
+    room = remaining - reserve
+    taken = []
+    used = 0
+    for unit in content:
+        if used + len(unit) > room:
+            break
+        taken.append(unit)
+        used += len(unit)
+    body = "".join(taken)
+    if kind == "quoted":
+        return f'"{body}"', len(taken)
+    return f'="{body}"', 1 + len(taken)
+
+
+def _excerpt_assemble(
+    segments: list[list[tuple[str, list[str]]]],
+    source_lens: list[int],
+    past_raw: int,
+) -> tuple[str, int]:
+    """Keep whole segments, then cut the first part that does not fit."""
+    shown: list[str] = []
+    used = 0
+    omitted = past_raw
+    for index, parts in enumerate(segments):
+        sep = 0 if index == 0 else 1
+        full = ("" if index == 0 else " ") + "".join(
+            _excerpt_part_full(kind, content) for kind, content in parts
+        )
+        if used + len(full) <= _EXCERPT_BUDGET:
+            shown.append(full)
+            used += len(full)
+            continue
+        if used + sep > _EXCERPT_BUDGET:
+            omitted += sum(source_lens[index:])
+            break
+        if sep:
+            shown.append(" ")
+            used += 1
+        represented = 0
+        remaining = _EXCERPT_BUDGET - used
+        cut = False
+        for kind, content in parts:
+            if cut:
+                break
+            piece = _excerpt_part_full(kind, content)
+            if len(piece) <= remaining:
+                shown.append(piece)
+                remaining -= len(piece)
+                used += len(piece)
+                represented += len(content) if kind != "value" else 1 + len(content)
+                continue
+            cut_text, cut_source = _excerpt_part_cut(kind, content, remaining)
+            if cut_text:
+                shown.append(cut_text)
+            represented += cut_source
+            cut = True
+        omitted += source_lens[index] - represented
+        omitted += sum(source_lens[index + 1 :])
+        break
+    return "".join(shown), omitted
+
+
+def _approval_command_excerpt(args: object, result: object) -> str:
+    """Capped, redacted, quoted command excerpt. Fail closed. Never raises."""
+    try:
+        findings = getattr(result, "findings", ())
+        for finding in findings:
+            if getattr(finding, "finding_type", None) == "pii":
+                return "withheld (PII in parameters)"
+        if not isinstance(args, Mapping) or not args:
+            if not args:
+                return "(no parameters)"
+            raise TypeError("non-mapping args")
+        pairs = [(key, value) for key, value in args.items() if value is not None]
+        if not pairs:
+            return "(no parameters)"
+        taken: list[tuple[str, str]] = []
+        past_raw = 0
+        cumulative = 0
+        for key, value in pairs:
+            key_s = str(key)
+            value_s = (
+                value
+                if isinstance(value, str)
+                else json.dumps(value, ensure_ascii=False, default=str)
+            )
+            raw_len = len(key_s) + 1 + len(value_s)
+            if cumulative >= _MAX_PARAM_TEXT_LEN:
+                past_raw += raw_len
+                continue
+            taken.append((key_s, value_s))
+            cumulative += raw_len
+        try:
+            from agent.redact import redact_sensitive_text  # type: ignore[import-not-found]
+        except Exception:
+            return "withheld (redactor unavailable)"
+        segments: list[list[tuple[str, list[str]]]] = []
+        source_lens: list[int] = []
+        invisible = False
+        for key_s, value_s in taken:
+            canon_key, dropped_key = _excerpt_drop_invisible(key_s)
+            canon_value, dropped_value = _excerpt_drop_invisible(value_s)
+            invisible = invisible or dropped_key or dropped_value
+            raw_segment = f"{canon_key}={canon_value}"
+            try:
+                redacted = redact_sensitive_text(
+                    raw_segment, force=True, redact_url_credentials=True
+                )
+            except Exception:
+                return "withheld (redactor unavailable)"
+            if not isinstance(redacted, str):
+                return "withheld (redactor unavailable)"
+            if redacted.startswith(canon_key + "="):
+                value_text = redacted[len(canon_key) + 1 :]
+                key_kind = "bare" if _BARE_KEY.fullmatch(canon_key) else "quoted"
+                key_units = (
+                    list(canon_key) if key_kind == "bare" else _excerpt_escape_units(canon_key)
+                )
+                segments.append(
+                    [
+                        (key_kind, key_units),
+                        ("value", _excerpt_escape_units(value_text)),
+                    ]
+                )
+                source_lens.append(len(canon_key) + 1 + len(value_text))
+            else:
+                segments.append([("quoted", _excerpt_escape_units(redacted))])
+                source_lens.append(len(redacted))
+        body, omitted = _excerpt_assemble(segments, source_lens, past_raw)
+        suffix = f" (+{omitted} chars not shown)" if omitted else ""
+        if invisible:
+            suffix += " (invisible characters removed)"
+        return body + suffix
+    except Exception:
+        return "withheld (excerpt unavailable)"
+
+
+def _approve_return(
+    tool_name: str, session_id: str, rule_key: str, excerpt: str
+) -> dict[str, str]:
+    label = f"Command (from tool arguments): {excerpt}"
     if rule_key == "petasos.degraded":
         message = (
             f"Petasos asks for approval before running '{tool_name}'. "
-            "Parameter scan is unreliable (petasos.degraded)."
+            f"Parameter scan is unreliable (petasos.degraded). {label}"
         )
     else:
-        message = f"Petasos asks for approval before running '{tool_name}'. Rule: {rule_key}."
+        message = (
+            f"Petasos asks for approval before running '{tool_name}'. Rule: {rule_key}. {label}"
+        )
     logger.info("PETASOS_APPROVE tool=%s session=%s rule_key=%s", tool_name, session_id, rule_key)
     return {"action": "approve", "rule_key": rule_key, "message": message}
 
@@ -2401,13 +2613,23 @@ def _dangerous_tool_directive(
         elif _degraded_session_recorded(session_id):
             pass
         else:
-            return _approve_return(tool_name, session_id, "petasos.degraded")
+            return _approve_return(
+                tool_name,
+                session_id,
+                "petasos.degraded",
+                _approval_command_excerpt(args, result),
+            )
 
     remaining = [f for f in command if not _always_approved(f.rule_id)]
     if remaining:
         worst = _worst(remaining)
         if approve_effective:
-            return _approve_return(tool_name, session_id, worst.rule_id)
+            return _approve_return(
+                tool_name,
+                session_id,
+                worst.rule_id,
+                _approval_command_excerpt(args, result),
+            )
         logger.warning(
             "PETASOS_QUARANTINE tool=%s session=%s — %s finding: %s",
             tool_name,
@@ -3129,15 +3351,16 @@ def _subagent_stop(child_session_id: str = "", **kwargs) -> None:
 # tests/test_pet222_approval_observe.py. This module does not import the console
 # server; it lazy-imports narrow console submodules at the call site.
 _APPROVAL_FIELD_MAX = 200
+_APPROVAL_DESCRIPTION_MAX = 400
 _APPROVAL_TOOL_RE = re.compile(r"^<([^>\n]+)> \(plugin approval rule\)$")
 
 
-def _approval_text(value: object) -> str:
+def _approval_text(value: object, *, limit: int = _APPROVAL_FIELD_MAX) -> str:
     """Coerce a hook field to str, then cap it. A non-str becomes empty."""
     if not isinstance(value, str):
         return ""
-    if len(value) > _APPROVAL_FIELD_MAX:
-        return value[:_APPROVAL_FIELD_MAX]
+    if len(value) > limit:
+        return value[:limit]
     return value
 
 
@@ -3197,7 +3420,7 @@ def _emit_approval_observation(phase: str, *, choice: object = None, **kwargs: A
     """
     try:
         command = _approval_text(kwargs.get("command"))
-        description = _approval_text(kwargs.get("description"))
+        description = _approval_text(kwargs.get("description"), limit=_APPROVAL_DESCRIPTION_MAX)
         session_key = _approval_text(kwargs.get("session_key"))
         surface = _approval_text(kwargs.get("surface"))
         tool_call_id = _approval_text(kwargs.get("tool_call_id"))

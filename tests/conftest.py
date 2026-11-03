@@ -95,6 +95,23 @@ def _isolate_history_sink(tmp_path_factory: pytest.TempPathFactory) -> Iterator[
         _hist._HISTORY_CAP_BYTES = saved_cap
 
 
+@pytest.fixture(autouse=True)
+def _isolate_reviewed_file(tmp_path_factory: pytest.TempPathFactory) -> Iterator[None]:
+    """PET-223: point the reviewed-id file at a throwaway path for every test."""
+    try:
+        import petasos.console._approvals as _reviewed
+    except Exception:
+        yield
+        return
+    saved = _reviewed._REVIEWED_PATH_OVERRIDE
+    path = tmp_path_factory.mktemp("reviewed") / "petasos-approvals-reviewed.json"
+    _reviewed._REVIEWED_PATH_OVERRIDE = str(path)
+    try:
+        yield
+    finally:
+        _reviewed._REVIEWED_PATH_OVERRIDE = saved
+
+
 @pytest.fixture()
 def valid_token() -> str:
     return _make_token()

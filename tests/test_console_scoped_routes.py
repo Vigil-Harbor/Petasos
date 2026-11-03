@@ -108,7 +108,9 @@ def _handlers(client: tuple[Any, str]) -> Any:
 # ── 422 / 409 status mapping ──────────────────────────────────────────────
 
 
-@pytest.mark.parametrize("path", ["/scan-history", "/armed", "/health", "/events"])
+@pytest.mark.parametrize(
+    "path", ["/scan-history", "/armed", "/health", "/events", "/approvals/refused"]
+)
 def test_unknown_profile_is_422_on_every_scoped_route(
     client: tuple[Any, str], profiles: Path, path: str
 ) -> None:

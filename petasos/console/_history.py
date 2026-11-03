@@ -166,6 +166,30 @@ def history_size(path: str | None = None) -> int:
         return 0
 
 
+def orderable_key(row: object) -> tuple[float, str] | None:
+    """The ``(timestamp, scan_id)`` key ``read_history_page`` keeps, or None.
+
+    One predicate for the sink reader, the foreign merged read, and the
+    refused-approvals queue (PET-223). A bool timestamp is not numeric. An
+    overflowing int or a non-finite float drops the row instead of raising.
+    """
+    if not isinstance(row, dict):
+        return None
+    ts = row.get("timestamp")
+    sid = row.get("scan_id")
+    if isinstance(ts, bool) or not isinstance(ts, (int, float)):
+        return None
+    if not isinstance(sid, str):
+        return None
+    try:
+        ts_f = float(ts)
+    except OverflowError:
+        return None
+    if not math.isfinite(ts_f):
+        return None
+    return (ts_f, sid)
+
+
 def read_history_page(
     path: str, *, before: tuple[float, str] | None, limit: int
 ) -> tuple[list[dict[str, Any]], bool]:
@@ -209,24 +233,10 @@ def read_history_page(
                 continue  # skip a malformed / torn line anywhere in the segment
             if not isinstance(obj, dict):
                 continue
-            ts = obj.get("timestamp")
-            sid = obj.get("scan_id")
-            # bool is an int subclass; a True/False timestamp is not orderable telemetry.
-            if isinstance(ts, bool) or not isinstance(ts, (int, float)):
+            # PET-223: the same predicate the foreign read and the queue use.
+            key = orderable_key(obj)
+            if key is None:
                 continue
-            if not isinstance(sid, str):
-                continue
-            # PET-166 D4: this helper is now pointed at bytes written by processes
-            # we do not control (a non-equipped profile's sink), so an
-            # arbitrary-precision int (float() raises OverflowError) or an
-            # inf/nan timestamp must drop the row, not raise out of the GET.
-            try:
-                ts_f = float(ts)
-            except OverflowError:
-                continue
-            if not math.isfinite(ts_f):
-                continue
-            key = (ts_f, sid)
             if global_oldest is None or key < global_oldest:
                 global_oldest = key
             if before is None or key < before:

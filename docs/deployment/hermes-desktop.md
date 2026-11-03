@@ -441,6 +441,28 @@ evaluation unavailable: evaluation_error" always block a dangerous tool.
 They are not an approve, and always and the once-per-session record do not
 apply to them.
 
+The Observability tab lists refused approvals for the profile you have open:
+`deny`, `timeout`, `cancelled`, `notify_failed`, and `smart_deny`. A guardian
+deny that a person then answered is replaced by that answer. The list needs a
+plugin copy at PET-222 or later to receive any approval rows, and PET-223 or
+later for the command excerpt. "no approval events recorded" usually means an
+older copy. The approve prompt's last clause, after `Command (from tool
+arguments): `, is a redacted, quoted excerpt of the tool arguments. One
+`name="value"` part is shown per argument. `\n`, `\"`, `\\`, and `\uXXXX` stand
+for a real line break, quote, backslash, or control character in the argument.
+`(invisible characters removed)` means the argument contains invisible
+characters the prompt does not show. A cut excerpt (`(+N chars not shown)`, or
+a prompt cut by the chat platform) is never enough to approve on. Approvals
+Hermes parks with no notifier, YOLO, approvals off, and already-approved
+patterns never fire the hooks and never appear. `transport_*` outcomes are
+counted as unknown. Setting, changing, or first adding `session_secret` makes
+earlier history rows and reviewed marks unverifiable, so previously overridden
+refusals reappear as flagged items and marks must be redone. A forged row is
+ignored for grouping on the equipped view. An undrained spool row of another
+profile cannot be verified from this console. On a non-gated loopback dashboard
+the session token is readable from `GET /`, so the embedded mark is reachable
+by any local process. OAuth-gated mode or `withhold_session_token` closes that.
+
 ### What stays at defaults
 
 | Key | Default | Why it's fine |

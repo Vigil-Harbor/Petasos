@@ -113,6 +113,9 @@ must extend to **all** profile homes (every `profiles/*/config.yaml` plus the
 v0.15 root and any `$HERMES_HOME`), not only the active one: a read-only mount or
 write-denying ACL that covers just the equipped profile leaves the pre-stage
 vector open. Treat the whole `profiles/` tree as security-bearing.
+`petasos-approvals-reviewed.json` sits beside each profile's `config.yaml` and
+is a watchdog artifact: keep it, like `config.yaml`, outside the agent's
+writable scope.
 
 ## Read scope vs write binding (PET-166)
 
