@@ -147,7 +147,9 @@ def test_post_empty_choice_stays_empty(ref: types.ModuleType) -> None:
     assert _only_row()["choice"] == ""
 
 
-def test_payload_shape_on_request_and_response(ref: types.ModuleType) -> None:
+def test_payload_shape_on_request_and_response(
+    ref: types.ModuleType, identity_redactor: None
+) -> None:
     assert ref._pre_approval_request(**_payload(ignored_extra="nope")) is None
     assert ref._post_approval_response(**_payload(choice="once", ignored_extra="nope")) is None
     request, response = _read_spool()
@@ -205,7 +207,9 @@ def test_empty_session_id_falls_back_to_session_key(ref: types.ModuleType) -> No
     assert row["session_key"] == "from-key"
 
 
-def test_command_and_pattern_keys_are_capped(ref: types.ModuleType) -> None:
+def test_command_and_pattern_keys_are_capped(
+    ref: types.ModuleType, identity_redactor: None
+) -> None:
     cap = ref._APPROVAL_FIELD_MAX
     long_key = "k" * (cap + 40)
     keys = [long_key, *([f"k{i}" for i in range(8)])]

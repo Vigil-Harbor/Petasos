@@ -3,6 +3,8 @@ from __future__ import annotations
 import importlib
 import os
 import pathlib
+import sys
+import types
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
@@ -15,6 +17,18 @@ if TYPE_CHECKING:
 
 _FIXTURES = pathlib.Path(__file__).parent / "fixtures"
 _PRIVATE_KEY = (_FIXTURES / "test_private.pem").read_bytes()
+
+
+@pytest.fixture
+def identity_redactor(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Opt-in host seam for noncredential tests with synthetic, secret-free text.
+
+    Credential tests install their own redactor or explicitly test its absence.
+    """
+    redactor = types.ModuleType("agent.redact")
+    redactor.redact_sensitive_text = lambda text, **_kwargs: text  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "agent", types.ModuleType("agent"))
+    monkeypatch.setitem(sys.modules, "agent.redact", redactor)
 
 
 def _make_token(

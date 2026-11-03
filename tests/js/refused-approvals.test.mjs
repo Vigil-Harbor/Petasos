@@ -71,6 +71,17 @@ function textOf(node) {
   return (node.childNodes || []).map(textOf).join("");
 }
 
+test("refused queue carries credential handling notices", () => {
+  const rows = Pet.refusedApprovalRows([
+    item({ credential_redaction: "redacted" }),
+    item({ item_id: "e-2", credential_redaction: "withheld" }),
+    item({ item_id: "e-3", credential_redaction: "<script>unsafe</script>" }),
+  ], null, false);
+  assert.match(textOf(rows[0]), /masked locally; exposure unconfirmed/);
+  assert.match(textOf(rows[1]), /redaction unavailable/);
+  assert.ok(!textOf(rows[2]).includes("<script>"));
+});
+
 function item(extra) {
   return Object.assign({
     item_id: "e-1",

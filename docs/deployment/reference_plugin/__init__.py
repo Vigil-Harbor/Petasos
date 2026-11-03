@@ -1561,6 +1561,41 @@ def _log_disarmed_bypass(tool_name: str) -> bool:
     return True
 
 
+_CREDENTIAL_MASKED_NOTICE = "Sensitive content masked locally; exposure unconfirmed."
+_CREDENTIAL_WITHHELD_NOTICE = "Sensitive display withheld; redaction unavailable."
+
+
+def _redact_display_text(value: object, limit: int) -> tuple[str, str]:
+    """Force host redaction before clipping any persisted free-text display field.
+
+    No credential retrieval, global secret cache or execution-input mutation.
+    The host resolves its vault registry in the caller's active profile context.
+    """
+    if not isinstance(value, str) or not value:
+        return "", "unchanged"
+    try:
+        if len(value) > _MAX_PARAM_TEXT_LEN:
+            raise ValueError("display input exceeds redaction budget")
+        from agent.redact import redact_sensitive_text  # type: ignore[import-not-found]
+
+        safe = redact_sensitive_text(value, force=True, redact_url_credentials=True)
+        if not isinstance(safe, str) or len(safe) > _MAX_PARAM_TEXT_LEN:
+            raise ValueError("invalid display redaction result")
+        status = "unchanged" if safe == value else "redacted"
+        return safe[:limit], status
+    except Exception:
+        # Do not log the exception: it can echo the value being protected.
+        return "withheld (redaction unavailable)"[:limit], "withheld"
+
+
+def _credential_reason(reason: str, status: str) -> str:
+    if status == "redacted":
+        return f"{_CREDENTIAL_MASKED_NOTICE} {reason}"
+    if status == "withheld":
+        return f"{_CREDENTIAL_WITHHELD_NOTICE} {reason}"
+    return reason
+
+
 def _emit_enforcement_event(
     *,
     session_id: str,
@@ -1597,6 +1632,7 @@ def _emit_enforcement_event(
     try:
         from petasos.console._events import emit_enforcement_event
 
+        safe_reason, redaction = _redact_display_text(reason, 200)
         return emit_enforcement_event(
             {
                 "session_id": session_id,
@@ -1605,7 +1641,8 @@ def _emit_enforcement_event(
                 "tier": tier,
                 "rule_id": rule_id,
                 "severity": severity,
-                "reason": reason,
+                "reason": safe_reason,
+                "credential_redaction": redaction,
                 "param_scan_degraded": param_scan_degraded,
                 "direction": "tool_call",
                 "armed": armed,
@@ -2515,7 +2552,17 @@ def _approval_command_excerpt(args: object, result: object) -> str:
             from agent.redact import redact_sensitive_text  # type: ignore[import-not-found]
         except Exception:
             return "withheld (redactor unavailable)"
-        taken = _excerpt_redact_arguments(args, redact_sensitive_text)
+        changed = False
+
+        def redact(text: str, **options: bool) -> str:
+            nonlocal changed
+            safe: str = redact_sensitive_text(text, **options)
+            if not isinstance(safe, str):
+                raise ValueError("invalid excerpt redaction result")
+            changed = changed or safe != text
+            return safe
+
+        taken = _excerpt_redact_arguments(args, redact)
         if not taken:
             return "(no parameters)"
         segments: list[list[tuple[str, list[str]]]] = []
@@ -2527,9 +2574,7 @@ def _approval_command_excerpt(args: object, result: object) -> str:
             invisible = invisible or dropped_key or dropped_value
             raw_segment = f"{canon_key}={canon_value}"
             try:
-                redacted = redact_sensitive_text(
-                    raw_segment, force=True, redact_url_credentials=True
-                )
+                redacted = redact(raw_segment, force=True, redact_url_credentials=True)
             except Exception:
                 return "withheld (redactor unavailable)"
             if not isinstance(redacted, str):
@@ -2552,6 +2597,8 @@ def _approval_command_excerpt(args: object, result: object) -> str:
                 source_lens.append(len(redacted))
         body, omitted = _excerpt_assemble(segments, source_lens, 0)
         suffix = f" (+{omitted} chars not shown)" if omitted else ""
+        if changed:
+            suffix += f" ({_CREDENTIAL_MASKED_NOTICE})"
         if invisible:
             suffix += " (invisible characters removed)"
         return body + suffix
@@ -3487,8 +3534,20 @@ def _emit_approval_observation(phase: str, *, choice: object = None, **kwargs: A
     return are the same outcome: debug log, return None, approval wait continues.
     """
     try:
-        command = _approval_text(kwargs.get("command"))
-        description = _approval_text(kwargs.get("description"), limit=_APPROVAL_DESCRIPTION_MAX)
+        command, command_redaction = _redact_display_text(
+            kwargs.get("command"), _APPROVAL_FIELD_MAX
+        )
+        description, description_redaction = _redact_display_text(
+            kwargs.get("description"), _APPROVAL_DESCRIPTION_MAX
+        )
+        statuses = {command_redaction, description_redaction}
+        redaction = (
+            "withheld"
+            if "withheld" in statuses
+            else "redacted"
+            if "redacted" in statuses
+            else "unchanged"
+        )
         session_key = _approval_text(kwargs.get("session_key"))
         surface = _approval_text(kwargs.get("surface"))
         tool_call_id = _approval_text(kwargs.get("tool_call_id"))
@@ -3497,11 +3556,13 @@ def _emit_approval_observation(phase: str, *, choice: object = None, **kwargs: A
         decided_by = _approval_decided_by(kwargs.get("decided_by"))
         stored_choice = _approval_choice(phase, choice)
         rule_id = _approval_text(kwargs.get("pattern_key"))
-        tool = _approval_tool(command)
+        tool = _approval_tool(_approval_text(kwargs.get("command")))
         session_id = _approval_session_id(kwargs.get("session_id"), kwargs.get("session_key"))
         coalesced = kwargs.get("coalesced") is True
         armed = _is_armed()
-        reason = "approval requested" if phase == "request" else "approval response"
+        reason = _credential_reason(
+            "approval requested" if phase == "request" else "approval response", redaction
+        )
         from petasos.console._events import emit_enforcement_event
 
         wrote = emit_enforcement_event(
@@ -3519,6 +3580,7 @@ def _emit_approval_observation(phase: str, *, choice: object = None, **kwargs: A
                 "turn_id": turn_id,
                 "command": command,
                 "description": description,
+                "credential_redaction": redaction,
                 "decided_by": decided_by,
                 "coalesced": coalesced,
                 "reason": reason,
@@ -3543,8 +3605,8 @@ def _emit_approval_observation(phase: str, *, choice: object = None, **kwargs: A
             rule_id,
             surface,
         )
-    except Exception as exc:
-        logger.debug("PETASOS_APPROVAL emit failed phase=%s error=%r", phase, exc)
+    except Exception:
+        logger.debug("PETASOS_APPROVAL emit failed")
 
 
 def _pre_approval_request(**kwargs: Any) -> None:

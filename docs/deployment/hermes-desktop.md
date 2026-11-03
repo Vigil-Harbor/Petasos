@@ -472,6 +472,9 @@ by any local process. OAuth-gated mode or `withhold_session_token` closes that.
 
 ### What stays at defaults
 
+For password-manager setup, credential-handling notices and the operator
+rotation procedure, see [Credentials and reports](credentials.md).
+
 | Key | Default | Why it's fine |
 |-----|---------|---------------|
 | `frequency_enabled` | `true` | Enabled out of the box |

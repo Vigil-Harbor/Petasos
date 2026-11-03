@@ -308,6 +308,11 @@
     }
     wrap.appendChild(prov);
 
+    if (isEnf) {
+      var credentialNotice = Pet.credentialRedactionNotice(e.credential_redaction);
+      if (credentialNotice) wrap.appendChild(fld("credential handling", credentialNotice));
+    }
+
     // ── Kind-specific body ──
     if (isBypass) {
       wrap.appendChild(Pet.h("div", { className: "sd-heartbeat" },
@@ -1226,6 +1231,12 @@
     };
   };
 
+  Pet.credentialRedactionNotice = function (status) {
+    if (status === "redacted") return "Sensitive content masked locally; exposure unconfirmed.";
+    if (status === "withheld") return "Sensitive display withheld; redaction unavailable.";
+    return "";
+  };
+
   // PET-223: one DOM row per item. Strings only reach Pet.h. No innerHTML.
   Pet.refusedApprovalRows = function (rows, onMark, canMark) {
     var out = [];
@@ -1251,6 +1262,7 @@
         tool,
         rule,
         shown,
+        Pet.credentialRedactionNotice(item.credential_redaction),
         flags.join(" "),
       ];
       if (canMark && item.reviewed !== true && typeof onMark === "function") {
