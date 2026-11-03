@@ -27,6 +27,12 @@ fails config validation, because an older release rejects the unknown id.
 
 ### Added
 
+- **Credential handling in approval reporting (PET-250).** Approval text and
+  enforcement reasons use forced Hermes redaction before clipping and signing.
+  The approval prompt, history and refused queue distinguish local masking
+  from a withheld display without claiming a confirmed exposure. The deployment
+  guide adds password-manager compatibility and an operator rotation runbook.
+
 - **Refused-approvals queue (PET-223).** Observability lists every hook-recorded
   approval refusal for the selected profile, with the choice, the command, and
   the Petasos rule or Hermes pattern key. `GET /api/approvals/refused` and

@@ -338,6 +338,11 @@ def _enforcement_summary(ev: dict[str, Any], *, provenance: str = "unattested") 
         "rule_id": ev.get("rule_id"),
         "severity": ev.get("severity"),
         "reason": reason,
+        "credential_redaction": (
+            ev.get("credential_redaction")
+            if ev.get("credential_redaction") in ("unchanged", "redacted", "withheld")
+            else None
+        ),
         # PET-137: authoritative armed-at-decision for the drill-down provenance line
         # (D6). The plugin stamps `armed` on every event (reference_plugin emits
         # armed=True on the armed branch, armed=False on the disarmed bypass).

@@ -39,6 +39,16 @@ function text(tree) {
 
 const RULE = "plugin_rule:destructive-recursive";
 
+test("credential notices distinguish local masking from confirmed exposure", () => {
+  const notice = Pet.credentialRedactionNotice("redacted");
+  assert.match(notice, /masked locally; exposure unconfirmed/);
+  assert.match(Pet.credentialRedactionNotice("withheld"), /redaction unavailable/);
+  assert.equal(Pet.credentialRedactionNotice("unchanged"), "");
+  assert.equal(Pet.credentialRedactionNotice("<script>unsafe</script>"), "");
+  const panel = text(Pet.scanDetailPanel(approvalRow({ credential_redaction: "redacted" })));
+  assert.ok(panel.includes(notice));
+});
+
 function approvalRow(overrides) {
   return {
     source: "enforcement",

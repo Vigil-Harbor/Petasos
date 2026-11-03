@@ -99,6 +99,11 @@ def _sanitize(row: dict[str, Any], field_cap: int, description_cap: int) -> dict
         "surface": _cap_opt(row.get("surface"), field_cap),
         "decided_by": _cap_opt(row.get("decided_by"), field_cap),
         "description": _cap_opt(row.get("description"), description_cap),
+        "credential_redaction": (
+            row.get("credential_redaction")
+            if row.get("credential_redaction") in ("unchanged", "redacted", "withheld")
+            else None
+        ),
         "coalesced": row.get("coalesced") is True,
     }
 
@@ -145,6 +150,7 @@ def _item(
         ),
         "command": row["command"],
         "description": row["description"],
+        "credential_redaction": row["credential_redaction"],
         "provenance": row["provenance"],
         "overrode_smart_deny": overrode,
         "reviewed": item_id in reviewed,
