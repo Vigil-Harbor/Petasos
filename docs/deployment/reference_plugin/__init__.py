@@ -2309,6 +2309,7 @@ def _excerpt_redact_arguments(
     """
     nodes = 0
     characters = 0
+    redaction_characters = 0
 
     def spend(text: str) -> None:
         nonlocal characters
@@ -2317,6 +2318,12 @@ def _excerpt_redact_arguments(
             raise ValueError("excerpt input exceeds character budget")
 
     def mask(text: str) -> str:
+        nonlocal redaction_characters
+        # Count work, not just input: list leaves reuse their parent's field
+        # name, and the host may expand a value into a longer masking marker.
+        redaction_characters += len(text)
+        if redaction_characters > _MAX_PARAM_TEXT_LEN:
+            raise ValueError("excerpt redaction exceeds character budget")
         masked = redact(text, force=True, redact_url_credentials=True)
         if not isinstance(masked, str) or len(masked) > _MAX_PARAM_TEXT_LEN:
             raise ValueError("invalid excerpt redaction result")

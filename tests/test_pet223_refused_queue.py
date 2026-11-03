@@ -1295,6 +1295,29 @@ def test_excerpt_unsafe_structure_withholds(monkeypatch: pytest.MonkeyPatch, sha
     assert _excerpt(module, {"command": value}) == "withheld (excerpt unavailable)"
 
 
+@pytest.mark.parametrize("key_length", [100_000, 500_000])
+def test_excerpt_bounds_repeated_field_redaction_work(
+    monkeypatch: pytest.MonkeyPatch, key_length: int
+) -> None:
+    module = _load_plugin()
+    scanned = 0
+
+    def redact(text: str, **_kwargs: bool) -> str:
+        nonlocal scanned
+        scanned += len(text)
+        assert scanned <= module._MAX_PARAM_TEXT_LEN
+        return text
+
+    _install_redactor(monkeypatch, redact)
+    key = "k" * key_length
+    args = {"command": {key: ["a"] * 4000}}
+    # The source fits both input caps; repeating the field context is expensive.
+    assert len(json.dumps(args)) < module._MAX_PARAM_TEXT_LEN
+    assert _excerpt(module, args) == "withheld (excerpt unavailable)"
+    assert scanned <= module._MAX_PARAM_TEXT_LEN
+    assert args["command"][key] == ["a"] * 4000
+
+
 def test_description_cap_is_400() -> None:
     module = _load_plugin()
     assert module._APPROVAL_DESCRIPTION_MAX == server._MAX_APPROVAL_DESCRIPTION_LEN == 400
