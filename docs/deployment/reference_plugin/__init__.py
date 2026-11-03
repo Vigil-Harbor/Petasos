@@ -91,6 +91,8 @@ from petasos.session.ingest import (  # PET-178: dep-light (chunked result scan)
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from petasos import PetasosConfig
     from petasos.console._paths import HermesConfigResolution
 
@@ -2293,6 +2295,88 @@ def _read_posture() -> str:
 
 _EXCERPT_BUDGET = 160
 _BARE_KEY = re.compile(r"[A-Za-z0-9_.\-]{1,64}")
+_EXCERPT_MAX_DEPTH = 16
+_EXCERPT_MAX_NODES = 4096
+
+
+def _excerpt_redact_arguments(
+    args: Mapping[object, object], redact: Callable[..., str]
+) -> list[tuple[str, str]]:
+    """Redact original string leaves before JSON escaping or display normalization.
+
+    The host's exact vault-value registry needs the original characters. Work on
+    copies only, and withhold the entire excerpt if the input cannot be bounded.
+    """
+    nodes = 0
+    characters = 0
+    redaction_characters = 0
+
+    def spend(text: str) -> None:
+        nonlocal characters
+        characters += len(text)
+        if characters > _MAX_PARAM_TEXT_LEN:
+            raise ValueError("excerpt input exceeds character budget")
+
+    def mask(text: str) -> str:
+        nonlocal redaction_characters
+        # Count work, not just input: list leaves reuse their parent's field
+        # name, and the host may expand a value into a longer masking marker.
+        redaction_characters += len(text)
+        if redaction_characters > _MAX_PARAM_TEXT_LEN:
+            raise ValueError("excerpt redaction exceeds character budget")
+        masked = redact(text, force=True, redact_url_credentials=True)
+        if not isinstance(masked, str) or len(masked) > _MAX_PARAM_TEXT_LEN:
+            raise ValueError("invalid excerpt redaction result")
+        return masked
+
+    def clean(value: object, depth: int, key: str | None = None) -> Any:
+        nonlocal nodes
+        nodes += 1
+        if depth > _EXCERPT_MAX_DEPTH or nodes > _EXCERPT_MAX_NODES:
+            raise ValueError("excerpt input exceeds traversal budget")
+        if isinstance(value, str):
+            spend(value)
+            masked = mask(value)
+            if key is not None:
+                # Retain assignment context for opaque values under secret field
+                # names. If redaction changes the key too, withhold rather than
+                # trying to recover a value from an ambiguous assignment.
+                prefix = key + "="
+                assignment = mask(prefix + masked)
+                if not assignment.startswith(prefix):
+                    raise ValueError("excerpt field name was redacted")
+                masked = assignment[len(prefix) :]
+            return masked
+        if value is None or isinstance(value, (bool, int, float)):
+            spend(str(value))
+            return value
+        if isinstance(value, (list, tuple)):
+            return [clean(item, depth + 1, key) for item in value]
+        if isinstance(value, Mapping):
+            result: dict[str, Any] = {}
+            for field, item in value.items():
+                if not isinstance(field, str):
+                    raise TypeError("non-string excerpt field")
+                spend(field)
+                safe_field = mask(field)
+                if safe_field in result:
+                    raise ValueError("excerpt fields collide after redaction")
+                result[safe_field] = clean(item, depth + 1, field)
+            return result
+        raise TypeError("unsupported excerpt argument")
+
+    cleaned = clean(args, 0)
+    pairs: list[tuple[str, str]] = []
+    serialized_size = 0
+    for key, value in cleaned.items():
+        if value is None:
+            continue
+        text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+        serialized_size += len(key) + 1 + len(text)
+        if serialized_size > _MAX_PARAM_TEXT_LEN:
+            raise ValueError("serialized excerpt exceeds character budget")
+        pairs.append((key, text))
+    return pairs
 
 
 def _excerpt_drop_invisible(text: str) -> tuple[str, bool]:
@@ -2427,29 +2511,13 @@ def _approval_command_excerpt(args: object, result: object) -> str:
             if not args:
                 return "(no parameters)"
             raise TypeError("non-mapping args")
-        pairs = [(key, value) for key, value in args.items() if value is not None]
-        if not pairs:
-            return "(no parameters)"
-        taken: list[tuple[str, str]] = []
-        past_raw = 0
-        cumulative = 0
-        for key, value in pairs:
-            key_s = str(key)
-            value_s = (
-                value
-                if isinstance(value, str)
-                else json.dumps(value, ensure_ascii=False, default=str)
-            )
-            raw_len = len(key_s) + 1 + len(value_s)
-            if cumulative >= _MAX_PARAM_TEXT_LEN:
-                past_raw += raw_len
-                continue
-            taken.append((key_s, value_s))
-            cumulative += raw_len
         try:
             from agent.redact import redact_sensitive_text  # type: ignore[import-not-found]
         except Exception:
             return "withheld (redactor unavailable)"
+        taken = _excerpt_redact_arguments(args, redact_sensitive_text)
+        if not taken:
+            return "(no parameters)"
         segments: list[list[tuple[str, list[str]]]] = []
         source_lens: list[int] = []
         invisible = False
@@ -2482,7 +2550,7 @@ def _approval_command_excerpt(args: object, result: object) -> str:
             else:
                 segments.append([("quoted", _excerpt_escape_units(redacted))])
                 source_lens.append(len(redacted))
-        body, omitted = _excerpt_assemble(segments, source_lens, past_raw)
+        body, omitted = _excerpt_assemble(segments, source_lens, 0)
         suffix = f" (+{omitted} chars not shown)" if omitted else ""
         if invisible:
             suffix += " (invisible characters removed)"

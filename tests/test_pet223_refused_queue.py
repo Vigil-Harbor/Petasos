@@ -1218,6 +1218,106 @@ def test_rule_key_is_unchanged_by_the_excerpt(monkeypatch: pytest.MonkeyPatch) -
     assert out["action"] == "approve"
 
 
+@pytest.mark.parametrize("nested", [False, True])
+@pytest.mark.parametrize("control", [chr(1), chr(10), chr(0x2066)])
+def test_excerpt_redacts_original_vault_value(
+    monkeypatch: pytest.MonkeyPatch, nested: bool, control: str
+) -> None:
+    secret = "synthetic-vault" + control + "-password-example"
+    calls: list[str] = []
+
+    def redact(text: str, **kwargs: bool) -> str:
+        assert kwargs == {"force": True, "redact_url_credentials": True}
+        calls.append(text)
+        return text.replace(secret, "[redacted-vault]")
+
+    _install_redactor(monkeypatch, redact)
+    args = {"command": {"items": [secret]} if nested else secret}
+    before = json.dumps(args)
+    shown = _excerpt(_load_plugin(), args)
+    assert secret in calls  # the host sees original bytes, before escaping or joining
+    assert "[redacted-vault]" in shown
+    assert "password-example" not in shown
+    assert not shown.startswith("withheld")
+    assert json.dumps(args) == before
+
+
+def test_excerpt_nested_field_context_and_original_keys(monkeypatch: pytest.MonkeyPatch) -> None:
+    opaque = "synthetic-opaque-value"
+    secret_key = "synthetic" + chr(1) + "-secret-key"
+
+    def redact(text: str, **_kwargs: bool) -> str:
+        if text == "password=" + opaque:
+            return "password=[redacted-field]"
+        return text.replace(secret_key, "[redacted-key]")
+
+    _install_redactor(monkeypatch, redact)
+    args = {"env": {"password": [opaque], secret_key: 1}}
+    before = json.dumps(args)
+    shown = _excerpt(_load_plugin(), args)
+    assert "[redacted-field]" in shown
+    assert "[redacted-key]" in shown
+    assert opaque not in shown
+    assert "secret-key" not in shown
+    assert json.dumps(args) == before
+
+
+@pytest.mark.parametrize("bad_result", [None, 42, RuntimeError("synthetic-secret")])
+def test_excerpt_leaf_redaction_failure_withholds(
+    monkeypatch: pytest.MonkeyPatch, bad_result: object
+) -> None:
+    def redact(_text: str, **_kwargs: bool) -> Any:
+        if isinstance(bad_result, Exception):
+            raise bad_result
+        return bad_result
+
+    _install_redactor(monkeypatch, redact)
+    shown = _excerpt(_load_plugin(), {"env": {"password": "synthetic-secret"}})
+    assert shown.startswith("withheld")
+    assert "synthetic-secret" not in shown
+
+
+@pytest.mark.parametrize("shape", ["cycle", "depth", "nodes", "characters", "object"])
+def test_excerpt_unsafe_structure_withholds(monkeypatch: pytest.MonkeyPatch, shape: str) -> None:
+    module = _plugin(monkeypatch)
+    value: Any = []
+    if shape == "cycle":
+        value.append(value)
+    elif shape == "depth":
+        for _ in range(module._EXCERPT_MAX_DEPTH + 1):
+            value = [value]
+    elif shape == "nodes":
+        value = [0] * module._EXCERPT_MAX_NODES
+    elif shape == "characters":
+        value = "x" * (module._MAX_PARAM_TEXT_LEN + 1)
+    else:
+        value = object()
+    assert _excerpt(module, {"command": value}) == "withheld (excerpt unavailable)"
+
+
+@pytest.mark.parametrize("key_length", [100_000, 500_000])
+def test_excerpt_bounds_repeated_field_redaction_work(
+    monkeypatch: pytest.MonkeyPatch, key_length: int
+) -> None:
+    module = _load_plugin()
+    scanned = 0
+
+    def redact(text: str, **_kwargs: bool) -> str:
+        nonlocal scanned
+        scanned += len(text)
+        assert scanned <= module._MAX_PARAM_TEXT_LEN
+        return text
+
+    _install_redactor(monkeypatch, redact)
+    key = "k" * key_length
+    args = {"command": {key: ["a"] * 4000}}
+    # The source fits both input caps; repeating the field context is expensive.
+    assert len(json.dumps(args)) < module._MAX_PARAM_TEXT_LEN
+    assert _excerpt(module, args) == "withheld (excerpt unavailable)"
+    assert scanned <= module._MAX_PARAM_TEXT_LEN
+    assert args["command"][key] == ["a"] * 4000
+
+
 def test_description_cap_is_400() -> None:
     module = _load_plugin()
     assert module._APPROVAL_DESCRIPTION_MAX == server._MAX_APPROVAL_DESCRIPTION_LEN == 400
