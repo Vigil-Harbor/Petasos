@@ -308,6 +308,11 @@
     }
     wrap.appendChild(prov);
 
+    if (isEnf) {
+      var credentialNotice = Pet.credentialRedactionNotice(e.credential_redaction);
+      if (credentialNotice) wrap.appendChild(fld("credential handling", credentialNotice));
+    }
+
     // ── Kind-specific body ──
     if (isBypass) {
       wrap.appendChild(Pet.h("div", { className: "sd-heartbeat" },
@@ -380,8 +385,6 @@
       wrap.appendChild(fld("session key", e.session_key));
       wrap.appendChild(fld("command", e.command));
       wrap.appendChild(fld("description", e.description));
-      var credentialNotice = Pet.credentialRedactionNotice(e.credential_redaction);
-      if (credentialNotice) wrap.appendChild(fld("credential handling", credentialNotice));
       wrap.appendChild(fld("decided_by", e.decided_by));
       wrap.appendChild(fld("coalesced", e.coalesced));
       wrap.appendChild(fld("tool_call_id", e.tool_call_id));

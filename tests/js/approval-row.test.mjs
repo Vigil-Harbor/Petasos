@@ -47,6 +47,12 @@ test("credential notices distinguish local masking from confirmed exposure", () 
   assert.equal(Pet.credentialRedactionNotice("<script>unsafe</script>"), "");
   const panel = text(Pet.scanDetailPanel(approvalRow({ credential_redaction: "redacted" })));
   assert.ok(panel.includes(notice));
+  const reason = "r".repeat(188) + "evidence-end";
+  const enforcement = text(Pet.scanDetailPanel(approvalRow({
+    event_type: "quarantine", credential_redaction: "redacted", reason,
+  })));
+  assert.ok(enforcement.includes(notice));
+  assert.ok(enforcement.includes(reason));
 });
 
 function approvalRow(overrides) {

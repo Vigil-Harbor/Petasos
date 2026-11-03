@@ -35,6 +35,11 @@ exact values with the host's profile-scoped redactor before filling. Petasos
 uses the active host context for every redaction call; it does not collect a
 second process-wide list of credentials.
 
+At this host revision, API values loaded from 1Password or Bitwarden are not
+automatically added to that exact-value registry. Those values rely on the
+host's credential-pattern matching; an arbitrary opaque API password may not
+match. Browser-vault fills and MCP tokens have explicit registration paths.
+
 Keep Hermes's `security.redact_secrets` enabled for its general logs and tool
 outputs. Petasos forces redaction independently on the reporting fields named
 above, including when that host preference is disabled. This does not add a
@@ -103,8 +108,10 @@ rule keys) retain their original semantics; never use a credential as an ID.
 
 The regression suite uses synthetic secrets and the actual spool/history
 writers. A separate local compatibility probe exercises the real Hermes
-redactor. Neither proves a live 1Password/Bitwarden account is configured or
-that an unattended host has loaded a replacement token. Validate those through
+redactor with explicitly selected profile contexts. This proves behavior within
+those contexts, not that a live multiplexed gateway propagates them through
+every hook-dispatch thread. Neither proves a live 1Password/Bitwarden account is
+configured or that an unattended host has loaded a replacement token. Validate those through
 the operator's host workflow, without sharing credentials with the coding agent.
 
 This change protects newly written approval text and enforcement reasons.

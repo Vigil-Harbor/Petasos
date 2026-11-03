@@ -130,6 +130,22 @@ def test_model_notice_does_not_claim_exposure(
     assert args["command"] == secret
 
 
+def test_redacted_reason_retains_full_display_budget(
+    plugin: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    secret = "synthetic-error-secret"
+    safe_reason = "r" * 188 + "evidence-end"
+    assert len(safe_reason) == 200
+    install_redactor(monkeypatch, lambda text, **_kwargs: text.replace(secret, safe_reason))
+    assert plugin._emit_enforcement_event(
+        session_id="s", tool="terminal", event_type="quarantine", reason=secret
+    )
+    row = read_spool()[0]
+    assert row["credential_redaction"] == "redacted"
+    assert row["reason"] == safe_reason
+    assert _enforcement_summary(row)["reason"] == safe_reason
+
+
 def test_secret_references_stay_references(plugin: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     install_redactor(monkeypatch, lambda text, **_kwargs: text)
     reference = "op://test-vault/test-item/password"

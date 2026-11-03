@@ -1641,7 +1641,7 @@ def _emit_enforcement_event(
                 "tier": tier,
                 "rule_id": rule_id,
                 "severity": severity,
-                "reason": _credential_reason(safe_reason, redaction),
+                "reason": safe_reason,
                 "credential_redaction": redaction,
                 "param_scan_degraded": param_scan_degraded,
                 "direction": "tool_call",
