@@ -107,12 +107,43 @@ rule keys) retain their original semantics; never use a credential as an ID.
 ## Verification and limits
 
 The regression suite uses synthetic secrets and the actual spool/history
-writers. A separate local compatibility probe exercises the real Hermes
-redactor with explicitly selected profile contexts. This proves behavior within
-those contexts, not that a live multiplexed gateway propagates them through
-every hook-dispatch thread. Neither proves a live 1Password/Bitwarden account is
-configured or that an unattended host has loaded a replacement token. Validate those through
-the operator's host workflow, without sharing credentials with the coding agent.
+writers. The committed [integration receipt](evidence/pet250-hermes-5019bf7067.json)
+records 30 passing scenarios against Hermes `5019bf7067` and Petasos runtime
+`e31241b`: two overlapping profiles, five rounds each of denial, timeout and
+notification failure. The probe uses the real profile runtime scope, gateway
+executor, bounded plugin worker, lifecycle dispatch, approval wait/resolver and
+redactor. It verifies both thread boundaries, profile-local secret/manager
+selection, forced pattern redaction with the host preference disabled, and
+unchanged execution inputs. A negative control deliberately drops context and
+detects the wrong profile and unmasked opaque value.
+
+Each profile produced 45 signed spool/history rows and 15 refused items.
+Signatures verified with the owning key and rejected the sibling profile's
+spool key. Persisted data contained no synthetic secret; outcomes and
+correlation identifiers survived. The long-field/list amplification payload
+was withheld within the cumulative redaction budget. External network and
+subprocess attempts were blocked during profile setup and exercise; none were
+attempted. The receipt includes source hashes and the exact fixture exclusions.
+
+Reproduce from the Petasos checkout with the host's Python and dependencies:
+
+```text
+python -S -B scripts/verify_hermes_credentials.py --hermes-source PATH --output receipt.json
+```
+
+The [probe](../../scripts/verify_hermes_credentials.py) requires assertions
+enabled. On Windows it locates the interpreter's `Lib/site-packages`; elsewhere,
+or with another dependency layout, supply `--site-packages PATH`. It creates
+temporary profiles, clears inherited credential/configuration environment
+variables, bypasses the startup updater and excludes installed-plugin discovery,
+scanner initialization and first-party telemetry. History writes run separately
+after the concurrent spool writes. No deployed gateway is started or changed.
+
+This closes the isolated executor/approval-hook propagation evidence gap for
+the tested path. It does not verify routing admission, every gateway surface,
+a live 1Password/Bitwarden account, or that a running host has loaded a rotated
+token. Validate those through the operator's host workflow, without sharing
+credentials with the coding agent.
 
 This change protects newly written approval text and enforcement reasons.
 It does not rewrite legacy history, sanitize arbitrary third-party log handlers,
