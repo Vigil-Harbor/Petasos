@@ -70,6 +70,12 @@ fails config validation, because an older release rejects the unknown id.
 
 ### Fixed
 
+- **Credential redaction in approval excerpts (PET-251).** Redact original
+  argument strings before removing invisible characters or encoding nested
+  values as JSON, so the host can recognize registered vault passwords and
+  control-split tokens. Execution arguments stay unchanged. Excessively large,
+  deeply nested or unsupported argument structures withhold the excerpt.
+
 - **One malformed enforcement-spool record no longer stops scan history (PET-223).**
   A non-string `event_type` used to raise inside the drain before the offset
   advanced, so every later scan-history read retried the same line and failed.
