@@ -13,6 +13,33 @@ const { makeDocument, makeNode } = createDOM({
   svg: "alias",
   textContent: "stored",
   tree: { remove: true, first: true, parents: true },
+  // HTMLSelectElement: .value sticks only when a matching option already exists.
+  // Otherwise the control displays the first option. This is what makes a
+  // too-early assignment in paintRefusedQueue fail the repaint test.
+  extendNode(node) {
+    let selected;
+    let plain;
+    const options = () => (node.childNodes || []).filter((child) => child.tagName === "OPTION");
+    const optionValue = (opt) => (opt.value == null ? "" : String(opt.value));
+    Object.defineProperty(node, "value", {
+      configurable: true,
+      enumerable: true,
+      get() {
+        if (this.tagName !== "SELECT") return plain;
+        const opts = options();
+        if (selected != null && opts.some((opt) => optionValue(opt) === selected)) return selected;
+        return opts.length ? optionValue(opts[0]) : "";
+      },
+      set(v) {
+        if (this.tagName !== "SELECT") {
+          plain = v;
+          return;
+        }
+        const requested = v == null ? "" : String(v);
+        selected = options().some((opt) => optionValue(opt) === requested) ? requested : null;
+      },
+    });
+  },
 });
 const document = makeDocument();
 const calls = [];
@@ -228,6 +255,34 @@ test("panel filters reveal reviewed rows and the failed-verification group", () 
   text = textOf(node);
   assert.match(text, /forged-row/);
   assert.equal(Pet.state.refusedQueue.filters.showUnverifiable, true);
+});
+
+// The choice and origin selects display the active filter after every repaint.
+test("paintRefusedQueue keeps the active choice and origin selected", () => {
+  const node = makeNode("div");
+  Pet._runtime.refusedBody = node;
+  Pet.state.refusedQueue = {
+    body: {
+      items: [item({ item_id: "e-filtered", choice: "timeout", origin: "plugin" })],
+      total: 1,
+      pending: 0,
+      unknown: 0,
+      approval_rows: 1,
+      unverifiable_count: 0,
+      review_write: { available: true, reason: null },
+    },
+    note: null,
+    filters: { choice: "timeout", origin: "plugin", includeReviewed: false },
+    markError: null,
+  };
+  Pet.paintRefusedQueue();
+  const selects = () => node.childNodes[0].childNodes.filter((child) => child.tagName === "SELECT");
+  assert.equal(selects()[0].value, "timeout");
+  assert.equal(selects()[1].value, "plugin");
+  Pet.state.refusedQueue.filters = { choice: "all", origin: "all", includeReviewed: false };
+  Pet.paintRefusedQueue();
+  assert.equal(selects()[0].value, "all");
+  assert.equal(selects()[1].value, "all");
 });
 
 test("approval_reviewed history arm is not safe or unknown", () => {

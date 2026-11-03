@@ -670,7 +670,6 @@
     var choice = Pet.h("select", {
       className: "input mono",
       ariaLabel: "Refusal choice",
-      value: filters.choice || "all",
       onChange: function (ev) {
         _setRefusedFilter({ choice: ev && ev.target ? ev.target.value : "all" });
       },
@@ -678,10 +677,12 @@
     choices.forEach(function (value) {
       choice.appendChild(Pet.h("option", { value: value }, value));
     });
+    // A value assigned before a matching option exists does not stick, and the
+    // control then displays the first option ("all"). Set it after the options.
+    choice.value = filters.choice || "all";
     var origin = Pet.h("select", {
       className: "input mono",
       ariaLabel: "Rule origin",
-      value: filters.origin || "all",
       onChange: function (ev) {
         _setRefusedFilter({ origin: ev && ev.target ? ev.target.value : "all" });
       },
@@ -689,6 +690,7 @@
     origins.forEach(function (value) {
       origin.appendChild(Pet.h("option", { value: value }, value));
     });
+    origin.value = filters.origin || "all";
     var reviewed = Pet.h("input", {
       type: "checkbox",
       ariaLabel: "Show reviewed",
