@@ -117,7 +117,7 @@ selection, forced pattern redaction with the host preference disabled, and
 unchanged execution inputs. A negative control deliberately drops context and
 detects the wrong profile and unmasked opaque value.
 
-Each profile produced 45 signed spool/history rows and 15 refused items.
+Each profile produced 45 signed spool rows, 45 signed history rows and 15 refused items.
 Signatures verified with the owning key and rejected the sibling profile's
 spool key. Persisted data contained no synthetic secret; outcomes and
 correlation identifiers survived. The long-field/list amplification payload
@@ -128,7 +128,11 @@ attempted. The receipt includes source hashes and the exact fixture exclusions.
 Reproduce from the Petasos checkout with the host's Python and dependencies:
 
 ```text
+# Windows:
 python -S -B scripts/verify_hermes_credentials.py --hermes-source PATH --output receipt.json
+# macOS/Linux (replace python3.X with the host interpreter's version):
+python -S -B scripts/verify_hermes_credentials.py --hermes-source PATH \
+  --site-packages /path/to/venv/lib/python3.X/site-packages --output receipt.json
 ```
 
 The [probe](../../scripts/verify_hermes_credentials.py) requires assertions
