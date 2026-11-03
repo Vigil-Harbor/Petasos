@@ -456,7 +456,9 @@ a prompt cut by the chat platform) is never enough to approve on. PET-251
 redacts original string values before display normalization and JSON encoding,
 including nested arguments, while leaving execution arguments unchanged.
 An excerpt is withheld if redaction fails or its input exceeds the character,
-16-level nesting or 4,096-node traversal limit; unsupported argument objects
+16-level nesting or 4,096-node traversal limit. Total text sent through leaf
+redaction is also bounded by the character budget, including repeated field-name
+context for list values; unsupported argument objects
 are also withheld. This does not change the approval decision. Approvals
 Hermes parks with no notifier, YOLO, approvals off, and already-approved
 patterns never fire the hooks and never appear. `transport_*` outcomes are
