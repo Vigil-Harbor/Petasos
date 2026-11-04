@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 from unittest.mock import patch
 
 import pytest
@@ -80,6 +81,38 @@ class TestAvailabilityProbe:
         assert avail is False
         assert reason is not None
         assert "broken" in reason
+
+
+async def test_cold_load_does_not_block_timeout_or_analyze_cancelled_text(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scanner = PresidioScanner()
+    entered = threading.Event()
+    release = threading.Event()
+    loaded = threading.Event()
+    seen: list[str] = []
+
+    def load() -> None:
+        entered.set()
+        assert release.wait(3)
+        scanner._loaded = True
+        loaded.set()
+
+    def analyze(text: str, entities: list[str] | None = None) -> list[ScanFinding]:
+        seen.append(text)
+        return []
+
+    monkeypatch.setattr(scanner, "_do_load", load)
+    monkeypatch.setattr(scanner, "_scan_sync", analyze)
+    try:
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(scanner.scan("abandoned"), timeout=0.05)
+        assert entered.is_set()
+    finally:
+        release.set()
+    assert await asyncio.to_thread(loaded.wait, 5)
+    assert (await scanner.scan("next caller")).error is None
+    assert seen == ["next caller"]
 
 
 class TestSeverityMapping:

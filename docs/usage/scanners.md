@@ -123,10 +123,11 @@ needs it, in a worker thread, and scans that arrive during the load report a
 every Hermes profile copy in a multiplexed gateway shares it.
 
 Inference is serialized across those copies. A scan waits up to 8 seconds for its
-turn, then returns a timeout error that counts toward the circuit breaker. With
-the default `scanner_timeout_seconds` of 10, a timed-out scan's thread does not
-stay queued. Below 8, the thread can outlive its scan by up to the difference.
-Above 8, a queued scan still fails at 8.
+turn, then returns a timeout error that counts toward the circuit breaker.
+Cancellation, including a shorter pipeline timeout, abandons queued inference
+within a 50 ms lock-poll interval. A load already in progress finishes for later
+calls without scoring the cancelled request. An inference already running cannot
+be interrupted safely and finishes while retaining the shared lock.
 
 A failed load retries every 30 seconds when the failure can be temporary (any
 failure during a download, and `OSError` or `MemoryError` from a complete local
@@ -304,3 +305,36 @@ enabled; anonymization happens later, at stage 6, only when PII was found and
 
 **What the extra adds.** `pip install petasos[presidio]` installs Presidio and
 its language model and makes both PII detection and anonymization available.
+
+Loading and analysis run off the event loop, so a cold model load does not prevent
+the pipeline timeout from firing. Cancellation during load leaves the model to
+finish loading for later calls without analyzing the abandoned request. Analysis
+already running in a worker thread still runs to completion.
+Concurrent callers waiting on the same cold load retain executor threads until
+that load finishes, even after cancellation; a cold-start burst can delay other
+work using that executor.
+
+## Verify the combined scanners
+
+The opt-in `tests/test_scanner_composition.py` gate uses the actual installed
+Presidio and PromptGuard backends through the pipeline, tool guard and reference
+plugin. Install the test dependencies and both scanner extras, the
+`en_core_web_lg` spaCy model, and the pinned PromptGuard snapshot first. Set
+`PETASOS_TEST_SCANNER_COMPOSITION=1`, `HF_HUB_OFFLINE=1` and
+`TRANSFORMERS_OFFLINE=1` in the test process, then run:
+
+```bash
+python -m pytest tests/test_scanner_composition.py -q -s
+```
+
+When enabled, missing prerequisites fail the gate. It checks PII egress, outbound
+command decisions, inbound tool-result annotation, the intentional outbound
+`code_generation` injection relaxation, repeated benign calls within one session,
+and concurrent scans. It executes no tool commands. Host arming, reconfiguration,
+approval delivery, event persistence, the asynchronous host bridge and the
+egress-tool set are fixture seams. The gate uses a local event loop and a fixed
+`send_email` egress classification rather than the deployed bridge's timeout and
+cancellation path or host tool classification. This is a bounded
+integration exercise, not a long-duration soak or proof of the deployed gateway.
+Use the [deployment guide](../deployment/hermes-desktop.md) for profile admission,
+plugin synchronization and live verification before arming unattended work.
