@@ -288,6 +288,11 @@ class PresidioScanner:
         never mutated, so concurrent scans on different profiles cannot race
         (Decision 6). ``None``/empty preserves today's behavior exactly.
 
+        Loading and analysis run in worker threads so cold starts cannot block
+        the event loop or prevent the pipeline's timeout from firing. A load
+        already in progress finishes for subsequent calls; cancellation during
+        loading never proceeds to analysis of the abandoned text.
+
         Cancellation residual (SCAN-03): analysis runs in a worker thread via
         ``asyncio.to_thread``. Cancelling the awaiting task frees the event loop
         promptly, but the worker thread runs to completion on the default
@@ -296,7 +301,7 @@ class PresidioScanner:
         """
         start_time = time.perf_counter()
         try:
-            self._ensure_loaded()
+            await asyncio.to_thread(self._ensure_loaded)
             effective = self._effective_entities(extra_entities)
             findings = await asyncio.to_thread(self._scan_sync, text, effective)
             elapsed = (time.perf_counter() - start_time) * 1000

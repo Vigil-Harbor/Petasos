@@ -76,6 +76,12 @@ fails config validation, because an older release rejects the unknown id.
 
 ### Fixed
 
+- **Scanner cancellation and cold starts.** Cancelled PromptGuard requests leave
+  the inference queue without running the model (PET-249), including requests
+  cancelled during first load. Presidio loads off the event loop so pipeline
+  timeouts remain effective during cold starts; cancelled loads do not proceed
+  to analyze abandoned text. Already-running model work still finishes safely.
+
 - **Credential redaction in approval excerpts (PET-251).** Redact original
   argument strings before removing invisible characters or encoding nested
   values as JSON, so the host can recognize registered vault passwords and
