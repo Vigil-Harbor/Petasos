@@ -310,6 +310,9 @@ Loading and analysis run off the event loop, so a cold model load does not preve
 the pipeline timeout from firing. Cancellation during load leaves the model to
 finish loading for later calls without analyzing the abandoned request. Analysis
 already running in a worker thread still runs to completion.
+Concurrent callers waiting on the same cold load retain executor threads until
+that load finishes, even after cancellation; a cold-start burst can delay other
+work using that executor.
 
 ## Verify the combined scanners
 
@@ -328,7 +331,10 @@ When enabled, missing prerequisites fail the gate. It checks PII egress, outboun
 command decisions, inbound tool-result annotation, the intentional outbound
 `code_generation` injection relaxation, repeated benign calls within one session,
 and concurrent scans. It executes no tool commands. Host arming, reconfiguration,
-approval delivery and event persistence are fixture seams, so this is a bounded
+approval delivery, event persistence, the asynchronous host bridge and the
+egress-tool set are fixture seams. The gate uses a local event loop and a fixed
+`send_email` egress classification rather than the deployed bridge's timeout and
+cancellation path or host tool classification. This is a bounded
 integration exercise, not a long-duration soak or proof of the deployed gateway.
 Use the [deployment guide](../deployment/hermes-desktop.md) for profile admission,
 plugin synchronization and live verification before arming unattended work.

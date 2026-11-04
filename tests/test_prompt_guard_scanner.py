@@ -484,16 +484,25 @@ class TestPromptGuardSharing:
         entered = threading.Event()
         finished = threading.Event()
         scan_sync = pg._scan_sync
+        infer_lock = threading.Lock()
+
+        class ObservedLock:
+            def acquire(self, *, timeout: float) -> bool:
+                entered.set()
+                return infer_lock.acquire(timeout=timeout)
+
+            def release(self) -> None:
+                infer_lock.release()
 
         def tracked(*args: Any) -> float | None:
-            entered.set()
             try:
                 return scan_sync(*args)
             finally:
                 finished.set()
 
         monkeypatch.setattr(pg, "_scan_sync", tracked)
-        assert pg._INFER_LOCK.acquire(blocking=False)
+        monkeypatch.setattr(pg, "_INFER_LOCK", ObservedLock())
+        assert infer_lock.acquire(blocking=False)
         task = asyncio.create_task(pg.PromptGuardScanner().scan(_BENIGN))
         try:
             assert await asyncio.to_thread(entered.wait, 5)
@@ -506,7 +515,7 @@ class TestPromptGuardSharing:
             assert seen == []
         finally:
             task.cancel()
-            pg._INFER_LOCK.release()
+            infer_lock.release()
             await asyncio.to_thread(finished.wait, 5)
         assert (await pg.PromptGuardScanner().scan("next caller")).error is None
         assert seen == ["next caller"]
