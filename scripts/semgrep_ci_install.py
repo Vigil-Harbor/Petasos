@@ -25,7 +25,9 @@ def main() -> None:
     with artifact.open("rb") as stream:
         if hashlib.file_digest(stream, "sha256").hexdigest() != identity["wheel_sha256"]:
             raise SystemExit("Pinned Semgrep wheel integrity mismatch")
-    subprocess.run([str(executable), "-m", "pip", "install", str(artifact)], check=True)
+    subprocess.run(
+        [str(executable), "-m", "pip", "install", "--no-deps", str(artifact)], check=True
+    )
     # Ask the isolated interpreter for its own package location, not Petasos'.
     location = subprocess.check_output(
         [

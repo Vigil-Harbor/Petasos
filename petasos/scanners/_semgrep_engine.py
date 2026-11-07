@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import ast
 import asyncio
-import contextlib
+import contextvars
 import hashlib
 import json
 import os
@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
 from petasos._coverage import CoverageSpan, CoverageStatus, ScanCoverage
 from petasos._types import Position, ScanFinding, ScanResult, Severity
-from petasos.scanners._semgrep_process import run_process
+from petasos.scanners._semgrep_process import CleanupFailure, ProcessResult, run_process
 from petasos.scanners._semgrep_source import LANGUAGES, Selection, Target
 
 if TYPE_CHECKING:
@@ -81,9 +81,38 @@ async def await_cpu(
         # Retrieve a later exception without losing ownership of the worker.
         waiting.add_done_callback(lambda done: done.exception() if not done.cancelled() else None)
         raise CpuCleanupFailure(worker, outcome)
-    with contextlib.suppress(Exception):
+    try:
         waiting.result()
+    except CleanupFailure:
+        raise  # A completed worker can still own an unreaped native child.
+    except Exception:
+        pass
     return CpuResult(None, code)
+
+
+async def run_owned_process(
+    argv: list[str],
+    root: Path,
+    deadline: float,
+    cancelled: threading.Event,
+    executor: ThreadPoolExecutor,
+) -> ProcessResult:
+    """Run native lifecycle on a bounded worker, keeping the control loop free.
+
+    The same two owned workers serve the two active jobs. A constructor stuck
+    past cancellation retains its Future, job slot and source root; it cannot
+    detach or hand the capacity back. The worker still owns eventual cleanup.
+    """
+    context = contextvars.copy_context()
+
+    def invoke() -> ProcessResult:
+        return asyncio.run(run_process(argv, root, deadline, cancelled))
+
+    worker = executor.submit(context.run, invoke)
+    result = await await_cpu(
+        worker, deadline, cancelled, ScanResult("semgrep", (), 0, "semgrep.cleanup_failed")
+    )
+    return result.value or ProcessResult(None, b"", result.error)
 
 
 def strict_output(raw: bytes) -> dict[str, Any]:
@@ -381,7 +410,7 @@ async def scan_selected(
                 ),
                 encoding="utf-8",
             )
-            process = await run_process(
+            process = await run_owned_process(
                 [
                     engine,
                     "-rules",
@@ -401,6 +430,7 @@ async def scan_selected(
                 root,
                 deadline,
                 cancelled,
+                executor,
             )
             if process.error is not None:
                 error = process.error

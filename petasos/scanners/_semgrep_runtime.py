@@ -1,7 +1,7 @@
 """One bounded, loop-independent owner for local Semgrep jobs.
 
-All admissions are protected by a short threading lock. Child work belongs to
-the control loop, never to a caller's loop or a default-executor work queue.
+All admissions are protected by a short threading lock. Native lifecycle work
+uses the two owned workers, never a caller's loop or a default-executor queue.
 """
 
 from __future__ import annotations
@@ -28,13 +28,13 @@ from petasos.scanners._semgrep_engine import (
     CpuCleanupFailure,
     await_cpu,
     result_for,
+    run_owned_process,
     scan_selected,
 )
 from petasos.scanners._semgrep_process import (
     CHILD_OBSERVER,
     CLEANUP_DEADLINE_OBSERVER,
     CleanupFailure,
-    run_process,
 )
 from petasos.scanners._semgrep_source import Selection, select_sources
 
@@ -415,8 +415,12 @@ class Runtime:
                 if os.name == "nt" and len(str(job.root).encode("utf-8")) > 80:
                     raise ValueError("semgrep.temp_path_limit")
                 if job.selection is None:
-                    version = await run_process(
-                        [self.settings.engine, "-version"], job.root, job.deadline, job.cancelled
+                    version = await run_owned_process(
+                        [self.settings.engine, "-version"],
+                        job.root,
+                        job.deadline,
+                        job.cancelled,
+                        self.executor,
                     )
                     if version.error:
                         outcome = error_result(version.error)

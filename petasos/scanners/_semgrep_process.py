@@ -101,6 +101,8 @@ class _PosixChild:
         # retains the PID/PGID until the last process-group signal is delivered.
         try:
             return 0 if psutil.Process(self.pid).status() == psutil.STATUS_ZOMBIE else None
+        except psutil.ZombieProcess:
+            return 0  # Some psutil platforms signal the same state by exception.
         except psutil.NoSuchProcess:
             # An external reaper destroyed our ownership proof. Never signal a
             # potentially reused group; retain the failed cleanup for reporting.
@@ -329,7 +331,9 @@ class _WindowsChild:
                     None,
                     None,
                     True,
-                    0x80000 | 0x400 | 0x4 | 0x08000000,
+                    # DETACHED_PROCESS: explicit stdio pipes need no console
+                    # host. Containment still precedes ResumeThread as above.
+                    0x80000 | 0x400 | 0x4 | 0x8,
                     env,
                     str(root),
                     ctypes.byref(si),
@@ -441,12 +445,23 @@ class _WindowsChild:
                 self._job, 1, ctypes.byref(accounting), ctypes.sizeof(accounting), None
             )
         )
+        leader_signalled = self.poll() is not None
+        descendants = {
+            pid: int(self.k.WaitForSingleObject(handle, 0))
+            for pid, handle in self._descendants.items()
+        }
+        # Bounded, source-free evidence for a retained cleanup failure. Preserve
+        # the actual handle state, rather than rediscovering possibly reused PIDs.
+        self._last_cleanup_state = {
+            "leader_signalled": leader_signalled,
+            "active": int(accounting.active),
+            "terminated": int(accounting.terminated),
+            "descendant_waits": descendants,
+        }
         return (
-            self.poll() is not None
+            leader_signalled
             and accounting.active == 0
-            and all(
-                self.k.WaitForSingleObject(handle, 0) == 0 for handle in self._descendants.values()
-            )
+            and all(status == 0 for status in descendants.values())
         )
 
     def close(self) -> None:
@@ -461,6 +476,7 @@ class CleanupFailure(RuntimeError):
     def __init__(self, child: _WindowsChild | _PosixChild) -> None:
         super().__init__("semgrep.cleanup_failed")
         self.child = child
+        self.state = getattr(child, "_last_cleanup_state", None)
 
 
 async def run_process(

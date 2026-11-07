@@ -141,3 +141,20 @@ async def test_many_search_hits_report_the_unexamined_tail() -> None:
     assert selected.tail is not None
     assert selected.error is None
     assert "target_limit_tentative" in selected.reasons
+
+
+async def test_malformed_deep_string_does_not_hide_later_escaped_code() -> None:
+    text = "[" * 140 + r'"\x", "os.system\u0028cmd)"' + "]" * 140
+    selected = await select_sources(text)
+    assert selected.error == "semgrep.projection_limit_code"
+
+
+@pytest.mark.parametrize("layers", [1, 2])
+async def test_preflight_decodes_json_candidates_without_maps(layers: int) -> None:
+    from petasos.scanners._semgrep_source import preflight
+
+    text = r'"\u0065\u0076\u0061\u006c\u0028payload)"'
+    if layers == 2:
+        text = json.dumps(text)
+    assert await preflight(text)
+    assert (await select_sources(text)).targets

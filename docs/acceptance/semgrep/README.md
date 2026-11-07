@@ -60,3 +60,19 @@ results do not qualify S, and the runtime continues to retain ownership/capacity
 when cleanup cannot be confirmed. Native Apple Silicon, Python 3.11, hosted CI,
 and real Presidio/PromptGuard/Semgrep composition remain unverified. The latter
 now has an opt-in test requiring the actual backends and cached model assets.
+
+## Second code-review repairs
+
+Code-free JSON now bypasses engine queue admission after a bounded escaped-content
+preflight. Native lifecycle work uses the existing two owned workers so a slow
+CreateProcess call does not block the shared control loop. Windows launches use
+detached processes with explicit pipes; the Job Object still owns each process
+before it resumes. Native tests prove the simple child has no console-host member.
+A worker timeout retains capacity and cleanup failures survive cancellation.
+
+These changes do not yet establish stability: an intermediate required-engine run
+passed 203 tests and failed the descendant-holding-pipes cleanup gate. Earlier
+runs also recorded a probe prerequisite failure and an output-limit helper timeout.
+Twenty subsequent descendant diagnostics completed, but do not erase that failure.
+The runtime now retains bounded, source-free handle/accounting snapshots on failed
+cleanup. The two-second bound and all latency thresholds remain unchanged.

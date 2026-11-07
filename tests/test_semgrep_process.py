@@ -200,3 +200,72 @@ def test_posix_leader_is_reaped_only_after_last_group_signal(
         assert child.cleaned()
         child.terminate(force=True)
         assert events == ["signal", "reap"]
+
+
+async def test_slow_native_spawn_does_not_block_control_loop(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from concurrent.futures import ThreadPoolExecutor
+
+    from petasos.scanners import _semgrep_process as process
+    from petasos.scanners._semgrep_engine import run_owned_process
+
+    child_type = process._WindowsChild if sys.platform == "win32" else process._PosixChild
+    original = child_type.__init__
+    entered = threading.Event()
+    release = threading.Event()
+
+    def delayed(child: Any, *args: Any) -> None:
+        entered.set()
+        if not release.wait(3):
+            raise RuntimeError("test failed to release native constructor")
+        original(child, *args)
+
+    monkeypatch.setattr(child_type, "__init__", delayed)
+    cancelled = threading.Event()
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        task = asyncio.create_task(
+            run_owned_process(
+                [str(vars(sys)["_base_executable"]), "-c", "import time;time.sleep(30)"],
+                tmp_path,
+                time.monotonic() + 8,
+                cancelled,
+                executor,
+            )
+        )
+        try:
+            until = time.monotonic() + 1
+            while not entered.is_set() and time.monotonic() < until:
+                await asyncio.sleep(0.005)
+            assert entered.is_set()
+            # This coroutine can cancel and release a constructor which is
+            # blocked on a worker. Inline spawning cannot reach this point.
+            cancelled.set()
+        finally:
+            release.set()
+        result = await task
+        assert result.error == "semgrep.cancelled"
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="native Windows job membership")
+async def test_detached_child_has_no_console_host(tmp_path: Path) -> None:
+    from petasos.scanners._semgrep_process import _WindowsChild
+
+    child = _WindowsChild(
+        [str(vars(sys)["_base_executable"]), "-c", "import time;time.sleep(30)"],
+        tmp_path,
+    )
+    try:
+        await asyncio.sleep(0.3)
+        child._capture_descendants()
+        # No helper descendants are created, so any member other than the
+        # leader would be an unexpected runtime/console process.
+        assert not child._descendants
+    finally:
+        child.terminate(force=True)
+        end = time.monotonic() + 2
+        while not child.cleaned() and time.monotonic() < end:
+            await asyncio.sleep(0.005)
+        assert child.cleaned()
+        child.close()

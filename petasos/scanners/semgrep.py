@@ -333,7 +333,7 @@ class SemgrepScanner:
                 lease.tokens.add(token)
                 token._registered = True
         try:
-            candidate = await preflight(text) or text.lstrip().startswith(("{", "[", '"'))
+            candidate = await preflight(text)
             if lease is not None and candidate:
                 job = lease.runtime.submit(
                     lease,

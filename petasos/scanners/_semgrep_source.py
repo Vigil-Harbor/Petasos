@@ -153,7 +153,25 @@ async def preflight(text: str) -> bool:
     candidate = False
     for i in range(0, min(len(text), MAX_PARAM_TEXT_LEN), 8192):
         chunk = text[max(0, i - 256) : i + 8192]
-        candidate |= bool(_CANDIDATE.search(chunk) or "```" in chunk or "~~~" in chunk)
+        # Inspect escaped JSON content without building a tree or offset maps.
+        # Two decoding layers match projection; bounded overlapping chunks keep
+        # benign envelopes independent of the engine's admission queue.
+        for _layer in range(3):
+            candidate |= bool(
+                _CANDIDATE.search(chunk.replace('"', "\n")) or "```" in chunk or "~~~" in chunk
+            )
+            if candidate or "\\" not in chunk:
+                break
+            chunk = _ESCAPE.sub(
+                lambda m: (
+                    chr(int(m[0][2:], 16))
+                    if m[0].startswith("\\u")
+                    else {"b": "\b", "f": "\f", "n": "\n", "r": "\r", "t": "\t"}.get(
+                        m[0][1], m[0][1]
+                    )
+                ),
+                chunk,
+            )
         await asyncio.sleep(0)
     return candidate
 
@@ -238,7 +256,7 @@ async def _json_strings(
             if char != '"':
                 raise ValueError("JSON key")
             value, end = _scan_string(text, i + 1, True)
-            if _CANDIDATE.search(value) or _FENCE.search(value):
+            if await preflight(value):
                 if len(leaves) >= 4096:
                     raise ProjectionError("projection_limit_code")
                 leaves.append((i, end, len(frames) - 1))
@@ -250,20 +268,10 @@ async def _json_strings(
                 # Stop retaining stack frames, but examine every remaining
                 # string token (including escaped identifiers) before calling
                 # this a non-code depth limit. No recursive JSON tree.
-                code = bool(_CANDIDATE.search(text) or _FENCE.search(text))
-                cursor = 0
-                while cursor < len(text) and not code:
-                    quote = text.find('"', cursor)
-                    if quote < 0:
-                        break
-                    try:
-                        value, cursor = _scan_string(text, quote + 1, True)
-                    except ValueError:
-                        break
-                    code = bool(_CANDIDATE.search(value) or _FENCE.search(value))
-                    if cursor - yielded >= 8192:
-                        await asyncio.sleep(0)
-                        yielded = cursor
+                # Do not let malformed strings or quote alignment hide later
+                # escaped code. This is evidence of missing coverage, not a
+                # claim that the remaining document is valid JSON.
+                code = await preflight(text)
                 reasons.add("projection_limit_code" if code else "projection_depth_limit")
                 return leaves, reasons, clamps, i
             frames.append(
@@ -515,11 +523,13 @@ async def select_sources(
                 for a, b, depth in leaves:
                     if depth > 8:
                         raw = _scan_string(region.text, a + 1, True)[0]
-                        if _CANDIDATE.search(raw) or _FENCE.search(raw):
+                        if await preflight(raw):
                             raise ProjectionError("projection_limit_code")
                         selection.unsupported = True
                         selection.reasons.add("projection_depth_limit")
                         continue
+                    if not await preflight(_scan_string(region.text, a + 1, True)[0]):
+                        continue  # Proven non-candidate leaves need no source maps.
                     decoded = _decode_string(region, a, b, max_bytes, budget)
                     decoded.clamped |= any(x <= a and b <= y for x, y in clamps)
                     await project(decoded, layers + 1)

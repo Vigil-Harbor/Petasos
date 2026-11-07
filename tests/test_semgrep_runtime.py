@@ -365,6 +365,16 @@ async def test_projection_only_starts_in_two_admitted_active_slots(
                 )
             extra = await scanners[0].scan("eval(data)")
             assert extra.error == "semgrep.queue_full"
+            for benign in (
+                '{"title":"hello world","items":[1,2,3]}',
+                '{"title":"hello \\u0077orld","items":[]}',
+                '"hello world"',
+            ):
+                result = await asyncio.wait_for(scanners[0].scan(benign), 0.5)
+                assert result.error is None
+                assert require(result.coverage).status == "no_targets"
+            escaped = await scanners[0].scan('"\\u0065\\u0076\\u0061\\u006c\\u0028x)"')
+            assert escaped.error == "semgrep.queue_full"  # Code still needs admission.
         finally:
             with runtime.lock:
                 for job in [
@@ -397,3 +407,45 @@ def test_process_close_deadline_terminal_tokens_and_permanent_seal() -> None:
         [sys.executable, str(script)], capture_output=True, text=True, timeout=15
     )
     assert result.returncode == 0, result.stderr
+
+
+async def test_cancelled_native_worker_cleanup_failure_is_not_discarded() -> None:
+    import threading
+
+    from petasos.scanners._semgrep_engine import await_cpu
+    from petasos.scanners._semgrep_process import CleanupFailure
+
+    cancelled = threading.Event()
+    cancelled.set()
+    failure = CleanupFailure(object())  # type: ignore[arg-type]
+    worker: concurrent.futures.Future[Any] = concurrent.futures.Future()
+    worker.set_exception(failure)
+    with pytest.raises(CleanupFailure) as caught:
+        await await_cpu(
+            worker, time.monotonic() + 8, cancelled, rt.error_result("semgrep.cleanup_failed")
+        )
+    assert caught.value is failure
+
+
+async def test_stuck_native_worker_retains_future_after_cancellation() -> None:
+    import threading
+
+    from petasos.scanners import _semgrep_engine as engine
+
+    cancelled, release = threading.Event(), threading.Event()
+    cancelled.set()
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        worker = pool.submit(release.wait)
+        try:
+            with pytest.raises(engine.CpuCleanupFailure) as caught:
+                await engine.await_cpu(
+                    worker,
+                    time.monotonic() + 8,
+                    cancelled,
+                    rt.error_result("semgrep.cleanup_failed"),
+                )
+            assert caught.value.future is worker
+            assert not worker.done()
+        finally:
+            release.set()
+            await asyncio.wrap_future(worker)

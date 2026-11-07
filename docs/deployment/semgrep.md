@@ -153,6 +153,14 @@ caller's original input. Error adapters without a runtime use two separate bound
 applicability slots and never start an engine. Transient file locks are retried off
 the manager loop within the remaining two-second child/file cleanup budget.
 
+An escaped-content preflight keeps code-free JSON out of engine admission, even
+when the engine queue is saturated. Proven non-candidate JSON leaves need no
+offset maps. Native child creation, polling and termination run on the same two
+owned workers as other bounded work, so a slow native call cannot block the
+manager loop. A worker exceeding cleanup time retains its job and root. Windows
+children are detached from consoles with explicit stdio pipes and remain assigned
+to their Job Object before resuming; no console host is needed for scanner output.
+
 Scheduling keys are opaque identities: reuse the same object across rebuilds of a
 profile. Equality of distinct strings is insufficient. Each live lease retains its
 key object, preventing object-ID reuse while queued or active work still owns it.
@@ -170,7 +178,9 @@ Ingestion's per-backend coverage is read-only. Its additive field supports
 serializer (its existing mapping proxies cannot be generically deep-copied).
 
 CI verifies the downloaded wheel and extracted engine against the committed
-per-platform hashes in `scripts/semgrep_engine_pins.json`. The benchmark records
+per-platform hashes in `scripts/semgrep_engine_pins.json`.
+The isolated wheel install uses `--no-deps`; the Python wrapper's dependency tree
+is not used to run the pinned engine. The benchmark records
 commit/dirty state, Python/Petasos versions, runner image, hardware and engine/rule
 identities. It exercises dense code, both shared-owner and three-owner topologies,
 and cancellation replacements, with source-free stage timing summaries.
