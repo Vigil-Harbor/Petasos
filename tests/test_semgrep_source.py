@@ -213,3 +213,34 @@ async def test_sensitive_call_separators_survive_streaming(separator: str) -> No
     body = "eval/*" + "x" * 20000 + "*/(payload)"
     assert await preflight(body)
     assert (await select_sources(body)).targets
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "See the docs at example.com\nThanks!",
+        "Let me think...\nOK",
+        "Pick a fruit, e.g.\u00a0apples",
+        "I attached report.pdf\nand notes.",
+        "We should eval\nthe options",
+        "https://example.com",
+        "a.b",
+        "report.pdf\ufeff",
+    ],
+)
+async def test_prose_separators_do_not_admit_engine_work(body: str) -> None:
+    from petasos.scanners._semgrep_source import preflight
+
+    for text in (body, json.dumps(body), json.dumps({"value": body})):
+        assert not await preflight(text), text
+        assert not (await select_sources(text)).targets, text
+
+
+@pytest.mark.parametrize("space", ["\n", "\r\n", "\f", "\u00a0", "\ufeff"])
+async def test_long_unicode_call_gaps_and_declaration_anchors(space: str) -> None:
+    from petasos.scanners._semgrep_source import preflight
+
+    body = "prefix." + "method" * 1600 + space * 17000 + "(payload)"
+    assert await preflight(body)
+    assert await preflight(json.dumps(body))
+    assert await preflight("ordinary words\n" + space * 17000 + "\nimport os")

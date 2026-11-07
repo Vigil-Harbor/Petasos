@@ -288,6 +288,40 @@ class TestSemgrepRealEngine:
         assert all(span.status == "complete" for span in coverage.spans)
         assert "no_grammar_accepted" not in coverage.reasons
 
+    async def test_postfilter_failure_retains_engine_parse_coverage(
+        self, engine_root: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from petasos.scanners import _semgrep_engine as engine
+
+        original = engine.await_cpu
+
+        async def fail_postfilter(*args: Any, **kwargs: Any) -> Any:
+            if "cleanup_deadline" not in kwargs:
+                raise engine.CpuCleanupFailure(args[0], args[3])
+            return await original(*args, **kwargs)
+
+        monkeypatch.setattr(engine, "await_cpu", fail_postfilter)
+        with (
+            ThreadPoolExecutor(max_workers=2) as executor,
+            pytest.raises(engine.CpuCleanupFailure) as caught,
+        ):
+            await scan_selected(
+                await select_sources("eval(payload)"),
+                os.environ["SEMGREP_ENGINE_PATH"],
+                engine_root,
+                time.monotonic() + 8,
+                threading.Event(),
+                executor,
+            )
+        retained = caught.value.outcome
+        coverage = require(retained.coverage)
+        assert retained.error == "semgrep.cleanup_failed"
+        assert coverage.status == "error"
+        assert coverage.completed_target_count == 1
+        assert all(span.status == "complete" for span in coverage.spans)
+        assert "no_grammar_accepted" not in coverage.reasons
+        assert len(retained.findings) == 1
+
     @pytest.mark.skipif(os.name != "nt", reason="native Windows job membership")
     async def test_real_engine_has_no_console_descendants(
         self,

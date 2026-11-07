@@ -19,6 +19,14 @@ from petasos.scanners.semgrep import SemgrepLifecycleOwner, SemgrepScanner
 from tests._semgrep_helpers import require
 
 
+async def _bounded_result(task: asyncio.Task[Any]) -> Any:
+    # wait_for cancels its target and can itself hang on cancellation-resistant
+    # ownership code. Inspect completion without cancelling the target instead.
+    done, _ = await asyncio.wait({task}, timeout=1)
+    assert task in done, "controlled-clock regression did not terminate"
+    return task.result()
+
+
 @pytest.fixture
 def fake_engine(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     monkeypatch.setattr("petasos.scanners.semgrep.supported_platform", lambda: True)
@@ -482,7 +490,7 @@ async def test_native_cleanup_uses_worker_deadline_without_reset(
     await asyncio.sleep(0.02)
     assert not task.done()  # The supervisor's independent 2.0 deadline is gone.
     worker.set_result(42)
-    result = await task
+    result = await _bounded_result(task)
     assert result.error == "semgrep.cancelled"
 
 
@@ -512,7 +520,7 @@ async def test_native_cleanup_reported_deadline_is_not_extended(
     clock[0] = 1.01
     try:
         with pytest.raises(engine.CpuCleanupFailure) as caught:
-            await task
+            await _bounded_result(task)
         assert caught.value.future is worker
     finally:
         worker.set_result(42)
@@ -522,6 +530,7 @@ async def test_native_cleanup_reported_deadline_is_not_extended(
 async def test_scan_cancellation_observes_constructor_and_cleanup_caps(
     monkeypatch: pytest.MonkeyPatch, reported: float | None, end: float
 ) -> None:
+    """Caller/glue test, not runtime E2E; report is constant, not late-published."""
     from types import SimpleNamespace
 
     from petasos.scanners import _semgrep_engine as engine
@@ -559,14 +568,16 @@ async def test_scan_cancellation_observes_constructor_and_cleanup_caps(
     assert not caller.done()
     clock[0] = end
     try:
-        await producer
+        await _bounded_result(producer)
         with pytest.raises(asyncio.CancelledError):
-            await caller
+            await _bounded_result(caller)
         assert require(job.cpu_failure).future is worker
         assert not worker.done()  # Terminal error does not release native ownership.
         assert clock[0] <= 4
     finally:
         worker.set_result(42)
+        if not job.future.done():
+            job.future.set_result(rt.error_result("semgrep.cleanup_failed"))
 
 
 async def test_late_timeout_observation_cannot_move_request_cleanup_ceiling(
@@ -590,9 +601,12 @@ async def test_late_timeout_observation_cannot_move_request_cleanup_ceiling(
         )
     )
     await asyncio.sleep(0.02)
+    clock[0] = 11.99
+    await asyncio.sleep(0.02)
+    assert not task.done()
     clock[0] = 12
     try:
         with pytest.raises(engine.CpuCleanupFailure):
-            await task
+            await _bounded_result(task)
     finally:
         worker.set_result(42)

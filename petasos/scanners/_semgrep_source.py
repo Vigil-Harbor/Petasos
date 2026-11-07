@@ -30,11 +30,10 @@ _LABELS = {
 }
 _CANDIDATE = re.compile(
     r"\b[A-Za-z_$][\w.$]*\("
-    # A comment or non-horizontal whitespace may separate a sensitive callee
-    # from its arguments. Admit at the separator's start: comments can exceed
-    # the bounded streaming carry, and only the engine decides whether it calls.
+    # Whitespace alone does not make a call. Admit at comment openers because
+    # comments can exceed the carry; the engine decides whether they call.
     r"|\b(?:eval|exec|Function|[A-Za-z_$][\w$]*\.[\w.$]+)"
-    r"(?:[ \t]+\(|[ \t]*(?:[^\S \t]|\ufeff|/\*|//))"
+    r"(?:[\s\ufeff]+\(|[\s\ufeff]*(?:/\*|//))"
     r"|(?m:^[ \t]*(?:from[ \t]+\S+[ \t]+import|import|class|def|async[ \t]+def"
     r"|function|const|let|var)\b)"
 )
@@ -152,8 +151,8 @@ def validate_envelope(
     return tuple(checked), total
 
 
-_SPACE_RUN = re.compile(r"[ \t]+")
-_TRAILING_WORD = re.compile(r"(?<![\w.$])[\w.$]+ ?$")
+_SPACE_RUN = re.compile(r"[\s\ufeff]+")
+_TRAILING_WORD = re.compile(r"(?<![\w.$])[\w.$]+[ \n]?$")
 
 
 def _unescape(match: re.Match[str]) -> str:
@@ -192,13 +191,19 @@ async def preflight(text: str) -> bool:
                         break
                 pending[layer - 1] = encoded[cut:]
                 chunk = _ESCAPE.sub(_unescape, encoded[:cut])
-            window = _SPACE_RUN.sub(" ", tails[layer] + chunk.replace('"', "\n"))
+            # Preserve a newline in each run for the declaration alternative's
+            # line anchor, while keeping arbitrarily long call gaps bounded.
+            window = _SPACE_RUN.sub(
+                lambda match: "\n" if "\n" in match[0] else " ",
+                tails[layer] + chunk.replace('"', "\n"),
+            )
             if _CANDIDATE.search(window) or "```" in window or "~~~" in window:
                 return True
             word = _TRAILING_WORD.search(window)
             if word is not None and len(word[0]) > 128:
                 sentinel = "x.y" if "." in word[0] else "x"
-                window = window[: word.start()] + sentinel + (" " if word[0].endswith(" ") else "")
+                suffix = word[0][-1] if word[0].endswith((" ", "\n")) else ""
+                window = window[: word.start()] + sentinel + suffix
             tails[layer] = window[-256:]
         await asyncio.sleep(0)
     return False

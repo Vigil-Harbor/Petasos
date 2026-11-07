@@ -12,6 +12,7 @@ import re
 import threading
 import time
 from dataclasses import dataclass
+from itertools import chain
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
@@ -415,23 +416,29 @@ async def scan_selected(
     completed: set[int] = set()
     error = selection.error
 
-    def assemble(failure: str | None) -> ScanResult:
+    def assemble(
+        failure: str | None,
+        current: dict[int, list[ScanFinding]] | None = None,
+        accepted: set[int] | None = None,
+    ) -> ScanResult:
         findings: dict[tuple[str, int, int], ScanFinding] = {}
-        for candidates in all_findings.values():
-            for _full, finding in candidates:
-                assert finding.position is not None
-                key = (
-                    finding.rule_id.rsplit(".", 1)[-1],
-                    finding.position.start,
-                    finding.position.end,
-                )
-                findings.setdefault(key, finding)
+        for finding in chain(
+            (f for candidates in all_findings.values() for _full, f in candidates),
+            (f for candidates in (current or {}).values() for f in candidates),
+        ):
+            assert finding.position is not None
+            key = (
+                finding.rule_id.rsplit(".", 1)[-1],
+                finding.position.start,
+                finding.position.end,
+            )
+            findings.setdefault(key, finding)
         if len(findings) > 256:
             failure = failure or "semgrep.output_limit"
         return result_for(
             selection,
             tuple(list(findings.values())[:256]),
-            completed,
+            completed | (accepted or set()),
             failure,
             (time.monotonic() - start) * 1000,
         )
@@ -527,12 +534,11 @@ async def scan_selected(
                     dynamic = [f for f in items if f.rule_id.endswith("python.dynamic_code")]
                     try:
                         worker = executor.submit(_local_functions, batch[i].region.text)
-                        retained = tuple(f for values in found.values() for f in values)
                         cpu_result = await await_cpu(
                             worker,
                             deadline,
                             cancelled,
-                            result_for(selection, retained, error="semgrep.cleanup_failed"),
+                            assemble("semgrep.cleanup_failed", found, parsed),
                         )
                         excluded, cpu_error = cpu_result.value, cpu_result.error
                         error = error or cpu_error
