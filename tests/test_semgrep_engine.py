@@ -322,6 +322,11 @@ class TestSemgrepRealEngine:
         assert "no_grammar_accepted" not in coverage.reasons
         assert len(retained.findings) == 1
 
+
+@pytest.mark.skipif(not os.environ.get("SEMGREP_ENGINE_PATH"), reason="isolated engine required")
+class TestSemgrepWindowsEngine:
+    """Windows-only containment evidence, separate from cross-platform detection."""
+
     @pytest.mark.skipif(os.name != "nt", reason="native Windows job membership")
     async def test_real_engine_has_no_console_descendants(
         self,

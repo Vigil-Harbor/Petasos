@@ -334,6 +334,19 @@ NONSKIPPING_LANES: tuple[NonSkippingLane, ...] = (
     NonSkippingLane(
         "semgrep", "PETASOS_REQUIRE_SEMGREP", "psutil", "TestSemgrepHeldOut", "extras-semgrep"
     ),
+    *(
+        (
+            NonSkippingLane(
+                "semgrep",
+                "PETASOS_REQUIRE_SEMGREP",
+                "psutil",
+                "TestSemgrepWindowsEngine",
+                "extras-semgrep",
+            ),
+        )
+        if os.name == "nt"
+        else ()
+    ),
     NonSkippingLane(
         "llm-guard",
         "PETASOS_REQUIRE_LLM_GUARD",
