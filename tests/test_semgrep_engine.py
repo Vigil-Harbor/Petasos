@@ -29,6 +29,110 @@ class TestSemgrepRealEngine:
     @pytest.mark.parametrize(
         "source,family",
         [
+            ("        import os\n        os.system(cmd)\n", "shell"),
+            ("\n    # comment\n    import pickle\n    pickle.loads(data)\n", "deserialization"),
+            ("    import yaml\n    yaml.unsafe_load(data)\n", "unsafe_yaml"),
+            ("    @decorator\n    def method(self):\n        return eval(data)\n", "dynamic_code"),
+            ("eval (payload)", "dynamic_code"),
+            (
+                '{"a":"import os\\nos.system(cmd)","b":' + "[" * 140 + "0" + "]" * 140 + "}",
+                "shell",
+            ),
+        ],
+    )
+    async def test_review_false_clear_regressions(
+        self,
+        source: str,
+        family: str,
+        engine_root: Path,
+    ) -> None:
+        selection = await select_sources(source)
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            result = await scan_selected(
+                selection,
+                os.environ["SEMGREP_ENGINE_PATH"],
+                engine_root,
+                time.monotonic() + 8,
+                threading.Event(),
+                executor,
+            )
+        assert any(f.rule_id.endswith("." + family) for f in result.findings), result
+        if '"b":' in source:
+            assert result.error == "semgrep.projection_limit_code"
+        else:
+            assert result.error is None, result
+
+    @pytest.mark.parametrize(
+        "source",
+        [
+            "The scanner (see below) reports results (if any).",
+            "Please call me (maybe) tomorrow, thanks.",
+            "calls(x) and then some ordinary prose without valid syntax",
+        ],
+    )
+    async def test_prose_never_claims_completed_grammar(
+        self, source: str, engine_root: Path
+    ) -> None:
+        selection = await select_sources(source)
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            result = await scan_selected(
+                selection,
+                os.environ["SEMGREP_ENGINE_PATH"],
+                engine_root,
+                time.monotonic() + 8,
+                threading.Event(),
+                executor,
+            )
+        assert require(result.coverage).status != "complete", result
+        assert result.error is None, result
+
+    @pytest.mark.parametrize("separator", ["\x0c", "\u2028", "\r\n", "\r"])
+    async def test_local_exclusion_preserves_real_builtin_offset(
+        self,
+        separator: str,
+        engine_root: Path,
+    ) -> None:
+        source = (
+            "# a"
+            + separator
+            + "# b"
+            + separator
+            + "# c\neval(payload)\ndef eval(a): pass\neval(b)\n"
+        )
+        selection = await select_sources("```python\n" + source + "```")
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            result = await scan_selected(
+                selection,
+                os.environ["SEMGREP_ENGINE_PATH"],
+                engine_root,
+                time.monotonic() + 8,
+                threading.Event(),
+                executor,
+            )
+        starts = {require(f.position).start for f in result.findings}
+        assert source.index("eval(payload)") + len("```python\n") in starts, result
+        assert source.index("eval(b)") + len("```python\n") not in starts, result
+
+    async def test_dense_python_within_source_limit_is_not_postfilter_error(
+        self, engine_root: Path
+    ) -> None:
+        source = "```python\nDATA = [" + "0," * 55000 + "]\n```"
+        selection = await select_sources(source)
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            result = await scan_selected(
+                selection,
+                os.environ["SEMGREP_ENGINE_PATH"],
+                engine_root,
+                time.monotonic() + 8,
+                threading.Event(),
+                executor,
+            )
+        assert result.error is None, result
+        assert require(result.coverage).status == "complete", result
+
+    @pytest.mark.parametrize(
+        "source,family",
+        [
             ("eval(user_input)", "dynamic_code"),
             ("import os\nos.system(command)", "shell"),
             ("import pickle\npickle.loads(data)", "deserialization"),

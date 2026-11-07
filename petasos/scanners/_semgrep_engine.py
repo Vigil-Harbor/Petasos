@@ -8,6 +8,7 @@ import contextlib
 import hashlib
 import json
 import os
+import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -154,8 +155,6 @@ def _local_functions(text: str) -> set[tuple[int, int]]:
     proofs of a harmless local function. Retain matches for those cases.
     """
     tree = ast.parse(text)
-    if sum(1 for _ in ast.walk(tree)) > 20000:
-        raise ProtocolError("postfilter_limit")
     excluded: set[tuple[int, int]] = set()
 
     def visit_body(body: list[ast.stmt]) -> None:
@@ -390,6 +389,8 @@ async def scan_selected(
                     "-targets",
                     str(targets),
                     "-json",
+                    "-no_filter_irrelevant_rules",
+                    "-no_filter_irrelevant_patterns",
                     "-j",
                     "1",
                     "-timeout",
@@ -436,8 +437,10 @@ async def scan_selected(
                             break
                         if excluded and dynamic:
                             offsets = [0]
-                            for line in batch[i].region.text.splitlines(keepends=True):
-                                offsets.append(offsets[-1] + len(line.encode("utf-8")))
+                            for line in re.finditer(
+                                r"[^\r\n]*(?:\r\n|\r|\n)|[^\r\n]+$", batch[i].region.text
+                            ):
+                                offsets.append(offsets[-1] + len(line.group().encode("utf-8")))
                             raw = batch[i].region.text.encode("utf-8")
                             locations = set()
                             for line_number, col in excluded:
@@ -465,10 +468,8 @@ async def scan_selected(
     except ProtocolError as exc:
         error = "semgrep." + str(exc)
     findings: dict[tuple[str, int, int], ScanFinding] = {}
-    for i, candidates in all_findings.items():
-        for full, finding in candidates:
-            if i in completed and not full:
-                continue
+    for candidates in all_findings.values():
+        for _full, finding in candidates:
             assert finding.position is not None
             key = (
                 finding.rule_id.rsplit(".", 1)[-1],

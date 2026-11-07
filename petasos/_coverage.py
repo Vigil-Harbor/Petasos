@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from collections.abc import Iterator, Mapping
+from copy import deepcopy
+from dataclasses import asdict, dataclass
+from types import MappingProxyType
 from typing import Any, Literal
 
 CoverageStatus = Literal["complete", "no_targets", "unsupported", "partial", "error"]
@@ -101,3 +104,31 @@ class ScanCoverage:
             spans=tuple(CoverageSpan(**s) for s in data.get("spans", ())),
             reasons=tuple(data.get("reasons", ())),
         )
+
+
+class FrozenCoverageMapping(Mapping[str, ScanCoverage]):
+    """Read-only result mapping preserving ingestion's dataclasses.asdict contract."""
+
+    __slots__ = ("_data",)
+    _data: Mapping[str, ScanCoverage]
+
+    def __init__(self, values: Mapping[str, ScanCoverage]) -> None:
+        object.__setattr__(self, "_data", MappingProxyType(dict(values)))
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        raise TypeError("coverage mapping is immutable")
+
+    def __getitem__(self, key: str) -> ScanCoverage:
+        return self._data[key]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._data)
+
+    def __len__(self) -> int:
+        return len(self._data)
+
+    def __repr__(self) -> str:
+        return repr(dict(self._data))
+
+    def __deepcopy__(self, memo: dict[int, Any]) -> dict[str, Any]:
+        return {key: deepcopy(asdict(value), memo) for key, value in self._data.items()}

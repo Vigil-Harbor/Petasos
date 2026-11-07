@@ -5,13 +5,24 @@ from __future__ import annotations
 import argparse
 import asyncio
 import hashlib
+import importlib.metadata
+import inspect
 import json
 import os
 import platform
 import statistics
+import subprocess
+import threading
 import time
+from collections import defaultdict
+from contextlib import ExitStack
+from functools import wraps
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+from unittest.mock import patch
 
 from petasos.scanners._semgrep_source import preflight
 from petasos.scanners.semgrep import SemgrepLifecycleOwner, SemgrepScanner
@@ -28,34 +39,128 @@ def summary(values: list[float]) -> dict[str, float | int]:
     }
 
 
-async def measure(runs: int) -> dict[str, Any]:
+class StageTimings:
+    """Benchmark-only wrappers; store durations, never arguments/source text."""
+
+    def __init__(self) -> None:
+        self.values: dict[str, list[float]] = defaultdict(list)
+        self.lock = threading.Lock()
+
+    def wrap(self, name: str, function: Callable[..., Any]) -> Callable[..., Any]:
+        def record(start: float) -> None:
+            with self.lock:
+                self.values[name].append(time.monotonic() - start)
+
+        if inspect.iscoroutinefunction(function):
+
+            @wraps(function)
+            async def asynchronous(*args: Any, **kwargs: Any) -> Any:
+                started = time.monotonic()
+                try:
+                    return await function(*args, **kwargs)
+                finally:
+                    record(started)
+
+            return asynchronous
+
+        @wraps(function)
+        def synchronous(*args: Any, **kwargs: Any) -> Any:
+            started = time.monotonic()
+            try:
+                return function(*args, **kwargs)
+            finally:
+                record(started)
+
+        return synchronous
+
+    def install(self, stack: ExitStack) -> None:
+        from petasos.scanners import _semgrep_engine as engine
+        from petasos.scanners import _semgrep_process as process
+        from petasos.scanners import _semgrep_runtime as runtime
+
+        child = process._WindowsChild if os.name == "nt" else process._PosixChild
+        for owner, attribute, stage in (
+            (runtime.Runtime, "_verify_identity", "identity"),
+            (runtime.Runtime, "_new_root", "root_creation"),
+            (runtime, "select_sources", "projection"),
+            (runtime, "remove_root", "root_cleanup"),
+            (engine, "scan_selected", "engine_scan"),
+            (runtime, "scan_selected", "engine_scan"),
+            (engine, "strict_output", "output_decode"),
+            (engine, "_local_functions", "python_postfilter"),
+            (engine, "run_process", "child_total"),
+            (child, "__init__", "spawn"),
+            (child, "poll", "poll"),
+            (child, "read", "pipe_read"),
+            (child, "terminate", "terminate"),
+            (child, "cleaned", "reap_check"),
+        ):
+            stack.enter_context(
+                patch.object(owner, attribute, self.wrap(stage, getattr(owner, attribute)))
+            )
+
+
+def revision() -> dict[str, Any]:
+    root = Path(__file__).resolve().parents[1]
+
+    def git(*args: str) -> str:
+        return subprocess.check_output(["git", "-C", str(root), *args], text=True).strip()
+
+    return {
+        "commit": git("rev-parse", "HEAD"),
+        "tracked_dirty": bool(git("status", "--porcelain", "--untracked-files=no")),
+        "python_version": platform.python_version(),
+        "petasos_version": importlib.metadata.version("petasos"),
+        "runner_image": os.environ.get("ImageOS", "local"),  # noqa: SIM112 (GitHub runner spelling)
+        "runner_image_version": os.environ.get("ImageVersion", "local"),  # noqa: SIM112
+    }
+
+
+async def measure(runs: int, records: dict[str, Any]) -> dict[str, Any]:
     import psutil
 
     engine = os.environ["SEMGREP_ENGINE_PATH"]
     with open(engine, "rb") as stream:
         digest = hashlib.file_digest(stream, "sha256").hexdigest()
     rules = Path(__file__).resolve().parents[1] / "petasos/scanners/semgrep_rules/rules.json"
-    records: dict[str, Any] = {
-        "schema_version": 1,
-        "engine_version": "1.183.0",
-        "engine_sha256": digest,
-        "rules_sha256": hashlib.sha256(rules.read_bytes()).hexdigest(),
-        "hardware": {
-            "architecture": platform.machine(),
-            "os": platform.platform(),
-            "cpu": platform.processor(),
-            "logical_cores": os.cpu_count(),
-            "ram_bytes": psutil.virtual_memory().total,
-        },
-        "workloads": {},
-    }
+    records.update(
+        {
+            "schema_version": 1,
+            "implementation": revision(),
+            "engine_version": "1.183.0",
+            "engine_sha256": digest,
+            "rules_sha256": hashlib.sha256(rules.read_bytes()).hexdigest(),
+            "hardware": {
+                "architecture": platform.machine(),
+                "os": platform.platform(),
+                "cpu": platform.processor(),
+                "logical_cores": os.cpu_count(),
+                "ram_bytes": psutil.virtual_memory().total,
+            },
+            "workloads": {},
+        }
+    )
 
     def source(size: int) -> str:
         tail = "\neval(payload)\n"
-        return "#" + "p" * (size - len(tail) - 1) + tail
+        lines = ["import json\n"]
+        used = len(lines[0])
+        index = 0
+        while True:
+            line = f"value_{index:04d} = json.loads(payload).get('value', 0)\n"
+            if used + len(line) + len(tail) + 2 > size:
+                break
+            lines.append(line)
+            used += len(line)
+            index += 1
+        return "".join(lines) + "#" + "p" * (size - used - len(tail) - 1) + tail
 
     cold_started = time.monotonic()
-    async with SemgrepLifecycleOwner() as owner:
+    async with (
+        SemgrepLifecycleOwner() as owner,
+        SemgrepLifecycleOwner() as second,
+        SemgrepLifecycleOwner() as third,
+    ):
         scanners = [
             SemgrepScanner(
                 owner=owner,
@@ -103,21 +208,32 @@ async def measure(runs: int) -> dict[str, Any]:
             values = [await scan(0, text, spans) for _ in range(runs)]
             records["workloads"][name] = summary(values)
             print(name, json.dumps(records["workloads"][name]), flush=True)
-        for distribution in ((3, 3, 2), (4, 2, 2), (8, 0, 0)):
-            values = []
-            for _ in range(max(2, runs // 10)):
-                values.extend(
-                    await asyncio.gather(
-                        *(
-                            scan(index, single, None)
-                            for index, count in enumerate(distribution)
-                            for _ in range(count)
+        for topology in ("shared_owner", "three_owners"):
+            if topology == "three_owners":
+                scanners = [
+                    SemgrepScanner(
+                        owner=scope,
+                        engine_path=engine,
+                        engine_sha256=digest,
+                        semgrep_scheduling_key=object(),
+                    )
+                    for scope in (owner, second, third)
+                ]
+            for distribution in ((3, 3, 2), (4, 2, 2), (8, 0, 0)):
+                values = []
+                for _ in range(max(2, runs // 10)):
+                    values.extend(
+                        await asyncio.gather(
+                            *(
+                                scan(index, single, None)
+                                for index, count in enumerate(distribution)
+                                for _ in range(count)
+                            )
                         )
                     )
-                )
-            name = "eight_wide_" + "_".join(map(str, distribution))
-            records["workloads"][name] = summary(values)
-            print(name, json.dumps(records["workloads"][name]), flush=True)
+                name = "eight_wide_" + topology + "_" + "_".join(map(str, distribution))
+                records["workloads"][name] = summary(values)
+                print(name, json.dumps(records["workloads"][name]), flush=True)
         values = []
         lease = scanners[0]._lease
         assert lease is not None
@@ -177,7 +293,25 @@ def main() -> None:
     args = parser.parse_args()
     if args.runs < 100:
         parser.error("qualification measurements require at least 100 runs")
-    result = asyncio.run(measure(args.runs))
+    stages = StageTimings()
+    result: dict[str, Any] = {}
+    with ExitStack() as stack:
+        stages.install(stack)
+        try:
+            asyncio.run(measure(args.runs, result))
+        except Exception as exc:
+            # Preserve partial workloads and stage timings on functional failure
+            # as well as on a missed latency threshold. Never certify this run.
+            result["measurement_error"] = type(exc).__name__ + ": " + str(exc)
+            result["gate_failures"] = ["measurement did not complete"]
+    result["stage_durations_seconds"] = {
+        name: summary(values) for name, values in stages.values.items()
+    }
+    result["workload_description"] = (
+        "dense Python JSON transforms and one eval; equal-size raw parts"
+    )
+    if result.get("implementation", {}).get("tracked_dirty", True):
+        result["gate_failures"].append("tracked working tree is dirty")
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
     if result["gate_failures"]:

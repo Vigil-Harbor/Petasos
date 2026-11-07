@@ -31,3 +31,32 @@ behavior only. Detector evidence uses the pinned real engine and a separate
 Remaining release work includes native resource/performance gates, the supported
 Hermes cleanup callback, durable reporting, host warning delivery and both
 8-hour real-host soaks. Package S does not enable the backend in Hermes.
+
+## First code-review repairs (not qualification)
+
+The repair candidate forces real parsing in every selected grammar, retains
+findings across partial parses, projects indented fragments and earlier JSON
+leaves, and admits work before allocating projection maps. It also consumes the
+qualification manifest and pins both downloaded engine wheels and engine bytes.
+The measurement script now records revision/environment identity, uses dense code,
+exercises three owners, and saves stage timings and partial failed measurements.
+
+Windows Python 3.14 verification during this repair pass:
+
+- The broad regression run passed 3,514 tests, with 186 optional skips and one
+  expected failure. This preceded the final additional regression fixtures.
+- The subsequent required-engine run passed 198 tests and failed the native
+  long-running-child cancellation test: cleanup exceeded its two-second budget.
+  Five isolated repeats passed, but a separate 60-cancellation diagnostic
+  reproduced one cleanup failure. Its original owned process handle signaled
+  before the deadline; complete cleanup confirmation arrived later. The cause
+  remains unresolved. This is a failed stability gate, not an accepted flake.
+- Indented patch fragments across all four affected Python rule families, deep
+  JSON with earlier code, Python line-boundary postfilter regressions, and the
+  qualification fallback are covered by the passing required-engine cases.
+
+The two-second cleanup budget and all latency limits remain unchanged. These
+results do not qualify S, and the runtime continues to retain ownership/capacity
+when cleanup cannot be confirmed. Native Apple Silicon, Python 3.11, hosted CI,
+and real Presidio/PromptGuard/Semgrep composition remain unverified. The latter
+now has an opt-in test requiring the actual backends and cached model assets.

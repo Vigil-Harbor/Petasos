@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any
 
 from petasos._limits import MAX_PARAM_TEXT_LEN
 from petasos.scanners._semgrep_engine import result_for
+from petasos.scanners._semgrep_qualification import qualification_warning
 from petasos.scanners._semgrep_runtime import (
     Job,
     Lease,
@@ -30,7 +31,13 @@ from petasos.scanners._semgrep_runtime import (
     close_semgrep_runtime,
     error_result,
 )
-from petasos.scanners._semgrep_source import ProjectionError, select_sources, validate_envelope
+from petasos.scanners._semgrep_source import (
+    ProjectionError,
+    Selection,
+    preflight,
+    select_sources,
+    validate_envelope,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -55,6 +62,9 @@ def supported_platform() -> bool:
 
 def monitor_available() -> bool:
     return importlib.util.find_spec("psutil") is not None
+
+
+_UNAVAILABLE_PROJECTION_SLOTS = threading.BoundedSemaphore(2)
 
 
 class SemgrepLifecycleOwner:
@@ -130,9 +140,14 @@ class PreparedSemgrepScan:
     @staticmethod
     def _evidence(text: str) -> tuple[int, bytes]:
         # The tail beyond the examination ceiling is explicitly unexamined.
-        return len(text), hashlib.sha256(
-            text[:MAX_PARAM_TEXT_LEN].encode("utf-8", errors="surrogatepass")
-        ).digest()
+        digest = hashlib.sha256()
+        for start in range(0, min(len(text), MAX_PARAM_TEXT_LEN), 8192):
+            digest.update(
+                text[start : min(start + 8192, MAX_PARAM_TEXT_LEN)].encode(
+                    "utf-8", errors="surrogatepass"
+                )
+            )
+        return len(text), digest.digest()
 
     def matches_input(self, binding: object, text: str) -> bool:
         with self._lock:
@@ -223,13 +238,9 @@ class SemgrepScanner:
             raise ValueError("semgrep.invalid_timeout")
         if type(max_source_bytes) is not int or not 4096 <= max_source_bytes <= 131072:
             raise ValueError("semgrep.invalid_source_limit")
-        self.qualification_warning = (
-            "deadline_below_qualified_load" if request_timeout_seconds < 8 else None
-        )
+        self.qualification_warning = qualification_warning(request_timeout_seconds, engine_sha256)
         if self.qualification_warning:
-            logging.getLogger(__name__).warning(
-                "Semgrep deadline is below the unqualified eight-request load budget"
-            )
+            logging.getLogger(__name__).warning(self.qualification_warning)
         self._owner = owner
         self._closed = False
         self._lease: Lease | None = None
@@ -252,7 +263,7 @@ class SemgrepScanner:
             else:
                 key = object() if semgrep_scheduling_key is None else semgrep_scheduling_key
                 # Identity is opaque; user-defined equality/hash is never called.
-                acquired = acquire(self.settings, (id(owner), id(key)))
+                acquired = acquire(self.settings, (id(owner), id(key)), scheduling_identity=key)
                 self._key = key
                 if isinstance(acquired, str):
                     self._error = acquired
@@ -322,21 +333,15 @@ class SemgrepScanner:
                 lease.tokens.add(token)
                 token._registered = True
         try:
-            selected = await select_sources(
-                text,
-                segments=segments,
-                total=upstream_total_chars,
-                max_bytes=self.settings.max_bytes,
-            )
-            if self._is_closed():
-                token._set_result(error_result("semgrep.lease_closed"))
-            elif not selected.targets:
-                token._set_result(result_for(selected))
-            elif self._error or _refusal:
-                token._set_result(result_for(selected, error=self._error or _refusal))
-            else:
-                assert lease is not None
-                job = lease.runtime.submit(lease, selected, start + self.settings.timeout)
+            candidate = await preflight(text) or text.lstrip().startswith(("{", "[", '"'))
+            if lease is not None and candidate:
+                job = lease.runtime.submit(
+                    lease,
+                    Selection(total=upstream_total_chars or len(text)),
+                    start + self.settings.timeout,
+                    source=(text, segments, upstream_total_chars),
+                    refusal=_refusal,
+                )
                 token._job = job
 
                 def completed(future: Any) -> None:
@@ -346,6 +351,33 @@ class SemgrepScanner:
 
                 job.future.add_done_callback(completed)
                 await await_job(job)
+            else:
+                # Broken installations have no runtime or lease. Bound their
+                # applicability projection too, without creating an engine owner.
+                acquired = False
+                if candidate:
+                    while not _UNAVAILABLE_PROJECTION_SLOTS.acquire(blocking=False):
+                        if self._is_closed() or time.monotonic() >= start + self.settings.timeout:
+                            token._set_result(error_result("semgrep.queue_deadline"))
+                            return token
+                        await asyncio.sleep(0.005)
+                    acquired = True
+                try:
+                    selected = await select_sources(
+                        text,
+                        segments=segments,
+                        total=upstream_total_chars,
+                        max_bytes=self.settings.max_bytes,
+                    )
+                finally:
+                    if acquired:
+                        _UNAVAILABLE_PROJECTION_SLOTS.release()
+                if self._is_closed():
+                    token._set_result(error_result("semgrep.lease_closed"))
+                elif not selected.targets:
+                    token._set_result(result_for(selected))
+                else:
+                    token._set_result(result_for(selected, error=self._error or _refusal))
             if lease is None:
                 token._text = None
             if token._job is None and _on_complete is not None:

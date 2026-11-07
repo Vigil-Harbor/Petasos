@@ -7,6 +7,7 @@ on:
       - "tests/fixtures/semgrep/**"
       - "tests/conftest.py"
       - "scripts/semgrep_ci_install.py"
+      - "scripts/semgrep_engine_pins.json"
       - "scripts/semgrep_benchmark.py"
       - "pyproject.toml"
       - ".github/workflows/extras-semgrep.yml"
@@ -32,7 +33,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - run: pip install -e ".[semgrep,dev]"
       - run: python scripts/semgrep_ci_install.py ${{ matrix.arch }}
-      - run: pytest tests/test_semgrep_engine.py tests/test_semgrep_source.py tests/test_semgrep_protocol.py tests/test_semgrep_process.py tests/test_semgrep_runtime.py tests/test_semgrep_composition.py -v --tb=short
+      - run: pytest tests/test_semgrep_engine.py tests/test_semgrep_source.py tests/test_semgrep_protocol.py tests/test_semgrep_process.py tests/test_semgrep_runtime.py tests/test_semgrep_composition.py tests/test_semgrep_qualification.py -v --tb=short
       - name: Measure native component latency gates
         if: matrix.python-version == '3.14'
         run: python scripts/semgrep_benchmark.py --runs 100 --output semgrep-component.json

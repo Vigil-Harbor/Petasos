@@ -1,10 +1,12 @@
 """CI-only isolated installation; never imported by the shipped adapter."""
 
 import hashlib
+import json
 import os
 import platform
 import subprocess
 import sys
+import urllib.request
 from pathlib import Path
 
 
@@ -16,7 +18,14 @@ def main() -> None:
     root = Path(os.environ["RUNNER_TEMP"]) / "petasos-semgrep-engine"
     subprocess.run([sys.executable, "-m", "venv", str(root)], check=True)
     executable = root / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
-    subprocess.run([str(executable), "-m", "pip", "install", "semgrep==1.183.0"], check=True)
+    pins = json.loads(Path(__file__).with_name("semgrep_engine_pins.json").read_text())
+    identity = pins["platforms"]["windows_x64" if os.name == "nt" else "macos_arm64"]
+    artifact = root / identity["filename"]
+    urllib.request.urlretrieve(identity["url"], artifact)
+    with artifact.open("rb") as stream:
+        if hashlib.file_digest(stream, "sha256").hexdigest() != identity["wheel_sha256"]:
+            raise SystemExit("Pinned Semgrep wheel integrity mismatch")
+    subprocess.run([str(executable), "-m", "pip", "install", str(artifact)], check=True)
     # Ask the isolated interpreter for its own package location, not Petasos'.
     location = subprocess.check_output(
         [
@@ -29,6 +38,8 @@ def main() -> None:
     engine = Path(location) / ("semgrep-core.exe" if os.name == "nt" else "semgrep-core")
     with engine.open("rb") as stream:
         digest = hashlib.file_digest(stream, "sha256").hexdigest()
+    if digest != identity["engine_sha256"]:
+        raise SystemExit("Pinned Semgrep engine integrity mismatch")
     home = Path(os.environ["RUNNER_TEMP"]) / "petasos-semgrep-hermes-home"
     home.mkdir(exist_ok=True)
     with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as output:

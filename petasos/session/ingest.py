@@ -10,12 +10,14 @@ import asyncio
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Literal
 
+from petasos._coverage import FrozenCoverageMapping
 from petasos._types import Direction, PipelineResult, Position, ScanFinding, ScanResult
 from petasos.scanners.minimal import _DECODE_MAX_BYTES, MinimalScanner
 from petasos.scanners.semgrep import PreparedSemgrepScan
 
 if TYPE_CHECKING:
     import threading
+    from collections.abc import Mapping
 
     from petasos._coverage import ScanCoverage
     from petasos.pipeline import Pipeline
@@ -55,7 +57,13 @@ class IngestionScanResult:
     head: PipelineResult | None
     errors: tuple[str, ...]
     inspect_failed: bool = False
-    backend_coverage: dict[str, ScanCoverage] | None = None
+    backend_coverage: Mapping[str, ScanCoverage] | None = None
+
+    def __post_init__(self) -> None:
+        if self.backend_coverage is not None:
+            object.__setattr__(
+                self, "backend_coverage", FrozenCoverageMapping(self.backend_coverage)
+            )
 
 
 def _chunk_origins(length: int) -> tuple[int, ...]:
@@ -148,9 +156,11 @@ async def scan_ingestion_result(
             if prepare is not None:
                 prepared = await prepare(text, upstream_total_chars=upstream_total_chars)
         elif _semgrep_prepared is None or isinstance(_semgrep_prepared, PreparedSemgrepScan):
-            prepared = _semgrep_prepared
-            if prepared is not None and not prepared.matches_input(pipeline, text):
+            if _semgrep_prepared is not None and not _semgrep_prepared.matches_input(
+                pipeline, text
+            ):
                 raise ValueError("semgrep.prepared_invalid")
+            prepared = _semgrep_prepared
         else:
             raise ValueError("semgrep.prepared_invalid")
         covered = text[:_MAX_PARAM_TEXT_LEN]

@@ -158,3 +158,45 @@ async def test_cleanup_os_error_retains_child_ownership(
     with pytest.raises(process_module.CleanupFailure) as caught:
         await run_process(["unused"], tmp_path, time.monotonic() + 1, threading.Event())
     assert not caught.value.child.closed  # type: ignore[union-attr]
+
+
+def test_posix_leader_is_reaped_only_after_last_group_signal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import os
+    import signal
+    from types import SimpleNamespace
+
+    import psutil
+
+    from petasos.scanners import _semgrep_process as module
+
+    events: list[str] = []
+
+    def reap() -> int:
+        events.append("reap")
+        return 0
+
+    def signal_group(pid: int, sig: int) -> None:
+        if sig == 0:
+            raise ProcessLookupError
+        events.append("signal")
+
+    child = object.__new__(module._PosixChild)
+    child.pid = 12345
+    child._reaped = False
+    child._group_killed = False
+    child.process = SimpleNamespace(poll=reap, returncode=0)  # type: ignore[assignment]
+    with monkeypatch.context() as patch:
+        patch.setattr(sys, "platform", "darwin")
+        patch.setattr(signal, "SIGKILL", 9, raising=False)
+        patch.setattr(os, "killpg", signal_group, raising=False)
+        patch.setattr(
+            psutil, "Process", lambda pid: SimpleNamespace(status=lambda: psutil.STATUS_ZOMBIE)
+        )
+        assert child.poll() == 0
+        assert not events
+        child.terminate(force=True)
+        assert child.cleaned()
+        child.terminate(force=True)
+        assert events == ["signal", "reap"]

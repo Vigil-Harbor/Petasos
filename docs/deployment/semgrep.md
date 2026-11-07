@@ -136,3 +136,48 @@ executes those submitted fixtures.
 Production release still requires both native platform gates, the reviewed
 latency/resource measurements, supported Hermes cleanup, durable reporting,
 real-host model-warning proofs, and the eight-hour soak on each supported host.
+
+
+## Parser and resource contract
+
+The raw engine runs with irrelevant-rule and irrelevant-pattern filtering disabled.
+A skipped parse is never evidence of complete coverage. Matches from every grammar
+are retained before family/span deduplication; another grammar cannot erase a
+finding. Common indentation is projected for all candidate fragments, including
+comments and decorators. JSON keys containing code are examined too. A projection
+limit retains already-selected targets and reports the unexamined tail.
+
+Engine jobs acquire a bounded slot before projection. At most two active engine
+jobs hold decoded source/maps; ten pending jobs retain only references to the
+caller's original input. Error adapters without a runtime use two separate bounded
+applicability slots and never start an engine. Transient file locks are retried off
+the manager loop within the remaining two-second child/file cleanup budget.
+
+Scheduling keys are opaque identities: reuse the same object across rebuilds of a
+profile. Equality of distinct strings is insufficient. Each live lease retains its
+key object, preventing object-ID reuse while queued or active work still owns it.
+
+`semgrep_qualification.json` schema 1 contains a `measurements` list. A usable row
+must have matching `platform` (`windows_x64` or `macos_arm64`), `engine_version`,
+`engine_sha256`, `rules_sha256`, `workload` (`eight_outstanding_three_profiles`),
+nonempty `hardware`, `qualified: true`, and positive `loaded_p95_seconds` at most 8.
+Malformed, missing or mismatched evidence falls back to an unqualified eight-second
+reference. A lower configured deadline reports the workload, reference value and
+whether it came from packaged evidence or the fallback. No measured rows ship yet.
+
+Ingestion's per-backend coverage is read-only. Its additive field supports
+`dataclasses.asdict`; the pre-existing `head` still has its own `PipelineResult.to_dict`
+serializer (its existing mapping proxies cannot be generically deep-copied).
+
+CI verifies the downloaded wheel and extracted engine against the committed
+per-platform hashes in `scripts/semgrep_engine_pins.json`. The benchmark records
+commit/dirty state, Python/Petasos versions, runner image, hardware and engine/rule
+identities. It exercises dense code, both shared-owner and three-owner topologies,
+and cancellation replacements, with source-free stage timing summaries.
+
+For the additional real PII/injection composition gate, install the existing
+Presidio/PromptGuard prerequisites and cached weights, set both
+`PETASOS_TEST_SCANNER_COMPOSITION=1` and `PETASOS_TEST_SEMGREP_COMPOSITION=1`, provide
+the isolated engine path, and run `tests/test_scanner_composition.py`. That gate
+fails on missing prerequisites when requested and does not enable the backend in
+Hermes. Native tests alone do not satisfy this combined gate.

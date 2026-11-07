@@ -623,3 +623,50 @@ class TestPromptGuardUpgradeBehavior:
             )
             is True
         )
+
+
+@pytest.mark.parametrize("entrypoint", ["builder", "dashboard", "embedded", "reference_plugin"])
+def test_semgrep_enabled_without_owner_never_constructs_or_probes(
+    entrypoint: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from petasos.scanners.semgrep import SemgrepScanner
+
+    calls = []
+
+    def forbidden(*args: Any, **kwargs: Any) -> None:
+        calls.append(True)
+        raise AssertionError("ownerless adapter construction")
+
+    monkeypatch.setattr(SemgrepScanner, "__init__", forbidden)
+    config = PetasosConfig(
+        semgrep_enabled=True,
+        disabled_scanners=("presidio", "prompt_guard", "llm_guard", "llama_firewall"),
+    )
+    if entrypoint == "builder":
+        scanners, statuses = build_scanners(config)
+        status = _status_by_id(statuses, "semgrep")
+        assert status.outcome == "failed"
+        assert status.reason == "semgrep.host_lifecycle_unavailable"
+        assert [scanner.name for scanner in scanners] == ["minimal"]
+    elif entrypoint == "dashboard":
+        from petasos.console._standalone import build_dashboard_pipeline
+
+        pipeline = build_dashboard_pipeline(config.to_dict())
+        assert not pipeline._ml_scanners
+    elif entrypoint == "embedded":
+        from petasos.console.hermes import plugin_api
+
+        pipelines: list[Pipeline] = []
+        monkeypatch.setattr(plugin_api, "_load_config", config.to_dict)
+        monkeypatch.setattr(plugin_api, "init_handlers", pipelines.append)
+        plugin_api._self_init()
+        assert len(pipelines) == 1 and not pipelines[0]._ml_scanners
+    else:
+        ref = _import_reference_plugin()
+        _reset_plugin(ref, monkeypatch)
+        monkeypatch.setattr(ref, "_config", config.to_dict())
+        ref._deferred_init()
+        assert ref._init_error is None
+        assert not ref._pipeline._ml_scanners
+    assert not calls

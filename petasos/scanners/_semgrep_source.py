@@ -29,7 +29,8 @@ _LABELS = {
     "typescript": "typescript",
 }
 _CANDIDATE = re.compile(
-    r"\b[A-Za-z_$][\w.$]*[ \t]*\("
+    r"\b[A-Za-z_$][\w.$]*\("
+    r"|\b(?:eval|exec|Function|[A-Za-z_$][\w$]*\.[\w.$]+)[ \t]+\("
     r"|(?m:^[ \t]*(?:from[ \t]+\S+[ \t]+import|import|class|def|async[ \t]+def"
     r"|function|const|let|var)\b)"
 )
@@ -186,9 +187,9 @@ def _mapped(
     )
 
 
-def _json_strings(
+async def _json_strings(
     region: Region,
-) -> tuple[list[tuple[int, int, int]], set[str], list[tuple[int, int]]]:
+) -> tuple[list[tuple[int, int, int]], set[str], list[tuple[int, int]], int | None]:
     """Validate one JSON value, storing only bounded string-token coordinates."""
     text = region.text
     leaves: list[tuple[int, int, int]] = []
@@ -197,7 +198,11 @@ def _json_strings(
     # Each frame: kind, state, start, current key, clamped. Root expects one value.
     frames: list[list[object]] = [["root", "value", 0, "", False]]
     i = 0
+    yielded = 0
     while frames:
+        if i - yielded >= 8192:
+            await asyncio.sleep(0)
+            yielded = i
         while i < len(text) and text[i] in " \t\r\n":
             i += 1
         f = frames[-1]
@@ -233,6 +238,10 @@ def _json_strings(
             if char != '"':
                 raise ValueError("JSON key")
             value, end = _scan_string(text, i + 1, True)
+            if _CANDIDATE.search(value) or _FENCE.search(value):
+                if len(leaves) >= 4096:
+                    raise ProjectionError("projection_limit_code")
+                leaves.append((i, end, len(frames) - 1))
             f[3], f[1], i = value, "colon", end
             continue
         f[1] = "done" if kind == "root" else "comma"
@@ -241,9 +250,8 @@ def _json_strings(
                 # Stop retaining stack frames, but examine every remaining
                 # string token (including escaped identifiers) before calling
                 # this a non-code depth limit. No recursive JSON tree.
-                remainder = text[i:]
-                code = bool(_CANDIDATE.search(remainder) or _FENCE.search(remainder))
-                cursor = i
+                code = bool(_CANDIDATE.search(text) or _FENCE.search(text))
+                cursor = 0
                 while cursor < len(text) and not code:
                     quote = text.find('"', cursor)
                     if quote < 0:
@@ -253,9 +261,11 @@ def _json_strings(
                     except ValueError:
                         break
                     code = bool(_CANDIDATE.search(value) or _FENCE.search(value))
-                raise ProjectionError(
-                    "projection_limit_code" if code else "projection_depth_limit"
-                )
+                    if cursor - yielded >= 8192:
+                        await asyncio.sleep(0)
+                        yielded = cursor
+                reasons.add("projection_limit_code" if code else "projection_depth_limit")
+                return leaves, reasons, clamps, i
             frames.append(
                 [
                     "object" if char == "{" else "array",
@@ -294,7 +304,7 @@ def _json_strings(
         if number is None:
             raise ValueError("JSON value")
         i = number.end()
-    return leaves, reasons, clamps
+    return leaves, reasons, clamps, None
 
 
 def _decode_string(region: Region, a: int, b: int, limit: int, budget: MapBudget) -> Region:
@@ -351,8 +361,6 @@ def _decode_string(region: Region, a: int, b: int, limit: int, budget: MapBudget
 
 
 def _dedent(region: Region, budget: MapBudget) -> Region:
-    if not re.match(r"[ \t]+(?:async +)?(?:def|class)\b", region.text):
-        return region
     common: str | None = None
     for count, line in enumerate(_LINE.finditer(region.text)):
         if count >= 16384:
@@ -480,6 +488,8 @@ async def select_sources(
         encoded = region.text.encode("utf-8")
         if len(encoded) > remaining:
             prefix = encoded[:remaining].decode("utf-8", errors="ignore")
+            tail = region.interval(len(prefix), len(prefix))[0]
+            selection.tail = tail if selection.tail is None else min(selection.tail, tail)
             region = region.slice(0, len(prefix), budget)
             region.clipped = True
             encoded = prefix.encode("utf-8")
@@ -489,13 +499,19 @@ async def select_sources(
     async def project(region: Region, layers: int = 0) -> None:
         if layers < 2 and region.text.lstrip().startswith(("{", "[", '"')):
             try:
-                leaves, reasons, clamps = _json_strings(region)
+                leaves, reasons, clamps, stopped = await _json_strings(region)
             except ProjectionError:
                 raise
             except (ValueError, json.JSONDecodeError):
                 pass  # malformed envelopes remain raw, never certified JSON
             else:
                 selection.reasons.update(reasons)
+                if stopped is not None:
+                    tail = region.interval(stopped, stopped)[0]
+                    selection.tail = tail if selection.tail is None else min(selection.tail, tail)
+                    selection.unsupported = True
+                    if "projection_limit_code" in reasons:
+                        selection.error = "semgrep.projection_limit_code"
                 for a, b, depth in leaves:
                     if depth > 8:
                         raw = _scan_string(region.text, a + 1, True)[0]

@@ -116,3 +116,28 @@ async def test_clipped_tentative_rejection_is_partial_not_clear() -> None:
     assert result.error is None
     assert require(result.coverage).status == "partial"
     assert "source_limit_tentative" in require(result.coverage).reasons
+
+
+async def test_json_code_before_depth_exhaustion_is_retained() -> None:
+    text = '{"a":"import os\\nos.system(cmd)","b":' + "[" * 140 + "0" + "]" * 140 + "}"
+    selected = await select_sources(text)
+    assert len(selected.targets) == 1
+    assert "os.system" in selected.targets[0].region.text
+    assert selected.error == "semgrep.projection_limit_code"
+    assert selected.tail is not None
+
+
+async def test_code_in_json_keys_is_a_target() -> None:
+    selected = await select_sources('{"os.system(cmd)": 1}')
+    assert len(selected.targets) == 1
+    assert selected.targets[0].region.text == "os.system(cmd)"
+
+
+async def test_many_search_hits_report_the_unexamined_tail() -> None:
+    selected = await select_sources(
+        "app.py\n" + "".join(f"  {i * 3 + 1}: foo(value)\n" for i in range(40))
+    )
+    assert len(selected.targets) == 16
+    assert selected.tail is not None
+    assert selected.error is None
+    assert "target_limit_tentative" in selected.reasons

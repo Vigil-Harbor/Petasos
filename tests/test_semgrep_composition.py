@@ -127,7 +127,8 @@ async def test_supplied_ingest_token_rejects_changed_tail_with_same_head() -> No
         )
         assert any("semgrep.prepared_invalid" in error for error in result.errors)
         assert result.head is None
-        assert token._text is None
+        assert token._text is None  # unavailable adapters retain only fingerprints
+        assert token.consume(pipeline, text) is not None
 
 
 async def test_missing_engine_no_target_token_cannot_be_reused_for_code() -> None:
@@ -189,3 +190,60 @@ async def test_real_patch_parts_preserve_original_offsets_and_action_independenc
         rendered.text.index("eval(new)"),
     }
     assert not any(r.error for r in result.scanner_results)
+
+
+@pytest.mark.parametrize(
+    "body,family,call",
+    [
+        ("    import os\n    os.system(payload)\n", "shell", "os.system"),
+        (
+            "\n    # comment\n    import pickle\n    pickle.loads(payload)\n",
+            "deserialization",
+            "pickle.loads",
+        ),
+        ("    import yaml\n    yaml.unsafe_load(payload)\n", "unsafe_yaml", "yaml.unsafe_load"),
+        (
+            "    @decorator\n    def run(self):\n        return eval(payload)\n",
+            "dynamic_code",
+            "eval",
+        ),
+    ],
+)
+async def test_indented_patch_fragments_retain_every_python_family(
+    real_pipeline: Pipeline,
+    body: str,
+    family: str,
+    call: str,
+) -> None:
+    rendered = render_param_text(
+        {
+            "path": r"C:\app\code.py",
+            "old_string": body,
+            "new_string": body.replace("payload", "replacement"),
+        }
+    )
+    token = require(
+        await real_pipeline._prepare_semgrep(rendered.text, segments=rendered.segments)
+    )
+    result = await real_pipeline._inspect_with_prepared_semgrep(rendered.text, token)
+    findings = [f for f in result.findings if f.rule_id.endswith("." + family)]
+    assert len(findings) == 2, result
+    assert {require(f.position).start for f in findings} == {
+        rendered.text.index(call),
+        rendered.text.rindex(call),
+    }
+    assert not any(r.error for r in result.scanner_results)
+
+
+async def test_ingestion_coverage_mapping_is_frozen_and_asdict_compatible() -> None:
+    from dataclasses import asdict
+
+    async with SemgrepLifecycleOwner() as owner:
+        pipeline = Pipeline([SemgrepScanner(owner=owner)])
+        result = await scan_ingestion_result(pipeline, "hello")
+        coverage = require(result.backend_coverage)
+        with pytest.raises(TypeError):
+            coverage["semgrep"] = coverage["semgrep"]  # type: ignore[index]
+        # The pre-existing head has MappingProxy fields and its own to_dict.
+        payload = asdict(replace(result, head=None))
+        assert payload["backend_coverage"]["semgrep"]["status"] == "no_targets"

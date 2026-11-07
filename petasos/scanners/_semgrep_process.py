@@ -29,6 +29,11 @@ CHILD_OBSERVER: contextvars.ContextVar[Any] = contextvars.ContextVar(
 )
 
 
+CLEANUP_DEADLINE_OBSERVER: contextvars.ContextVar[Any] = contextvars.ContextVar(
+    "semgrep_cleanup_deadline", default=None
+)
+
+
 @dataclass(frozen=True)
 class ProcessResult:
     returncode: int | None
@@ -73,6 +78,8 @@ class _PosixChild:
             close_fds=True,
         )
         self.pid = self.process.pid
+        self._reaped = False
+        self._group_killed = False
         assert self.process.stdout is not None and self.process.stderr is not None
         self.streams = (self.process.stdout, self.process.stderr)
         for stream in self.streams:
@@ -86,12 +93,25 @@ class _PosixChild:
             return b""
 
     def poll(self) -> int | None:
-        return self.process.poll()
+        if self._reaped:
+            return self.process.returncode
+        import psutil
+
+        # Observe exit without waitpid/Popen.poll reaping the leader. Its zombie
+        # retains the PID/PGID until the last process-group signal is delivered.
+        try:
+            return 0 if psutil.Process(self.pid).status() == psutil.STATUS_ZOMBIE else None
+        except psutil.NoSuchProcess:
+            # An external reaper destroyed our ownership proof. Never signal a
+            # potentially reused group; retain the failed cleanup for reporting.
+            self._reaped = True
+            raise CleanupFailure(self) from None
 
     def terminate(self, force: bool = False) -> None:
         with contextlib.suppress(ProcessLookupError):
-            if sys.platform != "win32":
+            if sys.platform != "win32" and not self._reaped:
                 os.killpg(self.pid, signal.SIGKILL if force else signal.SIGTERM)
+                self._group_killed |= force
 
     def close(self) -> None:
         for stream in self.streams:
@@ -102,6 +122,12 @@ class _PosixChild:
             return False
         if sys.platform == "win32":
             return True  # This implementation is used only on POSIX.
+        if not self._group_killed:
+            return False
+        if not self._reaped:
+            if self.process.poll() is None:
+                return False
+            self._reaped = True
         try:
             os.killpg(self.pid, 0)
         except ProcessLookupError:
@@ -519,6 +545,9 @@ async def run_process(
         # This also handles unexpected errors and task cancellation. The runtime
         # cancels via Event, not Task.cancel, so cleanup owns its entire allowance.
         end = (cleanup_started if cleanup_started is not None else time.monotonic()) + 2
+        cleanup_observer = CLEANUP_DEADLINE_OBSERVER.get()
+        if cleanup_observer is not None:
+            cleanup_observer(end)
         try:
             child.terminate(force=True)
             for (_pid, born), descendant in tracked.items():
@@ -546,6 +575,7 @@ async def run_process(
                 if time.monotonic() >= end:
                     raise CleanupFailure(child)
                 await asyncio.sleep(0.005)
+            code = child.poll()
             child.close()
         except CleanupFailure:
             raise

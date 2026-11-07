@@ -288,6 +288,94 @@ def test_stale_roots_are_removed_only_with_dead_verified_owners(
     )
 
 
+async def test_transient_root_lock_is_retried_within_cleanup_budget(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "owned"
+    root.mkdir()
+    (root / "candidate.source").write_text("synthetic", encoding="utf-8")
+    import shutil
+
+    original = shutil.rmtree
+    attempts = 0
+
+    def locked_once(path: Path) -> None:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise PermissionError("synthetic transient sharing violation")
+        original(path)
+
+    monkeypatch.setattr(shutil, "rmtree", locked_once)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        await rt.remove_root(
+            root, executor, time.monotonic() + 0.5, rt.error_result("semgrep.cleanup_failed")
+        )
+    assert attempts == 2
+    assert not root.exists()
+
+
+async def test_projection_only_starts_in_two_admitted_active_slots(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import threading
+
+    monkeypatch.setattr("petasos.scanners.semgrep.supported_platform", lambda: True)
+    monkeypatch.setattr("petasos.scanners.semgrep.monitor_available", lambda: True)
+    monkeypatch.setattr(
+        rt.Runtime, "_enqueue_probe", lambda runtime: setattr(runtime, "availability_error", None)
+    )
+    monkeypatch.setattr(rt.Runtime, "_verify_identity", lambda runtime: None)
+    release = threading.Event()
+    original = select_sources
+    entered = 0
+
+    async def held_projection(*args: Any, **kwargs: Any) -> Any:
+        nonlocal entered
+        entered += 1
+        while not release.is_set():
+            await asyncio.sleep(0.001)
+        return await original(*args, **kwargs)
+
+    monkeypatch.setattr(rt, "select_sources", held_projection)
+    async with SemgrepLifecycleOwner() as owner:
+        scanners = [
+            SemgrepScanner(
+                owner=owner, engine_path=os.path.abspath("synthetic"), engine_sha256="a" * 64
+            )
+            for _ in range(3)
+        ]
+        tasks = [asyncio.create_task(scanners[i % 3].scan("eval(data)")) for i in range(12)]
+        runtime = require(scanners[0]._lease).runtime
+        try:
+            until = time.monotonic() + 1
+            while entered < 2 and time.monotonic() < until:
+                await asyncio.sleep(0.001)
+            assert entered == 2
+            await asyncio.sleep(0.02)
+            assert entered == 2
+            with runtime.lock:
+                assert len(runtime.active) == 2
+                assert sum(map(len, runtime.pending.values())) == 10
+                assert all(
+                    job.selection is not None and not job.selection.targets
+                    for queue in runtime.pending.values()
+                    for job in queue
+                )
+            extra = await scanners[0].scan("eval(data)")
+            assert extra.error == "semgrep.queue_full"
+        finally:
+            with runtime.lock:
+                for job in [
+                    *runtime.active,
+                    *(job for queue in runtime.pending.values() for job in queue),
+                ]:
+                    runtime.cancel(job)
+            release.set()
+            await asyncio.gather(*tasks)
+
+
 @pytest.mark.skipif(not os.environ.get("SEMGREP_ENGINE_PATH"), reason="isolated engine required")
 async def test_real_owned_probe_scan_and_clean_close() -> None:
     engine = os.environ["SEMGREP_ENGINE_PATH"]

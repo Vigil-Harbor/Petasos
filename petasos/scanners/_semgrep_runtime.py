@@ -30,7 +30,12 @@ from petasos.scanners._semgrep_engine import (
     result_for,
     scan_selected,
 )
-from petasos.scanners._semgrep_process import CHILD_OBSERVER, CleanupFailure, run_process
+from petasos.scanners._semgrep_process import (
+    CHILD_OBSERVER,
+    CLEANUP_DEADLINE_OBSERVER,
+    CleanupFailure,
+    run_process,
+)
 from petasos.scanners._semgrep_source import Selection, select_sources
 
 
@@ -70,6 +75,35 @@ def error_result(code: str, total: int = 0) -> ScanResult:
     return ScanResult("semgrep", (), 0, code, ScanCoverage("error", total, 0, 0, 0))
 
 
+async def remove_root(
+    root: Path,
+    executor: concurrent.futures.ThreadPoolExecutor,
+    deadline: float,
+    outcome: ScanResult,
+) -> None:
+    """Retry transient file locks within the remaining child/file cleanup budget."""
+    while True:
+        worker = executor.submit(shutil.rmtree, root)
+        waiting = asyncio.wrap_future(worker)
+        await asyncio.wait({waiting}, timeout=max(0, deadline - time.monotonic()))
+        if not waiting.done():
+            waiting.add_done_callback(
+                lambda done: done.exception() if not done.cancelled() else None
+            )
+            raise CpuCleanupFailure(worker, outcome)
+        try:
+            waiting.result()
+            return
+        except FileNotFoundError:
+            if not root.exists():
+                return
+        except OSError:
+            pass
+        if time.monotonic() >= deadline:
+            raise OSError("semgrep.cleanup_failed")
+        await asyncio.sleep(min(0.02, max(0, deadline - time.monotonic())))
+
+
 @dataclass(eq=False)
 class Lease:
     runtime: Runtime
@@ -78,6 +112,7 @@ class Lease:
     closed: bool = False
     # Token objects expose synchronous close, without awaiting an abandoned caller.
     tokens: set[object] = field(default_factory=set)
+    scheduling_identity: object | None = None
 
 
 @dataclass(eq=False)
@@ -97,6 +132,9 @@ class Job:
     cpu_failure: CpuCleanupFailure | None = None
     task: asyncio.Task[None] | None = None
     expiry: asyncio.TimerHandle | None = None
+    source: tuple[str, tuple[tuple[int, int], ...] | None, int | None] | None = None
+    refusal: str | None = None
+    cleanup_deadline: float | None = None
 
 
 class Runtime:
@@ -116,7 +154,8 @@ class Runtime:
         self.probe: Job | None = None
         self.retry: asyncio.TimerHandle | None = None
         self.retry_count = 0
-        self.identity_stat: tuple[int, int, int, int] | None = None
+        self.identity_stat: tuple[int, int, int, int, int] | None = None
+        self.identity_checked_at = 0.0
         self.executor = concurrent.futures.ThreadPoolExecutor(
             max_workers=2, thread_name_prefix="petasos-semgrep-cpu"
         )
@@ -136,7 +175,9 @@ class Runtime:
             self.loop.close()
             self.stopped_at = time.monotonic()
 
-    def register(self, settings: Settings, key: object) -> Lease | str:
+    def register(
+        self, settings: Settings, key: object, scheduling_identity: object | None = None
+    ) -> Lease | str:
         with self.lock:
             if self.stopping or self.failed:
                 return "semgrep.engine_unavailable"
@@ -144,7 +185,7 @@ class Runtime:
                 return "semgrep.engine_identity_conflict"
             if len(self.leases) >= 12:
                 return "semgrep.lease_exhausted"
-            lease = Lease(self, settings, key)
+            lease = Lease(self, settings, key, scheduling_identity=scheduling_identity)
             self.leases.add(lease)
             if self.probe is None and self.availability_error == "semgrep.probe_pending":
                 self._enqueue_probe()
@@ -166,7 +207,9 @@ class Runtime:
         with self.lock:
             if not job.future.done() and job in self.pending.get(job.key, ()):
                 job.expiry = self.loop.call_later(
-                    max(0, job.deadline - time.monotonic()), self._expire, job
+                    max(0, job.deadline - min(1.5, 0.75 * job.timeout) - time.monotonic()),
+                    self._expire,
+                    job,
                 )
             self._pump()
 
@@ -196,22 +239,41 @@ class Runtime:
                 self.retry = self.loop.call_later(30, self._retry_probe)
         result = result_for(job.selection or Selection(), error=code)
         job.selection = None
+        job.source = None
         if not job.future.done():
             job.future.set_result(result)
 
-    def submit(self, lease: Lease, selection: Selection, deadline: float) -> Job:
-        job = Job(lease, lease.key, selection, deadline, lease.settings.timeout)
+    def submit(
+        self,
+        lease: Lease,
+        selection: Selection,
+        deadline: float,
+        *,
+        source: tuple[str, tuple[tuple[int, int], ...] | None, int | None] | None = None,
+        refusal: str | None = None,
+    ) -> Job:
+        job = Job(
+            lease,
+            lease.key,
+            selection,
+            deadline,
+            lease.settings.timeout,
+            source=source,
+            refusal=refusal,
+        )
         with self.lock:
             code = None
             if lease.closed:
                 code = "semgrep.lease_closed"
             elif self.failed or self.stopping:
                 code = "semgrep.engine_unavailable"
-            elif self.availability_error:
+            elif self.availability_error and source is None:
                 code = self.availability_error
             elif len(self.active) + sum(map(len, self.pending.values())) >= 12:
                 code = "semgrep.queue_full"
             if code:
+                job.source = None
+                job.selection = None
                 job.future.set_result(result_for(selection, error=code))
             else:
                 self._enqueue(job)
@@ -253,8 +315,8 @@ class Runtime:
             recover_roots()
         path = Path(self.settings.engine)
         stat = path.stat()
-        identity = (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns)
-        if identity == self.identity_stat:
+        identity = (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
+        if identity == self.identity_stat and time.monotonic() - self.identity_checked_at < 30:
             return
         digest = hashlib.sha256()
         with path.open("rb") as stream:
@@ -263,6 +325,7 @@ class Runtime:
         if digest.hexdigest() != self.settings.digest.lower():
             raise ValueError("semgrep.engine_integrity")
         self.identity_stat = identity
+        self.identity_checked_at = time.monotonic()
 
     def _new_root(self, job: Job) -> Path:
         import psutil
@@ -302,7 +365,31 @@ class Runtime:
                 marker_path.write_text(json.dumps(marker), encoding="utf-8")
 
         observer_token = CHILD_OBSERVER.set(observe)
+        cleanup_token = CLEANUP_DEADLINE_OBSERVER.set(
+            lambda deadline: setattr(job, "cleanup_deadline", deadline)
+        )
         try:
+            if job.source is not None:
+                text, segments, total = job.source
+                assert job.lease is not None
+                try:
+                    job.selection = await select_sources(
+                        text,
+                        segments=segments,
+                        total=total,
+                        max_bytes=job.lease.settings.max_bytes,
+                    )
+                finally:
+                    job.source = None
+                    del text
+                if not job.selection.targets:
+                    outcome = result_for(job.selection)
+                    return
+                with self.lock:
+                    unavailable = job.refusal or self.availability_error
+                if unavailable:
+                    outcome = result_for(job.selection, error=unavailable)
+                    return
             verification = await await_cpu(
                 self.executor.submit(self._verify_identity),
                 job.deadline,
@@ -368,6 +455,9 @@ class Runtime:
             outcome = error_result("semgrep.cleanup_failed")
         except ValueError as exc:
             code = str(exc)
+            if code == "semgrep.engine_integrity":
+                with self.lock:
+                    self.availability_error = code
             outcome = error_result(
                 code
                 if code
@@ -382,10 +472,20 @@ class Runtime:
             outcome = error_result("semgrep.engine_unavailable")
         finally:
             CHILD_OBSERVER.reset(observer_token)
+            CLEANUP_DEADLINE_OBSERVER.reset(cleanup_token)
             if job.root is not None and not retain:
                 try:
-                    shutil.rmtree(job.root)
+                    await remove_root(
+                        job.root,
+                        self.executor,
+                        job.cleanup_deadline or time.monotonic() + 2,
+                        result_for(job.selection or Selection(), error="semgrep.cleanup_failed"),
+                    )
                     job.root = None
+                except CpuCleanupFailure as exc:
+                    job.cpu_failure = exc
+                    retain = True
+                    outcome = exc.outcome
                 except OSError:
                     retain = True
                     outcome = error_result("semgrep.cleanup_failed")
@@ -415,6 +515,7 @@ class Runtime:
                 ):
                     outcome = result_for(job.selection, error=outcome.error)
                 job.selection = None  # Terminal objects retain no submitted source.
+                job.source = None
                 if not job.future.done():
                     job.future.set_result(outcome)
                 if self.failed:
@@ -482,7 +583,9 @@ _RUNTIME: Runtime | None = None
 _SEALED = False
 
 
-def acquire(settings: Settings, key: object) -> Lease | str:
+def acquire(
+    settings: Settings, key: object, *, scheduling_identity: object | None = None
+) -> Lease | str:
     global _RUNTIME
     with _GLOBAL_LOCK:
         if _SEALED:
@@ -491,7 +594,7 @@ def acquire(settings: Settings, key: object) -> Lease | str:
             _RUNTIME = None
         if _RUNTIME is None:
             _RUNTIME = Runtime(settings)
-        return _RUNTIME.register(settings, key)
+        return _RUNTIME.register(settings, key, scheduling_identity)
 
 
 async def await_job(job: Job) -> ScanResult:
