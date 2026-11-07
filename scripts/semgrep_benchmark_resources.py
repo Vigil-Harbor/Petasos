@@ -112,19 +112,21 @@ class Resources:
         with self.runtime.lock:
             jobs = [*self.runtime.active, *(j for q in self.runtime.pending.values() for j in q)]
             pids = [j.child.pid for j in jobs if j.child is not None]
-            source_chars = sum(len(j.source[0]) for j in jobs if j.source is not None)
+            sources = [j.source for j in jobs]
+            source_chars = sum(len(source[0]) for source in sources if source is not None)
             maps = 0
             for job in jobs:
-                if job.selection is not None:
-                    for target in job.selection.targets:
+                selection = job.selection
+                if selection is not None:
+                    for target in selection.targets:
                         source_chars += len(target.region.text)
                         for array in (target.region.starts, target.region.ends):
                             if array is not None:
                                 maps += len(array) * array.itemsize
         self.peak("source_characters_sampled_peak", source_chars)
         self.peak("retained_map_sampled_peak_bytes", maps)
-        # Read only processes descended from an owned leader; never a system-wide
-        # PID search and never signal or open native ownership handles here.
+        # Retain observations only for processes descended from an owned leader;
+        # never signal or open native ownership handles here.
         for pid in pids:
             try:
                 proc = self.psutil.Process(pid)

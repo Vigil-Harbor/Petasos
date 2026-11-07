@@ -181,6 +181,12 @@ class Recorder:
 
 async def scan_sample(scanner: Any, fixture: dict[str, Any], row: dict[str, Any]) -> None:
     started = time.monotonic()
+    row.update(
+        expected_findings=len(fixture["expected_findings"]),
+        expected_targets=len(fixture["segments"]),
+        observed_findings=None,
+        completed_targets=None,
+    )
     token = None
     try:
         token = await scanner.prepare(

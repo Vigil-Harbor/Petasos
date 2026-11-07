@@ -176,6 +176,8 @@ async def test_sibling_errors_and_discard_time_preserved() -> None:
     await bench.run_burst(case, [Scanner(), Broken(), Scanner()], fixture, 0, False)
     assert len(case["samples"]) == 2
     assert [s["status"] for s in case["samples"]] == ["ok", "error"]
+    assert case["samples"][1]["expected_findings"] == 1
+    assert case["samples"][1]["observed_findings"] is None
     assert case["samples"][0]["seconds"] >= 0.02
     assert discarded == [True]
     assert "private" not in json.dumps(case)
@@ -242,6 +244,33 @@ async def test_canceled_checkpoint_finishes_before_final_write(
         await asyncio.wait_for(first, 2)
     await asyncio.wait_for(second, 2)
     assert writes == [1, 2]
+
+
+def test_monitor_snapshots_source_reference_once() -> None:
+    pytest.importorskip("psutil")
+    from scripts.semgrep_benchmark_resources import Resources
+
+    class Job:
+        child = None
+        selection = None
+        reads = 0
+
+        @property
+        def source(self) -> Any:
+            self.reads += 1
+            return ("abc", None, None) if self.reads == 1 else None
+
+    job = Job()
+    runtime = SimpleNamespace(
+        lock=threading.Lock(),
+        active=[job],
+        pending={},
+        thread=SimpleNamespace(is_alive=lambda: False),
+    )
+    monitor = Resources(runtime)
+    monitor._sample()
+    assert job.reads == 1
+    assert monitor.data["source_characters_sampled_peak"] == 3
 
 
 async def test_wall_budget_preserves_partial_failure_and_cleanup(
