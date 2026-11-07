@@ -216,6 +216,10 @@ possessive matching rather than retrying at each dot. The same predicate serves
 streaming preflight and whole-region selection. Source tests run million-character
 dotted inputs behind a separate process watchdog, including JSON and early-code
 wrappers; an asyncio timeout alone cannot interrupt a synchronous regex.
+Declaration and dense-search headers use bounded linear scans, and fence matching
+uses possessive quantifiers. The watchdog also covers long repeated return
+annotations, dotted search headers and fence markers with embedded carriage
+returns, both raw and JSON-wrapped.
 A JavaScript comment opener after a
 sensitive callee is enough for conservative admission, even across long comments;
 the engine receives the original bytes and determines whether there is a finding.

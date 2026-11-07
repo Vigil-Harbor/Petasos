@@ -35,11 +35,10 @@ _DECLARATION = re.compile(
     r"(?m:^[ \t]*(?:from[ \t]+\S+[ \t]+import|import|class|def|async[ \t]+def"
     r"|function|const|let|var)\b)"
 )
-_FENCE = re.compile(r"(?m)^ {0,3}(`{3,}|~{3,})([^\r\n]*)\r?$")
-_HEADER = re.compile(
-    r"(?:async +)?def +[A-Za-z_]\w*\s*\(.*\)\s*(?:->[^:]+)?\s*:"
-    r"|class +[A-Za-z_]\w*(?:\([^\n]*\))?\s*:"
-)
+_FENCE = re.compile(r"(?m)^ {0,3}(`{3,}+|~{3,}+)([^\r\n]*+)\r?$")
+_DEF_PREFIX = re.compile(r"(?:async +)?def +[A-Za-z_]\w*+\s*+\(")
+_CLASS_PREFIX = re.compile(r"class +[A-Za-z_]\w*+")
+_RETURN_ANNOTATION = re.compile(r"\)\s*+->")
 _LINE = re.compile(r"[^\n]*\n|[^\n]+$")
 _NUMBER = re.compile(r"-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?")
 _ESCAPE = re.compile(r"\\(?:u[0-9a-fA-F]{4}|[\"\\/bfnrt])")
@@ -63,6 +62,46 @@ def _is_candidate(text: str) -> bool:
         if dotted or _SENSITIVE_END.search(token):
             return True
     return False
+
+
+def _is_header(text: str) -> bool:
+    """Recognize the existing declaration shape with disjoint linear scans."""
+    if not text.endswith(":"):
+        return False
+    end = len(text) - 1
+    prefix = _DEF_PREFIX.match(text)
+    if prefix is not None:
+        start = prefix.end()
+        closing = len(text[:end].rstrip()) - 1
+        if closing >= start and text[closing] == ")" and "\n" not in text[start:closing]:
+            return True
+        # A return annotation cannot contain ':'. Only consider suffixes after
+        # the final interior colon, so repeated )-> fragments are never retried.
+        after_colon = text.rfind(":", start, end) + 1
+        annotation = _RETURN_ANNOTATION.search(text, max(start, after_colon), end)
+        return (
+            annotation is not None
+            and annotation.end() < end
+            and "\n" not in text[start : annotation.start()]
+        )
+    prefix = _CLASS_PREFIX.match(text)
+    if prefix is None:
+        return False
+    tail = text[prefix.end() : end]
+    if not tail.strip():
+        return True
+    tail = tail.rstrip()
+    return tail.startswith("(") and tail.endswith(")") and "\n" not in tail
+
+
+def _is_search_header(text: str) -> bool:
+    return (
+        bool(text)
+        and not text[0].isspace()
+        and "\r" not in text
+        and "\n" not in text
+        and any(text.find(separator, 1) >= 0 for separator in (".", "/", "\\"))
+    )
 
 
 def _scan_string(text: str, start: int, strict: bool) -> tuple[str, int]:
@@ -496,7 +535,7 @@ def _presentation(region: Region, budget: MapBudget) -> list[Region]:
                 groups.append([])
             groups[-1].append((line.start() + m.end(), line.end()))
             previous = number
-        elif re.fullmatch(r"\S[^\r\n]*[./\\][^\r\n]*", value):
+        elif _is_search_header(value):
             have_header = True
             previous = -1
         else:
@@ -634,7 +673,7 @@ async def select_sources(
                     value.startswith("#") and not value.startswith(("#!", "#include", "#define"))
                 ):
                     continue
-                asserted = _HEADER.fullmatch(value) is not None
+                asserted = _is_header(value)
                 break
         add(region, "python" if asserted else None, asserted)
 

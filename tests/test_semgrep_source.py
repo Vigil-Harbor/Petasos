@@ -258,13 +258,84 @@ def test_candidate_token_semantics_match_short_reference_inputs() -> None:
         r"\b[A-Za-z_$][\w.$]*\("
         r"|\b(?:eval|exec|Function|[A-Za-z_$][\w$]*\.[\w.$]+)"
         r"(?:[\s\ufeff]+\(|[\s\ufeff]*(?:/\*|//))"
+        r"|(?m:^[ \t]*(?:from[ \t]+\S+[ \t]+import|import|class|def|async[ \t]+def"
+        r"|function|const|let|var)\b)"
     )
     rng = random.Random(254)
     for _ in range(4000):
         token = "".join(rng.choices("ab09_.$é", k=rng.randrange(1, 32)))
         token += rng.choice(("", ".eval", "$eval", "exec", ".Function"))
-        text = token + rng.choice(("(", " (", "\n(", "/**/(", "\ufeff", "\nwords", ""))
+        text = token + rng.choice(("(", " (", "\n(", "/**/(", "//", "\ufeff", "\nwords", ""))
+        text += rng.choice(("", "\nimport os", " \u212a.abc//", " é\u0661 ", " eval\u00a0(x)"))
         assert _is_candidate(text) == bool(reference.search(text)), repr(text)
+
+
+def test_header_and_fence_classification_matches_short_reference_inputs() -> None:
+    import random
+    import re
+
+    from petasos.scanners._semgrep_source import _FENCE, _is_header, _is_search_header
+
+    header = re.compile(
+        r"(?:async +)?def +[A-Za-z_]\w*\s*\(.*\)\s*(?:->[^:]+)?\s*:"
+        r"|class +[A-Za-z_]\w*(?:\([^\n]*\))?\s*:"
+    )
+    fence = re.compile(r"(?m)^ {0,3}(`{3,}|~{3,})([^\r\n]*)\r?$")
+    rng = random.Random(25407)
+    for _ in range(6000):
+        atoms = ("x", "é", "->", ")", "(", ":", " ", "\t", "\n", "\r", ".", "/", "\\")
+        body = "".join(rng.choices(atoms, k=rng.randrange(24)))
+        value = rng.choice(("def f(", "async def f(", "class F", "class F(", ""))
+        value += body + rng.choice(("", ":", "):", ")->x:", ")-> :"))
+        assert _is_header(value) == bool(header.fullmatch(value)), repr(value)
+        assert _is_search_header(value) == bool(re.fullmatch(r"\S[^\r\n]*[./\\][^\r\n]*", value))
+        value = " " * rng.randrange(6) + rng.choice(("`", "~")) * rng.randrange(12) + body
+        assert [(m.span(), m.groups()) for m in _FENCE.finditer(value)] == [
+            (m.span(), m.groups()) for m in fence.finditer(value)
+        ], repr(value)
+
+
+def test_million_character_header_fence_and_search_attacks_are_bounded() -> None:
+    script = r"""
+import asyncio, json, sys, time
+sys.path[:] = json.loads(sys.argv[1])
+from petasos.scanners._semgrep_source import (
+    _FENCE, _is_header, _is_search_header, preflight, select_sources,
+)
+
+async def run():
+    values = {
+        "header": "def f(" + ")->x" * 249970,
+        "header_colon": "def f(" + ")->x" * 249960 + ":!:",
+        "search": "a" + "." * 999850 + "\rb\neval(x)",
+        "fence": "`" * 999850 + "\rX\neval(x)",
+    }
+    measured = {}
+    for name, body in values.items():
+        for wrapped in (False, True):
+            text = json.dumps(body) if wrapped else body
+            started = time.perf_counter()
+            assert not _is_header(body)
+            assert not _is_search_header(body)
+            assert not list(_FENCE.finditer(body))
+            assert await preflight(text)
+            selected = await select_sources(text)
+            assert selected.examined == len(text)
+            elapsed = time.perf_counter() - started
+            measured[name + ("_json" if wrapped else "_raw")] = elapsed
+            assert elapsed < 2.0, (name, wrapped, elapsed)
+    print(json.dumps(measured))
+
+asyncio.run(run())
+"""
+    result = subprocess.run(
+        [str(vars(sys)["_base_executable"]), "-c", script, json.dumps(sys.path)],
+        capture_output=True,
+        text=True,
+        timeout=20,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def test_million_character_dotted_input_has_bounded_candidate_cost() -> None:
