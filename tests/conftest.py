@@ -248,6 +248,7 @@ class NonSkippingLane:
 def _require_semgrep() -> None:
     import asyncio
     import hashlib
+    import json
     import time
 
     from petasos.scanners.semgrep import SemgrepLifecycleOwner, SemgrepScanner, supported_platform
@@ -260,6 +261,7 @@ def _require_semgrep() -> None:
         raise pytest.UsageError(
             "Semgrep lane requires native Windows x64/macOS arm64 and path/hash"
         )
+    diagnostics = ""
     try:
         with open(engine, "rb") as stream:
             actual = hashlib.file_digest(stream, "sha256").hexdigest()
@@ -267,6 +269,7 @@ def _require_semgrep() -> None:
             raise ValueError("semgrep.engine_integrity")
 
         async def probe() -> None:
+            nonlocal diagnostics
             async with SemgrepLifecycleOwner() as owner:
                 scanner = SemgrepScanner(owner=owner, engine_path=engine, engine_sha256=expected)
                 deadline = time.monotonic() + 6.5
@@ -276,6 +279,31 @@ def _require_semgrep() -> None:
                 ):
                     await asyncio.sleep(0.01)
                 if not scanner.availability()[0]:
+                    if scanner._lease is not None:
+                        runtime = scanner._lease.runtime
+                        with runtime.lock:
+                            states = []
+                            for job in tuple(runtime.active)[:12]:
+                                failure = job.failure
+                                child = failure.child if failure is not None else job.child
+                                cause = failure.__cause__ if failure is not None else None
+                                process = getattr(child, "process", None)
+                                # Read only owned state. Never poll/reap a child,
+                                # stringify exceptions, or include source/argv.
+                                states.append(
+                                    {
+                                        "native_failure": failure is not None,
+                                        "worker_failure": job.cpu_failure is not None,
+                                        "cause_type": type(cause).__name__ if cause else None,
+                                        "cause_errno": cause.errno
+                                        if isinstance(cause, OSError)
+                                        else None,
+                                        "reaped": getattr(child, "_reaped", None),
+                                        "group_killed": getattr(child, "_group_killed", None),
+                                        "returncode": getattr(process, "returncode", None),
+                                    }
+                                )
+                        diagnostics = "; owned_cleanup=" + json.dumps(states, sort_keys=True)
                     raise ValueError(scanner.availability()[1])
 
         asyncio.run(probe())
@@ -288,6 +316,7 @@ def _require_semgrep() -> None:
         detail = code if re.fullmatch(r"(?:ScannerTimeout: )?semgrep\.[a-z_]+", code) else ""
         raise pytest.UsageError(
             f"Semgrep real-backend prerequisite failed: {detail or type(exc).__name__}"
+            + diagnostics
         ) from exc
 
 
