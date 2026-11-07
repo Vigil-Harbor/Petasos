@@ -167,9 +167,13 @@ to their Job Object before resuming; no console host is needed for scanner outpu
 Once native termination starts, the worker immediately reports its absolute
 two-second cleanup deadline to the supervisor; both observe that same deadline.
 Before a constructor reports one, the supervisor retains a separate two-second
-watchdog for a stalled constructor. Cancellation during creation can therefore
-include constructor wait followed by native cleanup; this is not a promise that
-every cancelled scan returns within two seconds. Owner and process-close calls
+watchdog for a stalled constructor. The operator approved these separate phases
+in PET-254 S5/S6 on 2026-11-07: cancellation during creation can include at most
+two seconds of constructor wait followed by at most two seconds of native cleanup.
+Control caps the combined allowance at four seconds after observed cancellation
+or the absolute request deadline, even if a worker reports a later deadline.
+This is not a promise that every cancelled scan returns within two seconds.
+Owner and process-close calls
 keep their original absolute caller deadlines and report outstanding ownership
 on expiry. Findings from earlier language batches survive native cleanup failure.
 

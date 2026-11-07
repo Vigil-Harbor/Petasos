@@ -85,13 +85,18 @@ async def await_cpu(
     )
     if code is None:
         return CpuResult(waiting.result(), None)
-    fallback_end = time.monotonic() + 2
+    observed = time.monotonic()
+    # Deadline expiry is anchored to the request, not to a late control-loop
+    # poll. Cancellation is anchored to its first observation here.
+    interrupted_at = min(observed, deadline)
+    fallback_end = interrupted_at + 2
+    total_end = interrupted_at + 4
     while not waiting.done():
         # Until native cleanup starts, a stuck constructor still has a bounded
         # watchdog. Once reported, both sides observe the same native deadline;
         # they do not give the child a new budget at each await/poll boundary.
         reported = cleanup_deadline() if cleanup_deadline is not None else None
-        end = reported if reported is not None else fallback_end
+        end = min(reported, total_end) if reported is not None else fallback_end
         if time.monotonic() >= end:
             break
         await asyncio.wait({waiting}, timeout=min(0.01, max(0, end - time.monotonic())))

@@ -516,3 +516,83 @@ async def test_native_cleanup_reported_deadline_is_not_extended(
         assert caught.value.future is worker
     finally:
         worker.set_result(42)
+
+
+@pytest.mark.parametrize("reported,end", [(None, 2.0), (3.99, 3.99), (9.0, 4.0)])
+async def test_scan_cancellation_observes_constructor_and_cleanup_caps(
+    monkeypatch: pytest.MonkeyPatch, reported: float | None, end: float
+) -> None:
+    from types import SimpleNamespace
+
+    from petasos.scanners import _semgrep_engine as engine
+
+    clock = [0.0]
+    monkeypatch.setattr(engine, "time", SimpleNamespace(monotonic=lambda: clock[0]))
+    job = rt.Job(None, object(), None, 8, 8)
+    job.lease = SimpleNamespace(  # type: ignore[assignment]
+        runtime=SimpleNamespace(cancel=lambda item: item.cancelled.set())
+    )
+    worker: concurrent.futures.Future[int] = concurrent.futures.Future()
+    caller = asyncio.create_task(rt.await_job(job))
+    await asyncio.sleep(0)
+    caller.cancel()
+    await asyncio.sleep(0)
+    assert job.cancelled.is_set()
+
+    async def finish_job() -> None:
+        try:
+            await engine.await_cpu(
+                worker,
+                job.deadline,
+                job.cancelled,
+                rt.error_result("semgrep.cleanup_failed"),
+                cleanup_deadline=lambda: reported,
+            )
+        except engine.CpuCleanupFailure as exc:
+            job.cpu_failure = exc
+            job.future.set_result(exc.outcome)
+
+    producer = asyncio.create_task(finish_job())
+    await asyncio.sleep(0.02)
+    clock[0] = end - 0.01
+    await asyncio.sleep(0.02)
+    assert not caller.done()
+    clock[0] = end
+    try:
+        await producer
+        with pytest.raises(asyncio.CancelledError):
+            await caller
+        assert require(job.cpu_failure).future is worker
+        assert not worker.done()  # Terminal error does not release native ownership.
+        assert clock[0] <= 4
+    finally:
+        worker.set_result(42)
+
+
+async def test_late_timeout_observation_cannot_move_request_cleanup_ceiling(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import threading
+    from types import SimpleNamespace
+
+    from petasos.scanners import _semgrep_engine as engine
+
+    clock = [8.5]
+    monkeypatch.setattr(engine, "time", SimpleNamespace(monotonic=lambda: clock[0]))
+    worker: concurrent.futures.Future[int] = concurrent.futures.Future()
+    task = asyncio.create_task(
+        engine.await_cpu(
+            worker,
+            8,
+            threading.Event(),
+            rt.error_result("semgrep.cleanup_failed"),
+            cleanup_deadline=lambda: 20,
+        )
+    )
+    await asyncio.sleep(0.02)
+    clock[0] = 12
+    try:
+        with pytest.raises(engine.CpuCleanupFailure):
+            await task
+    finally:
+        worker.set_result(42)
