@@ -13,7 +13,7 @@ from petasos.scanners._semgrep_engine import ENGINE_VERSION
 
 _MANIFEST = Path(__file__).with_name("semgrep_qualification.json")
 _RULES = Path(__file__).with_name("semgrep_rules") / "rules.json"
-_WORKLOAD = "eight_outstanding_three_profiles"
+_WORKLOAD = "eight_outstanding_three_profiles_16k_128k_v2"
 
 
 def platform_key() -> str:

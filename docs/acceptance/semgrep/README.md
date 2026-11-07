@@ -1,5 +1,16 @@
 # Semgrep component evidence
 
+## Approved S7 amendment, measurements pending
+
+On November 7, 2026 the operator approved the reviewed
+[v2 measurement protocol](protocol-v2.md): maximum-source serial limits are
+1.8 s mean / 2.0 s p95 / 2.3 s p99, plus an independent eight-wide maximum-source
+gate at 7.5 s p95, every request ≤8 s, zero errors. Other latency limits,
+coverage and cleanup bounds remain unchanged. Loaded samples increase to 104
+per case, with pinned fixtures, exact findings/coverage checks, resource
+telemetry and preserved partial failures. Historical measurements below retain
+their original criteria and failure status. They do not qualify the new workload.
+
 ## Completed hosted measurements at 5a13965
 
 The November 7, 2026 hosted run
@@ -21,8 +32,9 @@ These are **failed component qualifications**. Package S permits declared hosted
 measurement hardware, so the Mac runner's three cores and 7 GiB RAM do not waive
 its failed gates. Q's real-host hardware requirements and eight-hour soaks are
 separate. The successful Windows cleanup in this run does not resolve the
-earlier intermittent root-removal failure. No latency thresholds or cleanup
-budgets have been relaxed, and the qualification manifest remains empty.
+earlier intermittent root-removal failure. At that run's revision no thresholds
+or cleanup budgets had changed. The later amendment above changes only the
+specified acceptance protocol; the qualification manifest remains empty.
 
 ## Earlier local evidence
 
@@ -40,9 +52,10 @@ rules digests, hardware and workload sizes are recorded in the JSON files.
   completed successfully. This run predates the final prepared-input fingerprint
   check and is diagnostic evidence, not an exact committed-revision performance proof.
 
-The failed latency gate remains unresolved. No adjustment to the reviewed
-thresholds is authorized or implied. The packaged qualification manifest remains
-empty. Native Apple Silicon, Python 3.11, and hosted CI results are still required.
+This earlier failed latency gate was not waived. The later approved amendment
+requires new measurements; it does not reclassify these results. The packaged
+qualification manifest remains empty. Native Apple Silicon, Python 3.11, and
+hosted CI evidence was still outstanding at this historical revision.
 The benchmark script exits nonzero on a missed gate and saves its measurements;
 the native workflow runs it on both Python 3.14 platform cells.
 

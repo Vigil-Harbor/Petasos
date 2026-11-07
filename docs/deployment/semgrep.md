@@ -183,7 +183,7 @@ key object, preventing object-ID reuse while queued or active work still owns it
 
 `semgrep_qualification.json` schema 1 contains a `measurements` list. A usable row
 must have matching `platform` (`windows_x64` or `macos_arm64`), `engine_version`,
-`engine_sha256`, `rules_sha256`, `workload` (`eight_outstanding_three_profiles`),
+`engine_sha256`, `rules_sha256`, `workload` (`eight_outstanding_three_profiles_16k_128k_v2`),
 nonempty `hardware`, `qualified: true`, and positive `loaded_p95_seconds` at most 8.
 Malformed, missing or mismatched evidence falls back to an unqualified eight-second
 reference. A lower configured deadline reports the workload, reference value and
