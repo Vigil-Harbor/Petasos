@@ -44,6 +44,7 @@ _SCANNER_CLASSES = frozenset(
         "LlamaFirewallScanner",
         "PresidioScanner",
         "PromptGuardScanner",
+        "SemgrepScanner",
     }
 )
 
@@ -66,6 +67,7 @@ _DEFINITION_MODULES = frozenset(
         "petasos/scanners/llama_firewall.py",
         "petasos/scanners/presidio.py",
         "petasos/scanners/prompt_guard.py",
+        "petasos/scanners/semgrep.py",
         "petasos/scanners/bootstrap.py",
     }
 )

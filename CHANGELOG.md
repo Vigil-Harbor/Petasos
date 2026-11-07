@@ -27,6 +27,16 @@ fails config validation, because an older release rejects the unknown id.
 
 ### Added
 
+- **Opt-in isolated Semgrep library scanner (PET-254, package S).** Adds explicit
+  `SemgrepLifecycleOwner`, bounded shared engine ownership, original-coordinate
+  findings, and additive coverage metadata. Prepared scans compose once through
+  Pipeline, guard and full-input ingestion. Five restart-only settings and the
+  `semgrep` extra configure a separately installed engine. Existing serialized
+  result payloads are unchanged when the additive fields are absent. Bundled
+  dashboards and current Hermes bootstraps refuse unowned enablement; host cleanup,
+  reporting, delivery and eight-hour qualification remain separate release gates.
+
+
 - **Credential handling in approval reporting (PET-250).** Approval text and
   enforcement reasons use forced Hermes redaction before clipping and signing.
   The approval prompt, history and refused queue distinguish local masking

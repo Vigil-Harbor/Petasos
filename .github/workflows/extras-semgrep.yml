@@ -1,0 +1,44 @@
+name: extras-semgrep
+on:
+  pull_request:
+    paths:
+      - "petasos/**"
+      - "tests/test_semgrep*.py"
+      - "tests/fixtures/semgrep/**"
+      - "tests/conftest.py"
+      - "scripts/semgrep_ci_install.py"
+      - "scripts/semgrep_benchmark.py"
+      - "pyproject.toml"
+      - ".github/workflows/extras-semgrep.yml"
+  workflow_dispatch:
+jobs:
+  scanner-tests:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      PETASOS_REQUIRE_SEMGREP: "1"
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2025, macos-15]
+        python-version: ["3.11", "3.14"]
+        include:
+          - {os: windows-2025, arch: x64}
+          - {os: macos-15, arch: arm64}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: pip install -e ".[semgrep,dev]"
+      - run: python scripts/semgrep_ci_install.py ${{ matrix.arch }}
+      - run: pytest tests/test_semgrep_engine.py tests/test_semgrep_source.py tests/test_semgrep_protocol.py tests/test_semgrep_process.py tests/test_semgrep_runtime.py tests/test_semgrep_composition.py -v --tb=short
+      - name: Measure native component latency gates
+        if: matrix.python-version == '3.14'
+        run: python scripts/semgrep_benchmark.py --runs 100 --output semgrep-component.json
+      - uses: actions/upload-artifact@v4
+        if: always() && matrix.python-version == '3.14'
+        with:
+          name: semgrep-component-${{ matrix.os }}
+          path: semgrep-component.json
+          if-no-files-found: warn

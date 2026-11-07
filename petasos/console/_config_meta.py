@@ -32,7 +32,43 @@ def _get_hints() -> dict[str, Any]:
     return _RESOLVED_HINTS
 
 
+_SEMGREP_HELP = (
+    "These settings apply to the scanner Petasos builds from config at startup with "
+    "explicit library ownership (SemgrepLifecycleOwner). Changes require restart. "
+    "Bundled dashboards do not run Semgrep. Hermes additionally requires the "
+    "qualifying cleanup callback and host integration; this release does not enable "
+    "it in the gateway. "
+)
+
 _FIELD_META: dict[str, dict[str, Any]] = {
+    "semgrep_enabled": {
+        "description": "Enable the explicitly owned isolated Semgrep scanner.",
+        "help_plain": _SEMGREP_HELP,
+        "section": "scanning",
+    },
+    "semgrep_engine_path": {
+        "description": "Absolute path to the isolated pinned semgrep-core executable.",
+        "help_plain": _SEMGREP_HELP,
+        "section": "scanning",
+    },
+    "semgrep_engine_sha256": {
+        "description": "SHA-256 integrity digest of the configured engine.",
+        "help_plain": _SEMGREP_HELP,
+        "section": "scanning",
+    },
+    "semgrep_request_timeout_seconds": {
+        "description": (
+            "Queue-inclusive Semgrep deadline (1-8 seconds). Values below eight "
+            "are unqualified at eight-request load until measured."
+        ),
+        "help_plain": _SEMGREP_HELP,
+        "section": "scanning",
+    },
+    "semgrep_max_source_bytes": {
+        "description": "Maximum decoded code bytes per scan (4096-131072).",
+        "help_plain": _SEMGREP_HELP,
+        "section": "scanning",
+    },
     "normalize_nfkc": {
         "description": "Apply Unicode NFKC normalization to collapse compatibility variants.",
         "help_plain": (

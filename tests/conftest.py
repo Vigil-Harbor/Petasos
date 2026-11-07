@@ -13,7 +13,7 @@ import jwt as pyjwt
 import pytest
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
 
 _FIXTURES = pathlib.Path(__file__).parent / "fixtures"
 _PRIVATE_KEY = (_FIXTURES / "test_private.pem").read_bytes()
@@ -185,6 +185,7 @@ def _enforce_nonskipping_lane(
     import_target: str,
     target_class: str,
     lane: str,
+    prerequisite: Callable[[], None] | None = None,
 ) -> None:
     """Fail collection loudly if ``lane``'s real-backend class would skip.
 
@@ -209,6 +210,8 @@ def _enforce_nonskipping_lane(
             f"{exc}. Install the lane's extra (see .github/workflows/{lane}.yml)."
         ) from exc
 
+    if prerequisite is not None:
+        prerequisite()
     in_class = [item for item in items if _item_class_name(item) == target_class]
     if not in_class:
         raise pytest.UsageError(
@@ -239,9 +242,61 @@ class NonSkippingLane:
     import_target: str  # symbol the scanner's _do_load imports
     target_class: str  # test class the lane must collect unskipped
     lane: str  # workflow basename, e.g. "extras-presidio"
+    prerequisite: Callable[[], None] | None = None
+
+
+def _require_semgrep() -> None:
+    import asyncio
+    import hashlib
+    import time
+
+    from petasos.scanners.semgrep import SemgrepLifecycleOwner, SemgrepScanner, supported_platform
+
+    engine, expected = (
+        os.environ.get("SEMGREP_ENGINE_PATH"),
+        os.environ.get("SEMGREP_ENGINE_SHA256"),
+    )
+    if not supported_platform() or not engine or not expected:
+        raise pytest.UsageError(
+            "Semgrep lane requires native Windows x64/macOS arm64 and path/hash"
+        )
+    try:
+        with open(engine, "rb") as stream:
+            actual = hashlib.file_digest(stream, "sha256").hexdigest()
+        if actual != expected.lower():
+            raise ValueError("engine integrity mismatch")
+
+        async def probe() -> None:
+            async with SemgrepLifecycleOwner() as owner:
+                scanner = SemgrepScanner(owner=owner, engine_path=engine, engine_sha256=expected)
+                deadline = time.monotonic() + 6.5
+                while (
+                    scanner.availability()[1] == "semgrep.probe_pending"
+                    and time.monotonic() < deadline
+                ):
+                    await asyncio.sleep(0.01)
+                if not scanner.availability()[0]:
+                    raise ValueError(scanner.availability()[1])
+
+        asyncio.run(probe())
+    except Exception as exc:
+        raise pytest.UsageError(
+            f"Semgrep real-backend prerequisite failed: {type(exc).__name__}"
+        ) from exc
 
 
 NONSKIPPING_LANES: tuple[NonSkippingLane, ...] = (
+    NonSkippingLane(
+        "semgrep",
+        "PETASOS_REQUIRE_SEMGREP",
+        "psutil",
+        "TestSemgrepRealEngine",
+        "extras-semgrep",
+        _require_semgrep,
+    ),
+    NonSkippingLane(
+        "semgrep", "PETASOS_REQUIRE_SEMGREP", "psutil", "TestSemgrepHeldOut", "extras-semgrep"
+    ),
     NonSkippingLane(
         "llm-guard",
         "PETASOS_REQUIRE_LLM_GUARD",
@@ -320,4 +375,5 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
             import_target=ln.import_target,
             target_class=ln.target_class,
             lane=ln.lane,
+            prerequisite=ln.prerequisite,
         )

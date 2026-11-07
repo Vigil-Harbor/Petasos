@@ -9,6 +9,7 @@ from petasos._types import (
     NormalizedText,
     PipelineResult,
     Position,
+    ScanCoverage,
     ScanFinding,
     Scanner,
     ScanResult,
@@ -97,6 +98,16 @@ class TestScanFinding:
 
 
 class TestScanResult:
+    def test_legacy_serialization_omits_coverage(self) -> None:
+        payload = {"scanner_name": "test", "findings": [], "duration_ms": 0.0, "error": None}
+        assert ScanResult("test", ()).to_dict() == payload
+        assert ScanResult.from_dict(payload).to_dict() == payload
+
+    def test_coverage_roundtrip(self) -> None:
+        coverage = ScanCoverage("no_targets", 5, 5, 0, 0)
+        result = ScanResult("semgrep", (), coverage=coverage)
+        assert ScanResult.from_dict(json.loads(json.dumps(result.to_dict()))) == result
+
     def test_frozen(self) -> None:
         r = ScanResult(scanner_name="test", findings=())
         with pytest.raises(dataclasses.FrozenInstanceError):
@@ -122,6 +133,29 @@ class TestScanResult:
 
 
 class TestPipelineResult:
+    def test_legacy_serialization_omits_backend_coverage(self) -> None:
+        assert PipelineResult(True, ()).to_dict() == {
+            "safe": True,
+            "findings": [],
+            "sanitized_content": None,
+            "scanner_results": [],
+            "errors": [],
+            "escalation_tier": None,
+            "session_score": None,
+            "feature_status": None,
+        }
+
+    def test_backend_coverage_is_defensively_frozen(self) -> None:
+        coverage = ScanCoverage("no_targets", 5, 5, 0, 0)
+        original = {"semgrep": coverage}
+        result = PipelineResult(True, (), backend_coverage=original)
+        original.clear()
+        assert result.backend_coverage is not None
+        assert result.backend_coverage["semgrep"] == coverage
+        with pytest.raises(TypeError):
+            result.backend_coverage["semgrep"] = coverage  # type: ignore[index]
+        assert result.to_dict()["backend_coverage"] == {"semgrep": coverage.to_dict()}
+
     def test_frozen(self) -> None:
         r = PipelineResult(safe=True, findings=())
         with pytest.raises(dataclasses.FrozenInstanceError):
