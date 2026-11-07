@@ -199,3 +199,17 @@ async def test_leaf_overflow_recognizes_second_layer_code() -> None:
     text = json.dumps(["benign"] * 4096 + [r"eval\u0028payload)"])
     selected = await select_sources(text)
     assert selected.error == "semgrep.projection_limit_code"
+
+
+@pytest.mark.parametrize("separator", ["\n", "/**/", "\f", "\u00a0", "\ufeff", "// note\n"])
+async def test_sensitive_call_separators_survive_streaming(separator: str) -> None:
+    from petasos.scanners._semgrep_source import preflight
+
+    for offset in (0, 8188, 8190, 8192):
+        body = " " * offset + "eval" + separator + "(payload)"
+        for text in (body, json.dumps(body), json.dumps(json.dumps(body))):
+            assert await preflight(text)
+            assert (await select_sources(text)).targets
+    body = "eval/*" + "x" * 20000 + "*/(payload)"
+    assert await preflight(body)
+    assert (await select_sources(body)).targets

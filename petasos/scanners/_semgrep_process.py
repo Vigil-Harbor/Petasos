@@ -256,6 +256,10 @@ class _WindowsChild:
             "CloseHandle": (w.BOOL, [w.HANDLE]),
             "GetExitCodeProcess": (w.BOOL, [w.HANDLE, ctypes.POINTER(w.DWORD)]),
             "OpenProcess": (w.HANDLE, [w.DWORD, w.BOOL, w.DWORD]),
+            "QueryFullProcessImageNameW": (
+                w.BOOL,
+                [w.HANDLE, w.DWORD, w.LPWSTR, ctypes.POINTER(w.DWORD)],
+            ),
             "PeekNamedPipe": (
                 w.BOOL,
                 [w.HANDLE, w.LPVOID, w.DWORD, w.LPVOID, ctypes.POINTER(w.DWORD), w.LPVOID],
@@ -417,7 +421,10 @@ class _WindowsChild:
         for pid in ids.ids[: ids.count]:
             if pid == self.pid or pid in self._descendants:
                 continue
-            handle = self.k.OpenProcess(0x100000, False, pid)  # SYNCHRONIZE
+            handle = self.k.OpenProcess(0x101000, False, pid)  # SYNCHRONIZE | QUERY_LIMITED
+            if not handle:
+                # Optional diagnostics must not weaken termination ownership.
+                handle = self.k.OpenProcess(0x100000, False, pid)
             if handle:
                 self._descendants[pid] = handle
                 self._handles.append(handle)
@@ -456,6 +463,7 @@ class _WindowsChild:
         # the actual handle state, rather than rediscovering possibly reused PIDs.
         self._last_cleanup_state = {
             "leader_signalled": leader_signalled,
+            "total": int(accounting.total),
             "active": int(accounting.active),
             "terminated": int(accounting.terminated),
             "descendant_waits": descendants,
@@ -465,6 +473,20 @@ class _WindowsChild:
             and accounting.active == 0
             and all(status == 0 for status in descendants.values())
         )
+
+    def image_names(self) -> dict[int, str]:
+        """Failure-only diagnostics from owned handles, without source or paths."""
+        from ctypes import wintypes as w
+
+        names = {}
+        for pid, handle in {self.pid: self._process, **self._descendants}.items():
+            buffer = ctypes.create_unicode_buffer(32768)
+            size = w.DWORD(len(buffer))
+            if self.k.QueryFullProcessImageNameW(handle, 0, buffer, ctypes.byref(size)):
+                names[pid] = buffer.value.rsplit("\\", 1)[-1]
+            else:
+                names[pid] = "unavailable"
+        return names
 
     def close(self) -> None:
         for handle in reversed(self._handles):
@@ -479,6 +501,9 @@ class CleanupFailure(RuntimeError):
         super().__init__("semgrep.cleanup_failed")
         self.child = child
         self.state = getattr(child, "_last_cleanup_state", None)
+        if self.state is not None and isinstance(child, _WindowsChild):
+            with contextlib.suppress(Exception):
+                self.state = {**self.state, "images": child.image_names()}
         self.outcome: ScanResult | None = None
 
 

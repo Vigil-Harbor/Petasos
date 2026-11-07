@@ -30,7 +30,11 @@ _LABELS = {
 }
 _CANDIDATE = re.compile(
     r"\b[A-Za-z_$][\w.$]*\("
-    r"|\b(?:eval|exec|Function|[A-Za-z_$][\w$]*\.[\w.$]+)[ \t]+\("
+    # A comment or non-horizontal whitespace may separate a sensitive callee
+    # from its arguments. Admit at the separator's start: comments can exceed
+    # the bounded streaming carry, and only the engine decides whether it calls.
+    r"|\b(?:eval|exec|Function|[A-Za-z_$][\w$]*\.[\w.$]+)"
+    r"(?:[ \t]+\(|[ \t]*(?:[^\S \t]|\ufeff|/\*|//))"
     r"|(?m:^[ \t]*(?:from[ \t]+\S+[ \t]+import|import|class|def|async[ \t]+def"
     r"|function|const|let|var)\b)"
 )

@@ -203,3 +203,16 @@ Presidio/PromptGuard prerequisites and cached weights, set both
 the isolated engine path, and run `tests/test_scanner_composition.py`. That gate
 fails on missing prerequisites when requested and does not enable the backend in
 Hermes. Native tests alone do not satisfy this combined gate.
+
+Candidate admission recognizes sensitive callees separated from arguments by
+newlines, Unicode whitespace or JavaScript comments. A comment opener after a
+sensitive callee is enough for conservative admission, even across long comments;
+the engine receives the original bytes and determines whether there is a finding.
+Ordinary prose with a spaced word and parenthesis retains its existing treatment.
+When a later language batch fails, earlier completed spans and deduplicated
+findings remain available alongside the overall error.
+
+Windows cleanup failures include bounded process-handle wait states, the Job's
+total process count and best-effort executable basenames. These diagnostics do
+not include source text, command lines or executable paths. They are evidence
+for investigation, not a waiver of the cleanup deadline.

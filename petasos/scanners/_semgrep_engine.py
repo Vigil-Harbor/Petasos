@@ -409,6 +409,28 @@ async def scan_selected(
     all_findings: dict[int, list[tuple[bool, ScanFinding]]] = {}
     completed: set[int] = set()
     error = selection.error
+
+    def assemble(failure: str | None) -> ScanResult:
+        findings: dict[tuple[str, int, int], ScanFinding] = {}
+        for candidates in all_findings.values():
+            for _full, finding in candidates:
+                assert finding.position is not None
+                key = (
+                    finding.rule_id.rsplit(".", 1)[-1],
+                    finding.position.start,
+                    finding.position.end,
+                )
+                findings.setdefault(key, finding)
+        if len(findings) > 256:
+            failure = failure or "semgrep.output_limit"
+        return result_for(
+            selection,
+            tuple(list(findings.values())[:256]),
+            completed,
+            failure,
+            (time.monotonic() - start) * 1000,
+        )
+
     try:
         raw_rules = (_RULE_ROOT / "rules.json").read_bytes()
         manifest = json.loads((_RULE_ROOT / "manifest.json").read_bytes())
@@ -476,11 +498,7 @@ async def scan_selected(
                 deadline,
                 cancelled,
                 executor,
-                result_for(
-                    selection,
-                    tuple(f for values in all_findings.values() for _full, f in values)[:256],
-                    error="semgrep.cleanup_failed",
-                ),
+                assemble("semgrep.cleanup_failed"),
             )
             if process.error is not None:
                 error = process.error
@@ -547,22 +565,4 @@ async def scan_selected(
             await asyncio.sleep(0)
     except ProtocolError as exc:
         error = "semgrep." + str(exc)
-    findings: dict[tuple[str, int, int], ScanFinding] = {}
-    for candidates in all_findings.values():
-        for _full, finding in candidates:
-            assert finding.position is not None
-            key = (
-                finding.rule_id.rsplit(".", 1)[-1],
-                finding.position.start,
-                finding.position.end,
-            )
-            findings.setdefault(key, finding)
-    if len(findings) > 256:
-        error = "semgrep.output_limit"
-    return result_for(
-        selection,
-        tuple(list(findings.values())[:256]),
-        completed,
-        error,
-        (time.monotonic() - start) * 1000,
-    )
+    return assemble(error)

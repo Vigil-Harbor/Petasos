@@ -223,10 +223,33 @@ class TestSemgrepRealEngine:
         assert any(f.rule_id.endswith("." + family) for f in result.findings), result
         assert result.error is None, result
 
+    @pytest.mark.parametrize("separator", ["\n", "/**/", "\f", "\u00a0", "\ufeff", "// note\n"])
+    async def test_unusual_call_separators_keep_real_findings(
+        self, separator: str, engine_root: Path
+    ) -> None:
+        from petasos.scanners._semgrep_source import preflight
+
+        source = json.dumps("x = eval" + separator + "(payload)")
+        assert await preflight(source)
+        selected = await select_sources(source)
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            result = await scan_selected(
+                selected,
+                os.environ["SEMGREP_ENGINE_PATH"],
+                engine_root,
+                time.monotonic() + 8,
+                threading.Event(),
+                executor,
+            )
+        assert result.error is None, result
+        assert any(f.rule_id.endswith(".dynamic_code") for f in result.findings), result
+
+    @pytest.mark.parametrize("failed_batch", [2, 3])
     async def test_native_failure_retains_prior_language_findings(
         self,
         engine_root: Path,
         monkeypatch: pytest.MonkeyPatch,
+        failed_batch: int,
     ) -> None:
         from petasos.scanners import _semgrep_engine as engine
         from petasos.scanners._semgrep_process import CleanupFailure, run_process
@@ -237,7 +260,7 @@ class TestSemgrepRealEngine:
         async def failed_second(*args: Any, **kwargs: Any) -> Any:
             nonlocal calls
             calls += 1
-            if calls == 2:
+            if calls == failed_batch:
                 raise CleanupFailure(object())  # type: ignore[arg-type]
             return await original(*args, **kwargs)
 
@@ -258,6 +281,12 @@ class TestSemgrepRealEngine:
         retained = require(caught.value.outcome)
         assert retained.error == "semgrep.cleanup_failed"
         assert any(f.rule_id.endswith("python.dynamic_code") for f in retained.findings)
+        assert len(retained.findings) == 1
+        coverage = require(retained.coverage)
+        assert coverage.status == "error"
+        assert coverage.completed_target_count == 1
+        assert all(span.status == "complete" for span in coverage.spans)
+        assert "no_grammar_accepted" not in coverage.reasons
 
     @pytest.mark.skipif(os.name != "nt", reason="native Windows job membership")
     async def test_real_engine_has_no_console_descendants(
@@ -270,7 +299,15 @@ class TestSemgrepRealEngine:
         from petasos.scanners._semgrep_process import _WindowsChild
 
         original = _WindowsChild.poll
+        original_cleaned = _WindowsChild.cleaned
         names: set[str] = set()
+        totals: list[int] = []
+
+        def cleaned(child: Any) -> bool:
+            result = original_cleaned(child)
+            if result:
+                totals.append(child._last_cleanup_state["total"])
+            return result
 
         def observed(child: Any) -> int | None:
             child._capture_descendants()
@@ -282,6 +319,7 @@ class TestSemgrepRealEngine:
             return original(child)
 
         monkeypatch.setattr(_WindowsChild, "poll", observed)
+        monkeypatch.setattr(_WindowsChild, "cleaned", cleaned)
         with ThreadPoolExecutor(max_workers=2) as executor:
             result = await scan_selected(
                 await select_sources("eval(payload)"),
@@ -294,6 +332,7 @@ class TestSemgrepRealEngine:
         assert result.error is None, result
         assert result.findings
         assert not names, names
+        assert totals and all(total == 1 for total in totals), totals
 
 
 @pytest.mark.skipif(not os.environ.get("SEMGREP_ENGINE_PATH"), reason="isolated engine required")

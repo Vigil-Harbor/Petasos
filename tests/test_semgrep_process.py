@@ -100,7 +100,10 @@ async def test_cancellation_reaps_descendant_holding_inherited_pipes(
     deadline = time.monotonic() + 10
     while not pid_file.exists() and not task.done() and time.monotonic() < deadline:
         await asyncio.sleep(0.005)
-    result = await task
+    try:
+        result = await task
+    except process_module.CleanupFailure as exc:
+        pytest.fail(f"descendant cleanup exceeded its bound: {exc.state!r}")
     assert result.error is None
     pid = int(pid_file.read_text())
     # Windows can keep an exited PID in the system snapshot briefly. A signaled
@@ -260,6 +263,10 @@ async def test_detached_child_has_no_console_host(tmp_path: Path) -> None:
     try:
         await asyncio.sleep(0.3)
         child._capture_descendants()
+        assert (
+            child.image_names()[child.pid].lower()
+            == Path(vars(sys)["_base_executable"]).name.lower()
+        )
         # No helper descendants are created, so any member other than the
         # leader would be an unexpected runtime/console process.
         assert not child._descendants
