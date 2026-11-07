@@ -212,6 +212,22 @@ _SPACE_RUN = re.compile(r"[\s\ufeff]+")
 _TRAILING_WORD = re.compile(r"(?<![\w.$])[\w.$]+[ \n]?$")
 
 
+def _compact_whitespace(text: str) -> str:
+    # Most plain prose already uses single ASCII spaces. Avoid allocating one
+    # regex replacement per word when compaction would return identical text.
+    if (
+        text.isascii()
+        and "  " not in text
+        and not any(char in text for char in "\t\n\r\v\f\x1c\x1d\x1e\x1f")
+    ):
+        return text
+    return (
+        _SPACE_RUN.sub(lambda match: "\n" if "\n" in match[0] else " ", text)
+        if "\n" in text
+        else _SPACE_RUN.sub(" ", text)
+    )
+
+
 def _unescape(match: re.Match[str]) -> str:
     value = match[0]
     return (
@@ -251,11 +267,7 @@ async def preflight(text: str) -> bool:
             # Preserve a newline in each run for the declaration alternative's
             # line anchor, while keeping arbitrarily long call gaps bounded.
             window = tails[layer] + chunk.replace('"', "\n")
-            window = (
-                _SPACE_RUN.sub(lambda match: "\n" if "\n" in match[0] else " ", window)
-                if "\n" in window
-                else _SPACE_RUN.sub(" ", window)
-            )
+            window = _compact_whitespace(window)
             if _is_candidate(window) or "```" in window or "~~~" in window:
                 return True
             # Ordinary short words need only the carry suffix. Revisit the

@@ -248,6 +248,25 @@ async def test_long_unicode_call_gaps_and_declaration_anchors(space: str) -> Non
     assert await preflight("ordinary words\n" + space * 17000 + "\nimport os")
 
 
+def test_whitespace_compaction_matches_reference_for_ascii_and_unicode() -> None:
+    import random
+    import re
+
+    from petasos.scanners._semgrep_source import _compact_whitespace
+
+    pattern = re.compile(r"[\s\ufeff]+")
+    whitespace = "".join(chr(i) for i in range(0x110000) if chr(i).isspace()) + "\ufeff"
+    rng = random.Random(25410)
+    inputs = ["", "benign words " * 1000, "eval (payload)", "a\x00b c"]
+    inputs.extend(f"a{char}b" for char in whitespace)
+    inputs.extend(
+        "".join(rng.choices("abc.() " + whitespace, k=rng.randrange(100))) for _ in range(4000)
+    )
+    for value in inputs:
+        expected = pattern.sub(lambda match: "\n" if "\n" in match[0] else " ", value)
+        assert _compact_whitespace(value) == expected, repr(value)
+
+
 def test_candidate_token_semantics_match_short_reference_inputs() -> None:
     import random
     import re

@@ -1,5 +1,31 @@
 # Semgrep component evidence
 
+## Completed hosted measurements at 5a13965
+
+The November 7, 2026 hosted run
+[42369954500](https://github.com/Vigil-Harbor/Petasos/actions/runs/42369954500)
+measured the PR merge revision `e59f4d14b30a32f84e445c9b635943579c3ff042`
+for branch head `5a13965`. The unchanged artifact data is retained in
+`hosted-mac-5a13965.json` and `hosted-win-5a13965.json`.
+
+Both Python 3.14 native suites passed: Mac 242 passed with two Windows-only
+skips; Windows 243 passed with one POSIX-only skip. The Mac run executed the
+native zombie-group cleanup test and all four additional signal transitions.
+Both benchmarks completed, closed their owners, and recorded no stage errors.
+Single 16 KiB scans, all six eight-wide scheduling distributions and cancellation
+replacements passed their gates. The 16-candidate/128 KiB workload failed all
+three serial latency limits on both platforms. Windows also failed the
+million-character preflight gate; Mac passed it.
+
+These are **failed component qualifications**. Package S permits declared hosted
+measurement hardware, so the Mac runner's three cores and 7 GiB RAM do not waive
+its failed gates. Q's real-host hardware requirements and eight-hour soaks are
+separate. The successful Windows cleanup in this run does not resolve the
+earlier intermittent root-removal failure. No latency thresholds or cleanup
+budgets have been relaxed, and the qualification manifest remains empty.
+
+## Earlier local evidence
+
 These are exploratory Windows x64 / Python 3.14 measurements of the PET-254
 package-S implementation candidate before its first commit. They are not a
 qualification certificate or evidence of a Hermes gateway run. The engine and
