@@ -1,6 +1,8 @@
 """Applicability and original-coordinate regressions, independent of the engine."""
 
 import json
+import subprocess
+import sys
 from typing import Any
 
 import pytest
@@ -244,3 +246,69 @@ async def test_long_unicode_call_gaps_and_declaration_anchors(space: str) -> Non
     assert await preflight(body)
     assert await preflight(json.dumps(body))
     assert await preflight("ordinary words\n" + space * 17000 + "\nimport os")
+
+
+def test_candidate_token_semantics_match_short_reference_inputs() -> None:
+    import random
+    import re
+
+    from petasos.scanners._semgrep_source import _is_candidate
+
+    reference = re.compile(
+        r"\b[A-Za-z_$][\w.$]*\("
+        r"|\b(?:eval|exec|Function|[A-Za-z_$][\w$]*\.[\w.$]+)"
+        r"(?:[\s\ufeff]+\(|[\s\ufeff]*(?:/\*|//))"
+    )
+    rng = random.Random(254)
+    for _ in range(4000):
+        token = "".join(rng.choices("ab09_.$é", k=rng.randrange(1, 32)))
+        token += rng.choice(("", ".eval", "$eval", "exec", ".Function"))
+        text = token + rng.choice(("(", " (", "\n(", "/**/(", "\ufeff", "\nwords", ""))
+        assert _is_candidate(text) == bool(reference.search(text)), repr(text)
+
+
+def test_million_character_dotted_input_has_bounded_candidate_cost() -> None:
+    # A subprocess watchdog is necessary: asyncio timeouts cannot interrupt a
+    # synchronous regex, and the old implementation could hang CI for hours.
+    script = r"""
+import asyncio, json, sys, time
+sys.path[:] = json.loads(sys.argv[1])
+from petasos.scanners._semgrep_source import _is_candidate, preflight, select_sources
+
+async def run():
+    dotted = "a." * 499950
+    values = {
+        "raw": dotted,
+        "json": json.dumps(dotted),
+        "after_fence": "```python\neval(x)\n```\n" + dotted,
+        "json_after_call": json.dumps(["eval(x)", dotted]),
+    }
+    measured = {}
+    for name, text in values.items():
+        started = time.perf_counter()
+        assert not _is_candidate(dotted)
+        # A leading marker defeats the cheap absence check, exercising the
+        # maximal-run matcher on the entire hostile identifier as well.
+        assert not _is_candidate("(" + dotted)
+        gate = await preflight(text)
+        selection = await select_sources(text)
+        expected = name in ("after_fence", "json_after_call")
+        assert gate is expected, name
+        assert len(selection.targets) == int(expected), name
+        elapsed = time.perf_counter() - started
+        measured[name] = elapsed
+        assert elapsed < 1.0, (name, elapsed)
+    print(json.dumps(measured))
+
+asyncio.run(run())
+"""
+    result = subprocess.run(
+        # Keep the parent's installed dependencies while bypassing the Windows
+        # venv redirector, so timeout kills the actual regex worker process.
+        [str(vars(sys)["_base_executable"]), "-c", script, json.dumps(sys.path)],
+        capture_output=True,
+        text=True,
+        timeout=15,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+    assert result.returncode == 0, result.stdout + result.stderr

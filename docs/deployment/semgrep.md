@@ -211,6 +211,11 @@ Hermes. Native tests alone do not satisfy this combined gate.
 Candidate admission recognizes sensitive callees separated from arguments by
 newlines or Unicode whitespace only when followed by an opening parenthesis.
 Domains, filenames and isolated words followed by whitespace do not qualify.
+Candidate matching consumes maximal identifier runs once, using Python 3.11+
+possessive matching rather than retrying at each dot. The same predicate serves
+streaming preflight and whole-region selection. Source tests run million-character
+dotted inputs behind a separate process watchdog, including JSON and early-code
+wrappers; an asyncio timeout alone cannot interrupt a synchronous regex.
 A JavaScript comment opener after a
 sensitive callee is enough for conservative admission, even across long comments;
 the engine receives the original bytes and determines whether there is a finding.

@@ -28,13 +28,11 @@ _LABELS = {
     "ts": "typescript",
     "typescript": "typescript",
 }
-_CANDIDATE = re.compile(
-    r"\b[A-Za-z_$][\w.$]*\("
-    # Whitespace alone does not make a call. Admit at comment openers because
-    # comments can exceed the carry; the engine decides whether they call.
-    r"|\b(?:eval|exec|Function|[A-Za-z_$][\w$]*\.[\w.$]+)"
-    r"(?:[\s\ufeff]+\(|[\s\ufeff]*(?:/\*|//))"
-    r"|(?m:^[ \t]*(?:from[ \t]+\S+[ \t]+import|import|class|def|async[ \t]+def"
+_IDENTIFIER_RUN = re.compile(r"(?<![\w.$])([\w.$]++)([\s\ufeff]*+)(\(|/\*|//)")
+_IDENTIFIER_START = re.compile(r"\b[A-Za-z_$]")
+_SENSITIVE_END = re.compile(r"\b(?:eval|exec|Function)$")
+_DECLARATION = re.compile(
+    r"(?m:^[ \t]*(?:from[ \t]+\S+[ \t]+import|import|class|def|async[ \t]+def"
     r"|function|const|let|var)\b)"
 )
 _FENCE = re.compile(r"(?m)^ {0,3}(`{3,}|~{3,})([^\r\n]*)\r?$")
@@ -45,6 +43,26 @@ _HEADER = re.compile(
 _LINE = re.compile(r"[^\n]*\n|[^\n]+$")
 _NUMBER = re.compile(r"-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?")
 _ESCAPE = re.compile(r"\\(?:u[0-9a-fA-F]{4}|[\"\\/bfnrt])")
+
+
+def _is_candidate(text: str) -> bool:
+    """Visit each maximal identifier once, never retry at every dotted segment."""
+    if _DECLARATION.search(text):
+        return True
+    if "(" not in text and "/*" not in text and "//" not in text:
+        return False
+    for run in _IDENTIFIER_RUN.finditer(text):
+        token = run[1]
+        start = _IDENTIFIER_START.search(token)
+        if start is None:
+            continue
+        if run.start(2) == run.end(2) and run[3] == "(":
+            return True
+        dot = token.find(".", start.start())
+        dotted = start.start() < dot < len(token) - 1
+        if dotted or _SENSITIVE_END.search(token):
+            return True
+    return False
 
 
 def _scan_string(text: str, start: int, strict: bool) -> tuple[str, int]:
@@ -193,14 +211,20 @@ async def preflight(text: str) -> bool:
                 chunk = _ESCAPE.sub(_unescape, encoded[:cut])
             # Preserve a newline in each run for the declaration alternative's
             # line anchor, while keeping arbitrarily long call gaps bounded.
-            window = _SPACE_RUN.sub(
-                lambda match: "\n" if "\n" in match[0] else " ",
-                tails[layer] + chunk.replace('"', "\n"),
+            window = tails[layer] + chunk.replace('"', "\n")
+            window = (
+                _SPACE_RUN.sub(lambda match: "\n" if "\n" in match[0] else " ", window)
+                if "\n" in window
+                else _SPACE_RUN.sub(" ", window)
             )
-            if _CANDIDATE.search(window) or "```" in window or "~~~" in window:
+            if _is_candidate(window) or "```" in window or "~~~" in window:
                 return True
-            word = _TRAILING_WORD.search(window)
+            # Ordinary short words need only the carry suffix. Revisit the
+            # entire window for a long run so an earlier dot is not discarded.
+            word = _TRAILING_WORD.search(window[-256:])
             if word is not None and len(word[0]) > 128:
+                word = _TRAILING_WORD.search(window)
+                assert word is not None
                 sentinel = "x.y" if "." in word[0] else "x"
                 suffix = word[0][-1] if word[0].endswith((" ", "\n")) else ""
                 window = window[: word.start()] + sentinel + suffix
@@ -509,7 +533,7 @@ async def select_sources(
         nonlocal remaining
         if not region.text.strip():
             return
-        if language is None and not _CANDIDATE.search(region.text):
+        if language is None and not _is_candidate(region.text):
             selection.unsupported |= region.tentative
             return
         if len(selection.targets) >= 16 or remaining == 0:
