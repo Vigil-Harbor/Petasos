@@ -10,6 +10,7 @@ import inspect
 import json
 import os
 import platform
+import shutil
 import statistics
 import subprocess
 import threading
@@ -44,9 +45,28 @@ class StageTimings:
 
     def __init__(self) -> None:
         self.values: dict[str, list[float]] = defaultdict(list)
+        self.errors: list[dict[str, str | int | None]] = []
+        self.error_count = 0
         self.lock = threading.Lock()
 
     def wrap(self, name: str, function: Callable[..., Any]) -> Callable[..., Any]:
+        def record_error(exc: Exception) -> None:
+            # Never retain messages, filenames, arguments or submitted text.
+            # Keep the earliest failures before retry/close errors obscure them.
+            with self.lock:
+                self.error_count += 1
+                if len(self.errors) < 64:
+                    self.errors.append(
+                        {
+                            "stage": name,
+                            "type": type(exc).__name__,
+                            "errno": exc.errno if isinstance(exc, OSError) else None,
+                            "winerror": getattr(exc, "winerror", None)
+                            if isinstance(exc, OSError)
+                            else None,
+                        }
+                    )
+
         def record(start: float) -> None:
             with self.lock:
                 self.values[name].append(time.monotonic() - start)
@@ -58,6 +78,9 @@ class StageTimings:
                 started = time.monotonic()
                 try:
                     return await function(*args, **kwargs)
+                except Exception as exc:
+                    record_error(exc)
+                    raise
                 finally:
                     record(started)
 
@@ -68,6 +91,9 @@ class StageTimings:
             started = time.monotonic()
             try:
                 return function(*args, **kwargs)
+            except Exception as exc:
+                record_error(exc)
+                raise
             finally:
                 record(started)
 
@@ -84,6 +110,7 @@ class StageTimings:
             (runtime.Runtime, "_new_root", "root_creation"),
             (runtime, "select_sources", "projection"),
             (runtime, "remove_root", "root_cleanup"),
+            (shutil, "rmtree", "root_remove_attempt"),
             (engine, "scan_selected", "engine_scan"),
             (runtime, "scan_selected", "engine_scan"),
             (engine, "strict_output", "output_decode"),
@@ -307,6 +334,8 @@ def main() -> None:
     result["stage_durations_seconds"] = {
         name: summary(values) for name, values in stages.values.items()
     }
+    result["stage_errors"] = stages.errors
+    result["stage_error_count"] = stages.error_count
     result["workload_description"] = (
         "dense Python JSON transforms and one eval; equal-size raw parts"
     )
