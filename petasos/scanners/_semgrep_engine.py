@@ -9,6 +9,7 @@ import hashlib
 import json
 import os
 import re
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -16,11 +17,16 @@ from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
 from petasos._coverage import CoverageSpan, CoverageStatus, ScanCoverage
 from petasos._types import Position, ScanFinding, ScanResult, Severity
-from petasos.scanners._semgrep_process import CleanupFailure, ProcessResult, run_process
+from petasos.scanners._semgrep_process import (
+    CLEANUP_DEADLINE_OBSERVER,
+    CleanupFailure,
+    ProcessResult,
+    run_process,
+)
 from petasos.scanners._semgrep_source import LANGUAGES, Selection, Target
 
 if TYPE_CHECKING:
-    import threading
+    from collections.abc import Callable
     from concurrent.futures import Future, ThreadPoolExecutor
 
 ENGINE_VERSION = "1.183.0"
@@ -59,7 +65,12 @@ class CpuResult(Generic[_T]):
 
 
 async def await_cpu(
-    worker: Future[_T], deadline: float, cancelled: threading.Event, outcome: ScanResult
+    worker: Future[_T],
+    deadline: float,
+    cancelled: threading.Event,
+    outcome: ScanResult,
+    *,
+    cleanup_deadline: Callable[[], float | None] | None = None,
 ) -> CpuResult[_T]:
     """Observe cancellation promptly without detaching an unkillable CPU worker."""
     waiting = asyncio.wrap_future(worker)
@@ -74,8 +85,15 @@ async def await_cpu(
     )
     if code is None:
         return CpuResult(waiting.result(), None)
-    end = time.monotonic() + 2
-    while not waiting.done() and time.monotonic() < end:
+    fallback_end = time.monotonic() + 2
+    while not waiting.done():
+        # Until native cleanup starts, a stuck constructor still has a bounded
+        # watchdog. Once reported, both sides observe the same native deadline;
+        # they do not give the child a new budget at each await/poll boundary.
+        reported = cleanup_deadline() if cleanup_deadline is not None else None
+        end = reported if reported is not None else fallback_end
+        if time.monotonic() >= end:
+            break
         await asyncio.wait({waiting}, timeout=min(0.01, max(0, end - time.monotonic())))
     if not waiting.done():
         # Retrieve a later exception without losing ownership of the worker.
@@ -96,6 +114,7 @@ async def run_owned_process(
     deadline: float,
     cancelled: threading.Event,
     executor: ThreadPoolExecutor,
+    outcome: ScanResult | None = None,
 ) -> ProcessResult:
     """Run native lifecycle on a bounded worker, keeping the control loop free.
 
@@ -104,14 +123,40 @@ async def run_owned_process(
     detach or hand the capacity back. The worker still owns eventual cleanup.
     """
     context = contextvars.copy_context()
+    observer = CLEANUP_DEADLINE_OBSERVER.get()
+    lock = threading.Lock()
+    native_end: float | None = None
+
+    def report(end: float) -> None:
+        nonlocal native_end
+        with lock:
+            native_end = end if native_end is None else min(native_end, end)
+            selected_end = native_end
+        if observer is not None:
+            observer(selected_end)
+
+    def reported_end() -> float | None:
+        with lock:
+            return native_end
+
+    context.run(CLEANUP_DEADLINE_OBSERVER.set, report)
 
     def invoke() -> ProcessResult:
         return asyncio.run(run_process(argv, root, deadline, cancelled))
 
     worker = executor.submit(context.run, invoke)
-    result = await await_cpu(
-        worker, deadline, cancelled, ScanResult("semgrep", (), 0, "semgrep.cleanup_failed")
-    )
+    retained = outcome or ScanResult("semgrep", (), 0, "semgrep.cleanup_failed")
+    try:
+        result = await await_cpu(
+            worker,
+            deadline,
+            cancelled,
+            retained,
+            cleanup_deadline=reported_end,
+        )
+    except CleanupFailure as exc:
+        exc.outcome = retained
+        raise
     return result.value or ProcessResult(None, b"", result.error)
 
 
@@ -431,6 +476,11 @@ async def scan_selected(
                 deadline,
                 cancelled,
                 executor,
+                result_for(
+                    selection,
+                    tuple(f for values in all_findings.values() for _full, f in values)[:256],
+                    error="semgrep.cleanup_failed",
+                ),
             )
             if process.error is not None:
                 error = process.error

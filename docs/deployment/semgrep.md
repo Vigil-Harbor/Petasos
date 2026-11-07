@@ -155,11 +155,23 @@ the manager loop within the remaining two-second child/file cleanup budget.
 
 An escaped-content preflight keeps code-free JSON out of engine admission, even
 when the engine queue is saturated. Proven non-candidate JSON leaves need no
-offset maps. Native child creation, polling and termination run on the same two
+offset maps. Preflight carries incomplete escapes and compacted whitespace across
+chunks, so arbitrarily padded calls cannot disappear at chunk boundaries. The
+engine and finding coordinates still use the original, unmodified source.
+Native child creation, polling and termination run on the same two
 owned workers as other bounded work, so a slow native call cannot block the
 manager loop. A worker exceeding cleanup time retains its job and root. Windows
 children are detached from consoles with explicit stdio pipes and remain assigned
 to their Job Object before resuming; no console host is needed for scanner output.
+
+Once native termination starts, the worker immediately reports its absolute
+two-second cleanup deadline to the supervisor; both observe that same deadline.
+Before a constructor reports one, the supervisor retains a separate two-second
+watchdog for a stalled constructor. Cancellation during creation can therefore
+include constructor wait followed by native cleanup; this is not a promise that
+every cancelled scan returns within two seconds. Owner and process-close calls
+keep their original absolute caller deadlines and report outstanding ownership
+on expiry. Findings from earlier language batches survive native cleanup failure.
 
 Scheduling keys are opaque identities: reuse the same object across rebuilds of a
 profile. Equality of distinct strings is insufficient. Each live lease retains its

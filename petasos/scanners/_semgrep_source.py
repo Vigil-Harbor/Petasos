@@ -148,32 +148,56 @@ def validate_envelope(
     return tuple(checked), total
 
 
+_SPACE_RUN = re.compile(r"[ \t]+")
+_TRAILING_WORD = re.compile(r"(?<![\w.$])[\w.$]+ ?$")
+
+
+def _unescape(match: re.Match[str]) -> str:
+    value = match[0]
+    return (
+        chr(int(value[2:], 16))
+        if value.startswith("\\u")
+        else {"b": "\b", "f": "\f", "n": "\n", "r": "\r", "t": "\t"}.get(value[1], value[1])
+    )
+
+
 async def preflight(text: str) -> bool:
-    """Cheap candidate check, with bounded uninterrupted work and overlap."""
-    candidate = False
-    for i in range(0, min(len(text), MAX_PARAM_TEXT_LEN), 8192):
-        chunk = text[max(0, i - 256) : i + 8192]
-        # Inspect escaped JSON content without building a tree or offset maps.
-        # Two decoding layers match projection; bounded overlapping chunks keep
-        # benign envelopes independent of the engine's admission queue.
-        for _layer in range(3):
-            candidate |= bool(
-                _CANDIDATE.search(chunk.replace('"', "\n")) or "```" in chunk or "~~~" in chunk
-            )
-            if candidate or "\\" not in chunk:
-                break
-            chunk = _ESCAPE.sub(
-                lambda m: (
-                    chr(int(m[0][2:], 16))
-                    if m[0].startswith("\\u")
-                    else {"b": "\b", "f": "\f", "n": "\n", "r": "\r", "t": "\t"}.get(
-                        m[0][1], m[0][1]
-                    )
-                ),
-                chunk,
-            )
+    """Bounded streaming candidate check; chunk boundaries cannot erase calls.
+
+    Carry incomplete escapes through two decode layers. Compact whitespace across
+    chunks, not independently inside each chunk. Very long trailing identifiers
+    retain a dotted/non-dotted sentinel, sufficient for this conservative filter;
+    selection and the engine always receive the unmodified original source.
+    """
+    pending = ["", ""]
+    tails = ["", "", ""]
+    limit = min(len(text), MAX_PARAM_TEXT_LEN)
+    layers = 3 if "\\" in text[:limit] else 1
+    for start in range(0, limit, 8192):
+        chunk = text[start : min(start + 8192, limit)]
+        final = start + 8192 >= limit
+        for layer in range(layers):
+            if layer:
+                encoded = pending[layer - 1] + chunk
+                cut = len(encoded) if final else max(0, len(encoded) - 6)
+                # Never split a valid escape across the retained suffix. Six
+                # characters also retain any incomplete unicode escape.
+                for match in _ESCAPE.finditer(encoded):
+                    if match.start() < cut < match.end():
+                        cut = match.start()
+                        break
+                pending[layer - 1] = encoded[cut:]
+                chunk = _ESCAPE.sub(_unescape, encoded[:cut])
+            window = _SPACE_RUN.sub(" ", tails[layer] + chunk.replace('"', "\n"))
+            if _CANDIDATE.search(window) or "```" in window or "~~~" in window:
+                return True
+            word = _TRAILING_WORD.search(window)
+            if word is not None and len(word[0]) > 128:
+                sentinel = "x.y" if "." in word[0] else "x"
+                window = window[: word.start()] + sentinel + (" " if word[0].endswith(" ") else "")
+            tails[layer] = window[-256:]
         await asyncio.sleep(0)
-    return candidate
+    return False
 
 
 def _mapped(
@@ -289,7 +313,7 @@ async def _json_strings(
             value, end = _scan_string(text, i + 1, True)
             if len(leaves) < 4096:
                 leaves.append((i, end, len(frames) - 1))
-            elif _CANDIDATE.search(value) or _FENCE.search(value):
+            elif await preflight(value):
                 raise ProjectionError("projection_limit_code")
             else:
                 reasons.add("projection_limit")

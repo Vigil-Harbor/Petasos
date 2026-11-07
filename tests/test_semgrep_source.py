@@ -158,3 +158,44 @@ async def test_preflight_decodes_json_candidates_without_maps(layers: int) -> No
         text = json.dumps(text)
     assert await preflight(text)
     assert (await select_sources(text)).targets
+
+
+@pytest.mark.parametrize("kind", ["raw", "json", "tabs", "mixed", "unicode", "double"])
+async def test_long_whitespace_across_chunk_boundaries_is_selected(kind: str) -> None:
+    from petasos.scanners._semgrep_source import preflight
+
+    call = "os.system" if kind == "tabs" else "eval"
+    gap = "\t" * 400 if kind == "tabs" else " " * 400
+    body = " " * 7899 + call + gap + "(payload)"
+    text = body if kind == "raw" else json.dumps(body)
+    expected = 1
+    if kind == "mixed":
+        text = json.dumps({"a": "foo(1)", "b": body})
+        expected = 2
+    if kind in ("unicode", "double"):
+        text = '"' + "".join(f"\\u{ord(char):04x}" for char in body) + '"'
+        if kind == "double":
+            text = json.dumps(text)
+    assert await preflight(text)
+    selected = await select_sources(text)
+    assert len(selected.targets) == expected
+    assert any(call in target.region.text for target in selected.targets)
+
+
+async def test_escape_and_whitespace_carry_at_every_boundary_alignment() -> None:
+    from petasos.scanners._semgrep_source import preflight
+
+    for offset in range(8155, 8198):
+        raw = " " * offset + "eval" + " " * 17000 + "(payload)"
+        encoded = json.dumps(raw).replace(" ", r"\u0020")
+        assert await preflight(raw)
+        assert await preflight(encoded)
+        assert await preflight(json.dumps(encoded))
+    # A dotted identifier itself can exceed the carry buffer as well.
+    assert await preflight("prefix." + "method" * 1600 + " " * 17000 + "(payload)")
+
+
+async def test_leaf_overflow_recognizes_second_layer_code() -> None:
+    text = json.dumps(["benign"] * 4096 + [r"eval\u0028payload)"])
+    selected = await select_sources(text)
+    assert selected.error == "semgrep.projection_limit_code"

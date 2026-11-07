@@ -49,7 +49,7 @@ async def test_stream_overflow_is_terminal_and_owned(
 ) -> None:
     result = await run_process(
         [
-            sys.executable,
+            str(vars(sys)["_base_executable"]),
             "-c",
             f"import sys,time;sys.{stream}.write('x'*{count});sys.{stream}.flush();time.sleep(10)",
         ],
@@ -85,7 +85,8 @@ async def test_cancellation_reaps_descendant_holding_inherited_pipes(
     # Parent intentionally exits first; descendant keeps both output handles.
     helper = (
         "import subprocess,sys,pathlib; "
-        "p=subprocess.Popen([sys.executable,'-c','import time;time.sleep(30)']);"
+        "p=subprocess.Popen([sys.executable,'-c','import time;time.sleep(30)'],"
+        "creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0));"
         "pathlib.Path('child.pid').write_text(str(p.pid));print('ready',flush=True)"
     )
     task = asyncio.create_task(

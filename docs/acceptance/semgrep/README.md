@@ -76,3 +76,19 @@ runs also recorded a probe prerequisite failure and an output-limit helper timeo
 Twenty subsequent descendant diagnostics completed, but do not erase that failure.
 The runtime now retains bounded, source-free handle/accounting snapshots on failed
 cleanup. The two-second bound and all latency thresholds remain unchanged.
+
+## Third code-review repairs
+
+Streaming preflight now carries whitespace and incomplete escapes across chunk
+boundaries; the padded-call bypass has raw, JSON, mixed-leaf and double-escaped
+regressions through the real engine. Native worker and supervisor share the
+reported cleanup deadline, and findings survive a later language's native failure.
+Constructor-watchdog and native-cleanup phases are documented separately; owner
+and process-close absolute deadlines remain unchanged. No qualification is implied.
+
+The precommit Windows/Python3.14 native gate passed224 tests, including the pinned
+engine's Job-membership check (no descendants observed). Lifecycle helpers now
+explicitly keep any intentionally-created console descendant hidden; stream tests
+use the base interpreter rather than an unrelated virtual-environment launcher.
+Historical cleanup and latency failures above remain evidence until the revised
+commit completes its required gates.

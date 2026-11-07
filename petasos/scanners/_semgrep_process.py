@@ -18,6 +18,8 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     import threading
 
+    from petasos._types import ScanResult
+
 STDOUT_LIMIT = 2 * 1024 * 1024
 STDERR_LIMIT = 64 * 1024
 RSS_LIMIT = 768 * 1024 * 1024
@@ -477,6 +479,7 @@ class CleanupFailure(RuntimeError):
         super().__init__("semgrep.cleanup_failed")
         self.child = child
         self.state = getattr(child, "_last_cleanup_state", None)
+        self.outcome: ScanResult | None = None
 
 
 async def run_process(
@@ -537,6 +540,9 @@ async def run_process(
                         error = "semgrep.output_limit"
             if error is not None and cleanup_started is None:
                 cleanup_started = now
+                cleanup_observer = CLEANUP_DEADLINE_OBSERVER.get()
+                if cleanup_observer is not None:
+                    cleanup_observer(cleanup_started + 2)
                 child.terminate()
             if cleanup_started is not None and now - cleanup_started >= 0.25:
                 child.terminate(force=True)

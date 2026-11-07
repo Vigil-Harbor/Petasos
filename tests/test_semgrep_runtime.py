@@ -449,3 +449,70 @@ async def test_stuck_native_worker_retains_future_after_cancellation() -> None:
         finally:
             release.set()
             await asyncio.wrap_future(worker)
+
+
+async def test_native_cleanup_uses_worker_deadline_without_reset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import threading
+    from types import SimpleNamespace
+
+    from petasos.scanners import _semgrep_engine as engine
+
+    clock = [0.0]
+    monkeypatch.setattr(engine, "time", SimpleNamespace(monotonic=lambda: clock[0]))
+    cancelled = threading.Event()
+    cancelled.set()
+    worker: concurrent.futures.Future[int] = concurrent.futures.Future()
+    reported: list[float | None] = [None]
+    task = asyncio.create_task(
+        engine.await_cpu(
+            worker,
+            8,
+            cancelled,
+            rt.error_result("semgrep.cleanup_failed"),
+            cleanup_deadline=lambda: reported[0],
+        )
+    )
+    await asyncio.sleep(0.02)
+    # Constructor finishes after cancellation. Native cleanup starts at .5,
+    # has exactly two seconds, and reports the same absolute end to both sides.
+    reported[0] = 2.5
+    clock[0] = 2.1
+    await asyncio.sleep(0.02)
+    assert not task.done()  # The supervisor's independent 2.0 deadline is gone.
+    worker.set_result(42)
+    result = await task
+    assert result.error == "semgrep.cancelled"
+
+
+async def test_native_cleanup_reported_deadline_is_not_extended(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import threading
+    from types import SimpleNamespace
+
+    from petasos.scanners import _semgrep_engine as engine
+
+    clock = [0.0]
+    monkeypatch.setattr(engine, "time", SimpleNamespace(monotonic=lambda: clock[0]))
+    cancelled = threading.Event()
+    cancelled.set()
+    worker: concurrent.futures.Future[int] = concurrent.futures.Future()
+    task = asyncio.create_task(
+        engine.await_cpu(
+            worker,
+            8,
+            cancelled,
+            rt.error_result("semgrep.cleanup_failed"),
+            cleanup_deadline=lambda: 1.0,
+        )
+    )
+    await asyncio.sleep(0.02)
+    clock[0] = 1.01
+    try:
+        with pytest.raises(engine.CpuCleanupFailure) as caught:
+            await task
+        assert caught.value.future is worker
+    finally:
+        worker.set_result(42)

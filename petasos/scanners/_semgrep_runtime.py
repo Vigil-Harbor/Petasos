@@ -456,7 +456,7 @@ class Runtime:
         except CleanupFailure as exc:
             job.failure = exc
             retain = True
-            outcome = error_result("semgrep.cleanup_failed")
+            outcome = exc.outcome or error_result("semgrep.cleanup_failed")
         except ValueError as exc:
             code = str(exc)
             if code == "semgrep.engine_integrity":

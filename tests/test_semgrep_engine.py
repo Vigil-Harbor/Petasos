@@ -191,6 +191,110 @@ class TestSemgrepRealEngine:
         assert result.error == error, result
         assert not result.findings
 
+    @pytest.mark.parametrize("kind", ["raw", "json", "tabs", "mixed", "unicode", "double"])
+    async def test_boundary_padded_calls_keep_real_findings(
+        self,
+        kind: str,
+        engine_root: Path,
+    ) -> None:
+        from petasos.scanners._semgrep_source import preflight
+
+        call = "os.system" if kind == "tabs" else "eval"
+        body = " " * 7899 + call + ("\t" if kind == "tabs" else " ") * 400 + "(payload)"
+        text = body if kind == "raw" else json.dumps(body)
+        if kind == "mixed":
+            text = json.dumps({"a": "foo(1)", "b": body})
+        if kind in ("unicode", "double"):
+            text = '"' + "".join(f"\\u{ord(char):04x}" for char in body) + '"'
+            if kind == "double":
+                text = json.dumps(text)
+        assert await preflight(text)
+        selected = await select_sources(text)
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            result = await scan_selected(
+                selected,
+                os.environ["SEMGREP_ENGINE_PATH"],
+                engine_root,
+                time.monotonic() + 8,
+                threading.Event(),
+                executor,
+            )
+        family = "shell" if kind == "tabs" else "dynamic_code"
+        assert any(f.rule_id.endswith("." + family) for f in result.findings), result
+        assert result.error is None, result
+
+    async def test_native_failure_retains_prior_language_findings(
+        self,
+        engine_root: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from petasos.scanners import _semgrep_engine as engine
+        from petasos.scanners._semgrep_process import CleanupFailure, run_process
+
+        original = run_process
+        calls = 0
+
+        async def failed_second(*args: Any, **kwargs: Any) -> Any:
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise CleanupFailure(object())  # type: ignore[arg-type]
+            return await original(*args, **kwargs)
+
+        monkeypatch.setattr(engine, "run_process", failed_second)
+        selected = await select_sources("eval(payload)")
+        with (
+            ThreadPoolExecutor(max_workers=2) as executor,
+            pytest.raises(CleanupFailure) as caught,
+        ):
+            await scan_selected(
+                selected,
+                os.environ["SEMGREP_ENGINE_PATH"],
+                engine_root,
+                time.monotonic() + 8,
+                threading.Event(),
+                executor,
+            )
+        retained = require(caught.value.outcome)
+        assert retained.error == "semgrep.cleanup_failed"
+        assert any(f.rule_id.endswith("python.dynamic_code") for f in retained.findings)
+
+    @pytest.mark.skipif(os.name != "nt", reason="native Windows job membership")
+    async def test_real_engine_has_no_console_descendants(
+        self,
+        engine_root: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import psutil
+
+        from petasos.scanners._semgrep_process import _WindowsChild
+
+        original = _WindowsChild.poll
+        names: set[str] = set()
+
+        def observed(child: Any) -> int | None:
+            child._capture_descendants()
+            for pid in child._descendants:
+                try:
+                    names.add(psutil.Process(pid).name())
+                except psutil.NoSuchProcess:
+                    names.add("exited_descendant")
+            return original(child)
+
+        monkeypatch.setattr(_WindowsChild, "poll", observed)
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            result = await scan_selected(
+                await select_sources("eval(payload)"),
+                os.environ["SEMGREP_ENGINE_PATH"],
+                engine_root,
+                time.monotonic() + 8,
+                threading.Event(),
+                executor,
+            )
+        assert result.error is None, result
+        assert result.findings
+        assert not names, names
+
 
 @pytest.mark.skipif(not os.environ.get("SEMGREP_ENGINE_PATH"), reason="isolated engine required")
 class TestSemgrepHeldOut:
