@@ -88,6 +88,20 @@ def test_pinned_bytes_and_case_plan() -> None:
 
 
 @pytest.mark.parametrize(
+    "name",
+    [
+        "eight_wide_single_16k_shared_owner_3_3_2",
+        "eight_replacements",
+    ],
+)
+def test_unchanged_loaded_rows_do_not_gain_max_gate(name: str) -> None:
+    records = passing_records()
+    # One long, error-free terminal sample leaves the approved p95 unchanged.
+    records["workloads"][name]["samples"][-1]["seconds"] = 8.1
+    assert protocol.gate_failures(records) == []
+
+
+@pytest.mark.parametrize(
     "name,metric,limit",
     [
         ("single_16k", "mean", 1.0),
@@ -207,6 +221,26 @@ async def test_cancellation_records_terminal_and_discards() -> None:
     assert row["status"] == "error" and row["seconds"] >= 0
 
 
+async def test_discard_failure_preserves_original_error() -> None:
+    _, sources = protocol.fixtures()
+
+    async def discard() -> None:
+        raise RuntimeError("private details")
+
+    class Scanner:
+        async def prepare(self, *args: Any, **kwargs: Any) -> Any:
+            return SimpleNamespace(
+                consume=lambda *args: ScanResult("semgrep", (), error="semgrep.queue_deadline"),
+                discard=discard,
+            )
+
+    row: dict[str, Any] = {}
+    await bench.scan_sample(Scanner(), sources["single_16k"], row)
+    assert row["error"] == "semgrep.queue_deadline"
+    assert row["discard_error"] == "discard_RuntimeError"
+    assert row["status"] == "error"
+
+
 def test_checkpoint_atomic_and_lf(tmp_path: Path) -> None:
     path = tmp_path / "partial.json"
     protocol.checkpoint(path, json.dumps({"unfinished": 8}, indent=2))
@@ -273,6 +307,102 @@ def test_monitor_snapshots_source_reference_once() -> None:
     assert monitor.data["source_characters_sampled_peak"] == 3
 
 
+@pytest.mark.parametrize("closed", [True, False])
+def test_monitor_closing_loop_is_not_missing_telemetry(closed: bool) -> None:
+    pytest.importorskip("psutil")
+    from scripts.semgrep_benchmark_resources import Resources
+
+    def closing(callback: Any) -> None:
+        raise RuntimeError("closed loop")
+
+    runtime = SimpleNamespace(
+        lock=threading.Lock(),
+        active=[],
+        pending={},
+        thread=SimpleNamespace(is_alive=lambda: True),
+        loop=SimpleNamespace(call_soon_threadsafe=closing, is_closed=lambda: closed),
+    )
+    monitor = Resources(runtime)
+    if closed:
+        monitor._sample()
+        assert not monitor.data["missing"]
+    else:
+        with pytest.raises(RuntimeError):
+            monitor._sample()
+    assert not monitor.probe_pending.is_set()
+
+
+@pytest.mark.parametrize("cancel_count", [0, 1, 2])
+async def test_case_close_finishes_after_cancellation_and_stops_failed_runtime(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    cancel_count: int,
+) -> None:
+    from petasos.scanners._semgrep_runtime import SemgrepCloseResult
+
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    events: list[str] = []
+    runtime = SimpleNamespace(lock=threading.Lock(), failed=False)
+
+    class Owner:
+        async def __aenter__(self) -> Any:
+            return self
+
+        async def aclose(self, **kwargs: Any) -> SemgrepCloseResult:
+            events.append("close_started")
+            entered.set()
+            await release.wait()
+            events.append("closed")
+            return SemgrepCloseResult("closed")
+
+    class Scanner:
+        def __init__(self, **kwargs: Any) -> None:
+            self._lease = SimpleNamespace(runtime=runtime)
+
+        def availability(self) -> tuple[bool, None]:
+            return True, None
+
+    class Monitor:
+        def __init__(self, runtime: Any) -> None:
+            pass
+
+        def install(self, stack: Any) -> None:
+            stack.callback(events.append, "patches_restored")
+
+        def finish(self) -> dict[str, Any]:
+            events.append("monitor_stopped")
+            return {}
+
+    async def burst(case: dict[str, Any], *args: Any) -> None:
+        case["samples"].append({"burst": -1, "warmup": True, "status": "ok", "seconds": 0.01})
+        runtime.failed = True
+
+    monkeypatch.setattr(bench, "SemgrepLifecycleOwner", Owner)
+    monkeypatch.setattr(bench, "SemgrepScanner", Scanner)
+    monkeypatch.setattr(bench, "Resources", Monitor)
+    monkeypatch.setattr(bench, "run_burst", burst)
+    _, sources = protocol.fixtures()
+    case = {**protocol.case_plan(100)[2], "samples": [], "errors": []}
+    recorder = bench.Recorder(tmp_path / "partial.json", {"workloads": {}}, bench.StageTimings())
+    task = asyncio.create_task(bench.run_case(case, sources, "unused", "unused", recorder))
+    await asyncio.wait_for(entered.wait(), 1)
+    for _ in range(cancel_count):
+        task.cancel()
+        await asyncio.sleep(0)
+    assert not task.done()
+    release.set()
+    if cancel_count:
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(task, 2)
+    else:
+        assert not await asyncio.wait_for(task, 2)  # failed runtime, despite successful close
+    assert events == ["close_started", "closed", "monitor_stopped", "patches_restored"]
+    assert case["close"][0]["status"] == "closed"
+    assert "runtime_failed" in case["errors"]
+    assert case["counts"]["not_run"] == case["planned"]
+
+
 async def test_wall_budget_preserves_partial_failure_and_cleanup(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -322,10 +452,13 @@ async def test_real_fixture_finding_and_coverage_contract(fixture_name: str) -> 
 
 
 @pytest.mark.skipif(not os.environ.get("SEMGREP_ENGINE_PATH"), reason="real engine not configured")
-async def test_real_loaded_case_records_telemetry_and_closes(tmp_path: Path) -> None:
+@pytest.mark.parametrize("plan_index", [2, 5, 8])
+async def test_real_loaded_case_records_telemetry_and_closes(
+    tmp_path: Path, plan_index: int
+) -> None:
     _, sources = protocol.fixtures()
     case = {
-        **protocol.case_plan(100)[2],
+        **protocol.case_plan(100)[plan_index],
         "planned": 8,
         "bursts": 1,
         "samples": [],

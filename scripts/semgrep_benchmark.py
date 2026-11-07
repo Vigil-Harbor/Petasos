@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 from unittest.mock import patch
 
+from petasos.scanners._semgrep_engine import ENGINE_VERSION
 from petasos.scanners._semgrep_source import preflight
 from petasos.scanners.semgrep import SemgrepLifecycleOwner, SemgrepScanner
 from scripts.semgrep_benchmark_protocol import (
@@ -206,10 +207,12 @@ async def scan_sample(scanner: Any, fixture: dict[str, Any], row: dict[str, Any]
             if token is not None:
                 await token.discard()
         except asyncio.CancelledError:
-            row["error"] = "discard_cancelled"
+            row["discard_error"] = "discard_cancelled"
+            row["error"] = row.get("error") or row["discard_error"]
             raise
         except Exception as exc:
-            row["error"] = "discard_" + type(exc).__name__
+            row["discard_error"] = "discard_" + type(exc).__name__
+            row["error"] = row.get("error") or row["discard_error"]
         finally:
             row["seconds"] = time.monotonic() - started
             row["status"] = "error" if row.get("error") else "ok"
@@ -271,6 +274,44 @@ async def replacements(
         fault["cancelled"] = sum(isinstance(x, asyncio.CancelledError) for x in outcomes)
         if fault["cancelled"] != 2:
             case["errors"].append("replacement_not_cancelled")
+
+
+async def close_case(
+    case: dict[str, Any],
+    owners: list[SemgrepLifecycleOwner],
+    monitor: Resources | None,
+    stack: ExitStack,
+) -> None:
+    """Finish teardown in one independently owned task, including on budget expiry."""
+    try:
+        deadline = time.monotonic() + 3
+        closed = await asyncio.gather(
+            *(o.aclose(deadline=deadline) for o in owners),
+            return_exceptions=True,
+        )
+        case["close"] = [
+            asdict(c)
+            if not isinstance(c, BaseException)
+            else {"status": "exception", "type": type(c).__name__}
+            for c in closed
+        ]
+    finally:
+        try:
+            if monitor is not None:
+                case["resources"] = await asyncio.to_thread(monitor.finish)
+                case["resources"]["limit_errors"] = [
+                    s["error"]
+                    for s in case["samples"]
+                    if s.get("error")
+                    in (
+                        "semgrep.memory_limit",
+                        "semgrep.output_limit",
+                        "semgrep.engine_error",
+                    )
+                ]
+        finally:
+            stack.close()
+            finish_case(case)
 
 
 async def run_case(
@@ -352,30 +393,27 @@ async def run_case(
     except Exception as exc:
         case["errors"].append("exception_" + type(exc).__name__)
     finally:
-        deadline = time.monotonic() + 3
-        closed = await asyncio.gather(
-            *(o.aclose(deadline=deadline) for o in owners),
-            return_exceptions=True,
-        )
-        case["close"] = [
-            asdict(c)
-            if not isinstance(c, BaseException)
-            else {"status": "exception", "type": type(c).__name__}
-            for c in closed
-        ]
-        try:
-            if monitor is not None:
-                case["resources"] = await asyncio.to_thread(monitor.finish)
-                case["resources"]["limit_errors"] = [
-                    s["error"]
-                    for s in case["samples"]
-                    if s.get("error")
-                    in ("semgrep.memory_limit", "semgrep.output_limit", "semgrep.engine_error")
-                ]
-        finally:
-            stack.close()
-        finish_case(case)
-    return bool(case["close"]) and all(c["status"] == "closed" for c in case["close"])
+        teardown = asyncio.create_task(close_case(case, owners, monitor, stack))
+        cancelled = False
+        while True:
+            try:
+                await asyncio.shield(teardown)
+                break
+            except asyncio.CancelledError:
+                # Do not restart aclose or its deadline. Even a second caller
+                # cancellation must not abandon the already-owned teardown.
+                if teardown.cancelled():
+                    raise
+                if not cancelled:
+                    case["errors"].append("cancelled_during_close")
+                cancelled = True
+        if cancelled:
+            raise asyncio.CancelledError
+    return (
+        bool(case["close"])
+        and all(c["status"] == "closed" for c in case["close"])
+        and not any(e in ("runtime_failed", "warmup_failed") for e in case["errors"])
+    )
 
 
 async def measure(runs: int, records: dict[str, Any], recorder: Recorder) -> None:
@@ -403,7 +441,7 @@ async def measure(runs: int, records: dict[str, Any], recorder: Recorder) -> Non
             "fixture_manifest_sha256": MANIFEST_SHA256,
             "fixtures": manifest,
             "implementation": revision(),
-            "engine_version": "1.183.0",
+            "engine_version": ENGINE_VERSION,
             "hardware": {
                 "architecture": platform.machine(),
                 "os": platform.platform(),

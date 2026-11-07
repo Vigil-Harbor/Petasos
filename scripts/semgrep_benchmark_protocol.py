@@ -182,9 +182,11 @@ def gate_failures(records: dict[str, Any]) -> list[str]:
             if case["kind"] == "serial"
             else {"p95": 0.05}
             if case["kind"] == "preflight"
-            else {"p95": 5.0, "max": 8.0}
+            else {"p95": 5.0}
             if case["kind"] == "loaded" and case["fixture"] == "single_16k"
             else {"p95": 7.5, "max": 8.0}
+            if case["kind"] == "loaded"
+            else {"p95": 7.5}
         )
         for metric, limit in limits.items():
             value = values.get(metric)

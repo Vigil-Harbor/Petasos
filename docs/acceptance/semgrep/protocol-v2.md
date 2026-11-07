@@ -14,9 +14,9 @@ deadline edge and intermittent Windows root-removal failures remain unresolved.
 | Serial single 16 KiB | 1.0 s | 1.2 s | 1.4 s | Existing limits |
 | Serial 16 targets / 128 KiB, repeated | 1.8 s | 2.0 s | 2.3 s | Independent pass |
 | Serial 16 targets / 128 KiB, distinct | 1.8 s | 2.0 s | 2.3 s | Independent pass |
-| Eight-wide 16 KiB | — | 5.0 s | — | Zero errors, every request ≤8 s |
+| Eight-wide 16 KiB | — | 5.0 s | — | Unchanged; zero errors |
 | Eight-wide distinct maximum | — | 7.5 s | — | Zero errors, every request ≤8 s |
-| Eight replacements behind two canceled active scans | — | 7.5 s | — | Existing cleanup contract, deadline 8 s |
+| Eight replacements behind two canceled active scans | — | 7.5 s | — | Existing cancellation/cleanup contract unchanged |
 | Preflight at examination ceiling | — | 50 ms | — | Existing yielding/ceiling |
 
 All table values are ceilings. Coverage, all three grammar attempts in separate

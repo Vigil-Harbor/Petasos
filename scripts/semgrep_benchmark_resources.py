@@ -159,7 +159,15 @@ class Resources:
                     self.data["control_loop_samples"] += 1
                 self.probe_pending.clear()
 
-            self.runtime.loop.call_soon_threadsafe(observed)
+            try:
+                self.runtime.loop.call_soon_threadsafe(observed)
+            except RuntimeError:
+                self.probe_pending.clear()
+                if not self.runtime.loop.is_closed():
+                    raise
+                # Normal shutdown can close the loop before its thread exits.
+                # This produces no new lag sample, not a missing observation.
+                # finish() still requires actual samples from the measured work.
 
     def _run(self) -> None:
         while not self.stop.is_set():
