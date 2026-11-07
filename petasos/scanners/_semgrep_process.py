@@ -81,7 +81,7 @@ class _PosixChild:
         )
         self.pid = self.process.pid
         self._reaped = False
-        self._group_killed = False
+        self._group_signal_complete = False
         assert self.process.stdout is not None and self.process.stderr is not None
         self.streams = (self.process.stdout, self.process.stderr)
         for stream in self.streams:
@@ -112,10 +112,19 @@ class _PosixChild:
             raise CleanupFailure(self) from None
 
     def terminate(self, force: bool = False) -> None:
-        with contextlib.suppress(ProcessLookupError):
-            if sys.platform != "win32" and not self._reaped:
-                os.killpg(self.pid, signal.SIGKILL if force else signal.SIGTERM)
-                self._group_killed |= force
+        if sys.platform == "win32" or self._reaped:
+            return
+        try:
+            os.killpg(self.pid, signal.SIGKILL if force else signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        except PermissionError:
+            # Darwin killpg skips zombies and can return EPERM for a group
+            # containing only an exited leader. This is not proof of cleanup:
+            # reap that owned leader, then require the group to be absent.
+            if self.poll() is None:
+                raise
+        self._group_signal_complete |= force
 
     def close(self) -> None:
         for stream in self.streams:
@@ -126,7 +135,7 @@ class _PosixChild:
             return False
         if sys.platform == "win32":
             return True  # This implementation is used only on POSIX.
-        if not self._group_killed:
+        if not self._group_signal_complete:
             return False
         if not self._reaped:
             if self.process.poll() is None:
@@ -136,6 +145,8 @@ class _PosixChild:
             os.killpg(self.pid, 0)
         except ProcessLookupError:
             return True
+        except PermissionError:
+            return False  # A surviving/inaccessible group is never clean.
         return False
 
 

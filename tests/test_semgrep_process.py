@@ -3,6 +3,7 @@
 import asyncio
 import contextlib
 import importlib.util
+import os
 import sys
 import threading
 import time
@@ -16,6 +17,78 @@ from petasos.scanners._semgrep_process import child_environment, run_process
 pytestmark = pytest.mark.skipif(
     importlib.util.find_spec("psutil") is None, reason="process monitor extra required"
 )
+
+
+@pytest.mark.parametrize("leader_exited", [False, True])
+@pytest.mark.parametrize("group_state", ["gone", "present", "denied"])
+def test_posix_signal_denial_requires_exited_leader_and_absent_group(
+    monkeypatch: pytest.MonkeyPatch, leader_exited: bool, group_state: str
+) -> None:
+    import errno
+    import signal
+    from types import SimpleNamespace
+
+    from petasos.scanners import _semgrep_process as process
+
+    events: list[str] = []
+    child = process._PosixChild.__new__(process._PosixChild)
+    child.pid = 2000000000
+    child._reaped = False
+    child._group_signal_complete = False
+
+    def reap() -> int:
+        events.append("reap")
+        return 0
+
+    child.process = SimpleNamespace(poll=reap, returncode=0)  # type: ignore[assignment]
+    monkeypatch.setattr(process, "sys", SimpleNamespace(platform="darwin"))
+    monkeypatch.setattr(signal, "SIGKILL", 9, raising=False)
+    monkeypatch.setattr(process._PosixChild, "poll", lambda self: 0 if leader_exited else None)
+
+    def killpg(pid: int, sig: int) -> None:
+        assert pid == child.pid
+        if sig == 9:
+            events.append("signal")
+            raise PermissionError(errno.EPERM, "synthetic denied group signal")
+        assert sig == 0
+        events.append("check")
+        if group_state == "gone":
+            raise ProcessLookupError(errno.ESRCH, "synthetic absent group")
+        if group_state == "denied":
+            raise PermissionError(errno.EPERM, "synthetic inaccessible group")
+
+    monkeypatch.setattr(os, "killpg", killpg, raising=False)
+    if not leader_exited:
+        with pytest.raises(PermissionError):
+            child.terminate(force=True)
+        assert not child._group_signal_complete and not child._reaped
+        assert events == ["signal"]
+    else:
+        child.terminate(force=True)
+        assert child.cleaned() is (group_state == "gone")
+        assert child._reaped
+        assert events == ["signal", "reap", "check"]
+        child.terminate(force=True)
+        assert events == ["signal", "reap", "check"]  # No signals after PID release.
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="native POSIX zombie/group semantics")
+async def test_exited_posix_leader_is_reaped_before_group_absence_check(tmp_path: Path) -> None:
+    from petasos.scanners._semgrep_process import _PosixChild
+
+    child = _PosixChild([sys.executable, "-c", "pass"], tmp_path)
+    try:
+        end = time.monotonic() + 5
+        while child.poll() is None and time.monotonic() < end:
+            await asyncio.sleep(0.005)
+        assert child.poll() is not None
+        child.terminate(force=True)
+        assert child.cleaned()
+        assert child.process.returncode == 0
+    finally:
+        child.terminate(force=True)
+        child.process.wait(timeout=2)
+        child.close()
 
 
 def test_child_environment_does_not_forward_credentials_or_pythonpath(
@@ -189,7 +262,7 @@ def test_posix_leader_is_reaped_only_after_last_group_signal(
     child = object.__new__(module._PosixChild)
     child.pid = 12345
     child._reaped = False
-    child._group_killed = False
+    child._group_signal_complete = False
     child.process = SimpleNamespace(poll=reap, returncode=0)  # type: ignore[assignment]
     with monkeypatch.context() as patch:
         patch.setattr(sys, "platform", "darwin")

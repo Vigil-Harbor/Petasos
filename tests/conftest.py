@@ -299,7 +299,9 @@ def _require_semgrep() -> None:
                                         if isinstance(cause, OSError)
                                         else None,
                                         "reaped": getattr(child, "_reaped", None),
-                                        "group_killed": getattr(child, "_group_killed", None),
+                                        "group_signal_complete": getattr(
+                                            child, "_group_signal_complete", None
+                                        ),
                                         "returncode": getattr(process, "returncode", None),
                                     }
                                 )

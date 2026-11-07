@@ -232,3 +232,11 @@ Windows cleanup failures include bounded process-handle wait states, the Job's
 total process count and best-effort executable basenames. These diagnostics do
 not include source text, command lines or executable paths. They are evidence
 for investigation, not a waiver of the cleanup deadline.
+
+On macOS, signalling a group containing only zombies can return a permission
+error because the kernel excludes zombies from group signalling. Cleanup may
+reap a confirmed exited leader after that response, but succeeds only after a
+separate check proves the group no longer exists. A surviving or inaccessible
+group remains a cleanup failure. No termination signal is sent after the leader
+is reaped, preserving the protection against signalling a reused process-group
+ID. See [Apple's group-signal implementation](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/kern_sig.c).
