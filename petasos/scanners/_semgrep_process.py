@@ -139,6 +139,18 @@ class _PosixChild:
         return False
 
 
+def _windows_kernel32() -> Any:
+    if sys.platform == "win32":
+        return ctypes.WinDLL("kernel32", use_last_error=True)
+    raise OSError("semgrep.unsupported_platform")
+
+
+def _windows_last_error() -> int:
+    if sys.platform == "win32":
+        return ctypes.get_last_error()
+    raise OSError("semgrep.unsupported_platform")
+
+
 class _WindowsChild:
     """Retain the primary thread until job assignment, then resume it.
 
@@ -149,7 +161,7 @@ class _WindowsChild:
     def __init__(self, argv: list[str], root: Path) -> None:
         from ctypes import wintypes as w
 
-        k = ctypes.WinDLL("kernel32", use_last_error=True)
+        k = _windows_kernel32()
         self.k = k
         size = ctypes.c_size_t
 
@@ -381,7 +393,7 @@ class _WindowsChild:
         if not self.k.PeekNamedPipe(
             self._reads[index], None, 0, None, ctypes.byref(available), None
         ):
-            if ctypes.get_last_error() in (109, 233):
+            if _windows_last_error() in (109, 233):
                 return b""
             self._check(False)
         if not available.value:
@@ -428,7 +440,7 @@ class _WindowsChild:
             if handle:
                 self._descendants[pid] = handle
                 self._handles.append(handle)
-            elif ctypes.get_last_error() != 87:  # already-exited PID
+            elif _windows_last_error() != 87:  # already-exited PID
                 self.k.TerminateJobObject(self._job, 255)
                 raise CleanupFailure(self)
 

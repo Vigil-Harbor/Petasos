@@ -264,7 +264,7 @@ def _require_semgrep() -> None:
         with open(engine, "rb") as stream:
             actual = hashlib.file_digest(stream, "sha256").hexdigest()
         if actual != expected.lower():
-            raise ValueError("engine integrity mismatch")
+            raise ValueError("semgrep.engine_integrity")
 
         async def probe() -> None:
             async with SemgrepLifecycleOwner() as owner:
@@ -280,8 +280,14 @@ def _require_semgrep() -> None:
 
         asyncio.run(probe())
     except Exception as exc:
+        # Availability errors are fixed diagnostic codes. Do not print arbitrary
+        # exception messages, which can contain local paths or source text.
+        import re
+
+        code = str(exc)
+        detail = code if re.fullmatch(r"(?:ScannerTimeout: )?semgrep\.[a-z_]+", code) else ""
         raise pytest.UsageError(
-            f"Semgrep real-backend prerequisite failed: {type(exc).__name__}"
+            f"Semgrep real-backend prerequisite failed: {detail or type(exc).__name__}"
         ) from exc
 
 
