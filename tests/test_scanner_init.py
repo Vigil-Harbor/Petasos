@@ -46,11 +46,18 @@ class TestIsMissingPackage:
 
 @pytest.fixture()
 def _reimport_scanners() -> Any:
-    """Snapshot sys.modules before test and restore after, allowing clean reimport."""
+    """Restore both module cache and parent binding after a clean reimport."""
     saved = dict(sys.modules)
-    yield
-    sys.modules.clear()
-    sys.modules.update(saved)
+    parent = sys.modules["petasos"]
+    scanners = vars(parent)["scanners"]
+    try:
+        yield
+    finally:
+        sys.modules.clear()
+        sys.modules.update(saved)
+        # importlib also binds a reimported child onto its parent. Restoring only
+        # sys.modules makes dotted monkeypatch targets resolve to the wrong copy.
+        vars(parent)["scanners"] = scanners
 
 
 @pytest.mark.usefixtures("_reimport_scanners")
@@ -175,5 +182,9 @@ def test_prompt_guard_scanner_is_exported_on_a_base_install() -> None:
     # with no torch or transformers present.
     import petasos.scanners as scanners_pkg
 
+    # The import-guard cases above must restore the parent binding as well as
+    # sys.modules; dotted patch targets and direct imports must see one package.
+    assert scanners_pkg is sys.modules["petasos.scanners"]
+    assert vars(scanners_pkg)["semgrep"] is sys.modules["petasos.scanners.semgrep"]
     assert "PromptGuardScanner" in scanners_pkg.__all__
     assert scanners_pkg.PromptGuardScanner().name == "prompt_guard"

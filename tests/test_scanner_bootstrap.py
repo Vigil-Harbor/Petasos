@@ -58,12 +58,9 @@ def _import_reference_plugin() -> types.ModuleType:
 def _scanners_module() -> types.ModuleType:
     """The module object a ``from petasos.scanners import X`` actually resolves to.
 
-    ``tests/test_scanner_init.py`` reimports ``petasos.scanners`` and then restores
-    ``sys.modules`` from a snapshot, which can leave the ``scanners`` *attribute*
-    on the ``petasos`` package pointing at a different module object than
-    ``sys.modules`` does. Both callers (and ``build_scanners`` itself) import
-    function-locally, and that path reads ``sys.modules`` — so patches must land
-    there, not on ``petasos.scanners`` resolved through the package attribute.
+    Both callers (and ``build_scanners`` itself) import function-locally, so
+    patch the canonical cached module. Import-isolation fixtures must also
+    restore the parent package binding to keep dotted targets consistent.
     """
     return sys.modules["petasos.scanners"]
 
