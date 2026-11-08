@@ -6,6 +6,7 @@ import hashlib
 import logging
 import math
 import os
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import replace
@@ -24,12 +25,14 @@ from petasos._types import (
 )
 from petasos.config import PetasosConfig
 from petasos.normalize import normalize
+from petasos.scanners._semgrep_runtime import error_result as _semgrep_error
 from petasos.scanners.minimal import (
     _ALL_INJECTION_IDS,
     _STRUCTURAL_RULE_IDS,
     MinimalScanner,
 )
 from petasos.scanners.presidio import PresidioScanner
+from petasos.scanners.semgrep import PreparedSemgrepScan, SemgrepScanner
 from petasos.session.alerting import AlertManager
 from petasos.session.audit import AuditEmitter
 from petasos.session.frequency import FrequencyTracker, FrequencyUpdateResult
@@ -149,16 +152,26 @@ def merge_findings(results: Sequence[ScanResult]) -> tuple[ScanFinding, ...]:
     if not all_findings:
         return ()
 
+    originals: dict[tuple[str, int | None, int | None], ScanFinding] = {}
     positioned: list[ScanFinding] = []
     unpositioned: list[ScanFinding] = []
     for f in all_findings:
-        if f.position is not None:
+        if f.scanner_name == "semgrep" and f.position_basis == "original":
+            originals.setdefault(
+                (
+                    f.rule_id,
+                    f.position.start if f.position else None,
+                    f.position.end if f.position else None,
+                ),
+                f,
+            )
+        elif f.position is not None:
             positioned.append(f)
         else:
             unpositioned.append(f)
 
     if not positioned:
-        return tuple(unpositioned)
+        return tuple(unpositioned) + tuple(originals.values())
 
     positioned.sort(key=lambda f: f.position.start)  # type: ignore[union-attr]
 
@@ -184,7 +197,7 @@ def merge_findings(results: Sequence[ScanResult]) -> tuple[ScanFinding, ...]:
             current = nxt
 
     surviving.append(current)
-    return tuple(surviving) + tuple(unpositioned)
+    return tuple(surviving) + tuple(unpositioned) + tuple(originals.values())
 
 
 def _compute_safe(
@@ -314,6 +327,8 @@ class Pipeline:
         self._license_claims: LicenseClaims | None = None
 
         scanner_list = list(scanners)
+        if sum(isinstance(s, SemgrepScanner) for s in scanner_list) > 1:
+            raise ValueError("Only one Semgrep adapter is supported per Pipeline")
         for s in scanner_list:
             _validate_scanner(s)
 
@@ -362,6 +377,8 @@ class Pipeline:
         self._breaker_open_until: dict[str, float] = {}
         self._last_scan_durations: dict[str, float] = {}
         self._last_scan_errors: dict[str, str] = {}
+        self._semgrep_lock = threading.Lock()
+        self._semgrep_reconfigure_warned = False
 
         # Auto-activation from the process environment for supporter/compliance
         # recognition. License state is tracked but does not gate features.
@@ -407,7 +424,30 @@ class Pipeline:
            flag.
         4. Commit the swap and re-resolve the profile.
         """
-        applied = replace(new_config, session_secret=self._config.session_secret)
+        semgrep_fields = (
+            "semgrep_enabled",
+            "semgrep_engine_path",
+            "semgrep_engine_sha256",
+            "semgrep_request_timeout_seconds",
+            "semgrep_max_source_bytes",
+        )
+        preserved = {name: getattr(self._config, name) for name in semgrep_fields}
+        disabled = tuple(name for name in new_config.disabled_scanners if name != "semgrep")
+        if "semgrep" in self._config.disabled_scanners:
+            disabled += ("semgrep",)
+        changed = any(getattr(new_config, name) != value for name, value in preserved.items())
+        changed |= ("semgrep" in new_config.disabled_scanners) != (
+            "semgrep" in self._config.disabled_scanners
+        )
+        if changed and not self._semgrep_reconfigure_warned:
+            _logger.warning("Semgrep settings change ignored: restart required")
+            self._semgrep_reconfigure_warned = True
+        applied = replace(
+            new_config,
+            session_secret=self._config.session_secret,
+            disabled_scanners=disabled,
+            **preserved,
+        )
         if (
             new_config.session_secret is not None
             and new_config.session_secret != self._config.session_secret
@@ -478,9 +518,17 @@ class Pipeline:
             )
         for s in self._ml_scanners:
             sname = s.name
-            open_until = self._breaker_open_until.get(sname, 0.0)
-            timeouts = self._breaker_consecutive_timeouts.get(sname, 0)
-            scan_err = self._last_scan_errors.get(sname)
+            if isinstance(s, SemgrepScanner):
+                with self._semgrep_lock:
+                    open_until = self._breaker_open_until.get(sname, 0.0)
+                    timeouts = self._breaker_consecutive_timeouts.get(sname, 0)
+                    scan_err = self._last_scan_errors.get(sname)
+                    last_ms = self._last_scan_durations.get(sname)
+            else:
+                open_until = self._breaker_open_until.get(sname, 0.0)
+                timeouts = self._breaker_consecutive_timeouts.get(sname, 0)
+                scan_err = self._last_scan_errors.get(sname)
+                last_ms = self._last_scan_durations.get(sname)
 
             probe_fn = getattr(s, "availability", None)
             probe_ok = True
@@ -550,11 +598,13 @@ class Pipeline:
                 {
                     "name": sname,
                     "status": status,
-                    "last_ms": self._last_scan_durations.get(sname),
+                    "last_ms": last_ms,
                     "consecutive_timeouts": timeouts,
                     "last_error": last_error,
                 }
             )
+            if isinstance(s, SemgrepScanner) and s.qualification_warning:
+                result[-1]["warning"] = s.qualification_warning
         return result
 
     def list_profiles(self) -> list[dict[str, Any]]:
@@ -655,6 +705,120 @@ class Pipeline:
             or None,
         )
 
+    async def _prepare_semgrep(
+        self,
+        original_text: str,
+        *,
+        segments: tuple[tuple[int, int], ...] | None = None,
+        upstream_total_chars: int | None = None,
+    ) -> PreparedSemgrepScan | None:
+        scanner = next((s for s in self._ml_scanners if isinstance(s, SemgrepScanner)), None)
+        if scanner is None:
+            return None
+        refusal = None
+        with self._semgrep_lock:
+            until = self._breaker_open_until.get("semgrep")
+            if until is not None and time.monotonic() < until:
+                refusal = "ScannerCircuitOpen: semgrep.cooldown"
+            elif until is not None:
+                self._breaker_open_until.pop("semgrep", None)
+                self._breaker_consecutive_timeouts.pop("semgrep", None)
+
+        return await scanner.prepare(
+            original_text,
+            binding=self,
+            segments=segments,
+            upstream_total_chars=upstream_total_chars,
+            _refusal=refusal,
+            _on_complete=self._record_semgrep,
+        )
+
+    def _record_semgrep(self, result: ScanResult) -> None:
+        neutral = {
+            "semgrep.queue_full",
+            "semgrep.queue_deadline",
+            "semgrep.lease_exhausted",
+            "semgrep.prepared_capacity",
+            "semgrep.lease_closed",
+            "semgrep.probe_pending",
+            "semgrep.prepared_invalid",
+            "semgrep.invalid_envelope",
+            "semgrep.cancelled",
+            "ScannerCircuitOpen: semgrep.cooldown",
+        }
+        with self._semgrep_lock:
+            self._last_scan_durations["semgrep"] = result.duration_ms
+            if result.error:
+                self._last_scan_errors["semgrep"] = result.error
+            else:
+                self._last_scan_errors.pop("semgrep", None)
+            if result.error in neutral or (result.coverage and result.coverage.target_count == 0):
+                return
+            if result.error and result.error.startswith(_TIMEOUT_ERROR_PREFIX):
+                count = self._breaker_consecutive_timeouts.get("semgrep", 0) + 1
+                self._breaker_consecutive_timeouts["semgrep"] = count
+                if count >= self._config.scanner_circuit_breaker_threshold:
+                    self._breaker_open_until["semgrep"] = (
+                        time.monotonic() + self._config.scanner_circuit_breaker_cooldown_seconds
+                    )
+            else:
+                self._breaker_consecutive_timeouts.pop("semgrep", None)
+                self._breaker_open_until.pop("semgrep", None)
+
+    async def _scan_semgrep(self, original_text: str) -> ScanResult:
+        token = await self._prepare_semgrep(original_text)
+        assert token is not None
+        try:
+            return token.consume(self, original_text) or _semgrep_error("semgrep.prepared_invalid")
+        finally:
+            await token.discard()
+
+    async def _inspect_with_prepared_semgrep(
+        self,
+        text: str,
+        prepared: PreparedSemgrepScan | None,
+        *,
+        direction: Direction | None = None,
+        session_id: str | None = None,
+        profile: str | ResolvedProfile | dict[str, Any] | None = None,
+        weight_cap: float | None = None,
+    ) -> PipelineResult:
+        if prepared is None:
+            if any(isinstance(s, SemgrepScanner) for s in self._ml_scanners):
+                return PipelineResult(
+                    safe=False, findings=(), errors=("semgrep.prepared_invalid",)
+                )
+            return await self.inspect(
+                text,
+                direction=direction,
+                session_id=session_id,
+                profile=profile,
+                weight_cap=weight_cap,
+            )
+        try:
+            result = prepared.consume(self, text)
+            if result is None:
+                return PipelineResult(
+                    safe=False, findings=(), errors=("semgrep.prepared_invalid",)
+                )
+            active_profile = self._default_profile
+            if isinstance(profile, ResolvedProfile):
+                active_profile = profile
+            elif isinstance(profile, (str, dict)):
+                active_profile = self._profile_resolver.resolve(profile)
+            return await self._inspect_inner(
+                text,
+                direction=direction or self._config.direction,
+                session_id=session_id,
+                active_profile=active_profile,
+                weight_cap=weight_cap,
+                prepared_semgrep=result,
+            )
+        except BaseException as exc:
+            return PipelineResult(safe=False, findings=(), errors=(type(exc).__name__,))
+        finally:
+            await prepared.discard()
+
     async def inspect(
         self,
         text: str,
@@ -705,6 +869,7 @@ class Pipeline:
         session_id: str | None,
         active_profile: ResolvedProfile | None,
         weight_cap: float | None = None,
+        prepared_semgrep: ScanResult | None = None,
     ) -> PipelineResult:
         freq_result: FrequencyUpdateResult | None = None
         escalation_tier: str | None = None
@@ -749,12 +914,20 @@ class Pipeline:
             if has_critical:
                 early_exit = True
 
-        # Stage 4: Fan-out scan
+        # Stage 4: Fan-out scan. A prepared result survives the head early exit;
+        # only unstarted scanner work is skipped.
+        fanout_scanners = [
+            s
+            for s in self._ml_scanners
+            if prepared_semgrep is None or not isinstance(s, SemgrepScanner)
+        ]
         if early_exit:
             ml_results: list[ScanResult] = []
-        elif self._ml_scanners:
+        elif fanout_scanners:
             tasks = [
-                self._scan_with_breaker(
+                self._scan_semgrep(text)
+                if isinstance(s, SemgrepScanner)
+                else self._scan_with_breaker(
                     s,
                     normalized_text,
                     direction=direction,
@@ -771,16 +944,18 @@ class Pipeline:
                         else None
                     ),
                 )
-                for s in self._ml_scanners
+                for s in fanout_scanners
             ]
             raw_results = await asyncio.gather(*tasks, return_exceptions=True)
             ml_results = [
                 _normalize_gather_result(r, getattr(s, "name", "unknown"))
-                for r, s in zip(raw_results, self._ml_scanners, strict=True)
+                for r, s in zip(raw_results, fanout_scanners, strict=True)
             ]
         else:
             ml_results = []
 
+        if prepared_semgrep is not None:
+            ml_results.append(prepared_semgrep)
         all_results = [minimal_result] + ml_results
 
         # Stage 4b: Cross-scanner suppression (pre-merge; PET-109 D5). Drops

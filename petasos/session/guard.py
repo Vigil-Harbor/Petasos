@@ -41,6 +41,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Final, NamedTuple
 
+from petasos._limits import MAX_PARAM_TEXT_LEN
 from petasos._types import ScanFinding, Severity
 from petasos.normalize import _NAMESPACE_PREFIX_RE as _NAMESPACE_PREFIX_RE
 from petasos.normalize import canonicalize_tool_name
@@ -482,10 +483,10 @@ DEFAULT_TOOL_ALIASES: MappingProxyType[str, str] = MappingProxyType(
     }
 )
 
-_MAX_PARAM_TEXT_LEN = 1_000_000
 
 # PET-190: the one direction both parameter scans use. Tool parameters are agent
 # output (PET-94 Decision 2), so the outbound-only command family runs on them.
+_MAX_PARAM_TEXT_LEN = MAX_PARAM_TEXT_LEN
 PARAM_SCAN_DIRECTION: Final[Direction] = "outbound"
 
 
@@ -495,6 +496,7 @@ class RenderedParams:
 
     text: str
     original_len: int
+    segments: tuple[tuple[int, int], ...] | None = None
 
     @property
     def truncated(self) -> bool:
@@ -516,7 +518,7 @@ def render_param_text(tool_params: Mapping[str, Any]) -> RenderedParams:
     caller's existing fail-secure handler.
     """
     if not tool_params:
-        return RenderedParams("", 0)
+        return RenderedParams("", 0, ())
     parts: list[str] = []
     for value in tool_params.values():
         if value is None:
@@ -529,7 +531,14 @@ def render_param_text(tool_params: Mapping[str, Any]) -> RenderedParams:
     original_len = len(text)
     if original_len > _MAX_PARAM_TEXT_LEN:
         text = text[:_MAX_PARAM_TEXT_LEN]
-    return RenderedParams(text, original_len)
+    segments = []
+    cursor = 0
+    for part in parts:
+        end = min(cursor + len(part), len(text))
+        if cursor < end:
+            segments.append((cursor, end))
+        cursor += len(part) + 1
+    return RenderedParams(text, original_len, tuple(segments))
 
 
 @dataclass(frozen=True)
@@ -1313,12 +1322,35 @@ class ToolCallGuard:
                 )
             param_text = rendered.text
 
-            result = await self._pipeline.inspect(
-                param_text,
-                direction=PARAM_SCAN_DIRECTION,
-                session_id=session_id,
-                weight_cap=self.scan_weight_cap,
+            prepare = getattr(self._pipeline, "_prepare_semgrep", None)
+            prepared = (
+                None
+                if prepare is None
+                else await prepare(
+                    param_text,
+                    segments=rendered.segments,
+                    upstream_total_chars=rendered.original_len,
+                )
             )
+            try:
+                if prepared is None:
+                    result = await self._pipeline.inspect(
+                        param_text,
+                        direction=PARAM_SCAN_DIRECTION,
+                        session_id=session_id,
+                        weight_cap=self.scan_weight_cap,
+                    )
+                else:
+                    result = await self._pipeline._inspect_with_prepared_semgrep(
+                        param_text,
+                        prepared,
+                        direction=PARAM_SCAN_DIRECTION,
+                        session_id=session_id,
+                        weight_cap=self.scan_weight_cap,
+                    )
+            finally:
+                if prepared is not None:
+                    await prepared.discard()
 
             if result.errors and not result.findings:
                 _logger.warning(

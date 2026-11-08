@@ -32,7 +32,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - run: pip install -e ".[semgrep,dev]"
       - run: python scripts/semgrep_ci_install.py ${{ matrix.arch }}
-      - run: pytest tests/test_semgrep_engine.py tests/test_semgrep_source.py tests/test_semgrep_protocol.py tests/test_semgrep_process.py -v --tb=short --junitxml=semgrep-tests.xml
+      - run: pytest tests/test_semgrep_engine.py tests/test_semgrep_source.py tests/test_semgrep_protocol.py tests/test_semgrep_process.py tests/test_semgrep_runtime.py tests/test_semgrep_composition.py tests/test_semgrep_qualification.py -v --tb=short --junitxml=semgrep-tests.xml
       - uses: actions/upload-artifact@v4
         if: always()
         with:
