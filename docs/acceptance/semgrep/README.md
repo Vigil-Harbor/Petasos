@@ -1,5 +1,53 @@
 # Semgrep component evidence
 
+## Protocol v4 counting run at 167efa8 passed
+
+Hosted run
+[42464906511](https://github.com/Vigil-Harbor/Petasos/actions/runs/42464906511)
+is the one counting run fixed by the rule below. It measured merge revision
+`679f1631ac273c99798575bff748e20bd6cb911d` (branch head `167efa8` onto
+`2222a8b`), with workload `eight_outstanding_three_profiles_16k_64k_v3`,
+manifest `62d44848...945e` and criteria `S7-2026-11-08-v3`. It includes the
+code-review fixes from pieces 1-5. Summaries are retained in
+`hosted-mac-167efa8.json` and `hosted-win-167efa8.json`.
+
+**Every v4 component gate passed on both platforms in this run: 17 of 17 rows,
+1,752 of 1,752 planned requests completed per platform, zero errors, nothing unrun or
+unfinished, empty `gate_failures`.** Recomputing the gates from the artifacts
+gives the same result. `qualified` stays `false` because the qualification
+manifest is still empty. That is a separate release gate. All four test jobs
+(Python 3.11 and 3.14 on both platforms) passed 350 tests with no failures.
+
+| Row (limit) | macOS 15 | Windows Server 2025 |
+|---|---|---|
+| Single 16 KiB mean / p95 / p99 (macOS 1.0 / 1.2 / 1.4 s; Windows 1.2 / 1.4 / 1.6 s) | 0.649 / 0.780 / 0.878 | 0.773 / 0.822 / 0.965 |
+| 64 KiB repeated mean / p95 / p99 (1.8 / 2.0 / 2.3 s) | 1.047 / 1.247 / 1.319 | 1.197 / 1.251 / 1.395 |
+| 64 KiB distinct mean / p95 / p99 (1.8 / 2.0 / 2.3 s) | 1.045 / 1.300 / 1.470 | 1.207 / 1.361 / 1.411 |
+| Eight-wide 16 KiB, worst p95 of six (6.5 × single mean) | 3.327 (limit 4.216) | 4.705 (limit 5.024) |
+| Replacements p95 (6.5 × single mean) | 3.186 (limit 4.216) | 3.566 (limit 5.024) |
+| Eight-wide 64 KiB, worst p95 of six (6.5 × distinct mean) | 5.817 (limit 6.790) | 5.865 (limit 7.847) |
+| Worst max of the twelve loaded rows and replacements (8.0 s) | 6.370 | 6.134 |
+| Preflight 1M p95 (0.050 s) | 0.022 | 0.012 |
+
+Hosts: macOS Apple M1 (Virtual), 3 cores, image `20261104.0514.1`; Windows AMD
+Family 25 Model 17, 2 physical / 4 logical cores, image `20261103.298.1`;
+Python 3.14.10 on both.
+
+What this run does not show:
+
+- The Windows host was a fast draw. The single 16 KiB mean was 0.773 s and the
+  cold probe 0.550 s, close to the `5221a7c` reference (0.544 s). Every row also
+  passes the superseded v2 criteria. The run does not exercise the v4 limits on
+  a slow host.
+- Closest margins: Windows eight-wide 16 KiB three-owner 4/2/2 had a ratio of
+  6.09 against 6.5, about 6% headroom, with p99 4.843 s and max 5.117 s. macOS
+  64 KiB shared-owner 3/3/2 had p95 5.817 s against 6.790 s.
+- The known cleanup deadline edge, Windows root-removal intermittency and the
+  local `semgrep.cleanup_failed` sighting below remain open. A pass does not
+  resolve them.
+
+Runs that do not count: the run started by the push that records this section.
+
 ## Host-relative load gates (protocol v4, November 8, 2026)
 
 ### What changed
