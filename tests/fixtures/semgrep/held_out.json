@@ -1,0 +1,434 @@
+[
+  {
+    "id": "python-builtin_eval",
+    "language": "python",
+    "source": "result = eval(request_body)",
+    "finding": true
+  },
+  {
+    "id": "python-builtin_exec",
+    "language": "python",
+    "source": "exec(plugin_source, namespace)",
+    "finding": true
+  },
+  {
+    "id": "python-system_alias",
+    "language": "python",
+    "source": "import os as operating\noperating.system(user_command)",
+    "finding": true
+  },
+  {
+    "id": "python-popen_import",
+    "language": "python",
+    "source": "from os import popen\npopen(command)",
+    "finding": true
+  },
+  {
+    "id": "python-subprocess_run",
+    "language": "python",
+    "source": "import subprocess as sp\nsp.run(command, shell=True)",
+    "finding": true
+  },
+  {
+    "id": "python-subprocess_popen",
+    "language": "python",
+    "source": "import subprocess\nsubprocess.Popen(command, shell=True)",
+    "finding": true
+  },
+  {
+    "id": "python-pickle_import",
+    "language": "python",
+    "source": "from pickle import loads\nloads(packet)",
+    "finding": true
+  },
+  {
+    "id": "python-pickle_file",
+    "language": "python",
+    "source": "import pickle\npickle.load(handle)",
+    "finding": true
+  },
+  {
+    "id": "python-dill",
+    "language": "python",
+    "source": "import dill\ndill.loads(packet)",
+    "finding": true
+  },
+  {
+    "id": "python-jsonpickle",
+    "language": "python",
+    "source": "import jsonpickle\njsonpickle.decode(packet)",
+    "finding": true
+  },
+  {
+    "id": "python-yaml_loader",
+    "language": "python",
+    "source": "import yaml\nyaml.load(document, Loader=yaml.UnsafeLoader)",
+    "finding": true
+  },
+  {
+    "id": "python-nosemgrep",
+    "language": "python",
+    "source": "eval(payload)  # nosemgrep",
+    "finding": true
+  },
+  {
+    "id": "python-literal_eval",
+    "language": "python",
+    "source": "import ast\nast.literal_eval(document)",
+    "finding": false
+  },
+  {
+    "id": "python-json",
+    "language": "python",
+    "source": "import json\njson.loads(document)",
+    "finding": false
+  },
+  {
+    "id": "python-safe_yaml",
+    "language": "python",
+    "source": "import yaml\nyaml.safe_load(document)",
+    "finding": false
+  },
+  {
+    "id": "python-safe_loader",
+    "language": "python",
+    "source": "import yaml\nyaml.load(document, Loader=yaml.SafeLoader)",
+    "finding": false
+  },
+  {
+    "id": "python-argv",
+    "language": "python",
+    "source": "import subprocess\nsubprocess.run([\"echo\", value], shell=False)",
+    "finding": false
+  },
+  {
+    "id": "python-compile_only",
+    "language": "python",
+    "source": "compile(source, \"module\", \"exec\")",
+    "finding": false
+  },
+  {
+    "id": "python-method",
+    "language": "python",
+    "source": "class View:\n    def eval(self, value):\n        return value\nView().eval(data)",
+    "finding": false
+  },
+  {
+    "id": "python-local",
+    "language": "python",
+    "source": "def eval(item):\n    return item\neval(record)",
+    "finding": false
+  },
+  {
+    "id": "python-local_exec",
+    "language": "python",
+    "source": "def exec(item):\n    return item\nexec(record)",
+    "finding": false
+  },
+  {
+    "id": "python-comment",
+    "language": "python",
+    "source": "# eval(user_input)\nvalue = 1",
+    "finding": false
+  },
+  {
+    "id": "python-string",
+    "language": "python",
+    "source": "message = \"os.system(command)\"",
+    "finding": false
+  },
+  {
+    "id": "python-ordinary",
+    "language": "python",
+    "source": "def square(number):\n    return number * number\nsquare(4)",
+    "finding": false
+  },
+  {
+    "id": "javascript-eval",
+    "language": "javascript",
+    "source": "const output = eval(payload);",
+    "finding": true
+  },
+  {
+    "id": "javascript-indirect_dynamic",
+    "language": "javascript",
+    "source": "new Function(\"arg\", body);",
+    "finding": true
+  },
+  {
+    "id": "javascript-node_exec",
+    "language": "javascript",
+    "source": "require(\"node:child_process\").exec(command);",
+    "finding": true
+  },
+  {
+    "id": "javascript-node_sync",
+    "language": "javascript",
+    "source": "require(\"node:child_process\").execSync(command);",
+    "finding": true
+  },
+  {
+    "id": "javascript-module_exec",
+    "language": "javascript",
+    "source": "require(\"child_process\").exec(command);",
+    "finding": true
+  },
+  {
+    "id": "javascript-module_sync",
+    "language": "javascript",
+    "source": "require(\"child_process\").execSync(command);",
+    "finding": true
+  },
+  {
+    "id": "javascript-const_exec",
+    "language": "javascript",
+    "source": "const cp = require(\"child_process\"); cp.exec(command);",
+    "finding": true
+  },
+  {
+    "id": "javascript-const_sync",
+    "language": "javascript",
+    "source": "const cp = require(\"node:child_process\"); cp.execSync(command);",
+    "finding": true
+  },
+  {
+    "id": "javascript-import_exec",
+    "language": "javascript",
+    "source": "import { exec as run } from \"node:child_process\"; run(command);",
+    "finding": true
+  },
+  {
+    "id": "javascript-import_sync",
+    "language": "javascript",
+    "source": "import { execSync as run } from \"child_process\"; run(command);",
+    "finding": true
+  },
+  {
+    "id": "javascript-function_eval",
+    "language": "javascript",
+    "source": "function run(payload) { return eval(payload); }",
+    "finding": true
+  },
+  {
+    "id": "javascript-nosemgrep",
+    "language": "javascript",
+    "source": "eval(payload); // nosemgrep",
+    "finding": true
+  },
+  {
+    "id": "javascript-parse",
+    "language": "javascript",
+    "source": "JSON.parse(payload);",
+    "finding": false
+  },
+  {
+    "id": "javascript-spawn",
+    "language": "javascript",
+    "source": "const cp = require(\"child_process\"); cp.spawn(\"echo\", [value], {shell:false});",
+    "finding": false
+  },
+  {
+    "id": "javascript-exec_file",
+    "language": "javascript",
+    "source": "const cp = require(\"child_process\"); cp.execFile(\"echo\", [value]);",
+    "finding": false
+  },
+  {
+    "id": "javascript-string",
+    "language": "javascript",
+    "source": "const s = \"eval(payload)\";",
+    "finding": false
+  },
+  {
+    "id": "javascript-comment",
+    "language": "javascript",
+    "source": "// eval(payload)\nconst a = 1;",
+    "finding": false
+  },
+  {
+    "id": "javascript-method",
+    "language": "javascript",
+    "source": "const x = {eval(value) { return value; }}; x.eval(payload);",
+    "finding": false
+  },
+  {
+    "id": "javascript-ordinary",
+    "language": "javascript",
+    "source": "function square(x) {return x*x;} square(3);",
+    "finding": false
+  },
+  {
+    "id": "javascript-arrow",
+    "language": "javascript",
+    "source": "const square = x => x*x; square(4);",
+    "finding": false
+  },
+  {
+    "id": "javascript-template",
+    "language": "javascript",
+    "source": "const message = `hello ${name}`;",
+    "finding": false
+  },
+  {
+    "id": "javascript-array",
+    "language": "javascript",
+    "source": "const data = [1,2,3].map(x => x+1);",
+    "finding": false
+  },
+  {
+    "id": "javascript-regex",
+    "language": "javascript",
+    "source": "const regex = /eval\\(/; regex.test(text);",
+    "finding": false
+  },
+  {
+    "id": "javascript-promise",
+    "language": "javascript",
+    "source": "Promise.resolve(42).then(console.log);",
+    "finding": false
+  },
+  {
+    "id": "typescript-eval",
+    "language": "typescript",
+    "source": "const qualificationMarker: number = 1;\nconst output = eval(payload);",
+    "finding": true
+  },
+  {
+    "id": "typescript-indirect_dynamic",
+    "language": "typescript",
+    "source": "const qualificationMarker: number = 1;\nnew Function(\"arg\", body);",
+    "finding": true
+  },
+  {
+    "id": "typescript-node_exec",
+    "language": "typescript",
+    "source": "const qualificationMarker: number = 1;\nrequire(\"node:child_process\").exec(command);",
+    "finding": true
+  },
+  {
+    "id": "typescript-node_sync",
+    "language": "typescript",
+    "source": "const qualificationMarker: number = 1;\nrequire(\"node:child_process\").execSync(command);",
+    "finding": true
+  },
+  {
+    "id": "typescript-module_exec",
+    "language": "typescript",
+    "source": "const qualificationMarker: number = 1;\nrequire(\"child_process\").exec(command);",
+    "finding": true
+  },
+  {
+    "id": "typescript-module_sync",
+    "language": "typescript",
+    "source": "const qualificationMarker: number = 1;\nrequire(\"child_process\").execSync(command);",
+    "finding": true
+  },
+  {
+    "id": "typescript-const_exec",
+    "language": "typescript",
+    "source": "const qualificationMarker: number = 1;\nconst cp = require(\"child_process\"); cp.exec(command);",
+    "finding": true
+  },
+  {
+    "id": "typescript-const_sync",
+    "language": "typescript",
+    "source": "const qualificationMarker: number = 1;\nconst cp = require(\"node:child_process\"); cp.execSync(command);",
+    "finding": true
+  },
+  {
+    "id": "typescript-import_exec",
+    "language": "typescript",
+    "source": "const qualificationMarker: number = 1;\nimport { exec as run } from \"node:child_process\"; run(command);",
+    "finding": true
+  },
+  {
+    "id": "typescript-import_sync",
+    "language": "typescript",
+    "source": "const qualificationMarker: number = 1;\nimport { execSync as run } from \"child_process\"; run(command);",
+    "finding": true
+  },
+  {
+    "id": "typescript-function_eval",
+    "language": "typescript",
+    "source": "const qualificationMarker: number = 1;\nfunction run(payload) { return eval(payload); }",
+    "finding": true
+  },
+  {
+    "id": "typescript-nosemgrep",
+    "language": "typescript",
+    "source": "const qualificationMarker: number = 1;\neval(payload); // nosemgrep",
+    "finding": true
+  },
+  {
+    "id": "typescript-parse",
+    "language": "typescript",
+    "source": "const qualificationMarker: number = 1;\nJSON.parse(payload);",
+    "finding": false
+  },
+  {
+    "id": "typescript-spawn",
+    "language": "typescript",
+    "source": "const qualificationMarker: number = 1;\nconst cp = require(\"child_process\"); cp.spawn(\"echo\", [value], {shell:false});",
+    "finding": false
+  },
+  {
+    "id": "typescript-exec_file",
+    "language": "typescript",
+    "source": "const qualificationMarker: number = 1;\nconst cp = require(\"child_process\"); cp.execFile(\"echo\", [value]);",
+    "finding": false
+  },
+  {
+    "id": "typescript-string",
+    "language": "typescript",
+    "source": "const qualificationMarker: number = 1;\nconst s = \"eval(payload)\";",
+    "finding": false
+  },
+  {
+    "id": "typescript-comment",
+    "language": "typescript",
+    "source": "const qualificationMarker: number = 1;\n// eval(payload)\nconst a = 1;",
+    "finding": false
+  },
+  {
+    "id": "typescript-method",
+    "language": "typescript",
+    "source": "const qualificationMarker: number = 1;\nconst x = {eval(value) { return value; }}; x.eval(payload);",
+    "finding": false
+  },
+  {
+    "id": "typescript-ordinary",
+    "language": "typescript",
+    "source": "const qualificationMarker: number = 1;\nfunction square(x) {return x*x;} square(3);",
+    "finding": false
+  },
+  {
+    "id": "typescript-arrow",
+    "language": "typescript",
+    "source": "const qualificationMarker: number = 1;\nconst square = x => x*x; square(4);",
+    "finding": false
+  },
+  {
+    "id": "typescript-template",
+    "language": "typescript",
+    "source": "const qualificationMarker: number = 1;\nconst message = `hello ${name}`;",
+    "finding": false
+  },
+  {
+    "id": "typescript-array",
+    "language": "typescript",
+    "source": "const qualificationMarker: number = 1;\nconst data = [1,2,3].map(x => x+1);",
+    "finding": false
+  },
+  {
+    "id": "typescript-regex",
+    "language": "typescript",
+    "source": "const qualificationMarker: number = 1;\nconst regex = /eval\\(/; regex.test(text);",
+    "finding": false
+  },
+  {
+    "id": "typescript-promise",
+    "language": "typescript",
+    "source": "const qualificationMarker: number = 1;\nPromise.resolve(42).then(console.log);",
+    "finding": false
+  }
+]

@@ -1,0 +1,2 @@
+# Packaged rule digests are byte-exact across native checkouts and wheels.
+petasos/scanners/semgrep_rules/*.json text eol=lf
