@@ -247,3 +247,22 @@ async def test_ingestion_coverage_mapping_is_frozen_and_asdict_compatible() -> N
         # The pre-existing head has MappingProxy fields and its own to_dict.
         payload = asdict(replace(result, head=None))
         assert payload["backend_coverage"]["semgrep"]["status"] == "no_targets"
+
+
+@pytest.mark.parametrize(
+    "limit,ok",
+    [(4096, True), (65536, True), (4095, False), (65537, False), (131072, False)],
+)
+async def test_source_limit_bounds_match_qualified_maximum(limit: int, ok: bool) -> None:
+    # The supported maximum is the measured 64 KiB workload (S7 protocol v3).
+    if ok:
+        assert PetasosConfig(semgrep_max_source_bytes=limit).semgrep_max_source_bytes == limit
+    else:
+        with pytest.raises(ValueError, match="semgrep_max_source_bytes"):
+            PetasosConfig(semgrep_max_source_bytes=limit)
+    async with SemgrepLifecycleOwner() as owner:
+        if ok:
+            SemgrepScanner(owner=owner, max_source_bytes=limit)
+        else:
+            with pytest.raises(ValueError, match="semgrep.invalid_source_limit"):
+                SemgrepScanner(owner=owner, max_source_bytes=limit)

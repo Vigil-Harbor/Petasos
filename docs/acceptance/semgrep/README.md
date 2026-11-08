@@ -39,6 +39,25 @@ failure stands until the operator accepts a verified infrastructure cause or a
 reviewed repair, and a rerun alone does not erase it. The qualification manifest
 remains empty.
 
+### Operator decision and rerun rule (November 7, 2026)
+
+Fixed before the rerun:
+
+1. The operator accepts the slower Windows host as the cause of the `51acf8e`
+   Windows failure, on the evidence above. The failed attempt stays on record.
+2. Exactly one corrected measurement: the next push that changes the native lane
+   (the source-limit boundary tests from the review) runs the complete v3
+   benchmark on both Python 3.14 platforms.
+3. Only that run counts. Qualification of the v3 component gates needs every row
+   to pass on both platforms in that same run. Rows from `51acf8e` are not combined
+   with it.
+4. If any row fails on either platform, that failure stands. There is no further
+   retry. The result goes back to the operator as a gate-margin decision (the
+   single 16 KiB mean has about 21% baseline headroom on this label).
+5. For interpretation only, not as a filter: the `5221a7c` Windows reference is a
+   native suite of 81.66 s, preflight mean 0.0112 s and single 16 KiB cold probe
+   0.544 s. The run records its own figures.
+
 ## Approved S7 v2 amendment (superseded by v3 for new measurements)
 
 On November 7, 2026 the operator approved the reviewed
