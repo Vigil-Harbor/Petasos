@@ -133,6 +133,13 @@ class TestScanResult:
 
 
 class TestPipelineResult:
+    def test_field_types_resolve_at_runtime(self) -> None:
+        # Serializers and frameworks resolve dataclass hints at runtime.
+        import typing
+
+        for cls in (PipelineResult, ScanResult, ScanFinding):
+            assert typing.get_type_hints(cls)
+
     def test_legacy_serialization_omits_backend_coverage(self) -> None:
         assert PipelineResult(True, ()).to_dict() == {
             "safe": True,

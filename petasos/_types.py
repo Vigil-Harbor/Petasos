@@ -2,15 +2,13 @@ from __future__ import annotations
 
 import enum
 import inspect
+from collections.abc import Mapping  # noqa: TC003 - resolved by typing.get_type_hints at runtime
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
+from typing import Any, Literal, Protocol, runtime_checkable
 
 from petasos._coverage import CoverageSpan as CoverageSpan
 from petasos._coverage import ScanCoverage as ScanCoverage
-
-if TYPE_CHECKING:
-    from collections.abc import Mapping
 
 Direction = Literal["inbound", "outbound"]
 
