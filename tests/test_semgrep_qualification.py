@@ -8,6 +8,45 @@ from petasos.scanners import _semgrep_qualification as q
 from petasos.scanners._semgrep_engine import ENGINE_VERSION
 
 
+async def test_benchmark_error_diagnostics_are_bounded_and_omit_paths() -> None:
+    import errno
+    import importlib.util
+
+    script = Path(__file__).resolve().parents[1] / "scripts/semgrep_benchmark.py"
+    spec = importlib.util.spec_from_file_location("semgrep_benchmark", script)
+    assert spec is not None and spec.loader is not None
+    benchmark = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(benchmark)
+    stages = benchmark.StageTimings()
+    failure = PermissionError(errno.EACCES, "private source text", "private/path")
+
+    def denied() -> None:
+        raise failure
+
+    wrapped = stages.wrap("root_remove_attempt", denied)
+    for _ in range(70):
+        with pytest.raises(PermissionError) as caught:
+            wrapped()
+        assert caught.value is failure
+
+    async def unavailable() -> None:
+        raise RuntimeError("private cleanup detail")
+
+    with pytest.raises(RuntimeError):
+        await stages.wrap("root_cleanup", unavailable)()
+    assert stages.error_count == 71
+    assert len(stages.errors) == 64
+    assert stages.errors[0] == {
+        "stage": "root_remove_attempt",
+        "type": "PermissionError",
+        "errno": errno.EACCES,
+        "winerror": None,
+    }
+    assert "private" not in json.dumps(stages.errors)
+    assert len(stages.values["root_remove_attempt"]) == 70
+    assert len(stages.values["root_cleanup"]) == 1
+
+
 def test_packaged_empty_manifest_uses_named_unqualified_workload() -> None:
     warning = q.qualification_warning(7, "a" * 64)
     assert warning is not None
