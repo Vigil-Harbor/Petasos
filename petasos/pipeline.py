@@ -649,6 +649,10 @@ class Pipeline:
             escalation_tier=escalation_tier,
             session_score=(freq_result.current_score if freq_result is not None else None),
             feature_status=self._build_feature_status(),
+            backend_coverage={
+                r.scanner_name: r.coverage for r in scanner_results if r.coverage is not None
+            }
+            or None,
         )
 
     async def inspect(

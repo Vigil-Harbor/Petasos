@@ -4,7 +4,13 @@ import enum
 import inspect
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Any, Literal, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
+
+from petasos._coverage import CoverageSpan as CoverageSpan
+from petasos._coverage import ScanCoverage as ScanCoverage
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 Direction = Literal["inbound", "outbound"]
 
@@ -58,8 +64,11 @@ class ScanFinding:
     scanner_name: str
     position: Position | None = None
     matched_text: str | None = None
+    position_basis: Literal["legacy", "original"] = "legacy"
 
     def __post_init__(self) -> None:
+        if self.position_basis not in ("legacy", "original"):
+            raise ValueError("unknown position basis")
         if not (0.0 <= self.confidence <= 1.0):
             raise ValueError(
                 f"ScanFinding.confidence must be in [0.0, 1.0], got {self.confidence}"
@@ -78,6 +87,8 @@ class ScanFinding:
             d["position"] = {"start": self.position.start, "end": self.position.end}
         else:
             d["position"] = None
+        if self.position_basis != "legacy":
+            d["position_basis"] = self.position_basis
         d["matched_text"] = self.matched_text
         return d
 
@@ -94,6 +105,7 @@ class ScanFinding:
             scanner_name=data["scanner_name"],
             position=position,
             matched_text=data.get("matched_text"),
+            position_basis=data.get("position_basis", "legacy"),
         )
 
 
@@ -103,14 +115,23 @@ class ScanResult:
     findings: tuple[ScanFinding, ...]
     duration_ms: float = 0.0
     error: str | None = None
+    coverage: ScanCoverage | None = None
+
+    def __post_init__(self) -> None:
+        if self.coverage is not None and not isinstance(self.coverage, ScanCoverage):
+            raise ValueError("coverage must be ScanCoverage")
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        result: dict[str, Any] = {
             "scanner_name": self.scanner_name,
             "findings": [f.to_dict() for f in self.findings],
             "duration_ms": self.duration_ms,
             "error": self.error,
         }
+
+        if self.coverage is not None:
+            result["coverage"] = self.coverage.to_dict()
+        return result
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ScanResult:
@@ -119,6 +140,11 @@ class ScanResult:
             findings=tuple(ScanFinding.from_dict(f) for f in data["findings"]),
             duration_ms=data.get("duration_ms", 0.0),
             error=data.get("error"),
+            coverage=(
+                ScanCoverage.from_dict(data["coverage"])
+                if data.get("coverage") is not None
+                else None
+            ),
         )
 
 
@@ -254,14 +280,24 @@ class PipelineResult:
     escalation_tier: str | None = None
     session_score: float | None = None
     feature_status: MappingProxyType[str, str] | None = None
+    backend_coverage: Mapping[str, ScanCoverage] | None = None
 
     def __post_init__(self) -> None:
+        if self.backend_coverage is not None:
+            if any(
+                not isinstance(k, str) or not isinstance(v, ScanCoverage)
+                for k, v in self.backend_coverage.items()
+            ):
+                raise ValueError("backend coverage must map names to ScanCoverage")
+            object.__setattr__(
+                self, "backend_coverage", MappingProxyType(dict(self.backend_coverage))
+            )
         pf = self.feature_status
         if pf is not None and not isinstance(pf, MappingProxyType):
             object.__setattr__(self, "feature_status", MappingProxyType(dict(pf)))
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        result: dict[str, Any] = {
             "safe": self.safe,
             "findings": [f.to_dict() for f in self.findings],
             "sanitized_content": self.sanitized_content,
@@ -273,6 +309,9 @@ class PipelineResult:
                 dict(self.feature_status) if self.feature_status is not None else None
             ),
         }
+        if self.backend_coverage is not None:
+            result["backend_coverage"] = {k: v.to_dict() for k, v in self.backend_coverage.items()}
+        return result
 
 
 def _deep_unproxy(obj: Any) -> Any:
