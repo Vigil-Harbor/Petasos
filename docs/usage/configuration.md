@@ -31,7 +31,7 @@ The editor shows 11 sections, in this render order:
 10. Alerting
 11. Session Management
 
-Together these cover 62 editable fields.
+Together these cover 67 editable fields.
 
 <!-- petasos-doc-assert: config_field_count=67 -->
 

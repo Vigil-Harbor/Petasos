@@ -548,7 +548,9 @@ class Runtime:
             for job in [*self.active, *(j for q in self.pending.values() for j in q)]:
                 if job.lease in leases or (job.lease is None and not self.leases):
                     self.cancel(job)
-            if not self.leases:
+            # Schedule the stop exactly once. A later close (another owner, the
+            # process close) can race loop teardown; job completion re-checks.
+            if not self.leases and not self.stopping:
                 self.stopping = True
                 if self.close_started is None:
                     self.close_started = time.monotonic()

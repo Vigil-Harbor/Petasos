@@ -610,3 +610,24 @@ async def test_late_timeout_observation_cannot_move_request_cleanup_ceiling(
             await _bounded_result(task)
     finally:
         worker.set_result(42)
+
+
+async def test_repeated_close_never_schedules_onto_a_closed_loop(
+    fake_engine: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from types import SimpleNamespace
+
+    async with SemgrepLifecycleOwner() as owner:
+        scanner = SemgrepScanner(owner=owner, **fake_engine)
+        await ready(scanner)
+        lease = require(scanner._lease)
+        runtime = lease.runtime
+    assert runtime.loop.is_closed()
+    # A second close racing teardown: the manager thread still looks alive,
+    # but its loop has already closed.
+    real = runtime.thread
+    first = iter([True])
+    stub = SimpleNamespace(is_alive=lambda: next(first, real.is_alive()), join=real.join)
+    monkeypatch.setattr(runtime, "thread", stub)
+    result = await rt.close_leases({lease}, time.monotonic() + 1)
+    assert result.status == "closed", result
