@@ -220,7 +220,12 @@ def test_header_and_fence_classification_matches_short_reference_inputs() -> Non
     import random
     import re
 
-    from petasos.scanners._semgrep_source import _FENCE, _is_header, _is_search_header
+    from petasos.scanners._semgrep_source import (
+        _FENCE,
+        _is_candidate,
+        _is_header,
+        _is_search_header,
+    )
 
     header = re.compile(
         r"(?:async +)?def +[A-Za-z_]\w*\s*\(.*\)\s*(?:->[^:]+)?\s*:"
@@ -234,7 +239,9 @@ def test_header_and_fence_classification_matches_short_reference_inputs() -> Non
         value = rng.choice(("def f(", "async def f(", "class F", "class F(", ""))
         value += body + rng.choice(("", ":", "):", ")->x:", ")-> :"))
         assert _is_header(value) == bool(header.fullmatch(value)), repr(value)
-        assert _is_search_header(value) == bool(re.fullmatch(r"\S[^\r\n]*[./\\][^\r\n]*", value))
+        path_like = bool(re.fullmatch(r"\S[^\r\n]*[./\\][^\r\n]*", value))
+        code_like = any(c in value for c in "()[]{};=\"'`") or _is_candidate(value)
+        assert _is_search_header(value) == (path_like and not code_like), repr(value)
         value = " " * rng.randrange(6) + rng.choice(("`", "~")) * rng.randrange(12) + body
         assert [(m.span(), m.groups()) for m in _FENCE.finditer(value)] == [
             (m.span(), m.groups()) for m in fence.finditer(value)
@@ -329,3 +336,61 @@ asyncio.run(run())
         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+async def test_code_shaped_search_headers_are_not_discarded() -> None:
+    # A valid module whose first and last lines merely resemble path headers.
+    text = 'os.system(cmd); """a.py\n  1: safe(1)\n""".strip()\n'
+    selected = await select_sources(text)
+    assert any("os.system(cmd)" in t.region.text for t in selected.targets)
+    # Genuine search output still selects only the numbered rows.
+    rows = await select_sources("src/app.py\n  10: run(x)\n  11: eval(y)\n")
+    assert [t.region.text for t in rows.targets] == ["run(x)\neval(y)\n"]
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        "(eval)(payload)",
+        "x[0](payload)",
+        "f()(payload)",
+        "(eval)\n(payload)",
+        "eval \\\n(payload)",
+    ],
+)
+async def test_expression_callees_and_continuations_are_candidates(call: str) -> None:
+    from petasos.scanners._semgrep_source import preflight
+
+    for text in (call, json.dumps({"content": call})):
+        assert await preflight(text), text
+        selected = await select_sources(text)
+        assert selected.targets, text
+    # Chunk boundaries (8,192 characters) cannot split the call away.
+    for shift in range(-12, 13):
+        padded = " " * (8192 + shift - call.index("(", 1)) + call
+        assert await preflight(padded), shift
+
+
+@pytest.mark.parametrize(
+    "suffix,error",
+    [("eval(payload)", None), ("```python\neval(x)\n```\n", "semgrep.incomplete")],
+)
+async def test_clipped_json_leaf_records_the_omitted_suffix(
+    suffix: str, error: str | None
+) -> None:
+    text = json.dumps(" " * 65536 + suffix)
+    selected = await select_sources(text)
+    assert selected.tail is not None
+    assert 65536 < selected.tail < len(text)
+    assert "source_limit_tentative" in selected.reasons
+    assert selected.error == error
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["1" * 5000 + "|eval(payload)", "a.py\n  " + "1" * 5000 + ": eval(payload)"],
+)
+async def test_oversized_line_numbers_stay_raw(text: str) -> None:
+    selected = await select_sources(text)
+    assert selected.error is None
+    assert any("eval(payload)" in t.region.text for t in selected.targets)

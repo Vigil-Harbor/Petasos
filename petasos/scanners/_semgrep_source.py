@@ -31,6 +31,11 @@ _LABELS = {
 _IDENTIFIER_RUN = re.compile(r"(?<![\w.$])([\w.$]++)([\s\ufeff]*+)(\(|/\*|//)")
 _IDENTIFIER_START = re.compile(r"\b[A-Za-z_$]")
 _SENSITIVE_END = re.compile(r"\b(?:eval|exec|Function)$")
+# An explicit line continuation joins a callee to its arguments: eval \<newline>(x).
+_CONTINUATION = re.compile(r"\\\r?\n")
+# A call whose callee is itself an expression: (eval)(x), table[0](x), f()(x).
+# One line break is allowed because JavaScript and bracketed Python continue there.
+_EXPRESSION_CALL = re.compile(r"[)\]][ \t\ufeff]*+(?:\\?\r?\n[ \t\ufeff]*+)?\(")
 _DECLARATION = re.compile(
     r"(?m:^[ \t]*(?:from[ \t]+\S+[ \t]+import|import|class|def|async[ \t]+def"
     r"|function|const|let|var)\b)"
@@ -50,6 +55,10 @@ def _is_candidate(text: str) -> bool:
         return True
     if "(" not in text and "/*" not in text and "//" not in text:
         return False
+    if "\\" in text:
+        text = _CONTINUATION.sub(" ", text)
+    if _EXPRESSION_CALL.search(text):
+        return True
     for run in _IDENTIFIER_RUN.finditer(text):
         token = run[1]
         start = _IDENTIFIER_START.search(token)
@@ -94,13 +103,20 @@ def _is_header(text: str) -> bool:
     return tail.startswith("(") and tail.endswith(")") and "\n" not in tail
 
 
+_NOT_PATH = frozenset("()[]{};=\"'`")
+
+
 def _is_search_header(text: str) -> bool:
+    # Headers are dropped from the selected source, so anything that could be
+    # code (calls, statements, strings) disqualifies the whole presentation.
     return (
         bool(text)
         and not text[0].isspace()
         and "\r" not in text
         and "\n" not in text
         and any(text.find(separator, 1) >= 0 for separator in (".", "/", "\\"))
+        and _NOT_PATH.isdisjoint(text)
+        and not _is_candidate(text)
     )
 
 
@@ -518,7 +534,7 @@ def _presentation(region: Region, budget: MapBudget) -> list[Region]:
         if not line.group().strip():
             spans.append(line.span())
             continue
-        m = re.match(r"[ \t]*(\d+)\|", line.group())
+        m = re.match(r"[ \t]*(\d{1,9})\|", line.group())
         if m is None or int(m[1]) <= previous:
             break
         previous = int(m[1])
@@ -540,7 +556,7 @@ def _presentation(region: Region, budget: MapBudget) -> list[Region]:
         value = line.group().rstrip("\r\n")
         if not value:
             continue
-        m = re.match(r"[ \t]+(\d+):[ ]?", value)
+        m = re.match(r"[ \t]+(\d{1,9}):[ ]?", value)
         if m is not None and have_header:
             number = int(m[1])
             if not groups or number != previous + 1:
@@ -636,9 +652,24 @@ async def select_sources(
                         selection.unsupported = True
                         selection.reasons.add("projection_depth_limit")
                         continue
-                    if not await preflight(_scan_string(region.text, a + 1, True)[0]):
+                    full = _scan_string(region.text, a + 1, True)[0]
+                    if not await preflight(full):
                         continue  # Proven non-candidate leaves need no source maps.
                     decoded = _decode_string(region, a, b, max_bytes, budget)
+                    if len(full) > max_bytes:
+                        # The retained prefix may be blank or non-code and then
+                        # vanish in add(); record the omitted suffix here.
+                        tail = decoded.ends[-1] if decoded.ends else decoded.start
+                        selection.tail = (
+                            tail if selection.tail is None else min(selection.tail, tail)
+                        )
+                        selection.reasons.add("source_limit_tentative")
+                        omitted = full[max_bytes:]
+                        if any(
+                            _LABELS.get(f[2].strip().lower()) for f in _FENCE.finditer(omitted)
+                        ):
+                            selection.error = "semgrep.incomplete"
+                            selection.reasons.add("asserted_target_omitted")
                     decoded.clamped |= any(x <= a and b <= y for x, y in clamps)
                     await project(decoded, layers + 1)
                     await asyncio.sleep(0)
