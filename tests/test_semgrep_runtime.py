@@ -1267,9 +1267,10 @@ async def test_finished_removal_error_recovers_without_a_child_check(
         assert child.closes == 0
         assert not any("check_error" in line for line in runtime.cleanup_diagnostics)
         lines = list(runtime.cleanup_diagnostics)
-        assert any(
-            line == "kind=root_removal type=PermissionError errno=13 winerror=32" for line in lines
-        ), lines
+        # OSError only takes the winerror argument on Windows.
+        winerror = "32" if sys.platform == "win32" else "none"
+        expected = f"kind=root_removal type=PermissionError errno=13 winerror={winerror}"
+        assert expected in lines, lines
     finally:
         handle.stop()
 
@@ -1606,7 +1607,6 @@ def test_marker_guards_refuse_without_reading_or_unlinking(
         opened.append(str(self))
         return real_open(self, *args, **kwargs)
 
-    monkeypatch.setattr(Path, "open", spy)
     root = tmp_path / "linked"
     root.mkdir()
     target = tmp_path / "secret.txt"
@@ -1616,11 +1616,15 @@ def test_marker_guards_refuse_without_reading_or_unlinking(
         os.symlink(target, marker)
     except OSError:
         pytest.skip("symlink not permitted")
+    # Spy only across the call under test: the fixture's own write/read of the
+    # target also go through Path.open and must not count as a removal read.
+    monkeypatch.setattr(Path, "open", spy)
     with pytest.raises(OSError, match="marker_refused"):
         remove_owned_root(root)
+    monkeypatch.setattr(Path, "open", real_open)
+    assert opened == []
     assert marker.is_symlink()
     assert target.read_bytes() == b"SECRET_TARGET_BYTES"
-    assert not any(path.endswith("secret.txt") for path in opened)
 
     grown = tmp_path / "grown"
     grown.mkdir()
