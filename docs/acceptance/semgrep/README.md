@@ -1,5 +1,57 @@
 # Semgrep component evidence
 
+## 64 KiB maximum (protocol v3): counting run at fb65503 passed
+
+Hosted run
+[42439292090](https://github.com/Vigil-Harbor/Petasos/actions/runs/42439292090)
+is the single corrected measurement fixed by the rerun rule below. It measured
+merge revision `f833b5e99de6eb0dee2bdedc201ff639900df7b2` for branch head
+`fb65503`, with workload `eight_outstanding_three_profiles_16k_64k_v3`, manifest
+`62d44848...945e` and criteria `S7-2026-11-07-v2`. Summaries are retained in
+`hosted-mac-fb65503.json` and `hosted-win-fb65503.json`.
+
+**Every v3 component gate passed on both platforms in this run: 17 of 17 rows,
+zero errors, empty `gate_failures`.** `qualified` stays `false` because the
+qualification manifest is still empty; that is a separate release gate.
+
+| Row (limit) | macOS 15 | Windows Server 2025 |
+|---|---|---|
+| Single 16 KiB mean / p95 / p99 (1.0 / 1.2 / 1.4 s) | 0.575 / 0.693 / 0.748 | 0.778 / 0.812 / 0.966 |
+| 64 KiB repeated mean / p95 / p99 (1.8 / 2.0 / 2.3 s) | 0.924 / 1.165 / 1.248 | 1.264 / 1.410 / 1.740 |
+| 64 KiB distinct mean / p95 / p99 (1.8 / 2.0 / 2.3 s) | 0.866 / 1.074 / 1.269 | 1.218 / 1.378 / 1.397 |
+| Eight-wide 16 KiB, worst p95 of six (5.0 s) | 3.085 | 4.705 |
+| Eight-wide 64 KiB, worst p95 of six (7.5 s) | 3.954 | 5.931 |
+| Eight-wide 64 KiB, worst max of six (8.0 s) | 4.218 | 6.111 |
+| Replacements p95 (7.5 s) | 2.842 | 3.595 |
+| Preflight 1M p95 (0.050 s) | 0.022 | 0.012 |
+
+Hosts: macOS Apple M1 (Virtual), 3 cores, image `20261104.0514.1`; Windows AMD
+Family 25 Model 17, 2 physical cores, image `20261103.298.1`; Python 3.14.10 on
+both. The Windows host looked like the `5221a7c` reference, not the slow
+`51acf8e` host: native suite 86.72 s, preflight mean 0.011 s, single 16 KiB cold
+probe 0.545 s.
+
+Margins worth watching. These are observations, not failures:
+
+- Windows eight-wide 16 KiB shared-owner 8/0/0 had p95 4.705 s against 5.0 s,
+  p99 5.976 s and max 6.993 s. That is about 6% headroom on the binding 16 KiB
+  row. The 16 KiB eight-wide gate has no per-request maximum.
+- Windows 64 KiB repeated had one 4.343 s serial outlier. Its p99 of 1.740 s is
+  within 2.3 s.
+
+Other jobs in the same run: `scanner-tests (windows-2025, 3.11)` failed one
+functional test, `test_sibling_errors_and_discard_time_preserved`. It measured a
+20 ms sleep as 0.015 s because Python 3.11 on Windows backs `time.monotonic()`
+with a 15.625 ms tick (3.13+ use a fine-grained clock). That lane runs no
+benchmark. Commit `7ce5525` allows for the clock's reported resolution. macOS 3.11
+passed.
+
+Runs that do not count: 42438233233 (`e86b922`) and 42439132916 (`ba84582`) were
+started by documentation pushes. Pull-request path filters evaluate the whole PR
+diff, so every push starts this lane. Both were cancelled without reading their
+results. The run started by the push that records this section also does not
+count.
+
 ## 64 KiB maximum (protocol v3): first hosted attempt at 51acf8e
 
 On November 7, 2026 the operator lowered the supported maximum source to 64 KiB
