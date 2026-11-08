@@ -5,6 +5,7 @@ import copy
 import json
 import os
 import threading
+import time
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -192,7 +193,9 @@ async def test_sibling_errors_and_discard_time_preserved() -> None:
     assert [s["status"] for s in case["samples"]] == ["ok", "error"]
     assert case["samples"][1]["expected_findings"] == 1
     assert case["samples"][1]["observed_findings"] is None
-    assert case["samples"][0]["seconds"] >= 0.02
+    # Python < 3.13 on Windows backs monotonic() with a ~15.6 ms tick.
+    tick = time.get_clock_info("monotonic").resolution
+    assert case["samples"][0]["seconds"] >= 0.02 - tick
     assert discarded == [True]
     assert "private" not in json.dumps(case)
 
