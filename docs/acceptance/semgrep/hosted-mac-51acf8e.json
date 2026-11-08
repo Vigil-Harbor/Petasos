@@ -1,0 +1,491 @@
+{
+  "schema_version": 2,
+  "implementation": {
+    "commit": "7a447f21be58b9cee15832a4564887d14a928740",
+    "tracked_dirty": false,
+    "python_version": "3.14.10",
+    "petasos_version": "0.4.0",
+    "runner_image": "macos15",
+    "runner_image_version": "20261104.0514.1"
+  },
+  "engine_version": "1.183.0",
+  "engine_sha256": "8b0c1fa10fa70372ea64ca0dc9cf3de0fd53db9c2556f6af5f973e8df12d4995",
+  "rules_sha256": "44f60c2138c1b4b15880c6b123f424deab82440d85367dc3a56cbb31ec267b36",
+  "hardware": {
+    "architecture": "arm64",
+    "os": "macOS-15.8.2-arm64-arm-64bit-Mach-O",
+    "cpu": "Apple M1 (Virtual)",
+    "logical_cores": 3,
+    "physical_cores": 3,
+    "ram_bytes": 7516192768,
+    "runner_label": "macos-15"
+  },
+  "workload": "eight_outstanding_three_profiles_16k_64k_v3",
+  "criteria_version": "S7-2026-11-07-v2",
+  "fixture_manifest_sha256": "62d448486c7d7b257750782278e03d62da68bfc85556184bb1dc870d5b14945e",
+  "workloads": {
+    "single_16k": {
+      "counts": {
+        "planned": 100,
+        "started": 100,
+        "completed": 100,
+        "errored": 0,
+        "not_run": 0,
+        "unfinished": 0
+      },
+      "successful_seconds": {
+        "runs": 100,
+        "mean": 0.6111267796399997,
+        "p95": 0.7736378750000199,
+        "p99": 0.8205475830000069,
+        "max": 0.8482116669999868
+      },
+      "failed_seconds": {
+        "runs": 0
+      },
+      "error_count": 0
+    },
+    "sixteen_64k_repeated": {
+      "counts": {
+        "planned": 100,
+        "started": 100,
+        "completed": 100,
+        "errored": 0,
+        "not_run": 0,
+        "unfinished": 0
+      },
+      "successful_seconds": {
+        "runs": 100,
+        "mean": 1.1281954312499964,
+        "p95": 1.5572468329999651,
+        "p99": 1.683162583000012,
+        "max": 1.6992145420000497
+      },
+      "failed_seconds": {
+        "runs": 0
+      },
+      "error_count": 0
+    },
+    "eight_wide_single_16k_shared_owner_3_3_2": {
+      "counts": {
+        "planned": 104,
+        "started": 104,
+        "completed": 104,
+        "errored": 0,
+        "not_run": 0,
+        "unfinished": 0
+      },
+      "successful_seconds": {
+        "runs": 104,
+        "mean": 1.8770090601346134,
+        "p95": 3.2424822499999664,
+        "p99": 3.4868920000000116,
+        "max": 3.59914816700001
+      },
+      "failed_seconds": {
+        "runs": 0
+      },
+      "error_count": 0
+    },
+    "eight_wide_single_16k_shared_owner_4_2_2": {
+      "counts": {
+        "planned": 104,
+        "started": 104,
+        "completed": 104,
+        "errored": 0,
+        "not_run": 0,
+        "unfinished": 0
+      },
+      "successful_seconds": {
+        "runs": 104,
+        "mean": 1.833955330105764,
+        "p95": 3.034671166999999,
+        "p99": 3.134618957999976,
+        "max": 3.534170749999987
+      },
+      "failed_seconds": {
+        "runs": 0
+      },
+      "error_count": 0
+    },
+    "eight_wide_single_16k_shared_owner_8_0_0": {
+      "counts": {
+        "planned": 104,
+        "started": 104,
+        "completed": 104,
+        "errored": 0,
+        "not_run": 0,
+        "unfinished": 0
+      },
+      "successful_seconds": {
+        "runs": 104,
+        "mean": 1.8772272162884578,
+        "p95": 3.1562446249999994,
+        "p99": 3.2241237920000003,
+        "max": 3.677246083
+      },
+      "failed_seconds": {
+        "runs": 0
+      },
+      "error_count": 0
+    },
+    "eight_wide_single_16k_three_owners_3_3_2": {
+      "counts": {
+        "planned": 104,
+        "started": 104,
+        "completed": 104,
+        "errored": 0,
+        "not_run": 0,
+        "unfinished": 0
+      },
+      "successful_seconds": {
+        "runs": 104,
+        "mean": 1.835943586951923,
+        "p95": 3.0638703340000575,
+        "p99": 3.178060541000036,
+        "max": 3.2148105420000093
+      },
+      "failed_seconds": {
+        "runs": 0
+      },
+      "error_count": 0
+    },
+    "eight_wide_single_16k_three_owners_4_2_2": {
+      "counts": {
+        "planned": 104,
+        "started": 104,
+        "completed": 104,
+        "errored": 0,
+        "not_run": 0,
+        "unfinished": 0
+      },
+      "successful_seconds": {
+        "runs": 104,
+        "mean": 1.8159267183269219,
+        "p95": 3.000422915999934,
+        "p99": 3.1540039169999545,
+        "max": 3.391908290999936
+      },
+      "failed_seconds": {
+        "runs": 0
+      },
+      "error_count": 0
+    },
+    "eight_wide_single_16k_three_owners_8_0_0": {
+      "counts": {
+        "planned": 104,
+        "started": 104,
+        "completed": 104,
+        "errored": 0,
+        "not_run": 0,
+        "unfinished": 0
+      },
+      "successful_seconds": {
+        "runs": 104,
+        "mean": 1.8512928365961465,
+        "p95": 3.015086666000002,
+        "p99": 3.1008173750000196,
+        "max": 3.1431470420000096
+      },
+      "failed_seconds": {
+        "runs": 0
+      },
+      "error_count": 0
+    },
+    "eight_replacements": {
+      "counts": {
+        "planned": 104,
+        "started": 104,
+        "completed": 104,
+        "errored": 0,
+        "not_run": 0,
+        "unfinished": 0
+      },
+      "successful_seconds": {
+        "runs": 104,
+        "mean": 1.8274140368173055,
+        "p95": 3.0554208749999816,
+        "p99": 3.096304625000016,
+        "max": 3.1732259999999997
+      },
+      "failed_seconds": {
+        "runs": 0
+      },
+      "error_count": 0
+    },
+    "preflight_1m": {
+      "counts": {
+        "planned": 100,
+        "started": 100,
+        "completed": 100,
+        "errored": 0,
+        "not_run": 0,
+        "unfinished": 0
+      },
+      "successful_seconds": {
+        "runs": 100,
+        "mean": 0.019398657900006812,
+        "p95": 0.024111916999913774,
+        "p99": 0.025579834000041046,
+        "max": 0.025839667000013833
+      },
+      "failed_seconds": {
+        "runs": 0
+      },
+      "error_count": 0
+    },
+    "sixteen_64k_distinct": {
+      "counts": {
+        "planned": 100,
+        "started": 100,
+        "completed": 100,
+        "errored": 0,
+        "not_run": 0,
+        "unfinished": 0
+      },
+      "successful_seconds": {
+        "runs": 100,
+        "mean": 1.0441933908300018,
+        "p95": 1.2196645000000217,
+        "p99": 1.3371680840000408,
+        "max": 1.4734562500000266
+      },
+      "failed_seconds": {
+        "runs": 0
+      },
+      "error_count": 0
+    },
+    "eight_wide_sixteen_64k_distinct_shared_owner_3_3_2": {
+      "counts": {
+        "planned": 104,
+        "started": 104,
+        "completed": 104,
+        "errored": 0,
+        "not_run": 0,
+        "unfinished": 0
+      },
+      "successful_seconds": {
+        "runs": 104,
+        "mean": 2.9616388265961544,
+        "p95": 4.888605792000021,
+        "p99": 5.166939041999967,
+        "max": 5.770865458999992
+      },
+      "failed_seconds": {
+        "runs": 0
+      },
+      "error_count": 0
+    },
+    "eight_wide_sixteen_64k_distinct_shared_owner_4_2_2": {
+      "counts": {
+        "planned": 104,
+        "started": 104,
+        "completed": 104,
+        "errored": 0,
+        "not_run": 0,
+        "unfinished": 0
+      },
+      "successful_seconds": {
+        "runs": 104,
+        "mean": 3.063645210384609,
+        "p95": 5.086045000000013,
+        "p99": 5.215815207999981,
+        "max": 5.288018040999987
+      },
+      "failed_seconds": {
+        "runs": 0
+      },
+      "error_count": 0
+    },
+    "eight_wide_sixteen_64k_distinct_shared_owner_8_0_0": {
+      "counts": {
+        "planned": 104,
+        "started": 104,
+        "completed": 104,
+        "errored": 0,
+        "not_run": 0,
+        "unfinished": 0
+      },
+      "successful_seconds": {
+        "runs": 104,
+        "mean": 2.8932212868173126,
+        "p95": 4.7692450409999765,
+        "p99": 5.193852541999945,
+        "max": 5.352523500000075
+      },
+      "failed_seconds": {
+        "runs": 0
+      },
+      "error_count": 0
+    },
+    "eight_wide_sixteen_64k_distinct_three_owners_3_3_2": {
+      "counts": {
+        "planned": 104,
+        "started": 104,
+        "completed": 104,
+        "errored": 0,
+        "not_run": 0,
+        "unfinished": 0
+      },
+      "successful_seconds": {
+        "runs": 104,
+        "mean": 2.9015121371057613,
+        "p95": 4.7810049580000396,
+        "p99": 4.881483333000006,
+        "max": 5.166626999999835
+      },
+      "failed_seconds": {
+        "runs": 0
+      },
+      "error_count": 0
+    },
+    "eight_wide_sixteen_64k_distinct_three_owners_4_2_2": {
+      "counts": {
+        "planned": 104,
+        "started": 104,
+        "completed": 104,
+        "errored": 0,
+        "not_run": 0,
+        "unfinished": 0
+      },
+      "successful_seconds": {
+        "runs": 104,
+        "mean": 2.9425402052019254,
+        "p95": 4.897827208000081,
+        "p99": 4.947722209000176,
+        "max": 5.094555666999895
+      },
+      "failed_seconds": {
+        "runs": 0
+      },
+      "error_count": 0
+    },
+    "eight_wide_sixteen_64k_distinct_three_owners_8_0_0": {
+      "counts": {
+        "planned": 104,
+        "started": 104,
+        "completed": 104,
+        "errored": 0,
+        "not_run": 0,
+        "unfinished": 0
+      },
+      "successful_seconds": {
+        "runs": 104,
+        "mean": 2.942116970336549,
+        "p95": 4.840347208000139,
+        "p99": 4.905024666999907,
+        "max": 4.966264874999979
+      },
+      "failed_seconds": {
+        "runs": 0
+      },
+      "error_count": 0
+    }
+  },
+  "gate_failures": [],
+  "component_gates_passed": true,
+  "qualified": false,
+  "stage_durations_seconds": {
+    "identity": {
+      "runs": 1803,
+      "mean": 0.0058195183533019355,
+      "p95": 0.0009063749999995707,
+      "p99": 0.1658351669999547,
+      "max": 0.3501679579999859
+    },
+    "root_creation": {
+      "runs": 1780,
+      "mean": 0.0010621247859566136,
+      "p95": 0.003692709000006289,
+      "p99": 0.006890583000085826,
+      "max": 0.037056124999992335
+    },
+    "spawn": {
+      "runs": 5309,
+      "mean": 0.005899870758711414,
+      "p95": 0.01137862499996345,
+      "p99": 0.016144417000020894,
+      "max": 0.03768541700003425
+    },
+    "pipe_read": {
+      "runs": 435346,
+      "mean": 3.907966885890783e-05,
+      "p95": 4.9916000023131346e-05,
+      "p99": 0.00018729199996414536,
+      "max": 0.4421203329998207
+    },
+    "poll": {
+      "runs": 233585,
+      "mean": 8.842580228602956e-05,
+      "p95": 0.0001888750000489381,
+      "p99": 0.0002645840000923272,
+      "max": 0.01668725000001814
+    },
+    "terminate": {
+      "runs": 5309,
+      "mean": 4.5532855340715184e-05,
+      "p95": 9.666699997978867e-05,
+      "p99": 0.00017391699998370314,
+      "max": 0.00271133300003612
+    },
+    "reap_check": {
+      "runs": 10618,
+      "mean": 2.570170408809342e-05,
+      "p95": 6.983399998716777e-05,
+      "p99": 0.00015804200006641622,
+      "max": 0.004368624999983695
+    },
+    "child_total": {
+      "runs": 5309,
+      "mean": 0.29634611615332485,
+      "p95": 0.48223733300005733,
+      "p99": 0.5681693330000144,
+      "max": 0.8816534580000166
+    },
+    "projection": {
+      "runs": 1803,
+      "mean": 0.0016645273704915511,
+      "p95": 0.0049330409999583935,
+      "p99": 0.007734874999869135,
+      "max": 0.02192937500001335
+    },
+    "output_decode": {
+      "runs": 5293,
+      "mean": 0.0007398168709605117,
+      "p95": 0.0017214590000094177,
+      "p99": 0.0030674160000216943,
+      "max": 0.008151041000019177
+    },
+    "python_postfilter": {
+      "runs": 14885,
+      "mean": 0.0012404282450115681,
+      "p95": 0.003942374999979847,
+      "p99": 0.006321749999983695,
+      "max": 0.05112520900001982
+    },
+    "engine_scan": {
+      "runs": 1780,
+      "mean": 0.9133608548106747,
+      "p95": 1.3223584999998366,
+      "p99": 1.4907721249999213,
+      "max": 1.8093068330000506
+    },
+    "root_remove_attempt": {
+      "runs": 1780,
+      "mean": 0.0011154534376408194,
+      "p95": 0.003116040999998404,
+      "p99": 0.005997165999929166,
+      "max": 0.01433229199994912
+    },
+    "root_cleanup": {
+      "runs": 1780,
+      "mean": 0.0016002291123596015,
+      "p95": 0.004618292000031943,
+      "p99": 0.007991500000116503,
+      "max": 0.04887162500017439
+    }
+  },
+  "stage_errors": [],
+  "stage_error_count": 0,
+  "note": "Summary of the full CI artifact (per-sample data omitted for size); run 42436053501."
+}

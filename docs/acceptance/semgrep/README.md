@@ -1,6 +1,33 @@
 # Semgrep component evidence
 
-## Approved S7 amendment, measurements pending
+## 64 KiB maximum (protocol v3): first hosted attempt at 51acf8e
+
+On November 7, 2026 the operator lowered the supported maximum source to 64 KiB
+([protocol v3](protocol-v3.md)); latency limits are unchanged. Hosted run
+[42436053501](https://github.com/Vigil-Harbor/Petasos/actions/runs/42436053501)
+measured merge revision `7a447f21be58b9cee15832a4564887d14a928740` for branch head
+`51acf8e`. Summaries (per-sample data omitted for size) are retained in
+`hosted-mac-51acf8e.json` and `hosted-win-51acf8e.json`.
+
+- **macOS 15 / Python 3.14 (Apple M1 virtual, 3 cores): every component gate
+  passed.** 64 KiB serial repeated/distinct mean 1.128/1.044 s. The six 64 KiB
+  eight-wide cases had p95 4.77-5.09 s, max 5.77 s and zero errors.
+- **Windows Server 2025 / Python 3.14 (AMD Family 25 Model 17, 2 physical cores):
+  FAILED.** All seven 64 KiB rows passed: serial repeated/distinct mean
+  1.510/1.478 s, and the six eight-wide cases had p95 6.89-7.05 s, max 7.38 s and
+  zero errors. Two unchanged 16 KiB rows failed: serial single mean 1.022 s
+  (limit 1.0 s) and eight-wide 16 KiB shared-owner 4/2/2 p95 5.561 s (limit 5.0 s).
+
+The same Windows hardware label and image version (`20261103.298.1`) measured the
+unchanged single 16 KiB mean at 0.785 s on November 7 (run 42404464485). In this
+attempt every stage ran slower, including the pure-Python million-character
+preflight (mean 0.011 s before, 0.015 s now), which does not start the engine.
+That points to a slower host rather than this change, but under the protocol
+it is an unverified explanation, not a waiver. The Windows failure stands until
+the operator accepts a verified infrastructure cause or a reviewed repair. A
+rerun alone does not erase it. The qualification manifest remains empty.
+
+## Approved S7 v2 amendment (superseded by v3 for new measurements)
 
 On November 7, 2026 the operator approved the reviewed
 [v2 measurement protocol](protocol-v2.md): maximum-source serial limits are
