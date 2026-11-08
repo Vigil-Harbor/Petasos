@@ -12,7 +12,6 @@ import hashlib
 import json
 import math
 import os
-import shutil
 import tempfile
 import threading
 import time
@@ -23,6 +22,7 @@ from typing import Any, Literal
 
 from petasos._coverage import ScanCoverage
 from petasos._types import ScanResult
+from petasos.scanners import _semgrep_roots as roots
 from petasos.scanners._semgrep_engine import (
     ENGINE_VERSION,
     CpuCleanupFailure,
@@ -33,10 +33,16 @@ from petasos.scanners._semgrep_engine import (
 )
 from petasos.scanners._semgrep_process import (
     CHILD_OBSERVER,
-    CLEANUP_DEADLINE_OBSERVER,
     CleanupFailure,
 )
 from petasos.scanners._semgrep_source import Selection, select_sources
+
+REMOVAL_MIN_ATTEMPT = 0.25
+RECOVERY_WINDOW = 30.0
+RECOVERY_LIMIT = 3
+_RECOVERY_POLL = 0.05
+_RECOVERIES = 0
+_RECOVERIES_LOCK = threading.Lock()
 
 
 @dataclass(frozen=True)
@@ -51,6 +57,7 @@ class SemgrepCloseResult:
     readers: int = 0
     manager_threads: int = 0
     reasons: tuple[str, ...] = ()
+    diagnostics: tuple[str, ...] = ()
 
 
 class SemgrepCleanupError(RuntimeError):
@@ -75,15 +82,77 @@ def error_result(code: str, total: int = 0) -> ScanResult:
     return ScanResult("semgrep", (), 0, code, ScanCoverage("error", total, 0, 0, 0))
 
 
+def _oserror_line(exc: BaseException | None) -> str:
+    if not isinstance(exc, OSError):
+        return "kind=root_removal type=none errno=none winerror=none"
+    errno = "none" if exc.errno is None else str(exc.errno)
+    win = getattr(exc, "winerror", None)
+    winerror = "none" if win is None else str(win)
+    return f"kind=root_removal type={type(exc).__name__} errno={errno} winerror={winerror}"
+
+
+def _native_line(exc: CleanupFailure) -> str:
+    parts = ["kind=native"]
+    for key in (
+        "leader_signalled",
+        "job_empty",
+        "descendants_signalled",
+        "group_signalled",
+        "reaped",
+    ):
+        if key in exc.timings:
+            value = exc.timings[key]
+            parts.append(f"{key}={'none' if value is None else format(value, '.3f')}")
+    state = exc.state if isinstance(exc.state, dict) else {}
+    for key in ("active", "total"):
+        if isinstance(state.get(key), int) and not isinstance(state.get(key), bool):
+            parts.append(f"{key}={state[key]}")
+    images = state.get("images")
+    if isinstance(images, dict):
+        names = [
+            value.replace("\\", "/").rsplit("/", 1)[-1]
+            for value in images.values()
+            if isinstance(value, str) and value
+        ]
+        if names:
+            parts.append("images=" + ",".join(names))
+    return " ".join(parts)
+
+
+def _tracked_clear(tracked: tuple[tuple[int, float], ...]) -> bool:
+    import psutil
+
+    for pid, born in tracked:
+        try:
+            proc = psutil.Process(pid)
+            alive = proc.is_running() and proc.create_time() == born
+            if alive and proc.status() != psutil.STATUS_ZOMBIE:
+                return False
+        except psutil.NoSuchProcess:
+            continue
+    return True
+
+
+def _recovery_allowed() -> bool:
+    with _RECOVERIES_LOCK:
+        return _RECOVERIES < RECOVERY_LIMIT
+
+
 async def remove_root(
     root: Path,
     executor: concurrent.futures.ThreadPoolExecutor,
     deadline: float,
     outcome: ScanResult,
 ) -> None:
-    """Retry transient file locks within the remaining child/file cleanup budget."""
+    """Retry transient file locks within the removal budget."""
+    last_error: OSError | None = None
     while True:
-        worker = executor.submit(shutil.rmtree, root)
+        # A finished error is the deadline's result. Do not start an attempt
+        # that has no time left and would hide that error.
+        if last_error is not None and time.monotonic() >= deadline:
+            raise OSError("semgrep.cleanup_failed") from last_error
+        # Looked up on the module so the benchmark wrapper is the one that runs.
+        worker = executor.submit(roots.remove_owned_root, root)
         waiting = asyncio.wrap_future(worker)
         await asyncio.wait({waiting}, timeout=max(0, deadline - time.monotonic()))
         if not waiting.done():
@@ -94,13 +163,17 @@ async def remove_root(
         try:
             waiting.result()
             return
-        except FileNotFoundError:
+        except FileNotFoundError as exc:
             if not root.exists():
                 return
-        except OSError:
-            pass
+            last_error = exc
+        except OSError as exc:
+            last_error = exc
         if time.monotonic() >= deadline:
-            raise OSError("semgrep.cleanup_failed")
+            failure = OSError("semgrep.cleanup_failed")
+            if last_error is not None:
+                raise failure from last_error
+            raise failure
         await asyncio.sleep(min(0.02, max(0, deadline - time.monotonic())))
 
 
@@ -134,7 +207,12 @@ class Job:
     expiry: asyncio.TimerHandle | None = None
     source: tuple[str, tuple[tuple[int, int], ...] | None, int | None] | None = None
     refusal: str | None = None
-    cleanup_deadline: float | None = None
+    cancelled_at: float | None = None
+    removal: concurrent.futures.Future[None] | None = None
+    removal_wait: asyncio.Future[None] | None = None
+    native_settled: bool = False
+    unconfirmable: bool = False
+    removal_error_types: set[str] = field(default_factory=set)
 
 
 class Runtime:
@@ -156,6 +234,10 @@ class Runtime:
         self.retry_count = 0
         self.identity_stat: tuple[int, int, int, int, int] | None = None
         self.identity_checked_at = 0.0
+        self.retained: set[Job] = set()
+        self.recovery: asyncio.Task[None] | None = None
+        self.recovery_expired = False
+        self.cleanup_diagnostics: deque[str] = deque(maxlen=8)
         self.executor = concurrent.futures.ThreadPoolExecutor(
             max_workers=2, thread_name_prefix="petasos-semgrep-cpu"
         )
@@ -281,6 +363,8 @@ class Runtime:
 
     def cancel(self, job: Job) -> None:
         with self.lock:
+            if not job.cancelled.is_set():
+                job.cancelled_at = time.monotonic()
             job.cancelled.set()
             queue = self.pending.get(job.key)
             if queue is not None and job in queue:
@@ -344,9 +428,31 @@ class Runtime:
         (root / "petasos-owner.json").write_text(json.dumps(marker), encoding="utf-8")
         return root
 
+    def _removal_deadline(self, job: Job, now: float) -> float:
+        budget = now + 2.0
+        if job.cancelled_at is not None:
+            budget = min(budget, min(job.cancelled_at, job.deadline) + 4.0)
+        elif now >= job.deadline:
+            budget = min(budget, job.deadline + 4.0)
+        if self.stopping and self.close_started is not None:
+            budget = min(budget, self.close_started + 2.0)
+        return max(budget, now + REMOVAL_MIN_ATTEMPT)
+
+    def _append_diagnostic(self, line: str) -> None:
+        with self.lock:
+            self.cleanup_diagnostics.append(line)
+
+    def _note_removal_error(self, job: Job, exc: BaseException) -> None:
+        name = type(exc).__name__
+        if name in job.removal_error_types:
+            return
+        job.removal_error_types.add(name)
+        self._append_diagnostic(_oserror_line(exc))
+
     async def _execute(self, job: Job) -> None:
         outcome = error_result("semgrep.engine_unavailable")
         retain = False
+        diagnostic: str | None = None
 
         def observe(child: Any) -> None:
             import psutil
@@ -365,9 +471,6 @@ class Runtime:
                 marker_path.write_text(json.dumps(marker), encoding="utf-8")
 
         observer_token = CHILD_OBSERVER.set(observe)
-        cleanup_token = CLEANUP_DEADLINE_OBSERVER.set(
-            lambda deadline: setattr(job, "cleanup_deadline", deadline)
-        )
         try:
             if job.source is not None:
                 text, segments, total = job.source
@@ -453,10 +556,12 @@ class Runtime:
             job.cpu_failure = exc
             retain = True
             outcome = exc.outcome
+            diagnostic = "kind=native outcome=unfinished"
         except CleanupFailure as exc:
             job.failure = exc
             retain = True
             outcome = exc.outcome or error_result("semgrep.cleanup_failed")
+            diagnostic = _native_line(exc)
         except ValueError as exc:
             code = str(exc)
             if code == "semgrep.engine_integrity":
@@ -476,13 +581,12 @@ class Runtime:
             outcome = error_result("semgrep.engine_unavailable")
         finally:
             CHILD_OBSERVER.reset(observer_token)
-            CLEANUP_DEADLINE_OBSERVER.reset(cleanup_token)
             if job.root is not None and not retain:
                 try:
                     await remove_root(
                         job.root,
                         self.executor,
-                        job.cleanup_deadline or time.monotonic() + 2,
+                        self._removal_deadline(job, time.monotonic()),
                         result_for(job.selection or Selection(), error="semgrep.cleanup_failed"),
                     )
                     job.root = None
@@ -490,13 +594,29 @@ class Runtime:
                     job.cpu_failure = exc
                     retain = True
                     outcome = exc.outcome
-                except OSError:
+                    diagnostic = (
+                        "kind=root_removal type=none errno=none winerror=none outcome=unfinished"
+                    )
+                except OSError as exc:
                     retain = True
                     outcome = error_result("semgrep.cleanup_failed")
+                    diagnostic = _oserror_line(exc.__cause__)
+            # Read the per-process cap before taking runtime.lock: its own lock is
+            # never held together with runtime.lock. Only this loop thread changes
+            # the count, so the value cannot move before the task is created below.
+            allowed = retain and _recovery_allowed()
             with self.lock:
                 if retain:
                     self.failed = True
                     self.availability_error = "semgrep.cleanup_failed"
+                    self.retained.add(job)
+                    if diagnostic is not None:
+                        self.cleanup_diagnostics.append(diagnostic)
+                    running = self.recovery is not None and not self.recovery.done()
+                    if allowed and not running and not self.recovery_expired:
+                        # Start the window before the caller can see the failure, so
+                        # an observer of cleanup_failed always finds recovery running.
+                        self.recovery = self.loop.create_task(self._recover(time.monotonic()))
                 else:
                     self.active.discard(job)
                 if job.selection is None:
@@ -527,6 +647,153 @@ class Runtime:
                         for pending in tuple(queue):
                             self.cancel(pending)
                 self._pump()
+
+    def _release_retained(self, job: Job) -> None:
+        with self.lock:
+            self.retained.discard(job)
+            self.active.discard(job)
+
+    def _worker_settled(self, job: Job) -> bool:
+        failure = job.cpu_failure
+        if failure is None:
+            return True
+        future = failure.future
+        if not future.done():
+            return False
+        exc = future.exception()
+        if isinstance(exc, CleanupFailure):
+            job.failure = exc
+            # The retention line said "unfinished"; record what the worker found.
+            self._append_diagnostic(_native_line(exc))
+            return True
+        if exc is None or isinstance(exc, OSError):
+            return True
+        job.unconfirmable = True
+        return False
+
+    def _native_settled(self, job: Job) -> bool:
+        if job.native_settled or job.failure is None:
+            job.native_settled = True
+            return True
+        child = job.failure.child
+        if not child.cleaned():
+            return False
+        if not _tracked_clear(job.failure.tracked):
+            return False
+        child.close()
+        job.native_settled = True
+        return True
+
+    async def _root_settled(self, job: Job, window_end: float) -> bool:
+        if job.root is None:
+            return True
+        if not job.root.exists():
+            job.root = None
+            job.removal = None
+            return True
+        if job.removal is None:
+            job.removal = self.executor.submit(roots.remove_owned_root, job.root)
+            job.removal_wait = None
+        if job.removal_wait is None:
+            # One wrapper per attempt, kept across ticks. The executor future can
+            # finish before its completion reaches this wrapper, so only the
+            # wrapper's own state decides whether its result can be read.
+            job.removal_wait = asyncio.wrap_future(job.removal)
+        waiting = job.removal_wait
+        timeout = min(1.0, max(0.0, window_end - time.monotonic()))
+        await asyncio.wait({waiting}, timeout=timeout)
+        if not waiting.done():
+            return False
+        job.removal = None
+        job.removal_wait = None
+        try:
+            # The wrapper, not the executor future: otherwise its exception is
+            # reported as never retrieved when the attempt failed.
+            waiting.result()
+        except FileNotFoundError as exc:
+            if job.root is not None and not job.root.exists():
+                job.root = None
+                return True
+            self._note_removal_error(job, exc)
+            return False
+        except OSError as exc:
+            self._note_removal_error(job, exc)
+            return False
+        job.root = None
+        return True
+
+    async def _recover_job(self, job: Job, window_end: float) -> None:
+        if job.unconfirmable:
+            return
+        try:
+            if not self._worker_settled(job) or job.unconfirmable:
+                return
+            if not self._native_settled(job):
+                return
+            if await self._root_settled(job, window_end):
+                self._release_retained(job)
+        except Exception as exc:
+            job.unconfirmable = True
+            if "check_error" not in job.removal_error_types:
+                job.removal_error_types.add("check_error")
+                self._append_diagnostic(
+                    f"kind=recovery outcome=check_error type={type(exc).__name__}"
+                )
+
+    def _note_recovered(self) -> None:
+        global _RECOVERIES
+        with _RECOVERIES_LOCK:
+            _RECOVERIES += 1
+        self._append_diagnostic("kind=recovery outcome=recovered")
+        with self.lock:
+            self.failed = False
+            if self.leases and not self.stopping:
+                self.availability_error = "semgrep.probe_pending"
+                queued = len(self.active) + sum(map(len, self.pending.values()))
+                if queued >= 12:
+                    if self.retry is not None:
+                        self.retry.cancel()
+                    self.retry = self.loop.call_later(1, self._retry_probe)
+                else:
+                    self._enqueue_probe()
+            self._pump()
+            if self.stopping:
+                self._stop_if_empty()
+
+    async def _recover(self, started: float) -> None:
+        try:
+            await self._recover_window(started)
+        except Exception:
+            self.recovery_expired = True
+            self._append_diagnostic("kind=recovery outcome=task_error")
+
+    async def _recover_window(self, started: float) -> None:
+        window_end = started + RECOVERY_WINDOW
+        while True:
+            if time.monotonic() >= window_end:
+                self.recovery_expired = True
+                self._append_diagnostic("kind=recovery outcome=expired")
+                return
+            with self.lock:
+                jobs = tuple(self.retained)
+            if not jobs:
+                self._note_recovered()
+                return
+            for job in jobs:
+                await self._recover_job(job, window_end)
+            with self.lock:
+                still_retained = bool(self.retained)
+            if not still_retained:
+                self._note_recovered()
+                return
+            remaining = window_end - time.monotonic()
+            if remaining <= 0:
+                continue
+            await asyncio.sleep(min(_RECOVERY_POLL, remaining))
+
+    def _diagnostic_snapshot(self) -> tuple[str, ...]:
+        with self.lock:
+            return tuple(self.cleanup_diagnostics)
 
     def _retry_probe(self) -> None:
         with self.lock:
@@ -651,6 +918,12 @@ async def close_leases(leases: set[Lease], deadline: float) -> SemgrepCloseResul
                 cleanup_seconds=time.monotonic() - start,
                 **residual,
                 reasons=("cleanup_failed",),
+                diagnostics=tuple(
+                    line
+                    for runtime in runtimes
+                    if runtime.failed
+                    for line in runtime._diagnostic_snapshot()
+                ),
             )
         if time.monotonic() >= deadline:
             break
@@ -668,6 +941,7 @@ async def close_leases(leases: set[Lease], deadline: float) -> SemgrepCloseResul
         cleanup_seconds=time.monotonic() - start,
         **residual,
         reasons=("close_deadline",),
+        diagnostics=(),
     )
 
 
@@ -684,7 +958,10 @@ def close_semgrep_runtime(*, deadline: float) -> SemgrepCloseResult:
             return SemgrepCloseResult("closed")
         if threading.current_thread() is runtime.thread:
             return SemgrepCloseResult(
-                "failed", reasons=("control_thread_close",), **runtime.residuals()
+                "failed",
+                reasons=("control_thread_close",),
+                diagnostics=runtime._diagnostic_snapshot(),
+                **runtime.residuals(),
             )
         if runtime.thread.is_alive():
             runtime.close_leases(set(runtime.leases))
@@ -706,4 +983,5 @@ def close_semgrep_runtime(*, deadline: float) -> SemgrepCloseResult:
         reasons=()
         if status == "closed"
         else ("cleanup_failed" if runtime.failed else "close_deadline",),
+        diagnostics=runtime._diagnostic_snapshot() if status == "failed" else (),
     )

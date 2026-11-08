@@ -304,6 +304,42 @@ async def test_discard_failure_preserves_original_error() -> None:
     assert row["status"] == "error"
 
 
+def test_stage_timings_instrument_owned_root_removal(tmp_path: Path) -> None:
+    # Regression for PET-255: root_remove_attempt wraps marker-last removal.
+    from contextlib import ExitStack
+
+    root = tmp_path / "psg-owned00"
+    root.mkdir()
+    (root / "petasos-owner.json").write_text("{}", encoding="utf-8")
+    (root / "note.txt").write_text("x", encoding="utf-8")
+    stages = bench.StageTimings()
+    with ExitStack() as stack:
+        stages.install(stack)
+        from petasos.scanners._semgrep_roots import remove_owned_root
+
+        remove_owned_root(root)
+    assert stages.values["root_remove_attempt"]
+    assert not root.exists()
+
+
+async def test_recorder_checkpoint_includes_cleanup_diagnostics(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from collections import deque
+
+    from petasos.scanners import _semgrep_runtime as runtime
+
+    holder = SimpleNamespace(
+        lock=threading.Lock(),
+        cleanup_diagnostics=deque(["kind=recovery outcome=recovered"]),
+    )
+    monkeypatch.setattr(runtime, "_RUNTIME", holder)
+    records: dict[str, Any] = {}
+    recorder = bench.Recorder(tmp_path / "out.json", records, bench.StageTimings())
+    await recorder.save()
+    assert records["cleanup_diagnostics"] == ["kind=recovery outcome=recovered"]
+
+
 def test_checkpoint_atomic_and_lf(tmp_path: Path) -> None:
     path = tmp_path / "partial.json"
     protocol.checkpoint(path, json.dumps({"unfinished": 8}, indent=2))

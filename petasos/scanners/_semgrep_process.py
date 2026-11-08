@@ -131,23 +131,40 @@ class _PosixChild:
             stream.close()
 
     def cleaned(self) -> bool:
-        if self.poll() is None:
-            return False
+        leader_signalled = self.poll() is not None
         if sys.platform == "win32":
-            return True  # This implementation is used only on POSIX.
-        if not self._group_signal_complete:
-            return False
-        if not self._reaped:
-            if self.process.poll() is None:
-                return False
-            self._reaped = True
-        try:
-            os.killpg(self.pid, 0)
-        except ProcessLookupError:
-            return True
-        except PermissionError:
-            return False  # A surviving/inaccessible group is never clean.
-        return False
+            # This implementation is used only on POSIX.
+            self._last_cleanup_state = {
+                "leader_signalled": leader_signalled,
+                "group_signalled": False,
+                "reaped": False,
+            }
+            return leader_signalled
+        group_signalled = False
+        reaped = False
+        clean = False
+        if leader_signalled:
+            group_signalled = self._group_signal_complete
+            if group_signalled:
+                if not self._reaped and self.process.poll() is not None:
+                    self._reaped = True
+                reaped = self._reaped
+                if reaped:
+                    try:
+                        os.killpg(self.pid, 0)
+                    except ProcessLookupError:
+                        clean = True
+                    except PermissionError:
+                        clean = False  # A surviving/inaccessible group is never clean.
+                    else:
+                        clean = False
+        # Every return records conditions already established. Ones not reached stay false.
+        self._last_cleanup_state = {
+            "leader_signalled": leader_signalled,
+            "group_signalled": group_signalled,
+            "reaped": reaped,
+        }
+        return clean
 
 
 def _windows_kernel32() -> Any:
@@ -535,6 +552,38 @@ class CleanupFailure(RuntimeError):
             with contextlib.suppress(Exception):
                 self.state = {**self.state, "images": child.image_names()}
         self.outcome: ScanResult | None = None
+        self.tracked: tuple[tuple[int, float], ...] = ()
+        self.timings: dict[str, float | None] = {}
+
+
+def _cleanup_timing_keys() -> tuple[str, ...]:
+    if sys.platform == "win32":
+        return ("leader_signalled", "job_empty", "descendants_signalled")
+    return ("leader_signalled", "group_signalled", "reaped")
+
+
+def _note_cleanup(child: Any, origin: float, timings: dict[str, float | None]) -> None:
+    state = getattr(child, "_last_cleanup_state", None)
+    if not isinstance(state, dict):
+        return
+    elapsed = time.monotonic() - origin
+    flags: dict[str, bool] = {}
+    if "leader_signalled" in timings:
+        flags["leader_signalled"] = bool(state.get("leader_signalled"))
+    if "job_empty" in timings:
+        flags["job_empty"] = state.get("active") == 0
+    if "descendants_signalled" in timings:
+        waits = state.get("descendant_waits")
+        flags["descendants_signalled"] = isinstance(waits, dict) and all(
+            status == 0 for status in waits.values()
+        )
+    if "group_signalled" in timings:
+        flags["group_signalled"] = bool(state.get("group_signalled"))
+    if "reaped" in timings:
+        flags["reaped"] = bool(state.get("reaped"))
+    for key, met in flags.items():
+        if met and timings[key] is None:
+            timings[key] = elapsed
 
 
 async def run_process(
@@ -546,8 +595,9 @@ async def run_process(
     """Bound streams/RSS/deadline and reap before returning, including cancellation."""
     import psutil  # optional extra; never imported on the base path
 
-    child = _WindowsChild(argv, root) if sys.platform == "win32" else _PosixChild(argv, root)
+    # Created before the child so a spawn CleanupFailure can still carry it.
     tracked: dict[tuple[int, float], Any] = {}
+    timings: dict[str, float | None] = {}
     proc: Any = None
     stdout = bytearray()
     stderr_size = 0
@@ -557,126 +607,153 @@ async def run_process(
     code: int | None = None
     cleanup_started: float | None = None
     try:
-        observer = CHILD_OBSERVER.get()
-        if observer is not None:
-            observer(child)
-        with contextlib.suppress(psutil.NoSuchProcess):
-            proc = psutil.Process(child.pid)
-        while True:
-            now = time.monotonic()
-            if cancelled.is_set() and error is None:
-                error = "semgrep.cancelled"
-            if now >= deadline and error is None:
-                error = "ScannerTimeout: semgrep.deadline"
-            if now >= sample_at and proc is not None:
-                sample_at = now + 0.1
-                try:
-                    rss = proc.memory_info().rss
-                    # Windows Job Objects contain descendants before execution
-                    # and report their active count. A system-wide PID snapshot
-                    # is slower and can retain stale process-table entries.
-                    members: list[Any] = []
-                    if sys.platform != "win32":
-                        members = proc.children(recursive=True)
-                        for descendant in members:
-                            tracked[(descendant.pid, descendant.create_time())] = descendant
-                    elif isinstance(child, _WindowsChild):
-                        pids = child.job_members()
-                        if pids is None:
-                            # Too many members to account for: treat as over budget.
-                            rss = RSS_LIMIT + 1
-                            pids = []
-                        members = [pid for pid in pids if pid != child.pid]
-                    # The budget covers the whole owned tree, not just the leader.
-                    for member in members:
-                        with contextlib.suppress(psutil.NoSuchProcess, psutil.AccessDenied):
-                            if isinstance(member, int):
-                                member = psutil.Process(member)
-                            rss += member.memory_info().rss
-                    peak = max(peak, rss)
-                    if peak > RSS_LIMIT and error is None:
-                        error = "semgrep.memory_limit"
-                except psutil.NoSuchProcess:
-                    pass
-            for i in (0, 1):
-                chunk = child.read(i)
-                if i == 0:
-                    if len(stdout) + len(chunk) > STDOUT_LIMIT:
-                        error = "semgrep.output_limit"
-                    elif error != "semgrep.output_limit":
-                        stdout.extend(chunk)
-                else:
-                    stderr_size += len(chunk)
-                    if stderr_size > STDERR_LIMIT:
-                        error = "semgrep.output_limit"
-            if error is not None and cleanup_started is None:
-                cleanup_started = now
-                cleanup_observer = CLEANUP_DEADLINE_OBSERVER.get()
-                if cleanup_observer is not None:
-                    cleanup_observer(cleanup_started + 2)
-                child.terminate()
-            if cleanup_started is not None and now - cleanup_started >= 0.25:
-                child.terminate(force=True)
-            code = child.poll()
-            if code is not None:
-                # Drain buffered output, bounded by the same byte cap.
-                while chunk := child.read(0):
-                    if len(stdout) + len(chunk) > STDOUT_LIMIT:
-                        error = "semgrep.output_limit"
-                        break
-                    stdout.extend(chunk)
-                while chunk := child.read(1):
-                    stderr_size += len(chunk)
-                    if stderr_size > STDERR_LIMIT:
-                        error = "semgrep.output_limit"
-                        break
-                break
-            if cleanup_started is not None and now - cleanup_started >= 2:
-                raise CleanupFailure(child)
-            await asyncio.sleep(0.005)
-    finally:
-        # This also handles unexpected errors and task cancellation. The runtime
-        # cancels via Event, not Task.cancel, so cleanup owns its entire allowance.
-        end = (cleanup_started if cleanup_started is not None else time.monotonic()) + 2
-        cleanup_observer = CLEANUP_DEADLINE_OBSERVER.get()
-        if cleanup_observer is not None:
-            cleanup_observer(end)
+        child = _WindowsChild(argv, root) if sys.platform == "win32" else _PosixChild(argv, root)
         try:
-            child.terminate(force=True)
-            for (_pid, born), descendant in tracked.items():
-                try:
-                    if descendant.is_running() and descendant.create_time() == born:
-                        descendant.kill()
-                except psutil.NoSuchProcess:
-                    pass
-            while not child.cleaned() and time.monotonic() < end:
-                await asyncio.sleep(0.005)
-            if not child.cleaned():
-                raise CleanupFailure(child)
-            # Do not block the manager loop in psutil.wait: a sibling's cancel
-            # request and its two-second cleanup budget must keep advancing.
-            while tracked:
-                for identity, descendant in tuple(tracked.items()):
+            observer = CHILD_OBSERVER.get()
+            if observer is not None:
+                observer(child)
+            with contextlib.suppress(psutil.NoSuchProcess):
+                proc = psutil.Process(child.pid)
+            while True:
+                now = time.monotonic()
+                if cancelled.is_set() and error is None:
+                    error = "semgrep.cancelled"
+                if now >= deadline and error is None:
+                    error = "ScannerTimeout: semgrep.deadline"
+                if now >= sample_at and proc is not None:
+                    sample_at = now + 0.1
                     try:
-                        alive = descendant.is_running() and descendant.create_time() == identity[1]
-                        if not alive or descendant.status() == psutil.STATUS_ZOMBIE:
-                            del tracked[identity]
+                        rss = proc.memory_info().rss
+                        # Windows Job Objects contain descendants before execution
+                        # and report their active count. A system-wide PID snapshot
+                        # is slower and can retain stale process-table entries.
+                        members: list[Any] = []
+                        if sys.platform != "win32":
+                            members = proc.children(recursive=True)
+                            for descendant in members:
+                                tracked[(descendant.pid, descendant.create_time())] = descendant
+                        elif isinstance(child, _WindowsChild):
+                            pids = child.job_members()
+                            if pids is None:
+                                # Too many members to account for: treat as over budget.
+                                rss = RSS_LIMIT + 1
+                                pids = []
+                            members = [pid for pid in pids if pid != child.pid]
+                        # The budget covers the whole owned tree, not just the leader.
+                        for member in members:
+                            with contextlib.suppress(psutil.NoSuchProcess, psutil.AccessDenied):
+                                if isinstance(member, int):
+                                    member = psutil.Process(member)
+                                rss += member.memory_info().rss
+                        peak = max(peak, rss)
+                        if peak > RSS_LIMIT and error is None:
+                            error = "semgrep.memory_limit"
                     except psutil.NoSuchProcess:
-                        del tracked[identity]
-                if not tracked:
+                        pass
+                for i in (0, 1):
+                    chunk = child.read(i)
+                    if i == 0:
+                        if len(stdout) + len(chunk) > STDOUT_LIMIT:
+                            error = "semgrep.output_limit"
+                        elif error != "semgrep.output_limit":
+                            stdout.extend(chunk)
+                    else:
+                        stderr_size += len(chunk)
+                        if stderr_size > STDERR_LIMIT:
+                            error = "semgrep.output_limit"
+                if error is not None and cleanup_started is None:
+                    cleanup_started = now
+                    cleanup_observer = CLEANUP_DEADLINE_OBSERVER.get()
+                    if cleanup_observer is not None:
+                        cleanup_observer(cleanup_started + 2)
+                    child.terminate()
+                if cleanup_started is not None and now - cleanup_started >= 0.25:
+                    child.terminate(force=True)
+                code = child.poll()
+                if code is not None:
+                    # Drain buffered output, bounded by the same byte cap.
+                    while chunk := child.read(0):
+                        if len(stdout) + len(chunk) > STDOUT_LIMIT:
+                            error = "semgrep.output_limit"
+                            break
+                        stdout.extend(chunk)
+                    while chunk := child.read(1):
+                        stderr_size += len(chunk)
+                        if stderr_size > STDERR_LIMIT:
+                            error = "semgrep.output_limit"
+                            break
                     break
-                if time.monotonic() >= end:
-                    raise CleanupFailure(child)
+                if cleanup_started is not None and now - cleanup_started >= 2:
+                    # Waiting budget, not a verdict. finally confirms the tree.
+                    break
                 await asyncio.sleep(0.005)
-            code = child.poll()
-            child.close()
         except CleanupFailure:
-            raise
-        except BaseException as exc:
-            # Even an access error or repeated cancellation cannot turn an
-            # unreaped native child into a released scheduler slot.
-            raise CleanupFailure(child) from exc
-        observer = CHILD_OBSERVER.get()
-        if observer is not None:
-            observer(None)
+            # terminate() runs only after error is set, so an interrupt code stays.
+            error = error or "semgrep.engine_error"
+        finally:
+            # Unexpected errors and task cancellation too. The runtime cancels via
+            # Event, not Task.cancel, so cleanup owns its entire allowance.
+            origin = cleanup_started if cleanup_started is not None else time.monotonic()
+            for key in _cleanup_timing_keys():
+                timings.setdefault(key, None)
+            end = origin + 2
+            cleanup_observer = CLEANUP_DEADLINE_OBSERVER.get()
+            if cleanup_observer is not None:
+                cleanup_observer(end)
+            try:
+                # Capture already killed the job. The checks below decide.
+                with contextlib.suppress(CleanupFailure):
+                    child.terminate(force=True)
+                for (_pid, born), descendant in tracked.items():
+                    try:
+                        if descendant.is_running() and descendant.create_time() == born:
+                            descendant.kill()
+                    except psutil.NoSuchProcess:
+                        pass
+                clean = False
+                while True:
+                    clean = child.cleaned()
+                    _note_cleanup(child, origin, timings)
+                    if clean or time.monotonic() >= end:
+                        break
+                    await asyncio.sleep(0.005)
+                if not clean:
+                    # One more confirmation after the end, as before: a tree that
+                    # exited between the last poll and the clock check is clean.
+                    clean = child.cleaned()
+                    _note_cleanup(child, origin, timings)
+                if not clean:
+                    raise CleanupFailure(child)
+                # Do not block the manager loop in psutil.wait: a sibling's cancel
+                # request and its two-second cleanup budget must keep advancing.
+                while tracked:
+                    for identity, descendant in tuple(tracked.items()):
+                        try:
+                            alive = (
+                                descendant.is_running() and descendant.create_time() == identity[1]
+                            )
+                            if not alive or descendant.status() == psutil.STATUS_ZOMBIE:
+                                del tracked[identity]
+                        except psutil.NoSuchProcess:
+                            del tracked[identity]
+                    if not tracked:
+                        break
+                    if time.monotonic() >= end:
+                        raise CleanupFailure(child)
+                    await asyncio.sleep(0.005)
+                code = child.poll()
+                child.close()
+            except CleanupFailure:
+                raise
+            except BaseException as exc:
+                # Even an access error or repeated cancellation cannot turn an
+                # unreaped native child into a released scheduler slot.
+                raise CleanupFailure(child) from exc
+            observer = CHILD_OBSERVER.get()
+            if observer is not None:
+                observer(None)
+    except CleanupFailure as exc:
+        exc.tracked = exc.tracked or tuple(tracked)
+        exc.timings = exc.timings or dict(timings)
+        raise
     return ProcessResult(code, bytes(stdout), error, peak)

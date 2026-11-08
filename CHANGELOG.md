@@ -35,6 +35,8 @@ fails config validation, because an older release rejects the unknown id.
   result payloads are unchanged when the additive fields are absent. Bundled
   dashboards and current Hermes bootstraps refuse unowned enablement; host cleanup,
   reporting, delivery and eight-hour qualification remain separate release gates.
+  `SemgrepCloseResult.diagnostics` carries source-free cleanup lines when close
+  fails (PET-255).
 
 
 - **Credential handling in approval reporting (PET-250).** Approval text and
