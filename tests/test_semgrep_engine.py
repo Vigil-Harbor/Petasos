@@ -113,6 +113,29 @@ class TestSemgrepRealEngine:
         assert source.index("eval(payload)") + len("```python\n") in starts, result
         assert source.index("eval(b)") + len("```python\n") not in starts, result
 
+    async def test_annotation_rebinding_keeps_builtin_eval_finding(
+        self, engine_root: Path
+    ) -> None:
+        # Annotations execute at definition time on Python 3.11-3.13 and can
+        # remove the local eval, so the last call reaches the builtin.
+        source = (
+            "def eval(value):\n    return value\n"
+            'def other(arg: globals().pop("eval")):\n    pass\n'
+            "eval(payload)\n"
+        )
+        selection = await select_sources("```python\n" + source + "```")
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            result = await scan_selected(
+                selection,
+                os.environ["SEMGREP_ENGINE_PATH"],
+                engine_root,
+                time.monotonic() + 8,
+                threading.Event(),
+                executor,
+            )
+        starts = {require(f.position).start for f in result.findings}
+        assert source.index("eval(payload)") + len("```python\n") in starts, result
+
     async def test_dense_python_within_source_limit_is_not_postfilter_error(
         self, engine_root: Path
     ) -> None:

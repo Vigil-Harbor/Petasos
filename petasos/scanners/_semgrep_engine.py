@@ -228,6 +228,19 @@ def _path(value: Any) -> str:
     return os.path.normcase(os.path.abspath(value))
 
 
+def _evaluates_annotations(statement: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+    # Supported targets include Python 3.11-3.13 source, where annotations run
+    # when the definition runs, whatever the scanner host's own semantics.
+    args = statement.args
+    parameters = [*args.posonlyargs, *args.args, *args.kwonlyargs]
+    parameters += [p for p in (args.vararg, args.kwarg) if p is not None]
+    return (
+        statement.returns is not None
+        or any(p.annotation is not None for p in parameters)
+        or bool(getattr(statement, "type_params", None))
+    )
+
+
 def _local_functions(text: str) -> set[tuple[int, int]]:
     """Conservative exclusion for an explicit preceding same-scope def eval/exec.
 
@@ -247,6 +260,7 @@ def _local_functions(text: str) -> set[tuple[int, int]]:
                     statement.decorator_list
                     or statement.args.defaults
                     or any(statement.args.kw_defaults)
+                    or _evaluates_annotations(statement)
                 ):
                     local.clear()
                 elif statement.name in ("eval", "exec"):
@@ -280,7 +294,8 @@ def _local_functions(text: str) -> set[tuple[int, int]]:
 def _findings(
     data: dict[str, Any], expected: dict[str, tuple[int, Target]]
 ) -> tuple[dict[int, list[ScanFinding]], set[int], str | None]:
-    scanned = data.get("paths", {}).get("scanned")
+    paths = data.get("paths")
+    scanned = paths.get("scanned") if isinstance(paths, dict) else None
     if not isinstance(scanned, list) or {_path(p) for p in scanned} != set(expected):
         raise ProtocolError("target_mismatch")
     parsed = {i for i, _ in expected.values()}
@@ -289,18 +304,31 @@ def _findings(
     if not isinstance(errors, list):
         raise ProtocolError("protocol_error")
     for item in errors:
+        if not isinstance(item, dict):
+            raise ProtocolError("protocol_error")
         kind = item.get("error_type", item.get("type"))
         kind = kind[0] if isinstance(kind, list) and kind else kind
-        path = item.get("location", {}).get("path", item.get("path"))
+        location = item.get("location", {})
+        if not isinstance(location, dict):
+            raise ProtocolError("protocol_error")
+        path = location.get("path", item.get("path"))
+        owned = expected.get(_path(path)) if path is not None else None
         if kind in ("PartialParsing", "ParseError", "Syntax error") and path is not None:
-            owned = expected.get(_path(path))
             if owned is None:
                 raise ProtocolError("target_mismatch")
             parsed.discard(owned[0])
         else:
+            # A timeout or other failure leaves its target unexamined. Without
+            # a target attribution, nothing in this batch is proven complete.
             error = "semgrep.engine_error"
+            if owned is not None:
+                parsed.discard(owned[0])
+            else:
+                parsed.clear()
     found: dict[int, list[ScanFinding]] = {}
     for row in data["results"]:
+        if not isinstance(row, dict):
+            raise ProtocolError("protocol_error")
         rule = row.get("check_id")
         if rule not in RULE_MESSAGES:
             raise ProtocolError("unknown_rule")
@@ -308,7 +336,10 @@ def _findings(
         if owned is None:
             raise ProtocolError("target_mismatch")
         i, target = owned
-        a, b = row.get("start", {}).get("offset"), row.get("end", {}).get("offset")
+        start_at, end_at = row.get("start"), row.get("end")
+        if not isinstance(start_at, dict) or not isinstance(end_at, dict):
+            raise ProtocolError("protocol_error")
+        a, b = start_at.get("offset"), end_at.get("offset")
         source = target.region.text.encode("utf-8")
         if type(a) is not int or type(b) is not int or not 0 <= a <= b <= len(source):
             error = "semgrep.offset_invalid"
@@ -383,6 +414,9 @@ def result_for(
         status = "partial" if error == "semgrep.incomplete" else "error"
     elif not selection.targets:
         status = "unsupported" if selection.unsupported else "no_targets"
+        # An omitted tail is unexamined input even when nothing was selected.
+        if status == "no_targets" and selection.tail is not None:
+            status = "partial"
     elif not completed:
         status = (
             "partial"
@@ -523,7 +557,9 @@ async def scan_selected(
                 data, {_path(str(paths[i])): (i, t) for i, t in batch.items()}
             )
             if process.returncode != 0 and not data.get("errors"):
+                # A failed exit with no attributed error proves nothing complete.
                 batch_error = "semgrep.engine_error"
+                parsed.clear()
             error = error or batch_error
             if language == "python":
                 # Raw-core accepts an empty Python suite without a parse error.
