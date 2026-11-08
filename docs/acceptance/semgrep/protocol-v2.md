@@ -34,7 +34,8 @@ or maximum JS/TS/non-ASCII inputs; their ordinary deadlines/failure policies app
 ## Fixed fixtures and measurements
 
 `scripts/semgrep_workloads.py` generates the pinned
-`scripts/semgrep_workloads_v2.json`. Its exact UTF-8/LF bytes, including one final
+`scripts/semgrep_workloads_v2.json` (replaced by v3 at `51acf8e`; the v2 bytes
+remain in git history at `5221a7c`). Its exact UTF-8/LF bytes, including one final
 LF and no BOM, hash to
 `36b279d00a2551589a2ea1e7415eedecfee3c0a5a520d1436ce5ac9371e0fa40`.
 Git attributes preserve LF. Each payload's digest, original segments and derived

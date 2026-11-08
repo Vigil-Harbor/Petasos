@@ -18,14 +18,26 @@ measured merge revision `7a447f21be58b9cee15832a4564887d14a928740` for branch he
   zero errors. Two unchanged 16 KiB rows failed: serial single mean 1.022 s
   (limit 1.0 s) and eight-wide 16 KiB shared-owner 4/2/2 p95 5.561 s (limit 5.0 s).
 
-The same Windows hardware label and image version (`20261103.298.1`) measured the
-unchanged single 16 KiB mean at 0.785 s on November 7 (run 42404464485). In this
-attempt every stage ran slower, including the pure-Python million-character
-preflight (mean 0.011 s before, 0.015 s now), which does not start the engine.
-That points to a slower host rather than this change, but under the protocol
-it is an unverified explanation, not a waiver. The Windows failure stands until
-the operator accepts a verified infrastructure cause or a reviewed repair. A
-rerun alone does not erase it. The qualification manifest remains empty.
+An independent review (`.claude/reviews/PET-254-S7-v3-review-1.md`, local)
+judged a slower Windows host **plausible and strongly supported, but not
+verified**. `51acf8e` changes only the source-byte cap, which neither a single
+16 KiB target nor preflight reaches. Against run 42404464485 (`5221a7c`, same base
+`39b4cb1`, same hardware label, image `20261103.298.1`, Python and engine), the
+native test suite on the same VM before the benchmark slowed from 81.66 s to
+109.37 s (median 1.33x across 278 common tests). Comparable benchmark cases
+slowed by a similar factor: single 16 KiB mean 0.785 to 1.022 s, cold probe 0.544
+to 0.697 s, engine-free preflight mean 0.0112 to 0.0145 s with non-overlapping
+distributions. The macOS control was flat (suite 62.15 to 60.83 s). The 4/2/2
+p95 failure also needed a short extra episode: burst maxima stepped up at burst 7,
+and control-loop lag reached 0.427 s against at most 0.114 s in most cases. Not
+every summary stage duration slowed; those pool different workload mixes.
+
+The 64 KiB passes above were measured on the same slower host. They support the
+64 KiB capacity estimate but are not a qualifying result by themselves.
+Qualification needs one complete v3 run in which every row passes. The Windows
+failure stands until the operator accepts a verified infrastructure cause or a
+reviewed repair, and a rerun alone does not erase it. The qualification manifest
+remains empty.
 
 ## Approved S7 v2 amendment (superseded by v3 for new measurements)
 

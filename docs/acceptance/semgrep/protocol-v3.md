@@ -2,8 +2,9 @@
 
 On November 7, 2026 the operator lowered the supported Semgrep maximum source from
 128 KiB to 64 KiB after the v2 workload failed its maximum-source gates on both
-hosted platforms (capacity, not correctness: three engine launches cost about
-0.75 s per request regardless of size, and four rounds over two slots overran the
+hosted platforms (capacity, not correctness: local profiling measured about
+0.22-0.26 s of fixed engine start per launch, so three launches cost about 0.75 s
+per request regardless of size, and four rounds over two slots overran the
 8 s deadline). `semgrep_max_source_bytes` now defaults to and is bounded at
 65,536. Supported code beyond the limit is reported as incomplete coverage and
 follows `fail_mode`. The latency limits are the v2 criteria
@@ -33,7 +34,8 @@ is at most 2 s followed by at most 2 s native cleanup; no owner-close allowance
 changes. Submitted fixture code is scanned, never executed.
 
 Four service waves at 1.8 s would leave little room inside the 7.5/8 s loaded
-bounds; the 64 KiB maximum measured about 1.0-1.5 s serial on hosted runners.
+bounds. Before this protocol was adopted, local diagnostics measured the 64 KiB
+maximum at about 1.21-1.23 s serial against 1.62 s for 128 KiB.
 This is a capacity budget, not proof that serial quantiles predict load. Both
 the distinct serial and maximum loaded gates may still fail on hosted hardware.
 The named dense ASCII Python fixtures do not qualify all accepted source shapes
