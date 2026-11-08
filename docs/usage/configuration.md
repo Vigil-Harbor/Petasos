@@ -155,8 +155,8 @@ when to stop calling one that keeps failing.*
 - `semgrep_request_timeout_seconds`: Semgrep's own queue-inclusive deadline, one
   to eight seconds (default eight). Values below eight are unqualified for the
   eight-request workload until native measurements establish a lower budget.
-- `semgrep_max_source_bytes`: decoded code bytes per inspection, 4,096?131,072
-  (default 131,072). Coverage reports any supported code omitted by the limit.
+- `semgrep_max_source_bytes`: decoded code bytes per inspection, 4,096?65,536
+  (default 65,536). Coverage reports any supported code omitted by the limit.
   All five Semgrep settings require restart. Existing enforcement policies apply.
 
 - `scanner_timeout_seconds`: how long to wait for a slow scanner before giving up

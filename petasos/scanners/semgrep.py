@@ -223,7 +223,7 @@ class SemgrepScanner:
         engine_path: str | None = None,
         engine_sha256: str | None = None,
         request_timeout_seconds: float = 8,
-        max_source_bytes: int = 131072,
+        max_source_bytes: int = 65536,
         semgrep_scheduling_key: object | None = None,
     ) -> None:
         if not isinstance(owner, SemgrepLifecycleOwner):
@@ -236,7 +236,7 @@ class SemgrepScanner:
             or not 1 <= request_timeout_seconds <= 8
         ):
             raise ValueError("semgrep.invalid_timeout")
-        if type(max_source_bytes) is not int or not 4096 <= max_source_bytes <= 131072:
+        if type(max_source_bytes) is not int or not 4096 <= max_source_bytes <= 65536:
             raise ValueError("semgrep.invalid_source_limit")
         self.qualification_warning = qualification_warning(request_timeout_seconds, engine_sha256)
         if self.qualification_warning:

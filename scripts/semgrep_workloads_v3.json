@@ -1,6 +1,6 @@
 {
-  "workload_id": "eight_outstanding_three_profiles_16k_128k_v2",
-  "generator_version": 2,
+  "workload_id": "eight_outstanding_three_profiles_16k_64k_v3",
+  "generator_version": 3,
   "fixtures": {
     "single_16k": {
       "payload_sha256": "2e1503329581d02d94a4e7d767a84a94d0f2e60aa357a67d4154a065fe809fe4",
@@ -21,311 +21,311 @@
         ]
       ]
     },
-    "sixteen_128k_repeated": {
-      "payload_sha256": "80e97746af352e51098f2fdf0ea1688da9d8bd193d58731c329f30481155e7fc",
-      "payload_bytes": 131087,
-      "selected_bytes": 131072,
+    "sixteen_64k_repeated": {
+      "payload_sha256": "e9cbd3fda1ae5470e010ae04c689c82f73c048d9f240d2be3ef2287fff2f316c",
+      "payload_bytes": 65551,
+      "selected_bytes": 65536,
       "distinct_fragments": 1,
       "segments": [
         [
           0,
-          8192
+          4096
         ],
         [
-          8193,
-          16385
+          4097,
+          8193
         ],
         [
-          16386,
-          24578
+          8194,
+          12290
         ],
         [
-          24579,
-          32771
+          12291,
+          16387
         ],
         [
-          32772,
-          40964
+          16388,
+          20484
         ],
         [
-          40965,
-          49157
+          20485,
+          24581
         ],
         [
-          49158,
-          57350
+          24582,
+          28678
         ],
         [
-          57351,
-          65543
+          28679,
+          32775
         ],
         [
-          65544,
-          73736
+          32776,
+          36872
         ],
         [
-          73737,
-          81929
+          36873,
+          40969
         ],
         [
-          81930,
-          90122
+          40970,
+          45066
         ],
         [
-          90123,
-          98315
+          45067,
+          49163
         ],
         [
-          98316,
-          106508
+          49164,
+          53260
         ],
         [
-          106509,
-          114701
+          53261,
+          57357
         ],
         [
-          114702,
-          122894
+          57358,
+          61454
         ],
         [
-          122895,
-          131087
+          61455,
+          65551
         ]
       ],
       "expected_findings": [
         [
           "petasos.semgrep.python.dynamic_code",
-          8178,
-          8191
+          4082,
+          4095
         ],
         [
           "petasos.semgrep.python.dynamic_code",
-          16371,
-          16384
+          8179,
+          8192
         ],
         [
           "petasos.semgrep.python.dynamic_code",
-          24564,
-          24577
+          12276,
+          12289
         ],
         [
           "petasos.semgrep.python.dynamic_code",
-          32757,
-          32770
+          16373,
+          16386
         ],
         [
           "petasos.semgrep.python.dynamic_code",
-          40950,
-          40963
+          20470,
+          20483
         ],
         [
           "petasos.semgrep.python.dynamic_code",
-          49143,
-          49156
+          24567,
+          24580
         ],
         [
           "petasos.semgrep.python.dynamic_code",
-          57336,
-          57349
+          28664,
+          28677
         ],
         [
           "petasos.semgrep.python.dynamic_code",
-          65529,
-          65542
+          32761,
+          32774
         ],
         [
           "petasos.semgrep.python.dynamic_code",
-          73722,
-          73735
+          36858,
+          36871
         ],
         [
           "petasos.semgrep.python.dynamic_code",
-          81915,
-          81928
+          40955,
+          40968
         ],
         [
           "petasos.semgrep.python.dynamic_code",
-          90108,
-          90121
+          45052,
+          45065
         ],
         [
           "petasos.semgrep.python.dynamic_code",
-          98301,
-          98314
+          49149,
+          49162
         ],
         [
           "petasos.semgrep.python.dynamic_code",
-          106494,
-          106507
+          53246,
+          53259
         ],
         [
           "petasos.semgrep.python.dynamic_code",
-          114687,
-          114700
+          57343,
+          57356
         ],
         [
           "petasos.semgrep.python.dynamic_code",
-          122880,
-          122893
+          61440,
+          61453
         ],
         [
           "petasos.semgrep.python.dynamic_code",
-          131073,
-          131086
+          65537,
+          65550
         ]
       ]
     },
-    "sixteen_128k_distinct": {
-      "payload_sha256": "05e5d4eda2f47841c4b1044b7c48ffc270166145031aa52628c851ec218a6bb4",
-      "payload_bytes": 131087,
-      "selected_bytes": 131072,
+    "sixteen_64k_distinct": {
+      "payload_sha256": "1e43757117ae2416fed1d7752b25845980a64d0e62c622a207bd712bb5ae8d14",
+      "payload_bytes": 65551,
+      "selected_bytes": 65536,
       "distinct_fragments": 16,
       "segments": [
         [
           0,
-          8192
+          4096
         ],
         [
-          8193,
-          16385
+          4097,
+          8193
         ],
         [
-          16386,
-          24578
+          8194,
+          12290
         ],
         [
-          24579,
-          32771
+          12291,
+          16387
         ],
         [
-          32772,
-          40964
+          16388,
+          20484
         ],
         [
-          40965,
-          49157
+          20485,
+          24581
         ],
         [
-          49158,
-          57350
+          24582,
+          28678
         ],
         [
-          57351,
-          65543
+          28679,
+          32775
         ],
         [
-          65544,
-          73736
+          32776,
+          36872
         ],
         [
-          73737,
-          81929
+          36873,
+          40969
         ],
         [
-          81930,
-          90122
+          40970,
+          45066
         ],
         [
-          90123,
-          98315
+          45067,
+          49163
         ],
         [
-          98316,
-          106508
+          49164,
+          53260
         ],
         [
-          106509,
-          114701
+          53261,
+          57357
         ],
         [
-          114702,
-          122894
+          57358,
+          61454
         ],
         [
-          122895,
-          131087
+          61455,
+          65551
         ]
       ],
       "expected_findings": [
         [
           "petasos.semgrep.python.dynamic_code",
-          8178,
-          8191
+          4082,
+          4095
         ],
         [
           "petasos.semgrep.python.dynamic_code",
-          16371,
-          16384
+          8179,
+          8192
         ],
         [
           "petasos.semgrep.python.dynamic_code",
-          24564,
-          24577
+          12276,
+          12289
         ],
         [
           "petasos.semgrep.python.dynamic_code",
-          32757,
-          32770
+          16373,
+          16386
         ],
         [
           "petasos.semgrep.python.dynamic_code",
-          40950,
-          40963
+          20470,
+          20483
         ],
         [
           "petasos.semgrep.python.dynamic_code",
-          49143,
-          49156
+          24567,
+          24580
         ],
         [
           "petasos.semgrep.python.dynamic_code",
-          57336,
-          57349
+          28664,
+          28677
         ],
         [
           "petasos.semgrep.python.dynamic_code",
-          65529,
-          65542
+          32761,
+          32774
         ],
         [
           "petasos.semgrep.python.dynamic_code",
-          73722,
-          73735
+          36858,
+          36871
         ],
         [
           "petasos.semgrep.python.dynamic_code",
-          81915,
-          81928
+          40955,
+          40968
         ],
         [
           "petasos.semgrep.python.dynamic_code",
-          90108,
-          90121
+          45052,
+          45065
         ],
         [
           "petasos.semgrep.python.dynamic_code",
-          98301,
-          98314
+          49149,
+          49162
         ],
         [
           "petasos.semgrep.python.dynamic_code",
-          106494,
-          106507
+          53246,
+          53259
         ],
         [
           "petasos.semgrep.python.dynamic_code",
-          114687,
-          114700
+          57343,
+          57356
         ],
         [
           "petasos.semgrep.python.dynamic_code",
-          122880,
-          122893
+          61440,
+          61453
         ],
         [
           "petasos.semgrep.python.dynamic_code",
-          131073,
-          131086
+          65537,
+          65550
         ]
       ]
     }

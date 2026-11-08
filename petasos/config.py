@@ -233,7 +233,7 @@ class PetasosConfig:
     semgrep_engine_path: str | None = None
     semgrep_engine_sha256: str | None = None
     semgrep_request_timeout_seconds: float = 8.0
-    semgrep_max_source_bytes: int = 131072
+    semgrep_max_source_bytes: int = 65536
 
     def __post_init__(self) -> None:
         if self.semgrep_engine_path is not None and (
@@ -252,9 +252,9 @@ class PetasosConfig:
         ):
             raise ValueError("semgrep_request_timeout_seconds must be finite in [1, 8]")
         if type(self.semgrep_max_source_bytes) is not int or not (
-            4096 <= self.semgrep_max_source_bytes <= 131072
+            4096 <= self.semgrep_max_source_bytes <= 65536
         ):
-            raise ValueError("semgrep_max_source_bytes must be an integer in [4096, 131072]")
+            raise ValueError("semgrep_max_source_bytes must be an integer in [4096, 65536]")
         for fname in _BOOL_FIELDS:
             val = getattr(self, fname)
             if not isinstance(val, bool):

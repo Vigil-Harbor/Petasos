@@ -102,7 +102,7 @@ unsafe. Findings survive incomplete scans and remain action-independent.
 
 Lossless host pagination is annotated. A true line clamp or Petasos-side source
 loss is distinguished from paging. The scanner inspects at most one million
-original characters, selects at most sixteen targets, and retains up to 128 KiB
+original characters, selects at most sixteen targets, and retains up to 64 KiB
 of decoded code in document order. It launches at most three grammar batches.
 Coverage never substitutes the MinimalScanner sweep for Semgrep coverage.
 
@@ -183,7 +183,7 @@ key object, preventing object-ID reuse while queued or active work still owns it
 
 `semgrep_qualification.json` schema 1 contains a `measurements` list. A usable row
 must have matching `platform` (`windows_x64` or `macos_arm64`), `engine_version`,
-`engine_sha256`, `rules_sha256`, `workload` (`eight_outstanding_three_profiles_16k_128k_v2`),
+`engine_sha256`, `rules_sha256`, `workload` (`eight_outstanding_three_profiles_16k_64k_v3`),
 nonempty `hardware`, `qualified: true`, and positive `loaded_p95_seconds` at most 8.
 Malformed, missing or mismatched evidence falls back to an unqualified eight-second
 reference. A lower configured deadline reports the workload, reference value and

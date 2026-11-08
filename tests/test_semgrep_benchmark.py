@@ -75,9 +75,9 @@ def expected_result(fixture: dict[str, Any]) -> ScanResult:
 def test_pinned_bytes_and_case_plan() -> None:
     manifest, fixtures = protocol.fixtures()
     assert manifest["workload_id"] == protocol.WORKLOAD
-    assert fixtures["sixteen_128k_distinct"]["distinct_fragments"] == 16
-    assert fixtures["sixteen_128k_repeated"]["selected_bytes"] == 131072
-    assert fixtures["sixteen_128k_distinct"]["payload_bytes"] == 131087
+    assert fixtures["sixteen_64k_distinct"]["distinct_fragments"] == 16
+    assert fixtures["sixteen_64k_repeated"]["selected_bytes"] == 65536
+    assert fixtures["sixteen_64k_distinct"]["payload_bytes"] == 65551
     plan = protocol.case_plan(100)
     assert len(plan) == 17
     assert [c["kind"] for c in plan[:2]] == ["serial", "serial"]
@@ -107,12 +107,12 @@ def test_unchanged_loaded_rows_do_not_gain_max_gate(name: str) -> None:
         ("single_16k", "mean", 1.0),
         ("single_16k", "p95", 1.2),
         ("single_16k", "p99", 1.4),
-        ("sixteen_128k_repeated", "mean", 1.8),
-        ("sixteen_128k_distinct", "p95", 2.0),
-        ("sixteen_128k_distinct", "p99", 2.3),
+        ("sixteen_64k_repeated", "mean", 1.8),
+        ("sixteen_64k_distinct", "p95", 2.0),
+        ("sixteen_64k_distinct", "p99", 2.3),
         ("eight_wide_single_16k_shared_owner_3_3_2", "p95", 5.0),
-        ("eight_wide_sixteen_128k_distinct_three_owners_8_0_0", "p95", 7.5),
-        ("eight_wide_sixteen_128k_distinct_shared_owner_4_2_2", "max", 8.0),
+        ("eight_wide_sixteen_64k_distinct_three_owners_8_0_0", "p95", 7.5),
+        ("eight_wide_sixteen_64k_distinct_shared_owner_4_2_2", "max", 8.0),
         ("eight_replacements", "p95", 7.5),
         ("preflight_1m", "p95", 0.05),
     ],
@@ -429,7 +429,7 @@ async def test_wall_budget_preserves_partial_failure_and_cleanup(
 
 @pytest.mark.skipif(not os.environ.get("SEMGREP_ENGINE_PATH"), reason="real engine not configured")
 @pytest.mark.parametrize(
-    "fixture_name", ["single_16k", "sixteen_128k_repeated", "sixteen_128k_distinct"]
+    "fixture_name", ["single_16k", "sixteen_64k_repeated", "sixteen_64k_distinct"]
 )
 async def test_real_fixture_finding_and_coverage_contract(fixture_name: str) -> None:
     """A first-run mismatch fails; never rewrite expected findings to match it."""

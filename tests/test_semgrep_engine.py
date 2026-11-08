@@ -116,7 +116,7 @@ class TestSemgrepRealEngine:
     async def test_dense_python_within_source_limit_is_not_postfilter_error(
         self, engine_root: Path
     ) -> None:
-        source = "```python\nDATA = [" + "0," * 55000 + "]\n```"
+        source = "```python\nDATA = [" + "0," * 32000 + "]\n```"
         selection = await select_sources(source)
         with ThreadPoolExecutor(max_workers=2) as executor:
             result = await scan_selected(

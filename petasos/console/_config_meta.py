@@ -65,7 +65,7 @@ _FIELD_META: dict[str, dict[str, Any]] = {
         "section": "scanning",
     },
     "semgrep_max_source_bytes": {
-        "description": "Maximum decoded code bytes per scan (4096-131072).",
+        "description": "Maximum decoded code bytes per scan (4096-65536).",
         "help_plain": _SEMGREP_HELP,
         "section": "scanning",
     },

@@ -562,7 +562,7 @@ async def select_sources(
     *,
     segments: tuple[tuple[int, int], ...] | None = None,
     total: int | None = None,
-    max_bytes: int = 131072,
+    max_bytes: int = 65536,
 ) -> Selection:
     segments, total = validate_envelope(text, segments, total)
     selection = Selection(examined=min(len(text), MAX_PARAM_TEXT_LEN), total=total)

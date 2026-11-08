@@ -12,8 +12,8 @@ from typing import Any
 
 from scripts.semgrep_workloads import fragment, workload
 
-WORKLOAD = "eight_outstanding_three_profiles_16k_128k_v2"
-MANIFEST_SHA256 = "36b279d00a2551589a2ea1e7415eedecfee3c0a5a520d1436ce5ac9371e0fa40"
+WORKLOAD = "eight_outstanding_three_profiles_16k_64k_v3"
+MANIFEST_SHA256 = "62d448486c7d7b257750782278e03d62da68bfc85556184bb1dc870d5b14945e"
 
 
 def summary(values: list[float]) -> dict[str, float | int]:
@@ -30,14 +30,14 @@ def summary(values: list[float]) -> dict[str, float | int]:
 
 
 def fixtures() -> tuple[dict[str, Any], dict[str, Any]]:
-    raw = Path(__file__).with_name("semgrep_workloads_v2.json").read_bytes()
+    raw = Path(__file__).with_name("semgrep_workloads_v3.json").read_bytes()
     if hashlib.sha256(raw).hexdigest() != MANIFEST_SHA256:
         raise ValueError("fixture_manifest_digest")
     manifest = json.loads(raw)
     sources = {
         "single_16k": [fragment(16384)],
-        "sixteen_128k_repeated": [fragment(8192)] * 16,
-        "sixteen_128k_distinct": [fragment(8192, i * 1000) for i in range(16)],
+        "sixteen_64k_repeated": [fragment(4096)] * 16,
+        "sixteen_64k_distinct": [fragment(4096, i * 1000) for i in range(16)],
     }
     result = {}
     for name, parts in sources.items():
@@ -72,7 +72,7 @@ def case_plan(runs: int) -> list[dict[str, Any]]:
 
     return [
         serial("single_16k"),
-        serial("sixteen_128k_repeated"),
+        serial("sixteen_64k_repeated"),
         *loaded("single_16k"),
         {
             "name": "eight_replacements",
@@ -84,8 +84,8 @@ def case_plan(runs: int) -> list[dict[str, Any]]:
             "planned": bursts * 8,
         },
         {"name": "preflight_1m", "kind": "preflight", "planned": runs},
-        serial("sixteen_128k_distinct"),
-        *loaded("sixteen_128k_distinct"),
+        serial("sixteen_64k_distinct"),
+        *loaded("sixteen_64k_distinct"),
     ]
 
 

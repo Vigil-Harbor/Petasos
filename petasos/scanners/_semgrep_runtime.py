@@ -64,7 +64,7 @@ class Settings:
     engine: str
     digest: str
     timeout: float = 8.0
-    max_bytes: int = 131072
+    max_bytes: int = 65536
 
     @property
     def identity(self) -> tuple[str, str]:

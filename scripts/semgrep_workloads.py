@@ -1,4 +1,4 @@
-"""Reference fixture generator for the proposed S7 amendment; not a gate."""
+"""Reference fixture generator for the S7 protocol v3; not a gate."""
 
 import hashlib
 import json
@@ -44,12 +44,12 @@ def workload(parts: list[str]) -> dict[str, object]:
 
 if __name__ == "__main__":
     manifest = {
-        "workload_id": "eight_outstanding_three_profiles_16k_128k_v2",
-        "generator_version": 2,
+        "workload_id": "eight_outstanding_three_profiles_16k_64k_v3",
+        "generator_version": 3,
         "fixtures": {
             "single_16k": workload([fragment(16384)]),
-            "sixteen_128k_repeated": workload([fragment(8192)] * 16),
-            "sixteen_128k_distinct": workload([fragment(8192, i * 1000) for i in range(16)]),
+            "sixteen_64k_repeated": workload([fragment(4096)] * 16),
+            "sixteen_64k_distinct": workload([fragment(4096, i * 1000) for i in range(16)]),
         },
     }
     sys.stdout.buffer.write((json.dumps(manifest, indent=2) + "\n").encode("utf-8"))
