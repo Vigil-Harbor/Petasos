@@ -437,3 +437,52 @@ async def test_detached_child_has_no_console_host(tmp_path: Path) -> None:
             await asyncio.sleep(0.005)
         assert child.cleaned()
         child.close()
+
+
+def test_root_recovery_skips_out_of_range_pids_and_continues(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import json
+    import subprocess
+    import tempfile
+
+    from petasos.scanners._semgrep_roots import recover_roots
+
+    exited = subprocess.Popen([sys.executable, "-c", "pass"])
+    exited.wait()
+    oversized = 1 << 100
+    markers = {
+        "psg-oversize": {"pid": oversized, "born": 1.0, "children": []},
+        "psg-bigchild": {
+            "pid": exited.pid,
+            "born": 1.0,
+            "children": [{"pid": oversized, "born": 1.0}],
+        },
+        "psg-stalerot": {"pid": exited.pid, "born": 1.0, "children": []},
+    }
+    for name, marker in markers.items():
+        (tmp_path / name).mkdir()
+        (tmp_path / name / "petasos-owner.json").write_text(json.dumps({"schema": 1, **marker}))
+    monkeypatch.setattr(tempfile, "gettempdir", lambda: str(tmp_path))
+
+    assert recover_roots() == 1
+    assert not (tmp_path / "psg-stalerot").exists()
+    assert (tmp_path / "psg-oversize").exists()
+    assert (tmp_path / "psg-bigchild").exists()
+
+
+async def test_descendant_memory_counts_against_the_budget(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from petasos.scanners import _semgrep_process as process
+
+    monkeypatch.setattr(process, "RSS_LIMIT", 96 * 1024 * 1024)
+    python = str(vars(sys)["_base_executable"])
+    # A small leader waits on a child that holds well over the (lowered) budget.
+    helper = "import time;b=bytearray(192*1024*1024);time.sleep(30)"
+    leader = f"import subprocess,sys;subprocess.run([sys.executable,'-c',{helper!r}])"
+    start = time.monotonic()
+    result = await run_process([python, "-c", leader], tmp_path, start + 20, threading.Event())
+    assert result.error == "semgrep.memory_limit"
+    assert result.peak_rss > 96 * 1024 * 1024
+    assert time.monotonic() - start < 15

@@ -423,7 +423,8 @@ class _WindowsChild:
         self._check(self.k.GetExitCodeProcess(self._process, ctypes.byref(code)))
         return int(code.value)
 
-    def _capture_descendants(self) -> None:
+    def job_members(self) -> list[int] | None:
+        """Bounded snapshot of every process in the job; None if it overflows."""
         from ctypes import wintypes as w
 
         class ProcessIds(ctypes.Structure):
@@ -437,11 +438,17 @@ class _WindowsChild:
         if not self.k.QueryInformationJobObject(
             self._job, 3, ctypes.byref(ids), ctypes.sizeof(ids), None
         ):
+            return None
+        return [int(pid) for pid in ids.ids[: ids.count]]
+
+    def _capture_descendants(self) -> None:
+        members = self.job_members()
+        if members is None:
             # Kill even when the bounded membership snapshot overflows. The
             # caller must retain ownership because it cannot prove complete reap.
             self.k.TerminateJobObject(self._job, 255)
             raise CleanupFailure(self)
-        for pid in ids.ids[: ids.count]:
+        for pid in members:
             if pid == self.pid or pid in self._descendants:
                 continue
             handle = self.k.OpenProcess(0x101000, False, pid)  # SYNCHRONIZE | QUERY_LIMITED
@@ -564,13 +571,29 @@ async def run_process(
             if now >= sample_at and proc is not None:
                 sample_at = now + 0.1
                 try:
-                    peak = max(peak, proc.memory_info().rss)
+                    rss = proc.memory_info().rss
                     # Windows Job Objects contain descendants before execution
                     # and report their active count. A system-wide PID snapshot
                     # is slower and can retain stale process-table entries.
+                    members: list[Any] = []
                     if sys.platform != "win32":
-                        for descendant in proc.children(recursive=True):
+                        members = proc.children(recursive=True)
+                        for descendant in members:
                             tracked[(descendant.pid, descendant.create_time())] = descendant
+                    elif isinstance(child, _WindowsChild):
+                        pids = child.job_members()
+                        if pids is None:
+                            # Too many members to account for: treat as over budget.
+                            rss = RSS_LIMIT + 1
+                            pids = []
+                        members = [pid for pid in pids if pid != child.pid]
+                    # The budget covers the whole owned tree, not just the leader.
+                    for member in members:
+                        with contextlib.suppress(psutil.NoSuchProcess, psutil.AccessDenied):
+                            if isinstance(member, int):
+                                member = psutil.Process(member)
+                            rss += member.memory_info().rss
+                    peak = max(peak, rss)
                     if peak > RSS_LIMIT and error is None:
                         error = "semgrep.memory_limit"
                 except psutil.NoSuchProcess:

@@ -72,6 +72,7 @@ def recover_roots() -> int:
                 if verified:
                     shutil.rmtree(root)
                     removed += 1
-            except (OSError, ValueError, TypeError, AttributeError):
+            # OverflowError: a recorded PID too large for the OS process APIs.
+            except (OSError, ValueError, TypeError, AttributeError, OverflowError):
                 continue
     return removed
