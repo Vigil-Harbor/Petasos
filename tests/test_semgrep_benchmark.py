@@ -88,45 +88,105 @@ def test_pinned_bytes_and_case_plan() -> None:
     assert protocol.gate_failures(passing_records()) == []
 
 
+LOADED_NAMES = [
+    c["name"] for c in protocol.case_plan(100) if c["kind"] in ("loaded", "replacement")
+]
+
+
+def set_seconds(records: dict[str, Any], name: str, seconds: float) -> None:
+    for sample in records["workloads"][name]["samples"]:
+        sample["seconds"] = seconds
+
+
+@pytest.mark.parametrize("name", LOADED_NAMES)
+def test_every_loaded_row_has_the_deadline_max(name: str) -> None:
+    records = passing_records()
+    # One long terminal sample leaves p95 unchanged; only the max gate sees it.
+    records["workloads"][name]["samples"][-1]["seconds"] = protocol.LOADED_MAX_SECONDS
+    assert protocol.gate_failures(records) == []
+    records["workloads"][name]["samples"][-1]["seconds"] = protocol.LOADED_MAX_SECONDS + 0.01
+    assert any(f.startswith(name + ".max") for f in protocol.gate_failures(records))
+
+
 @pytest.mark.parametrize(
-    "name",
+    "name,reference",
     [
-        "eight_wide_single_16k_shared_owner_3_3_2",
-        "eight_replacements",
+        ("eight_wide_single_16k_shared_owner_4_2_2", "single_16k"),
+        ("eight_replacements", "single_16k"),
+        ("eight_wide_sixteen_64k_distinct_three_owners_8_0_0", "sixteen_64k_distinct"),
     ],
 )
-def test_unchanged_loaded_rows_do_not_gain_max_gate(name: str) -> None:
+def test_loaded_p95_is_relative_to_the_same_run_serial_mean(name: str, reference: str) -> None:
     records = passing_records()
-    # One long, error-free terminal sample leaves the approved p95 unchanged.
-    records["workloads"][name]["samples"][-1]["seconds"] = 8.1
+    set_seconds(records, reference, 0.5)
+    set_seconds(records, name, protocol.LOADED_RATIO * 0.5)
+    assert protocol.gate_failures(records) == []
+    set_seconds(records, name, protocol.LOADED_RATIO * 0.5 + 0.01)
+    assert any(f.startswith(name + ".p95") for f in protocol.gate_failures(records))
+    # The same absolute latency passes on a host whose serial mean is slower.
+    set_seconds(records, reference, 0.51)
     assert protocol.gate_failures(records) == []
 
 
+@pytest.mark.parametrize("reference", ["single_16k", "sixteen_64k_distinct"])
+@pytest.mark.parametrize("breakage", ["absent", "no_successes"])
+def test_missing_ratio_reference_fails_closed(reference: str, breakage: str) -> None:
+    records = passing_records()
+    if breakage == "absent":
+        del records["workloads"][reference]
+    else:
+        for sample in records["workloads"][reference]["samples"]:
+            sample["status"] = "error"
+    failures = protocol.gate_failures(records)
+    dependents = [
+        c["name"]
+        for c in protocol.case_plan(100)
+        if c["name"] in LOADED_NAMES and c["fixture"] == reference
+    ]
+    assert len(dependents) == (7 if reference == "single_16k" else 6)
+    assert all(any(f.startswith(n + ".p95") for f in failures) for n in dependents)
+
+
+@pytest.mark.parametrize("system", ["Windows", "Darwin", None])
 @pytest.mark.parametrize(
-    "name,metric,limit",
+    "name,metric",
     [
-        ("single_16k", "mean", 1.0),
-        ("single_16k", "p95", 1.2),
-        ("single_16k", "p99", 1.4),
-        ("sixteen_64k_repeated", "mean", 1.8),
-        ("sixteen_64k_distinct", "p95", 2.0),
-        ("sixteen_64k_distinct", "p99", 2.3),
-        ("eight_wide_single_16k_shared_owner_3_3_2", "p95", 5.0),
-        ("eight_wide_sixteen_64k_distinct_three_owners_8_0_0", "p95", 7.5),
-        ("eight_wide_sixteen_64k_distinct_shared_owner_4_2_2", "max", 8.0),
-        ("eight_replacements", "p95", 7.5),
-        ("preflight_1m", "p95", 0.05),
+        ("single_16k", "mean"),
+        ("single_16k", "p95"),
+        ("single_16k", "p99"),
+        ("sixteen_64k_repeated", "mean"),
+        ("sixteen_64k_distinct", "p95"),
+        ("sixteen_64k_distinct", "p99"),
+        ("preflight_1m", "p95"),
     ],
 )
-def test_each_latency_limit_fails(name: str, metric: str, limit: float) -> None:
+def test_each_absolute_limit_fails(system: str | None, name: str, metric: str) -> None:
     records = passing_records()
-    case = records["workloads"][name]
-    if metric == "max":
-        case["samples"][-1]["seconds"] = limit + 0.01
-    else:
-        for sample in case["samples"]:
-            sample["seconds"] = limit + 0.01
-    assert any(f"{name}.{metric}" in f for f in protocol.gate_failures(records))
+    if system:
+        records["hardware"] = {"system": system}
+    limit = (
+        protocol.SINGLE_16K_LIMITS_WINDOWS
+        if name == "single_16k" and system == "Windows"
+        else protocol.SINGLE_16K_LIMITS
+        if name == "single_16k"
+        else {"p95": 0.05}
+        if name == "preflight_1m"
+        else protocol.SERIAL_64K_LIMITS
+    )[metric]
+    # Loaded rows scale with their serial reference, so only this row can fail.
+    set_seconds(records, name, limit + 0.01)
+    assert any(f.startswith(f"{name}.{metric}") for f in protocol.gate_failures(records))
+
+
+def test_windows_single_16k_limits_apply_only_on_windows() -> None:
+    assert protocol.SINGLE_16K_LIMITS == {"mean": 1.0, "p95": 1.2, "p99": 1.4}
+    assert protocol.SINGLE_16K_LIMITS_WINDOWS == {"mean": 1.2, "p95": 1.4, "p99": 1.6}
+    for system, passes in (("Windows", True), ("Darwin", False), ("Linux", False), (None, False)):
+        records = passing_records()
+        if system:
+            records["hardware"] = {"system": system}
+        set_seconds(records, "single_16k", 1.1)
+        assert (protocol.gate_failures(records) == []) is passes, system
 
 
 @pytest.mark.parametrize(

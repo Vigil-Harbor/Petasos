@@ -1,5 +1,75 @@
 # Semgrep component evidence
 
+## Host-relative load gates (protocol v4, November 8, 2026)
+
+### What changed
+
+After the package was split into stacked PRs #215-#220, the top PR's own run
+[42458942519](https://github.com/Vigil-Harbor/Petasos/actions/runs/42458942519)
+at `24d9cb0` FAILED on Windows. Its code is identical to `027f371`, which
+contains the `fb65503` counting run below. Eight-wide 16 KiB shared-owner 4/2/2
+had p95 6.015 s against 5.0 s. Every other row, and every macOS row, passed.
+That run does not count. It ran before the code-review fixes and before this
+decision. Summaries for it are not retained in this directory. The full
+artifact is kept locally.
+
+Three hosted Windows runs of essentially the same code:
+
+| Run | Windows host | Single 16 KiB mean | Eight-wide 16 KiB worst p95 | Eight-wide 64 KiB worst max | Worst p95 / serial mean | Under v2 criteria |
+|---|---|---:|---:|---:|---:|---|
+| 42439292090 @ `fb65503` | AMD Fam 25 Model 17 | 0.778 | 4.705 | 6.111 | 6.05 | pass |
+| 42436053501 @ `51acf8e` | AMD Fam 25 Model 17 | 1.022 | 5.561 | 7.377 | 5.44 | fail |
+| 42458942519 @ `24d9cb0` | AMD Fam 25 Model 1 | 0.985 | 6.015 | 7.822 | 6.11 | fail |
+
+Same CPU model, 31% apart on the serial mean, so host load matters as well as the
+CPU generation. macOS passed every row in all three runs. Across every loaded and
+replacement row on both platforms, p95 over the same run's serial mean was
+3.6-6.1x. The serial single 16 KiB mean also failed one host (`51acf8e`), so a
+host-relative load gate alone would not have been enough.
+
+The operator chose:
+
+1. Loaded and replacement p95 at most **6.5 ×** the same run's serial mean for
+   the same fixture. Every loaded and replacement sample within the **8.0 s**
+   runtime deadline. Zero errors. The 16 KiB and replacement rows gain that
+   maximum.
+2. Windows serial single 16 KiB at **1.2 / 1.4 / 1.6 s** (mean / p95 / p99).
+   Other platforms stay at 1.0 / 1.2 / 1.4 s.
+3. All other limits unchanged.
+
+Rejected: loosening only the fixed Windows limits, a pinned or self-hosted
+runner (not for now), and keeping the limits as they were. That last option
+would likely fail about 2 runs in 3 on host draw alone.
+Details are in [protocol v4](protocol-v4.md), criteria `S7-2026-11-08-v3`,
+implemented in `scripts/semgrep_benchmark_protocol.py`. Records now carry
+`hardware.system`.
+
+For interpretation only: replaying the v4 gates over the full artifacts of the
+three runs above passes all six platform-runs. That replay is not a
+measurement. The `51acf8e` and `24d9cb0` failures stand under their criteria.
+
+### Rule for the counting run
+
+Fixed before the push:
+
+1. The next push of `feat/pet-254-s6-measurement` (#220) carries the code-review
+   fixes from pieces 1-5 and these criteria. Its run is the one counting run. No
+   hosted runner has measured those fixes yet.
+2. Every row must pass on both Python 3.14 platforms in that one run. Rows from
+   other runs are not combined with it.
+3. Any failure stands. There is no retry. The result goes back to the operator.
+4. Later documentation pushes start the lane again. Those runs do not count.
+
+### Open observation carried forward
+
+In code review of piece 6, one local focused test invocation, outside the
+benchmark, recorded a terminal `semgrep.cleanup_failed` sample at 10.006 s. It
+was in a real-engine replacement case (`test_real_loaded_case_records_telemetry_and_closes`,
+plan index 8) after both cancellation cycles reached two active jobs. The
+harness rejected it correctly, and a later combined lane run passed. The cause
+was not established. It belongs with the known cleanup deadline edge and the
+intermittent Windows root-removal failures, which stay unresolved.
+
 ## 64 KiB maximum (protocol v3): counting run at fb65503 passed
 
 Hosted run

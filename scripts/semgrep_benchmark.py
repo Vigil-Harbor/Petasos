@@ -29,6 +29,7 @@ from petasos.scanners._semgrep_engine import ENGINE_VERSION
 from petasos.scanners._semgrep_source import preflight
 from petasos.scanners.semgrep import SemgrepLifecycleOwner, SemgrepScanner
 from scripts.semgrep_benchmark_protocol import (
+    CRITERIA,
     MANIFEST_SHA256,
     WORKLOAD,
     case_plan,
@@ -437,13 +438,14 @@ async def measure(runs: int, records: dict[str, Any], recorder: Recorder) -> Non
         {
             "schema_version": 2,
             "workload": WORKLOAD,
-            "criteria_version": "S7-2026-11-07-v2",
+            "criteria_version": CRITERIA,
             "fixture_manifest_sha256": MANIFEST_SHA256,
             "fixtures": manifest,
             "implementation": revision(),
             "engine_version": ENGINE_VERSION,
             "hardware": {
                 "architecture": platform.machine(),
+                "system": platform.system(),
                 "os": platform.platform(),
                 "cpu": cpu,
                 "logical_cores": os.cpu_count(),

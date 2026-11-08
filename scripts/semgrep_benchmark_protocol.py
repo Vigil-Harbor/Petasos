@@ -14,6 +14,16 @@ from scripts.semgrep_workloads import fragment, workload
 
 WORKLOAD = "eight_outstanding_three_profiles_16k_64k_v3"
 MANIFEST_SHA256 = "62d448486c7d7b257750782278e03d62da68bfc85556184bb1dc870d5b14945e"
+CRITERIA = "S7-2026-11-08-v3"
+# Loaded p95 may be at most this multiple of the same run's serial mean for the
+# same fixture. Eight requests over two slots is four rounds (ideal 4.0x).
+LOADED_RATIO = 6.5
+# The runtime's default per-request deadline, applied to every loaded sample.
+LOADED_MAX_SECONDS = 8.0
+# Serial single 16 KiB limits. Hosted Windows runners varied 1.3x run to run.
+SINGLE_16K_LIMITS = {"mean": 1.0, "p95": 1.2, "p99": 1.4}
+SINGLE_16K_LIMITS_WINDOWS = {"mean": 1.2, "p95": 1.4, "p99": 1.6}
+SERIAL_64K_LIMITS = {"mean": 1.8, "p95": 2.0, "p99": 2.3}
 
 
 def summary(values: list[float]) -> dict[str, float | int]:
@@ -160,10 +170,37 @@ def finish_case(case: dict[str, Any]) -> None:
     }
 
 
+def _limits(case: dict[str, Any], records: dict[str, Any]) -> dict[str, float]:
+    """Latency ceilings for one case; host-relative for loaded rows."""
+    if case["kind"] == "preflight":
+        return {"p95": 0.05}
+    if case["kind"] == "serial":
+        if case["fixture"] != "single_16k":
+            return SERIAL_64K_LIMITS
+        # Unknown platform gets the stricter limits.
+        windows = records.get("hardware", {}).get("system") == "Windows"
+        return SINGLE_16K_LIMITS_WINDOWS if windows else SINGLE_16K_LIMITS
+    # Loaded and replacement rows are relative to the serial case of their fixture.
+    reference = next(
+        (
+            c
+            for c in records["workloads"].values()
+            if c["kind"] == "serial" and c["fixture"] == case["fixture"]
+        ),
+        None,
+    )
+    mean = reference["successful_seconds"].get("mean") if reference else None
+    if not isinstance(mean, (int, float)) or not math.isfinite(mean) or mean <= 0:
+        # A missing or unusable reference fails closed: no p95 can pass NaN.
+        return {"p95": math.nan, "max": LOADED_MAX_SECONDS}
+    return {"p95": LOADED_RATIO * mean, "max": LOADED_MAX_SECONDS}
+
+
 def gate_failures(records: dict[str, Any]) -> list[str]:
     failures = []
     for case in records["workloads"].values():
         finish_case(case)
+    for case in records["workloads"].values():
         name = case["name"]
         counts = case["counts"]
         if (
@@ -175,23 +212,11 @@ def gate_failures(records: dict[str, Any]) -> list[str]:
         ):
             failures.append(name + ": incomplete/error samples")
         values = case["successful_seconds"]
-        limits = (
-            {"mean": 1.0, "p95": 1.2, "p99": 1.4}
-            if case["kind"] == "serial" and case["fixture"] == "single_16k"
-            else {"mean": 1.8, "p95": 2.0, "p99": 2.3}
-            if case["kind"] == "serial"
-            else {"p95": 0.05}
-            if case["kind"] == "preflight"
-            else {"p95": 5.0}
-            if case["kind"] == "loaded" and case["fixture"] == "single_16k"
-            else {"p95": 7.5, "max": 8.0}
-            if case["kind"] == "loaded"
-            else {"p95": 7.5}
-        )
-        for metric, limit in limits.items():
+        for metric, limit in _limits(case, records).items():
             value = values.get(metric)
-            if value is None or not math.isfinite(value) or value > limit:
-                failures.append(f"{name}.{metric} > {limit}s or missing")
+            # NaN limits compare False, so test for passing explicitly.
+            if value is None or not math.isfinite(value) or not value <= limit:
+                failures.append(f"{name}.{metric} > {limit:.3f}s or missing")
         if case["kind"] != "preflight" and (
             not case.get("close") or any(c["status"] != "closed" for c in case["close"])
         ):

@@ -1,5 +1,8 @@
 # S7 component measurement protocol v3
 
+[Protocol v4](protocol-v4.md) replaces this protocol's latency limits for new
+measurements (criteria `S7-2026-11-08-v3`). Everything else below still applies.
+
 On November 7, 2026 the operator lowered the supported Semgrep maximum source from
 128 KiB to 64 KiB after the v2 workload failed its maximum-source gates on both
 hosted platforms (capacity, not correctness: local profiling measured about
