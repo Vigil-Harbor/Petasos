@@ -268,6 +268,8 @@ class PetasosConfig:
                 f"fail_mode must be 'open', 'closed', or 'degraded', got {self.fail_mode!r}"
             )
         # PET-221: function-local so the id set cannot drift from _BACKENDS.
+        # Semgrep is built outside _BACKENDS because it needs a host lifecycle
+        # owner (PET-254), so its id is the one name added here by hand.
         # A bare str must not be iterated into characters.
         if isinstance(self.disabled_scanners, str):
             raise ValueError(
