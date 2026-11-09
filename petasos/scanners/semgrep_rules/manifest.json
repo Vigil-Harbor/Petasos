@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "engine_version": "1.183.0",
+  "license": "MIT",
+  "origin": "Vigil Harbor/Petasos: PET-254 focused local rules",
+  "rules_sha256": "44f60c2138c1b4b15880c6b123f424deab82440d85367dc3a56cbb31ec267b36",
+  "rules": [
+    {
+      "id": "petasos.semgrep.python.dynamic_code",
+      "sha256": "918fb0543bb4dfac74b20c54cae4821e863df24088a2cab12c69811b738acbf9",
+      "license": "MIT"
+    },
+    {
+      "id": "petasos.semgrep.python.shell",
+      "sha256": "1ce43c4fb7e6d905468bc02161965de28064177cfbf294b162125c6801406f2d",
+      "license": "MIT"
+    },
+    {
+      "id": "petasos.semgrep.python.deserialization",
+      "sha256": "5b2138f51294c1844f4c84e76ffa1a2af249938fd1adc0bf81f3f5afe790cf73",
+      "license": "MIT"
+    },
+    {
+      "id": "petasos.semgrep.python.unsafe_yaml",
+      "sha256": "daafd82029e01f6caac2c0177c37bc17ce64b2518f955da5880457d2a607b9fb",
+      "license": "MIT"
+    },
+    {
+      "id": "petasos.semgrep.javascript.dynamic_code",
+      "sha256": "49dfebb865e5d22e2c087a8dc249029b14599d670cf9fba56b714e5b77effa3e",
+      "license": "MIT"
+    },
+    {
+      "id": "petasos.semgrep.javascript.shell",
+      "sha256": "8a30fadb41374c83175c34c5ffb0a804e2607cd88e470f51ccadfa539597c0d1",
+      "license": "MIT"
+    }
+  ]
+}
