@@ -553,7 +553,7 @@ reported cleanup deadline, and findings survive a later language's native failur
 Constructor-watchdog and native-cleanup phases are documented separately; owner
 and process-close absolute deadlines remain unchanged. No qualification is implied.
 
-The precommit Windows/Python3.14 native gate passed224 tests, including the pinned
+The pre-commit Windows/Python 3.14 native gate passed 224 tests, including the pinned
 engine's Job-membership check (no descendants observed). Lifecycle helpers now
 explicitly keep any intentionally-created console descendant hidden; stream tests
 use the base interpreter rather than an unrelated virtual-environment launcher.
