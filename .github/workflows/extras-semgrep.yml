@@ -42,11 +42,14 @@ jobs:
           name: semgrep-tests-${{ matrix.os }}-${{ matrix.python-version }}
           path: semgrep-tests.xml
           if-no-files-found: warn
+      # PET-257: the latency benchmark measures nothing on pull_request runs
+      # (only a manual dispatch counts under the protocol rule), so it runs on
+      # workflow_dispatch only. The pytest step above runs on every event.
       - name: Measure native component latency gates
-        if: matrix.python-version == '3.14'
+        if: github.event_name == 'workflow_dispatch' && matrix.python-version == '3.14'
         run: python scripts/semgrep_benchmark.py --runs 100 --output semgrep-component.json
       - uses: actions/upload-artifact@v4
-        if: always() && matrix.python-version == '3.14'
+        if: always() && github.event_name == 'workflow_dispatch' && matrix.python-version == '3.14'
         with:
           name: semgrep-component-${{ matrix.os }}
           path: semgrep-component.json
