@@ -11,7 +11,12 @@ operator chooses, on both Python 3.14 jobs.
 The rule for a counting run is otherwise unchanged:
 
 1. The counting run for a piece is the first manual dispatch at that piece's
-   final head. Earlier dispatches against other heads do not count.
+   final head. Earlier dispatches against other heads do not count as its
+   measurement. A failed dispatch under a supported hosted label still blocks
+   the evaluated product, workload and criteria combination, as protocol v3
+   requires, until a reviewed relevant repair or a verified infrastructure
+   cause is followed by a corrected measurement. A documentation-only change
+   does not make a new final head for this purpose.
 2. Every row must pass on both platforms in that one run. Rows from other runs
    are not combined with it.
 3. Any failure stands. There is no retry. The result goes back to the operator.
