@@ -27,6 +27,43 @@ def _real_directory(metadata: os.stat_result, entry: os.DirEntry[str]) -> bool:
     )
 
 
+def _owned_by_current_user(metadata: os.stat_result) -> bool:
+    """False for another user's root. Windows reports no owner here and passes."""
+    getuid = getattr(os, "getuid", None)
+    return getuid is None or metadata.st_uid == getuid()
+
+
+def _read_marker(root: Path) -> bytes | None:
+    """Read the owner marker without following a link or blocking on a FIFO.
+
+    The regular-file and size checks run on the opened descriptor, so a marker
+    swapped between lookup and open is still refused. None means refused;
+    a missing marker raises FileNotFoundError like a plain open would.
+    """
+    marker = root / _MARKER
+    metadata = os.stat(marker, follow_symlinks=False)
+    if (
+        stat.S_ISLNK(metadata.st_mode)
+        or getattr(metadata, "st_file_attributes", 0) & _REPARSE
+        or metadata.st_size > _MARKER_LIMIT
+    ):
+        return None
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_NONBLOCK", 0)
+        | getattr(os, "O_BINARY", 0)
+    )
+    with os.fdopen(os.open(marker, flags), "rb") as stream:
+        info = os.fstat(stream.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_size > _MARKER_LIMIT:
+            return None
+        raw = stream.read(_MARKER_LIMIT + 1)
+    if len(raw) > _MARKER_LIMIT:
+        return None
+    return raw
+
+
 def _restore_marker(root: Path, raw: bytes) -> None:
     try:
         fd, name = tempfile.mkstemp(prefix="petasos-owner-", dir=root)
@@ -44,22 +81,13 @@ def _restore_marker(root: Path, raw: bytes) -> None:
 
 def _take_marker(root: Path) -> bytes | None:
     """Unlink a guarded marker and return its bytes. None when it is already gone."""
-    marker = root / _MARKER
     try:
-        metadata = os.stat(marker, follow_symlinks=False)
+        raw = _read_marker(root)
     except FileNotFoundError:
         return None
-    if (
-        stat.S_ISLNK(metadata.st_mode)
-        or getattr(metadata, "st_file_attributes", 0) & _REPARSE
-        or metadata.st_size > _MARKER_LIMIT
-    ):
+    if raw is None:
         raise OSError("semgrep.marker_refused")
-    with marker.open("rb") as stream:
-        raw = stream.read(_MARKER_LIMIT + 1)
-    if len(raw) > _MARKER_LIMIT:
-        raise OSError("semgrep.marker_refused")
-    os.unlink(marker)
+    os.unlink(root / _MARKER)
     return raw
 
 
@@ -105,7 +133,8 @@ def recover_roots() -> int:
     """Remove only marked roots whose recorded owner and children are gone.
 
     Never signal a PID. A live reused PID is also left alone. Unknown, malformed,
-    inaccessible and reparse-point roots are left for operator inspection.
+    inaccessible, reparse-point and other users' roots are left for operator
+    inspection, and a marker that is not a regular file is never read.
     The walk and metadata reads are bounded and never inspect submitted source.
     """
     import psutil
@@ -124,22 +153,20 @@ def recover_roots() -> int:
                 metadata = entry.stat(follow_symlinks=False)
                 if not stat.S_ISDIR(metadata.st_mode) or entry.is_symlink():
                     continue
-                if getattr(metadata, "st_file_attributes", 0) & 0x400:
+                if getattr(metadata, "st_file_attributes", 0) & _REPARSE:
+                    continue
+                if not _owned_by_current_user(metadata):
                     continue
                 root = parent / entry.name
-                marker = root / _MARKER
                 try:
-                    if marker.is_symlink() or marker.stat().st_size > _MARKER_LIMIT:
-                        continue
+                    raw = _read_marker(root)
                 except FileNotFoundError:
                     age = time.time() - entry.stat().st_mtime
                     if age >= MARKERLESS_MIN_AGE and not any(root.iterdir()):
                         os.rmdir(root)
                         removed += 1
                     continue
-                with marker.open("rb") as stream:
-                    raw = stream.read(16385)
-                if len(raw) > 16384:
+                if raw is None:
                     continue
                 data = json.loads(raw)
                 if not isinstance(data, dict) or data.get("schema") != 1:

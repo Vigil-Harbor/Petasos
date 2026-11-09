@@ -188,10 +188,12 @@ when to stop calling one that keeps failing.*
   setting it to 0 reports every candidate and brings back the noise the curated
   default is meant to remove.
 - `disabled_scanners`: optional backends to skip at startup (`llm_guard`,
-  `llama_firewall`, `presidio`, `prompt_guard`). A listed backend is not registered and is
-  reported as disabled. This applies to the scanner Petasos builds from config
+  `llama_firewall`, `presidio`, `prompt_guard`, `semgrep`). A listed backend is not
+  registered and is reported as disabled. This applies to the scanner Petasos builds from config
   at startup. An unknown id is rejected. A pipeline hook error is not cleared
-  by this list.
+  by this list. Semgrep is opt-in, so it appears in the startup status only when
+  `semgrep_enabled` is true; listing `semgrep` here while it is off changes
+  nothing and reports no Semgrep row.
 
 ## 6. Normalization
 
