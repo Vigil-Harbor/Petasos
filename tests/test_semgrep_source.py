@@ -151,6 +151,31 @@ async def test_malformed_deep_string_does_not_hide_later_escaped_code() -> None:
     assert selected.error == "semgrep.projection_limit_code"
 
 
+async def test_truncated_envelope_with_escaped_code_is_recorded_as_unexamined() -> None:
+    # The envelope never parses, and the raw pass cannot see a call whose
+    # parenthesis is a JSON escape. Nothing is selected, so say so.
+    selected = await select_sources(r'{"a": "os.system\u0028cmd)"')
+    assert selected.targets == []
+    assert selected.unsupported is True
+    assert "malformed_envelope" in selected.reasons
+    assert selected.error is None
+
+
+async def test_truncated_envelope_with_plain_code_stays_raw() -> None:
+    selected = await select_sources('{"a": "os.system(cmd)"')
+    assert len(selected.targets) == 1
+    assert "os.system(cmd)" in selected.targets[0].region.text
+    assert selected.unsupported is False
+    assert "malformed_envelope" not in selected.reasons
+
+
+async def test_truncated_envelope_without_code_reads_no_targets() -> None:
+    selected = await select_sources('{"a": "hello world"')
+    assert selected.targets == []
+    assert selected.unsupported is False
+    assert selected.reasons == set()
+
+
 @pytest.mark.parametrize("layers", [1, 2])
 async def test_preflight_decodes_json_candidates_without_maps(layers: int) -> None:
     from petasos.scanners._semgrep_source import preflight
