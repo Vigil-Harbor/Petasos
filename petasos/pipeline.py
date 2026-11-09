@@ -17,6 +17,7 @@ from petasos._types import (
     Alert,
     AuditEvent,
     PipelineResult,
+    ScanCoverage,
     ScanFinding,
     ScanResult,
     Severity,
@@ -37,6 +38,43 @@ from petasos.session.license import LicenseClaims, LicenseState, LicenseValidato
 from petasos.session.profiles import ProfileResolver, ResolvedProfile
 
 _logger = logging.getLogger(__name__)
+
+# Lower rank claims less coverage. Two scanners may share a name (Pipeline does not
+# require unique names), so a collision keeps the claim that examined the least
+# rather than whichever scanner finished last. Every result stays in scanner_results.
+_COVERAGE_CLAIM_RANK: dict[str, int] = {
+    "error": 0,
+    "partial": 1,
+    "unsupported": 2,
+    "no_targets": 3,
+    "complete": 4,
+}
+
+
+def _coverage_claim(coverage: ScanCoverage) -> tuple[int, int, int]:
+    return (
+        _COVERAGE_CLAIM_RANK[coverage.status],
+        coverage.examined_chars,
+        coverage.completed_target_count,
+    )
+
+
+def _merge_backend_coverage(
+    scanner_results: Sequence[ScanResult],
+) -> dict[str, ScanCoverage] | None:
+    merged: dict[str, ScanCoverage] = {}
+    for r in scanner_results:
+        if r.coverage is None:
+            continue
+        current = merged.get(r.scanner_name)
+        if current is None:
+            merged[r.scanner_name] = r.coverage
+        elif r.coverage != current:
+            _logger.debug("duplicate scanner name %s reports differing coverage", r.scanner_name)
+            if _coverage_claim(r.coverage) < _coverage_claim(current):
+                merged[r.scanner_name] = r.coverage
+    return merged or None
+
 
 # PET-103: scanner-health status names as module-level constants (D8) so the
 # pipeline and its tests cannot drift on the spelling. ``error`` (load-time
@@ -649,10 +687,7 @@ class Pipeline:
             escalation_tier=escalation_tier,
             session_score=(freq_result.current_score if freq_result is not None else None),
             feature_status=self._build_feature_status(),
-            backend_coverage={
-                r.scanner_name: r.coverage for r in scanner_results if r.coverage is not None
-            }
-            or None,
+            backend_coverage=_merge_backend_coverage(scanner_results),
         )
 
     async def inspect(

@@ -9,6 +9,7 @@ from petasos._types import (
     Direction,
     PipelineResult,
     Position,
+    ScanCoverage,
     ScanFinding,
     ScanResult,
     Severity,
@@ -29,11 +30,13 @@ class MockScanner:
         findings: tuple[ScanFinding, ...] = (),
         delay: float = 0.0,
         error: Exception | None = None,
+        coverage: ScanCoverage | None = None,
     ) -> None:
         self._name = name
         self._findings = findings
         self._delay = delay
         self._error = error
+        self._coverage = coverage
 
     @property
     def name(self) -> str:
@@ -54,6 +57,7 @@ class MockScanner:
             scanner_name=self._name,
             findings=self._findings,
             duration_ms=self._delay * 1000,
+            coverage=self._coverage,
         )
 
 
@@ -1059,3 +1063,49 @@ class TestInjectedTracker:
         )
         assert any("weight_cap" in e for e in result.errors)
         assert isinstance(result, PipelineResult)
+
+
+class TestBackendCoverage:
+    """PET-254 piece 1: per-backend coverage on PipelineResult."""
+
+    async def test_distinct_names_each_keep_their_coverage(self) -> None:
+        complete = ScanCoverage("complete", 5, 5, 1, 1)
+        partial = ScanCoverage("partial", 5, 2, 2, 1)
+        pipeline = Pipeline(
+            config=PetasosConfig(),
+            scanners=[
+                MockScanner(name="one", coverage=complete),
+                MockScanner(name="two", coverage=partial),
+            ],
+        )
+        result = await pipeline.inspect("hello")
+        assert result.backend_coverage is not None
+        assert result.backend_coverage["one"] == complete
+        assert result.backend_coverage["two"] == partial
+
+    async def test_no_coverage_reported_leaves_mapping_absent(self) -> None:
+        pipeline = Pipeline(config=PetasosConfig(), scanners=[MockScanner(name="one")])
+        result = await pipeline.inspect("hello")
+        assert result.backend_coverage is None
+
+    @pytest.mark.parametrize("partial_first", [True, False])
+    async def test_duplicate_names_keep_the_smaller_claim(self, partial_first: bool) -> None:
+        # Pipeline does not require unique scanner names. When two same-named
+        # scanners disagree, the merged map must not claim more than the one that
+        # examined least, whichever order they finished in.
+        complete = ScanCoverage("complete", 5, 5, 1, 1)
+        partial = ScanCoverage("partial", 5, 2, 2, 1)
+        first, second = (partial, complete) if partial_first else (complete, partial)
+        pipeline = Pipeline(
+            config=PetasosConfig(),
+            scanners=[
+                MockScanner(name="twin", coverage=first),
+                MockScanner(name="twin", coverage=second, delay=0.01),
+            ],
+        )
+        result = await pipeline.inspect("hello")
+        assert result.backend_coverage is not None
+        assert result.backend_coverage["twin"] == partial
+        # Both individual claims remain visible on the per-scanner results.
+        twins = [r for r in result.scanner_results if r.scanner_name == "twin"]
+        assert sorted(r.coverage.status for r in twins if r.coverage) == ["complete", "partial"]
