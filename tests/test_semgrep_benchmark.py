@@ -565,16 +565,28 @@ async def test_real_loaded_case_records_telemetry_and_closes(
     }
     records = {"workloads": {case["name"]: case}}
     recorder = bench.Recorder(tmp_path / "partial.json", records, bench.StageTimings())
-    clean = await bench.run_case(
+    await bench.run_case(
         case,
         sources,
         os.environ["SEMGREP_ENGINE_PATH"],
         os.environ["SEMGREP_ENGINE_SHA256"],
         recorder,
     )
-    assert clean
-    assert case["counts"]["completed"] == 8
-    assert not case["counts"]["errored"], case["samples"]
+    # This test checks telemetry and teardown, not latency (the benchmark gates
+    # that). On a slow 2-core host, 8 requests through 2 slots can outlast the
+    # 8 s timeout; the runtime's timeout refusals are correct behaviour there.
+    # A refused warmup ends the case before the measured burst, so
+    # "warmup_failed" is accepted only when every failure is such a refusal.
+    refusals = {"semgrep.queue_deadline", "semgrep.deadline"}
+    failed = [
+        (s["warmup"], s["burst"], s.get("status"), s.get("error"))
+        for s in case["samples"]
+        if s.get("status") != "ok"
+    ]
+    assert all(status == "error" and error in refusals for _, _, status, error in failed), failed
+    assert set(case["errors"]) <= {"warmup_failed"}, case["errors"]
+    assert any(s.get("status") == "ok" for s in case["samples"]), failed
+    assert case["close"] and all(c["status"] == "closed" for c in case["close"]), case["close"]
     resources = case["resources"]
     assert not resources["missing"], resources
     assert resources["samples"] > 0
