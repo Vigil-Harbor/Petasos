@@ -704,6 +704,9 @@ class _RuntimeHandle:
     """One runtime whose probe and engine calls stay inside the test."""
 
     def __init__(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        # The real _execute path writes the owner marker with psutil; without
+        # the extra the runtime reports the engine unavailable (base CI lane).
+        pytest.importorskip("psutil", reason="process monitor extra required")
         self.monkeypatch = monkeypatch
         self.tmp_path = tmp_path
         self.enqueued: list[str | None] = []
@@ -1548,7 +1551,7 @@ def test_remove_owned_root_keeps_or_restores_the_marker(
 def test_recover_roots_leaves_a_marker_when_removal_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import psutil
+    psutil = pytest.importorskip("psutil", reason="process monitor extra required")
 
     from petasos.scanners._semgrep_roots import recover_roots
 
