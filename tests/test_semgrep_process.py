@@ -471,6 +471,64 @@ def test_root_recovery_skips_out_of_range_pids_and_continues(
     assert (tmp_path / "psg-bigchild").exists()
 
 
+def _stale_root(tmp_path: Path, name: str) -> Path:
+    import json
+    import subprocess
+
+    exited = subprocess.Popen([sys.executable, "-c", "pass"])
+    exited.wait()
+    root = tmp_path / name
+    root.mkdir()
+    (root / "petasos-owner.json").write_text(
+        json.dumps({"schema": 1, "pid": exited.pid, "born": 1.0, "children": []})
+    )
+    return root
+
+
+def test_root_recovery_leaves_another_users_roots_alone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import tempfile
+
+    from petasos.scanners._semgrep_roots import recover_roots
+
+    stale = _stale_root(tmp_path, "psg-foreign0")
+    monkeypatch.setattr(tempfile, "gettempdir", lambda: str(tmp_path))
+    # A shared temp directory can hold roots created by other accounts. Pretend
+    # the current user is someone else; the recorded owner no longer matches.
+    monkeypatch.setattr(os, "getuid", lambda: 1 << 20, raising=False)
+
+    assert recover_roots() == 0
+    assert stale.exists()
+
+
+def test_root_recovery_does_not_block_on_a_fifo_marker(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import tempfile
+
+    from petasos.scanners._semgrep_roots import recover_roots
+
+    if sys.platform == "win32":
+        pytest.skip("FIFO markers need POSIX")
+    # A FIFO passes an is_symlink/stat-size check and its open blocks until a
+    # writer appears. Recovery must skip it and still remove the stale root.
+    trap = tmp_path / "psg-fifotrap"
+    trap.mkdir()
+    os.mkfifo(trap / "petasos-owner.json")
+    stale = _stale_root(tmp_path, "psg-stalerot")
+    monkeypatch.setattr(tempfile, "gettempdir", lambda: str(tmp_path))
+
+    outcome: list[int] = []
+    worker = threading.Thread(target=lambda: outcome.append(recover_roots()), daemon=True)
+    worker.start()
+    worker.join(10.0)
+    assert not worker.is_alive(), "recover_roots blocked on the FIFO marker"
+    assert outcome == [1]
+    assert not stale.exists()
+    assert trap.exists()
+
+
 async def test_descendant_memory_counts_against_the_budget(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
