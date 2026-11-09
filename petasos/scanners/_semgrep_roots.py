@@ -8,11 +8,23 @@ import re
 import shutil
 import stat
 import tempfile
+import time
 from pathlib import Path
 
 _NAME = re.compile(r"psg-[a-z0-9_]{8}\Z")
 _MARKER = "petasos-owner.json"
 _MARKER_LIMIT = 16384
+_REPARSE = 0x400
+# Empty marker-less roots younger than this stay for a paused creator.
+MARKERLESS_MIN_AGE = 600.0
+
+
+def _real_directory(metadata: os.stat_result, entry: os.DirEntry[str]) -> bool:
+    return (
+        stat.S_ISDIR(metadata.st_mode)
+        and not entry.is_symlink()
+        and not (getattr(metadata, "st_file_attributes", 0) & _REPARSE)
+    )
 
 
 def _owned_by_current_user(metadata: os.stat_result) -> bool:
@@ -29,7 +41,12 @@ def _read_marker(root: Path) -> bytes | None:
     a missing marker raises FileNotFoundError like a plain open would.
     """
     marker = root / _MARKER
-    if marker.is_symlink():
+    metadata = os.stat(marker, follow_symlinks=False)
+    if (
+        stat.S_ISLNK(metadata.st_mode)
+        or getattr(metadata, "st_file_attributes", 0) & _REPARSE
+        or metadata.st_size > _MARKER_LIMIT
+    ):
         return None
     flags = (
         os.O_RDONLY
@@ -45,6 +62,71 @@ def _read_marker(root: Path) -> bytes | None:
     if len(raw) > _MARKER_LIMIT:
         return None
     return raw
+
+
+def _restore_marker(root: Path, raw: bytes) -> None:
+    try:
+        fd, name = tempfile.mkstemp(prefix="petasos-owner-", dir=root)
+        try:
+            view = raw
+            while view:
+                written = os.write(fd, view)
+                view = view[written:]
+        finally:
+            os.close(fd)
+        os.replace(name, root / _MARKER)
+    except OSError:
+        return
+
+
+def _take_marker(root: Path) -> bytes | None:
+    """Unlink a guarded marker and return its bytes. None when it is already gone."""
+    try:
+        raw = _read_marker(root)
+    except FileNotFoundError:
+        return None
+    if raw is None:
+        raise OSError("semgrep.marker_refused")
+    os.unlink(root / _MARKER)
+    return raw
+
+
+def remove_owned_root(root: Path) -> None:
+    """Remove a private root, unlinking its owner marker only after the entries.
+
+    A failure before the marker unlink leaves the marker in place. A failure of
+    the final rmdir restores the original marker bytes. A missing marker does
+    not block rmdir, so a crash between unlink and rmdir can still be retried.
+    """
+    marker_bytes: bytes | None = None
+    try:
+        # scandir follows a root replaced by a symlink or junction; refuse it so
+        # removal never traverses or deletes anything outside the owned root.
+        metadata = os.stat(root, follow_symlinks=False)
+        if (
+            not stat.S_ISDIR(metadata.st_mode)
+            or stat.S_ISLNK(metadata.st_mode)
+            or getattr(metadata, "st_file_attributes", 0) & _REPARSE
+        ):
+            raise OSError("semgrep.root_not_owned")
+        pending: list[tuple[str, bool]] = []
+        with os.scandir(root) as entries:
+            for entry in entries:
+                if entry.name == _MARKER:
+                    continue
+                metadata = entry.stat(follow_symlinks=False)
+                pending.append((entry.path, _real_directory(metadata, entry)))
+        for path, real_dir in pending:
+            if real_dir:
+                shutil.rmtree(path)
+            else:
+                os.unlink(path)
+        marker_bytes = _take_marker(root)
+        os.rmdir(root)
+    except OSError:
+        if marker_bytes is not None and root.exists():
+            _restore_marker(root, marker_bytes)
+        raise
 
 
 def recover_roots() -> int:
@@ -71,12 +153,19 @@ def recover_roots() -> int:
                 metadata = entry.stat(follow_symlinks=False)
                 if not stat.S_ISDIR(metadata.st_mode) or entry.is_symlink():
                     continue
-                if getattr(metadata, "st_file_attributes", 0) & 0x400:
+                if getattr(metadata, "st_file_attributes", 0) & _REPARSE:
                     continue
                 if not _owned_by_current_user(metadata):
                     continue
                 root = parent / entry.name
-                raw = _read_marker(root)
+                try:
+                    raw = _read_marker(root)
+                except FileNotFoundError:
+                    age = time.time() - entry.stat().st_mtime
+                    if age >= MARKERLESS_MIN_AGE and not any(root.iterdir()):
+                        os.rmdir(root)
+                        removed += 1
+                    continue
                 if raw is None:
                     continue
                 data = json.loads(raw)
@@ -103,7 +192,7 @@ def recover_roots() -> int:
                         verified = False
                         break
                 if verified:
-                    shutil.rmtree(root)
+                    remove_owned_root(root)
                     removed += 1
             # OverflowError: a recorded PID too large for the OS process APIs.
             except (OSError, ValueError, TypeError, AttributeError, OverflowError):

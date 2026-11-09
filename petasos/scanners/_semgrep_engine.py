@@ -94,10 +94,10 @@ async def await_cpu(
     total_end = interrupted_at + 4
     while not waiting.done():
         # Until native cleanup starts, a stuck constructor still has a bounded
-        # watchdog. Once reported, both sides observe the same native deadline;
-        # they do not give the child a new budget at each await/poll boundary.
+        # watchdog. Once reported, control waits for the worker's own verdict
+        # until total_end. The reported native end is not a shorter cutoff.
         reported = cleanup_deadline() if cleanup_deadline is not None else None
-        end = min(reported, total_end) if reported is not None else fallback_end
+        end = total_end if reported is not None else fallback_end
         if time.monotonic() >= end:
             break
         await asyncio.wait({waiting}, timeout=min(0.01, max(0, end - time.monotonic())))

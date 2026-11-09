@@ -118,6 +118,206 @@ harness rejected it correctly, and a later combined lane run passed. The cause
 was not established. It belongs with the known cleanup deadline edge and the
 intermittent Windows root-removal failures, which stay unresolved.
 
+## Piece 7 cleanup evidence (PET-255)
+
+### Working directory does not block removal (D6)
+
+Probed on 2026-11-08 on this Windows host. The real `_WindowsChild` used the
+root as its working directory and as `TEMP`. A helper wrote a file into `TEMP`
+and slept. The probe force-terminated the child, polled `cleaned()`, then
+unlinked the content and called `os.rmdir(root)` immediately. The helper was a
+Python sleep process started 0.4 s before termination, so these times are not
+a `semgrep-core` measurement.
+
+| Run | Runs | Removal failures | Terminate to `cleaned()` |
+|---|---|---|---|
+| 1 | 80 (40 single-child, 40 with a grandchild in the same job) | 0 | max 2.45 s |
+| 2, single-child | 30 | 0 | median 1.31 s, p90 2.305 s, max 2.36 s, 13 of 30 above 2 s |
+| 2, grandchild | 30 | 0 | median 0.122 s, max 4.091 s |
+
+Run 2 overall: 60 runs, 0 removal failures. A child's working directory does
+not block root removal once `cleaned()` has passed. The working directory is
+unchanged. The same times are evidence that a Windows exit can outlast the 2 s
+native bound. Recovery handles that case.
+
+The probe script:
+
+```python
+"""D6 probe: does a Windows child's cwd on the root block os.rmdir(root) once cleaned() passes?
+
+Runs the real _WindowsChild (cwd = root, TEMP = root) with a helper that writes a file
+into TEMP and then sleeps; also a variant whose helper spawns a grandchild in the same
+job. Force-terminates, waits for cleaned(), then removes the root immediately.
+"""
+
+import json
+import os
+import shutil
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+sys.path.insert(0, sys.argv[1])
+from petasos.scanners._semgrep_process import _WindowsChild  # noqa: E402
+
+PY = sys.executable
+SLEEP = "import os,time;open(os.path.join(os.environ['TEMP'],'t.txt'),'w').write('x');time.sleep(30)"
+SPAWN = (
+    "import os,subprocess,sys,time;open(os.path.join(os.environ['TEMP'],'t.txt'),'w').write('x');"
+    "subprocess.Popen([sys.executable,'-c','import time;time.sleep(30)']);time.sleep(30)"
+)
+results = {"rmdir_fail": 0, "rmtree_fail": 0, "runs": 0, "max_cleaned_s": 0.0, "errors": []}
+for i in range(int(sys.argv[2])):
+    for code in (SLEEP, SPAWN):
+        root = Path(tempfile.mkdtemp(prefix="pcwd-"))
+        child = _WindowsChild([PY, "-c", code], root)
+        time.sleep(0.4)
+        start = time.monotonic()
+        child.terminate(force=True)
+        while not child.cleaned():
+            if time.monotonic() - start > 5:
+                break
+            time.sleep(0.005)
+        took = time.monotonic() - start
+        results["max_cleaned_s"] = max(results["max_cleaned_s"], took)
+        results["runs"] += 1
+        try:
+            for entry in root.iterdir():
+                entry.unlink()
+            os.rmdir(root)
+        except OSError as exc:
+            results["rmdir_fail"] += 1
+            results["errors"].append([type(exc).__name__, exc.errno, getattr(exc, "winerror", None)])
+            try:
+                shutil.rmtree(root)
+            except OSError:
+                results["rmtree_fail"] += 1
+print(json.dumps(results))
+```
+
+### Loaded real-engine attempt (D9)
+
+`scripts/semgrep_cleanup_stress.py` is not part of CI and gates nothing. Each
+iteration runs one replacement cycle on the real pinned `semgrep-core` with the
+`single_16k` fixture: two active scans are cancelled, then one scan runs. The
+load is `--load 16`: sixteen busy-loop processes on this host's 16 logical CPUs,
+so the CPU is saturated for the whole run. Run it with the checkout on
+`PYTHONPATH`: run as a file, `import petasos` otherwise resolves to whatever
+copy the interpreter has installed. The first record of this attempt
+(`clean=60`) imported an older installed copy and is withdrawn.
+
+Nine runs of 60 iterations on the final piece 7 code, 2026-11-08, in order:
+
+| Run | Result | Close |
+|---|---|---|
+| 1 | aborted: the owner's close raised `SemgrepCleanupError` (the script then had no close handling, so counts and diagnostics were lost) | failed |
+| 2, 3, 4, 5 | `clean=60` | closed |
+| 6 | first failure at iteration 5; the runtime then stayed failed, so the script labels the remaining iterations `cleanup_failed` too (`clean=4 cleanup_failed=56 recovered=0 expired=0`) | failed |
+| 7 | `clean=60` | closed |
+| 8 | `clean=56 cleanup_failed=4 recovered=1` | closed |
+| 9 | `clean=60` | closed |
+
+Run 6's close diagnostics were `kind=native outcome=unfinished` (a native
+worker still running at the interrupt + 4 s ceiling) and
+`kind=root_removal type=none errno=none winerror=none outcome=unfinished` (a
+removal attempt still running at its budget). There was no `outcome=expired`
+line: the failed runtime failed every later request at once, so the run ended
+inside the 30 s recovery window and close reported `failed` as D4 specifies.
+Whether that worker would have finished and recovered is not established.
+
+Reading: under full CPU saturation a Windows cleanup can still overrun the
+approved 4 s ceiling, the item-3 behaviour. With piece 7 the runtime recovered
+once (run 8) instead of retiring for the life of the process, and otherwise
+failed closed. These are not hosted-runner conditions: the protocol v4 counting
+run at `167efa8` completed 1,752 of 1,752 requests per platform with no cleanup
+failure.
+
+### Counting run for piece 7 (D10)
+
+The first push of `feat/pet-254-s7-cleanup` is the counting run under the
+protocol v4 rule:
+
+1. Every row runs on both platforms in that one run.
+2. Any failure stands. There is no retry. The result goes back to the operator.
+3. The result of that run is recorded in a later push. That later push does not count.
+
+The rule above was recorded before the first push.
+
+### Piece 7 counting run at 52c93e0 passed
+
+The first push, `9b64c57`, started run
+[42531161785](https://github.com/Vigil-Harbor/Petasos/actions/runs/42531161785).
+It failed in the test step on all four jobs. The benchmark step was skipped, so
+no protocol v4 row was measured. Both failures were test defects:
+
+- `test_marker_guards_refuse_without_reading_or_unlinking` installed its
+  `Path.open` spy before the test wrote and read back `secret.txt`, so it
+  recorded the test's own reads. The guard refused the linked marker as
+  intended. Local Windows skips this test because symlinks are not permitted,
+  which is why the local gate passed.
+- `test_finished_removal_error_recovers_without_a_child_check` expected
+  `winerror=32`. Python sets `winerror` only on Windows, so macOS correctly
+  reported `winerror=none`.
+
+`52c93e0` fixes both tests and changes nothing else. The operator decided that
+its run is the counting run for piece 7, under the same rule.
+
+Hosted run
+[42537024961](https://github.com/Vigil-Harbor/Petasos/actions/runs/42537024961)
+measured merge revision `01c8cb256b1da7eae212025b7d821574f5885b53` (branch
+head `52c93e0`), with workload `eight_outstanding_three_profiles_16k_64k_v3`,
+manifest `62d44848...945e` and criteria `S7-2026-11-08-v3`. Summaries are
+retained in `hosted-mac-52c93e0.json` and `hosted-win-52c93e0.json`.
+
+**Every v4 component gate passed on both platforms in this run: 17 of 17 rows,
+1,752 of 1,752 planned requests completed per platform, zero errors, nothing
+unrun or unfinished, empty `gate_failures`.** Recomputing the gates from the
+artifacts gives the same result. `qualified` stays `false` because the
+qualification manifest is still empty. All four test jobs (Python 3.11 and 3.14
+on both platforms) ran 388 tests with no failures. Both repaired tests ran and
+passed on every job.
+
+| Row (limit) | macOS 15 | Windows Server 2025 |
+|---|---|---|
+| Single 16 KiB mean / p95 / p99 (macOS 1.0 / 1.2 / 1.4 s; Windows 1.2 / 1.4 / 1.6 s) | 0.684 / 0.833 / 1.025 | 1.059 / 1.300 / 1.447 |
+| 64 KiB repeated mean / p95 / p99 (1.8 / 2.0 / 2.3 s) | 1.209 / 1.602 / 1.933 | 1.535 / 1.833 / 2.025 |
+| 64 KiB distinct mean / p95 / p99 (1.8 / 2.0 / 2.3 s) | 1.123 / 1.624 / 1.897 | 1.507 / 1.568 / 1.818 |
+| Eight-wide 16 KiB, worst p95 of six (6.5 × single mean) | 3.134 (limit 4.445) | 4.595 (limit 6.883) |
+| Replacements p95 (6.5 × single mean) | 3.035 (limit 4.445) | 4.489 (limit 6.883) |
+| Eight-wide 64 KiB, worst p95 of six (6.5 × distinct mean) | 6.078 (limit 7.300) | 7.112 (limit 9.796) |
+| Worst max of the twelve loaded rows and replacements (8.0 s) | 7.150 | 7.449 |
+| Preflight 1M p95 (0.050 s) | 0.023 | 0.014 |
+
+Hosts: macOS Apple M1 (Virtual), 3 cores, image `20261104.0514.1`; Windows
+Intel Family 6 Model 207, 2 physical / 4 logical cores, image
+`20261103.298.1`; Python 3.14.10 on both.
+
+Cleanup evidence: `cleanup_diagnostics` is empty on both platforms. Every root
+removal took one attempt: `root_remove_attempt` and `root_cleanup` each ran
+1,776 times on macOS and 1,789 times on Windows. The slowest attempt was
+0.032 s on macOS and 0.090 s on Windows. No owned root or live owned process
+remained after any loaded row.
+
+What this run does not show:
+
+- No hosted cleanup failure occurred, so the recovery path (D4) did not run
+  here. Its evidence is the unit tests and the loaded stress record above.
+- Whether piece 7 changes hosted latency. The Windows host was a different
+  CPU from the `167efa8` run (Intel rather than AMD) and slower on every
+  serial and loaded row: single 16 KiB mean 1.059 s against 0.773 s,
+  cold probe 0.747 s against 0.550 s. macOS ran on the same host type, with
+  serial means 5% to 15% above `167efa8`. One pair of runs cannot separate
+  that from run-to-run variation.
+- This run is the slow Windows draw that `167efa8` lacked. The host-relative
+  loaded gates held on it. The fixed limits were closest: Windows single
+  16 KiB mean 1.059 s against 1.2 s and p95 1.300 s against 1.4 s; 64 KiB
+  repeated p95 1.833 s against 2.0 s; worst loaded max 7.449 s against 8.0 s.
+  On Windows 64 KiB loaded rows the 8.0 s max is the binding limit, because
+  6.5 times the distinct mean is 9.796 s.
+
+Runs that do not count: the run started by the push that records this section.
+
 ## 64 KiB maximum (protocol v3): counting run at fb65503 passed
 
 Hosted run
@@ -353,7 +553,7 @@ reported cleanup deadline, and findings survive a later language's native failur
 Constructor-watchdog and native-cleanup phases are documented separately; owner
 and process-close absolute deadlines remain unchanged. No qualification is implied.
 
-The precommit Windows/Python3.14 native gate passed224 tests, including the pinned
+The pre-commit Windows/Python 3.14 native gate passed 224 tests, including the pinned
 engine's Job-membership check (no descendants observed). Lifecycle helpers now
 explicitly keep any intentionally-created console descendant hidden; stream tests
 use the base interpreter rather than an unrelated virtual-environment launcher.

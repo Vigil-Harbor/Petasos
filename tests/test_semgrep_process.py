@@ -590,3 +590,367 @@ async def test_descendant_memory_counts_against_the_budget(
     assert result.error == "semgrep.memory_limit"
     assert result.peak_rss > 96 * 1024 * 1024
     assert time.monotonic() - start < 15
+
+
+class _Clock:
+    def __init__(self) -> None:
+        self.value = 0.0
+
+    def monotonic(self) -> float:
+        self.value += 0.75
+        return self.value
+
+
+def _install(monkeypatch: pytest.MonkeyPatch, child: type[Any]) -> None:
+    import psutil
+
+    from petasos.scanners import _semgrep_process as process
+
+    monkeypatch.setattr(process, "_WindowsChild", child)
+    monkeypatch.setattr(process, "_PosixChild", child)
+    monkeypatch.setattr(process, "time", _Clock())
+
+    def missing(pid: int) -> Any:
+        raise psutil.NoSuchProcess(pid)
+
+    monkeypatch.setattr(psutil, "Process", missing)
+
+
+async def test_overrun_confirmed_in_finally_returns_the_interrupt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Regression for PET-255: the 2s overrun is not itself a failed cleanup.
+    seen: list[Any] = []
+
+    class Child:
+        def __init__(self, argv: list[str], root: Path) -> None:
+            self.closed = False
+            self.pid = 2000000000
+            seen.append(self)
+
+        def read(self, index: int) -> bytes:
+            return b""
+
+        def poll(self) -> None:
+            return None
+
+        def terminate(self, force: bool = False) -> None:
+            return None
+
+        def cleaned(self) -> bool:
+            self._last_cleanup_state = {"leader_signalled": True, "active": 1, "total": 2}
+            return True
+
+        def close(self) -> None:
+            self.closed = True
+
+    _install(monkeypatch, Child)
+    cancelled = threading.Event()
+    cancelled.set()
+    result = await run_process(["unused"], tmp_path, 10**9, cancelled)
+    assert result.error == "semgrep.cancelled"
+    assert seen[0].closed is True
+
+
+async def test_post_loop_check_confirms_cleanup_after_the_end(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Regression for PET-255 review: the end passes after a dirty poll; the one
+    # post-loop cleaned() check still decides, as the base implementation did.
+    seen: list[Any] = []
+
+    class Child:
+        def __init__(self, argv: list[str], root: Path) -> None:
+            self.closed = False
+            self.pid = 2000000000
+            self.calls = 0
+            seen.append(self)
+
+        def read(self, index: int) -> bytes:
+            return b""
+
+        def poll(self) -> None:
+            return None
+
+        def terminate(self, force: bool = False) -> None:
+            return None
+
+        def cleaned(self) -> bool:
+            self.calls += 1
+            self._last_cleanup_state = {"leader_signalled": self.calls > 1}
+            return self.calls > 1  # only the check after the loop sees a clean tree
+
+        def close(self) -> None:
+            self.closed = True
+
+    _install(monkeypatch, Child)
+    cancelled = threading.Event()
+    cancelled.set()
+    result = await run_process(["unused"], tmp_path, 10**9, cancelled)
+    assert result.error == "semgrep.cancelled"
+    assert seen[0].calls == 2
+    assert seen[0].closed is True
+
+
+async def test_overrun_that_stays_dirty_does_not_close_the_child(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from petasos.scanners import _semgrep_process as process
+
+    class Child:
+        def __init__(self, argv: list[str], root: Path) -> None:
+            self.closed = False
+            self.pid = 2000000000
+
+        def read(self, index: int) -> bytes:
+            return b""
+
+        def poll(self) -> None:
+            return None
+
+        def terminate(self, force: bool = False) -> None:
+            return None
+
+        def cleaned(self) -> bool:
+            self._last_cleanup_state = {
+                "leader_signalled": True,
+                "active": 1,
+                "total": 2,
+                "descendant_waits": {9: 1},
+                "group_signalled": False,
+                "reaped": False,
+            }
+            return False
+
+        def close(self) -> None:
+            self.closed = True
+
+    _install(monkeypatch, Child)
+    cancelled = threading.Event()
+    cancelled.set()
+    with pytest.raises(process.CleanupFailure) as caught:
+        await run_process(["unused"], tmp_path, 10**9, cancelled)
+    failed_child: Any = caught.value.child
+    assert failed_child.closed is False
+    assert isinstance(caught.value.timings["leader_signalled"], float)
+    assert all(
+        value is None for key, value in caught.value.timings.items() if key != "leader_signalled"
+    )
+    assert isinstance(caught.value.tracked, tuple)
+
+
+async def test_capture_failure_keeps_the_cancel_when_finally_is_clean(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Regression for PET-255: a terminate CleanupFailure does not replace semgrep.cancelled.
+    from petasos.scanners import _semgrep_process as process
+
+    class Child:
+        def __init__(self, argv: list[str], root: Path) -> None:
+            self.closed = False
+            self.pid = 2000000000
+
+        def read(self, index: int) -> bytes:
+            return b""
+
+        def poll(self) -> int:
+            return 0
+
+        def terminate(self, force: bool = False) -> None:
+            raise process.CleanupFailure(self)  # type: ignore[arg-type]
+
+        def cleaned(self) -> bool:
+            return True
+
+        def close(self) -> None:
+            self.closed = True
+
+    _install(monkeypatch, Child)
+    cancelled = threading.Event()
+    cancelled.set()
+    result = await run_process(["unused"], tmp_path, 10**9, cancelled)
+    assert result.error == "semgrep.cancelled"
+
+
+async def test_capture_failure_stays_open_when_cleanup_does_not_confirm(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from petasos.scanners import _semgrep_process as process
+
+    class Child:
+        def __init__(self, argv: list[str], root: Path) -> None:
+            self.closed = False
+            self.pid = 2000000000
+
+        def read(self, index: int) -> bytes:
+            return b""
+
+        def poll(self) -> int:
+            return 0
+
+        def terminate(self, force: bool = False) -> None:
+            raise process.CleanupFailure(self)  # type: ignore[arg-type]
+
+        def cleaned(self) -> bool:
+            return False
+
+        def close(self) -> None:
+            self.closed = True
+
+    _install(monkeypatch, Child)
+    cancelled = threading.Event()
+    cancelled.set()
+    with pytest.raises(process.CleanupFailure) as caught:
+        await run_process(["unused"], tmp_path, 10**9, cancelled)
+    failed_child: Any = caught.value.child
+    assert failed_child.closed is False
+
+
+async def test_poll_failure_during_a_normal_run_becomes_engine_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Regression for PET-255: a child-method raise with no interrupt becomes engine_error.
+    from petasos.scanners import _semgrep_process as process
+
+    class Child:
+        def __init__(self, argv: list[str], root: Path) -> None:
+            self.closed = False
+            self.pid = 2000000000
+            self.polls = 0
+
+        def read(self, index: int) -> bytes:
+            return b""
+
+        def poll(self) -> int:
+            self.polls += 1
+            if self.polls == 1:
+                raise process.CleanupFailure(self)  # type: ignore[arg-type]
+            return 0
+
+        def terminate(self, force: bool = False) -> None:
+            return None
+
+        def cleaned(self) -> bool:
+            return True
+
+        def close(self) -> None:
+            self.closed = True
+
+    _install(monkeypatch, Child)
+    result = await run_process(["unused"], tmp_path, 10**9, threading.Event())
+    assert result.error == "semgrep.engine_error"
+
+
+async def test_spawn_cleanup_failure_carries_an_empty_tracked_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from petasos.scanners import _semgrep_process as process
+
+    class Child:
+        def __init__(self, argv: list[str], root: Path) -> None:
+            raise process.CleanupFailure(self)  # type: ignore[arg-type]
+
+    _install(monkeypatch, Child)
+    with pytest.raises(process.CleanupFailure) as caught:
+        await run_process(["unused"], tmp_path, 10**9, threading.Event())
+    assert caught.value.tracked == ()
+
+
+def test_posix_cleaned_records_each_early_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    from types import SimpleNamespace
+
+    from petasos.scanners import _semgrep_process as process
+
+    child = process._PosixChild.__new__(process._PosixChild)
+    child.pid = 2000000000
+    child._reaped = False
+    child._group_signal_complete = False
+    child.process = SimpleNamespace(poll=lambda: None, returncode=None)  # type: ignore[assignment]
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(process._PosixChild, "poll", lambda self: None)
+    assert child.cleaned() is False
+    assert child._last_cleanup_state == {
+        "leader_signalled": False,
+        "group_signalled": False,
+        "reaped": False,
+    }
+    monkeypatch.setattr(process._PosixChild, "poll", lambda self: 0)
+    assert child.cleaned() is False
+    assert child._last_cleanup_state["leader_signalled"] is True
+    assert child._last_cleanup_state["group_signalled"] is False
+    child._group_signal_complete = True
+    assert child.cleaned() is False
+    assert child._last_cleanup_state == {
+        "leader_signalled": True,
+        "group_signalled": True,
+        "reaped": False,
+    }
+
+
+async def test_poll_cleanup_failure_keeps_tracked_descendant_keys(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from types import SimpleNamespace
+
+    import psutil
+
+    from petasos.scanners import _semgrep_process as process
+
+    class Desc:
+        pid = 42
+
+        def create_time(self) -> float:
+            return 1.25
+
+        def memory_info(self) -> Any:
+            return SimpleNamespace(rss=10)
+
+        def children(self, recursive: bool = False) -> list[Any]:
+            return []
+
+        def is_running(self) -> bool:
+            return False
+
+        def status(self) -> str:
+            return "zombie"
+
+    class Proc(Desc):
+        def children(self, recursive: bool = False) -> list[Desc]:
+            return [Desc()]
+
+    class Child:
+        pid = 7
+
+        def __init__(self, argv: list[str], root: Path) -> None:
+            self.closed = False
+            self.pid = 2000000000
+            self.polls = 0
+
+        def read(self, index: int) -> bytes:
+            return b""
+
+        def poll(self) -> int:
+            self.polls += 1
+            if self.polls == 1:
+                raise process.CleanupFailure(self)  # type: ignore[arg-type]
+            return 0
+
+        def terminate(self, force: bool = False) -> None:
+            return None
+
+        def cleaned(self) -> bool:
+            self.poll()
+            return False
+
+        def close(self) -> None:
+            self.closed = True
+
+    monkeypatch.setattr(process, "_WindowsChild", Child)
+    monkeypatch.setattr(process, "_PosixChild", Child)
+    monkeypatch.setattr(process, "time", _Clock())
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(psutil, "Process", lambda pid: Proc())
+    monkeypatch.setattr(psutil, "STATUS_ZOMBIE", "zombie", raising=False)
+    with pytest.raises(process.CleanupFailure) as caught:
+        await run_process(["unused"], tmp_path, 10**9, threading.Event())
+    assert (42, 1.25) in caught.value.tracked

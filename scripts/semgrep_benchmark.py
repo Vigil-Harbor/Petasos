@@ -10,7 +10,6 @@ import inspect
 import json
 import os
 import platform
-import shutil
 import subprocess
 import threading
 import time
@@ -107,6 +106,7 @@ class StageTimings:
     def install(self, stack: ExitStack) -> None:
         from petasos.scanners import _semgrep_engine as engine
         from petasos.scanners import _semgrep_process as process
+        from petasos.scanners import _semgrep_roots as roots
         from petasos.scanners import _semgrep_runtime as runtime
 
         child = process._WindowsChild if os.name == "nt" else process._PosixChild
@@ -115,7 +115,7 @@ class StageTimings:
             (runtime.Runtime, "_new_root", "root_creation"),
             (runtime, "select_sources", "projection"),
             (runtime, "remove_root", "root_cleanup"),
-            (shutil, "rmtree", "root_remove_attempt"),
+            (roots, "remove_owned_root", "root_remove_attempt"),
             (engine, "scan_selected", "engine_scan"),
             (runtime, "scan_selected", "engine_scan"),
             (engine, "strict_output", "output_decode"),
@@ -148,6 +148,16 @@ def revision() -> dict[str, Any]:
     }
 
 
+def _cleanup_diagnostics() -> list[str]:
+    from petasos.scanners import _semgrep_runtime as runtime
+
+    current = runtime._RUNTIME
+    if current is None:
+        return []
+    with current.lock:
+        return list(current.cleanup_diagnostics)
+
+
 class Recorder:
     def __init__(self, output: Path, records: dict[str, Any], stages: StageTimings) -> None:
         self.output = output
@@ -165,6 +175,7 @@ class Recorder:
                 }
                 self.records["stage_errors"] = list(self.stages.errors)
                 self.records["stage_error_count"] = self.stages.error_count
+            self.records["cleanup_diagnostics"] = _cleanup_diagnostics()
             snapshot = json.dumps(self.records, indent=2, allow_nan=False)
             writer = asyncio.create_task(asyncio.to_thread(checkpoint, self.output, snapshot))
             try:
