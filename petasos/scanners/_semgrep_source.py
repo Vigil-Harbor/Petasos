@@ -635,7 +635,12 @@ async def select_sources(
             except ProjectionError:
                 raise
             except (ValueError, json.JSONDecodeError):
-                pass  # malformed envelopes remain raw, never certified JSON
+                # Malformed envelopes remain raw, never certified JSON. The raw
+                # pass cannot see a call that only appears once JSON escapes
+                # decode, so such content counts as unexamined, never as clear.
+                if "\\" in region.text and await preflight(region.text):
+                    selection.unsupported = True
+                    selection.reasons.add("malformed_envelope")
             else:
                 selection.reasons.update(reasons)
                 if stopped is not None:
