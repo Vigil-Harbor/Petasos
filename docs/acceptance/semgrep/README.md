@@ -1,5 +1,30 @@
 # Semgrep component evidence
 
+## Counting-run rule from November 9, 2026 (PET-257)
+
+The `extras-semgrep` workflow no longer runs the latency benchmark on
+`pull_request` events. Its pytest step still runs on every pull request that
+touches the lane's paths (the PET-106 pairing). The benchmark step and its
+`semgrep-component` artifact run only on `workflow_dispatch`, against the ref the
+operator chooses, on both Python 3.14 jobs.
+
+The rule for a counting run is otherwise unchanged:
+
+1. The counting run for a piece is the first manual dispatch at that piece's
+   final head. Earlier dispatches against other heads do not count as its
+   measurement. A failed dispatch under a supported hosted label still blocks
+   the evaluated product, workload and criteria combination, as protocol v3
+   requires, until a reviewed relevant repair or a verified infrastructure
+   cause is followed by a corrected measurement. A documentation-only change
+   does not make a new final head for this purpose.
+2. Every row must pass on both platforms in that one run. Rows from other runs
+   are not combined with it.
+3. Any failure stands. There is no retry. The result goes back to the operator.
+4. A pull-request run measures nothing and never counts.
+
+Limits and `criteria_version` `S7-2026-11-08-v3` are unchanged. The sections
+below record runs made under the earlier first-push rule and stand as written.
+
 ## Protocol v4 counting run at 167efa8 passed
 
 Hosted run
