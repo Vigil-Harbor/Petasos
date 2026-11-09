@@ -664,6 +664,7 @@ class TestPipelineNeverThrows:
             session_id: str | None,
             active_profile: object = None,
             weight_cap: float | None = None,
+            prepared_semgrep: ScanResult | None = None,
         ) -> PipelineResult:
             raise SystemExit(1)
 

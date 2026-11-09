@@ -10,14 +10,20 @@ import asyncio
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Literal
 
+from petasos._coverage import FrozenCoverageMapping
 from petasos._types import Direction, PipelineResult, Position, ScanFinding, ScanResult
 from petasos.scanners.minimal import _DECODE_MAX_BYTES, MinimalScanner
+from petasos.scanners.semgrep import PreparedSemgrepScan
 
 if TYPE_CHECKING:
     import threading
+    from collections.abc import Mapping
 
+    from petasos._coverage import ScanCoverage
     from petasos.pipeline import Pipeline
 from petasos.session.guard import _MAX_PARAM_TEXT_LEN
+
+_PREPARE_HERE = object()
 
 HEAD_CHARS = 2_048
 CHUNK_CHARS = 65_536
@@ -51,6 +57,13 @@ class IngestionScanResult:
     head: PipelineResult | None
     errors: tuple[str, ...]
     inspect_failed: bool = False
+    backend_coverage: Mapping[str, ScanCoverage] | None = None
+
+    def __post_init__(self) -> None:
+        if self.backend_coverage is not None:
+            object.__setattr__(
+                self, "backend_coverage", FrozenCoverageMapping(self.backend_coverage)
+            )
 
 
 def _chunk_origins(length: int) -> tuple[int, ...]:
@@ -120,6 +133,8 @@ async def scan_ingestion_result(
     session_id: str | None = None,
     weight_cap: float | None = None,
     inspect_lock: threading.Lock | None = None,
+    upstream_total_chars: int | None = None,
+    _semgrep_prepared: object = _PREPARE_HERE,
 ) -> IngestionScanResult:
     """Scan an ingesting tool result with no unscanned gap below the 1e6 ceiling.
 
@@ -134,7 +149,20 @@ async def scan_ingestion_result(
     errors: list[str] = []
     head: PipelineResult | None = None
     inspect_failed = False
+    prepared: PreparedSemgrepScan | None = None
     try:
+        if _semgrep_prepared is _PREPARE_HERE:
+            prepare = getattr(pipeline, "_prepare_semgrep", None)
+            if prepare is not None:
+                prepared = await prepare(text, upstream_total_chars=upstream_total_chars)
+        elif _semgrep_prepared is None or isinstance(_semgrep_prepared, PreparedSemgrepScan):
+            if _semgrep_prepared is not None and not _semgrep_prepared.matches_input(
+                pipeline, text
+            ):
+                raise ValueError("semgrep.prepared_invalid")
+            prepared = _semgrep_prepared
+        else:
+            raise ValueError("semgrep.prepared_invalid")
         covered = text[:_MAX_PARAM_TEXT_LEN]
         try:
             decode_flag = bool(pipeline.config.decode_encoded_payloads)
@@ -143,6 +171,16 @@ async def scan_ingestion_result(
             decode_flag = True
 
         async def _inspect_head() -> PipelineResult:
+            if prepared is not None or (
+                _semgrep_prepared is None and hasattr(pipeline, "_inspect_with_prepared_semgrep")
+            ):
+                return await pipeline._inspect_with_prepared_semgrep(
+                    covered[:HEAD_CHARS],
+                    prepared,
+                    direction=direction,
+                    session_id=session_id,
+                    weight_cap=weight_cap,
+                )
             return await pipeline.inspect(
                 covered[:HEAD_CHARS],
                 direction=direction,
@@ -194,6 +232,9 @@ async def scan_ingestion_result(
                 head=head,
                 errors=(*errors, *head.errors),
                 inspect_failed=inspect_failed,
+                backend_coverage=dict(head.backend_coverage)
+                if head and head.backend_coverage
+                else None,
             )
 
         origins = _chunk_origins(len(text))
@@ -226,6 +267,9 @@ async def scan_ingestion_result(
             head=head,
             errors=tuple(errors),
             inspect_failed=inspect_failed,
+            backend_coverage=dict(head.backend_coverage)
+            if head and head.backend_coverage
+            else None,
         )
     except Exception as exc:
         errors.append(f"{type(exc).__name__}: {exc}")
@@ -235,4 +279,11 @@ async def scan_ingestion_result(
             head=head,
             errors=tuple(errors),
             inspect_failed=inspect_failed,
+            backend_coverage=dict(head.backend_coverage)
+            if head and head.backend_coverage
+            else None,
         )
+
+    finally:
+        if prepared is not None:
+            await prepared.discard()

@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-Petasos is a pluggable, session-aware content security pipeline for Python AI agents. It composes OSS scanners (Presidio, PromptGuard 2, and the deprecated LLM Guard and LlamaFirewall) behind a unified `Scanner` protocol, adds session-aware orchestration (frequency tracking, escalation tiers, profile-driven tuning, tool call guard), and exposes every configuration surface for frontend binding. Published on PyPI as `petasos`.
+Petasos is a pluggable, session-aware content security pipeline for Python AI agents. It composes OSS scanners (Presidio, PromptGuard 2, opt-in Semgrep, and the deprecated LLM Guard and LlamaFirewall) behind a unified `Scanner` protocol, adds session-aware orchestration (frequency tracking, escalation tiers, profile-driven tuning, tool call guard), and exposes every configuration surface for frontend binding. Published on PyPI as `petasos`.
 
-Primary consumer: Hermes Agent (Nous Research, Python 3.11+). Petasos imports in-process as a Python library — no sidecar, no REST, no subprocess.
+Primary consumer: Hermes Agent (Nous Research, Python 3.11+). Petasos imports in-process as a Python library — no sidecar or REST. Opt-in Semgrep uses explicitly owned, bounded local engine subprocesses; other backends remain in-process.
 
 ### Two Consumer Platforms
 
@@ -26,6 +26,7 @@ pip install -e ".[prompt-guard]"    # + PromptGuard 2 scanner
 pip install -e ".[presidio]"        # + Presidio PII scanner
 pip install -e ".[llm-guard]"       # + LLM Guard scanner (deprecated)
 pip install -e ".[llamafirewall]"   # + LlamaFirewall scanner (deprecated)
+pip install -e ".[semgrep]"       # adapter only; install the pinned engine separately
 pip install -e ".[all]"             # presidio + prompt-guard + console
 
 # Tooling
@@ -54,11 +55,12 @@ The load-bearing abstraction. Every detection backend implements:
 class Scanner(Protocol):
     @property
     def name(self) -> str: ...
-    async def scan(self, text: str, *, direction: Direction = "inbound",
-                   session_id: str | None = None) -> ScanResult: ...
+    async def scan(
+        self, text: str, *, direction: Direction = "inbound", session_id: str | None = None
+    ) -> ScanResult: ...
 ```
 
-Five backends: `MinimalScanner` (23 rules across 6 families, zero deps, always ships), `PresidioScanner` (extras), `PromptGuardScanner` (extras), and the deprecated `LlmGuardScanner` and `LlamaFirewallScanner` (extras).
+Six backends: `MinimalScanner` (23 rules across 6 families, zero deps, always ships), `PresidioScanner` (extras), `PromptGuardScanner` (extras), `SemgrepScanner` (adapter extra plus isolated engine and explicit lifecycle owner), and the deprecated `LlmGuardScanner` and `LlamaFirewallScanner` (extras).
 
 ### Pipeline Stages
 
@@ -88,6 +90,8 @@ petasos/
 │   ├── llm_guard.py     # LlmGuardScanner (extras: llm-guard)
 │   ├── llama_firewall.py # LlamaFirewallScanner (extras: llamafirewall)
 │   ├── presidio.py      # PresidioScanner + anonymization (extras: presidio)
+│   ├── semgrep.py       # SemgrepScanner with explicit lifecycle ownership
+│   ├── _semgrep_runtime.py # process-wide bounded engine jobs
 │   └── prompt_guard.py  # PromptGuardScanner (extras: prompt-guard, one model per process)
 ├── session/
 │   ├── frequency.py     # FrequencyTracker (exp decay + rolling window)
@@ -113,7 +117,7 @@ petasos/
 
 - Target: 300+ tests, 90%+ line coverage on pipeline/frequency/guard/audit/alerting.
 - Scanner wrappers use integration tests against real backends, not mocks.
-- Latency budgets: syntactic-only < 5ms, single ML scanner < 100ms, full pipeline < 250ms (CPU).
+- Latency budgets: syntactic-only < 5ms, single ML scanner < 100ms, full pipeline < 250ms (opted-in Semgrep code scans have the separately measured PET-254 latency exception) (CPU).
 - **Ingestion-path budget (PET-178).** Ceiling is 1,000,000 characters (imported
   `_MAX_PARAM_TEXT_LEN`). Each ingesting result takes one `inspect()` of `HEAD_CHARS`
   (2,048) plus overlapping `MinimalScanner.scan` chunks (`CHUNK_CHARS` 65,536, overlap
@@ -129,7 +133,7 @@ petasos/
   PromptGuard's process-wide inference lock across profile copies (PET-242).
 - **Scanner-extra / CI-lane pairing (PET-106).** Every scanner-backend extra in
   `pyproject.toml [project.optional-dependencies]` (currently `llm-guard`,
-  `llamafirewall`, `presidio`, `prompt-guard`; `console` excluded — not a scanner) MUST have a
+  `llamafirewall`, `presidio`, `prompt-guard`, `semgrep`; `console` excluded — not a scanner) MUST have a
   paired `.github/workflows/extras-<extra>.yml` lane that installs the extra and
   runs its real-backend tests. Backends whose live path needs no gated secret
   additionally arm a `PETASOS_REQUIRE_<EXTRA>=1` collection guard

@@ -64,6 +64,31 @@ _M_INITWAIT = "no effect when Petasos is embedded directly as a library"
 
 # (verdict, evidence, required_help_marker)
 _CLASSIFICATION: dict[str, tuple[str, str, str | None]] = {
+    "semgrep_enabled": (
+        "live-shim",
+        "petasos/scanners/bootstrap.py:213",
+        "explicit library ownership",
+    ),
+    "semgrep_engine_path": (
+        "live-shim",
+        "petasos/scanners/bootstrap.py:213",
+        "explicit library ownership",
+    ),
+    "semgrep_engine_sha256": (
+        "live-shim",
+        "petasos/scanners/bootstrap.py:213",
+        "explicit library ownership",
+    ),
+    "semgrep_request_timeout_seconds": (
+        "live-shim",
+        "petasos/scanners/bootstrap.py:213",
+        "explicit library ownership",
+    ),
+    "semgrep_max_source_bytes": (
+        "live-shim",
+        "petasos/scanners/bootstrap.py:213",
+        "explicit library ownership",
+    ),
     # --- Normalization -----------------------------------------------------
     # PET-151, transcribed not re-derived (spec Decision 6). Pins already
     # shipped: tests/adversarial/normalization/test_unicode_bypass.py:323.
@@ -354,6 +379,11 @@ def test_verdict_sets_pinned() -> None:
     )
     assert _keys_with_verdict("live-shim") == frozenset(
         {
+            "semgrep_enabled",
+            "semgrep_engine_path",
+            "semgrep_engine_sha256",
+            "semgrep_request_timeout_seconds",
+            "semgrep_max_source_bytes",
             "init_wait_timeout_seconds",
             "presidio_entities",
             "presidio_entities_extra",

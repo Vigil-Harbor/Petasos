@@ -37,6 +37,7 @@ if TYPE_CHECKING:
 
     from petasos._types import Scanner
     from petasos.config import PetasosConfig
+    from petasos.scanners.semgrep import SemgrepLifecycleOwner
 
 ScannerOutcome = Literal["verified", "degraded", "missing", "failed", "disabled"]
 """How one optional backend fared during :func:`build_scanners`.
@@ -123,6 +124,9 @@ _BACKENDS: tuple[tuple[str, str, Callable[[PetasosConfig], Scanner]], ...] = (
 
 def build_scanners(
     config: PetasosConfig,
+    *,
+    semgrep_lifecycle: SemgrepLifecycleOwner | None = None,
+    semgrep_scheduling_key: object | None = None,
 ) -> tuple[list[Scanner], list[ScannerBuildStatus]]:
     """Build the scanner list a ``Pipeline`` bootstrap needs, plus per-backend status.
 
@@ -204,4 +208,42 @@ def build_scanners(
         except Exception as exc:
             statuses.append(ScannerBuildStatus(scanner_id, display_name, "failed", str(exc)))
 
+    if config.semgrep_enabled:
+        if "semgrep" in config.disabled_scanners:
+            statuses.append(
+                ScannerBuildStatus("semgrep", "Semgrep", "disabled", "disabled by config")
+            )
+        elif semgrep_lifecycle is None:
+            statuses.append(
+                ScannerBuildStatus(
+                    "semgrep", "Semgrep", "failed", "semgrep.host_lifecycle_unavailable"
+                )
+            )
+        else:
+            from petasos.scanners.semgrep import SemgrepScanner
+
+            try:
+                semgrep = SemgrepScanner(
+                    owner=semgrep_lifecycle,
+                    engine_path=config.semgrep_engine_path,
+                    engine_sha256=config.semgrep_engine_sha256,
+                    request_timeout_seconds=config.semgrep_request_timeout_seconds,
+                    max_source_bytes=config.semgrep_max_source_bytes,
+                    semgrep_scheduling_key=semgrep_scheduling_key,
+                )
+                scanners.append(semgrep)
+                ok, reason = semgrep.availability()
+                statuses.append(
+                    ScannerBuildStatus(
+                        "semgrep", "Semgrep", "verified" if ok else "degraded", reason
+                    )
+                )
+            except Exception as exc:
+                reason = str(exc)
+                if reason not in (
+                    "semgrep.unsupported_platform",
+                    "semgrep.host_lifecycle_unavailable",
+                ):
+                    reason = "semgrep.construction_failed"
+                statuses.append(ScannerBuildStatus("semgrep", "Semgrep", "failed", reason))
     return scanners, statuses

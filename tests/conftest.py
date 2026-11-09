@@ -13,7 +13,7 @@ import jwt as pyjwt
 import pytest
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
 
 _FIXTURES = pathlib.Path(__file__).parent / "fixtures"
 _PRIVATE_KEY = (_FIXTURES / "test_private.pem").read_bytes()
@@ -185,6 +185,7 @@ def _enforce_nonskipping_lane(
     import_target: str,
     target_class: str,
     lane: str,
+    prerequisite: Callable[[], None] | None = None,
 ) -> None:
     """Fail collection loudly if ``lane``'s real-backend class would skip.
 
@@ -209,6 +210,8 @@ def _enforce_nonskipping_lane(
             f"{exc}. Install the lane's extra (see .github/workflows/{lane}.yml)."
         ) from exc
 
+    if prerequisite is not None:
+        prerequisite()
     in_class = [item for item in items if _item_class_name(item) == target_class]
     if not in_class:
         raise pytest.UsageError(
@@ -239,11 +242,94 @@ class NonSkippingLane:
     import_target: str  # symbol the scanner's _do_load imports
     target_class: str  # test class the lane must collect unskipped
     lane: str  # workflow basename, e.g. "extras-presidio"
+    prerequisite: Callable[[], None] | None = None
+
+
+def _require_semgrep() -> None:
+    import asyncio
+    import hashlib
+    import json
+    import time
+
+    from petasos.scanners.semgrep import SemgrepLifecycleOwner, SemgrepScanner, supported_platform
+
+    engine, expected = (
+        os.environ.get("SEMGREP_ENGINE_PATH"),
+        os.environ.get("SEMGREP_ENGINE_SHA256"),
+    )
+    if not supported_platform() or not engine or not expected:
+        raise pytest.UsageError(
+            "Semgrep lane requires native Windows x64/macOS arm64 and path/hash"
+        )
+    diagnostics = ""
+    try:
+        with open(engine, "rb") as stream:
+            actual = hashlib.file_digest(stream, "sha256").hexdigest()
+        if actual != expected.lower():
+            raise ValueError("semgrep.engine_integrity")
+
+        async def probe() -> None:
+            nonlocal diagnostics
+            async with SemgrepLifecycleOwner() as owner:
+                scanner = SemgrepScanner(owner=owner, engine_path=engine, engine_sha256=expected)
+                deadline = time.monotonic() + 6.5
+                while (
+                    scanner.availability()[1] == "semgrep.probe_pending"
+                    and time.monotonic() < deadline
+                ):
+                    await asyncio.sleep(0.01)
+                if not scanner.availability()[0]:
+                    if scanner._lease is not None:
+                        runtime = scanner._lease.runtime
+                        with runtime.lock:
+                            states = []
+                            for job in tuple(runtime.active)[:12]:
+                                failure = job.failure
+                                child = failure.child if failure is not None else job.child
+                                cause = failure.__cause__ if failure is not None else None
+                                process = getattr(child, "process", None)
+                                # Read only owned state. Never poll/reap a child,
+                                # stringify exceptions, or include source/argv.
+                                states.append(
+                                    {
+                                        "native_failure": failure is not None,
+                                        "worker_failure": job.cpu_failure is not None,
+                                        "cause_type": type(cause).__name__ if cause else None,
+                                        "cause_errno": cause.errno
+                                        if isinstance(cause, OSError)
+                                        else None,
+                                        "reaped": getattr(child, "_reaped", None),
+                                        "group_signal_complete": getattr(
+                                            child, "_group_signal_complete", None
+                                        ),
+                                        "returncode": getattr(process, "returncode", None),
+                                    }
+                                )
+                        diagnostics = "; owned_cleanup=" + json.dumps(states, sort_keys=True)
+                    raise ValueError(scanner.availability()[1])
+
+        asyncio.run(probe())
+    except Exception as exc:
+        # Availability errors are fixed diagnostic codes. Do not print arbitrary
+        # exception messages, which can contain local paths or source text.
+        import re
+
+        code = str(exc)
+        detail = code if re.fullmatch(r"(?:ScannerTimeout: )?semgrep\.[a-z_]+", code) else ""
+        raise pytest.UsageError(
+            f"Semgrep real-backend prerequisite failed: {detail or type(exc).__name__}"
+            + diagnostics
+        ) from exc
 
 
 NONSKIPPING_LANES: tuple[NonSkippingLane, ...] = (
     NonSkippingLane(
-        "semgrep", "PETASOS_REQUIRE_SEMGREP", "psutil", "TestSemgrepRealEngine", "extras-semgrep"
+        "semgrep",
+        "PETASOS_REQUIRE_SEMGREP",
+        "psutil",
+        "TestSemgrepRealEngine",
+        "extras-semgrep",
+        _require_semgrep,
     ),
     NonSkippingLane(
         "semgrep", "PETASOS_REQUIRE_SEMGREP", "psutil", "TestSemgrepHeldOut", "extras-semgrep"
@@ -339,4 +425,5 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
             import_target=ln.import_target,
             target_class=ln.target_class,
             lane=ln.lane,
+            prerequisite=ln.prerequisite,
         )

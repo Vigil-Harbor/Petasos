@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import math
+import os
+import re
 from dataclasses import dataclass, fields
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Final, Literal
@@ -14,6 +16,7 @@ TIER3_FLOOR: Final[float] = 30.0
 
 _BOOL_FIELDS: frozenset[str] = frozenset(
     {
+        "semgrep_enabled",
         "normalize_nfkc",
         "strip_zero_width",
         "map_homoglyphs",
@@ -225,7 +228,33 @@ class PetasosConfig:
     # usability risk) without a code change; positive-int, mirrors lineage_max_edges.
     taint_min_span_length: int = 12
 
+    # Opt-in isolated code engine. Restart-required; explicit lifecycle owner.
+    semgrep_enabled: bool = False
+    semgrep_engine_path: str | None = None
+    semgrep_engine_sha256: str | None = None
+    semgrep_request_timeout_seconds: float = 8.0
+    semgrep_max_source_bytes: int = 65536
+
     def __post_init__(self) -> None:
+        if self.semgrep_engine_path is not None and (
+            not isinstance(self.semgrep_engine_path, str)
+            or not os.path.isabs(self.semgrep_engine_path)
+        ):
+            raise ValueError("semgrep_engine_path must be absolute")
+        if self.semgrep_engine_sha256 is not None and (
+            not isinstance(self.semgrep_engine_sha256, str)
+            or re.fullmatch(r"[0-9a-fA-F]{64}", self.semgrep_engine_sha256) is None
+        ):
+            raise ValueError("semgrep_engine_sha256 must be a SHA-256 digest")
+        if type(self.semgrep_request_timeout_seconds) not in (int, float) or not (
+            math.isfinite(self.semgrep_request_timeout_seconds)
+            and 1 <= self.semgrep_request_timeout_seconds <= 8
+        ):
+            raise ValueError("semgrep_request_timeout_seconds must be finite in [1, 8]")
+        if type(self.semgrep_max_source_bytes) is not int or not (
+            4096 <= self.semgrep_max_source_bytes <= 65536
+        ):
+            raise ValueError("semgrep_max_source_bytes must be an integer in [4096, 65536]")
         for fname in _BOOL_FIELDS:
             val = getattr(self, fname)
             if not isinstance(val, bool):
@@ -239,6 +268,8 @@ class PetasosConfig:
                 f"fail_mode must be 'open', 'closed', or 'degraded', got {self.fail_mode!r}"
             )
         # PET-221: function-local so the id set cannot drift from _BACKENDS.
+        # Semgrep is built outside _BACKENDS because it needs a host lifecycle
+        # owner (PET-254), so its id is the one name added here by hand.
         # A bare str must not be iterated into characters.
         if isinstance(self.disabled_scanners, str):
             raise ValueError(
@@ -249,7 +280,7 @@ class PetasosConfig:
             object.__setattr__(self, "disabled_scanners", tuple(self.disabled_scanners))
         from petasos.scanners.bootstrap import _BACKENDS
 
-        known_scanners = {row[0] for row in _BACKENDS}
+        known_scanners = {row[0] for row in _BACKENDS} | {"semgrep"}
         for scanner_id in self.disabled_scanners:
             if not isinstance(scanner_id, str):
                 raise ValueError(f"disabled_scanners entries must be strings, got {scanner_id!r}")

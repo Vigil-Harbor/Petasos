@@ -91,6 +91,9 @@ def test_scan_params_uses_the_shared_helper_and_no_inline_serialization() -> Non
 
 def test_scan_params_direction_is_the_shared_constant() -> None:
     scan_params = _find_function(_parse(_GUARD_PATH), "_scan_params")
+    prepared_direction = _direction_keyword(scan_params, "_inspect_with_prepared_semgrep")
+    assert isinstance(prepared_direction, ast.Name)
+    assert prepared_direction.id == "PARAM_SCAN_DIRECTION"
     direction = _direction_keyword(scan_params, "inspect")
 
     assert isinstance(direction, ast.Name), "direction must be the constant, not a literal"

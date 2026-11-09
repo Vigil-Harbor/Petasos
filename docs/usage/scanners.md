@@ -338,3 +338,18 @@ cancellation path or host tool classification. This is a bounded
 integration exercise, not a long-duration soak or proof of the deployed gateway.
 Use the [deployment guide](../deployment/hermes-desktop.md) for profile admission,
 plugin synchronization and live verification before arming unattended work.
+
+
+## Semgrep (opt-in library scanner)
+
+The isolated Semgrep adapter emits action-independent code findings and explicit
+per-backend coverage. It requires a separately pinned engine and an explicit
+`SemgrepLifecycleOwner`; the base install and `[all]` do not install it. Current
+Hermes and dashboard bootstraps refuse unowned enablement. See
+[installation, ownership and validation gates](../deployment/semgrep.md).
+
+Semgrep receives original full input through a bounded preparation step before
+library ingestion's head inspect. Other scanners keep their existing head budget.
+The head applies policy once; the syntactic sweep's second merge preserves
+original-coordinate Semgrep findings. This extends PET-178's library routing for
+this opt-in backend without moving plugin locks or claiming host delivery proof.
