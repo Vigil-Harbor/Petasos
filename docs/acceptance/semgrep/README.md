@@ -242,8 +242,81 @@ protocol v4 rule:
 2. Any failure stands. There is no retry. The result goes back to the operator.
 3. The result of that run is recorded in a later push. That later push does not count.
 
-This section is the record made before that push. No counting-run result is
-here yet.
+The rule above was recorded before the first push.
+
+### Piece 7 counting run at 52c93e0 passed
+
+The first push, `9b64c57`, started run
+[42531161785](https://github.com/Vigil-Harbor/Petasos/actions/runs/42531161785).
+It failed in the test step on all four jobs. The benchmark step was skipped, so
+no protocol v4 row was measured. Both failures were test defects:
+
+- `test_marker_guards_refuse_without_reading_or_unlinking` installed its
+  `Path.open` spy before the test wrote and read back `secret.txt`, so it
+  recorded the test's own reads. The guard refused the linked marker as
+  intended. Local Windows skips this test because symlinks are not permitted,
+  which is why the local gate passed.
+- `test_finished_removal_error_recovers_without_a_child_check` expected
+  `winerror=32`. Python sets `winerror` only on Windows, so macOS correctly
+  reported `winerror=none`.
+
+`52c93e0` fixes both tests and changes nothing else. The operator decided that
+its run is the counting run for piece 7, under the same rule.
+
+Hosted run
+[42537024961](https://github.com/Vigil-Harbor/Petasos/actions/runs/42537024961)
+measured merge revision `01c8cb256b1da7eae212025b7d821574f5885b53` (branch
+head `52c93e0`), with workload `eight_outstanding_three_profiles_16k_64k_v3`,
+manifest `62d44848...945e` and criteria `S7-2026-11-08-v3`. Summaries are
+retained in `hosted-mac-52c93e0.json` and `hosted-win-52c93e0.json`.
+
+**Every v4 component gate passed on both platforms in this run: 17 of 17 rows,
+1,752 of 1,752 planned requests completed per platform, zero errors, nothing
+unrun or unfinished, empty `gate_failures`.** Recomputing the gates from the
+artifacts gives the same result. `qualified` stays `false` because the
+qualification manifest is still empty. All four test jobs (Python 3.11 and 3.14
+on both platforms) ran 388 tests with no failures. Both repaired tests ran and
+passed on every job.
+
+| Row (limit) | macOS 15 | Windows Server 2025 |
+|---|---|---|
+| Single 16 KiB mean / p95 / p99 (macOS 1.0 / 1.2 / 1.4 s; Windows 1.2 / 1.4 / 1.6 s) | 0.684 / 0.833 / 1.025 | 1.059 / 1.300 / 1.447 |
+| 64 KiB repeated mean / p95 / p99 (1.8 / 2.0 / 2.3 s) | 1.209 / 1.602 / 1.933 | 1.535 / 1.833 / 2.025 |
+| 64 KiB distinct mean / p95 / p99 (1.8 / 2.0 / 2.3 s) | 1.123 / 1.624 / 1.897 | 1.507 / 1.568 / 1.818 |
+| Eight-wide 16 KiB, worst p95 of six (6.5 × single mean) | 3.134 (limit 4.445) | 4.595 (limit 6.883) |
+| Replacements p95 (6.5 × single mean) | 3.035 (limit 4.445) | 4.489 (limit 6.883) |
+| Eight-wide 64 KiB, worst p95 of six (6.5 × distinct mean) | 6.078 (limit 7.300) | 7.112 (limit 9.796) |
+| Worst max of the twelve loaded rows and replacements (8.0 s) | 7.150 | 7.449 |
+| Preflight 1M p95 (0.050 s) | 0.023 | 0.014 |
+
+Hosts: macOS Apple M1 (Virtual), 3 cores, image `20261104.0514.1`; Windows
+Intel Family 6 Model 207, 2 physical / 4 logical cores, image
+`20261103.298.1`; Python 3.14.10 on both.
+
+Cleanup evidence: `cleanup_diagnostics` is empty on both platforms. Every root
+removal took one attempt: `root_remove_attempt` and `root_cleanup` each ran
+1,776 times on macOS and 1,789 times on Windows. The slowest attempt was
+0.032 s on macOS and 0.090 s on Windows. No owned root or live owned process
+remained after any loaded row.
+
+What this run does not show:
+
+- No hosted cleanup failure occurred, so the recovery path (D4) did not run
+  here. Its evidence is the unit tests and the loaded stress record above.
+- Whether piece 7 changes hosted latency. The Windows host was a different
+  CPU from the `167efa8` run (Intel rather than AMD) and slower on every
+  serial and loaded row: single 16 KiB mean 1.059 s against 0.773 s,
+  cold probe 0.747 s against 0.550 s. macOS ran on the same host type, with
+  serial means 5% to 15% above `167efa8`. One pair of runs cannot separate
+  that from run-to-run variation.
+- This run is the slow Windows draw that `167efa8` lacked. The host-relative
+  loaded gates held on it. The fixed limits were closest: Windows single
+  16 KiB mean 1.059 s against 1.2 s and p95 1.300 s against 1.4 s; 64 KiB
+  repeated p95 1.833 s against 2.0 s; worst loaded max 7.449 s against 8.0 s.
+  On Windows 64 KiB loaded rows the 8.0 s max is the binding limit, because
+  6.5 times the distinct mean is 9.796 s.
+
+Runs that do not count: the run started by the push that records this section.
 
 ## 64 KiB maximum (protocol v3): counting run at fb65503 passed
 
