@@ -223,7 +223,7 @@ def _scanner_line(status: ScannerStatus) -> tuple[Status, str, str, str]:
             f"It would check for {job}. The built-in checks still run.",
             "",
         )
-    if status.missing:
+    if _package_missing(status):
         return (
             "warn",
             f"{status.label} is turned on but not installed.",
@@ -262,10 +262,16 @@ def _scanner_row(status: ScannerStatus) -> dict[str, object]:
     }
 
 
+def _package_missing(status: ScannerStatus) -> bool:
+    # ``missing`` also covers a model that has not been downloaded. Only a
+    # missing package carries the registry's pip instruction.
+    return status.missing and "pip install" in (status.reason or "")
+
+
 def _hermes_reason(status: ScannerStatus) -> str | None:
-    # The registry's own reason for a missing package names pip, which is the
+    # The registry's reason for a missing package names pip, which is the
     # wrong instruction inside Hermes. The fix carries the right one.
-    if status.missing:
+    if _package_missing(status):
         return f"{status.label} is not installed."
     return status.reason
 

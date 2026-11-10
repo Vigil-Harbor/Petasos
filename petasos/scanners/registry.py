@@ -141,9 +141,10 @@ class ScannerStatus:
     operator can act on. ``extra`` is the pip extra that provides the
     backend, or ``None`` when none does. ``detects`` and ``label`` are copied
     from the spec so a later report can be printed from the status alone.
-    ``missing`` is true when the backend's package is not installed, which
-    tells a required scanner that is absent from one that is present and
-    broken: both are ``unavailable``.
+    ``missing`` is true when the backend reported itself absent: its package
+    is not installed, or its model has not been downloaded. It tells a
+    required scanner that is absent from one that is present and broken:
+    both are ``unavailable``.
     """
 
     id: str

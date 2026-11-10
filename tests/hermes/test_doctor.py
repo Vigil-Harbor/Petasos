@@ -623,3 +623,22 @@ def test_a_required_scanner_that_is_not_installed_says_so_and_how_to_add_it() ->
     assert row["reason"] == "PromptGuard is not installed."
     assert "pip install" not in str(row["reason"]) + str(row["fix"])
     assert row["fix"] == "petasos scanner add prompt_guard"
+
+
+def test_a_scanner_whose_model_is_missing_keeps_its_own_reason() -> None:
+    from petasos.hermes.doctor_advice import _scanner_row
+    from petasos.scanners.registry import ScannerStatus
+
+    status = ScannerStatus(
+        id="prompt_guard",
+        state="unavailable",
+        reason="PromptGuard model unavailable. Accept the model terms, then download it.",
+        extra="prompt-guard",
+        detects=frozenset({"injection"}),
+        label="PromptGuard",
+        missing=True,
+    )
+
+    row = _scanner_row(status)
+
+    assert row["reason"] == status.reason
