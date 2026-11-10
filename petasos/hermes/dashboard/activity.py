@@ -16,7 +16,16 @@ from typing import TYPE_CHECKING, Any
 from petasos.enforce.approvals import redact_display_text
 from petasos.enforce.events import classify_integrity_failure, verify_event
 from petasos.hermes.dashboard.errors import ApiError, envelope
-from petasos.hermes.dashboard.words import describe_event, kind_label, outcome, rule_sentence
+from petasos.hermes.dashboard.words import (
+    MATCHED_TEXT_NOTE,
+    SIGNATURE_MEANING,
+    describe_event,
+    kind_label,
+    outcome,
+    rule_sentence,
+    selfmod_note,
+    selfmod_target,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -26,6 +35,9 @@ MAX_LIMIT = 100
 MAX_PAGE_BYTES = 1_000_000
 MAX_SUMMARY_BYTES = 4_000_000
 _DISPLAY_LIMIT = 500
+_MAX_TEXT = 200
+# Events Petasos writes for one tool call land within this many seconds.
+_SAME_CALL_S = 5.0
 
 _KEEP = frozenset(
     {
@@ -58,7 +70,11 @@ _Redactor = Callable[..., str]
 
 @dataclass(frozen=True, slots=True)
 class ActivityQuery:
-    """Filters for one read. Times are unix seconds. Empty strings are ignored."""
+    """Filters for one read. Times are unix seconds. Empty strings are ignored.
+
+    ``text`` matches an event id exactly or by its start, or any of the event's
+    words (its sentence, tool, conversation, rule, kind and reason), ignoring case.
+    """
 
     since: float | None = None
     until: float | None = None
@@ -66,6 +82,7 @@ class ActivityQuery:
     tool: str | None = None
     session: str | None = None
     severity: str | None = None
+    text: str | None = None
     limit: int = DEFAULT_LIMIT
 
 
@@ -101,7 +118,12 @@ def read_page(
         raise ApiError("invalid_cursor", "That page marker is not valid. Refresh the list.")
     reset = _cursor_reset(spool, rotated, parsed)
     located, complete = _collect(spool, rotated, max_bytes, None if reset else parsed)
-    matched = [item for item in located if not item.corrupt and _matches(item.record, query)]
+    followers = _followers(located)
+    matched = [
+        item
+        for item in located
+        if not item.corrupt and _matches(item.record, query, followers.get(id(item)))
+    ]
     skipped = sum(1 for item in located if item.corrupt)
     page = matched[:limit]
     more = len(matched) > limit or not complete
@@ -109,7 +131,7 @@ def read_page(
     if more and page:
         last = page[-1]
         next_cursor = _encode_cursor(last.source, last.offset)
-    events = [_event(item.record, key, redactor) for item in page]
+    events = [_event(item.record, key, redactor, followers.get(id(item))) for item in page]
     return envelope(
         events=events,
         next_cursor=next_cursor,
@@ -134,11 +156,12 @@ def read_event(
     if not scan_id or "/" in scan_id or len(scan_id) > 80:
         raise ApiError("not_found", "That event was not found.", status=404)
     located, complete = _collect(spool, rotated, max_bytes, None)
+    followers = _followers(located)
     for item in located:
         if item.corrupt:
             continue
         if item.record.get("scan_id") == scan_id:
-            event = _event(item.record, key, redactor)
+            event = _event(item.record, key, redactor, followers.get(id(item)))
             return envelope(
                 event=event,
                 complete=complete,
@@ -169,6 +192,7 @@ def summarize(
     cover the newest bytes only.
     """
     located, complete = _collect(spool, rotated, max_bytes, None)
+    followers = _followers(located)
     counts: dict[str, int] = {}
     severities: dict[str, int] = {}
     tools: dict[str, int] = {}
@@ -181,7 +205,8 @@ def summarize(
     for item in located:
         if item.corrupt:
             continue
-        if not _matches(item.record, query):
+        follower = followers.get(id(item))
+        if not _matches(item.record, query, follower):
             continue
         shown += 1
         kind = item.record.get("event_type")
@@ -193,7 +218,7 @@ def summarize(
             severities[folded] = severities.get(folded, 0) + 1
         _count(tools, item.record.get("tool"))
         _count(sessions, item.record.get("session_id"))
-        _count(outcomes, outcome(item.record)["code"])
+        _count(outcomes, outcome(item.record, follower)["code"])
         if kind in {"quarantine", "block", "tier3"}:
             blocked += 1
         if key is not None:
@@ -307,7 +332,41 @@ def _window(
     return rows, start == 0 and closed, take
 
 
-def _matches(record: Mapping[str, Any], query: ActivityQuery) -> bool:
+def _followers(located: list[_Located]) -> dict[int, dict[str, Any]]:
+    """For each attempt to change the guardrails, the event written right after it.
+
+    ``located`` is newest first, so the event written next is the one before
+    it in the list. It counts only when it is for the same conversation and
+    tool and was written within a few seconds: that is the same tool call.
+    """
+    found: dict[int, dict[str, Any]] = {}
+    for index, item in enumerate(located):
+        if item.corrupt or item.record.get("event_type") != "selfmod_attempt" or index == 0:
+            continue
+        newer = located[index - 1]
+        if newer.corrupt or newer.source != item.source:
+            continue
+        record = item.record
+        other = newer.record
+        if other.get("session_id") != record.get("session_id"):
+            continue
+        if other.get("tool") != record.get("tool"):
+            continue
+        first = record.get("timestamp")
+        second = other.get("timestamp")
+        if not isinstance(first, (int, float)) or not isinstance(second, (int, float)):
+            continue
+        if abs(second - first) > _SAME_CALL_S:
+            continue
+        found[id(item)] = other
+    return found
+
+
+def _matches(
+    record: Mapping[str, Any],
+    query: ActivityQuery,
+    follower: Mapping[str, Any] | None = None,
+) -> bool:
     stamp = record.get("timestamp")
     if query.since is not None and (not isinstance(stamp, (int, float)) or stamp < query.since):
         return False
@@ -323,21 +382,52 @@ def _matches(record: Mapping[str, Any], query: ActivityQuery) -> bool:
         severity = record.get("severity")
         if not isinstance(severity, str) or severity.lower() != query.severity.lower():
             return False
+    if query.text:
+        return _text_matches(record, query.text, follower)
     return True
+
+
+def _text_matches(
+    record: Mapping[str, Any],
+    text: str,
+    follower: Mapping[str, Any] | None,
+) -> bool:
+    needle = text.strip().casefold()[:_MAX_TEXT]
+    if not needle:
+        return True
+    scan_id = record.get("scan_id")
+    if isinstance(scan_id, str) and scan_id.casefold().startswith(needle):
+        return True
+    kind = record.get("event_type")
+    words = [
+        describe_event(record, follower),
+        kind_label(kind) if isinstance(kind, str) else "",
+    ]
+    for name in ("tool", "session_id", "rule_id", "reason", "event_type", "severity"):
+        value = record.get(name)
+        if isinstance(value, str):
+            words.append(value)
+    return any(needle in word.casefold() for word in words)
 
 
 def _event(
     record: Mapping[str, Any],
     key: bytes | None,
     redactor: _Redactor | None,
+    follower: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     shown = _redact_record(record, redactor)
-    shown["summary"] = describe_event(record)
-    shown["outcome"] = outcome(record)
+    shown["summary"] = describe_event(record, follower)
+    shown["outcome"] = outcome(record, follower)
     kind = record.get("event_type")
     shown["kind_label"] = kind_label(kind) if isinstance(kind, str) else ""
     rule = record.get("rule_id")
     shown["rule_sentence"] = rule_sentence(rule) if isinstance(rule, str) else ""
+    shown["matched_note"] = MATCHED_TEXT_NOTE if isinstance(rule, str) and rule else ""
+    if kind == "selfmod_attempt":
+        target = selfmod_target(record)
+        shown["target"] = _redact(target, redactor) if target else ""
+        shown["outcome_note"] = selfmod_note(record, follower)
     shown["integrity"] = _one(record, key)
     return shown
 
@@ -366,15 +456,15 @@ def _redact(value: object, redactor: _Redactor | None) -> object:
 
 def _one(record: Mapping[str, Any], key: bytes | None) -> dict[str, str]:
     if key is None:
-        return {"status": "off"}
+        return {"status": "off", "meaning": SIGNATURE_MEANING["off"]}
     if verify_event(record, key):
-        return {"status": "verified"}
+        return {"status": "verified", "meaning": SIGNATURE_MEANING["verified"]}
     failure = classify_integrity_failure(record)
     if failure == "sig-missing":
         sentence = "This event has no signature."
     else:
         sentence = "This event's signature does not match."
-    return {"status": "failed", "reason": sentence}
+    return {"status": "failed", "reason": sentence, "meaning": SIGNATURE_MEANING["failed"]}
 
 
 def _integrity(

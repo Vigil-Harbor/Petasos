@@ -16,7 +16,7 @@ The browser lives in the sandbox, not in this repository's environment:
 Then:
 
     python tests/hermes_host/capture_round.py --sandbox <sandbox> \\
-        --out .ux-reference/rounds/round-01
+        --out .ux-reference/rounds/round-02
 """
 
 from __future__ import annotations
@@ -41,45 +41,65 @@ BROWSER = Path(__file__).resolve().parent / "capture_browser.py"
 
 DESCRIPTIONS = {
     "01-overview-protected": (
-        "Overview with protection on: the verdict, the job and strictness choices, the last "
-        "24 hours, what is doing the checking, and who can change the settings."
+        "Overview with protection on: the status and what it covers (basic checks running, "
+        "three optional checks not, one of them recommended), the last 24 hours with repeats "
+        "grouped, then the job and strictness controls with every option described."
     ),
     "02-overview-paused": (
-        "Overview after Pause protection was confirmed: the paused verdict, what pausing "
-        "means, and the Resume button."
+        "Overview after Pause protection was confirmed: the paused status, what pausing "
+        "means, the Resume button, and a separate Paused badge beside the tabs."
     ),
     "03-overview-choice-preview": (
-        "The job switched to Research but not applied: the preview beside the choices lists "
-        "each setting that would change, before and after, and suggests the matching strictness."
+        "The job switched to Research but not applied: what the change means in words, the "
+        "suggested strictness, when it would apply, and the technical changes folded away."
     ),
     "04-activity-list": (
-        "Activity over all time: filters, the signed-record badge, and one plain sentence per "
-        "event with when, tool, conversation, seriousness and outcome."
+        "Activity over all time: the range, search and filters; one sentence per event with "
+        "its date, tool, conversation, severity and outcome; nine repeats grouped into one "
+        "row; an attempt to change the settings that Petasos recorded and did not stop."
     ),
     "05-activity-detail": (
         "One event opened: a blocked file write that carried hidden instructions, with the "
-        "rule in plain words, the record's signature status, and links to its settings."
+        "full date and time zone, the rule in words and its id, why the matched text is not "
+        "kept, and what the signature proves."
     ),
     "06-activity-empty": (
-        "Activity on a freshly installed profile: what will appear here and a way to see it work."
+        "Activity on a freshly installed profile, drawn as Sessions draws an empty list."
     ),
     "07-tryit-blocked": (
-        "Try it with the hidden-instruction example: blocked, what the agent would be told, "
-        "the finding marked in the text, and the checks that ran."
+        "Try it with a file write carrying a hidden instruction: blocked, what the agent "
+        "would see, the match marked in the input, match strength explained, and the checks."
     ),
     "08-tryit-allowed": (
-        "The same input tried without that rule (not saved): allowed, shown beside the "
-        "saved settings' answer (blocked)."
+        "A download piped into a shell, tried without its rule (not saved): the trial result "
+        "beside the live result, which asks a person, and the trial settings below."
     ),
     "09-settings-override": (
-        "Settings, Tools section: a value the user changed (Your change) beside values from "
-        "the default, and a second change (a tool exemption) staged and waiting for review."
+        "Settings, Tool calls: Config's field layout; a value the user set (with the value a "
+        "reset would restore), and a tool exemption staged and not saved."
     ),
     "10-settings-error": (
-        "Settings, Escalation section: an invalid value (tier 3 below its floor) explained at "
-        "the field with the API's sentence; Save is disabled."
+        "Settings, Escalation: stop-the-conversation set to 20, below its floor; the field "
+        "says to enter 30 or higher, and its description says why. Save is not offered."
     ),
     "11-overview-narrow": "Overview at 900 pixels wide, Hermes Teal.",
+    "x1-settings-review": (
+        "The staged exemption under review: what changes, from what to what, where the value "
+        "would come from, and when it applies. Nothing is saved yet."
+    ),
+    "x2-settings-saved": (
+        "After saving PromptGuard as always on: the confirmation says when it was saved and "
+        "that this setting waits for a Hermes restart."
+    ),
+    "x3-overview-partial": (
+        "Overview while PromptGuard, a recommended check, is set to always on but is not "
+        "installed: the status says what is wrong and what to do."
+    ),
+    "x4-activity-search": (
+        "Activity with a custom range (the last 26 hours) and a search for 'settings': the "
+        "two attempts to change the settings, one blocked and one not stopped."
+    ),
+    "x5-keyboard-focus": "Overview with keyboard focus, reached with Tab, on Pause protection.",
 }
 
 THEME_NAMES = {"teal": "Hermes Teal (dark)", "nous-blue": "Nous Blue (light)"}
@@ -112,7 +132,7 @@ def run_browser(sandbox: Path, request: dict[str, Any], *, timeout: float = 900)
 
 def write_index(out: Path, shots: list[str]) -> Path:
     lines = [
-        "# Round 01 screenshots",
+        f"# {out.name.replace('-', ' ').capitalize()} screenshots",
         "",
         "The Petasos tab in a sandboxed Hermes `v0.23.1` dashboard, 1440 by 900 unless noted.",
         "Activity comes from the plugin's real hooks (`tests/hermes_host/demo_harness.py`),",
@@ -138,7 +158,7 @@ def write_index(out: Path, shots: list[str]) -> Path:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--sandbox", required=True, type=Path)
-    parser.add_argument("--out", type=Path, default=ROOT / ".ux-reference/rounds/round-01")
+    parser.add_argument("--out", type=Path, default=ROOT / ".ux-reference/rounds/round-02")
     parser.add_argument("--skip-wheel", action="store_true")
     args = parser.parse_args(argv)
     sandbox = args.sandbox.resolve()

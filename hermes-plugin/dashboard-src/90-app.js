@@ -1,14 +1,14 @@
 // ---------------------------------------------------------------------------
-// The tab: four views under one row of Hermes tabs, and the states that
-// come before any view (loading, Petasos not answering).
+// The tab: four views under one row of Hermes's enclosed tabs, and the
+// states that come before any view (loading, Petasos not answering).
 // ---------------------------------------------------------------------------
 
-var VIEW_LABELS = {
-  overview: "Overview",
-  activity: "Activity",
-  tryit: "Try it",
-  settings: "Settings",
-};
+var VIEW_TABS = [
+  { value: "overview", label: "Overview" },
+  { value: "activity", label: "Activity" },
+  { value: "tryit", label: "Try it" },
+  { value: "settings", label: "Settings" },
+];
 
 function Unreachable(props) {
   var failure = props.failure;
@@ -18,10 +18,9 @@ function Unreachable(props) {
     { title: notMounted ? "Petasos's part of the dashboard is not loaded" : "Petasos is not answering" },
     h(
       "p",
-      { className: "petasos-verdict-reason" },
+      null,
       notMounted
-        ? "Hermes loads this tab's data only for a plugin it is running. Petasos is either " +
-            "switched off in Hermes's plugin list, or was switched on after the dashboard started."
+        ? "Hermes loads this tab's data only for a plugin it is running. Petasos is switched off in Hermes's plugin list, or was switched on after the dashboard started."
         : "The dashboard could not get Petasos's status. " + (failure.message || "")
     ),
     h(
@@ -35,7 +34,7 @@ function Unreachable(props) {
       "div",
       { className: "petasos-row-actions" },
       h(Btn, { onClick: props.onRetry }, "Try again"),
-      notMounted ? h("a", { className: "petasos-link", href: "/plugins" }, "Open Plugins →") : null
+      notMounted ? h("a", { className: "petasos-link", href: "/plugins" }, "Open Plugins") : null
     )
   );
 }
@@ -78,6 +77,9 @@ function PetasosTab() {
   var refreshState = useState(0);
   var lockedState = useState(null);
   var pauseState = useState(false);
+  // Staged settings live here, so moving between views keeps them.
+  var draftState = useState(EMPTY_DRAFT);
+  var draft = draftState[0];
   var toast = SDK.hooks.useToast();
 
   var loadStatus = useCallback(function () {
@@ -102,6 +104,24 @@ function PetasosTab() {
     loadCatalog();
   }, []);
 
+  // Leaving the page with staged settings asks first.
+  var dirty = !draftIsEmpty(draft);
+  useEffect(
+    function () {
+      if (!dirty) return;
+      function warn(event) {
+        event.preventDefault();
+        event.returnValue = "";
+        return "";
+      }
+      window.addEventListener("beforeunload", warn);
+      return function () {
+        window.removeEventListener("beforeunload", warn);
+      };
+    },
+    [dirty]
+  );
+
   function refreshAll() {
     loadStatus();
     loadCatalog();
@@ -118,7 +138,7 @@ function PetasosTab() {
   function save(body) {
     return call("/settings", { method: "PUT", body: body })
       .then(function (saved) {
-        toast.showToast("Saved", "success");
+        toast.showToast(saved.restart_message || "Saved", "success");
         onSaved(saved);
         return saved;
       })
@@ -129,13 +149,22 @@ function PetasosTab() {
       });
   }
 
+  function stage(candidate) {
+    var next = { overrides: {} };
+    if (candidate.enabled !== undefined) next.enabled = candidate.enabled;
+    if (candidate.role) next.role = candidate.role;
+    if (candidate.level) next.level = candidate.level;
+    if (candidate.overrides) next.overrides = clone(candidate.overrides);
+    draftState[1](next);
+  }
+
   var view = route.view;
   var locked = Boolean(lockedState[0]);
   var body;
   if (!status && failureState[0]) {
     body = h(Unreachable, { failure: failureState[0], onRetry: refreshAll });
   } else if (!status) {
-    body = h("p", { className: "petasos-loading", role: "status" }, "Loading Petasos…");
+    body = h("p", { className: "petasos-help", role: "status" }, "Loading Petasos…");
   } else {
     var shared = {
       route: route,
@@ -152,9 +181,15 @@ function PetasosTab() {
     // Try it and Settings start from what the link carried (an example, a
     // candidate, a rule), so a new link starts them afresh.
     else if (view === "tryit")
-      body = h(TryIt, Object.assign({ key: (route.params.example || "") + "|" + (route.params.settings || "") }, shared));
+      body = h(
+        TryIt,
+        Object.assign({ key: (route.params.example || "") + "|" + (route.params.settings || ""), onStage: stage }, shared)
+      );
     else if (view === "settings")
-      body = h(Settings, Object.assign({ key: (route.params.stage || "") + "|" + (route.params.rule || "") }, shared));
+      body = h(
+        Settings,
+        Object.assign({ key: (route.params.rule || "") + "|" + (route.params.review || ""), draft: draft, setDraft: draftState[1] }, shared)
+      );
     else
       body = h(
         Overview,
@@ -170,6 +205,9 @@ function PetasosTab() {
   }
 
   var paused = status && status.switches && status.switches.petasos && status.switches.petasos.on === false;
+  var viewLabel = (VIEW_TABS.filter(function (tab) {
+    return tab.value === view;
+  })[0] || VIEW_TABS[0]).label;
 
   return h(
     "div",
@@ -179,35 +217,30 @@ function PetasosTab() {
       "div",
       { className: "petasos-topbar" },
       h(
-        C.TabsList,
-        { role: "tablist", "aria-label": "Petasos views", className: "petasos-tabs" },
-        VIEWS.map(function (name) {
-          return h(
-            C.TabsTrigger,
-            {
-              key: name,
-              value: name,
-              active: view === name,
-              role: "tab",
-              "aria-selected": view === name,
-              onClick: function () {
-                go(name);
-              },
-            },
-            VIEW_LABELS[name],
-            name === "overview" && paused ? h("span", { className: "petasos-tab-flag" }, "\u00a0· Paused") : null
-          );
-        })
+        "div",
+        { className: "petasos-topbar-main" },
+        h(ViewTabs, {
+          label: "Petasos views",
+          views: VIEW_TABS,
+          value: view,
+          onChange: function (value) {
+            go(value);
+          },
+        }),
+        paused ? h(Status, { tone: "warning" }, "Paused") : null,
+        dirty && view !== "settings"
+          ? h(
+              "button",
+              { type: "button", className: "petasos-unsaved", onClick: function () { go("settings"); } },
+              "Unsaved settings changes"
+            )
+          : null
       ),
       h(
         "div",
         { className: "petasos-topbar-side" },
-        failureState[0] && status
-          ? h(Pill, { tone: "warning", title: failureState[0].message }, "Last check failed")
-          : null,
-        checkedState[0]
-          ? h("span", { className: "petasos-help" }, "Checked " + whenText(checkedState[0] / 1000))
-          : null,
+        failureState[0] && status ? h(Status, { tone: "warning", title: failureState[0].message }, "Last check failed") : null,
+        checkedState[0] ? h("span", { className: "petasos-help" }, "Checked " + whenText(checkedState[0] / 1000)) : null,
         h(Btn, { ghost: true, onClick: refreshAll, "aria-label": "Refresh now" }, "Refresh")
       )
     ),
@@ -219,16 +252,19 @@ function PetasosTab() {
             title: "Protection is paused",
             action: h(Btn, { onClick: function () { save({ enabled: true }).catch(function () {}); }, disabled: locked }, "Resume"),
           },
-          "Tool calls are going through unchecked and being recorded."
+          "Tool calls go through unchecked. Each one is recorded."
         )
       : null,
-    h("div", { className: "petasos-view", role: "tabpanel", "aria-label": VIEW_LABELS[view] }, body),
+    h(
+      "div",
+      { className: "petasos-view", id: "petasos-panel", role: "tabpanel", "aria-labelledby": "petasos-tab-" + view, "aria-label": viewLabel },
+      body
+    ),
     h(C.ConfirmDialog, {
       open: pauseState[0],
       title: "Pause protection?",
       description:
-        "Until you resume, Petasos lets every tool call through without checking it. Each " +
-        "one is still recorded in Activity. Hermes keeps running the plugin.",
+        "Until you resume, Petasos lets every tool call through without checking it. Each one is still recorded in Activity. Pausing applies from the agent's next tool call. Hermes keeps running the plugin.",
       confirmLabel: "Pause",
       cancelLabel: "Keep protecting",
       destructive: true,

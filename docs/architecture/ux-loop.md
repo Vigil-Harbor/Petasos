@@ -23,6 +23,7 @@ when every score reaches the bar.
 | Round | Visual design | Usability | Conventions | Fit with Hermes |
 |---|---|---|---|---|
 | 1 | 6 | 6 | 7 | 7 |
+| 2 | pending | pending | pending | pending |
 
 ## Round 1
 
@@ -100,3 +101,59 @@ columns; coloured edge bars repeated on unrelated elements.
   review and try-first steps stay, because proving a change before it takes
   effect is a stated requirement; the controls move to where Hermes puts
   Save.
+
+## Round 2
+
+Revised against every numbered problem from round 1, under the rulings
+above. Screenshots: the same fixed set, plus five states round 1 could not
+show (the review before saving, the confirmation after it, the status with
+a recommended check missing, a search with a custom range, keyboard focus).
+
+Words moved to their source. Every section and setting declares a plain
+`label` (and, for a choice, a label per choice) with `setting()`; roles and
+levels carry a label and a description that states the consequence; the
+four stored settings have labels. The API serves them, and the tab holds
+no copy of Petasos's settings, roles, levels or rules.
+
+Honesty, in substance:
+
+- The status says protection is on and, separately, what is running and
+  what is not, from `coverage`. Only the basic checks running reads as
+  that, not as complete coverage.
+- A trial is headed as the trial and sits beside the live result.
+- Match strength is labelled and says it is not the chance of an attack.
+- An attempt to change the guardrails says, per event, whether the call
+  was blocked or not stopped. The demonstration now includes one that is
+  not stopped, because that is how the product behaves today.
+- A signature says it covers the entry and cannot show a deletion.
+- A save says when it takes effect, and names what waits for a restart
+  before and after the person commits.
+- Plain text coming in is reported as flagged, not blocked: a tool result
+  is never withheld, and the old "tool was not executed" message for text
+  was wrong.
+
+Found while running the real-Hermes tests: round 1's script carried the
+sample attacks for Try it, and Hermes's plugin guard reads those as an
+attack. It gave the plugin directory a `dangerous` verdict, so Hermes
+refused to load Petasos and nothing was checked. The samples are now
+served by the API from the wheel, and a test keeps attack strings out of
+the plugin directory.
+
+Decisions where the reviews pulled apart beyond the rulings:
+
+- Coloured edge bars (design credited the banner; fit counted the repeats
+  as a Petasos signature): removed everywhere except a notice that a
+  record failed its signature or the settings are broken. Tone is carried
+  by the status badge and a small dot.
+- Example inputs (conventions: read like commands; fit: lost Hermes's
+  button type): replaced by one Hermes select labelled Example, with a
+  line saying that choosing one fills the input and runs nothing.
+- Custom range and search (usability) against Hermes's plain segmented
+  filters (fit): Custom is one more segment, and search is a field like
+  the Sessions page's.
+- Tool-name fields (usability asked for selectors): left as text with the
+  format stated, because the API has no list of the agent's tools to
+  offer. A selector would need Hermes's tool registry served first.
+- View tabs use Hermes's enclosed segmented tabs in mixed case, as the
+  Sessions page does, rather than the upper case of the Logs filters: the
+  design review asked for less delicate navigation.

@@ -260,3 +260,25 @@ class _Broken:
 
 
 _BROKEN = _Broken()
+
+
+def managed_keys() -> frozenset[str] | None:
+    """Dotted config keys an administrator pinned in Hermes's managed config.
+
+    Read with ``hermes_cli.managed_scope.managed_config_keys`` (Hermes
+    ``v0.23.1``). ``None`` when this Hermes has no managed scope module, so a
+    caller can tell "nothing is pinned" from "cannot tell".
+    """
+    module = load_module("hermes_cli.managed_scope")
+    if module is None:
+        return None
+    reader = getattr(module, "managed_config_keys", None)
+    if not callable(reader):
+        return None
+    try:
+        keys = reader()
+    except Exception:
+        return None
+    if not isinstance(keys, (set, frozenset, list, tuple)):
+        return None
+    return frozenset(key for key in keys if isinstance(key, str))

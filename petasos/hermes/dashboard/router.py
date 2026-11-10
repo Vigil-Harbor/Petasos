@@ -19,11 +19,13 @@ from petasos.hermes.dashboard.activity import (
 )
 from petasos.hermes.dashboard.catalog import read_settings
 from petasos.hermes.dashboard.changes import clear_overrides, preview, save_settings
-from petasos.hermes.dashboard.errors import ApiError, error_body
+from petasos.hermes.dashboard.errors import ApiError, envelope, error_body
+from petasos.hermes.dashboard.examples import DEFAULT_EXAMPLE, examples
 from petasos.hermes.dashboard.playground import try_input
 from petasos.hermes.dashboard.scope import active_home, load_home, require_plugin_dir
 from petasos.hermes.dashboard.status import status
 from petasos.hermes.home import display_path
+from petasos.hermes.host import managed_keys
 from petasos.hermes.settings import write_settings
 
 if TYPE_CHECKING:
@@ -64,6 +66,7 @@ def build_router() -> Any:
     router.add_route("/overrides", _wrap(_clear_all), methods=["DELETE"])
     router.add_route("/overrides/{path:path}", _wrap(_clear_one), methods=["DELETE"])
     router.add_route("/playground", _wrap(_playground), methods=["POST"])
+    router.add_route("/playground/examples", _wrap(_examples), methods=["GET"])
     router.add_route("/activity", _wrap(_activity), methods=["GET"])
     router.add_route("/activity/summary", _wrap(_summary), methods=["GET"])
     router.add_route("/activity/{scan_id}", _wrap(_one_event), methods=["GET"])
@@ -92,7 +95,7 @@ async def _read_settings(_request: Any) -> dict[str, Any]:
     state = load_home(active_home())
     if not state.readable:
         raise ApiError("unreadable", "The settings file could not be read.", status=500)
-    return read_settings(state.stored, secrets=state.secrets)
+    return read_settings(state.stored, secrets=state.secrets, managed=managed_keys())
 
 
 async def _preview(request: Any) -> dict[str, Any]:
@@ -113,6 +116,7 @@ async def _save(request: Any) -> dict[str, Any]:
         plugin_dir=plugin_dir,
         write=_writer,
         secrets=state.secrets,
+        managed=managed_keys(),
     )
 
 
@@ -139,6 +143,7 @@ async def _clear(path: str | None) -> dict[str, Any]:
         plugin_dir=plugin_dir,
         write=_writer,
         secrets=state.secrets,
+        managed=managed_keys(),
     )
 
 
@@ -166,6 +171,10 @@ async def _playground(request: Any) -> dict[str, Any]:
         redactor=_redactor(),
         protected_paths=lambda: _protected(state.home),
     )
+
+
+async def _examples(_request: Any) -> dict[str, Any]:
+    return envelope(examples=examples(), default=DEFAULT_EXAMPLE)
 
 
 async def _activity(request: Any) -> dict[str, Any]:
@@ -223,6 +232,7 @@ def _query(request: Any) -> ActivityQuery:
         tool=_optional(params.get("tool")),
         session=_optional(params.get("session")),
         severity=_optional(params.get("severity")),
+        text=_optional(params.get("q")),
         limit=limit,
     )
 

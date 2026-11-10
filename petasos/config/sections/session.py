@@ -17,27 +17,38 @@ class FrequencyConfig:
 
     enabled: bool = setting(
         default=True,
-        help="Keep a running risk score per conversation so repeated trouble adds up.",
+        label="Keep a risk score",
+        help="Keep a risk score for each conversation, so repeated trouble adds up.",
     )
     half_life_seconds: float = setting(
         default=60.0,
         gt=0,
-        help="How many quiet seconds it takes for a conversation's risk score to fall by half.",
+        label="Score half-life (seconds)",
+        help="How long a quiet conversation takes for its risk score to fall by half.",
     )
     weights: Mapping[str, float] | None = setting(
         default=None,
         ge=0,
-        help="How many points each rule adds, or leave unset to use the built-in weights.",
+        label="Points per rule",
+        help=(
+            "How many points each rule adds to the risk score. Leave empty for the built-in "
+            "points."
+        ),
     )
     rolling_window_seconds: float = setting(
         default=300.0,
         gt=0,
-        help="How many recent seconds of flagged scans count toward the slow-drip check.",
+        label="Slow-drip window (seconds)",
+        help=(
+            "The stretch of time over which small findings are counted, to catch an attack spread "
+            "thinly."
+        ),
     )
     rolling_threshold: int = setting(
         default=10,
         gt=0,
-        help="How many flagged scans in that window mark a conversation for extra scrutiny.",
+        label="Slow-drip limit",
+        help="How many findings within that stretch put a conversation under closer watch.",
     )
 
     def check(self) -> None:
@@ -67,20 +78,27 @@ class EscalationConfig:
 
     enabled: bool = setting(
         default=True,
-        help="Report the conversation's escalation tier on each scan.",
+        label="Report the escalation step",
+        help="Include the conversation's escalation step in the result of each check.",
     )
     tier1: float = setting(
         default=15.0,
-        help="Risk score at which a conversation gets warnings but tool calls still run.",
+        label="Warn at",
+        help="At this risk score the conversation is watched more closely. Tool calls still run.",
     )
     tier2: float = setting(
         default=30.0,
-        help="Risk score at which tool calls are blocked unless a tool is exempt.",
+        label="Block tool calls at",
+        help="At this risk score tool calls are blocked, except tools allowed while blocked.",
     )
     tier3: float = setting(
         default=50.0,
         ge=TIER3_FLOOR,
-        help="Risk score at which the conversation is ended and stays ended.",
+        label="Stop the conversation at",
+        help=(
+            "At this risk score every tool call is blocked for good. It cannot be set below 30, so"
+            " a hijacked conversation can always be stopped."
+        ),
     )
 
     def check(self) -> None:
@@ -94,15 +112,26 @@ class AuditConfig:
 
     enabled: bool = setting(
         default=True,
-        help="Write an audit record for every scan so decisions can be reviewed later.",
+        label="Keep a record",
+        help="Write down every check, so decisions can be reviewed later.",
     )
     verbosity: Literal["minimal", "standard", "verbose"] = setting(
         default="standard",
-        help="How much each audit record carries: a verdict, findings, or full scanner output.",
+        label="Detail",
+        help="How much each record holds.",
+        choice_labels={
+            "minimal": "The decision only",
+            "standard": "The decision and what was found",
+            "verbose": "Everything, including each check's full output",
+        },
     )
     emit_findings: bool = setting(
         default=False,
-        help="Also write one log line per finding, for a short false-positive capture window.",
+        label="Log every finding",
+        help=(
+            "Also write one log line per finding. Useful for a short while when tracking down "
+            "false alarms."
+        ),
     )
 
 
@@ -117,90 +146,118 @@ class AlertingConfig:
 
     enabled: bool = setting(
         default=True,
-        help="Watch for suspicious patterns and fire a warning when one appears.",
+        label="Warnings",
+        help="Watch for suspicious patterns and raise a warning when one appears.",
     )
     cooldown_seconds: float = setting(
         default=60.0,
         gt=0,
         audience="expert",
-        help="How many seconds before the same warning can fire again for one conversation.",
+        label="Repeat delay (seconds)",
+        help="How long before the same warning can be raised again for one conversation.",
     )
     per_minute_cap: int = setting(
         default=5,
         gt=0,
         audience="expert",
-        help="The most times one warning may fire per minute across all conversations.",
+        label="Per-minute limit",
+        help="The most times one warning may be raised per minute, across all conversations.",
     )
     per_hour_cap: int = setting(
         default=20,
         gt=0,
         audience="expert",
-        help="The most times one warning may fire per hour, the long-term ceiling.",
+        label="Per-hour limit",
+        help="The most times one warning may be raised per hour.",
     )
     critical_per_minute_cap: int = setting(
         default=20,
         gt=0,
         audience="expert",
-        help="The per-minute allowance for critical warnings, which skip the quieter caps.",
+        label="Critical per-minute limit",
+        help="The per-minute limit for critical warnings, which skip the other limits.",
     )
     high_severity_threshold: _SEVERITY = setting(
         default="high",
         audience="expert",
-        help="The least serious finding that still fires the high-severity warning.",
+        label="Serious-finding warning from",
+        help="The least serious finding that raises the serious-finding warning.",
+        choice_labels={
+            "critical": "Critical",
+            "high": "High",
+            "medium": "Medium",
+            "low": "Low",
+            "info": "Info",
+        },
     )
     rapid_fire_count: int = setting(
         default=10,
         gt=0,
         audience="expert",
-        help="How many unsafe scans from one conversation, inside the window, count as a burst.",
+        label="Burst size",
+        help=(
+            "How many unsafe checks from one conversation, within the burst window, count as a "
+            "burst."
+        ),
     )
     rapid_fire_window_seconds: float = setting(
         default=60.0,
         gt=0,
         audience="expert",
-        help="How many seconds of one conversation are counted for the rapid-fire warning.",
+        label="Burst window (seconds)",
+        help="The stretch of time a burst is counted over.",
     )
     cross_session_burst_count: int = setting(
         default=3,
         gt=0,
         audience="expert",
-        help="How many conversations must show findings before a coordinated burst is warned.",
+        label="Conversations for a coordinated burst",
+        help=(
+            "How many conversations must show findings at once before a coordinated attack is "
+            "warned about."
+        ),
     )
     cross_session_burst_window_seconds: float = setting(
         default=60.0,
         gt=0,
         audience="expert",
-        help="How many seconds are counted when looking for findings across many conversations.",
+        label="Coordinated burst window (seconds)",
+        help="The stretch of time findings across conversations are counted over.",
     )
     pii_volume_threshold: int = setting(
         default=20,
         gt=0,
         audience="expert",
-        help="How many personal-information findings in the window count as a leak spike.",
+        label="Personal-detail spike size",
+        help="How many personal-detail findings within the window count as a possible leak.",
     )
     pii_volume_window_seconds: float = setting(
         default=300.0,
         gt=0,
         audience="expert",
-        help="How many seconds of personal-information findings count toward the leak warning.",
+        label="Personal-detail spike window (seconds)",
+        help="The stretch of time personal-detail findings are counted over.",
     )
     ring_buffer_capacity: int = setting(
         default=1000,
         gt=0,
         audience="expert",
-        help="How many recent events the warnings remember; burst counts must fit inside it.",
+        label="Events remembered",
+        help="How many recent events the warnings remember. Burst sizes must fit inside it.",
     )
     per_session_contribution_cap: int = setting(
         default=2,
         gt=0,
         audience="expert",
-        help="The most warnings one conversation may contribute per rule per minute.",
+        label="Per-conversation share",
+        help="The most warnings one conversation may cause per rule per minute.",
     )
     max_session_contribution_entries: int = setting(
         default=10_000,
         gt=0,
         audience="expert",
-        help="How many conversation-and-rule pairs the fairness tracking can follow at once.",
+        label="Fairness entries",
+        help="How many conversation-and-rule pairs that share is tracked for at once.",
     )
 
     def check(self) -> None:
@@ -229,25 +286,32 @@ class SessionsConfig:
         default=10_000,
         gt=0,
         audience="expert",
-        help="The most conversations tracked at once; the oldest finished ones are dropped first.",
+        label="Most conversations tracked",
+        help="The most conversations tracked at once. The oldest finished ones are dropped first.",
     )
     ttl_seconds: float = setting(
         default=3600.0,
         gt=0,
         audience="expert",
-        help="How many seconds an idle conversation stays tracked before it can be forgotten.",
+        label="Idle time before forgetting (seconds)",
+        help="How long an idle conversation is kept before it can be forgotten.",
     )
     max_new_per_minute: int = setting(
         default=60,
         gt=0,
         audience="expert",
-        help="How many new conversations may start per minute once the store is already full.",
+        label="New conversations per minute when full",
+        help="How many new conversations may start per minute once the tracking is full.",
     )
     max_tombstones: int = setting(
         default=10_000,
         gt=0,
         audience="expert",
-        help="How many ended conversations to remember so the same id cannot start clean.",
+        label="Stopped conversations remembered",
+        help=(
+            "How many stopped conversations are remembered, so one cannot restart with a clean "
+            "score."
+        ),
     )
 
 
@@ -259,5 +323,9 @@ class StartupConfig:
         default=2.0,
         gt=0,
         le=60,
-        help="How many seconds a tool call waits for scanners to load before the fast check.",
+        label="Startup wait (seconds)",
+        help=(
+            "How long a tool call waits for the checks to finish starting. After that, the basic "
+            "checks decide alone."
+        ),
     )

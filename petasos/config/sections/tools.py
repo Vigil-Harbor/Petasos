@@ -24,25 +24,32 @@ class LineageConfig:
 
     enabled: bool = setting(
         default=True,
-        help="Make a helper at least as restricted as the conversation that launched it.",
+        label="Helpers inherit restrictions",
+        help=(
+            "A helper agent is at least as restricted as the conversation that "
+            "launched it, so starting a helper cannot shake off a block."
+        ),
     )
     max_depth: int = setting(
         default=8,
         gt=0,
         audience="expert",
-        help="How many parents up to walk when a sub-agent inherits a restriction.",
+        label="Generations to follow",
+        help="How many generations of helpers to follow back when passing on a restriction.",
     )
     max_edges: int = setting(
         default=10_000,
         gt=0,
         audience="expert",
-        help="How many parent-and-child links to remember at once.",
+        label="Links remembered",
+        help="How many helper-to-parent links Petasos remembers at once.",
     )
     edge_ttl_seconds: float = setting(
         default=3600.0,
         gt=0,
         audience="expert",
-        help="How many seconds a sub-agent's link to its parent stays valid.",
+        label="Link lifetime (seconds)",
+        help="How long a helper's link to the conversation that launched it is kept.",
     )
 
 
@@ -52,17 +59,20 @@ class FanoutConfig:
 
     enabled: bool = setting(
         default=True,
-        help="Cap how fast one conversation can launch helper sub-agents.",
+        label="Limit helper launches",
+        help="Limit how fast one conversation can launch helper agents.",
     )
     max_per_window: int = setting(
         default=3,
         gt=0,
-        help="How many helpers a calm conversation may launch in the window.",
+        label="Helpers per window",
+        help="How many helpers a calm conversation may launch within the window below.",
     )
     window_seconds: float = setting(
         default=60.0,
         gt=0,
-        help="How many seconds that helper allowance is measured over.",
+        label="Window (seconds)",
+        help="The length of time the helper limit is counted over.",
     )
 
 
@@ -75,32 +85,58 @@ class ToolsConfig:
 
     enabled: bool = setting(
         default=True,
-        help="Check tool calls before they run, and block them once a conversation has escalated.",
+        label="Check tool calls",
+        help=(
+            "Check each tool call before it runs, and block tool calls once a "
+            "conversation's risk score is too high."
+        ),
     )
     dangerous_posture: Literal["block", "approve"] = setting(
         default="block",
-        help="Block a dangerous tool call, or hand it to the host for approval.",
+        label="When a dangerous action is found",
+        help=(
+            "What happens when a tool call that can change things, such as a shell "
+            "command or a file write, matches a rule."
+        ),
+        choice_labels={
+            "block": "Block it",
+            "approve": "Ask a person for approval",
+        },
     )
     exempt: tuple[str, ...] = setting(
         default=(),
         normalize=str.casefold,
-        help="Tool names that still run when a conversation is in the blocked tier.",
+        label="Tools allowed while the conversation is blocked",
+        help=(
+            "Tools that keep working after a conversation's tool calls are blocked. "
+            "One tool name per line, such as web_search."
+        ),
     )
     aliases: Mapping[str, str] = setting(
         default={},
-        help="Extra names for a tool, so a variant is judged as the tool it really calls.",
+        label="Other names for tools",
+        help=(
+            "When a tool is reachable under another name, map that name to the real "
+            "tool so it is checked the same way. Written as other name and real name."
+        ),
     )
     delegate_names: tuple[str, ...] = setting(
         default=("delegate_task",),
-        help="Tool names that count as launching a helper sub-agent.",
+        label="Tools that launch helpers",
+        help="Tools that start a helper agent. One tool name per line.",
     )
     lineage: LineageConfig = setting(
         default=LineageConfig(),
-        help="Whether a helper inherits its parent's restriction, and the bookkeeping limits.",
+        label="Helper restrictions",
+        help=(
+            "Whether a helper agent inherits the restrictions of the conversation that launched "
+            "it."
+        ),
     )
     fanout: FanoutConfig = setting(
         default=FanoutConfig(),
-        help="How fast one conversation may launch helpers.",
+        label="Helper launch limit",
+        help="How fast one conversation may launch helper agents.",
     )
 
     def check(self) -> None:
@@ -128,14 +164,26 @@ class EgressConfig:
 
     sink_tools: tuple[str, ...] = setting(
         default=_EGRESS_TOOLS,
-        help="Tool names that send content out, such as email or an external web request.",
+        label="Tools that send data out",
+        help=(
+            "Tools that send content off the machine, such as email or a web request. One per "
+            "line."
+        ),
     )
     taint_namespaces: tuple[str, ...] = setting(
         default=(),
-        help="Name prefixes whose returned text must not later leave through an egress tool.",
+        label="Tools whose results must not leave",
+        help=(
+            "Tool name prefixes, one per line. Text these tools return is remembered, "
+            "and a tool that sends data out is stopped if it tries to send that text."
+        ),
     )
     taint_min_span_length: int = setting(
         default=12,
         gt=0,
-        help="The shortest returned snippet the fence remembers, so a price or a year is ignored.",
+        label="Shortest text remembered",
+        help=(
+            "The shortest piece of returned text, in characters, that is remembered, "
+            "so a short value like a price or a year is not."
+        ),
     )

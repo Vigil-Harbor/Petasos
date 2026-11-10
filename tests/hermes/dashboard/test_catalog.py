@@ -81,3 +81,54 @@ def test_preview_of_an_invalid_value_writes_nothing_and_names_the_path() -> None
     assert body["changes"] == []
     assert body["problems"][0]["path"].startswith("overrides")
     assert body["problems"][0]["message"]
+
+
+def test_read_serves_labels_for_every_name_a_person_reads() -> None:
+    """Rows, sections, roles, levels and the four stored settings each carry a plain label."""
+    body = read_settings({}, secrets=_SECRETS)
+    assert body["labels"] == {
+        "enabled": "Protection",
+        "role": "Job",
+        "level": "Strictness",
+        "overrides": "Your changes",
+    }
+    assert [role["label"] for role in body["roles"]][:2] == ["General", "Coding"]
+    assert body["levels"][0]["label"] == "Relaxed"
+    assert all(section["label"] for section in body["sections"])
+    rows = {row["path"]: row for row in body["settings"]}
+    posture = rows["tools.dangerous_posture"]
+    assert posture["label"] == "When a dangerous action is found"
+    assert posture["choice_labels"]["approve"] == "Ask a person for approval"
+    assert rows["tools.exempt"]["choice_labels"] is None
+
+
+def test_locked_settings_are_read_from_hermes_managed_keys() -> None:
+    """Pinned keys under Petasos's settings are served read-only: the four, and leaves."""
+    unknown = read_settings({}, secrets=_SECRETS)
+    assert unknown["locked"] == {"known": False, "stored": [], "settings": [], "plugin": False}
+    managed = frozenset(
+        {
+            "plugins.enabled",
+            "plugins.entries.petasos.settings.level",
+            "plugins.entries.petasos.settings.overrides.tools.exempt",
+            "model.default",
+        }
+    )
+    body = read_settings({}, secrets=_SECRETS, managed=managed)
+    assert body["locked"] == {
+        "known": True,
+        "stored": ["level"],
+        "settings": ["tools.exempt"],
+        "plugin": True,
+    }
+
+
+def test_a_value_you_set_says_what_resetting_it_would_leave() -> None:
+    """Reset names its destination: the value and the layer it comes from."""
+    body = read_settings(
+        {"role": "coding", "overrides": {"tools": {"dangerous_posture": "block"}}},
+        secrets=_SECRETS,
+    )
+    rows = {row["path"]: row for row in body["settings"]}
+    assert rows["tools.dangerous_posture"]["reset_to"] == {"value": "approve", "origin": "role"}
+    assert "reset_to" not in rows["tools.exempt"]

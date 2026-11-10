@@ -41,21 +41,42 @@ class RulesConfig:
 
     suppress: tuple[str, ...] = setting(
         default=(),
-        help="Rule ids to drop before they affect the verdict, the audit, or escalation.",
+        label="Rules turned off",
+        help=(
+            "Rules that are ignored completely: they do not block, are not recorded, "
+            "and do not raise the risk score. One rule id per line. Rules that check "
+            "the shape of the input, or changes to Petasos itself, cannot be turned off."
+        ),
     )
     severity_overrides: Mapping[str, str] = setting(
         default={},
-        help="Change a rule's severity so a noisy rule can stay visible without blocking.",
+        label="Rules with a different severity",
+        help=(
+            "Make a rule count as more or less serious. Low and info findings are "
+            "reported without blocking. Written as rule id and severity."
+        ),
     )
     confidence_floor: float = setting(
         default=0.0,
         ge=0,
         le=1,
-        help="Ignore findings weaker than this confidence, from 0 to 1.",
+        label="Ignore weak matches below",
+        help=(
+            "Each finding carries a match strength from 0 to 1. Findings weaker than "
+            "this are ignored. 0 keeps everything."
+        ),
     )
     injection_floor_scope: Literal["all", "inbound"] = setting(
         default="all",
-        help="Keep injection rules mandatory on every direction, or only on text coming in.",
+        label="Hidden-instruction rules can be turned off",
+        help=(
+            "Whether the rules for hidden instructions may be turned off for text the "
+            "agent sends out. They always stay on for text coming in."
+        ),
+        choice_labels={
+            "all": "Never: they stay on in both directions",
+            "inbound": "Only for text going out",
+        },
     )
 
     def check(self) -> None:

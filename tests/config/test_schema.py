@@ -780,3 +780,42 @@ def _assign_item(value: Any, index: int, item: object) -> None:
 
 def _assign_key(value: Any, key: str, item: object) -> None:
     value[key] = item
+
+
+class TestLabels:
+    def test_label_and_choice_labels_reach_describe(self) -> None:
+        @section
+        class Labelled:
+            mode: Literal["a", "b"] = setting(
+                default="a",
+                help="Pick one.",
+                label="Mode",
+                choice_labels={"a": "First", "b": "Second"},
+            )
+            plain_name: int = setting(default=1, help="A number.")
+
+        rows = leaves(Labelled)
+        assert rows["mode"].label == "Mode"
+        assert rows["mode"].choice_labels == {"a": "First", "b": "Second"}
+        assert rows["plain_name"].label == "Plain name"
+        assert rows["plain_name"].choice_labels is None
+
+    def test_choice_labels_must_cover_every_choice(self) -> None:
+        with pytest.raises(TypeError, match="every choice"):
+
+            @section
+            class Partial:
+                mode: Literal["a", "b"] = setting(
+                    default="a", help="Pick one.", choice_labels={"a": "First"}
+                )
+
+    def test_choice_labels_apply_only_to_a_choice(self) -> None:
+        with pytest.raises(TypeError, match="only to a choice"):
+
+            @section
+            class NotAChoice:
+                count: int = setting(default=1, help="A number.", choice_labels={"1": "One"})
+
+    def test_an_empty_label_is_refused(self) -> None:
+        with pytest.raises(TypeError, match="label"):
+            setting(default=1, help="A number.", label=" ")

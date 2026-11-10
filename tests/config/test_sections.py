@@ -3,12 +3,22 @@
 from __future__ import annotations
 
 import ast
-from dataclasses import replace
+from dataclasses import fields as dataclass_fields
+from dataclasses import is_dataclass, replace
 from pathlib import Path
 
 import pytest
 
-from petasos.config.schema import ConfigError, apply_live, evolve, from_mapping, leaves, to_mapping
+from petasos.config.schema import (
+    ConfigError,
+    FieldSpec,
+    apply_live,
+    describe,
+    evolve,
+    from_mapping,
+    leaves,
+    to_mapping,
+)
 from petasos.config.sections import PetasosConfig
 
 _TYPES = {
@@ -327,3 +337,48 @@ def test_leaves_are_the_field_rows_of_describe() -> None:
 
     assert leaves(PetasosConfig) == tuple(row for row in rows if isinstance(row, FieldInfo))
     assert len(rows) > len(leaves(PetasosConfig))
+
+
+def _declared_specs() -> list[tuple[str, FieldSpec]]:
+    """Every setting() declaration in the tree, by dotted path."""
+    found: list[tuple[str, FieldSpec]] = []
+
+    def walk(cls: type[object], prefix: str) -> None:
+        for item in dataclass_fields(cls):  # type: ignore[arg-type]
+            spec = item.metadata.get(FieldSpec)
+            assert isinstance(spec, FieldSpec)
+            path = f"{prefix}.{item.name}" if prefix else item.name
+            found.append((path, spec))
+            default = PetasosConfig()
+            node: object = default
+            for part in path.split("."):
+                node = getattr(node, part)
+            if is_dataclass(node) and not isinstance(node, type):
+                walk(type(node), path)
+
+    walk(PetasosConfig, "")
+    return found
+
+
+def test_every_setting_and_section_declares_a_plain_label() -> None:
+    """A person reads the label; the tab must not derive one from the path."""
+    missing = [path for path, spec in _declared_specs() if not spec.label]
+    assert missing == []
+    rows = describe(PetasosConfig)
+    assert all(row.label.strip() for row in rows)
+    by_path = {row.path: row for row in rows}
+    assert by_path["tools.dangerous_posture"].label == "When a dangerous action is found"
+    assert by_path["tools"].label == "Tool calls"
+
+
+def test_every_choice_names_each_option_in_plain_words() -> None:
+    """A choice-valued setting serves a label for each choice it accepts."""
+    for row in leaves(PetasosConfig):
+        if row.choices is None:
+            assert row.choice_labels is None, row.path
+            continue
+        assert row.choice_labels is not None, row.path
+        assert set(row.choice_labels) == {str(choice) for choice in row.choices}, row.path
+    posture = {row.path: row for row in leaves(PetasosConfig)}["tools.dangerous_posture"]
+    assert posture.choice_labels is not None
+    assert posture.choice_labels["approve"] == "Ask a person for approval"

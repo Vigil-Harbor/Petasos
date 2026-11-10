@@ -1,9 +1,14 @@
 """Join the dashboard tab's sources into the one script Hermes loads.
 
 Petasos ships no JavaScript toolchain. The tab is written as plain script
-files in ``hermes-plugin/petasos/dashboard/src/``; this joins them, in name
-order, inside one function, and embeds ``style.css`` as text the script
-adds to the page. The result is ``hermes-plugin/petasos/dashboard/index.js``.
+files in ``hermes-plugin/dashboard-src/``; this joins them, in name order,
+inside one function, and embeds ``style.css`` as text the script adds to
+the page. The result is ``hermes-plugin/petasos/dashboard/index.js``.
+
+The sources sit outside the plugin directory on purpose. Everything under
+``hermes-plugin/petasos/`` is installed into a person's Hermes home and
+scanned by Hermes before it loads the plugin; the sources are neither
+loaded nor needed there.
 
     python scripts/build_dashboard.py          # write index.js
     python scripts/build_dashboard.py --check  # exit 1 when index.js is stale
@@ -20,7 +25,7 @@ import sys
 from pathlib import Path
 
 DASHBOARD = Path(__file__).resolve().parents[1] / "hermes-plugin" / "petasos" / "dashboard"
-SOURCES = DASHBOARD / "src"
+SOURCES = DASHBOARD.parents[1] / "dashboard-src"
 TARGET = DASHBOARD / "index.js"
 STYLE_ID = "petasos-tab-style"
 
@@ -28,8 +33,8 @@ _HEADER = """\
 /*
  * Petasos tab for the Hermes dashboard.
  *
- * Generated from src/ by scripts/build_dashboard.py. Edit the files in src/
- * and run that script; a test fails when this file is stale.
+ * Generated from hermes-plugin/dashboard-src/ by scripts/build_dashboard.py.
+ * Edit those files and run that script; a test fails when this file is stale.
  *
  * Plain script, no build step: React, the components and the API client
  * all come from window.__HERMES_PLUGIN_SDK__. Every Petasos fact shown here
@@ -39,7 +44,7 @@ _HEADER = """\
 
 _STYLE = """\
 // ---------------------------------------------------------------------------
-// The layout rules from src/style.css, added once. Hermes's manifest can name
+// The layout rules from dashboard-src/style.css, added once. Hermes's manifest can name
 // a style sheet, but the installer copies only this script, so it carries
 // the rules itself.
 // ---------------------------------------------------------------------------
@@ -69,7 +74,9 @@ def render_index(sources: Path = SOURCES) -> str:
     css = (sources / "style.css").read_text(encoding="utf-8")
     parts: list[str] = []
     for index, path in enumerate(scripts):
-        parts.append(f"// ===== src/{path.name} =====\n" + path.read_text(encoding="utf-8"))
+        parts.append(
+            f"// ===== dashboard-src/{path.name} =====\n" + path.read_text(encoding="utf-8")
+        )
         if index == 0:
             parts.append(_STYLE.format(css=json.dumps(css), style_id=STYLE_ID))
     body = "\n".join(_indent(part) for part in parts)

@@ -1173,6 +1173,15 @@ again, and the file checks still run. `petasos doctor` does run the
 validator. The approval line reads this process, the same way the command
 does, so a dashboard process does not invent the gateway's unattended flags.
 
+`coverage` is read from the same scanner rows: `running` and `missing`
+(each `id`, `label`, `state`; a missing one also `recommended` and
+`reason`), and `complete`, true only when every check runs. The tab says
+what is on and what is not from it, so "on" never reads as complete
+coverage. `who_can_change` holds three sentences (`agent`, `you`,
+`switches`); the agent's says that an attempt is recorded and is not
+stopped by being recorded. `record_signing` is `signed`, the profile's
+`env_file`, and, when unsigned, the `steps` to start signing.
+
 `doctor.verdict` also requires the plugin files. `protection` does not: it
 is only the two switches and whether the settings resolve. A profile whose
 switches are on before the files are installed can report `protection: on`
@@ -1180,14 +1189,26 @@ while `doctor.verdict` is `not_protected`.
 
 #### `GET /settings`
 
-The four stored values, `help` for those four, `roles` (`name`,
-`description`, `suggests`) and `levels` (`name`, `description`) in offer
-order, `sections` in declaration order (`path`, `help`, `audience`,
-`restart`), and `settings`, one leaf per row, in declaration order:
+The four stored values, `labels` and `help` for those four, `roles`
+(`name`, `label`, `description`, `suggests`) and `levels` (`name`, `label`,
+`description`) in offer order, `sections` in declaration order (`path`,
+`label`, `help`, `audience`, `restart`), and `settings`, one leaf per row,
+in declaration order:
 
 `path`, `section` (the parent path, or `""`), `value`, `default`, `type`,
-`choices`, `bounds` (`ge`, `gt`, `le`, `lt`), `help`, `audience`,
-`restart`, `origin` (`default`, `role`, `level`, or `override`), `nullable`.
+`choices`, `choice_labels` (plain words per choice, or null), `bounds`
+(`ge`, `gt`, `le`, `lt`), `label`, `help`, `audience`, `restart`, `origin`
+(`default`, `role`, `level`, or `override`), `nullable`, and, on a row
+whose origin is `override`, `reset_to` (`value`, `origin`): what removing
+that override would leave. Every label and help sentence is declared with
+`setting()` in `petasos/config/sections/` and the roles and levels in
+`layers.py`; the front end derives none.
+
+`locked` is read-only and comes from Hermes's managed config
+(`hermes_cli.managed_scope.managed_config_keys`): `known` (false when this
+Hermes cannot say), `stored` (pinned keys among the four), `settings`
+(pinned leaf paths under `overrides`), and `plugin` (Hermes's plugin list
+is pinned).
 
 `secrets` is the set/unset pair. `valid` is false when the stored document
 does not resolve; `problems` is `[{path, message}]` and leaf `value` /
@@ -1256,8 +1277,16 @@ both text and a tool. Over 20,000 characters is HTTP 400 `too_large`.
 }
 ```
 
-`decision` is `allow`, `block`, or `approve`. `message` is what the model
-would see, after redaction, or empty on allow. `span` is null when the
+`decision` is `allow`, `block`, `approve`, or `flag`. Text coming in is a
+tool result, which Petasos never withholds: it is `flag` when a finding
+that is not personal information would block, the same test the result
+hook uses, and `message` is the warning the agent would see above it.
+Text going out is what the agent writes into a tool call, and a call
+carrying it is `block`. The tool is not known for text, so messages name
+it `<tool>`. `outcome` is the decision in words (`code`, `label`,
+`sentence`), and `confidence_help` says what a finding's `confidence`
+measures. `message` is what the model would see, after redaction, or
+empty on allow. `span` is null when the
 finding has no position. `normalized` is the normalised input when it
 differs, otherwise null. `scanners` lists the syntactic scanner and each
 registry entry that was considered. `participated` is false for `off`,
@@ -1274,10 +1303,25 @@ It uses an empty secret, a private session id, a discarding event sink, and
 an explicit protected-path list for that home. It does not open the
 enforcement spool and it does not read or write another session's state.
 
+#### `GET /playground/examples`
+
+`examples` (each `id`, `label` saying what it demonstrates, a one-line
+`description`, `kind` (`text` or `tool`), and its input: `text` with
+`direction`, or `tool` with `arguments`) and `default`, the one Try it
+opens with. They are
+served from the wheel, not written in the tab's script: Hermes scans a
+plugin directory for dangerous strings before it loads the plugin
+(`tools/plugin_guard.py`), and a sample attack in the script gave the
+directory a `dangerous` verdict, so Hermes refused to load Petasos. A test
+keeps such strings out of the plugin directory, and the tab's sources
+live in `hermes-plugin/dashboard-src/`, outside the installed directory.
+
 #### `GET /activity`
 
 Query: `cursor`, `limit` (1 to 100, default 50), `since`, `until` (unix
-seconds), `kind` (event type), `tool`, `session`, `severity`.
+seconds), `kind` (event type), `tool`, `session`, `severity`, and `q`: the
+start of an event id, or words matched against the event's sentence,
+tool, conversation, rule, kind and reason.
 
 ```json
 {
@@ -1301,7 +1345,14 @@ seconds), `kind` (event type), `tool`, `session`, `severity`.
 ```
 
 Events are newest first. Each event is the stored record (content fields
-redacted; ids are not) plus `summary` and `integrity`. `integrity.status`
+redacted; ids are not) plus `summary`, `outcome`, `matched_note` (the
+matched text is not kept, and why) and `integrity`, which carries
+`meaning`: what the signature proves and what it cannot. An attempt to
+change the guardrails (`selfmod_attempt`) takes its outcome from the event
+the enforcer wrote next for the same call (same conversation and tool,
+within seconds): `attempt_blocked`, `attempt_asked`, or `not_stopped`,
+with `outcome_note` and the `target`. Recording an attempt does not stop
+the call. `integrity.status`
 is `verified`, `failed` (with `reason`), or `off`. The page `integrity.mode`
 is `verified`, `mixed`, `failed`, or `off`. `off` means no usable session
 secret; the reason says which. Failed events are still returned.

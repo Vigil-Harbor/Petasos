@@ -24,19 +24,31 @@ class NormalizationConfig:
 
     nfkc: bool = setting(
         default=True,
-        help="Rewrite stylized letters into plain text before the optional scanners see it.",
+        label="Plain letters",
+        help=(
+            "Turn fancy or stylised letters into ordinary ones before the optional "
+            "checks read the text, so a disguise does not hide a word."
+        ),
     )
     zero_width: bool = setting(
         default=True,
-        help="Remove invisible characters that can hide instructions in ordinary-looking text.",
+        label="Remove invisible characters",
+        help="Remove characters you cannot see, which can hide instructions inside normal text.",
     )
     homoglyphs: bool = setting(
         default=True,
-        help="Turn look-alike letters into plain equivalents before optional scanners see them.",
+        label="Look-alike letters",
+        help=(
+            "Swap look-alike letters, such as a Cyrillic a, for the ordinary letter "
+            "before the optional checks read the text."
+        ),
     )
     decode_payloads: bool = setting(
         default=True,
-        help="Decode base64, hex, and ROT13 blobs and scan the plaintext for hidden instructions.",
+        label="Decode hidden text",
+        help=(
+            "Decode text hidden in base64, hex or ROT13 and check what it says for instructions."
+        ),
     )
 
 
@@ -46,15 +58,30 @@ class AnonymizationConfig:
 
     enabled: bool = setting(
         default=False,
-        help="Replace reported personal information with placeholders before the text goes on.",
+        label="Hide personal details",
+        help=(
+            "Replace personal details a check found, such as a name or a card number, "
+            "with a placeholder before the text goes on."
+        ),
     )
     entities: tuple[str, ...] = setting(
         default=(),
-        help="Which reported types to hide, or leave empty to hide every type a scanner reported.",
+        label="Kinds to hide",
+        help=(
+            "Which kinds of personal detail to hide, one per line, such as "
+            "EMAIL_ADDRESS. Leave empty to hide every kind that was found."
+        ),
     )
     mode: Literal["redact", "replace", "hash", "mask"] = setting(
         default="redact",
-        help="Hide a match with a label, a number, a keyed hash, or by masking all but the end.",
+        label="How to hide them",
+        help="What a hidden detail turns into.",
+        choice_labels={
+            "redact": "A label, such as <EMAIL_ADDRESS>",
+            "replace": "A numbered placeholder",
+            "hash": "A keyed fingerprint (needs the hash key)",
+            "mask": "Masked, keeping only the last few characters",
+        },
     )
 
 
@@ -68,63 +95,89 @@ class PetasosConfig:
 
     fail_mode: Literal["open", "degraded", "closed"] = setting(
         default="degraded",
+        label="If a check breaks",
         help=(
-            "When a scanner breaks: let the text through, block it, "
-            "or block it and stop early on a critical hit."
+            "What happens when an optional check crashes or times out. The basic "
+            "checks always run either way."
         ),
+        choice_labels={
+            "open": "Let the text through",
+            "degraded": "Block it",
+            "closed": "Block it, and skip optional checks after a critical finding",
+        },
     )
     direction: Literal["inbound", "outbound"] = setting(
         default="inbound",
-        help=(
-            "Treat text as coming in from the user, or going out from the agent, "
-            "when a caller does not say."
-        ),
+        label="Assumed direction",
+        help="Which way text is treated as moving when the caller does not say.",
+        choice_labels={
+            "inbound": "Coming in to the agent",
+            "outbound": "Going out from the agent",
+        },
     )
     normalization: NormalizationConfig = setting(
         default=NormalizationConfig(),
-        help="Text cleanup applied before the optional scanners see a scan.",
+        label="Text cleanup",
+        help="Undo common disguises before the optional checks read the text.",
     )
     scanners: ScannersConfig = setting(
         default=ScannersConfig(),
-        help="How long a scanner may run, and the settings for each optional scanner.",
+        label="Checks",
+        help="How long a check may take, and the optional checks you can add.",
     )
     rules: RulesConfig = setting(
         default=RulesConfig(),
-        help="Which findings are dropped, retargeted, or ignored for being too weak.",
+        label="Rules",
+        help="Turn off a rule, change how serious it counts as, or ignore weak matches.",
     )
     anonymization: AnonymizationConfig = setting(
         default=AnonymizationConfig(),
-        help="What happens to personal information after a scanner has reported it.",
+        label="Personal details",
+        help="Whether personal details a check finds are hidden before the text goes on.",
     )
     frequency: FrequencyConfig = setting(
         default=FrequencyConfig(),
-        help="The running risk score for one conversation.",
+        label="Risk score",
+        help=(
+            "Each finding adds points to the conversation's risk score, and the score "
+            "fades when things are quiet."
+        ),
     )
     escalation: EscalationConfig = setting(
         default=EscalationConfig(),
-        help="The scores at which a conversation is watched, blocked, and ended.",
+        label="Escalation",
+        help=(
+            "The risk scores at which a conversation is warned, has its tool calls "
+            "blocked, and is stopped."
+        ),
     )
     tools: ToolsConfig = setting(
         default=ToolsConfig(),
-        help="The tool-call guard and the limits on helper sub-agents.",
+        label="Tool calls",
+        help="What happens to a risky tool call, and the limits on helper agents.",
     )
     egress: EgressConfig = setting(
         default=EgressConfig(),
-        help="Which tools send data out, and which returned text must not leave.",
+        label="Sending data out",
+        help="Which tools send data out of the machine, and which text must not leave.",
     )
     audit: AuditConfig = setting(
         default=AuditConfig(),
-        help="The record written for each scan.",
+        label="Record",
+        help="What Petasos writes down about each check.",
     )
     alerting: AlertingConfig = setting(
         default=AlertingConfig(),
-        help="Warnings for bursts, spikes, and repeated findings.",
+        label="Warnings",
+        help="Warnings for bursts of activity, spikes, and repeated findings.",
     )
     sessions: SessionsConfig = setting(
         default=SessionsConfig(),
-        help="How many conversations are remembered, and for how long.",
+        label="Conversations",
+        help="How many conversations Petasos keeps track of, and for how long.",
     )
     startup: StartupConfig = setting(
         default=StartupConfig(),
-        help="How long a tool call waits while scanners are still starting.",
+        label="Startup",
+        help="How long a tool call waits while the checks are still starting.",
     )

@@ -28,7 +28,7 @@ def _builder() -> ModuleType:
 
 
 def test_committed_index_js_matches_its_sources() -> None:
-    """Edit src/ and run scripts/build_dashboard.py; this fails until you do."""
+    """Edit dashboard-src/ and run scripts/build_dashboard.py; this fails until you do."""
     builder = _builder()
     committed = (_DASHBOARD / "index.js").read_text(encoding="utf-8")
     assert committed == builder.render_index(), (
@@ -61,7 +61,7 @@ def test_check_mode_reports_a_stale_file(tmp_path: Path, monkeypatch: pytest.Mon
 
 def test_the_tab_uses_only_hermes_and_its_own_api() -> None:
     """No network asset, no second fetch path, no font or image of its own."""
-    sources = _DASHBOARD / "src"
+    sources = _DASHBOARD.parents[1] / "dashboard-src"
     script = "\n".join(path.read_text(encoding="utf-8") for path in sorted(sources.glob("*.js")))
     css = (sources / "style.css").read_text(encoding="utf-8")
     assert re.search(r"(?<![.\w])fetch\(", script) is None, "use SDK.fetchJSON"
@@ -73,3 +73,43 @@ def test_the_tab_uses_only_hermes_and_its_own_api() -> None:
     # Colours come from Hermes's variables. A literal hex colour is a palette of our own.
     assert re.search(r"#[0-9a-fA-F]{3,8}\b", css) is None
     assert 'var API = "/api/plugins/petasos";' in script
+
+
+# Strings Hermes's plugin guard (tools/plugin_guard.py at v0.23.1) reads as an
+# attack. A plugin directory that holds one gets a "dangerous" verdict, and
+# Hermes refuses to load the plugin. Sample attacks for Try it are served by
+# the API from the wheel instead.
+_GUARD_TRIPS = (
+    "ignore previous instructions",
+    "ignore all previous instructions",
+    "rm -rf",
+    "| bash",
+    "| sh",
+    "~/.ssh",
+    "system override",
+    "developer mode",
+)
+
+
+def test_the_plugin_directory_holds_no_sample_attack() -> None:
+    """Nothing Hermes scans before loading the plugin looks like an attack."""
+    plugin = _DASHBOARD.parent
+    found: list[str] = []
+    for path in sorted(plugin.rglob("*")):
+        if not path.is_file() or "__pycache__" in path.parts:
+            continue
+        text = path.read_text(encoding="utf-8", errors="ignore").lower()
+        found.extend(
+            f"{path.relative_to(plugin)}: {trip}" for trip in _GUARD_TRIPS if trip in text
+        )
+    assert found == []
+
+
+def test_the_installed_dashboard_folder_holds_only_what_hermes_loads() -> None:
+    """The installer copies dashboard/ as it is: the manifest, the API shim, the joined script."""
+    shipped = sorted(
+        path.name
+        for path in _DASHBOARD.iterdir()
+        if path.name != "__pycache__" and not path.name.startswith(".")
+    )
+    assert shipped == ["index.js", "manifest.json", "plugin_api.py"]
