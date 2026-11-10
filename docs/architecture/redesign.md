@@ -1174,10 +1174,14 @@ validator. The approval line reads this process, the same way the command
 does, so a dashboard process does not invent the gateway's unattended flags.
 
 `coverage` is read from the same scanner rows: `running` and `missing`
-(each `id`, `label`, `state`; a missing one also `recommended` and
-`reason`), and `complete`, true only when every check runs. The tab says
-what is on and what is not from it, so "on" never reads as complete
-coverage. `who_can_change` holds three sentences (`agent`, `you`,
+(each `id`, `label`, `state`, and `covers`, what the check looks for in
+plain words from the registry's capabilities; a missing one also
+`recommended`, `reason`, `held`, true when a check that is turned on
+cannot run and tool calls wait, and `command`, the one command that adds
+it, or null), `add_where` (where to run that command), and `complete`, true
+only when every check runs. The tab says what is on and what is not from
+it, so "on" never reads as complete coverage, and names a missing check by
+what it adds before the product. `who_can_change` holds three sentences (`agent`, `you`,
 `switches`); the agent's says that an attempt is recorded and is not
 stopped by being recorded. `record_signing` is `signed`, the profile's
 `env_file`, and, when unsigned, the `steps` to start signing.
@@ -1319,9 +1323,10 @@ live in `hermes-plugin/dashboard-src/`, outside the installed directory.
 #### `GET /activity`
 
 Query: `cursor`, `limit` (1 to 100, default 50), `since`, `until` (unix
-seconds), `kind` (event type), `tool`, `session`, `severity`, and `q`: the
-start of an event id, or words matched against the event's sentence,
-tool, conversation, rule, kind and reason.
+seconds), `kind` (event type), `tool`, `session`, `severity`, `outcome`
+(comma-separated outcome codes, at most 20), and `q`: the start of an event
+id, or words matched against the event's sentence, tool, conversation,
+rule, kind and reason.
 
 ```json
 {
@@ -1352,7 +1357,10 @@ change the guardrails (`selfmod_attempt`) takes its outcome from the event
 the enforcer wrote next for the same call (same conversation and tool,
 within seconds): `attempt_blocked`, `attempt_asked`, or `not_stopped`,
 with `outcome_note` and the `target`. Recording an attempt does not stop
-the call. `integrity.status`
+the call. `risk_block` is true when the call was stopped by the
+conversation's risk score (a `block` or `tier3` event, or an attempt the
+enforcer then blocked that way), so the tab can lead to the earlier
+warnings that built it. `integrity.status`
 is `verified`, `failed` (with `reason`), or `off`. The page `integrity.mode`
 is `verified`, `mixed`, `failed`, or `off`. `off` means no usable session
 secret; the reason says which. Failed events are still returned.
@@ -1367,9 +1375,14 @@ sets `complete` false when older bytes remain.
 
 #### `GET /activity/summary`
 
-The same time, kind, tool, session, and severity filters. `total`,
-`blocked` (quarantine, block, and tier 3), `by_kind`, `by_severity`,
-`complete`, `integrity`. The read cap is 4 MiB of the newest bytes.
+The same time, kind, tool, session, severity, outcome and text filters.
+`total` is the number of matching events, the rows the list shows.
+`blocked` is the number of tool calls among them that did not run: events
+whose outcome is `blocked`, `stopped` or `attempt_blocked`, with an attempt
+and the block written for the same call counted once when both match.
+Also `by_kind`, `by_severity`, `by_tool`, `by_session`, `by_outcome`,
+`kind_labels`, `complete`, `integrity`. The read cap is 4 MiB of the newest
+bytes.
 
 #### `GET /activity/{scan_id}`
 
