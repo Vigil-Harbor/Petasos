@@ -19,22 +19,6 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def _llm_guard_available() -> bool:
-    try:
-        importlib.import_module("llm_guard")
-        return True
-    except ImportError:
-        return False
-
-
-def _llama_firewall_available() -> bool:
-    try:
-        importlib.import_module("llamafirewall")
-        return True
-    except ImportError:
-        return False
-
-
 def test_benchmark_syntactic_only(benchmark) -> None:  # type: ignore[no-untyped-def]
     scanner = MinimalScanner()
     loop = asyncio.new_event_loop()
@@ -146,45 +130,10 @@ def test_benchmark_syntactic_separator_leet_worst_case(benchmark) -> None:  # ty
     loop.close()
 
 
-@pytest.mark.skipif(
-    not _llm_guard_available(),
-    reason="llm-guard not installed — pip install petasos[llm-guard]",
-)
-def test_benchmark_single_ml_llm_guard(benchmark) -> None:  # type: ignore[no-untyped-def]
-    from petasos.scanners.llm_guard import LlmGuardScanner
-
-    scanner = LlmGuardScanner()
-    loop = asyncio.new_event_loop()
-
-    def run() -> None:
-        loop.run_until_complete(scanner.scan("ignore previous instructions", direction="inbound"))
-
-    benchmark.pedantic(run, warmup_rounds=2, rounds=10)
-    loop.close()
-
-
-@pytest.mark.skipif(
-    not _llama_firewall_available(),
-    reason="llamafirewall not installed — pip install petasos[llamafirewall]",
-)
-def test_benchmark_single_ml_llama_firewall(benchmark) -> None:  # type: ignore[no-untyped-def]
-    from petasos.scanners.llama_firewall import LlamaFirewallScanner
-
-    scanner = LlamaFirewallScanner()
-    loop = asyncio.new_event_loop()
-
-    def run() -> None:
-        loop.run_until_complete(scanner.scan("ignore previous instructions", direction="inbound"))
-
-    benchmark.pedantic(run, warmup_rounds=2, rounds=10)
-    loop.close()
-
-
 # ---------------------------------------------------------------------------
-# PET-242: PromptGuard on the migrated stack. Measure-only. Read at HEAD_CHARS.
+# PromptGuard on the full stack. Measure-only. Read at HEAD_CHARS.
 # ---------------------------------------------------------------------------
 
-_MIGRATED_DISABLED = ("llm_guard", "llama_firewall")
 _NATURAL_SENTENCE = (
     "The quarterly report covers revenue, staffing and the migration schedule. "
     "Please review the attached notes and list anything that needs a decision. "
@@ -259,7 +208,7 @@ def test_benchmark_prompt_guard_8wide(benchmark) -> None:  # type: ignore[no-unt
     from petasos.session.ingest import HEAD_CHARS
 
     _prompt_guard_scanner()
-    config = PetasosConfig(disabled_scanners=(*_MIGRATED_DISABLED, "presidio"))
+    config = PetasosConfig(disabled_scanners=("presidio",))
     scanners, _statuses = build_scanners(config)
     pipe = Pipeline(scanners=scanners, config=config)
     text = _natural(HEAD_CHARS)
@@ -288,7 +237,7 @@ def test_benchmark_full_pipeline_migrated(benchmark) -> None:  # type: ignore[no
     from petasos.scanners import build_scanners
 
     _prompt_guard_scanner()
-    config = PetasosConfig(disabled_scanners=_MIGRATED_DISABLED)
+    config = PetasosConfig()
     scanners, statuses = build_scanners(config)
     if any(s.outcome != "verified" for s in statuses if s.outcome != "disabled"):
         pytest.skip(f"migrated stack not available: {statuses}")

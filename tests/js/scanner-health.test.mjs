@@ -88,11 +88,11 @@ test("shim: textContent setter throws (D10 tripwire is armed)", () => {
 test("test_scanner_health_rows_render_full_error", () => {
   const msg =
     "weakref TypeError: cannot create weak reference to 'BoundMethodWeakref'\n" +
-    "  File \"llm_guard/input_scanners/prompt_injection.py\", line 412, in _load\n" +
+    "  File \"presidio/analyzer.py\", line 412, in _load\n" +
     "  File \"transformers/pipelines/__init__.py\", line 906, in pipeline\n" +
     "  ...a long multi-line backend error that previously clipped to ~250px...";
   const tree = Pet.scannerHealthRows([
-    { name: "llm_guard", status: "error", last_ms: 12.3, last_error: msg },
+    { name: "presidio", status: "error", last_ms: 12.3, last_error: msg },
   ]);
   const errEl = findEl(tree, isErrorBlock);
   assert.ok(errEl, "error element with whiteSpace:pre-wrap not found");

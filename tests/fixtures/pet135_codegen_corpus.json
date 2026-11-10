@@ -89,12 +89,12 @@
     {
       "tool": "terminal",
       "param_text": "curl -s -m 3 http://localhost:3100/health 2>&1 | head -20; echo \"---\"; curl -s -m 3 http://localhost:3100/ 2>&1 | head -5",
-      "note": "LLM-Guard false-blocked in live replay (HIGH)"
+      "note": "injection classifier false-blocked in live replay (HIGH)"
     },
     {
       "tool": "terminal",
       "param_text": "pwd && git rev-parse --show-toplevel && git status --short && git branch --show-current\nC:/Users/<USER>/Documents/Vigil-Harbor/Petasos",
-      "note": "LLM-Guard false-blocked in live replay (HIGH)"
+      "note": "injection classifier false-blocked in live replay (HIGH)"
     }
   ]
 }

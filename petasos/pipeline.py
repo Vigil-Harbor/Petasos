@@ -549,13 +549,11 @@ class Pipeline:
                     probe_reason = probe_result[1] if len(probe_result) > 1 else None
                     probe_cause = probe_result[2] if len(probe_result) > 2 else None
 
-            # PET-108 (D5/D10): consult load_health() defensively for llm_guard's
-            # retryable/pending load state, which availability() does not cover.
-            # getattr-guarded (siblings lack it), arity-tolerant, exception-
-            # suppressed — a missing/malformed/raising load_health leaves
-            # ``load_failed`` False → the scanner reports ``healthy``, not
-            # ``degraded`` (mirrors the availability() idiom above; the only
-            # in-tree implementer returns a guaranteed 2-tuple).
+            # Consult load_health() for a retryable or pending load state that
+            # availability() does not cover. getattr-guarded, arity-tolerant,
+            # and exception-suppressed: a missing, malformed, or raising
+            # load_health leaves load_failed False, so the scanner reports
+            # healthy rather than degraded.
             load_failed = False
             load_error: str | None = None
             lh = getattr(s, "load_health", None)

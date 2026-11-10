@@ -88,8 +88,7 @@ def _reset_for_tests() -> None:
 
 
 def _hf_home() -> str:
-    # expanduser: llamafirewall sets HF_HOME to a literal "~/.cache/huggingface"
-    # and the two backends can share a process during migration.
+    # HF_HOME may be stored as a literal "~/..." path.
     home = os.environ.get("HF_HOME", "")
     return os.path.expanduser(home) if home else os.path.expanduser("~/.cache/huggingface")
 
@@ -409,7 +408,7 @@ class PromptGuardScanner:
     ) -> ScanResult:
         """Scan ``text`` and return a ScanResult (never raises).
 
-        Both directions score identically, as the LlamaFirewall wrapper does.
+        Both directions score identically.
 
         Load and inference run in a worker thread, so ``asyncio.wait_for`` in the
         pipeline can return during a slow load. Cancellation abandons queued

@@ -73,12 +73,10 @@ STAGE1_PACKAGES = (
     "en_core_web_lg",
 )
 SCANNER_PACKAGES = {
-    "llm_guard": ("llm_guard",),
-    "llama_firewall": ("llamafirewall",),
     "presidio": ("presidio_analyzer",),
     "prompt_guard": ("torch", "transformers"),
 }
-BACKENDS = ("llm_guard", "llama_firewall", "presidio", "prompt_guard", "semgrep")
+BACKENDS = ("presidio", "prompt_guard", "semgrep")
 ML_RULES = {
     "prompt_guard": "petasos.promptguard.injection",
     "presidio": "petasos.presidio.email_address",

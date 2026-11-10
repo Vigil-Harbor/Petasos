@@ -205,15 +205,6 @@ def test_presidio_default_entities(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_scanner_order_and_status_order(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        _scanners_module(), "LlmGuardScanner", _fake_class(scanner_name="llm_guard"), raising=False
-    )
-    monkeypatch.setattr(
-        _scanners_module(),
-        "LlamaFirewallScanner",
-        _fake_class(scanner_name="llama_firewall"),
-        raising=False,
-    )
     _patch_presidio(monkeypatch, _fake_class(scanner_name="presidio"))
     monkeypatch.setattr(
         _scanners_module(),
@@ -226,14 +217,10 @@ def test_scanner_order_and_status_order(monkeypatch: pytest.MonkeyPatch) -> None
 
     assert [s.name for s in scanners] == [
         "minimal",
-        "llm_guard",
-        "llama_firewall",
         "presidio",
         "prompt_guard",
     ]
     assert [s.scanner_id for s in statuses] == [
-        "llm_guard",
-        "llama_firewall",
         "presidio",
         "prompt_guard",
     ]
@@ -250,8 +237,6 @@ def test_scanner_id_matches_scanner_name() -> None:
     constructible on the ML-free lane with no backend present.
     """
     from petasos.scanners import (
-        LlamaFirewallScanner,
-        LlmGuardScanner,
         PresidioScanner,
         PromptGuardScanner,
     )
@@ -259,8 +244,6 @@ def test_scanner_id_matches_scanner_name() -> None:
     _, statuses = build_scanners(PetasosConfig())
     by_id = {s.scanner_id for s in statuses}
     assert by_id == {
-        LlmGuardScanner().name,
-        LlamaFirewallScanner().name,
         PresidioScanner().name,
         PromptGuardScanner().name,
     }
@@ -361,19 +344,15 @@ def test_ctor_failure_status(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_build_scanners_never_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     """Every optional-backend failure arm returns normally."""
-    monkeypatch.delattr(_scanners_module(), "LlmGuardScanner", raising=False)
+    monkeypatch.delattr(_scanners_module(), "PresidioScanner", raising=False)
     monkeypatch.setattr(
         _scanners_module(),
-        "LlamaFirewallScanner",
-        _fake_class(scanner_name="llama_firewall", ctor_exc=RuntimeError("boom")),
+        "PromptGuardScanner",
+        _fake_class(scanner_name="prompt_guard", ctor_exc=RuntimeError("boom")),
         raising=False,
     )
-    _patch_presidio(
-        monkeypatch, _fake_class(scanner_name="presidio", probe_exc=RuntimeError("probe boom"))
-    )
-    monkeypatch.delattr(_scanners_module(), "PromptGuardScanner", raising=False)
     scanners, statuses = build_scanners(PetasosConfig())
-    assert [s.outcome for s in statuses] == ["missing", "failed", "failed", "missing"]
+    assert [s.outcome for s in statuses] == ["missing", "failed"]
     assert scanners[0].name == "minimal"
 
 
@@ -382,8 +361,8 @@ def test_build_scanners_never_raises(monkeypatch: pytest.MonkeyPatch) -> None:
 # ---------------------------------------------------------------------------
 
 _FOUR_OUTCOMES: list[ScannerBuildStatus] = [
-    ScannerBuildStatus("llm_guard", "LLM Guard", "verified"),
-    ScannerBuildStatus("llama_firewall", "LlamaFirewall", "degraded", "no model"),
+    ScannerBuildStatus("prompt_guard", "PromptGuard", "verified"),
+    ScannerBuildStatus("semgrep", "Semgrep", "degraded", "no model"),
     ScannerBuildStatus("presidio", "Presidio", "missing", "import blew up"),
     ScannerBuildStatus("extra_backend", "Extra Backend", "failed", "kaboom"),
 ]
@@ -417,21 +396,19 @@ class TestCallerFormatting:
             build_dashboard_pipeline({})
 
         rendered = {r.getMessage(): r.levelno for r in caplog.records}
-        assert rendered["Dashboard scanner LLM Guard: backend verified"] == logging.INFO
+        assert rendered["Dashboard scanner PromptGuard: backend verified"] == logging.INFO
         assert (
             rendered[
-                "Dashboard scanner LlamaFirewall: backend unusable — scanner registered degraded "
+                "Dashboard scanner Semgrep: backend unusable — scanner registered degraded "
                 "(every scan will error): no model. Install the backend's runtime, "
-                "or add llama_firewall to disabled_scanners."
+                "or add semgrep to disabled_scanners."
             ]
             == logging.WARNING
         )
         assert rendered["Dashboard scanner Presidio: import failed"] == logging.WARNING
         assert rendered["Dashboard scanner Extra Backend failed: kaboom"] == logging.WARNING
         # The unavailable list keeps display-name vocabulary.
-        assert any(
-            "unavailable=['LlamaFirewall', 'Presidio', 'Extra Backend']" in m for m in rendered
-        )
+        assert any("unavailable=['Semgrep', 'Presidio', 'Extra Backend']" in m for m in rendered)
 
     def test_plugin_renders_all_four_outcomes(
         self, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
@@ -444,21 +421,19 @@ class TestCallerFormatting:
             ref._deferred_init()
 
         rendered = {r.getMessage(): r.levelno for r in caplog.records}
-        assert rendered["LLM Guard backend verified — scanner active"] == logging.INFO
+        assert rendered["PromptGuard backend verified — scanner active"] == logging.INFO
         assert (
             rendered[
-                "LlamaFirewall backend unusable — scanner registered degraded "
+                "Semgrep backend unusable — scanner registered degraded "
                 "(every scan will error): no model. Install the backend's runtime, "
-                "or add llama_firewall to disabled_scanners."
+                "or add semgrep to disabled_scanners."
             ]
             == logging.WARNING
         )
         assert rendered["Presidio not installed: PII detection unavailable"] == logging.INFO
         assert rendered["Extra Backend failed to load: kaboom"] == logging.WARNING
         # The startup summary keeps snake ids.
-        assert any(
-            "unavailable=['llama_firewall', 'presidio', 'extra_backend']" in m for m in rendered
-        )
+        assert any("unavailable=['semgrep', 'presidio', 'extra_backend']" in m for m in rendered)
 
 
 class TestPluginNotInstalledTable:
@@ -539,18 +514,16 @@ class TestEnforcementParity:
 
 class TestDisabledScanners:
     def test_disabled_backend_is_skipped_and_still_statused(self) -> None:
-        config = PetasosConfig(disabled_scanners=("llm_guard",))
+        config = PetasosConfig(disabled_scanners=("presidio",))
         scanners, statuses = build_scanners(config)
         by_id = {status.scanner_id: status for status in statuses}
         assert [status.scanner_id for status in statuses] == [
-            "llm_guard",
-            "llama_firewall",
             "presidio",
             "prompt_guard",
         ]
-        assert by_id["llm_guard"].outcome == "disabled"
-        assert by_id["llm_guard"].reason == "disabled by config"
-        assert [scanner.name for scanner in scanners if scanner.name == "llm_guard"] == []
+        assert by_id["presidio"].outcome == "disabled"
+        assert by_id["presidio"].reason == "disabled by config"
+        assert [scanner.name for scanner in scanners if scanner.name == "presidio"] == []
         assert scanners[0].name == "minimal"
 
 
@@ -575,43 +548,21 @@ class TestPromptGuardUpgradeBehavior:
         scanners, _statuses = build_scanners(config)
         return (await Pipeline(scanners=scanners, config=config).inspect(self._BENIGN)).safe
 
-    async def test_three_old_ids_disabled_blocks_until_prompt_guard_is_listed(self) -> None:
-        old = ("llm_guard", "llama_firewall", "presidio")
-        assert await self._safe(PetasosConfig(fail_mode="closed", disabled_scanners=old)) is False
+    async def test_presidio_disabled_blocks_until_prompt_guard_is_listed(self) -> None:
+        assert (
+            await self._safe(PetasosConfig(fail_mode="closed", disabled_scanners=("presidio",)))
+            is False
+        )
         assert (
             await self._safe(
-                PetasosConfig(fail_mode="closed", disabled_scanners=(*old, "prompt_guard"))
+                PetasosConfig(fail_mode="closed", disabled_scanners=("presidio", "prompt_guard"))
             )
             is True
         )
 
-    def test_default_config_reports_old_backends_degraded(
+    async def test_healthy_presidio_blocks_until_prompt_guard_is_listed(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        real_find_spec = importlib.util.find_spec
-
-        def find_spec(name: str, *args: Any) -> Any:
-            if name in {"llm_guard", "llamafirewall"}:
-                return None
-            return real_find_spec(name, *args)
-
-        monkeypatch.setattr(importlib.util, "find_spec", find_spec)
-        monkeypatch.delitem(sys.modules, "llm_guard", raising=False)
-        monkeypatch.delitem(sys.modules, "llamafirewall", raising=False)
-        _, statuses = build_scanners(PetasosConfig())
-        assert _status_by_id(statuses, "llm_guard").outcome == "degraded"
-        assert _status_by_id(statuses, "llama_firewall").outcome == "degraded"
-
-    async def test_healthy_old_backends_block_until_prompt_guard_is_listed(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        for attr, name in (
-            ("LlmGuardScanner", "llm_guard"),
-            ("LlamaFirewallScanner", "llama_firewall"),
-        ):
-            monkeypatch.setattr(
-                _scanners_module(), attr, _fake_class(scanner_name=name), raising=False
-            )
         _patch_presidio(monkeypatch, _fake_class(scanner_name="presidio"))
         assert await self._safe(PetasosConfig(fail_mode="degraded")) is False
         assert (
@@ -638,7 +589,7 @@ def test_semgrep_enabled_without_owner_never_constructs_or_probes(
     monkeypatch.setattr(SemgrepScanner, "__init__", forbidden)
     config = PetasosConfig(
         semgrep_enabled=True,
-        disabled_scanners=("presidio", "prompt_guard", "llm_guard", "llama_firewall"),
+        disabled_scanners=("presidio", "prompt_guard"),
     )
     if entrypoint == "builder":
         scanners, statuses = build_scanners(config)

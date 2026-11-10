@@ -810,7 +810,7 @@ class TestPromptGuardRealLibraries:
     async def test_whole_path_after_a_round_trip_under_slots_only_streams(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
-        # Regression for PET-242: the gateway's stream shape broke llm_guard (PET-92).
+        # The gateway's stream shape is slots-only and has no __weakref__.
         from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
         model, tokenizer = self._build()

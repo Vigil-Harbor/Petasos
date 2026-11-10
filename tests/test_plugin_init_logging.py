@@ -130,9 +130,6 @@ def _reset_plugin_api() -> Iterator[None]:
 # ---------------------------------------------------------------------------
 
 _BLOCKED_SCANNER_MODULES: dict[str, None] = {
-    "llm_guard": None,
-    "llm_guard.input_scanners": None,
-    "llamafirewall": None,
     "presidio_analyzer": None,
     "presidio_anonymizer": None,
 }

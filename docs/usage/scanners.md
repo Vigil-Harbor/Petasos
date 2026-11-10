@@ -6,7 +6,7 @@ session, and decides what to do. This page explains what each scanner detects,
 how it works, when it runs, and what you get by installing its optional extra.
 
 Detection ships free and keyless. The zero-dependency syntactic scanner is
-always present. The four machine-learning backends are *dependency-gated*: they
+always present. The machine-learning backends are *dependency-gated*: they
 are normal pip extras you opt into (`pip install petasos[...]`), not paid
 tiers. A backend you do not want belongs in `disabled_scanners`, which
 leaves it out of the pipeline. A backend that stays registered without its extra
@@ -27,9 +27,8 @@ The pipeline processes one piece of text through a fixed order of stages. The
    undone before anything is checked.
 2. **Syntactic pre-filter**: the always-on `MinimalScanner`, zero dependencies,
    runs on every scan.
-3. **Fan-out to the configured machine-learning scanners** (`PresidioScanner`,
-   `PromptGuardScanner`, and the deprecated `LlmGuardScanner` and
-   `LlamaFirewallScanner`), gathered concurrently.
+3. **Fan-out to the configured machine-learning scanners** (`PresidioScanner`
+   and `PromptGuardScanner`), gathered concurrently.
 4. **Merge and dedup** the findings from all scanners.
 5. **Frequency update**, then **escalation check** against the session's running
    risk score.
@@ -103,9 +102,7 @@ budget so it can sit in front of everything else.
 ## PromptGuardScanner (extra: `prompt-guard`)
 
 `PromptGuardScanner` runs Meta's PromptGuard 2 directly on torch and
-transformers. It is the `prompt_guard` backend. It is separate from
-`LlamaFirewallScanner`'s component of the same name, which reports a different
-rule id and goes away with that deprecated scanner.
+transformers. It is the `prompt_guard` backend.
 
 <!-- petasos-doc-assert: prompt_guard_rule_id=petasos.promptguard.injection prompt_guard_threshold=0.9 prompt_guard_revision=a8ded8e697ce7c355e395a0df51f94adb4a2fd27 -->
 
@@ -137,8 +134,7 @@ copy). Any other failure from a complete local copy lasts until restart.
 cannot push content out of view. Padding with ordinary words can, because the
 window has a fixed size. The scanner then reads the first 8,192 characters, and the
 model sees at most 512 tokens of those. Text past that window is not scored by
-this backend. `MinimalScanner` still covers it. This matches the LlamaFirewall
-wrapper.
+this backend. `MinimalScanner` still covers it.
 
 **Getting the model.** It is gated. Accept the access terms on the
 [model page](https://huggingface.co/meta-llama/Llama-Prompt-Guard-2-86M), then
@@ -163,93 +159,7 @@ transformers, sentencepiece and huggingface-hub.
 **Upgrading.** The backend registers even when its packages or model are absent,
 and then every scan through it errors. Under `degraded` (the default) and
 `closed`, that blocks all content. Install the extra, or list `prompt_guard` in
-`disabled_scanners`. A fresh `petasos[all]` install also needs `llm_guard` and
-`llama_firewall` in that list, because those two now register without their
-packages. Build the scanner set you want with `disabled_scanners`.
-
-## LlmGuardScanner (extra: `llm-guard`)
-
-**Deprecated.** `LlmGuardScanner` and the `llm-guard` extra will be removed in a
-later release, possibly sooner if their pinned dependencies prove compromised.
-`PromptGuardScanner` replaces its injection detection only. Its toxicity, secrets
-and ban-topics detectors have no replacement in this release.
-
-`LlmGuardScanner` wraps the [LLM Guard](https://github.com/protectai/llm-guard)
-library to add model-backed prompt-injection and content detection on top of the
-syntactic rules.
-
-**What it detects.** LLM Guard's scanner suite (model-scored prompt-injection and
-related content checks), contributing its findings to the merge stage.
-
-**How it works.** The backend needs the extra (`pip install petasos[llm-guard]`).
-Until then the scanner reports itself unavailable and every scan through it errors,
-unless `disabled_scanners` lists it. The underlying models load lazily on
-first use, with a bounded retry budget (one attempt plus two retries) behind a
-stdio and weakref shield so that structlog's weakref registration cannot crash
-hosts with slots-only stdio (Hermes Desktop is the motivating case).
-
-The scanner distinguishes two unavailable states for operators: **absent** (the
-`llm-guard` extra is not installed) versus **load-failed** (the extra is
-installed but the model could not be loaded). The first is a packaging choice;
-the second is something to investigate.
-
-**When it runs.** Stage 3, in the machine-learning fan-out, unless disabled.
-
-**What the extra adds.** `pip install petasos[llm-guard]` installs LLM Guard and
-its model dependencies and makes this scanner available.
-
-## LlamaFirewallScanner (extra: `llamafirewall`)
-
-**Deprecated.** `LlamaFirewallScanner` and the `llamafirewall` extra will be
-removed in a later release. `PromptGuardScanner` and `petasos[prompt-guard]` replace
-its injection detection only. `alignment_check` and `code_shield` have no replacement
-in this release, so a host that enabled them loses those checks when it migrates.
-
-`LlamaFirewallScanner` wraps Meta's
-[LlamaFirewall](https://github.com/meta-llama/PurpleLlama) and exposes three
-named components.
-
-**What it detects.** Three components, each mapped to a finding category and a
-severity:
-
-<!-- petasos-doc-assert: llamafirewall_components=prompt_guard,alignment_check,code_shield -->
-
-- `prompt_guard`: prompt-injection detection, category `injection`, severity
-  HIGH.
-- `alignment_check`: agent-alignment auditing, category `alignment`, severity
-  HIGH.
-- `code_shield`: unsafe-code detection, category `unsafe_code`, severity MEDIUM.
-
-**How it works.** The live path may need a Hugging Face token and model
-prerequisites to download the underlying models. The first scan triggers a model
-load and reports a short "warming up" status while that happens. A stdin guard
-intercepts the interactive prompt some model loaders raise in a non-interactive
-host, turning it into an actionable message instead of a hang.
-
-**When it runs.** Stage 3, in the machine-learning fan-out, only when installed
-and enabled.
-
-**What the extra adds.** `pip install petasos[llamafirewall]` installs
-LlamaFirewall and makes the three components above available.
-
-**Setting up the gated PromptGuard 2 model.** PromptGuard 2
-(`meta-llama/Llama-Prompt-Guard-2-86M`) is a *gated* model on Hugging Face, so
-installing the extra is not enough on its own. Before the first live scan:
-
-1. Request access on the model page,
-   [huggingface.co/meta-llama/Llama-Prompt-Guard-2-86M](https://huggingface.co/meta-llama/Llama-Prompt-Guard-2-86M),
-   while signed in, and accept Meta's access terms. Approval is usually quick.
-2. Authenticate locally so the download can use that grant: run
-   `huggingface-cli login`, or set `HF_TOKEN` to a read token from your account.
-   Confirm with `huggingface-cli whoami`.
-3. If you run the prompt-guard scanner in parallel, set
-   `export TOKENIZERS_PARALLELISM=true`.
-
-The first scan then downloads the model into your Hugging Face cache
-(`~/.cache/huggingface`, or `HF_HOME` if set). Until access is granted and a
-token is present, the scanner fails fast with an actionable message rather than
-hanging on the loader's interactive login prompt. `alignment_check` and
-`code_shield` are opt-in and carry their own model and runtime prerequisites.
+`disabled_scanners`.
 
 ## PresidioScanner (extra: `presidio`)
 

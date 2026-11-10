@@ -234,7 +234,7 @@ async def test_lossy_leet_not_claimed_by_syntactic() -> None:
     payload's leet is lossy ('1n57ruc75' = 'instructs', no 'ion'; 'pr3v105' =
     'previos', no 'u') and uses '1' inconsistently ('i' in 1gn0r3, 'l' in
     411), so no deterministic 1:1 decode recovers a trigger phrase. This is
-    ML-layer residue (PromptGuard/DeBERTa caught the live attempt) — a future
+    ML-layer residue (PromptGuard caught the live attempt) — a future
     'improvement' that fuzzy-matches its way to a catch would inflate FPs and
     must consciously flip this pin."""
     # Regression for PET-97: lossy leet stays out of the syntactic layer's claims

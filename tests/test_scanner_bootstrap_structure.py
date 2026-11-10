@@ -40,8 +40,6 @@ _REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 _SCANNER_CLASSES = frozenset(
     {
         "MinimalScanner",
-        "LlmGuardScanner",
-        "LlamaFirewallScanner",
         "PresidioScanner",
         "PromptGuardScanner",
         "SemgrepScanner",
@@ -56,15 +54,13 @@ _MODULE_SCOPE = "<module>"
 
 _SWEEP_ROOTS = ("petasos", "docs/deployment")
 
-# The six modules that DEFINE the scanner classes (and the helper that owns the
+# The modules that DEFINE the scanner classes (and the helper that owns the
 # one legitimate construction of each). A file list, not a directory one, so a
 # future petasos/scanners/factory.py is swept rather than born invisible.
 # Repo-relative POSIX strings, per the Paths rule below.
 _DEFINITION_MODULES = frozenset(
     {
         "petasos/scanners/minimal.py",
-        "petasos/scanners/llm_guard.py",
-        "petasos/scanners/llama_firewall.py",
         "petasos/scanners/presidio.py",
         "petasos/scanners/prompt_guard.py",
         "petasos/scanners/semgrep.py",
@@ -160,7 +156,7 @@ def _constructions_in(node: ast.AST, path: str, scope: str = _MODULE_SCOPE) -> l
     for child, child_scope in _scoped_nodes(node, scope, ""):
         if isinstance(child, ast.Call):
             func = child.func
-            # (a) direct name call - LlmGuardScanner()
+            # (a) direct name call - PresidioScanner()
             if isinstance(func, ast.Name) and func.id in _SCANNER_CLASSES:
                 found.append(Construction(path, child_scope, func.id, child.lineno))
             # (b) attribute call - petasos.scanners.PresidioScanner()
@@ -350,9 +346,8 @@ def _deferred_init():
 _PRE_FIX_CONSOLE = """
 def build_dashboard_pipeline(raw_config):
     for name, cls_path in [
-        ("LLM Guard", "petasos.scanners.LlmGuardScanner"),
-        ("LlamaFirewall", "petasos.scanners.LlamaFirewallScanner"),
         ("Presidio", "petasos.scanners.PresidioScanner"),
+        ("PromptGuard", "petasos.scanners.PromptGuardScanner"),
     ]:
         mod, cls = cls_path.rsplit(".", 1)
         m = importlib.import_module(mod)
@@ -377,9 +372,8 @@ def test_retro_pre_fix_console_would_be_flagged() -> None:
     violations = check_bootstrap_routes(
         _PRE_FIX_CONSOLE, "petasos/console/_standalone.py", "build_dashboard_pipeline"
     )
-    assert any("LlmGuardScanner" in v for v in violations)
-    assert any("LlamaFirewallScanner" in v for v in violations)
     assert any("PresidioScanner" in v for v in violations)
+    assert any("PromptGuardScanner" in v for v in violations)
 
 
 def test_attribute_call_is_flagged() -> None:

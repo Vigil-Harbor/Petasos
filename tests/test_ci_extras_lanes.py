@@ -2,21 +2,17 @@
 
 A scanner extra declared in ``pyproject.toml`` ``[project.optional-dependencies]``
 whose real-backend tests gate on the extra's presence (``@requires_presidio``,
-``_skip_no_llm_guard``, …) will *silently self-skip* in the default ``ci.yml``
-lane, which installs only ``[dev]``. A broken live-backend path then passes the
-green gate indefinitely — the bug class behind PET-87 / PET-96 / PET-104. This
-module mechanizes the invariant: for each scanner extra ``E`` there must exist a
+and the same shape for the other scanner extras) will *silently self-skip* in the
+default ``ci.yml`` lane, which installs only ``[dev]``. A broken live-backend path
+then passes the green gate indefinitely. This module mechanizes the invariant:
+for each scanner extra ``E`` there must exist a
 ``.github/workflows/extras-<E>.yml`` lane that installs ``E`` (as an extras
 bracket) and runs ``pytest``.
 
 The check is pure/IO-split so the invariant logic is provable on synthetic inputs
-*and* runs against the real repo (the live witness). Retro-assertion (Done-when
-#3): applied to the pre-PET-104 tree — which declared the ``llm-guard`` extra but
-shipped no ``extras-llm-guard.yml`` lane — ``_check_lane_pairing`` would have
-returned a violation naming ``llm-guard``; this is encoded executably as
-``test_retro_pre_pet104_would_flag_llm_guard``.
+*and* runs against the real repo (the live witness).
 
-The posture is fail-closed (spec Decision 2): any *new* optional-dependency key is
+The posture is fail-closed: any *new* optional-dependency key is
 treated as a scanner extra (and so requires a lane) until it is paired with a lane
 or added to ``_NON_SCANNER_EXTRAS``. Over-requiring a lane is the safe direction.
 """
@@ -168,9 +164,8 @@ def _check_env_arm(lane_workflow: _Workflow | None, env_flag: str) -> list[str]:
     GitHub Actions' runtime stringification and the conftest guard's
     ``os.environ.get(env_flag) != "1"``), so an unquoted YAML int is accepted
     exactly as the runtime accepts it. Step- and workflow-level ``env`` are out of
-    scope by design: the lanes arm at job level, and ``extras-llamafirewall.yml``
-    carries an unrelated *step-level* ``env`` (HF tokens) this must not confuse for
-    the arm."""
+    scope by design: the lanes arm at job level, so a step-level ``env`` block
+    must not be read as the arm."""
     if isinstance(lane_workflow, dict):
         jobs = lane_workflow.get("jobs")
         if isinstance(jobs, dict):
@@ -323,15 +318,6 @@ def test_pairing_check_flags_missing_lane() -> None:
     assert any("presidio" in violation for violation in violations)
 
 
-def test_retro_pre_pet104_would_flag_llm_guard() -> None:
-    """Retro regression (Done-when #3): the pre-PET-104 tree declared the
-    llm-guard extra with no extras-llm-guard.yml lane; the check would have
-    flagged it."""
-    workflows: dict[str, _Workflow | None] = {"extras-llm-guard.yml": None}
-    violations = _check_lane_pairing({"llm-guard"}, workflows)
-    assert any("llm-guard" in violation for violation in violations)
-
-
 def test_pairing_check_flags_lane_without_pytest() -> None:
     """A lane that installs the extra but never runs pytest is a violation."""
     lane: _Workflow = {
@@ -421,7 +407,8 @@ def test_pairing_check_empty_extras_returns_no_violations() -> None:
 # --------------------------------------------------------------------------- #
 
 
-def test_all_extra_excludes_the_deprecated_backends() -> None:
+def test_all_extra_is_presidio_prompt_guard_and_console() -> None:
+    """``all`` installs the current scanner extras plus the console."""
     with (pathlib.Path(__file__).resolve().parents[1] / "pyproject.toml").open("rb") as f:
         extras = tomllib.load(f)["project"]["optional-dependencies"]
     assert extras["all"] == ["petasos[presidio,prompt-guard,console]"]

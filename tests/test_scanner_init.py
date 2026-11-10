@@ -23,20 +23,20 @@ if TYPE_CHECKING:
 
 class TestIsMissingPackage:
     def test_matches_expected_name(self) -> None:
-        exc = ImportError(name="llm_guard")
-        assert _is_missing_package(exc, {"llm_guard"}) is True
+        exc = ImportError(name="presidio_analyzer")
+        assert _is_missing_package(exc, {"presidio_analyzer"}) is True
 
     def test_rejects_unexpected_name(self) -> None:
         exc = ImportError(name="torch")
-        assert _is_missing_package(exc, {"llm_guard"}) is False
+        assert _is_missing_package(exc, {"presidio_analyzer"}) is False
 
     def test_rejects_none_name(self) -> None:
         exc = ImportError("broken")
-        assert _is_missing_package(exc, {"llm_guard"}) is False
+        assert _is_missing_package(exc, {"presidio_analyzer"}) is False
 
     def test_rejects_submodule(self) -> None:
-        exc = ImportError(name="llm_guard.submodule")
-        assert _is_missing_package(exc, {"llm_guard"}) is False
+        exc = ImportError(name="presidio_analyzer.submodule")
+        assert _is_missing_package(exc, {"presidio_analyzer"}) is False
 
 
 # ---------------------------------------------------------------------------
@@ -75,12 +75,12 @@ class TestImportGuardIntegration:
         original_import = __import__
 
         def selective_import(name: str, *args: Any, **kwargs: Any) -> Any:
-            if "llm_guard" in name and "scanners" in name:
-                raise ImportError(name="torch")
+            if "prompt_guard" in name and "scanners" in name:
+                raise ImportError(name="not_a_backend_dep")
             return original_import(name, *args, **kwargs)
 
         sys.modules.pop("petasos.scanners", None)
-        sys.modules.pop("petasos.scanners.llm_guard", None)
+        sys.modules.pop("petasos.scanners.prompt_guard", None)
         with (
             patch("builtins.__import__", side_effect=selective_import),
             pytest.raises(
@@ -88,18 +88,18 @@ class TestImportGuardIntegration:
             ) as exc_info,
         ):
             importlib.import_module("petasos.scanners")
-        assert getattr(exc_info.value, "name", None) == "torch"
+        assert getattr(exc_info.value, "name", None) == "not_a_backend_dep"
 
     def test_bare_importerror_reraises(self) -> None:
         original_import = __import__
 
         def selective_import(name: str, *args: Any, **kwargs: Any) -> Any:
-            if "llm_guard" in name and "scanners" in name:
+            if "prompt_guard" in name and "scanners" in name:
                 raise ImportError("broken dependency")
             return original_import(name, *args, **kwargs)
 
         sys.modules.pop("petasos.scanners", None)
-        sys.modules.pop("petasos.scanners.llm_guard", None)
+        sys.modules.pop("petasos.scanners.prompt_guard", None)
         with (
             patch("builtins.__import__", side_effect=selective_import),
             pytest.raises(
@@ -113,33 +113,33 @@ class TestImportGuardIntegration:
         original_import = __import__
 
         def selective_import(name: str, *args: Any, **kwargs: Any) -> Any:
-            if "llm_guard" in name and "scanners" in name:
-                raise ImportError(name="llm_guard")
+            if "prompt_guard" in name and "scanners" in name:
+                raise ImportError(name="torch")
             return original_import(name, *args, **kwargs)
 
         sys.modules.pop("petasos.scanners", None)
-        sys.modules.pop("petasos.scanners.llm_guard", None)
+        sys.modules.pop("petasos.scanners.prompt_guard", None)
         with patch("builtins.__import__", side_effect=selective_import):
             mod = importlib.import_module("petasos.scanners")
-            assert "LlmGuardScanner" not in mod.__all__
+            assert "PromptGuardScanner" not in mod.__all__
             assert "MinimalScanner" in mod.__all__
 
     def test_missing_extra_logs_debug(self, caplog: pytest.LogCaptureFixture) -> None:
         original_import = __import__
 
         def selective_import(name: str, *args: Any, **kwargs: Any) -> Any:
-            if "llm_guard" in name and "scanners" in name:
-                raise ImportError(name="llm_guard")
+            if "prompt_guard" in name and "scanners" in name:
+                raise ImportError(name="torch")
             return original_import(name, *args, **kwargs)
 
         sys.modules.pop("petasos.scanners", None)
-        sys.modules.pop("petasos.scanners.llm_guard", None)
+        sys.modules.pop("petasos.scanners.prompt_guard", None)
         with (
             caplog.at_level(logging.DEBUG, logger="petasos.scanners"),
             patch("builtins.__import__", side_effect=selective_import),
         ):
             importlib.import_module("petasos.scanners")
-        assert any("LlmGuardScanner not available" in r.message for r in caplog.records)
+        assert any("PromptGuardScanner not available" in r.message for r in caplog.records)
 
     def test_missing_presidio_removes_both_from_all(self) -> None:
         original_import = __import__
@@ -155,21 +155,6 @@ class TestImportGuardIntegration:
             mod = importlib.import_module("petasos.scanners")
             assert "PresidioScanner" not in mod.__all__
             assert "anonymize" not in mod.__all__
-            assert "MinimalScanner" in mod.__all__
-
-    def test_missing_llama_removes_from_all(self) -> None:
-        original_import = __import__
-
-        def selective_import(name: str, *args: Any, **kwargs: Any) -> Any:
-            if "llama_firewall" in name and "scanners" in name:
-                raise ImportError(name="llamafirewall")
-            return original_import(name, *args, **kwargs)
-
-        sys.modules.pop("petasos.scanners", None)
-        sys.modules.pop("petasos.scanners.llama_firewall", None)
-        with patch("builtins.__import__", side_effect=selective_import):
-            mod = importlib.import_module("petasos.scanners")
-            assert "LlamaFirewallScanner" not in mod.__all__
             assert "MinimalScanner" in mod.__all__
 
     def test_minimal_always_present(self) -> None:

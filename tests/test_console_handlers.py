@@ -19,8 +19,6 @@ from petasos.console._paths import (  # noqa: E402
 )
 from petasos.console.server import ConsoleHandlers  # noqa: E402
 from petasos.pipeline import Pipeline  # noqa: E402
-from petasos.scanners.llama_firewall import LlamaFirewallScanner  # noqa: E402
-from petasos.scanners.llm_guard import LlmGuardScanner  # noqa: E402
 from petasos.scanners.minimal import MinimalScanner  # noqa: E402
 from petasos.scanners.presidio import PresidioScanner  # noqa: E402
 
@@ -804,7 +802,7 @@ async def test_health_load_failed_distinct_from_unavailable() -> None:
     """Installed-but-load-crashed → status 'error' (not 'unavailable'); full crash msg."""
     crash = (
         "TypeError: cannot create weak reference to 'BoundMethodWeakref'\n"
-        '  File "llm_guard/input_scanners/prompt_injection.py", line 412, in _load\n'
+        '  File "presidio/analyzer.py", line 412, in _load\n'
         '  File "transformers/pipelines/__init__.py", line 906, in pipeline\n'
         "  ...full multi-line traceback tail an operator must be able to read..."
     )
@@ -910,22 +908,10 @@ async def test_availability_returns_cause_discriminator(
 
     fake_spec = _t.SimpleNamespace(origin="/fake/origin")
 
-    # scanner typed Any so the heterogeneous _load_error assignment (str on
-    # llm_guard/llama_firewall, BaseException on presidio) stays type-clean.
-    llm: Any = LlmGuardScanner()
-    llama: Any = LlamaFirewallScanner(enable_prompt_guard=False)
+    # Presidio's _load_error is a BaseException. Typed Any so the assignment
+    # stays compatible with the probe's duck-typed attribute.
     pres: Any = PresidioScanner()
     cases: list[tuple[Any, tuple[str, ...], object]] = [
-        (
-            llm,
-            ("llm_guard", "llm_guard.input_scanners"),
-            "TypeError: weakref (llm_guard load crash)",
-        ),
-        (
-            llama,
-            ("llamafirewall",),
-            "EOFError: tripwire model truncated (llamafirewall load crash)",
-        ),
         (
             pres,
             ("presidio_analyzer", "presidio_anonymizer"),
@@ -1052,7 +1038,7 @@ async def test_health_returns_healthy_after_recovery() -> None:
 async def test_scanner_health_no_attributeerror_on_sibling_ml() -> None:
     """PET-108 D5: scanner_health() does not raise when an _ml_scanners member
     lacks load_health() (a stub with availability() but no load_health, mirroring
-    Presidio/LlamaFirewall); its entry is computed normally."""
+    Presidio); its entry is computed normally."""
     stub = _AvailableScanner("sibling_ml", error=None)  # availability() but NO load_health
     pipe = Pipeline(
         scanners=[MinimalScanner(), stub],

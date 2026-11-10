@@ -1,6 +1,6 @@
 """PET-133: unit tests for the D3 local-inference lint predicate.
 
-Backend-free (no Presidio / LLM-Guard / LlamaFirewall import): runs on any
+Backend-free (no Presidio import): runs on any
 interpreter with Petasos importable. Covers ``is_local_inference_endpoint``
 table-driven (at least one row per contract clause) plus the Gavin-shaped
 profile gate (``test_gavin_profile_is_local_inference``).

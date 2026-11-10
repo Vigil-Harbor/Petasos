@@ -383,7 +383,7 @@ class TestConfigFromDictRoundTrip:
             {
                 **_PRODUCTION_CONFIG_DICT,
                 "enabled": True,
-                "scanners": ["llm_guard", "presidio"],
+                "scanners": ["presidio"],
             }
         )
         assert cfg.fail_mode == "closed"

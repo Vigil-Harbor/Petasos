@@ -44,10 +44,6 @@ Changelog = "https://github.com/Vigil-Harbor/Petasos/blob/master/CHANGELOG.md"
 petasos-console = "petasos.console.__main__:main"
 
 [project.optional-dependencies]
-# PET-242: llm-guard and llamafirewall are deprecated in favor of prompt-guard and
-# will be removed in a later release. Both stay installable by name until then.
-llm-guard = ["llm-guard>=0.3.16,<0.4"]
-llamafirewall = ["llamafirewall"]
 # huggingface-hub 0.34 is the first with the `hf` command the docs and the scanner's
 # error message name.
 prompt-guard = [
@@ -101,10 +97,6 @@ module = [
     "presidio_anonymizer.*",
     "spacy",
     "spacy.*",
-    "llm_guard",
-    "llm_guard.*",
-    "llamafirewall",
-    "llamafirewall.*",
     "transformers",
     "transformers.*",
     "torch",

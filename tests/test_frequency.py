@@ -701,7 +701,7 @@ class TestWeightCapQuantization:
     def test_step8_suppressed_when_capped_contribution_is_zero(self) -> None:
         # Both zero-contribution shapes: a sub-step mapped id, and an UNMAPPED
         # id resolving to 0.0 (the extras-scanner shape, e.g.
-        # petasos.llmguard.injection) — neither may arm the count-based
+        # petasos.promptguard.injection) — neither may arm the count-based
         # rolling-window promotion channel the clamp cannot bound.
         tracker = FrequencyTracker(_cfg(rolling_threshold=3))
         t0 = 1000.0
@@ -711,7 +711,7 @@ class TestWeightCapQuantization:
                     "s-sub", ["petasos.syntactic.encoding.b64"], weight_cap=3.75
                 )
                 res_unmapped = tracker.update(
-                    "s-ml", ["petasos.llmguard.injection"], weight_cap=3.75
+                    "s-ml", ["petasos.promptguard.injection"], weight_cap=3.75
                 )
         assert res_sub.tier == "none"
         assert res_unmapped.tier == "none"
@@ -727,6 +727,6 @@ class TestWeightCapQuantization:
         t0 = 1000.0
         for n in range(3):
             with patch("petasos.session.frequency.time.monotonic", return_value=t0 + n):
-                res = tracker.update("s-un", ["petasos.llmguard.injection"])
+                res = tracker.update("s-un", ["petasos.promptguard.injection"])
         assert res.tier == "tier1"
         assert res.current_score == 0.0

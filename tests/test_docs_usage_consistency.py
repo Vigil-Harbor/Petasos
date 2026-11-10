@@ -27,7 +27,6 @@ from pathlib import Path
 import pytest
 
 from petasos.console._config_meta import _FIELD_META, _SECTION_REGISTRY
-from petasos.scanners.llama_firewall import _COMPONENT_TAXONOMY
 from petasos.scanners.minimal import (
     _AGENT_DIRECTIVE_RULE_IDS,
     _COMMAND_RULE_IDS,
@@ -144,12 +143,6 @@ def test_docs_scanner_rule_count_matches_taxonomy() -> None:
     # So moving a rule between families reds a per-family marker even though the
     # total is unchanged.
     assert sum(len(ids) for ids in _RULE_FAMILY_SOURCE.values()) == len(RULE_TAXONOMY)
-
-
-def test_docs_llamafirewall_components_match_source() -> None:
-    # Regression for PET-128: the three named LlamaFirewall components.
-    parsed = _parse_doc_asserts(_SCANNERS_DOC, required=frozenset({"llamafirewall_components"}))
-    assert set(_csv(parsed, "llamafirewall_components")) == set(_COMPONENT_TAXONOMY.keys())
 
 
 def test_docs_prompt_guard_marker_matches_source() -> None:
