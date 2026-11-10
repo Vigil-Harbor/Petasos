@@ -108,67 +108,118 @@ No module name starts with an underscore. A package's public names are what its
 
 ### 3.1 Declaration
 
-Config is a tree of frozen, slotted dataclasses. Every field is declared with
-`setting()`:
+Config is a tree of frozen, slotted dataclasses declared with `@section`.
+Every field uses `setting()`:
 
 ```python
-@dataclass(frozen=True, slots=True)
+@section
 class EscalationConfig:
-    enabled: bool = setting(True, help="Raise enforcement as a session keeps misbehaving.")
-    tier1: float = setting(15.0, gt=0, help="Risk score at which tier 1 starts.")
-    tier2: float = setting(30.0, gt=0, help="Risk score at which tier 2 starts.")
-    tier3: float = setting(50.0, ge=TIER3_FLOOR, help="Risk score at which the session is terminated.")
+    enabled: bool = setting(default=True, help="Raise enforcement as a session keeps misbehaving.")
+    tier1: float = setting(default=15.0, gt=0, help="Risk score at which tier 1 starts.")
+    tier2: float = setting(default=30.0, gt=0, help="Risk score at which tier 2 starts.")
+    tier3: float = setting(
+        default=50.0, ge=TIER3_FLOOR, help="Risk score at which the session is terminated."
+    )
 
     def check(self) -> None:
         if not self.tier1 < self.tier2 < self.tier3:
-            raise ConfigError.at("escalation", "tiers must be strictly ascending")
+            raise ConfigError("tiers must be strictly ascending")
 ```
 
-`setting(default, *, help, ge, gt, le, lt, restart=False, audience="advanced", normalize=None)`
-returns a `dataclasses.field` whose metadata carries a `FieldSpec`. No
-third-party library is involved.
+`@section` is a dataclass transform. The class stays a real frozen slotted
+dataclass, so `dataclasses.fields`, `dataclasses.replace`, and equality behave
+normally. `replace` builds a new instance and therefore re-validates. mypy
+sees the generated constructor. Direct construction and `from_mapping` coerce
+and validate the same way and raise `ConfigError`.
+
+`setting(*, default, help, ge=None, gt=None, le=None, lt=None, restart=False, audience="advanced", normalize=None)`
+returns a `dataclasses.field`. Its metadata holds a `FieldSpec` under the
+`FieldSpec` key. `default` is keyword-only: a type checker only treats a
+keyword named `default` as the field's default. No third-party library is
+involved.
 
 | Argument | Meaning |
 |---|---|
 | `help` | One plain-language sentence. Required. Shown in every UI and in the docs. |
-| `ge` `gt` `le` `lt` | Numeric bounds. Numbers must be finite. |
+| `ge` `gt` `le` `lt` | Numeric bounds. On a mapping of numbers, the bounds apply to each value. |
 | `restart` | True when a change needs a process restart to take effect. |
-| `audience` | `basic`, `advanced` or `expert`. Controls which UIs show the field. |
-| `normalize` | Optional per-item function for string tuples, such as `str.upper`. |
+| `audience` | `basic`, `advanced`, or `expert`. Controls which UIs show the field. |
+| `normalize` | Optional per-item function for a list of text, such as `str.upper`. |
 
-Rules the engine applies from the annotation alone:
+A list, set, or bytearray default is rejected. A dict default is copied into a
+read-only mapping, so the caller's dict is not shared. Defaults are checked
+when the class is defined, and so is `check`. An annotation outside the
+vocabulary below is a `TypeError` at class definition. Annotations are
+resolved even though modules use `from __future__ import annotations`.
+
+Rules the engine applies from the annotation:
 
 - `bool` accepts only `bool`. `int` and `float` never accept `bool`.
-- `Literal[...]` accepts only its members; the members are the choices.
-- `tuple[str, ...]` rejects a bare string, accepts a list, strips each item,
-  and rejects empty items.
-- `Mapping[str, X]` is frozen on construction.
+- `int` accepts only `int`. `float` accepts `int` or `float` and stores a
+  `float`. Numbers must be finite.
+- `Literal[...]` accepts only its members, matched by type and value. A value
+  that differs only by case is rejected.
+- `tuple[str, ...]` rejects a bare string, accepts a list or a tuple, trims
+  each item, rejects an empty item, and then applies `normalize`.
+- `Mapping[str, float]` and `Mapping[str, str]` accept a mapping, trim keys,
+  reject an empty or repeated key, and store a read-only mapping.
 - `X | None` accepts `None`.
-- A dataclass-typed field is a nested section.
+- A `@section` field is a nested section. A mapping is read as that section.
+  An instance of that exact class is accepted.
 
-A section may define `check(self)` for cross-field rules. Nothing else
+`check(self)` is optional and runs only after that section's own fields have
+succeeded. Raise `ConfigError("message")` for the section as a whole, or
+`ConfigError.at("relative.path", "message")` for a path relative to the
+section. The engine prefixes that path when the section sits inside another.
+A nested section whose fields failed does not run its own `check`, and a
+parent does not run `check` when any of its fields failed. Nothing else
 validates config: no hand-written `__post_init__`, no parallel metadata table.
 
 ### 3.2 Engine API (`petasos.config.schema`)
 
 ```python
 def from_mapping(cls: type[T], data: Mapping[str, Any]) -> T
-def to_mapping(obj: Any) -> dict[str, Any]
+def to_mapping(obj: object) -> dict[str, Any]
 def describe(cls: type) -> tuple[FieldInfo, ...]
 def merge(base: Mapping[str, Any], layer: Mapping[str, Any]) -> dict[str, Any]
 
 class ConfigError(ValueError):
     errors: tuple[tuple[str, str], ...]     # (dotted path, message)
+
+class FieldInfo:  # frozen
+    path: str
+    type_name: str          # bool, int, float, str, choice,
+                            # tuple[str, ...], mapping[str, float], mapping[str, str]
+    default: Any            # JSON-serialisable
+    choices: tuple[Any, ...] | None
+    ge: float | None
+    gt: float | None
+    le: float | None
+    lt: float | None
+    help: str
+    audience: Literal["basic", "advanced", "expert"]
+    restart: bool
+    nullable: bool
 ```
 
-- `from_mapping` is strict. An unknown key is an error naming the path and the
-  nearest valid key. (Today unknown keys are silently dropped, so a typo is a
-  no-op.) It collects every error before raising.
-- `describe` returns one `FieldInfo` per leaf: dotted path, type name, default,
-  choices, bounds, help, audience, restart flag. This is the only source for
-  the console editor, the Hermes manifest and the generated docs.
-- `merge` deep-merges partial documents. Mappings merge; everything else
-  replaces.
+- `from_mapping` is strict. An unknown key is an error. Its path is the key,
+  and the message names the key and, when one is close, the nearest valid key.
+  Every problem in the document is reported together. Unknown keys are listed
+  first, then each field's problems in declaration order.
+- `to_mapping` returns plain JSON-serialisable data: lists for tuples, dicts
+  for mappings and sections. `from_mapping(cls, to_mapping(x)) == x` for every
+  valid `x`.
+- `describe` returns one `FieldInfo` per leaf, in declaration order. A nested
+  section does not get its own row. Leaf defaults are the values a fresh
+  instance carries, so an override baked into a nested default is visible.
+  `choices` is set only for a `choice`. This record is enough for a settings
+  form and a reference table.
+- `merge` deep-merges partial documents and does not validate them. A missing
+  key keeps the base value. An explicit `None` in the layer replaces the base
+  value, so a layer can clear an optional setting. When both values are
+  mappings they merge key by key; an empty mapping adds and removes nothing.
+  Every other value, including a list, replaces the base value. The result
+  shares no list or mapping with either input.
 
 ### 3.3 The tree
 
