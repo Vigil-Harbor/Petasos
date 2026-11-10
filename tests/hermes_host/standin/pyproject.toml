@@ -1,0 +1,12 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "standin-hostfacts"
+version = "0.1.0"
+description = "Stand-in wheel for Hermes host-fact tests"
+requires-python = ">=3.11"
+
+[tool.hatch.build.targets.wheel]
+packages = ["standin_hostfacts"]

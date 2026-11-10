@@ -1,0 +1,6 @@
+[project]
+name = "standin-hostfacts-plugin"
+version = "0.1.0"
+description = "Directory wrapper. The wheel is installed separately."
+requires-python = ">=3.11"
+dependencies = []
