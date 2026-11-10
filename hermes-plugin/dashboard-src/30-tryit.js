@@ -53,52 +53,69 @@ function Marked(props) {
   return h("pre", { className: "petasos-marked", "aria-label": props.label }, parts);
 }
 
+// What matched, in words: the rule's sentence and how serious it is, with the
+// two things a person may do about it. Rule ids and match strength are
+// technical detail, listed in TechnicalFindings.
 function FindingList(props) {
   var findings = props.findings || [];
-  if (!findings.length) {
-    return h("p", { className: "petasos-help" }, "Nothing matched a rule.");
-  }
+  return h(
+    "ol",
+    { className: "petasos-findings" },
+    findings.map(function (finding, index) {
+      var syntactic = String(finding.rule).indexOf("petasos.syntactic.") === 0;
+      return h(
+        "li",
+        { key: finding.rule + "-" + index, className: "petasos-finding" },
+        h("span", { className: "petasos-finding-n", "aria-hidden": true }, String(index + 1)),
+        h(
+          "div",
+          { className: "petasos-finding-body" },
+          h(
+            "div",
+            { className: "petasos-finding-head" },
+            h("span", { className: "petasos-finding-sentence" }, finding.sentence),
+            h(Severity, { value: finding.severity })
+          ),
+          syntactic
+            ? h(
+                "div",
+                { className: "petasos-row-actions" },
+                h(LinkButton, { onClick: function () { props.onQuiet(finding.rule); } }, "Try without this rule"),
+                h(LinkButton, { onClick: function () { go("settings", { rule: finding.rule }); } }, "Rule settings")
+              )
+            : null
+        )
+      );
+    })
+  );
+}
+
+function TechnicalFindings(props) {
+  var findings = props.findings || [];
+  if (!findings.length) return null;
   return h(
     Fragment,
     null,
+    h("p", { className: "petasos-label" }, "Rules that matched"),
     h(
       "ol",
-      { className: "petasos-findings" },
+      { className: "petasos-tech-findings" },
       findings.map(function (finding, index) {
-        var syntactic = String(finding.rule).indexOf("petasos.syntactic.") === 0;
         return h(
           "li",
-          { key: finding.rule + "-" + index, className: "petasos-finding" },
+          { key: finding.rule + "-" + index },
           h("span", { className: "petasos-finding-n", "aria-hidden": true }, String(index + 1)),
           h(
-            "div",
-            { className: "petasos-finding-body" },
-            h(
-              "div",
-              { className: "petasos-finding-head" },
-              h("span", { className: "petasos-finding-sentence" }, finding.sentence),
-              h(Severity, { value: finding.severity })
-            ),
-            h(
-              "p",
-              { className: "petasos-finding-meta" },
-              h(Ident, null, finding.rule),
-              h("span", { title: props.confidenceHelp }, " · Match strength " + Math.round((finding.confidence || 0) * 100) + "%"),
-              finding.span ? null : h("span", null, " · Not tied to one place in the text")
-            ),
-            syntactic
-              ? h(
-                  "div",
-                  { className: "petasos-row-actions" },
-                  h(LinkButton, { onClick: function () { props.onQuiet(finding.rule); } }, "Try without this rule"),
-                  h(LinkButton, { onClick: function () { go("settings", { rule: finding.rule }); } }, "Rule settings")
-                )
-              : null
+            "span",
+            null,
+            h(Ident, null, finding.rule),
+            h("span", { className: "petasos-secondary", title: props.confidenceHelp }, " · Match strength " + Math.round((finding.confidence || 0) * 100) + "%"),
+            finding.span ? null : h("span", { className: "petasos-secondary" }, " · Not tied to one place in the text")
           )
         );
       })
     ),
-    props.confidenceHelp ? h("p", { className: "petasos-help" }, props.confidenceHelp) : null
+    props.confidenceHelp ? h("p", { className: "petasos-secondary" }, props.confidenceHelp) : null
   );
 }
 
@@ -112,7 +129,7 @@ function ScannerTakePart(props) {
         { key: row.id },
         h(Status, { tone: row.participated ? "success" : "neutral" }, row.participated ? "Checked" : "Skipped"),
         h("span", { className: "petasos-took-name" }, row.label),
-        h("span", { className: "petasos-help" }, !row.participated && row.reason ? row.reason : "")
+        h("span", { className: "petasos-secondary" }, !row.participated && row.reason ? row.reason : "")
       );
     })
   );
@@ -130,14 +147,41 @@ function argumentText(args) {
     .join("\n");
 }
 
-function trialSummary(candidate, catalog) {
-  if (!candidate) return "";
-  var parts = [];
-  if (candidate.role) parts.push("job " + roleLabel(catalog, candidate.role));
-  if (candidate.level) parts.push("strictness " + levelLabel(catalog, candidate.level));
-  var count = leafCount(candidate.overrides || {});
-  if (count) parts.push(plural(count, "other setting"));
-  return parts.join(", ");
+function lastPart(rule) {
+  var text = String(rule || "");
+  return text.slice(text.lastIndexOf(".") + 1);
+}
+
+// What a trial changes, by name: the job, the strictness, each rule turned
+// off, and each other setting by its label.
+function trialNames(candidate, catalog) {
+  if (!candidate) return [];
+  var byPath = rowsByPath(catalog && catalog.settings);
+  var names = [];
+  if (candidate.role) names.push(roleLabel(catalog, candidate.role) + " job");
+  if (candidate.level) names.push(levelLabel(catalog, candidate.level) + " strictness");
+  var overrides = candidate.overrides || {};
+  var saved = (byPath["rules.suppress"] || {}).value || [];
+  var quieted = (getIn(overrides, "rules.suppress") || []).filter(function (rule) {
+    return saved.indexOf(rule) < 0;
+  });
+  if (quieted.length) {
+    names.push(
+      (quieted.length === 1 ? "rule " : "rules ") +
+        joinWords(quieted.map(lastPart)) +
+        " turned off"
+    );
+  }
+  (function walk(node, prefix) {
+    Object.keys(node || {}).forEach(function (key) {
+      var path = prefix ? prefix + "." + key : key;
+      if (path === "rules.suppress") return;
+      var value = node[key];
+      if (value && typeof value === "object" && !Array.isArray(value) && !byPath[path]) walk(value, path);
+      else names.push(rowLabel(byPath[path] || { path: path }) + ": " + showValue(value, byPath[path]));
+    });
+  })(overrides, "");
+  return names;
 }
 
 function OutcomeHead(props) {
@@ -322,105 +366,105 @@ function TryIt(props) {
   var ran = ranState[0];
   var stale = Boolean(result && ran && ran.signature !== signature(current(), candidate));
 
+  var trial = trialNames(candidate, catalog);
+  var chosen = exampleIn(examples, exampleState[0]);
   var input = h(
     Panel,
     {
-      title: "Input",
-      description: "Text the agent might read or send, or a tool call it might make.",
+      title: "Try an example",
     },
     h(Choice, {
       id: "petasos-try-example",
       label: "Example",
       value: exampleState[0] || "",
-      placeholder: examples ? "Load an example…" : "Loading examples…",
+      placeholder: examples ? (mode === "tool" || textState[0] ? "Your own input" : "Choose an example…") : "Loading examples…",
       options: (examples || []).map(function (example) {
         return { value: example.id, label: example.label };
       }),
       onChange: function (value) {
         var example = exampleIn(examples, value);
-        if (example) load(example);
+        if (!example) return;
+        load(example);
+        run(undefined, Object.assign({ text: "", direction: "inbound", tool: "", args: "{}" }, inputOf(example)));
       },
     }),
+    chosen && chosen.description ? h("p", { className: "petasos-try-desc" }, chosen.description) : null,
     h(
-      "p",
-      { className: "petasos-help" },
-      (exampleIn(examples, exampleState[0]) || {}).description
-        ? exampleIn(examples, exampleState[0]).description + " "
-        : "",
-      "Choosing an example fills the input below. Nothing runs until you press Check."
+      Disclosure,
+      { label: "Show and edit the input", openLabel: "Hide the input", remember: "tryit-input" },
+      h(
+        "div",
+        { className: "petasos-filter-group" },
+        h("span", { className: "petasos-filter-label", id: "petasos-try-mode-label" }, "Kind"),
+        h(Segmented, {
+          id: "petasos-try-mode",
+          labelledBy: "petasos-try-mode-label",
+          value: mode,
+          options: [
+            { value: "text", label: "Text" },
+            { value: "tool", label: "Tool call" },
+          ],
+          onChange: function (value) {
+            modeState[1](value);
+            exampleState[1]("");
+          },
+        })
+      ),
+      mode === "text"
+        ? h(
+            Fragment,
+            null,
+            h(C.Label, { className: "petasos-label", htmlFor: "petasos-try-text" }, "Text"),
+            h("textarea", {
+              id: "petasos-try-text",
+              className: "petasos-textarea",
+              rows: 5,
+              value: textState[0],
+              onChange: function (e) {
+                textState[1](e.target.value);
+                exampleState[1]("");
+              },
+            }),
+            h(Choice, {
+              id: "petasos-try-direction",
+              label: "Direction",
+              value: directionState[0],
+              options: [
+                { value: "inbound", label: "Coming in: a tool result, page or file the agent reads" },
+                { value: "outbound", label: "Going out: text the agent writes into a tool call" },
+              ],
+              onChange: directionState[1],
+            })
+          )
+        : h(
+            Fragment,
+            null,
+            h(C.Label, { className: "petasos-label", htmlFor: "petasos-try-tool" }, "Tool"),
+            h(C.Input, {
+              id: "petasos-try-tool",
+              value: toolState[0],
+              "aria-describedby": "petasos-try-tool-help",
+              onChange: function (e) {
+                toolState[1](e.target.value);
+                exampleState[1]("");
+              },
+            }),
+            h("p", { className: "petasos-tertiary", id: "petasos-try-tool-help" }, "The tool's name in Hermes, such as terminal or write_file."),
+            h(C.Label, { className: "petasos-label", htmlFor: "petasos-try-args" }, "Arguments"),
+            h("textarea", {
+              id: "petasos-try-args",
+              className: "petasos-textarea petasos-mono-area",
+              rows: 5,
+              value: argsState[0],
+              "aria-describedby": "petasos-try-args-help",
+              onChange: function (e) {
+                argsState[1](e.target.value);
+                exampleState[1]("");
+              },
+            }),
+            h("p", { className: "petasos-tertiary", id: "petasos-try-args-help" }, 'A JSON object, for example {"command": "ls"}.')
+          )
     ),
-    h(
-      "div",
-      { className: "petasos-filter-group" },
-      h("span", { className: "petasos-filter-label", id: "petasos-try-mode-label" }, "Kind"),
-      h(Segmented, {
-        id: "petasos-try-mode",
-        labelledBy: "petasos-try-mode-label",
-        value: mode,
-        options: [
-          { value: "text", label: "Text" },
-          { value: "tool", label: "Tool call" },
-        ],
-        onChange: function (value) {
-          modeState[1](value);
-          exampleState[1]("");
-        },
-      })
-    ),
-    mode === "text"
-      ? h(
-          Fragment,
-          null,
-          h(C.Label, { className: "petasos-label", htmlFor: "petasos-try-text" }, "Text"),
-          h("textarea", {
-            id: "petasos-try-text",
-            className: "petasos-textarea",
-            rows: 5,
-            value: textState[0],
-            onChange: function (e) {
-              textState[1](e.target.value);
-              exampleState[1]("");
-            },
-          }),
-          h(Choice, {
-            id: "petasos-try-direction",
-            label: "Direction",
-            value: directionState[0],
-            options: [
-              { value: "inbound", label: "Coming in: a tool result, page or file the agent reads" },
-              { value: "outbound", label: "Going out: text the agent writes into a tool call" },
-            ],
-            onChange: directionState[1],
-          })
-        )
-      : h(
-          Fragment,
-          null,
-          h(C.Label, { className: "petasos-label", htmlFor: "petasos-try-tool" }, "Tool"),
-          h(C.Input, {
-            id: "petasos-try-tool",
-            value: toolState[0],
-            "aria-describedby": "petasos-try-tool-help",
-            onChange: function (e) {
-              toolState[1](e.target.value);
-              exampleState[1]("");
-            },
-          }),
-          h("p", { className: "petasos-help", id: "petasos-try-tool-help" }, "The tool's name as Hermes knows it, such as terminal or write_file."),
-          h(C.Label, { className: "petasos-label", htmlFor: "petasos-try-args" }, "Arguments"),
-          h("textarea", {
-            id: "petasos-try-args",
-            className: "petasos-textarea petasos-mono-area",
-            rows: 5,
-            value: argsState[0],
-            "aria-describedby": "petasos-try-args-help",
-            onChange: function (e) {
-              argsState[1](e.target.value);
-              exampleState[1]("");
-            },
-          }),
-          h("p", { className: "petasos-help", id: "petasos-try-args-help" }, 'A JSON object, for example {"command": "ls"}.')
-        ),
     inputErrorState[0] ? h("p", { className: "petasos-field-error", role: "alert" }, inputErrorState[0]) : null,
     h(
       "div",
@@ -429,17 +473,20 @@ function TryIt(props) {
       h(
         Btn,
         {
-          outlined: true,
+          ghost: true,
           "aria-expanded": trialOpenState[0],
           "aria-controls": "petasos-trial",
           onClick: function () {
             trialOpenState[1](!trialOpenState[0]);
           },
         },
-        candidate ? "Trial settings: " + trialSummary(candidate, catalog) : "Trial settings"
+        trialOpenState[0] ? "Hide trial settings" : "Change trial settings"
       ),
-      h("span", { className: "petasos-help" }, "Nothing is saved or recorded.")
-    )
+      h("span", { className: "petasos-secondary" }, "Nothing is saved.")
+    ),
+    trial.length
+      ? h("p", { className: "petasos-trial-line" }, h("strong", null, "Trying: "), trial.join(", ") + ". Not saved.")
+      : null
   );
 
   var output;
@@ -491,31 +538,42 @@ function TryIt(props) {
             )
           )
         : h(OutcomeHead, { outcome: result.outcome }),
-      result.message
+      (result.findings || []).length
         ? h(
             Fragment,
             null,
-            h("h4", { className: "petasos-subhead" }, "What the agent would see"),
-            h("pre", { className: "petasos-message" }, result.message)
+            h("h4", { className: "petasos-subhead" }, "Where it matched"),
+            ran && ran.text
+              ? h(Marked, { text: ran.text, findings: result.findings, label: "The checked input with matches marked" })
+              : null,
+            h(FindingList, { findings: result.findings, onQuiet: quiet }),
+            result.findings_omitted ? h("p", { className: "petasos-secondary" }, plural(result.findings_omitted, "more match", "more matches") + " not shown.") : null
           )
-        : null,
-      h("h4", { className: "petasos-subhead" }, "What matched"),
-      ran && ran.text
-        ? h(Marked, { text: ran.text, findings: result.findings, label: "The checked input with matches marked" })
-        : null,
-      h(FindingList, { findings: result.findings, onQuiet: quiet, confidenceHelp: result.confidence_help }),
-      result.findings_omitted ? h("p", { className: "petasos-help" }, plural(result.findings_omitted, "more finding") + " not shown.") : null,
-      result.normalized_changed && result.normalized
-        ? h(
-            Fragment,
-            null,
-            h("h4", { className: "petasos-subhead" }, "How Petasos read it"),
-            h("p", { className: "petasos-help" }, "Disguised characters were turned into plain ones before checking:"),
-            h("pre", { className: "petasos-message" }, result.normalized)
-          )
-        : null,
+        : h("p", { className: "petasos-secondary" }, "Nothing in this input matched a rule."),
       h("h4", { className: "petasos-subhead" }, "Checks"),
-      h(ScannerTakePart, { scanners: result.scanners })
+      h(ScannerTakePart, { scanners: result.scanners }),
+      h(
+        Disclosure,
+        { label: "Technical detail", openLabel: "Hide technical detail", remember: "tryit-technical" },
+        result.message
+          ? h(
+              Fragment,
+              null,
+              h("p", { className: "petasos-label" }, "What the agent would see"),
+              h("pre", { className: "petasos-message" }, result.message)
+            )
+          : null,
+        h(TechnicalFindings, { findings: result.findings, confidenceHelp: result.confidence_help }),
+        result.normalized_changed && result.normalized
+          ? h(
+              Fragment,
+              null,
+              h("p", { className: "petasos-label" }, "How Petasos read it"),
+              h("p", { className: "petasos-secondary" }, "Disguised characters were turned into plain ones before checking:"),
+              h("pre", { className: "petasos-message" }, result.normalized)
+            )
+          : null
+      )
     );
   }
 
@@ -527,7 +585,7 @@ function TryIt(props) {
         {
           id: "petasos-trial",
           title: "Trial settings",
-          description: "These apply to Try it only. The result is shown beside what your live settings do. Nothing is saved.",
+          description: "For Try it only. Nothing is saved.",
           actions: candidate ? h(Btn, { ghost: true, onClick: function () { setCandidate(null); advancedState[1](""); baselineState[1](null); } }, "Use live settings") : null,
         },
         catalog
@@ -581,7 +639,7 @@ function TryIt(props) {
                           );
                         })
                     )
-                  : h("p", { className: "petasos-help" }, "None. Use Try without this rule on a match.")
+                  : h("p", { className: "petasos-secondary" }, "None. Use Try without this rule on a match.")
               )
             )
           : null,
@@ -636,7 +694,7 @@ function TryIt(props) {
                 },
                 "Stage these in Settings"
               ),
-              h("span", { className: "petasos-help" }, "Staging lets you review them before anything is saved.")
+              h("span", { className: "petasos-secondary" }, "You can look them over in Settings before saving.")
             )
           : null
       )

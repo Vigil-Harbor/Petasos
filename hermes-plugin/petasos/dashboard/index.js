@@ -345,20 +345,22 @@
     );
   }
 
-  // A status that carries a safety meaning (outcome, severity, verdict, check
-  // state): Hermes's sans at a readable size, with stronger contrast. Words
-  // always say the same thing as the colour.
+  // A status that carries a safety meaning (an outcome, the verdict, a check's
+  // state): Hermes's own Badge, with its shape, border, case and spacing, set
+  // only as much larger as legibility needs. Words always say the same thing
+  // as the colour. One badge family: severity is not a badge (see Severity).
   var TONES = ["success", "warning", "destructive", "neutral"];
+  var BADGE_TONE = { success: "success", warning: "warning", destructive: "destructive", neutral: "secondary" };
 
   function Status(props) {
     var tone = TONES.indexOf(props.tone) >= 0 ? props.tone : "neutral";
     return h(
-      "span",
+      C.Badge,
       {
+        tone: BADGE_TONE[tone],
         className: cn("petasos-status", "petasos-status-" + tone, props.large && "petasos-status-large", props.className),
         title: props.title,
       },
-      h("span", { className: "petasos-status-dot", "aria-hidden": true }),
       props.children
     );
   }
@@ -376,10 +378,27 @@
     info: "neutral",
   };
 
+  // How serious a finding is: a quiet text indicator, not a second coloured
+  // rectangle. A four-step meter gives each level its own shape, so Critical
+  // and High differ by more than colour; Critical is also set in bold.
+  var SEVERITY_STEPS = { critical: 4, high: 3, medium: 2, low: 1, info: 0 };
+
   function Severity(props) {
     var severity = String(props.value || "").toLowerCase();
     if (!severity) return h("span", { className: "petasos-none", "aria-label": "No severity" }, "—");
-    return h(Status, { tone: SEVERITY_TONE[severity] || "neutral" }, capital(severity));
+    var steps = SEVERITY_STEPS[severity] === undefined ? 0 : SEVERITY_STEPS[severity];
+    var bars = [];
+    for (var i = 0; i < 4; i += 1) {
+      bars.push(h("span", { key: i, className: cn("petasos-sev-bar", i < steps && "petasos-sev-bar-on") }));
+    }
+    return h(
+      "span",
+      {
+        className: cn("petasos-sev", "petasos-sev-" + (SEVERITY_TONE[severity] || "neutral"), severity === "critical" && "petasos-sev-critical"),
+      },
+      h("span", { className: "petasos-sev-meter", "aria-hidden": true }, bars),
+      h("span", { className: "petasos-sev-word" }, h("span", { className: "sr-only" }, "Severity: "), capital(severity))
+    );
   }
 
   function outcomeTone(code) {
@@ -391,8 +410,9 @@
     return "neutral";
   }
 
-  // A notice. The tone is a dot and a word, not a thick edge; only an
-  // exceptional warning (``strong``) keeps the marked edge.
+  // A notice. The tone is a mark and a word, not a thick edge; only an
+  // exceptional warning (``strong``) keeps the marked edge. Success is a check
+  // mark, so a confirmation never looks like a warning.
   function Notice(props) {
     var tone = props.tone || "info";
     return h(
@@ -408,7 +428,9 @@
           ? h(
               "p",
               { className: "petasos-notice-title" },
-              h("span", { className: "petasos-notice-dot", "aria-hidden": true }),
+              tone === "success"
+                ? h(Icon, { name: "check", size: 15, className: "petasos-notice-check" })
+                : h("span", { className: "petasos-notice-dot", "aria-hidden": true }),
               props.title
             )
           : null,
@@ -439,6 +461,8 @@
     copy: ["M9 9h11v11H9z", "M5 15H4V4h11v1"],
     search: ["M11 4a7 7 0 1 0 0 14a7 7 0 1 0 0-14", "M20 20l-4-4"],
     shield: ["M12 3l8 3v6c0 5-3.5 8-8 9c-4.5-1-8-4-8-9V6z"],
+    check: ["M5 12.5l4.5 4.5L19 7.5"],
+    calendar: ["M4 6h16v14H4z", "M4 10h16", "M8 3v4", "M16 3v4"],
   };
 
   function Icon(props) {
@@ -484,6 +508,65 @@
         disabled: props.disabled,
       },
       props.children
+    );
+  }
+
+  // A disclosure in Hermes's style: an underlined action with a turning
+  // chevron. With ``remember``, the choice to open it is kept in this browser
+  // so a technical reader opens it once.
+  function readRemembered(key) {
+    try {
+      return window.localStorage.getItem("petasos." + key) === "open";
+    } catch (_e) {
+      return false;
+    }
+  }
+
+  function writeRemembered(key, open) {
+    try {
+      if (open) window.localStorage.setItem("petasos." + key, "open");
+      else window.localStorage.removeItem("petasos." + key);
+    } catch (_e) {
+      // Storage can be refused; the disclosure still works for this visit.
+    }
+  }
+
+  function Disclosure(props) {
+    var openState = useState(function () {
+      return props.remember ? readRemembered(props.remember) : Boolean(props.defaultOpen);
+    });
+    var open = openState[0];
+    var id = props.id || "petasos-disclosure-" + String(props.remember || props.label).replace(/[^a-z0-9]+/gi, "-").toLowerCase();
+    return h(
+      "div",
+      { className: cn("petasos-disclosure", open && "petasos-disclosure-open", props.className) },
+      h(
+        "button",
+        {
+          type: "button",
+          className: "petasos-disclosure-toggle",
+          "aria-expanded": open,
+          "aria-controls": id,
+          onClick: function () {
+            var next = !open;
+            openState[1](next);
+            if (props.remember) writeRemembered(props.remember, next);
+          },
+        },
+        h(Icon, { name: "chevron", size: 14, className: "petasos-disclosure-chevron" }),
+        h("span", null, open && props.openLabel ? props.openLabel : props.label)
+      ),
+      open ? h("div", { className: "petasos-disclosure-body", id: id }, props.children) : null
+    );
+  }
+
+  // A command a person copies into a terminal: the command itself, and Copy.
+  function Command(props) {
+    return h(
+      "div",
+      { className: "petasos-command" },
+      h("code", { className: "petasos-command-text" }, props.value),
+      h(CopyButton, { value: props.value, label: props.label || "Copy the command" })
     );
   }
 
@@ -589,6 +672,7 @@
         role: "radiogroup",
         "aria-label": props.label,
         "aria-labelledby": props.labelledBy,
+        "aria-describedby": props.describedBy,
       },
       props.options.map(function (option) {
         var active = option.value === props.value;
@@ -673,9 +757,9 @@
     );
   }
 
-  // Config's field layout: the label, the setting's key in faint mono, one
-  // plain sentence, then the control across the panel. A switch sits at the
-  // end of the label row instead.
+  // Config's field layout: the label, the setting's key in Hermes's tertiary
+  // text, one plain sentence, then the control across the panel. A switch sits
+  // at the end of the label row instead.
   function Field(props) {
     var labelId = props.id + "-label";
     var helpId = props.id + "-help";
@@ -740,7 +824,7 @@
   // the rules itself.
   // ---------------------------------------------------------------------------
 
-  var STYLE = "/*\n * Petasos tab layout. Every colour, font and size is a Hermes variable, so\n * the tab follows whichever Hermes theme is active. Where Hermes's SDK does\n * not export a control (Segmented, Switch), these rules draw it the way\n * Hermes's own source does. No palette, font or icon set of Petasos's own.\n */\n\n.petasos {\n  display: flex;\n  flex-direction: column;\n  gap: 1rem;\n  width: 100%;\n  min-width: 0;\n  color: var(--midground);\n  font-size: 0.9rem;\n  line-height: 1.5;\n}\n\n.petasos code,\n.petasos pre {\n  background: transparent !important;\n  color: inherit;\n}\n\n.petasos p {\n  margin: 0;\n}\n\n.petasos .sr-only {\n  position: absolute;\n  width: 1px;\n  height: 1px;\n  padding: 0;\n  margin: -1px;\n  overflow: hidden;\n  clip: rect(0, 0, 0, 0);\n  white-space: nowrap;\n  border: 0;\n}\n\n/* Keyboard focus is always visible, in the theme's ring colour, on every\n * control the tab draws. Hermes's own controls keep their ring too. */\n.petasos button:focus-visible,\n.petasos a:focus-visible,\n.petasos input:focus-visible,\n.petasos textarea:focus-visible,\n.petasos summary:focus-visible,\n.petasos [tabindex]:focus-visible {\n  outline: 2px solid var(--midground);\n  outline-offset: 2px;\n}\n\n.petasos-detail:focus,\n.petasos-subhead:focus,\n.petasos [id=\"petasos-review-title\"]:focus {\n  outline: none;\n}\n\n.petasos-stack {\n  display: flex;\n  flex-direction: column;\n  gap: 1rem;\n  min-width: 0;\n}\n\n.petasos-grid-2 {\n  display: grid;\n  grid-template-columns: repeat(2, minmax(0, 1fr));\n  gap: 1rem;\n  align-items: start;\n}\n\n.petasos-grid-3 {\n  display: grid;\n  grid-template-columns: repeat(3, minmax(0, 1fr));\n  gap: 1rem;\n  align-items: start;\n}\n\n.petasos-help {\n  font-size: 0.82rem;\n  line-height: 1.5;\n  color: var(--text-secondary, var(--midground));\n}\n\n.petasos-faint {\n  color: var(--text-tertiary, var(--midground));\n}\n\n.petasos-strong,\n.petasos strong {\n  font-weight: 700;\n}\n\n.petasos-block {\n  display: block;\n}\n\n.petasos-gap-above {\n  margin-top: 0.4rem;\n}\n\n.petasos-end {\n  padding: 0.9rem 0 0.4rem;\n  text-align: center;\n}\n\n/* Links are underlined everywhere, so they read as links in a theme that\n * draws all text in one colour. */\n.petasos-link,\n.petasos a.petasos-link {\n  background: none;\n  border: 0;\n  padding: 0;\n  font: inherit;\n  font-size: inherit;\n  color: inherit;\n  text-decoration: underline;\n  text-decoration-thickness: 1px;\n  text-underline-offset: 3px;\n  cursor: pointer;\n  text-align: left;\n}\n\n.petasos-link:hover {\n  text-decoration-thickness: 2px;\n}\n\n.petasos-link:disabled {\n  cursor: not-allowed;\n  opacity: 0.6;\n}\n\n.petasos-row-actions {\n  display: flex;\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 0.6rem;\n}\n\n.petasos-count {\n  font-family: var(--theme-font-mono);\n  font-size: 0.8rem;\n  color: var(--text-secondary, var(--midground));\n}\n\n.petasos-mono {\n  font-family: var(--theme-font-mono);\n  font-size: 0.82rem;\n}\n\n/* A technical id wraps only at the <wbr> after its separators. */\n.petasos-ident {\n  overflow-wrap: normal;\n  word-break: normal;\n  white-space: normal;\n}\n\n.petasos-idrow {\n  display: inline-flex;\n  flex-wrap: wrap;\n  align-items: baseline;\n  gap: 0.25rem 0.6rem;\n}\n\n.petasos-copy {\n  display: inline-flex;\n  align-items: center;\n  gap: 0.25rem;\n  padding: 0.05rem 0.3rem;\n  border: 1px solid transparent;\n  background: none;\n  color: var(--text-secondary, var(--midground));\n  font-size: 0.75rem;\n  cursor: pointer;\n}\n\n.petasos-copy:hover {\n  border-color: var(--color-border);\n  color: var(--midground);\n}\n\n.petasos-icon {\n  display: inline-block;\n  flex-shrink: 0;\n  vertical-align: middle;\n}\n\n/* ---- Top bar: Hermes's enclosed tabs ------------------------------- */\n\n.petasos-topbar {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 1rem;\n  flex-wrap: wrap;\n}\n\n.petasos-topbar-main {\n  display: flex;\n  align-items: center;\n  gap: 0.75rem;\n  flex-wrap: wrap;\n}\n\n.petasos-topbar-side {\n  display: flex;\n  align-items: center;\n  gap: 0.75rem;\n}\n\n.petasos-unsaved {\n  background: none;\n  border: 0;\n  padding: 0;\n  font-size: 0.82rem;\n  color: inherit;\n  text-decoration: underline;\n  text-underline-offset: 3px;\n  cursor: pointer;\n}\n\n/* Hermes's Segmented: joined rectangular buttons, the chosen one filled\n * with the theme's ink. The view tabs use the same treatment, as Sessions\n * and Logs do. */\n.petasos-segmented {\n  display: inline-flex;\n  flex-wrap: wrap;\n  border: 1px solid color-mix(in srgb, var(--midground) 18%, transparent);\n  background: color-mix(in srgb, var(--background) 30%, transparent);\n  max-width: 100%;\n}\n\n.petasos-segment {\n  display: inline-flex;\n  align-items: center;\n  gap: 0.35rem;\n  height: 2rem;\n  padding: 0 0.8rem;\n  border: 0;\n  border-right: 1px solid color-mix(in srgb, var(--midground) 18%, transparent);\n  background: transparent;\n  color: var(--text-secondary, var(--midground));\n  font-family: var(--font-mondwest);\n  font-size: 0.86rem;\n  letter-spacing: 0.04em;\n  white-space: nowrap;\n  cursor: pointer;\n  transition: background-color 120ms, color 120ms;\n}\n\n.petasos-segment:last-child {\n  border-right: 0;\n}\n\n.petasos-segment:hover {\n  background: color-mix(in srgb, var(--midground) 10%, transparent);\n  color: var(--midground);\n}\n\n.petasos-segment-on,\n.petasos-segment-on:hover {\n  background: var(--midground);\n  color: var(--background);\n}\n\n.petasos-segment:disabled {\n  cursor: not-allowed;\n  opacity: 0.55;\n}\n\n.petasos-viewtabs .petasos-segment {\n  height: 2.2rem;\n  padding: 0 1.1rem;\n  font-size: 0.92rem;\n  font-weight: 600;\n}\n\n/* ---- Hermes's Switch ------------------------------------------------ */\n\n.petasos-switch {\n  position: relative;\n  display: inline-flex;\n  align-items: center;\n  flex-shrink: 0;\n  width: 2.25rem;\n  height: 1.25rem;\n  padding: 0;\n  border: 1px solid color-mix(in srgb, var(--midground) 22%, transparent);\n  background: var(--background);\n  cursor: pointer;\n  transition: background-color 120ms, border-color 120ms;\n}\n\n.petasos-switch-thumb {\n  display: block;\n  width: 0.875rem;\n  height: 0.875rem;\n  margin-left: 0.125rem;\n  background: color-mix(in srgb, var(--midground) 40%, transparent);\n  transition: transform 120ms;\n}\n\n.petasos-switch-on {\n  background: color-mix(in srgb, var(--midground) 15%, transparent);\n  border-color: color-mix(in srgb, var(--midground) 35%, transparent);\n}\n\n.petasos-switch-on .petasos-switch-thumb {\n  transform: translateX(1rem);\n  background: var(--midground);\n}\n\n.petasos-switch:disabled {\n  cursor: not-allowed;\n  opacity: 0.5;\n}\n\n.petasos-inline-switch {\n  display: inline-flex;\n  align-items: center;\n  gap: 0.6rem;\n  font-size: 0.86rem;\n}\n\n/* ---- Panels --------------------------------------------------------- */\n\n.petasos-panel {\n  min-width: 0;\n}\n\n.petasos-panel-head {\n  padding: 0.85rem 1.1rem 0.6rem;\n}\n\n.petasos-panel-headrow {\n  display: flex;\n  align-items: flex-start;\n  justify-content: space-between;\n  gap: 1rem;\n}\n\n.petasos-panel-titles {\n  display: flex;\n  flex-direction: column;\n  gap: 0.3rem;\n  min-width: 0;\n}\n\n.petasos-panel-desc {\n  font-size: 0.85rem;\n  color: var(--text-secondary, var(--midground));\n}\n\n.petasos-panel-actions {\n  display: flex;\n  align-items: center;\n  gap: 0.75rem;\n  flex-shrink: 0;\n}\n\n.petasos-panel-body {\n  display: flex;\n  flex-direction: column;\n  gap: 0.85rem;\n  padding: 0.9rem 1.1rem 1.1rem;\n}\n\n.petasos-label,\n.petasos-filter-label,\n.petasos-sections-title {\n  font-family: var(--font-mondwest);\n  font-size: 0.8rem;\n  font-weight: 600;\n  letter-spacing: 0.06em;\n  text-transform: uppercase;\n  color: var(--text-secondary, var(--midground));\n}\n\n.petasos-subhead {\n  margin: 0.4rem 0 0;\n  font-family: var(--font-mondwest);\n  font-size: 0.82rem;\n  font-weight: 700;\n  letter-spacing: 0.06em;\n  text-transform: uppercase;\n}\n\n/* ---- Status: safety meaning, readable ------------------------------- */\n\n.petasos-status {\n  display: inline-flex;\n  align-items: center;\n  gap: 0.4rem;\n  padding: 0.2rem 0.55rem;\n  border: 1px solid var(--petasos-tone-line);\n  background: var(--petasos-tone-fill);\n  color: var(--petasos-tone-ink);\n  font-family: var(--theme-font-sans);\n  font-size: 0.8rem;\n  font-weight: 600;\n  line-height: 1.25;\n  letter-spacing: 0.01em;\n  white-space: nowrap;\n}\n\n.petasos-status-large {\n  padding: 0.3rem 0.7rem;\n  font-size: 0.92rem;\n}\n\n.petasos-status-dot {\n  width: 0.45rem;\n  height: 0.45rem;\n  border-radius: 50%;\n  background: var(--petasos-tone-dot);\n  flex-shrink: 0;\n}\n\n/* Dark themes: bright ink on a subdued fill. */\n.petasos-status-success {\n  --petasos-tone-ink: color-mix(in srgb, var(--color-success) 55%, white);\n  --petasos-tone-dot: var(--color-success);\n  --petasos-tone-fill: color-mix(in srgb, var(--color-success) 12%, transparent);\n  --petasos-tone-line: color-mix(in srgb, var(--color-success) 50%, transparent);\n}\n\n.petasos-status-warning {\n  --petasos-tone-ink: color-mix(in srgb, var(--color-warning) 55%, white);\n  --petasos-tone-dot: var(--color-warning);\n  --petasos-tone-fill: color-mix(in srgb, var(--color-warning) 12%, transparent);\n  --petasos-tone-line: color-mix(in srgb, var(--color-warning) 50%, transparent);\n}\n\n.petasos-status-destructive {\n  --petasos-tone-ink: color-mix(in srgb, var(--color-destructive) 45%, white);\n  --petasos-tone-dot: color-mix(in srgb, var(--color-destructive) 70%, white);\n  --petasos-tone-fill: color-mix(in srgb, var(--color-destructive) 16%, transparent);\n  --petasos-tone-line: color-mix(in srgb, var(--color-destructive) 60%, transparent);\n}\n\n.petasos-status-neutral {\n  --petasos-tone-ink: var(--midground);\n  --petasos-tone-dot: color-mix(in srgb, var(--midground) 55%, transparent);\n  --petasos-tone-fill: color-mix(in srgb, var(--midground) 7%, transparent);\n  --petasos-tone-line: color-mix(in srgb, var(--midground) 30%, transparent);\n}\n\n/* Light themes: the status colours are pale on a pale field, so the ink is\n * darkened. The tab marks a light theme from Hermes's own background. */\n.petasos-light .petasos-status-success {\n  --petasos-tone-ink: color-mix(in srgb, var(--color-success) 45%, black);\n  --petasos-tone-fill: color-mix(in srgb, var(--color-success) 12%, transparent);\n  --petasos-tone-line: color-mix(in srgb, var(--color-success) 55%, black);\n}\n\n.petasos-light .petasos-status-warning {\n  --petasos-tone-ink: color-mix(in srgb, var(--color-warning) 45%, black);\n  --petasos-tone-fill: color-mix(in srgb, var(--color-warning) 14%, transparent);\n  --petasos-tone-line: color-mix(in srgb, var(--color-warning) 60%, black);\n}\n\n.petasos-light .petasos-status-destructive {\n  --petasos-tone-ink: color-mix(in srgb, var(--color-destructive) 70%, black);\n  --petasos-tone-dot: var(--color-destructive);\n  --petasos-tone-fill: color-mix(in srgb, var(--color-destructive) 10%, transparent);\n  --petasos-tone-line: color-mix(in srgb, var(--color-destructive) 70%, black);\n}\n\n.petasos-tag {\n  white-space: nowrap;\n}\n\n.petasos-none {\n  color: var(--text-tertiary, var(--midground));\n}\n\n/* ---- Notices: a dot and a title; only exceptional warnings keep an edge */\n\n.petasos-notice {\n  display: flex;\n  align-items: flex-start;\n  justify-content: space-between;\n  gap: 1rem;\n  padding: 0.8rem 1rem;\n  border: 1px solid var(--color-border);\n  background: var(--color-card);\n}\n\n.petasos-notice-strong {\n  border-left: 3px solid var(--color-destructive);\n}\n\n.petasos-notice-text {\n  display: flex;\n  flex-direction: column;\n  gap: 0.3rem;\n  min-width: 0;\n}\n\n.petasos-notice-title {\n  display: flex;\n  align-items: center;\n  gap: 0.5rem;\n  font-weight: 700;\n  font-size: 0.9rem;\n}\n\n.petasos-notice-dot {\n  width: 0.5rem;\n  height: 0.5rem;\n  border-radius: 50%;\n  flex-shrink: 0;\n  background: var(--midground);\n}\n\n.petasos-notice-warning .petasos-notice-dot {\n  background: var(--color-warning);\n}\n\n.petasos-notice-destructive .petasos-notice-dot {\n  background: var(--color-destructive);\n}\n\n.petasos-notice-success .petasos-notice-dot {\n  background: var(--color-success);\n}\n\n.petasos-notice-body {\n  font-size: 0.85rem;\n  line-height: 1.55;\n  padding-left: 1rem;\n}\n\n.petasos-notice-body p + p {\n  margin-top: 0.3rem;\n}\n\n.petasos-notice-action {\n  flex-shrink: 0;\n}\n\n.petasos-steps {\n  margin: 0.4rem 0 0;\n  padding-left: 1.2rem;\n  display: flex;\n  flex-direction: column;\n  gap: 0.25rem;\n}\n\n/* ---- Empty list, as Sessions draws it ------------------------------- */\n\n.petasos-empty {\n  display: flex;\n  flex-direction: column;\n  align-items: center;\n  gap: 0.3rem;\n  padding: 3rem 1rem;\n  text-align: center;\n}\n\n.petasos-empty-icon {\n  width: 1.75rem;\n  height: 1.75rem;\n  margin-bottom: 0.35rem;\n  color: var(--text-secondary, var(--midground));\n}\n\n.petasos-empty-title {\n  font-size: 0.95rem;\n  font-weight: 600;\n}\n\n.petasos-empty-body {\n  max-width: 30rem;\n  font-size: 0.82rem;\n  color: var(--text-secondary, var(--midground));\n}\n\n.petasos-empty-action {\n  margin-top: 0.75rem;\n}\n\n/* ---- Key and value lists -------------------------------------------- */\n\n.petasos-kv {\n  display: grid;\n  grid-template-columns: minmax(7rem, max-content) minmax(0, 1fr);\n  gap: 0.45rem 1.25rem;\n  margin: 0;\n  font-size: 0.86rem;\n}\n\n.petasos-kv dt {\n  font-family: var(--font-mondwest);\n  font-size: 0.78rem;\n  font-weight: 600;\n  letter-spacing: 0.06em;\n  text-transform: uppercase;\n  color: var(--text-secondary, var(--midground));\n  padding-top: 0.1rem;\n}\n\n.petasos-kv dd {\n  margin: 0;\n  min-width: 0;\n}\n\n.petasos-kv-stacked {\n  grid-template-columns: minmax(0, 1fr);\n  gap: 0.15rem;\n}\n\n.petasos-kv-stacked dd {\n  margin-bottom: 0.6rem;\n}\n\n/* ---- Overview: status ----------------------------------------------- */\n\n.petasos-verdict {\n  display: grid;\n  grid-template-columns: minmax(0, 1fr) minmax(12rem, 16rem);\n  gap: 1.5rem;\n  padding: 1.1rem 1.2rem;\n  border: 1px solid var(--color-border);\n  background: var(--color-card);\n}\n\n.petasos-verdict-main {\n  display: flex;\n  flex-direction: column;\n  gap: 0.6rem;\n  min-width: 0;\n}\n\n.petasos-verdict-head {\n  display: flex;\n  align-items: center;\n  flex-wrap: wrap;\n  gap: 0.75rem;\n}\n\n.petasos-verdict-title {\n  margin: 0;\n  font-size: 1.08rem;\n  font-weight: 700;\n  line-height: 1.35;\n}\n\n.petasos-verdict-reason {\n  max-width: 52rem;\n  font-size: 0.88rem;\n}\n\n.petasos-verdict-side {\n  display: flex;\n  flex-direction: column;\n  align-items: flex-start;\n  gap: 0.5rem;\n  padding-left: 1.25rem;\n  border-left: 1px solid var(--color-border);\n}\n\n.petasos-coverage {\n  margin-top: 0.35rem;\n}\n\n/* ---- Overview: last 24 hours ---------------------------------------- */\n\n.petasos-stats {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 0.5rem 2.25rem;\n  margin: 0;\n}\n\n.petasos-stat dt {\n  font-family: var(--font-mondwest);\n  font-size: 0.78rem;\n  font-weight: 600;\n  letter-spacing: 0.06em;\n  text-transform: uppercase;\n  color: var(--text-secondary, var(--midground));\n}\n\n.petasos-stat dd {\n  margin: 0;\n}\n\n.petasos-stat-value {\n  background: none;\n  border: 0;\n  padding: 0;\n  color: inherit;\n  font-family: var(--font-rules-expanded);\n  font-size: 1.5rem;\n  font-weight: 700;\n  line-height: 1.2;\n  cursor: pointer;\n  text-decoration: underline;\n  text-decoration-thickness: 1px;\n  text-underline-offset: 4px;\n}\n\n.petasos-stat-alarm .petasos-stat-value,\n.petasos-stat-alarm dt {\n  color: color-mix(in srgb, var(--color-destructive) 45%, white);\n}\n\n.petasos-light .petasos-stat-alarm .petasos-stat-value,\n.petasos-light .petasos-stat-alarm dt {\n  color: color-mix(in srgb, var(--color-destructive) 70%, black);\n}\n\n.petasos-mini-list {\n  list-style: none;\n  margin: 0;\n  padding: 0;\n  border-top: 1px solid var(--color-border);\n}\n\n.petasos-mini-row {\n  display: grid;\n  grid-template-columns: 5.5rem minmax(0, 1fr) auto 1rem;\n  align-items: center;\n  gap: 0.9rem;\n  width: 100%;\n  padding: 0.55rem 0.15rem;\n  border: 0;\n  border-bottom: 1px solid var(--color-border);\n  background: none;\n  color: inherit;\n  font: inherit;\n  font-size: 0.86rem;\n  text-align: left;\n  cursor: pointer;\n}\n\n.petasos-mini-row:hover {\n  background: color-mix(in srgb, var(--midground) 6%, transparent);\n}\n\n.petasos-mini-when {\n  font-family: var(--theme-font-mono);\n  font-size: 0.78rem;\n  color: var(--text-secondary, var(--midground));\n}\n\n.petasos-mini-text {\n  overflow: hidden;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n.petasos-repeat {\n  font-family: var(--theme-font-mono);\n  font-size: 0.8rem;\n  font-weight: 700;\n}\n\n.petasos-chevron {\n  color: var(--text-secondary, var(--midground));\n}\n\n/* ---- Overview: the two choices -------------------------------------- */\n\n.petasos-setup {\n  gap: 0.6rem 1.75rem;\n  align-items: start;\n}\n\n.petasos-setup .petasos-optlist {\n  align-self: start;\n}\n\n.petasos-choose {\n  display: flex;\n  flex-direction: column;\n  gap: 0.35rem;\n  min-width: 0;\n}\n\n.petasos-choose .petasos-segmented {\n  margin-top: 0.35rem;\n  align-self: flex-start;\n}\n\n.petasos-optlist {\n  list-style: none;\n  margin: 0.4rem 0 0;\n  padding: 0;\n  display: flex;\n  flex-direction: column;\n  gap: 0.3rem;\n}\n\n.petasos-opt {\n  display: grid;\n  grid-template-columns: 8.5rem minmax(0, 1fr);\n  gap: 0.75rem;\n  font-size: 0.83rem;\n  line-height: 1.45;\n  color: var(--text-secondary, var(--midground));\n}\n\n.petasos-opt-name {\n  font-weight: 600;\n}\n\n.petasos-opt-on {\n  color: var(--midground);\n}\n\n.petasos-opt-on .petasos-opt-name {\n  font-weight: 800;\n}\n\n.petasos-opt-note {\n  font-style: italic;\n}\n\n.petasos-preview {\n  display: flex;\n  flex-direction: column;\n  gap: 0.6rem;\n  padding-top: 1rem;\n  border-top: 1px solid var(--color-border);\n}\n\n.petasos-consequence {\n  font-size: 0.9rem;\n  max-width: 56rem;\n}\n\n.petasos-when {\n  font-size: 0.86rem;\n  font-weight: 600;\n}\n\n.petasos-disclosure {\n  display: flex;\n  flex-direction: column;\n  align-items: flex-start;\n  gap: 0.6rem;\n  font-size: 0.85rem;\n}\n\n/* A change: label and sentence above, value at full width below, where it\n * would come from beneath. */\n.petasos-changes {\n  list-style: none;\n  margin: 0;\n  padding: 0;\n  width: 100%;\n}\n\n.petasos-change {\n  display: flex;\n  flex-direction: column;\n  gap: 0.25rem;\n  padding: 0.65rem 0;\n  border-bottom: 1px solid var(--color-border);\n}\n\n.petasos-change:first-child {\n  border-top: 1px solid var(--color-border);\n}\n\n.petasos-change-name {\n  font-weight: 700;\n  font-size: 0.88rem;\n}\n\n.petasos-change-values {\n  font-size: 0.88rem;\n}\n\n.petasos-before {\n  text-decoration: line-through;\n  color: var(--text-secondary, var(--midground));\n}\n\n.petasos-arrow {\n  color: var(--text-secondary, var(--midground));\n}\n\n.petasos-diff {\n  list-style: none;\n  margin: 0;\n  padding: 0;\n  display: flex;\n  flex-direction: column;\n  gap: 0.15rem;\n  font-size: 0.85rem;\n}\n\n.petasos-diff-sign {\n  display: inline-block;\n  width: 1rem;\n  font-weight: 700;\n}\n\n.petasos-provenance {\n  font-size: 0.78rem;\n  color: var(--text-tertiary, var(--midground));\n}\n\n.petasos-key {\n  font-family: var(--theme-font-mono);\n  font-size: 0.76rem;\n}\n\n/* ---- Overview: checks ------------------------------------------------ */\n\n.petasos-scanners {\n  list-style: none;\n  margin: 0;\n  padding: 0;\n  display: flex;\n  flex-direction: column;\n}\n\n.petasos-scanner {\n  display: flex;\n  flex-direction: column;\n  align-items: flex-start;\n  gap: 0.3rem;\n  padding: 0.65rem 0;\n  border-bottom: 1px solid var(--color-border);\n  font-size: 0.86rem;\n}\n\n.petasos-scanner:last-child {\n  border-bottom: 0;\n}\n\n.petasos-scanner-head {\n  display: flex;\n  align-items: center;\n  gap: 0.6rem;\n  width: 100%;\n}\n\n.petasos-scanner-name {\n  font-weight: 700;\n  margin-right: auto;\n}\n\n.petasos-fix {\n  font-size: 0.83rem;\n  display: flex;\n  flex-direction: column;\n  gap: 0.3rem;\n}\n\n/* ---- Activity -------------------------------------------------------- */\n\n.petasos-filters {\n  display: flex;\n  flex-direction: column;\n  gap: 0.8rem;\n}\n\n.petasos-filter-row {\n  display: flex;\n  flex-wrap: wrap;\n  align-items: flex-end;\n  gap: 0.75rem 1.25rem;\n}\n\n.petasos-filter-group {\n  display: flex;\n  align-items: center;\n  gap: 0.6rem;\n}\n\n.petasos-search {\n  position: relative;\n  flex: 1 1 18rem;\n  max-width: 28rem;\n}\n\n.petasos-search input {\n  padding-left: 2rem;\n}\n\n.petasos-search-icon {\n  position: absolute;\n  left: 0.6rem;\n  top: 50%;\n  transform: translateY(-50%);\n  color: var(--text-secondary, var(--midground));\n  pointer-events: none;\n}\n\n.petasos-tz {\n  align-self: center;\n}\n\n.petasos-filter-selects {\n  display: grid;\n  grid-template-columns: repeat(4, minmax(0, 1fr));\n  gap: 0.75rem;\n}\n\n.petasos-choice {\n  display: flex;\n  flex-direction: column;\n  gap: 0.35rem;\n  min-width: 0;\n}\n\n.petasos-split {\n  display: grid;\n  grid-template-columns: minmax(0, 1fr);\n  gap: 1rem;\n  align-items: start;\n}\n\n.petasos-split-open {\n  grid-template-columns: minmax(0, 1.3fr) minmax(24rem, 1fr);\n}\n\n/* With an event open, each row folds to two lines so the sentence keeps\n * its width: what happened and the outcome, then when and the severity. */\n.petasos-split-open .petasos-event-header {\n  display: none;\n}\n\n.petasos-split-open .petasos-event {\n  grid-template-columns: minmax(0, 1fr) auto 1rem;\n  row-gap: 0.3rem;\n}\n\n.petasos-split-open .petasos-event-what {\n  grid-column: 1;\n  grid-row: 1;\n}\n\n.petasos-split-open .petasos-event-outcome {\n  grid-column: 2;\n  grid-row: 1;\n  justify-self: end;\n}\n\n.petasos-split-open .petasos-event-when {\n  grid-column: 1;\n  grid-row: 2;\n}\n\n.petasos-split-open .petasos-event-when .petasos-block {\n  display: inline;\n  margin-right: 0.6rem;\n}\n\n.petasos-split-open .petasos-event-severity {\n  grid-column: 2;\n  grid-row: 2;\n  justify-self: end;\n}\n\n.petasos-split-open .petasos-chevron {\n  grid-column: 3;\n  grid-row: 1 / span 2;\n}\n\n.petasos-split-open .petasos-group-bar {\n  padding-left: 0.6rem;\n}\n\n.petasos-split-even {\n  grid-template-columns: repeat(2, minmax(0, 1fr));\n}\n\n.petasos-split-main {\n  min-width: 0;\n}\n\n.petasos-list-card {\n  padding: 0.4rem 1rem 0.6rem;\n}\n\n.petasos-event-header,\n.petasos-event {\n  display: grid;\n  grid-template-columns: 8.5rem minmax(0, 1fr) 6rem 11.5rem 1rem;\n  align-items: center;\n  gap: 1rem;\n}\n\n.petasos-event-header {\n  padding: 0.6rem 0.6rem;\n  border-bottom: 1px solid var(--color-border);\n  font-family: var(--font-mondwest);\n  font-size: 0.76rem;\n  font-weight: 600;\n  letter-spacing: 0.06em;\n  text-transform: uppercase;\n  color: var(--text-secondary, var(--midground));\n}\n\n.petasos-events {\n  list-style: none;\n  margin: 0;\n  padding: 0;\n}\n\n.petasos-event-item {\n  border-bottom: 1px solid var(--color-border);\n}\n\n.petasos-events-nested {\n  border-top: 1px dashed var(--color-border);\n  margin-left: 1.5rem;\n}\n\n.petasos-events-nested .petasos-event-item:last-child {\n  border-bottom: 0;\n}\n\n.petasos-event {\n  width: 100%;\n  padding: 0.65rem 0.6rem;\n  border: 0;\n  background: none;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n}\n\n.petasos-event:hover {\n  background: color-mix(in srgb, var(--midground) 6%, transparent);\n}\n\n.petasos-event:hover .petasos-chevron {\n  color: var(--midground);\n}\n\n.petasos-event-selected,\n.petasos-event-selected:hover {\n  background: color-mix(in srgb, var(--midground) 11%, transparent);\n}\n\n.petasos-event-when {\n  font-family: var(--theme-font-mono);\n  font-size: 0.78rem;\n  line-height: 1.45;\n}\n\n.petasos-event-what {\n  display: flex;\n  flex-direction: column;\n  gap: 0.15rem;\n  min-width: 0;\n}\n\n.petasos-event-summary {\n  font-size: 0.9rem;\n}\n\n.petasos-event-meta {\n  display: flex;\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 0.5rem;\n  font-size: 0.8rem;\n  color: var(--text-secondary, var(--midground));\n}\n\n.petasos-group-bar {\n  display: flex;\n  align-items: center;\n  gap: 1rem;\n  padding: 0 0.6rem 0.6rem 10.1rem;\n  font-size: 0.8rem;\n}\n\n.petasos-more {\n  display: flex;\n  justify-content: center;\n  padding-top: 0.75rem;\n}\n\n.petasos-detail {\n  position: sticky;\n  top: 0.5rem;\n  display: flex;\n  flex-direction: column;\n  gap: 0.75rem;\n  padding: 1rem 1.1rem;\n  border: 1px solid var(--color-border);\n  background: var(--color-card);\n  min-width: 0;\n}\n\n.petasos-detail-head {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n}\n\n.petasos-detail-title {\n  margin: 0;\n  font-size: 1rem;\n  font-weight: 700;\n  line-height: 1.4;\n}\n\n.petasos-detail-note {\n  font-size: 0.86rem;\n  font-weight: 600;\n}\n\n.petasos-raw summary {\n  cursor: pointer;\n  font-size: 0.83rem;\n  text-decoration: underline;\n  text-underline-offset: 3px;\n}\n\n.petasos-raw[open] summary {\n  margin-bottom: 0.5rem;\n}\n\n/* ---- Try it ---------------------------------------------------------- */\n\n.petasos-textarea {\n  width: 100%;\n  padding: 0.6rem 0.75rem;\n  border: 1px solid color-mix(in srgb, var(--midground) 18%, transparent);\n  background: color-mix(in srgb, var(--background) 40%, transparent);\n  color: inherit;\n  font: inherit;\n  font-size: 0.88rem;\n  line-height: 1.5;\n  resize: vertical;\n}\n\n.petasos-mono-area {\n  font-family: var(--theme-font-mono);\n  font-size: 0.82rem;\n}\n\n.petasos-textarea:disabled {\n  opacity: 0.55;\n  cursor: not-allowed;\n}\n\n.petasos-field-error {\n  font-size: 0.83rem;\n  font-weight: 700;\n  color: color-mix(in srgb, var(--color-destructive) 45%, white);\n}\n\n.petasos-light .petasos-field-error {\n  color: color-mix(in srgb, var(--color-destructive) 70%, black);\n}\n\n.petasos-decision {\n  display: flex;\n  flex-direction: column;\n  align-items: flex-start;\n  gap: 0.45rem;\n}\n\n.petasos-decision-text {\n  font-size: 0.9rem;\n}\n\n.petasos-compare {\n  display: grid;\n  grid-template-columns: repeat(2, minmax(0, 1fr));\n  gap: 1.25rem;\n}\n\n.petasos-compare-cell {\n  display: flex;\n  flex-direction: column;\n  gap: 0.45rem;\n}\n\n.petasos-compare-cell + .petasos-compare-cell {\n  padding-left: 1.25rem;\n  border-left: 1px solid var(--color-border);\n}\n\n.petasos-message,\n.petasos-marked {\n  margin: 0;\n  padding: 0.65rem 0.8rem;\n  border: 1px solid var(--color-border);\n  font-family: var(--theme-font-mono);\n  font-size: 0.8rem;\n  line-height: 1.55;\n  white-space: pre-wrap;\n  overflow-wrap: anywhere;\n}\n\n.petasos-mark {\n  background: color-mix(in srgb, var(--color-destructive) 18%, transparent);\n  color: inherit;\n  text-decoration: underline;\n  text-decoration-color: var(--color-destructive);\n  text-decoration-thickness: 2px;\n  text-underline-offset: 3px;\n}\n\n.petasos-mark-n {\n  font-weight: 700;\n  margin-right: 0.1rem;\n}\n\n.petasos-findings {\n  list-style: none;\n  margin: 0;\n  padding: 0;\n  display: flex;\n  flex-direction: column;\n}\n\n.petasos-finding {\n  display: grid;\n  grid-template-columns: 1.6rem minmax(0, 1fr);\n  gap: 0.6rem;\n  padding: 0.6rem 0;\n  border-bottom: 1px solid var(--color-border);\n}\n\n.petasos-finding-n {\n  font-family: var(--theme-font-mono);\n  font-size: 0.82rem;\n  font-weight: 700;\n  text-align: center;\n  padding-top: 0.05rem;\n}\n\n.petasos-finding-body {\n  display: flex;\n  flex-direction: column;\n  gap: 0.35rem;\n  min-width: 0;\n}\n\n.petasos-finding-head {\n  display: flex;\n  align-items: flex-start;\n  justify-content: space-between;\n  gap: 0.75rem;\n}\n\n.petasos-finding-sentence {\n  font-size: 0.9rem;\n}\n\n.petasos-finding-meta {\n  font-size: 0.8rem;\n  color: var(--text-secondary, var(--midground));\n}\n\n.petasos-took-part {\n  list-style: none;\n  margin: 0;\n  padding: 0;\n  display: grid;\n  grid-template-columns: max-content max-content minmax(0, 1fr);\n  gap: 0.45rem 0.85rem;\n  align-items: center;\n}\n\n.petasos-took-part li {\n  display: contents;\n}\n\n.petasos-took-name {\n  font-weight: 700;\n  font-size: 0.86rem;\n}\n\n.petasos-quieted {\n  list-style: none;\n  margin: 0;\n  padding: 0;\n  display: flex;\n  flex-direction: column;\n  gap: 0.35rem;\n  font-size: 0.83rem;\n}\n\n.petasos-quieted li {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 0.25rem 0.75rem;\n  align-items: baseline;\n}\n\n.petasos-advanced summary {\n  cursor: pointer;\n  font-size: 0.85rem;\n  text-decoration: underline;\n  text-underline-offset: 3px;\n}\n\n.petasos-advanced[open] {\n  display: flex;\n  flex-direction: column;\n  gap: 0.45rem;\n}\n\n/* ---- Settings: Config's layout -------------------------------------- */\n\n.petasos-settings-toolbar {\n  display: flex;\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 0.75rem 1.5rem;\n}\n\n.petasos-settings-toolbar .petasos-search {\n  max-width: 26rem;\n}\n\n.petasos-savebox {\n  display: flex;\n  align-items: center;\n  gap: 0.6rem;\n  margin-left: auto;\n}\n\n.petasos-settings-body {\n  display: grid;\n  grid-template-columns: 13.5rem minmax(0, 1fr);\n  gap: 1rem;\n  align-items: start;\n}\n\n.petasos-sections {\n  display: flex;\n  flex-direction: column;\n  padding: 0.6rem 0.5rem;\n  border: 1px solid var(--color-border);\n  background: var(--color-card);\n  position: sticky;\n  top: 0.5rem;\n}\n\n.petasos-sections-title {\n  padding: 0.25rem 0.5rem 0.4rem;\n  font-size: 0.74rem;\n}\n\n.petasos-section {\n  display: flex;\n  align-items: center;\n  gap: 0.4rem;\n  padding: 0.35rem 0.5rem;\n  border: 0;\n  background: none;\n  color: var(--text-secondary, var(--midground));\n  font-family: var(--theme-font-mono);\n  font-size: 0.8rem;\n  text-align: left;\n  cursor: pointer;\n}\n\n.petasos-section:hover {\n  background: color-mix(in srgb, var(--midground) 7%, transparent);\n  color: var(--midground);\n}\n\n.petasos-section-on,\n.petasos-section-on:hover {\n  background: color-mix(in srgb, var(--midground) 12%, transparent);\n  color: var(--midground);\n  font-weight: 700;\n}\n\n.petasos-section-name {\n  margin-right: auto;\n}\n\n.petasos-section-changed {\n  font-size: 0.55rem;\n}\n\n.petasos-section-count {\n  font-size: 0.74rem;\n  color: var(--text-tertiary, var(--midground));\n}\n\n.petasos-settings-main {\n  min-width: 0;\n}\n\n.petasos-group {\n  display: flex;\n  flex-direction: column;\n  gap: 0.25rem;\n}\n\n.petasos-group-head {\n  display: flex;\n  align-items: center;\n  gap: 0.6rem;\n  padding-top: 0.75rem;\n}\n\n.petasos-group-name {\n  font-family: var(--font-mondwest);\n  font-size: 0.78rem;\n  font-weight: 700;\n  letter-spacing: 0.06em;\n  text-transform: uppercase;\n  color: var(--text-secondary, var(--midground));\n}\n\n.petasos-group-rule {\n  flex: 1;\n  border-top: 1px solid var(--color-border);\n}\n\n/* One field, as Config draws it: label, key, sentence, control beneath. */\n.petasos-field {\n  display: flex;\n  flex-direction: column;\n  gap: 0.35rem;\n  padding: 0.7rem 0 0.75rem;\n  scroll-margin: 1rem;\n}\n\n.petasos-field-head {\n  display: flex;\n  align-items: flex-start;\n  justify-content: space-between;\n  gap: 1.5rem;\n}\n\n.petasos-field-text {\n  display: flex;\n  flex-direction: column;\n  gap: 0.1rem;\n  min-width: 0;\n}\n\n.petasos-field-label {\n  font-family: var(--font-mondwest);\n  font-size: 0.86rem;\n  font-weight: 600;\n  letter-spacing: 0.04em;\n  text-transform: uppercase;\n}\n\n.petasos-field-key {\n  font-family: var(--theme-font-mono);\n  font-size: 0.76rem;\n  color: var(--text-tertiary, var(--midground));\n}\n\n.petasos-field-help {\n  font-size: 0.82rem;\n  color: var(--text-secondary, var(--midground));\n  max-width: 60rem;\n}\n\n.petasos-field-switch {\n  padding-top: 0.15rem;\n}\n\n.petasos-field-control {\n  min-width: 0;\n}\n\n.petasos-field-staged .petasos-field-label::after {\n  content: \" \u2022\";\n}\n\n.petasos-field-invalid input,\n.petasos-field-invalid textarea {\n  border-color: var(--color-destructive) !important;\n}\n\n.petasos-field-focused {\n  background: color-mix(in srgb, var(--midground) 5%, transparent);\n  margin: 0 -0.6rem;\n  padding-left: 0.6rem;\n  padding-right: 0.6rem;\n}\n\n.petasos-review .petasos-panel-body {\n  gap: 0.75rem;\n}\n\n.petasos-rule-helper .petasos-kv {\n  font-size: 0.85rem;\n}\n\n/* ---- Narrow ---------------------------------------------------------- */\n\n@media (max-width: 1100px) {\n  .petasos-split-open,\n  .petasos-split-even,\n  .petasos-grid-3 {\n    grid-template-columns: minmax(0, 1fr);\n  }\n  .petasos-detail {\n    position: static;\n  }\n  .petasos-filter-selects {\n    grid-template-columns: repeat(2, minmax(0, 1fr));\n  }\n}\n\n@media (max-width: 1000px) {\n  .petasos-grid-2,\n  .petasos-verdict,\n  .petasos-settings-body,\n  .petasos-compare {\n    grid-template-columns: minmax(0, 1fr);\n  }\n  .petasos-verdict-side {\n    padding-left: 0;\n    border-left: 0;\n    flex-direction: row;\n    align-items: center;\n  }\n  .petasos-compare-cell + .petasos-compare-cell {\n    padding-left: 0;\n    border-left: 0;\n  }\n  .petasos-sections {\n    position: static;\n    flex-direction: row;\n    flex-wrap: wrap;\n  }\n  .petasos-event-header {\n    display: none;\n  }\n  .petasos-event {\n    grid-template-columns: minmax(0, 1fr) auto 1rem;\n  }\n  .petasos-event-when {\n    grid-column: 1 / -1;\n  }\n  .petasos-event-severity {\n    display: none;\n  }\n  .petasos-group-bar {\n    padding-left: 0.6rem;\n  }\n  .petasos-opt {\n    grid-template-columns: 7rem minmax(0, 1fr);\n  }\n}\n";
+  var STYLE = "/*\n * Petasos tab layout. Every colour, font and size is a Hermes variable, so\n * the tab follows whichever Hermes theme is active. Where Hermes's SDK does\n * not export a control (Segmented, Switch), these rules draw it the way\n * Hermes's own source does. No palette, font or icon set of Petasos's own.\n *\n * Text hierarchy uses Hermes's own tokens: primary text is the theme's ink;\n * secondary and tertiary text are the same ink at Hermes's 80% and 65%\n * (text-text-secondary and text-text-tertiary on its Config page). Values a\n * person typed and the current value of a control are primary.\n */\n\n.petasos {\n  --petasos-ink: var(--midground);\n  --petasos-secondary: var(\n    --color-text-secondary,\n    color-mix(in srgb, var(--midground-base, var(--midground)) 80%, transparent)\n  );\n  --petasos-tertiary: var(\n    --text-tertiary,\n    color-mix(in srgb, var(--midground-base, var(--midground)) 65%, transparent)\n  );\n  --petasos-line: color-mix(in srgb, var(--midground-base, var(--midground)) 15%, transparent);\n  --petasos-control-line: color-mix(in srgb, var(--midground-base, var(--midground)) 30%, transparent);\n  display: flex;\n  flex-direction: column;\n  gap: 1rem;\n  width: 100%;\n  min-width: 0;\n  color: var(--petasos-ink);\n  font-size: 0.9375rem;\n  line-height: 1.5;\n}\n\n.petasos code,\n.petasos pre {\n  background: transparent !important;\n  color: inherit;\n}\n\n.petasos p {\n  margin: 0;\n}\n\n.petasos .sr-only {\n  position: absolute;\n  width: 1px;\n  height: 1px;\n  padding: 0;\n  margin: -1px;\n  overflow: hidden;\n  clip: rect(0, 0, 0, 0);\n  white-space: nowrap;\n  border: 0;\n}\n\n/* Keyboard focus is always visible, in the theme's ring colour, on every\n * control the tab draws. Hermes's own controls keep their ring too. */\n.petasos button:focus-visible,\n.petasos a:focus-visible,\n.petasos input:focus-visible,\n.petasos textarea:focus-visible,\n.petasos summary:focus-visible,\n.petasos [tabindex]:focus-visible {\n  outline: 2px solid var(--midground);\n  outline-offset: 2px;\n}\n\n.petasos-detail:focus,\n.petasos-sheet:focus,\n.petasos-subhead:focus {\n  outline: none;\n}\n\n/* Controls: a typed value and a chosen value are primary text, and the\n * edge of an editable field is clear enough to read as editable. */\n.petasos input,\n.petasos textarea,\n.petasos [aria-haspopup=\"listbox\"] {\n  color: var(--petasos-ink);\n  border-color: var(--petasos-control-line);\n  font-family: var(--theme-font-mono);\n}\n\n.petasos input::placeholder,\n.petasos textarea::placeholder {\n  color: var(--petasos-tertiary);\n}\n\n.petasos [aria-haspopup=\"listbox\"] svg {\n  opacity: 1;\n  color: var(--petasos-ink);\n}\n\n.petasos input:disabled,\n.petasos textarea:disabled,\n.petasos [aria-haspopup=\"listbox\"]:disabled {\n  color: var(--petasos-tertiary);\n}\n\n.petasos-stack {\n  display: flex;\n  flex-direction: column;\n  gap: 1rem;\n  min-width: 0;\n}\n\n.petasos-grid-2 {\n  display: grid;\n  grid-template-columns: repeat(2, minmax(0, 1fr));\n  gap: 1rem;\n  align-items: start;\n}\n\n.petasos-grid-3 {\n  display: grid;\n  grid-template-columns: repeat(3, minmax(0, 1fr));\n  gap: 1rem;\n  align-items: start;\n}\n\n.petasos-help,\n.petasos-secondary {\n  font-size: 0.875rem;\n  line-height: 1.5;\n  color: var(--petasos-secondary);\n}\n\n.petasos-tertiary,\n.petasos-faint {\n  font-size: 0.8125rem;\n  color: var(--petasos-tertiary);\n}\n\n.petasos-strong,\n.petasos strong {\n  font-weight: 700;\n}\n\n.petasos-block {\n  display: block;\n}\n\n.petasos-gap-above {\n  margin-top: 0.4rem;\n}\n\n.petasos-end {\n  padding: 0.9rem 0 0.4rem;\n  text-align: center;\n}\n\n/* Links are underlined everywhere, so they read as links in a theme that\n * draws all text in one colour. */\n.petasos-link,\n.petasos a.petasos-link {\n  background: none;\n  border: 0;\n  padding: 0;\n  font: inherit;\n  font-size: inherit;\n  color: inherit;\n  text-decoration: underline;\n  text-decoration-thickness: 1px;\n  text-underline-offset: 3px;\n  cursor: pointer;\n  text-align: left;\n}\n\n.petasos-link:hover {\n  text-decoration-thickness: 2px;\n}\n\n.petasos-link:disabled {\n  cursor: not-allowed;\n  opacity: 0.6;\n}\n\n.petasos-row-actions {\n  display: flex;\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 0.6rem 0.9rem;\n}\n\n.petasos-count {\n  font-size: 0.875rem;\n  font-weight: 600;\n  color: var(--petasos-ink);\n}\n\n.petasos-mono {\n  font-family: var(--theme-font-mono);\n  font-size: 0.85rem;\n}\n\n/* A technical id wraps only at the <wbr> after its separators. */\n.petasos-ident {\n  overflow-wrap: normal;\n  word-break: normal;\n  white-space: normal;\n  font-size: 0.82rem;\n}\n\n.petasos-idrow {\n  display: inline-flex;\n  flex-wrap: wrap;\n  align-items: baseline;\n  gap: 0.25rem 0.6rem;\n}\n\n.petasos-copy {\n  display: inline-flex;\n  align-items: center;\n  gap: 0.25rem;\n  padding: 0.1rem 0.35rem;\n  border: 1px solid transparent;\n  background: none;\n  color: var(--petasos-secondary);\n  font-size: 0.8rem;\n  cursor: pointer;\n}\n\n.petasos-copy:hover {\n  border-color: var(--petasos-line);\n  color: var(--petasos-ink);\n}\n\n.petasos-icon {\n  display: inline-block;\n  flex-shrink: 0;\n  vertical-align: middle;\n}\n\n/* ---- Disclosure, as Hermes's pages draw one ------------------------- */\n\n.petasos-disclosure {\n  display: flex;\n  flex-direction: column;\n  align-items: flex-start;\n  gap: 0.6rem;\n  min-width: 0;\n  width: 100%;\n}\n\n.petasos-disclosure-toggle {\n  display: inline-flex;\n  align-items: center;\n  gap: 0.3rem;\n  padding: 0;\n  border: 0;\n  background: none;\n  color: var(--petasos-secondary);\n  font: inherit;\n  font-size: 0.875rem;\n  text-decoration: underline;\n  text-decoration-thickness: 1px;\n  text-underline-offset: 3px;\n  cursor: pointer;\n}\n\n.petasos-disclosure-toggle:hover {\n  color: var(--petasos-ink);\n}\n\n.petasos-disclosure-chevron {\n  transition: transform 120ms;\n}\n\n.petasos-disclosure-open > .petasos-disclosure-toggle .petasos-disclosure-chevron {\n  transform: rotate(90deg);\n}\n\n.petasos-disclosure-body {\n  display: flex;\n  flex-direction: column;\n  gap: 0.6rem;\n  width: 100%;\n  min-width: 0;\n  padding-left: 1.1rem;\n}\n\n/* A command to copy into a terminal. */\n.petasos-command {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 0.75rem;\n  max-width: 40rem;\n  padding: 0.45rem 0.6rem 0.45rem 0.8rem;\n  border: 1px solid var(--petasos-control-line);\n  background: color-mix(in srgb, var(--background) 40%, transparent);\n}\n\n.petasos-command-text {\n  font-family: var(--theme-font-mono);\n  font-size: 0.875rem;\n  overflow-wrap: anywhere;\n}\n\n/* ---- Top bar: Hermes's enclosed tabs ------------------------------- */\n\n.petasos-topbar {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 1rem;\n  flex-wrap: wrap;\n}\n\n.petasos-topbar-main {\n  display: flex;\n  align-items: center;\n  gap: 0.75rem;\n  flex-wrap: wrap;\n}\n\n.petasos-topbar-side {\n  display: flex;\n  align-items: center;\n  gap: 0.75rem;\n}\n\n.petasos-topbar-side .petasos-help {\n  color: var(--petasos-tertiary);\n}\n\n.petasos-unsaved {\n  background: none;\n  border: 0;\n  padding: 0;\n  font-size: 0.875rem;\n  color: inherit;\n  text-decoration: underline;\n  text-underline-offset: 3px;\n  cursor: pointer;\n}\n\n/* Hermes's Segmented: joined rectangular buttons, the chosen one filled\n * with the theme's ink, regular weight, as on Sessions. */\n.petasos-segmented {\n  display: inline-flex;\n  flex-wrap: wrap;\n  border: 1px solid var(--petasos-line);\n  background: color-mix(in srgb, var(--background) 30%, transparent);\n  max-width: 100%;\n}\n\n.petasos-segment {\n  display: inline-flex;\n  align-items: center;\n  gap: 0.35rem;\n  height: 1.875rem;\n  padding: 0 0.75rem;\n  border: 0;\n  border-right: 1px solid var(--petasos-line);\n  background: transparent;\n  color: var(--petasos-secondary);\n  font-family: var(--font-mondwest);\n  font-size: 0.875rem;\n  font-weight: 400;\n  letter-spacing: 0.03em;\n  white-space: nowrap;\n  cursor: pointer;\n  transition: background-color 120ms, color 120ms;\n}\n\n.petasos-segment:last-child {\n  border-right: 0;\n}\n\n.petasos-segment:hover {\n  background: color-mix(in srgb, var(--midground) 10%, transparent);\n  color: var(--midground);\n}\n\n.petasos-segment-on,\n.petasos-segment-on:hover {\n  background: var(--midground);\n  color: var(--background);\n}\n\n.petasos-segment:disabled {\n  cursor: not-allowed;\n  opacity: 0.55;\n}\n\n.petasos-viewtabs .petasos-segment {\n  height: 1.875rem;\n  padding: 0 0.85rem;\n}\n\n/* ---- Hermes's Switch ------------------------------------------------ */\n\n.petasos-switch {\n  position: relative;\n  display: inline-flex;\n  align-items: center;\n  flex-shrink: 0;\n  width: 2.25rem;\n  height: 1.25rem;\n  padding: 0;\n  border: 1px solid color-mix(in srgb, var(--midground) 22%, transparent);\n  background: var(--background);\n  cursor: pointer;\n  transition: background-color 120ms, border-color 120ms;\n}\n\n.petasos-switch-thumb {\n  display: block;\n  width: 0.875rem;\n  height: 0.875rem;\n  margin-left: 0.125rem;\n  background: color-mix(in srgb, var(--midground) 40%, transparent);\n  transition: transform 120ms;\n}\n\n.petasos-switch-on {\n  background: color-mix(in srgb, var(--midground) 15%, transparent);\n  border-color: color-mix(in srgb, var(--midground) 35%, transparent);\n}\n\n.petasos-switch-on .petasos-switch-thumb {\n  transform: translateX(1rem);\n  background: var(--midground);\n}\n\n.petasos-switch:disabled {\n  cursor: not-allowed;\n  opacity: 0.5;\n}\n\n.petasos-inline-switch {\n  display: inline-flex;\n  align-items: center;\n  gap: 0.6rem;\n  font-size: 0.875rem;\n}\n\n/* ---- Panels --------------------------------------------------------- */\n\n.petasos-panel {\n  min-width: 0;\n}\n\n.petasos-panel-head {\n  padding: 0.85rem 1.1rem 0.6rem;\n}\n\n.petasos-panel-headrow {\n  display: flex;\n  align-items: flex-start;\n  justify-content: space-between;\n  gap: 1rem;\n}\n\n.petasos-panel-titles {\n  display: flex;\n  flex-direction: column;\n  gap: 0.25rem;\n  min-width: 0;\n}\n\n.petasos-panel-desc {\n  font-size: 0.875rem;\n  color: var(--petasos-secondary);\n}\n\n.petasos-panel-actions {\n  display: flex;\n  align-items: center;\n  gap: 0.75rem;\n  flex-shrink: 0;\n}\n\n.petasos-panel-body {\n  display: flex;\n  flex-direction: column;\n  gap: 0.85rem;\n  padding: 0.9rem 1.1rem 1.1rem;\n}\n\n/* Field and filter labels, as Hermes's Label and FilterGroup draw them:\n * Mondwest, upper case, regular weight, spaced; bold is kept for values. */\n.petasos-label,\n.petasos-filter-label,\n.petasos-sections-title {\n  font-family: var(--font-mondwest);\n  font-size: 0.78rem;\n  font-weight: 400;\n  letter-spacing: 0.08em;\n  line-height: 1.3;\n  text-transform: uppercase;\n  color: var(--petasos-secondary);\n}\n\n.petasos-subhead {\n  margin: 0.3rem 0 0;\n  font-family: var(--font-mondwest);\n  font-size: 0.8rem;\n  font-weight: 400;\n  letter-spacing: 0.08em;\n  text-transform: uppercase;\n  color: var(--petasos-secondary);\n}\n\n/* ---- Status: Hermes's Badge, legible -------------------------------- */\n\n/* Hermes's Badge already sets the face, case, border, fill and tracking.\n * These rules raise its size a step and tighten its tracking a little so\n * an outcome reads at a glance; light themes darken the ink. */\n.petasos .petasos-status {\n  font-size: 1.05rem;\n  letter-spacing: 0.1em;\n  padding: 0.28rem 0.5rem 0.24rem;\n  line-height: 1;\n  white-space: nowrap;\n  vertical-align: middle;\n}\n\n.petasos .petasos-status-large {\n  font-size: 1.2rem;\n  padding: 0.32rem 0.6rem 0.28rem;\n}\n\n.petasos .petasos-status-success {\n  color: color-mix(in srgb, var(--color-success) 70%, white);\n}\n\n.petasos .petasos-status-warning {\n  color: color-mix(in srgb, var(--color-warning) 75%, white);\n}\n\n.petasos .petasos-status-destructive {\n  color: color-mix(in srgb, var(--color-destructive) 55%, white);\n  border-color: color-mix(in srgb, var(--color-destructive) 55%, transparent);\n}\n\n.petasos-light .petasos-status-success {\n  color: color-mix(in srgb, var(--color-success) 45%, black);\n  border-color: color-mix(in srgb, var(--color-success) 60%, black);\n}\n\n.petasos-light .petasos-status-warning {\n  color: color-mix(in srgb, var(--color-warning) 45%, black);\n  border-color: color-mix(in srgb, var(--color-warning) 60%, black);\n}\n\n.petasos-light .petasos-status-destructive {\n  color: color-mix(in srgb, var(--color-destructive) 70%, black);\n  border-color: color-mix(in srgb, var(--color-destructive) 70%, black);\n}\n\n.petasos-light .petasos-status-neutral {\n  color: var(--midground);\n}\n\n.petasos-tag {\n  white-space: nowrap;\n}\n\n.petasos .petasos-tag {\n  font-size: 0.85rem;\n}\n\n.petasos-none {\n  color: var(--petasos-tertiary);\n}\n\n/* Severity: a quiet word with a four-step meter beside the outcome. */\n.petasos-sev {\n  display: inline-flex;\n  align-items: center;\n  gap: 0.4rem;\n  font-size: 0.85rem;\n  color: var(--petasos-secondary);\n  white-space: nowrap;\n}\n\n.petasos-sev-meter {\n  display: inline-flex;\n  align-items: flex-end;\n  gap: 2px;\n  height: 0.75rem;\n}\n\n.petasos-sev-bar {\n  width: 3px;\n  background: color-mix(in srgb, var(--midground) 22%, transparent);\n}\n\n.petasos-sev-bar:nth-child(1) {\n  height: 35%;\n}\n\n.petasos-sev-bar:nth-child(2) {\n  height: 55%;\n}\n\n.petasos-sev-bar:nth-child(3) {\n  height: 78%;\n}\n\n.petasos-sev-bar:nth-child(4) {\n  height: 100%;\n}\n\n.petasos-sev-bar-on {\n  background: currentColor;\n}\n\n.petasos-sev-destructive .petasos-sev-meter {\n  color: color-mix(in srgb, var(--color-destructive) 60%, white);\n}\n\n.petasos-sev-warning .petasos-sev-meter {\n  color: var(--color-warning);\n}\n\n.petasos-light .petasos-sev-destructive .petasos-sev-meter {\n  color: color-mix(in srgb, var(--color-destructive) 75%, black);\n}\n\n.petasos-light .petasos-sev-warning .petasos-sev-meter {\n  color: color-mix(in srgb, var(--color-warning) 55%, black);\n}\n\n.petasos-sev-critical {\n  color: var(--petasos-ink);\n  font-weight: 700;\n}\n\n/* ---- Notices: a mark and a title; only exceptional warnings keep an edge */\n\n.petasos-notice {\n  display: flex;\n  align-items: flex-start;\n  justify-content: space-between;\n  gap: 1rem;\n  padding: 0.8rem 1rem;\n  border: 1px solid var(--color-border);\n  background: var(--color-card);\n}\n\n.petasos-notice-strong {\n  border-left: 3px solid var(--color-destructive);\n}\n\n.petasos-notice-text {\n  display: flex;\n  flex-direction: column;\n  gap: 0.3rem;\n  min-width: 0;\n}\n\n.petasos-notice-title {\n  display: flex;\n  align-items: center;\n  gap: 0.5rem;\n  font-weight: 700;\n  font-size: 0.9375rem;\n}\n\n.petasos-notice-dot {\n  width: 0.5rem;\n  height: 0.5rem;\n  border-radius: 50%;\n  flex-shrink: 0;\n  background: var(--midground);\n}\n\n.petasos-notice-warning .petasos-notice-dot {\n  background: var(--color-warning);\n}\n\n.petasos-notice-destructive .petasos-notice-dot {\n  background: var(--color-destructive);\n}\n\n.petasos-notice-check {\n  color: var(--color-success);\n}\n\n.petasos-light .petasos-notice-check {\n  color: color-mix(in srgb, var(--color-success) 50%, black);\n}\n\n.petasos-notice-success {\n  border-color: color-mix(in srgb, var(--color-success) 45%, transparent);\n}\n\n.petasos-notice-body {\n  font-size: 0.875rem;\n  line-height: 1.55;\n  padding-left: 1.1rem;\n  color: var(--petasos-secondary);\n}\n\n.petasos-notice-body p + p {\n  margin-top: 0.3rem;\n}\n\n.petasos-notice-action {\n  flex-shrink: 0;\n}\n\n.petasos-steps {\n  margin: 0.4rem 0 0;\n  padding-left: 1.2rem;\n  display: flex;\n  flex-direction: column;\n  gap: 0.25rem;\n}\n\n/* A saved confirmation, and beneath it, separately and more quietly, what\n * waits for a restart. */\n.petasos-saved {\n  display: flex;\n  flex-direction: column;\n  gap: 0.4rem;\n}\n\n.petasos-restart-note {\n  padding: 0 0 0 1.1rem;\n  font-size: 0.875rem;\n  color: var(--petasos-secondary);\n}\n\n/* ---- Empty list, as Sessions draws it ------------------------------- */\n\n.petasos-empty {\n  display: flex;\n  flex-direction: column;\n  align-items: center;\n  gap: 0.3rem;\n  padding: 3rem 1rem;\n  text-align: center;\n}\n\n.petasos-empty-icon {\n  width: 1.75rem;\n  height: 1.75rem;\n  margin-bottom: 0.35rem;\n  color: var(--petasos-tertiary);\n}\n\n.petasos-empty-title {\n  font-size: 0.9375rem;\n  font-weight: 400;\n  color: var(--petasos-secondary);\n}\n\n.petasos-empty-body {\n  max-width: 30rem;\n  font-size: 0.8125rem;\n  color: var(--petasos-tertiary);\n}\n\n.petasos-empty-action {\n  margin-top: 0.6rem;\n}\n\n/* ---- Key and value lists -------------------------------------------- */\n\n.petasos-kv {\n  display: grid;\n  grid-template-columns: minmax(7rem, max-content) minmax(0, 1fr);\n  gap: 0.45rem 1.25rem;\n  margin: 0;\n  font-size: 0.9rem;\n}\n\n.petasos-kv dt {\n  font-family: var(--font-mondwest);\n  font-size: 0.78rem;\n  font-weight: 400;\n  letter-spacing: 0.08em;\n  text-transform: uppercase;\n  color: var(--petasos-tertiary);\n  padding-top: 0.15rem;\n}\n\n.petasos-kv dd {\n  margin: 0;\n  min-width: 0;\n}\n\n.petasos-kv-stacked {\n  grid-template-columns: minmax(0, 1fr);\n  gap: 0.15rem;\n}\n\n.petasos-kv-stacked dd {\n  margin-bottom: 0.6rem;\n}\n\n/* ---- Overview: status, with the two choices inside ------------------ */\n\n.petasos-verdict {\n  display: flex;\n  flex-direction: column;\n  gap: 0.6rem;\n  padding: 1.1rem 1.2rem 1.2rem;\n  border: 1px solid var(--color-border);\n  background: var(--color-card);\n}\n\n.petasos-verdict-head {\n  display: flex;\n  align-items: flex-start;\n  justify-content: space-between;\n  gap: 1rem;\n}\n\n.petasos-verdict-titles {\n  display: flex;\n  align-items: center;\n  flex-wrap: wrap;\n  gap: 0.75rem;\n  min-width: 0;\n}\n\n.petasos-verdict-title {\n  margin: 0;\n  font-size: 1.125rem;\n  font-weight: 700;\n  line-height: 1.35;\n}\n\n.petasos-verdict-action {\n  flex-shrink: 0;\n}\n\n.petasos-verdict-reason {\n  max-width: 56rem;\n  font-size: 0.9375rem;\n  color: var(--petasos-secondary);\n}\n\n.petasos-coverage {\n  margin-top: 0.15rem;\n}\n\n.petasos-fixbox {\n  display: flex;\n  flex-direction: column;\n  gap: 0.5rem;\n  padding: 0.75rem 0.9rem;\n  border: 1px solid var(--petasos-line);\n  background: color-mix(in srgb, var(--midground) 4%, transparent);\n  font-size: 0.9rem;\n}\n\n.petasos-setup {\n  display: flex;\n  flex-direction: column;\n  gap: 0.9rem;\n  margin-top: 0.5rem;\n  padding-top: 1rem;\n  border-top: 1px solid var(--color-border);\n}\n\n.petasos-setup-grid {\n  display: grid;\n  grid-template-columns: repeat(2, minmax(0, 1fr));\n  gap: 1rem 2rem;\n  align-items: start;\n}\n\n.petasos-choose {\n  display: flex;\n  flex-direction: column;\n  align-items: flex-start;\n  gap: 0.45rem;\n  min-width: 0;\n}\n\n.petasos-choose-desc {\n  font-size: 0.9rem;\n  max-width: 34rem;\n}\n\n.petasos-optlist {\n  list-style: none;\n  margin: 0;\n  padding: 0;\n  display: flex;\n  flex-direction: column;\n  gap: 0.35rem;\n}\n\n.petasos-opt {\n  display: grid;\n  grid-template-columns: 8.5rem minmax(0, 1fr);\n  gap: 0.75rem;\n  font-size: 0.875rem;\n  line-height: 1.45;\n  color: var(--petasos-secondary);\n}\n\n.petasos-opt-name {\n  font-weight: 600;\n}\n\n.petasos-opt-on {\n  color: var(--petasos-ink);\n}\n\n.petasos-opt-on .petasos-opt-name {\n  font-weight: 700;\n}\n\n.petasos-opt-note {\n  color: var(--petasos-tertiary);\n}\n\n/* The pending change: its own inset surface, a clear heading, then Apply. */\n.petasos-preview {\n  display: flex;\n  flex-direction: column;\n  gap: 0.6rem;\n  padding: 0.9rem 1rem 1rem;\n  border: 1px solid var(--petasos-control-line);\n  background: color-mix(in srgb, var(--midground) 7%, var(--color-card));\n}\n\n.petasos-preview-title {\n  margin: 0;\n  font-size: 1rem;\n  font-weight: 700;\n}\n\n.petasos-preview-text {\n  font-size: 0.9rem;\n  max-width: 56rem;\n}\n\n.petasos-when {\n  font-size: 0.9rem;\n  font-weight: 600;\n}\n\n/* A change: label above, the value from and to, where it would come from. */\n.petasos-changes {\n  list-style: none;\n  margin: 0;\n  padding: 0;\n  width: 100%;\n}\n\n.petasos-change {\n  display: flex;\n  flex-direction: column;\n  gap: 0.2rem;\n  padding: 0.6rem 0;\n  border-bottom: 1px solid var(--color-border);\n}\n\n.petasos-change:first-child {\n  border-top: 1px solid var(--color-border);\n}\n\n.petasos-change-name {\n  font-weight: 700;\n  font-size: 0.9rem;\n}\n\n.petasos-change .petasos-help {\n  font-size: 0.85rem;\n}\n\n.petasos-change-values {\n  font-size: 0.9rem;\n}\n\n.petasos-before {\n  text-decoration: line-through;\n  color: var(--petasos-secondary);\n}\n\n.petasos-arrow {\n  color: var(--petasos-tertiary);\n}\n\n.petasos-diff {\n  list-style: none;\n  margin: 0;\n  padding: 0;\n  display: flex;\n  flex-direction: column;\n  gap: 0.15rem;\n  font-size: 0.875rem;\n}\n\n.petasos-diff-sign {\n  display: inline-block;\n  width: 1rem;\n  font-weight: 700;\n}\n\n.petasos-provenance {\n  font-size: 0.8125rem;\n  color: var(--petasos-tertiary);\n}\n\n.petasos-key {\n  font-family: var(--theme-font-mono);\n  font-size: 0.78rem;\n}\n\n/* ---- Overview: last 24 hours, as System lays out its figures -------- */\n\n.petasos-stats {\n  display: grid;\n  grid-template-columns: repeat(5, minmax(0, 1fr));\n  gap: 0.75rem 1.25rem;\n  margin: 0;\n}\n\n.petasos-stat {\n  display: flex;\n  flex-direction: column;\n  gap: 0.2rem;\n  min-width: 0;\n}\n\n.petasos-stat dt {\n  font-size: 0.75rem;\n  letter-spacing: 0.06em;\n  line-height: 1.3;\n  text-transform: uppercase;\n  color: var(--petasos-tertiary);\n}\n\n.petasos-stat dd {\n  margin: 0;\n}\n\n.petasos-stat-value {\n  background: none;\n  border: 0;\n  padding: 0;\n  color: inherit;\n  font: inherit;\n  font-size: 1rem;\n  font-weight: 600;\n  line-height: 1.3;\n  cursor: pointer;\n  text-decoration: underline;\n  text-decoration-color: var(--petasos-line);\n  text-decoration-thickness: 1px;\n  text-underline-offset: 4px;\n}\n\n.petasos-stat-value:hover {\n  text-decoration-color: currentColor;\n}\n\n.petasos-stat-alarm .petasos-stat-value,\n.petasos-stat-alarm dt {\n  color: color-mix(in srgb, var(--color-destructive) 50%, white);\n}\n\n.petasos-light .petasos-stat-alarm .petasos-stat-value,\n.petasos-light .petasos-stat-alarm dt {\n  color: color-mix(in srgb, var(--color-destructive) 70%, black);\n}\n\n.petasos-mini-list {\n  list-style: none;\n  margin: 0;\n  padding: 0;\n  border-top: 1px solid var(--color-border);\n}\n\n.petasos-mini-row {\n  display: grid;\n  grid-template-columns: 5rem minmax(0, 1fr) auto 1rem;\n  align-items: center;\n  gap: 0.9rem;\n  width: 100%;\n  padding: 0.55rem 0.15rem;\n  border: 0;\n  border-bottom: 1px solid var(--color-border);\n  background: none;\n  color: inherit;\n  font: inherit;\n  font-size: 0.9rem;\n  text-align: left;\n  cursor: pointer;\n}\n\n.petasos-mini-row:hover {\n  background: color-mix(in srgb, var(--midground) 6%, transparent);\n}\n\n.petasos-mini-when {\n  font-size: 0.8125rem;\n  color: var(--petasos-tertiary);\n}\n\n/* A safety sentence wraps; it is never cut short. */\n.petasos-mini-text {\n  min-width: 0;\n  overflow-wrap: anywhere;\n}\n\n.petasos-repeat {\n  font-size: 0.8125rem;\n  font-weight: 700;\n}\n\n.petasos-chevron {\n  color: var(--petasos-tertiary);\n}\n\n/* ---- Overview: checks ------------------------------------------------ */\n\n.petasos-scanners {\n  list-style: none;\n  margin: 0;\n  padding: 0;\n  display: flex;\n  flex-direction: column;\n}\n\n.petasos-scanner {\n  display: flex;\n  flex-direction: column;\n  align-items: flex-start;\n  gap: 0.35rem;\n  padding: 0.7rem 0;\n  border-bottom: 1px solid var(--color-border);\n  font-size: 0.9rem;\n}\n\n.petasos-scanner:first-child {\n  padding-top: 0;\n}\n\n.petasos-scanner:last-child {\n  border-bottom: 0;\n  padding-bottom: 0;\n}\n\n.petasos-scanner-head {\n  display: flex;\n  align-items: center;\n  gap: 0.6rem;\n  width: 100%;\n}\n\n.petasos-scanner-name {\n  display: flex;\n  flex-direction: column;\n  gap: 0.1rem;\n  font-weight: 600;\n  margin-right: auto;\n}\n\n.petasos-scanner-product {\n  font-weight: 400;\n  font-size: 0.8125rem;\n  color: var(--petasos-tertiary);\n}\n\n/* ---- Activity -------------------------------------------------------- */\n\n.petasos-filters {\n  display: flex;\n  flex-direction: column;\n  gap: 0.75rem;\n}\n\n.petasos-filter-row {\n  display: flex;\n  flex-wrap: wrap;\n  align-items: flex-end;\n  gap: 0.75rem 1.25rem;\n}\n\n.petasos-filter-row > .petasos-filter-group,\n.petasos-filter-row > .petasos-search {\n  align-self: center;\n}\n\n.petasos-filter-group {\n  display: flex;\n  align-items: center;\n  gap: 0.6rem;\n}\n\n.petasos-filter-label {\n  color: var(--petasos-tertiary);\n}\n\n.petasos-search {\n  position: relative;\n  flex: 1 1 18rem;\n  max-width: 28rem;\n}\n\n.petasos-search input {\n  padding-left: 2rem;\n}\n\n.petasos-search-icon {\n  position: absolute;\n  left: 0.6rem;\n  top: 50%;\n  transform: translateY(-50%);\n  color: var(--petasos-tertiary);\n  pointer-events: none;\n}\n\n.petasos-range-row {\n  align-items: flex-start;\n}\n\n.petasos-tz {\n  align-self: center;\n}\n\n.petasos-datetime {\n  width: 15rem;\n}\n\n.petasos-datetime-box {\n  position: relative;\n}\n\n.petasos-datetime-box input {\n  padding-right: 2.2rem;\n}\n\n.petasos-datetime-pick {\n  position: absolute;\n  right: 0.25rem;\n  top: 50%;\n  transform: translateY(-50%);\n  display: inline-flex;\n  align-items: center;\n  justify-content: center;\n  width: 1.75rem;\n  height: 1.75rem;\n  border: 0;\n  background: none;\n  color: var(--petasos-ink);\n  cursor: pointer;\n}\n\n.petasos-datetime-pick:hover {\n  background: color-mix(in srgb, var(--midground) 10%, transparent);\n}\n\n/* The browser's picker, opened from the calendar button. Its own field is\n * not shown, so its date format never is. */\n.petasos-datetime-native {\n  position: absolute;\n  right: 0;\n  bottom: 0;\n  width: 1px;\n  height: 1px;\n  opacity: 0;\n  pointer-events: none;\n  border: 0;\n  padding: 0;\n  color-scheme: dark;\n}\n\n.petasos-light .petasos-datetime-native {\n  color-scheme: light;\n}\n\n.petasos-filter-selects {\n  display: grid;\n  grid-template-columns: repeat(4, minmax(0, 1fr));\n  gap: 0.75rem;\n}\n\n.petasos-choice {\n  display: flex;\n  flex-direction: column;\n  gap: 0.35rem;\n  min-width: 0;\n}\n\n.petasos-listbar {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 1rem;\n  flex-wrap: wrap;\n  padding-top: 0.25rem;\n  border-top: 1px solid var(--color-border);\n}\n\n.petasos-listbar-count {\n  padding-top: 0.6rem;\n}\n\n.petasos-listbar > .petasos-status {\n  margin-top: 0.6rem;\n}\n\n.petasos-split {\n  display: grid;\n  grid-template-columns: minmax(0, 1fr);\n  gap: 1rem;\n  align-items: start;\n}\n\n.petasos-split-open {\n  grid-template-columns: minmax(0, 1.3fr) minmax(24rem, 1fr);\n}\n\n/* With an event open, each row folds to two lines so the sentence keeps\n * its width: what happened and the outcome, then when and the severity. */\n.petasos-split-open .petasos-event-header {\n  display: none;\n}\n\n.petasos-split-open .petasos-event {\n  grid-template-columns: minmax(0, 1fr) auto 1rem;\n  row-gap: 0.3rem;\n}\n\n.petasos-split-open .petasos-event-what {\n  grid-column: 1;\n  grid-row: 1;\n}\n\n.petasos-split-open .petasos-event-outcome {\n  grid-column: 2;\n  grid-row: 1;\n  justify-self: end;\n}\n\n.petasos-split-open .petasos-event-when {\n  grid-column: 1;\n  grid-row: 2;\n}\n\n.petasos-split-open .petasos-event-when .petasos-block {\n  display: inline;\n  margin-right: 0.6rem;\n}\n\n.petasos-split-open .petasos-event-severity {\n  grid-column: 2;\n  grid-row: 2;\n  justify-self: end;\n}\n\n.petasos-split-open .petasos-chevron {\n  grid-column: 3;\n  grid-row: 1 / span 2;\n}\n\n.petasos-split-open .petasos-group-bar {\n  padding-left: 0.75rem;\n}\n\n.petasos-split-even {\n  grid-template-columns: repeat(2, minmax(0, 1fr));\n}\n\n.petasos-split-main {\n  min-width: 0;\n}\n\n.petasos-list-card {\n  padding: 0.4rem 1rem 0.6rem;\n}\n\n.petasos-event-header,\n.petasos-event {\n  display: grid;\n  grid-template-columns: 8.5rem minmax(0, 1fr) 7rem 11rem 1rem;\n  align-items: center;\n  gap: 1rem;\n}\n\n.petasos-event-header {\n  padding: 0.6rem 0.75rem;\n  border-bottom: 1px solid var(--color-border);\n  font-family: var(--font-mondwest);\n  font-size: 0.75rem;\n  font-weight: 400;\n  letter-spacing: 0.08em;\n  text-transform: uppercase;\n  color: var(--petasos-tertiary);\n}\n\n.petasos-events {\n  list-style: none;\n  margin: 0;\n  padding: 0;\n}\n\n.petasos-event-item {\n  border-bottom: 1px solid var(--color-border);\n}\n\n.petasos-events-nested {\n  border-top: 1px dashed var(--color-border);\n  margin-left: 1.5rem;\n}\n\n.petasos-events-nested .petasos-event-item:last-child {\n  border-bottom: 0;\n}\n\n.petasos-event {\n  position: relative;\n  width: 100%;\n  padding: 0.65rem 0.75rem;\n  border: 0;\n  background: none;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n}\n\n.petasos-event:hover {\n  background: color-mix(in srgb, var(--midground) 6%, transparent);\n}\n\n.petasos-event:hover .petasos-chevron {\n  color: var(--midground);\n}\n\n/* The open event: a tinted row with an edge marker, kept while its detail\n * is open. */\n.petasos-event-selected,\n.petasos-event-selected:hover {\n  background: color-mix(in srgb, var(--midground) 13%, transparent);\n  box-shadow: inset 3px 0 0 var(--midground);\n}\n\n.petasos-event-selected .petasos-chevron {\n  color: var(--midground);\n}\n\n.petasos-event-when {\n  font-size: 0.8125rem;\n  line-height: 1.45;\n  color: var(--petasos-secondary);\n}\n\n.petasos-event-what {\n  display: flex;\n  flex-direction: column;\n  gap: 0.15rem;\n  min-width: 0;\n}\n\n.petasos-event-summary {\n  font-size: 0.9375rem;\n}\n\n.petasos-event-meta {\n  display: flex;\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 0.5rem;\n  font-size: 0.8125rem;\n  color: var(--petasos-tertiary);\n}\n\n.petasos-event-meta .petasos-mono {\n  font-size: 0.8125rem;\n  color: var(--petasos-secondary);\n}\n\n.petasos-group-bar {\n  display: flex;\n  align-items: center;\n  gap: 1rem;\n  padding: 0 0.75rem 0.6rem 10.25rem;\n  font-size: 0.8125rem;\n  color: var(--petasos-secondary);\n}\n\n.petasos-more {\n  display: flex;\n  justify-content: center;\n  padding-top: 0.75rem;\n}\n\n.petasos-detail {\n  position: sticky;\n  top: 0.5rem;\n  display: flex;\n  flex-direction: column;\n  gap: 0.75rem;\n  padding: 1rem 1.1rem;\n  border: 1px solid var(--color-border);\n  box-shadow: inset 3px 0 0 var(--midground);\n  background: var(--color-card);\n  min-width: 0;\n}\n\n.petasos-detail-head {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 1rem;\n}\n\n.petasos-detail-which {\n  font-size: 0.875rem;\n  color: var(--petasos-secondary);\n}\n\n.petasos-detail-status {\n  display: flex;\n  align-items: center;\n  gap: 0.9rem;\n}\n\n.petasos-detail-title {\n  margin: 0;\n  font-size: 1.0625rem;\n  font-weight: 700;\n  line-height: 1.4;\n}\n\n.petasos-detail-note {\n  font-size: 0.9rem;\n  font-weight: 600;\n}\n\n/* ---- Try it ---------------------------------------------------------- */\n\n.petasos-try-desc {\n  font-size: 0.9375rem;\n}\n\n.petasos-trial-line {\n  font-size: 0.875rem;\n}\n\n.petasos-textarea {\n  width: 100%;\n  padding: 0.6rem 0.75rem;\n  border: 1px solid var(--petasos-control-line);\n  background: color-mix(in srgb, var(--background) 40%, transparent);\n  color: inherit;\n  font: inherit;\n  font-size: 0.9rem;\n  line-height: 1.5;\n  resize: vertical;\n}\n\n.petasos-mono-area {\n  font-family: var(--theme-font-mono);\n  font-size: 0.85rem;\n}\n\n.petasos-textarea:disabled {\n  opacity: 0.55;\n  cursor: not-allowed;\n}\n\n.petasos-field-error {\n  font-size: 0.875rem;\n  font-weight: 700;\n  color: color-mix(in srgb, var(--color-destructive) 45%, white);\n}\n\n.petasos-light .petasos-field-error {\n  color: color-mix(in srgb, var(--color-destructive) 70%, black);\n}\n\n.petasos-decision {\n  display: flex;\n  flex-direction: column;\n  align-items: flex-start;\n  gap: 0.5rem;\n}\n\n.petasos-decision-text {\n  font-size: 0.9375rem;\n}\n\n.petasos-compare {\n  display: grid;\n  grid-template-columns: repeat(2, minmax(0, 1fr));\n  gap: 1.25rem;\n}\n\n.petasos-compare-cell {\n  display: flex;\n  flex-direction: column;\n  gap: 0.45rem;\n}\n\n.petasos-compare-cell + .petasos-compare-cell {\n  padding-left: 1.25rem;\n  border-left: 1px solid var(--color-border);\n}\n\n.petasos-message,\n.petasos-marked {\n  margin: 0;\n  padding: 0.65rem 0.8rem;\n  border: 1px solid var(--color-border);\n  font-family: var(--theme-font-mono);\n  font-size: 0.85rem;\n  line-height: 1.55;\n  white-space: pre-wrap;\n  overflow-wrap: anywhere;\n}\n\n.petasos-mark {\n  background: color-mix(in srgb, var(--color-destructive) 18%, transparent);\n  color: inherit;\n  text-decoration: underline;\n  text-decoration-color: var(--color-destructive);\n  text-decoration-thickness: 2px;\n  text-underline-offset: 3px;\n}\n\n.petasos-mark-n {\n  font-weight: 700;\n  margin-right: 0.1rem;\n}\n\n.petasos-findings,\n.petasos-tech-findings {\n  list-style: none;\n  margin: 0;\n  padding: 0;\n  display: flex;\n  flex-direction: column;\n}\n\n.petasos-tech-findings li {\n  display: grid;\n  grid-template-columns: 1.6rem minmax(0, 1fr);\n  gap: 0.6rem;\n  padding: 0.25rem 0;\n  font-size: 0.875rem;\n}\n\n.petasos-finding {\n  display: grid;\n  grid-template-columns: 1.6rem minmax(0, 1fr);\n  gap: 0.6rem;\n  padding: 0.6rem 0;\n  border-bottom: 1px solid var(--color-border);\n}\n\n.petasos-finding-n {\n  font-size: 0.85rem;\n  font-weight: 700;\n  text-align: center;\n  padding-top: 0.05rem;\n}\n\n.petasos-finding-body {\n  display: flex;\n  flex-direction: column;\n  gap: 0.35rem;\n  min-width: 0;\n}\n\n.petasos-finding-head {\n  display: flex;\n  align-items: flex-start;\n  justify-content: space-between;\n  gap: 0.75rem;\n}\n\n.petasos-finding-sentence {\n  font-size: 0.9375rem;\n}\n\n.petasos-took-part {\n  list-style: none;\n  margin: 0;\n  padding: 0;\n  display: grid;\n  grid-template-columns: max-content max-content minmax(0, 1fr);\n  gap: 0.45rem 0.85rem;\n  align-items: center;\n}\n\n.petasos-took-part li {\n  display: contents;\n}\n\n.petasos-took-name {\n  font-weight: 600;\n  font-size: 0.9rem;\n}\n\n.petasos-quieted {\n  list-style: none;\n  margin: 0;\n  padding: 0;\n  display: flex;\n  flex-direction: column;\n  gap: 0.35rem;\n  font-size: 0.875rem;\n}\n\n.petasos-quieted li {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 0.25rem 0.75rem;\n  align-items: baseline;\n}\n\n.petasos-advanced summary {\n  cursor: pointer;\n  font-size: 0.875rem;\n  color: var(--petasos-secondary);\n  text-decoration: underline;\n  text-underline-offset: 3px;\n}\n\n.petasos-advanced[open] {\n  display: flex;\n  flex-direction: column;\n  gap: 0.45rem;\n}\n\n/* ---- Settings: Config's layout -------------------------------------- */\n\n.petasos-settings-toolbar {\n  position: relative;\n  display: flex;\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 0.75rem 1.5rem;\n}\n\n.petasos-settings-toolbar .petasos-search {\n  max-width: 26rem;\n}\n\n.petasos-savebox {\n  display: flex;\n  align-items: center;\n  gap: 0.6rem;\n  margin-left: auto;\n}\n\n.petasos-changecount {\n  display: inline-flex;\n  align-items: center;\n  gap: 0.25rem;\n  padding: 0.2rem 0.1rem;\n  border: 0;\n  background: none;\n  color: var(--petasos-ink);\n  font: inherit;\n  font-size: 0.875rem;\n  font-weight: 600;\n  text-decoration: underline;\n  text-decoration-thickness: 1px;\n  text-underline-offset: 3px;\n  cursor: pointer;\n}\n\n.petasos-changecount-chevron {\n  transform: rotate(90deg);\n  transition: transform 120ms;\n}\n\n.petasos-changecount[aria-expanded=\"true\"] .petasos-changecount-chevron {\n  transform: rotate(-90deg);\n}\n\n/* The change list sits over the page under the toolbar, so nothing below\n * moves when it opens. */\n.petasos-sheet {\n  position: absolute;\n  top: calc(100% + 0.4rem);\n  right: 0;\n  z-index: 30;\n  display: flex;\n  flex-direction: column;\n  gap: 0.6rem;\n  width: min(34rem, 100%);\n  max-height: 26rem;\n  overflow-y: auto;\n  padding: 0.85rem 1rem 1rem;\n  border: 1px solid var(--petasos-control-line);\n  background: var(--background-base, var(--background));\n  box-shadow: 0 10px 28px color-mix(in srgb, black 35%, transparent);\n}\n\n.petasos-sheet-head {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n}\n\n.petasos-sheet-title {\n  font-family: var(--font-mondwest);\n  font-size: 0.8rem;\n  letter-spacing: 0.08em;\n  text-transform: uppercase;\n  color: var(--petasos-secondary);\n}\n\n.petasos-settings-body {\n  display: grid;\n  grid-template-columns: 13.5rem minmax(0, 1fr);\n  gap: 1rem;\n  align-items: start;\n}\n\n/* The section list, as Config draws it: small rows, a tint on the open\n * one, counts in tertiary text. */\n.petasos-sections {\n  display: flex;\n  flex-direction: column;\n  gap: 1px;\n  padding: 0.5rem;\n  border: 1px solid var(--color-border);\n  background: color-mix(in srgb, var(--color-muted, var(--color-card)) 20%, transparent);\n  position: sticky;\n  top: 0.5rem;\n}\n\n.petasos-sections-title {\n  padding: 0.2rem 0.5rem 0.35rem;\n  font-size: 0.75rem;\n  letter-spacing: 0.12em;\n  color: var(--petasos-tertiary);\n}\n\n.petasos-section {\n  display: flex;\n  align-items: center;\n  gap: 0.4rem;\n  padding: 0.25rem 0.5rem;\n  border: 0;\n  background: none;\n  color: var(--petasos-secondary);\n  font-family: var(--theme-font-mono);\n  font-size: 0.8rem;\n  text-align: left;\n  cursor: pointer;\n}\n\n.petasos-section:hover {\n  background: color-mix(in srgb, var(--midground) 7%, transparent);\n  color: var(--midground);\n}\n\n.petasos-section-on,\n.petasos-section-on:hover {\n  background: color-mix(in srgb, var(--midground) 12%, transparent);\n  color: var(--midground);\n}\n\n.petasos-section-name {\n  margin-right: auto;\n}\n\n.petasos-section-changed {\n  font-size: 0.55rem;\n}\n\n.petasos-section-count {\n  font-size: 0.75rem;\n  color: var(--petasos-tertiary);\n  font-variant-numeric: tabular-nums;\n}\n\n.petasos-section-on .petasos-section-count {\n  color: var(--petasos-secondary);\n}\n\n.petasos-settings-main {\n  min-width: 0;\n}\n\n.petasos-group {\n  display: flex;\n  flex-direction: column;\n}\n\n.petasos-group-head {\n  display: flex;\n  align-items: center;\n  gap: 0.6rem;\n  padding-top: 0.9rem;\n}\n\n.petasos-group-name {\n  font-family: var(--font-mondwest);\n  font-size: 0.75rem;\n  font-weight: 400;\n  letter-spacing: 0.1em;\n  text-transform: uppercase;\n  color: var(--petasos-secondary);\n}\n\n.petasos-group-rule {\n  flex: 1;\n  border-top: 1px solid var(--color-border);\n}\n\n/* One field, as Config draws it: label, key, sentence, control beneath.\n * Tight within a field, a larger gap between fields. */\n.petasos-field {\n  display: flex;\n  flex-direction: column;\n  gap: 0.4rem;\n  padding: 0.85rem 0 0.95rem;\n  scroll-margin: 1rem;\n}\n\n.petasos-field + .petasos-field {\n  border-top: 1px solid color-mix(in srgb, var(--midground-base, var(--midground)) 7%, transparent);\n}\n\n.petasos-field-head {\n  display: flex;\n  align-items: flex-start;\n  justify-content: space-between;\n  gap: 1.5rem;\n}\n\n.petasos-field-text {\n  display: flex;\n  flex-direction: column;\n  gap: 0.2rem;\n  min-width: 0;\n}\n\n.petasos .petasos-field-label {\n  font-family: var(--font-mondwest);\n  font-size: 0.875rem;\n  font-weight: 400;\n  letter-spacing: 0.08em;\n  line-height: 1.3;\n  text-transform: uppercase;\n  color: var(--petasos-ink);\n}\n\n.petasos-field-key {\n  font-family: var(--theme-font-mono);\n  font-size: 0.75rem;\n  color: var(--petasos-tertiary);\n}\n\n.petasos-field-help {\n  font-size: 0.8125rem;\n  color: var(--petasos-secondary);\n  max-width: 60rem;\n}\n\n.petasos-field-switch {\n  padding-top: 0.1rem;\n}\n\n.petasos-field-control {\n  min-width: 0;\n}\n\n.petasos-field-staged .petasos-field-label::after {\n  content: \" \u2022\";\n}\n\n.petasos-staged-word {\n  color: var(--petasos-ink);\n}\n\n.petasos-field-invalid input,\n.petasos-field-invalid textarea {\n  border-color: var(--color-destructive) !important;\n}\n\n.petasos-field-focused {\n  background: color-mix(in srgb, var(--midground) 5%, transparent);\n  margin: 0 -0.6rem;\n  padding-left: 0.6rem;\n  padding-right: 0.6rem;\n}\n\n.petasos-rule-helper .petasos-kv {\n  font-size: 0.875rem;\n}\n\n/* ---- Narrow ---------------------------------------------------------- */\n\n@media (max-width: 1100px) {\n  .petasos-split-open,\n  .petasos-split-even,\n  .petasos-grid-3 {\n    grid-template-columns: minmax(0, 1fr);\n  }\n  .petasos-detail {\n    position: static;\n  }\n  .petasos-filter-selects {\n    grid-template-columns: repeat(2, minmax(0, 1fr));\n  }\n  .petasos-stats {\n    grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));\n  }\n}\n\n@media (max-width: 1000px) {\n  .petasos-grid-2,\n  .petasos-setup-grid,\n  .petasos-settings-body,\n  .petasos-compare {\n    grid-template-columns: minmax(0, 1fr);\n  }\n  .petasos-compare-cell + .petasos-compare-cell {\n    padding-left: 0;\n    border-left: 0;\n  }\n  .petasos-sections {\n    position: static;\n    flex-direction: row;\n    flex-wrap: wrap;\n  }\n  .petasos-event-header {\n    display: none;\n  }\n  .petasos-event {\n    grid-template-columns: minmax(0, 1fr) auto 1rem;\n  }\n  .petasos-event-when {\n    grid-column: 1 / -1;\n  }\n  .petasos-event-severity {\n    display: none;\n  }\n  .petasos-group-bar {\n    padding-left: 0.75rem;\n  }\n  .petasos-opt {\n    grid-template-columns: 7rem minmax(0, 1fr);\n  }\n  .petasos-mini-row {\n    grid-template-columns: 3.5rem minmax(0, 1fr) auto 1rem;\n    gap: 0.7rem;\n  }\n}\n";
 
   (function addStyle() {
     if (document.getElementById("petasos-tab-style")) return;
@@ -965,19 +1049,35 @@
   }
   // ===== dashboard-src/10-overview.js =====
   // ---------------------------------------------------------------------------
-  // Overview: is it working (and what is it covering), what happened lately,
-  // then the two choices: job and strictness.
+  // Overview: is it working and what it covers, the two choices right beneath
+  // in the same panel, then what happened lately, the checks, and who can
+  // change the settings.
   // ---------------------------------------------------------------------------
 
   var STATE_WORDS = {
     active: { tone: "success", word: "Running" },
     not_installed: { tone: "neutral", word: "Not installed" },
     off: { tone: "neutral", word: "Off" },
-    unavailable: { tone: "destructive", word: "Not working" },
+    unavailable: { tone: "destructive", word: "Failed" },
   };
 
-  function stateWord(state) {
-    return (STATE_WORDS[state] || { word: state }).word.toLowerCase();
+  function sentenceCase(text) {
+    var value = String(text || "");
+    return value ? value.charAt(0).toUpperCase() + value.slice(1) : "";
+  }
+
+  // "a, b and c"
+  function joinWords(words) {
+    var list = words.filter(Boolean);
+    if (list.length <= 1) return list.join("");
+    return list.slice(0, -1).join(", ") + " and " + list[list.length - 1];
+  }
+
+  function heldChecks(status) {
+    var coverage = status.coverage || { missing: [] };
+    return (coverage.missing || []).filter(function (row) {
+      return row.held;
+    });
   }
 
   // The one verdict a person reads first. Protection is on or off; coverage
@@ -1023,8 +1123,7 @@
         tone: "warning",
         word: "Paused",
         title: "Protection is paused",
-        reason: "Tool calls go through without being checked. Each one is still recorded in Activity.",
-        step: { label: "Resume protection", resume: true },
+        reason: "Tool calls run without being checked. Each one is recorded in Activity.",
       };
     }
     var failed = checks.filter(function (check) {
@@ -1040,15 +1139,33 @@
         stepText: failed.next_step,
       };
     }
+    // A check that is turned on and cannot run is a failure, not a warning:
+    // tool calls wait until it is added or turned off.
+    var held = heldChecks(status);
+    if (held.length) {
+      var first = held[0];
+      var check = checks.filter(function (item) {
+        return item.id === "scanner_" + first.id;
+      })[0];
+      return {
+        code: "held",
+        tone: "destructive",
+        word: "Check failed",
+        title: "Tool calls are held",
+        reason:
+          (check && check.summary ? check.summary : first.label + " cannot run.") +
+          " Until it is added or turned off, tool calls wait. The basic checks still run.",
+        held: first,
+      };
+    }
     var warned = checks.filter(function (check) {
       return check.status === "warn";
     })[0];
-    var missing = coverage.missing.length;
+    var running = coverage.running.length;
     var title;
     if (coverage.complete) title = "Every check is running";
-    else if (coverage.running.length <= 1)
-      title = "Only the basic checks are running. " + plural(missing, "optional check is", "optional checks are") + " not.";
-    else title = plural(coverage.running.length, "check is", "checks are") + " running. " + plural(missing, "is", "are") + " not.";
+    else if (running <= 1) title = "Basic checks are running";
+    else title = plural(running, "check is", "checks are") + " running";
     if (doctor.verdict === "protected_with_warnings" && warned) {
       return {
         code: "warn",
@@ -1057,7 +1174,6 @@
         title: warned.summary,
         reason: warned.meaning,
         stepText: warned.next_step,
-        coverageTitle: title,
       };
     }
     return {
@@ -1065,252 +1181,184 @@
       tone: "success",
       word: "Protection on",
       title: title,
-      reason:
-        "Petasos checks each tool call before it runs and each tool result before the agent reads it, " +
-        "using the checks that are running.",
+      reason: "Each tool call is checked before it runs, and each result before the agent reads it.",
     };
   }
 
+  // What runs and what does not, led by what each check looks for. Product
+  // names are secondary: they sit in the Checks panel.
   function CoverageRows(props) {
     var coverage = props.status.coverage || { running: [], missing: [] };
-    var catalog = props.catalog;
-    var stored = (catalog && catalog.stored) || {};
-    return h(KeyValues, {
-      className: "petasos-coverage",
-      rows: [
-        [
-          "Running",
-          coverage.running.length
-            ? coverage.running
-                .map(function (row) {
-                  return row.label;
-                })
-                .join(", ")
-            : "Nothing",
-        ],
-        [
-          "Not running",
-          coverage.missing.length
-            ? h(
-                "span",
-                null,
-                coverage.missing.map(function (row, i) {
-                  return h(
-                    Fragment,
-                    { key: row.id },
-                    i ? ", " : "",
-                    h("span", { className: row.recommended ? "petasos-strong" : null }, row.label),
-                    " (" + stateWord(row.state) + (row.recommended ? ", recommended" : "") + ")"
-                  );
-                }),
-                " · ",
-                h(LinkButton, { onClick: props.onShowChecks }, "What they add")
-              )
-            : "Nothing. Every check is running.",
-        ],
-        [
-          "Setup",
-          h(
-            "span",
-            null,
-            "Job ",
-            h("strong", null, roleLabel(catalog, stored.role || props.status.role)),
-            " · Strictness ",
-            h("strong", null, levelLabel(catalog, stored.level || props.status.level)),
-            " · ",
-            h(LinkButton, { onClick: props.onShowSetup }, "Change")
-          ),
-        ],
-      ],
+    var paused = props.paused;
+    var running = coverage.running.map(function (row) {
+      return row.label;
     });
+    var missing = coverage.missing.map(function (row) {
+      return row.covers || row.label;
+    });
+    var rows = [];
+    if (paused) {
+      rows.push([
+        "Suspended",
+        h(
+          "span",
+          null,
+          running.length ? joinWords(running) : "Every check",
+          h("span", { className: "petasos-secondary" }, ". They resume when protection is turned back on.")
+        ),
+      ]);
+    } else {
+      rows.push(["Running", running.length ? joinWords(running) : "Nothing"]);
+      rows.push([
+        "Not running",
+        missing.length
+          ? h(
+              "span",
+              null,
+              "Extra checks for " + joinWords(missing),
+              " · ",
+              h(LinkButton, { onClick: props.onShowChecks }, "What these add")
+            )
+          : "Nothing. Every check is running.",
+      ]);
+    }
+    return h(KeyValues, { className: "petasos-coverage", rows: rows });
+  }
+
+  // How to fix a check that holds tool calls: where to run the command, the
+  // command to copy, or turn it off in Settings.
+  function HeldFix(props) {
+    var row = props.row;
+    var coverage = props.status.coverage || {};
+    return h(
+      "div",
+      { className: "petasos-fixbox" },
+      row.command
+        ? h(
+            Fragment,
+            null,
+            h("p", null, h("strong", null, "To add it: "), coverage.add_where),
+            h(Command, { value: row.command, label: "Copy the command that adds " + row.label })
+          )
+        : row.reason
+          ? h("p", null, row.reason)
+          : null,
+      h(
+        "p",
+        null,
+        row.command ? "Or " : "",
+        h(
+          LinkButton,
+          {
+            onClick: function () {
+              go("settings", { path: "scanners." + row.id + ".enabled" });
+            },
+          },
+          (row.command ? "turn " : "Turn ") + row.label + " off in Settings"
+        ),
+        "."
+      )
+    );
   }
 
   function VerdictPanel(props) {
     var status = props.status;
     var verdict = verdictOf(status);
     var paused = verdict.code === "paused";
-    var canPause = verdict.code === "protected" || verdict.code === "warn";
-    var step = null;
-    if (verdict.step && verdict.step.resume) {
-      step = h(Btn, { onClick: props.onResume, disabled: props.locked }, verdict.step.label);
+    var canPause = verdict.code === "protected" || verdict.code === "warn" || verdict.code === "held";
+    var action = null;
+    if (paused) {
+      action = h(Btn, { onClick: props.onResume, disabled: props.locked }, "Resume protection");
+    } else if (canPause) {
+      action = h(Btn, { outlined: true, onClick: props.onPause, disabled: props.locked }, "Pause protection");
     } else if (verdict.step && verdict.step.href) {
-      step = h("a", { className: "petasos-link", href: verdict.step.href }, verdict.step.label);
+      action = h("a", { className: "petasos-link", href: verdict.step.href }, verdict.step.label);
     } else if (verdict.step && verdict.step.view) {
-      step = h(Btn, { onClick: function () { go(verdict.step.view); } }, verdict.step.label);
+      action = h(Btn, { onClick: function () { go(verdict.step.view); } }, verdict.step.label);
     }
+    var showCoverage = verdict.code !== "off" && verdict.code !== "invalid";
     return h(
       "section",
-      { className: "petasos-verdict", "aria-labelledby": "petasos-verdict-title" },
+      { className: cn("petasos-verdict", "petasos-verdict-" + verdict.code), "aria-labelledby": "petasos-verdict-title" },
       h(
         "div",
-        { className: "petasos-verdict-main" },
+        { className: "petasos-verdict-head" },
         h(
           "div",
-          { className: "petasos-verdict-head" },
+          { className: "petasos-verdict-titles" },
           h(Status, { tone: verdict.tone, large: true }, verdict.word),
           h("h2", { id: "petasos-verdict-title", className: "petasos-verdict-title" }, verdict.title)
         ),
-        verdict.coverageTitle ? h("p", { className: "petasos-verdict-reason" }, verdict.coverageTitle) : null,
-        verdict.reason ? h("p", { className: "petasos-verdict-reason" }, verdict.reason) : null,
-        verdict.stepText ? h("p", { className: "petasos-verdict-reason" }, h("strong", null, "Next step: "), verdict.stepText) : null,
-        step ? h("div", { className: "petasos-row-actions" }, step) : null,
-        verdict.code === "off" || verdict.code === "invalid" ? null : h(CoverageRows, props)
+        action ? h("div", { className: "petasos-verdict-action" }, action) : null
       ),
-      canPause || paused
-        ? h(
-            "div",
-            { className: "petasos-verdict-side" },
-            paused
-              ? null
-              : h(Btn, { outlined: true, onClick: props.onPause, disabled: props.locked }, "Pause protection"),
-            h(
-              "p",
-              { className: "petasos-help" },
-              paused
-                ? "Paused in Petasos. Hermes still runs the plugin."
-                : "Lets tool calls through unchecked until you resume, and records each one."
-            )
-          )
-        : null
+      verdict.reason ? h("p", { className: "petasos-verdict-reason" }, verdict.reason) : null,
+      verdict.stepText ? h("p", { className: "petasos-verdict-reason" }, h("strong", null, "Next step: "), verdict.stepText) : null,
+      verdict.held ? h(HeldFix, { row: verdict.held, status: status }) : null,
+      showCoverage ? h(CoverageRows, { status: status, paused: paused, onShowChecks: props.onShowChecks }) : null,
+      props.children
     );
   }
 
-  function RecentPanel(props) {
-    var summary = props.summary;
-    var events = props.events || [];
-    var counts = (summary && summary.by_outcome) || {};
-    var tiles = [
-      { key: "blocked", label: "Blocked", value: (counts.blocked || 0) + (counts.stopped || 0) },
-      { key: "asked", label: "Asked a person", value: counts.asked || 0 },
-      { key: "flagged", label: "Flagged to the agent", value: counts.flagged || 0 },
-      { key: "allowed", label: "Let through while paused", value: counts.allowed || 0 },
-    ];
-    if (counts.not_stopped) {
-      tiles.push({ key: "not_stopped", label: "Settings changes not stopped", value: counts.not_stopped, alarm: true });
-    }
-    var groups = groupEvents(events).slice(0, 4);
-    return h(
-      Panel,
-      {
-        title: "Last 24 hours",
-        description: summary
-          ? summary.total
-            ? plural(summary.total, "event") + ". Tool calls that pass cleanly are not listed."
-            : "Nothing to report. Tool calls that pass cleanly are not listed."
-          : "Loading…",
-        actions: h(LinkButton, { onClick: function () { go("activity"); } }, "Open Activity"),
-      },
-      h(
-        "dl",
-        { className: "petasos-stats" },
-        tiles.map(function (tile) {
-          return h(
-            "div",
-            { key: tile.key, className: cn("petasos-stat", tile.alarm && "petasos-stat-alarm") },
-            h("dt", null, tile.label),
-            h(
-              "dd",
-              null,
-              h(
-                "button",
-                {
-                  type: "button",
-                  className: "petasos-stat-value",
-                  "aria-label": tile.value + " " + tile.label + ": show them in Activity",
-                  onClick: function () {
-                    go("activity", { range: "24h", outcome: tile.key });
-                  },
-                },
-                String(tile.value)
-              )
-            )
-          );
-        })
-      ),
-      groups.length
-        ? h(
-            "ul",
-            { className: "petasos-mini-list", "aria-label": "Most recent events" },
-            groups.map(function (group) {
-              var event = group.events[0];
-              var outcome = event.outcome || {};
-              return h(
-                "li",
-                { key: event.scan_id },
-                h(
-                  "button",
-                  {
-                    type: "button",
-                    className: "petasos-mini-row",
-                    onClick: function () {
-                      go("activity", { event: event.scan_id });
-                    },
-                  },
-                  h("span", { className: "petasos-mini-when" }, whenText(event.timestamp)),
-                  h(
-                    "span",
-                    { className: "petasos-mini-text" },
-                    event.summary,
-                    group.events.length > 1 ? h("span", { className: "petasos-repeat" }, " ×" + group.events.length) : null
-                  ),
-                  h(Status, { tone: outcomeTone(outcome.code) }, outcome.label || "Recorded"),
-                  h(Icon, { name: "chevron", className: "petasos-chevron" })
-                )
-              );
-            })
-          )
-        : null
-    );
-  }
-
-  // One of the two choices: Hermes's segmented control under the label, the
-  // setting's key and its plain sentence, as Config draws a field.
-  function ChoiceHead(props) {
+  // One of the two choices, compact: the label, Hermes's segmented control,
+  // the selected option's one-line description, and every option's
+  // description one click away.
+  function ChoiceControl(props) {
     var id = "petasos-choose-" + props.name;
+    var selected = props.options.filter(function (option) {
+      return option.name === props.chosen;
+    })[0];
+    var saved = props.options.filter(function (option) {
+      return option.name === props.current;
+    })[0];
     return h(
       "div",
       { className: "petasos-choose", id: id + "-field" },
-      h("p", { className: "petasos-field-label", id: id + "-label" }, props.label),
-      h("span", { className: "petasos-field-key" }, props.name === "job" ? "role" : "level"),
-      h("p", { className: "petasos-field-help" }, props.help),
+      h("p", { className: "petasos-label", id: id + "-label" }, props.label),
       h(Segmented, {
         id: id,
         labelledBy: id + "-label",
+        describedBy: id + "-desc",
         value: props.chosen,
         disabled: props.locked,
         onChange: props.onChoose,
         options: props.options.map(function (option) {
           return { value: option.name, label: option.label };
         }),
-      })
+      }),
+      h(
+        "p",
+        { className: "petasos-choose-desc", id: id + "-desc" },
+        selected ? selected.description : "",
+        props.chosen !== props.current && saved
+          ? h("span", { className: "petasos-secondary" }, " Saved: " + saved.label + ".")
+          : null
+      ),
+      h(
+        Disclosure,
+        { label: props.allLabel, openLabel: "Hide " + props.allLabel.charAt(0).toLowerCase() + props.allLabel.slice(1) },
+        h(
+          "ul",
+          { className: "petasos-optlist", "aria-label": props.label + ": what each option does" },
+          props.options.map(function (option) {
+            return h(
+              "li",
+              { key: option.name, className: cn("petasos-opt", option.name === props.chosen && "petasos-opt-on") },
+              h("span", { className: "petasos-opt-name" }, option.label),
+              h(
+                "span",
+                { className: "petasos-opt-desc" },
+                option.description,
+                option.name === props.current ? h("span", { className: "petasos-opt-note" }, " Saved.") : null,
+                option.suggested ? h("span", { className: "petasos-opt-note" }, " Usual for " + option.suggested + ".") : null
+              )
+            );
+          })
+        )
+      )
     );
   }
 
-  // Every option's plain description, so none has to be chosen to be read.
-  function ChoiceOptions(props) {
-    return h(
-      "ul",
-      { className: "petasos-optlist", "aria-label": props.label + ": what each option does" },
-      props.options.map(function (option) {
-        var chosen = option.name === props.chosen;
-        var current = option.name === props.current;
-        return h(
-          "li",
-          { key: option.name, className: cn("petasos-opt", chosen && "petasos-opt-on") },
-          h("span", { className: "petasos-opt-name" }, option.label),
-          h(
-            "span",
-            { className: "petasos-opt-desc" },
-            option.description,
-            current ? h("span", { className: "petasos-opt-note" }, " · saved") : null,
-            option.suggested ? h("span", { className: "petasos-opt-note" }, " · suggested for " + option.suggested) : null
-          )
-        );
-      })
-    );
-  }
-
-  function SetupPanel(props) {
+  function SetupControls(props) {
     var catalog = props.catalog;
     var status = props.status;
     var stored = catalog.stored || {};
@@ -1384,46 +1432,39 @@
         suggested: roleInfo && roleInfo.suggests === level.name ? roleLabel(catalog, chosenRole) : null,
       };
     });
-    var help = catalog.help || {};
     var labels = catalog.labels || {};
 
     return h(
-      Panel,
-      {
-        id: "petasos-setup",
-        title: "Setup",
-        description: "Two choices decide how Petasos behaves. Nothing changes until you apply it.",
-        actions: roleLocked || levelLocked ? h(Tag, { tone: "outline" }, "Locked by your administrator") : null,
-      },
-      // Both controls first, then both lists: in the narrow layout the two
-      // choices stay together at the top of the panel.
+      "div",
+      { className: "petasos-setup", id: "petasos-setup", role: "group", "aria-label": "Setup" },
+      roleLocked || levelLocked ? h("p", { className: "petasos-secondary" }, "Locked by your administrator.") : null,
       h(
         "div",
-        { className: "petasos-grid-2 petasos-setup" },
-        h(ChoiceHead, {
+        { className: "petasos-setup-grid" },
+        h(ChoiceControl, {
           name: "job",
           label: labels.role || "Job",
-          help: help.role,
+          allLabel: "What each job does",
           options: roles,
           chosen: chosenRole,
+          current: currentRole,
           locked: roleLocked,
           onChoose: function (name) {
             choose("role", name);
           },
         }),
-        h(ChoiceHead, {
+        h(ChoiceControl, {
           name: "level",
           label: labels.level || "Strictness",
-          help: help.level,
+          allLabel: "What each strictness does",
           options: levels,
           chosen: chosenLevel,
+          current: currentLevel,
           locked: levelLocked,
           onChoose: function (name) {
             choose("level", name);
           },
-        }),
-        h(ChoiceOptions, { label: labels.role || "Job", options: roles, current: currentRole, chosen: chosenRole }),
-        h(ChoiceOptions, { label: labels.level || "Strictness", options: levels, current: currentLevel, chosen: chosenLevel })
+        })
       ),
       pending
         ? h(ChoicePreview, {
@@ -1446,25 +1487,23 @@
     );
   }
 
+  // The pending change, on its own inset surface: what will change, the usual
+  // pairing and what it does, when it applies, then Apply.
   function ChoicePreview(props) {
     var catalog = props.catalog;
     var pending = props.pending;
     var previewed = props.previewed;
     var parts = [];
-    if (pending.role) parts.push("the job to " + roleLabel(catalog, pending.role));
+    if (pending.role) parts.push("job to " + roleLabel(catalog, pending.role));
     if (pending.level) parts.push("strictness to " + levelLabel(catalog, pending.level));
-    var consequences = [];
-    if (pending.role) consequences.push((roleOf(catalog, pending.role) || {}).description);
-    if (pending.level) consequences.push((levelOf(catalog, pending.level) || {}).description);
     var suggestion =
       pending.role && props.roleInfo && props.roleInfo.suggests !== (pending.level || props.currentLevel)
         ? props.roleInfo.suggests
         : null;
     var changes = previewed && previewed.changes ? previewed.changes : [];
-    var detailsState = useState(false);
     var body;
     if (!previewed) {
-      body = h("p", { className: "petasos-help", role: "status" }, "Working out what would change…");
+      body = h("p", { className: "petasos-secondary", role: "status" }, "Working out what would change…");
     } else if (previewed.failure) {
       body = h(Notice, { tone: "destructive", title: "Petasos could not preview this" }, previewed.failure.message);
     } else if (!previewed.valid) {
@@ -1481,44 +1520,31 @@
         null,
         h("p", { className: "petasos-when" }, whenItApplies(changes, catalog.settings)),
         h(
-          "div",
-          { className: "petasos-disclosure" },
-          h(
-            LinkButton,
-            {
-              expanded: detailsState[0],
-              onClick: function () {
-                detailsState[1](!detailsState[0]);
-              },
-            },
-            (detailsState[0] ? "Hide technical changes" : "Show technical changes") + " (" + changes.length + ")"
-          ),
-          detailsState[0]
-            ? h(ChangeList, {
-                catalog: catalog,
-                rows: catalog.settings,
-                changes: changes,
-                stored: props.stored,
-                after: previewed.stored,
-                empty: "No setting would change: your own settings already cover this.",
-              })
-            : null
+          Disclosure,
+          { label: "Show the settings this changes (" + changes.length + ")", openLabel: "Hide the settings this changes" },
+          h(ChangeList, {
+            catalog: catalog,
+            rows: catalog.settings,
+            changes: changes,
+            stored: props.stored,
+            after: previewed.stored,
+            empty: "No setting would change: your own settings already cover this.",
+          })
         )
       );
     }
     var candidate = JSON.stringify(pending);
+    var suggestedLevel = suggestion ? levelOf(catalog, suggestion) : null;
     return h(
       "section",
       { className: "petasos-preview", "aria-labelledby": "petasos-preview-title" },
-      h("h3", { className: "petasos-subhead", id: "petasos-preview-title" }, "Change " + parts.join(" and ")),
-      consequences.map(function (sentence, i) {
-        return sentence ? h("p", { key: i, className: "petasos-consequence" }, sentence) : null;
-      }),
+      h("h3", { className: "petasos-preview-title", id: "petasos-preview-title" }, sentenceCase("Change the " + parts.join(" and ")) + "?"),
       suggestion
         ? h(
             "p",
-            { className: "petasos-help" },
-            roleLabel(catalog, pending.role) + " is usually paired with " + levelLabel(catalog, suggestion) + " strictness. ",
+            { className: "petasos-preview-text" },
+            roleLabel(catalog, pending.role) + " is usually paired with " + levelLabel(catalog, suggestion) + ". ",
+            suggestedLevel && suggestedLevel.description ? suggestedLevel.description + " " : "",
             h(LinkButton, { onClick: function () { props.onAlsoLevel(suggestion); } }, "Use " + levelLabel(catalog, suggestion) + " too")
           )
         : null,
@@ -1537,7 +1563,7 @@
         h(
           Btn,
           {
-            outlined: true,
+            ghost: true,
             onClick: function () {
               go("tryit", { settings: candidate });
             },
@@ -1549,21 +1575,119 @@
     );
   }
 
+  var STAT_TILES = [
+    { key: "blocked", label: "Blocked" },
+    { key: "asked", label: "Asked a person" },
+    { key: "flagged", label: "Flagged to the agent" },
+    { key: "allowed", label: "Let through while paused" },
+    { key: "not_stopped", label: "Setting changes not stopped", alarm: true },
+  ];
+
+  function RecentPanel(props) {
+    var summary = props.summary;
+    var events = props.events || [];
+    var counts = (summary && summary.by_outcome) || {};
+    var values = {
+      blocked: summary ? summary.blocked || 0 : 0,
+      asked: (counts.asked || 0) + (counts.attempt_asked || 0),
+      flagged: counts.flagged || 0,
+      allowed: counts.allowed || 0,
+      not_stopped: counts.not_stopped || 0,
+    };
+    var tiles = STAT_TILES.filter(function (tile) {
+      return !tile.alarm || values[tile.key];
+    });
+    var groups = groupEvents(events).slice(0, 4);
+    return h(
+      Panel,
+      {
+        title: "Last 24 hours",
+        description: summary
+          ? summary.total
+            ? plural(summary.total, "event") + ". Clean tool calls are not listed."
+            : "Nothing to report. Clean tool calls are not listed."
+          : "Loading…",
+        actions: h(LinkButton, { onClick: function () { go("activity"); } }, "Open Activity"),
+      },
+      h(
+        "dl",
+        { className: "petasos-stats" },
+        tiles.map(function (tile) {
+          var value = values[tile.key];
+          return h(
+            "div",
+            { key: tile.key, className: cn("petasos-stat", tile.alarm && "petasos-stat-alarm") },
+            h("dt", null, tile.label),
+            h(
+              "dd",
+              null,
+              h(
+                "button",
+                {
+                  type: "button",
+                  className: "petasos-stat-value",
+                  title: "Show them in Activity",
+                  "aria-label": value + " " + tile.label + ": show them in Activity",
+                  onClick: function () {
+                    go("activity", { range: "24h", outcome: tile.key });
+                  },
+                },
+                String(value)
+              )
+            )
+          );
+        })
+      ),
+      groups.length
+        ? h(
+            "ul",
+            { className: "petasos-mini-list", "aria-label": "Most recent events" },
+            groups.map(function (group) {
+              var event = group.events[0];
+              var outcome = event.outcome || {};
+              return h(
+                "li",
+                { key: event.scan_id },
+                h(
+                  "button",
+                  {
+                    type: "button",
+                    className: "petasos-mini-row",
+                    onClick: function () {
+                      go("activity", { event: event.scan_id });
+                    },
+                  },
+                  h("span", { className: "petasos-mini-when" }, whenText(event.timestamp)),
+                  h(
+                    "span",
+                    { className: "petasos-mini-text" },
+                    event.summary,
+                    group.events.length > 1 ? h("span", { className: "petasos-repeat" }, " ×" + group.events.length) : null
+                  ),
+                  h(Status, { tone: outcomeTone(outcome.code) }, outcome.label || "Recorded"),
+                  h(Icon, { name: "chevron", className: "petasos-chevron" })
+                )
+              );
+            })
+          )
+        : null
+    );
+  }
+
   function ChecksPanel(props) {
     var status = props.status;
     var checks = (status.doctor && status.doctor.checks) || [];
-    var coverage = status.coverage || { missing: [] };
-    var openState = useState(null);
-    var recommended = {};
-    coverage.missing.forEach(function (row) {
-      recommended[row.id] = row.recommended;
+    var coverage = status.coverage || { running: [], missing: [] };
+    var byId = {};
+    coverage.running.concat(coverage.missing).forEach(function (row) {
+      byId[row.id] = row;
     });
     return h(
       Panel,
       {
         id: "petasos-checks",
         title: "Checks",
-        description: "The basic checks always run. Optional checks add a model or a code checker on top.",
+        description: "Basic checks always run. Extra checks add a model or a code checker.",
       },
       h(
         "ul",
@@ -1573,41 +1697,40 @@
           var check = checks.filter(function (item) {
             return item.id === id;
           })[0];
+          var info = byId[row.id] || {};
           var state = STATE_WORDS[row.state] || { tone: "neutral", word: row.state };
-          var expanded = openState[0] === row.id;
-          var fixable = (recommended[row.id] || row.state === "unavailable") && row.fix;
+          var basic = row.id === "syntactic";
+          var name = basic ? row.label : sentenceCase(info.covers || row.label);
+          var product = basic ? info.covers : row.label;
+          var fixable = (info.recommended || info.held) && (info.command || row.fix);
           return h(
             "li",
             { key: row.id, className: "petasos-scanner" },
             h(
               "div",
               { className: "petasos-scanner-head" },
-              h("span", { className: "petasos-scanner-name" }, row.label),
-              recommended[row.id] ? h(Tag, { tone: "outline" }, "Recommended") : null,
+              h(
+                "span",
+                { className: "petasos-scanner-name" },
+                name,
+                product ? h("span", { className: "petasos-scanner-product" }, product) : null
+              ),
+              info.recommended ? h(Tag, { tone: "outline" }, "recommended") : null,
               h(Status, { tone: state.tone }, state.word)
             ),
-            h("p", { className: "petasos-help" }, check ? check.summary : row.reason || "", check && check.meaning ? " " + check.meaning : ""),
+            !basic && check ? h("p", { className: "petasos-secondary" }, check.summary) : null,
             fixable
               ? h(
-                  Fragment,
-                  null,
-                  h(
-                    LinkButton,
-                    {
-                      expanded: expanded,
-                      onClick: function () {
-                        openState[1](expanded ? null : row.id);
-                      },
-                    },
-                    expanded ? "Hide how to add it" : "How to add it"
-                  ),
-                  expanded
+                  Disclosure,
+                  { label: "How to add it", openLabel: "Hide how to add it" },
+                  info.command
                     ? h(
-                        "div",
-                        { className: "petasos-fix" },
-                        row.fix ? h("p", null, row.fix) : null
+                        Fragment,
+                        null,
+                        h("p", null, coverage.add_where),
+                        h(Command, { value: info.command, label: "Copy the command that adds " + row.label })
                       )
-                    : null
+                    : h("p", null, row.fix)
                 )
               : null
           );
@@ -1631,7 +1754,7 @@
         })
       );
     var admin;
-    if (!locked.known) admin = "This Hermes does not say which settings an administrator has locked.";
+    if (!locked.known) admin = "This Hermes does not say which settings are locked.";
     else if (pinned.length) admin = "Has locked: " + pinned.join(", ") + ". Change them in Hermes's managed configuration.";
     else admin = "Nothing is locked.";
     if (locked.plugin) admin += " Hermes's plugin list is locked too.";
@@ -1678,22 +1801,28 @@
         if (focusable) focusable.focus({ preventScroll: true });
       };
     }
+    var verdict = verdictOf(status);
+    var setup = verdict.code === "off" || verdict.code === "invalid"
+      ? null
+      : catalog
+        ? h(SetupControls, { catalog: catalog, status: status, locked: props.locked, onSave: props.onSave })
+        : h("p", { className: "petasos-secondary petasos-setup", role: "status" }, "Loading the choices…");
     return h(
       "div",
       { className: "petasos-stack" },
-      h(VerdictPanel, {
-        status: status,
-        catalog: catalog,
-        locked: props.locked,
-        onPause: props.onPause,
-        onResume: props.onResume,
-        onShowChecks: reveal("petasos-checks"),
-        onShowSetup: reveal("petasos-setup"),
-      }),
+      h(
+        VerdictPanel,
+        {
+          status: status,
+          catalog: catalog,
+          locked: props.locked,
+          onPause: props.onPause,
+          onResume: props.onResume,
+          onShowChecks: reveal("petasos-checks"),
+        },
+        setup
+      ),
       h(RecentPanel, { summary: summaryState[0], events: eventsState[0] }),
-      catalog
-        ? h(SetupPanel, { catalog: catalog, status: status, locked: props.locked, onSave: props.onSave })
-        : h(Panel, { title: "Setup" }, h("p", { className: "petasos-help", role: "status" }, "Loading the choices…")),
       h(
         "div",
         { className: "petasos-grid-2" },
@@ -1716,10 +1845,11 @@
   ];
 
   // An outcome count on the overview opens the list filtered to it. These
-  // are the API's outcome codes, matched against each event's outcome.
+  // are the API's outcome codes; the reader filters on them, so paging and
+  // counts agree with the list.
   var OUTCOME_CODES = {
-    blocked: ["blocked", "stopped"],
-    asked: ["asked"],
+    blocked: ["blocked", "stopped", "attempt_blocked"],
+    asked: ["asked", "attempt_asked"],
     flagged: ["flagged"],
     allowed: ["allowed"],
     not_stopped: ["not_stopped"],
@@ -1730,14 +1860,107 @@
     asked: "asked a person",
     flagged: "flagged to the agent",
     allowed: "let through while paused",
-    not_stopped: "settings changes not stopped",
+    not_stopped: "setting changes not stopped",
   };
 
-  // Seconds from a datetime-local value, read in the browser's time zone.
+  // A custom range is kept as YYYY-MM-DDTHH:MM in the browser's time zone and
+  // shown as YYYY-MM-DD HH:MM, which no reader can take for another date.
+  function parseLocal(value) {
+    var match = String(value || "").trim().match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})$/);
+    if (!match) return null;
+    var date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), Number(match[4]), Number(match[5]));
+    if (date.getMonth() !== Number(match[2]) - 1 || date.getDate() !== Number(match[3])) return null;
+    return date;
+  }
+
   function localSeconds(value) {
-    if (!value) return null;
-    var ms = new Date(value).getTime();
-    return isFinite(ms) ? Math.floor(ms / 1000) : null;
+    var date = parseLocal(value);
+    return date ? Math.floor(date.getTime() / 1000) : null;
+  }
+
+  function localStamp(date) {
+    function pad(n) {
+      return String(n).padStart(2, "0");
+    }
+    return (
+      date.getFullYear() + "-" + pad(date.getMonth() + 1) + "-" + pad(date.getDate()) + "T" + pad(date.getHours()) + ":" + pad(date.getMinutes())
+    );
+  }
+
+  // One end of a custom range: a text field in an unambiguous form, and a
+  // calendar button that opens the browser's own picker.
+  function DateTimeField(props) {
+    var pickerRef = useRef(null);
+    var textState = useState(String(props.value || "").replace("T", " "));
+    useEffect(
+      function () {
+        textState[1](String(props.value || "").replace("T", " "));
+      },
+      [props.value]
+    );
+    var invalid = textState[0].trim() !== "" && !parseLocal(textState[0]);
+    function commit(text) {
+      var date = parseLocal(text);
+      if (date) props.onChange(localStamp(date));
+      else if (!text.trim()) props.onChange("");
+    }
+    return h(
+      "div",
+      { className: "petasos-choice petasos-datetime" },
+      h(C.Label, { className: "petasos-label", htmlFor: props.id }, props.label),
+      h(
+        "div",
+        { className: "petasos-datetime-box" },
+        h(C.Input, {
+          id: props.id,
+          value: textState[0],
+          placeholder: "YYYY-MM-DD HH:MM",
+          inputMode: "numeric",
+          "aria-invalid": invalid ? "true" : undefined,
+          "aria-describedby": props.id + "-format",
+          onChange: function (event) {
+            textState[1](event.target.value);
+          },
+          onBlur: function () {
+            commit(textState[0]);
+          },
+          onKeyDown: function (event) {
+            if (event.key === "Enter") commit(textState[0]);
+          },
+        }),
+        h(
+          "button",
+          {
+            type: "button",
+            className: "petasos-datetime-pick",
+            "aria-label": "Choose " + props.label.toLowerCase() + " on a calendar",
+            onClick: function () {
+              var picker = pickerRef.current;
+              if (!picker) return;
+              picker.value = props.value || "";
+              if (picker.showPicker) picker.showPicker();
+              else picker.focus();
+            },
+          },
+          h(Icon, { name: "calendar", size: 16 })
+        ),
+        h("input", {
+          ref: pickerRef,
+          type: "datetime-local",
+          className: "petasos-datetime-native",
+          tabIndex: -1,
+          "aria-hidden": true,
+          onChange: function (event) {
+            if (event.target.value) props.onChange(event.target.value.slice(0, 16));
+          },
+        })
+      ),
+      h(
+        "p",
+        { className: cn("petasos-tertiary", invalid && "petasos-field-error"), id: props.id + "-format" },
+        invalid ? "Write it as YYYY-MM-DD HH:MM." : "Year-month-day, 24-hour clock"
+      )
+    );
   }
 
   function rangeWindow(filters) {
@@ -1776,7 +1999,7 @@
         Notice,
         {
           tone: "warning",
-          title: "Activity records cannot be checked for tampering yet",
+          title: "Records are not signed yet",
           action: (signing.steps || []).length
             ? h(
                 Btn,
@@ -1791,7 +2014,7 @@
               )
             : null,
         },
-        h("p", null, "Protection still runs and every record is still written. Without a signature, something that can write to this profile could change a record unnoticed."),
+        h("p", null, "Protection runs and every record is written. Without a signature, a changed record could go unnoticed."),
         openState[0]
           ? h(
               "ol",
@@ -1807,7 +2030,7 @@
       return h(
         Notice,
         { tone: "destructive", strong: true, title: "Some records do not match their signatures" },
-        "A marked record was changed after Petasos wrote it, or was written by something else. Do not trust those records."
+        "A marked record was changed after Petasos wrote it, or written by something else. Do not trust it."
       );
     }
     return null;
@@ -1826,7 +2049,11 @@
     function set(key, value) {
       var next = Object.assign({}, filters);
       next[key] = value === "any" ? "" : value;
-      if (key !== "outcome") next.outcome = "";
+      if (key === "range" && value === "custom" && !next.from && !next.to) {
+        var now = new Date();
+        next.from = localStamp(new Date(now.getTime() - 86400000));
+        next.to = localStamp(now);
+      }
       props.onChange(next);
     }
     function listed(counts, labeller) {
@@ -1902,34 +2129,24 @@
       filters.range === "custom"
         ? h(
             "div",
-            { className: "petasos-filter-row" },
-            h(
-              "div",
-              { className: "petasos-choice" },
-              h(C.Label, { className: "petasos-label", htmlFor: "petasos-from" }, "From"),
-              h(C.Input, {
-                id: "petasos-from",
-                type: "datetime-local",
-                value: filters.from || "",
-                onChange: function (event) {
-                  set("from", event.target.value);
-                },
-              })
-            ),
-            h(
-              "div",
-              { className: "petasos-choice" },
-              h(C.Label, { className: "petasos-label", htmlFor: "petasos-to" }, "To"),
-              h(C.Input, {
-                id: "petasos-to",
-                type: "datetime-local",
-                value: filters.to || "",
-                onChange: function (event) {
-                  set("to", event.target.value);
-                },
-              })
-            ),
-            h("p", { className: "petasos-help petasos-tz" }, "Times are in your time zone (" + Intl.DateTimeFormat().resolvedOptions().timeZone + ").")
+            { className: "petasos-filter-row petasos-range-row" },
+            h(DateTimeField, {
+              id: "petasos-from",
+              label: "From",
+              value: filters.from || "",
+              onChange: function (value) {
+                set("from", value);
+              },
+            }),
+            h(DateTimeField, {
+              id: "petasos-to",
+              label: "To",
+              value: filters.to || "",
+              onChange: function (value) {
+                set("to", value);
+              },
+            }),
+            h("p", { className: "petasos-secondary petasos-tz" }, "Your time zone: " + Intl.DateTimeFormat().resolvedOptions().timeZone)
           )
         : null,
       h(
@@ -1988,14 +2205,14 @@
         id: "petasos-event-" + event.scan_id,
         className: cn("petasos-event", props.selected && "petasos-event-selected", props.nested && "petasos-event-nested"),
         "aria-current": props.selected ? "true" : undefined,
-        "aria-label": "Open details: " + event.summary + ", " + listTime(event.timestamp),
+        "aria-label": (props.selected ? "Open now: " : "Open details: ") + event.summary + ", " + listTime(event.timestamp),
         onClick: props.onOpen,
       },
       h(
         "span",
         { className: "petasos-event-when" },
         h("span", { className: "petasos-block" }, listTime(event.timestamp)),
-        h("span", { className: "petasos-block petasos-faint" }, whenText(event.timestamp))
+        h("span", { className: "petasos-block petasos-tertiary" }, whenText(event.timestamp))
       ),
       h(
         "span",
@@ -2025,7 +2242,7 @@
     var inside = group.events.some(function (event) {
       return event.scan_id === props.selectedId;
     });
-    var open = openState[0] || inside;
+    var open = openState[0] || (inside && first.scan_id !== props.selectedId);
     if (count === 1) {
       return h(
         "li",
@@ -2089,7 +2306,7 @@
   var SHOWN_FIELDS = {
     scan_id: 1, timestamp: 1, event_type: 1, tool: 1, session_id: 1, severity: 1, rule_id: 1, reason: 1,
     summary: 1, outcome: 1, kind_label: 1, rule_sentence: 1, integrity: 1, sig: 1, matched_note: 1,
-    target: 1, outcome_note: 1,
+    target: 1, outcome_note: 1, risk_block: 1,
   };
 
   function EventDetail(props) {
@@ -2103,6 +2320,9 @@
     var rule = event.rule_id ? String(event.rule_id).replace(/^plugin_rule:/, "") : "";
     var integrity = event.integrity || {};
     var outcome = event.outcome || {};
+    var notStopped = outcome.code === "not_stopped";
+    // Stopped by the conversation's risk score, which earlier warnings built up.
+    var risky = Boolean(event.session_id && event.risk_block);
     useEffect(
       function () {
         if (ref.current) ref.current.focus({ preventScroll: true });
@@ -2123,18 +2343,46 @@
       h(
         "div",
         { className: "petasos-detail-head" },
-        h(Status, { tone: outcomeTone(outcome.code), large: true }, outcome.label || "Recorded"),
+        h(
+          "p",
+          { className: "petasos-detail-which" },
+          listTime(event.timestamp),
+          event.session_id ? " · " + event.session_id : ""
+        ),
         h(Btn, { ghost: true, onClick: props.onClose, "aria-label": "Close event details" }, "Close")
+      ),
+      h(
+        "div",
+        { className: "petasos-detail-status" },
+        h(Status, { tone: outcomeTone(outcome.code), large: true }, outcome.label || "Recorded"),
+        event.severity ? h(Severity, { value: event.severity }) : null
       ),
       h("h3", { className: "petasos-detail-title", id: "petasos-detail-title" }, event.summary),
       event.outcome_note ? h("p", { className: "petasos-detail-note" }, event.outcome_note) : null,
+      notStopped || risky
+        ? h(
+            "div",
+            { className: "petasos-row-actions" },
+            notStopped ? h(Btn, { outlined: true, onClick: function () { go("settings"); } }, "Review current protection settings") : null,
+            risky
+              ? h(
+                  LinkButton,
+                  {
+                    onClick: function () {
+                      props.onFilter({ range: "all", session: event.session_id, event: event.scan_id });
+                    },
+                  },
+                  "See the earlier warnings that caused this block"
+                )
+              : null
+          )
+        : null,
       h(KeyValues, {
         rows: [
-          ["When", h(Fragment, null, fullTime(event.timestamp), h("span", { className: "petasos-faint" }, " · " + whenText(event.timestamp)))],
-          ["Kind", event.kind_label ? h(Fragment, null, event.kind_label, " ", h(Mono, { className: "petasos-faint" }, event.event_type)) : event.event_type],
+          ["When", h(Fragment, null, fullTime(event.timestamp), h("span", { className: "petasos-tertiary" }, " · " + whenText(event.timestamp)))],
+          ["Kind", event.kind_label || event.event_type],
           ["Tool", event.tool ? h(Mono, null, event.tool) : null],
           ["Conversation", event.session_id ? h(Mono, null, event.session_id) : null],
-          ["Severity", event.severity ? h(Severity, { value: event.severity }) : null],
         ],
       }),
       h(KeyValues, {
@@ -2148,11 +2396,10 @@
                   Fragment,
                   null,
                   event.rule_sentence ? h("span", { className: "petasos-block" }, event.rule_sentence) : null,
-                  h("span", { className: "petasos-idrow" }, h(Ident, null, rule), h(CopyButton, { value: rule, label: "Copy rule id" }))
+                  h("span", { className: "petasos-idrow petasos-tertiary" }, h(Ident, null, rule), h(CopyButton, { value: rule, label: "Copy rule id" }))
                 )
               : null,
           ],
-          ["Rule's note", event.reason && !event.target ? event.reason : null],
           ["Matched text", event.matched_note || null],
           ["Signature", integrity.meaning || null],
         ],
@@ -2163,39 +2410,35 @@
         rule && rule.indexOf("petasos.syntactic.") === 0
           ? h(Btn, { outlined: true, onClick: function () { go("settings", { rule: rule }); } }, "Rule settings")
           : null,
-        event.session_id
+        event.session_id && !risky
           ? h(
               Btn,
               {
                 ghost: true,
                 onClick: function () {
-                  props.onFilter({ session: event.session_id });
+                  props.onFilter({ session: event.session_id, event: event.scan_id });
                 },
               },
-              "Filter to this conversation"
+              "Show this conversation"
             )
           : null
       ),
-      others.length
-        ? h(
-            "details",
-            { className: "petasos-raw" },
-            h("summary", null, "Other recorded fields (" + others.length + ")"),
-            h(KeyValues, {
-              stacked: true,
-              rows: others.map(function (key) {
-                var value = event[key];
-                return [key, h(Mono, null, typeof value === "object" ? JSON.stringify(value) : String(value))];
-              }),
-            })
-          )
-        : null,
       h(
-        "p",
-        { className: "petasos-help petasos-idrow" },
-        "Event id ",
-        h(Ident, null, event.scan_id),
-        h(CopyButton, { value: event.scan_id, label: "Copy event id" })
+        Disclosure,
+        { label: "Technical detail", openLabel: "Hide technical detail", remember: "activity-technical" },
+        h(KeyValues, {
+          stacked: true,
+          rows: [
+            ["Event id", h("span", { className: "petasos-idrow" }, h(Ident, null, event.scan_id), h(CopyButton, { value: event.scan_id, label: "Copy event id" }))],
+            ["Event type", h(Mono, null, event.event_type)],
+            ["Rule's note", event.reason && !event.target ? event.reason : null],
+          ].concat(
+            others.map(function (key) {
+              var value = event[key];
+              return [key, h(Mono, null, typeof value === "object" ? JSON.stringify(value) : String(value))];
+            })
+          ),
+        })
       )
     );
   }
@@ -2223,6 +2466,7 @@
     var olderState = useState([]);
     var older = olderState[0];
     var optionsState = useState(null);
+    var countState = useState(null);
     var failureState = useState(null);
     var loadingMore = useState(false);
     var extraEvent = useState(null);
@@ -2235,7 +2479,7 @@
       go("activity", route);
     }
 
-    var codes = filters.outcome ? OUTCOME_CODES[filters.outcome] || [] : [];
+    var codes = filters.outcome ? OUTCOME_CODES[filters.outcome] || [filters.outcome] : [];
     var span = rangeWindow(filters);
     var request = {
       limit: 100,
@@ -2246,8 +2490,9 @@
       tool: filters.tool,
       session: filters.session,
       severity: filters.severity,
+      outcome: codes.join(","),
     };
-    var key = JSON.stringify([request, filters.outcome, filters.range === "custom" ? 0 : Math.floor(Date.now() / 600000)]);
+    var key = JSON.stringify([request, filters.range === "custom" ? 0 : Math.floor(Date.now() / 600000)]);
 
     usePoll(
       function () {
@@ -2261,8 +2506,15 @@
           .catch(function (failure) {
             failureState[1](failure);
           });
+        // The choices in each filter list come from the time range and search
+        // alone; the count above the list uses every filter, as the list does.
         call("/activity/summary" + query({ since: now.since, until: now.until, q: filters.q }))
           .then(optionsState[1])
+          .catch(function () {});
+        var counted = Object.assign({}, live);
+        delete counted.limit;
+        call("/activity/summary" + query(counted))
+          .then(countState[1])
           .catch(function () {});
       },
       15000,
@@ -2298,14 +2550,10 @@
         events = events.concat(chunk.events || []);
       });
     }
-    if (codes.length) {
-      events = events.filter(function (event) {
-        return codes.indexOf(event.outcome && event.outcome.code) >= 0;
-      });
-    }
     var selected = events.filter(function (event) {
       return event.scan_id === selectedId;
     })[0];
+    var selectedInList = Boolean(selected);
 
     // An event linked from elsewhere may sit outside the current page.
     useEffect(
@@ -2323,8 +2571,26 @@
     );
     if (!selected && extraEvent[0] && extraEvent[0].scan_id === selectedId) selected = extraEvent[0];
 
+    // Keep the open event's row in view beside its detail.
+    useEffect(
+      function () {
+        if (!selectedId || !selectedInList) return;
+        var timer = window.setTimeout(function () {
+          var row = document.getElementById("petasos-event-" + selectedId);
+          if (!row) return;
+          var box = row.getBoundingClientRect();
+          if (box.top < 80 || box.bottom > window.innerHeight - 40) revealInView(row, "center");
+        }, 60);
+        return function () {
+          window.clearTimeout(timer);
+        };
+      },
+      [selectedId, selectedInList]
+    );
+
     var tail = older.length ? older[older.length - 1] : page;
     var options = optionsState[0];
+    var counts = countState[0];
     var filtered = filters.kind || filters.tool || filters.session || filters.severity || filters.q || filters.outcome;
     var neverRecorded = options && options.total === 0 && !filtered && filters.range === "all";
 
@@ -2347,7 +2613,7 @@
     if (failureState[0] && !page) {
       list = h(Notice, { tone: "destructive", title: "The activity record could not be read" }, failureState[0].message);
     } else if (!page) {
-      list = h("p", { className: "petasos-help", role: "status" }, "Loading activity…");
+      list = h("p", { className: "petasos-secondary", role: "status" }, "Loading activity…");
     } else if (!events.length && neverRecorded) {
       list = h(
         Empty,
@@ -2355,7 +2621,7 @@
           title: "Nothing recorded yet",
           action: h(Btn, { outlined: true, onClick: function () { go("tryit", { example: "notes" }); } }, "Try it"),
         },
-        "Blocks, approvals and warnings appear here with the reason. Clean tool calls are not listed."
+        "Blocks, approvals and warnings appear here. Clean tool calls are not listed."
       );
     } else if (!events.length) {
       list = h(
@@ -2366,7 +2632,7 @@
             ? h(Btn, { outlined: true, onClick: function () { setFilters({ range: filters.range, from: filters.from, to: filters.to }); } }, "Clear filters")
             : h(Btn, { outlined: true, onClick: function () { setFilters({ range: "all" }); } }, "Show all time"),
         },
-        filtered ? "Try a longer time range or fewer filters." : "Petasos did not step in during this time. Clean tool calls are not listed."
+        filtered ? "Try a longer time range or fewer filters." : "Petasos did not step in during this time."
       );
     } else {
       var groups = groupEvents(events);
@@ -2395,40 +2661,36 @@
               { className: "petasos-more" },
               h(Btn, { outlined: true, onClick: loadOlder, disabled: loadingMore[0] }, loadingMore[0] ? "Loading…" : "Show older events")
             )
-          : h("p", { className: "petasos-help petasos-end" }, page.complete === false ? "Older events were not read." : "That is everything in this range.")
+          : h("p", { className: "petasos-secondary petasos-end" }, page.complete === false ? "Older events were not read." : "That is everything in this range.")
       );
     }
 
-    var count = options
-      ? plural(options.total, "event") + " · " + (options.blocked || 0) + " blocked"
+    var count = counts
+      ? plural(counts.total, "event") + " · " + plural(counts.blocked || 0, "tool call") + " blocked"
       : "";
 
     return h(
       "div",
-      { className: "petasos-stack" },
+      { className: "petasos-stack petasos-activity" },
+      h(ActivityFilters, { filters: filters, options: options, onChange: setFilters }),
       h(
-        Panel,
-        {
-          title: "Activity",
-          description: "What Petasos blocked, flagged or asked about, and why. Newest first. Checked again every 15 seconds.",
-          actions: h(
-            Fragment,
-            null,
-            count ? h("span", { className: "petasos-count" }, count) : null,
-            page ? h(IntegrityStatus, { integrity: page.integrity }) : null
-          ),
-        },
-        h(ActivityFilters, { filters: filters, options: options, onChange: setFilters }),
-        filters.outcome
-          ? h(
-              "p",
-              { className: "petasos-help" },
-              "Showing only: ",
-              h("strong", null, OUTCOME_FILTER_WORDS[filters.outcome] || filters.outcome),
-              ". ",
-              h(LinkButton, { onClick: function () { setFilters({ range: filters.range }); } }, "Show everything")
-            )
-          : null
+        "div",
+        { className: "petasos-listbar" },
+        h(
+          "p",
+          { className: "petasos-listbar-count", role: "status" },
+          count && !neverRecorded ? h("span", { className: "petasos-count" }, count) : null,
+          filters.outcome
+            ? h(
+                "span",
+                { className: "petasos-secondary" },
+                " · Only " + (OUTCOME_FILTER_WORDS[filters.outcome] || filters.outcome) + ". ",
+                h(LinkButton, { onClick: function () { setFilters(Object.assign({}, filters, { outcome: "" })); } }, "Show every outcome")
+              )
+            : null,
+          events.length ? h("span", { className: "petasos-tertiary" }, " · Newest first") : null
+        ),
+        page ? h(IntegrityStatus, { integrity: page.integrity }) : null
       ),
       page ? h(IntegrityNotice, { integrity: page.integrity, signing: props.status.record_signing }) : null,
       neverRecorded && !events.length
@@ -2505,52 +2767,69 @@
     return h("pre", { className: "petasos-marked", "aria-label": props.label }, parts);
   }
 
+  // What matched, in words: the rule's sentence and how serious it is, with the
+  // two things a person may do about it. Rule ids and match strength are
+  // technical detail, listed in TechnicalFindings.
   function FindingList(props) {
     var findings = props.findings || [];
-    if (!findings.length) {
-      return h("p", { className: "petasos-help" }, "Nothing matched a rule.");
-    }
+    return h(
+      "ol",
+      { className: "petasos-findings" },
+      findings.map(function (finding, index) {
+        var syntactic = String(finding.rule).indexOf("petasos.syntactic.") === 0;
+        return h(
+          "li",
+          { key: finding.rule + "-" + index, className: "petasos-finding" },
+          h("span", { className: "petasos-finding-n", "aria-hidden": true }, String(index + 1)),
+          h(
+            "div",
+            { className: "petasos-finding-body" },
+            h(
+              "div",
+              { className: "petasos-finding-head" },
+              h("span", { className: "petasos-finding-sentence" }, finding.sentence),
+              h(Severity, { value: finding.severity })
+            ),
+            syntactic
+              ? h(
+                  "div",
+                  { className: "petasos-row-actions" },
+                  h(LinkButton, { onClick: function () { props.onQuiet(finding.rule); } }, "Try without this rule"),
+                  h(LinkButton, { onClick: function () { go("settings", { rule: finding.rule }); } }, "Rule settings")
+                )
+              : null
+          )
+        );
+      })
+    );
+  }
+
+  function TechnicalFindings(props) {
+    var findings = props.findings || [];
+    if (!findings.length) return null;
     return h(
       Fragment,
       null,
+      h("p", { className: "petasos-label" }, "Rules that matched"),
       h(
         "ol",
-        { className: "petasos-findings" },
+        { className: "petasos-tech-findings" },
         findings.map(function (finding, index) {
-          var syntactic = String(finding.rule).indexOf("petasos.syntactic.") === 0;
           return h(
             "li",
-            { key: finding.rule + "-" + index, className: "petasos-finding" },
+            { key: finding.rule + "-" + index },
             h("span", { className: "petasos-finding-n", "aria-hidden": true }, String(index + 1)),
             h(
-              "div",
-              { className: "petasos-finding-body" },
-              h(
-                "div",
-                { className: "petasos-finding-head" },
-                h("span", { className: "petasos-finding-sentence" }, finding.sentence),
-                h(Severity, { value: finding.severity })
-              ),
-              h(
-                "p",
-                { className: "petasos-finding-meta" },
-                h(Ident, null, finding.rule),
-                h("span", { title: props.confidenceHelp }, " · Match strength " + Math.round((finding.confidence || 0) * 100) + "%"),
-                finding.span ? null : h("span", null, " · Not tied to one place in the text")
-              ),
-              syntactic
-                ? h(
-                    "div",
-                    { className: "petasos-row-actions" },
-                    h(LinkButton, { onClick: function () { props.onQuiet(finding.rule); } }, "Try without this rule"),
-                    h(LinkButton, { onClick: function () { go("settings", { rule: finding.rule }); } }, "Rule settings")
-                  )
-                : null
+              "span",
+              null,
+              h(Ident, null, finding.rule),
+              h("span", { className: "petasos-secondary", title: props.confidenceHelp }, " · Match strength " + Math.round((finding.confidence || 0) * 100) + "%"),
+              finding.span ? null : h("span", { className: "petasos-secondary" }, " · Not tied to one place in the text")
             )
           );
         })
       ),
-      props.confidenceHelp ? h("p", { className: "petasos-help" }, props.confidenceHelp) : null
+      props.confidenceHelp ? h("p", { className: "petasos-secondary" }, props.confidenceHelp) : null
     );
   }
 
@@ -2564,7 +2843,7 @@
           { key: row.id },
           h(Status, { tone: row.participated ? "success" : "neutral" }, row.participated ? "Checked" : "Skipped"),
           h("span", { className: "petasos-took-name" }, row.label),
-          h("span", { className: "petasos-help" }, !row.participated && row.reason ? row.reason : "")
+          h("span", { className: "petasos-secondary" }, !row.participated && row.reason ? row.reason : "")
         );
       })
     );
@@ -2582,14 +2861,41 @@
       .join("\n");
   }
 
-  function trialSummary(candidate, catalog) {
-    if (!candidate) return "";
-    var parts = [];
-    if (candidate.role) parts.push("job " + roleLabel(catalog, candidate.role));
-    if (candidate.level) parts.push("strictness " + levelLabel(catalog, candidate.level));
-    var count = leafCount(candidate.overrides || {});
-    if (count) parts.push(plural(count, "other setting"));
-    return parts.join(", ");
+  function lastPart(rule) {
+    var text = String(rule || "");
+    return text.slice(text.lastIndexOf(".") + 1);
+  }
+
+  // What a trial changes, by name: the job, the strictness, each rule turned
+  // off, and each other setting by its label.
+  function trialNames(candidate, catalog) {
+    if (!candidate) return [];
+    var byPath = rowsByPath(catalog && catalog.settings);
+    var names = [];
+    if (candidate.role) names.push(roleLabel(catalog, candidate.role) + " job");
+    if (candidate.level) names.push(levelLabel(catalog, candidate.level) + " strictness");
+    var overrides = candidate.overrides || {};
+    var saved = (byPath["rules.suppress"] || {}).value || [];
+    var quieted = (getIn(overrides, "rules.suppress") || []).filter(function (rule) {
+      return saved.indexOf(rule) < 0;
+    });
+    if (quieted.length) {
+      names.push(
+        (quieted.length === 1 ? "rule " : "rules ") +
+          joinWords(quieted.map(lastPart)) +
+          " turned off"
+      );
+    }
+    (function walk(node, prefix) {
+      Object.keys(node || {}).forEach(function (key) {
+        var path = prefix ? prefix + "." + key : key;
+        if (path === "rules.suppress") return;
+        var value = node[key];
+        if (value && typeof value === "object" && !Array.isArray(value) && !byPath[path]) walk(value, path);
+        else names.push(rowLabel(byPath[path] || { path: path }) + ": " + showValue(value, byPath[path]));
+      });
+    })(overrides, "");
+    return names;
   }
 
   function OutcomeHead(props) {
@@ -2774,105 +3080,105 @@
     var ran = ranState[0];
     var stale = Boolean(result && ran && ran.signature !== signature(current(), candidate));
 
+    var trial = trialNames(candidate, catalog);
+    var chosen = exampleIn(examples, exampleState[0]);
     var input = h(
       Panel,
       {
-        title: "Input",
-        description: "Text the agent might read or send, or a tool call it might make.",
+        title: "Try an example",
       },
       h(Choice, {
         id: "petasos-try-example",
         label: "Example",
         value: exampleState[0] || "",
-        placeholder: examples ? "Load an example…" : "Loading examples…",
+        placeholder: examples ? (mode === "tool" || textState[0] ? "Your own input" : "Choose an example…") : "Loading examples…",
         options: (examples || []).map(function (example) {
           return { value: example.id, label: example.label };
         }),
         onChange: function (value) {
           var example = exampleIn(examples, value);
-          if (example) load(example);
+          if (!example) return;
+          load(example);
+          run(undefined, Object.assign({ text: "", direction: "inbound", tool: "", args: "{}" }, inputOf(example)));
         },
       }),
+      chosen && chosen.description ? h("p", { className: "petasos-try-desc" }, chosen.description) : null,
       h(
-        "p",
-        { className: "petasos-help" },
-        (exampleIn(examples, exampleState[0]) || {}).description
-          ? exampleIn(examples, exampleState[0]).description + " "
-          : "",
-        "Choosing an example fills the input below. Nothing runs until you press Check."
+        Disclosure,
+        { label: "Show and edit the input", openLabel: "Hide the input", remember: "tryit-input" },
+        h(
+          "div",
+          { className: "petasos-filter-group" },
+          h("span", { className: "petasos-filter-label", id: "petasos-try-mode-label" }, "Kind"),
+          h(Segmented, {
+            id: "petasos-try-mode",
+            labelledBy: "petasos-try-mode-label",
+            value: mode,
+            options: [
+              { value: "text", label: "Text" },
+              { value: "tool", label: "Tool call" },
+            ],
+            onChange: function (value) {
+              modeState[1](value);
+              exampleState[1]("");
+            },
+          })
+        ),
+        mode === "text"
+          ? h(
+              Fragment,
+              null,
+              h(C.Label, { className: "petasos-label", htmlFor: "petasos-try-text" }, "Text"),
+              h("textarea", {
+                id: "petasos-try-text",
+                className: "petasos-textarea",
+                rows: 5,
+                value: textState[0],
+                onChange: function (e) {
+                  textState[1](e.target.value);
+                  exampleState[1]("");
+                },
+              }),
+              h(Choice, {
+                id: "petasos-try-direction",
+                label: "Direction",
+                value: directionState[0],
+                options: [
+                  { value: "inbound", label: "Coming in: a tool result, page or file the agent reads" },
+                  { value: "outbound", label: "Going out: text the agent writes into a tool call" },
+                ],
+                onChange: directionState[1],
+              })
+            )
+          : h(
+              Fragment,
+              null,
+              h(C.Label, { className: "petasos-label", htmlFor: "petasos-try-tool" }, "Tool"),
+              h(C.Input, {
+                id: "petasos-try-tool",
+                value: toolState[0],
+                "aria-describedby": "petasos-try-tool-help",
+                onChange: function (e) {
+                  toolState[1](e.target.value);
+                  exampleState[1]("");
+                },
+              }),
+              h("p", { className: "petasos-tertiary", id: "petasos-try-tool-help" }, "The tool's name in Hermes, such as terminal or write_file."),
+              h(C.Label, { className: "petasos-label", htmlFor: "petasos-try-args" }, "Arguments"),
+              h("textarea", {
+                id: "petasos-try-args",
+                className: "petasos-textarea petasos-mono-area",
+                rows: 5,
+                value: argsState[0],
+                "aria-describedby": "petasos-try-args-help",
+                onChange: function (e) {
+                  argsState[1](e.target.value);
+                  exampleState[1]("");
+                },
+              }),
+              h("p", { className: "petasos-tertiary", id: "petasos-try-args-help" }, 'A JSON object, for example {"command": "ls"}.')
+            )
       ),
-      h(
-        "div",
-        { className: "petasos-filter-group" },
-        h("span", { className: "petasos-filter-label", id: "petasos-try-mode-label" }, "Kind"),
-        h(Segmented, {
-          id: "petasos-try-mode",
-          labelledBy: "petasos-try-mode-label",
-          value: mode,
-          options: [
-            { value: "text", label: "Text" },
-            { value: "tool", label: "Tool call" },
-          ],
-          onChange: function (value) {
-            modeState[1](value);
-            exampleState[1]("");
-          },
-        })
-      ),
-      mode === "text"
-        ? h(
-            Fragment,
-            null,
-            h(C.Label, { className: "petasos-label", htmlFor: "petasos-try-text" }, "Text"),
-            h("textarea", {
-              id: "petasos-try-text",
-              className: "petasos-textarea",
-              rows: 5,
-              value: textState[0],
-              onChange: function (e) {
-                textState[1](e.target.value);
-                exampleState[1]("");
-              },
-            }),
-            h(Choice, {
-              id: "petasos-try-direction",
-              label: "Direction",
-              value: directionState[0],
-              options: [
-                { value: "inbound", label: "Coming in: a tool result, page or file the agent reads" },
-                { value: "outbound", label: "Going out: text the agent writes into a tool call" },
-              ],
-              onChange: directionState[1],
-            })
-          )
-        : h(
-            Fragment,
-            null,
-            h(C.Label, { className: "petasos-label", htmlFor: "petasos-try-tool" }, "Tool"),
-            h(C.Input, {
-              id: "petasos-try-tool",
-              value: toolState[0],
-              "aria-describedby": "petasos-try-tool-help",
-              onChange: function (e) {
-                toolState[1](e.target.value);
-                exampleState[1]("");
-              },
-            }),
-            h("p", { className: "petasos-help", id: "petasos-try-tool-help" }, "The tool's name as Hermes knows it, such as terminal or write_file."),
-            h(C.Label, { className: "petasos-label", htmlFor: "petasos-try-args" }, "Arguments"),
-            h("textarea", {
-              id: "petasos-try-args",
-              className: "petasos-textarea petasos-mono-area",
-              rows: 5,
-              value: argsState[0],
-              "aria-describedby": "petasos-try-args-help",
-              onChange: function (e) {
-                argsState[1](e.target.value);
-                exampleState[1]("");
-              },
-            }),
-            h("p", { className: "petasos-help", id: "petasos-try-args-help" }, 'A JSON object, for example {"command": "ls"}.')
-          ),
       inputErrorState[0] ? h("p", { className: "petasos-field-error", role: "alert" }, inputErrorState[0]) : null,
       h(
         "div",
@@ -2881,17 +3187,20 @@
         h(
           Btn,
           {
-            outlined: true,
+            ghost: true,
             "aria-expanded": trialOpenState[0],
             "aria-controls": "petasos-trial",
             onClick: function () {
               trialOpenState[1](!trialOpenState[0]);
             },
           },
-          candidate ? "Trial settings: " + trialSummary(candidate, catalog) : "Trial settings"
+          trialOpenState[0] ? "Hide trial settings" : "Change trial settings"
         ),
-        h("span", { className: "petasos-help" }, "Nothing is saved or recorded.")
-      )
+        h("span", { className: "petasos-secondary" }, "Nothing is saved.")
+      ),
+      trial.length
+        ? h("p", { className: "petasos-trial-line" }, h("strong", null, "Trying: "), trial.join(", ") + ". Not saved.")
+        : null
     );
 
     var output;
@@ -2943,31 +3252,42 @@
               )
             )
           : h(OutcomeHead, { outcome: result.outcome }),
-        result.message
+        (result.findings || []).length
           ? h(
               Fragment,
               null,
-              h("h4", { className: "petasos-subhead" }, "What the agent would see"),
-              h("pre", { className: "petasos-message" }, result.message)
+              h("h4", { className: "petasos-subhead" }, "Where it matched"),
+              ran && ran.text
+                ? h(Marked, { text: ran.text, findings: result.findings, label: "The checked input with matches marked" })
+                : null,
+              h(FindingList, { findings: result.findings, onQuiet: quiet }),
+              result.findings_omitted ? h("p", { className: "petasos-secondary" }, plural(result.findings_omitted, "more match", "more matches") + " not shown.") : null
             )
-          : null,
-        h("h4", { className: "petasos-subhead" }, "What matched"),
-        ran && ran.text
-          ? h(Marked, { text: ran.text, findings: result.findings, label: "The checked input with matches marked" })
-          : null,
-        h(FindingList, { findings: result.findings, onQuiet: quiet, confidenceHelp: result.confidence_help }),
-        result.findings_omitted ? h("p", { className: "petasos-help" }, plural(result.findings_omitted, "more finding") + " not shown.") : null,
-        result.normalized_changed && result.normalized
-          ? h(
-              Fragment,
-              null,
-              h("h4", { className: "petasos-subhead" }, "How Petasos read it"),
-              h("p", { className: "petasos-help" }, "Disguised characters were turned into plain ones before checking:"),
-              h("pre", { className: "petasos-message" }, result.normalized)
-            )
-          : null,
+          : h("p", { className: "petasos-secondary" }, "Nothing in this input matched a rule."),
         h("h4", { className: "petasos-subhead" }, "Checks"),
-        h(ScannerTakePart, { scanners: result.scanners })
+        h(ScannerTakePart, { scanners: result.scanners }),
+        h(
+          Disclosure,
+          { label: "Technical detail", openLabel: "Hide technical detail", remember: "tryit-technical" },
+          result.message
+            ? h(
+                Fragment,
+                null,
+                h("p", { className: "petasos-label" }, "What the agent would see"),
+                h("pre", { className: "petasos-message" }, result.message)
+              )
+            : null,
+          h(TechnicalFindings, { findings: result.findings, confidenceHelp: result.confidence_help }),
+          result.normalized_changed && result.normalized
+            ? h(
+                Fragment,
+                null,
+                h("p", { className: "petasos-label" }, "How Petasos read it"),
+                h("p", { className: "petasos-secondary" }, "Disguised characters were turned into plain ones before checking:"),
+                h("pre", { className: "petasos-message" }, result.normalized)
+              )
+            : null
+        )
       );
     }
 
@@ -2979,7 +3299,7 @@
           {
             id: "petasos-trial",
             title: "Trial settings",
-            description: "These apply to Try it only. The result is shown beside what your live settings do. Nothing is saved.",
+            description: "For Try it only. Nothing is saved.",
             actions: candidate ? h(Btn, { ghost: true, onClick: function () { setCandidate(null); advancedState[1](""); baselineState[1](null); } }, "Use live settings") : null,
           },
           catalog
@@ -3033,7 +3353,7 @@
                             );
                           })
                       )
-                    : h("p", { className: "petasos-help" }, "None. Use Try without this rule on a match.")
+                    : h("p", { className: "petasos-secondary" }, "None. Use Try without this rule on a match.")
                 )
               )
             : null,
@@ -3088,7 +3408,7 @@
                   },
                   "Stage these in Settings"
                 ),
-                h("span", { className: "petasos-help" }, "Staging lets you review them before anything is saved.")
+                h("span", { className: "petasos-secondary" }, "You can look them over in Settings before saving.")
               )
             : null
         )
@@ -3103,9 +3423,10 @@
   }
   // ===== dashboard-src/40-settings.js =====
   // ---------------------------------------------------------------------------
-  // Settings: every value, laid out as Hermes's Config page lays out its own,
-  // with a review step before anything is saved. Rows, labels, help, bounds,
-  // choices and where each value comes from all come from the API.
+  // Settings: every value, laid out as Hermes's Config page lays out its own.
+  // Save sits in the toolbar and saves; the count of staged changes beside it
+  // opens the list of what will change. Rows, labels, help, bounds, choices
+  // and where each value comes from all come from the API.
   // ---------------------------------------------------------------------------
 
   function topOf(row) {
@@ -3267,10 +3588,10 @@
       provenance = h(
         Fragment,
         null,
-        h("strong", null, "Changed, not saved"),
-        change ? " · was " + showValue(change.before, row) + " (" + originText(change.origin_before, stored, catalog).toLowerCase() + ")" : "",
+        h("strong", { className: "petasos-staged-word" }, "Changed, not saved"),
+        change ? " · was " + showValue(change.before, row) : "",
         " · ",
-        h(LinkButton, { onClick: props.onUnstage }, "Undo change")
+        h(LinkButton, { onClick: props.onUnstage }, "Undo")
       );
     } else if (saved.origin === "override") {
       var target = saved.reset_to;
@@ -3303,7 +3624,7 @@
         path: row.path,
         help: row.help,
         inline: row.type === "bool",
-        className: cn(staged && "petasos-field-staged", props.error && "petasos-field-invalid", props.focused && "petasos-field-focused"),
+        className: cn(staged && "petasos-field-staged", saved.origin === "override" && "petasos-field-yours", props.error && "petasos-field-invalid", props.focused && "petasos-field-focused"),
         control: h(FieldControl, {
           row: row,
           value: props.value,
@@ -3320,7 +3641,7 @@
         { className: "petasos-provenance" },
         provenance,
         bounds ? " · allowed: " + bounds : "",
-        row.restart ? " · applies after a Hermes restart" : ""
+        row.restart ? " · after a Hermes restart" : ""
       )
     );
   }
@@ -3358,21 +3679,19 @@
         h(Btn, { outlined: true, disabled: props.disabled, onClick: function () { props.onLower(rule); } }, "Report it without blocking"),
         h(Btn, { ghost: true, onClick: function () { go("tryit", { example: "hidden" }); } }, "Try it")
       ),
-      h(
-        "p",
-        { className: "petasos-help" },
-        "Each stages a change below for you to review. Rules that check the shape of the input, or changes to Petasos itself, cannot be turned off; the review says so."
-      )
+      h("p", { className: "petasos-secondary" }, "Each stages a change; nothing is saved until you press Save.")
     );
   }
 
-  // The list of staged changes, before anything is saved.
-  function Review(props) {
+  // The list of staged changes, opened from the count beside Save. It sits
+  // over the page, so the sections do not move when changes are staged.
+  function ChangeSheet(props) {
     var catalog = props.catalog;
     var preview = props.preview;
     var draft = props.draft;
     var stored = catalog.stored || {};
     var labels = catalog.labels || {};
+    var ref = useRef(null);
     var top = [];
     if (draft.enabled !== undefined && draft.enabled !== stored.enabled)
       top.push([labels.enabled || "Protection", stored.enabled === false ? "Paused" : "On", draft.enabled ? "On" : "Paused"]);
@@ -3381,14 +3700,28 @@
     if (draft.level !== undefined && draft.level !== stored.level)
       top.push([labels.level || "Strictness", levelLabel(catalog, stored.level), levelLabel(catalog, draft.level)]);
     var changes = (preview && preview.changes) || [];
+    useEffect(function () {
+      if (ref.current) ref.current.focus({ preventScroll: true });
+    }, []);
     return h(
-      Panel,
+      "div",
       {
-        className: "petasos-review",
-        title: "Review changes",
-        titleId: "petasos-review-title",
-        description: "Nothing is saved until you press Save.",
+        className: "petasos-sheet",
+        role: "dialog",
+        "aria-labelledby": "petasos-sheet-title",
+        tabIndex: -1,
+        ref: ref,
+        id: "petasos-change-sheet",
+        onKeyDown: function (event) {
+          if (event.key === "Escape") props.onClose();
+        },
       },
+      h(
+        "div",
+        { className: "petasos-sheet-head" },
+        h("p", { className: "petasos-sheet-title", id: "petasos-sheet-title" }, "What will change"),
+        h(Btn, { ghost: true, onClick: props.onClose, "aria-label": "Close the list of changes" }, "Close")
+      ),
       top.length
         ? h(
             "ul",
@@ -3398,7 +3731,7 @@
                 "li",
                 { key: item[0], className: "petasos-change" },
                 h("p", { className: "petasos-change-name" }, item[0]),
-                h("p", { className: "petasos-change-values" }, item[1], h("span", { className: "petasos-arrow", "aria-hidden": true }, " → "), h("span", { className: "sr-only" }, " becomes "), h("strong", null, item[2]))
+                h("p", { className: "petasos-change-values" }, h("span", { className: "petasos-before" }, item[1]), h("span", { className: "petasos-arrow", "aria-hidden": true }, " → "), h("span", { className: "sr-only" }, " becomes "), h("strong", null, item[2]))
               );
             })
           )
@@ -3412,14 +3745,7 @@
         label: "Settings that would change",
         empty: top.length ? "No other setting changes." : "These edits leave every value as it was.",
       }),
-      h("p", { className: "petasos-when" }, draft.enabled === false ? "Pausing applies from the agent's next tool call." : whenItApplies(changes, catalog.settings)),
-      h(
-        "div",
-        { className: "petasos-row-actions" },
-        h(Btn, { onClick: props.onSave, disabled: props.saving || props.locked }, props.saving ? "Saving…" : "Save " + plural(changes.length + top.length, "change")),
-        h(Btn, { outlined: true, onClick: props.onTry }, "Try it first"),
-        h(Btn, { ghost: true, onClick: props.onBack }, "Back to editing")
-      )
+      h("p", { className: "petasos-when" }, draft.enabled === false ? "Pausing applies from the agent's next tool call." : whenItApplies(changes, catalog.settings))
     );
   }
 
@@ -3444,6 +3770,7 @@
     var resetState = useState(null);
     var reviewState = useState(params.review === "1");
     var reviewing = reviewState[0];
+    var toolbarRef = useRef(null);
 
     var empty = draftIsEmpty(draft);
     var draftKey = JSON.stringify(draftBody(draft));
@@ -3488,15 +3815,18 @@
       },
       [params.path, section, Boolean(catalog)]
     );
+    // The change list closes when a click lands outside it and the toolbar.
     useEffect(
       function () {
         if (!reviewing) return;
-        var title = document.getElementById("petasos-review-title");
-        if (title) {
-          title.setAttribute("tabindex", "-1");
-          title.focus({ preventScroll: true });
-          revealInView(title, "start");
+        function away(event) {
+          var bar = toolbarRef.current;
+          if (bar && !bar.contains(event.target)) reviewState[1](false);
         }
+        document.addEventListener("mousedown", away);
+        return function () {
+          document.removeEventListener("mousedown", away);
+        };
       },
       [reviewing]
     );
@@ -3579,6 +3909,7 @@
     }
     function afterWrite(body, message) {
       savedState[1]({ at: Date.now(), message: message, restart: (body && body.restart) || [] });
+      reviewState[1](false);
     }
     function save() {
       savingState[1](true);
@@ -3827,9 +4158,10 @@
     var resetPath = resetState[0];
     var resetRow = resetPath && resetPath !== "*" ? savedBy[resetPath] : null;
 
+    var staged = changeCount + topChanges;
     var toolbar = h(
       "div",
-      { className: "petasos-settings-toolbar", role: "toolbar", "aria-label": "Settings" },
+      { className: "petasos-settings-toolbar", role: "toolbar", "aria-label": "Settings", ref: toolbarRef },
       h(
         "div",
         { className: "petasos-search" },
@@ -3853,24 +4185,33 @@
       h(
         "div",
         { className: "petasos-savebox" },
-        h(
-          "span",
-          { className: "petasos-help", role: "status" },
-          empty
-            ? "No unsaved changes"
-            : invalid
-              ? "Fix the marked setting to save"
-              : preview
-                ? plural(changeCount + topChanges, "unsaved change")
-                : "Checking…"
-        ),
+        empty
+          ? h("span", { className: "petasos-secondary", role: "status" }, "No unsaved changes")
+          : invalid
+            ? h("span", { className: "petasos-secondary petasos-strong", role: "status" }, "Fix the marked setting to save")
+            : preview
+              ? h(
+                  "button",
+                  {
+                    type: "button",
+                    className: "petasos-changecount",
+                    "aria-expanded": reviewing,
+                    "aria-controls": "petasos-change-sheet",
+                    onClick: function () {
+                      reviewState[1](!reviewing);
+                    },
+                  },
+                  plural(staged, "unsaved change"),
+                  h(Icon, { name: "chevron", size: 14, className: "petasos-changecount-chevron" })
+                )
+              : h("span", { className: "petasos-secondary", role: "status" }, "Checking…"),
         empty ? null : h(Btn, { ghost: true, onClick: discard }, "Discard"),
         empty
           ? null
           : h(
               Btn,
               {
-                outlined: true,
+                ghost: true,
                 onClick: function () {
                   go("tryit", { settings: JSON.stringify(draftBody(draft)) });
                 },
@@ -3880,16 +4221,23 @@
         h(
           Btn,
           {
-            className: "uppercase",
             outlined: empty,
-            disabled: empty || invalid || !preview || lockedAll,
-            onClick: function () {
-              reviewState[1](true);
-            },
+            disabled: empty || invalid || !preview || lockedAll || savingState[0],
+            onClick: save,
           },
-          "Review and save"
+          savingState[0] ? "Saving…" : "Save"
         )
-      )
+      ),
+      reviewing && preview && !invalid && !empty
+        ? h(ChangeSheet, {
+            catalog: catalog,
+            preview: preview,
+            draft: draft,
+            onClose: function () {
+              reviewState[1](false);
+            },
+          })
+        : null
     );
 
     var saved = savedState[0];
@@ -3900,14 +4248,29 @@
       toolbar,
       saved
         ? h(
-            Notice,
-            {
-              tone: saved.restart.length ? "warning" : "success",
-              title: "Saved at " + clockTime(saved.at),
-              action: h(Btn, { ghost: true, onClick: function () { savedState[1](null); } }, "Dismiss"),
-            },
-            h("p", null, saved.message),
-            saved.restart.length ? h("p", null, "Restart Gateway, in the sidebar, restarts Hermes when it suits you.") : null
+            "div",
+            { className: "petasos-saved" },
+            h(
+              Notice,
+              {
+                tone: "success",
+                title: "Saved at " + clockTime(saved.at),
+                action: h(Btn, { ghost: true, onClick: function () { savedState[1](null); } }, "Dismiss"),
+              },
+              saved.restart.length ? null : h("p", null, "Applies from the agent's next tool call.")
+            ),
+            saved.restart.length
+              ? h(
+                  "p",
+                  { className: "petasos-restart-note" },
+                  h("strong", null, "Waits for a Hermes restart: "),
+                  saved.restart
+                    .map(function (path) {
+                      return rowLabel(savedBy[path] || { path: path });
+                    })
+                    .join(", ") + ". Restart Gateway, in the sidebar, restarts Hermes."
+                )
+              : null
           )
         : null,
       lockedAll
@@ -3930,22 +4293,6 @@
         : null,
       saveError && !saveError.path
         ? h(Notice, { tone: "destructive", title: "Not saved" }, saveError.message)
-        : null,
-      reviewing && preview && !invalid
-        ? h(Review, {
-            catalog: catalog,
-            preview: preview,
-            draft: draft,
-            saving: savingState[0],
-            locked: lockedAll,
-            onSave: save,
-            onTry: function () {
-              go("tryit", { settings: JSON.stringify(draftBody(draft)) });
-            },
-            onBack: function () {
-              reviewState[1](false);
-            },
-          })
         : null,
       params.rule
         ? h(RuleHelper, {

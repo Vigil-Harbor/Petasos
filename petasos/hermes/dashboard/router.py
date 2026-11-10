@@ -233,6 +233,7 @@ def _query(request: Any) -> ActivityQuery:
         session=_optional(params.get("session")),
         severity=_optional(params.get("severity")),
         text=_optional(params.get("q")),
+        outcomes=_codes(params.get("outcome")),
         limit=limit,
     )
 
@@ -244,6 +245,16 @@ def _when(value: object, name: str) -> float | None:
         return float(str(value))
     except (TypeError, ValueError) as exc:
         raise ApiError("invalid_query", f"{name} must be a time in seconds.") from exc
+
+
+def _codes(value: object) -> tuple[str, ...]:
+    """Outcome codes from a comma-separated parameter, blanks dropped."""
+    if not isinstance(value, str) or not value:
+        return ()
+    codes = tuple(part.strip() for part in value.split(",") if part.strip())
+    if len(codes) > 20 or any(len(code) > 40 for code in codes):
+        raise ApiError("invalid_query", "Ask for at most 20 outcomes.")
+    return codes
 
 
 def _optional(value: object) -> str | None:

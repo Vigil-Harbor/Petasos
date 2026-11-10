@@ -78,8 +78,11 @@ class EscalationConfig:
 
     enabled: bool = setting(
         default=True,
-        label="Report the escalation step",
-        help="Include the conversation's escalation step in the result of each check.",
+        label="Report the protection stage",
+        help=(
+            "Add the conversation's stage to each check result: normal, watched, tool calls"
+            " blocked, or stopped."
+        ),
     )
     tier1: float = setting(
         default=15.0,

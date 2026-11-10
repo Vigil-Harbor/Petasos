@@ -11,10 +11,11 @@ var RANGES = [
 ];
 
 // An outcome count on the overview opens the list filtered to it. These
-// are the API's outcome codes, matched against each event's outcome.
+// are the API's outcome codes; the reader filters on them, so paging and
+// counts agree with the list.
 var OUTCOME_CODES = {
-  blocked: ["blocked", "stopped"],
-  asked: ["asked"],
+  blocked: ["blocked", "stopped", "attempt_blocked"],
+  asked: ["asked", "attempt_asked"],
   flagged: ["flagged"],
   allowed: ["allowed"],
   not_stopped: ["not_stopped"],
@@ -25,14 +26,107 @@ var OUTCOME_FILTER_WORDS = {
   asked: "asked a person",
   flagged: "flagged to the agent",
   allowed: "let through while paused",
-  not_stopped: "settings changes not stopped",
+  not_stopped: "setting changes not stopped",
 };
 
-// Seconds from a datetime-local value, read in the browser's time zone.
+// A custom range is kept as YYYY-MM-DDTHH:MM in the browser's time zone and
+// shown as YYYY-MM-DD HH:MM, which no reader can take for another date.
+function parseLocal(value) {
+  var match = String(value || "").trim().match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})$/);
+  if (!match) return null;
+  var date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), Number(match[4]), Number(match[5]));
+  if (date.getMonth() !== Number(match[2]) - 1 || date.getDate() !== Number(match[3])) return null;
+  return date;
+}
+
 function localSeconds(value) {
-  if (!value) return null;
-  var ms = new Date(value).getTime();
-  return isFinite(ms) ? Math.floor(ms / 1000) : null;
+  var date = parseLocal(value);
+  return date ? Math.floor(date.getTime() / 1000) : null;
+}
+
+function localStamp(date) {
+  function pad(n) {
+    return String(n).padStart(2, "0");
+  }
+  return (
+    date.getFullYear() + "-" + pad(date.getMonth() + 1) + "-" + pad(date.getDate()) + "T" + pad(date.getHours()) + ":" + pad(date.getMinutes())
+  );
+}
+
+// One end of a custom range: a text field in an unambiguous form, and a
+// calendar button that opens the browser's own picker.
+function DateTimeField(props) {
+  var pickerRef = useRef(null);
+  var textState = useState(String(props.value || "").replace("T", " "));
+  useEffect(
+    function () {
+      textState[1](String(props.value || "").replace("T", " "));
+    },
+    [props.value]
+  );
+  var invalid = textState[0].trim() !== "" && !parseLocal(textState[0]);
+  function commit(text) {
+    var date = parseLocal(text);
+    if (date) props.onChange(localStamp(date));
+    else if (!text.trim()) props.onChange("");
+  }
+  return h(
+    "div",
+    { className: "petasos-choice petasos-datetime" },
+    h(C.Label, { className: "petasos-label", htmlFor: props.id }, props.label),
+    h(
+      "div",
+      { className: "petasos-datetime-box" },
+      h(C.Input, {
+        id: props.id,
+        value: textState[0],
+        placeholder: "YYYY-MM-DD HH:MM",
+        inputMode: "numeric",
+        "aria-invalid": invalid ? "true" : undefined,
+        "aria-describedby": props.id + "-format",
+        onChange: function (event) {
+          textState[1](event.target.value);
+        },
+        onBlur: function () {
+          commit(textState[0]);
+        },
+        onKeyDown: function (event) {
+          if (event.key === "Enter") commit(textState[0]);
+        },
+      }),
+      h(
+        "button",
+        {
+          type: "button",
+          className: "petasos-datetime-pick",
+          "aria-label": "Choose " + props.label.toLowerCase() + " on a calendar",
+          onClick: function () {
+            var picker = pickerRef.current;
+            if (!picker) return;
+            picker.value = props.value || "";
+            if (picker.showPicker) picker.showPicker();
+            else picker.focus();
+          },
+        },
+        h(Icon, { name: "calendar", size: 16 })
+      ),
+      h("input", {
+        ref: pickerRef,
+        type: "datetime-local",
+        className: "petasos-datetime-native",
+        tabIndex: -1,
+        "aria-hidden": true,
+        onChange: function (event) {
+          if (event.target.value) props.onChange(event.target.value.slice(0, 16));
+        },
+      })
+    ),
+    h(
+      "p",
+      { className: cn("petasos-tertiary", invalid && "petasos-field-error"), id: props.id + "-format" },
+      invalid ? "Write it as YYYY-MM-DD HH:MM." : "Year-month-day, 24-hour clock"
+    )
+  );
 }
 
 function rangeWindow(filters) {
@@ -71,7 +165,7 @@ function IntegrityNotice(props) {
       Notice,
       {
         tone: "warning",
-        title: "Activity records cannot be checked for tampering yet",
+        title: "Records are not signed yet",
         action: (signing.steps || []).length
           ? h(
               Btn,
@@ -86,7 +180,7 @@ function IntegrityNotice(props) {
             )
           : null,
       },
-      h("p", null, "Protection still runs and every record is still written. Without a signature, something that can write to this profile could change a record unnoticed."),
+      h("p", null, "Protection runs and every record is written. Without a signature, a changed record could go unnoticed."),
       openState[0]
         ? h(
             "ol",
@@ -102,7 +196,7 @@ function IntegrityNotice(props) {
     return h(
       Notice,
       { tone: "destructive", strong: true, title: "Some records do not match their signatures" },
-      "A marked record was changed after Petasos wrote it, or was written by something else. Do not trust those records."
+      "A marked record was changed after Petasos wrote it, or written by something else. Do not trust it."
     );
   }
   return null;
@@ -121,7 +215,11 @@ function ActivityFilters(props) {
   function set(key, value) {
     var next = Object.assign({}, filters);
     next[key] = value === "any" ? "" : value;
-    if (key !== "outcome") next.outcome = "";
+    if (key === "range" && value === "custom" && !next.from && !next.to) {
+      var now = new Date();
+      next.from = localStamp(new Date(now.getTime() - 86400000));
+      next.to = localStamp(now);
+    }
     props.onChange(next);
   }
   function listed(counts, labeller) {
@@ -197,34 +295,24 @@ function ActivityFilters(props) {
     filters.range === "custom"
       ? h(
           "div",
-          { className: "petasos-filter-row" },
-          h(
-            "div",
-            { className: "petasos-choice" },
-            h(C.Label, { className: "petasos-label", htmlFor: "petasos-from" }, "From"),
-            h(C.Input, {
-              id: "petasos-from",
-              type: "datetime-local",
-              value: filters.from || "",
-              onChange: function (event) {
-                set("from", event.target.value);
-              },
-            })
-          ),
-          h(
-            "div",
-            { className: "petasos-choice" },
-            h(C.Label, { className: "petasos-label", htmlFor: "petasos-to" }, "To"),
-            h(C.Input, {
-              id: "petasos-to",
-              type: "datetime-local",
-              value: filters.to || "",
-              onChange: function (event) {
-                set("to", event.target.value);
-              },
-            })
-          ),
-          h("p", { className: "petasos-help petasos-tz" }, "Times are in your time zone (" + Intl.DateTimeFormat().resolvedOptions().timeZone + ").")
+          { className: "petasos-filter-row petasos-range-row" },
+          h(DateTimeField, {
+            id: "petasos-from",
+            label: "From",
+            value: filters.from || "",
+            onChange: function (value) {
+              set("from", value);
+            },
+          }),
+          h(DateTimeField, {
+            id: "petasos-to",
+            label: "To",
+            value: filters.to || "",
+            onChange: function (value) {
+              set("to", value);
+            },
+          }),
+          h("p", { className: "petasos-secondary petasos-tz" }, "Your time zone: " + Intl.DateTimeFormat().resolvedOptions().timeZone)
         )
       : null,
     h(
@@ -283,14 +371,14 @@ function EventRow(props) {
       id: "petasos-event-" + event.scan_id,
       className: cn("petasos-event", props.selected && "petasos-event-selected", props.nested && "petasos-event-nested"),
       "aria-current": props.selected ? "true" : undefined,
-      "aria-label": "Open details: " + event.summary + ", " + listTime(event.timestamp),
+      "aria-label": (props.selected ? "Open now: " : "Open details: ") + event.summary + ", " + listTime(event.timestamp),
       onClick: props.onOpen,
     },
     h(
       "span",
       { className: "petasos-event-when" },
       h("span", { className: "petasos-block" }, listTime(event.timestamp)),
-      h("span", { className: "petasos-block petasos-faint" }, whenText(event.timestamp))
+      h("span", { className: "petasos-block petasos-tertiary" }, whenText(event.timestamp))
     ),
     h(
       "span",
@@ -320,7 +408,7 @@ function EventGroup(props) {
   var inside = group.events.some(function (event) {
     return event.scan_id === props.selectedId;
   });
-  var open = openState[0] || inside;
+  var open = openState[0] || (inside && first.scan_id !== props.selectedId);
   if (count === 1) {
     return h(
       "li",
@@ -384,7 +472,7 @@ function EventGroup(props) {
 var SHOWN_FIELDS = {
   scan_id: 1, timestamp: 1, event_type: 1, tool: 1, session_id: 1, severity: 1, rule_id: 1, reason: 1,
   summary: 1, outcome: 1, kind_label: 1, rule_sentence: 1, integrity: 1, sig: 1, matched_note: 1,
-  target: 1, outcome_note: 1,
+  target: 1, outcome_note: 1, risk_block: 1,
 };
 
 function EventDetail(props) {
@@ -398,6 +486,9 @@ function EventDetail(props) {
   var rule = event.rule_id ? String(event.rule_id).replace(/^plugin_rule:/, "") : "";
   var integrity = event.integrity || {};
   var outcome = event.outcome || {};
+  var notStopped = outcome.code === "not_stopped";
+  // Stopped by the conversation's risk score, which earlier warnings built up.
+  var risky = Boolean(event.session_id && event.risk_block);
   useEffect(
     function () {
       if (ref.current) ref.current.focus({ preventScroll: true });
@@ -418,18 +509,46 @@ function EventDetail(props) {
     h(
       "div",
       { className: "petasos-detail-head" },
-      h(Status, { tone: outcomeTone(outcome.code), large: true }, outcome.label || "Recorded"),
+      h(
+        "p",
+        { className: "petasos-detail-which" },
+        listTime(event.timestamp),
+        event.session_id ? " · " + event.session_id : ""
+      ),
       h(Btn, { ghost: true, onClick: props.onClose, "aria-label": "Close event details" }, "Close")
+    ),
+    h(
+      "div",
+      { className: "petasos-detail-status" },
+      h(Status, { tone: outcomeTone(outcome.code), large: true }, outcome.label || "Recorded"),
+      event.severity ? h(Severity, { value: event.severity }) : null
     ),
     h("h3", { className: "petasos-detail-title", id: "petasos-detail-title" }, event.summary),
     event.outcome_note ? h("p", { className: "petasos-detail-note" }, event.outcome_note) : null,
+    notStopped || risky
+      ? h(
+          "div",
+          { className: "petasos-row-actions" },
+          notStopped ? h(Btn, { outlined: true, onClick: function () { go("settings"); } }, "Review current protection settings") : null,
+          risky
+            ? h(
+                LinkButton,
+                {
+                  onClick: function () {
+                    props.onFilter({ range: "all", session: event.session_id, event: event.scan_id });
+                  },
+                },
+                "See the earlier warnings that caused this block"
+              )
+            : null
+        )
+      : null,
     h(KeyValues, {
       rows: [
-        ["When", h(Fragment, null, fullTime(event.timestamp), h("span", { className: "petasos-faint" }, " · " + whenText(event.timestamp)))],
-        ["Kind", event.kind_label ? h(Fragment, null, event.kind_label, " ", h(Mono, { className: "petasos-faint" }, event.event_type)) : event.event_type],
+        ["When", h(Fragment, null, fullTime(event.timestamp), h("span", { className: "petasos-tertiary" }, " · " + whenText(event.timestamp)))],
+        ["Kind", event.kind_label || event.event_type],
         ["Tool", event.tool ? h(Mono, null, event.tool) : null],
         ["Conversation", event.session_id ? h(Mono, null, event.session_id) : null],
-        ["Severity", event.severity ? h(Severity, { value: event.severity }) : null],
       ],
     }),
     h(KeyValues, {
@@ -443,11 +562,10 @@ function EventDetail(props) {
                 Fragment,
                 null,
                 event.rule_sentence ? h("span", { className: "petasos-block" }, event.rule_sentence) : null,
-                h("span", { className: "petasos-idrow" }, h(Ident, null, rule), h(CopyButton, { value: rule, label: "Copy rule id" }))
+                h("span", { className: "petasos-idrow petasos-tertiary" }, h(Ident, null, rule), h(CopyButton, { value: rule, label: "Copy rule id" }))
               )
             : null,
         ],
-        ["Rule's note", event.reason && !event.target ? event.reason : null],
         ["Matched text", event.matched_note || null],
         ["Signature", integrity.meaning || null],
       ],
@@ -458,39 +576,35 @@ function EventDetail(props) {
       rule && rule.indexOf("petasos.syntactic.") === 0
         ? h(Btn, { outlined: true, onClick: function () { go("settings", { rule: rule }); } }, "Rule settings")
         : null,
-      event.session_id
+      event.session_id && !risky
         ? h(
             Btn,
             {
               ghost: true,
               onClick: function () {
-                props.onFilter({ session: event.session_id });
+                props.onFilter({ session: event.session_id, event: event.scan_id });
               },
             },
-            "Filter to this conversation"
+            "Show this conversation"
           )
         : null
     ),
-    others.length
-      ? h(
-          "details",
-          { className: "petasos-raw" },
-          h("summary", null, "Other recorded fields (" + others.length + ")"),
-          h(KeyValues, {
-            stacked: true,
-            rows: others.map(function (key) {
-              var value = event[key];
-              return [key, h(Mono, null, typeof value === "object" ? JSON.stringify(value) : String(value))];
-            }),
-          })
-        )
-      : null,
     h(
-      "p",
-      { className: "petasos-help petasos-idrow" },
-      "Event id ",
-      h(Ident, null, event.scan_id),
-      h(CopyButton, { value: event.scan_id, label: "Copy event id" })
+      Disclosure,
+      { label: "Technical detail", openLabel: "Hide technical detail", remember: "activity-technical" },
+      h(KeyValues, {
+        stacked: true,
+        rows: [
+          ["Event id", h("span", { className: "petasos-idrow" }, h(Ident, null, event.scan_id), h(CopyButton, { value: event.scan_id, label: "Copy event id" }))],
+          ["Event type", h(Mono, null, event.event_type)],
+          ["Rule's note", event.reason && !event.target ? event.reason : null],
+        ].concat(
+          others.map(function (key) {
+            var value = event[key];
+            return [key, h(Mono, null, typeof value === "object" ? JSON.stringify(value) : String(value))];
+          })
+        ),
+      })
     )
   );
 }
@@ -518,6 +632,7 @@ function Activity(props) {
   var olderState = useState([]);
   var older = olderState[0];
   var optionsState = useState(null);
+  var countState = useState(null);
   var failureState = useState(null);
   var loadingMore = useState(false);
   var extraEvent = useState(null);
@@ -530,7 +645,7 @@ function Activity(props) {
     go("activity", route);
   }
 
-  var codes = filters.outcome ? OUTCOME_CODES[filters.outcome] || [] : [];
+  var codes = filters.outcome ? OUTCOME_CODES[filters.outcome] || [filters.outcome] : [];
   var span = rangeWindow(filters);
   var request = {
     limit: 100,
@@ -541,8 +656,9 @@ function Activity(props) {
     tool: filters.tool,
     session: filters.session,
     severity: filters.severity,
+    outcome: codes.join(","),
   };
-  var key = JSON.stringify([request, filters.outcome, filters.range === "custom" ? 0 : Math.floor(Date.now() / 600000)]);
+  var key = JSON.stringify([request, filters.range === "custom" ? 0 : Math.floor(Date.now() / 600000)]);
 
   usePoll(
     function () {
@@ -556,8 +672,15 @@ function Activity(props) {
         .catch(function (failure) {
           failureState[1](failure);
         });
+      // The choices in each filter list come from the time range and search
+      // alone; the count above the list uses every filter, as the list does.
       call("/activity/summary" + query({ since: now.since, until: now.until, q: filters.q }))
         .then(optionsState[1])
+        .catch(function () {});
+      var counted = Object.assign({}, live);
+      delete counted.limit;
+      call("/activity/summary" + query(counted))
+        .then(countState[1])
         .catch(function () {});
     },
     15000,
@@ -593,14 +716,10 @@ function Activity(props) {
       events = events.concat(chunk.events || []);
     });
   }
-  if (codes.length) {
-    events = events.filter(function (event) {
-      return codes.indexOf(event.outcome && event.outcome.code) >= 0;
-    });
-  }
   var selected = events.filter(function (event) {
     return event.scan_id === selectedId;
   })[0];
+  var selectedInList = Boolean(selected);
 
   // An event linked from elsewhere may sit outside the current page.
   useEffect(
@@ -618,8 +737,26 @@ function Activity(props) {
   );
   if (!selected && extraEvent[0] && extraEvent[0].scan_id === selectedId) selected = extraEvent[0];
 
+  // Keep the open event's row in view beside its detail.
+  useEffect(
+    function () {
+      if (!selectedId || !selectedInList) return;
+      var timer = window.setTimeout(function () {
+        var row = document.getElementById("petasos-event-" + selectedId);
+        if (!row) return;
+        var box = row.getBoundingClientRect();
+        if (box.top < 80 || box.bottom > window.innerHeight - 40) revealInView(row, "center");
+      }, 60);
+      return function () {
+        window.clearTimeout(timer);
+      };
+    },
+    [selectedId, selectedInList]
+  );
+
   var tail = older.length ? older[older.length - 1] : page;
   var options = optionsState[0];
+  var counts = countState[0];
   var filtered = filters.kind || filters.tool || filters.session || filters.severity || filters.q || filters.outcome;
   var neverRecorded = options && options.total === 0 && !filtered && filters.range === "all";
 
@@ -642,7 +779,7 @@ function Activity(props) {
   if (failureState[0] && !page) {
     list = h(Notice, { tone: "destructive", title: "The activity record could not be read" }, failureState[0].message);
   } else if (!page) {
-    list = h("p", { className: "petasos-help", role: "status" }, "Loading activity…");
+    list = h("p", { className: "petasos-secondary", role: "status" }, "Loading activity…");
   } else if (!events.length && neverRecorded) {
     list = h(
       Empty,
@@ -650,7 +787,7 @@ function Activity(props) {
         title: "Nothing recorded yet",
         action: h(Btn, { outlined: true, onClick: function () { go("tryit", { example: "notes" }); } }, "Try it"),
       },
-      "Blocks, approvals and warnings appear here with the reason. Clean tool calls are not listed."
+      "Blocks, approvals and warnings appear here. Clean tool calls are not listed."
     );
   } else if (!events.length) {
     list = h(
@@ -661,7 +798,7 @@ function Activity(props) {
           ? h(Btn, { outlined: true, onClick: function () { setFilters({ range: filters.range, from: filters.from, to: filters.to }); } }, "Clear filters")
           : h(Btn, { outlined: true, onClick: function () { setFilters({ range: "all" }); } }, "Show all time"),
       },
-      filtered ? "Try a longer time range or fewer filters." : "Petasos did not step in during this time. Clean tool calls are not listed."
+      filtered ? "Try a longer time range or fewer filters." : "Petasos did not step in during this time."
     );
   } else {
     var groups = groupEvents(events);
@@ -690,40 +827,36 @@ function Activity(props) {
             { className: "petasos-more" },
             h(Btn, { outlined: true, onClick: loadOlder, disabled: loadingMore[0] }, loadingMore[0] ? "Loading…" : "Show older events")
           )
-        : h("p", { className: "petasos-help petasos-end" }, page.complete === false ? "Older events were not read." : "That is everything in this range.")
+        : h("p", { className: "petasos-secondary petasos-end" }, page.complete === false ? "Older events were not read." : "That is everything in this range.")
     );
   }
 
-  var count = options
-    ? plural(options.total, "event") + " · " + (options.blocked || 0) + " blocked"
+  var count = counts
+    ? plural(counts.total, "event") + " · " + plural(counts.blocked || 0, "tool call") + " blocked"
     : "";
 
   return h(
     "div",
-    { className: "petasos-stack" },
+    { className: "petasos-stack petasos-activity" },
+    h(ActivityFilters, { filters: filters, options: options, onChange: setFilters }),
     h(
-      Panel,
-      {
-        title: "Activity",
-        description: "What Petasos blocked, flagged or asked about, and why. Newest first. Checked again every 15 seconds.",
-        actions: h(
-          Fragment,
-          null,
-          count ? h("span", { className: "petasos-count" }, count) : null,
-          page ? h(IntegrityStatus, { integrity: page.integrity }) : null
-        ),
-      },
-      h(ActivityFilters, { filters: filters, options: options, onChange: setFilters }),
-      filters.outcome
-        ? h(
-            "p",
-            { className: "petasos-help" },
-            "Showing only: ",
-            h("strong", null, OUTCOME_FILTER_WORDS[filters.outcome] || filters.outcome),
-            ". ",
-            h(LinkButton, { onClick: function () { setFilters({ range: filters.range }); } }, "Show everything")
-          )
-        : null
+      "div",
+      { className: "petasos-listbar" },
+      h(
+        "p",
+        { className: "petasos-listbar-count", role: "status" },
+        count && !neverRecorded ? h("span", { className: "petasos-count" }, count) : null,
+        filters.outcome
+          ? h(
+              "span",
+              { className: "petasos-secondary" },
+              " · Only " + (OUTCOME_FILTER_WORDS[filters.outcome] || filters.outcome) + ". ",
+              h(LinkButton, { onClick: function () { setFilters(Object.assign({}, filters, { outcome: "" })); } }, "Show every outcome")
+            )
+          : null,
+        events.length ? h("span", { className: "petasos-tertiary" }, " · Newest first") : null
+      ),
+      page ? h(IntegrityStatus, { integrity: page.integrity }) : null
     ),
     page ? h(IntegrityNotice, { integrity: page.integrity, signing: props.status.record_signing }) : null,
     neverRecorded && !events.length

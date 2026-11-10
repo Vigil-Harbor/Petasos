@@ -18,7 +18,7 @@ config_schema:
     default: true
   role:
     type: string
-    description: "What the agent does. The job decides which checks matter for that work."
+    description: "What the agent mostly does. It decides which checks matter."
     choices:
       - general
       - coding
@@ -28,7 +28,7 @@ config_schema:
     default: general
   level:
     type: string
-    description: "How strict Petasos is: how soon it blocks a risky conversation, what happens when a check breaks, and whether personal details are hidden."
+    description: "How soon Petasos steps in."
     choices:
       - relaxed
       - balanced
