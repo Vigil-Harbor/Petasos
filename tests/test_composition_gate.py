@@ -1031,14 +1031,15 @@ def test_driver_schema_must_match_the_release_tree(tmp_path: Path) -> None:
     checkout = tmp_path / "driver"
     tree = tmp_path / "release"
     for base in (checkout, tree):
-        (base / "petasos").mkdir(parents=True)
-    (checkout / "petasos" / "config.py").write_bytes(b"a: int = 1\nb: int = 2\n")
-    (tree / "petasos" / "config.py").write_bytes(b"a: int = 1\r\nb: int = 2\r\n")
+        (base / "petasos" / "config").mkdir(parents=True)
+    schema = Path("config") / "__init__.py"
+    (checkout / "petasos" / schema).write_bytes(b"a: int = 1\nb: int = 2\n")
+    (tree / "petasos" / schema).write_bytes(b"a: int = 1\r\nb: int = 2\r\n")
     gate.require_same_schema(tree, checkout)
     # A field only the release tree has would be withheld from the copied section.
-    (tree / "petasos" / "config.py").write_bytes(b"a: int = 1\nb: int = 2\nc: int = 3\n")
+    (tree / "petasos" / schema).write_bytes(b"a: int = 1\nb: int = 2\nc: int = 3\n")
     with pytest.raises(gate.PreflightError, match="differs between the driver checkout"):
         gate.require_same_schema(tree, checkout)
-    (checkout / "petasos" / "config.py").unlink()
+    (checkout / "petasos" / schema).unlink()
     with pytest.raises(gate.PreflightError, match="cannot read"):
         gate.require_same_schema(tree, checkout)

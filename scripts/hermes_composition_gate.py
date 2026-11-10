@@ -2765,7 +2765,7 @@ def require_same_schema(tree: Path, checkout: Path) -> None:
     ``copy_section`` keeps only the fields the driver's own checkout knows. A field that exists
     only in the release tree would be withheld, and the gate would test the wheel's default.
     """
-    rel = Path("petasos") / "config.py"
+    rel = Path("petasos") / "config" / "__init__.py"
     try:
         ours = (checkout / rel).read_bytes().replace(b"\r\n", b"\n")
         theirs = (tree / rel).read_bytes().replace(b"\r\n", b"\n")

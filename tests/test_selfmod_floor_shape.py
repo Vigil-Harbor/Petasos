@@ -138,7 +138,7 @@ class TestNoSelfmodConfigField:
     """Pin 5: no field containing 'selfmod' in PetasosConfig."""
 
     def test_no_selfmod_in_config(self) -> None:
-        tree = ast.parse((_SRC / "config.py").read_text(encoding="utf-8"))
+        tree = ast.parse((_SRC / "config" / "__init__.py").read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if isinstance(node, ast.ClassDef) and node.name == "PetasosConfig":
                 for item in node.body:
