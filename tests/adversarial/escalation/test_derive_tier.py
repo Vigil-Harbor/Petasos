@@ -2,25 +2,26 @@
 
 from __future__ import annotations
 
-from types import MappingProxyType
+from typing import Any
 from unittest.mock import patch
 
-from petasos.config import PetasosConfig
+from petasos.config.schema import from_mapping, merge
+from petasos.config.sections import PetasosConfig
 from petasos.pipeline import Pipeline
 from petasos.session.escalation import derive_tier, evaluate_tier
 from petasos.session.frequency import FrequencyTracker
 from petasos.session.guard import ToolCallGuard
-from petasos.session.profiles import ResolvedProfile, TierThresholds
 
 
-def _cfg(**overrides: object) -> PetasosConfig:
-    defaults: dict[str, object] = {
-        "frequency_enabled": True,
-        "escalation_enabled": True,
-        "tool_guard_enabled": True,
+def _cfg(changes: dict[str, Any] | None = None) -> PetasosConfig:
+    document: dict[str, Any] = {
+        "frequency": {"enabled": True},
+        "escalation": {"enabled": True},
+        "tools": {"enabled": True},
     }
-    defaults.update(overrides)
-    return PetasosConfig(**defaults)  # type: ignore[arg-type]
+    if changes:
+        document = merge(document, changes)
+    return from_mapping(PetasosConfig, document)
 
 
 class TestDeriveTierBoundaries:
@@ -45,28 +46,19 @@ class TestDeriveTierBoundaries:
         cfg = _cfg()
         for score in [0.0, 14.9, 15.0, 30.0, 50.0, 100.0]:
             expected = derive_tier(
-                score, cfg.tier1_threshold, cfg.tier2_threshold, cfg.tier3_threshold
+                score, cfg.escalation.tier1, cfg.escalation.tier2, cfg.escalation.tier3
             )
             assert evaluate_tier(score, cfg) == expected
 
 
 class TestGuardDeriveTier:
     async def test_guard_ignores_profile_thresholds(self) -> None:
-        cfg = _cfg(tier1_threshold=15.0, tier2_threshold=30.0, tier3_threshold=50.0)
+        # Roles carry no tier thresholds. The verdict uses the thresholds
+        # stated here: 15 / 30 / 50, so a score of 20 is tier 1.
+        cfg = _cfg({"escalation": {"tier1": 15.0, "tier2": 30.0, "tier3": 50.0}})
         pipe = Pipeline(config=cfg)
         tracker = FrequencyTracker(cfg)
-
-        profile = ResolvedProfile(
-            name="strict",
-            suppress_rules=frozenset(),
-            severity_overrides=MappingProxyType({}),
-            confidence_floor=0.0,
-            tier_thresholds=TierThresholds(tier1=5.0, tier2=10.0, tier3=30.0),
-            pii_entities_extra=(),
-            tool_exempt_list=frozenset(),
-            tool_alias_map=MappingProxyType({}),
-        )
-        guard = ToolCallGuard(pipe, tracker, cfg, profile=profile)
+        guard = ToolCallGuard(pipe, tracker, cfg)
 
         t0 = 1000.0
         with patch("petasos.session.frequency.time.monotonic", return_value=t0):
@@ -76,7 +68,7 @@ class TestGuardDeriveTier:
         assert result.tier == "tier1"
 
     async def test_guard_without_profile_falls_back(self) -> None:
-        cfg = _cfg(tier1_threshold=15.0, tier2_threshold=30.0, tier3_threshold=50.0)
+        cfg = _cfg({"escalation": {"tier1": 15.0, "tier2": 30.0, "tier3": 50.0}})
         pipe = Pipeline(config=cfg)
         tracker = FrequencyTracker(cfg)
         guard = ToolCallGuard(pipe, tracker, cfg)

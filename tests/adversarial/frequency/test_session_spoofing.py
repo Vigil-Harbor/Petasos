@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from petasos.config import PetasosConfig
+from petasos.config.secrets import Secrets
+from petasos.config.sections import PetasosConfig
 from petasos.session.frequency import FrequencyTracker, SessionToken
 
 _SECRET = b"test-secret-key-32-bytes-long!!!"
@@ -12,7 +13,7 @@ _HOST = "host-a"
 
 
 def _tracker() -> FrequencyTracker:
-    return FrequencyTracker(PetasosConfig(session_secret=_SECRET))
+    return FrequencyTracker(PetasosConfig(), secrets=Secrets(session_secret=_SECRET))
 
 
 def _mint(tracker: FrequencyTracker, session_id: str = "s1") -> SessionToken:

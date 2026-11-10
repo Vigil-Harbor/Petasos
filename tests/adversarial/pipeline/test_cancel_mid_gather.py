@@ -14,6 +14,7 @@ from petasos._types import (
     ScanResult,
     Severity,
 )
+from petasos.config.sections import PetasosConfig
 from petasos.pipeline import Pipeline, _scan_one
 
 # ---------------------------------------------------------------------------
@@ -159,7 +160,7 @@ async def test_keyboard_interrupt_caught_at_boundary() -> None:
     # KI is tested at the inspect() boundary (not through a scanner inside
     # asyncio.wait_for, because the event loop propagates KI from tasks
     # before _scan_one's handler can catch it).
-    pipe = Pipeline()
+    pipe = Pipeline(config=PetasosConfig())
     with patch.object(pipe, "_inspect_inner", side_effect=KeyboardInterrupt("simulated")):
         result = await pipe.inspect("test input")
     assert isinstance(result, PipelineResult)
@@ -168,7 +169,7 @@ async def test_keyboard_interrupt_caught_at_boundary() -> None:
 
 async def test_cancelled_error_logged() -> None:
     # Regression for PET-48: non-Exception BaseExceptions are logged at inspect() boundary
-    pipe = Pipeline()
+    pipe = Pipeline(config=PetasosConfig())
     with (
         patch.object(pipe, "_inspect_inner", side_effect=asyncio.CancelledError()),
         patch("petasos.pipeline._logger") as mock_logger,

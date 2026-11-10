@@ -4,20 +4,19 @@ from __future__ import annotations
 
 import os
 import time
-from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 import pytest
 
-from petasos.config import PetasosConfig
+from petasos.config.layers import resolve
+from petasos.config.schema import ConfigError, from_mapping
+from petasos.config.sections import PetasosConfig
 from petasos.pipeline import Pipeline
 from petasos.session.frequency import FrequencyTracker
 from petasos.session.guard import ToolCallGuard
 
 if TYPE_CHECKING:
     from pathlib import Path
-
-    from petasos.session.profiles import ResolvedProfile
 
 
 @pytest.fixture()
@@ -30,12 +29,11 @@ def owned_path(tmp_path: Path) -> str:
 
 def _make_guard(
     config: PetasosConfig,
-    profile: ResolvedProfile | None = None,
     owned_path: str = "",
 ) -> tuple[Pipeline, ToolCallGuard, FrequencyTracker]:
     pipeline = Pipeline(config=config, host_id="test-host")
     tracker = FrequencyTracker(config)
-    guard = ToolCallGuard(pipeline, tracker, config, profile)
+    guard = ToolCallGuard(pipeline, tracker, config)
     if owned_path:
         guard._selfmod_owned_cache = (time.monotonic() + 9999, frozenset({owned_path}))
     return pipeline, guard, tracker
@@ -46,11 +44,16 @@ class TestFrequencyWeightFloors:
 
     @pytest.mark.anyio
     async def test_exact_zero_weight_floors_hold(self, owned_path: str) -> None:
-        config = PetasosConfig(
-            frequency_weights={
-                "petasos.selfmod.config_write": 0.0,
-                "petasos.selfmod.config_ref": 0.0,
-            }
+        config = from_mapping(
+            PetasosConfig,
+            {
+                "frequency": {
+                    "weights": {
+                        "petasos.selfmod.config_write": 0.0,
+                        "petasos.selfmod.config_ref": 0.0,
+                    }
+                }
+            },
         )
         _, guard, tracker = _make_guard(config, owned_path=owned_path)
         result = await guard.evaluate("write_file", {"path": owned_path}, "s1")
@@ -62,10 +65,9 @@ class TestFrequencyWeightFloors:
 
     @pytest.mark.anyio
     async def test_glob_zero_weight_floors_hold(self, owned_path: str) -> None:
-        config = PetasosConfig(
-            frequency_weights={
-                "petasos.selfmod.*": 0.0,
-            }
+        config = from_mapping(
+            PetasosConfig,
+            {"frequency": {"weights": {"petasos.selfmod.*": 0.0}}},
         )
         _, guard, tracker = _make_guard(config, owned_path=owned_path)
         result = await guard.evaluate("write_file", {"path": owned_path}, "s1")
@@ -81,7 +83,7 @@ class TestAlertBypasses:
     @pytest.mark.anyio
     async def test_alert_enabled_false_still_delivers(self, owned_path: str) -> None:
         alerts = []
-        config = PetasosConfig(alert_enabled=False)
+        config = from_mapping(PetasosConfig, {"alerting": {"enabled": False}})
         pipeline, guard, tracker = _make_guard(config, owned_path=owned_path)
         pipeline.add_alert_listener(lambda a: alerts.append(a))
         await guard.evaluate("write_file", {"path": owned_path}, "s1")
@@ -89,7 +91,7 @@ class TestAlertBypasses:
 
     @pytest.mark.anyio
     async def test_frequency_enabled_false_still_records(self, owned_path: str) -> None:
-        config = PetasosConfig(frequency_enabled=False)
+        config = from_mapping(PetasosConfig, {"frequency": {"enabled": False}})
         _, guard, tracker = _make_guard(config, owned_path=owned_path)
         await guard.evaluate("write_file", {"path": owned_path}, "s1")
         state = tracker.get_state("s1")
@@ -103,10 +105,9 @@ class TestInflatedThresholds:
     @pytest.mark.anyio
     async def test_inflated_thresholds_alert_fires(self, owned_path: str) -> None:
         alerts = []
-        config = PetasosConfig(
-            tier1_threshold=1e9,
-            tier2_threshold=1e9 + 1,
-            tier3_threshold=1e9 + 2,
+        config = from_mapping(
+            PetasosConfig,
+            {"escalation": {"tier1": 1e9, "tier2": 1e9 + 1, "tier3": 1e9 + 2}},
         )
         pipeline, guard, tracker = _make_guard(config, owned_path=owned_path)
         pipeline.add_alert_listener(lambda a: alerts.append(a))
@@ -119,25 +120,21 @@ class TestProfileSuppression:
     """Profile suppress_rules with selfmod ids -> stripped at parse."""
 
     def test_suppress_rules_strips_selfmod(self) -> None:
-        from petasos.session.profiles import ResolvedProfile
-
-        profile = ResolvedProfile(
-            name="test",
-            suppress_rules=frozenset(
+        with pytest.raises(ConfigError) as caught:
+            from_mapping(
+                PetasosConfig,
                 {
-                    "petasos.selfmod.config_write",
-                    "petasos.selfmod.config_ref",
-                }
-            ),
-            severity_overrides=MappingProxyType({}),
-            confidence_floor=0.0,
-            tier_thresholds=None,
-            pii_entities_extra=(),
-            tool_exempt_list=frozenset(),
-            tool_alias_map=MappingProxyType({}),
-        )
-        assert "petasos.selfmod.config_write" not in profile.suppress_rules
-        assert "petasos.selfmod.config_ref" not in profile.suppress_rules
+                    "rules": {
+                        "suppress": [
+                            "petasos.selfmod.config_write",
+                            "petasos.selfmod.config_ref",
+                        ]
+                    }
+                },
+            )
+        text = str(caught.value)
+        assert "petasos.selfmod.config_write" in text
+        assert "petasos.selfmod.config_ref" in text
 
 
 class TestSeverityOverrideRefused:
@@ -160,14 +157,17 @@ class TestBuiltInProfilesDetectionSurvives:
         ["general", "customer_service", "code_generation", "research", "admin"],
     )
     async def test_builtin_profile_detection(self, owned_path: str, profile_name: str) -> None:
-        from petasos.session.profiles import ProfileResolver
-
-        resolver = ProfileResolver()
-        profile = resolver.resolve(profile_name)
-        config = PetasosConfig()
+        role = {
+            "general": "general",
+            "customer_service": "support",
+            "code_generation": "coding",
+            "research": "research",
+            "admin": "admin",
+        }[profile_name]
+        config = resolve({"role": role}).config
         pipeline = Pipeline(config=config, host_id="test-host")
         tracker = FrequencyTracker(config)
-        guard = ToolCallGuard(pipeline, tracker, config, profile)
+        guard = ToolCallGuard(pipeline, tracker, config)
         guard._selfmod_owned_cache = (time.monotonic() + 9999, frozenset({owned_path}))
         result = await guard.evaluate("write_file", {"path": owned_path}, "s1")
         assert result.selfmod_finding is not None

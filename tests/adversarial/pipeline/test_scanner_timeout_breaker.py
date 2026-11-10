@@ -8,7 +8,8 @@ import time
 import pytest
 
 from petasos._types import Direction, ScanResult
-from petasos.config import PetasosConfig
+from petasos.config.schema import ConfigError, from_mapping
+from petasos.config.sections import PetasosConfig
 from petasos.pipeline import Pipeline
 from petasos.scanners.minimal import MinimalScanner
 
@@ -65,35 +66,39 @@ class _FlakyThenHealthyScanner:
 
 @pytest.mark.parametrize("bad", [0.0, -1.0, float("inf"), float("nan"), 60.001, 100.0])
 def test_scanner_timeout_seconds_rejects_invalid(bad: float) -> None:
-    with pytest.raises(ValueError, match="scanner_timeout_seconds"):
-        PetasosConfig(scanner_timeout_seconds=bad)
+    with pytest.raises(ConfigError, match="scanners.timeout_seconds"):
+        from_mapping(PetasosConfig, {"scanners": {"timeout_seconds": bad}})
 
 
 def test_scanner_timeout_seconds_accepts_boundary() -> None:
-    assert PetasosConfig(scanner_timeout_seconds=60.0).scanner_timeout_seconds == 60.0
-    assert PetasosConfig(scanner_timeout_seconds=0.01).scanner_timeout_seconds == 0.01
+    at_cap = from_mapping(PetasosConfig, {"scanners": {"timeout_seconds": 60.0}})
+    near_zero = from_mapping(PetasosConfig, {"scanners": {"timeout_seconds": 0.01}})
+    assert at_cap.scanners.timeout_seconds == 60.0
+    assert near_zero.scanners.timeout_seconds == 0.01
 
 
 @pytest.mark.parametrize("bad", [0, -1, True])
 def test_circuit_breaker_threshold_rejects_invalid(bad: object) -> None:
-    with pytest.raises(ValueError, match="scanner_circuit_breaker_threshold"):
-        PetasosConfig(scanner_circuit_breaker_threshold=bad)  # type: ignore[arg-type]
+    with pytest.raises(ConfigError, match="scanners.breaker_threshold"):
+        from_mapping(PetasosConfig, {"scanners": {"breaker_threshold": bad}})
 
 
 @pytest.mark.parametrize("bad", [0.0, -1.0, float("inf"), float("nan")])
 def test_circuit_breaker_cooldown_rejects_invalid(bad: float) -> None:
-    with pytest.raises(ValueError, match="scanner_circuit_breaker_cooldown_seconds"):
-        PetasosConfig(scanner_circuit_breaker_cooldown_seconds=bad)
+    with pytest.raises(ConfigError, match="scanners.breaker_cooldown_seconds"):
+        from_mapping(PetasosConfig, {"scanners": {"breaker_cooldown_seconds": bad}})
 
 
 # --- timeout behavior -------------------------------------------------------
 
 
 async def test_hanging_scanner_times_out_not_hangs() -> None:
-    cfg = PetasosConfig(
-        fail_mode="degraded",
-        scanner_timeout_seconds=0.05,
-        scanner_circuit_breaker_threshold=5,  # high enough not to trip here
+    cfg = from_mapping(
+        PetasosConfig,
+        {
+            "fail_mode": "degraded",
+            "scanners": {"timeout_seconds": 0.05, "breaker_threshold": 5},
+        },
     )
     scanner = _HangingScanner(delay=5.0)
     pipe = Pipeline([MinimalScanner(), scanner], config=cfg)
@@ -114,11 +119,16 @@ async def test_hanging_scanner_times_out_not_hangs() -> None:
 
 
 async def test_circuit_breaker_trips_after_threshold() -> None:
-    cfg = PetasosConfig(
-        fail_mode="degraded",
-        scanner_timeout_seconds=0.05,
-        scanner_circuit_breaker_threshold=2,
-        scanner_circuit_breaker_cooldown_seconds=30.0,
+    cfg = from_mapping(
+        PetasosConfig,
+        {
+            "fail_mode": "degraded",
+            "scanners": {
+                "timeout_seconds": 0.05,
+                "breaker_threshold": 2,
+                "breaker_cooldown_seconds": 30.0,
+            },
+        },
     )
     scanner = _HangingScanner(delay=5.0)
     pipe = Pipeline([MinimalScanner(), scanner], config=cfg)
@@ -141,11 +151,16 @@ async def test_circuit_breaker_streak_clears_after_cooldown() -> None:
     re-invoked (not short-circuited) and must accumulate a fresh streak to
     reopen — a single timeout post-cooldown must not immediately re-trip.
     """
-    cfg = PetasosConfig(
-        fail_mode="degraded",
-        scanner_timeout_seconds=0.05,
-        scanner_circuit_breaker_threshold=2,
-        scanner_circuit_breaker_cooldown_seconds=0.05,
+    cfg = from_mapping(
+        PetasosConfig,
+        {
+            "fail_mode": "degraded",
+            "scanners": {
+                "timeout_seconds": 0.05,
+                "breaker_threshold": 2,
+                "breaker_cooldown_seconds": 0.05,
+            },
+        },
     )
     scanner = _HangingScanner(delay=5.0)
     pipe = Pipeline([MinimalScanner(), scanner], config=cfg)
@@ -186,10 +201,12 @@ async def test_circuit_breaker_streak_clears_after_cooldown() -> None:
 
 
 async def test_circuit_breaker_resets_on_success() -> None:
-    cfg = PetasosConfig(
-        fail_mode="degraded",
-        scanner_timeout_seconds=0.05,
-        scanner_circuit_breaker_threshold=2,
+    cfg = from_mapping(
+        PetasosConfig,
+        {
+            "fail_mode": "degraded",
+            "scanners": {"timeout_seconds": 0.05, "breaker_threshold": 2},
+        },
     )
     scanner = _FlakyThenHealthyScanner()
     pipe = Pipeline([MinimalScanner(), scanner], config=cfg)

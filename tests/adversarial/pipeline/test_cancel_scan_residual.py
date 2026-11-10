@@ -12,7 +12,8 @@ import asyncio
 import time
 
 from petasos._types import Direction, PipelineResult, ScanResult
-from petasos.config import PetasosConfig
+from petasos.config.schema import from_mapping
+from petasos.config.sections import PetasosConfig
 from petasos.pipeline import Pipeline
 from petasos.scanners.minimal import MinimalScanner
 
@@ -52,7 +53,7 @@ async def test_cancel_frees_loop_and_pipeline_reusable() -> None:
     # generous timeout so the PIPE-03 timeout path doesn't fire — testing cancel
     pipe = Pipeline(
         [MinimalScanner(), scanner],
-        config=PetasosConfig(scanner_timeout_seconds=30.0),
+        config=from_mapping(PetasosConfig, {"scanners": {"timeout_seconds": 30.0}}),
     )
 
     task = asyncio.create_task(pipe.inspect("text"))

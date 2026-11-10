@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from petasos._types import Direction, ScanResult, Severity
-from petasos.config import PetasosConfig
+from petasos.config.sections import PetasosConfig
 from petasos.pipeline import Pipeline
 from petasos.scanners.minimal import _ALL_INJECTION_IDS, MinimalScanner
 

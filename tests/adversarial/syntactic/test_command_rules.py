@@ -10,12 +10,13 @@ unmerged findings; see Design §1).
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 import pytest
 
 from petasos._types import PipelineResult, ScanFinding, Severity
-from petasos.config import PetasosConfig
+from petasos.config.layers import resolve
+from petasos.config.schema import from_mapping
+from petasos.config.sections import PetasosConfig
 from petasos.pipeline import Pipeline
 from petasos.scanners.minimal import _COMMAND_RULE_IDS, MinimalScanner
 from tests.adversarial.syntactic.benign_corpus import (
@@ -31,14 +32,13 @@ async def _inspect_outbound(
     text: str,
     *,
     direction: str = "outbound",
-    profile: Any = None,
+    config: PetasosConfig | None = None,
     session_id: str | None = None,
 ) -> tuple[list[ScanFinding], PipelineResult]:
-    pipe = Pipeline(config=PetasosConfig())
+    pipe = Pipeline(config=PetasosConfig() if config is None else config)
     result = await pipe.inspect(
         text,
         direction=direction,  # type: ignore[arg-type]
-        profile=profile,
         session_id=session_id,
     )
     cmd = [f for f in result.findings if f.rule_id in _COMMAND_RULE_IDS]
@@ -115,7 +115,7 @@ async def test_command_benign_corpus_zero_fp(snippet: str) -> None:
 async def test_command_expected_tp_pins(snippet: str, suffix: str) -> None:
     # Regression for PET-94: the TP boundary is data — each pair fires its named
     # rule outbound so future pattern edits can't silently move the boundary.
-    cmd, _ = await _inspect_outbound(snippet, profile="general")
+    cmd, _ = await _inspect_outbound(snippet, config=resolve({"role": "general"}).config)
     rids = {f.rule_id for f in cmd}
     assert f"{_PREFIX}{suffix}" in rids, f"{snippet!r} -> {sorted(rids)} (want {suffix})"
 
@@ -125,7 +125,7 @@ async def test_command_accepted_fp_pins(snippet: str, suffix: str) -> None:
     # Regression for PET-94: the accepted-FP cost is measured and visible — each
     # pair fires its named rule outbound; a future tightening that silences (or
     # migrates) one flips this pin and forces a conscious re-disposition.
-    cmd, _ = await _inspect_outbound(snippet, profile="general")
+    cmd, _ = await _inspect_outbound(snippet, config=resolve({"role": "general"}).config)
     rids = {f.rule_id for f in cmd}
     assert f"{_PREFIX}{suffix}" in rids, f"{snippet!r} -> {sorted(rids)} (want {suffix})"
 
@@ -159,7 +159,7 @@ _COMMAND_INTENTIONAL_MISSES: tuple[str, ...] = (
 async def test_command_intentional_misses(payload: str) -> None:
     # Regression for PET-94 (§1a, PET-93 idiom): documented-intentional misses
     # stay misses — zero command-family findings outbound.
-    cmd, _ = await _inspect_outbound(payload, profile="general")
+    cmd, _ = await _inspect_outbound(payload, config=resolve({"role": "general"}).config)
     assert cmd == [], f"intentional miss {payload!r} now fires {[f.rule_id for f in cmd]}"
 
 
@@ -201,8 +201,8 @@ async def test_command_decode_exec_merge_over_base64() -> None:
     # so the LOW base64 finding co-survives rather than being dropped).
     blob = "A" * 44
     payload = f"echo {blob} | base64 -d | sh"
-    pipe = Pipeline(config=PetasosConfig())
-    result = await pipe.inspect(payload, direction="outbound", profile="general")
+    pipe = Pipeline(config=resolve({"role": "general"}).config)
+    result = await pipe.inspect(payload, direction="outbound")
     rids = {f.rule_id for f in result.findings}
     assert f"{_PREFIX}decode-exec" in rids
     decode = next(f for f in result.findings if f.rule_id == f"{_PREFIX}decode-exec")
@@ -260,8 +260,11 @@ async def test_command_family_critical_override_ordering() -> None:
             "cat run | sh",
         )
     )
-    profile = {"severity_overrides": {rid: "critical" for rid in _COMMAND_RULE_IDS}}
-    cmd, result = await _inspect_outbound(payload, profile=profile, session_id=None)
+    config = from_mapping(
+        PetasosConfig,
+        {"rules": {"severity_overrides": {rid: "critical" for rid in _COMMAND_RULE_IDS}}},
+    )
+    cmd, result = await _inspect_outbound(payload, config=config, session_id=None)
     assert len(cmd) >= 1
     assert all(f.severity == Severity.CRITICAL for f in cmd)
     assert result.escalation_tier != "tier3"
@@ -283,5 +286,5 @@ async def test_command_family_survives_research_floor() -> None:
     # (confidence 0.7) survives the research profile's confidence_floor of 0.7 —
     # pins the Stage 5b `>=` boundary; dropping below 0.7 would silently kill the
     # rule in that profile.
-    cmd, _ = await _inspect_outbound("cat x | sh", profile="research")
+    cmd, _ = await _inspect_outbound("cat x | sh", config=resolve({"role": "research"}).config)
     assert any(f.rule_id == f"{_PREFIX}pipe-to-shell" for f in cmd)
