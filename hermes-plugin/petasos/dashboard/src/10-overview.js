@@ -1,23 +1,33 @@
 // ---------------------------------------------------------------------------
-// Overview: am I protected, what kind of agent is this, how careful should
-// Petasos be, what is doing the checking, and what happened lately.
+// Overview: is it working (and what is it covering), what happened lately,
+// then the two choices: job and strictness.
 // ---------------------------------------------------------------------------
 
-// The one verdict a person reads first, from the status response. The order
-// is the order of what would stop protection soonest.
+var STATE_WORDS = {
+  active: { tone: "success", word: "Running" },
+  not_installed: { tone: "neutral", word: "Not installed" },
+  off: { tone: "neutral", word: "Off" },
+  unavailable: { tone: "destructive", word: "Not working" },
+};
+
+function stateWord(state) {
+  return (STATE_WORDS[state] || { word: state }).word.toLowerCase();
+}
+
+// The one verdict a person reads first. Protection is on or off; coverage
+// says what is running and what is not, so "on" never reads as complete.
 function verdictOf(status) {
   var switches = status.switches || {};
   var doctor = status.doctor || {};
   var checks = doctor.checks || [];
+  var coverage = status.coverage || { running: [], missing: [], complete: false };
   if (switches.hermes && switches.hermes.on === false) {
     return {
       code: "off",
       tone: "destructive",
       word: "Not protected",
       title: "Hermes is not running Petasos",
-      reason:
-        "Petasos is switched off in Hermes's plugin list, so no tool call is being checked.",
-      detail: switches.hermes.detail,
+      reason: switches.hermes.detail + " No tool call is being checked.",
       step: { label: "Open Plugins", href: "/plugins" },
     };
   }
@@ -37,9 +47,7 @@ function verdictOf(status) {
       tone: "destructive",
       word: "Not protected",
       title: "The saved settings have a mistake",
-      reason:
-        "Petasos cannot use settings it does not understand. " +
-        (error.message ? "The problem: " + error.message + "." : ""),
+      reason: "Petasos cannot use settings it does not understand." + (error.message ? " " + error.message : ""),
       step: { label: "Fix it in Settings", view: "settings" },
     };
   }
@@ -49,9 +57,7 @@ function verdictOf(status) {
       tone: "warning",
       word: "Paused",
       title: "Protection is paused",
-      reason:
-        "Tool calls are going through without being checked. Each one is still recorded, " +
-        "so you can see what passed.",
+      reason: "Tool calls go through without being checked. Each one is still recorded in Activity.",
       step: { label: "Resume protection", resume: true },
     };
   }
@@ -71,72 +77,118 @@ function verdictOf(status) {
   var warned = checks.filter(function (check) {
     return check.status === "warn";
   })[0];
+  var missing = coverage.missing.length;
+  var title;
+  if (coverage.complete) title = "Every check is running";
+  else if (coverage.running.length <= 1)
+    title = "Only the basic checks are running. " + plural(missing, "optional check is", "optional checks are") + " not.";
+  else title = plural(coverage.running.length, "check is", "checks are") + " running. " + plural(missing, "is", "are") + " not.";
   if (doctor.verdict === "protected_with_warnings" && warned) {
     return {
       code: "warn",
       tone: "warning",
-      word: "Protected",
-      title: "Protected, with one thing to look at",
-      reason: warned.summary + (warned.meaning ? " " + warned.meaning : ""),
+      word: "On, with a problem",
+      title: warned.summary,
+      reason: warned.meaning,
       stepText: warned.next_step,
+      coverageTitle: title,
     };
   }
   return {
     code: "protected",
     tone: "success",
-    word: "Protected",
-    title: "Petasos is checking this agent's tool calls",
+    word: "Protection on",
+    title: title,
     reason:
-      "Every tool call and tool result is checked before it reaches the agent or leaves it.",
+      "Petasos checks each tool call before it runs and each tool result before the agent reads it, " +
+      "using the checks that are running.",
   };
+}
+
+function CoverageRows(props) {
+  var coverage = props.status.coverage || { running: [], missing: [] };
+  var catalog = props.catalog;
+  var stored = (catalog && catalog.stored) || {};
+  return h(KeyValues, {
+    className: "petasos-coverage",
+    rows: [
+      [
+        "Running",
+        coverage.running.length
+          ? coverage.running
+              .map(function (row) {
+                return row.label;
+              })
+              .join(", ")
+          : "Nothing",
+      ],
+      [
+        "Not running",
+        coverage.missing.length
+          ? h(
+              "span",
+              null,
+              coverage.missing.map(function (row, i) {
+                return h(
+                  Fragment,
+                  { key: row.id },
+                  i ? ", " : "",
+                  h("span", { className: row.recommended ? "petasos-strong" : null }, row.label),
+                  " (" + stateWord(row.state) + (row.recommended ? ", recommended" : "") + ")"
+                );
+              }),
+              " · ",
+              h(LinkButton, { onClick: props.onShowChecks }, "What they add")
+            )
+          : "Nothing. Every check is running.",
+      ],
+      [
+        "Setup",
+        h(
+          "span",
+          null,
+          "Job ",
+          h("strong", null, roleLabel(catalog, stored.role || props.status.role)),
+          " · Strictness ",
+          h("strong", null, levelLabel(catalog, stored.level || props.status.level)),
+          " · ",
+          h(LinkButton, { onClick: props.onShowSetup }, "Change")
+        ),
+      ],
+    ],
+  });
 }
 
 function VerdictPanel(props) {
   var status = props.status;
   var verdict = verdictOf(status);
-  var paused = status.switches && status.switches.petasos && status.switches.petasos.on === false;
+  var paused = verdict.code === "paused";
   var canPause = verdict.code === "protected" || verdict.code === "warn";
   var step = null;
   if (verdict.step && verdict.step.resume) {
     step = h(Btn, { onClick: props.onResume, disabled: props.locked }, verdict.step.label);
   } else if (verdict.step && verdict.step.href) {
-    step = h(
-      "a",
-      { className: "petasos-link", href: verdict.step.href },
-      verdict.step.label + " →"
-    );
+    step = h("a", { className: "petasos-link", href: verdict.step.href }, verdict.step.label);
   } else if (verdict.step && verdict.step.view) {
     step = h(Btn, { onClick: function () { go(verdict.step.view); } }, verdict.step.label);
   }
   return h(
     "section",
-    {
-      className: cn("petasos-verdict", "petasos-verdict-" + verdict.tone),
-      "aria-labelledby": "petasos-verdict-title",
-    },
+    { className: "petasos-verdict", "aria-labelledby": "petasos-verdict-title" },
     h(
       "div",
       { className: "petasos-verdict-main" },
       h(
         "div",
-        { className: "petasos-verdict-word" },
-        h(Pill, { tone: verdict.tone, className: "petasos-verdict-pill" }, verdict.word)
+        { className: "petasos-verdict-head" },
+        h(Status, { tone: verdict.tone, large: true }, verdict.word),
+        h("h2", { id: "petasos-verdict-title", className: "petasos-verdict-title" }, verdict.title)
       ),
-      h("h2", { id: "petasos-verdict-title", className: "petasos-verdict-title" }, verdict.title),
+      verdict.coverageTitle ? h("p", { className: "petasos-verdict-reason" }, verdict.coverageTitle) : null,
       verdict.reason ? h("p", { className: "petasos-verdict-reason" }, verdict.reason) : null,
-      verdict.stepText
-        ? h("p", { className: "petasos-verdict-step" }, h("span", null, "Next step: "), verdict.stepText)
-        : null,
-      step ? h("div", { className: "petasos-verdict-actions" }, step) : null,
-      h(
-        "p",
-        { className: "petasos-verdict-meta" },
-        "Job: ",
-        h("strong", null, jobLabel(status.role)),
-        " · Strictness: ",
-        h("strong", null, levelLabel(status.level)),
-        status.petasos_version ? " · Petasos " + status.petasos_version : null
-      )
+      verdict.stepText ? h("p", { className: "petasos-verdict-reason" }, h("strong", null, "Next step: "), verdict.stepText) : null,
+      step ? h("div", { className: "petasos-row-actions" }, step) : null,
+      verdict.code === "off" || verdict.code === "invalid" ? null : h(CoverageRows, props)
     ),
     canPause || paused
       ? h(
@@ -144,110 +196,188 @@ function VerdictPanel(props) {
           { className: "petasos-verdict-side" },
           paused
             ? null
-            : h(
-                Btn,
-                { outlined: true, onClick: props.onPause, disabled: props.locked },
-                "Pause protection"
-              ),
+            : h(Btn, { outlined: true, onClick: props.onPause, disabled: props.locked }, "Pause protection"),
           h(
             "p",
             { className: "petasos-help" },
             paused
-              ? "Paused here, in Petasos. Hermes still loads the plugin, and every tool call " +
-                  "that passes is recorded in Activity."
-              : "Pausing lets tool calls through unchecked until you resume, and records each " +
-                  "one. It is not Hermes's plugin switch: Petasos stays loaded."
+              ? "Paused in Petasos. Hermes still runs the plugin."
+              : "Lets tool calls through unchecked until you resume, and records each one."
           )
         )
       : null
   );
 }
 
-// One choice (job or strictness) as a list of plain options. Choosing one
-// does not save: it opens a preview of what would change.
-function ChoiceList(props) {
+function RecentPanel(props) {
+  var summary = props.summary;
+  var events = props.events || [];
+  var counts = (summary && summary.by_outcome) || {};
+  var tiles = [
+    { key: "blocked", label: "Blocked", value: (counts.blocked || 0) + (counts.stopped || 0) },
+    { key: "asked", label: "Asked a person", value: counts.asked || 0 },
+    { key: "flagged", label: "Flagged to the agent", value: counts.flagged || 0 },
+    { key: "allowed", label: "Let through while paused", value: counts.allowed || 0 },
+  ];
+  if (counts.not_stopped) {
+    tiles.push({ key: "not_stopped", label: "Settings changes not stopped", value: counts.not_stopped, alarm: true });
+  }
+  var groups = groupEvents(events).slice(0, 4);
   return h(
-    "fieldset",
-    { className: "petasos-options", disabled: props.locked },
-    h("legend", { className: "sr-only" }, props.legend),
+    Panel,
+    {
+      title: "Last 24 hours",
+      description: summary
+        ? summary.total
+          ? plural(summary.total, "event") + ". Tool calls that pass cleanly are not listed."
+          : "Nothing to report. Tool calls that pass cleanly are not listed."
+        : "Loading…",
+      actions: h(LinkButton, { onClick: function () { go("activity"); } }, "Open Activity"),
+    },
+    h(
+      "dl",
+      { className: "petasos-stats" },
+      tiles.map(function (tile) {
+        return h(
+          "div",
+          { key: tile.key, className: cn("petasos-stat", tile.alarm && "petasos-stat-alarm") },
+          h("dt", null, tile.label),
+          h(
+            "dd",
+            null,
+            h(
+              "button",
+              {
+                type: "button",
+                className: "petasos-stat-value",
+                "aria-label": tile.value + " " + tile.label + ": show them in Activity",
+                onClick: function () {
+                  go("activity", { range: "24h", outcome: tile.key });
+                },
+              },
+              String(tile.value)
+            )
+          )
+        );
+      })
+    ),
+    groups.length
+      ? h(
+          "ul",
+          { className: "petasos-mini-list", "aria-label": "Most recent events" },
+          groups.map(function (group) {
+            var event = group.events[0];
+            var outcome = event.outcome || {};
+            return h(
+              "li",
+              { key: event.scan_id },
+              h(
+                "button",
+                {
+                  type: "button",
+                  className: "petasos-mini-row",
+                  onClick: function () {
+                    go("activity", { event: event.scan_id });
+                  },
+                },
+                h("span", { className: "petasos-mini-when" }, whenText(event.timestamp)),
+                h(
+                  "span",
+                  { className: "petasos-mini-text" },
+                  event.summary,
+                  group.events.length > 1 ? h("span", { className: "petasos-repeat" }, " ×" + group.events.length) : null
+                ),
+                h(Status, { tone: outcomeTone(outcome.code) }, outcome.label || "Recorded"),
+                h(Icon, { name: "chevron", className: "petasos-chevron" })
+              )
+            );
+          })
+        )
+      : null
+  );
+}
+
+// One of the two choices: Hermes's segmented control under the label, the
+// setting's key and its plain sentence, as Config draws a field.
+function ChoiceHead(props) {
+  var id = "petasos-choose-" + props.name;
+  return h(
+    "div",
+    { className: "petasos-choose", id: id + "-field" },
+    h("p", { className: "petasos-field-label", id: id + "-label" }, props.label),
+    h("span", { className: "petasos-field-key" }, props.name === "job" ? "role" : "level"),
+    h("p", { className: "petasos-field-help" }, props.help),
+    h(Segmented, {
+      id: id,
+      labelledBy: id + "-label",
+      value: props.chosen,
+      disabled: props.locked,
+      onChange: props.onChoose,
+      options: props.options.map(function (option) {
+        return { value: option.name, label: option.label };
+      }),
+    })
+  );
+}
+
+// Every option's plain description, so none has to be chosen to be read.
+function ChoiceOptions(props) {
+  return h(
+    "ul",
+    { className: "petasos-optlist", "aria-label": props.label + ": what each option does" },
     props.options.map(function (option) {
-      var id = "petasos-" + props.name + "-" + option.name;
-      var current = option.name === props.current;
       var chosen = option.name === props.chosen;
+      var current = option.name === props.current;
       return h(
-        "label",
-        {
-          key: option.name,
-          htmlFor: id,
-          className: cn(
-            "petasos-option",
-            chosen && "petasos-option-chosen",
-            current && "petasos-option-current"
-          ),
-        },
-        h("input", {
-          id: id,
-          type: "radio",
-          name: "petasos-" + props.name,
-          value: option.name,
-          checked: chosen,
-          onChange: function () {
-            props.onChoose(option.name);
-          },
-        }),
+        "li",
+        { key: option.name, className: cn("petasos-opt", chosen && "petasos-opt-on") },
+        h("span", { className: "petasos-opt-name" }, option.label),
         h(
           "span",
-          { className: "petasos-option-text" },
-          h(
-            "span",
-            { className: "petasos-option-name" },
-            option.label,
-            current ? h(Pill, { tone: "outline", className: "petasos-option-tag" }, "Current") : null,
-            option.tag ? h(Pill, { tone: "secondary", className: "petasos-option-tag" }, option.tag) : null
-          ),
-          h("span", { className: "petasos-option-plain" }, option.plain),
-          option.meta ? h("span", { className: "petasos-option-meta" }, option.meta) : null
+          { className: "petasos-opt-desc" },
+          option.description,
+          current ? h("span", { className: "petasos-opt-note" }, " · saved") : null,
+          option.suggested ? h("span", { className: "petasos-opt-note" }, " · suggested for " + option.suggested) : null
         )
       );
     })
   );
 }
 
-function ChoicesPanel(props) {
+function SetupPanel(props) {
   var catalog = props.catalog;
   var status = props.status;
   var stored = catalog.stored || {};
   var currentRole = stored.role || status.role;
   var currentLevel = stored.level || status.level;
-  var pendingState = useState(null); // {role} or {level} or {role, level}
+  var pendingState = useState(null);
   var pending = pendingState[0];
   var setPending = pendingState[1];
   var previewState = useState(null);
   var previewed = previewState[0];
-  var setPreviewed = previewState[1];
   var busyState = useState(false);
-  var busy = busyState[0];
-  var setBusy = busyState[1];
+  var locked = catalog.locked || {};
+  var roleLocked = props.locked || (locked.stored || []).indexOf("role") >= 0;
+  var levelLocked = props.locked || (locked.stored || []).indexOf("level") >= 0;
 
   var chosenRole = pending && pending.role ? pending.role : currentRole;
   var chosenLevel = pending && pending.level ? pending.level : currentLevel;
-  var roleInfo = (catalog.roles || []).filter(function (role) {
-    return role.name === chosenRole;
-  })[0];
+  var roleInfo = roleOf(catalog, chosenRole);
 
   useEffect(
     function () {
       if (!pending) {
-        setPreviewed(null);
+        previewState[1](null);
         return;
       }
       var live = true;
+      previewState[1](null);
       call("/settings/preview", { method: "POST", body: pending })
         .then(function (body) {
-          if (live) setPreviewed(body);
+          if (live) previewState[1](body);
         })
         .catch(function (failure) {
-          if (live) setPreviewed({ failure: failure });
+          if (live) previewState[1]({ failure: failure });
         });
       return function () {
         live = false;
@@ -265,120 +395,110 @@ function ChoicesPanel(props) {
   }
 
   function apply() {
-    setBusy(true);
+    busyState[1](true);
     props
       .onSave(pending)
       .then(function () {
         setPending(null);
       })
+      .catch(function () {})
       .finally(function () {
-        setBusy(false);
+        busyState[1](false);
       });
   }
 
   var roles = (catalog.roles || []).map(function (role) {
-    var copy = JOB_COPY[role.name];
-    return {
-      name: role.name,
-      label: jobLabel(role.name),
-      plain: copy ? copy.plain : role.description,
-    };
+    return { name: role.name, label: role.label || role.name, description: role.description };
   });
   var levels = (catalog.levels || []).map(function (level) {
-    var copy = LEVEL_COPY[level.name];
     return {
       name: level.name,
-      label: levelLabel(level.name),
-      plain: copy ? copy.plain : level.description,
-      tag: roleInfo && roleInfo.suggests === level.name ? "Suggested for " + jobLabel(chosenRole) : null,
+      label: level.label || level.name,
+      description: level.description,
+      suggested: roleInfo && roleInfo.suggests === level.name ? roleLabel(catalog, chosenRole) : null,
     };
   });
+  var help = catalog.help || {};
+  var labels = catalog.labels || {};
 
   return h(
-    Fragment,
-    null,
+    Panel,
+    {
+      id: "petasos-setup",
+      title: "Setup",
+      description: "Two choices decide how Petasos behaves. Nothing changes until you apply it.",
+      actions: roleLocked || levelLocked ? h(Tag, { tone: "outline" }, "Locked by your administrator") : null,
+    },
+    // Both controls first, then both lists: in the narrow layout the two
+    // choices stay together at the top of the panel.
     h(
       "div",
-      { className: "petasos-grid-2" },
-      h(
-        Panel,
-        {
-          title: "What does this agent do?",
-          description:
-            "Pick the closest job. It decides which checks matter for that kind of work.",
+      { className: "petasos-grid-2 petasos-setup" },
+      h(ChoiceHead, {
+        name: "job",
+        label: labels.role || "Job",
+        help: help.role,
+        options: roles,
+        chosen: chosenRole,
+        locked: roleLocked,
+        onChoose: function (name) {
+          choose("role", name);
         },
-        h(ChoiceList, {
-          name: "job",
-          legend: "Job",
-          options: roles,
-          current: currentRole,
-          chosen: chosenRole,
-          locked: props.locked,
-          onChoose: function (name) {
-            choose("role", name);
+      }),
+      h(ChoiceHead, {
+        name: "level",
+        label: labels.level || "Strictness",
+        help: help.level,
+        options: levels,
+        chosen: chosenLevel,
+        locked: levelLocked,
+        onChoose: function (name) {
+          choose("level", name);
+        },
+      }),
+      h(ChoiceOptions, { label: labels.role || "Job", options: roles, current: currentRole, chosen: chosenRole }),
+      h(ChoiceOptions, { label: labels.level || "Strictness", options: levels, current: currentLevel, chosen: chosenLevel })
+    ),
+    pending
+      ? h(ChoicePreview, {
+          catalog: catalog,
+          pending: pending,
+          previewed: previewed,
+          stored: stored,
+          roleInfo: roleInfo,
+          currentLevel: currentLevel,
+          busy: busyState[0],
+          onApply: apply,
+          onCancel: function () {
+            setPending(null);
+          },
+          onAlsoLevel: function (level) {
+            choose("level", level);
           },
         })
-      ),
-      h(
-        "div",
-        { className: "petasos-stack" },
-        h(
-          Panel,
-          {
-            title: "How strict should Petasos be?",
-            description: "Stricter steps in sooner and blocks more. You can change it any time.",
-          },
-          h(ChoiceList, {
-            name: "level",
-            legend: "Strictness",
-            options: levels,
-            current: currentLevel,
-            chosen: chosenLevel,
-            locked: props.locked,
-            onChoose: function (name) {
-              choose("level", name);
-            },
-          })
-        ),
-        pending
-          ? h(ChoicePreview, {
-              pending: pending,
-              previewed: previewed,
-              rows: catalog.settings,
-              stored: stored,
-              roleInfo: roleInfo,
-              currentLevel: currentLevel,
-              busy: busy,
-              onApply: apply,
-              onCancel: function () {
-                setPending(null);
-              },
-              onAlsoLevel: function (level) {
-                choose("level", level);
-              },
-            })
-          : props.aside || null
-      )
-    )
+      : null
   );
 }
 
 function ChoicePreview(props) {
+  var catalog = props.catalog;
   var pending = props.pending;
   var previewed = props.previewed;
   var parts = [];
-  if (pending.role) parts.push("the job to " + jobLabel(pending.role));
-  if (pending.level) parts.push("strictness to " + levelLabel(pending.level));
-  var heading = "Switching " + parts.join(" and ");
+  if (pending.role) parts.push("the job to " + roleLabel(catalog, pending.role));
+  if (pending.level) parts.push("strictness to " + levelLabel(catalog, pending.level));
+  var consequences = [];
+  if (pending.role) consequences.push((roleOf(catalog, pending.role) || {}).description);
+  if (pending.level) consequences.push((levelOf(catalog, pending.level) || {}).description);
   var suggestion =
-    pending.role &&
-    props.roleInfo &&
-    props.roleInfo.suggests !== (pending.level || props.currentLevel)
+    pending.role && props.roleInfo && props.roleInfo.suggests !== (pending.level || props.currentLevel)
       ? props.roleInfo.suggests
       : null;
+  var changes = previewed && previewed.changes ? previewed.changes : [];
+  var detailsState = useState(false);
   var body;
   if (!previewed) {
-    body = h("p", { className: "petasos-muted" }, "Working out what would change…");
+    body = h("p", { className: "petasos-help", role: "status" }, "Working out what would change…");
   } else if (previewed.failure) {
     body = h(Notice, { tone: "destructive", title: "Petasos could not preview this" }, previewed.failure.message);
   } else if (!previewed.valid) {
@@ -390,34 +510,50 @@ function ChoicePreview(props) {
       })
     );
   } else {
-    body = h(ChangeList, {
-      rows: props.rows,
-      changes: previewed.changes || [],
-      stored: props.stored,
-      after: previewed.stored,
-      empty: "Nothing would change: your own settings already cover this.",
-    });
+    body = h(
+      Fragment,
+      null,
+      h("p", { className: "petasos-when" }, whenItApplies(changes, catalog.settings)),
+      h(
+        "div",
+        { className: "petasos-disclosure" },
+        h(
+          LinkButton,
+          {
+            expanded: detailsState[0],
+            onClick: function () {
+              detailsState[1](!detailsState[0]);
+            },
+          },
+          (detailsState[0] ? "Hide technical changes" : "Show technical changes") + " (" + changes.length + ")"
+        ),
+        detailsState[0]
+          ? h(ChangeList, {
+              catalog: catalog,
+              rows: catalog.settings,
+              changes: changes,
+              stored: props.stored,
+              after: previewed.stored,
+              empty: "No setting would change: your own settings already cover this.",
+            })
+          : null
+      )
+    );
   }
   var candidate = JSON.stringify(pending);
   return h(
-    Panel,
-    {
-      className: "petasos-preview",
-      title: "Preview",
-      description: heading + ". Nothing is saved until you apply it.",
-    },
+    "section",
+    { className: "petasos-preview", "aria-labelledby": "petasos-preview-title" },
+    h("h3", { className: "petasos-subhead", id: "petasos-preview-title" }, "Change " + parts.join(" and ")),
+    consequences.map(function (sentence, i) {
+      return sentence ? h("p", { key: i, className: "petasos-consequence" }, sentence) : null;
+    }),
     suggestion
       ? h(
-          Notice,
-          {
-            tone: "info",
-            action: h(
-              Btn,
-              { outlined: true, onClick: function () { props.onAlsoLevel(suggestion); } },
-              "Also use " + levelLabel(suggestion)
-            ),
-          },
-          jobLabel(pending.role) + " usually goes with " + levelLabel(suggestion) + " strictness."
+          "p",
+          { className: "petasos-help" },
+          roleLabel(catalog, pending.role) + " is usually paired with " + levelLabel(catalog, suggestion) + " strictness. ",
+          h(LinkButton, { onClick: function () { props.onAlsoLevel(suggestion); } }, "Use " + levelLabel(catalog, suggestion) + " too")
         )
       : null,
     body,
@@ -428,7 +564,7 @@ function ChoicePreview(props) {
         Btn,
         {
           onClick: props.onApply,
-          disabled: props.busy || !previewed || previewed.failure || !previewed.valid,
+          disabled: props.busy || !previewed || Boolean(previewed.failure) || !previewed.valid,
         },
         props.busy ? "Applying…" : "Apply"
       ),
@@ -447,108 +583,22 @@ function ChoicePreview(props) {
   );
 }
 
-// What a change would do, setting by setting, in words first. A list shows
-// what it adds and removes; anything else shows before and after.
-function ChangeValues(props) {
-  var before = props.before;
-  var after = props.after;
-  if (Array.isArray(before) && Array.isArray(after)) {
-    var added = after.filter(function (item) {
-      return before.indexOf(item) < 0;
-    });
-    var removed = before.filter(function (item) {
-      return after.indexOf(item) < 0;
-    });
-    return h(
-      "ul",
-      { className: "petasos-diff" },
-      added.map(function (item) {
-        return h("li", { key: "+" + item, className: "petasos-diff-add" }, h("span", { "aria-hidden": true }, "+ "), h("span", { className: "sr-only" }, "adds "), String(item));
-      }),
-      removed.map(function (item) {
-        return h("li", { key: "-" + item, className: "petasos-diff-remove" }, h("span", { "aria-hidden": true }, "− "), h("span", { className: "sr-only" }, "removes "), String(item));
-      })
-    );
-  }
-  return h(
-    "div",
-    { className: "petasos-change-values" },
-    h("span", { className: "petasos-before" }, showValue(before)),
-    h("span", { "aria-hidden": true, className: "petasos-arrow" }, "→"),
-    h("span", { className: "petasos-after" }, showValue(after)),
-    h("span", { className: "sr-only" }, " (was " + showValue(before) + ")")
-  );
-}
-
-function ChangeList(props) {
-  var changes = props.changes;
-  var help = {};
-  (props.rows || []).forEach(function (row) {
-    help[row.path] = row.help;
-  });
-  if (!changes.length) {
-    return h("p", { className: "petasos-muted" }, props.empty);
-  }
-  return h(
-    "ul",
-    { className: "petasos-changes", "aria-label": "What would change" },
-    changes.map(function (change) {
-      return h(
-        "li",
-        { key: change.path, className: "petasos-change" },
-        h(
-          "div",
-          { className: "petasos-change-name" },
-          h("span", null, help[change.path] || fieldLabel(change.path)),
-          h(Mono, { className: "petasos-path" }, change.path)
-        ),
-        h(ChangeValues, { before: change.before, after: change.after }),
-        h(
-          "div",
-          { className: "petasos-change-tags" },
-          h(Pill, { tone: "outline" }, originLabel(change.origin_after, props.after || props.stored)),
-          change.restart ? h(Pill, { tone: "warning" }, "Needs a restart") : null
-        )
-      );
-    })
-  );
-}
-
-var STATE_WORDS = {
-  active: { tone: "success", word: "Working" },
-  not_installed: { tone: "secondary", word: "Not installed" },
-  off: { tone: "outline", word: "Off" },
-  unavailable: { tone: "destructive", word: "Not working" },
-};
-
-function ScannersPanel(props) {
+function ChecksPanel(props) {
   var status = props.status;
   var checks = (status.doctor && status.doctor.checks) || [];
-  var recommendations = status.recommendations || [];
+  var coverage = status.coverage || { missing: [] };
   var openState = useState(null);
-  var open = openState[0];
-  var setOpen = openState[1];
-  var optional = (status.scanners || []).filter(function (row) {
-    return row.id !== "syntactic";
-  });
-  var noneOptional = optional.every(function (row) {
-    return row.state !== "active";
+  var recommended = {};
+  coverage.missing.forEach(function (row) {
+    recommended[row.id] = row.recommended;
   });
   return h(
     Panel,
     {
-      title: "What is doing the checking",
-      description:
-        "The built-in checks always run. Optional scanners add a model or a code checker on top.",
+      id: "petasos-checks",
+      title: "Checks",
+      description: "The basic checks always run. Optional checks add a model or a code checker on top.",
     },
-    noneOptional
-      ? h(
-          "p",
-          { className: "petasos-help petasos-gap-below" },
-          "No optional scanner is installed. The built-in checks catch the common attacks; " +
-            "the recommended one below adds a model that catches reworded ones."
-        )
-      : null,
     h(
       "ul",
       { className: "petasos-scanners" },
@@ -557,14 +607,9 @@ function ScannersPanel(props) {
         var check = checks.filter(function (item) {
           return item.id === id;
         })[0];
-        var state = STATE_WORDS[row.state] || { tone: "secondary", word: row.state };
-        var wanted = row.extra
-          ? recommendations.filter(function (line) {
-              return line.indexOf("petasos[" + row.extra + "]") >= 0;
-            })[0]
-          : null;
-        var recommended = wanted && row.state !== "active";
-        var expanded = open === row.id;
+        var state = STATE_WORDS[row.state] || { tone: "neutral", word: row.state };
+        var expanded = openState[0] === row.id;
+        var fixable = (recommended[row.id] || row.state === "unavailable") && (row.fix || row.extra);
         return h(
           "li",
           { key: row.id, className: "petasos-scanner" },
@@ -572,28 +617,20 @@ function ScannersPanel(props) {
             "div",
             { className: "petasos-scanner-head" },
             h("span", { className: "petasos-scanner-name" }, row.label),
-            h(
-              "span",
-              { className: "petasos-scanner-tags" },
-              recommended ? h(Pill, { tone: "warning" }, "Recommended") : null,
-              h(Pill, { tone: state.tone }, state.word)
-            )
+            recommended[row.id] ? h(Tag, { tone: "outline" }, "Recommended") : null,
+            h(Status, { tone: state.tone }, state.word)
           ),
-          h(
-            "p",
-            { className: "petasos-scanner-text" },
-            check ? check.summary : row.reason || "",
-            check && check.meaning ? " " + check.meaning : ""
-          ),
-          recommended || row.state === "unavailable"
+          h("p", { className: "petasos-help" }, check ? check.summary : row.reason || "", check && check.meaning ? " " + check.meaning : ""),
+          fixable
             ? h(
                 Fragment,
                 null,
                 h(
                   LinkButton,
                   {
+                    expanded: expanded,
                     onClick: function () {
-                      setOpen(expanded ? null : row.id);
+                      openState[1](expanded ? null : row.id);
                     },
                   },
                   expanded ? "Hide how to add it" : "How to add it"
@@ -602,10 +639,8 @@ function ScannersPanel(props) {
                   ? h(
                       "div",
                       { className: "petasos-fix" },
-                      h("p", null, row.fix || wanted),
-                      row.extra
-                        ? h("p", null, "Package to add: ", h(Mono, null, "petasos[" + row.extra + "]"))
-                        : null
+                      row.fix ? h("p", null, row.fix) : null,
+                      row.extra ? h("p", null, "Package: ", h(Mono, null, "petasos[" + row.extra + "]")) : null
                     )
                   : null
               )
@@ -616,119 +651,37 @@ function ScannersPanel(props) {
   );
 }
 
-function RecentPanel(props) {
-  var summary = props.summary;
-  var events = props.events || [];
-  var counts = (summary && summary.by_outcome) || {};
-  var tiles = [
-    { key: "blocked", label: "Blocked", value: counts.blocked || 0 },
-    { key: "asked", label: "Asked a person", value: (counts.asked || 0) },
-    { key: "flagged", label: "Flagged to the agent", value: counts.flagged || 0 },
-    { key: "allowed", label: "Let through while paused", value: counts.allowed || 0 },
-  ];
-  return h(
-    Panel,
-    {
-      title: "Last 24 hours",
-      description: summary
-        ? summary.total
-          ? plural(summary.total, "thing") + " Petasos stepped in on or recorded."
-          : "Nothing to report. Clean tool calls are not listed."
-        : "Loading…",
-      actions: h(LinkButton, { onClick: function () { go("activity"); } }, "All activity →"),
-    },
-    h(
-      "div",
-      { className: "petasos-tiles" },
-      tiles.map(function (tile) {
-        return h(
-          "button",
-          {
-            key: tile.key,
-            type: "button",
-            className: "petasos-tile",
-            onClick: function () {
-              go("activity", { range: "24h", outcome: tile.key });
-            },
-          },
-          h("span", { className: "petasos-tile-value" }, String(tile.value)),
-          h("span", { className: "petasos-tile-label" }, tile.label)
-        );
+function WhoPanel(props) {
+  var who = props.status.who_can_change || {};
+  var locked = (props.catalog && props.catalog.locked) || { known: false };
+  var labels = (props.catalog && props.catalog.labels) || {};
+  var byPath = rowsByPath(props.catalog && props.catalog.settings);
+  var pinned = (locked.stored || [])
+    .map(function (key) {
+      return labels[key] || key;
+    })
+    .concat(
+      (locked.settings || []).map(function (path) {
+        return rowLabel(byPath[path] || { path: path });
       })
-    ),
-    events.length
-      ? h(
-          "ul",
-          { className: "petasos-mini-list" },
-          events.map(function (event) {
-            return h(
-              "li",
-              { key: event.scan_id },
-              h(
-                "button",
-                {
-                  type: "button",
-                  className: "petasos-mini-row",
-                  onClick: function () {
-                    go("activity", { event: event.scan_id });
-                  },
-                },
-                h("span", { className: "petasos-mini-when" }, whenText(event.timestamp)),
-                h("span", { className: "petasos-mini-text" }, event.summary),
-                h(Pill, { tone: outcomeTone(event.outcome && event.outcome.code) }, event.outcome && event.outcome.label)
-              )
-            );
-          })
-        )
-      : null
-  );
-}
-
-function GuardrailPanel(props) {
-  var status = props.status;
-  var doctor = status.doctor || {};
-  var check = (doctor.checks || []).filter(function (item) {
-    return item.id === "guardrail";
-  })[0];
+    );
+  var admin;
+  if (!locked.known) admin = "This Hermes does not say which settings an administrator has locked.";
+  else if (pinned.length) admin = "Has locked: " + pinned.join(", ") + ". Change them in Hermes's managed configuration.";
+  else admin = "Nothing is locked.";
+  if (locked.plugin) admin += " Hermes's plugin list is locked too.";
   return h(
     Panel,
-    {
-      title: "Who can change these settings",
-      description: "An agent should not be able to switch off its own guardrails.",
-    },
+    { title: "Who can change these settings", description: "An agent should not be able to switch off its own guardrails." },
     h(KeyValues, {
       rows: [
-        [
-          "The agent",
-          (check ? check.summary + " " : "") +
-            "An attempt is recorded and makes the conversation riskier; enough of them and " +
-            "its tool calls are blocked.",
-        ],
-        [
-          "You",
-          "Here, in Hermes Desktop's plugin settings, or with hermes petasos on the command line.",
-        ],
-        [
-          "An administrator",
-          props.locked
-            ? "Has locked these settings. Changes are made in the managed Hermes configuration."
-            : (check && check.meaning) || "Not reported yet.",
-        ],
-        [
-          "Two switches",
-          "Hermes's plugin switch (Plugins page) decides whether Petasos runs at all. " +
-            "Pause, above, keeps it running and recording.",
-        ],
+        ["The agent", who.agent],
+        ["You", who.you],
+        ["Administrator", admin],
+        ["Two switches", who.switches],
       ],
     })
   );
-}
-
-function outcomeTone(code) {
-  if (code === "blocked" || code === "stopped" || code === "declined") return "destructive";
-  if (code === "asked" || code === "flagged" || code === "allowed" || code === "degraded") return "warning";
-  if (code === "approved") return "success";
-  return "secondary";
 }
 
 function Overview(props) {
@@ -742,7 +695,7 @@ function Overview(props) {
       call("/activity/summary" + query({ since: since }))
         .then(summaryState[1])
         .catch(function () {});
-      call("/activity" + query({ limit: 3, since: since }))
+      call("/activity" + query({ limit: 20, since: since }))
         .then(function (body) {
           eventsState[1](body.events || []);
         })
@@ -751,29 +704,36 @@ function Overview(props) {
     30000,
     [props.refreshKey]
   );
+  function reveal(id) {
+    return function () {
+      var target = document.getElementById(id);
+      if (!target) return;
+      revealInView(target, "start");
+      var focusable = target.querySelector("[role=radio][tabindex='0'], button, a");
+      if (focusable) focusable.focus({ preventScroll: true });
+    };
+  }
   return h(
     "div",
     { className: "petasos-stack" },
     h(VerdictPanel, {
       status: status,
+      catalog: catalog,
       locked: props.locked,
       onPause: props.onPause,
       onResume: props.onResume,
+      onShowChecks: reveal("petasos-checks"),
+      onShowSetup: reveal("petasos-setup"),
     }),
+    h(RecentPanel, { summary: summaryState[0], events: eventsState[0] }),
     catalog
-      ? h(ChoicesPanel, {
-          catalog: catalog,
-          status: status,
-          locked: props.locked,
-          onSave: props.onSave,
-          aside: h(RecentPanel, { summary: summaryState[0], events: eventsState[0] }),
-        })
-      : h(Panel, { title: "Job and strictness" }, h("p", { className: "petasos-muted" }, "Loading the choices…")),
+      ? h(SetupPanel, { catalog: catalog, status: status, locked: props.locked, onSave: props.onSave })
+      : h(Panel, { title: "Setup" }, h("p", { className: "petasos-help", role: "status" }, "Loading the choices…")),
     h(
       "div",
       { className: "petasos-grid-2" },
-      h(ScannersPanel, { status: status }),
-      h(GuardrailPanel, { status: status, locked: props.locked })
+      h(ChecksPanel, { status: status }),
+      h(WhoPanel, { status: status, catalog: catalog })
     )
   );
 }

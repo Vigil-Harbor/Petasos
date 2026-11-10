@@ -1,7 +1,8 @@
 /*
- * Petasos tab layout. Every colour, font and radius is a Hermes variable, so
- * the tab follows whichever Hermes theme is active. No palette, font or icon
- * of Petasos's own.
+ * Petasos tab layout. Every colour, font and size is a Hermes variable, so
+ * the tab follows whichever Hermes theme is active. Where Hermes's SDK does
+ * not export a control (Segmented, Switch), these rules draw it the way
+ * Hermes's own source does. No palette, font or icon set of Petasos's own.
  */
 
 .petasos {
@@ -10,13 +11,19 @@
   gap: 1rem;
   width: 100%;
   min-width: 0;
-  color: var(--color-foreground, var(--midground));
+  color: var(--midground);
+  font-size: 0.9rem;
+  line-height: 1.5;
 }
 
 .petasos code,
 .petasos pre {
   background: transparent !important;
   color: inherit;
+}
+
+.petasos p {
+  margin: 0;
 }
 
 .petasos .sr-only {
@@ -31,15 +38,22 @@
   border: 0;
 }
 
-/* Keyboard focus is always visible, in the theme's ring colour. */
+/* Keyboard focus is always visible, in the theme's ring colour, on every
+ * control the tab draws. Hermes's own controls keep their ring too. */
 .petasos button:focus-visible,
 .petasos a:focus-visible,
 .petasos input:focus-visible,
 .petasos textarea:focus-visible,
 .petasos summary:focus-visible,
-.petasos [role="radio"]:focus-visible {
-  outline: 2px solid var(--color-ring);
+.petasos [tabindex]:focus-visible {
+  outline: 2px solid var(--midground);
   outline-offset: 2px;
+}
+
+.petasos-detail:focus,
+.petasos-subhead:focus,
+.petasos [id="petasos-review-title"]:focus {
+  outline: none;
 }
 
 .petasos-stack {
@@ -56,40 +70,257 @@
   align-items: start;
 }
 
-.petasos-grid-2.petasos-tight {
-  gap: 0.75rem;
+.petasos-grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+  align-items: start;
 }
+
+.petasos-help {
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--text-secondary, var(--midground));
+}
+
+.petasos-faint {
+  color: var(--text-tertiary, var(--midground));
+}
+
+.petasos-strong,
+.petasos strong {
+  font-weight: 700;
+}
+
+.petasos-block {
+  display: block;
+}
+
+.petasos-gap-above {
+  margin-top: 0.4rem;
+}
+
+.petasos-end {
+  padding: 0.9rem 0 0.4rem;
+  text-align: center;
+}
+
+/* Links are underlined everywhere, so they read as links in a theme that
+ * draws all text in one colour. */
+.petasos-link,
+.petasos a.petasos-link {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-size: inherit;
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.petasos-link:hover {
+  text-decoration-thickness: 2px;
+}
+
+.petasos-link:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.petasos-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.petasos-count {
+  font-family: var(--theme-font-mono);
+  font-size: 0.8rem;
+  color: var(--text-secondary, var(--midground));
+}
+
+.petasos-mono {
+  font-family: var(--theme-font-mono);
+  font-size: 0.82rem;
+}
+
+/* A technical id wraps only at the <wbr> after its separators. */
+.petasos-ident {
+  overflow-wrap: normal;
+  word-break: normal;
+  white-space: normal;
+}
+
+.petasos-idrow {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.6rem;
+}
+
+.petasos-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.05rem 0.3rem;
+  border: 1px solid transparent;
+  background: none;
+  color: var(--text-secondary, var(--midground));
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.petasos-copy:hover {
+  border-color: var(--color-border);
+  color: var(--midground);
+}
+
+.petasos-icon {
+  display: inline-block;
+  flex-shrink: 0;
+  vertical-align: middle;
+}
+
+/* ---- Top bar: Hermes's enclosed tabs ------------------------------- */
 
 .petasos-topbar {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: space-between;
   gap: 1rem;
   flex-wrap: wrap;
-  border-bottom: 1px solid var(--color-border);
 }
 
-.petasos-tabs {
-  border-bottom: 0;
-}
-
-.petasos-tab-flag {
-  color: var(--color-text-secondary);
+.petasos-topbar-main {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
 }
 
 .petasos-topbar-side {
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  padding-bottom: 0.35rem;
 }
 
-.petasos-loading,
-.petasos-muted {
+.petasos-unsaved {
+  background: none;
+  border: 0;
+  padding: 0;
+  font-size: 0.82rem;
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+/* Hermes's Segmented: joined rectangular buttons, the chosen one filled
+ * with the theme's ink. The view tabs use the same treatment, as Sessions
+ * and Logs do. */
+.petasos-segmented {
+  display: inline-flex;
+  flex-wrap: wrap;
+  border: 1px solid color-mix(in srgb, var(--midground) 18%, transparent);
+  background: color-mix(in srgb, var(--background) 30%, transparent);
+  max-width: 100%;
+}
+
+.petasos-segment {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  height: 2rem;
+  padding: 0 0.8rem;
+  border: 0;
+  border-right: 1px solid color-mix(in srgb, var(--midground) 18%, transparent);
+  background: transparent;
+  color: var(--text-secondary, var(--midground));
   font-family: var(--font-mondwest);
-  letter-spacing: 0.08em;
-  color: var(--color-text-tertiary, var(--color-muted-foreground));
-  font-size: 0.85rem;
+  font-size: 0.86rem;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 120ms, color 120ms;
+}
+
+.petasos-segment:last-child {
+  border-right: 0;
+}
+
+.petasos-segment:hover {
+  background: color-mix(in srgb, var(--midground) 10%, transparent);
+  color: var(--midground);
+}
+
+.petasos-segment-on,
+.petasos-segment-on:hover {
+  background: var(--midground);
+  color: var(--background);
+}
+
+.petasos-segment:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.petasos-viewtabs .petasos-segment {
+  height: 2.2rem;
+  padding: 0 1.1rem;
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+/* ---- Hermes's Switch ------------------------------------------------ */
+
+.petasos-switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  width: 2.25rem;
+  height: 1.25rem;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--midground) 22%, transparent);
+  background: var(--background);
+  cursor: pointer;
+  transition: background-color 120ms, border-color 120ms;
+}
+
+.petasos-switch-thumb {
+  display: block;
+  width: 0.875rem;
+  height: 0.875rem;
+  margin-left: 0.125rem;
+  background: color-mix(in srgb, var(--midground) 40%, transparent);
+  transition: transform 120ms;
+}
+
+.petasos-switch-on {
+  background: color-mix(in srgb, var(--midground) 15%, transparent);
+  border-color: color-mix(in srgb, var(--midground) 35%, transparent);
+}
+
+.petasos-switch-on .petasos-switch-thumb {
+  transform: translateX(1rem);
+  background: var(--midground);
+}
+
+.petasos-switch:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.petasos-inline-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.86rem;
 }
 
 /* ---- Panels --------------------------------------------------------- */
@@ -99,7 +330,7 @@
 }
 
 .petasos-panel-head {
-  padding: 0.75rem 1rem;
+  padding: 0.85rem 1.1rem 0.6rem;
 }
 
 .petasos-panel-headrow {
@@ -112,686 +343,664 @@
 .petasos-panel-titles {
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
+  gap: 0.3rem;
   min-width: 0;
 }
 
 .petasos-panel-desc {
-  margin: 0;
-  font-size: 0.8rem;
-  color: var(--color-text-secondary, var(--color-muted-foreground));
+  font-size: 0.85rem;
+  color: var(--text-secondary, var(--midground));
 }
 
 .petasos-panel-actions {
   display: flex;
   align-items: center;
-  gap: 0.6rem;
+  gap: 0.75rem;
   flex-shrink: 0;
 }
 
 .petasos-panel-body {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 0.85rem;
+  padding: 0.9rem 1.1rem 1.1rem;
 }
 
-.petasos-help {
-  margin: 0;
-  font-size: 0.78rem;
-  line-height: 1.5;
-  color: var(--color-text-secondary, var(--color-muted-foreground));
-}
-
-.petasos-gap-below {
-  margin-bottom: 0.25rem;
-}
-
-.petasos-end {
-  padding-top: 0.75rem;
-  text-align: center;
-}
-
-.petasos-label {
+.petasos-label,
+.petasos-filter-label,
+.petasos-sections-title {
   font-family: var(--font-mondwest);
-  font-size: 0.72rem;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--color-text-secondary, var(--color-muted-foreground));
-}
-
-.petasos-mono,
-.petasos-path {
-  font-family: var(--theme-font-mono);
-  font-size: 0.78rem;
-  word-break: break-all;
-}
-
-.petasos-path {
-  color: var(--color-text-tertiary, var(--color-muted-foreground));
-}
-
-.petasos-block {
-  display: block;
-}
-
-.petasos-link {
-  background: none;
-  border: 0;
-  padding: 0;
-  font: inherit;
   font-size: 0.8rem;
-  color: var(--midground);
-  text-decoration: underline;
-  text-underline-offset: 3px;
-  cursor: pointer;
-  text-align: left;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-secondary, var(--midground));
 }
 
-.petasos-link:hover {
-  text-decoration-thickness: 2px;
-}
-
-.petasos-row-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.petasos-count {
-  font-family: var(--theme-font-mono);
-  font-size: 0.75rem;
-  color: var(--color-text-secondary, var(--color-muted-foreground));
-}
-
-/* ---- Status pills ---------------------------------------------------
- * Hermes's Badge colours the text with the status colour. In the light
- * theme those colours are pale, so the text is mixed toward the theme's
- * own ink. The words carry the meaning either way.
- */
-
-.petasos-pill {
-  white-space: nowrap;
-  font-size: 0.78rem;
-}
-
-.petasos-tone-success {
-  color: color-mix(in srgb, var(--color-success) 70%, var(--midground)) !important;
-}
-
-.petasos-tone-warning {
-  color: color-mix(in srgb, var(--color-warning) 70%, var(--midground)) !important;
-}
-
-.petasos-tone-destructive {
-  color: color-mix(in srgb, var(--color-destructive) 75%, var(--midground)) !important;
-}
-
-/* On a light theme the status colours are mixed toward black so the words
- * keep their contrast on a pale field. The tab marks a light theme from
- * Hermes's own background colour. */
-.petasos-light .petasos-tone-success,
-.petasos-light .petasos-field-error.petasos-tone-success {
-  color: color-mix(in srgb, var(--color-success) 50%, black) !important;
-  border-color: color-mix(in srgb, var(--color-success) 60%, black) !important;
-}
-
-.petasos-light .petasos-tone-warning {
-  color: color-mix(in srgb, var(--color-warning) 50%, black) !important;
-  border-color: color-mix(in srgb, var(--color-warning) 70%, black) !important;
-}
-
-.petasos-light .petasos-tone-destructive,
-.petasos-light .petasos-field-error {
-  color: color-mix(in srgb, var(--color-destructive) 70%, black) !important;
-  border-color: color-mix(in srgb, var(--color-destructive) 70%, black) !important;
-}
-
-.petasos-light .petasos-pill {
+.petasos-subhead {
+  margin: 0.4rem 0 0;
+  font-family: var(--font-mondwest);
+  font-size: 0.82rem;
   font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 
-/* ---- Notices --------------------------------------------------------- */
+/* ---- Status: safety meaning, readable ------------------------------- */
+
+.petasos-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.2rem 0.55rem;
+  border: 1px solid var(--petasos-tone-line);
+  background: var(--petasos-tone-fill);
+  color: var(--petasos-tone-ink);
+  font-family: var(--theme-font-sans);
+  font-size: 0.8rem;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+.petasos-status-large {
+  padding: 0.3rem 0.7rem;
+  font-size: 0.92rem;
+}
+
+.petasos-status-dot {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: var(--petasos-tone-dot);
+  flex-shrink: 0;
+}
+
+/* Dark themes: bright ink on a subdued fill. */
+.petasos-status-success {
+  --petasos-tone-ink: color-mix(in srgb, var(--color-success) 55%, white);
+  --petasos-tone-dot: var(--color-success);
+  --petasos-tone-fill: color-mix(in srgb, var(--color-success) 12%, transparent);
+  --petasos-tone-line: color-mix(in srgb, var(--color-success) 50%, transparent);
+}
+
+.petasos-status-warning {
+  --petasos-tone-ink: color-mix(in srgb, var(--color-warning) 55%, white);
+  --petasos-tone-dot: var(--color-warning);
+  --petasos-tone-fill: color-mix(in srgb, var(--color-warning) 12%, transparent);
+  --petasos-tone-line: color-mix(in srgb, var(--color-warning) 50%, transparent);
+}
+
+.petasos-status-destructive {
+  --petasos-tone-ink: color-mix(in srgb, var(--color-destructive) 45%, white);
+  --petasos-tone-dot: color-mix(in srgb, var(--color-destructive) 70%, white);
+  --petasos-tone-fill: color-mix(in srgb, var(--color-destructive) 16%, transparent);
+  --petasos-tone-line: color-mix(in srgb, var(--color-destructive) 60%, transparent);
+}
+
+.petasos-status-neutral {
+  --petasos-tone-ink: var(--midground);
+  --petasos-tone-dot: color-mix(in srgb, var(--midground) 55%, transparent);
+  --petasos-tone-fill: color-mix(in srgb, var(--midground) 7%, transparent);
+  --petasos-tone-line: color-mix(in srgb, var(--midground) 30%, transparent);
+}
+
+/* Light themes: the status colours are pale on a pale field, so the ink is
+ * darkened. The tab marks a light theme from Hermes's own background. */
+.petasos-light .petasos-status-success {
+  --petasos-tone-ink: color-mix(in srgb, var(--color-success) 45%, black);
+  --petasos-tone-fill: color-mix(in srgb, var(--color-success) 12%, transparent);
+  --petasos-tone-line: color-mix(in srgb, var(--color-success) 55%, black);
+}
+
+.petasos-light .petasos-status-warning {
+  --petasos-tone-ink: color-mix(in srgb, var(--color-warning) 45%, black);
+  --petasos-tone-fill: color-mix(in srgb, var(--color-warning) 14%, transparent);
+  --petasos-tone-line: color-mix(in srgb, var(--color-warning) 60%, black);
+}
+
+.petasos-light .petasos-status-destructive {
+  --petasos-tone-ink: color-mix(in srgb, var(--color-destructive) 70%, black);
+  --petasos-tone-dot: var(--color-destructive);
+  --petasos-tone-fill: color-mix(in srgb, var(--color-destructive) 10%, transparent);
+  --petasos-tone-line: color-mix(in srgb, var(--color-destructive) 70%, black);
+}
+
+.petasos-tag {
+  white-space: nowrap;
+}
+
+.petasos-none {
+  color: var(--text-tertiary, var(--midground));
+}
+
+/* ---- Notices: a dot and a title; only exceptional warnings keep an edge */
 
 .petasos-notice {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 1rem;
-  padding: 0.75rem 1rem;
+  padding: 0.8rem 1rem;
   border: 1px solid var(--color-border);
-  border-left-width: 3px;
   background: var(--color-card);
 }
 
-.petasos-notice-info {
-  border-left-color: var(--midground);
+.petasos-notice-strong {
+  border-left: 3px solid var(--color-destructive);
 }
 
-.petasos-notice-warning {
-  border-left-color: var(--color-warning);
-}
-
-.petasos-notice-destructive {
-  border-left-color: var(--color-destructive);
+.petasos-notice-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
 }
 
 .petasos-notice-title {
-  margin: 0 0 0.25rem;
-  font-weight: 600;
-  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+.petasos-notice-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--midground);
+}
+
+.petasos-notice-warning .petasos-notice-dot {
+  background: var(--color-warning);
+}
+
+.petasos-notice-destructive .petasos-notice-dot {
+  background: var(--color-destructive);
+}
+
+.petasos-notice-success .petasos-notice-dot {
+  background: var(--color-success);
 }
 
 .petasos-notice-body {
-  font-size: 0.8rem;
-  line-height: 1.5;
-  color: var(--color-text-secondary, var(--color-muted-foreground));
+  font-size: 0.85rem;
+  line-height: 1.55;
+  padding-left: 1rem;
 }
 
-.petasos-notice-body p {
-  margin: 0.15rem 0;
+.petasos-notice-body p + p {
+  margin-top: 0.3rem;
 }
 
 .petasos-notice-action {
   flex-shrink: 0;
 }
 
-/* ---- Empty states, as kanban draws them ----------------------------- */
+.petasos-steps {
+  margin: 0.4rem 0 0;
+  padding-left: 1.2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+/* ---- Empty list, as Sessions draws it ------------------------------- */
 
 .petasos-empty {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.5rem;
-  padding: 2.5rem 1.5rem;
-  border: 1px dashed var(--color-border);
+  gap: 0.3rem;
+  padding: 3rem 1rem;
   text-align: center;
 }
 
+.petasos-empty-icon {
+  width: 1.75rem;
+  height: 1.75rem;
+  margin-bottom: 0.35rem;
+  color: var(--text-secondary, var(--midground));
+}
+
 .petasos-empty-title {
-  margin: 0;
-  font-family: var(--font-mondwest);
-  letter-spacing: 0.08em;
   font-size: 0.95rem;
+  font-weight: 600;
 }
 
 .petasos-empty-body {
-  max-width: 34rem;
+  max-width: 30rem;
   font-size: 0.82rem;
-  line-height: 1.55;
-  color: var(--color-text-secondary, var(--color-muted-foreground));
-}
-
-.petasos-empty-body p {
-  margin: 0.25rem 0;
+  color: var(--text-secondary, var(--midground));
 }
 
 .petasos-empty-action {
-  margin-top: 0.5rem;
+  margin-top: 0.75rem;
 }
 
-/* ---- Overview: verdict ---------------------------------------------- */
-
-.petasos-verdict {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(14rem, 18rem);
-  gap: 1.5rem;
-  padding: 1.25rem 1.25rem 1.1rem;
-  border: 1px solid var(--color-border);
-  border-left-width: 4px;
-  background: var(--color-card);
-}
-
-.petasos-verdict-success {
-  border-left-color: var(--color-success);
-}
-
-.petasos-verdict-warning {
-  border-left-color: var(--color-warning);
-}
-
-.petasos-verdict-destructive {
-  border-left-color: var(--color-destructive);
-}
-
-.petasos-verdict-pill {
-  font-size: 0.95rem;
-  padding: 0.4rem 0.7rem;
-}
-
-.petasos-verdict-main {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  min-width: 0;
-}
-
-.petasos-verdict-title {
-  margin: 0;
-  font-family: var(--font-rules-expanded);
-  font-size: 1.15rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  line-height: 1.3;
-}
-
-.petasos-verdict-reason {
-  margin: 0;
-  max-width: 48rem;
-  font-size: 0.88rem;
-  line-height: 1.55;
-}
-
-.petasos-verdict-step {
-  margin: 0;
-  font-size: 0.82rem;
-  color: var(--color-text-secondary, var(--color-muted-foreground));
-}
-
-.petasos-verdict-step span {
-  font-weight: 600;
-  color: var(--color-foreground, var(--midground));
-}
-
-.petasos-verdict-actions {
-  margin-top: 0.25rem;
-}
-
-.petasos-verdict-meta {
-  margin: 0.25rem 0 0;
-  font-size: 0.78rem;
-  color: var(--color-text-secondary, var(--color-muted-foreground));
-}
-
-.petasos-verdict-meta strong {
-  font-weight: 600;
-  color: var(--color-foreground, var(--midground));
-}
-
-.petasos-verdict-side {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.6rem;
-  padding-left: 1.25rem;
-  border-left: 1px solid var(--color-border);
-}
-
-/* ---- Overview: the two choices -------------------------------------- */
-
-.petasos-options {
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-  margin: 0;
-  padding: 0;
-  border: 0;
-  min-width: 0;
-}
-
-.petasos-option {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 0.75rem;
-  align-items: start;
-  padding: 0.5rem 0.75rem;
-  border: 1px solid var(--color-border);
-  cursor: pointer;
-  transition: background-color 120ms ease;
-}
-
-.petasos-option:hover {
-  background: var(--color-accent, var(--color-card));
-}
-
-.petasos-option-chosen {
-  border-color: var(--midground);
-  box-shadow: inset 3px 0 0 var(--midground);
-}
-
-.petasos-option input {
-  margin-top: 0.2rem;
-  accent-color: var(--midground);
-  width: 0.95rem;
-  height: 0.95rem;
-}
-
-.petasos-option-text {
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-  min-width: 0;
-}
-
-.petasos-option-name {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  font-weight: 600;
-  font-size: 0.88rem;
-}
-
-.petasos-option-plain {
-  font-size: 0.8rem;
-  line-height: 1.5;
-  color: var(--color-text-secondary, var(--color-muted-foreground));
-}
-
-.petasos-option-meta {
-  font-size: 0.72rem;
-  color: var(--color-text-tertiary, var(--color-muted-foreground));
-}
-
-.petasos-option-tag {
-  font-size: 0.68rem;
-}
-
-/* ---- Change lists (preview and review) ------------------------------ */
-
-.petasos-preview {
-  border-color: var(--midground);
-}
-
-.petasos-changes {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  border-top: 1px solid var(--color-border);
-}
-
-.petasos-change {
-  display: grid;
-  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) auto;
-  gap: 1rem;
-  align-items: center;
-  padding: 0.55rem 0;
-  border-bottom: 1px solid var(--color-border);
-}
-
-.petasos-change-name {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-  min-width: 0;
-  font-size: 0.82rem;
-  line-height: 1.45;
-}
-
-.petasos-diff {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  font-family: var(--theme-font-mono);
-  font-size: 0.74rem;
-  line-height: 1.55;
-  min-width: 0;
-  word-break: break-all;
-}
-
-.petasos-diff-remove {
-  color: var(--color-text-tertiary, var(--color-muted-foreground));
-  text-decoration: line-through;
-}
-
-.petasos-change-values {
-  display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  font-family: var(--theme-font-mono);
-  font-size: 0.8rem;
-  min-width: 0;
-  word-break: break-word;
-}
-
-.petasos-before {
-  color: var(--color-text-tertiary, var(--color-muted-foreground));
-  text-decoration: line-through;
-}
-
-.petasos-after {
-  font-weight: 700;
-}
-
-.petasos-arrow {
-  color: var(--color-text-tertiary, var(--color-muted-foreground));
-}
-
-.petasos-change-tags {
-  display: flex;
-  gap: 0.35rem;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-}
-
-/* ---- Scanners ------------------------------------------------------- */
-
-.petasos-scanners {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-.petasos-scanner {
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-  padding: 0.7rem 0;
-  border-bottom: 1px solid var(--color-border);
-}
-
-.petasos-scanner:first-child {
-  padding-top: 0;
-}
-
-.petasos-scanner:last-child {
-  border-bottom: 0;
-  padding-bottom: 0;
-}
-
-.petasos-scanner-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-}
-
-.petasos-scanner-name {
-  font-weight: 600;
-  font-size: 0.88rem;
-}
-
-.petasos-scanner-tags {
-  display: flex;
-  gap: 0.35rem;
-}
-
-.petasos-scanner-text {
-  margin: 0;
-  font-size: 0.8rem;
-  line-height: 1.5;
-  color: var(--color-text-secondary, var(--color-muted-foreground));
-}
-
-.petasos-fix {
-  padding: 0.6rem 0.75rem;
-  border: 1px solid var(--color-border);
-  font-size: 0.8rem;
-  line-height: 1.5;
-}
-
-.petasos-fix p {
-  margin: 0.2rem 0;
-}
-
-/* ---- Recent activity tiles ------------------------------------------ */
-
-.petasos-tiles {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  border: 1px solid var(--color-border);
-}
-
-.petasos-tile {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.2rem;
-  padding: 0.65rem 0.75rem;
-  background: transparent;
-  border: 0;
-  border-right: 1px solid var(--color-border);
-  color: inherit;
-  cursor: pointer;
-  text-align: left;
-}
-
-.petasos-tile:last-child {
-  border-right: 0;
-}
-
-.petasos-tile:hover {
-  background: var(--color-accent, var(--color-card));
-}
-
-.petasos-tile-value {
-  font-family: var(--font-rules-expanded);
-  font-size: 1.35rem;
-  font-weight: 700;
-  line-height: 1.1;
-}
-
-.petasos-tile-label {
-  font-size: 0.72rem;
-  color: var(--color-text-secondary, var(--color-muted-foreground));
-}
-
-.petasos-mini-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-.petasos-mini-row {
-  display: grid;
-  grid-template-columns: 5.5rem minmax(0, 1fr) auto;
-  gap: 0.75rem;
-  align-items: center;
-  width: 100%;
-  padding: 0.45rem 0.25rem;
-  background: transparent;
-  border: 0;
-  border-bottom: 1px solid var(--color-border);
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.petasos-mini-row:hover {
-  background: var(--color-accent, var(--color-card));
-}
-
-.petasos-mini-when {
-  font-family: var(--theme-font-mono);
-  font-size: 0.72rem;
-  color: var(--color-text-tertiary, var(--color-muted-foreground));
-}
-
-.petasos-mini-text {
-  font-size: 0.8rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* ---- Key / value lists ---------------------------------------------- */
+/* ---- Key and value lists -------------------------------------------- */
 
 .petasos-kv {
   display: grid;
   grid-template-columns: minmax(7rem, max-content) minmax(0, 1fr);
-  gap: 0.5rem 1rem;
+  gap: 0.45rem 1.25rem;
   margin: 0;
-  font-size: 0.8rem;
-  line-height: 1.5;
+  font-size: 0.86rem;
 }
 
 .petasos-kv dt {
   font-family: var(--font-mondwest);
-  letter-spacing: 0.08em;
-  font-size: 0.72rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--color-text-secondary, var(--color-muted-foreground));
+  color: var(--text-secondary, var(--midground));
   padding-top: 0.1rem;
 }
 
 .petasos-kv dd {
   margin: 0;
   min-width: 0;
-  word-break: break-word;
 }
 
-/* ---- Segmented filters, as on the Logs page ------------------------- */
-
-.petasos-segmented {
-  display: inline-flex;
-  align-items: stretch;
-  flex-wrap: wrap;
+.petasos-kv-stacked {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.15rem;
 }
 
-.petasos-segmented-label {
-  display: inline-flex;
-  align-items: center;
-  padding-right: 0.75rem;
-  font-family: var(--font-mondwest);
-  font-size: 0.72rem;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--color-text-secondary, var(--color-muted-foreground));
+.petasos-kv-stacked dd {
+  margin-bottom: 0.6rem;
 }
 
-.petasos-segment {
-  padding: 0.4rem 0.8rem;
+/* ---- Overview: status ----------------------------------------------- */
+
+.petasos-verdict {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(12rem, 16rem);
+  gap: 1.5rem;
+  padding: 1.1rem 1.2rem;
   border: 1px solid var(--color-border);
-  margin-left: -1px;
-  background: transparent;
-  color: inherit;
+  background: var(--color-card);
+}
+
+.petasos-verdict-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  min-width: 0;
+}
+
+.petasos-verdict-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.petasos-verdict-title {
+  margin: 0;
+  font-size: 1.08rem;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.petasos-verdict-reason {
+  max-width: 52rem;
+  font-size: 0.88rem;
+}
+
+.petasos-verdict-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding-left: 1.25rem;
+  border-left: 1px solid var(--color-border);
+}
+
+.petasos-coverage {
+  margin-top: 0.35rem;
+}
+
+/* ---- Overview: last 24 hours ---------------------------------------- */
+
+.petasos-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 2.25rem;
+  margin: 0;
+}
+
+.petasos-stat dt {
   font-family: var(--font-mondwest);
-  font-size: 0.75rem;
-  letter-spacing: 0.08em;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
+  color: var(--text-secondary, var(--midground));
+}
+
+.petasos-stat dd {
+  margin: 0;
+}
+
+.petasos-stat-value {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  font-family: var(--font-rules-expanded);
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1.2;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 4px;
+}
+
+.petasos-stat-alarm .petasos-stat-value,
+.petasos-stat-alarm dt {
+  color: color-mix(in srgb, var(--color-destructive) 45%, white);
+}
+
+.petasos-light .petasos-stat-alarm .petasos-stat-value,
+.petasos-light .petasos-stat-alarm dt {
+  color: color-mix(in srgb, var(--color-destructive) 70%, black);
+}
+
+.petasos-mini-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--color-border);
+}
+
+.petasos-mini-row {
+  display: grid;
+  grid-template-columns: 5.5rem minmax(0, 1fr) auto 1rem;
+  align-items: center;
+  gap: 0.9rem;
+  width: 100%;
+  padding: 0.55rem 0.15rem;
+  border: 0;
+  border-bottom: 1px solid var(--color-border);
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 0.86rem;
+  text-align: left;
   cursor: pointer;
 }
 
-.petasos-segment:hover {
-  background: var(--color-accent, var(--color-card));
+.petasos-mini-row:hover {
+  background: color-mix(in srgb, var(--midground) 6%, transparent);
 }
 
-.petasos-segment-on {
-  background: var(--midground);
-  color: var(--background-base);
-  border-color: var(--midground);
+.petasos-mini-when {
+  font-family: var(--theme-font-mono);
+  font-size: 0.78rem;
+  color: var(--text-secondary, var(--midground));
 }
 
-.petasos-segment-on:hover {
-  background: var(--midground);
+.petasos-mini-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-/* ---- Activity ------------------------------------------------------- */
+.petasos-repeat {
+  font-family: var(--theme-font-mono);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.petasos-chevron {
+  color: var(--text-secondary, var(--midground));
+}
+
+/* ---- Overview: the two choices -------------------------------------- */
+
+.petasos-setup {
+  gap: 0.6rem 1.75rem;
+  align-items: start;
+}
+
+.petasos-setup .petasos-optlist {
+  align-self: start;
+}
+
+.petasos-choose {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.petasos-choose .petasos-segmented {
+  margin-top: 0.35rem;
+  align-self: flex-start;
+}
+
+.petasos-optlist {
+  list-style: none;
+  margin: 0.4rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.petasos-opt {
+  display: grid;
+  grid-template-columns: 8.5rem minmax(0, 1fr);
+  gap: 0.75rem;
+  font-size: 0.83rem;
+  line-height: 1.45;
+  color: var(--text-secondary, var(--midground));
+}
+
+.petasos-opt-name {
+  font-weight: 600;
+}
+
+.petasos-opt-on {
+  color: var(--midground);
+}
+
+.petasos-opt-on .petasos-opt-name {
+  font-weight: 800;
+}
+
+.petasos-opt-note {
+  font-style: italic;
+}
+
+.petasos-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--color-border);
+}
+
+.petasos-consequence {
+  font-size: 0.9rem;
+  max-width: 56rem;
+}
+
+.petasos-when {
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+
+.petasos-disclosure {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.6rem;
+  font-size: 0.85rem;
+}
+
+/* A change: label and sentence above, value at full width below, where it
+ * would come from beneath. */
+.petasos-changes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  width: 100%;
+}
+
+.petasos-change {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.65rem 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.petasos-change:first-child {
+  border-top: 1px solid var(--color-border);
+}
+
+.petasos-change-name {
+  font-weight: 700;
+  font-size: 0.88rem;
+}
+
+.petasos-change-values {
+  font-size: 0.88rem;
+}
+
+.petasos-before {
+  text-decoration: line-through;
+  color: var(--text-secondary, var(--midground));
+}
+
+.petasos-arrow {
+  color: var(--text-secondary, var(--midground));
+}
+
+.petasos-diff {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  font-size: 0.85rem;
+}
+
+.petasos-diff-sign {
+  display: inline-block;
+  width: 1rem;
+  font-weight: 700;
+}
+
+.petasos-provenance {
+  font-size: 0.78rem;
+  color: var(--text-tertiary, var(--midground));
+}
+
+.petasos-key {
+  font-family: var(--theme-font-mono);
+  font-size: 0.76rem;
+}
+
+/* ---- Overview: checks ------------------------------------------------ */
+
+.petasos-scanners {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.petasos-scanner {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.3rem;
+  padding: 0.65rem 0;
+  border-bottom: 1px solid var(--color-border);
+  font-size: 0.86rem;
+}
+
+.petasos-scanner:last-child {
+  border-bottom: 0;
+}
+
+.petasos-scanner-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+}
+
+.petasos-scanner-name {
+  font-weight: 700;
+  margin-right: auto;
+}
+
+.petasos-fix {
+  font-size: 0.83rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+/* ---- Activity -------------------------------------------------------- */
 
 .petasos-filters {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
-  align-items: flex-start;
+  gap: 0.8rem;
+}
+
+.petasos-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem 1.25rem;
+}
+
+.petasos-filter-group {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.petasos-search {
+  position: relative;
+  flex: 1 1 18rem;
+  max-width: 28rem;
+}
+
+.petasos-search input {
+  padding-left: 2rem;
+}
+
+.petasos-search-icon {
+  position: absolute;
+  left: 0.6rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-secondary, var(--midground));
+  pointer-events: none;
+}
+
+.petasos-tz {
+  align-self: center;
 }
 
 .petasos-filter-selects {
   display: grid;
-  grid-template-columns: repeat(4, minmax(10rem, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0.75rem;
-  width: 100%;
 }
 
 .petasos-choice {
@@ -809,11 +1018,58 @@
 }
 
 .petasos-split-open {
-  grid-template-columns: minmax(0, 1.55fr) minmax(20rem, 1fr);
+  grid-template-columns: minmax(0, 1.3fr) minmax(24rem, 1fr);
+}
+
+/* With an event open, each row folds to two lines so the sentence keeps
+ * its width: what happened and the outcome, then when and the severity. */
+.petasos-split-open .petasos-event-header {
+  display: none;
+}
+
+.petasos-split-open .petasos-event {
+  grid-template-columns: minmax(0, 1fr) auto 1rem;
+  row-gap: 0.3rem;
+}
+
+.petasos-split-open .petasos-event-what {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.petasos-split-open .petasos-event-outcome {
+  grid-column: 2;
+  grid-row: 1;
+  justify-self: end;
+}
+
+.petasos-split-open .petasos-event-when {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+.petasos-split-open .petasos-event-when .petasos-block {
+  display: inline;
+  margin-right: 0.6rem;
+}
+
+.petasos-split-open .petasos-event-severity {
+  grid-column: 2;
+  grid-row: 2;
+  justify-self: end;
+}
+
+.petasos-split-open .petasos-chevron {
+  grid-column: 3;
+  grid-row: 1 / span 2;
+}
+
+.petasos-split-open .petasos-group-bar {
+  padding-left: 0.6rem;
 }
 
 .petasos-split-even {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .petasos-split-main {
@@ -821,33 +1077,26 @@
 }
 
 .petasos-list-card {
-  padding: 0.25rem 0;
-}
-
-.petasos-list-card > .petasos-empty {
-  margin: 1rem;
+  padding: 0.4rem 1rem 0.6rem;
 }
 
 .petasos-event-header,
 .petasos-event {
   display: grid;
-  grid-template-columns: 6.5rem minmax(0, 1fr) auto;
-  gap: 1rem;
+  grid-template-columns: 8.5rem minmax(0, 1fr) 6rem 11.5rem 1rem;
   align-items: center;
+  gap: 1rem;
 }
 
 .petasos-event-header {
-  padding: 0.5rem 1rem;
+  padding: 0.6rem 0.6rem;
   border-bottom: 1px solid var(--color-border);
   font-family: var(--font-mondwest);
-  font-size: 0.7rem;
-  letter-spacing: 0.1em;
+  font-size: 0.76rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--color-text-tertiary, var(--color-muted-foreground));
-}
-
-.petasos-event-header span:last-child {
-  text-align: right;
+  color: var(--text-secondary, var(--midground));
 }
 
 .petasos-events {
@@ -856,12 +1105,24 @@
   padding: 0;
 }
 
+.petasos-event-item {
+  border-bottom: 1px solid var(--color-border);
+}
+
+.petasos-events-nested {
+  border-top: 1px dashed var(--color-border);
+  margin-left: 1.5rem;
+}
+
+.petasos-events-nested .petasos-event-item:last-child {
+  border-bottom: 0;
+}
+
 .petasos-event {
   width: 100%;
-  padding: 0.65rem 1rem;
-  background: transparent;
+  padding: 0.65rem 0.6rem;
   border: 0;
-  border-bottom: 1px solid var(--color-border);
+  background: none;
   color: inherit;
   font: inherit;
   text-align: left;
@@ -869,74 +1130,67 @@
 }
 
 .petasos-event:hover {
-  background: var(--color-accent, var(--color-card));
+  background: color-mix(in srgb, var(--midground) 6%, transparent);
 }
 
-.petasos-event-selected {
-  background: var(--color-accent, var(--color-card));
-  box-shadow: inset 3px 0 0 var(--midground);
+.petasos-event:hover .petasos-chevron {
+  color: var(--midground);
+}
+
+.petasos-event-selected,
+.petasos-event-selected:hover {
+  background: color-mix(in srgb, var(--midground) 11%, transparent);
 }
 
 .petasos-event-when {
   font-family: var(--theme-font-mono);
-  font-size: 0.75rem;
-  color: var(--color-text-secondary, var(--color-muted-foreground));
-}
-
-.petasos-event-clock {
-  color: var(--color-text-tertiary, var(--color-muted-foreground));
-  font-size: 0.7rem;
+  font-size: 0.78rem;
+  line-height: 1.45;
 }
 
 .petasos-event-what {
   display: flex;
   flex-direction: column;
-  gap: 0.2rem;
+  gap: 0.15rem;
   min-width: 0;
 }
 
 .petasos-event-summary {
-  font-size: 0.86rem;
-  line-height: 1.4;
+  font-size: 0.9rem;
 }
 
 .petasos-event-meta {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.6rem;
-  font-size: 0.74rem;
-  color: var(--color-text-tertiary, var(--color-muted-foreground));
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--text-secondary, var(--midground));
 }
 
-.petasos-event-tags {
+.petasos-group-bar {
   display: flex;
-  gap: 0.35rem;
-  justify-content: flex-end;
-}
-
-.petasos-event-noseverity {
-  min-width: 2rem;
-  text-align: center;
-  color: var(--color-text-tertiary, var(--color-muted-foreground));
+  align-items: center;
+  gap: 1rem;
+  padding: 0 0.6rem 0.6rem 10.1rem;
+  font-size: 0.8rem;
 }
 
 .petasos-more {
   display: flex;
   justify-content: center;
-  padding: 0.75rem;
+  padding-top: 0.75rem;
 }
 
 .petasos-detail {
+  position: sticky;
+  top: 0.5rem;
   display: flex;
   flex-direction: column;
-  gap: 0.85rem;
-  padding: 1rem;
+  gap: 0.75rem;
+  padding: 1rem 1.1rem;
   border: 1px solid var(--color-border);
-  border-top: 3px solid var(--midground);
   background: var(--color-card);
-  position: sticky;
-  top: 0;
   min-width: 0;
 }
 
@@ -949,179 +1203,112 @@
 .petasos-detail-title {
   margin: 0;
   font-size: 1rem;
-  font-weight: 600;
+  font-weight: 700;
   line-height: 1.4;
+}
+
+.petasos-detail-note {
+  font-size: 0.86rem;
+  font-weight: 600;
 }
 
 .petasos-raw summary {
   cursor: pointer;
-  font-size: 0.78rem;
-  color: var(--color-text-secondary, var(--color-muted-foreground));
+  font-size: 0.83rem;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.petasos-raw[open] summary {
   margin-bottom: 0.5rem;
 }
 
-/* ---- Try it --------------------------------------------------------- */
-
-.petasos-examples {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.4rem;
-}
-
-.petasos-examples .petasos-label {
-  margin-right: 0.35rem;
-}
-
-.petasos-chip {
-  padding: 0.3rem 0.6rem;
-  border: 1px solid var(--color-border);
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  font-size: 0.75rem;
-  cursor: pointer;
-}
-
-.petasos-chip:hover {
-  border-color: var(--midground);
-}
-
-.petasos-subtabs {
-  width: 100%;
-}
+/* ---- Try it ---------------------------------------------------------- */
 
 .petasos-textarea {
   width: 100%;
   padding: 0.6rem 0.75rem;
-  border: 1px solid var(--color-input, var(--color-border));
-  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--midground) 18%, transparent);
+  background: color-mix(in srgb, var(--background) 40%, transparent);
   color: inherit;
-  font-family: var(--theme-font-sans);
-  font-size: 0.85rem;
+  font: inherit;
+  font-size: 0.88rem;
   line-height: 1.5;
   resize: vertical;
 }
 
+.petasos-mono-area {
+  font-family: var(--theme-font-mono);
+  font-size: 0.82rem;
+}
+
 .petasos-textarea:disabled {
-  opacity: 0.6;
+  opacity: 0.55;
   cursor: not-allowed;
 }
 
-.petasos-mono-area {
-  font-family: var(--theme-font-mono);
-  font-size: 0.8rem;
+.petasos-field-error {
+  font-size: 0.83rem;
+  font-weight: 700;
+  color: color-mix(in srgb, var(--color-destructive) 45%, white);
 }
 
-.petasos-try-settings {
-  border: 1px solid var(--color-border);
-  padding: 0.6rem 0.75rem;
-}
-
-.petasos-try-settings[open] {
-  display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
-}
-
-.petasos-try-settings summary {
-  cursor: pointer;
-  font-size: 0.82rem;
-  font-weight: 600;
+.petasos-light .petasos-field-error {
+  color: color-mix(in srgb, var(--color-destructive) 70%, black);
 }
 
 .petasos-decision {
   display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.75rem 0.9rem;
-  border: 1px solid var(--color-border);
-  border-left-width: 4px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.45rem;
 }
 
-.petasos-decision p {
-  margin: 0;
-  font-size: 0.85rem;
-  line-height: 1.45;
-}
-
-.petasos-decision .petasos-pill {
+.petasos-decision-text {
   font-size: 0.9rem;
-  padding: 0.4rem 0.65rem;
-}
-
-.petasos-decision-success {
-  border-left-color: var(--color-success);
-}
-
-.petasos-decision-warning {
-  border-left-color: var(--color-warning);
-}
-
-.petasos-decision-destructive {
-  border-left-color: var(--color-destructive);
 }
 
 .petasos-compare {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  border: 1px solid var(--color-border);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.25rem;
 }
 
-.petasos-compare > div {
+.petasos-compare-cell {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  gap: 0.35rem;
-  padding: 0.6rem 0.75rem;
+  gap: 0.45rem;
 }
 
-.petasos-compare > div + div {
+.petasos-compare-cell + .petasos-compare-cell {
+  padding-left: 1.25rem;
   border-left: 1px solid var(--color-border);
-}
-
-.petasos-subhead {
-  margin: 0.35rem 0 0;
-  font-family: var(--font-mondwest);
-  font-size: 0.72rem;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  font-weight: 600;
-  color: var(--color-text-secondary, var(--color-muted-foreground));
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-}
-
-.petasos-subhead::after {
-  content: "";
-  flex: 1;
-  border-top: 1px solid var(--color-border);
 }
 
 .petasos-message,
 .petasos-marked {
   margin: 0;
-  padding: 0.65rem 0.75rem;
+  padding: 0.65rem 0.8rem;
   border: 1px solid var(--color-border);
   font-family: var(--theme-font-mono);
-  font-size: 0.78rem;
-  line-height: 1.6;
+  font-size: 0.8rem;
+  line-height: 1.55;
   white-space: pre-wrap;
-  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .petasos-mark {
-  background: color-mix(in srgb, var(--color-destructive) 22%, transparent);
+  background: color-mix(in srgb, var(--color-destructive) 18%, transparent);
   color: inherit;
-  border-bottom: 2px solid var(--color-destructive);
-  padding: 0 0.1rem;
+  text-decoration: underline;
+  text-decoration-color: var(--color-destructive);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
 }
 
 .petasos-mark-n {
-  font-size: 0.62rem;
   font-weight: 700;
-  margin-right: 0.15rem;
+  margin-right: 0.1rem;
 }
 
 .petasos-findings {
@@ -1130,26 +1317,22 @@
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
 }
 
 .petasos-finding {
   display: grid;
   grid-template-columns: 1.6rem minmax(0, 1fr);
   gap: 0.6rem;
-  padding: 0.6rem 0.7rem;
-  border: 1px solid var(--color-border);
+  padding: 0.6rem 0;
+  border-bottom: 1px solid var(--color-border);
 }
 
 .petasos-finding-n {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.4rem;
-  height: 1.4rem;
-  border: 1px solid var(--color-border);
   font-family: var(--theme-font-mono);
-  font-size: 0.72rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-align: center;
+  padding-top: 0.05rem;
 }
 
 .petasos-finding-body {
@@ -1161,85 +1344,92 @@
 
 .petasos-finding-head {
   display: flex;
-  justify-content: space-between;
   align-items: flex-start;
+  justify-content: space-between;
   gap: 0.75rem;
 }
 
 .petasos-finding-sentence {
-  font-size: 0.85rem;
-  line-height: 1.45;
+  font-size: 0.9rem;
 }
 
 .petasos-finding-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-  font-size: 0.74rem;
-  color: var(--color-text-tertiary, var(--color-muted-foreground));
-}
-
-.petasos-finding-actions {
-  display: flex;
-  gap: 1rem;
+  font-size: 0.8rem;
+  color: var(--text-secondary, var(--midground));
 }
 
 .petasos-took-part {
   list-style: none;
   margin: 0;
   padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
+  display: grid;
+  grid-template-columns: max-content max-content minmax(0, 1fr);
+  gap: 0.45rem 0.85rem;
+  align-items: center;
 }
 
 .petasos-took-part li {
-  display: grid;
-  grid-template-columns: 5.5rem 7rem minmax(0, 1fr);
-  gap: 0.6rem;
-  align-items: baseline;
-  font-size: 0.8rem;
+  display: contents;
 }
 
 .petasos-took-name {
-  font-weight: 600;
+  font-weight: 700;
+  font-size: 0.86rem;
 }
 
-.petasos-field-error {
+.petasos-quieted {
+  list-style: none;
   margin: 0;
-  font-size: 0.78rem;
-  font-weight: 600;
-  color: color-mix(in srgb, var(--color-destructive) 75%, var(--midground));
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.83rem;
 }
 
-.petasos-field-error::before {
-  content: "Problem: ";
+.petasos-quieted li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  align-items: baseline;
 }
 
-/* ---- Settings ------------------------------------------------------- */
+.petasos-advanced summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.petasos-advanced[open] {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+/* ---- Settings: Config's layout -------------------------------------- */
 
 .petasos-settings-toolbar {
   display: flex;
-  align-items: center;
-  gap: 1rem;
   flex-wrap: wrap;
-}
-
-.petasos-search {
-  max-width: 22rem;
-}
-
-.petasos-check {
-  display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
-  font-size: 0.82rem;
-  cursor: pointer;
+  gap: 0.75rem 1.5rem;
+}
+
+.petasos-settings-toolbar .petasos-search {
+  max-width: 26rem;
+}
+
+.petasos-savebox {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-left: auto;
 }
 
 .petasos-settings-body {
   display: grid;
-  grid-template-columns: 14rem minmax(0, 1fr);
+  grid-template-columns: 13.5rem minmax(0, 1fr);
   gap: 1rem;
   align-items: start;
 }
@@ -1247,241 +1437,217 @@
 .petasos-sections {
   display: flex;
   flex-direction: column;
-  gap: 1px;
-  padding: 0.5rem;
+  padding: 0.6rem 0.5rem;
   border: 1px solid var(--color-border);
-  background: color-mix(in srgb, var(--color-muted, var(--color-card)) 20%, transparent);
+  background: var(--color-card);
   position: sticky;
-  top: 0;
+  top: 0.5rem;
 }
 
 .petasos-sections-title {
   padding: 0.25rem 0.5rem 0.4rem;
-  font-family: var(--font-mondwest);
-  font-size: 0.72rem;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--color-text-tertiary, var(--color-muted-foreground));
+  font-size: 0.74rem;
 }
 
 .petasos-section {
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  padding: 0.3rem 0.5rem;
-  background: transparent;
+  padding: 0.35rem 0.5rem;
   border: 0;
-  color: var(--color-text-secondary, var(--color-muted-foreground));
+  background: none;
+  color: var(--text-secondary, var(--midground));
   font-family: var(--theme-font-mono);
-  font-size: 0.78rem;
+  font-size: 0.8rem;
   text-align: left;
   cursor: pointer;
 }
 
 .petasos-section:hover {
-  color: var(--color-foreground, var(--midground));
-  background: var(--color-accent, var(--color-card));
+  background: color-mix(in srgb, var(--midground) 7%, transparent);
+  color: var(--midground);
 }
 
-.petasos-section-on {
-  color: var(--color-foreground, var(--midground));
+.petasos-section-on,
+.petasos-section-on:hover {
   background: color-mix(in srgb, var(--midground) 12%, transparent);
+  color: var(--midground);
+  font-weight: 700;
 }
 
 .petasos-section-name {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  margin-right: auto;
 }
 
 .petasos-section-changed {
   font-size: 0.55rem;
-  color: var(--midground);
 }
 
 .petasos-section-count {
-  font-size: 0.72rem;
-  color: var(--color-text-tertiary, var(--color-muted-foreground));
+  font-size: 0.74rem;
+  color: var(--text-tertiary, var(--midground));
 }
 
 .petasos-settings-main {
   min-width: 0;
 }
 
-.petasos-basics {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.75rem;
-}
-
-.petasos-group + .petasos-group {
-  margin-top: 0.5rem;
+.petasos-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
 }
 
 .petasos-group-head {
   display: flex;
-  align-items: baseline;
-  gap: 0.75rem;
-  padding: 0.5rem 0 0.4rem;
-  border-bottom: 1px solid var(--color-border);
+  align-items: center;
+  gap: 0.6rem;
+  padding-top: 0.75rem;
+}
+
+.petasos-group-name {
   font-family: var(--font-mondwest);
-  font-size: 0.75rem;
-  letter-spacing: 0.1em;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  font-weight: 600;
+  color: var(--text-secondary, var(--midground));
 }
 
-.petasos-group-help {
-  font-family: var(--theme-font-sans);
-  font-size: 0.75rem;
-  letter-spacing: 0;
-  text-transform: none;
-  font-weight: 400;
-  color: var(--color-text-tertiary, var(--color-muted-foreground));
+.petasos-group-rule {
+  flex: 1;
+  border-top: 1px solid var(--color-border);
 }
 
+/* One field, as Config draws it: label, key, sentence, control beneath. */
 .petasos-field {
-  display: grid;
-  grid-template-columns: minmax(0, 1.25fr) minmax(14rem, 1fr);
-  gap: 1.25rem;
-  padding: 0.85rem 0.5rem;
-  border-bottom: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.7rem 0 0.75rem;
+  scroll-margin: 1rem;
 }
 
-.petasos-field:last-child {
-  border-bottom: 0;
-}
-
-.petasos-field-staged {
-  box-shadow: inset 3px 0 0 var(--color-warning);
-}
-
-.petasos-field-invalid {
-  box-shadow: inset 3px 0 0 var(--color-destructive);
-}
-
-.petasos-field-focused {
-  background: color-mix(in srgb, var(--midground) 6%, transparent);
+.petasos-field-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1.5rem;
 }
 
 .petasos-field-text {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 0.1rem;
   min-width: 0;
 }
 
 .petasos-field-label {
   font-family: var(--font-mondwest);
-  font-size: 0.8rem;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  font-size: 0.86rem;
   font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.petasos-field-key {
+  font-family: var(--theme-font-mono);
+  font-size: 0.76rem;
+  color: var(--text-tertiary, var(--midground));
 }
 
 .petasos-field-help {
-  margin: 0;
-  font-size: 0.8rem;
-  line-height: 1.5;
-  color: var(--color-text-secondary, var(--color-muted-foreground));
+  font-size: 0.82rem;
+  color: var(--text-secondary, var(--midground));
+  max-width: 60rem;
 }
 
-.petasos-field-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-  margin-top: 0.15rem;
+.petasos-field-switch {
+  padding-top: 0.15rem;
 }
 
 .petasos-field-control {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
   min-width: 0;
 }
 
-.petasos-field-actions {
-  display: flex;
-  gap: 1rem;
+.petasos-field-staged .petasos-field-label::after {
+  content: " •";
 }
 
-.petasos-savebar {
-  position: sticky;
-  bottom: 0;
-  z-index: 5;
-  display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
-  padding: 0.75rem 1rem;
-  border: 1px solid var(--midground);
-  background: var(--background-base);
-  box-shadow: 0 -6px 18px color-mix(in srgb, var(--background-base) 70%, transparent);
+.petasos-field-invalid input,
+.petasos-field-invalid textarea {
+  border-color: var(--color-destructive) !important;
 }
 
-.petasos-savebar-invalid {
-  border-color: var(--color-destructive);
+.petasos-field-focused {
+  background: color-mix(in srgb, var(--midground) 5%, transparent);
+  margin: 0 -0.6rem;
+  padding-left: 0.6rem;
+  padding-right: 0.6rem;
 }
 
-.petasos-savebar-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  flex-wrap: wrap;
+.petasos-review .petasos-panel-body {
+  gap: 0.75rem;
 }
 
-.petasos-savebar-text {
-  margin: 0;
+.petasos-rule-helper .petasos-kv {
   font-size: 0.85rem;
 }
 
-.petasos-rule-helper {
-  border-color: var(--midground);
-}
-
-/* ---- Narrow widths --------------------------------------------------- */
+/* ---- Narrow ---------------------------------------------------------- */
 
 @media (max-width: 1100px) {
-  .petasos-grid-2,
   .petasos-split-open,
-  .petasos-split-even {
+  .petasos-split-even,
+  .petasos-grid-3 {
     grid-template-columns: minmax(0, 1fr);
-  }
-  .petasos-filter-selects {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .petasos-detail {
     position: static;
   }
+  .petasos-filter-selects {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
-@media (max-width: 860px) {
-  .petasos-verdict {
+@media (max-width: 1000px) {
+  .petasos-grid-2,
+  .petasos-verdict,
+  .petasos-settings-body,
+  .petasos-compare {
     grid-template-columns: minmax(0, 1fr);
   }
   .petasos-verdict-side {
     padding-left: 0;
     border-left: 0;
-    border-top: 1px solid var(--color-border);
-    padding-top: 0.75rem;
+    flex-direction: row;
+    align-items: center;
   }
-  .petasos-settings-body,
-  .petasos-field,
-  .petasos-basics,
-  .petasos-change {
-    grid-template-columns: minmax(0, 1fr);
+  .petasos-compare-cell + .petasos-compare-cell {
+    padding-left: 0;
+    border-left: 0;
   }
   .petasos-sections {
     position: static;
+    flex-direction: row;
+    flex-wrap: wrap;
   }
-  .petasos-tiles {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .petasos-event-header {
+    display: none;
   }
-  .petasos-tile:nth-child(2) {
-    border-right: 0;
+  .petasos-event {
+    grid-template-columns: minmax(0, 1fr) auto 1rem;
   }
-  .petasos-tile:nth-child(-n + 2) {
-    border-bottom: 1px solid var(--color-border);
+  .petasos-event-when {
+    grid-column: 1 / -1;
+  }
+  .petasos-event-severity {
+    display: none;
+  }
+  .petasos-group-bar {
+    padding-left: 0.6rem;
+  }
+  .petasos-opt {
+    grid-template-columns: 7rem minmax(0, 1fr);
   }
 }

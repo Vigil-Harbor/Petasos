@@ -2,10 +2,12 @@
 // Kit: the Hermes SDK, the API client, and small shared pieces.
 //
 // Everything visual comes from Hermes: its React, its components (Card,
-// Button, Badge, Select, Input, Tabs, ConfirmDialog, Toast), its fonts and
-// its colour variables. Petasos adds layout rules in style.css and nothing
-// else. Everything Petasos knows (roles, levels, fields, rules, sentences)
-// comes from the plugin's API at /api/plugins/petasos/.
+// Button, Badge, Select, Input, Label, ConfirmDialog, Toast), its fonts and
+// its colour variables. Where the SDK does not export a Hermes control
+// (Segmented, Switch), the tab draws the same markup with the same tokens.
+// Everything Petasos knows (roles, levels, settings, labels, rules,
+// sentences) comes from the plugin's API at /api/plugins/petasos/. This file
+// holds interface wording only.
 // ---------------------------------------------------------------------------
 
 var SDK = window.__HERMES_PLUGIN_SDK__;
@@ -167,145 +169,134 @@ function usePoll(load, ms, deps) {
 }
 
 // ---------------------------------------------------------------------------
-// Words. The two choices a casual user makes get plain copy here, keyed by
-// the API's names. An unknown name falls back to the API's own sentence, so
-// a new role or level still shows correctly.
+// Names. Every name a person reads comes from the API's labels. These look
+// them up; a name the API did not label is shown as it was sent.
 // ---------------------------------------------------------------------------
 
-var JOB_COPY = {
-  general: {
-    label: "General",
-    plain: "A bit of everything. Every check runs at its usual sensitivity.",
-  },
-  coding: {
-    label: "Coding",
-    plain:
-      "Writes and runs code on your machine. Checks that trip on ordinary code are quieter, " +
-      "and risky commands wait for you to approve them.",
-  },
-  research: {
-    label: "Research",
-    plain:
-      "Reads a lot of web pages. Ignores the odd characters pages are full of, " +
-      "and only reports what it is fairly sure of.",
-  },
-  support: {
-    label: "Customer support",
-    plain:
-      "Talks to people outside your team. Treats attempts to take over the agent as " +
-      "serious, and watches for names, emails and phone numbers.",
-  },
-  admin: {
-    label: "Admin",
-    plain:
-      "Has powerful access. Watches for personal and financial details such as names, " +
-      "card numbers and bank accounts.",
-  },
-};
-
-var LEVEL_COPY = {
-  relaxed: {
-    label: "Relaxed",
-    plain:
-      "Fewer interruptions. A conversation has to look clearly risky before Petasos " +
-      "stops it.",
-  },
-  balanced: {
-    label: "Balanced",
-    plain:
-      "Stops clear attacks, and steps in sooner when a conversation keeps looking risky.",
-  },
-  strict: {
-    label: "Strict",
-    plain:
-      "Steps in earliest. Hides personal details before text moves on, and blocks " +
-      "whenever a check cannot run.",
-  },
-};
-
-function titleCase(word) {
-  var text = String(word || "").replace(/[_-]+/g, " ").trim();
-  return text ? text.charAt(0).toUpperCase() + text.slice(1) : "";
+function roleOf(catalog, name) {
+  return ((catalog && catalog.roles) || []).filter(function (role) {
+    return role.name === name;
+  })[0];
 }
 
-function jobLabel(name) {
-  return (JOB_COPY[name] && JOB_COPY[name].label) || titleCase(name);
+function levelOf(catalog, name) {
+  return ((catalog && catalog.levels) || []).filter(function (level) {
+    return level.name === name;
+  })[0];
 }
 
-function levelLabel(name) {
-  return (LEVEL_COPY[name] && LEVEL_COPY[name].label) || titleCase(name);
+function roleLabel(catalog, name) {
+  var role = roleOf(catalog, name);
+  return (role && role.label) || name || "";
 }
 
-// A setting's label is its last path part in words: tools.dangerous_posture
-// reads "Dangerous posture". The API's help sentence carries the meaning.
-function fieldLabel(path) {
-  var last = String(path).split(".").pop().replace(/([a-z])(\d)/gi, "$1 $2");
-  return titleCase(last);
+function levelLabel(catalog, name) {
+  var level = levelOf(catalog, name);
+  return (level && level.label) || name || "";
 }
 
-function sectionLabel(path) {
-  if (!path) return "General";
-  return String(path).split(".").map(titleCase).join(" · ");
+function rowsByPath(rows) {
+  var found = {};
+  (rows || []).forEach(function (row) {
+    found[row.path] = row;
+  });
+  return found;
 }
 
-function originLabel(origin, stored) {
-  if (origin === "role") return "From the job: " + jobLabel(stored && stored.role);
-  if (origin === "level") return "From strictness: " + levelLabel(stored && stored.level);
-  if (origin === "override") return "Your change";
+function sectionsByPath(catalog) {
+  var found = {};
+  ((catalog && catalog.sections) || []).forEach(function (item) {
+    found[item.path] = item;
+  });
+  return found;
+}
+
+function rowLabel(row) {
+  return (row && row.label) || (row && row.path) || "";
+}
+
+// Where a value comes from, in words. The job and strictness are named by
+// their labels.
+function originText(origin, stored, catalog) {
+  if (origin === "role") return "From the job (" + roleLabel(catalog, stored && stored.role) + ")";
+  if (origin === "level") return "From strictness (" + levelLabel(catalog, stored && stored.level) + ")";
+  if (origin === "override") return "Your setting";
   if (origin === "default") return "Default";
   return "Unknown";
 }
 
-function showValue(value) {
+// One value as a person reads it. A choice uses the API's label for it.
+function showValue(value, row) {
   if (value === null || value === undefined) return "not set";
-  if (value === true) return "on";
-  if (value === false) return "off";
+  if (row && row.choice_labels && Object.prototype.hasOwnProperty.call(row.choice_labels, String(value))) {
+    return row.choice_labels[String(value)];
+  }
+  if (value === true) return "On";
+  if (value === false) return "Off";
   if (Array.isArray(value)) return value.length ? value.join(", ") : "none";
   if (typeof value === "object") {
     var keys = Object.keys(value);
     if (!keys.length) return "none";
     return keys
       .map(function (key) {
-        return key + " → " + showValue(value[key]);
+        return key + ": " + showValue(value[key]);
       })
       .join(", ");
   }
   return String(value);
 }
 
-var SEVERITY_TONE = {
-  critical: "destructive",
-  high: "destructive",
-  medium: "warning",
-  low: "secondary",
-  info: "secondary",
-};
-
-function severityWord(severity) {
-  return severity ? titleCase(String(severity).toLowerCase()) : "";
+function plural(count, one, many) {
+  return count + " " + (count === 1 ? one : many || one + "s");
 }
 
-// Hermes's timeAgo takes unix seconds (its type comment says milliseconds).
+function capital(word) {
+  var text = String(word || "");
+  return text ? text.charAt(0).toUpperCase() + text.slice(1).toLowerCase() : "";
+}
+
+// ---------------------------------------------------------------------------
+// Time. Lists show a full date when the record spans days; details show the
+// year and the time zone. Relative age is secondary.
+// ---------------------------------------------------------------------------
+
 function whenText(seconds) {
   if (typeof seconds !== "number") return "";
+  // Hermes's timeAgo takes unix seconds (its type comment says milliseconds).
   return SDK.utils.timeAgo(seconds);
 }
 
-function clockTime(seconds) {
-  if (typeof seconds !== "number") return "";
-  return new Date(seconds * 1000).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+function sameDay(a, b) {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 }
 
-function exactTime(seconds) {
+function listTime(seconds) {
+  if (typeof seconds !== "number") return "";
+  var date = new Date(seconds * 1000);
+  var now = new Date();
+  var clock = date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  if (sameDay(date, now)) return "Today " + clock;
+  var options = { day: "numeric", month: "short" };
+  if (date.getFullYear() !== now.getFullYear()) options.year = "numeric";
+  return date.toLocaleDateString(undefined, options) + " " + clock;
+}
+
+function fullTime(seconds) {
   if (typeof seconds !== "number") return "";
   return new Date(seconds * 1000).toLocaleString(undefined, {
     weekday: "short",
     day: "numeric",
     month: "short",
+    year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
+    timeZoneName: "short",
   });
+}
+
+function clockTime(ms) {
+  return new Date(ms).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
 // ---------------------------------------------------------------------------
@@ -327,10 +318,10 @@ function Panel(props) {
             h(
               "div",
               { className: "petasos-panel-titles" },
-              props.title ? h(C.CardTitle, { className: "text-sm" }, props.title) : null,
-              props.description
-                ? h("p", { className: "petasos-panel-desc" }, props.description)
-                : null
+              props.title
+                ? h(C.CardTitle, { className: "text-sm petasos-panel-title", id: props.titleId }, props.title)
+                : null,
+              props.description ? h("p", { className: "petasos-panel-desc" }, props.description) : null
             ),
             props.actions ? h("div", { className: "petasos-panel-actions" }, props.actions) : null
           )
@@ -340,46 +331,121 @@ function Panel(props) {
   );
 }
 
-// A status pill. The tone colours it; the words always say the same thing,
-// so nothing is carried by colour alone.
-function Pill(props) {
+// A status that carries a safety meaning (outcome, severity, verdict, check
+// state): Hermes's sans at a readable size, with stronger contrast. Words
+// always say the same thing as the colour.
+var TONES = ["success", "warning", "destructive", "neutral"];
+
+function Status(props) {
+  var tone = TONES.indexOf(props.tone) >= 0 ? props.tone : "neutral";
   return h(
-    C.Badge,
+    "span",
     {
-      tone: props.tone || "secondary",
-      className: cn("petasos-pill", "petasos-tone-" + (props.tone || "secondary"), props.className),
+      className: cn("petasos-status", "petasos-status-" + tone, props.large && "petasos-status-large", props.className),
       title: props.title,
     },
+    h("span", { className: "petasos-status-dot", "aria-hidden": true }),
     props.children
   );
 }
 
-// A notice with a marked edge: used for paused, locked, restart, invalid.
+// An incidental label: Hermes's own badge, as Hermes draws it.
+function Tag(props) {
+  return h(C.Badge, { tone: props.tone || "secondary", className: cn("petasos-tag", props.className), title: props.title }, props.children);
+}
+
+var SEVERITY_TONE = {
+  critical: "destructive",
+  high: "destructive",
+  medium: "warning",
+  low: "neutral",
+  info: "neutral",
+};
+
+function Severity(props) {
+  var severity = String(props.value || "").toLowerCase();
+  if (!severity) return h("span", { className: "petasos-none", "aria-label": "No severity" }, "—");
+  return h(Status, { tone: SEVERITY_TONE[severity] || "neutral" }, capital(severity));
+}
+
+function outcomeTone(code) {
+  var destructive = ["blocked", "stopped", "declined", "not_stopped", "attempt_blocked", "block"];
+  var warning = ["asked", "attempt_asked", "flagged", "allowed", "degraded", "unchecked", "approve", "flag", "none"];
+  if (destructive.indexOf(code) >= 0) return "destructive";
+  if (warning.indexOf(code) >= 0) return "warning";
+  if (code === "approved" || code === "allow") return "success";
+  return "neutral";
+}
+
+// A notice. The tone is a dot and a word, not a thick edge; only an
+// exceptional warning (``strong``) keeps the marked edge.
 function Notice(props) {
+  var tone = props.tone || "info";
   return h(
     "div",
     {
-      className: cn("petasos-notice", "petasos-notice-" + (props.tone || "info"), props.className),
-      role: props.tone === "destructive" ? "alert" : "status",
+      className: cn("petasos-notice", "petasos-notice-" + tone, props.strong && "petasos-notice-strong", props.className),
+      role: tone === "destructive" ? "alert" : "status",
     },
     h(
       "div",
       { className: "petasos-notice-text" },
-      props.title ? h("p", { className: "petasos-notice-title" }, props.title) : null,
+      props.title
+        ? h(
+            "p",
+            { className: "petasos-notice-title" },
+            h("span", { className: "petasos-notice-dot", "aria-hidden": true }),
+            props.title
+          )
+        : null,
       props.children ? h("div", { className: "petasos-notice-body" }, props.children) : null
     ),
     props.action ? h("div", { className: "petasos-notice-action" }, props.action) : null
   );
 }
 
-// The dashed empty box kanban uses, with a sentence and an optional action.
+// The empty list, as Hermes's Sessions page draws it: a small icon, a short
+// title, one line, on the page background.
 function Empty(props) {
   return h(
     "div",
-    { className: "petasos-empty" },
+    { className: "petasos-empty", role: "status" },
+    h(Icon, { name: props.icon || "clock", className: "petasos-empty-icon" }),
     h("p", { className: "petasos-empty-title" }, props.title),
-    props.children ? h("div", { className: "petasos-empty-body" }, props.children) : null,
+    props.children ? h("p", { className: "petasos-empty-body" }, props.children) : null,
     props.action ? h("div", { className: "petasos-empty-action" }, props.action) : null
+  );
+}
+
+// Outline icons drawn inline in the current colour, the style Hermes's
+// pages use. No image files.
+var ICONS = {
+  clock: ["M12 6v6l4 2", "M12 2a10 10 0 1 0 0 20a10 10 0 1 0 0-20"],
+  chevron: ["M9 6l6 6l-6 6"],
+  copy: ["M9 9h11v11H9z", "M5 15H4V4h11v1"],
+  search: ["M11 4a7 7 0 1 0 0 14a7 7 0 1 0 0-14", "M20 20l-4-4"],
+  shield: ["M12 3l8 3v6c0 5-3.5 8-8 9c-4.5-1-8-4-8-9V6z"],
+};
+
+function Icon(props) {
+  return h(
+    "svg",
+    {
+      className: cn("petasos-icon", props.className),
+      viewBox: "0 0 24 24",
+      width: props.size || 16,
+      height: props.size || 16,
+      fill: "none",
+      stroke: "currentColor",
+      strokeWidth: 1.75,
+      strokeLinecap: "round",
+      strokeLinejoin: "round",
+      "aria-hidden": true,
+      focusable: "false",
+    },
+    (ICONS[props.name] || []).map(function (d, i) {
+      return h("path", { key: i, d: d });
+    })
   );
 }
 
@@ -391,7 +457,7 @@ function Btn(props) {
   return h(C.Button, rest, props.children);
 }
 
-// A text link that moves within the tab (or to a Hermes page by href).
+// A text action: underlined, so it reads as a link in every theme.
 function LinkButton(props) {
   return h(
     "button",
@@ -400,6 +466,8 @@ function LinkButton(props) {
       className: cn("petasos-link", props.className),
       onClick: props.onClick,
       "aria-label": props.label,
+      "aria-expanded": props.expanded,
+      disabled: props.disabled,
     },
     props.children
   );
@@ -409,8 +477,53 @@ function Mono(props) {
   return h("code", { className: cn("petasos-mono", props.className), title: props.title }, props.children);
 }
 
+// A technical identifier that may wrap only after its separators, never
+// in the middle of a word.
+function Ident(props) {
+  var text = String(props.children || "");
+  var parts = [];
+  var buffer = "";
+  for (var i = 0; i < text.length; i += 1) {
+    buffer += text[i];
+    if (/[./_:-]/.test(text[i]) && i < text.length - 1) {
+      parts.push(buffer);
+      parts.push(h("wbr", { key: "w" + i }));
+      buffer = "";
+    }
+  }
+  parts.push(buffer);
+  return h("code", { className: cn("petasos-mono petasos-ident", props.className) }, parts);
+}
+
+function CopyButton(props) {
+  var doneState = useState(false);
+  return h(
+    "button",
+    {
+      type: "button",
+      className: "petasos-copy",
+      "aria-label": props.label || "Copy",
+      title: props.label || "Copy",
+      onClick: function () {
+        var text = String(props.value || "");
+        var write = navigator.clipboard && navigator.clipboard.writeText ? navigator.clipboard.writeText(text) : Promise.reject();
+        write
+          .then(function () {
+            doneState[1](true);
+            window.setTimeout(function () {
+              doneState[1](false);
+            }, 1500);
+          })
+          .catch(function () {});
+      },
+    },
+    h(Icon, { name: "copy", size: 14 }),
+    h("span", { className: "petasos-copy-text" }, doneState[0] ? "Copied" : "Copy")
+  );
+}
+
+// Hermes's Select with a label above it.
 function Choice(props) {
-  // A labelled native select drawn with Hermes's Select.
   return h(
     "div",
     { className: cn("petasos-choice", props.className) },
@@ -423,6 +536,7 @@ function Choice(props) {
         onValueChange: props.onChange,
         disabled: props.disabled,
         placeholder: props.placeholder,
+        "aria-describedby": props.describedBy,
       },
       props.options.map(function (option) {
         return h(C.SelectOption, { key: option.value, value: option.value }, option.label);
@@ -431,47 +545,159 @@ function Choice(props) {
   );
 }
 
-// A row of buttons where exactly one is chosen, like the Logs page filters.
+// Arrow keys move along a row of options, as a native radio group does.
+function arrowKeys(event, values, current, onChange, focusPrefix) {
+  var keys = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1, Home: "first", End: "last" };
+  var step = keys[event.key];
+  if (step === undefined) return;
+  event.preventDefault();
+  var index = values.indexOf(current);
+  var next;
+  if (step === "first") next = 0;
+  else if (step === "last") next = values.length - 1;
+  else next = (index + step + values.length) % values.length;
+  onChange(values[next]);
+  var target = document.getElementById(focusPrefix + values[next]);
+  if (target) target.focus();
+}
+
+// Hermes's Segmented control (Logs, Sessions): joined rectangular buttons,
+// the chosen one filled. One choice of several, with arrow keys.
 function Segmented(props) {
+  var values = props.options.map(function (option) {
+    return option.value;
+  });
+  var prefix = (props.id || "petasos-seg") + "-";
   return h(
     "div",
-    { className: "petasos-segmented", role: "radiogroup", "aria-label": props.label },
-    props.label ? h("span", { className: "petasos-segmented-label", "aria-hidden": true }, props.label) : null,
+    {
+      className: cn("petasos-segmented", props.className),
+      role: "radiogroup",
+      "aria-label": props.label,
+      "aria-labelledby": props.labelledBy,
+    },
     props.options.map(function (option) {
       var active = option.value === props.value;
       return h(
         "button",
         {
           key: option.value,
+          id: prefix + option.value,
           type: "button",
           role: "radio",
           "aria-checked": active,
+          tabIndex: active || (props.value === undefined && option === props.options[0]) ? 0 : -1,
+          disabled: props.disabled,
           className: cn("petasos-segment", active && "petasos-segment-on"),
           onClick: function () {
             props.onChange(option.value);
           },
+          onKeyDown: function (event) {
+            arrowKeys(event, values, props.value, props.onChange, prefix);
+          },
         },
-        option.label
+        option.label,
+        option.mark ? h("span", { className: "petasos-segment-mark" }, option.mark) : null
       );
     })
+  );
+}
+
+// Hermes's Switch: a rectangular track and square thumb at the end of a row.
+function Switch(props) {
+  return h(
+    "button",
+    {
+      id: props.id,
+      type: "button",
+      role: "switch",
+      "aria-checked": Boolean(props.checked),
+      "aria-labelledby": props.labelledBy,
+      "aria-label": props.label,
+      "aria-describedby": props.describedBy,
+      disabled: props.disabled,
+      className: cn("petasos-switch", props.checked && "petasos-switch-on"),
+      onClick: function () {
+        props.onChange(!props.checked);
+      },
+    },
+    h("span", { className: "petasos-switch-thumb", "aria-hidden": true })
+  );
+}
+
+// The view tabs, drawn as Hermes's enclosed segmented tabs (Sessions, Logs).
+function ViewTabs(props) {
+  var values = props.views.map(function (view) {
+    return view.value;
+  });
+  return h(
+    "div",
+    { className: "petasos-segmented petasos-viewtabs", role: "tablist", "aria-label": props.label },
+    props.views.map(function (view) {
+      var active = view.value === props.value;
+      return h(
+        "button",
+        {
+          key: view.value,
+          id: "petasos-tab-" + view.value,
+          type: "button",
+          role: "tab",
+          "aria-selected": active,
+          "aria-controls": "petasos-panel",
+          tabIndex: active ? 0 : -1,
+          className: cn("petasos-segment", active && "petasos-segment-on"),
+          onClick: function () {
+            props.onChange(view.value);
+          },
+          onKeyDown: function (event) {
+            arrowKeys(event, values, props.value, props.onChange, "petasos-tab-");
+          },
+        },
+        view.label
+      );
+    })
+  );
+}
+
+// Config's field layout: the label, the setting's key in faint mono, one
+// plain sentence, then the control across the panel. A switch sits at the
+// end of the label row instead.
+function Field(props) {
+  var labelId = props.id + "-label";
+  var helpId = props.id + "-help";
+  return h(
+    "div",
+    {
+      className: cn("petasos-field", props.inline && "petasos-field-inline", props.className),
+      id: props.rowId,
+    },
+    h(
+      "div",
+      { className: "petasos-field-head" },
+      h(
+        "div",
+        { className: "petasos-field-text" },
+        h(C.Label, { className: "petasos-field-label", htmlFor: props.inline ? undefined : props.id, id: labelId }, props.label),
+        props.path ? h("span", { className: "petasos-field-key" }, props.path) : null,
+        props.help ? h("p", { className: "petasos-field-help", id: helpId }, props.help) : null
+      ),
+      props.inline ? h("div", { className: "petasos-field-switch" }, props.control) : null
+    ),
+    props.inline ? null : h("div", { className: "petasos-field-control" }, props.control),
+    props.children
   );
 }
 
 function KeyValues(props) {
   return h(
     "dl",
-    { className: "petasos-kv" },
+    { className: cn("petasos-kv", props.stacked && "petasos-kv-stacked", props.className) },
     props.rows
       .filter(function (row) {
         return row && row[1] !== undefined && row[1] !== null && row[1] !== "";
       })
       .map(function (row) {
-        return h(
-          Fragment,
-          { key: row[0] },
-          h("dt", null, row[0]),
-          h("dd", null, row[1])
-        );
+        return h(Fragment, { key: row[0] }, h("dt", null, row[0]), h("dd", null, row[1]));
       })
   );
 }
@@ -493,8 +719,4 @@ function revealInView(element, where) {
   if (where === "center") offset -= (frame.height - box.height) / 2;
   else offset -= 16;
   node.scrollTop += offset;
-}
-
-function plural(count, one, many) {
-  return count + " " + (count === 1 ? one : many || one + "s");
 }

@@ -1,71 +1,8 @@
 // ---------------------------------------------------------------------------
-// Settings: every value, where it comes from, and a staged, previewed save.
-// Rows, help sentences, bounds, choices and origins all come from the API.
+// Settings: every value, laid out as Hermes's Config page lays out its own,
+// with a review step before anything is saved. Rows, labels, help, bounds,
+// choices and where each value comes from all come from the API.
 // ---------------------------------------------------------------------------
-
-function clone(value) {
-  return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
-}
-
-function setIn(tree, path, value) {
-  var parts = path.split(".");
-  var node = tree;
-  for (var i = 0; i < parts.length - 1; i += 1) {
-    if (!node[parts[i]] || typeof node[parts[i]] !== "object" || Array.isArray(node[parts[i]])) {
-      node[parts[i]] = {};
-    }
-    node = node[parts[i]];
-  }
-  node[parts[parts.length - 1]] = value;
-}
-
-function removeIn(tree, path) {
-  var parts = path.split(".");
-  var trail = [];
-  var node = tree;
-  for (var i = 0; i < parts.length - 1; i += 1) {
-    if (!node || typeof node !== "object") return;
-    trail.push([node, parts[i]]);
-    node = node[parts[i]];
-  }
-  if (!node || typeof node !== "object") return;
-  delete node[parts[parts.length - 1]];
-  for (var j = trail.length - 1; j >= 0; j -= 1) {
-    var parent = trail[j][0];
-    var key = trail[j][1];
-    if (parent[key] && typeof parent[key] === "object" && !Object.keys(parent[key]).length) {
-      delete parent[key];
-    }
-  }
-}
-
-function hasIn(tree, path) {
-  var node = tree;
-  var parts = path.split(".");
-  for (var i = 0; i < parts.length; i += 1) {
-    if (!node || typeof node !== "object" || !(parts[i] in node)) return false;
-    node = node[parts[i]];
-  }
-  return true;
-}
-
-function draftIsEmpty(draft) {
-  return (
-    draft.enabled === undefined &&
-    draft.role === undefined &&
-    draft.level === undefined &&
-    !Object.keys(draft.overrides || {}).length
-  );
-}
-
-function draftBody(draft) {
-  var body = {};
-  if (draft.enabled !== undefined) body.enabled = draft.enabled;
-  if (draft.role !== undefined) body.role = draft.role;
-  if (draft.level !== undefined) body.level = draft.level;
-  if (Object.keys(draft.overrides || {}).length) body.overrides = draft.overrides;
-  return body;
-}
 
 function topOf(row) {
   return row.path.indexOf(".") < 0 ? "" : row.path.split(".")[0];
@@ -83,14 +20,42 @@ function isNumber(row) {
   return row.type === "int" || row.type === "float";
 }
 
+function fieldId(path) {
+  return "petasos-field-" + path.replace(/\./g, "-");
+}
+
+// The allowed range, in words: "30 or higher", "between 1 and 8".
 function boundsText(row) {
   var b = row.bounds || {};
+  var low = b.ge !== null && b.ge !== undefined ? { n: b.ge, open: false } : b.gt !== null && b.gt !== undefined ? { n: b.gt, open: true } : null;
+  var high = b.le !== null && b.le !== undefined ? { n: b.le, open: false } : b.lt !== null && b.lt !== undefined ? { n: b.lt, open: true } : null;
+  if (low && high && !low.open && !high.open) return "between " + low.n + " and " + high.n;
   var parts = [];
-  if (b.ge !== null && b.ge !== undefined) parts.push("at least " + b.ge);
-  if (b.gt !== null && b.gt !== undefined) parts.push("more than " + b.gt);
-  if (b.le !== null && b.le !== undefined) parts.push("at most " + b.le);
-  if (b.lt !== null && b.lt !== undefined) parts.push("less than " + b.lt);
-  return parts.join(", ");
+  if (low) parts.push(low.open ? "more than " + low.n : low.n + " or higher");
+  if (high) parts.push(high.open ? "less than " + high.n : high.n + " or lower");
+  return parts.join(" and ");
+}
+
+function outOfBounds(row, number) {
+  var b = row.bounds || {};
+  if (b.ge !== null && b.ge !== undefined && number < b.ge) return true;
+  if (b.gt !== null && b.gt !== undefined && number <= b.gt) return true;
+  if (b.le !== null && b.le !== undefined && number > b.le) return true;
+  if (b.lt !== null && b.lt !== undefined && number >= b.lt) return true;
+  return false;
+}
+
+// What to say under a field the API refused. A number outside its range
+// says the range; anything else is the API's own sentence.
+function fieldProblem(row, text, message) {
+  if (isNumber(row) && text !== undefined) {
+    var number = Number(String(text).trim());
+    if (String(text).trim() === "" || !isFinite(number)) return "Enter a number.";
+    if (outOfBounds(row, number)) return "Enter " + boundsText(row) + ".";
+    if (row.type === "int" && Math.floor(number) !== number) return "Enter a whole number.";
+  }
+  var sentence = String(message || "");
+  return sentence ? sentence.charAt(0).toUpperCase() + sentence.slice(1).replace(/\.?$/, ".") : "";
 }
 
 function textFor(row, value) {
@@ -101,7 +66,7 @@ function textFor(row, value) {
 }
 
 // Turn what a person typed into the value the API expects. A number that
-// does not parse is sent as text, so the API explains what it needs.
+// does not parse is sent as text, so the API says what it needs.
 function parseFor(row, text) {
   if (isList(row)) {
     return text
@@ -126,22 +91,17 @@ function parseFor(row, text) {
 
 function FieldControl(props) {
   var row = props.row;
-  var id = "petasos-field-" + row.path.replace(/\./g, "-");
-  var disabled = props.disabled;
+  var id = fieldId(row.path);
+  var described = [id + "-help", props.error ? id + "-error" : null].filter(Boolean).join(" ");
   if (row.type === "bool") {
-    return h(
-      "label",
-      { className: "petasos-check", htmlFor: id },
-      h(C.Checkbox, {
-        id: id,
-        checked: props.value === true,
-        disabled: disabled,
-        onCheckedChange: function (checked) {
-          props.onValue(checked === true);
-        },
-      }),
-      h("span", null, props.value === true ? "On" : "Off")
-    );
+    return h(Switch, {
+      id: id,
+      checked: props.value === true,
+      disabled: props.disabled,
+      labelledBy: id + "-label",
+      describedBy: described,
+      onChange: props.onValue,
+    });
   }
   if (row.choices && row.choices.length) {
     return h(
@@ -149,13 +109,13 @@ function FieldControl(props) {
       {
         id: id,
         value: String(props.value),
-        disabled: disabled,
+        disabled: props.disabled,
         onValueChange: function (value) {
           props.onValue(value);
         },
       },
       row.choices.map(function (choice) {
-        return h(C.SelectOption, { key: String(choice), value: String(choice) }, String(choice));
+        return h(C.SelectOption, { key: String(choice), value: String(choice) }, showValue(choice, row));
       })
     );
   }
@@ -165,10 +125,10 @@ function FieldControl(props) {
       className: "petasos-textarea petasos-mono-area",
       rows: Math.min(8, Math.max(2, String(props.text).split("\n").length + 1)),
       value: props.text,
-      disabled: disabled,
+      disabled: props.disabled,
       placeholder: isList(row) ? "One per line" : '{"name": "value"}',
       "aria-invalid": props.error ? "true" : undefined,
-      "aria-describedby": props.error ? id + "-error" : undefined,
+      "aria-describedby": described,
       onChange: function (e) {
         props.onText(e.target.value);
       },
@@ -177,10 +137,10 @@ function FieldControl(props) {
   return h(C.Input, {
     id: id,
     value: props.text,
-    disabled: disabled,
+    disabled: props.disabled,
     inputMode: isNumber(row) ? "decimal" : undefined,
     "aria-invalid": props.error ? "true" : undefined,
-    "aria-describedby": props.error ? id + "-error" : undefined,
+    "aria-describedby": described,
     onChange: function (e) {
       props.onText(e.target.value);
     },
@@ -189,43 +149,58 @@ function FieldControl(props) {
 
 function FieldRow(props) {
   var row = props.row;
-  var saved = props.saved;
+  var saved = props.saved || row;
   var staged = props.staged;
   var change = props.change;
-  var id = "petasos-field-" + row.path.replace(/\./g, "-");
-  var origin = staged ? "staged" : saved ? saved.origin : row.origin;
-  var originText = staged ? "Changed here, not saved" : originLabel(origin, props.stored);
-  var originTone = staged ? "warning" : origin === "override" ? "success" : origin === "default" ? "outline" : "secondary";
-  var bounds = boundsText(row);
+  var id = fieldId(row.path);
+  var bounds = isNumber(row) ? boundsText(row) : "";
+  var catalog = props.catalog;
+  var stored = catalog.stored || {};
+  var provenance;
+  if (props.lockedHere) {
+    provenance = h("span", null, h("strong", null, "Locked by your administrator"), " · change it in Hermes's managed configuration");
+  } else if (staged) {
+    provenance = h(
+      Fragment,
+      null,
+      h("strong", null, "Changed, not saved"),
+      change ? " · was " + showValue(change.before, row) + " (" + originText(change.origin_before, stored, catalog).toLowerCase() + ")" : "",
+      " · ",
+      h(LinkButton, { onClick: props.onUnstage }, "Undo change")
+    );
+  } else if (saved.origin === "override") {
+    var target = saved.reset_to;
+    provenance = h(
+      Fragment,
+      null,
+      "Your setting",
+      target && !props.disabled
+        ? h(
+            Fragment,
+            null,
+            " · ",
+            h(
+              LinkButton,
+              { onClick: props.onReset },
+              "Reset to " + originText(target.origin, stored, catalog).toLowerCase() + ": " + showValue(target.value, row)
+            )
+          )
+        : null
+    );
+  } else {
+    provenance = originText(saved.origin, stored, catalog);
+  }
   return h(
-    "div",
+    Field,
     {
-      className: cn(
-        "petasos-field",
-        staged && "petasos-field-staged",
-        props.error && "petasos-field-invalid",
-        props.focused && "petasos-field-focused"
-      ),
-      id: "petasos-row-" + row.path,
-    },
-    h(
-      "div",
-      { className: "petasos-field-text" },
-      h(C.Label, { className: "petasos-field-label", htmlFor: id }, fieldLabel(row.path)),
-      h(Mono, { className: "petasos-path" }, row.path),
-      h("p", { className: "petasos-field-help" }, row.help),
-      h(
-        "div",
-        { className: "petasos-field-tags" },
-        h(Pill, { tone: originTone, title: "Where this value comes from" }, originText),
-        row.restart ? h(Pill, { tone: "outline", title: "A change takes effect after Hermes restarts" }, "Needs a restart") : null,
-        row.audience === "expert" ? h(Pill, { tone: "outline" }, "Rarely needed") : null
-      )
-    ),
-    h(
-      "div",
-      { className: "petasos-field-control" },
-      h(FieldControl, {
+      id: id,
+      rowId: "petasos-row-" + row.path,
+      label: rowLabel(row),
+      path: row.path,
+      help: row.help,
+      inline: row.type === "bool",
+      className: cn(staged && "petasos-field-staged", props.error && "petasos-field-invalid", props.focused && "petasos-field-focused"),
+      control: h(FieldControl, {
         row: row,
         value: props.value,
         text: props.text,
@@ -234,92 +209,112 @@ function FieldRow(props) {
         onValue: props.onValue,
         onText: props.onText,
       }),
-      props.error
-        ? h("p", { className: "petasos-field-error", id: id + "-error", role: "alert" }, props.error)
-        : null,
-      bounds ? h("p", { className: "petasos-help" }, "Allowed: " + bounds + ".") : null,
-      change && staged
-        ? h(
-            "p",
-            { className: "petasos-help" },
-            "Was ",
-            h("strong", null, showValue(change.before)),
-            " (" + originLabel(change.origin_before, props.stored).toLowerCase() + ")."
-          )
-        : null,
-      h(
-        "div",
-        { className: "petasos-field-actions" },
-        staged
-          ? h(LinkButton, { onClick: props.onUnstage }, "Undo this change")
-          : null,
-        !staged && saved && saved.origin === "override" && !props.disabled
-          ? h(LinkButton, { onClick: props.onReset }, "Put back")
-          : null
-      )
+    },
+    props.error ? h("p", { className: "petasos-field-error", id: id + "-error", role: "alert" }, props.error) : null,
+    h(
+      "p",
+      { className: "petasos-provenance" },
+      provenance,
+      bounds ? " · allowed: " + bounds : "",
+      row.restart ? " · applies after a Hermes restart" : ""
     )
   );
 }
 
 function RuleHelper(props) {
   var rule = props.rule;
-  var rows = props.rows;
-  function value(path) {
-    var found = rows.filter(function (row) {
-      return row.path === path;
-    })[0];
-    return found ? found : { value: null, origin: "default" };
-  }
-  var suppress = value("rules.suppress");
-  var severity = value("rules.severity_overrides");
+  var byPath = rowsByPath(props.rows);
+  var suppress = byPath["rules.suppress"] || { value: [], origin: "default" };
+  var severity = byPath["rules.severity_overrides"] || { value: {}, origin: "default" };
   var quiet = (suppress.value || []).indexOf(rule) >= 0;
   var lowered = severity.value && severity.value[rule];
   var state = quiet
-    ? "Quieted (" + originLabel(suppress.origin, props.stored).toLowerCase() + "). It does not block or count."
+    ? "Turned off (" + originText(suppress.origin, props.stored, props.catalog).toLowerCase() + "). It does not block, is not recorded, and adds no risk."
     : lowered
-      ? "Its seriousness is set to " + lowered + " (" + originLabel(severity.origin, props.stored).toLowerCase() + ")."
-      : "Active at its usual seriousness.";
+      ? "Counts as " + lowered + " (" + originText(severity.origin, props.stored, props.catalog).toLowerCase() + ")."
+      : "On, at its usual severity.";
   return h(
     Panel,
     {
       className: "petasos-rule-helper",
-      title: "Settings for one rule",
+      title: "Rule",
       description: props.sentence || "The settings below decide what this rule does.",
       actions: h(LinkButton, { onClick: props.onClose }, "Close"),
     },
     h(KeyValues, {
       rows: [
-        ["Rule", h(Mono, null, rule)],
+        ["Rule id", h("span", { className: "petasos-idrow" }, h(Ident, null, rule), h(CopyButton, { value: rule, label: "Copy rule id" }))],
         ["Now", state],
       ],
     }),
     h(
       "div",
       { className: "petasos-row-actions" },
-      quiet
-        ? null
-        : h(Btn, { outlined: true, disabled: props.disabled, onClick: function () { props.onQuiet(rule); } }, "Quiet this rule"),
-      h(
-        Btn,
-        { outlined: true, disabled: props.disabled, onClick: function () { props.onLower(rule); } },
-        "Warn instead of block"
-      ),
-      h(
-        Btn,
-        {
-          ghost: true,
-          onClick: function () {
-            go("tryit", { example: "hidden" });
-          },
-        },
-        "Try it"
-      )
+      quiet ? null : h(Btn, { outlined: true, disabled: props.disabled, onClick: function () { props.onQuiet(rule); } }, "Turn this rule off"),
+      h(Btn, { outlined: true, disabled: props.disabled, onClick: function () { props.onLower(rule); } }, "Report it without blocking"),
+      h(Btn, { ghost: true, onClick: function () { go("tryit", { example: "hidden" }); } }, "Try it")
     ),
     h(
       "p",
       { className: "petasos-help" },
-      "Both stage a change below. Nothing is saved until you review it. Rules that check the " +
-        "shape of the input cannot be quieted; the preview will say so."
+      "Each stages a change below for you to review. Rules that check the shape of the input, or changes to Petasos itself, cannot be turned off; the review says so."
+    )
+  );
+}
+
+// The list of staged changes, before anything is saved.
+function Review(props) {
+  var catalog = props.catalog;
+  var preview = props.preview;
+  var draft = props.draft;
+  var stored = catalog.stored || {};
+  var labels = catalog.labels || {};
+  var top = [];
+  if (draft.enabled !== undefined && draft.enabled !== stored.enabled)
+    top.push([labels.enabled || "Protection", stored.enabled === false ? "Paused" : "On", draft.enabled ? "On" : "Paused"]);
+  if (draft.role !== undefined && draft.role !== stored.role)
+    top.push([labels.role || "Job", roleLabel(catalog, stored.role), roleLabel(catalog, draft.role)]);
+  if (draft.level !== undefined && draft.level !== stored.level)
+    top.push([labels.level || "Strictness", levelLabel(catalog, stored.level), levelLabel(catalog, draft.level)]);
+  var changes = (preview && preview.changes) || [];
+  return h(
+    Panel,
+    {
+      className: "petasos-review",
+      title: "Review changes",
+      titleId: "petasos-review-title",
+      description: "Nothing is saved until you press Save.",
+    },
+    top.length
+      ? h(
+          "ul",
+          { className: "petasos-changes" },
+          top.map(function (item) {
+            return h(
+              "li",
+              { key: item[0], className: "petasos-change" },
+              h("p", { className: "petasos-change-name" }, item[0]),
+              h("p", { className: "petasos-change-values" }, item[1], h("span", { className: "petasos-arrow", "aria-hidden": true }, " → "), h("span", { className: "sr-only" }, " becomes "), h("strong", null, item[2]))
+            );
+          })
+        )
+      : null,
+    h(ChangeList, {
+      catalog: catalog,
+      rows: catalog.settings,
+      changes: changes,
+      stored: stored,
+      after: preview && preview.stored,
+      label: "Settings that would change",
+      empty: top.length ? "No other setting changes." : "These edits leave every value as it was.",
+    }),
+    h("p", { className: "petasos-when" }, draft.enabled === false ? "Pausing applies from the agent's next tool call." : whenItApplies(changes, catalog.settings)),
+    h(
+      "div",
+      { className: "petasos-row-actions" },
+      h(Btn, { onClick: props.onSave, disabled: props.saving || props.locked }, props.saving ? "Saving…" : "Save " + plural(changes.length + top.length, "change")),
+      h(Btn, { outlined: true, onClick: props.onTry }, "Try it first"),
+      h(Btn, { ghost: true, onClick: props.onBack }, "Back to editing")
     )
   );
 }
@@ -327,20 +322,8 @@ function RuleHelper(props) {
 function Settings(props) {
   var catalog = props.catalog;
   var params = props.route.params;
-  var draftState = useState(function () {
-    var seeded = { overrides: {} };
-    if (params.stage) {
-      try {
-        var staged = JSON.parse(params.stage);
-        seeded = Object.assign({ overrides: {} }, staged);
-      } catch (_e) {
-        seeded = { overrides: {} };
-      }
-    }
-    return seeded;
-  });
-  var draft = draftState[0];
-  var setDraft = draftState[1];
+  var draft = props.draft || EMPTY_DRAFT;
+  var setDraft = props.setDraft;
   var textsState = useState({});
   var texts = textsState[0];
   var setTexts = textsState[1];
@@ -349,14 +332,14 @@ function Settings(props) {
   var preview = previewState[0];
   var savingState = useState(false);
   var saveErrorState = useState(null);
-  var restartState = useState(null);
+  var savedState = useState(null);
   var expertState = useState(false);
   var searchState = useState("");
-  var sectionState = useState(params.rule ? "rules" : params.path ? topOf({ path: params.path }) : "basics");
+  var sectionState = useState(params.rule ? "rules" : params.path ? topOf({ path: params.path }) || "general" : "basics");
   var section = sectionState[0];
   var resetState = useState(null);
-  var reviewState = useState(false);
-  var toast = SDK.hooks.useToast();
+  var reviewState = useState(params.review === "1");
+  var reviewing = reviewState[0];
 
   var empty = draftIsEmpty(draft);
   var draftKey = JSON.stringify(draftBody(draft));
@@ -365,6 +348,7 @@ function Settings(props) {
     function () {
       if (empty) {
         previewState[1](null);
+        reviewState[1](false);
         return;
       }
       var live = true;
@@ -385,33 +369,41 @@ function Settings(props) {
     [draftKey]
   );
 
-  // A link to one setting opens its section.
+  // A link to one setting opens its section and brings it into view.
   useEffect(
     function () {
       if (params.path) sectionState[1](topOf({ path: params.path }) || "general");
     },
     [params.path]
   );
-
   useEffect(
     function () {
       if (!params.path) return;
       var target = document.getElementById("petasos-row-" + params.path);
       if (target) revealInView(target, "center");
     },
-    [params.path, section]
+    [params.path, section, Boolean(catalog)]
+  );
+  useEffect(
+    function () {
+      if (!reviewing) return;
+      var title = document.getElementById("petasos-review-title");
+      if (title) {
+        title.setAttribute("tabindex", "-1");
+        title.focus({ preventScroll: true });
+        revealInView(title, "start");
+      }
+    },
+    [reviewing]
   );
 
   if (!catalog) {
-    return h(Panel, { title: "Settings" }, h("p", { className: "petasos-muted" }, "Loading settings…"));
+    return h(Panel, { title: "Settings" }, h("p", { className: "petasos-help", role: "status" }, "Loading settings…"));
   }
 
   var savedRows = catalog.settings || [];
   var rows = preview && preview.settings && preview.valid ? preview.settings : savedRows;
-  var savedBy = {};
-  savedRows.forEach(function (row) {
-    savedBy[row.path] = row;
-  });
+  var savedBy = rowsByPath(savedRows);
   var changeBy = {};
   ((preview && preview.changes) || []).forEach(function (change) {
     changeBy[change.path] = change;
@@ -428,8 +420,12 @@ function Settings(props) {
     problems[path] = localErrorsState[0][path];
   });
 
-  var locked = props.locked;
+  var lockedInfo = catalog.locked || { stored: [], settings: [] };
+  var lockedAll = props.locked || (lockedInfo.stored || []).indexOf("overrides") >= 0;
   var stored = catalog.stored || {};
+  var labels = catalog.labels || {};
+  var help = catalog.help || {};
+  var sections = sectionsByPath(catalog);
 
   function stage(path, value) {
     var next = clone(draft);
@@ -437,6 +433,7 @@ function Settings(props) {
     setIn(next.overrides, path, value);
     setDraft(next);
     saveErrorState[1](null);
+    savedState[1](null);
   }
   function unstage(path) {
     var next = clone(draft);
@@ -454,6 +451,7 @@ function Settings(props) {
     if (value === stored[key]) delete next[key];
     else next[key] = value;
     setDraft(next);
+    savedState[1](null);
   }
   function onText(row, text) {
     var t = Object.assign({}, texts);
@@ -464,44 +462,45 @@ function Settings(props) {
       stage(row.path, parseFor(row, text));
       delete errors[row.path];
     } catch (_e) {
-      errors[row.path] = "This needs to be written as JSON, for example {\"name\": \"value\"}.";
+      errors[row.path] = 'This needs to be JSON, for example {"name": "value"}.';
     }
     localErrorsState[1](errors);
   }
   function discard() {
-    setDraft({ overrides: {} });
+    setDraft(EMPTY_DRAFT);
     setTexts({});
     localErrorsState[1]({});
     saveErrorState[1](null);
     reviewState[1](false);
+  }
+  function afterWrite(body, message) {
+    savedState[1]({ at: Date.now(), message: message, restart: (body && body.restart) || [] });
   }
   function save() {
     savingState[1](true);
     saveErrorState[1](null);
     call("/settings", { method: "PUT", body: draftBody(draft) })
       .then(function (body) {
-        restartState[1](body.restart && body.restart.length ? body : null);
-        toast.showToast(body.restart && body.restart.length ? "Saved. Restart needed." : "Saved", "success");
-        setDraft({ overrides: {} });
+        afterWrite(body, body.restart_message);
+        setDraft(EMPTY_DRAFT);
         setTexts({});
         reviewState[1](false);
         props.onSaved(body);
       })
       .catch(function (failure) {
-        if (failure.code === "managed") {
-          props.onLocked(failure.message);
-        }
+        if (failure.code === "managed") props.onLocked(failure.message);
         saveErrorState[1](failure);
+        reviewState[1](false);
       })
       .finally(function () {
         savingState[1](false);
       });
   }
   function reset(path) {
-    call("/overrides/" + path, { method: "DELETE" })
+    var url = path === "*" ? "/overrides" : "/overrides/" + path;
+    call(url, { method: "DELETE" })
       .then(function (body) {
-        toast.showToast(body.cleared ? "Put back" : body.message, "success");
-        if (body.restart && body.restart.length) restartState[1](body);
+        afterWrite(body, (body.message || "") + " " + (body.restart_message || ""));
         props.onSaved(body.settings);
       })
       .catch(function (failure) {
@@ -537,10 +536,6 @@ function Settings(props) {
   // Navigation: Basics first, then each top-level section in API order.
   var expert = expertState[0];
   var search = searchState[0].trim().toLowerCase();
-  var sectionsByPath = {};
-  (catalog.sections || []).forEach(function (item) {
-    sectionsByPath[item.path] = item;
-  });
   var tops = [""];
   (catalog.sections || []).forEach(function (item) {
     if (item.path.indexOf(".") < 0 && tops.indexOf(item.path) < 0) tops.push(item.path);
@@ -548,7 +543,7 @@ function Settings(props) {
   function visible(row) {
     if (!expert && row.audience === "expert" && !hasIn(draft.overrides, row.path) && savedBy[row.path] && savedBy[row.path].origin !== "override") return false;
     if (!search) return true;
-    return (row.path + " " + row.help + " " + fieldLabel(row.path)).toLowerCase().indexOf(search) >= 0;
+    return (row.path + " " + row.help + " " + rowLabel(row)).toLowerCase().indexOf(search) >= 0;
   }
   var counts = {};
   var changed = {};
@@ -561,9 +556,14 @@ function Settings(props) {
     if ((s && s.origin === "override") || hasIn(draft.overrides, row.path)) changed[top] = (changed[top] || 0) + 1;
   });
 
+  function sectionLabel(top) {
+    if (!top) return "General";
+    return (sections[top] && sections[top].label) || top;
+  }
+
   var navItems = [{ key: "basics", label: "Basics", count: 3 }].concat(
     tops.map(function (top) {
-      return { key: top || "general", label: sectionLabel(top), count: counts[top] || 0, changed: changed[top] || 0, top: top };
+      return { key: top || "general", label: sectionLabel(top), count: counts[top] || 0, changed: changed[top] || 0 };
     })
   );
   var activeTop = section === "basics" ? null : section === "general" ? "" : section;
@@ -579,29 +579,29 @@ function Settings(props) {
   var groups = [];
   shown.forEach(function (row) {
     var last = groups[groups.length - 1];
-    if (!last || last.section !== row.section) {
-      groups.push({ section: row.section, rows: [row] });
-    } else {
-      last.rows.push(row);
-    }
+    if (!last || last.section !== row.section) groups.push({ section: row.section, rows: [row] });
+    else last.rows.push(row);
   });
 
   function renderRow(row) {
     var saved = savedBy[row.path];
     var staged = hasIn(draft.overrides, row.path);
     var text = row.path in texts ? texts[row.path] : textFor(row, row.value);
+    var lockedHere = (lockedInfo.settings || []).indexOf(row.path) >= 0;
+    var problem = problems[row.path];
     return h(FieldRow, {
       key: row.path,
+      catalog: catalog,
       row: row,
       saved: saved,
       staged: staged,
       change: changeBy[row.path],
-      stored: staged ? (preview && preview.stored) || stored : stored,
       value: row.value,
       text: text,
-      error: problems[row.path],
+      error: problem ? fieldProblem(row, row.path in texts ? texts[row.path] : undefined, problem) : null,
       focused: params.path === row.path || (params.rule && (row.path === "rules.suppress" || row.path === "rules.severity_overrides")),
-      disabled: locked,
+      disabled: lockedAll || lockedHere,
+      lockedHere: lockedHere,
       onValue: function (value) {
         stage(row.path, value);
       },
@@ -617,128 +617,240 @@ function Settings(props) {
     });
   }
 
+  var lockedStored = lockedInfo.stored || [];
+  var enabledNow = draft.enabled !== undefined ? draft.enabled : stored.enabled !== false;
+  var roleNow = draft.role || stored.role;
+  var levelNow = draft.level || stored.level;
+  var overrideCount = savedRows.filter(function (row) {
+    return row.origin === "override";
+  }).length;
+  var secrets = catalog.secrets || {};
   var basics = h(
     Panel,
     {
       title: "Basics",
-      description: "The three choices most people make. Everything else starts from these.",
+      description: "The choices most people make. Everything else starts from these.",
     },
-    h(
-      "div",
-      { className: "petasos-basics" },
-      h(Choice, {
+    h(Field, {
+      id: "petasos-basic-enabled",
+      label: labels.enabled || "Protection",
+      path: "enabled",
+      help: help.enabled,
+      inline: true,
+      control: h(Switch, {
         id: "petasos-basic-enabled",
-        label: "Protection",
-        value: String(draft.enabled !== undefined ? draft.enabled : stored.enabled !== false),
-        disabled: locked,
-        options: [
-          { value: "true", label: "On: check every tool call" },
-          { value: "false", label: "Paused: let calls through and record them" },
-        ],
+        checked: enabledNow,
+        disabled: props.locked || lockedStored.indexOf("enabled") >= 0,
+        labelledBy: "petasos-basic-enabled-label",
+        describedBy: "petasos-basic-enabled-help",
         onChange: function (value) {
-          stageTop("enabled", value === "true");
+          stageTop("enabled", value);
         },
       }),
-      h(Choice, {
-        id: "petasos-basic-role",
-        label: "Job",
-        value: draft.role || stored.role,
-        disabled: locked,
-        options: (catalog.roles || []).map(function (role) {
-          return { value: role.name, label: jobLabel(role.name) };
-        }),
-        onChange: function (value) {
-          stageTop("role", value);
-        },
-      }),
-      h(Choice, {
-        id: "petasos-basic-level",
-        label: "Strictness",
-        value: draft.level || stored.level,
-        disabled: locked,
-        options: (catalog.levels || []).map(function (level) {
-          return { value: level.name, label: levelLabel(level.name) };
-        }),
-        onChange: function (value) {
-          stageTop("level", value);
-        },
-      })
-    ),
+    }),
+    h(Field, {
+      id: "petasos-basic-role",
+      label: labels.role || "Job",
+      path: "role",
+      help: help.role,
+      control: h(
+        Fragment,
+        null,
+        h(
+          C.Select,
+          {
+            id: "petasos-basic-role",
+            value: roleNow,
+            disabled: props.locked || lockedStored.indexOf("role") >= 0,
+            onValueChange: function (value) {
+              stageTop("role", value);
+            },
+          },
+          (catalog.roles || []).map(function (role) {
+            return h(C.SelectOption, { key: role.name, value: role.name }, role.label || role.name);
+          })
+        ),
+        h("p", { className: "petasos-help petasos-gap-above" }, (roleOf(catalog, roleNow) || {}).description)
+      ),
+    }),
+    h(Field, {
+      id: "petasos-basic-level",
+      label: labels.level || "Strictness",
+      path: "level",
+      help: help.level,
+      control: h(
+        Fragment,
+        null,
+        h(
+          C.Select,
+          {
+            id: "petasos-basic-level",
+            value: levelNow,
+            disabled: props.locked || lockedStored.indexOf("level") >= 0,
+            onValueChange: function (value) {
+              stageTop("level", value);
+            },
+          },
+          (catalog.levels || []).map(function (level) {
+            return h(C.SelectOption, { key: level.name, value: level.name }, level.label || level.name);
+          })
+        ),
+        h("p", { className: "petasos-help petasos-gap-above" }, (levelOf(catalog, levelNow) || {}).description)
+      ),
+    }),
     h(KeyValues, {
       rows: [
-        ["Your changes", plural(Object.keys(savedRows.filter(function (row) { return row.origin === "override"; })).length, "setting") + " differ from the job and strictness."],
-        ["Session secret", catalog.secrets && catalog.secrets.session_secret === "set" ? "Set. Activity is signed." : "Not set. Activity is not signed."],
-        ["Hash key", catalog.secrets && catalog.secrets.hash_key === "set" ? "Set." : "Not set."],
+        [labels.overrides || "Your changes", overrideCount ? plural(overrideCount, "setting") + " set by you, on top of the job and strictness." : "None. The job and strictness decide every setting."],
+        ["Session secret", secrets.session_secret === "set" ? "Set. Activity records are signed." : "Not set. Activity records are not signed."],
+        ["Hash key", secrets.hash_key === "set" ? "Set." : "Not set. Only needed to hide personal details as fingerprints."],
       ],
     }),
-    h(
-      "p",
-      { className: "petasos-help" },
-      "The session secret and hash key live in the profile's env file and are never shown here."
-    ),
-    savedRows.some(function (row) { return row.origin === "override"; })
+    h("p", { className: "petasos-help" }, "The session secret and hash key live in the profile's .env file and are never shown here."),
+    overrideCount && !lockedAll
       ? h(
           "div",
           { className: "petasos-row-actions" },
-          h(
-            Btn,
-            { ghost: true, disabled: locked, onClick: function () { resetState[1]("*"); } },
-            "Put back every setting I changed"
-          )
+          h(Btn, { outlined: true, onClick: function () { resetState[1]("*"); } }, "Reset all " + plural(overrideCount, "setting") + " you set")
         )
       : null
   );
 
   var changeCount = preview && preview.changes ? preview.changes.length : 0;
-  var restartCount = preview && preview.changes ? preview.changes.filter(function (c) { return c.restart; }).length : 0;
-  var invalid = preview && preview.valid === false;
+  var topChanges = ["enabled", "role", "level"].filter(function (key) {
+    return draft[key] !== undefined && draft[key] !== stored[key];
+  }).length;
+  var invalid = Boolean(preview && preview.valid === false) || Object.keys(localErrorsState[0]).length > 0;
+  var resetPath = resetState[0];
+  var resetRow = resetPath && resetPath !== "*" ? savedBy[resetPath] : null;
+
+  var toolbar = h(
+    "div",
+    { className: "petasos-settings-toolbar", role: "toolbar", "aria-label": "Settings" },
+    h(
+      "div",
+      { className: "petasos-search" },
+      h(Icon, { name: "search", className: "petasos-search-icon" }),
+      h(C.Input, {
+        type: "search",
+        placeholder: "Search settings…",
+        "aria-label": "Search settings",
+        value: searchState[0],
+        onChange: function (e) {
+          searchState[1](e.target.value);
+        },
+      })
+    ),
+    h(
+      "div",
+      { className: "petasos-inline-switch" },
+      h(Switch, { id: "petasos-expert", checked: expert, labelledBy: "petasos-expert-label", onChange: expertState[1] }),
+      h("span", { id: "petasos-expert-label" }, "Show rarely needed settings")
+    ),
+    h(
+      "div",
+      { className: "petasos-savebox" },
+      h(
+        "span",
+        { className: "petasos-help", role: "status" },
+        empty
+          ? "No unsaved changes"
+          : invalid
+            ? "Fix the marked setting to save"
+            : preview
+              ? plural(changeCount + topChanges, "unsaved change")
+              : "Checking…"
+      ),
+      empty ? null : h(Btn, { ghost: true, onClick: discard }, "Discard"),
+      empty
+        ? null
+        : h(
+            Btn,
+            {
+              outlined: true,
+              onClick: function () {
+                go("tryit", { settings: JSON.stringify(draftBody(draft)) });
+              },
+            },
+            "Try it first"
+          ),
+      h(
+        Btn,
+        {
+          className: "uppercase",
+          outlined: empty,
+          disabled: empty || invalid || !preview || lockedAll,
+          onClick: function () {
+            reviewState[1](true);
+          },
+        },
+        "Review and save"
+      )
+    )
+  );
+
+  var saved = savedState[0];
 
   return h(
     "div",
     { className: "petasos-stack petasos-settings" },
-    h(C.Toast, { toast: toast.toast }),
-    locked
+    toolbar,
+    saved
       ? h(
           Notice,
-          { tone: "warning", title: "Locked by an administrator" },
-          props.lockedMessage ||
-            "These settings are fixed in the managed Hermes configuration. You can read them here; change them there."
+          {
+            tone: saved.restart.length ? "warning" : "success",
+            title: "Saved at " + clockTime(saved.at),
+            action: h(Btn, { ghost: true, onClick: function () { savedState[1](null); } }, "Dismiss"),
+          },
+          h("p", null, saved.message),
+          saved.restart.length ? h("p", null, "Restart Gateway, in the sidebar, restarts Hermes when it suits you.") : null
         )
       : null,
+    lockedAll
+      ? h(
+          Notice,
+          { tone: "warning", title: "Locked by your administrator" },
+          props.lockedMessage || "These settings are fixed in Hermes's managed configuration. You can read them here and change them there."
+        )
+      : (lockedInfo.settings || []).length || lockedStored.length
+        ? h(Notice, { tone: "info", title: "Some settings are locked by your administrator" }, "They are marked below and cannot be changed here.")
+        : null,
     catalog.valid === false
       ? h(
           Notice,
-          { tone: "destructive", title: "The saved settings have a mistake, so Petasos is not using them" },
+          { tone: "destructive", strong: true, title: "The saved settings have a mistake, so Petasos is not using them" },
           (catalog.problems || []).map(function (problem) {
             return h("p", { key: problem.path }, h(Mono, null, problem.path), " ", problem.message);
           })
         )
       : null,
-    restartState[0]
-      ? h(
-          Notice,
-          {
-            tone: "info",
-            title: "Saved. Some changes wait for a restart",
-            action: h(Btn, { ghost: true, onClick: function () { restartState[1](null); } }, "Dismiss"),
-          },
-          "Hermes keeps the old value of these until it restarts: ",
-          (restartState[0].restart || []).map(function (path, i) {
-            return h(Fragment, { key: path }, i ? ", " : "", h(Mono, null, path));
-          }),
-          ". Use Restart Gateway in the sidebar when it suits you."
-        )
-      : null,
-    saveError && !saveError.path && saveError.code !== "managed"
+    saveError && !saveError.path
       ? h(Notice, { tone: "destructive", title: "Not saved" }, saveError.message)
+      : null,
+    reviewing && preview && !invalid
+      ? h(Review, {
+          catalog: catalog,
+          preview: preview,
+          draft: draft,
+          saving: savingState[0],
+          locked: lockedAll,
+          onSave: save,
+          onTry: function () {
+            go("tryit", { settings: JSON.stringify(draftBody(draft)) });
+          },
+          onBack: function () {
+            reviewState[1](false);
+          },
+        })
       : null,
     params.rule
       ? h(RuleHelper, {
+          catalog: catalog,
           rule: params.rule,
           rows: rows,
           stored: stored,
           sentence: params.sentence,
-          disabled: locked,
+          disabled: lockedAll,
           onQuiet: quietRule,
           onLower: lowerRule,
           onClose: function () {
@@ -748,36 +860,11 @@ function Settings(props) {
       : null,
     h(
       "div",
-      { className: "petasos-settings-toolbar" },
-      h(C.Input, {
-        className: "petasos-search",
-        placeholder: "Search settings…",
-        "aria-label": "Search settings",
-        value: searchState[0],
-        onChange: function (e) {
-          searchState[1](e.target.value);
-        },
-      }),
-      h(
-        "label",
-        { className: "petasos-check", htmlFor: "petasos-expert" },
-        h(C.Checkbox, {
-          id: "petasos-expert",
-          checked: expert,
-          onCheckedChange: function (checked) {
-            expertState[1](checked === true);
-          },
-        }),
-        h("span", null, "Show rarely needed settings")
-      )
-    ),
-    h(
-      "div",
       { className: "petasos-settings-body" },
       h(
         "nav",
         { className: "petasos-sections", "aria-label": "Settings sections" },
-        h("div", { className: "petasos-sections-title" }, "Sections"),
+        h("p", { className: "petasos-sections-title" }, "Sections"),
         navItems.map(function (item) {
           var active = !search && section === item.key;
           return h(
@@ -793,7 +880,7 @@ function Settings(props) {
               },
             },
             h("span", { className: "petasos-section-name" }, item.label),
-            item.changed ? h("span", { className: "petasos-section-changed", title: item.changed + " changed" }, "●", h("span", { className: "sr-only" }, item.changed + " changed")) : null,
+            item.changed ? h("span", { className: "petasos-section-changed", title: item.changed + " set by you or changed" }, "●", h("span", { className: "sr-only" }, item.changed + " changed")) : null,
             h("span", { className: "petasos-section-count" }, String(item.count))
           );
         })
@@ -807,12 +894,13 @@ function Settings(props) {
               Panel,
               {
                 title: search ? "Matching settings" : sectionLabel(activeTop),
-                description: search ? plural(shown.length, "setting") + " match." : (sectionsByPath[activeTop] || {}).help || "Settings that apply everywhere.",
-                actions: h(Pill, { tone: "outline" }, plural(shown.length, "field")),
+                description: search ? plural(shown.length, "setting") + " match." : (sections[activeTop] || {}).help || "Settings that apply everywhere.",
+                actions: h(Tag, null, plural(shown.length, "field")),
               },
               groups.length
                 ? groups.map(function (group) {
                     var sub = group.section !== activeTop && group.section;
+                    var info = sub ? sections[group.section] || {} : null;
                     return h(
                       "div",
                       { key: group.section || "root", className: "petasos-group" },
@@ -820,14 +908,15 @@ function Settings(props) {
                         ? h(
                             "div",
                             { className: "petasos-group-head" },
-                            h("span", null, sectionLabel(group.section.split(".").slice(-1)[0])),
-                            (sectionsByPath[group.section] || {}).help ? h("span", { className: "petasos-group-help" }, sectionsByPath[group.section].help) : null
+                            h("span", { className: "petasos-group-name" }, info.label || group.section),
+                            h("span", { className: "petasos-group-rule", "aria-hidden": true })
                           )
                         : null,
+                      sub && info.help ? h("p", { className: "petasos-help" }, info.help) : null,
                       group.rows.map(renderRow)
                     );
                   })
-                : h(Empty, { title: "No settings here match" }, "Clear the search, or show rarely needed settings."),
+                : h(Empty, { title: "No settings match", icon: "search" }, "Clear the search, or show rarely needed settings."),
               !search && hidden[activeTop]
                 ? h(
                     "p",
@@ -839,90 +928,30 @@ function Settings(props) {
             )
       )
     ),
-    !empty
-      ? h(
-          "div",
-          { className: cn("petasos-savebar", invalid && "petasos-savebar-invalid"), role: "region", "aria-label": "Staged changes" },
-          h(
-            "div",
-            { className: "petasos-savebar-row" },
-            h(
-              "p",
-              { className: "petasos-savebar-text" },
-              invalid
-                ? h(Fragment, null, h("strong", null, "Not valid yet. "), "Fix the marked setting before saving.")
-                : preview
-                  ? h(
-                      Fragment,
-                      null,
-                      h("strong", null, plural(changeCount, "change") + " ready to save"),
-                      restartCount ? " · " + restartCount + " " + (restartCount === 1 ? "needs" : "need") + " a restart" : ""
-                    )
-                  : "Checking…"
-            ),
-            h(
-              "div",
-              { className: "petasos-row-actions" },
-              h(Btn, { ghost: true, onClick: discard }, "Discard"),
-              h(
-                Btn,
-                {
-                  outlined: true,
-                  onClick: function () {
-                    go("tryit", { settings: JSON.stringify(draftBody(draft)) });
-                  },
-                },
-                "Try it first"
-              ),
-              h(
-                Btn,
-                {
-                  outlined: true,
-                  disabled: invalid || !preview,
-                  "aria-expanded": reviewState[0],
-                  onClick: function () {
-                    reviewState[1](!reviewState[0]);
-                  },
-                },
-                reviewState[0] ? "Hide review" : "Review"
-              ),
-              h(Btn, { onClick: save, disabled: invalid || !preview || savingState[0] || locked }, savingState[0] ? "Saving…" : "Save")
-            )
-          ),
-          reviewState[0] && preview && !invalid
-            ? h(ChangeList, { rows: savedRows, changes: preview.changes || [], stored: stored, after: preview.stored, empty: "These edits leave every value as it was." })
-            : null
-        )
-      : null,
     h(C.ConfirmDialog, {
-      open: Boolean(resetState[0]),
-      title: resetState[0] === "*" ? "Put back every change?" : "Put this setting back?",
+      open: Boolean(resetPath),
+      title: resetPath === "*" ? "Reset every setting you set?" : "Reset this setting?",
       description:
-        resetState[0] === "*"
-          ? "Every setting you changed goes back to what the job and strictness say. This saves straight away."
-          : "This setting goes back to what the job, the strictness or the default says. This saves straight away.",
-      confirmLabel: "Put back",
+        resetPath === "*"
+          ? "All " + plural(overrideCount, "setting") + " you set go back to what the job, the strictness or the default gives. This saves now."
+          : resetRow && resetRow.reset_to
+            ? rowLabel(resetRow) +
+              ": " +
+              showValue(resetRow.value, resetRow) +
+              " becomes " +
+              showValue(resetRow.reset_to.value, resetRow) +
+              " (" +
+              originText(resetRow.reset_to.origin, stored, catalog).toLowerCase() +
+              "). This saves now" +
+              (resetRow.restart ? " and applies after a Hermes restart." : " and applies from the agent's next tool call.")
+            : "This setting goes back to what the job, the strictness or the default gives. This saves now.",
+      confirmLabel: "Reset",
       cancelLabel: "Keep it",
       onCancel: function () {
         resetState[1](null);
       },
       onConfirm: function () {
-        if (resetState[0] === "*") {
-          call("/overrides", { method: "DELETE" })
-            .then(function (body) {
-              toast.showToast("Put back", "success");
-              props.onSaved(body.settings);
-            })
-            .catch(function (failure) {
-              if (failure.code === "managed") props.onLocked(failure.message);
-              saveErrorState[1](failure);
-            })
-            .finally(function () {
-              resetState[1](null);
-            });
-        } else {
-          reset(resetState[0]);
-        }
+        reset(resetPath);
       },
     })
   );
