@@ -65,6 +65,7 @@ _DEFINITION_MODULES = frozenset(
         "petasos/scanners/prompt_guard.py",
         "petasos/scanners/semgrep.py",
         "petasos/scanners/bootstrap.py",
+        "petasos/scanners/registry.py",
     }
 )
 

@@ -509,9 +509,17 @@ class ScannerSpec:
     default_enabled: Enabled         # "auto" for prompt_guard and presidio, "off" for semgrep
     build: Callable[[Any, BuildContext], Scanner]   # receives that section instance
 
-REGISTRY: tuple[ScannerSpec, ...]
+REGISTRY: tuple[ScannerSpec, ...]    # presidio, prompt_guard, semgrep
 
-def compose(config: PetasosConfig, context: BuildContext) -> Composition
+def compose(
+    config: PetasosConfig,
+    context: BuildContext,
+    *,
+    registry: tuple[ScannerSpec, ...] = REGISTRY,
+) -> Composition
+
+def is_registered(state: ScannerState) -> bool
+def recommendations(composition: Composition, role: str | None = None) -> tuple[str, ...]
 ```
 
 Every scanner section starts with `enabled: Literal["auto", "on", "off"]`:
@@ -532,26 +540,62 @@ its packages are absent, so a base install blocks everything until the
 operator disables it. Scanners tell the two apart through the cause their
 `availability()` probe already reports (`absent` or `load_failed`).
 
-`Composition` holds the scanner list (the syntactic scanner first, always) and
-one `ScannerStatus(id, state, reason)` per registry entry, where `state` is
-`active`, `unavailable`, `not_installed` or `off`. This replaces the
-five-outcome status whose `failed` value did not say whether a scanner was
-registered.
+`Composition` holds the scanner tuple (the syntactic scanner first, always)
+and one `ScannerStatus` per registry entry. `ScannerStatus` carries `id`,
+`state`, `reason`, `extra`, `detects`, and `label`. `state` is `active`,
+`unavailable`, `not_installed`, or `off`. `reason` is `None` only for
+`active`. `extra` is the pip extra, including when the scanner is active.
+This replaces the five-outcome status whose `failed` value did not say
+whether a scanner was registered.
 
-`BuildContext` carries what a builder cannot get from config, today only the
-Semgrep lifecycle owner and scheduling key. Semgrep is an ordinary registry
-entry.
+`is_registered(state)` is that rule, and it has no exceptions. `active` and
+`unavailable` are in the tuple. `not_installed` and `off` are not. The reason
+is not consulted. `compose` checks the rule before it returns.
+
+`BuildContext` carries what a builder cannot get from config: the Semgrep
+lifecycle owner and scheduling key. Semgrep is an ordinary registry entry.
+Without a lifecycle owner the adapter is not constructed and not probed. The
+status is `unavailable`, the reason is `semgrep.host_lifecycle_unavailable`,
+and an `UnavailableScanner` is registered so the state and the list agree.
+In 0.5 this case was left out of the list. A builder exception whose text is
+`semgrep.unsupported_platform` or `semgrep.host_lifecycle_unavailable` keeps
+that text. Any other exception while building Semgrep is
+`semgrep.construction_failed`.
+
+`UnavailableScanner` is the stand-in. It satisfies `Scanner`, and every scan
+returns its reason and does not raise. It is registered when the backend
+cannot be used and there is no working instance to keep: the package is
+missing and `enabled` is `on` (including a probe result of `absent`), the
+builder raises, or Semgrep was requested without a lifecycle owner. A
+constructed backend whose probe reports `load_failed`, or any other unusable
+cause, stays registered itself so its own scan error reaches `fail_mode`.
+An `ImportError` raised by the probe is that unusable case, not "not
+installed": the instance is already registered.
 
 `compose` is the only place scanners are constructed from config. The registry
 is a literal tuple: there is no third-party scanner discovery. A caller with a
-custom scanner passes it to `Pipeline` directly.
+custom scanner passes it to `Pipeline` directly. `registry` defaults to
+`REGISTRY`. Tests pass fake specs so the enablement table does not depend on
+the real backends. `compose` never raises because an optional backend failed.
+A failure to construct the syntactic scanner is not caught. It reads
+`normalization.decode_payloads` for that scanner.
 
 Backend constructor knobs are reachable from config or deleted. PromptGuard's
-threshold becomes `scanners.prompt_guard.threshold`.
+threshold is `scanners.prompt_guard.threshold` and defaults to the same cutoff
+when a caller constructs `PromptGuardScanner` with no arguments. Presidio
+receives `entities`, `language`, and `score_threshold`. `entities_extra` is
+not a constructor argument: the pipeline passes it on each scan as
+`extra_entities`, which is what lets a role switch apply live. Semgrep
+receives `engine_path`, `engine_sha256`, `request_timeout_seconds`, and
+`max_source_bytes`, plus the lifecycle owner and scheduling key from
+`BuildContext`. The scheduling key is stored by the adapter only once an
+engine lease is acquired.
 
-`detects` drives recommendations: with no active `injection` scanner beyond the
-syntactic one, `doctor` suggests the `prompt-guard` extra; role `support` or
-`admin` without an active `pii` scanner suggests `presidio`.
+`recommendations(composition, role=None)` returns plain-language lines for
+`doctor`. No active `injection` scanner suggests the `prompt-guard` extra.
+Role `support` or `admin` with no active `pii` scanner suggests `presidio`.
+Each `unavailable` scanner adds its reason and the fix, in registry order,
+ahead of those suggestions.
 
 ## 6. Enforcement
 

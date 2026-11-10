@@ -318,7 +318,9 @@ def _ensure_model() -> None:
         _LOAD_LOCK.release()
 
 
-def _map_score(score: float, duration_ms: float) -> ScanResult:
+def _map_score(
+    score: float, duration_ms: float, threshold: float = _BLOCK_THRESHOLD
+) -> ScanResult:
     """Score to verdict. Pure, so the default test lane exercises it without torch."""
     if not math.isfinite(score):
         # upstream's `score >= threshold` is false for NaN, so a broken model
@@ -330,7 +332,7 @@ def _map_score(score: float, duration_ms: float) -> ScanResult:
             error=f"prompt_guard produced a non-finite score ({score})",
         )
     findings: tuple[ScanFinding, ...] = ()
-    if score >= _BLOCK_THRESHOLD:
+    if score >= threshold:
         findings = (
             ScanFinding(
                 rule_id=_RULE_ID,
@@ -391,6 +393,13 @@ def _scan_sync(text: str, cancelled: threading.Event) -> float | None:
 
 
 class PromptGuardScanner:
+    def __init__(self, *, threshold: float = _BLOCK_THRESHOLD) -> None:
+        """Report injection when the score is at least ``threshold``.
+
+        Omitting ``threshold`` uses the module cutoff.
+        """
+        self._threshold = threshold
+
     @property
     def name(self) -> str:
         return "prompt_guard"
@@ -426,7 +435,7 @@ class PromptGuardScanner:
             score = await asyncio.to_thread(_scan_sync, text, cancelled)
             if score is None:
                 return ScanResult(scanner_name=self.name, findings=(), duration_ms=elapsed())
-            return _map_score(score, elapsed())
+            return _map_score(score, elapsed(), self._threshold)
         except Exception as exc:
             return ScanResult(
                 scanner_name=self.name,
