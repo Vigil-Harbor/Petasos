@@ -30,3 +30,13 @@ deleted.
 - `assets/petasos-shield.svg`, which nothing referenced.
 - `tests/test_config_surface_honesty.py`, which pinned `file:line` anchors
   into package source.
+- `Pipeline.scanner_health()` no longer calls a duck-typed `load_health()`
+  method. No bundled scanner implemented it. A backend that is installed but
+  failed to load still reports `error`; `degraded` still covers scan errors
+  and timeouts.
+
+## Changed
+
+- `Severity.rank` is the one severity scale: info is 0, critical is 4, higher
+  is more severe. Six hand-written copies of the ordering are gone. Finding
+  comparisons behave as before.
