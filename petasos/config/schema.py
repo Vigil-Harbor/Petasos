@@ -940,7 +940,6 @@ def apply_live(current: _S, proposed: _S) -> tuple[_S, ReconfigureResult]:
     info = leaves(type(current))
     current_map = to_mapping(current)
     proposed_map = to_mapping(proposed)
-    changes: dict[str, Any] = {}
     applied: list[str] = []
     restart_required: list[str] = []
     for row in info:
@@ -952,8 +951,10 @@ def apply_live(current: _S, proposed: _S) -> tuple[_S, ReconfigureResult]:
             restart_required.append(row.path)
             continue
         applied.append(row.path)
-        _place(changes, row.path, new)
-    updated = evolve(current, changes) if changes else current
+        # Replace the leaf whole. A merge would keep the keys a mapping
+        # setting has just lost.
+        _place(current_map, row.path, new)
+    updated = from_mapping(type(current), current_map) if applied else current
     return updated, ReconfigureResult(tuple(applied), tuple(restart_required))
 
 

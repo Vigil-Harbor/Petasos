@@ -14,7 +14,7 @@ from petasos.config.layers import (
     document_fields,
     resolve,
 )
-from petasos.config.schema import ConfigError, leaves, to_mapping
+from petasos.config.schema import ConfigError, apply_live, leaves, to_mapping
 from petasos.config.sections import PetasosConfig
 
 
@@ -143,3 +143,15 @@ def test_enabled_is_not_part_of_the_config() -> None:
     assert resolved.settings.enabled is False
     assert not hasattr(resolved.config, "enabled")
     assert "enabled" not in {row.path for row in leaves(PetasosConfig)}
+
+
+def test_a_live_role_switch_clears_what_the_old_role_set() -> None:
+    coding = resolve({"role": "coding"}).config
+    general = resolve({"role": "general"}).config
+
+    updated, result = apply_live(coding, general)
+
+    assert updated == general
+    assert dict(updated.rules.severity_overrides) == {}
+    assert "rules.severity_overrides" in result.applied
+    assert result.restart_required == ()
