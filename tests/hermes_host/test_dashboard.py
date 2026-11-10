@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 
 import pytest
 
+from tests.hermes_host.client import fresh_home, invoke, remember_pid, sandbox_env
 from tests.hermes_host.marks import requires_hermes_sandbox
 
 pytestmark = requires_hermes_sandbox
@@ -27,36 +28,15 @@ _DASHBOARD_HARNESS = Path(__file__).resolve().parent / "dashboard_harness.py"
 _TOKEN = "petasos-c3-dashboard-proof"
 
 
-def _sandbox() -> Path:
-    return Path(os.environ["PETASOS_HERMES_SANDBOX"]).resolve()
-
-
 def _invoke(
     sandbox: Path,
+    home: Path,
     harness: Path,
     request: dict[str, Any],
     *,
     timeout: float = 180,
 ) -> dict[str, Any]:
-    wrapper = sandbox / "bin" / "with-sandbox"
-    python = sandbox / "venv" / "bin" / "python"
-    completed = subprocess.run(
-        [str(wrapper), str(python), str(harness)],
-        input=json.dumps(request),
-        text=True,
-        capture_output=True,
-        timeout=timeout,
-        check=False,
-    )
-    if completed.returncode != 0:
-        raise AssertionError(
-            f"harness exited {completed.returncode}\n"
-            f"stdout:\n{completed.stdout[-2000:]}\nstderr:\n{completed.stderr[-4000:]}"
-        )
-    parsed = json.loads(completed.stdout)
-    if not isinstance(parsed, dict):
-        raise AssertionError("harness did not return an object")
-    return parsed
+    return invoke(sandbox, request, home=home, harness=harness, timeout=timeout)
 
 
 def _free_port() -> int:
@@ -111,15 +91,22 @@ def _wait_ready(port: int, log: Path) -> None:
 
 
 @pytest.fixture(scope="module")
-def dashboard() -> Iterator[dict[str, Any]]:
-    """One sandboxed dashboard. It is stopped when the module ends."""
-    sandbox = _sandbox()
+def dashboard(petasos_wheel: Path) -> Iterator[dict[str, Any]]:
+    """One sandboxed dashboard on a fresh home. It is stopped when the module ends."""
+    sandbox = petasos_wheel
     dist = sandbox / "src" / "hermes-agent" / "hermes_cli" / "web_dist" / "index.html"
     if not dist.is_file():
         pytest.fail(f"dashboard bundle is missing: {dist}")
-    _invoke(sandbox, _PLUGIN_HARNESS, {"action": "install", "worktree": str(_ROOT)}, timeout=180)
+    home = fresh_home(sandbox, "dashboard")
+    _invoke(
+        sandbox,
+        home,
+        _PLUGIN_HARNESS,
+        {"action": "install_home", "worktree": str(_ROOT)},
+        timeout=180,
+    )
     port = _free_port()
-    log = sandbox / "tmp" / "dashboard-c3.log"
+    log = sandbox / "tmp" / f"dashboard-{home.name}.log"
     log.parent.mkdir(parents=True, exist_ok=True)
     handle = log.open("w", encoding="utf-8")
     command = (
@@ -132,10 +119,12 @@ def dashboard() -> Iterator[dict[str, Any]]:
         stdout=handle,
         stderr=subprocess.STDOUT,
         start_new_session=True,
+        env=sandbox_env(home),
     )
+    remember_pid(sandbox, process.pid)
     try:
         _wait_ready(port, log)
-        yield {"sandbox": sandbox, "port": port, "log": log, "pid": process.pid}
+        yield {"sandbox": sandbox, "home": home, "port": port, "log": log, "pid": process.pid}
     finally:
         handle.close()
         if process.poll() is None:
@@ -182,7 +171,7 @@ def test_a_settings_change_is_what_hermes_and_the_plugin_read(dashboard: dict[st
     )
     assert status == 200, saved
     assert saved["saved"] is True
-    read = _invoke(sandbox, _DASHBOARD_HARNESS, {"action": "read_settings"})
+    read = _invoke(sandbox, dashboard["home"], _DASHBOARD_HARNESS, {"action": "read_settings"})
     assert read["get_config"]["role"] == "coding"
     assert read["get_config"]["level"] == "strict"
     assert read["file"]["role"] == "coding"
@@ -196,7 +185,7 @@ def test_a_settings_change_is_what_hermes_and_the_plugin_read(dashboard: dict[st
     )
     assert status == 200, cleared
     assert cleared["cleared"] is True
-    read = _invoke(sandbox, _DASHBOARD_HARNESS, {"action": "read_settings"})
+    read = _invoke(sandbox, dashboard["home"], _DASHBOARD_HARNESS, {"action": "read_settings"})
     overrides = read["get_config"]["overrides"]
     assert "fail_mode" not in overrides
     assert overrides["rules"]["confidence_floor"] == 0.8
@@ -224,7 +213,9 @@ def test_a_hook_block_shows_in_activity_and_matches_the_playground(
         token=_TOKEN,
         body={"role": "general", "level": "balanced"},
     )
-    compared = _invoke(sandbox, _DASHBOARD_HARNESS, {"action": "compare"}, timeout=120)
+    compared = _invoke(
+        sandbox, dashboard["home"], _DASHBOARD_HARNESS, {"action": "compare"}, timeout=120
+    )
     assert compared["hook_block"]
     assert compared["agree"] is True
     status, activity = _request(port, "/api/plugins/petasos/activity?limit=20", token=_TOKEN)

@@ -2,13 +2,10 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-from tests.hermes_host.client import invoke
+from tests.hermes_host.client import Sandbox, call
 from tests.hermes_host.marks import requires_hermes_sandbox
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 pytestmark = requires_hermes_sandbox
 
@@ -26,48 +23,48 @@ PRE_KEYS = {
 }
 
 
-def _pre(sandbox: Path, behavior: dict[str, Any], **extra: Any) -> dict[str, Any]:
+def _pre(box: Sandbox, behavior: dict[str, Any], **extra: Any) -> dict[str, Any]:
     request: dict[str, Any] = {"action": "dispatch", "hook": "pre_tool_call", "behavior": behavior}
     request.update(extra)
-    return invoke(sandbox, request)
+    return call(box, request)
 
 
-def test_pre_tool_call_block_none_and_unknown(hermes_sandbox: Path) -> None:
-    blocked = _pre(hermes_sandbox, {"return": {"action": "block", "message": "stopped"}})
+def test_pre_tool_call_block_none_and_unknown(standin: Sandbox) -> None:
+    blocked = _pre(standin, {"return": {"action": "block", "message": "stopped"}})
     assert blocked["host"]["block"] == "stopped"
     assert set(blocked["keys"]) >= PRE_KEYS
 
-    empty = _pre(hermes_sandbox, {"return": {"action": "block"}}, tool_call_id="call-empty")
+    empty = _pre(standin, {"return": {"action": "block"}}, tool_call_id="call-empty")
     assert empty["host"]["block"] is None
 
-    nothing = _pre(hermes_sandbox, {"return": None}, tool_call_id="call-none")
+    nothing = _pre(standin, {"return": None}, tool_call_id="call-none")
     assert nothing["host"]["block"] is None
 
     unknown = _pre(
-        hermes_sandbox,
+        standin,
         {"return": {"action": "dance", "message": "nope"}},
         tool_call_id="call-unknown",
     )
     assert unknown["host"]["block"] is None
 
 
-def test_pre_tool_call_raise_and_timeout(hermes_sandbox: Path) -> None:
-    raised = _pre(hermes_sandbox, {"raise": "boom"}, tool_call_id="call-raise")
+def test_pre_tool_call_raise_and_timeout(standin: Sandbox) -> None:
+    raised = _pre(standin, {"raise": "boom"}, tool_call_id="call-raise")
     message = raised["host"]["block"]
     assert isinstance(message, str)
     assert "RuntimeError" in message
     assert "on_pre_tool_call" in message
 
-    timed = invoke(hermes_sandbox, {"action": "timeout_probe"}, timeout=60)
+    timed = call(standin, {"action": "timeout_probe"}, timeout=60)
     assert timed["decision"]["host"]["block"] == (
         "pre_tool_call plugin callback timed out or is still running"
     )
     assert timed["elapsed_s"] < 15
 
 
-def test_transform_tool_result(hermes_sandbox: Path) -> None:
-    replaced = invoke(
-        hermes_sandbox,
+def test_transform_tool_result(standin: Sandbox) -> None:
+    replaced = call(
+        standin,
         {
             "action": "dispatch",
             "hook": "transform_tool_result",
@@ -80,8 +77,8 @@ def test_transform_tool_result(hermes_sandbox: Path) -> None:
     assert replaced["host"]["result"] == "from-a"
     assert "result" in replaced["keys"]
 
-    kept = invoke(
-        hermes_sandbox,
+    kept = call(
+        standin,
         {
             "action": "dispatch",
             "hook": "transform_tool_result",
@@ -90,8 +87,8 @@ def test_transform_tool_result(hermes_sandbox: Path) -> None:
     )
     assert kept["host"]["result"] == "original-result"
 
-    failed = invoke(
-        hermes_sandbox,
+    failed = call(
+        standin,
         {
             "action": "dispatch",
             "hook": "transform_tool_result",
@@ -100,8 +97,8 @@ def test_transform_tool_result(hermes_sandbox: Path) -> None:
     )
     assert failed["host"]["result"] == "original-result"
 
-    both = invoke(
-        hermes_sandbox,
+    both = call(
+        standin,
         {
             "action": "dispatch",
             "hook": "transform_tool_result",

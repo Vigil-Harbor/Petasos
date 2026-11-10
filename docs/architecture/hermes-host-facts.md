@@ -640,6 +640,106 @@ home, because the read follows the active home rather than a home stored on
 the context. It is not safe to treat it as the home from `register` time if
 the override has since moved.
 
+## 10. Dashboard `--isolated`, plugin environments, and a missing plugin API
+
+Checked in sandbox `/tmp/petasos-p1a-host` (Hermes v0.23.1, commit
+`3b421578588243f920886e6fe79a6faa87ea026e`). Node 26.12.1 and pnpm 12.15.0
+were installed under that sandbox and `pnpm --dir web run build` wrote
+`hermes_cli/web_dist/`. Every command went through `bin/with-sandbox`.
+
+**What `--isolated` does.** It does not change which Python imports a
+plugin and it does not change `plugins.isolation`. On `hermes dashboard`
+and `hermes serve` it opts out of two routing steps. Without it, a second
+dashboard on a machine that already has one attaches to that server and
+exits (`hermes_cli/main_dashboard.py` `_attach_to_host_backend`, the
+`isolated` return near the start of the function). A launch whose active
+profile is not `default` or `custom` re-execs as `-p default` and
+preselects the named profile (`_route_named_profile_dashboard`);
+`--isolated` returns before that re-exec. The flag's help text is
+`hermes_cli/subcommands/dashboard.py` (`--isolated`). On the default
+profile, with no dashboard already listening, the flag changes nothing
+about plugin loading.
+
+**Plugin isolation.** `plugins.isolation` is `in_process` or `host`
+(`hermes_cli/plugin_isolation.py` `isolation_mode`). The default is
+`in_process`: user plugin code, including a dashboard API module, is
+imported into the Hermes process. `host` keeps third-party code in a
+plugin-host process; the dashboard then forwards `/api/plugins/<name>/`
+(`hermes_cli/web_server_dashboard.py` `_mount_hosted_plugin_api`) and logs
+`Mounted plugin API routes via the plugin host`. The homes in this pass
+had no `plugins.isolation` key, so the mode was `in_process`. The 404
+below is not host mode.
+
+**The per-request gate.** Every `/api/plugins/<name>/` request is checked
+again after mount (`_plugin_api_request_refused`,
+`_plugin_route_secret_scope`). The check re-reads `plugins.enabled` and
+`plugins.disabled` for the profile the request acts for. A withheld plugin
+raises HTTP 404 with detail `Plugin not found`. That is not the body the
+failing call returned.
+
+**Where a 404 `{"detail": "Not Found"}` comes from.** If the plugin's API
+was not mounted, the request hits `_PluginApiHotMount`. That tries
+`_try_hot_mount_plugin_api` and, on failure, returns
+`JSONResponse({"detail": "Not Found"}, status_code=404)`. Mount imports
+the plugin's `api` file (`_mount_one_plugin_api` →
+`plugin_isolation.import_user_code`). An exception is logged and the mount
+returns false, so the route is never added. `has_api` on
+`/api/dashboard/plugins` is only "the manifest's `api` path is a file
+inside the plugin's `dashboard/` directory" (`_dashboard_plugin_entry`).
+It does not import that file. An unauthenticated `/api/` call is refused
+with 401 `{"detail": "Unauthorized"}` by `auth_middleware` in
+`hermes_cli/web_server.py` before routing, so a 401 does not show that the
+route exists. The dashboard process's own stdout does not include the
+mount failure. That line is in `<HERMES_HOME>/logs/agent.log` and
+`gui.log`.
+
+**Two Pythons.** `hermes` imports `hermes_bootstrap` before anything else
+(`hermes_cli/main.py`). Bootstrap calls `pm.environments.activate_dependencies`,
+which removes every `site-packages` entry from `sys.path` and adds the
+committed environment from `<HERMES_HOME>/installs/<key>/facts.json`.
+With no committed environment, a virtualenv keeps the packages it started
+with. `python -m petasos` and a harness run under the sandbox interpreter
+do not import `hermes_bootstrap`, so they keep the sandbox virtualenv.
+
+**What commits the environment.** Enabling a plugin goes through
+`plugins_cmd._activate_key` → `_set_plugin_enabled` →
+`plugins_admission.admit_plugin_set_change` → `pm.client.sync_venv`.
+`petasos hermes install` calls Hermes's
+`dashboard_set_agent_plugin_enabled`, which is that path. The committed
+environment is a new virtualenv. It does not contain a wheel that was
+only `pip install`ed into the sandbox interpreter.
+
+**Ran.** On a fresh sandbox, `pytest tests/hermes_host` was 3 failed, 26
+passed, in 105 seconds. The three failures were
+`GET /api/plugins/petasos/status` with the dashboard session token:
+`404 {"detail": "Not Found"}`. The unauthenticated call was 401 and
+`/api/dashboard/plugins` listed Petasos with `has_api: true`. Pytest ran
+`test_cli.py` first. After only
+`test_install_then_doctor_reports_protected`, `<HERMES_HOME>/installs/.../facts.json`
+existed and its environment had no `petasos` distribution. Importing
+`hermes_cli.main` left `sys.path` with that environment's `site-packages`
+and not the sandbox virtualenv's. While Petasos was an editable install,
+`_editable_impl_petasos.pth` had already pushed the worktree onto
+`sys.path`; activation removes entries named `site-packages` and leaves
+that path, so `import petasos` still worked. The dashboard fixture then
+installed the wheel with `uv pip install --reinstall`, which removed the
+`.pth`. The dashboard process logged `Failed to load plugin petasos API
+routes: No module named 'petasos'` at `import_user_code` and the
+authenticated call returned the hot-mount 404. The same 404 remained for a
+later dashboard run on that home, because the committed environment stayed.
+
+**A real user can hit this.** `petasos hermes install` (and
+`hermes plugins enable petasos`) commits a dependency environment that
+does not include a wheel installed only into the interpreter that ran the
+command. The next `hermes dashboard` activates that environment, cannot
+import `petasos`, and does not mount `/api/plugins/petasos/`. The tab is
+still listed. The API answers 404 once the caller is authenticated, and
+the dashboard's stdout does not say why. An editable install hides it
+until something replaces that install with a wheel. The development
+install's own text warns that a later Hermes update can build such an
+environment; the enable inside that same command builds one immediately.
+This pass did not change package code.
+
 ## What was not run
 
 - No Hermes gateway, no messaging platform, no model provider, and no

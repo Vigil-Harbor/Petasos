@@ -8,6 +8,7 @@ functions, after the sandbox home is set.
 from __future__ import annotations
 
 import base64
+import importlib
 import json
 import logging
 import os
@@ -17,17 +18,18 @@ import sys
 from pathlib import Path
 from typing import Any
 
+if __name__ == "__main__" and __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from tests.hermes_host.sandbox_guard import hermes_home, sandbox_root
+
 
 def _sandbox_root() -> Path:
-    home = Path(os.environ["HERMES_HOME"]).resolve()
-    user_home = Path.home().resolve()
-    if user_home.name != "home" or home.name != "hermes_home" or user_home.parent != home.parent:
-        raise SystemExit(f"refusing to run outside a sandbox: HOME={user_home} HERMES_HOME={home}")
-    return home.parent
+    return sandbox_root()
 
 
 def _home() -> Path:
-    return Path(os.environ["HERMES_HOME"]).resolve()
+    return hermes_home()
 
 
 def _import(name: str) -> Any:
@@ -59,11 +61,15 @@ def _write_enabled() -> None:
     config_mod.save_config(config)
 
 
-def install(request: dict[str, Any]) -> dict[str, Any]:
-    """Build this worktree's wheel into the sandbox interpreter and copy the plugin directory."""
+def _worktree(request: dict[str, Any]) -> Path:
     worktree = Path(request["worktree"]).resolve()
     if not (worktree / "pyproject.toml").is_file():
         raise SystemExit(f"not a petasos worktree: {worktree}")
+    return worktree
+
+
+def _build_wheel(worktree: Path) -> Path:
+    """Build the worktree wheel into the sandbox. The same file is reused."""
     sandbox = _sandbox_root()
     dist = sandbox / "dist" / "petasos"
     if dist.exists():
@@ -79,19 +85,101 @@ def install(request: dict[str, Any]) -> dict[str, Any]:
     wheels = sorted(dist.glob("petasos-*.whl"))
     if not wheels:
         raise RuntimeError(f"no wheel in {dist}")
-    wheel = wheels[-1]
+    return wheels[-1]
+
+
+def _latest_wheel() -> Path:
+    wheels = sorted((_sandbox_root() / "dist" / "petasos").glob("petasos-*.whl"))
+    if not wheels:
+        raise RuntimeError("petasos wheel is not built")
+    return wheels[-1]
+
+
+def _pip_install(python: str, wheel: Path) -> None:
     subprocess.run(
-        ["uv", "pip", "install", "--python", sys.executable, "--reinstall", str(wheel)],
+        ["uv", "pip", "install", "--python", python, "--reinstall", str(wheel)],
         check=True,
         capture_output=True,
         text=True,
     )
+
+
+def _committed_python() -> str | None:
+    """The Python of this home's committed package-manager environment, if it has one.
+
+    ``hermes`` activates that environment on startup and drops the sandbox
+    virtualenv's site-packages. A wheel that exists only in the virtualenv is
+    invisible to that process until it is installed here too.
+    """
+    try:
+        environments = importlib.import_module("pm.environments")
+        paths = importlib.import_module("pm.paths")
+        committed = getattr(environments, "committed_venv", None)
+        repo_root = getattr(paths, "repo_root", None)
+        if not callable(committed) or not callable(repo_root):
+            return None
+        environment = committed(repo_root())
+    except Exception:
+        return None
+    if environment is None:
+        return None
+    python = environment / "bin" / "python"
+    if not python.is_file():
+        return None
+    if python.resolve() == Path(sys.executable).resolve():
+        return None
+    return str(python)
+
+
+def install_wheel(request: dict[str, Any]) -> dict[str, Any]:
+    """Build the worktree wheel and install it into the sandbox interpreter."""
+    wheel = _build_wheel(_worktree(request))
+    _pip_install(sys.executable, wheel)
+    return {"ok": True, "wheel": str(wheel), "python": sys.executable}
+
+
+def ensure_wheel(_request: dict[str, Any]) -> dict[str, Any]:
+    """Install the already-built wheel into this home's committed environment.
+
+    The sandbox interpreter already has the wheel. ``hermes`` uses it only when
+    this home has no committed environment. When it does, that environment is
+    the one ``hermes`` imports.
+    """
+    wheel = _latest_wheel()
+    committed = _committed_python()
+    if committed is not None:
+        probe = subprocess.run(
+            [committed, "-c", "import petasos"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if probe.returncode != 0:
+            _pip_install(committed, wheel)
+    return {"ok": True, "wheel": str(wheel), "committed": committed}
+
+
+def install_home(request: dict[str, Any]) -> dict[str, Any]:
+    """Copy the plugin directory into this home, enable it, and place the wheel."""
+    worktree = _worktree(request)
     dest = _plugin_dir()
     if dest.exists():
         shutil.rmtree(dest)
     shutil.copytree(worktree / "hermes-plugin" / "petasos", dest)
     _write_enabled()
-    return {"ok": True, "wheel": str(wheel), "plugin": str(dest)}
+    placed = ensure_wheel(request)
+    return {
+        "ok": True,
+        "wheel": placed["wheel"],
+        "plugin": str(dest),
+        "committed": placed["committed"],
+    }
+
+
+def install(request: dict[str, Any]) -> dict[str, Any]:
+    """Build the wheel, install it, and copy the plugin directory into this home."""
+    install_wheel(request)
+    return install_home(request)
 
 
 def validate(_request: dict[str, Any]) -> dict[str, Any]:
@@ -489,10 +577,14 @@ def registration(_request: dict[str, Any]) -> dict[str, Any]:
 
 
 def main() -> None:
+    _sandbox_root()
     request = json.loads(sys.stdin.read() or "{}")
     action = str(request.get("action", ""))
     handlers = {
         "install": install,
+        "install_wheel": install_wheel,
+        "install_home": install_home,
+        "ensure_wheel": ensure_wheel,
         "validate": validate,
         "discover": discover,
         "behaviour": behaviour,
