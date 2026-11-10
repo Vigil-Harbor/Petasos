@@ -5,7 +5,9 @@ from unittest.mock import patch
 
 import pytest
 
-from petasos.config import PetasosConfig
+from petasos.config.schema import from_mapping
+from petasos.config.secrets import Secrets
+from petasos.config.sections import PetasosConfig
 from petasos.session.frequency import (
     DEFAULT_FREQUENCY_WEIGHTS,
     DISABLED_RESULT,
@@ -16,13 +18,11 @@ from petasos.session.frequency import (
 from petasos.session.lineage import LineageRegistry
 
 
-def _cfg(**overrides: object) -> PetasosConfig:
-    defaults: dict[str, object] = {
-        "frequency_enabled": True,
-        "escalation_enabled": True,
-    }
-    defaults.update(overrides)
-    return PetasosConfig(**defaults)  # type: ignore[arg-type]
+def _cfg(partial: dict[str, object] | None = None) -> PetasosConfig:
+    """Build a config tree from a partial document."""
+    if not partial:
+        return PetasosConfig()
+    return from_mapping(PetasosConfig, partial)
 
 
 # ---------------------------------------------------------------------------
@@ -32,7 +32,13 @@ def _cfg(**overrides: object) -> PetasosConfig:
 
 class TestDecayMath:
     def test_score_halves_after_one_half_life(self) -> None:
-        cfg = _cfg(frequency_half_life_seconds=10.0)
+        cfg = _cfg(
+            {
+                "frequency": {
+                    "half_life_seconds": 10.0,
+                },
+            }
+        )
         tracker = FrequencyTracker(cfg)
 
         t0 = 1000.0
@@ -45,7 +51,13 @@ class TestDecayMath:
         assert abs(result.previous_score - 5.0) < 1e-9
 
     def test_score_decays_to_near_zero_after_many_half_lives(self) -> None:
-        cfg = _cfg(frequency_half_life_seconds=10.0)
+        cfg = _cfg(
+            {
+                "frequency": {
+                    "half_life_seconds": 10.0,
+                },
+            }
+        )
         tracker = FrequencyTracker(cfg)
 
         t0 = 1000.0
@@ -58,7 +70,13 @@ class TestDecayMath:
         assert result.current_score < 1e-6
 
     def test_zero_elapsed_no_decay(self) -> None:
-        cfg = _cfg(frequency_half_life_seconds=10.0)
+        cfg = _cfg(
+            {
+                "frequency": {
+                    "half_life_seconds": 10.0,
+                },
+            }
+        )
         tracker = FrequencyTracker(cfg)
 
         t0 = 1000.0
@@ -71,7 +89,13 @@ class TestDecayMath:
         assert r2.previous_score == r1.current_score
 
     def test_decay_with_zero_initial_score(self) -> None:
-        cfg = _cfg(frequency_half_life_seconds=10.0)
+        cfg = _cfg(
+            {
+                "frequency": {
+                    "half_life_seconds": 10.0,
+                },
+            }
+        )
         tracker = FrequencyTracker(cfg)
 
         t0 = 1000.0
@@ -85,8 +109,12 @@ class TestDecayMath:
 
     def test_multiple_updates_produce_reference_sequence(self) -> None:
         cfg = _cfg(
-            frequency_half_life_seconds=10.0,
-            frequency_weights={"test.rule": 10.0},
+            {
+                "frequency": {
+                    "half_life_seconds": 10.0,
+                    "weights": {"test.rule": 10.0},
+                },
+            }
         )
         tracker = FrequencyTracker(cfg)
 
@@ -112,9 +140,13 @@ class TestDecayMath:
 class TestWeightMatching:
     def test_exact_match_takes_priority_over_glob(self) -> None:
         cfg = _cfg(
-            frequency_weights={
-                "petasos.syntactic.injection.role-switch": 20.0,
-                "petasos.syntactic.injection.*": 10.0,
+            {
+                "frequency": {
+                    "weights": {
+                        "petasos.syntactic.injection.role-switch": 20.0,
+                        "petasos.syntactic.injection.*": 10.0,
+                    },
+                },
             }
         )
         tracker = FrequencyTracker(cfg)
@@ -126,9 +158,13 @@ class TestWeightMatching:
 
     def test_glob_match_longest_prefix_wins(self) -> None:
         cfg = _cfg(
-            frequency_weights={
-                "petasos.syntactic.*": 1.0,
-                "petasos.syntactic.injection.*": 10.0,
+            {
+                "frequency": {
+                    "weights": {
+                        "petasos.syntactic.*": 1.0,
+                        "petasos.syntactic.injection.*": 10.0,
+                    },
+                },
             }
         )
         tracker = FrequencyTracker(cfg)
@@ -139,7 +175,13 @@ class TestWeightMatching:
         assert result.current_score == 10.0
 
     def test_no_match_returns_zero(self) -> None:
-        cfg = _cfg(frequency_weights={"petasos.syntactic.injection.*": 10.0})
+        cfg = _cfg(
+            {
+                "frequency": {
+                    "weights": {"petasos.syntactic.injection.*": 10.0},
+                },
+            }
+        )
         tracker = FrequencyTracker(cfg)
 
         t0 = 1000.0
@@ -149,9 +191,13 @@ class TestWeightMatching:
 
     def test_multiple_rule_ids_weights_summed(self) -> None:
         cfg = _cfg(
-            frequency_weights={
-                "petasos.syntactic.injection.*": 10.0,
-                "petasos.syntactic.structural.*": 5.0,
+            {
+                "frequency": {
+                    "weights": {
+                        "petasos.syntactic.injection.*": 10.0,
+                        "petasos.syntactic.structural.*": 5.0,
+                    },
+                },
             }
         )
         tracker = FrequencyTracker(cfg)
@@ -169,8 +215,12 @@ class TestWeightMatching:
 
     def test_empty_rule_ids_only_decays(self) -> None:
         cfg = _cfg(
-            frequency_half_life_seconds=10.0,
-            frequency_weights={"test.rule": 10.0},
+            {
+                "frequency": {
+                    "half_life_seconds": 10.0,
+                    "weights": {"test.rule": 10.0},
+                },
+            }
         )
         tracker = FrequencyTracker(cfg)
 
@@ -191,9 +241,13 @@ class TestWeightMatching:
 class TestRollingWindow:
     def test_findings_within_window_counted(self) -> None:
         cfg = _cfg(
-            rolling_window_seconds=60.0,
-            rolling_threshold=3,
-            frequency_weights={"r": 1.0},
+            {
+                "frequency": {
+                    "rolling_window_seconds": 60.0,
+                    "rolling_threshold": 3,
+                    "weights": {"r": 1.0},
+                },
+            }
         )
         tracker = FrequencyTracker(cfg)
 
@@ -208,9 +262,13 @@ class TestRollingWindow:
 
     def test_findings_outside_window_pruned(self) -> None:
         cfg = _cfg(
-            rolling_window_seconds=10.0,
-            rolling_threshold=100,
-            frequency_weights={"r": 1.0},
+            {
+                "frequency": {
+                    "rolling_window_seconds": 10.0,
+                    "rolling_threshold": 100,
+                    "weights": {"r": 1.0},
+                },
+            }
         )
         tracker = FrequencyTracker(cfg)
 
@@ -227,12 +285,18 @@ class TestRollingWindow:
 
     def test_rolling_threshold_promotes_to_tier1(self) -> None:
         cfg = _cfg(
-            rolling_window_seconds=60.0,
-            rolling_threshold=3,
-            tier1_threshold=100.0,
-            tier2_threshold=200.0,
-            tier3_threshold=300.0,
-            frequency_weights={"r": 0.01},
+            {
+                "frequency": {
+                    "rolling_window_seconds": 60.0,
+                    "rolling_threshold": 3,
+                    "weights": {"r": 0.01},
+                },
+                "escalation": {
+                    "tier1": 100.0,
+                    "tier2": 200.0,
+                    "tier3": 300.0,
+                },
+            }
         )
         tracker = FrequencyTracker(cfg)
 
@@ -242,13 +306,17 @@ class TestRollingWindow:
                 result = tracker.update("s1", ["r"])
 
         assert result.tier == "tier1"
-        assert result.current_score < cfg.tier1_threshold
+        assert result.current_score < cfg.escalation.tier1
 
     def test_empty_rolling_window_after_expiry(self) -> None:
         cfg = _cfg(
-            rolling_window_seconds=5.0,
-            rolling_threshold=100,
-            frequency_weights={"r": 1.0},
+            {
+                "frequency": {
+                    "rolling_window_seconds": 5.0,
+                    "rolling_threshold": 100,
+                    "weights": {"r": 1.0},
+                },
+            }
         )
         tracker = FrequencyTracker(cfg)
 
@@ -272,9 +340,15 @@ class TestRollingWindow:
 class TestSessionEviction:
     def test_ttl_eviction_removes_stale_sessions(self) -> None:
         cfg = _cfg(
-            session_ttl_seconds=10.0,
-            max_sessions=100,
-            frequency_weights={"r": 1.0},
+            {
+                "sessions": {
+                    "ttl_seconds": 10.0,
+                    "max": 100,
+                },
+                "frequency": {
+                    "weights": {"r": 1.0},
+                },
+            }
         )
         tracker = FrequencyTracker(cfg)
 
@@ -290,10 +364,18 @@ class TestSessionEviction:
 
     def test_max_sessions_evicts_oldest_prefers_terminated(self) -> None:
         cfg = _cfg(
-            max_sessions=3,
-            max_new_sessions_per_minute=100,
-            frequency_weights={"r": 1.0},
-            tier3_threshold=50.0,
+            {
+                "sessions": {
+                    "max": 3,
+                    "max_new_per_minute": 100,
+                },
+                "frequency": {
+                    "weights": {"r": 1.0},
+                },
+                "escalation": {
+                    "tier3": 50.0,
+                },
+            }
         )
         tracker = FrequencyTracker(cfg)
 
@@ -317,9 +399,15 @@ class TestSessionEviction:
 
     def test_eviction_never_removes_current_session(self) -> None:
         cfg = _cfg(
-            max_sessions=2,
-            max_new_sessions_per_minute=100,
-            frequency_weights={"r": 1.0},
+            {
+                "sessions": {
+                    "max": 2,
+                    "max_new_per_minute": 100,
+                },
+                "frequency": {
+                    "weights": {"r": 1.0},
+                },
+            }
         )
         tracker = FrequencyTracker(cfg)
 
@@ -336,9 +424,15 @@ class TestSessionEviction:
 
     def test_over_1000_sessions_no_crash(self) -> None:
         cfg = _cfg(
-            max_sessions=1200,
-            max_new_sessions_per_minute=2000,
-            frequency_weights={"r": 0.001},
+            {
+                "sessions": {
+                    "max": 1200,
+                    "max_new_per_minute": 2000,
+                },
+                "frequency": {
+                    "weights": {"r": 0.001},
+                },
+            }
         )
         tracker = FrequencyTracker(cfg)
 
@@ -358,9 +452,15 @@ class TestSessionEviction:
 class TestRateLimiting:
     def test_new_session_rejected_at_capacity(self) -> None:
         cfg = _cfg(
-            max_sessions=2,
-            max_new_sessions_per_minute=2,
-            frequency_weights={"r": 1.0},
+            {
+                "sessions": {
+                    "max": 2,
+                    "max_new_per_minute": 2,
+                },
+                "frequency": {
+                    "weights": {"r": 1.0},
+                },
+            }
         )
         tracker = FrequencyTracker(cfg)
 
@@ -374,9 +474,15 @@ class TestRateLimiting:
 
     def test_new_session_accepted_under_capacity(self) -> None:
         cfg = _cfg(
-            max_sessions=10,
-            max_new_sessions_per_minute=10,
-            frequency_weights={"r": 1.0},
+            {
+                "sessions": {
+                    "max": 10,
+                    "max_new_per_minute": 10,
+                },
+                "frequency": {
+                    "weights": {"r": 1.0},
+                },
+            }
         )
         tracker = FrequencyTracker(cfg)
 
@@ -389,9 +495,15 @@ class TestRateLimiting:
 
     def test_rate_limit_window_rolls_forward(self) -> None:
         cfg = _cfg(
-            max_sessions=2,
-            max_new_sessions_per_minute=2,
-            frequency_weights={"r": 1.0},
+            {
+                "sessions": {
+                    "max": 2,
+                    "max_new_per_minute": 2,
+                },
+                "frequency": {
+                    "weights": {"r": 1.0},
+                },
+            }
         )
         tracker = FrequencyTracker(cfg)
 
@@ -415,7 +527,16 @@ class TestRateLimiting:
 
 class TestEdgeCases:
     def test_terminated_session_returns_immediately(self) -> None:
-        cfg = _cfg(frequency_weights={"r": 100.0}, tier3_threshold=50.0)
+        cfg = _cfg(
+            {
+                "frequency": {
+                    "weights": {"r": 100.0},
+                },
+                "escalation": {
+                    "tier3": 50.0,
+                },
+            }
+        )
         tracker = FrequencyTracker(cfg)
 
         t0 = 1000.0
@@ -436,7 +557,13 @@ class TestEdgeCases:
         assert tracker.get_state("nonexistent") is None
 
     def test_reset_removes_session(self) -> None:
-        cfg = _cfg(frequency_weights={"r": 1.0})
+        cfg = _cfg(
+            {
+                "frequency": {
+                    "weights": {"r": 1.0},
+                },
+            }
+        )
         tracker = FrequencyTracker(cfg)
 
         t0 = 1000.0
@@ -448,7 +575,13 @@ class TestEdgeCases:
         assert tracker.get_state("s1") is None
 
     def test_clear_removes_all_sessions_and_timestamps(self) -> None:
-        cfg = _cfg(frequency_weights={"r": 1.0})
+        cfg = _cfg(
+            {
+                "frequency": {
+                    "weights": {"r": 1.0},
+                },
+            }
+        )
         tracker = FrequencyTracker(cfg)
 
         t0 = 1000.0
@@ -488,11 +621,25 @@ class TestStaticResults:
 
 class TestWeightValidation:
     def test_glob_key_with_non_terminal_star_raises(self) -> None:
-        with pytest.raises(ValueError, match="non-terminal"):
-            FrequencyTracker(_cfg(frequency_weights={"petasos.*.injection": 1.0}))
+        with pytest.raises(ValueError, match="frequency.weights"):
+            FrequencyTracker(
+                _cfg(
+                    {
+                        "frequency": {
+                            "weights": {"petasos.*.injection": 1.0},
+                        },
+                    }
+                )
+            )
 
     def test_default_weights_used_when_none(self) -> None:
-        cfg = _cfg(frequency_weights=None)
+        cfg = _cfg(
+            {
+                "frequency": {
+                    "weights": None,
+                },
+            }
+        )
         tracker = FrequencyTracker(cfg)
         expected_exact = {
             "petasos.selfmod.config_write": 10.0,
@@ -506,7 +653,15 @@ class TestWeightValidation:
         # default frequency weight 3.0 (encoding parity). _match_weight binds
         # weights at construction, so build over the defaults (frequency_weights=
         # None) — the existing weight tests never exercise the defaults.
-        tracker = FrequencyTracker(_cfg(frequency_weights=None))
+        tracker = FrequencyTracker(
+            _cfg(
+                {
+                    "frequency": {
+                        "weights": None,
+                    },
+                }
+            )
+        )
         assert tracker._match_weight("petasos.syntactic.command.fetch-exec") == 3.0
 
 
@@ -531,8 +686,8 @@ class TestSessionToken:
         assert tracker.get_state("s1") is None
 
     def test_valid_token_accepted(self) -> None:
-        cfg = _cfg(session_secret=_SECRET)
-        tracker = FrequencyTracker(cfg)
+        cfg = _cfg()
+        tracker = FrequencyTracker(cfg, secrets=Secrets(session_secret=_SECRET))
         token = tracker.mint_token("s1", "host-a")
         with patch("petasos.session.frequency.time.monotonic", return_value=1000.0):
             result = tracker.update(token, ["petasos.syntactic.injection.ignore-previous"])
@@ -548,8 +703,8 @@ class TestSessionToken:
             tracker.mint_token("s1", "host")
 
     def test_mint_token_rejects_null_bytes(self) -> None:
-        cfg = _cfg(session_secret=_SECRET)
-        tracker = FrequencyTracker(cfg)
+        cfg = _cfg()
+        tracker = FrequencyTracker(cfg, secrets=Secrets(session_secret=_SECRET))
         with pytest.raises(ValueError, match="null bytes"):
             tracker.mint_token("\x00abc", "host")
         with pytest.raises(ValueError, match="null bytes"):
@@ -580,7 +735,13 @@ class TestLineagePinning:
     def test_passive_eviction_retries_after_unpin(self) -> None:
         # D6: a pinned session is skipped (and re-appended, no spin) by passive
         # TTL eviction, then reaped once it unpins on a later update().
-        cfg = _cfg(session_ttl_seconds=10.0)
+        cfg = _cfg(
+            {
+                "sessions": {
+                    "ttl_seconds": 10.0,
+                },
+            }
+        )
         tracker, registry = _pinned_tracker(cfg)
         clock = {"t": 0.0}
 
@@ -601,7 +762,13 @@ class TestLineagePinning:
     def test_terminated_parent_ttl_evicted_unpins(self) -> None:
         # D6 (4th tombstone path): a terminated session reaped on the step-1 TTL
         # path fires on_terminate → drops its outgoing edge → unpins its parent.
-        cfg = _cfg(session_ttl_seconds=10.0)
+        cfg = _cfg(
+            {
+                "sessions": {
+                    "ttl_seconds": 10.0,
+                },
+            }
+        )
         tracker, registry = _pinned_tracker(cfg)
         clock = {"t": 0.0}
 
@@ -627,14 +794,20 @@ class TestLineagePinning:
         # the smallest-last_update pinned session is force-evicted (logged, no
         # raise) and degrades to OWN-tier (non-tombstoned), while a *terminated*
         # ancestor's tombstone still survives (tier-3 floor unaffected, D4).
-        cfg = _cfg(max_sessions=2)
+        cfg = _cfg(
+            {
+                "sessions": {
+                    "max": 2,
+                },
+            }
+        )
         tracker, registry = _pinned_tracker(cfg)
         parents = [f"p{i}" for i in range(5)]
         with caplog.at_level(logging.WARNING):
             for p in parents:
                 registry.register(f"c_{p}", p)  # pin p (child edge)
                 tracker.update(p, [])
-                assert tracker.size <= 2 * cfg.max_sessions  # bounded, never exceeds 4
+                assert tracker.size <= 2 * cfg.sessions.max  # bounded, never exceeds 4
 
         # p0 (smallest last_update) was force-evicted and is NOT tombstoned →
         # its sub-tree reads own-tier, not tier3.
@@ -651,7 +824,13 @@ class TestLineagePinning:
     def test_feature_off_eviction_is_unchanged(self) -> None:
         # is_pinned=None / on_terminate=None → eviction is byte-for-byte today's:
         # an over-cap insert evicts the oldest, no pinning consulted.
-        cfg = _cfg(max_sessions=1)
+        cfg = _cfg(
+            {
+                "sessions": {
+                    "max": 1,
+                },
+            }
+        )
         tracker = FrequencyTracker(cfg)  # no callbacks
         tracker.update("a", [])
         tracker.update("b", [])  # over cap → 'a' evicted (no pin protection)
@@ -703,7 +882,15 @@ class TestWeightCapQuantization:
         # id resolving to 0.0 (the extras-scanner shape, e.g.
         # petasos.promptguard.injection) — neither may arm the count-based
         # rolling-window promotion channel the clamp cannot bound.
-        tracker = FrequencyTracker(_cfg(rolling_threshold=3))
+        tracker = FrequencyTracker(
+            _cfg(
+                {
+                    "frequency": {
+                        "rolling_threshold": 3,
+                    },
+                }
+            )
+        )
         t0 = 1000.0
         for n in range(6):
             with patch("petasos.session.frequency.time.monotonic", return_value=t0 + n):
@@ -723,7 +910,15 @@ class TestWeightCapQuantization:
     def test_step8_unchanged_for_uncapped_callers(self) -> None:
         # Pre-PET-176 behaviour pinned: an UNCAPPED zero-weight finding still
         # appends (rule_ids non-empty), so the rolling promotion still fires.
-        tracker = FrequencyTracker(_cfg(rolling_threshold=3))
+        tracker = FrequencyTracker(
+            _cfg(
+                {
+                    "frequency": {
+                        "rolling_threshold": 3,
+                    },
+                }
+            )
+        )
         t0 = 1000.0
         for n in range(3):
             with patch("petasos.session.frequency.time.monotonic", return_value=t0 + n):

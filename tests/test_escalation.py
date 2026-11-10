@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from petasos.config import PetasosConfig
+from petasos.config.schema import from_mapping
+from petasos.config.sections import PetasosConfig
 from petasos.session import escalation
 from petasos.session.escalation import (
     TIER3_FLOOR,
@@ -12,13 +13,11 @@ from petasos.session.escalation import (
 )
 
 
-def _cfg(**overrides: object) -> PetasosConfig:
-    defaults: dict[str, object] = {
-        "frequency_enabled": True,
-        "escalation_enabled": True,
-    }
-    defaults.update(overrides)
-    return PetasosConfig(**defaults)  # type: ignore[arg-type]
+def _cfg(partial: dict[str, object] | None = None) -> PetasosConfig:
+    """Build a config tree from a partial document."""
+    if not partial:
+        return PetasosConfig()
+    return from_mapping(PetasosConfig, partial)
 
 
 # ---------------------------------------------------------------------------
@@ -64,12 +63,27 @@ class TestEvaluateTier:
 
 class TestTier3Floor:
     def test_tier3_below_floor_raises(self) -> None:
-        with pytest.raises(ValueError, match="tier3 must be"):
-            _cfg(tier3_threshold=29.0, tier2_threshold=20.0)
+        with pytest.raises(ValueError, match="escalation.tier3"):
+            _cfg(
+                {
+                    "escalation": {
+                        "tier3": 29.0,
+                        "tier2": 20.0,
+                    },
+                }
+            )
 
     def test_tier3_at_floor_accepted(self) -> None:
-        cfg = _cfg(tier1_threshold=10.0, tier2_threshold=20.0, tier3_threshold=30.0)
-        assert cfg.tier3_threshold == 30.0
+        cfg = _cfg(
+            {
+                "escalation": {
+                    "tier1": 10.0,
+                    "tier2": 20.0,
+                    "tier3": 30.0,
+                },
+            }
+        )
+        assert cfg.escalation.tier3 == 30.0
 
     def test_floor_constant_is_30(self) -> None:
         assert TIER3_FLOOR == 30.0
@@ -98,13 +112,27 @@ class TestTier3Floor:
         # (PET-23 isfinite guard, escalation.py:73). A real PetasosConfig rejects a
         # non-finite threshold at construction and is frozen+slots, so tamper an
         # otherwise-valid frozen instance through its existing slot.
-        cfg = _cfg(tier1_threshold=15.0, tier2_threshold=25.0, tier3_threshold=30.0)
-        object.__setattr__(cfg, "tier3_threshold", float("nan"))
+        cfg = _cfg(
+            {
+                "escalation": {
+                    "tier1": 15.0,
+                    "tier2": 25.0,
+                    "tier3": 30.0,
+                },
+            }
+        )
+        object.__setattr__(cfg.escalation, "tier3", float("nan"))
         assert evaluate_tier(50.0, cfg) == "tier3"
 
         # And the config layer rejects it first.
         with pytest.raises(ValueError):
-            _cfg(tier3_threshold=float("nan"))
+            _cfg(
+                {
+                    "escalation": {
+                        "tier3": float("nan"),
+                    },
+                }
+            )
 
         # derive_tier guards a NaN *score* (escalation.py:58-59) but NOT a NaN
         # *threshold* (that guard lives in evaluate_tier); pin only the score guard.

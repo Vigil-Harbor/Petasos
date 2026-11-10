@@ -8,7 +8,10 @@ from unittest.mock import patch
 import pytest
 
 from petasos._types import ScanFinding, Severity
-from petasos.config import PetasosConfig
+from petasos.config.layers import ROLES, resolve
+from petasos.config.schema import ConfigError, evolve, from_mapping
+from petasos.config.secrets import Secrets
+from petasos.config.sections import PetasosConfig
 from petasos.normalize import canonicalize_tool_name
 from petasos.pipeline import Pipeline
 from petasos.session.frequency import FrequencyTracker, SessionState
@@ -19,46 +22,43 @@ from petasos.session.guard import (
     ToolCallGuard,
 )
 from petasos.session.lineage import LineageRegistry
-from petasos.session.profiles import ResolvedProfile, TierThresholds
 
 
-def _cfg(**overrides: object) -> PetasosConfig:
-    defaults: dict[str, object] = {
-        "frequency_enabled": True,
-        "escalation_enabled": True,
-        "tool_guard_enabled": True,
-    }
-    defaults.update(overrides)
-    return PetasosConfig(**defaults)  # type: ignore[arg-type]
+def _cfg(partial: dict[str, object] | None = None) -> PetasosConfig:
+    """Build a config tree from a partial document."""
+    if not partial:
+        return PetasosConfig()
+    return from_mapping(PetasosConfig, partial)
 
 
 def _profile(
     *,
     tool_exempt_list: frozenset[str] = frozenset(),
     tool_alias_map: MappingProxyType[str, str] | None = None,
-    tier_thresholds: TierThresholds | None = None,
-) -> ResolvedProfile:
-    return ResolvedProfile(
-        name="test",
-        suppress_rules=frozenset(),
-        severity_overrides=MappingProxyType({}),
-        confidence_floor=0.0,
-        tier_thresholds=tier_thresholds,
-        pii_entities_extra=(),
-        tool_exempt_list=tool_exempt_list,
-        tool_alias_map=tool_alias_map or MappingProxyType({}),
-    )
+) -> dict[str, object]:
+    """The tool levers a profile used to carry, as a partial document."""
+    tools: dict[str, object] = {}
+    if tool_exempt_list:
+        tools["exempt"] = tuple(sorted(tool_exempt_list))
+    if tool_alias_map:
+        tools["aliases"] = dict(tool_alias_map)
+    if not tools:
+        return {}
+    return {"tools": tools}
 
 
 def _guard(
     *,
     config: PetasosConfig | None = None,
-    profile: ResolvedProfile | None = None,
+    profile: dict[str, object] | None = None,
+    secrets: Secrets | None = None,
 ) -> ToolCallGuard:
     cfg = config or _cfg()
-    pipe = Pipeline(config=cfg)
-    tracker = FrequencyTracker(cfg)
-    return ToolCallGuard(pipe, tracker, cfg, profile=profile)
+    if profile:
+        cfg = evolve(cfg, profile)
+    pipe = Pipeline(config=cfg, secrets=secrets, host_id="test-host" if secrets else "")
+    tracker = FrequencyTracker(cfg, secrets=secrets)
+    return ToolCallGuard(pipe, tracker, cfg, secrets=secrets)
 
 
 # ---------------------------------------------------------------------------
@@ -68,14 +68,26 @@ def _guard(
 
 class TestFeatureGate:
     async def test_feature_disabled_returns_allowed(self) -> None:
-        cfg = _cfg(tool_guard_enabled=False)
+        cfg = _cfg(
+            {
+                "tools": {
+                    "enabled": False,
+                },
+            }
+        )
         g = _guard(config=cfg)
         result = await g.evaluate("bash", {}, "s1")
         assert result.allowed is True
         assert result.reason == "feature disabled"
 
     async def test_feature_disabled_is_singleton(self) -> None:
-        cfg = _cfg(tool_guard_enabled=False)
+        cfg = _cfg(
+            {
+                "tools": {
+                    "enabled": False,
+                },
+            }
+        )
         g = _guard(config=cfg)
         result = await g.evaluate("anything", {"key": "value"}, "s1")
         assert result is _FEATURE_DISABLED
@@ -233,12 +245,13 @@ class TestToolNameNormalization:
     async def test_normalize_guard03_equivalence_after_refactor(self) -> None:
         # PET-118 D-EQUIV: the GUARD-03 exempt-redirect block stays in the alias layer,
         # unchanged by the refactor — a profile alias onto an exempt target is neutralized.
-        p = _profile(
-            tool_alias_map=MappingProxyType({"sneaky": "read"}),
-            tool_exempt_list=frozenset({"read"}),
-        )
-        g = _guard(profile=p)
-        assert g._normalize_tool_name("sneaky") == "sneaky"
+        with pytest.raises(ConfigError, match="tools.aliases"):
+            _guard(
+                profile=_profile(
+                    tool_alias_map=MappingProxyType({"sneaky": "read"}),
+                    tool_exempt_list=frozenset({"read"}),
+                )
+            )
 
     async def test_classification_canonical_distinct_from_alias(self) -> None:
         # PET-118 D-CANON: the web_search -> browser alias collapse lives ONLY in the guard's
@@ -262,14 +275,12 @@ class TestTierDerivation:
         assert result.allowed is True
 
     async def test_profile_tier_thresholds_are_not_applied(self) -> None:
-        cfg = _cfg()
+        # admin used to carry 10/20/35. The role does not, so a score of 12 stays below tier 1.
+        cfg = resolve({"role": "admin"}).config
         pipe = Pipeline(config=cfg)
         tracker = FrequencyTracker(cfg)
-
         tracker._sessions["s1"] = SessionState(last_score=12.0, last_update=0.0)
-
-        p = _profile(tier_thresholds=TierThresholds(tier1=10.0, tier2=20.0, tier3=35.0))
-        g = ToolCallGuard(pipe, tracker, cfg, profile=p)
+        g = ToolCallGuard(pipe, tracker, cfg)
         result = await g.evaluate("read", {}, "s1")
         assert result.tier == "none"
 
@@ -321,8 +332,8 @@ class TestTierBlocking:
         tracker = FrequencyTracker(cfg)
         tracker._sessions["s1"] = SessionState(last_score=31.0, last_update=0.0)
 
-        p = _profile(tool_exempt_list=frozenset(["read"]))
-        g = ToolCallGuard(pipe, tracker, cfg, profile=p)
+        cfg = evolve(cfg, _profile(tool_exempt_list=frozenset(["read"])))
+        g = ToolCallGuard(pipe, tracker, cfg)
         result = await g.evaluate("read", {}, "s1")
         assert result.allowed is True
         assert "exempt" in result.reason
@@ -405,13 +416,12 @@ class TestGuard03AliasExempt:
     def test_default_aliases_not_in_builtin_exempt(self) -> None:
         """Structural tripwire: no default alias target collides with built-in exempt."""
         from petasos.session.guard import DEFAULT_TOOL_ALIASES
-        from petasos.session.profiles import ProfileResolver
 
-        resolver = ProfileResolver()
         alias_targets = {v.lower() for v in DEFAULT_TOOL_ALIASES.values()}
-        for name in ("general", "customer_service", "code_generation", "research", "admin"):
-            profile = resolver.resolve(name)
-            collisions = alias_targets & profile.tool_exempt_list
+        for name, role in ROLES.items():
+            tools = role.document.get("tools", {})
+            exempt = tools.get("exempt", ())
+            collisions = alias_targets & {str(item).casefold() for item in exempt}
             assert collisions == set(), (
                 f"built-in {name!r} exempt keys collide with default alias targets: {collisions}"
             )
@@ -431,12 +441,13 @@ class TestGuard03AliasExempt:
 class TestSessionTokenGuard:
     def test_guard_derive_tier_with_session_secret(self) -> None:
         secret = b"test-secret-key-32-bytes-long!!!"
-        cfg = _cfg(session_secret=secret)
-        pipe = Pipeline(config=cfg, host_id="test-host")
-        tracker = FrequencyTracker(cfg)
+        secrets = Secrets(session_secret=secret)
+        cfg = _cfg()
+        pipe = Pipeline(config=cfg, secrets=secrets, host_id="test-host")
+        tracker = FrequencyTracker(cfg, secrets=secrets)
         token = tracker.mint_token("s1", "test-host")
         tracker.update(token, [])
-        g = ToolCallGuard(pipe, tracker, cfg)
+        g = ToolCallGuard(pipe, tracker, cfg, secrets=secrets)
         tier = g._derive_tier("s1")
         assert tier in ("none", "tier1", "tier2", "tier3")
 
@@ -614,15 +625,17 @@ _GUARD_CLOCK = "petasos.session.guard.time.monotonic"
 
 def _lineage_setup(
     cfg: PetasosConfig | None = None,
-    profile: ResolvedProfile | None = None,
+    secrets: Secrets | None = None,
 ) -> tuple[Pipeline, LineageRegistry, FrequencyTracker, ToolCallGuard]:
     """Build a guard wired to a shared registry + a tracker whose pin/unpin
     callbacks point at that registry (mirrors the reference plugin)."""
     cfg = cfg or _cfg()
-    pipe = Pipeline(config=cfg, host_id="test-host")
+    pipe = Pipeline(config=cfg, secrets=secrets, host_id="test-host")
     registry = LineageRegistry(cfg)
-    tracker = FrequencyTracker(cfg, is_pinned=registry.is_pinned, on_terminate=registry.unregister)
-    guard = ToolCallGuard(pipe, tracker, cfg, profile=profile, lineage=registry)
+    tracker = FrequencyTracker(
+        cfg, is_pinned=registry.is_pinned, on_terminate=registry.unregister, secrets=secrets
+    )
+    guard = ToolCallGuard(pipe, tracker, cfg, lineage=registry, secrets=secrets)
     return pipe, registry, tracker, guard
 
 
@@ -650,13 +663,7 @@ class TestLineageInheritance:
         # PET-31 regression: ancestor tiers must be read via per-ancestor minted
         # tokens, never the raw id (a raw-id get_state raises with a secret set).
         secret = b"test-secret-key-32-bytes-long!!!"
-        cfg = _cfg(session_secret=secret)
-        pipe = Pipeline(config=cfg, host_id="test-host")
-        registry = LineageRegistry(cfg)
-        tracker = FrequencyTracker(
-            cfg, is_pinned=registry.is_pinned, on_terminate=registry.unregister
-        )
-        guard = ToolCallGuard(pipe, tracker, cfg, lineage=registry)
+        _pipe, registry, tracker, guard = _lineage_setup(secrets=Secrets(session_secret=secret))
         parent_token = tracker.mint_token("parent", "test-host")
         tracker.update(parent_token, ["petasos.syntactic.injection.x"] * 4)  # → tier2
         registry.register("child", "parent")
@@ -679,7 +686,13 @@ class TestLineageInheritance:
     async def test_laundering_closed_under_eviction(self) -> None:
         # D6/#1: a tier-2 parent with a live child is pinned, so a TTL-eviction
         # pass keeps it and the child keeps inheriting tier 2.
-        cfg = _cfg(session_ttl_seconds=10.0)
+        cfg = _cfg(
+            {
+                "sessions": {
+                    "ttl_seconds": 10.0,
+                },
+            }
+        )
         clock = {"t": 0.0}
 
         def _now() -> float:
@@ -722,9 +735,9 @@ class TestDelegationFanout:
         cfg = _cfg()
         pipe = Pipeline(config=cfg)
         tracker = FrequencyTracker(cfg)
-        p = _profile(tool_exempt_list=frozenset({"delegate_task"}))
+        cfg = evolve(cfg, _profile(tool_exempt_list=frozenset({"delegate_task"})))
         with pytest.raises(ValueError, match="exempt"):
-            ToolCallGuard(pipe, tracker, cfg, profile=p)
+            ToolCallGuard(pipe, tracker, cfg)
 
     async def test_delegate_fanout_budget_enforced(self) -> None:
         cfg = _cfg()  # base cap 3, window 60s
@@ -840,7 +853,15 @@ class TestFeatureDisabledNoop:
         assert result.allowed is True
 
     async def test_lineage_flag_off_no_inheritance(self) -> None:
-        cfg = _cfg(subagent_lineage_enabled=False)
+        cfg = _cfg(
+            {
+                "tools": {
+                    "lineage": {
+                        "enabled": False,
+                    },
+                },
+            }
+        )
         _pipe, registry, tracker, guard = _lineage_setup(cfg=cfg)
         tracker._sessions["parent"] = SessionState(last_score=31.0, last_update=0.0)
         registry.register("child", "parent")
@@ -852,7 +873,15 @@ class TestFeatureDisabledNoop:
         # tier-1/2 inheritance; a terminated ancestor's tier3 has no config
         # override ("Tier 3 escalation cannot be disabled"), so the child of a
         # terminated parent is still forced to tier3 with the flag off.
-        cfg = _cfg(subagent_lineage_enabled=False)
+        cfg = _cfg(
+            {
+                "tools": {
+                    "lineage": {
+                        "enabled": False,
+                    },
+                },
+            }
+        )
         _pipe, registry, tracker, guard = _lineage_setup(cfg=cfg)
         tracker.terminate_session("parent")
         registry.register("child", "parent")
@@ -861,7 +890,15 @@ class TestFeatureDisabledNoop:
         assert result.allowed is False
 
     async def test_fanout_flag_off_not_gated(self) -> None:
-        cfg = _cfg(delegate_fanout_enabled=False)
+        cfg = _cfg(
+            {
+                "tools": {
+                    "fanout": {
+                        "enabled": False,
+                    },
+                },
+            }
+        )
         pipe = Pipeline(config=cfg)
         tracker = FrequencyTracker(cfg)
         guard = ToolCallGuard(pipe, tracker, cfg)
@@ -903,11 +940,11 @@ class TestScanWeightCap:
         assert g.scan_weight_cap == pytest.approx(15.0 / 4.0)
 
     def test_admin_profile_does_not_lower_the_cap(self) -> None:
-        g = _guard(profile=_profile(tier_thresholds=TierThresholds(10.0, 20.0, 35.0)))
+        g = _guard(config=resolve({"role": "admin"}).config)
         assert g.scan_weight_cap == pytest.approx(15.0 / 4.0)
 
     def test_research_profile_config_is_the_min(self) -> None:
-        g = _guard(profile=_profile(tier_thresholds=TierThresholds(25.0, 45.0, 70.0)))
+        g = _guard(config=resolve({"role": "research"}).config)
         assert g.scan_weight_cap == pytest.approx(3.75)
 
     def test_nonpositive_tier1_returns_zero_with_one_warning(
@@ -917,7 +954,17 @@ class TestScanWeightCap:
         # requires finite + ascending + tier3 >= 30, never tier1 > 0. The ratio
         # branch must sit AFTER this return or the division raises
         # ZeroDivisionError out of a property read inside _scan_params.
-        g = _guard(config=_cfg(tier1_threshold=0.0, tier2_threshold=1.0, tier3_threshold=30.0))
+        g = _guard(
+            config=_cfg(
+                {
+                    "escalation": {
+                        "tier1": 0.0,
+                        "tier2": 1.0,
+                        "tier3": 30.0,
+                    },
+                }
+            )
+        )
         import logging as _logging
 
         with caplog.at_level(_logging.WARNING, logger="petasos.session.guard"):
@@ -931,20 +978,38 @@ class TestScanWeightCap:
         [
             # (e1) config-only set with tier2/tier1 < 2.0.
             (
-                {"tier1_threshold": 20.0, "tier2_threshold": 25.0, "tier3_threshold": 30.0},
+                {
+                    "escalation": {
+                        "tier1": 20.0,
+                        "tier2": 25.0,
+                        "tier3": 30.0,
+                    },
+                },
                 None,
                 "below the recommended 2.0",
             ),
             # A config whose tier2/tier1 is below 2.0 warns on its own.
             (
-                {"tier1_threshold": 16.0, "tier2_threshold": 30.0, "tier3_threshold": 50.0},
+                {
+                    "escalation": {
+                        "tier1": 16.0,
+                        "tier2": 30.0,
+                        "tier3": 50.0,
+                    },
+                },
                 None,
                 "below the recommended 2.0",
             ),
             # (e3) tier1=10 with tier2=30 clears the ratio (3.0) but trips the
             # step-below-3.0 arm (D4's lower band edge).
             (
-                {"tier1_threshold": 10.0, "tier2_threshold": 30.0, "tier3_threshold": 50.0},
+                {
+                    "escalation": {
+                        "tier1": 10.0,
+                        "tier2": 30.0,
+                        "tier3": 50.0,
+                    },
+                },
                 None,
                 "at or below the lowest",
             ),
@@ -952,7 +1017,13 @@ class TestScanWeightCap:
             # step (100.0) exceeds the maximally-poisoned scan window (80.0), so
             # every large-input scan quantizes to zero -- D4's upper band edge.
             (
-                {"tier1_threshold": 400.0, "tier2_threshold": 800.0, "tier3_threshold": 1000.0},
+                {
+                    "escalation": {
+                        "tier1": 400.0,
+                        "tier2": 800.0,
+                        "tier3": 1000.0,
+                    },
+                },
                 None,
                 "above the maximally-poisoned",
             ),
@@ -962,16 +1033,14 @@ class TestScanWeightCap:
     def test_tripwires_warn_once_with_their_own_cause(
         self,
         caplog: pytest.LogCaptureFixture,
-        config_kw: dict[str, float],
-        thresholds: TierThresholds | None,
+        config_kw: dict[str, object],
+        thresholds: object | None,
         expected_fragment: str,
     ) -> None:
         import logging as _logging
 
-        g = _guard(
-            config=_cfg(**config_kw),
-            profile=_profile(tier_thresholds=thresholds) if thresholds else None,
-        )
+        assert thresholds is None
+        g = _guard(config=_cfg(config_kw))
         with caplog.at_level(_logging.WARNING, logger="petasos.session.guard"):
             for _ in range(3):
                 assert g.scan_weight_cap > 0.0
@@ -988,7 +1057,15 @@ class TestScanWeightCap:
     def test_apply_config_rearms_the_latch(self, caplog: pytest.LogCaptureFixture) -> None:
         import logging as _logging
 
-        bad = _cfg(tier1_threshold=20.0, tier2_threshold=25.0, tier3_threshold=30.0)
+        bad = _cfg(
+            {
+                "escalation": {
+                    "tier1": 20.0,
+                    "tier2": 25.0,
+                    "tier3": 30.0,
+                },
+            }
+        )
         g = _guard(config=bad)
         with caplog.at_level(_logging.WARNING, logger="petasos.session.guard"):
             _ = g.scan_weight_cap
@@ -1000,7 +1077,17 @@ class TestScanWeightCap:
     async def test_selfmod_boundary_at_tier1_reaches_tier1(self) -> None:
         # One unclamped config_write record (10.0) reaches tier1 when tier1 is
         # 10.0, because derive_tier promotes on >=.
-        g = _guard(config=_cfg(tier1_threshold=10.0, tier2_threshold=20.0, tier3_threshold=35.0))
+        g = _guard(
+            config=_cfg(
+                {
+                    "escalation": {
+                        "tier1": 10.0,
+                        "tier2": 20.0,
+                        "tier3": 35.0,
+                    },
+                }
+            )
+        )
         finding = ScanFinding(
             rule_id="petasos.selfmod.config_write",
             finding_type="selfmod",

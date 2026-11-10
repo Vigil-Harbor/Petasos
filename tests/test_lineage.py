@@ -13,19 +13,23 @@ from unittest.mock import patch
 
 import pytest
 
-from petasos.config import PetasosConfig
+from petasos.config.schema import from_mapping
+from petasos.config.sections import PetasosConfig
 from petasos.session.escalation import max_tier
 from petasos.session.lineage import LineageRegistry
 
 _CLOCK = "petasos.session.lineage.time.monotonic"
 
 
-def _cfg(**overrides: object) -> PetasosConfig:
-    return PetasosConfig(**overrides)  # type: ignore[arg-type]
+def _cfg(partial: dict[str, object] | None = None) -> PetasosConfig:
+    """Build a config tree from a partial document."""
+    if not partial:
+        return PetasosConfig()
+    return from_mapping(PetasosConfig, partial)
 
 
-def _registry(**overrides: object) -> LineageRegistry:
-    return LineageRegistry(_cfg(**overrides))
+def _registry(partial: dict[str, object] | None = None) -> LineageRegistry:
+    return LineageRegistry(_cfg(partial))
 
 
 # ---------------------------------------------------------------------------
@@ -104,7 +108,15 @@ class TestReparent:
 
     def test_reparent_in_place_does_not_evict_unrelated_edge_at_cap(self) -> None:
         # max_edges=2: fill with c1, c2; re-parenting c1 must NOT evict c2.
-        reg = _registry(lineage_max_edges=2)
+        reg = _registry(
+            {
+                "tools": {
+                    "lineage": {
+                        "max_edges": 2,
+                    },
+                },
+            }
+        )
         with patch(_CLOCK, return_value=1.0):
             reg.register("c1", "p1")
         with patch(_CLOCK, return_value=2.0):
@@ -130,7 +142,15 @@ class TestAncestorsWalk:
         assert reg.ancestors("c") == ["p", "g", "gg"]
 
     def test_bounded_by_max_depth(self) -> None:
-        reg = _registry(lineage_max_depth=2)
+        reg = _registry(
+            {
+                "tools": {
+                    "lineage": {
+                        "max_depth": 2,
+                    },
+                },
+            }
+        )
         reg.register("c", "p")
         reg.register("p", "g")
         reg.register("g", "gg")
@@ -156,7 +176,15 @@ class TestAncestorsWalk:
 
 class TestTtlAndCap:
     def test_expired_edge_skipped_in_walk(self) -> None:
-        reg = _registry(lineage_edge_ttl_seconds=10.0)
+        reg = _registry(
+            {
+                "tools": {
+                    "lineage": {
+                        "edge_ttl_seconds": 10.0,
+                    },
+                },
+            }
+        )
         with patch(_CLOCK, return_value=0.0):
             reg.register("c", "p")
         with patch(_CLOCK, return_value=5.0):
@@ -165,7 +193,15 @@ class TestTtlAndCap:
             assert reg.ancestors("c") == []  # expired
 
     def test_max_edges_evicts_oldest(self) -> None:
-        reg = _registry(lineage_max_edges=2)
+        reg = _registry(
+            {
+                "tools": {
+                    "lineage": {
+                        "max_edges": 2,
+                    },
+                },
+            }
+        )
         with patch(_CLOCK, return_value=1.0):
             reg.register("c1", "p")
         with patch(_CLOCK, return_value=2.0):
@@ -197,7 +233,15 @@ class TestIsPinned:
         assert reg.is_pinned("p") is False
 
     def test_expired_edge_does_not_pin(self) -> None:
-        reg = _registry(lineage_edge_ttl_seconds=10.0)
+        reg = _registry(
+            {
+                "tools": {
+                    "lineage": {
+                        "edge_ttl_seconds": 10.0,
+                    },
+                },
+            }
+        )
         with patch(_CLOCK, return_value=0.0):
             reg.register("c", "p")
         with patch(_CLOCK, return_value=100.0):

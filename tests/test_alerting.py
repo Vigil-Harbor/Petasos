@@ -8,7 +8,8 @@ from unittest.mock import patch
 import pytest
 
 from petasos._types import Alert, PipelineResult, ScanFinding, Severity
-from petasos.config import PetasosConfig
+from petasos.config.schema import from_mapping
+from petasos.config.sections import PetasosConfig
 from petasos.session.alerting import AlertManager
 from petasos.session.frequency import FrequencyUpdateResult
 
@@ -22,14 +23,11 @@ class _AlertCallbackKill(BaseException):
     """
 
 
-def _cfg(**overrides: object) -> PetasosConfig:
-    defaults: dict[str, object] = {
-        "alert_enabled": True,
-        "frequency_enabled": True,
-        "escalation_enabled": True,
-    }
-    defaults.update(overrides)
-    return PetasosConfig(**defaults)  # type: ignore[arg-type]
+def _cfg(partial: dict[str, object] | None = None) -> PetasosConfig:
+    """Build a config tree from a partial document."""
+    if not partial:
+        return PetasosConfig()
+    return from_mapping(PetasosConfig, partial)
 
 
 def _result(
@@ -146,7 +144,15 @@ class TestTierEscalation:
         assert len(tier_alerts) == 0
 
     def test_decay_re_entry_fires(self) -> None:
-        mgr = AlertManager(_cfg(alert_cooldown_seconds=0.001))
+        mgr = AlertManager(
+            _cfg(
+                {
+                    "alerting": {
+                        "cooldown_seconds": 0.001,
+                    },
+                }
+            )
+        )
         fr = _freq(previous_score=10.0, current_score=20.0, tier="tier1")
         alerts = mgr.evaluate(_result(), "s1", fr)
         tier_alerts = [a for a in alerts if a.rule_id == "tier_escalation"]
@@ -189,7 +195,15 @@ class TestHighSeverityFinding:
         assert len(hsf) == 1
 
     def test_configurable_threshold_medium(self) -> None:
-        mgr = AlertManager(_cfg(alert_high_severity_threshold="medium"))
+        mgr = AlertManager(
+            _cfg(
+                {
+                    "alerting": {
+                        "high_severity_threshold": "medium",
+                    },
+                }
+            )
+        )
         r = _result(findings=(_finding(severity=Severity.MEDIUM),))
         alerts = mgr.evaluate(r, "s1", None)
         hsf = [a for a in alerts if a.rule_id == "high_severity_finding"]
@@ -206,14 +220,31 @@ class TestRapidFire:
     # the firing cases below drive findings-carrying results.
 
     def test_below_threshold_does_not_fire(self) -> None:
-        mgr = AlertManager(_cfg(alert_rapid_fire_count=5))
+        mgr = AlertManager(
+            _cfg(
+                {
+                    "alerting": {
+                        "rapid_fire_count": 5,
+                    },
+                }
+            )
+        )
         for _ in range(4):
             alerts = mgr.evaluate(_result(findings=(_finding(),)), "s1", None)
         rf = [a for a in alerts if a.rule_id == "rapid_fire"]
         assert len(rf) == 0
 
     def test_at_threshold_fires(self) -> None:
-        mgr = AlertManager(_cfg(alert_rapid_fire_count=5, alert_cooldown_seconds=0.001))
+        mgr = AlertManager(
+            _cfg(
+                {
+                    "alerting": {
+                        "rapid_fire_count": 5,
+                        "cooldown_seconds": 0.001,
+                    },
+                }
+            )
+        )
         all_alerts: list[Alert] = []
         for _ in range(5):
             alerts = mgr.evaluate(_result(findings=(_finding(),)), "s1", None)
@@ -225,7 +256,16 @@ class TestRapidFire:
         # PET-176 D8: with the ingestion correlator live, an ordinary agent
         # loop would keep the all-scans count permanently true. 20 clean-and-
         # safe scans inside the window must not fire.
-        mgr = AlertManager(_cfg(alert_rapid_fire_count=10, alert_cooldown_seconds=0.001))
+        mgr = AlertManager(
+            _cfg(
+                {
+                    "alerting": {
+                        "rapid_fire_count": 10,
+                        "cooldown_seconds": 0.001,
+                    },
+                }
+            )
+        )
         all_alerts: list[Alert] = []
         for _ in range(20):
             all_alerts.extend(mgr.evaluate(_result(), "s1", None))
@@ -238,7 +278,16 @@ class TestRapidFire:
         # _build_result froze the tuple before the alert hook), which is the
         # whole point of the `result.safe` term in the gate — detection
         # failure must not silence the one rate-based rule.
-        mgr = AlertManager(_cfg(alert_rapid_fire_count=10, alert_cooldown_seconds=0.001))
+        mgr = AlertManager(
+            _cfg(
+                {
+                    "alerting": {
+                        "rapid_fire_count": 10,
+                        "cooldown_seconds": 0.001,
+                    },
+                }
+            )
+        )
         all_alerts: list[Alert] = []
         for _ in range(10):
             r = _result(safe=False)
@@ -248,7 +297,16 @@ class TestRapidFire:
         assert len(rf) == 1
 
     def test_message_names_the_counted_unit(self) -> None:
-        mgr = AlertManager(_cfg(alert_rapid_fire_count=2, alert_cooldown_seconds=0.001))
+        mgr = AlertManager(
+            _cfg(
+                {
+                    "alerting": {
+                        "rapid_fire_count": 2,
+                        "cooldown_seconds": 0.001,
+                    },
+                }
+            )
+        )
         all_alerts: list[Alert] = []
         for _ in range(2):
             all_alerts.extend(mgr.evaluate(_result(findings=(_finding(),)), "s1", None))
@@ -257,7 +315,16 @@ class TestRapidFire:
         assert "findings-or-unsafe" in rf[0].message
 
     def test_session_scoped_no_cross_contamination(self) -> None:
-        mgr = AlertManager(_cfg(alert_rapid_fire_count=3, alert_cooldown_seconds=0.001))
+        mgr = AlertManager(
+            _cfg(
+                {
+                    "alerting": {
+                        "rapid_fire_count": 3,
+                        "cooldown_seconds": 0.001,
+                    },
+                }
+            )
+        )
         for _ in range(2):
             mgr.evaluate(_result(findings=(_finding(),)), "s1", None)
         for _ in range(2):
@@ -267,7 +334,15 @@ class TestRapidFire:
         assert len(rf) == 1
 
     def test_skipped_when_session_none(self) -> None:
-        mgr = AlertManager(_cfg(alert_rapid_fire_count=1))
+        mgr = AlertManager(
+            _cfg(
+                {
+                    "alerting": {
+                        "rapid_fire_count": 1,
+                    },
+                }
+            )
+        )
         alerts = mgr.evaluate(_result(findings=(_finding(),)), None, None)
         rf = [a for a in alerts if a.rule_id == "rapid_fire"]
         assert len(rf) == 0
@@ -275,8 +350,12 @@ class TestRapidFire:
     def test_outside_window_does_not_fire(self) -> None:
         mgr = AlertManager(
             _cfg(
-                alert_rapid_fire_count=3,
-                alert_rapid_fire_window_seconds=1.0,
+                {
+                    "alerting": {
+                        "rapid_fire_count": 3,
+                        "rapid_fire_window_seconds": 1.0,
+                    },
+                }
             )
         )
         base = time.monotonic()
@@ -296,7 +375,15 @@ class TestRapidFire:
 
 class TestCrossSessionBurst:
     def test_below_threshold_does_not_fire(self) -> None:
-        mgr = AlertManager(_cfg(alert_cross_session_burst_count=3))
+        mgr = AlertManager(
+            _cfg(
+                {
+                    "alerting": {
+                        "cross_session_burst_count": 3,
+                    },
+                }
+            )
+        )
         r = _result(findings=(_finding(),))
         mgr.evaluate(r, "s1", None)
         alerts = mgr.evaluate(r, "s2", None)
@@ -306,8 +393,12 @@ class TestCrossSessionBurst:
     def test_at_threshold_fires(self) -> None:
         mgr = AlertManager(
             _cfg(
-                alert_cross_session_burst_count=3,
-                alert_cooldown_seconds=0.001,
+                {
+                    "alerting": {
+                        "cross_session_burst_count": 3,
+                        "cooldown_seconds": 0.001,
+                    },
+                }
             )
         )
         r = _result(findings=(_finding(),))
@@ -319,7 +410,15 @@ class TestCrossSessionBurst:
         assert csb[0].severity == "high"
 
     def test_duplicate_sessions_count_as_one(self) -> None:
-        mgr = AlertManager(_cfg(alert_cross_session_burst_count=3))
+        mgr = AlertManager(
+            _cfg(
+                {
+                    "alerting": {
+                        "cross_session_burst_count": 3,
+                    },
+                }
+            )
+        )
         r = _result(findings=(_finding(),))
         mgr.evaluate(r, "s1", None)
         mgr.evaluate(r, "s1", None)
@@ -328,7 +427,15 @@ class TestCrossSessionBurst:
         assert len(csb) == 0
 
     def test_none_session_excluded(self) -> None:
-        mgr = AlertManager(_cfg(alert_cross_session_burst_count=2))
+        mgr = AlertManager(
+            _cfg(
+                {
+                    "alerting": {
+                        "cross_session_burst_count": 2,
+                    },
+                }
+            )
+        )
         r = _result(findings=(_finding(),))
         mgr.evaluate(r, None, None)
         mgr.evaluate(r, None, None)
@@ -344,7 +451,15 @@ class TestCrossSessionBurst:
 
 class TestPiiVolumeSpike:
     def test_below_threshold_does_not_fire(self) -> None:
-        mgr = AlertManager(_cfg(alert_pii_volume_threshold=5))
+        mgr = AlertManager(
+            _cfg(
+                {
+                    "alerting": {
+                        "pii_volume_threshold": 5,
+                    },
+                }
+            )
+        )
         findings = tuple(_finding(finding_type="pii") for _ in range(4))
         r = _result(findings=findings)
         alerts = mgr.evaluate(r, "s1", None)
@@ -354,8 +469,12 @@ class TestPiiVolumeSpike:
     def test_at_threshold_fires(self) -> None:
         mgr = AlertManager(
             _cfg(
-                alert_pii_volume_threshold=5,
-                alert_cooldown_seconds=0.001,
+                {
+                    "alerting": {
+                        "pii_volume_threshold": 5,
+                        "cooldown_seconds": 0.001,
+                    },
+                }
             )
         )
         findings = tuple(_finding(finding_type="pii") for _ in range(5))
@@ -368,8 +487,12 @@ class TestPiiVolumeSpike:
     def test_window_expiry(self) -> None:
         mgr = AlertManager(
             _cfg(
-                alert_pii_volume_threshold=3,
-                alert_pii_volume_window_seconds=1.0,
+                {
+                    "alerting": {
+                        "pii_volume_threshold": 3,
+                        "pii_volume_window_seconds": 1.0,
+                    },
+                }
             )
         )
         findings = tuple(_finding(finding_type="pii") for _ in range(2))
@@ -395,7 +518,15 @@ class TestPiiVolumeSpike:
 
 class TestRateLimiting:
     def test_cooldown_suppresses_same_key(self) -> None:
-        mgr = AlertManager(_cfg(alert_cooldown_seconds=60.0))
+        mgr = AlertManager(
+            _cfg(
+                {
+                    "alerting": {
+                        "cooldown_seconds": 60.0,
+                    },
+                }
+            )
+        )
         r = _result(findings=(_finding(severity=Severity.HIGH),))
         alerts1 = mgr.evaluate(r, "s1", None)
         alerts2 = mgr.evaluate(r, "s1", None)
@@ -408,8 +539,12 @@ class TestRateLimiting:
     def test_per_minute_cap(self) -> None:
         mgr = AlertManager(
             _cfg(
-                alert_per_minute_cap=2,
-                alert_cooldown_seconds=0.001,
+                {
+                    "alerting": {
+                        "per_minute_cap": 2,
+                        "cooldown_seconds": 0.001,
+                    },
+                }
             )
         )
         r = _result(findings=(_finding(severity=Severity.HIGH),))
@@ -423,9 +558,13 @@ class TestRateLimiting:
     def test_per_hour_cap(self) -> None:
         mgr = AlertManager(
             _cfg(
-                alert_per_hour_cap=2,
-                alert_per_minute_cap=100,
-                alert_cooldown_seconds=0.001,
+                {
+                    "alerting": {
+                        "per_hour_cap": 2,
+                        "per_minute_cap": 100,
+                        "cooldown_seconds": 0.001,
+                    },
+                }
             )
         )
         r = _result(findings=(_finding(severity=Severity.HIGH),))
@@ -439,8 +578,12 @@ class TestRateLimiting:
     def test_100_rapid_triggers_bounded(self) -> None:
         mgr = AlertManager(
             _cfg(
-                alert_per_minute_cap=5,
-                alert_cooldown_seconds=0.001,
+                {
+                    "alerting": {
+                        "per_minute_cap": 5,
+                        "cooldown_seconds": 0.001,
+                    },
+                }
             )
         )
         r = _result(findings=(_finding(severity=Severity.HIGH),))
@@ -451,7 +594,15 @@ class TestRateLimiting:
         assert total_fired <= 5
 
     def test_suppressed_and_rate_limited_counts(self) -> None:
-        mgr = AlertManager(_cfg(alert_cooldown_seconds=60.0))
+        mgr = AlertManager(
+            _cfg(
+                {
+                    "alerting": {
+                        "cooldown_seconds": 60.0,
+                    },
+                }
+            )
+        )
         r = _result(findings=(_finding(severity=Severity.HIGH),))
         mgr.evaluate(r, "s1", None)
         mgr.evaluate(r, "s1", None)
@@ -465,7 +616,15 @@ class TestRateLimiting:
 
 class TestCriticalExemption:
     def test_tier3_bypasses_cooldown(self) -> None:
-        mgr = AlertManager(_cfg(alert_cooldown_seconds=9999.0))
+        mgr = AlertManager(
+            _cfg(
+                {
+                    "alerting": {
+                        "cooldown_seconds": 9999.0,
+                    },
+                }
+            )
+        )
         fr = _freq(previous_score=35.0, current_score=55.0, tier="tier3")
         alerts1 = mgr.evaluate(_result(), "s1", fr)
         alerts2 = mgr.evaluate(_result(), "s1", fr)
@@ -475,7 +634,16 @@ class TestCriticalExemption:
         assert len(t2) == 1
 
     def test_tier3_bypasses_per_minute_cap(self) -> None:
-        mgr = AlertManager(_cfg(alert_per_minute_cap=1, alert_per_session_contribution_cap=1))
+        mgr = AlertManager(
+            _cfg(
+                {
+                    "alerting": {
+                        "per_minute_cap": 1,
+                        "per_session_contribution_cap": 1,
+                    },
+                }
+            )
+        )
         fr = _freq(previous_score=35.0, current_score=55.0, tier="tier3")
         all_critical: list[Alert] = []
         for _ in range(5):
@@ -486,7 +654,15 @@ class TestCriticalExemption:
         assert len(all_critical) == 5
 
     def test_tier3_bypasses_per_hour_cap(self) -> None:
-        mgr = AlertManager(_cfg(alert_per_hour_cap=1))
+        mgr = AlertManager(
+            _cfg(
+                {
+                    "alerting": {
+                        "per_hour_cap": 1,
+                    },
+                }
+            )
+        )
         fr = _freq(previous_score=35.0, current_score=55.0, tier="tier3")
         all_critical: list[Alert] = []
         for _ in range(3):
@@ -497,7 +673,15 @@ class TestCriticalExemption:
         assert len(all_critical) == 3
 
     def test_non_critical_still_rate_limited(self) -> None:
-        mgr = AlertManager(_cfg(alert_cooldown_seconds=60.0))
+        mgr = AlertManager(
+            _cfg(
+                {
+                    "alerting": {
+                        "cooldown_seconds": 60.0,
+                    },
+                }
+            )
+        )
         r = _result(findings=(_finding(severity=Severity.HIGH),))
         fr = _freq(previous_score=35.0, current_score=55.0, tier="tier3")
         alerts1 = mgr.evaluate(r, "s1", fr)
@@ -515,7 +699,15 @@ class TestCriticalExemption:
 
 class TestCriticalCap:
     def test_critical_cap_bounds_fanout(self) -> None:
-        mgr = AlertManager(_cfg(alert_critical_per_minute_cap=5))
+        mgr = AlertManager(
+            _cfg(
+                {
+                    "alerting": {
+                        "critical_per_minute_cap": 5,
+                    },
+                }
+            )
+        )
         fr = _freq(previous_score=35.0, current_score=55.0, tier="tier3")
         all_critical: list[Alert] = []
         for i in range(100):
@@ -537,7 +729,15 @@ class TestCriticalCap:
         assert len(all_critical) == 10
 
     def test_critical_cap_per_rule_id_isolation(self) -> None:
-        mgr = AlertManager(_cfg(alert_critical_per_minute_cap=1))
+        mgr = AlertManager(
+            _cfg(
+                {
+                    "alerting": {
+                        "critical_per_minute_cap": 1,
+                    },
+                }
+            )
+        )
         fr = _freq(previous_score=35.0, current_score=55.0, tier="tier3")
         alerts1 = mgr.evaluate(_result(), "s1", fr)
         t1 = [a for a in alerts1 if a.rule_id == "tier_escalation" and a.severity == "critical"]
@@ -550,7 +750,15 @@ class TestCriticalCap:
 
     def test_critical_cap_resets_after_window(self) -> None:
         base = time.monotonic()
-        mgr = AlertManager(_cfg(alert_critical_per_minute_cap=2))
+        mgr = AlertManager(
+            _cfg(
+                {
+                    "alerting": {
+                        "critical_per_minute_cap": 2,
+                    },
+                }
+            )
+        )
         fr = _freq(previous_score=35.0, current_score=55.0, tier="tier3")
 
         with patch("petasos.session.alerting.time") as mock_time:
@@ -581,10 +789,14 @@ class TestCriticalCap:
     def test_tier3_bypasses_noncritical_caps(self) -> None:
         mgr = AlertManager(
             _cfg(
-                alert_per_minute_cap=1,
-                alert_per_session_contribution_cap=1,
-                alert_per_hour_cap=1,
-                alert_cooldown_seconds=9999.0,
+                {
+                    "alerting": {
+                        "per_minute_cap": 1,
+                        "per_session_contribution_cap": 1,
+                        "per_hour_cap": 1,
+                        "cooldown_seconds": 9999.0,
+                    },
+                }
             )
         )
         fr = _freq(previous_score=35.0, current_score=55.0, tier="tier3")
@@ -599,7 +811,13 @@ class TestCriticalCap:
     def test_critical_fanout_callback_bounded(self) -> None:
         received: list[Alert] = []
         mgr = AlertManager(
-            _cfg(alert_critical_per_minute_cap=10),
+            _cfg(
+                {
+                    "alerting": {
+                        "critical_per_minute_cap": 10,
+                    },
+                }
+            ),
             on_alert=received.append,
         )
         fr = _freq(previous_score=35.0, current_score=55.0, tier="tier3")
@@ -618,7 +836,16 @@ class TestCriticalCap:
 
 class TestRingBuffer:
     def test_buffer_respects_maxlen(self) -> None:
-        mgr = AlertManager(_cfg(alert_ring_buffer_capacity=5, alert_rapid_fire_count=5))
+        mgr = AlertManager(
+            _cfg(
+                {
+                    "alerting": {
+                        "ring_buffer_capacity": 5,
+                        "rapid_fire_count": 5,
+                    },
+                }
+            )
+        )
         for _ in range(10):
             mgr.evaluate(_result(findings=(_finding(),)), "s1", None)
         buf = mgr._ring_buffers.get("rapid_fire|s1")
@@ -683,14 +910,30 @@ class TestAlertCallbackBehavior:
 
 class TestAlertStats:
     def test_alert_count_reflects_fired(self) -> None:
-        mgr = AlertManager(_cfg(alert_cooldown_seconds=0.001))
+        mgr = AlertManager(
+            _cfg(
+                {
+                    "alerting": {
+                        "cooldown_seconds": 0.001,
+                    },
+                }
+            )
+        )
         r = _result(findings=(_finding(severity=Severity.HIGH),))
         mgr.evaluate(r, "s1", None)
         mgr.evaluate(r, "s2", None)
         assert mgr.alert_count >= 2
 
     def test_suppressed_count_reflects_dedup(self) -> None:
-        mgr = AlertManager(_cfg(alert_cooldown_seconds=60.0))
+        mgr = AlertManager(
+            _cfg(
+                {
+                    "alerting": {
+                        "cooldown_seconds": 60.0,
+                    },
+                }
+            )
+        )
         r = _result(findings=(_finding(severity=Severity.HIGH),))
         mgr.evaluate(r, "s1", None)
         mgr.evaluate(r, "s1", None)
@@ -699,9 +942,13 @@ class TestAlertStats:
     def test_rate_limited_count_reflects_caps(self) -> None:
         mgr = AlertManager(
             _cfg(
-                alert_per_minute_cap=1,
-                alert_per_session_contribution_cap=1,
-                alert_cooldown_seconds=0.001,
+                {
+                    "alerting": {
+                        "per_minute_cap": 1,
+                        "per_session_contribution_cap": 1,
+                        "cooldown_seconds": 0.001,
+                    },
+                }
             )
         )
         r = _result(findings=(_finding(severity=Severity.HIGH),))
@@ -723,9 +970,13 @@ class TestSessionContributionCap:
             mock_time.time.return_value = 1000.0
             mgr = AlertManager(
                 _cfg(
-                    alert_per_minute_cap=10,
-                    alert_per_session_contribution_cap=2,
-                    alert_cooldown_seconds=0.001,
+                    {
+                        "alerting": {
+                            "per_minute_cap": 10,
+                            "per_session_contribution_cap": 2,
+                            "cooldown_seconds": 0.001,
+                        },
+                    }
                 )
             )
             r = _result(findings=(_finding(severity=Severity.HIGH),))
@@ -745,9 +996,13 @@ class TestSessionContributionCap:
 
             mgr = AlertManager(
                 _cfg(
-                    alert_per_minute_cap=10,
-                    alert_per_session_contribution_cap=1,
-                    alert_cooldown_seconds=0.001,
+                    {
+                        "alerting": {
+                            "per_minute_cap": 10,
+                            "per_session_contribution_cap": 1,
+                            "cooldown_seconds": 0.001,
+                        },
+                    }
                 )
             )
             r = _result(findings=(_finding(severity=Severity.HIGH),))
@@ -765,10 +1020,14 @@ class TestSessionContributionCap:
             mock_time.time.return_value = 1000.0
             mgr = AlertManager(
                 _cfg(
-                    alert_per_minute_cap=10,
-                    alert_per_session_contribution_cap=1,
-                    alert_cooldown_seconds=0.001,
-                    alert_rapid_fire_count=3,
+                    {
+                        "alerting": {
+                            "per_minute_cap": 10,
+                            "per_session_contribution_cap": 1,
+                            "cooldown_seconds": 0.001,
+                            "rapid_fire_count": 3,
+                        },
+                    }
                 )
             )
             r = _result(findings=(_finding(severity=Severity.HIGH),))
@@ -793,9 +1052,13 @@ class TestSessionContributionCap:
 
             mgr = AlertManager(
                 _cfg(
-                    alert_per_minute_cap=10,
-                    alert_per_session_contribution_cap=1,
-                    alert_cooldown_seconds=0.001,
+                    {
+                        "alerting": {
+                            "per_minute_cap": 10,
+                            "per_session_contribution_cap": 1,
+                            "cooldown_seconds": 0.001,
+                        },
+                    }
                 )
             )
             r = _result(findings=(_finding(severity=Severity.HIGH),))
@@ -817,9 +1080,13 @@ class TestSessionContributionCap:
             mock_time.time.return_value = 1000.0
             mgr = AlertManager(
                 _cfg(
-                    alert_per_minute_cap=10,
-                    alert_per_session_contribution_cap=1,
-                    alert_cooldown_seconds=0.001,
+                    {
+                        "alerting": {
+                            "per_minute_cap": 10,
+                            "per_session_contribution_cap": 1,
+                            "cooldown_seconds": 0.001,
+                        },
+                    }
                 )
             )
             r = _result(findings=(_finding(severity=Severity.HIGH),))
@@ -839,9 +1106,13 @@ class TestSessionContributionCap:
 
             mgr = AlertManager(
                 _cfg(
-                    alert_per_minute_cap=10,
-                    alert_per_session_contribution_cap=2,
-                    alert_cooldown_seconds=0.001,
+                    {
+                        "alerting": {
+                            "per_minute_cap": 10,
+                            "per_session_contribution_cap": 2,
+                            "cooldown_seconds": 0.001,
+                        },
+                    }
                 )
             )
             r = _result(findings=(_finding(severity=Severity.HIGH),))
@@ -855,11 +1126,15 @@ class TestSessionContributionCap:
     def test_memory_bound_rejects_new_sessions(self) -> None:
         mgr = AlertManager(
             _cfg(
-                alert_per_minute_cap=500,
-                alert_per_hour_cap=500,
-                alert_per_session_contribution_cap=2,
-                alert_cooldown_seconds=0.001,
-                alert_max_session_contribution_entries=100,
+                {
+                    "alerting": {
+                        "per_minute_cap": 500,
+                        "per_hour_cap": 500,
+                        "per_session_contribution_cap": 2,
+                        "cooldown_seconds": 0.001,
+                        "max_session_contribution_entries": 100,
+                    },
+                }
             )
         )
         r = _result(findings=(_finding(severity=Severity.HIGH),))
@@ -877,9 +1152,13 @@ class TestSessionContributionCap:
 
             mgr = AlertManager(
                 _cfg(
-                    alert_per_minute_cap=10,
-                    alert_per_session_contribution_cap=1,
-                    alert_cooldown_seconds=0.001,
+                    {
+                        "alerting": {
+                            "per_minute_cap": 10,
+                            "per_session_contribution_cap": 1,
+                            "cooldown_seconds": 0.001,
+                        },
+                    }
                 )
             )
             r = _result(findings=(_finding(severity=Severity.HIGH),))
@@ -898,9 +1177,13 @@ class TestSessionContributionCap:
 
             mgr = AlertManager(
                 _cfg(
-                    alert_cooldown_seconds=10.0,
-                    alert_per_session_contribution_cap=2,
-                    alert_per_minute_cap=5,
+                    {
+                        "alerting": {
+                            "cooldown_seconds": 10.0,
+                            "per_session_contribution_cap": 2,
+                            "per_minute_cap": 5,
+                        },
+                    }
                 )
             )
             r = _result(findings=(_finding(severity=Severity.HIGH),))
@@ -929,9 +1212,13 @@ class TestSessionContributionCap:
             mock_time.time.return_value = 1000.0
             mgr = AlertManager(
                 _cfg(
-                    alert_per_minute_cap=10,
-                    alert_per_session_contribution_cap=1,
-                    alert_cooldown_seconds=0.001,
+                    {
+                        "alerting": {
+                            "per_minute_cap": 10,
+                            "per_session_contribution_cap": 1,
+                            "cooldown_seconds": 0.001,
+                        },
+                    }
                 )
             )
             r = _result(findings=(_finding(severity=Severity.HIGH),))
@@ -943,9 +1230,23 @@ class TestSessionContributionCap:
             assert mgr.rate_limited_count == 0
 
     def test_cross_field_validation_cap_gt_per_minute(self) -> None:
-        with pytest.raises(ValueError, match="must be <= alert_per_minute_cap"):
-            _cfg(alert_per_session_contribution_cap=10, alert_per_minute_cap=5)
-        _cfg(alert_per_session_contribution_cap=5, alert_per_minute_cap=5)
+        with pytest.raises(ValueError, match="alerting.per_session_contribution_cap"):
+            _cfg(
+                {
+                    "alerting": {
+                        "per_session_contribution_cap": 10,
+                        "per_minute_cap": 5,
+                    },
+                }
+            )
+        _cfg(
+            {
+                "alerting": {
+                    "per_session_contribution_cap": 5,
+                    "per_minute_cap": 5,
+                },
+            }
+        )
 
     def test_memory_bound_recovery_after_expiry(self) -> None:
         base = time.monotonic()
@@ -955,11 +1256,15 @@ class TestSessionContributionCap:
 
             mgr = AlertManager(
                 _cfg(
-                    alert_per_minute_cap=500,
-                    alert_per_hour_cap=500,
-                    alert_per_session_contribution_cap=2,
-                    alert_cooldown_seconds=0.001,
-                    alert_max_session_contribution_entries=50,
+                    {
+                        "alerting": {
+                            "per_minute_cap": 500,
+                            "per_hour_cap": 500,
+                            "per_session_contribution_cap": 2,
+                            "cooldown_seconds": 0.001,
+                            "max_session_contribution_entries": 50,
+                        },
+                    }
                 )
             )
             r = _result(findings=(_finding(severity=Severity.HIGH),))
@@ -995,14 +1300,18 @@ class TestCrossSessionBurstAdversarial:
         # yet 4 distinct sessions (s1, pad, s2, s3) appear within the window.
         mgr = AlertManager(
             _cfg(
-                alert_ring_buffer_capacity=3,
-                alert_cross_session_burst_count=3,
-                alert_cross_session_burst_window_seconds=600.0,
-                alert_rapid_fire_count=3,
-                alert_cooldown_seconds=0.001,
-                alert_per_minute_cap=50,
-                alert_per_hour_cap=50,
-                alert_per_session_contribution_cap=50,
+                {
+                    "alerting": {
+                        "ring_buffer_capacity": 3,
+                        "cross_session_burst_count": 3,
+                        "cross_session_burst_window_seconds": 600.0,
+                        "rapid_fire_count": 3,
+                        "cooldown_seconds": 0.001,
+                        "per_minute_cap": 50,
+                        "per_hour_cap": 50,
+                        "per_session_contribution_cap": 50,
+                    },
+                }
             )
         )
         r = _result(findings=(_finding(severity=Severity.LOW),))
@@ -1021,13 +1330,17 @@ class TestCrossSessionBurstAdversarial:
         # at most 60 distinct (ring maxlen); the fix reports the true 100.
         mgr = AlertManager(
             _cfg(
-                alert_ring_buffer_capacity=60,
-                alert_cross_session_burst_count=50,
-                alert_cross_session_burst_window_seconds=600.0,
-                alert_cooldown_seconds=0.001,
-                alert_per_minute_cap=500,
-                alert_per_hour_cap=500,
-                alert_per_session_contribution_cap=500,
+                {
+                    "alerting": {
+                        "ring_buffer_capacity": 60,
+                        "cross_session_burst_count": 50,
+                        "cross_session_burst_window_seconds": 600.0,
+                        "cooldown_seconds": 0.001,
+                        "per_minute_cap": 500,
+                        "per_hour_cap": 500,
+                        "per_session_contribution_cap": 500,
+                    },
+                }
             )
         )
         r = _result(findings=(_finding(severity=Severity.LOW),))
@@ -1048,13 +1361,17 @@ class TestCrossSessionBurstAdversarial:
         cap = 60
         mgr = AlertManager(
             _cfg(
-                alert_ring_buffer_capacity=cap,
-                alert_cross_session_burst_count=50,
-                alert_cross_session_burst_window_seconds=600.0,
-                alert_cooldown_seconds=0.001,
-                alert_per_minute_cap=500,
-                alert_per_hour_cap=500,
-                alert_per_session_contribution_cap=500,
+                {
+                    "alerting": {
+                        "ring_buffer_capacity": cap,
+                        "cross_session_burst_count": 50,
+                        "cross_session_burst_window_seconds": 600.0,
+                        "cooldown_seconds": 0.001,
+                        "per_minute_cap": 500,
+                        "per_hour_cap": 500,
+                        "per_session_contribution_cap": 500,
+                    },
+                }
             )
         )
         r = _result(findings=(_finding(severity=Severity.LOW),))
@@ -1098,7 +1415,16 @@ class TestAlertCallbackIsolationAdversarial:
             call_count += 1
             raise RuntimeError("on_alert boom under flood")
 
-        mgr = AlertManager(_cfg(alert_critical_per_minute_cap=100), on_alert=bad_cb)
+        mgr = AlertManager(
+            _cfg(
+                {
+                    "alerting": {
+                        "critical_per_minute_cap": 100,
+                    },
+                }
+            ),
+            on_alert=bad_cb,
+        )
         fr = _freq(previous_score=35.0, current_score=55.0, tier="tier3")
         total_errors = 0
         for i in range(50):
@@ -1117,7 +1443,16 @@ class TestAlertCallbackIsolationAdversarial:
             if state["fail"]:
                 raise RuntimeError("first evaluate fails")
 
-        mgr = AlertManager(_cfg(alert_cooldown_seconds=0.001), on_alert=cb)
+        mgr = AlertManager(
+            _cfg(
+                {
+                    "alerting": {
+                        "cooldown_seconds": 0.001,
+                    },
+                }
+            ),
+            on_alert=cb,
+        )
         r = _result(findings=(_finding(severity=Severity.HIGH),))
         mgr.evaluate(r, "s1", None)
         assert len(mgr.callback_errors) >= 1
