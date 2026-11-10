@@ -62,7 +62,8 @@ def write_cfg(home: Path, enabled: bool) -> None:
     )
 
 
-_ENV_KEEP = ("SYSTEMROOT", "SYSTEMDRIVE", "COMSPEC", "PATH", "TEMP", "TMP", "WINDIR")
+# PATHEXT: without it uv cannot find git.exe on PATH, and Hermes's dependency resolve needs git.
+_ENV_KEEP = ("SYSTEMROOT", "SYSTEMDRIVE", "COMSPEC", "PATH", "PATHEXT", "TEMP", "TMP", "WINDIR")
 _PUMP_JOIN_SECONDS = 5.0
 _BOOTSTRAP_CODE = 0
 _STORE_FINDER = (

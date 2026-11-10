@@ -14,10 +14,10 @@ not fixed by editing an expectation to fit what was observed.
 ## What a verdict counts for
 
 A verdict counts only for the script, harness, corpus, wheel, and plugin-file
-hashes, the Hermes commit, and the copied configuration named in its
-evidence file. A commit that changes one of those files, a different
+hashes, the Hermes commit, and the copied configuration whose digest its
+evidence file names. A commit that changes one of those files, a different
 wheel, a different Hermes commit, or a different copied `petasos:` section
-needs a new run. A commit that only adds the evidence file and its verdict
+(a different `section_sha256`) needs a new run. A commit that only adds the evidence file and its verdict
 entry does not.
 
 ## What the gate shows
@@ -96,10 +96,20 @@ The evidence file is built to carry no host name and no user name. Paths are
 rewritten to
 `<root>`, `<live>`, `<tree>`, `<workdir>`, `<hf_cache>`, and `<home>`.
 There is no environment dump. `PETASOS_SESSION_SECRET` is recorded only as
-the harness's fixed throwaway constant. Spool rows omit `sig`. A copied
-section keeps `PetasosConfig` fields and `enabled`, and drops `hash_key`,
-`session_secret`, and every other key (their names are listed under
-`withheld_keys`).
+the harness's fixed throwaway constant. Spool rows omit `sig`.
+
+The evidence does not carry a profile's settings. A copied section keeps
+`PetasosConfig` fields and `enabled`, and drops `hash_key`,
+`session_secret`, and every other key. The evidence records only that
+section's SHA-256, the names of the two keys the gate forces, and how many
+keys were dropped. The settings a verdict depends on are the ones the corpus
+assumes for each profile, and a check fails when the copied section differs
+from them. Profiles left out of the matrix are counted by reason and not
+named. The matrix profiles are named, because the corpus names them.
+
+`hermes.tracked_clean` says whether the live checkout has no modified tracked
+file, so that the recorded commit is the code that ran. Hermes's own version
+string says `dirty` for an untracked file as well.
 
 Before the file is written, a sweep looks for the home directory, the live
 root, the workdir, the release tree, the host name, and the OS user name as
@@ -156,10 +166,51 @@ refused the file. Exit 6 is an unexpected error.
 
 ## Verdict log
 
-No run has been recorded. The evidence file is produced only by a real
-gating run, and this repository does not contain one yet. There is therefore
-no written go or no-go for unholding draft PR #209.
-
 Each recorded run adds one entry: date, evidence file and its SHA-256,
 verdict, failed checks, Plane items, and the written go or no-go for
 unholding #209.
+
+### 2026-11-10, run1 and run2: no-go
+
+Both runs used release tree `5549d62` and stopped at stage 1, so `hooks`,
+`cold`, `negative`, and `dash` were skipped and no corpus case ran.
+
+- Evidence: not in this repository. Both files were written before the
+  evidence stopped carrying profile settings and the names of excluded
+  profiles, so they stay on the host. SHA-256 of `composition-run1.json`:
+  `09606e18e1912112cbc458aeaa4dfd2026f8e37fb20e96f95b51d927d4d880f9`. SHA-256
+  of `composition-run2.json`:
+  `2b8028b4a0ff8ee0da13bfb9c8d8c2f98c213544fe73bcbe1d4a09863ac51c46`.
+- Failed checks, both runs: `stage1.bootstrap`, `stage1.plugin_kept`,
+  `stage1.completed`. `stage1.store_isolated` passed: Hermes resolved its
+  Python from the isolated root's own tool store.
+- Cause of run1: a defect in the gate's harness, not in the wheel or the
+  plugin. Hermes disabled the plugin on all three matrix profiles because its
+  dependency resolve needs git, and the resolver could not find `git.exe`. The
+  harness kept `PATH` for its children and dropped `PATHEXT`. A real Hermes
+  session inherits `PATHEXT`. The harness now keeps it.
+- Cause of run2: the fix was not loaded. The driver's Python had an editable
+  install of another checkout, and the gate took that checkout's harness. Its
+  evidence names the old harness hash. The gate now takes the harness beside
+  its own file when it is started as a file.
+- Plane: PET-262.
+- Unholding #209: no-go. Neither run says anything about the wheel. The gate
+  and the harness changed, so a new run is needed.
+
+### 2026-11-10, run3: no-go
+
+- Evidence: `windows-5549d62-run3.json`, SHA-256
+  `05f54d8d0472d8be9899b69760e82ab98e31eb8f4d7c0cfe5521cd56f2ed08bb`.
+- Verdict: no-go. The run stopped at stage 1, so `hooks`, `cold`, `negative`,
+  and `dash` were skipped and no corpus case ran.
+- Failed checks: `stage1.bootstrap`, `stage1.plugin_kept`, `stage1.completed`.
+  `stage1.store_isolated` passed.
+- Cause: a defect in the reference plugin manifest, found with the fixed
+  harness loaded. Hermes locks one workspace for every platform, Android
+  included. The manifest required `petasos[presidio,prompt-guard]` on every
+  platform, and torch has no Android wheel, so the lock had no solution.
+  Hermes then disabled the plugin on all three matrix profiles. A real
+  Hermes 0.22.5 host would have installed the 0.5.0 plugin with no hooks. The
+  manifest's requirement now excludes Android.
+- Plane: PET-263.
+- Unholding #209: no-go. The manifest changed, so a new run is needed.

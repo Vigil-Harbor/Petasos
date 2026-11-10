@@ -1,0 +1,208 @@
+{
+ "schema": "petasos-composition-gate/v1",
+ "label": "run3",
+ "host": {
+  "os": "Windows",
+  "os_release": "10",
+  "python": "3.11.14",
+  "cpu_count": 16
+ },
+ "hermes": {
+  "commit": "5019bf706732a85a6bb2af8ec083bf82b6f94c5f",
+  "base_version": "0.22.5",
+  "display_version": "0.22.5+6.g5019bf7.dirty",
+  "tracked_clean": true
+ },
+ "release_commit": "5549d627a91790413b2bf9c7d72392f4bfb67775",
+ "origin_master": "7370c90050bc4b2c28f02724d05119de56b8c8af",
+ "wheel_sha256": "713a6fec4a624d0a9988686b8a974f108096940066d1137119cba66582e92d32",
+ "hashes": {
+  "gate": "28ca7c2c0a25ec432c6bffe45356a8cf73eaecfc4bd3e8513fe0dec2899d46ac",
+  "harness": "d0b18a288e29b53db43c13559b635dcec82e8f271ef7add14f403bacd4120d2c",
+  "corpus": "e4d493b67ae1660cf8e60336e00cc8aefb27ca76a8ba1ebe94aebe8eeba23da8",
+  "plugin_init": "1819a96fc579e9f49710780bf3da7e1765ba3eac1657edf0b0bb494b5c0f52ed",
+  "plugin_yaml": "81bea58b7edece14d1e3940129717ea0b30b44821d0152f1be67b8d5825d9a60",
+  "plugin_verify": "0f694386590a26c864f09a5d82d27129dd7632b40996790a3df67d39b73a030f",
+  "plugin_pyproject": "37b8a5eb7111662e568aa03c29b70e7e634b30c2cb4c562f4cd2b04baef19b8e"
+ },
+ "matrix": [
+  {
+   "name": "default",
+   "section_sha256": "588a71e93ce2591670b95f651fb1ce4c9358eed411e38a30058380783e27b43c",
+   "overridden": [
+    "enabled",
+    "semgrep_enabled"
+   ],
+   "withheld_key_count": 0
+  },
+  {
+   "name": "gibson",
+   "section_sha256": "e5c16f5dd61bdda412fa51ec49c600ba78a8cceaac6788edb5dbc7c1153358c1",
+   "overridden": [
+    "enabled",
+    "semgrep_enabled"
+   ],
+   "withheld_key_count": 0
+  },
+  {
+   "name": "ops",
+   "section_sha256": "d9b6d94fc68bfe5d7558536ffe18fef6939387e1d2a0e6c9a4f45a2db58a6dc2",
+   "overridden": [
+    "enabled",
+    "semgrep_enabled"
+   ],
+   "withheld_key_count": 0
+  }
+ ],
+ "excluded": {
+  "no_plugin_copy": 4,
+  "no_section": 3
+ },
+ "stages": {
+  "stage1": "failed",
+  "hooks": "skipped",
+  "cold": "skipped",
+  "negative": "skipped",
+  "dash": "skipped"
+ },
+ "checks": [
+  {
+   "check": "stage1.bootstrap",
+   "ok": false,
+   "detail": 0
+  },
+  {
+   "check": "stage1.plugin_kept",
+   "ok": false,
+   "detail": ""
+  },
+  {
+   "check": "stage1.store_isolated",
+   "ok": true,
+   "detail": "<root>\\tools\\python-3.14.9+20261021-win32-x64\\python.exe"
+  },
+  {
+   "check": "stage1.completed",
+   "ok": false,
+   "detail": {
+    "last": "stage1.store_isolated"
+   }
+  },
+  {
+   "check": "snapshot.listing",
+   "ok": true,
+   "detail": {
+    "before": 14,
+    "after": 14
+   }
+  }
+ ],
+ "spools": {
+  "default": [],
+  "gibson": [],
+  "ops": []
+ },
+ "snapshot_listing": [
+  [
+   ".no_exist/a8ded8e697ce7c355e395a0df51f94adb4a2fd27/added_tokens.json",
+   0
+  ],
+  [
+   ".no_exist/a8ded8e697ce7c355e395a0df51f94adb4a2fd27/chat_template.jinja",
+   0
+  ],
+  [
+   ".no_exist/a8ded8e697ce7c355e395a0df51f94adb4a2fd27/spm.model",
+   0
+  ],
+  [
+   "refs/main",
+   40
+  ],
+  [
+   "snapshots/a8ded8e697ce7c355e395a0df51f94adb4a2fd27/.gitattributes",
+   1570
+  ],
+  [
+   "snapshots/a8ded8e697ce7c355e395a0df51f94adb4a2fd27/LICENSE",
+   7554
+  ],
+  [
+   "snapshots/a8ded8e697ce7c355e395a0df51f94adb4a2fd27/README.md",
+   19046
+  ],
+  [
+   "snapshots/a8ded8e697ce7c355e395a0df51f94adb4a2fd27/USE_POLICY.md",
+   5796
+  ],
+  [
+   "snapshots/a8ded8e697ce7c355e395a0df51f94adb4a2fd27/checklist.chk",
+   261
+  ],
+  [
+   "snapshots/a8ded8e697ce7c355e395a0df51f94adb4a2fd27/config.json",
+   871
+  ],
+  [
+   "snapshots/a8ded8e697ce7c355e395a0df51f94adb4a2fd27/model.safetensors",
+   1115268200
+  ],
+  [
+   "snapshots/a8ded8e697ce7c355e395a0df51f94adb4a2fd27/special_tokens_map.json",
+   286
+  ],
+  [
+   "snapshots/a8ded8e697ce7c355e395a0df51f94adb4a2fd27/tokenizer.json",
+   16351353
+  ],
+  [
+   "snapshots/a8ded8e697ce7c355e395a0df51f94adb4a2fd27/tokenizer_config.json",
+   19674
+  ]
+ ],
+ "approval": {
+  "exercised": false,
+  "reason": "no matrix profile uses the approve posture"
+ },
+ "verdict": "no-go",
+ "failed": [
+  "stage1.bootstrap",
+  "stage1.plugin_kept",
+  "stage1.completed"
+ ],
+ "not_shown": [
+  "first-time gated download",
+  "abandoned-text analysis",
+  "a live profile's plugins.enabled",
+  "macOS",
+  "latency budgets",
+  "session escalation",
+  "the approval path when no matrix profile uses the approve posture",
+  "a real model turn (smoke checklist)",
+  "memory use",
+  "that nothing is anonymized beyond the copied sections leaving anonymize unset"
+ ],
+ "driver_imports": "petasos.console._paths.hermes_root from the gate checkout, not a probe process",
+ "env_set": [
+  "HERMES_HOME",
+  "LOCALAPPDATA",
+  "USERPROFILE",
+  "HOME",
+  "APPDATA",
+  "PYTHONPATH",
+  "PYTHONDONTWRITEBYTECODE",
+  "HF_HUB_CACHE",
+  "HF_HUB_OFFLINE",
+  "TRANSFORMERS_OFFLINE",
+  "HERMES_GATEWAY_SESSION",
+  "UV_FIND_LINKS",
+  "PETASOS_SESSION_SECRET (harness throwaway constant)"
+ ],
+ "paths_rewritten": {
+  "root": "<root>",
+  "live": "<live>",
+  "tree": "<tree>",
+  "workdir": "<workdir>",
+  "hf_cache": "<hf_cache>"
+ }
+}
