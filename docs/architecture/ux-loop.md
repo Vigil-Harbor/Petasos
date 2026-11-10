@@ -23,7 +23,7 @@ when every score reaches the bar.
 | Round | Visual design | Usability | Conventions | Fit with Hermes |
 |---|---|---|---|---|
 | 1 | 6 | 6 | 7 | 7 |
-| 2 | pending | pending | pending | pending |
+| 2 | 7 | 7 | 7 | 8 |
 
 ## Round 1
 
@@ -157,3 +157,83 @@ Decisions where the reviews pulled apart beyond the rulings:
 - View tabs use Hermes's enclosed segmented tabs in mixed case, as the
   Sessions page does, rather than the upper case of the Logs filters: the
   design review asked for less delicate navigation.
+
+### Round 2 scores
+
+Visual design 7 (from 6), usability 7 (from 6), conventions 7 (unchanged),
+fit with Hermes 8 (from 7). Fresh judges, same briefs, the screenshots in a
+neutrally named folder so nothing showed it was a second round. Before
+judging, one wording fault was fixed at source and the whole set was
+re-captured from the merged tree: a check that was switched on but not
+installed was described as "installed but cannot be used", with a pip
+instruction.
+
+Every problem the round 1 judges numbered was either fixed or credited as a
+strength this time. The scores held below the bar on a new set of findings.
+
+What more than one judge found:
+
+- **The paused view contradicts itself** (conventions, usability):
+  "without being checked" above a row reading "Running: Basic checks". The
+  row shows what is configured, not what is operating.
+- **The open event is not marked in the list** (design, conventions,
+  usability).
+- **A row truncates in the narrow layout** (design, conventions,
+  usability).
+
+Visual design, 7. Clean alignment and clear status treatments across many
+states. Held back by the light theme's single blue, small text in several
+competing type styles, settings metadata carrying as much weight as the
+value, severity and outcome badges that are all the same red rectangle, an
+uneven metrics strip, date-picker icons invisible in the dark theme, and a
+saved confirmation that looks like a warning.
+
+Usability, 7. All ten tasks succeed or mostly succeed; the saved, trial and
+live distinction and the bounded signature statement are credited. Held back
+by contradictory safety feedback (the paused view; an activity summary that
+says "0 blocked" above a blocked row; a settings-change event with no route
+to check the current settings) and by how much a casual user still reads:
+the two choices sit below the event history; coverage is named by product
+(Presidio, PromptGuard, Semgrep) and not by what each adds; Try it leads
+with tool names and JSON; the fix for a missing check is a command with no
+word on where to run it; raw keys show under Job and Strictness; "Use
+Relaxed too" recommends weaker protection without its cost.
+
+Conventions, 7. Staged changes, validation, audit-log filters, focus and
+grouped repeats are credited. Held back by the paused contradiction, the
+missing selection in the event detail, a failed required check shown in
+warning amber, faint input values and borders in the light theme, small
+switches without state text, an ambiguous numeric date format, and labels
+that name a destination ("Trial settings").
+
+Fit with Hermes, 8. Frame, panels, settings structure, segmented controls
+and both themes are credited as Hermes's own. The remaining tells: an
+explanatory voice where Hermes is terse; field and filter labels heavier
+than Hermes's; a review ritual around saving; settings rows taller and
+busier than Config's; status badges in a different lettering from Hermes's;
+an enclosing panel around the activity filters; heavier sub-navigation; an
+empty state more emphatic than Sessions'; a statistics strip Hermes has no
+equivalent for.
+
+### Rulings for round 3
+
+- **The light theme's blue stands** (fit credits it; design marks it down).
+  Hierarchy comes from weight, size and Hermes's own muted text treatment
+  for secondary content. Entered values use full-strength text.
+- **Less prose, both for fit and for the casual user.** One short sentence
+  per thing; anything longer sits behind a disclosure. Statements that keep
+  someone from believing more than is true stay, shortened.
+- **The two choices move into the status panel**, as compact controls, with
+  the history below. This answers usability (choices first) and round 1's
+  design finding (evidence not crowded out). Raw keys do not show on
+  Overview.
+- **One badge family.** Outcome keeps a legible badge built like Hermes's.
+  Severity becomes a quiet text indicator beside it, not a second coloured
+  rectangle.
+- **Saving is direct, and the change list is one click away.** Save sits in
+  the toolbar as in Hermes's Config; the list of staged changes opens from
+  the change count beside it; "Try it first" stays as a quiet action.
+- **Try it leads with the plain path**: pick an example, run it, read the
+  outcome in a sentence. The input editor, the model-facing message and rule
+  identifiers are technical detail, one click away.
+- **Hermes's switch stays as it is**, without added state text.
