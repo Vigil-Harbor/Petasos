@@ -62,8 +62,143 @@ function fieldProblem(row, text, message) {
 function textFor(row, value) {
   if (value === null || value === undefined) return "";
   if (isList(row)) return (value || []).join("\n");
-  if (isMapping(row)) return Object.keys(value || {}).length ? JSON.stringify(value, null, 2) : "";
+  if (isMapping(row)) return "";
   return String(value);
+}
+
+// True when a value is not its default, compared as data.
+function differs(row) {
+  return JSON.stringify(row.value === undefined ? null : row.value) !== JSON.stringify(row.default === undefined ? null : row.default);
+}
+
+// The value's state in words, for the line under a control: On, the
+// choice's label, a count, or the value itself.
+function stateWords(row, value) {
+  if (row.type === "bool") return value === true ? "On" : "Off";
+  if (row.choices && row.choices.length) return showValue(value, row);
+  if (isList(row)) return value && value.length ? plural(value.length, "item") : "None";
+  if (isMapping(row)) {
+    if (value === null || value === undefined) return "Built in";
+    var n = Object.keys(value).length;
+    return n ? plural(n, "entry", "entries") : "None";
+  }
+  if (value === null || value === undefined || value === "") return "Not set";
+  return String(value);
+}
+
+// A mapping, edited as rows: two labelled fields per entry, named by the
+// schema's entry labels, with Add and Remove. Built from Hermes's inputs and
+// buttons; Hermes's Config has no editor for adding entries to a mapping.
+function MappingRows(props) {
+  var row = props.row;
+  var labels = row.entry_labels || ["Name", "Value"];
+  var numeric = String(row.type).indexOf("float") >= 0;
+  function fromValue(value) {
+    return Object.keys(value || {}).map(function (key) {
+      return { key: key, value: value[key] === null || value[key] === undefined ? "" : String(value[key]) };
+    });
+  }
+  var rowsState = useState(function () {
+    return fromValue(props.value);
+  });
+  var entries = rowsState[0];
+  function toValue(list) {
+    var out = {};
+    list.forEach(function (entry) {
+      var key = entry.key.trim();
+      if (!key) return;
+      var text = entry.value.trim();
+      var number = Number(text);
+      out[key] = numeric && text !== "" && isFinite(number) ? number : text;
+    });
+    return out;
+  }
+  // A change from outside (Undo, Discard, a rule lowered elsewhere) resets
+  // the rows; an edit made here produces the same value and keeps them.
+  var incoming = JSON.stringify(props.value || {});
+  useEffect(
+    function () {
+      if (JSON.stringify(toValue(entries)) !== incoming) rowsState[1](fromValue(props.value));
+    },
+    [incoming]
+  );
+  function update(list) {
+    rowsState[1](list);
+    var value = toValue(list);
+    if (!Object.keys(value).length && row.nullable) props.onValue(null);
+    else props.onValue(value);
+  }
+  var id = fieldId(row.path);
+  return h(
+    "div",
+    { className: "petasos-maprows", role: "group", "aria-labelledby": id + "-label", "aria-describedby": props.describedBy },
+    entries.length
+      ? h(
+          "div",
+          { className: "petasos-maprow petasos-maprow-head", "aria-hidden": true },
+          h("span", { className: "petasos-label" }, labels[0]),
+          h("span", { className: "petasos-label" }, labels[1]),
+          h("span", null)
+        )
+      : null,
+    entries.map(function (entry, index) {
+      return h(
+        "div",
+        { key: index, className: "petasos-maprow" },
+        h(C.Input, {
+          id: index === 0 ? id : undefined,
+          value: entry.key,
+          disabled: props.disabled,
+          "aria-label": labels[0] + " " + (index + 1),
+          onChange: function (e) {
+            var next = entries.slice();
+            next[index] = { key: e.target.value, value: entry.value };
+            update(next);
+          },
+        }),
+        h(C.Input, {
+          value: entry.value,
+          disabled: props.disabled,
+          inputMode: numeric ? "decimal" : undefined,
+          "aria-label": labels[1] + " " + (index + 1),
+          onChange: function (e) {
+            var next = entries.slice();
+            next[index] = { key: entry.key, value: e.target.value };
+            update(next);
+          },
+        }),
+        h(
+          Btn,
+          {
+            ghost: true,
+            disabled: props.disabled,
+            "aria-label": "Remove " + (entry.key || labels[0].toLowerCase() + " " + (index + 1)),
+            onClick: function () {
+              update(entries.filter(function (_item, at) {
+                return at !== index;
+              }));
+            },
+          },
+          "Remove"
+        )
+      );
+    }),
+    h(
+      "div",
+      null,
+      h(
+        Btn,
+        {
+          outlined: true,
+          disabled: props.disabled,
+          onClick: function () {
+            rowsState[1](entries.concat([{ key: "", value: "" }]));
+          },
+        },
+        "Add"
+      )
+    )
+  );
 }
 
 // Turn what a person typed into the value the API expects. A number that
@@ -120,14 +255,17 @@ function FieldControl(props) {
       })
     );
   }
-  if (isList(row) || isMapping(row)) {
+  if (isMapping(row)) {
+    return h(MappingRows, { row: row, value: props.value, disabled: props.disabled, describedBy: described, onValue: props.onValue });
+  }
+  if (isList(row)) {
     return h("textarea", {
       id: id,
       className: "petasos-textarea petasos-mono-area",
       rows: Math.min(8, Math.max(2, String(props.text).split("\n").length + 1)),
       value: props.text,
       disabled: props.disabled,
-      placeholder: isList(row) ? "One per line" : '{"name": "value"}',
+      placeholder: "One per line",
       "aria-invalid": props.error ? "true" : undefined,
       "aria-describedby": described,
       onChange: function (e) {
@@ -148,6 +286,9 @@ function FieldControl(props) {
   });
 }
 
+// One field as Config draws it, with one secondary line beneath the control
+// that states the value and where it comes from together ("On · Default"),
+// and, where they apply, the allowed range, a restart, and Reset or Undo.
 function FieldRow(props) {
   var row = props.row;
   var saved = props.saved || row;
@@ -157,39 +298,35 @@ function FieldRow(props) {
   var bounds = isNumber(row) ? boundsText(row) : "";
   var catalog = props.catalog;
   var stored = catalog.stored || {};
-  var provenance;
+  var parts = [];
+  var action = null;
   if (props.lockedHere) {
-    provenance = h("span", null, h("strong", null, "Locked by your administrator"), " · change it in Hermes's managed configuration");
+    parts.push(stateWords(row, props.value), "Locked by your administrator");
   } else if (staged) {
-    provenance = h(
-      Fragment,
-      null,
-      h("strong", { className: "petasos-staged-word" }, "Changed, not saved"),
-      change ? " · was " + showValue(change.before, row) : "",
-      " · ",
-      h(LinkButton, { onClick: props.onUnstage }, "Undo")
-    );
-  } else if (saved.origin === "override") {
-    var target = saved.reset_to;
-    provenance = h(
-      Fragment,
-      null,
-      "Your setting",
-      target && !props.disabled
-        ? h(
-            Fragment,
-            null,
-            " · ",
-            h(
-              LinkButton,
-              { onClick: props.onReset },
-              "Reset to " + originText(target.origin, stored, catalog).toLowerCase() + ": " + showValue(target.value, row)
-            )
-          )
-        : null
-    );
+    parts.push(h("strong", { key: "s", className: "petasos-staged-word" }, "Changed, not saved"));
+    if (change) parts.push("was " + stateWords(row, change.before));
+    action = h(Btn, { ghost: true, compact: true, onClick: props.onUnstage }, "Undo");
   } else {
-    provenance = originText(saved.origin, stored, catalog);
+    parts.push(stateWords(row, props.value), originText(saved.origin, stored, catalog));
+    var target = saved.origin === "override" ? saved.reset_to : null;
+    if (target && !props.disabled) {
+      action = h(
+        Btn,
+        { ghost: true, compact: true, onClick: props.onReset, "aria-label": "Reset " + rowLabel(row) + " to " + showValue(target.value, row) },
+        "Reset to " + stateWords(row, target.value)
+      );
+    }
+  }
+  if (bounds) parts.push("Allowed: " + bounds);
+  if (row.restart) parts.push("After a Hermes restart");
+  var line = [];
+  parts.forEach(function (part, index) {
+    if (index) line.push(h("span", { key: "d" + index, "aria-hidden": true, className: "petasos-dot" }, " · "));
+    line.push(typeof part === "string" ? h("span", { key: "p" + index }, part) : part);
+  });
+  if (action) {
+    line.push(h("span", { key: "da", "aria-hidden": true, className: "petasos-dot" }, " · "));
+    line.push(h(Fragment, { key: "a" }, action));
   }
   return h(
     Field,
@@ -200,7 +337,7 @@ function FieldRow(props) {
       path: row.path,
       help: row.help,
       inline: row.type === "bool",
-      className: cn(staged && "petasos-field-staged", saved.origin === "override" && "petasos-field-yours", props.error && "petasos-field-invalid", props.focused && "petasos-field-focused"),
+      className: cn(staged && "petasos-field-staged", props.error && "petasos-field-invalid"),
       control: h(FieldControl, {
         row: row,
         value: props.value,
@@ -212,13 +349,19 @@ function FieldRow(props) {
       }),
     },
     props.error ? h("p", { className: "petasos-field-error", id: id + "-error", role: "alert" }, props.error) : null,
-    h(
-      "p",
-      { className: "petasos-provenance" },
-      provenance,
-      bounds ? " · allowed: " + bounds : "",
-      row.restart ? " · after a Hermes restart" : ""
-    )
+    props.consequence
+      ? h(
+          "p",
+          { className: "petasos-consequence", role: "status" },
+          h(
+            "strong",
+            null,
+            (staged ? (row.restart ? "Once saved and Hermes restarts: " : "On save: ") : "") + props.consequence.title + ". "
+          ),
+          props.consequence.sentence
+        )
+      : null,
+    h("p", { className: "petasos-provenance", id: id + "-state" }, line)
   );
 }
 
@@ -240,7 +383,7 @@ function RuleHelper(props) {
       className: "petasos-rule-helper",
       title: "Rule",
       description: props.sentence || "The settings below decide what this rule does.",
-      actions: h(LinkButton, { onClick: props.onClose }, "Close"),
+      actions: h(Btn, { ghost: true, onClick: props.onClose }, "Close"),
     },
     h(KeyValues, {
       rows: [
@@ -253,21 +396,20 @@ function RuleHelper(props) {
       { className: "petasos-row-actions" },
       quiet ? null : h(Btn, { outlined: true, disabled: props.disabled, onClick: function () { props.onQuiet(rule); } }, "Turn this rule off"),
       h(Btn, { outlined: true, disabled: props.disabled, onClick: function () { props.onLower(rule); } }, "Report it without blocking"),
-      h(Btn, { ghost: true, onClick: function () { go("tryit", { example: "hidden" }); } }, "Try it")
+      h(LinkButton, { onClick: function () { go("tryit", { rule: rule, sentence: props.sentence || "" }); } }, "Test it in Try it")
     ),
-    h("p", { className: "petasos-secondary" }, "Each stages a change; nothing is saved until you press Save.")
+    h("p", { className: "petasos-secondary" }, "Not saved until you press Save.")
   );
 }
 
-// The list of staged changes, opened from the count beside Save. It sits
-// over the page, so the sections do not move when changes are staged.
+// The list of staged changes, opened from the count beside Save: an ordinary
+// panel under the toolbar that pushes the form down.
 function ChangeSheet(props) {
   var catalog = props.catalog;
   var preview = props.preview;
   var draft = props.draft;
   var stored = catalog.stored || {};
   var labels = catalog.labels || {};
-  var ref = useRef(null);
   var top = [];
   if (draft.enabled !== undefined && draft.enabled !== stored.enabled)
     top.push([labels.enabled || "Protection", stored.enabled === false ? "Paused" : "On", draft.enabled ? "On" : "Paused"]);
@@ -276,52 +418,47 @@ function ChangeSheet(props) {
   if (draft.level !== undefined && draft.level !== stored.level)
     top.push([labels.level || "Strictness", levelLabel(catalog, stored.level), levelLabel(catalog, draft.level)]);
   var changes = (preview && preview.changes) || [];
-  useEffect(function () {
-    if (ref.current) ref.current.focus({ preventScroll: true });
-  }, []);
   return h(
     "div",
     {
-      className: "petasos-sheet",
-      role: "dialog",
-      "aria-labelledby": "petasos-sheet-title",
-      tabIndex: -1,
-      ref: ref,
       id: "petasos-change-sheet",
       onKeyDown: function (event) {
         if (event.key === "Escape") props.onClose();
       },
     },
     h(
-      "div",
-      { className: "petasos-sheet-head" },
-      h("p", { className: "petasos-sheet-title", id: "petasos-sheet-title" }, "What will change"),
-      h(Btn, { ghost: true, onClick: props.onClose, "aria-label": "Close the list of changes" }, "Close")
-    ),
-    top.length
-      ? h(
-          "ul",
-          { className: "petasos-changes" },
-          top.map(function (item) {
-            return h(
-              "li",
-              { key: item[0], className: "petasos-change" },
-              h("p", { className: "petasos-change-name" }, item[0]),
-              h("p", { className: "petasos-change-values" }, h("span", { className: "petasos-before" }, item[1]), h("span", { className: "petasos-arrow", "aria-hidden": true }, " → "), h("span", { className: "sr-only" }, " becomes "), h("strong", null, item[2]))
-            );
-          })
-        )
-      : null,
-    h(ChangeList, {
-      catalog: catalog,
-      rows: catalog.settings,
-      changes: changes,
-      stored: stored,
-      after: preview && preview.stored,
-      label: "Settings that would change",
-      empty: top.length ? "No other setting changes." : "These edits leave every value as it was.",
-    }),
-    h("p", { className: "petasos-when" }, draft.enabled === false ? "Pausing applies from the agent's next tool call." : whenItApplies(changes, catalog.settings))
+      Panel,
+      {
+        className: "petasos-sheet",
+        title: "What will change",
+        titleId: "petasos-sheet-title",
+        description: draft.enabled === false ? "Pausing applies from the agent's next tool call." : whenItApplies(changes, catalog.settings),
+        actions: h(Btn, { ghost: true, onClick: props.onClose, "aria-label": "Close the list of changes" }, "Close"),
+      },
+      top.length
+        ? h(
+            "ul",
+            { className: "petasos-changes" },
+            top.map(function (item) {
+              return h(
+                "li",
+                { key: item[0], className: "petasos-change" },
+                h("p", { className: "petasos-change-name" }, item[0]),
+                h("p", { className: "petasos-change-values" }, h("span", { className: "petasos-before" }, item[1]), h("span", { className: "petasos-arrow", "aria-hidden": true }, " → "), h("span", { className: "sr-only" }, " becomes "), h("strong", null, item[2]))
+              );
+            })
+          )
+        : null,
+      h(ChangeList, {
+        catalog: catalog,
+        rows: catalog.settings,
+        changes: changes,
+        stored: stored,
+        after: preview && preview.stored,
+        label: "Settings that would change",
+        empty: top.length ? "No other setting changes." : "These edits leave every value as it was.",
+      })
+    )
   );
 }
 
@@ -341,7 +478,9 @@ function Settings(props) {
   var savedState = useState(null);
   var expertState = useState(false);
   var searchState = useState("");
-  var sectionState = useState(params.rule ? "rules" : params.path ? topOf({ path: params.path }) || "general" : "basics");
+  var sectionState = useState(
+    params.changed ? "changed" : params.rule ? "rules" : params.path ? topOf({ path: params.path }) || "general" : "basics"
+  );
   var section = sectionState[0];
   var resetState = useState(null);
   var reviewState = useState(params.review === "1");
@@ -390,21 +529,6 @@ function Settings(props) {
       if (target) revealInView(target, "center");
     },
     [params.path, section, Boolean(catalog)]
-  );
-  // The change list closes when a click lands outside it and the toolbar.
-  useEffect(
-    function () {
-      if (!reviewing) return;
-      function away(event) {
-        var bar = toolbarRef.current;
-        if (bar && !bar.contains(event.target)) reviewState[1](false);
-      }
-      document.addEventListener("mousedown", away);
-      return function () {
-        document.removeEventListener("mousedown", away);
-      };
-    },
-    [reviewing]
   );
 
   if (!catalog) {
@@ -572,19 +696,28 @@ function Settings(props) {
     return (sections[top] && sections[top].label) || top;
   }
 
-  var navItems = [{ key: "basics", label: "Basics", count: 3 }].concat(
+  var changedRows = rows.filter(function (row) {
+    return differs(row) || hasIn(draft.overrides, row.path);
+  });
+  var navItems = [
+    { key: "basics", label: "Basics", count: 3 },
+    { key: "changed", label: "Changed from default", count: changedRows.length },
+  ].concat(
     tops.map(function (top) {
       return { key: top || "general", label: sectionLabel(top), count: counts[top] || 0, changed: changed[top] || 0 };
     })
   );
-  var activeTop = section === "basics" ? null : section === "general" ? "" : section;
+  var changedView = !search && section === "changed";
+  var activeTop = section === "basics" || section === "changed" ? null : section === "general" ? "" : section;
   var shown = search
     ? rows.filter(visible)
-    : activeTop === null
-      ? []
-      : rows.filter(function (row) {
-          return topOf(row) === activeTop && visible(row);
-        });
+    : changedView
+      ? changedRows
+      : activeTop === null
+        ? []
+        : rows.filter(function (row) {
+            return topOf(row) === activeTop && visible(row);
+          });
 
   // Group the shown rows by their parent section, in the order they come.
   var groups = [];
@@ -600,7 +733,9 @@ function Settings(props) {
     var text = row.path in texts ? texts[row.path] : textFor(row, row.value);
     var lockedHere = (lockedInfo.settings || []).indexOf(row.path) >= 0;
     var problem = problems[row.path];
+    var consequences = (preview && preview.valid && preview.consequences) || (empty ? catalog.consequences : null) || {};
     return h(FieldRow, {
+      consequence: row.value === "on" ? consequences[row.path] : null,
       key: row.path,
       catalog: catalog,
       row: row,
@@ -610,7 +745,6 @@ function Settings(props) {
       value: row.value,
       text: text,
       error: problem ? fieldProblem(row, row.path in texts ? texts[row.path] : undefined, problem) : null,
-      focused: params.path === row.path || (params.rule && (row.path === "rules.suppress" || row.path === "rules.severity_overrides")),
       disabled: lockedAll || lockedHere,
       lockedHere: lockedHere,
       onValue: function (value) {
@@ -658,7 +792,12 @@ function Settings(props) {
           stageTop("enabled", value);
         },
       }),
-    }),
+    }, h(
+      "p",
+      { className: "petasos-provenance" },
+      enabledNow ? "On" : "Paused",
+      draft.enabled !== undefined && draft.enabled !== (stored.enabled !== false) ? h(Fragment, null, h("span", { className: "petasos-dot", "aria-hidden": true }, " · "), h("strong", { className: "petasos-staged-word" }, "Changed, not saved")) : null
+    )),
     h(Field, {
       id: "petasos-basic-role",
       label: labels.role || "Job",
@@ -781,13 +920,13 @@ function Settings(props) {
                 h(Icon, { name: "chevron", size: 14, className: "petasos-changecount-chevron" })
               )
             : h("span", { className: "petasos-secondary", role: "status" }, "Checking…"),
-      empty ? null : h(Btn, { ghost: true, onClick: discard }, "Discard"),
+      empty ? null : h(Btn, { outlined: true, onClick: discard, "aria-label": "Discard all " + plural(staged, "unsaved change") }, "Discard all"),
       empty
         ? null
         : h(
             Btn,
             {
-              ghost: true,
+              outlined: true,
               onClick: function () {
                 go("tryit", { settings: JSON.stringify(draftBody(draft)) });
               },
@@ -797,13 +936,14 @@ function Settings(props) {
       h(
         Btn,
         {
-          outlined: empty,
           disabled: empty || invalid || !preview || lockedAll || savingState[0],
           onClick: save,
         },
         savingState[0] ? "Saving…" : "Save"
       )
-    ),
+    )
+  );
+  var sheet =
     reviewing && preview && !invalid && !empty
       ? h(ChangeSheet, {
           catalog: catalog,
@@ -813,8 +953,7 @@ function Settings(props) {
             reviewState[1](false);
           },
         })
-      : null
-  );
+      : null;
 
   var saved = savedState[0];
 
@@ -822,6 +961,7 @@ function Settings(props) {
     "div",
     { className: "petasos-stack petasos-settings" },
     toolbar,
+    sheet,
     saved
       ? h(
           "div",
@@ -904,6 +1044,8 @@ function Settings(props) {
               onClick: function () {
                 searchState[1]("");
                 sectionState[1](item.key);
+                if (item.key === "changed") go("settings", { changed: "1" });
+                else if (params.changed) go("settings");
               },
             },
             h("span", { className: "petasos-section-name" }, item.label),
@@ -920,8 +1062,12 @@ function Settings(props) {
           : h(
               Panel,
               {
-                title: search ? "Matching settings" : sectionLabel(activeTop),
-                description: search ? plural(shown.length, "setting") + " match." : (sections[activeTop] || {}).help || "Settings that apply everywhere.",
+                title: search ? "Matching settings" : changedView ? "Changed from default" : sectionLabel(activeTop),
+                description: search
+                  ? plural(shown.length, "setting") + " match."
+                  : changedView
+                    ? "Every setting whose value is not its default, whoever changed it."
+                    : (sections[activeTop] || {}).help || "Settings that apply everywhere.",
                 actions: h(Tag, null, plural(shown.length, "field")),
               },
               groups.length
@@ -943,13 +1089,15 @@ function Settings(props) {
                       group.rows.map(renderRow)
                     );
                   })
-                : h(Empty, { title: "No settings match", icon: "search" }, "Clear the search, or show rarely needed settings."),
+                : changedView
+                  ? h(Empty, { title: "Every setting is at its default", icon: "check" })
+                  : h(Empty, { title: "No settings match", icon: "search" }, "Clear the search, or show rarely needed settings."),
               !search && hidden[activeTop]
                 ? h(
                     "p",
                     { className: "petasos-help petasos-end" },
                     plural(hidden[activeTop], "rarely needed setting") + " hidden. ",
-                    h(LinkButton, { onClick: function () { expertState[1](true); } }, "Show them")
+                    h(Btn, { ghost: true, compact: true, onClick: function () { expertState[1](true); } }, "Show them")
                   )
                 : null
             )

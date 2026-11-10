@@ -99,7 +99,7 @@ function whenItApplies(changes, rows) {
   var waiting = (changes || []).filter(function (change) {
     return change.restart;
   });
-  if (!waiting.length) return "Applies from the agent's next tool call. No restart is needed.";
+  if (!waiting.length) return "Applies from the agent's next tool call.";
   var names = waiting.map(function (change) {
     return rowLabel(byPath[change.path] || { path: change.path });
   });

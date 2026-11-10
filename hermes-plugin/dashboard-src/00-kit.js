@@ -256,8 +256,9 @@ function capital(word) {
 }
 
 // ---------------------------------------------------------------------------
-// Time. Lists show a full date when the record spans days; details show the
-// year and the time zone. Relative age is secondary.
+// Time. One convention everywhere: a 24-hour clock in the browser's time
+// zone, which a list names once at its head. A date from another year
+// carries the year. Relative age is secondary.
 // ---------------------------------------------------------------------------
 
 function whenText(seconds) {
@@ -270,33 +271,52 @@ function sameDay(a, b) {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 }
 
+function clock24(date, seconds) {
+  var options = { hour: "2-digit", minute: "2-digit", hourCycle: "h23" };
+  if (seconds) options.second = "2-digit";
+  return date.toLocaleTimeString(undefined, options);
+}
+
 function listTime(seconds) {
   if (typeof seconds !== "number") return "";
   var date = new Date(seconds * 1000);
   var now = new Date();
-  var clock = date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
-  if (sameDay(date, now)) return "Today " + clock;
+  if (sameDay(date, now)) return "Today " + clock24(date);
   var options = { day: "numeric", month: "short" };
   if (date.getFullYear() !== now.getFullYear()) options.year = "numeric";
-  return date.toLocaleDateString(undefined, options) + " " + clock;
+  return date.toLocaleDateString(undefined, options) + " " + clock24(date);
 }
 
 function fullTime(seconds) {
   if (typeof seconds !== "number") return "";
-  return new Date(seconds * 1000).toLocaleString(undefined, {
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    timeZoneName: "short",
-  });
+  var date = new Date(seconds * 1000);
+  var zone = "";
+  try {
+    var parts = new Intl.DateTimeFormat(undefined, { timeZoneName: "short" }).formatToParts(date);
+    zone = (parts.filter(function (part) {
+      return part.type === "timeZoneName";
+    })[0] || {}).value || "";
+  } catch (_e) {
+    zone = "";
+  }
+  return (
+    date.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short", year: "numeric" }) +
+    " " +
+    clock24(date, true) +
+    (zone ? " " + zone : "")
+  );
 }
 
 function clockTime(ms) {
-  return new Date(ms).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  return clock24(new Date(ms), true);
+}
+
+function timeZoneName() {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "your time zone";
+  } catch (_e) {
+    return "your time zone";
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -319,7 +339,12 @@ function Panel(props) {
               "div",
               { className: "petasos-panel-titles" },
               props.title
-                ? h(C.CardTitle, { className: "text-sm petasos-panel-title", id: props.titleId }, props.title)
+                ? h(
+                    "div",
+                    { className: "petasos-panel-titlerow" },
+                    h(C.CardTitle, { className: "text-sm petasos-panel-title", id: props.titleId }, props.title),
+                    props.badge || null
+                  )
                 : null,
               props.description ? h("p", { className: "petasos-panel-desc" }, props.description) : null
             ),
@@ -332,9 +357,10 @@ function Panel(props) {
 }
 
 // A status that carries a safety meaning (an outcome, the verdict, a check's
-// state): Hermes's own Badge, with its shape, border, case and spacing, set
-// only as much larger as legibility needs. Words always say the same thing
-// as the colour. One badge family: severity is not a badge (see Severity).
+// state): Hermes's own Badge container (shape, border, tint), with its words
+// in the body face at the size of the text around them, so they read at a
+// glance. Hermes's condensed face stays on counts (Tag). Words always say the
+// same thing as the colour. Severity is not a badge (see Severity).
 var TONES = ["success", "warning", "destructive", "neutral"];
 var BADGE_TONE = { success: "success", warning: "warning", destructive: "destructive", neutral: "secondary" };
 
@@ -346,44 +372,27 @@ function Status(props) {
       tone: BADGE_TONE[tone],
       className: cn("petasos-status", "petasos-status-" + tone, props.large && "petasos-status-large", props.className),
       title: props.title,
+      "data-petasos-state": props.state,
     },
     props.children
   );
 }
 
-// An incidental label: Hermes's own badge, as Hermes draws it.
+// A count or an incidental label: Hermes's own badge, as Hermes draws it.
 function Tag(props) {
   return h(C.Badge, { tone: props.tone || "secondary", className: cn("petasos-tag", props.className), title: props.title }, props.children);
 }
 
-var SEVERITY_TONE = {
-  critical: "destructive",
-  high: "destructive",
-  medium: "warning",
-  low: "neutral",
-  info: "neutral",
-};
-
-// How serious a finding is: a quiet text indicator, not a second coloured
-// rectangle. A four-step meter gives each level its own shape, so Critical
-// and High differ by more than colour; Critical is also set in bold.
-var SEVERITY_STEPS = { critical: 4, high: 3, medium: 2, low: 1, info: 0 };
-
+// How serious a finding is: a word beside the outcome, in plain text.
+// Critical is set heavier than High; there is no second coloured shape.
 function Severity(props) {
   var severity = String(props.value || "").toLowerCase();
   if (!severity) return h("span", { className: "petasos-none", "aria-label": "No severity" }, "—");
-  var steps = SEVERITY_STEPS[severity] === undefined ? 0 : SEVERITY_STEPS[severity];
-  var bars = [];
-  for (var i = 0; i < 4; i += 1) {
-    bars.push(h("span", { key: i, className: cn("petasos-sev-bar", i < steps && "petasos-sev-bar-on") }));
-  }
   return h(
     "span",
-    {
-      className: cn("petasos-sev", "petasos-sev-" + (SEVERITY_TONE[severity] || "neutral"), severity === "critical" && "petasos-sev-critical"),
-    },
-    h("span", { className: "petasos-sev-meter", "aria-hidden": true }, bars),
-    h("span", { className: "petasos-sev-word" }, h("span", { className: "sr-only" }, "Severity: "), capital(severity))
+    { className: cn("petasos-sev", "petasos-sev-" + severity) },
+    h("span", { className: "sr-only" }, "Severity: "),
+    capital(severity)
   );
 }
 
@@ -473,15 +482,22 @@ function Icon(props) {
   );
 }
 
+// Hermes's Button. Filled and outlined buttons are form buttons and are set
+// in upper case, as on Config and Plugins (SAVE, INSTALL); a ghost button is
+// a quiet page utility (Refresh) and keeps its own case. ``compact`` fits a
+// quiet button into a line of text.
 function Btn(props) {
   var rest = Object.assign({}, props);
   delete rest.children;
+  delete rest.compact;
   rest.type = rest.type || "button";
   rest.size = rest.size || "sm";
+  rest.className = cn(!props.ghost && "petasos-btn-caps", props.compact && "petasos-btn-compact", props.className);
   return h(C.Button, rest, props.children);
 }
 
-// A text action: underlined, so it reads as a link in every theme.
+// Navigation: underlined, and used only for something that takes you
+// somewhere. An action that changes or runs something is a Btn.
 function LinkButton(props) {
   return h(
     "button",
@@ -497,8 +513,8 @@ function LinkButton(props) {
   );
 }
 
-// A disclosure in Hermes's style: an underlined action with a turning
-// chevron. With ``remember``, the choice to open it is kept in this browser
+// A disclosure: a quiet toggle with a turning chevron. It is not underlined,
+// because underlined text only navigates. With ``remember``, the choice to open it is kept in this browser
 // so a technical reader opens it once.
 function readRemembered(key) {
   try {

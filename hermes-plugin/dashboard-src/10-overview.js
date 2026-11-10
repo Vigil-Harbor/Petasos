@@ -4,12 +4,24 @@
 // change the settings.
 // ---------------------------------------------------------------------------
 
-var STATE_WORDS = {
-  active: { tone: "success", word: "Running" },
-  not_installed: { tone: "neutral", word: "Not installed" },
-  off: { tone: "neutral", word: "Off" },
-  unavailable: { tone: "destructive", word: "Failed" },
+// A check's state is the API's ``operating`` value: whether it is checking
+// the agent's actions now. The tone follows the code; the word is the API's.
+var OPERATING_TONE = {
+  running: "success",
+  checked: "success",
+  paused: "warning",
+  failed: "destructive",
+  stopped: "destructive",
+  not_installed: "neutral",
+  off: "neutral",
+  skipped: "neutral",
 };
+
+function CheckState(props) {
+  var operating = props.operating || {};
+  var code = operating.code || "off";
+  return h(Status, { tone: OPERATING_TONE[code] || "neutral", state: code }, operating.label || code);
+}
 
 function sentenceCase(text) {
   var value = String(text || "");
@@ -43,7 +55,7 @@ function verdictOf(status) {
       tone: "destructive",
       word: "Not protected",
       title: "Hermes is not running Petasos",
-      reason: switches.hermes.detail + " No tool call is being checked.",
+      reason: switches.hermes.detail + " No action is being checked.",
       step: { label: "Open Plugins", href: "/plugins" },
     };
   }
@@ -67,13 +79,13 @@ function verdictOf(status) {
       step: { label: "Fix it in Settings", view: "settings" },
     };
   }
-  if (switches.petasos && switches.petasos.on === false) {
+  if (status.paused || (switches.petasos && switches.petasos.on === false)) {
     return {
       code: "paused",
       tone: "warning",
       word: "Paused",
       title: "Protection is paused",
-      reason: "Tool calls run without being checked. Each one is recorded in Activity.",
+      reason: "Actions run unchecked. Each one is recorded in Activity.",
     };
   }
   var failed = checks.filter(function (check) {
@@ -89,11 +101,12 @@ function verdictOf(status) {
       stepText: failed.next_step,
     };
   }
-  // A check that is turned on and cannot run is a failure, not a warning:
-  // tool calls wait until it is added or turned off.
+  // A required check that cannot run: what that does to tool calls is the
+  // API's sentence, computed from the settings that decide it.
   var held = heldChecks(status);
   if (held.length) {
     var first = held[0];
+    var consequence = first.consequence || {};
     var check = checks.filter(function (item) {
       return item.id === "scanner_" + first.id;
     })[0];
@@ -101,10 +114,8 @@ function verdictOf(status) {
       code: "held",
       tone: "destructive",
       word: "Check failed",
-      title: "Tool calls are held",
-      reason:
-        (check && check.summary ? check.summary : first.label + " cannot run.") +
-        " Until it is added or turned off, tool calls wait. The basic checks still run.",
+      title: consequence.title || (check && check.summary) || (first.name || first.label) + " cannot run",
+      reason: (check && check.summary ? check.summary + " " : "") + (consequence.sentence || ""),
       held: first,
     };
   }
@@ -129,27 +140,32 @@ function verdictOf(status) {
   return {
     code: "protected",
     tone: "success",
-    word: "Protection on",
+    word: "On",
     title: title,
-    reason: "Each tool call is checked before it runs, and each result before the agent reads it.",
+    reason: "",
   };
 }
 
-// What runs and what does not, led by what each check looks for. Product
-// names are secondary: they sit in the Checks panel.
+// What "on" covers, what runs and what does not, as compact rows. Checks are
+// named by what they do, with the product after it.
 function CoverageRows(props) {
-  var coverage = props.status.coverage || { running: [], missing: [] };
+  var status = props.status;
+  var coverage = status.coverage || { running: [], missing: [] };
   var paused = props.paused;
-  var running = coverage.running.map(function (row) {
-    return row.label;
-  });
-  var missing = coverage.missing.map(function (row) {
-    return row.covers || row.label;
-  });
+  function named(row) {
+    return row.name || row.label;
+  }
+  var running = coverage.running.map(named);
+  var missing = coverage.missing
+    .filter(function (row) {
+      return !row.held;
+    })
+    .map(named);
   var rows = [];
+  if (!paused && status.scope) rows.push(["Covers", status.scope]);
   if (paused) {
     rows.push([
-      "Suspended",
+      "Paused",
       h(
         "span",
         null,
@@ -165,21 +181,24 @@ function CoverageRows(props) {
         ? h(
             "span",
             null,
-            "Extra checks for " + joinWords(missing),
+            joinWords(missing),
             " · ",
             h(LinkButton, { onClick: props.onShowChecks }, "What these add")
           )
-        : "Nothing. Every check is running.",
+        : coverage.missing.length
+          ? "Only the check above."
+          : "Nothing. Every check is running.",
     ]);
   }
   return h(KeyValues, { className: "petasos-coverage", rows: rows });
 }
 
-// How to fix a check that holds tool calls: where to run the command, the
-// command to copy, or turn it off in Settings.
+// How to fix a required check that cannot run: where to run the command,
+// the command to copy, or turn it off in Settings.
 function HeldFix(props) {
   var row = props.row;
   var coverage = props.status.coverage || {};
+  var name = row.name || row.label;
   return h(
     "div",
     { className: "petasos-fixbox" },
@@ -204,13 +223,16 @@ function HeldFix(props) {
             go("settings", { path: "scanners." + row.id + ".enabled" });
           },
         },
-        (row.command ? "turn " : "Turn ") + row.label + " off in Settings"
+        (row.command ? "turn it off in Settings" : "Turn " + name + " off in Settings")
       ),
       "."
     )
   );
 }
 
+// The status, built like every Hermes panel: its title with the state badge
+// in the header, the action at the header's end, then compact rows: the
+// state in one sentence, what "on" covers, what runs, and the two choices.
 function VerdictPanel(props) {
   var status = props.status;
   var verdict = verdictOf(status);
@@ -228,19 +250,15 @@ function VerdictPanel(props) {
   }
   var showCoverage = verdict.code !== "off" && verdict.code !== "invalid";
   return h(
-    "section",
-    { className: cn("petasos-verdict", "petasos-verdict-" + verdict.code), "aria-labelledby": "petasos-verdict-title" },
-    h(
-      "div",
-      { className: "petasos-verdict-head" },
-      h(
-        "div",
-        { className: "petasos-verdict-titles" },
-        h(Status, { tone: verdict.tone, large: true }, verdict.word),
-        h("h2", { id: "petasos-verdict-title", className: "petasos-verdict-title" }, verdict.title)
-      ),
-      action ? h("div", { className: "petasos-verdict-action" }, action) : null
-    ),
+    Panel,
+    {
+      className: cn("petasos-verdict", "petasos-verdict-" + verdict.code),
+      title: "Protection",
+      titleId: "petasos-verdict-label",
+      badge: h(Status, { tone: verdict.tone, state: verdict.code }, verdict.word),
+      actions: action,
+    },
+    h("p", { className: "petasos-verdict-title", id: "petasos-verdict-title" }, verdict.title),
     verdict.reason ? h("p", { className: "petasos-verdict-reason" }, verdict.reason) : null,
     verdict.stepText ? h("p", { className: "petasos-verdict-reason" }, h("strong", null, "Next step: "), verdict.stepText) : null,
     verdict.held ? h(HeldFix, { row: verdict.held, status: status }) : null,
@@ -358,10 +376,10 @@ function SetupControls(props) {
     setPending(Object.keys(next).length ? next : null);
   }
 
-  function apply() {
+  function apply(extra) {
     busyState[1](true);
     props
-      .onSave(pending)
+      .onSave(Object.assign({}, pending, extra || {}))
       .then(function () {
         setPending(null);
       })
@@ -425,20 +443,23 @@ function SetupControls(props) {
           roleInfo: roleInfo,
           currentLevel: currentLevel,
           busy: busyState[0],
-          onApply: apply,
+          onApply: function () {
+            apply();
+          },
+          onApplyWith: function (level) {
+            apply({ level: level });
+          },
           onCancel: function () {
             setPending(null);
-          },
-          onAlsoLevel: function (level) {
-            choose("level", level);
           },
         })
       : null
   );
 }
 
-// The pending change, on its own inset surface: what will change, the usual
-// pairing and what it does, when it applies, then Apply.
+// The pending change, on its own inset surface: when it applies, the usual
+// pairing stated as a trade with a button that names the combination, then
+// Apply.
 function ChoicePreview(props) {
   var catalog = props.catalog;
   var pending = props.pending;
@@ -489,16 +510,15 @@ function ChoicePreview(props) {
     "section",
     { className: "petasos-preview", "aria-labelledby": "petasos-preview-title" },
     h("h3", { className: "petasos-preview-title", id: "petasos-preview-title" }, sentenceCase("Change the " + parts.join(" and ")) + "?"),
+    body,
     suggestion
       ? h(
           "p",
           { className: "petasos-preview-text" },
-          roleLabel(catalog, pending.role) + " is usually paired with " + levelLabel(catalog, suggestion) + ". ",
-          suggestedLevel && suggestedLevel.description ? suggestedLevel.description + " " : "",
-          h(LinkButton, { onClick: function () { props.onAlsoLevel(suggestion); } }, "Use " + levelLabel(catalog, suggestion) + " too")
+          h("strong", null, levelLabel(catalog, suggestion) + " strictness: "),
+          suggestedLevel && suggestedLevel.description ? suggestedLevel.description : ""
         )
       : null,
-    body,
     h(
       "div",
       { className: "petasos-row-actions" },
@@ -510,10 +530,23 @@ function ChoicePreview(props) {
         },
         props.busy ? "Applying…" : "Apply"
       ),
+      suggestion
+        ? h(
+            Btn,
+            {
+              outlined: true,
+              onClick: function () {
+                props.onApplyWith(suggestion);
+              },
+              disabled: props.busy || !previewed || Boolean(previewed.failure) || !previewed.valid,
+            },
+            "Apply " + roleLabel(catalog, pending.role) + " with " + levelLabel(catalog, suggestion)
+          )
+        : null,
       h(
         Btn,
         {
-          ghost: true,
+          outlined: true,
           onClick: function () {
             go("tryit", { settings: candidate });
           },
@@ -533,6 +566,10 @@ var STAT_TILES = [
   { key: "not_stopped", label: "Setting changes not stopped", alarm: true },
 ];
 
+// The figures, as Hermes's System page lays them out: a small label above,
+// the value beneath at a size that reads as the value. Each figure is a
+// grid cell whose value sits on the cell's last row, so values stay on one
+// line when a label wraps.
 function RecentPanel(props) {
   var summary = props.summary;
   var events = props.events || [];
@@ -554,8 +591,8 @@ function RecentPanel(props) {
       title: "Last 24 hours",
       description: summary
         ? summary.total
-          ? plural(summary.total, "event") + ". Clean tool calls are not listed."
-          : "Nothing to report. Clean tool calls are not listed."
+          ? plural(summary.total, "event") + ". Clean actions are not listed."
+          : "Nothing to report. Clean actions are not listed."
         : "Loading…",
       actions: h(LinkButton, { onClick: function () { go("activity"); } }, "Open Activity"),
     },
@@ -588,6 +625,34 @@ function RecentPanel(props) {
         );
       })
     ),
+    values.not_stopped
+      ? h(
+          "div",
+          { className: "petasos-alarm-row", role: "status" },
+          h(
+            "p",
+            null,
+            h(
+              "strong",
+              null,
+              values.not_stopped === 1
+                ? "1 attempt to change settings was not stopped. "
+                : values.not_stopped + " attempts to change settings were not stopped. "
+            ),
+            "The record cannot show whether a change took effect."
+          ),
+          h(
+            Btn,
+            {
+              outlined: true,
+              onClick: function () {
+                go("settings", { changed: "1" });
+              },
+            },
+            "Show changed settings"
+          )
+        )
+      : null,
     groups.length
       ? h(
           "ul",
@@ -614,7 +679,7 @@ function RecentPanel(props) {
                   event.summary,
                   group.events.length > 1 ? h("span", { className: "petasos-repeat" }, " ×" + group.events.length) : null
                 ),
-                h(Status, { tone: outcomeTone(outcome.code) }, outcome.label || "Recorded"),
+                h(Status, { tone: outcomeTone(outcome.code), state: outcome.code }, outcome.label || "Recorded"),
                 h(Icon, { name: "chevron", className: "petasos-chevron" })
               )
             );
@@ -624,6 +689,8 @@ function RecentPanel(props) {
   );
 }
 
+// Each check by what it does, its product beneath, and its state now: the
+// API's operating value, the same one every view draws.
 function ChecksPanel(props) {
   var status = props.status;
   var checks = (status.doctor && status.doctor.checks) || [];
@@ -637,7 +704,7 @@ function ChecksPanel(props) {
     {
       id: "petasos-checks",
       title: "Checks",
-      description: "Basic checks always run. Extra checks add a model or a code checker.",
+      description: status.checks_note,
     },
     h(
       "ul",
@@ -648,9 +715,8 @@ function ChecksPanel(props) {
           return item.id === id;
         })[0];
         var info = byId[row.id] || {};
-        var state = STATE_WORDS[row.state] || { tone: "neutral", word: row.state };
         var basic = row.id === "syntactic";
-        var name = basic ? row.label : sentenceCase(info.covers || row.label);
+        var name = basic ? row.label : row.purpose || sentenceCase(info.covers || row.label);
         var product = basic ? info.covers : row.label;
         var fixable = (info.recommended || info.held) && (info.command || row.fix);
         return h(
@@ -666,7 +732,7 @@ function ChecksPanel(props) {
               product ? h("span", { className: "petasos-scanner-product" }, product) : null
             ),
             info.recommended ? h(Tag, { tone: "outline" }, "recommended") : null,
-            h(Status, { tone: state.tone }, state.word)
+            h(CheckState, { operating: row.operating })
           ),
           !basic && check ? h("p", { className: "petasos-secondary" }, check.summary) : null,
           fixable

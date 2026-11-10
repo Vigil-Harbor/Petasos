@@ -80,7 +80,7 @@ function FindingList(props) {
             ? h(
                 "div",
                 { className: "petasos-row-actions" },
-                h(LinkButton, { onClick: function () { props.onQuiet(finding.rule); } }, "Try without this rule"),
+                h(Btn, { outlined: true, onClick: function () { props.onQuiet(finding.rule, finding.sentence); } }, "Try without this rule"),
                 h(LinkButton, { onClick: function () { go("settings", { rule: finding.rule }); } }, "Rule settings")
               )
             : null
@@ -119,17 +119,20 @@ function TechnicalFindings(props) {
   );
 }
 
+// Each check in this run, named by what it does, with its state from the
+// API: checked, skipped, or paused while protection is paused.
 function ScannerTakePart(props) {
   return h(
     "ul",
     { className: "petasos-took-part" },
     (props.scanners || []).map(function (row) {
+      var operating = row.operating || { code: row.participated ? "checked" : "skipped", label: row.participated ? "Checked" : "Skipped" };
       return h(
         "li",
         { key: row.id },
-        h(Status, { tone: row.participated ? "success" : "neutral" }, row.participated ? "Checked" : "Skipped"),
-        h("span", { className: "petasos-took-name" }, row.label),
-        h("span", { className: "petasos-secondary" }, !row.participated && row.reason ? row.reason : "")
+        h(CheckState, { operating: operating }),
+        h("span", { className: "petasos-took-name" }, row.name || row.label),
+        h("span", { className: "petasos-secondary" }, row.reason && operating.code !== "checked" ? row.reason : "")
       );
     })
   );
@@ -166,11 +169,7 @@ function trialNames(candidate, catalog) {
     return saved.indexOf(rule) < 0;
   });
   if (quieted.length) {
-    names.push(
-      (quieted.length === 1 ? "rule " : "rules ") +
-        joinWords(quieted.map(lastPart)) +
-        " turned off"
-    );
+    names.push(plural(quieted.length, "rule") + " turned off");
   }
   (function walk(node, prefix) {
     Object.keys(node || {}).forEach(function (key) {
@@ -189,8 +188,20 @@ function OutcomeHead(props) {
   return h(
     "div",
     { className: "petasos-decision" },
-    h(Status, { tone: outcomeTone(outcome.code), large: true }, (props.prefix || "") + (outcome.label || "")),
+    h(Status, { tone: outcomeTone(outcome.code), large: true, state: outcome.code }, (props.prefix || "") + (outcome.label || "")),
     h("p", { className: "petasos-decision-text" }, outcome.sentence)
+  );
+}
+
+// Opened from an event: the rule to test, and the one fact that matters,
+// that the original text is not kept.
+function RuleFocus(props) {
+  return h(
+    Notice,
+    { tone: "info", title: "Testing one rule", action: h(Btn, { ghost: true, onClick: props.onClose }, "Close") },
+    props.sentence ? h("p", null, props.sentence) : null,
+    h("p", null, h(Ident, { className: "petasos-faint" }, props.rule)),
+    h("p", null, "The original text is not kept. Paste it below, then press Check.")
   );
 }
 
@@ -229,6 +240,10 @@ function TryIt(props) {
   var failureState = useState(null);
   var inputErrorState = useState("");
   var ranState = useState(null); // what was checked, for marking and staleness
+  // Each rule turned off for a trial, by its sentence; the id is secondary.
+  var sentencesState = useState({});
+  var focusState = useState(params.rule ? { rule: params.rule, sentence: params.sentence || "" } : null);
+  var focus = focusState[0];
 
   function current() {
     return { mode: mode, text: textState[0], direction: directionState[0], tool: toolState[0], args: argsState[0] };
@@ -255,6 +270,13 @@ function TryIt(props) {
       .then(function (body) {
         var list = body.examples || [];
         examplesState[1](list);
+        if (params.rule) {
+          // Opened to test a rule: an empty input to paste into, nothing run.
+          modeState[1]("text");
+          textState[1]("");
+          directionState[1](params.direction === "inbound" ? "inbound" : "outbound");
+          return;
+        }
         var first = exampleIn(list, params.example) || exampleIn(list, body.default) || list[0];
         if (!first) return;
         load(first);
@@ -324,7 +346,12 @@ function TryIt(props) {
     return (overrides.rules && overrides.rules.suppress) || null;
   }
 
-  function quiet(rule) {
+  function quiet(rule, sentence) {
+    if (sentence) {
+      var known = Object.assign({}, sentencesState[0]);
+      known[rule] = sentence;
+      sentencesState[1](known);
+    }
     var next = Object.assign({}, candidate || {});
     var overrides = clone(next.overrides || {});
     overrides.rules = overrides.rules || {};
@@ -368,30 +395,49 @@ function TryIt(props) {
 
   var trial = trialNames(candidate, catalog);
   var chosen = exampleIn(examples, exampleState[0]);
+  var running = runningState[0];
+  var checkLabel = running ? "Checking…" : candidate ? "Check with trial settings" : "Check";
   var input = h(
     Panel,
     {
-      title: "Try an example",
+      title: focus ? "Test a rule" : "Try an example",
     },
-    h(Choice, {
-      id: "petasos-try-example",
-      label: "Example",
-      value: exampleState[0] || "",
-      placeholder: examples ? (mode === "tool" || textState[0] ? "Your own input" : "Choose an example…") : "Loading examples…",
-      options: (examples || []).map(function (example) {
-        return { value: example.id, label: example.label };
-      }),
-      onChange: function (value) {
-        var example = exampleIn(examples, value);
-        if (!example) return;
-        load(example);
-        run(undefined, Object.assign({ text: "", direction: "inbound", tool: "", args: "{}" }, inputOf(example)));
-      },
-    }),
-    chosen && chosen.description ? h("p", { className: "petasos-try-desc" }, chosen.description) : null,
+    focus
+      ? h(RuleFocus, {
+          rule: focus.rule,
+          sentence: focus.sentence,
+          onClose: function () {
+            focusState[1](null);
+            go("tryit");
+          },
+        })
+      : null,
+    focus
+      ? null
+      : h(Choice, {
+          id: "petasos-try-example",
+          label: "Example",
+          value: exampleState[0] || "",
+          placeholder: examples ? (mode === "tool" || textState[0] ? "Your own input" : "Choose an example…") : "Loading examples…",
+          options: (examples || []).map(function (example) {
+            return { value: example.id, label: example.label };
+          }),
+          onChange: function (value) {
+            var example = exampleIn(examples, value);
+            if (!example) return;
+            load(example);
+            run(undefined, Object.assign({ text: "", direction: "inbound", tool: "", args: "{}" }, inputOf(example)));
+          },
+        }),
+    chosen && chosen.description && !focus ? h("p", { className: "petasos-try-desc" }, chosen.description) : null,
     h(
       Disclosure,
-      { label: "Show and edit the input", openLabel: "Hide the input", remember: "tryit-input" },
+      {
+        label: "Show and edit the input",
+        openLabel: "Hide the input",
+        remember: focus ? undefined : "tryit-input",
+        defaultOpen: Boolean(focus),
+      },
       h(
         "div",
         { className: "petasos-filter-group" },
@@ -420,6 +466,7 @@ function TryIt(props) {
               className: "petasos-textarea",
               rows: 5,
               value: textState[0],
+              placeholder: focus ? "Paste the text here" : undefined,
               onChange: function (e) {
                 textState[1](e.target.value);
                 exampleState[1]("");
@@ -449,7 +496,7 @@ function TryIt(props) {
                 exampleState[1]("");
               },
             }),
-            h("p", { className: "petasos-tertiary", id: "petasos-try-tool-help" }, "The tool's name in Hermes, such as terminal or write_file."),
+            h("p", { className: "petasos-help", id: "petasos-try-tool-help" }, "The tool's name in Hermes, such as terminal or write_file."),
             h(C.Label, { className: "petasos-label", htmlFor: "petasos-try-args" }, "Arguments"),
             h("textarea", {
               id: "petasos-try-args",
@@ -462,14 +509,14 @@ function TryIt(props) {
                 exampleState[1]("");
               },
             }),
-            h("p", { className: "petasos-tertiary", id: "petasos-try-args-help" }, 'A JSON object, for example {"command": "ls"}.')
+            h("p", { className: "petasos-help", id: "petasos-try-args-help" }, 'A JSON object, for example {"command": "ls"}.')
           )
     ),
     inputErrorState[0] ? h("p", { className: "petasos-field-error", role: "alert" }, inputErrorState[0]) : null,
     h(
       "div",
       { className: "petasos-row-actions" },
-      h(Btn, { onClick: function () { run(); }, disabled: runningState[0] }, runningState[0] ? "Checking…" : "Check"),
+      h(Btn, { onClick: function () { run(); }, disabled: running }, checkLabel),
       h(
         Btn,
         {
@@ -481,8 +528,7 @@ function TryIt(props) {
           },
         },
         trialOpenState[0] ? "Hide trial settings" : "Change trial settings"
-      ),
-      h("span", { className: "petasos-secondary" }, "Nothing is saved.")
+      )
     ),
     trial.length
       ? h("p", { className: "petasos-trial-line" }, h("strong", null, "Trying: "), trial.join(", ") + ". Not saved.")
@@ -490,6 +536,7 @@ function TryIt(props) {
   );
 
   var output;
+  var checksPanel = null;
   if (failureState[0]) {
     var failure = failureState[0];
     var byPath = rowsByPath(catalog && catalog.settings);
@@ -508,17 +555,23 @@ function TryIt(props) {
       )
     );
   } else if (!result) {
-    output = h(Panel, { title: "Result" }, h("p", { className: "petasos-help", role: "status" }, runningState[0] ? "Checking…" : "Press Check to see what Petasos would do."));
+    output = h(
+      Panel,
+      { title: "Result" },
+      h("p", { className: "petasos-help", role: "status" }, running ? "Checking…" : focus ? "Paste the text, then press Check." : "Press Check to see what Petasos would do.")
+    );
   } else {
+    var ruleSeen = focus
+      ? (result.findings || []).some(function (finding) {
+          return finding.rule === focus.rule;
+        })
+      : null;
     output = h(
       Panel,
       { title: baseline ? "Trial result" : "Result", className: "petasos-result" },
+      result.paused_note ? h(Notice, { tone: "warning", title: "Protection is paused" }, result.paused_note) : null,
       stale
-        ? h(
-            Notice,
-            { tone: "info", title: "Out of date", action: h(Btn, { outlined: true, onClick: function () { run(); } }, "Check again") },
-            "The input or the trial settings changed since this check."
-          )
+        ? h(Notice, { tone: "info", title: "Out of date" }, "The input or the trial settings changed since this check.")
         : null,
       baseline
         ? h(
@@ -538,6 +591,7 @@ function TryIt(props) {
             )
           )
         : h(OutcomeHead, { outcome: result.outcome }),
+      focus ? h("p", { className: "petasos-strong" }, ruleSeen ? "This rule matched." : "This rule did not match this text.") : null,
       (result.findings || []).length
         ? h(
             Fragment,
@@ -550,8 +604,6 @@ function TryIt(props) {
             result.findings_omitted ? h("p", { className: "petasos-secondary" }, plural(result.findings_omitted, "more match", "more matches") + " not shown.") : null
           )
         : h("p", { className: "petasos-secondary" }, "Nothing in this input matched a rule."),
-      h("h4", { className: "petasos-subhead" }, "Checks"),
-      h(ScannerTakePart, { scanners: result.scanners }),
       h(
         Disclosure,
         { label: "Technical detail", openLabel: "Hide technical detail", remember: "tryit-technical" },
@@ -575,11 +627,20 @@ function TryIt(props) {
           : null
       )
     );
+    checksPanel = h(
+      Panel,
+      { title: "Checks in this run", className: "petasos-checks-run" },
+      h(ScannerTakePart, { scanners: result.scanners })
+    );
   }
 
   var quieted = suppressed() || [];
   var savedSuppress = (rowsByPath(catalog && catalog.settings)["rules.suppress"] || {}).value || [];
-  var trial = trialOpenState[0]
+  var trialQuieted = quieted.filter(function (rule) {
+    return savedSuppress.indexOf(rule) < 0;
+  });
+  var sentences = sentencesState[0];
+  var trialPanel = trialOpenState[0]
     ? h(
         Panel,
         {
@@ -591,7 +652,7 @@ function TryIt(props) {
         catalog
           ? h(
               "div",
-              { className: "petasos-grid-3" },
+              { className: "petasos-trial-grid" },
               h(Choice, {
                 id: "petasos-try-job",
                 label: (catalog.labels && catalog.labels.role) || "Job",
@@ -617,46 +678,50 @@ function TryIt(props) {
                 onChange: function (value) {
                   updateCandidate({ level: value === "saved" ? "" : value });
                 },
-              }),
-              h(
-                "div",
-                { className: "petasos-choice" },
-                h("p", { className: "petasos-label" }, "Rules turned off for this trial"),
-                quieted.filter(function (rule) { return savedSuppress.indexOf(rule) < 0; }).length
-                  ? h(
-                      "ul",
-                      { className: "petasos-quieted" },
-                      quieted
-                        .filter(function (rule) {
-                          return savedSuppress.indexOf(rule) < 0;
-                        })
-                        .map(function (rule) {
-                          return h(
-                            "li",
-                            { key: rule },
-                            h(Ident, null, rule),
-                            h(LinkButton, { onClick: function () { unquiet(rule); }, label: "Turn " + rule + " back on" }, "Turn back on")
-                          );
-                        })
-                    )
-                  : h("p", { className: "petasos-secondary" }, "None. Use Try without this rule on a match.")
-              )
+              })
             )
           : null,
         h(
-          "details",
-          { className: "petasos-advanced", open: Boolean(advancedState[0]) && leafCount((candidate && candidate.overrides) || {}) > (quieted.length ? 1 : 0) },
-          h("summary", null, "Other settings, as JSON"),
+          "div",
+          { className: "petasos-choice" },
+          h("p", { className: "petasos-label" }, "Rules turned off for this trial"),
+          trialQuieted.length
+            ? h(
+                "ul",
+                { className: "petasos-quieted" },
+                trialQuieted.map(function (rule) {
+                  return h(
+                    "li",
+                    { key: rule },
+                    h(
+                      "span",
+                      { className: "petasos-quieted-name" },
+                      h("span", { className: "petasos-block" }, sentences[rule] || lastPart(rule)),
+                      h(Ident, { className: "petasos-faint" }, rule)
+                    ),
+                    h(Btn, { outlined: true, onClick: function () { unquiet(rule); }, "aria-label": "Turn " + rule + " back on" }, "Turn back on")
+                  );
+                })
+              )
+            : h("p", { className: "petasos-secondary" }, "None. Use Try without this rule on a match.")
+        ),
+        h(
+          Disclosure,
+          {
+            label: "Technical detail",
+            openLabel: "Hide technical detail",
+            defaultOpen: Boolean(advancedState[0]) && leafCount((candidate && candidate.overrides) || {}) > (quieted.length ? 1 : 0),
+          },
+          h(C.Label, { className: "petasos-label", htmlFor: "petasos-try-overrides" }, "Other trial settings, as JSON"),
           h(
             "p",
             { className: "petasos-help", id: "petasos-try-overrides-help" },
-            'Keys are setting paths, as shown in faint type in Settings. For example {"rules": {"confidence_floor": 0.8}}.'
+            'Keys are setting paths, as shown in Settings. For example {"rules": {"confidence_floor": 0.8}}.'
           ),
           h("textarea", {
             id: "petasos-try-overrides",
             className: "petasos-textarea petasos-mono-area",
-            rows: 9,
-            "aria-label": "Other trial settings, as JSON",
+            rows: 7,
             "aria-describedby": "petasos-try-overrides-help",
             placeholder: '{"rules": {"confidence_floor": 0.8}}',
             value: advancedState[0],
@@ -682,7 +747,6 @@ function TryIt(props) {
           ? h(
               "div",
               { className: "petasos-row-actions" },
-              h(Btn, { onClick: function () { run(); } }, "Check with these"),
               h(
                 Btn,
                 {
@@ -692,9 +756,9 @@ function TryIt(props) {
                     go("settings", { review: "1" });
                   },
                 },
-                "Stage these in Settings"
+                "Copy to Settings"
               ),
-              h("span", { className: "petasos-secondary" }, "You can look them over in Settings before saving.")
+              h("span", { className: "petasos-secondary" }, "Not saved until you press Save there.")
             )
           : null
       )
@@ -703,7 +767,8 @@ function TryIt(props) {
   return h(
     "div",
     { className: "petasos-stack" },
-    h("div", { className: "petasos-split petasos-split-even" }, h("div", null, input), h("div", null, output)),
-    trial
+    h("div", { className: "petasos-split petasos-split-try" }, h("div", null, input), h("div", null, output)),
+    trialPanel,
+    checksPanel
   );
 }

@@ -176,11 +176,11 @@ function IntegrityNotice(props) {
                   openState[1](!openState[0]);
                 },
               },
-              openState[0] ? "Hide the steps" : "Set up record checking"
+              openState[0] ? "Hide the steps" : "Set up record signing"
             )
           : null,
       },
-      h("p", null, "Protection runs and every record is written. Without a signature, a changed record could go unnoticed."),
+      h("p", null, "Without a signature, a changed record could go unnoticed."),
       openState[0]
         ? h(
             "ol",
@@ -311,8 +311,7 @@ function ActivityFilters(props) {
             onChange: function (value) {
               set("to", value);
             },
-          }),
-          h("p", { className: "petasos-secondary petasos-tz" }, "Your time zone: " + Intl.DateTimeFormat().resolvedOptions().timeZone)
+          })
         )
       : null,
     h(
@@ -388,12 +387,13 @@ function EventRow(props) {
         "span",
         { className: "petasos-event-meta" },
         event.tool ? h(Mono, null, event.tool) : null,
-        event.session_id ? h("span", null, "in " + event.session_id) : null,
+        event.tool && event.session_id ? h("span", { "aria-hidden": true }, "·") : null,
+        event.session_id ? h("span", null, event.session_id) : null,
         failed ? h(Status, { tone: "destructive" }, "Signature does not match") : null
       )
     ),
     h("span", { className: "petasos-event-severity" }, h(Severity, { value: event.severity })),
-    h("span", { className: "petasos-event-outcome" }, h(Status, { tone: outcomeTone(outcome.code) }, outcome.label || "Recorded")),
+    h("span", { className: "petasos-event-outcome" }, h(Status, { tone: outcomeTone(outcome.code), state: outcome.code }, outcome.label || "Recorded")),
     h(Icon, { name: "chevron", className: "petasos-chevron" })
   );
 }
@@ -435,14 +435,17 @@ function EventGroup(props) {
         "Repeated " + count + " times, " + listTime(last.timestamp) + " to " + listTime(first.timestamp)
       ),
       h(
-        LinkButton,
+        "button",
         {
-          expanded: open,
+          type: "button",
+          className: "petasos-disclosure-toggle",
+          "aria-expanded": open,
           onClick: function () {
             openState[1](!open);
           },
         },
-        open ? "Hide the " + count : "Show all " + count
+        h(Icon, { name: "chevron", size: 14, className: cn("petasos-disclosure-chevron", open && "petasos-chevron-open") }),
+        h("span", null, open ? "Hide the " + count : "Show all " + count)
       )
     ),
     open
@@ -520,7 +523,7 @@ function EventDetail(props) {
     h(
       "div",
       { className: "petasos-detail-status" },
-      h(Status, { tone: outcomeTone(outcome.code), large: true }, outcome.label || "Recorded"),
+      h(Status, { tone: outcomeTone(outcome.code), large: true, state: outcome.code }, outcome.label || "Recorded"),
       event.severity ? h(Severity, { value: event.severity }) : null
     ),
     h("h3", { className: "petasos-detail-title", id: "petasos-detail-title" }, event.summary),
@@ -529,16 +532,19 @@ function EventDetail(props) {
       ? h(
           "div",
           { className: "petasos-row-actions" },
-          notStopped ? h(Btn, { outlined: true, onClick: function () { go("settings"); } }, "Review current protection settings") : null,
+          notStopped
+            ? h(Btn, { outlined: true, onClick: function () { go("settings", { changed: "1" }); } }, "Show changed settings")
+            : null,
           risky
             ? h(
-                LinkButton,
+                Btn,
                 {
+                  outlined: true,
                   onClick: function () {
                     props.onFilter({ range: "all", session: event.session_id, event: event.scan_id });
                   },
                 },
-                "See the earlier warnings that caused this block"
+                "Show earlier warnings"
               )
             : null
         )
@@ -573,14 +579,31 @@ function EventDetail(props) {
     h(
       "div",
       { className: "petasos-row-actions" },
-      rule && rule.indexOf("petasos.syntactic.") === 0
-        ? h(Btn, { outlined: true, onClick: function () { go("settings", { rule: rule }); } }, "Rule settings")
-        : null,
-      event.session_id && !risky
+      // A rule that matches text can be tested by pasting the text again. A
+      // settings-change rule matches the file a call targets, not text.
+      rule && rule.indexOf("petasos.selfmod.") !== 0
         ? h(
             Btn,
             {
-              ghost: true,
+              outlined: true,
+              onClick: function () {
+                go("tryit", {
+                  rule: rule,
+                  sentence: event.rule_sentence || "",
+                  direction: event.event_type === "ingest_flagged" ? "inbound" : "outbound",
+                });
+              },
+            },
+            "Try this rule"
+          )
+        : null,
+      rule && rule.indexOf("petasos.syntactic.") === 0
+        ? h(LinkButton, { onClick: function () { go("settings", { rule: rule }); } }, "Rule settings")
+        : null,
+      event.session_id && !risky
+        ? h(
+            LinkButton,
+            {
               onClick: function () {
                 props.onFilter({ session: event.session_id, event: event.scan_id });
               },
@@ -787,7 +810,7 @@ function Activity(props) {
         title: "Nothing recorded yet",
         action: h(Btn, { outlined: true, onClick: function () { go("tryit", { example: "notes" }); } }, "Try it"),
       },
-      "Blocks, approvals and warnings appear here. Clean tool calls are not listed."
+      "Blocks, approval requests and warnings are recorded here. Clean actions are not."
     );
   } else if (!events.length) {
     list = h(
@@ -798,7 +821,7 @@ function Activity(props) {
           ? h(Btn, { outlined: true, onClick: function () { setFilters({ range: filters.range, from: filters.from, to: filters.to }); } }, "Clear filters")
           : h(Btn, { outlined: true, onClick: function () { setFilters({ range: "all" }); } }, "Show all time"),
       },
-      filtered ? "Try a longer time range or fewer filters." : "Petasos did not step in during this time."
+      filtered ? "Try a longer time range or fewer filters." : "No blocks, approval requests or warnings in this time."
     );
   } else {
     var groups = groupEvents(events);
@@ -827,7 +850,9 @@ function Activity(props) {
             { className: "petasos-more" },
             h(Btn, { outlined: true, onClick: loadOlder, disabled: loadingMore[0] }, loadingMore[0] ? "Loading…" : "Show older events")
           )
-        : h("p", { className: "petasos-secondary petasos-end" }, page.complete === false ? "Older events were not read." : "That is everything in this range.")
+        : page.complete === false
+          ? h("p", { className: "petasos-secondary petasos-end" }, "Older events were not read.")
+          : null
     );
   }
 
@@ -850,11 +875,11 @@ function Activity(props) {
           ? h(
               "span",
               { className: "petasos-secondary" },
-              " · Only " + (OUTCOME_FILTER_WORDS[filters.outcome] || filters.outcome) + ". ",
-              h(LinkButton, { onClick: function () { setFilters(Object.assign({}, filters, { outcome: "" })); } }, "Show every outcome")
+              " · Only " + (OUTCOME_FILTER_WORDS[filters.outcome] || filters.outcome) + " ",
+              h(Btn, { ghost: true, compact: true, onClick: function () { setFilters(Object.assign({}, filters, { outcome: "" })); } }, "Show every outcome")
             )
           : null,
-        events.length ? h("span", { className: "petasos-tertiary" }, " · Newest first") : null
+        events.length ? h("span", { className: "petasos-secondary" }, " · Newest first · Times in " + timeZoneName()) : null
       ),
       page ? h(IntegrityStatus, { integrity: page.integrity }) : null
     ),
