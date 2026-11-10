@@ -635,7 +635,8 @@ def test_probe_exit_4_writes_no_evidence(tmp_path: Path, monkeypatch: pytest.Mon
 
     def fake_prepare(*_args: object, **_kwargs: object) -> str:
         harness._BOOTSTRAP_CODE = 0
-        return sys.executable
+        tools = work / "composition" / "localappdata" / "hermes" / "tools"
+        return str(tools / "python" / "python.exe")
 
     monkeypatch.setattr(harness, "prepare_store_python", fake_prepare)
     monkeypatch.setattr(gate, "_launch", lambda *_args, **_kwargs: 4)
@@ -693,6 +694,8 @@ def test_harness_refactor_and_gate_env(tmp_path: Path, monkeypatch: pytest.Monke
         hooks_checks=tmp_path / "hooks.jsonl",
     )
     assert env["PYTHONDONTWRITEBYTECODE"] == "1"
+    assert env["HERMES_RUNTIME_DIR"] == str(root / "tools")
+    assert "HERMES_RUNTIME_DIR" not in off_path
     assert str(tree) not in env["PYTHONPATH"].split(os.pathsep)
     home = tmp_path / "isolated"
     other = tmp_path / "other-live"
@@ -830,13 +833,40 @@ def test_output_paths_must_stay_outside_the_live_root(tmp_path: Path) -> None:
     outside = tmp_path / "elsewhere"
     outside.mkdir()
     assert refused(work, outside / "hermes", live)
-    link = work / "composition" / "localappdata"
-    link.mkdir(parents=True)
-    try:
-        os.symlink(live, link / "hermes", target_is_directory=True)
-    except OSError:
-        return  # this Windows account cannot create a symlink; the direct cases above still ran
+    root.parent.mkdir(parents=True)
+    _link_dir(live, root)
     assert refused(work, root, live)
+
+
+def _link_dir(target: Path, link: Path) -> None:
+    """A directory link the test account can always make: a junction on Windows."""
+    if sys.platform == "win32":
+        import _winapi
+
+        _winapi.CreateJunction(str(target), str(link))
+    else:
+        os.symlink(target, link, target_is_directory=True)
+
+
+def test_tool_store_stays_inside_the_isolated_root(tmp_path: Path) -> None:
+    live = tmp_path / "live" / "hermes"
+    (live / "tools" / "python").mkdir(parents=True)
+    work = tmp_path / "work"
+    root = work / "composition" / "localappdata" / "hermes"
+    own = root / "tools" / "python-3.14" / "python.exe"
+    own.parent.mkdir(parents=True)
+    own.write_bytes(b"")
+    assert gate.store_is_isolated(str(own), root)
+    assert gate.store_is_isolated("\\\\?\\" + str(own), root)
+    assert not gate.store_is_isolated("", root)
+    assert not gate.store_is_isolated(str(live / "tools" / "python" / "python.exe"), root)
+    assert not gate.store_is_isolated(str(root / "installs" / "python.exe"), root)
+    gate.require_outside_live(work, root, live)
+    # A kept tools/ that links to the live store is refused before Hermes can install into it.
+    shutil.rmtree(root / "tools")
+    _link_dir(live / "tools", root / "tools")
+    with pytest.raises(gate.PreflightError, match="isolated tool store"):
+        gate.require_outside_live(work, root, live)
 
 
 def test_stop_hosts_calls_shutdown_and_reports_failures() -> None:

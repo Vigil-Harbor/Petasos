@@ -876,6 +876,23 @@ def require_outside_live(work: Path, root: Path, live: Path) -> None:
             raise PreflightError(f"{label} is inside or contains the live Hermes root: {real}")
     if not root_real.is_relative_to(work_real):
         raise PreflightError(f"isolated root resolves outside the workdir: {root_real}")
+    # tools/ survives the wipe, so a link left there would send Hermes's tool installs elsewhere.
+    tools_real = Path(os.path.realpath(root / "tools"))
+    if not tools_real.is_relative_to(root_real):
+        raise PreflightError(
+            f"isolated tool store resolves outside the isolated root: {tools_real}"
+        )
+
+
+def store_is_isolated(store: str, root: Path) -> bool:
+    """True when the store Python Hermes resolved sits in the isolated root's own tool store."""
+    if not store:
+        return False
+    # Hermes can spell a store path extended-length on Windows; compare the plain form.
+    extended = "\\\\?\\"
+    plain = store[len(extended) :] if store.startswith(extended) else store
+    tools_real = Path(os.path.realpath(root / "tools"))
+    return Path(os.path.realpath(plain)).is_relative_to(tools_real)
 
 
 def wheel_failures(wheel: Path, tree: Path) -> list[str]:
@@ -2419,7 +2436,12 @@ def child_env(
     wheel: Path,
     hooks_checks: Path,
 ) -> dict[str, str]:
-    """Probe environment: Hermes on PYTHONPATH, bytecode off, no Hugging Face token."""
+    """Probe environment: Hermes on PYTHONPATH, bytecode off, no Hugging Face token.
+
+    ``HERMES_RUNTIME_DIR`` gives the isolated root a tool store of its own. Without it a root
+    that borrows the live checkout uses the owner's ``tools/`` (``pm/environments.py``
+    ``_unstamped_store``), and the dependency sync verifies and repairs that store under its lock.
+    """
     return harness.base_env(
         tree,
         live,
@@ -2430,6 +2452,7 @@ def child_env(
         tree_on_path=False,
         extra_env={
             "PYTHONDONTWRITEBYTECODE": "1",
+            "HERMES_RUNTIME_DIR": str(root / "tools"),
             "HF_HUB_CACHE": str(hf_cache),
             "HF_HUB_OFFLINE": "1",
             "TRANSFORMERS_OFFLINE": "1",
@@ -2588,9 +2611,12 @@ def drive(argv: list[str]) -> int:
     append_check(
         stage_checks, "stage1.plugin_kept", not plugin_dropped(stderr) and not disabled, ""
     )
+    # No probe runs on an interpreter from any other store, the live one above all.
+    isolated_store = store_is_isolated(store, root)
+    append_check(stage_checks, "stage1.store_isolated", isolated_store, store)
     stages: dict[str, str] = {}
     codes: dict[str, int] = {}
-    if not bootstrap_ok or disabled or not store:
+    if not bootstrap_ok or disabled or not isolated_store:
         failed_stage1 = with_completed("stage1", read_checks(stage_checks), finished=False)
         write_checks(stage_checks, failed_stage1)
         stages["stage1"] = "failed"

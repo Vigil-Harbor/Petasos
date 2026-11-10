@@ -22,6 +22,8 @@ new run.
 
 - The wheel that Hermes installed is 0.5.0, the installed files match the
   wheel, and Presidio, PromptGuard, and the spaCy model import.
+- The Python that Hermes resolved for the run sits in the isolated root's own
+  tool store (`stage1.store_isolated`). No probe runs on any other interpreter.
 - Each matrix profile's copied arming configuration is what the corpus
   assumes, and each case matches its expected directive or return class and
   its expected spool row.
@@ -75,6 +77,13 @@ bound. It does not count against PromptGuard's 8 second lock deadline.
   live checkout. That marker lands in the isolated root (`HERMES_HOME`), not
   in the shared checkout.
 
+The gate gives the isolated root a tool store of its own by setting
+`HERMES_RUNTIME_DIR` to `<isolated root>/tools`. Left alone, Hermes points a
+root that borrows the live checkout at the live root's `tools` directory, and
+the dependency sync locks that store, re-hashes each tool, and repairs any
+that fail. That behaviour is read from the Hermes 0.22.5 source. The first
+gating run is the first time the override is exercised.
+
 One live read belongs to the operator, not to the gate. Run-procedure step 3
 reads the store-Python path from `installs/<key>/facts.json` under the live
 root. The gate never opens that file.
@@ -111,7 +120,10 @@ python scripts/hermes_composition_gate.py <label> <release_tree> ^
 ```
 
    The first run downloads the ML dependencies into the isolated root's own
-   cache. PromptGuard weights are read from the existing hub cache
+   cache. It also downloads Hermes's pinned toolchain (Python, uv, and the
+   other tools a source install needs) into `<isolated root>/tools`. Both
+   survive the wipe, so a later run on the same `--workdir` reuses them.
+   PromptGuard weights are read from the existing hub cache
    (`--hf-cache` overrides the default). The run does not send a Hugging
    Face token.
 5. Copy `<workdir>/composition-<label>.json` to
