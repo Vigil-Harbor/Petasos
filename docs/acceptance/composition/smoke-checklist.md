@@ -26,6 +26,17 @@ it.
 Pick one armed profile from the run's matrix whose copied section has
 `tool_guard_enabled: true`. A profile with the tool guard off passes the
 injection command by design, so the second turn would read as a failure.
+
+`HERMES_HOME` is the isolated root, so a named profile is selected with
+`--profile <name>` before the Hermes subcommand. The profile the evidence
+calls `default` is the root and takes no flag.
+
+The gate run already wrote signed rows to each profile's spool. Before the
+turns, note the line count of the chosen profile's
+`petasos-enforcement.jsonl` (in the root for `default`, otherwise in
+`profiles/<name>`). Only lines after that count belong to this session,
+and they also confirm which profile the session ran on.
+
 Record pass or fail:
 
 | Turn | Pass condition | Result |
@@ -33,11 +44,13 @@ Record pass or fail:
 | A benign tool turn runs | The tool executes and Petasos does not block it | |
 | A terminal command carrying injection text | Refused with the `[BLOCKED by Petasos]` message | |
 | A read of a file holding injection text | The result comes back with the `[Petasos]` notice | |
-| The profile's own spool | The matching rows are present and signed | |
+| The profile's own spool | Rows after the noted line count match the blocked command and the flagged read, and are signed | |
 
 Date:
 
 Profile:
+
+Spool line count before the turns:
 
 Gate evidence file:
 

@@ -618,6 +618,9 @@ def test_probe_exit_4_writes_no_evidence(tmp_path: Path, monkeypatch: pytest.Mon
     live = tmp_path / "live"
     (live / "hermes-agent").mkdir(parents=True)
     work = tmp_path / "work"
+    work.mkdir()
+    # An older evidence file for the same label must not survive a run that writes none.
+    (work / "composition-probe4.json").write_text("stale", encoding="utf-8")
     monkeypatch.setattr(gate, "_require_release", lambda _tree: None)
     monkeypatch.setattr(gate, "wheel_failures", lambda _wheel, _tree: [])
     monkeypatch.setattr(gate, "_git", lambda _tree, *_args: "")

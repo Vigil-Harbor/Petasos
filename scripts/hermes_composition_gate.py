@@ -2538,6 +2538,8 @@ def drive(argv: list[str]) -> int:
     wipe_isolated(root)
     side = run / "host-provenance.jsonl"
     side.unlink(missing_ok=True)
+    # A run that stops later writes no evidence, so an older file must not stand in for it.
+    (work / evidence_name(args.label)).unlink(missing_ok=True)
     for mode in PROBE_MODES:
         (run / f"checks-{mode}.jsonl").unlink(missing_ok=True)
     yaml = _yaml()

@@ -91,7 +91,8 @@ root. The gate never opens that file.
 
 ## Secret-free rule
 
-The evidence file has no host name and no user name. Paths are rewritten to
+The evidence file is built to carry no host name and no user name. Paths are
+rewritten to
 `<root>`, `<live>`, `<tree>`, `<workdir>`, `<hf_cache>`, and `<home>`.
 There is no environment dump. `PETASOS_SESSION_SECRET` is recorded only as
 the harness's fixed throwaway constant. Spool rows omit `sig`. A copied
@@ -103,6 +104,10 @@ Before the file is written, a sweep looks for the home directory, the live
 root, the workdir, the release tree, the host name, and the OS user name as
 a path segment. On a hit the driver prints `evidence NOT written: contains
 <which>` and exits 5. No file is written.
+
+The sweep matches the user name only as a whole path segment. A user name
+inside a longer word, such as a profile called `<user>-dev`, is not caught.
+Read the evidence file before committing it.
 
 ## Reproduce
 
@@ -127,9 +132,12 @@ python scripts/hermes_composition_gate.py <label> <release_tree> ^
    PromptGuard weights are read from the existing hub cache
    (`--hf-cache` overrides the default). The run does not send a Hugging
    Face token.
-5. Copy `<workdir>/composition-<label>.json` to
+5. Only after exit 0 or 1: copy `<workdir>/composition-<label>.json` to
    `docs/acceptance/composition/windows-<release-short-sha>-<label>.json`.
-   Add a verdict entry below. Commit those with the gate.
+   Add a verdict entry below. Commit those with the gate. Any other exit
+   wrote no evidence. A run removes the previous file for its label when
+   it starts, but a preflight stop (exit 2) can leave an older one in
+   place, so never copy after another exit code.
 6. Post the Plane comment. File a Plane item for each defect. Fill in
    `smoke-checklist.md` before the ticket closes. The checklist does not
    change the verdict.
