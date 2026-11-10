@@ -2508,6 +2508,7 @@ def drive(argv: list[str]) -> int:
     if not wheel.is_file():
         raise PreflightError(f"wheel not found: {wheel.name}")
     _require_release(tree)
+    require_same_schema(tree, Path(__file__).resolve().parent.parent)
     failures = wheel_failures(wheel, tree)
     if failures:
         raise PreflightError(f"wheel check failed: {failures}")
@@ -2758,6 +2759,25 @@ def _require_release(tree: Path) -> None:
     if version != "0.5.0" or not release_diff_ok(names):
         shown = names or ["petasos/__init__.py"]
         raise PreflightError(f"release tree differs from origin/master in {shown}")
+
+
+def require_same_schema(tree: Path, checkout: Path) -> None:
+    """Stop when the driver's ``PetasosConfig`` is not the release tree's.
+
+    ``copy_section`` keeps only the fields the driver's own checkout knows. A field that exists
+    only in the release tree would be withheld, and the gate would test the wheel's default.
+    """
+    rel = Path("petasos") / "config.py"
+    try:
+        ours = (checkout / rel).read_bytes().replace(b"\r\n", b"\n")
+        theirs = (tree / rel).read_bytes().replace(b"\r\n", b"\n")
+    except OSError as exc:
+        raise PreflightError(f"cannot read {rel.as_posix()} to compare schemas") from exc
+    if ours != theirs:
+        raise PreflightError(
+            f"{rel.as_posix()} differs between the driver checkout and the release tree; "
+            "bring the driver checkout up to the release tree's master first"
+        )
 
 
 def _live_root(arg: Path | None) -> Path:

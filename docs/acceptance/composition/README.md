@@ -121,8 +121,11 @@ Read the evidence file before committing it.
    comma. The `python` that runs the driver needs PyJWT and PyYAML, for
    example a venv with `pip install "pyjwt[crypto]" pyyaml` or this
    repo's dev environment. The driver imports `petasos` from its own
-   checkout. `--hermes-python` is a different interpreter and only starts
-   the Hermes bootstrap:
+   checkout and uses that `PetasosConfig` to decide which live settings
+   to copy. Preflight stops when its `petasos/config.py` differs from the
+   release tree's, so bring the driver checkout up to the same
+   `origin/master` first. `--hermes-python` is a different interpreter and
+   only starts the Hermes bootstrap:
 
 ```
 python scripts/hermes_composition_gate.py <label> <release_tree> ^
