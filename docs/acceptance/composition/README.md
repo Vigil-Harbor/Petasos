@@ -135,9 +135,8 @@ python scripts/hermes_composition_gate.py <label> <release_tree> ^
 5. Only after exit 0 or 1: copy `<workdir>/composition-<label>.json` to
    `docs/acceptance/composition/windows-<release-short-sha>-<label>.json`.
    Add a verdict entry below. Commit those with the gate. Any other exit
-   wrote no evidence. A run removes the previous file for its label when
-   it starts, but a preflight stop (exit 2) can leave an older one in
-   place, so never copy after another exit code.
+   wrote no evidence, so never copy after one. A run removes the previous
+   file for its label once its label and workdir pass preflight.
 6. Post the Plane comment. File a Plane item for each defect. Fill in
    `smoke-checklist.md` before the ticket closes. The checklist does not
    change the verdict.

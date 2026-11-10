@@ -2495,6 +2495,14 @@ def drive(argv: list[str]) -> int:
     require_label(args.label)
     work = args.workdir.resolve()
     require_workdir(work)
+    live = _live_root(args.hermes_root)
+    require_outside_live(work, work / "composition" / "localappdata" / "hermes", live)
+    # Any stop from here on writes no evidence, so an older file must not stand in for it.
+    stale = work / evidence_name(args.label)
+    try:
+        stale.unlink(missing_ok=True)
+    except OSError as exc:
+        raise PreflightError(f"previous evidence file is busy: {stale.name}") from exc
     tree = args.release_tree.resolve()
     wheel = args.wheel.resolve()
     if not wheel.is_file():
@@ -2514,8 +2522,6 @@ def drive(argv: list[str]) -> int:
     )
     if porcelain.strip():
         raise PreflightError(f"release tree has uncommitted edits: {porcelain.strip()}")
-    live = _live_root(args.hermes_root)
-    require_outside_live(work, work / "composition" / "localappdata" / "hermes", live)
     stamp = _read_stamp(live)
     base_version = str(stamp.get("baseVersion", ""))
     if base_version != "0.22.5":
@@ -2538,8 +2544,6 @@ def drive(argv: list[str]) -> int:
     wipe_isolated(root)
     side = run / "host-provenance.jsonl"
     side.unlink(missing_ok=True)
-    # A run that stops later writes no evidence, so an older file must not stand in for it.
-    (work / evidence_name(args.label)).unlink(missing_ok=True)
     for mode in PROBE_MODES:
         (run / f"checks-{mode}.jsonl").unlink(missing_ok=True)
     yaml = _yaml()

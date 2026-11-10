@@ -976,3 +976,29 @@ def test_session_env_names_the_isolated_tool_store(
     assert f"HERMES_RUNTIME_DIR={root / 'tools'}" in lines
     assert f"HERMES_HOME={root}" in lines
     assert not any("k" * 64 in line for line in lines)
+
+
+def test_stale_evidence_is_removed_before_a_later_preflight_stop(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(gate, "STAGE", gate.STAGE)
+    live = tmp_path / "live"
+    (live / "hermes-agent").mkdir(parents=True)
+    work = tmp_path / "work"
+    work.mkdir()
+    stale = work / "composition-again.json"
+    stale.write_text("stale", encoding="utf-8")
+    argv = [
+        "again",
+        str(tmp_path / "tree"),
+        "--wheel",
+        str(tmp_path / "missing.whl"),
+        "--hermes-python",
+        sys.executable,
+        "--hermes-root",
+        str(live),
+        "--workdir",
+        str(work),
+    ]
+    assert gate.guarded(lambda: gate.drive(argv)) == 2
+    assert not stale.exists()
