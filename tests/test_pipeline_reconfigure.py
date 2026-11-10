@@ -14,7 +14,10 @@ import logging
 import pytest
 
 from petasos._types import PipelineResult, ScanFinding, Severity
-from petasos.config import PetasosConfig
+from petasos.config.layers import resolve
+from petasos.config.schema import from_mapping
+from petasos.config.secrets import Secrets
+from petasos.config.sections import PetasosConfig
 from petasos.pipeline import Pipeline
 from petasos.scanners.minimal import MinimalScanner
 
@@ -40,27 +43,64 @@ def _pii_finding() -> ScanFinding:
 def test_reconfigure_frequency_takes_effect_same_instance() -> None:
     # Regression for PET-126: FrequencyTracker cached frequency_half_life_seconds /
     # rolling_threshold as scalars at construction; a _config swap never updated them.
-    pipe = _pipe(PetasosConfig(frequency_half_life_seconds=60.0, rolling_threshold=10))
+    pipe = _pipe(
+        from_mapping(
+            PetasosConfig,
+            {
+                "frequency": {
+                    "half_life_seconds": 60.0,
+                    "rolling_threshold": 10,
+                },
+            },
+        )
+    )
     assert pipe._frequency_tracker._half_life == 60.0
     assert pipe._frequency_tracker._rolling_threshold == 10
 
-    pipe.reconfigure(PetasosConfig(frequency_half_life_seconds=5.0, rolling_threshold=3))
+    pipe.reconfigure(
+        from_mapping(
+            PetasosConfig,
+            {
+                "frequency": {
+                    "half_life_seconds": 5.0,
+                    "rolling_threshold": 3,
+                },
+            },
+        )
+    )
 
     assert pipe._frequency_tracker._half_life == 5.0
     assert pipe._frequency_tracker._rolling_threshold == 3
-    assert pipe.legacy_config is not None
-    assert pipe.legacy_config.frequency_half_life_seconds == 5.0
+    assert pipe.config.frequency.half_life_seconds == 5.0
 
 
 def test_reconfigure_audit_verbosity_takes_effect() -> None:
     # Regression for PET-126: AuditEmitter read audit_verbosity off a STALE _config.
-    pipe = _pipe(PetasosConfig(audit_verbosity="standard"))
+    pipe = _pipe(
+        from_mapping(
+            PetasosConfig,
+            {
+                "audit": {
+                    "verbosity": "standard",
+                },
+            },
+        )
+    )
     result = PipelineResult(safe=True, findings=(), scanner_results=())
 
     ev1 = pipe._audit_emitter.emit(result, "s1", None)
     assert "findings" in ev1.payload  # standard verbosity carries the findings list
 
-    pipe.reconfigure(PetasosConfig(audit_verbosity="minimal"))
+    pipe.reconfigure(
+        from_mapping(
+            PetasosConfig,
+            {
+                "audit": {
+                    "verbosity": "minimal",
+                },
+            },
+        )
+    )
 
     ev2 = pipe._audit_emitter.emit(result, "s1", None)
     assert "findings" not in ev2.payload  # minimal verbosity drops it
@@ -69,14 +109,32 @@ def test_reconfigure_audit_verbosity_takes_effect() -> None:
 def test_reconfigure_alert_threshold_takes_effect() -> None:
     # Regression for PET-126: AlertManager held a stale _config; alert_* thresholds
     # never changed live. A single PII finding crosses a lowered volume threshold.
-    pipe = _pipe(PetasosConfig(alert_pii_volume_threshold=20))
+    pipe = _pipe(
+        from_mapping(
+            PetasosConfig,
+            {
+                "alerting": {
+                    "pii_volume_threshold": 20,
+                },
+            },
+        )
+    )
     am = pipe._alert_manager
     result = PipelineResult(safe=True, findings=(_pii_finding(),), scanner_results=())
 
     alerts = am.evaluate(result, "s1", None)
     assert not any(a.rule_id == "pii_volume_spike" for a in alerts)
 
-    pipe.reconfigure(PetasosConfig(alert_pii_volume_threshold=1))
+    pipe.reconfigure(
+        from_mapping(
+            PetasosConfig,
+            {
+                "alerting": {
+                    "pii_volume_threshold": 1,
+                },
+            },
+        )
+    )
 
     alerts2 = am.evaluate(result, "s1", None)
     assert any(a.rule_id == "pii_volume_spike" for a in alerts2)
@@ -85,16 +143,30 @@ def test_reconfigure_alert_threshold_takes_effect() -> None:
 def test_reconfigure_alert_ring_buffer_capacity_rebuilds_keeping_newest() -> None:
     # A capacity shrink rebuilds _pii_ring_buffer retaining the MOST-recent items
     # (ring-buffer recency), not the oldest.
-    pipe = _pipe(PetasosConfig(alert_ring_buffer_capacity=10))
+    pipe = _pipe(
+        from_mapping(
+            PetasosConfig,
+            {
+                "alerting": {
+                    "ring_buffer_capacity": 10,
+                },
+            },
+        )
+    )
     am = pipe._alert_manager
     for i in range(10):
         am._pii_ring_buffer.append((float(i), i))
 
     pipe.reconfigure(
-        PetasosConfig(
-            alert_ring_buffer_capacity=3,
-            alert_rapid_fire_count=3,
-            alert_cross_session_burst_count=3,
+        from_mapping(
+            PetasosConfig,
+            {
+                "alerting": {
+                    "ring_buffer_capacity": 3,
+                    "rapid_fire_count": 3,
+                    "cross_session_burst_count": 3,
+                },
+            },
         )
     )
 
@@ -110,11 +182,30 @@ def test_reconfigure_decode_payloads_changes_minimal_scanner() -> None:
         suppress_rules=frozenset({"petasos.syntactic.encoding.base64"}),
         decode_encoded_payloads=True,
     )
-    pipe = _pipe(PetasosConfig(decode_encoded_payloads=True), scanner=scanner)
+    pipe = _pipe(
+        from_mapping(
+            PetasosConfig,
+            {
+                "normalization": {
+                    "decode_payloads": True,
+                },
+            },
+        ),
+        scanner=scanner,
+    )
     assert pipe._minimal_scanner is scanner
     assert scanner._decode_encoded_payloads is True
 
-    pipe.reconfigure(PetasosConfig(decode_encoded_payloads=False))
+    pipe.reconfigure(
+        from_mapping(
+            PetasosConfig,
+            {
+                "normalization": {
+                    "decode_payloads": False,
+                },
+            },
+        )
+    )
 
     assert pipe._minimal_scanner is scanner  # identity preserved (not rebuilt)
     assert scanner._decode_encoded_payloads is False
@@ -124,14 +215,33 @@ def test_reconfigure_decode_payloads_changes_minimal_scanner() -> None:
 
 def test_reconfigure_preserves_session_state() -> None:
     # Drive a session into tier1, then reconfigure; counters must survive (no reset).
-    pipe = _pipe(PetasosConfig(frequency_weights={"r": 20.0}))
+    pipe = _pipe(
+        from_mapping(
+            PetasosConfig,
+            {
+                "frequency": {
+                    "weights": {"r": 20.0},
+                },
+            },
+        )
+    )
     tracker = pipe._frequency_tracker
     r = tracker.update("sess", ["r"])
     assert r.current_score == 20.0
     assert r.tier == "tier1"  # 20 >= tier1_threshold 15
     assert tracker.size == 1
 
-    pipe.reconfigure(PetasosConfig(frequency_weights={"r": 20.0}, frequency_half_life_seconds=5.0))
+    pipe.reconfigure(
+        from_mapping(
+            PetasosConfig,
+            {
+                "frequency": {
+                    "weights": {"r": 20.0},
+                    "half_life_seconds": 5.0,
+                },
+            },
+        )
+    )
 
     assert tracker.size == 1  # session not dropped
     state = tracker.get_state("sess")
@@ -143,41 +253,58 @@ def test_reconfigure_session_secret_noop_with_warning(caplog: pytest.LogCaptureF
     secret = b"s" * 32
     pipe = Pipeline(
         scanners=[MinimalScanner()],
-        config=PetasosConfig(session_secret=secret),
+        config=PetasosConfig(),
+        secrets=Secrets(session_secret=secret),
         host_id="h1",
     )
     tracker = pipe._frequency_tracker
     token = tracker.mint_token("sess", "h1")
     tracker.update(token, [])
 
-    # A differing non-None secret is ignored (live preserved) and warns once.
+    # A tree has no secret, so reconfigure cannot replace it and does not warn.
     with caplog.at_level(logging.WARNING, logger="petasos.pipeline"):
-        pipe.reconfigure(PetasosConfig(session_secret=b"d" * 32))
-    warnings = [r for r in caplog.records if "session_secret" in r.getMessage()]
-    assert len(warnings) == 1
-    assert pipe.legacy_config is not None
-    assert pipe.legacy_config.session_secret == secret
-    assert tracker._session_secret == secret  # never rebound (Decision 2)
-    assert tracker.get_state(token) is not None  # minted token still verifies
-
-    # An absent/None secret preserves silently (no warning).
-    caplog.clear()
-    with caplog.at_level(logging.WARNING, logger="petasos.pipeline"):
-        pipe.reconfigure(PetasosConfig(session_secret=None, frequency_half_life_seconds=7.0))
+        result = pipe.reconfigure(
+            from_mapping(
+                PetasosConfig,
+                {
+                    "frequency": {
+                        "half_life_seconds": 7.0,
+                    },
+                },
+            )
+        )
     assert not [r for r in caplog.records if "session_secret" in r.getMessage()]
-    assert pipe.legacy_config is not None
-    assert pipe.legacy_config.session_secret == secret
     assert tracker._session_secret == secret
+    assert tracker.get_state(token) is not None
+    assert "frequency.half_life_seconds" in result.applied
 
 
 def test_reconfigure_tombstone_cap_shrink_trims_immediately() -> None:
-    pipe = _pipe(PetasosConfig(max_terminated_tombstones=100))
+    pipe = _pipe(
+        from_mapping(
+            PetasosConfig,
+            {
+                "sessions": {
+                    "max_tombstones": 100,
+                },
+            },
+        )
+    )
     tracker = pipe._frequency_tracker
     for i in range(5):
         tracker.terminate_session(f"s{i}")
     assert tracker.tombstone_count == 5
 
-    pipe.reconfigure(PetasosConfig(max_terminated_tombstones=2))
+    pipe.reconfigure(
+        from_mapping(
+            PetasosConfig,
+            {
+                "sessions": {
+                    "max_tombstones": 2,
+                },
+            },
+        )
+    )
 
     assert tracker.tombstone_count == 2  # trimmed on apply, not lazily
 
@@ -191,64 +318,78 @@ def test_reconfigure_tombstone_cap_shrink_trims_immediately() -> None:
     ],
 )
 def test_reconfigure_atomic_on_invalid_weights(bad_weights: dict[str, float]) -> None:
-    pipe = _pipe(PetasosConfig(frequency_half_life_seconds=60.0, audit_verbosity="standard"))
+    pipe = _pipe(
+        from_mapping(
+            PetasosConfig,
+            {
+                "frequency": {
+                    "half_life_seconds": 60.0,
+                },
+                "audit": {
+                    "verbosity": "standard",
+                },
+            },
+        )
+    )
     before = pipe.config
 
     with pytest.raises(ValueError):
         pipe.reconfigure(
-            PetasosConfig(
-                frequency_half_life_seconds=5.0,
-                frequency_weights=bad_weights,
-                audit_verbosity="verbose",
+            from_mapping(
+                PetasosConfig,
+                {
+                    "frequency": {
+                        "half_life_seconds": 5.0,
+                        "weights": bad_weights,
+                    },
+                    "audit": {
+                        "verbosity": "verbose",
+                    },
+                },
             )
         )
 
-    # The fail-prone tracker step runs first, so nothing downstream was touched.
+    # The bad document is refused before reconfigure runs, so nothing live changes.
     assert pipe.config is before
     assert pipe._frequency_tracker._half_life == 60.0
-    assert pipe._audit_emitter.legacy_config is not None
-    assert pipe._audit_emitter.legacy_config.audit_verbosity == "standard"
+    assert pipe.config.audit.verbosity == "standard"
 
 
 def test_reconfigure_profile_switch_takes_effect() -> None:
-    # A config-driven profile follows profile_name on reconfigure (Decision 7).
-    pipe = _pipe(PetasosConfig(profile_name="general"))
-    assert pipe._default_profile is not None
-    assert pipe._default_profile.name == "general"
+    # Switching role replaces the rule levers on the live tree.
+    pipe = _pipe(resolve({"role": "general"}).config)
+    assert pipe.config.rules.suppress == ()
 
-    pipe.reconfigure(PetasosConfig(profile_name="research"))
+    result = pipe.reconfigure(resolve({"role": "research"}).config)
 
-    assert pipe._default_profile is not None
-    assert pipe._default_profile.name == "research"
+    assert "petasos.syntactic.encoding.invisible-chars" in pipe.config.rules.suppress
+    assert "rules.suppress" in result.applied
 
 
 def test_reconfigure_keeps_constructor_pinned_profile() -> None:
-    # A constructor-pinned profile is preserved across a profile_name change.
-    pipe = Pipeline(scanners=[MinimalScanner()], config=PetasosConfig(), profile="general")
-    assert pipe._default_profile is not None
-    assert pipe._default_profile.name == "general"
+    # A tree has no profile pin beside the config. Reconfigure applies the incoming rules.
+    pipe = Pipeline(
+        scanners=[MinimalScanner()],
+        config=resolve({"role": "general"}).config,
+    )
+    assert pipe.config.rules.confidence_floor == 0.0
 
-    pipe.reconfigure(PetasosConfig(profile_name="research"))
+    pipe.reconfigure(resolve({"role": "research"}).config)
 
-    assert pipe._default_profile is not None
-    assert pipe._default_profile.name == "general"  # pin wins over config
+    assert pipe.config.rules.confidence_floor == 0.7
 
 
 def test_reconfigure_rejects_subfloor_or_unordered_tiers() -> None:
-    # The Tier-3 floor / ascending-order invariant runs in __post_init__, which
-    # from_dict (console + reload build path) re-runs BEFORE reconfigure can swap.
-    # An invalid tier config can therefore never be built to hand to reconfigure.
+    # An invalid tier document cannot be built, so it never reaches reconfigure.
     pipe = _pipe(PetasosConfig())
     before = pipe.config
-    assert pipe.legacy_config is not None
-    base = pipe.legacy_config.to_dict()
 
-    with pytest.raises(ValueError):
-        PetasosConfig.from_dict({**base, "tier3_threshold": 10.0})  # below TIER3_FLOOR
-    with pytest.raises(ValueError):
-        PetasosConfig.from_dict({**base, "tier1_threshold": 40.0})  # tier1 > tier2
+    with pytest.raises(ValueError, match="escalation.tier3"):
+        from_mapping(PetasosConfig, {"escalation": {"tier3": 10.0}})
+    with pytest.raises(ValueError, match="escalation"):
+        from_mapping(PetasosConfig, {"escalation": {"tier1": 40.0}})
 
-    assert pipe.config is before  # never reached reconfigure with an invalid config
+    assert pipe.config is before
 
 
 # ---------------------------------------------------------------------------
@@ -273,7 +414,14 @@ def test_shared_tracker_double_apply_is_idempotent_and_preserves_scores() -> Non
     # the SAME tracker now sees apply_config twice, from two independently
     # merged configs. Idempotent over an already-validated config; session
     # state survives both.
-    new_cfg = PetasosConfig(frequency_half_life_seconds=120.0)
+    new_cfg = from_mapping(
+        PetasosConfig,
+        {
+            "frequency": {
+                "half_life_seconds": 120.0,
+            },
+        },
+    )
     pipeline.reconfigure(new_cfg)
     guard.apply_config(new_cfg)
 

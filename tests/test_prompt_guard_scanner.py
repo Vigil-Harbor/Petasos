@@ -28,7 +28,9 @@ from petasos._types import (
     AVAILABILITY_CAUSE_LOAD_FAILED,
     Severity,
 )
-from petasos.config import PetasosConfig
+from petasos.config.layers import resolve
+from petasos.config.schema import from_mapping
+from petasos.config.sections import PetasosConfig
 from petasos.pipeline import _BREAKER_OPEN_ERROR_PREFIX, _TIMEOUT_ERROR_PREFIX, Pipeline
 from petasos.scanners import prompt_guard as pg
 
@@ -430,7 +432,7 @@ class TestPromptGuardFailModes:
         pipe = Pipeline(scanners=[pg.PromptGuardScanner()], config=PetasosConfig())
         assert pg._INFER_LOCK.acquire(blocking=False)
         try:
-            for _ in range(PetasosConfig().scanner_circuit_breaker_threshold):
+            for _ in range(PetasosConfig().scanners.breaker_threshold):
                 result = await pipe.inspect(_BENIGN)
                 assert result.safe is False
             await pipe.inspect(_BENIGN)
@@ -450,13 +452,27 @@ class TestPromptGuardFailModes:
         # this suite. An unusable backend blocks under closed and degraded.
         _stub_score(monkeypatch, math.nan)
         pipe = Pipeline(
-            scanners=[pg.PromptGuardScanner()], config=PetasosConfig(fail_mode=fail_mode)
+            scanners=[pg.PromptGuardScanner()],
+            config=from_mapping(
+                PetasosConfig,
+                {
+                    "fail_mode": fail_mode,
+                },
+            ),
         )
         assert (await pipe.inspect(_BENIGN)).safe is safe
 
     async def test_finding_blocks_under_open(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _stub_score(monkeypatch, 0.99)
-        pipe = Pipeline(scanners=[pg.PromptGuardScanner()], config=PetasosConfig(fail_mode="open"))
+        pipe = Pipeline(
+            scanners=[pg.PromptGuardScanner()],
+            config=from_mapping(
+                PetasosConfig,
+                {
+                    "fail_mode": "open",
+                },
+            ),
+        )
         result = await pipe.inspect(_BENIGN)
         assert result.safe is False
         assert any(f.rule_id == _RULE for f in result.findings)
@@ -467,7 +483,7 @@ class TestPromptGuardFailModes:
         _stub_score(monkeypatch, 0.99)
         pipe = Pipeline(
             scanners=[pg.PromptGuardScanner()],
-            config=PetasosConfig(profile_name="code_generation"),
+            config=resolve({"role": "coding"}).config,
         )
         result = await pipe.inspect("git status && ls -la ~", direction="outbound")
         hits = [f for f in result.findings if f.rule_id == _RULE]

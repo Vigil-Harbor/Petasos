@@ -9,48 +9,33 @@ lineage-bound rebinding with edge preservation.
 
 from __future__ import annotations
 
-from types import MappingProxyType
-
 import pytest
 
-from petasos.config import PetasosConfig
+from petasos.config.schema import from_mapping
+from petasos.config.secrets import Secrets
+from petasos.config.sections import PetasosConfig
 from petasos.pipeline import Pipeline
 from petasos.session.frequency import FrequencyTracker
 from petasos.session.guard import SpawnBudget, ToolCallGuard
 from petasos.session.lineage import LineageRegistry
-from petasos.session.profiles import ResolvedProfile
 
 
-def _cfg(**overrides: object) -> PetasosConfig:
-    defaults: dict[str, object] = {
-        "frequency_enabled": True,
-        "escalation_enabled": True,
-        "tool_guard_enabled": True,
-    }
-    defaults.update(overrides)
-    return PetasosConfig(**defaults)  # type: ignore[arg-type]
-
-
-def _profile(*, tool_exempt_list: frozenset[str] = frozenset()) -> ResolvedProfile:
-    return ResolvedProfile(
-        name="test",
-        suppress_rules=frozenset(),
-        severity_overrides=MappingProxyType({}),
-        confidence_floor=0.0,
-        tier_thresholds=None,
-        pii_entities_extra=(),
-        tool_exempt_list=tool_exempt_list,
-        tool_alias_map=MappingProxyType({}),
-    )
+def _cfg(partial: dict[str, object] | None = None) -> PetasosConfig:
+    """Build a config tree from a partial document."""
+    if not partial:
+        return PetasosConfig()
+    return from_mapping(PetasosConfig, partial)
 
 
 def _guard(
-    *, config: PetasosConfig | None = None, profile: ResolvedProfile | None = None
+    *,
+    config: PetasosConfig | None = None,
+    secrets: Secrets | None = None,
 ) -> ToolCallGuard:
     cfg = config or _cfg()
-    pipe = Pipeline(config=cfg)
-    tracker = FrequencyTracker(cfg)
-    return ToolCallGuard(pipe, tracker, cfg, profile=profile)
+    pipe = Pipeline(config=cfg, secrets=secrets, host_id="host-1" if secrets else "")
+    tracker = FrequencyTracker(cfg, secrets=secrets)
+    return ToolCallGuard(pipe, tracker, cfg, secrets=secrets)
 
 
 async def test_guard_apply_config_updates_delegate_set() -> None:
@@ -59,16 +44,28 @@ async def test_guard_apply_config_updates_delegate_set() -> None:
     # new tool name and releases the old one.
     guard = _guard(
         config=_cfg(
-            delegate_fanout_enabled=True,
-            delegate_max_fanout_per_window=1,
-            delegate_tool_names=("delegate_task",),
+            {
+                "tools": {
+                    "fanout": {
+                        "enabled": True,
+                        "max_per_window": 1,
+                    },
+                    "delegate_names": ("delegate_task",),
+                },
+            }
         )
     )
     guard.apply_config(
         _cfg(
-            delegate_fanout_enabled=True,
-            delegate_max_fanout_per_window=1,
-            delegate_tool_names=("spawn_agent",),
+            {
+                "tools": {
+                    "fanout": {
+                        "enabled": True,
+                        "max_per_window": 1,
+                    },
+                    "delegate_names": ("spawn_agent",),
+                },
+            }
         )
     )
 
@@ -84,13 +81,33 @@ async def test_guard_apply_config_updates_delegate_set() -> None:
 
 
 def test_guard_apply_config_resizes_fanout_window_preserving_counters() -> None:
-    guard = _guard(config=_cfg(delegate_fanout_window_seconds=60.0))
+    guard = _guard(
+        config=_cfg(
+            {
+                "tools": {
+                    "fanout": {
+                        "window_seconds": 60.0,
+                    },
+                },
+            }
+        )
+    )
     budget = guard._spawn_budget
     assert budget.try_consume("sess", cap=5, now=100.0) is True
     assert "sess" in budget._events
     assert budget._last_sweep == 100.0
 
-    guard.apply_config(_cfg(delegate_fanout_window_seconds=10.0))
+    guard.apply_config(
+        _cfg(
+            {
+                "tools": {
+                    "fanout": {
+                        "window_seconds": 10.0,
+                    },
+                },
+            }
+        )
+    )
 
     # set_window rebinds _window only; counters/sweep state are preserved.
     assert budget._window == 10.0
@@ -117,12 +134,28 @@ def test_guard_set_window_evicts_under_shrunk_window_directly() -> None:
 def test_guard_apply_config_propagates_to_its_tracker() -> None:
     # Decision 4: the guard owns a SEPARATE tracker; apply_config must reconfigure
     # it (a frequency_weights change must change the guard tracker's scoring).
-    guard = _guard(config=_cfg(frequency_weights={"x": 5.0}))
+    guard = _guard(
+        config=_cfg(
+            {
+                "frequency": {
+                    "weights": {"x": 5.0},
+                },
+            }
+        )
+    )
     tracker = guard._frequency_tracker
     r1 = tracker.update("s1", ["x"])
     assert r1.current_score == 5.0
 
-    guard.apply_config(_cfg(frequency_weights={"x": 25.0}))
+    guard.apply_config(
+        _cfg(
+            {
+                "frequency": {
+                    "weights": {"x": 25.0},
+                },
+            }
+        )
+    )
 
     assert tracker._config is guard._config  # tracker rebound to the guard's config
     r2 = tracker.update("s1", ["x"])
@@ -132,9 +165,24 @@ def test_guard_apply_config_propagates_to_its_tracker() -> None:
 def test_guard_validate_config_d8_violation_is_atomic() -> None:
     # A delegate that is also profile-exempt would skip the tier ladder (D8).
     # validate_config raises; apply_config (which calls it first) mutates nothing.
-    prof = _profile(tool_exempt_list=frozenset({"spawn_agent"}))
-    guard = _guard(config=_cfg(delegate_tool_names=("delegate_task",)), profile=prof)
-    bad = _cfg(delegate_tool_names=("spawn_agent",))
+    guard = _guard(
+        config=_cfg(
+            {
+                "tools": {
+                    "delegate_names": ("delegate_task",),
+                    "exempt": ("spawn_agent",),
+                },
+            }
+        )
+    )
+    bad = _cfg(
+        {
+            "tools": {
+                "delegate_names": ("spawn_agent",),
+                "exempt": ("spawn_agent",),
+            },
+        }
+    )
 
     with pytest.raises(ValueError):
         guard.validate_config(bad)
@@ -154,41 +202,56 @@ def test_guard_apply_config_preserves_session_secret() -> None:
     # guard tracker's _session_secret (FREQ-03, Decision 2): live tokens still
     # verify and sessions do not flip to tier3.
     secret = b"k" * 32
-    cfg = _cfg(session_secret=secret)
-    pipe = Pipeline(config=cfg, host_id="host-1")
-    tracker = FrequencyTracker(cfg)
-    guard = ToolCallGuard(pipe, tracker, cfg)
+    secrets = Secrets(session_secret=secret)
+    cfg = _cfg()
+    pipe = Pipeline(config=cfg, secrets=secrets, host_id="host-1")
+    tracker = FrequencyTracker(cfg, secrets=secrets)
+    guard = ToolCallGuard(pipe, tracker, cfg, secrets=secrets)
 
     token = tracker.mint_token("sess", "host-1")
     tracker.update(token, [])
     assert guard._read_state("sess") is not None  # mint path works
 
-    # Presence flip to None.
-    guard.apply_config(_cfg(session_secret=None))
-    assert tracker._session_secret == secret  # immutable
-    assert guard.legacy_config is not None
-    assert guard.legacy_config.session_secret == secret  # merge-preserved
-    assert tracker.get_state(token) is not None  # token still verifies
-    assert guard._derive_tier("sess") != "tier3"  # no fail-secure flip
-
-    # A differing non-None secret is likewise preserved.
-    guard.apply_config(_cfg(session_secret=b"different" * 4))
+    # A tree has no secret, so a live reload cannot replace or clear it.
+    guard.apply_config(_cfg({"frequency": {"half_life_seconds": 30.0}}))
     assert tracker._session_secret == secret
-    assert guard.legacy_config is not None
-    assert guard.legacy_config.session_secret == secret
+    assert guard._secrets.session_secret == secret
+    assert tracker.get_state(token) is not None
     assert guard._derive_tier("sess") != "tier3"
 
 
 def test_lineage_registry_apply_config_updates_bounds() -> None:
     # Changing lineage bounds via apply_config is observed by the next ancestor
     # walk; existing edges survive.
-    reg = LineageRegistry(PetasosConfig(lineage_max_depth=2))
+    reg = LineageRegistry(
+        from_mapping(
+            PetasosConfig,
+            {
+                "tools": {
+                    "lineage": {
+                        "max_depth": 2,
+                    },
+                },
+            },
+        )
+    )
     reg.register("a", "b")
     reg.register("b", "c")
     reg.register("c", "d")
     assert reg.ancestors("a") == ["b", "c"]  # bounded to depth 2
 
-    reg.apply_config(PetasosConfig(lineage_max_depth=8))
+    reg.apply_config(
+        from_mapping(
+            PetasosConfig,
+            {
+                "tools": {
+                    "lineage": {
+                        "max_depth": 8,
+                    },
+                },
+            },
+        )
+    )
 
     assert reg._max_depth == 8
     assert reg.ancestors("a") == ["b", "c", "d"]  # deeper walk after reconfigure

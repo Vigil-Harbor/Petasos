@@ -16,11 +16,10 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-if TYPE_CHECKING:
-    import pathlib
-
 from petasos._types import PipelineResult, Position, ScanFinding, ScanResult, Severity
-from petasos.config import PetasosConfig
+from petasos.config.schema import from_mapping
+from petasos.config.secrets import Secrets
+from petasos.config.sections import PetasosConfig
 from petasos.pipeline import Pipeline
 from petasos.scanners.minimal import MinimalScanner
 from petasos.session.alerting import AlertManager
@@ -29,6 +28,9 @@ from petasos.session.escalation import derive_tier, evaluate_tier
 from petasos.session.frequency import FrequencyTracker
 from petasos.session.lineage import LineageRegistry
 from petasos.session.taint import SessionTaintStore
+
+if TYPE_CHECKING:
+    import pathlib
 
 _SECRET = b"k" * 32
 
@@ -43,7 +45,10 @@ def test_extract_field_from_error_prefers_most_specific_key() -> None:
     """
     from petasos.console.server import _extract_field_from_error
 
-    body = {"presidio_entities": ["EMAIL"], "presidio_entities_extra": ["BOGUS"]}
+    body = {
+        "presidio_entities": ["EMAIL"],
+        "presidio_entities_extra": ["BOGUS"],
+    }
     msg = "presidio_entities_extra entry must be a non-empty string"
     assert _extract_field_from_error(msg, body) == "presidio_entities_extra"
 
@@ -51,12 +56,20 @@ def test_extract_field_from_error_prefers_most_specific_key() -> None:
 def test_extract_field_from_error_unknown_when_no_key_matches() -> None:
     from petasos.console.server import _extract_field_from_error
 
-    assert _extract_field_from_error("totally unrelated", {"fail_mode": "x"}) == "unknown"
+    assert (
+        _extract_field_from_error(
+            "totally unrelated",
+            {
+                "fail_mode": "x",
+            },
+        )
+        == "unknown"
+    )
 
 
 # --- FREQ-13: HMAC token verification reject ---
 def _secret_tracker() -> FrequencyTracker:
-    return FrequencyTracker(PetasosConfig(session_secret=_SECRET))
+    return FrequencyTracker(PetasosConfig(), secrets=Secrets(session_secret=_SECRET))
 
 
 def test_bare_string_rejected_when_secret_configured() -> None:
@@ -90,22 +103,55 @@ def test_valid_token_accepted_after_reject_paths() -> None:
 
 # --- FREQ-14: tracker.apply_config atomic-on-raise ---
 def test_frequency_apply_config_atomic_on_bad_weights() -> None:
-    tr = FrequencyTracker(PetasosConfig(frequency_half_life_seconds=60.0))
+    tr = FrequencyTracker(
+        from_mapping(
+            PetasosConfig,
+            {
+                "frequency": {
+                    "half_life_seconds": 60.0,
+                },
+            },
+        )
+    )
     tr.update("s", ["petasos.syntactic.injection.ignore-previous"])
     before = tr.get_state("s")
     assert before is not None
-    # A malformed weight map (glob in non-terminal position) must abort the swap.
-    bad = PetasosConfig(frequency_weights={"petasos.*.injection": 5.0})
-    with pytest.raises(ValueError):
-        tr.apply_config(bad)
+    # A malformed weight map is refused when the tree is built, so it never reaches apply_config.
+    with pytest.raises(ValueError, match="frequency.weights"):
+        from_mapping(
+            PetasosConfig,
+            {
+                "frequency": {
+                    "weights": {"petasos.*.injection": 5.0},
+                },
+            },
+        )
     # Live state preserved; old half-life unchanged (no partial apply).
     assert tr.get_state("s") is not None
     assert tr._half_life == 60.0
 
 
 def test_frequency_apply_config_rebinds_scalars() -> None:
-    tr = FrequencyTracker(PetasosConfig(frequency_half_life_seconds=60.0))
-    tr.apply_config(PetasosConfig(frequency_half_life_seconds=30.0))
+    tr = FrequencyTracker(
+        from_mapping(
+            PetasosConfig,
+            {
+                "frequency": {
+                    "half_life_seconds": 60.0,
+                },
+            },
+        )
+    )
+    tr.apply_config(
+        from_mapping(
+            PetasosConfig,
+            {
+                "frequency": {
+                    "half_life_seconds": 30.0,
+                },
+            },
+        )
+    )
     assert tr._half_life == 30.0
 
 
@@ -114,7 +160,8 @@ def test_frequency_apply_config_rebinds_scalars() -> None:
 def test_non_finite_score_derives_tier3(bad: float) -> None:
     cfg = PetasosConfig()
     assert (
-        derive_tier(bad, cfg.tier1_threshold, cfg.tier2_threshold, cfg.tier3_threshold) == "tier3"
+        derive_tier(bad, cfg.escalation.tier1, cfg.escalation.tier2, cfg.escalation.tier3)
+        == "tier3"
     )
     assert evaluate_tier(bad, cfg) == "tier3"
 
@@ -122,12 +169,28 @@ def test_non_finite_score_derives_tier3(bad: float) -> None:
 # --- CFG-03: tier-threshold construction validation ---
 def test_non_ascending_tiers_rejected_at_construction() -> None:
     with pytest.raises(ValueError):
-        PetasosConfig(tier1_threshold=50.0, tier2_threshold=40.0, tier3_threshold=60.0)
+        from_mapping(
+            PetasosConfig,
+            {
+                "escalation": {
+                    "tier1": 50.0,
+                    "tier2": 40.0,
+                    "tier3": 60.0,
+                },
+            },
+        )
 
 
 def test_non_finite_tier_rejected_at_construction() -> None:
     with pytest.raises(ValueError):
-        PetasosConfig(tier3_threshold=float("inf"))
+        from_mapping(
+            PetasosConfig,
+            {
+                "escalation": {
+                    "tier3": float("inf"),
+                },
+            },
+        )
 
 
 # --- AUD-07/08: AuditEmitter listeners + apply_config ---
@@ -144,7 +207,16 @@ def test_audit_add_listener_fires_and_isolates() -> None:
     def bad(ev: object) -> None:
         raise RuntimeError("listener boom")
 
-    em = AuditEmitter(PetasosConfig(audit_verbosity="minimal"))
+    em = AuditEmitter(
+        from_mapping(
+            PetasosConfig,
+            {
+                "audit": {
+                    "verbosity": "minimal",
+                },
+            },
+        )
+    )
     em.add_listener(bad)
     em.add_listener(good)
     em.emit(_result(), "s", None)
@@ -153,12 +225,30 @@ def test_audit_add_listener_fires_and_isolates() -> None:
 
 
 def test_audit_apply_config_swaps_verbosity_live() -> None:
-    em = AuditEmitter(PetasosConfig(audit_verbosity="minimal"))
+    em = AuditEmitter(
+        from_mapping(
+            PetasosConfig,
+            {
+                "audit": {
+                    "verbosity": "minimal",
+                },
+            },
+        )
+    )
     ev1 = em.emit(_result(), "s", None)
     # Minimal-verbosity base payload: PET-136 added the always-present
     # ``emit_findings`` flag (the per-finding list itself stays gated off here).
     assert set(ev1.payload.keys()) == {"safe", "finding_count", "emit_findings"}
-    em.apply_config(PetasosConfig(audit_verbosity="verbose"))
+    em.apply_config(
+        from_mapping(
+            PetasosConfig,
+            {
+                "audit": {
+                    "verbosity": "verbose",
+                },
+            },
+        )
+    )
     ev2 = em.emit(_result(), "s", None)
     assert "scanner_results" in ev2.payload  # verbose keys now present
     assert em._global_sequence == 2  # sequence preserved across apply_config
@@ -173,19 +263,29 @@ def test_alert_add_listener_registers() -> None:
 
 def test_alert_apply_config_rebuilds_pii_ring_on_shrink() -> None:
     mgr = AlertManager(
-        PetasosConfig(
-            alert_ring_buffer_capacity=10,
-            alert_rapid_fire_count=3,
-            alert_cross_session_burst_count=3,
+        from_mapping(
+            PetasosConfig,
+            {
+                "alerting": {
+                    "ring_buffer_capacity": 10,
+                    "rapid_fire_count": 3,
+                    "cross_session_burst_count": 3,
+                },
+            },
         )
     )
     for i in range(10):
         mgr._pii_ring_buffer.append((float(i), 1))
     mgr.apply_config(
-        PetasosConfig(
-            alert_ring_buffer_capacity=5,
-            alert_rapid_fire_count=3,
-            alert_cross_session_burst_count=3,
+        from_mapping(
+            PetasosConfig,
+            {
+                "alerting": {
+                    "ring_buffer_capacity": 5,
+                    "rapid_fire_count": 3,
+                    "cross_session_burst_count": 3,
+                },
+            },
         )
     )
     assert mgr._pii_ring_buffer.maxlen == 5
@@ -200,7 +300,18 @@ def test_lineage_apply_config_rebinds_depth_preserves_edges() -> None:
     reg.register("b", "c")
     reg.register("c", "d")
     assert reg.ancestors("a") == ["b", "c", "d"]
-    reg.apply_config(PetasosConfig(lineage_max_depth=1))
+    reg.apply_config(
+        from_mapping(
+            PetasosConfig,
+            {
+                "tools": {
+                    "lineage": {
+                        "max_depth": 1,
+                    },
+                },
+            },
+        )
+    )
     assert reg._max_depth == 1
     assert reg.ancestors("a") == ["b"]  # edges preserved, depth bound applied live
 
@@ -227,7 +338,16 @@ async def test_set_decode_encoded_payloads_live_toggle() -> None:
 
 # --- TNT-10: SessionTaintStore.clear_session ---
 def test_taint_clear_session_drops_spans() -> None:
-    store = SessionTaintStore(PetasosConfig(taint_min_span_length=12))
+    store = SessionTaintStore(
+        from_mapping(
+            PetasosConfig,
+            {
+                "egress": {
+                    "taint_min_span_length": 12,
+                },
+            },
+        )
+    )
     store.capture("sess", {"v": "supersecretbalance12345"}, "mcp_bank_")
     assert store.tainted_source("sess", {"arg": "see supersecretbalance12345 now"}) == "mcp_bank_"
     store.clear_session("sess")
