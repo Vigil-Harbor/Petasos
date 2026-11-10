@@ -132,6 +132,13 @@ Honesty, in substance:
   is never withheld, and the old "tool was not executed" message for text
   was wrong.
 
+Found while running the real-Hermes tests: round 1's script carried the
+sample attacks for Try it, and Hermes's plugin guard reads those as an
+attack. It gave the plugin directory a `dangerous` verdict, so Hermes
+refused to load Petasos and nothing was checked. The samples are now
+served by the API from the wheel, and a test keeps attack strings out of
+the plugin directory.
+
 Decisions where the reviews pulled apart beyond the rulings:
 
 - Coloured edge bars (design credited the banner; fit counted the repeats

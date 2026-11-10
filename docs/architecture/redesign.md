@@ -1248,6 +1248,16 @@ It uses an empty secret, a private session id, a discarding event sink, and
 an explicit protected-path list for that home. It does not open the
 enforcement spool and it does not read or write another session's state.
 
+#### `GET /playground/examples`
+
+`examples` (each `id`, `label`, `mode`, and `text` with `direction`, or
+`tool` with `arguments`) and `default`, the one Try it opens with. They are
+served from the wheel, not written in the tab's script: Hermes scans a
+plugin directory for dangerous strings before it loads the plugin
+(`tools/plugin_guard.py`), and a sample attack in the script gave the
+directory a `dangerous` verdict, so Hermes refused to load Petasos. A test
+keeps such strings out of the plugin directory.
+
 #### `GET /activity`
 
 Query: `cursor`, `limit` (1 to 100, default 50), `since`, `until` (unix
