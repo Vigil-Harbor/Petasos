@@ -921,7 +921,8 @@ new API.
 | Package | Scope |
 |---|---|
 | C1a | `enforce/` as functions: lift the plugin's decisions, fallback, approvals, messages and event spool into the library unchanged; the plugin calls them |
-| C1b | `Enforcer`: the stateful object of section 6 that owns lifecycle and replaces the plugin's globals; the plugin becomes a shell around it |
+| E0 | Enforcement parity oracle: host-neutral scenarios and the reference plugin's recorded outcomes for them, in `tests/enforce_parity/` |
+| C1b | `Enforcer`: the stateful object of section 6, written beside the plugin and accepted when it replays the E0 record. The plugin is not rewired; it is retired in C2 |
 | C2 | `hermes/` and `cli.py`: adapter, manifest, doctor, install, tested against upstream Hermes in a throwaway home; the reference plugin and its tests are retired into it. Needs C1b |
 | C3 | Console rebased on `describe()` and `resolve()`; `server.py` split |
 | C4 | Module splits and renames: `guard/`, `pipeline/`, `scanners/minimal/`, `scanners/semgrep/`, `model.py` |
