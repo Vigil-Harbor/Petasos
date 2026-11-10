@@ -375,8 +375,8 @@ def test_sectionless_rebind_signs_the_new_spool(
     """A sectionless rebind installs the live secret on the new spool path."""
     import base64
 
-    import petasos.enforce.events as events_mod
     import petasos.console._paths as paths_mod
+    import petasos.enforce.events as events_mod
 
     saved = paths_mod._SPOOL_PATH_OVERRIDE
     paths_mod._SPOOL_PATH_OVERRIDE = None
@@ -422,8 +422,8 @@ def test_reconfigure_keeps_live_spool_key_when_section_omits_secret(
     """A rebind whose section omits session_secret still signs with the live secret."""
     import base64
 
-    import petasos.enforce.events as events_mod
     import petasos.console._paths as paths_mod
+    import petasos.enforce.events as events_mod
 
     saved = paths_mod._SPOOL_PATH_OVERRIDE
     paths_mod._SPOOL_PATH_OVERRIDE = None

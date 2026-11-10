@@ -373,11 +373,13 @@ def test_no_internal_reason_strings_leak(monkeypatch: pytest.MonkeyPatch) -> Non
     # catalogue that is checked AGAINST `forbidden`. They must not also go into `forbidden`
     # — that tuple is a deny-list checked against these very messages, so a string in both
     # halves would assert itself absent from itself.
+    from petasos.enforce.messages import format_result_notice
+
     ref = _import_reference_plugin()
-    messages.append(ref.format_result_notice("findings", "read_file", _non_pii("injection"), 3))
-    messages.append(ref.format_result_notice("scan_unavailable", "read_file"))
+    messages.append(format_result_notice("findings", "read_file", _non_pii("injection"), 3))
+    messages.append(format_result_notice("scan_unavailable", "read_file"))
     messages.append(
-        ref.format_result_notice(
+        format_result_notice(
             "ceiling", "read_file", None, 0, 1_000_000, 1_000_001, coverage="ceiling"
         )
     )
@@ -435,15 +437,16 @@ def _shim_source() -> str:
 
 
 def test_shim_imports_formatter() -> None:
-    # Regression for PET-77: the in-repo shim imports the library formatter.
+    # The shim calls the library's decisions. The formatter lives in enforce.
     src = _shim_source()
-    assert "from petasos.enforce.messages import" in src
-    assert "format_block_message" in src
-    assert "format_content_block" in src
-    # PET-170: the ingestion-annotation notice is the same contract in the other
-    # direction — an ad-hoc f-string banner in the shim would bypass the no-matched-text
-    # guarantee the library formatter enforces.
-    assert "format_result_notice" in src
+    assert "from petasos.enforce.decisions import" in src
+    assert "from petasos.enforce.fallback import" in src
+    enforce = "\n".join(
+        path.read_text(encoding="utf-8") for path in Path("petasos/enforce").glob("*.py")
+    )
+    assert "format_block_message" in enforce
+    assert "format_content_block" in enforce
+    assert "format_result_notice" in enforce
 
 
 def test_shim_emits_branding() -> None:
@@ -487,16 +490,21 @@ def test_shim_routes_every_block_site_through_formatter() -> None:
     # formatter sites: non-command findings, and the command-family remainder
     # after always-approval. Both still call ``format_content_block``.
     # Together those two additions move the count 11 -> 13.
-    tree = ast.parse(_shim_source())
     targets = {"format_block_message", "format_content_block", "format_result_notice"}
-    call_sites = sum(
-        1
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Name)
-        and node.func.id in targets
-    )
-    assert call_sites == 13, f"expected 13 formatter call sites in the shim, found {call_sites}"
+    roots = [Path("petasos/enforce"), Path("docs/deployment/reference_plugin/__init__.py")]
+    call_sites = 0
+    for root in roots:
+        paths = [root] if root.is_file() else sorted(root.glob("*.py"))
+        for path in paths:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            call_sites += sum(
+                1
+                for node in ast.walk(tree)
+                if isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id in targets
+            )
+    assert call_sites == 13, f"expected 13 formatter call sites, found {call_sites}"
 
 
 def test_manifest_and_runbook_hook_lists_agree() -> None:

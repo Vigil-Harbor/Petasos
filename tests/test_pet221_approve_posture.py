@@ -22,8 +22,8 @@ from petasos import (
     ScanFinding,
     Severity,
 )
-from petasos.scanners.minimal import MinimalScanner
 from petasos.enforce.messages import format_block_message, format_content_block
+from petasos.scanners.minimal import MinimalScanner
 from petasos.session.guard import ToolCallGuard
 from petasos.session.profiles import ProfileResolver
 
