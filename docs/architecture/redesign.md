@@ -6,11 +6,11 @@ This document fixes the interfaces the redesign is built against. Work packages
 in section 12 are briefed from it. Where it contradicts `CLAUDE.md` or older
 docs, this document wins until those are rewritten (package D2).
 
-Section 7 (Hermes binding) is written against
-`plugin-surface.md` (kept outside this repository), a source-level
-report on upstream Hermes at `v0.23.1`. That report read code and ran nothing,
-so section 7's host facts are confirmed on the migrated researcher in package
-C2 before anything depends on them.
+Section 7 (Hermes binding) rests on `docs/architecture/hermes-host-facts.md`,
+which records what upstream Hermes `v0.23.1` does when its plugin loader and
+hook dispatcher are run in a sandbox. `tests/hermes_host/` is the harness
+that produced it. Two things were not run there and stay open: a live
+gateway and a kanban worker (section 7.6).
 
 ## 1. What Petasos is
 
@@ -671,7 +671,12 @@ Petasos reaches Hermes as a **directory plugin in front of the wheel**:
 ```
 
 All behaviour is in the wheel. The directory carries no logic, so it cannot
-drift in any way that changes enforcement. It exists because Hermes renders a
+drift in any way that changes enforcement. Two host rules shape it. The
+manifest must carry `name`, `version`, `description` and a `provides_hooks`
+entry for every hook `register()` registers, or `hermes plugins validate`
+fails. And `__init__.py` stays a bare import: Hermes guesses a plugin's kind
+by scanning that file's text, and certain words in it would take the plugin
+out of the general loader. It exists because Hermes renders a
 settings form, checks `requires_hermes`, and records an install only for
 directory plugins; a pip entry point gets none of those. Petasos registers no
 entry point: one discovery path.
@@ -701,14 +706,17 @@ renders `enabled` as a switch, `role` and `level` as dropdowns, and
 `overrides` as a JSON text area. The schema format is flat and has no ranges
 or nested shapes, which is why the basic surface is three choices and
 everything else sits behind `overrides`. The two secrets are declared with
-`type: secret`, so Hermes stores them in the profile's `.env` as
-`PETASOS_SESSION_SECRET` and `PETASOS_HASH_KEY`.
+`type: secret` and an explicit `env:` name, so the form stores them in the
+profile's `.env` as `PETASOS_SESSION_SECRET` and `PETASOS_HASH_KEY`. Plugin
+settings calls do not reach `.env`: the adapter reads the two values with
+Hermes's own env-file reader.
 
 Rules the host imposes:
 
 - Defaults live in Petasos. The schema's `default` is display only.
 - Settings are read with `ctx.get_config` on each call, never captured in
-  `register()`. Hermes sends no change notification. `hermes.settings` wraps
+  `register()`. Hermes sends no change notification; within one process a
+  write on disk is visible on the next read. `hermes.settings` wraps
   this as the enforcer's `SettingsSource` and derives the change token from
   the four values.
 - Nothing but Hermes writes `config.yaml`. The plugin uses `ctx.set_config`;
@@ -725,22 +733,33 @@ hooks below, and translates between hook arguments and `ToolCall` /
 
 | Hook | Use | If the callback fails |
 |---|---|---|
-| `pre_tool_call` | The enforcement point: block, or hand to Hermes approval | Hermes blocks the call on an exception or after its 30 s hook timeout |
-| `transform_tool_result` | Annotate ingested content | Hermes passes the result through unchanged |
+| `pre_tool_call` | The enforcement point: block, or hand to Hermes approval | An exception becomes a block. So does exceeding `plugins.hook_callback_timeout` (30 s by default), after which Hermes skips the callback for 60 s and blocks those calls outright |
+| `transform_tool_result` | Annotate ingested content | Hermes passes the result through unchanged. If two plugins return text, the first registered wins |
 | `post_tool_call` | Taint and audit bookkeeping | Ignored |
 | `on_session_start` | Session bookkeeping | Ignored |
 | `subagent_start`, `subagent_stop` | Lineage | Ignored; the fan-out budget is enforced on the `delegate_task` tool call |
-| `pre_approval_request`, `post_approval_response` | Approval observation | Ignored |
+| `pre_approval_request`, `post_approval_response` | Approval observation | Ignored. Neither runs when Hermes refuses an approval because nobody is attached |
 
-Consequences for the enforcer:
+Consequences for the adapter and the enforcer:
 
-- Its own time limits sit below the host's 30 s, so a slow scan becomes a
-  Petasos decision under `fail_mode` and not a host timeout.
+- **A block always carries a message.** Hermes ignores a block directive
+  that has none, which would turn a block into an allow. The adapter refuses
+  to emit one.
+- The enforcer's own time limits sit below the host's, so a slow scan becomes
+  a Petasos decision under `fail_mode` and not a host timeout followed by a
+  minute of blanket blocking.
 - `tool_result` catches everything and always returns a string, because the
   host fails open there.
-- Hermes grants `approve` automatically in profiles whose approval mode is
-  set to approve, which includes the researcher. There `dangerous_posture:
-  approve` means allow. `HostInfo` reports it and `doctor` warns.
+- **What `approve` means depends on the host's state.** Hermes grants a
+  plugin's approve directive without asking when `approvals.mode` is `off`,
+  when yolo is on, when the process is a single-query, cron or unattended
+  session whose matching mode is set to `approve`, or when the rule key is
+  already on the permanent allow-list as `plugin_rule:<rule_key>`. In every
+  other case with nobody attached it refuses the call. `HostInfo` reports
+  which of these holds, and `doctor` says plainly when `dangerous_posture:
+  approve` currently amounts to allow. A profile that sets the
+  single-query and cron modes to `approve` has its scheduled work in that
+  position.
 - Some tool calls arrive with only a `task_id`. Session-keyed state keeps
   today's fallback.
 - A plugin that failed to load enforces nothing, silently. `doctor` checks
@@ -753,10 +772,17 @@ That is new function, not restructuring, and is left for after the redesign.
 
 ### 7.4 Self-protection
 
-Nothing in Hermes stops the model from running `hermes plugins disable
-petasos`, editing the plugin directory, or changing
-`plugins.entries.petasos`. The guard's self-modification rules are the only
-lever. C2 checks what they cover today and extends them to those three.
+Nothing in Hermes stops the model from switching the plugin off. The guard's
+self-modification rules are the only lever. C2 checks what they cover today
+and extends them to everything the sandbox run showed would stop enforcement:
+
+- the commands `hermes plugins disable`, `enable` and `remove`, the
+  `--safe-mode` flag, and `hermes gateway restart`;
+- the environment variable `HERMES_SAFE_MODE`;
+- the plugin directory under `<HERMES_HOME>/plugins/`;
+- in the profile's `config.yaml`: `plugins.enabled`, `plugins.disabled`,
+  `plugins.entries.petasos`, and `plugins.hook_callback_timeout`;
+- `<HERMES_HOME>/active_profile`, which redirects the CLI.
 
 ### 7.5 Commands
 
@@ -767,18 +793,28 @@ lever. C2 checks what they cover today and extends them to those three.
   and enables it.
 - `petasos config migrate`: section 4.3.
 
-### 7.6 Open until C2 runs on the researcher
+### 7.6 Installing, and what is still open
 
-- The install route. Either `hermes plugins install` from a git reference
-  that resolves to the plugin directory, with Hermes installing the wheel
-  named in its `pyproject.toml`; or `petasos hermes install` writing the
-  directory out of the wheel's package data. Upstream advises against adding
-  packages to a managed Hermes environment with raw pip, and whether its
-  package manager admits the wheel from where Petasos publishes is untested.
-- Whether settings written through the Desktop form reach a running gateway
-  without a restart.
-- Hook delivery in a managed kanban worker, where the settings a plugin reads
-  are those frozen at session creation.
+There are two install routes, and they suit different moments.
+
+- **Released.** `hermes plugins install <repository URL>#<plugin directory>`.
+  Hermes clones the directory and installs the index requirements in its
+  `pyproject.toml`, which is the `petasos` wheel from PyPI, into its own
+  managed environment. The new environment is picked up when the gateway
+  next starts. This is the route upstream documents, and the one users get.
+- **Unreleased.** Hermes will not manage a wheel that is not on a package
+  index. For a branch build, `petasos hermes install` installs the wheel into
+  the interpreter Hermes is running on and copies the directory into place.
+  That works and validates, but Hermes's package manager does not know about
+  it, so a later managed environment may not contain it. It is for
+  development and the researcher soak only.
+
+Still open, because the sandbox run started no long-lived Hermes process:
+
+- When a running gateway re-reads settings changed from the Desktop form or
+  the CLI.
+- Whether a kanban worker sees current settings or those from when its
+  session was created.
 
 ## 8. Console
 
