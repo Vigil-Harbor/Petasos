@@ -7,18 +7,18 @@ and reads one JSON object from stdout.
 from __future__ import annotations
 
 import json
-import os
 import sys
 from pathlib import Path
 from typing import Any
 
+if __name__ == "__main__" and __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from tests.hermes_host.sandbox_guard import sandbox_root
+
 
 def _sandbox_root() -> Path:
-    home = Path(os.environ["HERMES_HOME"]).resolve()
-    user_home = Path.home().resolve()
-    if user_home.name != "home" or home.name != "hermes_home" or user_home.parent != home.parent:
-        raise SystemExit(f"refusing to run outside a sandbox: HOME={user_home} HERMES_HOME={home}")
-    return home.parent
+    return sandbox_root()
 
 
 def _import(name: str) -> Any:

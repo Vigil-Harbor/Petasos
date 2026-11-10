@@ -24,16 +24,42 @@ DEFAULT_TAG = "v0.23.1"
 
 WRAPPER = """#!/bin/bash
 # Every command that runs Hermes code goes through this wrapper.
-# HOME and HERMES_HOME are inside this sandbox and replace anything inherited.
+# HOME is this sandbox's home. HERMES_HOME is the sandbox default, or
+# PETASOS_HERMES_HOME when that path resolves strictly inside the sandbox.
+# Anything else is refused before the command starts.
 set -euo pipefail
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
+REQUESTED="${PETASOS_HERMES_HOME:-$ROOT/hermes_home}"
+RESOLVED="$(
+  /usr/bin/python3 -c '
+import os, pwd, sys
+root = os.path.realpath(sys.argv[1])
+home = os.path.realpath(sys.argv[2])
+account = os.path.realpath(pwd.getpwuid(os.getuid()).pw_dir)
+banned_names = (
+    ".hermes", ".hermes-second", "hermes-services", "model-lab", "work", "notes",
+)
+def under(path, parent):
+    return path == parent or path.startswith(parent + os.sep)
+if home == root or not under(home, root):
+    sys.stderr.write("refusing Hermes home outside the sandbox: %s\\n" % home)
+    raise SystemExit(2)
+for name in banned_names:
+    banned = os.path.realpath(os.path.join(account, name))
+    if under(home, banned) or under(root, banned):
+        sys.stderr.write("refusing Hermes home under %s\\n" % banned)
+        raise SystemExit(2)
+print(home)
+' "$ROOT" "$REQUESTED"
+)"
 while IFS='=' read -r name _; do
   case "$name" in
     HERMES_*) unset "$name" ;;
   esac
 done < <(env)
 export HOME="$ROOT/home"
-export HERMES_HOME="$ROOT/hermes_home"
+export HERMES_HOME="$RESOLVED"
+export PETASOS_SANDBOX_ROOT="$ROOT"
 export VIRTUAL_ENV="$ROOT/venv"
 export PYTHONNOUSERSITE=1
 export PYTHONDONTWRITEBYTECODE=1

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from tests.hermes_host.client import invoke
+from tests.hermes_host.client import Sandbox, call
 from tests.hermes_host.marks import requires_hermes_sandbox
 
 pytestmark = requires_hermes_sandbox
@@ -12,7 +12,7 @@ pytestmark = requires_hermes_sandbox
 STANDIN = Path(__file__).resolve().parent / "standin" / "plugin"
 
 
-def test_validate_fails_until_the_wheel_imports(hermes_sandbox: Path, tmp_path: Path) -> None:
+def test_validate_fails_until_the_wheel_imports(standin: Sandbox, tmp_path: Path) -> None:
     plugin = tmp_path / "missing-wheel"
     plugin.mkdir()
     (plugin / "plugin.yaml").write_text(
@@ -28,19 +28,19 @@ def test_validate_fails_until_the_wheel_imports(hermes_sandbox: Path, tmp_path: 
         'description = "missing"\nrequires-python = ">=3.11"\ndependencies = []\n',
         encoding="utf-8",
     )
-    report = invoke(hermes_sandbox, {"action": "validate", "path": str(plugin)})
+    report = call(standin, {"action": "validate", "path": str(plugin)})
     assert report["ok"] is False
     checks = {item["name"]: item for item in report["report"]["checks"]}
     assert checks["capability probe"]["ok"] is False
     assert "standin_hostfacts_absent" in checks["capability probe"]["detail"]
 
 
-def test_directory_plugin_validates_and_loads(hermes_sandbox: Path) -> None:
-    report = invoke(hermes_sandbox, {"action": "validate", "path": str(STANDIN)})
+def test_directory_plugin_validates_and_loads(standin: Sandbox) -> None:
+    report = call(standin, {"action": "validate", "path": str(STANDIN)})
     assert report["ok"] is True, report
-    kind = invoke(hermes_sandbox, {"action": "parse_kind", "path": str(STANDIN)})
+    kind = call(standin, {"action": "parse_kind", "path": str(STANDIN)})
     assert kind["kind"] == "standalone"
-    loaded = invoke(hermes_sandbox, {"action": "load_state"})
+    loaded = call(standin, {"action": "load_state"})
     plugin = loaded["plugins"]["standin-hostfacts"]
     assert plugin["enabled"] is True
     assert plugin["error"] is None
@@ -49,7 +49,7 @@ def test_directory_plugin_validates_and_loads(hermes_sandbox: Path) -> None:
     assert "transform_tool_result" in plugin["hooks"]
 
 
-def test_memory_provider_marker_in_init_changes_kind(hermes_sandbox: Path, tmp_path: Path) -> None:
+def test_memory_provider_marker_in_init_changes_kind(standin: Sandbox, tmp_path: Path) -> None:
     plugin = tmp_path / "kind-bait"
     plugin.mkdir()
     (plugin / "plugin.yaml").write_text(
@@ -60,5 +60,5 @@ def test_memory_provider_marker_in_init_changes_kind(hermes_sandbox: Path, tmp_p
         "from standin_hostfacts.plugin import register\n# MemoryProvider\n",
         encoding="utf-8",
     )
-    kind = invoke(hermes_sandbox, {"action": "parse_kind", "path": str(plugin)})
+    kind = call(standin, {"action": "parse_kind", "path": str(plugin)})
     assert kind["kind"] == "exclusive"

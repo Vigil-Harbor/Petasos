@@ -19,6 +19,11 @@ import sys
 from pathlib import Path
 from typing import Any, cast
 
+if __name__ == "__main__" and __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from tests.hermes_host.sandbox_guard import hermes_home, sandbox_root
+
 ROOT = Path(__file__).resolve().parent
 STANDIN_PKG = ROOT / "standin"
 PLUGIN_DIR = STANDIN_PKG / "plugin"
@@ -35,21 +40,11 @@ HOOKS = (
 
 
 def _sandbox() -> Path:
-    home = Path(os.environ["HERMES_HOME"]).resolve()
-    user_home = Path.home().resolve()
-    root = home.parent
-    # The wrapper sets HOME to <sandbox>/home and HERMES_HOME to <sandbox>/hermes_home.
-    if user_home.name != "home" or home.name != "hermes_home" or user_home.parent != home.parent:
-        raise SystemExit(
-            f"refusing to run outside a sandbox wrapper: HOME={user_home} HERMES_HOME={home}"
-        )
-    if not str(user_home).startswith(str(root)) or not str(home).startswith(str(root)):
-        raise SystemExit("sandbox paths escaped their root")
-    return root
+    return sandbox_root()
 
 
 def _home() -> Path:
-    return Path(os.environ["HERMES_HOME"]).resolve()
+    return hermes_home()
 
 
 def _import(name: str) -> Any:
@@ -101,10 +96,13 @@ def _copy_plugin(name: str) -> Path:
     return dest
 
 
-def ensure_plugin(_request: dict[str, Any]) -> dict[str, Any]:
-    """Build the stand-in wheel into the sandbox interpreter and install both directories."""
+def _standin_wheel() -> Path:
+    """Build the stand-in wheel into the sandbox and return its path."""
     sandbox = _sandbox()
     dist = sandbox / "dist"
+    if dist.exists():
+        for stale in dist.glob("standin_hostfacts-*.whl"):
+            stale.unlink()
     dist.mkdir(parents=True, exist_ok=True)
     subprocess.run(
         ["uv", "build", "--wheel", "--out-dir", str(dist)],
@@ -116,16 +114,34 @@ def ensure_plugin(_request: dict[str, Any]) -> dict[str, Any]:
     wheels = sorted(dist.glob("standin_hostfacts-*.whl"))
     if not wheels:
         raise RuntimeError(f"no wheel in {dist}")
-    wheel = wheels[-1]
+    return wheels[-1]
+
+
+def install_standin_wheel(_request: dict[str, Any]) -> dict[str, Any]:
+    """Install the stand-in wheel into the sandbox interpreter. No home is written."""
+    wheel = _standin_wheel()
     subprocess.run(
-        ["uv", "pip", "install", "--python", sys.executable, str(wheel)],
+        ["uv", "pip", "install", "--python", sys.executable, "--reinstall", str(wheel)],
         check=True,
         capture_output=True,
         text=True,
     )
+    return {"ok": True, "wheel": str(wheel)}
+
+
+def prepare_standin_home(_request: dict[str, Any]) -> dict[str, Any]:
+    """Copy both stand-in directories into this home and enable them."""
+    _sandbox()
     installed = [_copy_plugin("standin-hostfacts"), _copy_plugin("standin-b")]
     _write_enabled(["standin-hostfacts", "standin-b"])
-    return {"ok": True, "wheel": str(wheel), "plugins": [str(path) for path in installed]}
+    return {"ok": True, "plugins": [str(path) for path in installed]}
+
+
+def ensure_plugin(request: dict[str, Any]) -> dict[str, Any]:
+    """Wheel plus both directories. Tests use the two steps separately."""
+    wheel = install_standin_wheel(request)
+    home = prepare_standin_home(request)
+    return {"ok": True, "wheel": wheel["wheel"], "plugins": home["plugins"]}
 
 
 def validate(request: dict[str, Any]) -> dict[str, Any]:
@@ -385,6 +401,8 @@ def main() -> None:
     action = str(request.get("action", ""))
     handlers = {
         "ensure_plugin": ensure_plugin,
+        "install_standin_wheel": install_standin_wheel,
+        "prepare_standin_home": prepare_standin_home,
         "validate": validate,
         "parse_kind": parse_kind,
         "settings": settings,

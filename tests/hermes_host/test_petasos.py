@@ -2,51 +2,23 @@
 
 from __future__ import annotations
 
-import json
-import subprocess
-from pathlib import Path
 from typing import Any
 
 import pytest
 
+from tests.hermes_host.client import PETASOS_HARNESS, Sandbox, call
 from tests.hermes_host.marks import requires_hermes_sandbox
 
 pytestmark = requires_hermes_sandbox
 
-_ROOT = Path(__file__).resolve().parents[2]
-_HARNESS = Path(__file__).resolve().parent / "petasos_harness.py"
+_HARNESS = PETASOS_HARNESS
 
 
-def _invoke(sandbox: Path, request: dict[str, Any], *, timeout: float = 180) -> dict[str, Any]:
-    wrapper = sandbox / "bin" / "with-sandbox"
-    python = sandbox / "venv" / "bin" / "python"
-    completed = subprocess.run(
-        [str(wrapper), str(python), str(_HARNESS)],
-        input=json.dumps(request),
-        text=True,
-        capture_output=True,
-        timeout=timeout,
-        check=False,
-    )
-    if completed.returncode != 0:
-        raise AssertionError(
-            f"harness {request.get('action')} exited {completed.returncode}\n"
-            f"stdout:\n{completed.stdout[-2000:]}\nstderr:\n{completed.stderr[-4000:]}"
-        )
-    parsed = json.loads(completed.stdout)
-    if not isinstance(parsed, dict):
-        raise AssertionError("harness did not return an object")
-    return parsed
+def _invoke(box: Sandbox, request: dict[str, Any], *, timeout: float = 180) -> dict[str, Any]:
+    return call(box, request, harness=_HARNESS, timeout=timeout)
 
 
-@pytest.fixture(scope="module")
-def installed(hermes_sandbox: Path) -> Path:
-    """Install this worktree's wheel and plugin directory once per module."""
-    _invoke(hermes_sandbox, {"action": "install", "worktree": str(_ROOT)}, timeout=180)
-    return hermes_sandbox
-
-
-def test_plugin_validates_and_loads(installed: Path) -> None:
+def test_plugin_validates_and_loads(installed: Sandbox) -> None:
     """Hermes validates the directory, discovers it, and loads it as standalone."""
     report = _invoke(installed, {"action": "validate"})
     assert report["ok"] is True
@@ -58,7 +30,7 @@ def test_plugin_validates_and_loads(installed: Path) -> None:
     assert "transform_tool_result" in loaded["hooks"]
 
 
-def test_injection_is_blocked_and_settings_change_live(installed: Path) -> None:
+def test_injection_is_blocked_and_settings_change_live(installed: Sandbox) -> None:
     """A finding blocks with a message. Hermes's writer changes the next call."""
     result = _invoke(installed, {"action": "behaviour"}, timeout=120)
     injected = result["injected"]["block"]
@@ -73,7 +45,7 @@ def test_injection_is_blocked_and_settings_change_live(installed: Path) -> None:
     assert isinstance(still, str) and still.strip()
 
 
-def test_tool_result_with_a_finding_is_annotated(installed: Path) -> None:
+def test_tool_result_with_a_finding_is_annotated(installed: Sandbox) -> None:
     """An ingestion result that contains an injection is not returned unchanged."""
     result = _invoke(installed, {"action": "tool_result"}, timeout=120)
     text = result["result"]
@@ -82,7 +54,7 @@ def test_tool_result_with_a_finding_is_annotated(installed: Path) -> None:
     assert result["original"] in text
 
 
-def test_reload_and_a_second_profile_keep_enforcement(installed: Path) -> None:
+def test_reload_and_a_second_profile_keep_enforcement(installed: Sandbox) -> None:
     """A force reload rebinds hooks on the same enforcer. Each home has its own.
 
     ``register`` is not called again by a discovery that has already run. It is
@@ -126,7 +98,7 @@ def test_reload_and_a_second_profile_keep_enforcement(installed: Path) -> None:
     assert any(line.startswith("PETASOS_ARMED_RESOLUTION ") for line in named)
 
 
-def test_secrets_come_from_the_env_file(installed: Path) -> None:
+def test_secrets_come_from_the_env_file(installed: Sandbox) -> None:
     """The profile env file is the secret store. Plugin settings do not carry it."""
     result = _invoke(installed, {"action": "secrets"})
     assert result["session_set"] is True
@@ -150,7 +122,7 @@ def test_secrets_come_from_the_env_file(installed: Path) -> None:
     ],
 )
 def test_approve_follows_the_host_state(
-    installed: Path, case: str, proceeds: bool, asks: bool
+    installed: Sandbox, case: str, proceeds: bool, asks: bool
 ) -> None:
     """An approve is handed to Hermes only when a person would be asked."""
     result = _invoke(installed, {"action": "approve", "case": case}, timeout=120)
