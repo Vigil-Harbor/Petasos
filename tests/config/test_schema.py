@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+import types
 from collections.abc import Callable, Mapping
 from dataclasses import FrozenInstanceError, fields, is_dataclass, replace
 from pathlib import Path
@@ -14,7 +15,9 @@ import pytest
 
 from petasos.config.schema import (
     ConfigError,
+    FieldInfo,
     FieldSpec,
+    SectionInfo,
     describe,
     from_mapping,
     merge,
@@ -31,21 +34,50 @@ def construct(cls: Callable[..., _S], /, **kwargs: Any) -> _S:
     return cls(**kwargs)
 
 
+def construct_positional(cls: Callable[..., _S], /, *args: Any) -> _S:
+    return cls(*args)
+
+
+def leaves(cls: type[object]) -> dict[str, FieldInfo]:
+    return {row.path: row for row in describe(cls) if isinstance(row, FieldInfo)}
+
+
+def direct_children(rows: tuple[FieldInfo | SectionInfo, ...], parent: str) -> list[str]:
+    """Paths of the rows one level under ``parent``, using only ``describe`` output."""
+    prefix = f"{parent}." if parent else ""
+    found: list[str] = []
+    for row in rows:
+        if parent and not row.path.startswith(prefix):
+            continue
+        rest = row.path[len(prefix) :]
+        if rest and "." not in rest:
+            found.append(row.path)
+    return found
+
+
 def problems(fn: Callable[[], object]) -> tuple[tuple[str, str], ...]:
     with pytest.raises(ConfigError) as caught:
         fn()
     return caught.value.errors
 
 
-def define(source: str) -> None:
-    namespace: dict[str, Any] = {
+# Executed sections are real module globals, which is all annotation
+# resolution can see. Names used in an annotation have to be placed here.
+_DEFINITIONS = types.ModuleType("tests.config._schema_definitions")
+sys.modules[_DEFINITIONS.__name__] = _DEFINITIONS
+_DEFINITIONS.__dict__.update(
+    {
         "ConfigError": ConfigError,
         "Literal": Literal,
         "Mapping": Mapping,
         "section": section,
         "setting": setting,
     }
-    exec(source, namespace)
+)
+
+
+def define(source: str) -> None:
+    exec(source, _DEFINITIONS.__dict__)
 
 
 @section
@@ -165,10 +197,9 @@ class TestConstruction:
         assert made.names.extra_entities == ("EMAIL",)
         assert made.frequency.weights == {"critical": 1.0}
 
-    def test_positional_arguments_match_keywords(self) -> None:
-        assert EscalationLevels(12.0, 24.0, 40.0) == EscalationLevels(
-            tier1=12.0, tier2=24.0, tier3=40.0
-        )
+    def test_positional_construction_is_rejected(self) -> None:
+        with pytest.raises(TypeError, match=r"keyword arguments only \(tier1, tier2, tier3\)"):
+            construct_positional(EscalationLevels, 12.0, 24.0, 40.0)
 
     def test_both_routes_report_the_same_problems(self) -> None:
         payload = {"tier1": True, "tier3": 10}
@@ -407,11 +438,39 @@ class TestAggregation:
 
 
 class TestDescribeAndRoundTrip:
-    def test_describe_lists_leaves_of_a_nested_tree(self) -> None:
+    def test_describe_lists_sections_and_leaves_in_order(self) -> None:
         rows = describe(SamplePolicy)
-        by_path = {row.path: row for row in rows}
+        by_path = leaves(SamplePolicy)
         assert [row.path for row in rows][:4] == ["enabled", "mode", "limit", "timeout"]
-        assert "escalation" not in by_path
+        escalation = rows[[row.path for row in rows].index("escalation")]
+        assert isinstance(escalation, SectionInfo)
+        assert escalation.help == "Tier thresholds."
+        assert escalation.audience == "advanced"
+        assert escalation.restart is False
+        assert escalation.nullable is False
+        assert direct_children(rows, "") == [
+            "enabled",
+            "mode",
+            "limit",
+            "timeout",
+            "label",
+            "aliases",
+            "escalation",
+            "alerts",
+            "names",
+            "frequency",
+        ]
+        assert direct_children(rows, "escalation") == [
+            "escalation.tier1",
+            "escalation.tier2",
+            "escalation.tier3",
+        ]
+        assert direct_children(rows, "names") == [
+            "names.scanners",
+            "names.entities",
+            "names.extra_entities",
+        ]
+        assert rows.index(escalation) < [row.path for row in rows].index("escalation.tier1")
         assert by_path["escalation.tier3"].ge == 30.0
         assert by_path["escalation.tier3"].type_name == "float"
         assert by_path["escalation.tier1"].default == 15.0
@@ -432,9 +491,10 @@ class TestDescribeAndRoundTrip:
         assert by_path["label"].nullable is True
         assert by_path["limit"].help == "How many items to keep."
         for row in rows:
-            json.dumps(row.default)
-            if row.choices is not None:
-                json.dumps(row.choices)
+            if isinstance(row, FieldInfo):
+                json.dumps(row.default)
+                if row.choices is not None:
+                    json.dumps(list(row.choices))
 
     def test_describe_uses_an_overridden_nested_default(self) -> None:
         @section
@@ -442,11 +502,43 @@ class TestDescribeAndRoundTrip:
             escalation: EscalationLevels = setting(
                 default=EscalationLevels(tier1=12.0, tier2=24.0, tier3=40.0),
                 help="Tier thresholds.",
+                audience="expert",
+                restart=True,
             )
 
-        rows = {row.path: row for row in describe(Parent)}
+        rows = leaves(Parent)
         assert rows["escalation.tier1"].default == 12.0
+        described = describe(Parent)
+        section_row = described[0]
+        assert isinstance(section_row, SectionInfo)
+        assert section_row.path == "escalation"
+        assert section_row.help == "Tier thresholds."
+        assert section_row.audience == "expert"
+        assert section_row.restart is True
         assert Parent().escalation.tier1 == 12.0
+
+    def test_describe_nests_a_section_under_its_parent(self) -> None:
+        @section
+        class Holder:
+            policy: SamplePolicy | None = setting(default=None, help="The whole policy.")
+
+        rows = describe(Holder)
+        policy = rows[0]
+        assert isinstance(policy, SectionInfo)
+        assert policy.path == "policy"
+        assert policy.help == "The whole policy."
+        assert policy.nullable is True
+        assert direct_children(rows, "") == ["policy"]
+        assert "policy.escalation" in direct_children(rows, "policy")
+        assert direct_children(rows, "policy.escalation") == [
+            "policy.escalation.tier1",
+            "policy.escalation.tier2",
+            "policy.escalation.tier3",
+        ]
+        nested = rows[[row.path for row in rows].index("policy.escalation")]
+        assert isinstance(nested, SectionInfo)
+        assert nested.help == "Tier thresholds."
+        assert leaves(Holder)["policy.escalation.tier1"].default == 15.0
 
     def test_round_trip_is_json_and_equal(self) -> None:
         original = _typed_sample()
@@ -614,13 +706,26 @@ class Bad:
 """
             )
 
-    def test_help_audience_and_restart_are_checked(self) -> None:
+    def test_help_must_not_be_empty(self) -> None:
         with pytest.raises(TypeError, match="help"):
             setting(default=True, help="")
-        with pytest.raises(TypeError, match="audience"):
-            define("setting(default=True, audience='nope', help='On.')")
-        with pytest.raises(TypeError, match="restart"):
-            define("setting(default=True, restart=1, help='On.')")
+        with pytest.raises(TypeError, match="help"):
+            setting(default=True, help="   ")
+
+    def test_an_undefined_annotation_says_to_import_it_at_runtime(self) -> None:
+        with pytest.raises(TypeError, match="Import the name at runtime") as caught:
+            define(
+                """
+from __future__ import annotations
+
+@section
+class Bad:
+    labels: Sequence[str] = setting(default=(), help="Labels.")
+"""
+            )
+        message = str(caught.value)
+        assert "Sequence" in message
+        assert "not defined" in message
 
     def test_a_normaliser_must_return_text(self) -> None:
         def bad(text: str) -> Any:
