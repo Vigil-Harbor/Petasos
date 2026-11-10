@@ -50,7 +50,7 @@ def _point_root_at(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
     else:
         monkeypatch.setenv("HOME", str(tmp_path))
-    from petasos.console._paths import hermes_root
+    from petasos.hermes.home import hermes_root
 
     root = hermes_root()
     (root / "profiles").mkdir(parents=True, exist_ok=True)

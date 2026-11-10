@@ -16,7 +16,7 @@ import tempfile
 from typing import Any
 
 from petasos.console._history import orderable_key
-from petasos.console._paths import resolve_hermes_config_path
+from petasos.hermes.home import resolve_hermes_config_path
 
 _REVIEWED_FILENAME = "petasos-approvals-reviewed.json"
 _REVIEWED_LABEL = b"petasos/approvals-reviewed/v1"

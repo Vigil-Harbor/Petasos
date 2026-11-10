@@ -601,8 +601,8 @@ def test_spool_path_identical_under_dangling_profile(
     # Gateway-emit and dashboard-drain resolve to the SAME spool file even under a
     # dangling active_profile (root-tier fallback), because both compute the path from
     # the one resolve_hermes_config_path() recomputed per call.
-    from petasos.console import _paths
-    from petasos.console._paths import HermesConfigResolution
+    import petasos.hermes.home as _paths
+    from petasos.hermes.home import HermesConfigResolution
 
     ev._reset_events_state(None)  # use the real resolver path for this test
     root_cfg = tmp_path / "config.yaml"
@@ -997,8 +997,8 @@ def test_path_keyed_spool_key_and_fallback(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Two spool paths keep two keys, and omitting path installs the fallback."""
-    from petasos.console import _paths
-    from petasos.console._paths import HermesConfigResolution
+    import petasos.hermes.home as _paths
+    from petasos.hermes.home import HermesConfigResolution
 
     saved = _paths._SPOOL_PATH_OVERRIDE
     _paths._SPOOL_PATH_OVERRIDE = None

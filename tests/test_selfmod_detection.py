@@ -426,8 +426,8 @@ async def test_gibson_guard_owns_root_config_and_sibling_spool(
     """A directly built gibson guard still classifies the root config and an ops spool."""
     import platform
 
-    import petasos.console._paths as paths_mod
-    from petasos.console._paths import HermesConfigResolution, hermes_root
+    import petasos.hermes.home as paths_mod
+    from petasos.hermes.home import HermesConfigResolution, hermes_root
 
     saved = paths_mod._SPOOL_PATH_OVERRIDE
     paths_mod._SPOOL_PATH_OVERRIDE = None
@@ -471,7 +471,7 @@ async def test_guard_without_home_resolves_ambiently(
     """A guard constructed without home still builds an owned set from the resolvers."""
     import platform
 
-    from petasos.console._paths import hermes_root
+    from petasos.hermes.home import hermes_root
 
     if platform.system() == "Windows":
         monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))

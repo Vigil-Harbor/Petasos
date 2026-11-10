@@ -124,7 +124,7 @@ def test_armed_read_uses_session_bound_resolution(
     # Regression for PET-130: a profile session pinned to its own config honors a
     # disarm written there, even when ambient resolution (HERMES_HOME) would read a
     # different, still-armed file.
-    from petasos.console._paths import HermesConfigResolution
+    from petasos.hermes.home import HermesConfigResolution
 
     root_cfg = tmp_path / "root" / "config.yaml"
     profile_cfg = tmp_path / "profiles" / "gibson" / "config.yaml"
@@ -141,7 +141,7 @@ def test_armed_read_uses_session_bound_resolution(
 def test_armed_read_with_res_fails_secure_on_missing_path(tmp_path: Path) -> None:
     # Regression for PET-130: a pinned resolution whose file is missing still arms
     # (the fail-secure floor must not weaken on the res path).
-    from petasos.console._paths import HermesConfigResolution
+    from petasos.hermes.home import HermesConfigResolution
 
     missing = HermesConfigResolution(path=tmp_path / "nope" / "config.yaml", tier="profile")
     assert read_armed(missing) is True
@@ -287,8 +287,8 @@ def test_regression_pet236_backup_winner_reads_shadowed(
 def test_protection_names_default_for_a_root_binding(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    from petasos.console._paths import hermes_root
     from petasos.console.server import ConsoleHandlers
+    from petasos.hermes.home import hermes_root
 
     monkeypatch.delenv("HERMES_HOME", raising=False)
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))

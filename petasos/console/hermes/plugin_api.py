@@ -18,8 +18,8 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 
-from petasos.console._paths import read_petasos_section, resolve_hermes_config_path
 from petasos.console._validation import SessionIdError, sanitize_session_id
+from petasos.hermes.home import read_petasos_section, resolve_hermes_config_path
 
 logger = logging.getLogger("petasos.dashboard")
 

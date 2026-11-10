@@ -11,7 +11,7 @@ this page pins it down.
 A *Hermes profile home* is a directory on disk that holds a `config.yaml` with a
 `petasos:` section. Hermes 0.16+ runs each persona as a separate profile home
 under `profiles/<name>/`. The effective file is resolved by
-`petasos/console/_paths.py::resolve_hermes_config_path()` with this precedence:
+`petasos/hermes/home.py::resolve_hermes_config_path()` with this precedence:
 
 1. **Hermes home override** (tier `override`) — `<override>/config.yaml`, only
    when the caller uses the override. The override is host-controlled: Hermes

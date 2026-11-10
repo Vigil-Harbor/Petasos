@@ -2781,7 +2781,7 @@ def require_same_schema(tree: Path, checkout: Path) -> None:
 def _live_root(arg: Path | None) -> Path:
     if arg is not None:
         return arg.resolve()
-    from petasos.console._paths import hermes_root
+    from petasos.hermes.home import hermes_root
 
     return Path(hermes_root()).resolve()
 
@@ -2906,7 +2906,7 @@ def _payload(
         "failed": result["failed"],
         "not_shown": list(NOT_SHOWN),
         "driver_imports": (
-            "petasos.console._paths.hermes_root from the gate checkout, not a probe process"
+            "petasos.hermes.home.hermes_root from the gate checkout, not a probe process"
         ),
         "env_set": [
             "HERMES_HOME",

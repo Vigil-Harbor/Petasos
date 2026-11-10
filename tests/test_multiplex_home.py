@@ -180,7 +180,7 @@ def test_twelve_homes_reload_cache_does_not_false_change(
 ) -> None:
     """A second reload pass over twelve unchanged homes returns None."""
     import petasos.console._reload as reload_mod
-    from petasos.console._paths import HermesConfigResolution
+    from petasos.hermes.home import HermesConfigResolution
 
     _freeze(monkeypatch, reload_mod)
     reload_mod._reset_reload_cache()
@@ -203,7 +203,7 @@ def test_twelve_homes_armed_second_pass_does_not_reparse(
 ) -> None:
     """Twelve armed homes do not re-parse inside the TTL on the second pass."""
     import petasos.console._armed as armed_mod
-    from petasos.console._paths import HermesConfigResolution
+    from petasos.hermes.home import HermesConfigResolution
 
     _freeze(monkeypatch, armed_mod)
     armed_mod._reset_armed_cache()
@@ -272,7 +272,7 @@ def test_hook_mismatch_warns_once_per_pair_and_keeps_capture(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     """A disarmed hook warns once per home pair and does not move the capture."""
-    import petasos.console._paths as paths_mod
+    import petasos.hermes.home as paths_mod
 
     real_resolve = paths_mod.resolve_hermes_config_path
     monkeypatch.setattr(threading.Thread, "start", lambda self: None)

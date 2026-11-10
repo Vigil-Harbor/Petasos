@@ -84,7 +84,8 @@ def verify(root: Path, hermes: Path, scratch: Path, rounds: int) -> dict[str, An
     secrets: Any = importlib.import_module("agent.secret_scope")
     constants: Any = importlib.import_module("hermes_constants")
     import petasos.enforce.events as _events
-    from petasos.console import _approvals, _history, _paths
+    import petasos.hermes.home as _paths
+    from petasos.console import _approvals, _history
     from petasos.console.server import _enforcement_summary, _history_disk_row
 
     # Imports may query local version metadata with git. Enforce the I/O guard
@@ -383,7 +384,7 @@ def main() -> None:
         "petasos_sources_sha256": {
             name: digest(root / name)
             for name in (
-                "petasos/console/_paths.py",
+                "petasos/hermes/home.py",
                 "petasos/enforce/events.py",
                 "petasos/console/_history.py",
                 "petasos/console/_approvals.py",

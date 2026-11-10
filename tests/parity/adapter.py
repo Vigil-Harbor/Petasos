@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from petasos.config import PetasosConfig
-from petasos.console._paths import HermesConfigResolution
+from petasos.hermes.home import HermesConfigResolution
 from petasos.pipeline import Pipeline
 from petasos.session.frequency import FrequencyTracker
 from petasos.session.guard import GuardResult, ToolCallGuard

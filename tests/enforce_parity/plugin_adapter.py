@@ -347,9 +347,9 @@ class _Runner:
 
     def _isolate_spool_and_root(self) -> None:
         import petasos.console._armed as armed
-        import petasos.console._paths as paths
         import petasos.console._reload as reload
         import petasos.enforce.events as events
+        import petasos.hermes.home as paths
 
         armed._reset_armed_cache()
         reload._reset_reload_cache()
@@ -365,7 +365,7 @@ class _Runner:
         logger.removeHandler(self._handler)
         logger.setLevel(self._saved_level)
         if self._saved_root is not None:
-            import petasos.console._paths as paths
+            import petasos.hermes.home as paths
 
             paths.hermes_root = self._saved_root
         if self.ref is not None:
@@ -421,7 +421,7 @@ class _Runner:
         # The hooks cannot park a process in 'still starting' or 'init failed'
         # without the background init either finishing or never having been
         # asked. These are the flags _ensure_initialized already consults.
-        from petasos.console._paths import HermesConfigResolution
+        from petasos.hermes.home import HermesConfigResolution
 
         ref._session_resolution = HermesConfigResolution(path=self.config_path, tier="hermes_home")
         ref._config = ref._load_config(ref._session_resolution)

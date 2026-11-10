@@ -32,7 +32,7 @@ def _bind_enforcement_spool() -> None:
     Importing the console package is what installs it. The spool module does
     not import the console.
     """
-    from petasos.console import _paths
+    import petasos.hermes.home as _paths
     from petasos.enforce.events import install_spool_resolver
 
     def _set_override(path: str | None) -> None:

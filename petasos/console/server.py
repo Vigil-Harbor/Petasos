@@ -29,7 +29,12 @@ from urllib.parse import quote, unquote
 from petasos._types import severity_rank
 from petasos.console import _approvals, _history
 from petasos.console._config_meta import generate_config_metadata, generate_section_metadata
-from petasos.console._paths import (
+from petasos.console._plugin_files import is_hermes_home, protection_status
+from petasos.console._presets import generate_preset_metadata, resolve_active_preset
+from petasos.console._ring_buffer import RingBuffer
+from petasos.console._sse import SSEBroadcaster
+from petasos.console._validation import SessionIdError, sanitize_session_id
+from petasos.hermes.home import (
     _resolved_normcase,
     hermes_root,
     list_hermes_profiles,
@@ -39,11 +44,6 @@ from petasos.console._paths import (
     spool_path,
     spool_rot_path,
 )
-from petasos.console._plugin_files import is_hermes_home, protection_status
-from petasos.console._presets import generate_preset_metadata, resolve_active_preset
-from petasos.console._ring_buffer import RingBuffer
-from petasos.console._sse import SSEBroadcaster
-from petasos.console._validation import SessionIdError, sanitize_session_id
 from petasos.normalize import normalize
 
 if TYPE_CHECKING:
@@ -53,7 +53,7 @@ if TYPE_CHECKING:
     from fastapi import FastAPI
 
     from petasos.config import PetasosConfig
-    from petasos.console._paths import HermesConfigResolution
+    from petasos.hermes.home import HermesConfigResolution
     from petasos.pipeline import Pipeline
     from petasos.session.profiles import ResolvedProfile
 
@@ -821,7 +821,7 @@ def _display_home(path: "Path | str") -> str:
 
     Delegates to ``_paths.display_path`` (PET-164 Decision 10a hoist).
     """
-    from petasos.console._paths import display_path
+    from petasos.hermes.home import display_path
 
     return display_path(path)
 
@@ -1460,7 +1460,7 @@ class ConsoleHandlers:
         # PET-146 D1: the profile list (fail-soft active-only on []).
         profiles = list_hermes_profiles(use_override=False)
         if not profiles:
-            # Caller-owned diagnostic (keeps _paths.py logging-free): WARN only when
+            # Caller-owned diagnostic (keeps home.py logging-free): WARN only when
             # the profiles/ dir is present but enumerated empty — a benign
             # double-log on a legitimately-empty dir is acceptable (edge F-8).
             with contextlib.suppress(Exception):

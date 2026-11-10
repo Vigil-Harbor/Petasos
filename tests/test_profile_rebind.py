@@ -45,7 +45,7 @@ if TYPE_CHECKING:
     import types
     from collections.abc import Iterator
 
-    from petasos.console._paths import Tier
+    from petasos.hermes.home import Tier
 
 
 _REF_PLUGIN_PATH = (
@@ -85,7 +85,7 @@ def _profile_home(tmp_path: Path, name: str, section: dict[str, Any] | None) -> 
 
 
 def _make_resolution(path: Path, tier: Tier = "profile") -> Any:
-    from petasos.console._paths import HermesConfigResolution
+    from petasos.hermes.home import HermesConfigResolution
 
     return HermesConfigResolution(path=path, tier=tier)
 
@@ -272,7 +272,7 @@ def test_rebind_is_operator_trusted_only(tmp_path: Path, monkeypatch: pytest.Mon
     # payload. An in-session agent rewriting active_profile / HERMES_HOME must not move the
     # binding, and the worker must never consult resolve_hermes_config_path or
     # read_active_profile. A sentinel on both fails the test if the re-bind path hits them.
-    import petasos.console._paths as paths_mod
+    import petasos.hermes.home as paths_mod
 
     ref = _import_reference_plugin()
     w_home = _profile_home(tmp_path, "w", {"enabled": True})
@@ -375,8 +375,8 @@ def test_sectionless_rebind_signs_the_new_spool(
     """A sectionless rebind installs the live secret on the new spool path."""
     import base64
 
-    import petasos.console._paths as paths_mod
     import petasos.enforce.events as events_mod
+    import petasos.hermes.home as paths_mod
 
     saved = paths_mod._SPOOL_PATH_OVERRIDE
     paths_mod._SPOOL_PATH_OVERRIDE = None
@@ -422,8 +422,8 @@ def test_reconfigure_keeps_live_spool_key_when_section_omits_secret(
     """A rebind whose section omits session_secret still signs with the live secret."""
     import base64
 
-    import petasos.console._paths as paths_mod
     import petasos.enforce.events as events_mod
+    import petasos.hermes.home as paths_mod
 
     saved = paths_mod._SPOOL_PATH_OVERRIDE
     paths_mod._SPOOL_PATH_OVERRIDE = None
@@ -537,7 +537,7 @@ def test_rebind_initwindow_malformed_profile_logs(
 def test_session_start_does_not_rebind(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # Regression for PET-132: _on_session_start carries no profile and must never move the
     # binding or re-resolve config (locks out the naive fix).
-    import petasos.console._paths as paths_mod
+    import petasos.hermes.home as paths_mod
 
     ref = _import_reference_plugin()
     w_home = _profile_home(tmp_path, "w", {"enabled": True})
