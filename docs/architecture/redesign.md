@@ -262,11 +262,14 @@ Changes from the 0.5 flat config:
   `confidence_floor`, `injection_floor_scope`, `dangerous_tool_posture`,
   `tool_exempt_list`, `tool_alias_map`) are ordinary fields. `ResolvedProfile`
   and `ProfileResolver` are deleted.
-- `detect_rtl_override` and `fold_leet` are deleted. The current code
-  documents both as changing no pipeline outcome (the pipeline keeps only the
-  normalized text; the syntactic scanner folds and detects on its own). B2
-  confirms that with a test before deleting; `normalize()` keeps its own
-  keyword arguments for direct callers.
+- `detect_rtl_override` and `fold_leet` are deleted. Neither flag changes
+  `normalize()`'s `.normalized` string: RTL detection is a side flag, and leet
+  folding is a match-only view. The pipeline keeps only `.normalized` for the
+  optional scanners, and the syntactic scanner folds and detects on its own.
+  B2 compared `Pipeline` results for all 1,955 texts in
+  `tests/parity/corpus.json`, inbound and outbound, with each flag on and off.
+  No verdict changed. `normalize()` keeps its own keyword arguments for direct
+  callers.
 - `Pipeline.inspect` loses its per-call `profile` argument. A pipeline is
   bound to one resolved config. If the console playground needs to preview a
   different role, it resolves a second config and builds a second pipeline
@@ -279,8 +282,38 @@ Changes from the 0.5 flat config:
   with a warning.) `rules.suppress` may not name a structural or
   self-modification rule, and may name an injection rule only when
   `rules.injection_floor_scope` is `inbound`. `rules.severity_overrides` may
-  not target a structural rule. The config layer recognises these families by
-  rule-id prefix; a test ties the prefixes to the scanner's own id sets.
+  not target a structural rule at all. A self-modification rule may not be set
+  below the severity the guard or the console gives it (`config_write` and
+  `console_probe` are critical, `config_ref` is high); an id with no recorded
+  base cannot be retargeted. An injection override is accepted here.
+  Direction-aware refusal of a downgrade stays in the pipeline, because it
+  depends on the scan direction. The config layer recognises these families
+  by rule-id prefix; a test ties the prefixes to the scanner's own id sets.
+- `rules.confidence_floor` is bounded to [0, 1]. The old profile parser
+  accepted any number.
+- `scanners.presidio.entities` and `entities_extra` must name a recognizer in
+  the curated known set, the same set the profile parser checked for
+  `pii_entities_extra`. The old flat `presidio_entities` accepted any token.
+  An empty `entities` list is rejected; leave it unset for the curated default.
+  `entities_extra` is where the profile field `pii_entities_extra` lands. The
+  pipeline passes that list to Presidio as extra detection types. It is not
+  copied into `anonymization.entities`, which remains the old `pii_entities`
+  filter: empty means hide every reported type.
+- `frequency.weights` keys follow the tracker's glob rule: a `*` is allowed
+  only as a terminal `.*`. The old config accepted a bad glob and failed later,
+  when the tracker was built. `None` means the built-in weights. An empty
+  mapping means findings add nothing.
+- Escalation tiers must be strictly ascending, and tier 3 cannot go below 30.
+  Tier 1 has no positive lower bound. A zero tier 1 still validates when the
+  three scores ascend, as it does today.
+- Hash mode without a hash key is not rejected here. That check stays where
+  config meets `Secrets` (section 3.4).
+- An alias value is trimmed. An alias may not point at an exempt tool.
+- Everything under `scanners.prompt_guard`, `scanners.presidio`, and
+  `scanners.semgrep` is `restart`. The timeout and the circuit breaker are
+  not: the pipeline reads them on each scan. Alerting thresholds, session
+  caps, lineage bounds, and the circuit breaker are `expert`. Nothing in the
+  tree is `basic`.
 
 ### 3.4 Secrets
 
@@ -365,7 +398,7 @@ Roles, replacing the five profiles:
 | `coding` | code_generation | suppressions for code-shaped text, confidence floor 0.6, PromptGuard injection downgraded, injection floor scoped to inbound, dangerous posture `approve` | balanced |
 | `research` | research | encoding suppressions, confidence floor 0.7 | relaxed |
 | `support` | customer_service | injection openers raised to critical, extra PII entities | balanced |
-| `admin` | admin | full PII entity set | strict |
+| `admin` | admin | extra PII entities PERSON, EMAIL_ADDRESS, PHONE_NUMBER, CREDIT_CARD, IBAN_CODE | strict |
 
 `research` and `admin` no longer carry tier thresholds; the suggested level
 carries that intent. Those thresholds never took effect in Hermes, because the
@@ -383,7 +416,9 @@ practice:
 
 Tin (fail-open, tool guard off) and Titanium are reachable through `overrides`
 and are not named levels. `balanced` equals the schema defaults field for
-field; a test asserts it.
+field; a test asserts it. Each level document names all six of its fields,
+including a value that equals the default, so `origin` says `level` for those
+fields.
 
 Roles and levels are frozen data in `layers.py`. Custom named profiles are
 dropped: a role plus `overrides` covers the case, and nothing outside tests
@@ -392,9 +427,50 @@ registered one.
 ### 4.3 Migration
 
 `petasos config migrate` reads a 0.5 flat `petasos:` section and prints the
-equivalent `Settings`: `profile_name` becomes `role`, a preset match becomes
-`level`, remaining differences become `overrides`, dropped fields are listed.
-There is no runtime support for the old format.
+equivalent `Settings`. The library function is `migrate` in
+`petasos.config.migrate`. The command-line wrapper is a later package. There
+is no runtime support for the old format.
+
+`profile_name` becomes `role`, using the rename in section 4.2. A missing
+profile, or an explicit null, is `general`, which has the same rule levers as
+no profile. An unknown profile is dropped, and the note names the roles.
+`enabled` becomes
+`Settings.enabled`. `host_id` is dropped; the host supplies it beside the
+config.
+
+Level-owned fields, with absent keys read as today's defaults, are compared
+with the three levels. An exact match becomes `level`. Anything else stays
+`balanced`, and the values that differ become overrides. A migrated default
+install, and a Bronze, Iron, or Steel section, therefore has empty
+`overrides`. Tin and Titanium do not match a level. Their differences are
+overrides.
+
+A value that is present in the old section and still differs from what that
+role and level resolve to becomes an override, and nothing else does. One
+exception: `presidio_entities_extra` and the profile's `pii_entities_extra`
+were both additive detection lists. Migration unions them into
+`scanners.presidio.entities_extra`, flat names first, so neither source is
+dropped. An absent flat list leaves the role's list in place and writes no
+override.
+
+`disabled_scanners` and `semgrep_enabled` become the per-scanner `enabled`
+values. A listed `prompt_guard` or `presidio` is `off` (the default is
+`auto`). `semgrep_enabled: true` is `on`, unless `semgrep` is also disabled,
+in which case disabled wins and the value stays `off`. `llm_guard` and
+`llama_firewall` are dropped with a note. Any other unknown id is dropped
+with a note.
+
+`detect_rtl_override`, `fold_leet`, `session_secret`, and `hash_key` are
+dropped. The note for a secret names the environment variable and does not
+include the value. Unknown keys are dropped with a note.
+
+The `research` and `admin` profiles carried tier thresholds (25/45/70 and
+10/20/35) that the new roles do not. Those numbers are not copied. The Hermes
+plugin constructs `ToolCallGuard` without a profile, and pipeline escalation
+reads the config tiers, so the profile numbers never changed enforcement
+there. Migration adds a note naming the old numbers and the suggested level
+(relaxed 25/45/65, strict 10/22/40). Explicit tier fields in the flat section
+are ordinary level fields and are migrated with the rest.
 
 ## 5. Scanner registry
 
