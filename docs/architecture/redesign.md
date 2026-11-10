@@ -337,6 +337,14 @@ Changes from the 0.5 flat config:
   caps, lineage bounds, and the circuit breaker are `expert`. Nothing in the
   tree is `basic`.
 
+Components keep the config they are given; they do not copy it. The tree is
+immutable all the way down (frozen slotted sections, tuples, read-only
+mappings, and a fresh set of nested sections per instance), so there is
+nothing a well-behaved caller can change afterwards. The old pipeline copied
+its flat config on intake. A copy only defends against code that deliberately
+writes past the frozen guard, and such code can reach the component's own
+copy just as easily.
+
 ### 3.4 Secrets
 
 `session_secret` and `hash_key` are not config. They live in
