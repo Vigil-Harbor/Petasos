@@ -877,8 +877,11 @@ class ConsoleHandlers:
         # `session_secret` the pipeline already carries. `None` => integrity off ("unattested").
         from petasos.console import _events
 
+        session_secret = (
+            pipeline.legacy_config.session_secret if pipeline.legacy_config is not None else None
+        )
         self._spool_key: bytes | None = (
-            _events._derive_spool_key(s) if (s := pipeline.config.session_secret) else None
+            _events._derive_spool_key(session_secret) if session_secret else None
         )
         # PET-139: monotonic clock for the rate-limited integrity-failure tripwire (D9). A
         # plain instance attribute is safe — every `_surface_enforcement_event` runs inside
@@ -894,11 +897,11 @@ class ConsoleHandlers:
         # ("unattested", the no-regression path). Single construction chokepoint for both
         # standalone and embedded modes, parallel to self._spool_key above.
         self._history_key: bytes | None = (
-            _history._derive_history_key(s) if (s := pipeline.config.session_secret) else None
+            _history._derive_history_key(session_secret) if session_secret else None
         )
         # PET-223: reviewed-file key. A distinct domain label from the sink and the spool.
         self._reviewed_key: bytes | None = (
-            _approvals.reviewed_key(s) if (s := pipeline.config.session_secret) else None
+            _approvals.reviewed_key(session_secret) if session_secret else None
         )
         # PET-148: the sole guard for the history sink's FILE STRUCTURE — every cursor
         # page-read and every rotate_history check acquires it, so a rotation can never
@@ -1499,7 +1502,8 @@ class ConsoleHandlers:
         # `config_warning`, which always reflects the ACTIVE binding (edge F-5).
         profile_warning: str | None = None
         if viewing_active:
-            cfg = self.pipeline.config
+            cfg = self.pipeline.legacy_config
+            assert cfg is not None
             view_profile = self.pipeline._default_profile
         else:
             # PET-146 D4 load: read the target file's on-disk section, build a config
@@ -1539,7 +1543,9 @@ class ConsoleHandlers:
                 view_profile = None
                 if cfg.profile_name:
                     with contextlib.suppress(KeyError):
-                        view_profile = self.pipeline._profile_resolver.resolve(cfg.profile_name)
+                        from petasos.session.profiles import ProfileResolver
+
+                        view_profile = ProfileResolver().resolve(cfg.profile_name)
 
         return {
             "config": cfg.to_dict(redact_secrets=True),
@@ -1598,7 +1604,9 @@ class ConsoleHandlers:
 
         if is_active:
             # ── Equipped path (D3): unchanged validate -> reconfigure -> persist ──
-            current = self.pipeline.config.to_dict()
+            legacy = self.pipeline.legacy_config
+            assert legacy is not None
+            current = legacy.to_dict()
             current.pop("session_secret", None)
             merged = {**current, **body}
             try:
@@ -1689,7 +1697,9 @@ class ConsoleHandlers:
             if validated.profile_name:
                 # KeyError on an unknown internal profile name (parity with
                 # reconfigure's ProfileResolver.resolve). Discard the result.
-                self.pipeline._profile_resolver.resolve(validated.profile_name)
+                from petasos.session.profiles import ProfileResolver
+
+                ProfileResolver().resolve(validated.profile_name)
         except (ValueError, TypeError) as exc:
             return None, [{"field": "frequency_weights", "message": str(exc)}]
         except KeyError as exc:
@@ -1730,7 +1740,8 @@ class ConsoleHandlers:
             session_id=session_id,
         )
 
-        cfg = self.pipeline.config
+        cfg = self.pipeline.legacy_config
+        assert cfg is not None
         # PET-137: keep the full NormalizedText (not just `.normalized`) so the detail
         # blob can carry `transformations_applied`; the bare string still feeds the
         # HTTP response below.
@@ -1841,7 +1852,8 @@ class ConsoleHandlers:
         # via the D19 object; it never fabricates per-profile health.
         scope = _resolve_read_scope(profile, use_override=False)
         self._note_unscoped_read(scope)
-        cfg = self.pipeline.config
+        cfg = self.pipeline.legacy_config
+        assert cfg is not None
         config_hash = hashlib.sha256(
             json.dumps(cfg.to_dict(redact_secrets=True), sort_keys=True, default=str).encode()
         ).hexdigest()[:16]

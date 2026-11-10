@@ -1,4 +1,8 @@
-"""Per-scanner settings. Everything in the three scanner sections needs a restart."""
+"""Per-scanner settings.
+
+The three scanner sections need a restart, except the extra Presidio types.
+A scan reads that list itself, so a change applies without a restart.
+"""
 
 from __future__ import annotations
 
@@ -62,7 +66,6 @@ class PresidioConfig:
     entities_extra: tuple[str, ...] = setting(
         default=(),
         normalize=str.upper,
-        restart=True,
         help="Add personal-information types, such as URL or PERSON, on top of the detected set.",
     )
     score_threshold: float = setting(

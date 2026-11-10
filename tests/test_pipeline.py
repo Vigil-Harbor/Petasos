@@ -124,8 +124,8 @@ class TestPipelineConstruction:
     def test_config_defensive_copy(self) -> None:
         cfg = PetasosConfig(fail_mode="open")
         p = Pipeline(config=cfg)
-        assert p._config == cfg
-        assert p._config is not cfg
+        assert p.legacy_config == cfg
+        assert p.legacy_config is not cfg
 
 
 # ===================================================================
@@ -662,7 +662,8 @@ class TestPipelineNeverThrows:
             *,
             direction: Direction,
             session_id: str | None,
-            active_profile: object = None,
+            rules: object = None,
+            entities_extra: object = None,
             weight_cap: float | None = None,
             prepared_semgrep: ScanResult | None = None,
         ) -> PipelineResult:

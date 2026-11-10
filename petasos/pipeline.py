@@ -10,7 +10,7 @@ import time
 from collections.abc import Callable
 from dataclasses import replace
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 from petasos._types import (
     AVAILABILITY_CAUSE_LOAD_FAILED,
@@ -25,7 +25,21 @@ from petasos._types import (
     at_least,
     severity_rank,
 )
-from petasos.config import PetasosConfig
+from petasos.config.legacy import (
+    PROFILE_WITH_TREE,
+    ConfigInput,
+    FlatConfig,
+    ResolvedProfile,
+    Secrets,
+    bind,
+    preserved_flat,
+    require_hash_key,
+    secret_change_ignored,
+    semgrep_settings_changed,
+)
+from petasos.config.legacy import list_profiles as _list_profiles
+from petasos.config.schema import ReconfigureResult, apply_live
+from petasos.config.sections import PetasosConfig, RulesConfig
 from petasos.normalize import normalize
 from petasos.scanners._semgrep_runtime import error_result as _semgrep_error
 from petasos.scanners.minimal import (
@@ -38,9 +52,11 @@ from petasos.scanners.semgrep import PreparedSemgrepScan, SemgrepScanner
 from petasos.session.alerting import AlertManager
 from petasos.session.audit import AuditEmitter
 from petasos.session.frequency import FrequencyTracker, FrequencyUpdateResult
-from petasos.session.profiles import ProfileResolver, ResolvedProfile
 
 _logger = logging.getLogger(__name__)
+
+# Reconfigure of a tree does not re-resolve a profile.
+_UNCHANGED = object()
 
 # Lower rank claims less coverage. Two scanners may share a name (Pipeline does not
 # require unique names), so a collision keeps the claim that examined the least
@@ -341,16 +357,25 @@ class Pipeline:
         self,
         scanners: Sequence[Scanner] = (),
         *,
-        config: PetasosConfig | None = None,
-        profile: str | ResolvedProfile | None = None,
+        config: ConfigInput | None = None,
+        profile: str | ResolvedProfile | dict[str, Any] | None = None,
         on_audit: Callable[[AuditEvent], None] | None = None,
         on_alert: Callable[[Alert], None] | None = None,
         host_id: str = "",
         frequency_tracker: FrequencyTracker | None = None,
+        secrets: Secrets | None = None,
     ) -> None:
-        self._config = replace(config) if config is not None else PetasosConfig()
+        if isinstance(config, PetasosConfig) and profile is not None:
+            raise ValueError(PROFILE_WITH_TREE)
+        bound = bind(config, profile, secrets=secrets)
+        require_hash_key(bound.config, bound.secrets)
+        self._config = bound.config
+        self._legacy = bound.legacy
+        self._secrets = bound.secrets
+        self._profile_arg = profile
+        self._default_profile = bound.profile
         self._host_id = host_id
-        if self._config.session_secret is not None and not host_id:
+        if self._secrets.session_secret is not None and not host_id:
             raise ValueError("host_id is required when session_secret is configured")
 
         scanner_list = list(scanners)
@@ -373,7 +398,7 @@ class Pipeline:
 
         if self._minimal_scanner is None:
             self._minimal_scanner = MinimalScanner(
-                decode_encoded_payloads=self._config.decode_encoded_payloads
+                decode_encoded_payloads=self._config.normalization.decode_payloads
             )
 
         if frequency_tracker is not None:
@@ -382,21 +407,21 @@ class Pipeline:
             # (pipeline._config) and _resolve_session_id's enforcement
             # (tracker._session_secret) disagree and EVERY update() raises into
             # Stage 6's errors[] with a green-looking result.
-            if frequency_tracker.requires_token != (self._config.session_secret is not None):
+            if frequency_tracker.requires_token != (self._secrets.session_secret is not None):
                 raise ValueError(
                     "frequency_tracker.requires_token must match config.session_secret being set"
                 )
             self._frequency_tracker = frequency_tracker
         else:
-            self._frequency_tracker = FrequencyTracker(self._config)
-        self._profile_resolver = ProfileResolver()
-        # PET-126: retain the raw constructor `profile` arg so reconfigure can
-        # re-resolve _default_profile with the same precedence (a pinned profile
-        # stays pinned; a config-driven one follows profile_name — Decision 7).
-        self._profile_arg = profile
-        self._default_profile: ResolvedProfile | None = self._resolve_profile(profile)
+            self._frequency_tracker = FrequencyTracker(self._config, secrets=self._secrets)
+            if self._legacy is not None:
+                self._frequency_tracker._legacy = self._legacy
         self._audit_emitter = AuditEmitter(self._config, on_audit=on_audit)
+        if self._legacy is not None:
+            self._audit_emitter._legacy = self._legacy
         self._alert_manager = AlertManager(self._config, on_alert=on_alert)
+        if self._legacy is not None:
+            self._alert_manager._legacy = self._legacy
 
         # Per-scanner circuit-breaker state. Single-threaded asyncio access only.
         self._breaker_consecutive_timeouts: dict[str, int] = {}
@@ -408,7 +433,13 @@ class Pipeline:
 
     @property
     def config(self) -> PetasosConfig:
+        """The config tree this pipeline reads."""
         return self._config
+
+    @property
+    def legacy_config(self) -> FlatConfig | None:
+        """The flat config most recently supplied, or None when a tree was."""
+        return self._legacy
 
     @property
     def default_profile(self) -> ResolvedProfile | None:
@@ -420,72 +451,54 @@ class Pipeline:
         """
         return self._default_profile
 
-    def reconfigure(self, new_config: PetasosConfig) -> None:
-        """Atomically swap ``self._config`` and propagate it into every
-        subcomponent that cached config, without resetting accumulated session
-        state (PET-126).
+    def reconfigure(self, new_config: ConfigInput) -> ReconfigureResult:
+        """Apply live settings and report the ones that need a restart.
 
-        The single in-process propagation primitive (spec Decision 1). Order is
-        chosen for all-or-nothing atomicity (Decision 5):
-
-        1. Merge-preserve the restart-required ``session_secret`` (Decision 2): the
-           applied config always keeps the LIVE secret. A differing non-None
-           incoming secret logs one WARNING and is ignored (restart required); a
-           None/absent secret preserves silently (the console path always drops
-           it). ``replace`` re-runs ``__post_init__`` (full validation) before any
-           live state is touched, so a sub-floor or unordered tier is rejected here.
-        2. Apply the only fail-prone step FIRST: ``FrequencyTracker.apply_config``
-           stages the weight parse then commits. If it raises (malformed weights),
-           ``self._config`` is untouched and the pipeline stays wholly on the prior
-           config. Note the tracker may be shared with the guard (PET-176 D1
-           injection), in which case a reconfigure through the reference plugin
-           applies the same config to it twice — idempotent by design (D7).
-        3. Apply the infallible steps: audit, alert, and the MinimalScanner decode
-           flag.
-        4. Commit the swap and re-resolve the profile.
+        A flat config keeps today's Semgrep and session-secret handling: those
+        changes are logged and left as they are. A malformed frequency weight
+        map raises ``ValueError`` before any live state changes. A pinned
+        profile stays pinned. With no pinned profile, ``profile_name`` on the
+        flat config selects the profile again.
         """
-        semgrep_fields = (
-            "semgrep_enabled",
-            "semgrep_engine_path",
-            "semgrep_engine_sha256",
-            "semgrep_request_timeout_seconds",
-            "semgrep_max_source_bytes",
-        )
-        preserved = {name: getattr(self._config, name) for name in semgrep_fields}
-        disabled = tuple(name for name in new_config.disabled_scanners if name != "semgrep")
-        if "semgrep" in self._config.disabled_scanners:
-            disabled += ("semgrep",)
-        changed = any(getattr(new_config, name) != value for name, value in preserved.items())
-        changed |= ("semgrep" in new_config.disabled_scanners) != (
-            "semgrep" in self._config.disabled_scanners
-        )
-        if changed and not self._semgrep_reconfigure_warned:
+        proposed, secrets, applied_flat, pending_profile = self._proposed(new_config)
+        updated, result = apply_live(self._config, proposed)
+        require_hash_key(updated, secrets)
+        self._frequency_tracker.apply_config(updated, legacy=applied_flat)
+        self._audit_emitter.apply_config(updated, legacy=applied_flat)
+        self._alert_manager.apply_config(updated, legacy=applied_flat)
+        assert self._minimal_scanner is not None
+        self._minimal_scanner.set_decode_encoded_payloads(updated.normalization.decode_payloads)
+        self._config = updated
+        self._secrets = secrets
+        if applied_flat is not None:
+            self._legacy = applied_flat
+        if pending_profile is not _UNCHANGED:
+            self._default_profile = cast("ResolvedProfile | None", pending_profile)
+        return result
+
+    def _proposed(
+        self, new_config: ConfigInput
+    ) -> tuple[PetasosConfig, Secrets, FlatConfig | None, ResolvedProfile | None | object]:
+        if isinstance(new_config, PetasosConfig):
+            return new_config, self._secrets, self._legacy, _UNCHANGED
+        if not isinstance(new_config, FlatConfig):
+            raise TypeError(
+                f"config must be a flat config or a config tree, got {type(new_config).__name__}"
+            )
+        if self._legacy is None:
+            raise TypeError("this pipeline was built from a config tree; reconfigure with a tree")
+        semgrep_changed = semgrep_settings_changed(self._legacy, new_config)
+        if semgrep_changed and not self._semgrep_reconfigure_warned:
             _logger.warning("Semgrep settings change ignored: restart required")
             self._semgrep_reconfigure_warned = True
-        applied = replace(
-            new_config,
-            session_secret=self._config.session_secret,
-            disabled_scanners=disabled,
-            **preserved,
-        )
-        if (
-            new_config.session_secret is not None
-            and new_config.session_secret != self._config.session_secret
-        ):
+        if secret_change_ignored(self._legacy, new_config):
             _logger.warning(
                 "reconfigure: session_secret change ignored (restart required); "
                 "the live secret is preserved"
             )
-        # Fail-prone step first (the atomic abort point, Decision 5).
-        self._frequency_tracker.apply_config(applied)
-        # Infallible steps.
-        self._audit_emitter.apply_config(applied)
-        self._alert_manager.apply_config(applied)
-        assert self._minimal_scanner is not None
-        self._minimal_scanner.set_decode_encoded_payloads(applied.decode_encoded_payloads)
-        # Commit the swap, then re-resolve the profile with constructor precedence.
-        self._config = applied
-        self._default_profile = self._resolve_profile(self._profile_arg)
+        applied_flat = preserved_flat(self._legacy, new_config)
+        bound = bind(applied_flat, self._profile_arg)
+        return bound.config, bound.secrets, applied_flat, bound.profile
 
     @property
     def host_id(self) -> str:
@@ -578,7 +591,7 @@ class Pipeline:
 
     def list_profiles(self) -> list[dict[str, Any]]:
         """Return all loaded scanner profiles."""
-        return sorted(self._profile_resolver.list_profiles(), key=lambda p: p["name"])
+        return sorted(_list_profiles(), key=lambda p: p["name"])
 
     def add_audit_listener(self, callback: Callable[[AuditEvent], None]) -> None:
         """Register an additional audit event listener."""
@@ -610,6 +623,7 @@ class Pipeline:
             except Exception:
                 _logger.exception("record_selfmod: audit emit failed")
 
+    # Flat field names. The reference plugin's feature table mirrors this map.
     _FEATURE_GATES: ClassVar[dict[str, str]] = {
         "frequency": "frequency_enabled",
         "escalation": "escalation_enabled",
@@ -619,32 +633,47 @@ class Pipeline:
     }
 
     def _is_enabled(self, feature_name: str) -> bool:
-        attr = self._FEATURE_GATES.get(feature_name)
-        if attr is not None:
-            return bool(getattr(self._config, attr, True))
+        config = self._config
+        flags = {
+            "frequency": config.frequency.enabled,
+            "escalation": config.escalation.enabled,
+            "tool_guard": config.tools.enabled,
+            "audit": config.audit.enabled,
+            "alerting": config.alerting.enabled,
+        }
+        if feature_name in flags:
+            return flags[feature_name]
         return True
 
-    def _resolve_profile(self, profile: str | ResolvedProfile | None) -> ResolvedProfile | None:
-        if isinstance(profile, ResolvedProfile):
-            return profile
-        if isinstance(profile, str):
-            return self._profile_resolver.resolve(profile)
-        if self._config.profile_name:
-            return self._profile_resolver.resolve(self._config.profile_name)
-        return None
+    def _rules_for(
+        self, profile: str | ResolvedProfile | dict[str, Any] | None
+    ) -> tuple[RulesConfig, tuple[str, ...]]:
+        """Rules and extra entity types for this scan.
+
+        No profile uses the tree already resolved at construction. A profile
+        is resolved through the bridge and is not stored.
+        """
+        if profile is None:
+            extra = self._config.scanners.presidio.entities_extra
+            return self._config.rules, extra
+        if self._legacy is None:
+            raise ValueError(PROFILE_WITH_TREE)
+        bound = bind(self._legacy, profile, secrets=self._secrets, use_profile_name=False)
+        return bound.config.rules, bound.config.scanners.presidio.entities_extra
 
     def _build_feature_status(self) -> MappingProxyType[str, str]:
-        def _status(config_attr: str) -> str:
-            return "enabled" if getattr(self._config, config_attr, True) else "disabled"
+        def _status(enabled: bool) -> str:
+            return "enabled" if enabled else "disabled"
 
+        config = self._config
         return MappingProxyType(
             {
-                "frequency": _status("frequency_enabled"),
-                "escalation": _status("escalation_enabled"),
+                "frequency": _status(config.frequency.enabled),
+                "escalation": _status(config.escalation.enabled),
                 "profiles": "enabled" if self._default_profile is not None else "disabled",
-                "tool_guard": _status("tool_guard_enabled"),
-                "audit": _status("audit_enabled"),
-                "alerting": _status("alert_enabled"),
+                "tool_guard": _status(config.tools.enabled),
+                "audit": _status(config.audit.enabled),
+                "alerting": _status(config.alerting.enabled),
             }
         )
 
@@ -723,9 +752,9 @@ class Pipeline:
             if result.error and result.error.startswith(_TIMEOUT_ERROR_PREFIX):
                 count = self._breaker_consecutive_timeouts.get("semgrep", 0) + 1
                 self._breaker_consecutive_timeouts["semgrep"] = count
-                if count >= self._config.scanner_circuit_breaker_threshold:
+                if count >= self._config.scanners.breaker_threshold:
                     self._breaker_open_until["semgrep"] = (
-                        time.monotonic() + self._config.scanner_circuit_breaker_cooldown_seconds
+                        time.monotonic() + self._config.scanners.breaker_cooldown_seconds
                     )
             else:
                 self._breaker_consecutive_timeouts.pop("semgrep", None)
@@ -767,16 +796,13 @@ class Pipeline:
                 return PipelineResult(
                     safe=False, findings=(), errors=("semgrep.prepared_invalid",)
                 )
-            active_profile = self._default_profile
-            if isinstance(profile, ResolvedProfile):
-                active_profile = profile
-            elif isinstance(profile, (str, dict)):
-                active_profile = self._profile_resolver.resolve(profile)
+            rules, entities_extra = self._rules_for(profile)
             return await self._inspect_inner(
                 text,
                 direction=direction or self._config.direction,
                 session_id=session_id,
-                active_profile=active_profile,
+                rules=rules,
+                entities_extra=entities_extra,
                 weight_cap=weight_cap,
                 prepared_semgrep=result,
             )
@@ -799,18 +825,13 @@ class Pipeline:
         )
 
         try:
-            active_profile = self._default_profile
-            if profile is not None:
-                if isinstance(profile, ResolvedProfile):
-                    active_profile = profile
-                elif isinstance(profile, (str, dict)):
-                    active_profile = self._profile_resolver.resolve(profile)
-
+            rules, entities_extra = self._rules_for(profile if profile is not None else None)
             return await self._inspect_inner(
                 text,
                 direction=resolved_direction,
                 session_id=session_id,
-                active_profile=active_profile,
+                rules=rules,
+                entities_extra=entities_extra,
                 weight_cap=weight_cap,
             )
         except BaseException as exc:
@@ -833,7 +854,8 @@ class Pipeline:
         *,
         direction: Direction,
         session_id: str | None,
-        active_profile: ResolvedProfile | None,
+        rules: RulesConfig,
+        entities_extra: tuple[str, ...],
         weight_cap: float | None = None,
         prepared_semgrep: ScanResult | None = None,
     ) -> PipelineResult:
@@ -845,13 +867,12 @@ class Pipeline:
         # (PIPE-05). The old all-or-nothing guard skipped *all* normalization if
         # any single toggle was off; now disabling one stage leaves the rest
         # running.
+        normalization = self._config.normalization
         norm_result = normalize(
             text,
-            nfkc=self._config.normalize_nfkc,
-            strip_zero_width=self._config.strip_zero_width,
-            map_homoglyphs=self._config.map_homoglyphs,
-            detect_rtl=self._config.detect_rtl_override,
-            fold_leet=self._config.fold_leet,
+            nfkc=normalization.nfkc,
+            strip_zero_width=normalization.zero_width,
+            map_homoglyphs=normalization.homoglyphs,
         )
         normalized_text = norm_result.normalized
 
@@ -905,8 +926,8 @@ class Pipeline:
                     # accepts the keyword. None on the no-profile/non-Presidio path
                     # keeps today's exact behavior.
                     extra_entities=(
-                        active_profile.pii_entities_extra
-                        if active_profile is not None and isinstance(s, PresidioScanner)
+                        entities_extra
+                        if entities_extra and isinstance(s, PresidioScanner)
                         else None
                     ),
                 )
@@ -929,12 +950,12 @@ class Pipeline:
         # finding can neither evict a legitimate overlapping finding nor drive the
         # tier-3 net / frequency / escalation. Downstream consumers all read the
         # post-suppression set automatically — no per-consumer change.
-        if active_profile is not None and active_profile.suppress_rules:
+        if rules.suppress:
             all_results = _suppress_scanner_findings(
                 all_results,
-                active_profile.suppress_rules,
+                frozenset(rules.suppress),
                 direction,
-                active_profile.injection_floor_scope,
+                rules.injection_floor_scope,
             )
 
         # Stage 5: Merge findings
@@ -944,24 +965,20 @@ class Pipeline:
         standalone_tier3 = _standalone_tier3_check(merged)
 
         # Stage 5b: Confidence floor filtering
-        if active_profile is not None and active_profile.confidence_floor > 0.0:
-            merged = tuple(f for f in merged if f.confidence >= active_profile.confidence_floor)
+        if rules.confidence_floor > 0.0:
+            merged = tuple(f for f in merged if f.confidence >= rules.confidence_floor)
 
         # Stage 5c: Severity overrides (PIPE-07 guards; PET-109 D6/D8 downgrade).
-        if active_profile is not None and active_profile.severity_overrides:
+        if rules.severity_overrides:
             overridden: list[ScanFinding] = []
             for f in merged:
-                override = active_profile.severity_overrides.get(f.rule_id)
+                override = rules.severity_overrides.get(f.rule_id)
                 if override is None:
-                    # Structural findings always land here: _check_structural_overrides
-                    # (profiles/__init__.py, enforced at parse + merge) guarantees no
-                    # structural rule_id ever reaches severity_overrides, so the floor
-                    # branch below is reached only by injection rules. (If that parse
-                    # guard is ever relaxed, structural findings would route into the
-                    # escalate branch — keep the guards coupled.)
+                    # A structural rule cannot be retargeted, so it lands here.
+                    # The floor branch below is reached only by injection rules.
                     overridden.append(f)
                     continue
-                if _is_floor_rule(f.rule_id, direction, active_profile.injection_floor_scope):
+                if _is_floor_rule(f.rule_id, direction, rules.injection_floor_scope):
                     # Floor rules (injection): escalate-only. Refuse a downgrade or
                     # no-op (keep original) — PET-54's threat, still covered.
                     try:
@@ -1007,17 +1024,17 @@ class Pipeline:
 
         # Stage 9: Anonymize
         sanitized_content: str | None = None
-        if self._config.anonymize:
+        anonymization = self._config.anonymization
+        if anonymization.enabled:
             pii_findings = [f for f in merged if f.finding_type == "pii"]
-            # PET-109 D7: when pii_entities is non-empty, anonymize only findings
-            # whose recovered entity type is in the set (case-insensitive); empty ()
-            # preserves the "anonymize all" default. Narrowing only — detection and
-            # `merged` are untouched. Coverage-reduction is intended (operator scoped
-            # what to anonymize) and tested explicitly.
-            if self._config.pii_entities:
+            # When entities is non-empty, anonymize only findings whose recovered
+            # entity type is in the set (case-insensitive); empty () preserves
+            # the "anonymize all" default. Narrowing only — detection and
+            # `merged` are untouched.
+            if anonymization.entities:
                 from petasos.scanners.presidio import _recover_entity_type
 
-                allowed = {e.upper() for e in self._config.pii_entities}
+                allowed = {e.upper() for e in anonymization.entities}
                 pii_findings = [
                     f for f in pii_findings if _recover_entity_type(f.rule_id) in allowed
                 ]
@@ -1028,8 +1045,8 @@ class Pipeline:
                     sanitized_content = _anonymize(
                         normalized_text,
                         pii_findings,
-                        mode=self._config.redaction_mode,
-                        hash_key=self._config.hash_key,
+                        mode=anonymization.mode,
+                        hash_key=self._secrets.hash_key,
                     )
                 except ImportError:
                     errors.append("presidio not installed: anonymization skipped")
@@ -1096,7 +1113,7 @@ class Pipeline:
         Single-threaded asyncio access only.
         """
         sname = getattr(scanner, "name", "unknown")
-        threshold = self._config.scanner_circuit_breaker_threshold
+        threshold = self._config.scanners.breaker_threshold
 
         open_until = self._breaker_open_until.get(sname)
         if open_until is not None:
@@ -1123,7 +1140,7 @@ class Pipeline:
             normalized_text,
             direction=direction,
             session_id=session_id,
-            timeout=self._config.scanner_timeout_seconds,
+            timeout=self._config.scanners.timeout_seconds,
             extra_entities=extra_entities,
         )
         self._last_scan_durations[sname] = (time.monotonic() - _t0) * 1000
@@ -1137,7 +1154,7 @@ class Pipeline:
             self._breaker_consecutive_timeouts[sname] = count
             if count >= threshold:
                 self._breaker_open_until[sname] = (
-                    time.monotonic() + self._config.scanner_circuit_breaker_cooldown_seconds
+                    time.monotonic() + self._config.scanners.breaker_cooldown_seconds
                 )
         else:
             # Any non-timeout outcome (success or a different error) breaks the
@@ -1176,7 +1193,7 @@ class Pipeline:
             )
             raise ValueError(f"weight_cap must be non-negative and finite: {weight_cap!r}")
         rule_ids = [f.rule_id for f in findings]
-        if self._config.session_secret is not None:
+        if self._secrets.session_secret is not None:
             token = self._frequency_tracker.mint_token(session_id, self._host_id)
             result = self._frequency_tracker.update(token, rule_ids, weight_cap=weight_cap)
         else:

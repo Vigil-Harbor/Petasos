@@ -165,7 +165,11 @@ async def scan_ingestion_result(
             raise ValueError("semgrep.prepared_invalid")
         covered = text[:_MAX_PARAM_TEXT_LEN]
         try:
-            decode_flag = bool(pipeline.config.decode_encoded_payloads)
+            normalization = getattr(pipeline.config, "normalization", None)
+            if normalization is not None:
+                decode_flag = bool(normalization.decode_payloads)
+            else:
+                decode_flag = bool(getattr(pipeline.config, "decode_encoded_payloads", True))
         except Exception as exc:
             errors.append(f"{type(exc).__name__}: {exc}")
             decode_flag = True

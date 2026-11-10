@@ -71,7 +71,7 @@ class TestDefensiveCopies:
     def test_pipeline_config_is_copy(self) -> None:
         cfg = PetasosConfig()
         p = Pipeline(config=cfg)
-        assert p._config is not cfg
+        assert p.legacy_config is not cfg
 
     def test_pipeline_result_findings_is_tuple(self) -> None:
         r = PipelineResult(safe=True, findings=())

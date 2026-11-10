@@ -99,8 +99,9 @@ async def test_policy_reconfigure_preserves_restart_settings_and_live_token() ->
                 config, semgrep_enabled=False, semgrep_request_timeout_seconds=2, fail_mode="open"
             )
         )
-        assert pipeline.config.semgrep_enabled
-        assert pipeline.config.semgrep_request_timeout_seconds == 8
+        assert pipeline.legacy_config is not None
+        assert pipeline.legacy_config.semgrep_enabled
+        assert pipeline.legacy_config.semgrep_request_timeout_seconds == 8
         result = await pipeline._inspect_with_prepared_semgrep("eval(data)", token)
         assert result.safe
 

@@ -261,7 +261,7 @@ class TestTierDerivation:
         assert result.tier == "none"
         assert result.allowed is True
 
-    async def test_profile_tier_thresholds_used(self) -> None:
+    async def test_profile_tier_thresholds_are_not_applied(self) -> None:
         cfg = _cfg()
         pipe = Pipeline(config=cfg)
         tracker = FrequencyTracker(cfg)
@@ -271,7 +271,7 @@ class TestTierDerivation:
         p = _profile(tier_thresholds=TierThresholds(tier1=10.0, tier2=20.0, tier3=35.0))
         g = ToolCallGuard(pipe, tracker, cfg, profile=p)
         result = await g.evaluate("read", {}, "s1")
-        assert result.tier == "tier1"
+        assert result.tier == "none"
 
     async def test_terminated_session_is_tier3(self) -> None:
         cfg = _cfg()
@@ -902,9 +902,9 @@ class TestScanWeightCap:
         g = _guard()
         assert g.scan_weight_cap == pytest.approx(15.0 / 4.0)
 
-    def test_admin_profile_min_of_both(self) -> None:
+    def test_admin_profile_does_not_lower_the_cap(self) -> None:
         g = _guard(profile=_profile(tier_thresholds=TierThresholds(10.0, 20.0, 35.0)))
-        assert g.scan_weight_cap == pytest.approx(2.5)
+        assert g.scan_weight_cap == pytest.approx(15.0 / 4.0)
 
     def test_research_profile_config_is_the_min(self) -> None:
         g = _guard(profile=_profile(tier_thresholds=TierThresholds(25.0, 45.0, 70.0)))
@@ -917,7 +917,7 @@ class TestScanWeightCap:
         # requires finite + ascending + tier3 >= 30, never tier1 > 0. The ratio
         # branch must sit AFTER this return or the division raises
         # ZeroDivisionError out of a property read inside _scan_params.
-        g = _guard(profile=_profile(tier_thresholds=TierThresholds(0.0, 1.0, 30.0)))
+        g = _guard(config=_cfg(tier1_threshold=0.0, tier2_threshold=1.0, tier3_threshold=30.0))
         import logging as _logging
 
         with caplog.at_level(_logging.WARNING, logger="petasos.session.guard"):
@@ -935,9 +935,12 @@ class TestScanWeightCap:
                 None,
                 "below the recommended 2.0",
             ),
-            # (e2) a guard profile whose tier2 drags the min below 2.0 while
-            # config alone (15/30 = 2.0) would not.
-            ({}, TierThresholds(10.0, 12.0, 30.0), "below the recommended 2.0"),
+            # A config whose tier2/tier1 is below 2.0 warns on its own.
+            (
+                {"tier1_threshold": 16.0, "tier2_threshold": 30.0, "tier3_threshold": 50.0},
+                None,
+                "below the recommended 2.0",
+            ),
             # (e3) tier1=10 with tier2=30 clears the ratio (3.0) but trips the
             # step-below-3.0 arm (D4's lower band edge).
             (
@@ -954,7 +957,7 @@ class TestScanWeightCap:
                 "above the maximally-poisoned",
             ),
         ],
-        ids=["config-ratio", "profile-dragged-ratio", "sub-step", "inert-step"],
+        ids=["config-ratio", "config-ratio-just-under", "sub-step", "inert-step"],
     )
     def test_tripwires_warn_once_with_their_own_cause(
         self,
@@ -994,12 +997,10 @@ class TestScanWeightCap:
         warned = [r for r in caplog.records if "recommended 2.0" in r.getMessage()]
         assert len(warned) == 2
 
-    async def test_selfmod_boundary_under_admin_reaches_tier1(self) -> None:
-        # (f) D1's pinned boundary: one UNCLAMPED config_write record (10.0)
-        # under an admin-profiled guard (tier1 = 10.0, derive_tier promotes on
-        # >=) reads as tier1 through _guard.evaluate — the designed response to
-        # a config-write attempt, not an accident of the clamp.
-        g = _guard(profile=_profile(tier_thresholds=TierThresholds(10.0, 20.0, 35.0)))
+    async def test_selfmod_boundary_at_tier1_reaches_tier1(self) -> None:
+        # One unclamped config_write record (10.0) reaches tier1 when tier1 is
+        # 10.0, because derive_tier promotes on >=.
+        g = _guard(config=_cfg(tier1_threshold=10.0, tier2_threshold=20.0, tier3_threshold=35.0))
         finding = ScanFinding(
             rule_id="petasos.selfmod.config_write",
             finding_type="selfmod",

@@ -391,7 +391,7 @@ def test_sectionless_rebind_signs_the_new_spool(
             {"enabled": True, "fail_mode": "closed"},
             host_id="test-host",
         )
-        assert pipe.config.session_secret == secret
+        assert pipe.legacy_config.session_secret == secret
         w_home = _profile_home(tmp_path, "w", {"enabled": True, "fail_mode": "closed"})
         x_home = _profile_home(tmp_path, "x", None)
         monkeypatch.setattr(ref, "_session_resolution", _make_resolution(w_home / "config.yaml"))
@@ -438,13 +438,13 @@ def test_reconfigure_keeps_live_spool_key_when_section_omits_secret(
             {"enabled": True, "fail_mode": "closed"},
             host_id="test-host",
         )
-        assert pipe.config.session_secret == secret
+        assert pipe.legacy_config.session_secret == secret
         monkeypatch.delenv("PETASOS_SESSION_SECRET", raising=False)
         w_home = _profile_home(tmp_path, "w", {"enabled": True, "fail_mode": "closed"})
         x_home = _profile_home(tmp_path, "x", {"enabled": True, "fail_mode": "open"})
         monkeypatch.setattr(ref, "_session_resolution", _make_resolution(w_home / "config.yaml"))
         ref._on_profile_change(profile_name="x", profile_home=str(x_home))
-        assert pipe.config.session_secret == secret
+        assert pipe.legacy_config.session_secret == secret
         assert pipe.config.fail_mode == "open"
         new_spool = paths_mod.spool_path(ref._session_resolution)
         assert events_mod._SPOOL_KEYS[os.path.normcase(new_spool)] == events_mod._derive_spool_key(
@@ -530,7 +530,8 @@ def test_rebind_initwindow_malformed_profile_logs(
     assert ref._initialized is True
     assert ref._pipeline is not None
     # malformed X -> _deferred_init fell back to PetasosConfig() defaults (fail-secure).
-    assert ref._pipeline.config.redaction_mode == PetasosConfig().redaction_mode
+    assert ref._pipeline.legacy_config is not None
+    assert ref._pipeline.legacy_config.redaction_mode == PetasosConfig().redaction_mode
 
 
 def test_session_start_does_not_rebind(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

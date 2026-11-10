@@ -6,7 +6,7 @@ import pytest
 
 from petasos.pipeline import Pipeline
 from petasos.scanners.minimal import _COMMAND_RULE_IDS, RULE_TAXONOMY
-from petasos.session.profiles import _UNSUPPRESSIBLE_RULE_IDS
+from petasos.session.profiles import _UNSUPPRESSIBLE_RULE_IDS, ProfileResolver
 
 
 async def test_suppress_all_rules_adversarial() -> None:
@@ -14,7 +14,7 @@ async def test_suppress_all_rules_adversarial() -> None:
 
     suppress_all_profile = {"suppress_rules": sorted(RULE_TAXONOMY)}
 
-    resolved = pipe._profile_resolver.resolve(suppress_all_profile)
+    resolved = ProfileResolver().resolve(suppress_all_profile)
     assert resolved.suppress_rules & _UNSUPPRESSIBLE_RULE_IDS == frozenset()
 
     result = await pipe.inspect(
@@ -39,7 +39,7 @@ async def test_family_is_suppressible() -> None:
     inj_id = "petasos.syntactic.injection.ignore-previous"
     profile = {"suppress_rules": sorted(_COMMAND_RULE_IDS) + [inj_id]}
 
-    resolved = pipe._profile_resolver.resolve(profile)
+    resolved = ProfileResolver().resolve(profile)
     assert resolved.suppress_rules >= _COMMAND_RULE_IDS, "command family must be suppressible"
     assert inj_id not in resolved.suppress_rules, "injection rule must stay unsuppressible"
 

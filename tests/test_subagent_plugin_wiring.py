@@ -122,7 +122,8 @@ class TestDeferredInitWiring:
         assert ref._guard._lineage is None
         # C still active: delegate recognized + fan-out gate enabled
         assert "delegate_task" in ref._guard._delegate_tool_names
-        assert ref._guard._config.delegate_fanout_enabled is True
+        assert ref._guard.legacy_config is not None
+        assert ref._guard.legacy_config.delegate_fanout_enabled is True
 
     def test_reordered_construction_unifies_tracker_and_keeps_pinning(
         self, monkeypatch: pytest.MonkeyPatch
