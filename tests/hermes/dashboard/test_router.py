@@ -138,6 +138,10 @@ def test_playground_and_activity_routes(monkeypatch: Any, tmp_path: Path) -> Non
     ids = [example["id"] for example in examples["examples"]]
     assert examples["default"] in ids
     assert {"hidden", "download", "notes"} <= set(ids)
+    for example in examples["examples"]:
+        assert example["label"] and example["description"]
+        assert example["kind"] in ("text", "tool")
+        assert ("text" in example) == (example["kind"] == "text")
     missing = client.get("/api/plugins/petasos/activity/e-missing")
     assert missing.status_code == 404
     assert missing.json()["error"]["code"] == "not_found"

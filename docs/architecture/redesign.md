@@ -1250,13 +1250,16 @@ enforcement spool and it does not read or write another session's state.
 
 #### `GET /playground/examples`
 
-`examples` (each `id`, `label`, `mode`, and `text` with `direction`, or
-`tool` with `arguments`) and `default`, the one Try it opens with. They are
+`examples` (each `id`, `label` saying what it demonstrates, a one-line
+`description`, `kind` (`text` or `tool`), and its input: `text` with
+`direction`, or `tool` with `arguments`) and `default`, the one Try it
+opens with. They are
 served from the wheel, not written in the tab's script: Hermes scans a
 plugin directory for dangerous strings before it loads the plugin
 (`tools/plugin_guard.py`), and a sample attack in the script gave the
 directory a `dangerous` verdict, so Hermes refused to load Petasos. A test
-keeps such strings out of the plugin directory.
+keeps such strings out of the plugin directory, and the tab's sources
+live in `hermes-plugin/dashboard-src/`, outside the installed directory.
 
 #### `GET /activity`
 

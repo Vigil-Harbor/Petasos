@@ -15,7 +15,7 @@ function exampleIn(list, id) {
 
 function inputOf(example) {
   if (!example) return null;
-  if (example.mode === "tool") {
+  if (example.kind === "tool") {
     return { mode: "tool", tool: example.tool, args: JSON.stringify(example.arguments || {}, null, 2) };
   }
   return { mode: "text", text: example.text, direction: example.direction || "inbound" };
@@ -341,7 +341,14 @@ function TryIt(props) {
         if (example) load(example);
       },
     }),
-    h("p", { className: "petasos-help" }, "Choosing an example fills the input below. Nothing runs until you press Check."),
+    h(
+      "p",
+      { className: "petasos-help" },
+      (exampleIn(examples, exampleState[0]) || {}).description
+        ? exampleIn(examples, exampleState[0]).description + " "
+        : "",
+      "Choosing an example fills the input below. Nothing runs until you press Check."
+    ),
     h(
       "div",
       { className: "petasos-filter-group" },

@@ -609,7 +609,7 @@ function ChecksPanel(props) {
         })[0];
         var state = STATE_WORDS[row.state] || { tone: "neutral", word: row.state };
         var expanded = openState[0] === row.id;
-        var fixable = (recommended[row.id] || row.state === "unavailable") && (row.fix || row.extra);
+        var fixable = (recommended[row.id] || row.state === "unavailable") && row.fix;
         return h(
           "li",
           { key: row.id, className: "petasos-scanner" },
@@ -639,8 +639,7 @@ function ChecksPanel(props) {
                   ? h(
                       "div",
                       { className: "petasos-fix" },
-                      row.fix ? h("p", null, row.fix) : null,
-                      row.extra ? h("p", null, "Package: ", h(Mono, null, "petasos[" + row.extra + "]")) : null
+                      row.fix ? h("p", null, row.fix) : null
                     )
                   : null
               )

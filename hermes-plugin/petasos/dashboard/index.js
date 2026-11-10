@@ -1,8 +1,8 @@
 /*
  * Petasos tab for the Hermes dashboard.
  *
- * Generated from src/ by scripts/build_dashboard.py. Edit the files in src/
- * and run that script; a test fails when this file is stale.
+ * Generated from hermes-plugin/dashboard-src/ by scripts/build_dashboard.py.
+ * Edit those files and run that script; a test fails when this file is stale.
  *
  * Plain script, no build step: React, the components and the API client
  * all come from window.__HERMES_PLUGIN_SDK__. Every Petasos fact shown here
@@ -11,7 +11,7 @@
 (function () {
   "use strict";
 
-  // ===== src/00-kit.js =====
+  // ===== dashboard-src/00-kit.js =====
   // ---------------------------------------------------------------------------
   // Kit: the Hermes SDK, the API client, and small shared pieces.
   //
@@ -735,7 +735,7 @@
     node.scrollTop += offset;
   }
   // ---------------------------------------------------------------------------
-  // The layout rules from src/style.css, added once. Hermes's manifest can name
+  // The layout rules from dashboard-src/style.css, added once. Hermes's manifest can name
   // a style sheet, but the installer copies only this script, so it carries
   // the rules itself.
   // ---------------------------------------------------------------------------
@@ -749,7 +749,7 @@
     element.textContent = STYLE;
     document.head.appendChild(element);
   })();
-  // ===== src/05-shared.js =====
+  // ===== dashboard-src/05-shared.js =====
   // ---------------------------------------------------------------------------
   // Shared: staged changes, the list of what a change would do, and grouping
   // of repeated events. Used by more than one view.
@@ -963,7 +963,7 @@
     });
     return groups;
   }
-  // ===== src/10-overview.js =====
+  // ===== dashboard-src/10-overview.js =====
   // ---------------------------------------------------------------------------
   // Overview: is it working (and what is it covering), what happened lately,
   // then the two choices: job and strictness.
@@ -1575,7 +1575,7 @@
           })[0];
           var state = STATE_WORDS[row.state] || { tone: "neutral", word: row.state };
           var expanded = openState[0] === row.id;
-          var fixable = (recommended[row.id] || row.state === "unavailable") && (row.fix || row.extra);
+          var fixable = (recommended[row.id] || row.state === "unavailable") && row.fix;
           return h(
             "li",
             { key: row.id, className: "petasos-scanner" },
@@ -1605,8 +1605,7 @@
                     ? h(
                         "div",
                         { className: "petasos-fix" },
-                        row.fix ? h("p", null, row.fix) : null,
-                        row.extra ? h("p", null, "Package: ", h(Mono, null, "petasos[" + row.extra + "]")) : null
+                        row.fix ? h("p", null, row.fix) : null
                       )
                     : null
                 )
@@ -1703,7 +1702,7 @@
       )
     );
   }
-  // ===== src/20-activity.js =====
+  // ===== dashboard-src/20-activity.js =====
   // ---------------------------------------------------------------------------
   // Activity: what Petasos did and why, newest first, from the event record.
   // ---------------------------------------------------------------------------
@@ -2450,7 +2449,7 @@
           )
     );
   }
-  // ===== src/30-tryit.js =====
+  // ===== dashboard-src/30-tryit.js =====
   // ---------------------------------------------------------------------------
   // Try it: paste text or describe a tool call, and see what Petasos would do.
   // Nothing here is saved or recorded. Trial settings are not saved.
@@ -2468,7 +2467,7 @@
 
   function inputOf(example) {
     if (!example) return null;
-    if (example.mode === "tool") {
+    if (example.kind === "tool") {
       return { mode: "tool", tool: example.tool, args: JSON.stringify(example.arguments || {}, null, 2) };
     }
     return { mode: "text", text: example.text, direction: example.direction || "inbound" };
@@ -2794,7 +2793,14 @@
           if (example) load(example);
         },
       }),
-      h("p", { className: "petasos-help" }, "Choosing an example fills the input below. Nothing runs until you press Check."),
+      h(
+        "p",
+        { className: "petasos-help" },
+        (exampleIn(examples, exampleState[0]) || {}).description
+          ? exampleIn(examples, exampleState[0]).description + " "
+          : "",
+        "Choosing an example fills the input below. Nothing runs until you press Check."
+      ),
       h(
         "div",
         { className: "petasos-filter-group" },
@@ -3095,7 +3101,7 @@
       trial
     );
   }
-  // ===== src/40-settings.js =====
+  // ===== dashboard-src/40-settings.js =====
   // ---------------------------------------------------------------------------
   // Settings: every value, laid out as Hermes's Config page lays out its own,
   // with a review step before anything is saved. Rows, labels, help, bounds,
@@ -4054,7 +4060,7 @@
       })
     );
   }
-  // ===== src/90-app.js =====
+  // ===== dashboard-src/90-app.js =====
   // ---------------------------------------------------------------------------
   // The tab: four views under one row of Hermes's enclosed tabs, and the
   // states that come before any view (loading, Petasos not answering).
