@@ -141,6 +141,9 @@ class ScannerStatus:
     operator can act on. ``extra`` is the pip extra that provides the
     backend, or ``None`` when none does. ``detects`` and ``label`` are copied
     from the spec so a later report can be printed from the status alone.
+    ``missing`` is true when the backend's package is not installed, which
+    tells a required scanner that is absent from one that is present and
+    broken: both are ``unavailable``.
     """
 
     id: str
@@ -149,6 +152,7 @@ class ScannerStatus:
     extra: str | None
     detects: frozenset[Capability]
     label: str
+    missing: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -177,7 +181,9 @@ def _import_reason(spec: ScannerSpec, exc: ImportError) -> str:
     return f"{curated} ({detail})"
 
 
-def _status(spec: ScannerSpec, state: ScannerState, reason: str | None) -> ScannerStatus:
+def _status(
+    spec: ScannerSpec, state: ScannerState, reason: str | None, *, missing: bool = False
+) -> ScannerStatus:
     if state == "active":
         reason = None
     elif not reason:
@@ -189,6 +195,7 @@ def _status(spec: ScannerSpec, state: ScannerState, reason: str | None) -> Scann
         extra=spec.extra,
         detects=spec.detects,
         label=spec.label,
+        missing=missing,
     )
 
 
@@ -228,8 +235,11 @@ def _after_build(
     if cause == AVAILABILITY_CAUSE_ABSENT:
         text = reason or _missing_package(spec)
         if enabled == "auto":
-            return _status(spec, "not_installed", text), None
-        return _status(spec, "unavailable", text), UnavailableScanner(spec.id, text)
+            return _status(spec, "not_installed", text, missing=True), None
+        return (
+            _status(spec, "unavailable", text, missing=True),
+            UnavailableScanner(spec.id, text),
+        )
     text = reason or f"{spec.label} is installed but cannot be used."
     return _status(spec, "unavailable", text), instance
 
@@ -258,8 +268,11 @@ def _compose_one(
     except ImportError as exc:
         reason = _import_reason(spec, exc)
         if enabled == "auto":
-            return _status(spec, "not_installed", reason), None
-        return _status(spec, "unavailable", reason), UnavailableScanner(spec.id, reason)
+            return _status(spec, "not_installed", reason, missing=True), None
+        return (
+            _status(spec, "unavailable", reason, missing=True),
+            UnavailableScanner(spec.id, reason),
+        )
     except Exception as exc:
         reason = str(exc).strip() or f"{spec.label} could not be built."
         return _status(spec, "unavailable", reason), UnavailableScanner(spec.id, reason)

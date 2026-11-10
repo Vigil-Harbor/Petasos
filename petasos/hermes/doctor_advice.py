@@ -223,6 +223,14 @@ def _scanner_line(status: ScannerStatus) -> tuple[Status, str, str, str]:
             f"It would check for {job}. The built-in checks still run.",
             "",
         )
+    if status.missing:
+        return (
+            "warn",
+            f"{status.label} is turned on but not installed.",
+            f"It would check for {job}. A check that is turned on and cannot run "
+            "counts as failed, so tool calls are held back until it is added or turned off.",
+            f"Add it: {_add_command(status.id)}. Or turn it off in Settings.",
+        )
     reason = status.reason or "no reason was reported"
     return (
         "warn",
@@ -248,10 +256,18 @@ def _scanner_row(status: ScannerStatus) -> dict[str, object]:
         "id": status.id,
         "label": status.label,
         "state": status.state,
-        "reason": status.reason,
+        "reason": _hermes_reason(status),
         "fix": _hermes_fix(status),
         "extra": status.extra,
     }
+
+
+def _hermes_reason(status: ScannerStatus) -> str | None:
+    # The registry's own reason for a missing package names pip, which is the
+    # wrong instruction inside Hermes. The fix carries the right one.
+    if status.missing:
+        return f"{status.label} is not installed."
+    return status.reason
 
 
 def _hermes_fix(status: ScannerStatus) -> str | None:

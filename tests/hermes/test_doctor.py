@@ -605,3 +605,21 @@ def test_colour_is_not_the_only_mark(tmp_path: Path, monkeypatch: pytest.MonkeyP
     assert "[ok]" in coloured
     assert "\033[32m[ok]\033[0m" in coloured
     assert "\033[" not in plain
+
+
+def test_a_required_scanner_that_is_not_installed_says_so_and_how_to_add_it() -> None:
+    from petasos.config.layers import resolve
+    from petasos.hermes.doctor_advice import scanner_report
+
+    resolved = resolve({"overrides": {"scanners": {"prompt_guard": {"enabled": "on"}}}})
+
+    checks, _suggestions, rows = scanner_report(resolved)
+    text = " ".join(f"{check.summary} {check.meaning} {check.next_step}" for check in checks)
+    row = next(item for item in rows if item["id"] == "prompt_guard")
+
+    assert "PromptGuard is turned on but not installed." in text
+    assert "installed but cannot be used" not in text
+    assert "petasos scanner add prompt_guard" in text
+    assert row["reason"] == "PromptGuard is not installed."
+    assert "pip install" not in str(row["reason"]) + str(row["fix"])
+    assert row["fix"] == "petasos scanner add prompt_guard"

@@ -764,3 +764,19 @@ def test_importing_the_registry_and_composing_loads_no_ml_package() -> None:
     )
     assert completed.returncode == 0, completed.stderr
     assert completed.stdout == ""
+
+
+def test_a_required_scanner_that_is_not_installed_is_marked_missing() -> None:
+    from petasos.config.layers import resolve
+
+    config = resolve({"overrides": {"scanners": {"prompt_guard": {"enabled": "on"}}}}).config
+
+    composition = compose(config, BuildContext())
+    status = next(item for item in composition.statuses if item.id == "prompt_guard")
+
+    assert status.state == "unavailable"
+    assert status.missing is True
+    quiet = compose(resolve({}).config, BuildContext())
+    absent = next(item for item in quiet.statuses if item.id == "prompt_guard")
+    assert absent.state == "not_installed"
+    assert absent.missing is True
