@@ -140,10 +140,12 @@ def outcome(
     kind = _text(event.get("event_type"))
     if kind == "selfmod_attempt":
         then = _text(follower.get("event_type")) if follower is not None else ""
+        # The block itself is its own event; these codes keep the call from
+        # being counted twice among the blocks.
         if then in _STOPPED_KINDS:
-            return {"code": "blocked", "label": "Blocked"}
+            return {"code": "attempt_blocked", "label": "Blocked"}
         if then == "approval":
-            return {"code": "asked", "label": "Asked a person"}
+            return {"code": "attempt_asked", "label": "Asked a person"}
         return {"code": "not_stopped", "label": "Not stopped"}
     if kind in {"quarantine", "block"}:
         return {"code": "blocked", "label": "Blocked"}
@@ -204,10 +206,10 @@ def describe_event(
     if kind == "selfmod_attempt":
         subject = f"A {tool} call" if tool else "A tool call"
         verdict = outcome(event, follower)["code"]
-        if verdict == "blocked":
+        if verdict == "attempt_blocked":
             why = _stop_reason(follower)
             return f"{subject} tried to change Petasos or Hermes settings. It was blocked, {why}."
-        if verdict == "asked":
+        if verdict == "attempt_asked":
             return (
                 f"{subject} tried to change Petasos or Hermes settings. "
                 "It waited for a person to approve it."
@@ -280,8 +282,7 @@ WHO_CAN_CHANGE = MappingProxyType(
             "matches another rule."
         ),
         "you": (
-            "You, here, in Hermes Desktop's plugin settings, or with hermes config on the "
-            "command line."
+            "Here, in Hermes Desktop's plugin settings, or with hermes config on the command line."
         ),
         "switches": (
             "Hermes's plugin switch, on the Plugins page, decides whether Petasos runs at "

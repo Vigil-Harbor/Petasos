@@ -346,7 +346,7 @@ def test_a_guardrail_change_says_whether_the_call_was_stopped(tmp_path: Path) ->
         event["session_id"]: event for event in events if event["event_type"] == "selfmod_attempt"
     }
     hot = by_session["hot"]
-    assert hot["outcome"] == {"code": "blocked", "label": "Blocked"}
+    assert hot["outcome"] == {"code": "attempt_blocked", "label": "Blocked"}
     assert "risk score was already too high" in hot["summary"]
     assert hot["target"] == "~/.hermes/config.yaml"
     calm = by_session["calm"]
@@ -358,6 +358,9 @@ def test_a_guardrail_change_says_whether_the_call_was_stopped(tmp_path: Path) ->
         "by_outcome"
     ]
     assert counts["not_stopped"] == 1
+    # Two blocks (the quarantine and the tier-2 block); the attempt is not a third.
+    assert counts["blocked"] == 2
+    assert counts["attempt_blocked"] == 1
 
 
 def test_search_finds_an_event_by_id_start_or_words(tmp_path: Path) -> None:

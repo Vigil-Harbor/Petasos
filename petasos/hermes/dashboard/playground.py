@@ -82,6 +82,12 @@ CONFIDENCE_HELP = (
     "It is not the chance that this is an attack."
 )
 _TIME_LIMIT = "Did not finish within Try it's time limit."
+# Why an optional check took no part, in words. A check that is on but not
+# working keeps the registry's own reason, which names the fault.
+_PLAIN_REASON = {
+    "not_installed": "Not installed, so it took no part. Overview says how to add it.",
+    "off": "Turned off in Settings, so it took no part.",
+}
 
 _Redactor = Callable[..., str]
 
@@ -504,7 +510,7 @@ def _scanner_rows(
     ]
     for status in statuses:
         participated = status.state == "active" and not timed_out
-        reason = status.reason
+        reason = _PLAIN_REASON.get(status.state, status.reason)
         if status.state == "active" and timed_out:
             reason = _TIME_LIMIT
         rows.append(
