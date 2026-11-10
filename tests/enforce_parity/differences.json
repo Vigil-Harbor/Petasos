@@ -53,9 +53,10 @@
       "field": "logs",
       "old": "PETASOS_PROFILE_CHANGE name='nope'",
       "new": null,
-      "reason": "A profile change is a host event. The Hermes adapter logs the profile name. The enforcer only applies a snapshot the host has already resolved, and this step does not present one.",
+      "reason": "Hermes v0.23.1 has no profile-change event, and nothing in the host fires one. The old plugin logged this by a handler that was only reached when a test called it directly. The enforcer never emitted it. The Hermes adapter does not either: a relative home is not a settings change on the active profile.",
       "adapters": [
-        "enforcer"
+        "enforcer",
+        "hermes"
       ]
     },
     {
@@ -64,9 +65,10 @@
       "field": "logs",
       "old": "PETASOS_REBIND_SKIPPED reason=non-absolute profile_home 'relative/nope'",
       "new": null,
-      "reason": "Rejecting a relative profile home is the host's path check. The Hermes adapter logs the skip. The enforcer is not given a new snapshot, so its configuration does not change.",
+      "reason": "Rejecting a relative profile home was that unreachable handler. Hermes does not deliver the event, so neither adapter logs a skip. The active profile's settings stay as they were.",
       "adapters": [
-        "enforcer"
+        "enforcer",
+        "hermes"
       ]
     },
     {
@@ -75,9 +77,10 @@
       "field": "logs",
       "old": "PETASOS_PROFILE_CHANGE name='coding'",
       "new": null,
-      "reason": "A profile change is a host event. The Hermes adapter logs the profile name. The enforcer applies the snapshot the host resolved from that profile.",
+      "reason": "Hermes v0.23.1 has no profile-change event. The old handler logged the name only when called directly, and it has never run under the host. The step's settings are applied as the active profile's settings. Neither adapter logs a profile-change line.",
       "adapters": [
-        "enforcer"
+        "enforcer",
+        "hermes"
       ]
     },
     {
@@ -86,9 +89,10 @@
       "field": "logs",
       "old": "PETASOS_ARMED_RESOLUTION tier=profile path=<home>/profiles/coding/config.yaml",
       "new": null,
-      "reason": "The resolution tier and the profile path are Hermes host facts. The Hermes adapter logs them. The enforcer sees only the resolved settings snapshot.",
+      "reason": "That resolution line was the unreachable profile-change handler naming a directory the host did not switch to. Hermes reads the active profile's settings at call time. Neither adapter logs a profile path for this step.",
       "adapters": [
-        "enforcer"
+        "enforcer",
+        "hermes"
       ]
     },
     {
@@ -109,9 +113,10 @@
       "field": "logs",
       "old": "PETASOS_PROFILE_CHANGE name='empty'",
       "new": null,
-      "reason": "A profile change is a host event. The Hermes adapter logs the profile name. The enforcer is not given a new snapshot.",
+      "reason": "Hermes v0.23.1 has no profile-change event. The old handler logged the name only when a test called it directly. An empty settings object is not a new configuration, so neither adapter logs a profile change and the previous settings stay in force.",
       "adapters": [
-        "enforcer"
+        "enforcer",
+        "hermes"
       ]
     },
     {
@@ -120,9 +125,10 @@
       "field": "logs",
       "old": "PETASOS_ARMED_RESOLUTION tier=profile path=<home>/profiles/empty/config.yaml",
       "new": null,
-      "reason": "The resolution tier and the profile path are Hermes host facts. The Hermes adapter logs them.",
+      "reason": "That line was the unreachable handler naming a profile directory. The host does not switch homes for this step, and neither adapter logs one.",
       "adapters": [
-        "enforcer"
+        "enforcer",
+        "hermes"
       ]
     },
     {
@@ -131,9 +137,10 @@
       "field": "logs",
       "old": "PETASOS_REBIND_CONFIG_STALE path=<home>/profiles/empty/config.yaml: no petasos: section at new profile; keeping last-good policy",
       "new": null,
-      "reason": "An empty profile section is the host's reading of the new file. The Hermes adapter logs that the binding moved and the policy did not. The enforcer keeps the previous snapshot because the host does not present a replacement.",
+      "reason": "The stale-policy line was the unreachable handler. Hermes has no such event. An empty settings object leaves the active profile's settings unchanged, so neither adapter logs a rebind.",
       "adapters": [
-        "enforcer"
+        "enforcer",
+        "hermes"
       ]
     }
   ]

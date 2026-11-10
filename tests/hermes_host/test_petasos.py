@@ -82,6 +82,50 @@ def test_tool_result_with_a_finding_is_annotated(installed: Path) -> None:
     assert result["original"] in text
 
 
+def test_reload_and_a_second_profile_keep_enforcement(installed: Path) -> None:
+    """A force reload rebinds hooks on the same enforcer. Each home has its own.
+
+    ``register`` is not called again by a discovery that has already run. It is
+    called again by ``discover_and_load(force=True)`` and by the manager for a
+    second home. ``close`` fail-closes the old hooks, and the next load starts
+    a new enforcer.
+    """
+    result = _invoke(installed, {"action": "registration"}, timeout=180)
+    assert result["unknown_hook"] == []
+    assert result["before_callbacks"] == 1
+    assert isinstance(result["before_block"], str) and result["before_block"].strip()
+    assert result["quiet_same_callbacks"] is True
+    assert result["manual_callbacks"] == 1
+    assert result["same_manager"] is True
+    assert result["same_enforcer"] is True
+    assert result["same_engine"] is True
+    assert result["tier_before"] == result["tier_after"] == "none"
+    assert result["after_callbacks"] == 1
+    assert isinstance(result["after_block"], str) and "ignore-previous" in result["after_block"]
+    alpha = result["alpha"]
+    assert alpha["other_manager"] is True
+    assert alpha["loaded"] is True
+    assert alpha["error"] in (None, "")
+    assert alpha["callbacks"] == 1
+    assert alpha["block"] is None
+    assert alpha["enabled"] is False
+    assert alpha["role"] == "coding"
+    assert alpha["kept_enabled"] is False
+    assert alpha["kept_role"] == "coding"
+    assert alpha["profile_name"] == "alpha"
+    assert alpha["enforcer"] != alpha["root_enforcer"]
+    root_again = result["root_again"]
+    closed = result["closed_block"]
+    restarted = result["restarted_block"]
+    assert isinstance(root_again, str) and "ignore-previous" in root_again
+    assert isinstance(closed, str) and "could not evaluate" in closed
+    assert result["fresh_enforcer"] is True
+    assert isinstance(restarted, str) and "ignore-previous" in restarted
+    path = result["config_path"]
+    named = [line for line in result["resolution"] if path in line]
+    assert any(line.startswith("PETASOS_ARMED_RESOLUTION ") for line in named)
+
+
 def test_secrets_come_from_the_env_file(installed: Path) -> None:
     """The profile env file is the secret store. Plugin settings do not carry it."""
     result = _invoke(installed, {"action": "secrets"})

@@ -230,26 +230,52 @@ def test_only_the_adapter_imports_hermes() -> None:
     assert offenders == []
 
 
+# plugin.py may mutate only the home-to-enforcer table. The lock beside it
+# is the one lock that serialises that table.
+_ADAPTER_TABLE = "_registrations"
+_ADAPTER_LOCK = "_registration_lock"
+
+
+def _lock_names(tree: ast.AST) -> list[str]:
+    names: list[str] = []
+    for stmt in tree.body if isinstance(tree, ast.Module) else []:
+        for name, value in _assigned(stmt):
+            if not isinstance(value, ast.Call):
+                continue
+            func = value.func
+            attr = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
+            if attr in {"Lock", "RLock"}:
+                names.append(name)
+    return names
+
+
 def test_hermes_state_is_the_registered_enforcer() -> None:
-    """The adapter's only module global is the enforcer a registered plugin holds.
+    """The adapter's only module state is the enforcer table, one entry per home.
 
     ``home.py`` also assigns ``_SPOOL_PATH_OVERRIDE`` once. The console writes
     that attribute; the adapter does not mutate it. It is not a collection.
     """
     offenders: list[str] = []
     root = Path("petasos/hermes")
+    plugin_text = (root / "plugin.py").read_text(encoding="utf-8")
+    assert "one entry per Hermes home" in plugin_text
+    assert _ADAPTER_TABLE in plugin_text
+    assert _ADAPTER_LOCK in plugin_text
     for path in sorted(root.rglob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for node in ast.walk(tree):
             if not isinstance(node, ast.Global):
                 continue
-            names = set(node.names)
-            if path.name == "plugin.py" and names <= {"_registration"}:
-                continue
-            offenders.append(f"{path}:{node.lineno} global {sorted(names)}")
+            offenders.append(f"{path}:{node.lineno} global {sorted(node.names)}")
+        if path.name == "plugin.py":
+            locks = _lock_names(tree)
+            if locks != [_ADAPTER_LOCK]:
+                offenders.append(f"{path} locks {locks}")
         for stmt in tree.body:
             for name, value in _assigned(stmt):
                 if not _mutable(value) or not _written(tree, name):
+                    continue
+                if path.name == "plugin.py" and name == _ADAPTER_TABLE:
                     continue
                 offenders.append(f"{path}:{stmt.lineno} mutates module-level {name}")
     assert offenders == []

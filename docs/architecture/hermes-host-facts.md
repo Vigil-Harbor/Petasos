@@ -16,7 +16,9 @@ the sandbox. `account_default_hermes_home()` still computes
 `/Users/<user>/.hermes` from the account password entry
 (`hermes_constants.py` lines 72–96). Nothing in this pass called that path.
 
-Section 7 of `docs/architecture/redesign.md` was not edited.
+Section 7 of `docs/architecture/redesign.md` was updated after section 9
+below. The corrections in sections 1–8 are from the first sandbox pass and
+were not rewritten.
 
 ## What section 7 should change
 
@@ -554,6 +556,89 @@ durable. `config_schema` types and the Desktop form are the documented
 settings surface; `ctx.get_config` on each call matches the docs and the
 code. The docs also say `provides_hooks` is what validate checks, which
 section 7's sample manifest does not list.
+
+## 9. Registration, profiles in one process, context lifetime
+
+Checked in the same checkout. This pass used sandbox
+`/tmp/petasos-hermes-c2a-reg` (`HOME` `<sandbox>/home`, `HERMES_HOME`
+`<sandbox>/hermes_home`, every command through `bin/with-sandbox`). The
+probe was one sandbox process:
+`/tmp/petasos-c2a-reg-probe.py` through `bin/with-sandbox`, against the
+adapter before the registration change. A later test,
+`tests/hermes_host/test_petasos.py::test_reload_and_a_second_profile_keep_enforcement`,
+repeats the same Hermes calls against the fixed adapter.
+
+**When `register` runs again.**
+
+- A second `discover_and_load()` with no `force` did not call `register`.
+  Source: `PluginManager.discover_and_load` returns when `_discovered` is
+  set and `force` is false (`hermes_cli/plugins.py`, the early return inside
+  the discovery lock).
+- `discover_and_load(force=True)` called `register` again, on the same
+  manager object, with a new context. Before the fix the module flag skipped
+  binding. The manager's `pre_tool_call` list for Petasos went from 1
+  callback to 0. A `write_file` of `ignore previous instructions` was blocked
+  before the reload and was not blocked after (`block` was null). The
+  enforcer object and its core were the same object, and `session_tier` was
+  still `none`, but Hermes's dispatcher no longer called it. Source:
+  `discover_and_load` calls `unload()` then `_discover_and_load_inner`
+  (`hermes_cli/plugins.py`). `unload` with no plugin argument disposes every
+  ledger registration (`hermes_cli/plugins_ledger.py` `unload` /
+  `_unload_scoped`). The load calls `register_fn(ctx)`
+  (`hermes_cli/plugins_loader.py` `_load_plugin_scoped`). Callers of the
+  forced path include `discover_plugins(force=True)` and the gateway
+  `reload-plugins` verb (`gateway/run_plugin_rewire.py` `reload_plugins_verb`).
+- Calling `register` a second time on a new `PluginContext` for that same
+  manager, without an unload, did not add a callback. The list stayed at 1.
+  That was the flag refusing to bind, which is also why the reload above
+  bound nothing.
+- `hermes plugins validate` calls `register` in a child process
+  (`hermes_cli/plugin_validate.py`, the capability probe). It does not share
+  this process's module state.
+
+**Profiles in one process.**
+
+One process can serve more than one profile. `get_plugin_manager` caches a
+`PluginManager` per resolved home (`_plugin_managers_by_home` in
+`hermes_cli/plugins.py`). The comment there says a process switches profiles
+with `set_hermes_home_override`, and that plugins capture the home at
+registration. `set_hermes_home_override` is a `ContextVar`; it does not
+change `os.environ` (`hermes_constants.py`). `get_hermes_home` prefers that
+override (`hermes_constants.py`). User plugins are read from
+`get_hermes_home() / "plugins"` (`hermes_cli/plugins_discovery.py`
+`collect_directory_manifests`).
+
+Ran: wrote `<HERMES_HOME>/profiles/alpha` with its own `config.yaml`
+(`enabled: false`, `role: coding`) and a copy of the plugin directory, then
+`set_hermes_home_override` to that directory and `discover_and_load` on the
+manager `get_plugin_manager` returned. It was a different manager. `register`
+ran. Before the fix it bound 0 hooks, the enforcer object was the root's,
+and the injection was not blocked. `ctx.profile_name` was `alpha`
+(`PluginContext.profile_name` calls `get_active_profile_name`,
+`hermes_cli/profiles.py`). `ctx.get_config("enabled")` was false and
+`ctx.get_config("role")` was `coding`. The context kept from the root load
+returned those same alpha values while the override was set, and the
+sentinel again when it was not: `get_config` reads
+`load_config_readonly()` (`hermes_cli/plugins_context.py`), and that reads
+`get_config_path()` which is `get_hermes_home() / "config.yaml"`
+(`hermes_cli/config.py`). Dispatch uses the same home:
+`_dispatch_pre_tool_call_hooks` calls `hermes_cli.lifecycle.invoke_hook`,
+which calls `plugins.invoke_hook`, which uses `_delivery_manager` →
+`get_plugin_manager` (`hermes_cli/plugins.py`).
+
+There is no plugin-facing profile-change hook. A search of this checkout
+found no `on_profile_change`. The first load logged
+`Plugin 'petasos' registered unknown hook 'on_profile_change'`. The hook is
+not in `VALID_HOOKS` (`hermes_cli/plugins.py`). Nothing fires it.
+
+**Context lifetime.**
+
+The context from the first load was still callable after
+`discover_and_load(force=True)`. Its `_manager` was the same object. `get_config`
+still answered. It is safe to keep and to call from a hook for the active
+home, because the read follows the active home rather than a home stored on
+the context. It is not safe to treat it as the home from `register` time if
+the override has since moved.
 
 ## What was not run
 

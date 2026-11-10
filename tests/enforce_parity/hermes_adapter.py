@@ -18,8 +18,6 @@ import types
 from pathlib import Path
 from typing import Any
 
-import yaml
-
 from petasos.config.layers import resolve
 from petasos.config.migrate import migrate
 from petasos.config.schema import leaves, to_mapping
@@ -310,7 +308,6 @@ class _Runner:
         for name in _HOST_MODULES:
             self._saved_modules[name] = sys.modules.get(name)
         hooks = {
-            "on_profile_change",
             "on_session_start",
             "post_approval_response",
             "post_tool_call",
@@ -558,25 +555,28 @@ class _Runner:
         self._publish()
 
     def _profile_change(self, step: dict[str, Any]) -> None:
-        name = str(step.get("name", ""))
+        """Apply settings the way this host exposes them: on the active context.
+
+        Hermes has no profile-change hook. The old handler was only reached by
+        calling it directly, so its log lines are not reproduced. A step that
+        names a home and no settings, or a home that is not a directory the
+        process is serving, changes nothing. A step that carries settings is
+        the active profile's new settings. ``refresh`` applies them on this
+        step, which is where a restart-only change is logged.
+        """
         given = step.get("home")
         if isinstance(given, str):
-            target = given
-        else:
-            section = step.get("settings", {})
-            if not isinstance(section, dict):
-                raise TypeError("profile settings must be an object")
-            profile_home = self.home / "profiles" / (name or "unnamed")
-            profile_home.mkdir(parents=True, exist_ok=True)
-            config = profile_home / "config.yaml"
-            body: dict[str, Any] = {"petasos": section}
-            if section:
-                body["plugins"] = {
-                    "entries": {"petasos": {"settings": settings_document(section)}}
-                }
-            config.write_text(yaml.safe_dump(body, sort_keys=True), encoding="utf-8")
-            target = str(profile_home)
-        self.ctx.call("on_profile_change", profile_name=name, profile_home=target)
+            return
+        section = step.get("settings", {})
+        if not isinstance(section, dict):
+            raise TypeError("profile settings must be an object")
+        if not section:
+            return
+        self._section = dict(section)
+        self._publish()
+        enforcer = _enforcer()
+        if enforcer is not None:
+            enforcer.refresh()
 
     def _tier(self, session: str | None) -> str | None:
         if not session:
@@ -588,9 +588,10 @@ class _Runner:
 
 
 def _enforcer() -> Enforcer | None:
-    reg = getattr(plugin_mod, "_registration", None)
-    if reg is None:
+    regs = getattr(plugin_mod, "_registrations", None)
+    if not isinstance(regs, dict) or len(regs) != 1:
         return None
+    reg = next(iter(regs.values()))
     enforcer = getattr(reg, "enforcer", None)
     if isinstance(enforcer, Enforcer):
         return enforcer

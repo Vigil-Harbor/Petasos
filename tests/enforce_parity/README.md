@@ -117,6 +117,12 @@ cannot express is confined to `plugin_adapter.py`:
 - After `profile_change`, the adapter submits one `sleep(0)` on the
   plugin's loop. The hook schedules the apply and returns; the yield runs
   after that apply's commit.
+
+The Hermes adapter does not call that hook. Hermes v0.23.1 has no
+profile-change event, and the old handler never ran under the host. A
+`profile_change` step that carries settings is written onto the active
+context, which is how this host exposes the active profile, and `refresh`
+applies it on that step. A step that only names a home changes nothing.
 - `petasos.hermes.home.hermes_root` is pointed at the temporary home
   for the duration of the scenario. Self-modification discovery otherwise
   lists `~/.hermes`.
