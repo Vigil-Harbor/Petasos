@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
 import pytest
 
-from tests.hermes_host.client import PETASOS_HARNESS, fresh_home, invoke, sandbox_env
+from tests.hermes_host.client import fresh_home, invoke, sandbox_env
 from tests.hermes_host.marks import requires_hermes_sandbox
 
 pytestmark = requires_hermes_sandbox
@@ -42,9 +42,9 @@ def _run(
 def _hermes(
     sandbox: Path, home: Path, args: list[str], *, timeout: float = 180
 ) -> subprocess.CompletedProcess[str]:
-    # ``hermes`` activates this home's package-manager environment. Put the
-    # test wheel there first, or the command imports a Python without Petasos.
-    invoke(sandbox, {"action": "ensure_wheel"}, home=home, harness=PETASOS_HARNESS)
+    # ``hermes`` activates this home's package-manager environment. Tests that
+    # reach this helper installed through ``petasos hermes install``, which
+    # puts the wheel there.
     wrapper = sandbox / "bin" / "with-sandbox"
     return subprocess.run(
         [str(wrapper), "hermes", *args],

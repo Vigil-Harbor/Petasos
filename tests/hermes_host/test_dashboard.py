@@ -22,8 +22,6 @@ from tests.hermes_host.marks import requires_hermes_sandbox
 
 pytestmark = requires_hermes_sandbox
 
-_ROOT = Path(__file__).resolve().parents[2]
-_PLUGIN_HARNESS = Path(__file__).resolve().parent / "petasos_harness.py"
 _DASHBOARD_HARNESS = Path(__file__).resolve().parent / "dashboard_harness.py"
 _TOKEN = "petasos-c3-dashboard-proof"
 
@@ -98,13 +96,23 @@ def dashboard(petasos_wheel: Path) -> Iterator[dict[str, Any]]:
     if not dist.is_file():
         pytest.fail(f"dashboard bundle is missing: {dist}")
     home = fresh_home(sandbox, "dashboard")
-    _invoke(
-        sandbox,
-        home,
-        _PLUGIN_HARNESS,
-        {"action": "install_home", "worktree": str(_ROOT)},
-        timeout=180,
+    installed = subprocess.run(
+        [
+            str(sandbox / "bin" / "with-sandbox"),
+            str(sandbox / "venv" / "bin" / "python"),
+            "-m",
+            "petasos",
+            "hermes",
+            "install",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=300,
+        check=False,
+        env=sandbox_env(home),
     )
+    if installed.returncode != 0:
+        pytest.fail(installed.stdout[-2000:] + installed.stderr[-2000:])
     port = _free_port()
     log = sandbox / "tmp" / f"dashboard-{home.name}.log"
     log.parent.mkdir(parents=True, exist_ok=True)

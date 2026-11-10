@@ -13,6 +13,7 @@ from petasos.hermes.doctor_advice import (
     guardrail_check,
     scanner_report,
 )
+from petasos.hermes.doctor_environment import environment_check
 from petasos.hermes.doctor_install import (
     absent_manifest,
     dashboard_check,
@@ -106,6 +107,9 @@ def _build(
     else:
         checks.append(absent_manifest())
     checks.append(enabled_check(document, home))
+    enabled_names, disabled_names = plugin_lists(document)
+    plugin_on = PLUGIN_ID in enabled_names and PLUGIN_ID not in disabled_names
+    checks.append(environment_check(home, plugin_enabled=plugin_on))
     checks.append(dashboard_check(plugin_dir, document, home))
     if plugin_dir.is_dir() and (plugin_dir / "__init__.py").is_file():
         if plugin_load_fn is None:

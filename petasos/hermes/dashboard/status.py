@@ -43,7 +43,10 @@ def status(
     petasos_raw = detail.get("petasos_enabled")
     petasos_flag = petasos_raw if isinstance(petasos_raw, bool) or petasos_raw is None else None
     valid = settings_error is None and readable
-    armed = hermes_flag is True and petasos_flag is True and valid
+    environment_off = any(
+        check.id == "hermes_environment" and check.status == "fail" for check in report.checks
+    )
+    armed = hermes_flag is True and petasos_flag is True and valid and not environment_off
     scanners = detail.get("scanners")
     if not isinstance(scanners, list):
         scanners = []

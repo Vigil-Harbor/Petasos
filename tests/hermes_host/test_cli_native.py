@@ -7,29 +7,29 @@ a fresh sandbox. It does not start a gateway.
 from __future__ import annotations
 
 import json
-import shutil
 import subprocess
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
 
-from petasos.hermes.dashboard.manifest import render_dashboard_manifest
-from tests.hermes_host.client import invoke
-from tests.hermes_host.marks import requires_hermes_sandbox
-
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from pathlib import Path
+
+from petasos.hermes.dashboard.manifest import render_dashboard_manifest
+from tests.hermes_host.client import fresh_home, invoke, sandbox_env
+from tests.hermes_host.marks import requires_hermes_sandbox
 
 pytestmark = requires_hermes_sandbox
 
-_ROOT = Path(__file__).resolve().parents[2]
-
 
 def _run(
-    sandbox: Path, args: list[str], *, timeout: float = 180
+    sandbox: Path,
+    home: Path,
+    args: list[str],
+    *,
+    timeout: float = 180,
 ) -> subprocess.CompletedProcess[str]:
-    """Run one command inside the sandbox wrapper."""
+    """Run one command inside the sandbox wrapper, against ``home``."""
     wrapper = sandbox / "bin" / "with-sandbox"
     return subprocess.run(
         [str(wrapper), *args],
@@ -37,65 +37,23 @@ def _run(
         text=True,
         timeout=timeout,
         check=False,
+        env=sandbox_env(home),
     )
 
 
-def _petasos(sandbox: Path, args: list[str]) -> subprocess.CompletedProcess[str]:
+def _petasos(sandbox: Path, home: Path, args: list[str]) -> subprocess.CompletedProcess[str]:
     python = sandbox / "venv" / "bin" / "python"
-    return _run(sandbox, [str(python), "-m", "petasos", *args])
+    return _run(sandbox, home, [str(python), "-m", "petasos", *args])
 
 
-def _hermes(sandbox: Path, args: list[str]) -> subprocess.CompletedProcess[str]:
-    return _run(sandbox, ["hermes", *args])
-
-
-@pytest.fixture(scope="module")
-def native_sandbox(hermes_sandbox: Path) -> Path:
-    """Install this worktree into the sandbox interpreter."""
-    completed = subprocess.run(
-        [
-            "uv",
-            "pip",
-            "install",
-            "--python",
-            str(hermes_sandbox / "venv" / "bin" / "python"),
-            "-e",
-            str(_ROOT),
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if completed.returncode != 0:
-        raise AssertionError(completed.stderr[-2000:])
-    return hermes_sandbox
+def _hermes(sandbox: Path, home: Path, args: list[str]) -> subprocess.CompletedProcess[str]:
+    return _run(sandbox, home, ["hermes", *args])
 
 
 @pytest.fixture
-def profile(native_sandbox: Path, tmp_path: Path) -> Iterator[Path]:
-    """The sandbox home, restored after the test."""
-    home = native_sandbox / "hermes_home"
-    plugin = home / "plugins" / "petasos"
-    saved_plugin = tmp_path / "plugin"
-    if plugin.exists():
-        shutil.copytree(plugin, saved_plugin)
-    config = home / "config.yaml"
-    env = home / ".env"
-    saved_config = config.read_text(encoding="utf-8") if config.is_file() else None
-    saved_env = env.read_text(encoding="utf-8") if env.is_file() else None
-    yield home
-    if plugin.exists():
-        shutil.rmtree(plugin)
-    if saved_plugin.exists():
-        shutil.copytree(saved_plugin, plugin)
-    if saved_config is None:
-        config.unlink(missing_ok=True)
-    else:
-        config.write_text(saved_config, encoding="utf-8")
-    if saved_env is None:
-        env.unlink(missing_ok=True)
-    else:
-        env.write_text(saved_env, encoding="utf-8")
+def profile(petasos_wheel: Path, request: pytest.FixtureRequest) -> Path:
+    """A fresh Hermes home. Nothing is shared with another test."""
+    return fresh_home(petasos_wheel, request.node.name)
 
 
 def _json_report(completed: subprocess.CompletedProcess[str]) -> dict[str, object]:
@@ -115,19 +73,19 @@ def _json_report(completed: subprocess.CompletedProcess[str]) -> dict[str, objec
 
 
 def test_hermes_petasos_doctor_matches_the_standalone_command(
-    native_sandbox: Path, profile: Path
+    petasos_wheel: Path, profile: Path
 ) -> None:
     """``hermes petasos doctor`` and ``petasos doctor`` agree for one home."""
-    installed = _petasos(native_sandbox, ["hermes", "install", "--home", str(profile)])
+    installed = _petasos(petasos_wheel, profile, ["hermes", "install"])
     assert installed.returncode in (0, 1), installed.stdout[-2000:] + installed.stderr[-2000:]
 
-    help_text = _hermes(native_sandbox, ["petasos", "--help"])
+    help_text = _hermes(petasos_wheel, profile, ["petasos", "--help"])
     assert help_text.returncode == 0, help_text.stderr[-2000:]
     assert "doctor" in help_text.stdout
     assert "migrate" in help_text.stdout or "config" in help_text.stdout
 
-    standalone = _petasos(native_sandbox, ["doctor", "--json", "--home", str(profile)])
-    native = _hermes(native_sandbox, ["petasos", "doctor", "--json", "--home", str(profile)])
+    standalone = _petasos(petasos_wheel, profile, ["doctor", "--json"])
+    native = _hermes(petasos_wheel, profile, ["petasos", "doctor", "--json"])
     left = _json_report(standalone)
     right = _json_report(native)
     assert right["verdict"] == left["verdict"]
@@ -140,15 +98,13 @@ def test_hermes_petasos_doctor_matches_the_standalone_command(
     assert [row["status"] for row in left_checks] == [row["status"] for row in right_checks]
 
 
-def test_install_writes_a_dashboard_hermes_accepts(native_sandbox: Path, profile: Path) -> None:
+def test_install_writes_a_dashboard_hermes_accepts(petasos_wheel: Path, profile: Path) -> None:
     """The installed plugin and its dashboard files are the ones this version ships."""
-    if (profile / "plugins" / "petasos").exists():
-        shutil.rmtree(profile / "plugins" / "petasos")
-    installed = _petasos(native_sandbox, ["hermes", "install", "--home", str(profile)])
+    installed = _petasos(petasos_wheel, profile, ["hermes", "install"])
     assert installed.returncode in (0, 1), installed.stdout[-2000:] + installed.stderr[-2000:]
 
     plugin = profile / "plugins" / "petasos"
-    report = invoke(native_sandbox, {"action": "validate", "path": str(plugin)})
+    report = invoke(petasos_wheel, {"action": "validate", "path": str(plugin)}, home=profile)
     assert report["ok"] is True, report
 
     dashboard = plugin / "dashboard"
@@ -167,8 +123,8 @@ def test_install_writes_a_dashboard_hermes_accepts(native_sandbox: Path, profile
         "print(json.dumps({'has_api': entry['has_api'], 'path': entry['tab']['path'], "
         "'hidden': bool(entry['tab'].get('hidden'))}))"
     )
-    python = native_sandbox / "venv" / "bin" / "python"
-    checked = _run(native_sandbox, [str(python), "-c", snippet])
+    python = petasos_wheel / "venv" / "bin" / "python"
+    checked = _run(petasos_wheel, profile, [str(python), "-c", snippet])
     assert checked.returncode == 0, checked.stderr[-2000:]
     body = json.loads(checked.stdout)
     assert body["has_api"] is True

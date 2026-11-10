@@ -1,7 +1,9 @@
 # Hermes host harness
 
 Optional tests that load a real Hermes checkout and drive its plugin manager.
-The default `pytest` run skips them. They do not use the network.
+The default `pytest` run skips them. `tests/hermes_host/test_environment.py`
+binds a package index on `127.0.0.1` and resolves Hermes's other dependencies
+from PyPI. The other files do not use the network.
 
 The facts these tests pin are written up in
 `docs/architecture/hermes-host-facts.md`.
@@ -97,10 +99,17 @@ it into the sandbox virtualenv. `install_home` copies
 `hermes-plugin/petasos` into the home and enables it by writing that
 home's `config.yaml` (it does not call `hermes plugins enable`, which
 would commit a new environment). `ensure_wheel` installs the same wheel
-into the home's committed environment when one exists, so a later `hermes`
-process imports the test wheel rather than whatever that environment
-resolved on its own. The stand-in plugins follow the same split:
-`install_standin_wheel` once, `prepare_standin_home` per home.
+into the home's committed environment when one exists. Tests that install
+through `petasos hermes install` do not call it: that command declares the
+wheel in the plugin's `pyproject.toml` and Hermes installs it.
+`ensure_wheel` remains for tests that copy the plugin directory themselves
+(`install_home`, and the in-process harness). The stand-in plugins follow
+the same split: `install_standin_wheel` once, `prepare_standin_home` per home.
+The environment tests that add a scanner, or that install by
+`hermes plugins install`, serve wheels from `127.0.0.1` and set
+`UV_EXTRA_INDEX_URL` to that index. An extra index is searched before PyPI,
+so the test wheel wins for a name it publishes and Hermes's own packages
+still come from PyPI.
 
 ## Run
 
@@ -125,9 +134,9 @@ not write a home outside `<sandbox>/homes`.
   harness (`petasos_harness.py`).
 - `petasos_wheel` plus `fresh_home` — a fresh empty home whose sandbox
   interpreter can already run `python -m petasos`. Use it when the test
-  itself is what installs the plugin. Before any `hermes` command, call
-  the harness action `ensure_wheel` so the committed environment, if the
-  test just created one, has the wheel.
+  itself is what installs the plugin. `petasos hermes install` puts the
+  wheel where a later `hermes` process imports it. A test that enables the
+  plugin some other way calls `ensure_wheel` before that `hermes` command.
 - A module fixture that calls `fresh_home` once — only when several tests
   share one process, as the dashboard tests share one server. Stop that
   process in the fixture's `finally`, and `remember_pid` so the session

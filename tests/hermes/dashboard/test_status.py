@@ -79,7 +79,7 @@ def test_both_switches_on_is_protection_on(tmp_path: Path) -> None:
     joined = " ".join(body["recommendations"])
     assert "No injection scanner is active" not in joined
     assert "pip install" not in joined
-    assert "prompt-guard" in joined
+    assert "petasos scanner add prompt_guard" in joined
 
 
 def test_a_paused_switch_says_which_one_is_off(tmp_path: Path) -> None:

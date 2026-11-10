@@ -435,6 +435,28 @@ def recommendations(composition: Composition, role: str | None = None) -> tuple[
     return tuple(lines)
 
 
+def spec_for(name: str) -> ScannerSpec | None:
+    """The registry entry for a scanner id, label, or extra name.
+
+    Matching ignores case and treats ``-`` and ``_`` as the same character.
+    ``None`` when nothing matches, including a blank name.
+    """
+    token = _token(name)
+    if token == "":
+        return None
+    for spec in REGISTRY:
+        aliases = {_token(spec.id), _token(spec.label)}
+        if spec.extra is not None:
+            aliases.add(_token(spec.extra))
+        if token in aliases:
+            return spec
+    return None
+
+
+def _token(value: str) -> str:
+    return value.strip().casefold().replace("-", "_")
+
+
 __all__ = [
     "REGISTRY",
     "BuildContext",
@@ -449,4 +471,5 @@ __all__ = [
     "fix_for",
     "is_registered",
     "recommendations",
+    "spec_for",
 ]

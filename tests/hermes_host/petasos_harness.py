@@ -141,9 +141,10 @@ def install_wheel(request: dict[str, Any]) -> dict[str, Any]:
 def ensure_wheel(_request: dict[str, Any]) -> dict[str, Any]:
     """Install the already-built wheel into this home's committed environment.
 
-    The sandbox interpreter already has the wheel. ``hermes`` uses it only when
-    this home has no committed environment. When it does, that environment is
-    the one ``hermes`` imports.
+    Used when a test copies the plugin directory itself and does not go through
+    ``petasos hermes install``. That command declares the wheel to Hermes, so
+    tests that install that way do not need this. ``hermes`` uses the sandbox
+    interpreter only when the home has no committed environment.
     """
     wheel = _latest_wheel()
     committed = _committed_python()

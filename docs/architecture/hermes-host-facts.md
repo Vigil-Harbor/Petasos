@@ -740,6 +740,120 @@ install's own text warns that a later Hermes update can build such an
 environment; the enable inside that same command builds one immediately.
 This pass did not change package code.
 
+## 11. Getting Petasos into the committed environment
+
+Checked in sandbox `/tmp/petasos-p2-env`, a copy of `/tmp/petasos-p1a-host`
+(Hermes v0.23.1, the same commit). The copy's editable finder and script
+shebangs were retargeted at the copy before any further command. Every
+command went through `bin/with-sandbox`. Homes were fresh directories under
+`<sandbox>/homes/`.
+
+**The defect, on the code before the fix.** `petasos hermes install` wrote
+the plugin directory with `dependencies = []` and turned the plugin on
+through `dashboard_set_agent_plugin_enabled`. That calls
+`admit_plugin_set_change` → `pm.client.sync_venv`, which commits
+`<home>/installs/<key>/environments/<id>/venv`. The generation's package
+list had no `petasos`. Doctor, running in the interpreter that had the
+wheel, printed `Protected` and exited 0. A new process that imports
+`hermes_cli.main` (which imports `hermes_bootstrap`, which calls
+`activate_dependencies`) had `sys.path` pointing at that generation's
+`site-packages` and raised `ModuleNotFoundError: No module named 'petasos'`.
+`discover_and_load` recorded the plugin with error `No module named
+'petasos'`. `hermes petasos doctor` exited 2 with `hermes: 'petasos' is not
+a hermes command.` The plugin never registered the `petasos` subcommand,
+because it never imported.
+
+**What Hermes installs.** `pm/plugin_declarations.py` `applicable_requirements`
+keeps index requirements and drops any requirement with a URL, including a
+direct wheel URL. A plugin whose `dependencies` is empty is not a workspace
+member (`installs_packages` is false) and does not enter the environment
+stamp. A non-empty index requirement does. `pm/workspace.py`
+`_workspace_member` copies the plugin tree into the generation and keeps
+`[tool.uv.sources]` path entries: an absolute path is left as written, a
+relative path inside the plugin directory is copied with the tree. A path
+source for a direct dependency is installed. A path source for a
+*transitive* dependency of that package is not; those resolve from the
+index (`UV_FIND_LINKS` / `UV_INDEX_URL` / the bridged pip index, see
+`pm/index_config.py` `bridged_index_settings`).
+
+**Ran.** A plugin `pyproject.toml` with `dependencies = ["petasos==0.4.0"]`
+and `petasos = { path = "wheels/petasos-0.4.0-py3-none-any.whl" }`, then
+`dashboard_set_agent_plugin_enabled("petasos", enabled=True)`. The generation
+log contained `petasos==0.4.0 (from file://…/plugin-sources/…/wheels/…)`. A
+new process imported `petasos` from that generation's `site-packages`.
+Changing the requirement to `petasos[probe]==0.4.0`, where the wheel's
+`probe` extra depends on `probe-pkg==0.0.1`, and calling
+`_admit_and_save_plugin_sets` with the current enabled set (the plugin was
+already enabled, so `plugins enable` would have been a no-op:
+`_activate_key` returns false without syncing) failed until
+`UV_FIND_LINKS` pointed at a directory containing `probe-pkg`. With that
+set, the rebuild installed `probe-pkg` and a new process imported it.
+`_admit_and_save_plugin_sets` is the same admission `enable` uses. It does
+not require the enabled set to change. A refusal leaves the previous
+environment in place (`AdmissionRefused`).
+
+**The public index already has 0.4.0.** `https://pypi.org/pypi/petasos/json`
+reports version `0.4.0`, and that release's metadata is the older package
+(it requires `pyjwt` and does not ship this tree's `petasos.hermes`). An
+index requirement `petasos>=0.4,<0.5` is satisfied by that release. The
+development route therefore pins `petasos==<this version>` to a path source
+inside the plugin directory, so a later rebuild cannot substitute the index
+package. The released route is the index requirement, and it installs
+whatever the configured index resolves.
+
+**What rebuilds the environment.** Enabling or disabling a plugin goes
+through `_activate_key` → `_admit_and_save_plugin_sets` → `sync_venv` when
+the set actually changes. `hermes plugins install` with `--enable` does the
+same at the end of `cmd_install`. `hermes plugins update` republishes
+through the update transaction. A Hermes self-update syncs when the venv
+drifts: `hermes_cli/post_update.py` `step_provision_runtimes` calls
+`pm.sync_venv(explicit=True, evict_incompatible_plugins=True)` for the
+`venv` package, and `hermes_cli/update_completion.py` calls `sync_venv` on
+the first-generation selection. This pass did not run a Hermes update. The
+stamp (`pm/packages.py` `expected_stamp` plus `pm/workspace.py`
+`members_stamp`) hashes the plugin tree, so a changed wheel or a changed
+extra is a new generation. A plugin with `dependencies = []` and no
+build-system is not a member and does not by itself force a new generation.
+
+**Extras.** A requirement may name an extra: `petasos[prompt-guard]==0.4.0`.
+`applicable_requirements` keeps it (it has no URL). uv installs the extra's
+dependencies from the index. `uv sync --extra` on the workspace is a
+different mechanism: it installs extras of the workspace members that are
+named on the sync command, which is how Hermes selects its own extras, not
+how a plugin dependency's extras are selected. Putting the extra on the
+petasos requirement is what reaches the environment.
+
+**Index order, checked with uv 0.13.5 (the uv this Hermes pins).** An extra
+index is searched before the default index, and the default strategy is
+`first-index`: the first index that publishes a name supplies it. A private
+index set as `UV_EXTRA_INDEX_URL`, with PyPI left as the default, supplied
+`six` 9.9.9 from the private index and `packaging` from PyPI. A 404 from the
+extra index falls through. The reverse (`UV_INDEX_URL` private,
+`UV_EXTRA_INDEX_URL` PyPI) takes a package PyPI publishes from PyPI, which
+is how an earlier attempt installed the public `petasos` 0.4.0 instead of
+this tree's wheel. `UV_FIND_LINKS` adds locations but does not beat a newer
+version on an index that is searched as well.
+
+**Ran after the fix, on isolated homes.** `petasos hermes install` (the
+development route) left a new process importing `petasos` from the committed
+`site-packages`, with the plugin loaded and a `write_file` of
+`ignore previous instructions` blocked. Deleting that package while the
+plugin files stayed put made `petasos doctor` print `Not protected` and name
+`petasos hermes install`. That second run restored the package.
+`sync_venv(explicit=True, repair=True)` is what restores it.
+`sync_venv(..., repair=True, plugins=Selection(...))` is refused:
+`repair restores the recorded environment; it cannot change features or plugins`
+(`pm/install.py`). Enabling a second plugin that depends on another wheel
+rebuilt the environment and the development wheel was still imported.
+`petasos scanner add prompt_guard`, with stub `torch` and `transformers`
+wheels on a private extra index, put those stubs in the next process;
+`petasos scanner remove prompt_guard` took `torch` out. `hermes plugins
+install file://<repo>#hermes-plugin/petasos --enable --yes-deps`, with this
+tree's wheel on that same kind of extra index, imported `petasos.hermes` from
+the committed environment and blocked the same injection. The dashboard API
+answered after `petasos hermes install` with no separate wheel install into
+the committed environment.
+
 ## What was not run
 
 - No Hermes gateway, no messaging platform, no model provider, and no
