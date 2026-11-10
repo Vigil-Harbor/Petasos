@@ -121,3 +121,14 @@ def test_locked_settings_are_read_from_hermes_managed_keys() -> None:
         "settings": ["tools.exempt"],
         "plugin": True,
     }
+
+
+def test_a_value_you_set_says_what_resetting_it_would_leave() -> None:
+    """Reset names its destination: the value and the layer it comes from."""
+    body = read_settings(
+        {"role": "coding", "overrides": {"tools": {"dangerous_posture": "block"}}},
+        secrets=_SECRETS,
+    )
+    rows = {row["path"]: row for row in body["settings"]}
+    assert rows["tools.dangerous_posture"]["reset_to"] == {"value": "approve", "origin": "role"}
+    assert "reset_to" not in rows["tools.exempt"]

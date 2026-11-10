@@ -141,3 +141,13 @@ def test_coverage_says_which_checks_run_and_which_do_not(tmp_path: Path) -> None
     body = status(load_home(_home(tmp_path, _RESEARCH)))
     assert "coverage" in body
     assert body["coverage"]["running"][0]["id"] == "syntactic"
+
+
+def test_status_says_who_can_change_settings_and_how_to_sign_records(tmp_path: Path) -> None:
+    """The agent's attempts are recorded, not stopped; unsigned records come with steps."""
+    body = status(load_home(_home(tmp_path, _RESEARCH)), home_label="~/hermes")
+    assert "Recording does not stop it" in body["who_can_change"]["agent"]
+    signing = body["record_signing"]
+    assert signing["signed"] is False
+    assert signing["env_file"] == "~/hermes/.env"
+    assert any("PETASOS_SESSION_SECRET" in step for step in signing["steps"])

@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from petasos.hermes.dashboard.errors import envelope
+from petasos.hermes.dashboard.words import WHO_CAN_CHANGE
 from petasos.hermes.doctor import examine, report_payload
 
 if TYPE_CHECKING:
@@ -64,6 +65,8 @@ def status(
         },
         scanners=scanners,
         coverage=coverage(scanners, list(report.suggestions)),
+        who_can_change=dict(WHO_CAN_CHANGE),
+        record_signing=record_signing(secrets, home_label),
         recommendations=list(report.suggestions),
         role=role if isinstance(role, str) else None,
         level=level if isinstance(level, str) else None,
@@ -74,6 +77,28 @@ def status(
     )
     body["version"] = STATUS_VERSION
     return body
+
+
+def record_signing(secrets: dict[str, Any], home_label: str) -> dict[str, Any]:
+    """Whether activity records are signed, and how to start signing them.
+
+    The steps name the profile's env file. No secret value is read or shown.
+    """
+    signed = secrets.get("session_secret") == "set"
+    env_file = (home_label.rstrip("/") + "/.env") if home_label else ".env in the profile"
+    return {
+        "signed": signed,
+        "env_file": env_file,
+        "steps": []
+        if signed
+        else [
+            "Make a random value: openssl rand -base64 32",
+            f"Add a line to {env_file}: PETASOS_SESSION_SECRET=<that value>",
+            "Restart Hermes (Restart Gateway in the sidebar).",
+            "New records are signed from then on. Older records stay unsigned, and the "
+            "check marks them as not matching.",
+        ],
+    }
 
 
 def coverage(scanners: list[Any], suggestions: list[str]) -> dict[str, Any]:

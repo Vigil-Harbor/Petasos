@@ -188,6 +188,8 @@ def read_settings(
     """
     document = stored_document(stored)
     resolved, problems = _try_resolve(document)
+    rows = setting_rows(resolved)
+    _add_reset_targets(rows, document)
     return envelope(
         stored=document,
         labels={key: SETTING_LABEL[key] for key in _FOUR},
@@ -196,7 +198,7 @@ def read_settings(
         roles=role_choices(),
         levels=level_choices(),
         sections=sections(),
-        settings=setting_rows(resolved),
+        settings=rows,
         secrets={
             "session_secret": secrets.get("session_secret", "unset"),
             "hash_key": secrets.get("hash_key", "unset"),
@@ -204,6 +206,39 @@ def read_settings(
         valid=not problems,
         problems=problems,
     )
+
+
+def _add_reset_targets(rows: list[dict[str, Any]], document: Mapping[str, Any]) -> None:
+    """For each value you set, what removing your change would leave, as ``reset_to``.
+
+    ``reset_to`` is ``{value, origin}``: the value the job, the strictness or
+    the default gives once the override is gone. Rows you did not set get none.
+    """
+    overrides = document.get("overrides")
+    if not isinstance(overrides, Mapping):
+        return
+    from petasos.hermes.dashboard.values import has_path, without_path
+
+    for row in rows:
+        if row.get("origin") != "override":
+            continue
+        path = row["path"]
+        try:
+            if not has_path(overrides, path):
+                continue
+            remainder = without_path(overrides, path)
+        except ValueError:
+            continue
+        candidate = dict(document)
+        candidate["overrides"] = remainder
+        resolved, problems = _try_resolve(candidate)
+        if resolved is None or problems:
+            continue
+        tree = to_mapping(resolved.config)
+        row["reset_to"] = {
+            "value": json_value(dig(tree, path)),
+            "origin": resolved.origin.get(path),
+        }
 
 
 def preview_settings(

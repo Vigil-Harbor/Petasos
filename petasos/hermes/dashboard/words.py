@@ -270,6 +270,26 @@ def selfmod_target(event: Mapping[str, object]) -> str:
     return ""
 
 
+# Who can change Petasos's settings, served with the status.
+WHO_CAN_CHANGE = MappingProxyType(
+    {
+        "agent": (
+            "If the agent tries to change Petasos's or Hermes's settings, Petasos records "
+            "the attempt and raises the conversation's risk score. Recording does not stop "
+            "it: the call is blocked only once the conversation is blocked, or when it "
+            "matches another rule."
+        ),
+        "you": (
+            "You, here, in Hermes Desktop's plugin settings, or with hermes config on the "
+            "command line."
+        ),
+        "switches": (
+            "Hermes's plugin switch, on the Plugins page, decides whether Petasos runs at "
+            "all. Pause, here, keeps Petasos running and recording."
+        ),
+    }
+)
+
 # Sentences about the record itself, served with each event.
 MATCHED_TEXT_NOTE = (
     "Petasos does not keep the matched text in its record, because it can contain "
