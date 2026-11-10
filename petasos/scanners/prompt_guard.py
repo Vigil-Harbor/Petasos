@@ -259,6 +259,27 @@ def _load(*, local_files_only: bool) -> tuple[Any, Any]:
     return model, tokenizer
 
 
+def would_download() -> bool:
+    """True when the next scan would fetch model weights.
+
+    Does not import the model and does not use the network. A model already
+    in memory, a complete snapshot, offline mode, a missing token, or a
+    missing package is False.
+    """
+    if _MODEL is not None or _snapshot_complete():
+        return False
+    if _offline() or not _has_token():
+        return False
+    for pkg in _REQUIRED_PACKAGES:
+        try:
+            spec = importlib.util.find_spec(pkg)
+        except Exception:
+            return False
+        if spec is None or spec.origin is None:
+            return False
+    return True
+
+
 def _availability() -> tuple[bool, str | None, AvailabilityCause | None]:
     if _MODEL is not None:
         return (True, None, None)

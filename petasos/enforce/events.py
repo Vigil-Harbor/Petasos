@@ -184,6 +184,17 @@ def _spool_key_for(path: str) -> bytes | None:
     return _SPOOL_KEYS.get(os.path.normcase(path), _SPOOL_KEY)
 
 
+def verification_key(secret: bytes | None) -> bytes | None:
+    """The spool HMAC key for ``secret``, or None when events are unsigned.
+
+    This is the same derivation the writer uses. It does not store the secret
+    and it does not change the process-wide writer key.
+    """
+    if not secret:
+        return None
+    return _derive_spool_key(secret)
+
+
 def verify_event(ev: object, key: bytes | None) -> bool:
     """True iff *key* is set and ``ev["sig"]`` matches the recomputed HMAC. Never raises (D6).
 
