@@ -390,8 +390,7 @@ class TestProfileDescriptions:
 # package and asserts neither Presidio package was pulled in transitively, then
 # prints a positive verdict token. Fresh-interpreter isolation makes this robust
 # even when Presidio is installed in the venv (which patch.dict(sys.modules, ...)
-# cannot achieve). Mirrors the subprocess-probe idiom in
-# tests/test_llama_firewall_wrapper.py.
+# cannot achieve).
 _PROBE_SRC = r"""
 import sys
 import petasos.session.profiles  # noqa: F401

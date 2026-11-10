@@ -168,9 +168,8 @@ def test_config_labels_base_and_missing_extras(harness: Any) -> None:
     manifest_sha = "abc"
     ml = harness.build_ml_report(phase="baseline", git_sha=git_sha, manifest_sha=manifest_sha)
     assert ml["config_label"] == "ml:"
-    assert "llm-guard" not in ml["config_label"]
     names = {row["name"] for row in ml["extras_status"]}
-    assert names == {"llm-guard", "llamafirewall", "presidio", "prompt-guard"}
+    assert names == {"presidio", "prompt-guard"}
     for row in ml["extras_status"]:
         assert row["status"] == f"not measured — extras-{row['name']} unavailable"
     assert ml["cells"] == []

@@ -376,7 +376,7 @@ class FrequencyTracker:
             # promotion channel the weight clamp cannot bound (Step 9 promotes
             # at rolling_threshold findings-scans regardless of score). A capped
             # scan that contributed no weight must not arm it either — otherwise
-            # a zero-weight finding (e.g. `petasos.llmguard.injection`, which
+            # a zero-weight finding (e.g. `petasos.promptguard.injection`, which
             # matches no glob in DEFAULT_FREQUENCY_WEIGHTS and resolves to 0.0)
             # would promote a session to tier1 at score 0.0. Uncapped callers
             # keep today's behaviour exactly.

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-Petasos is a pluggable, session-aware content security pipeline for Python AI agents. It composes OSS scanners (Presidio, PromptGuard 2, opt-in Semgrep, and the deprecated LLM Guard and LlamaFirewall) behind a unified `Scanner` protocol, adds session-aware orchestration (frequency tracking, escalation tiers, profile-driven tuning, tool call guard), and exposes every configuration surface for frontend binding. Published on PyPI as `petasos`.
+Petasos is a pluggable, session-aware content security pipeline for Python AI agents. It composes OSS scanners (Presidio, PromptGuard 2, and opt-in Semgrep) behind a unified `Scanner` protocol, adds session-aware orchestration (frequency tracking, escalation tiers, profile-driven tuning, tool call guard), and exposes every configuration surface for frontend binding. Published on PyPI as `petasos`.
 
 Primary consumer: Hermes Agent (Nous Research, Python 3.11+). Petasos imports in-process as a Python library — no sidecar or REST. Opt-in Semgrep uses explicitly owned, bounded local engine subprocesses; other backends remain in-process.
 
@@ -24,8 +24,6 @@ Work items tracked in Plane (PET project). The file `petasos-project-spec-DRAFT-
 pip install -e .                    # base install (no ML deps)
 pip install -e ".[prompt-guard]"    # + PromptGuard 2 scanner
 pip install -e ".[presidio]"        # + Presidio PII scanner
-pip install -e ".[llm-guard]"       # + LLM Guard scanner (deprecated)
-pip install -e ".[llamafirewall]"   # + LlamaFirewall scanner (deprecated)
 pip install -e ".[semgrep]"       # adapter only; install the pinned engine separately
 pip install -e ".[all]"             # presidio + prompt-guard + console
 
@@ -60,7 +58,7 @@ class Scanner(Protocol):
     ) -> ScanResult: ...
 ```
 
-Six backends: `MinimalScanner` (23 rules across 6 families, zero deps, always ships), `PresidioScanner` (extras), `PromptGuardScanner` (extras), `SemgrepScanner` (adapter extra plus isolated engine and explicit lifecycle owner), and the deprecated `LlmGuardScanner` and `LlamaFirewallScanner` (extras).
+Four backends: `MinimalScanner` (23 rules across 6 families, zero deps, always ships), `PresidioScanner` (extras), `PromptGuardScanner` (extras), and `SemgrepScanner` (adapter extra plus isolated engine and explicit lifecycle owner).
 
 ### Pipeline Stages
 
@@ -87,8 +85,6 @@ petasos/
 ├── scanners/
 │   ├── bootstrap.py     # build_scanners (shared config-to-scanner build, base install)
 │   ├── minimal.py       # MinimalScanner (zero-dep, 23 rules across 6 families)
-│   ├── llm_guard.py     # LlmGuardScanner (extras: llm-guard)
-│   ├── llama_firewall.py # LlamaFirewallScanner (extras: llamafirewall)
 │   ├── presidio.py      # PresidioScanner + anonymization (extras: presidio)
 │   ├── semgrep.py       # SemgrepScanner with explicit lifecycle ownership
 │   ├── _semgrep_runtime.py # process-wide bounded engine jobs
@@ -132,8 +128,8 @@ petasos/
   the shared 30s breaker, the inspect mutex held across the head's ML `await`, and
   PromptGuard's process-wide inference lock across profile copies (PET-242).
 - **Scanner-extra / CI-lane pairing (PET-106).** Every scanner-backend extra in
-  `pyproject.toml [project.optional-dependencies]` (currently `llm-guard`,
-  `llamafirewall`, `presidio`, `prompt-guard`, `semgrep`; `console` excluded — not a scanner) MUST have a
+  `pyproject.toml [project.optional-dependencies]` (currently `presidio`,
+  `prompt-guard`, `semgrep`; `console` excluded — not a scanner) MUST have a
   paired `.github/workflows/extras-<extra>.yml` lane that installs the extra and
   runs its real-backend tests. Backends whose live path needs no gated secret
   additionally arm a `PETASOS_REQUIRE_<EXTRA>=1` collection guard

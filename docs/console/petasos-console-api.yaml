@@ -417,7 +417,7 @@ components:
           type: string
         scanner_name:
           type: string
-          description: 'Which scanner produced this finding: "minimal", "llm_guard", etc.'
+          description: 'Which scanner produced this finding: "minimal", "presidio", etc.'
         position:
           oneOf:
             - $ref: "#/components/schemas/Position"
@@ -785,7 +785,7 @@ components:
       properties:
         name:
           type: string
-          description: Scanner name ("minimal", "llm_guard", "llama_firewall", "presidio", "prompt_guard")
+          description: Scanner name ("minimal", "presidio", "prompt_guard")
         status:
           type: string
           enum: [healthy, degraded, circuit_open, unavailable]

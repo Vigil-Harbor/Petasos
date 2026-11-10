@@ -369,8 +369,6 @@ def test_missing_build_scanners_fails(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "build_scanners" in detail
 
     for class_name in (
-        "LlmGuardScanner",
-        "LlamaFirewallScanner",
         "PresidioScanner",
         "PromptGuardScanner",
     ):

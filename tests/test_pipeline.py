@@ -110,7 +110,7 @@ class TestPipelineConstruction:
         assert p._ml_scanners == []
 
     def test_ml_scanners_separated(self) -> None:
-        ml = MockScanner("llm-guard")
+        ml = MockScanner("presidio")
         p = Pipeline(scanners=[ml])
         assert p._minimal_scanner is not None
         assert len(p._ml_scanners) == 1

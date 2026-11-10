@@ -280,7 +280,7 @@ _FIELD_META: dict[str, dict[str, Any]] = {
     "disabled_scanners": {
         "description": "Optional scanner backends to skip at startup.",
         "help_plain": (
-            "Lists optional backends (llm_guard, llama_firewall, presidio, prompt_guard,"
+            "Lists optional backends (presidio, prompt_guard,"
             " semgrep) that Petasos should not load. A listed backend is not registered and"
             " is reported as"
             " disabled instead of a load failure. Use this when a backend is installed"

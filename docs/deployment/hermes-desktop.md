@@ -100,9 +100,6 @@ license, then pre-download it or make a token available before first use, or eve
 scan through the backend errors. Full steps are in
 [PromptGuard model prerequisites](#promptguard-model-prerequisites) below.
 
-**Deprecated backends:** `llm-guard` and `llamafirewall` still install by name and
-will be removed in a later release. `petasos[all]` no longer includes them.
-
 Verify the install:
 
 **macOS:**
@@ -822,8 +819,8 @@ supervised standalone console above as the durable answer.
 
 ## PromptGuard model prerequisites
 
-The `prompt_guard` backend, and the deprecated LlamaFirewall PromptGuard component,
-use the gated Hugging Face model `meta-llama/Llama-Prompt-Guard-2-86M`. To use it:
+The `prompt_guard` backend uses the gated Hugging Face model
+`meta-llama/Llama-Prompt-Guard-2-86M`. To use it:
 
 1. **Accept the license.** Visit
    [the model page](https://huggingface.co/meta-llama/Llama-Prompt-Guard-2-86M)
@@ -866,21 +863,17 @@ on Presidio nor reclaims its memory.
 
 ### Upgrading to the PromptGuard backend
 
-The new backend registers even when absent, so an upgrade can block all content under
+The backend registers even when absent, so a host can block all content under
 `closed` or `degraded`:
 
-- A host with `llm_guard`, `llama_firewall` and `presidio` all disabled turns
-  `safe=False` until it adds `prompt_guard` to `disabled_scanners` or installs the
-  extra with the model prerequisites met.
-- A fresh `petasos[all]` host blocks until `disabled_scanners` lists `llm_guard` and
-  `llama_firewall`, which `[all]` no longer installs, and the model prerequisites are
-  met or `prompt_guard` is listed too.
-- A healthy host on the old backends blocks until it installs the extra with the model
-  prerequisites met, or lists `prompt_guard` and keeps running on the old backends.
+- A host with `presidio` disabled still turns `safe=False` until it adds
+  `prompt_guard` to `disabled_scanners` or installs the extra with the model
+  prerequisites met.
+- A fresh `petasos[all]` host blocks until the model prerequisites are met or
+  `prompt_guard` is listed in `disabled_scanners`.
 
 **Operator note for this deployment.** Root, gibson and ops stay disarmed until the
-live sync under PET-234. Each guarded profile then uses
-`disabled_scanners: [llm_guard, llama_firewall]`, which leaves minimal, presidio and
+live sync under PET-234. Each guarded profile then runs minimal, presidio and
 prompt_guard.
 
 **Note:** install Petasos scanner extras while the gateway is stopped, or restart
@@ -943,7 +936,7 @@ Check `agent.log` for `Skipping 'petasos'`:
 ### Scanner import failures
 
 ```text
-INFO petasos.plugin: LLM Guard not installed, syntactic-only for that backend
+INFO petasos.plugin: PromptGuard not installed: ML injection detection unavailable
 ```
 
 A backend that is missing is not graceful under `closed` or `degraded`: a registered

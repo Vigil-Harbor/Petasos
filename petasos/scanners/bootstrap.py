@@ -62,28 +62,16 @@ class ScannerBuildStatus:
 
     scanner_id: str
     """Snake id, equal to the backend's ``Scanner.name``
-    (``llm_guard`` / ``llama_firewall`` / ``presidio`` / ``prompt_guard``). Same vocabulary
+    (``presidio`` / ``prompt_guard``). Same vocabulary
     ``Pipeline.scanner_health()`` and the console Scanner Health panel key on."""
 
     display_name: str
-    """Human-facing name (``LLM Guard`` / ``LlamaFirewall`` / ``Presidio`` / ``PromptGuard``)."""
+    """Human-facing name (``Presidio`` / ``PromptGuard``)."""
 
     outcome: ScannerOutcome
     reason: str | None = None
     """Populated for every non-``verified`` outcome: the probe reason for
     ``degraded``, ``str(exc)`` for ``missing`` and ``failed``."""
-
-
-def _build_llm_guard(config: PetasosConfig) -> Scanner:
-    from petasos.scanners import LlmGuardScanner
-
-    return LlmGuardScanner()
-
-
-def _build_llama_firewall(config: PetasosConfig) -> Scanner:
-    from petasos.scanners import LlamaFirewallScanner
-
-    return LlamaFirewallScanner()
 
 
 def _build_presidio(config: PetasosConfig) -> Scanner:
@@ -111,12 +99,9 @@ def _build_prompt_guard(config: PetasosConfig) -> Scanner:
     return PromptGuardScanner()
 
 
-# (scanner_id, display_name, builder). Order is the registration order both
-# pre-PET-174 loops produced, so `Pipeline`'s minimal-scanner detection and both
-# callers' `scanners=%s` log lines are unchanged.
+# (scanner_id, display_name, builder). Order is the registration order:
+# Presidio, then PromptGuard. Semgrep is appended later when enabled.
 _BACKENDS: tuple[tuple[str, str, Callable[[PetasosConfig], Scanner]], ...] = (
-    ("llm_guard", "LLM Guard", _build_llm_guard),
-    ("llama_firewall", "LlamaFirewall", _build_llama_firewall),
     ("presidio", "Presidio", _build_presidio),
     ("prompt_guard", "PromptGuard", _build_prompt_guard),
 )
@@ -134,8 +119,7 @@ def build_scanners(
 
     ``scanners[0]`` is always the ``MinimalScanner``, carrying
     ``config.decode_encoded_payloads``; each optional backend that constructed
-    successfully follows, in the fixed order LLM Guard, LlamaFirewall, Presidio,
-    PromptGuard.
+    successfully follows, in the fixed order Presidio, then PromptGuard.
 
     ``statuses`` carries one record per **optional backend only**, in that same
     fixed order. The ``MinimalScanner`` gets no record: neither in-tree caller

@@ -773,7 +773,7 @@ def test_code_generation_downgrade_is_a_real_residual(monkeypatch: pytest.Monkey
     """PET-135's ML injection downgrade is direction-blind; this is the inbound consumer
     that decision said "must re-decide", and the answer is accept-and-pin.
 
-    Under ``code_generation`` the two ML injection rules are overridden to LOW, below the
+    Under ``code_generation`` the PromptGuard injection rule is overridden to LOW, below the
     HIGH+ gate, so the banner fires on the syntactic floor and structural rules only. What
     holds is ``injection_floor_scope: "inbound"``, which makes the syntactic floor absolute
     on exactly this direction.
@@ -789,12 +789,11 @@ def test_code_generation_downgrade_is_a_real_residual(monkeypatch: pytest.Monkey
     )
     profile = json.loads(profile_path.read_text(encoding="utf-8"))
     overrides = profile.get("severity_overrides", {})
-    assert overrides.get("petasos.llmguard.injection") == "low"
-    assert overrides.get("petasos.llamafirewall.prompt-guard") == "low"
+    assert overrides.get("petasos.promptguard.injection") == "low"
     assert profile.get("injection_floor_scope") == "inbound"
 
     # Half 1: a LOW-downgraded ML injection finding does not annotate.
-    downgraded = _finding("injection", Severity.LOW, rule_id="petasos.llmguard.injection")
+    downgraded = _finding("injection", Severity.LOW, rule_id="petasos.promptguard.injection")
     ref = _plugin(monkeypatch, pipeline=_StubPipeline(_scan((downgraded,))))
     assert ref._transform_tool_result(tool_name="read_file", result="c", task_id="s") is None
 
@@ -1142,7 +1141,7 @@ def test_non_str_host_session_id_falls_through_and_keeps_banner(
         # interpreters. Keying on it would pass local testing and fail everywhere else.
         (
             "ml_scanner_error_only",
-            _scan(scanner_results=(_floor(), ScanResult("llm_guard", (), error="unusable"))),
+            _scan(scanner_results=(_floor(), ScanResult("presidio", (), error="unusable"))),
         ),
     ],
 )

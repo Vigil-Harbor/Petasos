@@ -1026,7 +1026,7 @@ def test_disabled_scanners_validation() -> None:
     with pytest.raises(ValueError, match="nope"):
         PetasosConfig(disabled_scanners=("nope",))
     with pytest.raises(ValueError, match="not a string"):
-        PetasosConfig(disabled_scanners="llm_guard")  # type: ignore[arg-type]
+        PetasosConfig(disabled_scanners="presidio")  # type: ignore[arg-type]
 
 
 _PET224_POSTURES = ("code_generation", "customer_service")

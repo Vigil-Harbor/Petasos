@@ -192,18 +192,6 @@ def check_scanner_imports() -> CheckResult:
 
     available = ["MinimalScanner"]
     try:
-        from petasos.scanners import LlmGuardScanner  # noqa: F401
-
-        available.append("LlmGuardScanner")
-    except ImportError:
-        pass
-    try:
-        from petasos.scanners import LlamaFirewallScanner  # noqa: F401
-
-        available.append("LlamaFirewallScanner")
-    except ImportError:
-        pass
-    try:
         from petasos.scanners import PresidioScanner  # noqa: F401
 
         available.append("PresidioScanner")

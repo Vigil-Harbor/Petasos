@@ -347,20 +347,6 @@ NONSKIPPING_LANES: tuple[NonSkippingLane, ...] = (
         if os.name == "nt"
         else ()
     ),
-    NonSkippingLane(
-        "llm-guard",
-        "PETASOS_REQUIRE_LLM_GUARD",
-        "llm_guard.input_scanners",
-        "TestIntegrationWrappedStdio",
-        "extras-llm-guard",
-    ),
-    NonSkippingLane(
-        "llamafirewall",
-        "PETASOS_REQUIRE_LLAMAFIREWALL",
-        "llamafirewall",
-        "TestProbeWeakrefUnderSlotsStdio",
-        "extras-llamafirewall",
-    ),
     # presidio has two must-run live-detection classes in one lane: PET-106's real
     # PII scan and PET-109's tightened-default regression. Both need the extra +
     # spaCy model, so both are armed under the same PETASOS_REQUIRE_PRESIDIO flag.
@@ -400,12 +386,9 @@ NONSKIPPING_LANES: tuple[NonSkippingLane, ...] = (
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     """Collection-time fail-loud guards for the non-skipping extras lanes.
 
-    PET-104 armed the ``extras-llm-guard`` lane; PET-105 added ``extras-llamafirewall``
-    and extracted the shared enforcement body into ``_enforce_nonskipping_lane`` so the
-    structurally-identical guards cannot drift (DD). PET-106 lifts the per-lane
-    arguments into the module-level ``NONSKIPPING_LANES`` table — the single source of
-    truth also consumed by ``tests/test_ci_extras_lanes.py`` — and arms presidio. Adding
-    a backend is one table row plus one ``extras-<extra>.yml`` lane, no new control flow.
+    ``NONSKIPPING_LANES`` is the single source of truth, also consumed by
+    ``tests/test_ci_extras_lanes.py``. Adding a backend is one table row plus one
+    ``extras-<extra>.yml`` lane, with no new control flow.
     Each lane is gated on its own ``PETASOS_REQUIRE_*`` env var, set only in that lane
     job's ``env`` block, so the default ``ci.yml`` lane and local dev keep the existing
     ``@skipif`` self-skip.

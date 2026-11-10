@@ -178,7 +178,7 @@ class TestShortenRuleId:
         )
 
     def test_passthrough(self) -> None:
-        assert shorten_rule_id("llm_guard.threat") == "llm_guard.threat"
+        assert shorten_rule_id("presidio.threat") == "presidio.threat"
 
 
 class TestTopFindingSelection:

@@ -33,7 +33,7 @@ pytestmark = pytest.mark.skipif(
 def real_scanners() -> list[Scanner]:
     assert importlib.util.find_spec("en_core_web_lg") is not None, "install the spaCy model first"
     assert pg._snapshot_complete(), "pinned PromptGuard weights must already be cached"
-    config = PetasosConfig(disabled_scanners=("llm_guard", "llama_firewall"))
+    config = PetasosConfig()
     scanners, statuses = build_scanners(config)
     assert [s.name for s in scanners] == ["minimal", "presidio", "prompt_guard"]
     assert all(s.outcome in {"verified", "disabled"} for s in statuses), statuses
@@ -56,7 +56,7 @@ def test_real_scanners_reach_plugin_decisions(
     real_scanners: list[Scanner], monkeypatch: pytest.MonkeyPatch, profile_name: str
 ) -> None:
     config = PetasosConfig(
-        profile_name=profile_name, disabled_scanners=("llm_guard", "llama_firewall")
+        profile_name=profile_name,
     )
     tracker = FrequencyTracker(config)
     pipeline = Pipeline(config=config, scanners=real_scanners, frequency_tracker=tracker)
@@ -157,7 +157,7 @@ def test_real_scanners_reach_plugin_decisions(
 
 
 async def test_real_scanners_eight_concurrent_calls(real_scanners: list[Scanner]) -> None:
-    config = PetasosConfig(disabled_scanners=("llm_guard", "llama_firewall"))
+    config = PetasosConfig()
     pipeline = Pipeline(config=config, scanners=real_scanners)
     payload = ("What is the capital of France? " * 70)[:2048]
     for _ in range(5):

@@ -385,7 +385,7 @@ def test_injection_still_blocks_all_dangerous_tools(monkeypatch: pytest.MonkeyPa
 
 def test_non_pii_types_block_all_dangerous(monkeypatch: pytest.MonkeyPatch) -> None:
     # Locks the `finding_type != "pii"` partition across the full non-PII space, including
-    # llm-guard `credential` and an empty finding_type (which also proves no crash).
+    # a credential finding type and an empty finding_type (which also proves no crash).
     for ftype in ("command", "credential", ""):
         gr = _guard_result(findings=(_non_pii(ftype, Severity.HIGH),), param_scan_unsafe=True)
         out = _drive(monkeypatch, "write_file", gr)
@@ -666,7 +666,7 @@ async def test_guard_surfaces_param_scan_degraded(monkeypatch: pytest.MonkeyPatc
     _f, unsafe, degraded = await _guard_with(
         monkeypatch,
         PipelineResult(
-            safe=False, findings=(), scanner_results=(ScanResult("llm_guard", (), error="boom"),)
+            safe=False, findings=(), scanner_results=(ScanResult("presidio", (), error="boom"),)
         ),
     )._scan_params({"a": "x"}, "s1")
     assert unsafe is True and degraded is True
@@ -684,7 +684,7 @@ async def test_guard_surfaces_param_scan_degraded(monkeypatch: pytest.MonkeyPatc
     _f, unsafe, degraded = await _guard_with(
         monkeypatch,
         PipelineResult(
-            safe=True, findings=(), scanner_results=(ScanResult("llm_guard", (), error="boom"),)
+            safe=True, findings=(), scanner_results=(ScanResult("presidio", (), error="boom"),)
         ),
     )._scan_params({"a": "x"}, "s1")
     assert unsafe is False and degraded is False

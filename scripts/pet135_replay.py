@@ -21,7 +21,7 @@ Fidelity model (matches the live Hermes integration, profiles/<p>/plugins/petaso
     (the ordinal ``_blocks`` gate) on a dangerous (non-read-only) tool.
 
 Determinism: only ``MinimalScanner`` is wired (zero-dep, always-on, the layer
-the regression corpus pins). ML backends (LLM Guard / LlamaFirewall / Presidio)
+the regression corpus pins). ML backends (Presidio and PromptGuard)
 are intentionally excluded — they are nondeterministic across model/version and
 their findings are the ``confidence_floor`` lever, analysed separately.
 
@@ -252,20 +252,19 @@ def make_pipeline(ml: bool = False) -> Pipeline:
     rtl/zero-width/nfkc all-on in the live config.
 
     ml=True additionally wires the ML backends that verify available, mirroring
-    the live armed deployment (MinimalScanner + LLM Guard + LlamaFirewall +
-    Presidio). NONDETERMINISTIC — use only for the ML FP census, never for the
+    the live armed deployment (MinimalScanner + Presidio + PromptGuard).
+    NONDETERMINISTIC — use only for the ML FP census, never for the
     regression corpus.
     """
     cfg = PetasosConfig(profile_name=None)
     scanners: list[Any] = [MinimalScanner(decode_encoded_payloads=True)]
     if ml:
         from petasos.scanners import (  # noqa: PLC0415
-            LlamaFirewallScanner,
-            LlmGuardScanner,
             PresidioScanner,
+            PromptGuardScanner,
         )
 
-        for cls in (LlmGuardScanner, LlamaFirewallScanner, PresidioScanner):
+        for cls in (PresidioScanner, PromptGuardScanner):
             try:
                 inst = cls()
                 ok, _reason, _ = inst.availability()
@@ -335,7 +334,7 @@ async def main() -> int:
     ap.add_argument(
         "--ml",
         action="store_true",
-        help="wire ML backends (LLM Guard/LlamaFirewall/Presidio) — NONDETERMINISTIC",
+        help="wire ML backends (Presidio/PromptGuard) — NONDETERMINISTIC",
     )
     ap.add_argument(
         "--sample",

@@ -25,7 +25,7 @@ from petasos.scanners import build_scanners
 from petasos.session.ingest import HEAD_CHARS
 
 _COPIES = ("root", "gibson", "ops")
-_DISABLED = ("llm_guard", "llama_firewall")
+_DISABLED: tuple[str, ...] = ()
 _POLL_SECONDS = 0.5
 _COLD_START_DEADLINE = 600.0
 # A hung synchronous load never returns to the deadline check in _until_clean, so

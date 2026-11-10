@@ -80,8 +80,8 @@ the tree the harness and corpus were run from. Report:
 
 Family-level banner rates, benign, coverage=full, S0+S1, n=200 per family.
 Unavailable samples are excluded from the rate (PET-209). Table A (`base`)
-only; ML extras were not measured (`extras-llm-guard`, `extras-llamafirewall`,
-`extras-presidio` each `not measured`). Policy recommendation:
+only; ML extras were not measured (`extras-presidio` and the other scanner
+extras each `not measured`). Policy recommendation:
 `retain_high_plus`, from a complete measured core (both S0 and S1 observed
 for all four families, 0 unavailable). An empty, partial, or all-unavailable
 run is insufficient evidence, not a retain recommendation; a family lacking
