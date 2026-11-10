@@ -49,16 +49,29 @@ class Watch:
             self.failed.append(f"{response.status} {response.url}")
 
 
+_UNSCROLL = """() => {
+  for (const node of document.querySelectorAll('*')) {
+    if (node.scrollTop) node.scrollTop = 0;
+  }
+}"""
+
+
+def _unscroll(page: Any) -> None:
+    """Put every scrolled container back at its top, Hermes's frame included.
+
+    Keyboard focus moving through Hermes's sidebar scrolls the app frame, and
+    that scroll would carry into every later picture.
+    """
+    page.evaluate(_UNSCROLL)
+
+
 def _open(page: Any, base: str, view: str, params: str = "") -> None:
     """Open the tab, then the view. Hermes drops a fragment on arrival."""
     if "/petasos" not in page.url:
         page.goto(base + "/petasos", wait_until="domcontentloaded")
         page.locator(".petasos-topbar").wait_for(timeout=30000)
-    page.evaluate(
-        "(h) => { window.location.hash = h; document.documentElement.scrollTop = 0; "
-        "document.body.scrollTop = 0; }",
-        view + params,
-    )
+    _unscroll(page)
+    page.evaluate("(h) => { window.location.hash = h; }", view + params)
     page.wait_for_timeout(300)
     page.locator(".petasos-view").wait_for(timeout=15000)
 
@@ -239,7 +252,7 @@ def _capture_theme(
     # 03 A job change being previewed: consequences first, details folded.
     page.locator("#petasos-choose-job-research").click()
     page.locator(".petasos-preview .petasos-when").first.wait_for(timeout=15000)
-    _scroll_to(page, "#petasos-setup")
+    _scroll_to(page, ".petasos-topbar")
     _settle(page)
     _shot(page, out, f"{prefix}-03-overview-choice-preview", shots)
     page.locator(".petasos-preview").get_by_role("button", name="Cancel").click()
@@ -260,6 +273,7 @@ def _capture_theme(
     page.get_by_text("Protection on").first.wait_for(timeout=20000)
     _settle(page, 800)
     if _tab_to(page, "Pause protection"):
+        _unscroll(page)
         page.wait_for_timeout(300)
         _shot(page, out, f"{prefix}-x5-keyboard-focus", shots)
 
@@ -331,12 +345,12 @@ def _capture_theme(
     _settle(page)
     _shot(page, out, f"{prefix}-09-settings-override", shots)
 
-    # x1 The review of staged changes, before anything is saved.
-    page.get_by_role("button", name="Review and save").click()
-    page.locator(".petasos-review").wait_for(timeout=10000)
+    # x1 The list of staged changes, opened from the count beside Save.
+    page.locator(".petasos-changecount").click()
+    page.locator(".petasos-sheet").wait_for(timeout=10000)
     _settle(page)
     _shot(page, out, f"{prefix}-x1-settings-review", shots)
-    page.get_by_role("button", name="Back to editing").click()
+    page.locator(".petasos-sheet").get_by_role("button", name="Close the list of changes").click()
     page.get_by_role("button", name="Discard").click()
 
     # 10 Settings: an invalid value explained at the field.
@@ -353,14 +367,13 @@ def _capture_theme(
     page.locator("#petasos-field-scanners-prompt_guard-enabled").click()
     page.get_by_role("option", name="Always (report a problem if it is missing)").click()
     page.get_by_text("1 unsaved change").first.wait_for(timeout=10000)
-    page.get_by_role("button", name="Review and save").click()
-    page.locator(".petasos-review").get_by_role("button", name="Save 1 change").click()
+    page.locator(".petasos-savebox").get_by_role("button", name="Save", exact=True).click()
     page.get_by_text("Saved at").first.wait_for(timeout=15000)
     _scroll_to(page, ".petasos-topbar")
     _settle(page)
     _shot(page, out, f"{prefix}-x2-settings-saved", shots)
 
-    # x3 The verdict while a recommended optional check is missing.
+    # x3 The verdict while a check that is turned on cannot run.
     _open(page, demo, "overview")
     page.locator(".petasos-verdict").wait_for(timeout=20000)
     page.wait_for_timeout(1500)
