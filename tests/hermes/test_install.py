@@ -5,7 +5,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from petasos.cli import main
-from petasos.hermes.install import RELEASED_COMMAND, render_project
+from petasos.hermes.dashboard.manifest import render_dashboard_manifest
+from petasos.hermes.install import RELEASED_COMMAND, dashboard_texts, render_project
 from petasos.hermes.manifest import render_manifest
 
 if TYPE_CHECKING:
@@ -49,16 +50,21 @@ def test_install_is_idempotent(tmp_path: Path, capsys: pytest.CaptureFixture[str
     assert written["__init__.py"] == "from petasos.hermes.plugin import register\n"
     assert written["pyproject.toml"] == render_project()
     assert "MemoryProvider" not in written["__init__.py"]
-    stamps = {
-        name: (tmp_path / "plugins" / "petasos" / name).stat().st_mtime_ns for name in written
+    dashboard = tmp_path / "plugins" / "petasos" / "dashboard"
+    shipped = dashboard_texts()
+    for name, text in shipped.items():
+        assert (dashboard / name).read_text(encoding="utf-8") == text
+    assert (dashboard / "manifest.json").read_text(encoding="utf-8") == render_dashboard_manifest()
+    watched = {
+        **{name: tmp_path / "plugins" / "petasos" / name for name in written},
+        **{f"dashboard/{name}": dashboard / name for name in shipped},
     }
+    stamps = {name: path.stat().st_mtime_ns for name, path in watched.items()}
 
     second, again = _run(["hermes", "install", "--home", str(tmp_path)], capsys)
     assert "already match this version" in again
     assert _files(tmp_path) == written
-    assert {
-        name: (tmp_path / "plugins" / "petasos" / name).stat().st_mtime_ns for name in written
-    } == stamps
+    assert {name: path.stat().st_mtime_ns for name, path in watched.items()} == stamps
     assert not (tmp_path / "config.yaml").exists()
     assert first == second
 

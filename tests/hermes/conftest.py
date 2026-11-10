@@ -8,7 +8,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from petasos.hermes.doctor import Check, HermesView
-from petasos.hermes.install import render_project
+from petasos.hermes.install import dashboard_texts, render_project
 from petasos.hermes.manifest import render_manifest
 
 if TYPE_CHECKING:
@@ -27,6 +27,10 @@ def write_plugin(home: Path) -> Path:
         encoding="utf-8",
     )
     (target / "pyproject.toml").write_text(render_project(), encoding="utf-8")
+    dashboard = target / "dashboard"
+    dashboard.mkdir(parents=True, exist_ok=True)
+    for name, text in dashboard_texts().items():
+        (dashboard / name).write_text(text, encoding="utf-8")
     return target
 
 
