@@ -15,14 +15,17 @@ from typing import TYPE_CHECKING
 import petasos
 from petasos.hermes.dashboard.manifest import DASHBOARD_DIR, render_dashboard_manifest
 from petasos.hermes.doctor import Report, examine, render_text
+from petasos.hermes.doctor_support import use_home
+from petasos.hermes.environment import probe_petasos, republish, runtime_python
 from petasos.hermes.manifest import render_manifest
 from petasos.hermes.settings import PLUGIN_ID
+from petasos.hermes.wheel import place_wheel, wheel_filename
 
 if TYPE_CHECKING:
     from pathlib import Path
 
 RELEASED_SPEC = "https://github.com/Vigil-Harbor/Petasos.git#hermes-plugin/petasos"
-RELEASED_COMMAND = f"hermes plugins install {RELEASED_SPEC}"
+RELEASED_COMMAND = f"hermes plugins install {RELEASED_SPEC} --enable --yes-deps"
 _INIT_SOURCE = "from petasos.hermes.plugin import register\n"
 _NAME_LINE = re.compile(r"(?m)^name:\s*(\S+)\s*$")
 
@@ -63,13 +66,15 @@ def install_plugin(
     )
 
 
-def render_project() -> str:
+def render_project(wheel_name: str | None = None) -> str:
     """The plugin ``pyproject.toml`` for a copy this Petasos wrote.
 
-    Dependencies are empty on purpose. Hermes's package manager installs
-    only packages it can fetch from an index, and a development copy is
-    already present in the Python that is running this command.
+    The dependency is this version, taken from the wheel file next to the
+    plugin. Hermes installs that file into the environment it runs. A bare
+    name would let a package index supply a different build of the same
+    version.
     """
+    name = wheel_filename() if wheel_name is None else wheel_name
     version = petasos.__version__
     return (
         "[project]\n"
@@ -77,7 +82,13 @@ def render_project() -> str:
         f'version = "{version}"\n'
         'description = "Hermes directory plugin. Behaviour lives in the petasos wheel."\n'
         'requires-python = ">=3.11"\n'
-        "dependencies = []\n"
+        f'dependencies = ["petasos=={version}"]\n'
+        "\n"
+        "[tool.uv]\n"
+        "package = false\n"
+        "\n"
+        "[tool.uv.sources]\n"
+        f'petasos = {{ path = "wheels/{name}" }}\n'
     )
 
 
@@ -99,21 +110,21 @@ def _development(
     lines = [
         f"Petasos will set up protection for {home} ({home_reason}).",
         "",
-        "This is the development install. It writes the plugin files from this "
-        "copy of Petasos and turns the plugin on through Hermes.",
-        "Hermes's package manager does not know about a copy installed this way. "
-        "A later Hermes update can build a new environment that does not include it. "
+        "This is the development install, for a copy of Petasos that is not the "
+        "published package. It writes the plugin files and this copy's wheel, and "
+        "Hermes installs that wheel into the environment a new Hermes process runs.",
         "For a published release, run: petasos hermes install --released",
         "",
         "It will write:",
         f"  {target / 'plugin.yaml'}",
         f"  {target / '__init__.py'}",
         f"  {target / 'pyproject.toml'}",
-        f"  {target / 'dashboard' / 'manifest.json'}",
-        f"  {target / 'dashboard' / 'plugin_api.py'}",
-        f"  {target / 'dashboard' / 'index.js'}",
-        "It will turn the plugin on through Hermes, if Hermes is available in this Python.",
+        f"  {target / 'wheels' / wheel_filename()}",
+        *[f"  {target / 'dashboard' / name}" for name in dashboard_texts()],
+        "It will turn the plugin on through Hermes.",
         "Running this again refreshes those files to this version of Petasos.",
+        "A Hermes process that is already running keeps its old environment "
+        "until it starts again.",
     ]
     if not owned and not force:
         lines.extend(
@@ -135,15 +146,28 @@ def _development(
         text += "\nCurrent check, before any change:\n\n"
         text += render_text(report, verbose=False, color=color)
         return InstallResult(text=text, exit_code=0, report=report)
-    written = _write_tree(target)
+    wheel, problem = place_wheel(target / "wheels")
+    if wheel is None:
+        lines.extend(["", problem, "Nothing was turned on."])
+        text = "\n".join(lines) + "\n\n"
+        report = examine(home, home_reason=home_reason)
+        text += render_text(report, verbose=False, color=color)
+        return InstallResult(text=text, exit_code=2, report=report)
+    written = _write_tree(target, wheel_name=wheel.name)
     if written:
         lines.append("")
         lines.append("Wrote the plugin files.")
     else:
         lines.append("")
         lines.append("The plugin files already match this version of Petasos.")
-    enabled, enable_message = enable_plugin()
-    lines.append(enable_message)
+    with use_home(home):
+        enabled, enable_message = enable_plugin()
+        lines.append(enable_message)
+        if enabled and "already" in enable_message:
+            runtime = runtime_python(home)
+            broken = runtime is None or not probe_petasos(runtime.python).ok
+            _ok, refresh = republish(repair=broken)
+            lines.append(refresh)
     if not enabled:
         lines.append(
             "The files are in place. Hermes did not turn the plugin on, "
@@ -166,8 +190,9 @@ def _released(
     lines = [
         f"Profile: {home} ({home_reason}).",
         "",
-        "The released install uses Hermes's own command. Hermes clones the plugin",
-        "directory and installs the published Petasos package into its own environment.",
+        "This is the released install. Hermes clones the plugin directory and installs",
+        "the published Petasos package from a package index into the environment",
+        "a new Hermes process runs. It is not the development install.",
         "Hermes picks the new environment up the next time it starts.",
         "",
         RELEASED_COMMAND,
@@ -246,25 +271,33 @@ def run_released_install() -> tuple[bool, str]:
 def dashboard_texts() -> dict[str, str]:
     """The dashboard files for a copy this Petasos wrote.
 
-    The manifest is rendered for this version. The API module and the page
-    script are the files shipped with the plugin.
+    Every file in the plugin's dashboard directory is copied. The manifest is
+    rendered for this version, so a tab script or a style sheet added beside
+    it is included without being named here.
     """
-    texts = {"manifest.json": render_dashboard_manifest()}
-    for name in ("plugin_api.py", "index.js"):
-        texts[name] = (DASHBOARD_DIR / name).read_text(encoding="utf-8")
+    texts: dict[str, str] = {}
+    for path in sorted(DASHBOARD_DIR.iterdir(), key=lambda item: item.name):
+        if path.is_file() and path.name != "manifest.json":
+            texts[path.name] = path.read_text(encoding="utf-8")
+    texts["manifest.json"] = render_dashboard_manifest()
     return texts
 
 
-def _write_tree(target: Path) -> bool:
+def _write_tree(target: Path, *, wheel_name: str) -> bool:
     """Write the plugin files and the dashboard tab. Return True when a byte changed."""
     target.mkdir(parents=True, exist_ok=True)
     changed = _write_if_changed(target / "plugin.yaml", render_manifest())
     changed = _write_if_changed(target / "__init__.py", _INIT_SOURCE) or changed
-    changed = _write_if_changed(target / "pyproject.toml", render_project()) or changed
-    dashboard = target / "dashboard"
-    dashboard.mkdir(parents=True, exist_ok=True)
+    changed = _write_if_changed(target / "pyproject.toml", render_project(wheel_name)) or changed
+    changed = _copy_dashboard(target / "dashboard") or changed
+    return changed
+
+
+def _copy_dashboard(dest: Path) -> bool:
+    dest.mkdir(parents=True, exist_ok=True)
+    changed = False
     for name, text in dashboard_texts().items():
-        changed = _write_if_changed(dashboard / name, text) or changed
+        changed = _write_if_changed(dest / name, text) or changed
     return changed
 
 

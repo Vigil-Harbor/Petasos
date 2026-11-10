@@ -34,7 +34,8 @@ def test_dry_run_writes_nothing(tmp_path: Path, capsys: pytest.CaptureFixture[st
 
     assert code == 0
     assert "Dry run. Nothing was written." in out
-    assert "package manager does not know" in out
+    assert "development install" in out
+    assert "published package" in out
     assert "petasos hermes install --released" in out
     assert not (tmp_path / "plugins" / "petasos").exists()
     assert not (tmp_path / "config.yaml").exists()
