@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 
+from tests.enforce_parity.enforcer_adapter import EnforcerOracle
 from tests.enforce_parity.load import (
     OUTCOMES_PATH,
     SCENARIOS_PATH,
@@ -16,6 +17,9 @@ from tests.enforce_parity.load import (
     load_json,
 )
 from tests.enforce_parity.plugin_adapter import PluginOracle
+
+_DIFFERENCES_PATH = OUTCOMES_PATH.parent / "differences.json"
+_RECONFIGURED = "PETASOS_RECONFIGURED: live config.yaml change applied to the running session"
 
 _MAX_DIFFS = 8
 
@@ -204,6 +208,144 @@ def test_categories_are_covered() -> None:
             found.add(category)
     missing = sorted(_REQUIRED - found)
     assert not missing, "scenarios never cover: " + ", ".join(missing)
+
+
+def _differences() -> list[dict[str, Any]]:
+    document = load_json(_DIFFERENCES_PATH)
+    rows = document.get("differences")
+    if not isinstance(rows, list):
+        raise TypeError("differences must be a list")
+    return [row for row in rows if isinstance(row, dict)]
+
+
+def _matches(pattern: str, value: str) -> bool:
+    return pattern == "*" or pattern == value
+
+
+def _apply_log(expected: dict[str, Any], actual: dict[str, Any], row: dict[str, Any]) -> bool:
+    """Apply one listed log difference. True when this step exhibited it."""
+    old = row.get("old")
+    new = row.get("new")
+    expected_logs = expected.get("logs")
+    actual_logs = actual.get("logs")
+    if not isinstance(expected_logs, list) or not isinstance(actual_logs, list):
+        return False
+    if isinstance(old, str) and new is None:
+        if old not in expected_logs or old in actual_logs:
+            return False
+        # The empty-cache line is the first log of the steps it explains.
+        # A later line with the same text is a real change and stays pinned.
+        if row.get("scenario") == "*" and expected_logs[0] != old:
+            return False
+        expected_logs.remove(old)
+        return True
+    if old is None and isinstance(new, str):
+        if new not in actual_logs or new in expected_logs:
+            return False
+        actual_logs.remove(new)
+        return True
+    if isinstance(old, str) and isinstance(new, str):
+        if old not in expected_logs or new not in actual_logs or old in actual_logs:
+            return False
+        expected_logs[expected_logs.index(old)] = new
+        return True
+    return False
+
+
+def _apply_differences(
+    expected: dict[str, Any],
+    actual: dict[str, Any],
+    rows: list[dict[str, Any]],
+    scenario_id: str,
+    step_id: str,
+    used: set[int],
+) -> None:
+    for index, row in enumerate(rows):
+        scenario = row.get("scenario")
+        step = row.get("step")
+        if not isinstance(scenario, str) or not isinstance(step, str):
+            continue
+        if not _matches(scenario, scenario_id) or not _matches(step, step_id):
+            continue
+        if row.get("field") == "logs" and _apply_log(expected, actual, row):
+            used.add(index)
+
+
+@pytest.mark.parametrize("scenario_id", _ids())
+def test_enforcer_matches_record(scenario_id: str) -> None:
+    """The enforcer matches the record except the listed differences."""
+    recorded = load_json(OUTCOMES_PATH)
+    scenarios = recorded.get("scenarios")
+    if not isinstance(scenarios, dict) or scenario_id not in scenarios:
+        raise AssertionError(f"{scenario_id} is missing from outcomes.json")
+    scenario = next(item for item in _scenarios() if item["id"] == scenario_id)
+    actual = EnforcerOracle().replay(expand_scenario(scenario))
+    expected = scenarios[scenario_id]
+    if not isinstance(expected, list):
+        raise AssertionError(f"{scenario_id} recorded outcomes are not a list")
+    rows = _differences()
+    used: set[int] = set()
+    compared_expected: list[dict[str, Any]] = []
+    compared_actual: list[dict[str, Any]] = []
+    pairs = max(len(expected), len(actual))
+    for index in range(pairs):
+        left = expected[index] if index < len(expected) else None
+        right = actual[index] if index < len(actual) else None
+        if isinstance(left, dict) and isinstance(right, dict):
+            left = json.loads(json.dumps(left))
+            right = json.loads(json.dumps(right))
+            step_id = str(right.get("id", left.get("id", index)))
+            _apply_differences(left, right, rows, scenario_id, step_id, used)
+        compared_expected.append(left if isinstance(left, dict) else {"id": index})
+        compared_actual.append(right if isinstance(right, dict) else {"id": index})
+    if compared_expected == compared_actual:
+        return
+    diffs: list[str] = []
+    for index in range(pairs):
+        left = compared_expected[index] if index < len(compared_expected) else None
+        right = compared_actual[index] if index < len(compared_actual) else None
+        if left == right:
+            continue
+        step_id = ""
+        if isinstance(right, dict):
+            step_id = str(right.get("id", ""))
+        diffs.append(f"{scenario_id} step={step_id or index}\n{_step_diff(left, right)}")
+        if len(diffs) >= _MAX_DIFFS:
+            break
+    raise AssertionError(
+        "enforcer outcomes differ from the record after listed differences\n\n"
+        + "\n\n".join(diffs)
+    )
+
+
+def test_listed_differences_all_occur() -> None:
+    """A listed difference that the enforcer no longer exhibits fails the run."""
+    # The parametrized test records which rows it applied. Running this test
+    # alone, or before those, replays enough to know. Replaying here keeps the
+    # check independent of test order.
+    rows = _differences()
+    used: set[int] = set()
+    recorded = load_json(OUTCOMES_PATH)
+    scenarios = recorded.get("scenarios")
+    if not isinstance(scenarios, dict):
+        raise AssertionError("outcomes scenarios must be an object")
+    for scenario in _scenarios():
+        scenario_id = str(scenario["id"])
+        expected = scenarios[scenario_id]
+        actual = EnforcerOracle().replay(expand_scenario(scenario))
+        if not isinstance(expected, list):
+            continue
+        for index in range(min(len(expected), len(actual))):
+            left = expected[index]
+            right = actual[index]
+            if not isinstance(left, dict) or not isinstance(right, dict):
+                continue
+            left = json.loads(json.dumps(left))
+            right = json.loads(json.dumps(right))
+            step_id = str(right.get("id", ""))
+            _apply_differences(left, right, rows, scenario_id, step_id, used)
+    missing = [rows[index]["reason"] for index in range(len(rows)) if index not in used]
+    assert not missing, "listed differences that did not occur:\n" + "\n".join(missing)
 
 
 def test_record_drops_volatile_event_fields() -> None:
