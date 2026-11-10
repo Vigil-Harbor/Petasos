@@ -12,10 +12,19 @@ recorded verdicts and `test_parity.py` untouched.
 The record is syntactic only. Every case runs on the zero-dependency
 `MinimalScanner` under default config, once for each built-in profile
 (`general`, `code_generation`, `research`, `customer_service`, `admin`)
-and once with no profile. Single-shot cases use a fresh session. Session
-cases pin escalation by the tier after each step, not by the score, because
-the score decays with wall-clock time. The sequences are sized so a gap of
-well under a minute between steps stays in the same tier.
+and once with no profile. `plugin:admin` and `plugin:research` bind that
+profile to the pipeline and construct the guard without one, which is what
+the reference plugin does. The other built-ins leave the guard's profile
+inputs empty, so a separate plugin label would repeat the bare profile.
+Single-shot cases use a fresh session. Session cases pin escalation by the
+tier after each step, not by the score, because the score decays with
+wall-clock time. The sequences are sized so a gap of a few seconds between
+steps stays in the same tier.
+
+`verdicts.json` stores each case on one line. The stored verdict is the one
+shared by the most profiles. `base` names a profile that has it. `differs`
+holds only the profiles that do not. A diff of the file is one case, and the
+profile names in that line are the ones whose verdict changed.
 
 ## Re-record
 
