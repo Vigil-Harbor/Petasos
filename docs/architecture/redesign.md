@@ -126,11 +126,14 @@ class EscalationConfig:
             raise ConfigError("tiers must be strictly ascending")
 ```
 
-`@section` is a dataclass transform. The class stays a real frozen slotted
-dataclass, so `dataclasses.fields`, `dataclasses.replace`, and equality behave
-normally. `replace` builds a new instance and therefore re-validates. mypy
-sees the generated constructor. Direct construction and `from_mapping` coerce
-and validate the same way and raise `ConfigError`.
+`@section` is a dataclass transform with `kw_only_default`. The class stays a
+real frozen slotted dataclass (`kw_only=True`), so `dataclasses.fields`,
+`dataclasses.replace`, and equality behave normally. `replace` builds a new
+instance and therefore re-validates. mypy sees the generated constructor and
+requires every setting by name. Direct construction and `from_mapping` coerce
+and validate the same way and raise `ConfigError`. A positional call raises
+`TypeError` and names the settings, so adding or reordering fields cannot
+silently change a call.
 
 `setting(*, default, help, ge=None, gt=None, le=None, lt=None, restart=False, audience="advanced", normalize=None)`
 returns a `dataclasses.field`. Its metadata holds a `FieldSpec` under the
@@ -150,7 +153,10 @@ A list, set, or bytearray default is rejected. A dict default is copied into a
 read-only mapping, so the caller's dict is not shared. Defaults are checked
 when the class is defined, and so is `check`. An annotation outside the
 vocabulary below is a `TypeError` at class definition. Annotations are
-resolved even though modules use `from __future__ import annotations`.
+resolved from the globals of the module that defines the section, even though
+modules use `from __future__ import annotations`. A name imported only under
+`TYPE_CHECKING` is not visible there. Definition then fails with `TypeError`
+and tells you to import that name at runtime.
 
 Rules the engine applies from the annotation:
 
@@ -180,7 +186,7 @@ validates config: no hand-written `__post_init__`, no parallel metadata table.
 ```python
 def from_mapping(cls: type[T], data: Mapping[str, Any]) -> T
 def to_mapping(obj: object) -> dict[str, Any]
-def describe(cls: type) -> tuple[FieldInfo, ...]
+def describe(cls: type) -> tuple[FieldInfo | SectionInfo, ...]
 def merge(base: Mapping[str, Any], layer: Mapping[str, Any]) -> dict[str, Any]
 
 class ConfigError(ValueError):
@@ -200,6 +206,13 @@ class FieldInfo:  # frozen
     audience: Literal["basic", "advanced", "expert"]
     restart: bool
     nullable: bool
+
+class SectionInfo:  # frozen
+    path: str               # dotted path of the section field
+    help: str               # the setting() help on that field
+    audience: Literal["basic", "advanced", "expert"]
+    restart: bool
+    nullable: bool
 ```
 
 - `from_mapping` is strict. An unknown key is an error. Its path is the key,
@@ -209,11 +222,16 @@ class FieldInfo:  # frozen
 - `to_mapping` returns plain JSON-serialisable data: lists for tuples, dicts
   for mappings and sections. `from_mapping(cls, to_mapping(x)) == x` for every
   valid `x`.
-- `describe` returns one `FieldInfo` per leaf, in declaration order. A nested
-  section does not get its own row. Leaf defaults are the values a fresh
-  instance carries, so an override baked into a nested default is visible.
-  `choices` is set only for a `choice`. This record is enough for a settings
-  form and a reference table.
+- `describe` returns one `SectionInfo` per nested section and one `FieldInfo`
+  per leaf, in declaration order. A section row appears immediately before
+  that section's own rows. Its `path` is the dotted path of the section
+  field and its `help` is the text declared on that field. The root has no
+  row; it is the class passed to `describe`. A direct child of a section is
+  a row whose path is that section's path plus one dotted name, so the flat
+  result rebuilds the tree. Leaf defaults are the values a fresh instance
+  carries, so an override baked into a nested default is visible. `choices`
+  is set only for a `choice`. These records are enough for a settings form,
+  including group headings, and a reference table.
 - `merge` deep-merges partial documents and does not validate them. A missing
   key keeps the base value. An explicit `None` in the layer replaces the base
   value, so a layer can clear an optional setting. When both values are

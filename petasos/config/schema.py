@@ -8,10 +8,9 @@ same checks and report every problem together.
 from __future__ import annotations
 
 import difflib
-import inspect
 import math
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import MISSING, dataclass, field, fields
+from dataclasses import MISSING, dataclass, field, fields, replace
 from types import MappingProxyType, NoneType, UnionType
 from typing import (
     Any,
@@ -29,7 +28,6 @@ _T = TypeVar("_T")
 _S = TypeVar("_S")
 
 Audience = Literal["basic", "advanced", "expert"]
-_AUDIENCES = ("basic", "advanced", "expert")
 _TYPE_NAMES = {
     "bool": "bool",
     "int": "int",
@@ -55,32 +53,22 @@ class ConfigError(ValueError):
     @classmethod
     def at(cls, path: str, message: str) -> ConfigError:
         """Report one problem at a path relative to the section being checked."""
-        if type(path) is not str or path == "" or path.startswith("."):
+        if path == "" or path.startswith("."):
             raise TypeError("path must name a setting relative to this section")
-        if type(message) is not str or message == "":
+        if message == "":
             raise TypeError("message must be a non-empty string")
         return cls(((path, message),))
 
 
 def _problems(problems: str | Sequence[tuple[str, str]]) -> tuple[tuple[str, str], ...]:
-    if type(problems) is str:
+    if isinstance(problems, str):
         if problems == "":
             raise TypeError("ConfigError needs a message")
         return (("", problems),)
-    pairs: list[tuple[str, str]] = []
-    for item in problems:
-        if (
-            type(item) is not tuple
-            or len(item) != 2
-            or type(item[0]) is not str
-            or type(item[1]) is not str
-            or item[1] == ""
-        ):
-            raise TypeError("ConfigError problems must be (path, message) pairs")
-        pairs.append((item[0], item[1]))
+    pairs = tuple((path, message) for path, message in problems)
     if not pairs:
         raise TypeError("ConfigError needs at least one problem")
-    return tuple(pairs)
+    return pairs
 
 
 def _format(errors: Sequence[tuple[str, str]]) -> str:
@@ -133,6 +121,24 @@ class FieldInfo:
 
 
 @dataclass(frozen=True, slots=True)
+class SectionInfo:
+    """One nested section, emitted immediately before that section's own rows.
+
+    ``path`` is the dotted path of the section field. ``help`` is the text
+    declared with ``setting`` on that field. A direct child is a row whose
+    path is ``path`` plus one dotted name, so the flat result is enough to
+    rebuild the tree in declaration order. ``audience``, ``restart``, and
+    ``nullable`` come from that same field.
+    """
+
+    path: str
+    help: str
+    audience: Audience
+    restart: bool
+    nullable: bool
+
+
+@dataclass(frozen=True, slots=True)
 class _Kind:
     kind: str
     nullable: bool
@@ -169,14 +175,8 @@ def setting(
     A list, set, or bytearray default is rejected. A dict default is copied
     into a read-only mapping, so the caller's dict is not shared.
     """
-    if type(help) is not str or help.strip() == "":
+    if help.strip() == "":
         raise TypeError("setting() help must be a non-empty string")
-    if type(restart) is not bool:
-        raise TypeError("setting() restart must be true or false")
-    if audience not in _AUDIENCES:
-        raise TypeError("setting() audience must be basic, advanced, or expert")
-    if normalize is not None and not callable(normalize):
-        raise TypeError("setting() normalize must be a function")
     lower_ge = _bound("ge", ge)
     lower_gt = _bound("gt", gt)
     upper_le = _bound("le", le)
@@ -255,32 +255,23 @@ def _require_plan(cls: type[object]) -> tuple[_Field, ...]:
     return cast("tuple[_Field, ...]", plan)
 
 
-def _caller_locals() -> dict[str, Any]:
-    frame = inspect.currentframe()
-    if frame is None or frame.f_back is None or frame.f_back.f_back is None:
-        return {}
-    localns = dict(frame.f_back.f_back.f_locals)
-    del frame
-    return localns
-
-
-@dataclass_transform(frozen_default=True, field_specifiers=(setting,))
+@dataclass_transform(frozen_default=True, kw_only_default=True, field_specifiers=(setting,))
 def section(cls: type[_S]) -> type[_S]:
     """Declare a frozen config section that validates on construction.
 
     Direct construction and ``from_mapping`` coerce and check the same way.
-    ``dataclasses.replace`` builds a new instance, so it re-validates. A
-    ``check`` method may raise ``ConfigError`` for rules that span fields;
-    paths in that error are relative to the section.
+    Construction takes each setting by name. ``dataclasses.replace`` builds a
+    new instance, so it re-validates. A ``check`` method may raise
+    ``ConfigError`` for rules that span fields; paths in that error are
+    relative to the section.
     """
     if "__init__" in cls.__dict__ or "__post_init__" in cls.__dict__:
         raise TypeError(
             f"{cls.__name__} must not define __init__ or __post_init__; "
             "put cross-field rules in check()"
         )
-    localns = _caller_locals()
-    converted = dataclass(frozen=True, slots=True)(cls)
-    plan = _compile(converted, localns)
+    converted = dataclass(frozen=True, slots=True, kw_only=True)(cls)
+    plan = _compile(converted)
     _store_plan(converted, plan)
     _install_init(converted)
     try:
@@ -296,16 +287,30 @@ def _store_plan(cls: type[Any], plan: tuple[_Field, ...]) -> None:
 
 def _install_init(cls: type[Any]) -> None:
     def __init__(self: object, *args: object, **kwargs: object) -> None:
-        _construct(self, args, kwargs)
+        if args:
+            names = ", ".join(item.name for item in _require_plan(type(self)))
+            raise TypeError(f"{type(self).__name__}() takes keyword arguments only ({names})")
+        _construct(self, kwargs)
 
     cls.__init__ = __init__
 
 
-def _compile(cls: type[Any], localns: dict[str, Any]) -> tuple[_Field, ...]:
+def _hints(cls: type[Any]) -> dict[str, Any]:
+    # Module globals only. get_type_hints is not given the caller's locals.
     try:
-        hints = get_type_hints(cls, localns=localns)
-    except (NameError, TypeError, ValueError) as exc:
+        return get_type_hints(cls)
+    except NameError as exc:
+        raise TypeError(
+            f"{cls.__name__} annotations could not be resolved ({exc}). "
+            "Import the name at runtime; a TYPE_CHECKING import is not visible "
+            "when the section is defined."
+        ) from exc
+    except (TypeError, ValueError) as exc:
         raise TypeError(f"could not resolve annotations for {cls.__name__}: {exc}") from exc
+
+
+def _compile(cls: type[Any]) -> tuple[_Field, ...]:
+    hints = _hints(cls)
     compiled: list[_Field] = []
     for dc_field in fields(cls):
         if dc_field.name in ("check", "_petasos_schema"):
@@ -320,7 +325,7 @@ def _compile(cls: type[Any], localns: dict[str, Any]) -> tuple[_Field, ...]:
             if dc_field.default_factory is not MISSING
             else dc_field.default
         )
-        provisional = _Field(
+        item = _Field(
             name=dc_field.name,
             kind=kind.kind,
             nullable=kind.nullable,
@@ -329,7 +334,7 @@ def _compile(cls: type[Any], localns: dict[str, Any]) -> tuple[_Field, ...]:
             section=kind.section,
             default=raw_default,
         )
-        value, errors = _convert(provisional, raw_default, dc_field.name)
+        value, errors = _convert(item, raw_default, dc_field.name)
         if errors:
             raise TypeError(f"{cls.__name__} default is not valid ({_format(errors)})")
         if _unhashable(value):
@@ -338,17 +343,7 @@ def _compile(cls: type[Any], localns: dict[str, Any]) -> tuple[_Field, ...]:
         else:
             dc_field.default = value
             dc_field.default_factory = MISSING
-        compiled.append(
-            _Field(
-                name=provisional.name,
-                kind=provisional.kind,
-                nullable=provisional.nullable,
-                choices=provisional.choices,
-                spec=provisional.spec,
-                section=provisional.section,
-                default=value,
-            )
-        )
+        compiled.append(replace(item, default=value))
     return tuple(compiled)
 
 
@@ -441,38 +436,13 @@ def _check_kind(cls: type[object], name: str, kind: _Kind, spec: FieldSpec) -> N
         raise TypeError(f"{cls.__name__}.{name}: normalize applies only to a list of text")
 
 
-def _construct(self: object, args: tuple[object, ...], kwargs: Mapping[str, object]) -> None:
-    provided, errors = _bind(type(self), args, kwargs)
-    values, more = _convert_fields(type(self), provided)
-    errors.extend(more)
+def _construct(self: object, kwargs: Mapping[str, object]) -> None:
+    values, errors = _convert_fields(type(self), kwargs)
     if errors:
         raise ConfigError(errors)
     for name, value in values.items():
         object.__setattr__(self, name, value)
     _run_check(self)
-
-
-def _bind(
-    cls: type[object], args: tuple[object, ...], kwargs: Mapping[str, object]
-) -> tuple[dict[str, object], list[tuple[str, str]]]:
-    plan = _require_plan(cls)
-    names = [item.name for item in plan]
-    errors: list[tuple[str, str]] = []
-    provided: dict[str, object] = {}
-    if len(args) > len(names):
-        errors.append(("", f"got {len(args)} values but this section has {len(names)} settings"))
-    for index, value in enumerate(args[: len(names)]):
-        provided[names[index]] = value
-    for key, value in kwargs.items():
-        if key not in names:
-            errors.append((str(key), _unknown(str(key), names)))
-            continue
-        if key in provided:
-            errors.append((key, "was given more than once"))
-            provided.pop(key)
-            continue
-        provided[key] = value
-    return provided, errors
 
 
 def _convert_fields(
@@ -500,11 +470,8 @@ def _convert_fields(
 
 def _run_check(obj: object) -> None:
     check = getattr(obj, "check", None)
-    if check is None:
-        return
-    if not callable(check):
-        raise TypeError("check must be a method")
-    check()
+    if check is not None:
+        check()
 
 
 def _convert(item: _Field, value: object, path: str) -> tuple[object, tuple[tuple[str, str], ...]]:
@@ -641,9 +608,7 @@ def _convert_map(
 def _convert_section(
     item: _Field, value: object, path: str
 ) -> tuple[object, tuple[tuple[str, str], ...]]:
-    section_cls = item.section
-    if section_cls is None:
-        raise TypeError(f"{item.name} is missing its section class")
+    section_cls = cast("type[Any]", item.section)
     if type(value) is section_cls:
         return value, ()
     if not isinstance(value, Mapping):
@@ -829,33 +794,41 @@ def _plain(value: object, item: _Field) -> Any:
     if item.kind == "section":
         return to_mapping(value)
     if item.kind == "strings":
-        if not isinstance(value, tuple):
-            raise TypeError(f"{item.name} must be a tuple of text")
-        return [part for part in value]
+        return list(cast("tuple[str, ...]", value))
     if item.kind in ("map_float", "map_str"):
-        if not isinstance(value, Mapping):
-            raise TypeError(f"{item.name} must be a mapping")
-        return {str(key): item_value for key, item_value in value.items()}
+        return dict(cast("Mapping[str, Any]", value))
     return value
 
 
-def describe(cls: type[object]) -> tuple[FieldInfo, ...]:
-    """Describe every leaf setting of a section, in declaration order.
+def describe(cls: type[object]) -> tuple[FieldInfo | SectionInfo, ...]:
+    """Describe a section's groups and leaf settings, in declaration order.
 
-    A nested section contributes its leaves, not a row of its own. Each leaf's
-    default is the value a fresh instance of that section carries, including a
-    nested default that was constructed with overrides.
+    A nested section is a ``SectionInfo`` immediately before its own rows.
+    Each leaf default is the value a fresh instance carries, including a
+    nested default that was constructed with overrides. The class passed here
+    is the root and has no row of its own.
     """
     _require_plan(cls)
     return tuple(_rows(cls, "", None))
 
 
-def _rows(cls: type[object], prefix: str, holder: object | None) -> list[FieldInfo]:
-    rows: list[FieldInfo] = []
+def _rows(cls: type[object], prefix: str, holder: object | None) -> list[FieldInfo | SectionInfo]:
+    rows: list[FieldInfo | SectionInfo] = []
     for item in _require_plan(cls):
         path = _join(prefix, item.name)
-        if item.kind == "section" and item.section is not None:
-            rows.extend(_rows(item.section, path, _nested_holder(item, holder)))
+        if item.kind == "section":
+            rows.append(
+                SectionInfo(
+                    path=path,
+                    help=item.spec.help,
+                    audience=item.spec.audience,
+                    restart=item.spec.restart,
+                    nullable=item.nullable,
+                )
+            )
+            rows.extend(
+                _rows(cast("type[object]", item.section), path, _nested_holder(item, holder))
+            )
             continue
         value = item.default if holder is None else getattr(holder, item.name)
         rows.append(
@@ -933,6 +906,7 @@ __all__ = [
     "ConfigError",
     "FieldInfo",
     "FieldSpec",
+    "SectionInfo",
     "describe",
     "from_mapping",
     "merge",
