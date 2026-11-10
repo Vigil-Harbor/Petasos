@@ -267,6 +267,10 @@ def _apply_differences(
             continue
         if not _matches(scenario, scenario_id) or not _matches(step, step_id):
             continue
+        # A row that names no scenario explains one step per scenario at most.
+        # Without this limit it could hide the same line going missing later.
+        if scenario == "*" and index in used:
+            continue
         if row.get("field") == "logs" and _apply_log(expected, actual, row):
             used.add(index)
 
