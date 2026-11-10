@@ -82,7 +82,8 @@ class FieldSpec:
 
     Stored on the dataclass field under the ``FieldSpec`` metadata key.
     Bounds on a mapping apply to each value. ``normalize`` runs on each item
-    of a text list after the item is trimmed.
+    of a text list after the item is trimmed. ``label`` is the short name a
+    person reads; ``choice_labels`` names each choice in plain words.
     """
 
     help: str
@@ -93,6 +94,8 @@ class FieldSpec:
     restart: bool = False
     audience: Audience = "advanced"
     normalize: Callable[[str], str] | None = None
+    label: str | None = None
+    choice_labels: Mapping[str, str] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,7 +106,10 @@ class FieldInfo:
     ``tuple[str, ...]``, ``mapping[str, float]``, or ``mapping[str, str]``.
     ``choices`` is set for a choice and is otherwise None. ``default`` is
     JSON-serialisable: a list for text items, a dict for a mapping. Bounds on
-    a mapping apply to each value.
+    a mapping apply to each value. ``label`` is the declared label, or the
+    field name in words when none was declared. ``choice_labels`` maps each
+    choice to plain words when the declaration gave them, and is otherwise
+    None.
     """
 
     path: str
@@ -118,6 +124,8 @@ class FieldInfo:
     audience: Audience
     restart: bool
     nullable: bool
+    label: str = ""
+    choice_labels: Mapping[str, str] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -127,8 +135,8 @@ class SectionInfo:
     ``path`` is the dotted path of the section field. ``help`` is the text
     declared with ``setting`` on that field. A direct child is a row whose
     path is ``path`` plus one dotted name, so the flat result is enough to
-    rebuild the tree in declaration order. ``audience``, ``restart``, and
-    ``nullable`` come from that same field.
+    rebuild the tree in declaration order. ``audience``, ``restart``,
+    ``nullable`` and ``label`` come from that same field.
     """
 
     path: str
@@ -136,6 +144,7 @@ class SectionInfo:
     audience: Audience
     restart: bool
     nullable: bool
+    label: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -168,15 +177,25 @@ def setting(
     restart: bool = False,
     audience: Audience = "advanced",
     normalize: Callable[[str], str] | None = None,
+    label: str | None = None,
+    choice_labels: Mapping[str, str] | None = None,
 ) -> _T:
     """Declare one setting's default and constraints.
 
     ``default`` is keyword-only so a type checker sees the constructor default.
     A list, set, or bytearray default is rejected. A dict default is copied
-    into a read-only mapping, so the caller's dict is not shared.
+    into a read-only mapping, so the caller's dict is not shared. ``label``
+    and ``choice_labels`` are words for a person and change no behaviour.
     """
     if help.strip() == "":
         raise TypeError("setting() help must be a non-empty string")
+    if label is not None and label.strip() == "":
+        raise TypeError("setting() label must be a non-empty string when given")
+    if choice_labels is not None and not all(
+        isinstance(key, str) and isinstance(value, str) and value.strip()
+        for key, value in choice_labels.items()
+    ):
+        raise TypeError("setting() choice_labels must map each choice to non-empty text")
     lower_ge = _bound("ge", ge)
     lower_gt = _bound("gt", gt)
     upper_le = _bound("le", le)
@@ -191,6 +210,8 @@ def setting(
         restart=restart,
         audience=audience,
         normalize=normalize,
+        label=label,
+        choice_labels=None if choice_labels is None else MappingProxyType(dict(choice_labels)),
     )
     frozen = _freeze_default(default)
     # Dataclasses reject an unhashable default. A mapping, or a section that
@@ -434,6 +455,11 @@ def _check_kind(cls: type[object], name: str, kind: _Kind, spec: FieldSpec) -> N
         raise TypeError(f"{cls.__name__}.{name}: bounds apply only to numbers")
     if spec.normalize is not None and kind.kind != "strings":
         raise TypeError(f"{cls.__name__}.{name}: normalize applies only to a list of text")
+    if spec.choice_labels is not None:
+        if kind.kind != "choice":
+            raise TypeError(f"{cls.__name__}.{name}: choice_labels apply only to a choice")
+        if set(spec.choice_labels) != {str(choice) for choice in kind.choices}:
+            raise TypeError(f"{cls.__name__}.{name}: choice_labels must name every choice")
 
 
 def _construct(self: object, kwargs: Mapping[str, object]) -> None:
@@ -837,6 +863,7 @@ def _rows(cls: type[object], prefix: str, holder: object | None) -> list[FieldIn
                     audience=item.spec.audience,
                     restart=item.spec.restart,
                     nullable=item.nullable,
+                    label=_label(item),
                 )
             )
             rows.extend(
@@ -858,9 +885,19 @@ def _rows(cls: type[object], prefix: str, holder: object | None) -> list[FieldIn
                 audience=item.spec.audience,
                 restart=item.spec.restart,
                 nullable=item.nullable,
+                label=_label(item),
+                choice_labels=item.spec.choice_labels if item.kind == "choice" else None,
             )
         )
     return rows
+
+
+def _label(item: _Field) -> str:
+    """The declared label, or the field name in words."""
+    if item.spec.label is not None:
+        return item.spec.label
+    words = item.name.replace("_", " ").strip()
+    return words[:1].upper() + words[1:]
 
 
 def _nested_holder(item: _Field, holder: object | None) -> object | None:

@@ -14,11 +14,11 @@ provides_hooks:
 config_schema:
   enabled:
     type: bool
-    description: "Whether Petasos enforces on this profile. Off lets tool calls through and records that they bypassed enforcement."
+    description: "Whether Petasos checks this agent's tool calls. Off lets tool calls through unchecked and records each one."
     default: true
   role:
     type: string
-    description: "What the agent does. A role sets the checks that belong to the job."
+    description: "What the agent does. The job decides which checks matter for that work."
     choices:
       - general
       - coding
@@ -28,7 +28,7 @@ config_schema:
     default: general
   level:
     type: string
-    description: "How strict the checks are. A level sets fail mode, escalation, and hiding."
+    description: "How strict Petasos is: how soon it blocks a risky conversation, what happens when a check breaks, and whether personal details are hidden."
     choices:
       - relaxed
       - balanced
@@ -36,7 +36,7 @@ config_schema:
     default: balanced
   overrides:
     type: dict
-    description: "Settings that replace what the role and level resolved to. A JSON object whose keys are config paths."
+    description: "Your own changes on top of the job and strictness, as a JSON object keyed by setting path."
     default: {}
   session_secret:
     type: secret

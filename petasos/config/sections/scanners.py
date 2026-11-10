@@ -34,14 +34,27 @@ class PromptGuardConfig:
     enabled: _ENABLED = setting(
         default="auto",
         restart=True,
-        help="Use PromptGuard when it is installed, always, or never.",
+        label="Use PromptGuard",
+        help=(
+            "PromptGuard is an optional model that catches reworded hidden "
+            "instructions the basic checks miss."
+        ),
+        choice_labels={
+            "auto": "Use it when it is installed",
+            "on": "Always (report a problem if it is missing)",
+            "off": "Never",
+        },
     )
     threshold: float = setting(
         default=PROMPT_GUARD_THRESHOLD,
         ge=0,
         le=1,
         restart=True,
-        help="How high PromptGuard's injection score must be before it reports a finding.",
+        label="PromptGuard sensitivity",
+        help=(
+            "How sure PromptGuard must be, from 0 to 1, before it reports hidden "
+            "instructions. Lower catches more and interrupts more."
+        ),
     )
 
 
@@ -52,33 +65,49 @@ class PresidioConfig:
     enabled: _ENABLED = setting(
         default="auto",
         restart=True,
-        help="Use Presidio when it is installed, always, or never.",
+        label="Use Presidio",
+        help=(
+            "Presidio is an optional check that finds personal details such as names, "
+            "emails, phone numbers and card numbers."
+        ),
+        choice_labels={
+            "auto": "Use it when it is installed",
+            "on": "Always (report a problem if it is missing)",
+            "off": "Never",
+        },
     )
     entities: tuple[str, ...] | None = setting(
         default=None,
         normalize=str.upper,
         restart=True,
+        label="Kinds of personal detail (replace)",
         help=(
-            "Replace Presidio's detected types wholesale, or leave unset to keep "
-            "the curated set of cards, ids, emails, and phone numbers."
+            "Replace the kinds Presidio looks for, one per line, such as CREDIT_CARD. "
+            "Leave empty to keep the usual set: cards, ids, emails and phone numbers."
         ),
     )
     entities_extra: tuple[str, ...] = setting(
         default=(),
         normalize=str.upper,
-        help="Add personal-information types, such as URL or PERSON, on top of the detected set.",
+        label="Extra kinds of personal detail",
+        help="More kinds to look for on top of the usual set, one per line, such as PERSON.",
     )
     score_threshold: float = setting(
         default=PRESIDIO_SCORE_THRESHOLD,
         ge=0,
         le=1,
         restart=True,
-        help="How sure Presidio must be, from 0 to 1, before it reports a match.",
+        label="Presidio sensitivity",
+        help=(
+            "How sure Presidio must be, from 0 to 1, before it reports a detail. "
+            "Lower finds more and is wrong more often."
+        ),
     )
     language: str = setting(
         default=PRESIDIO_LANGUAGE,
         restart=True,
-        help="The language Presidio uses when it looks for personal information, usually en.",
+        label="Language",
+        help="The language of the text Presidio reads, as a short code such as en.",
     )
 
     def check(self) -> None:
@@ -110,31 +139,47 @@ class SemgrepConfig:
     enabled: _ENABLED = setting(
         default="off",
         restart=True,
-        help="Run the isolated Semgrep engine, or leave it off until an engine is configured.",
+        label="Use Semgrep",
+        help=(
+            "Semgrep is an optional code checker that looks for risky code the agent "
+            "writes. It needs a separately installed engine, set below."
+        ),
+        choice_labels={
+            "auto": "Use it when it is installed",
+            "on": "Always (report a problem if it is missing)",
+            "off": "Never",
+        },
     )
     engine_path: str | None = setting(
         default=None,
         restart=True,
-        help="Absolute path to the pinned semgrep-core executable this process owns.",
+        label="Engine location",
+        help="The full path to the semgrep-core program Petasos is allowed to run.",
     )
     engine_sha256: str | None = setting(
         default=None,
         restart=True,
-        help="SHA-256 digest of that executable, so a swapped binary is refused.",
+        label="Engine fingerprint",
+        help=(
+            "The SHA-256 fingerprint of that program, so a replaced program is refused. "
+            "64 hexadecimal characters."
+        ),
     )
     request_timeout_seconds: float = setting(
         default=8.0,
         ge=1,
         le=8,
         restart=True,
-        help="How many seconds one Semgrep scan may wait, including time spent queued.",
+        label="Time limit per check (seconds)",
+        help="How long one Semgrep check may take, including time spent waiting its turn.",
     )
     max_source_bytes: int = setting(
         default=65536,
         ge=4096,
         le=65536,
         restart=True,
-        help="The most decoded source bytes one Semgrep scan will accept.",
+        label="Largest code checked (bytes)",
+        help="The most code, in bytes, one Semgrep check will read.",
     )
 
     def check(self) -> None:
@@ -157,29 +202,38 @@ class ScannersConfig:
         default=10.0,
         gt=0,
         le=60,
-        help="How many seconds to wait for a slow scanner before giving up on that scan.",
+        label="Time limit per check (seconds)",
+        help="How long to wait for a slow optional check before giving up on it for that text.",
     )
     breaker_threshold: int = setting(
         default=3,
         gt=0,
         audience="expert",
-        help="How many timeouts in a row bench a scanner so it stops slowing every scan.",
+        label="Timeouts before a check is paused",
+        help=(
+            "After this many timeouts in a row, a slow check sits out for a while so "
+            "it does not slow everything down."
+        ),
     )
     breaker_cooldown_seconds: float = setting(
         default=30.0,
         gt=0,
         audience="expert",
-        help="How many seconds a benched scanner sits out before it is tried again.",
+        label="Pause length (seconds)",
+        help="How long a paused check sits out before it is tried again.",
     )
     prompt_guard: PromptGuardConfig = setting(
         default=PromptGuardConfig(),
-        help="PromptGuard arming and the score that counts as injection.",
+        label="PromptGuard",
+        help="An optional model that catches reworded hidden instructions.",
     )
     presidio: PresidioConfig = setting(
         default=PresidioConfig(),
-        help="Presidio arming, the types it detects, and how sure a match must be.",
+        label="Presidio",
+        help="An optional check that finds personal details.",
     )
     semgrep: SemgrepConfig = setting(
         default=SemgrepConfig(),
-        help="Semgrep arming and the pinned engine it is allowed to run.",
+        label="Semgrep",
+        help="An optional checker for risky code, with an engine you install.",
     )

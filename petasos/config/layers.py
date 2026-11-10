@@ -169,13 +169,15 @@ class Role:
     """What the agent does, as a partial document and a suggested level.
 
     ``suggests`` is a recommendation for a settings screen. Resolution never
-    applies it. ``document`` touches only role-owned fields.
+    applies it. ``document`` touches only role-owned fields. ``label`` and
+    ``description`` are what a person reads.
     """
 
     name: str
     description: str
     document: Mapping[str, Any]
     suggests: str
+    label: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -185,10 +187,12 @@ class Level:
     name: str
     description: str
     document: Mapping[str, Any]
+    label: str = ""
 
 
 def _role(
     name: str,
+    label: str,
     description: str,
     suggests: str,
     document: dict[str, Any] | None = None,
@@ -198,11 +202,12 @@ def _role(
         description=description,
         document=_document({} if document is None else document),
         suggests=suggests,
+        label=label,
     )
 
 
-def _level(name: str, description: str, document: dict[str, Any]) -> Level:
-    return Level(name=name, description=description, document=_document(document))
+def _level(name: str, label: str, description: str, document: dict[str, Any]) -> Level:
+    return Level(name=name, description=description, document=_document(document), label=label)
 
 
 # Order is the order a settings screen should offer.
@@ -212,15 +217,16 @@ ROLES: Final[Mapping[str, Role]] = MappingProxyType(
         for role in (
             _role(
                 "general",
-                "Balanced default for a general-purpose agent. "
-                "It runs every rule at standard sensitivity.",
+                "General",
+                "A bit of everything. Every rule runs at its usual sensitivity.",
                 "balanced",
             ),
             _role(
                 "coding",
-                "Tuned for a coding agent on the operator's own machine. "
-                "It quiets rules that fire on ordinary code, "
-                "and a dangerous tool call waits for approval.",
+                "Coding",
+                "Writes and runs code on your own machine. Quiets rules that trip on "
+                "ordinary code, and a risky command waits for a person to approve it. "
+                "Hidden instructions coming in are still caught.",
                 "balanced",
                 {
                     "rules": {
@@ -251,9 +257,10 @@ ROLES: Final[Mapping[str, Role]] = MappingProxyType(
             ),
             _role(
                 "research",
-                "Low-friction for long research and browsing sessions. "
-                "It quiets encoding rules that trip on quoted web pages "
-                "and ignores low-confidence findings.",
+                "Research",
+                "Reads a lot of web pages. Ignores the odd characters pages are full of "
+                "and reports only stronger matches: fewer interruptions, but weaker "
+                "warning signs can be missed.",
                 "relaxed",
                 {
                     "rules": {
@@ -269,9 +276,9 @@ ROLES: Final[Mapping[str, Role]] = MappingProxyType(
             ),
             _role(
                 "support",
-                "Hardened for a user-facing support agent. "
-                "It treats the common injection openers as critical "
-                "and watches for names, emails, and phone numbers.",
+                "Customer support",
+                "Talks to people outside your team. Treats attempts to take over the "
+                "agent as critical, and looks for names, emails and phone numbers.",
                 "balanced",
                 {
                     "rules": {
@@ -293,8 +300,9 @@ ROLES: Final[Mapping[str, Role]] = MappingProxyType(
             ),
             _role(
                 "admin",
-                "Strict posture for a privileged or admin agent. "
-                "It watches for names, emails, phone numbers, cards, and account numbers.",
+                "Admin",
+                "Has powerful access. Looks for names, emails, phone numbers, card "
+                "numbers and bank account numbers.",
                 "strict",
                 {
                     "scanners": {
@@ -320,7 +328,9 @@ LEVELS: Final[Mapping[str, Level]] = MappingProxyType(
         for level in (
             _level(
                 "relaxed",
-                "Fail-degraded, with later escalation, for noisier and lower-stakes work.",
+                "Relaxed",
+                "Fewer interruptions. A conversation has to look clearly risky before "
+                "its tool calls are blocked.",
                 {
                     "fail_mode": "degraded",
                     "escalation": {"tier1": 25.0, "tier2": 45.0, "tier3": 65.0},
@@ -330,8 +340,9 @@ LEVELS: Final[Mapping[str, Level]] = MappingProxyType(
             ),
             _level(
                 "balanced",
-                "The shipped default: fail-degraded, standard escalation, "
-                "and the standard personal-information threshold.",
+                "Balanced",
+                "The default. Blocks clear attacks, and steps in sooner when a "
+                "conversation keeps looking risky.",
                 {
                     "fail_mode": "degraded",
                     "escalation": {"tier1": 15.0, "tier2": 30.0, "tier3": 50.0},
@@ -341,7 +352,9 @@ LEVELS: Final[Mapping[str, Level]] = MappingProxyType(
             ),
             _level(
                 "strict",
-                "Fail-closed, with earlier escalation and personal-information hiding turned on.",
+                "Strict",
+                "Steps in earliest: blocks a risky conversation sooner, and hides "
+                "personal details before text moves on.",
                 {
                     "fail_mode": "closed",
                     "escalation": {"tier1": 10.0, "tier2": 22.0, "tier3": 40.0},
@@ -400,15 +413,29 @@ class Settings:
 SETTING_HELP: Final[Mapping[str, str]] = MappingProxyType(
     {
         "enabled": (
-            "Whether Petasos enforces on this profile. Off lets tool calls through "
-            "and records that they bypassed enforcement."
+            "Whether Petasos checks this agent's tool calls. Off lets tool calls "
+            "through unchecked and records each one."
         ),
-        "role": "What the agent does. A role sets the checks that belong to the job.",
-        "level": ("How strict the checks are. A level sets fail mode, escalation, and hiding."),
+        "role": "What the agent does. The job decides which checks matter for that work.",
+        "level": (
+            "How strict Petasos is: how soon it blocks a risky conversation, what "
+            "happens when a check breaks, and whether personal details are hidden."
+        ),
         "overrides": (
-            "Settings that replace what the role and level resolved to. "
-            "A JSON object whose keys are config paths."
+            "Your own changes on top of the job and strictness, as a JSON object "
+            "keyed by setting path."
         ),
+    }
+)
+
+# The short name a person reads for each of the four. A settings screen shows
+# the label as the heading and the help beneath it.
+SETTING_LABEL: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "enabled": "Protection",
+        "role": "Job",
+        "level": "Strictness",
+        "overrides": "Your changes",
     }
 )
 
