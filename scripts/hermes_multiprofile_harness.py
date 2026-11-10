@@ -73,6 +73,7 @@ _STORE_FINDER = (
 
 
 def install_plugin(tree: Path, home: Path, side: Path, *, manifest: bool = False) -> None:
+    """Copy the reference plugin and console files into ``home``."""
     dst = home / "plugins" / "petasos"
     dist = dst / "dashboard" / "dist"
     dist.mkdir(parents=True)
@@ -159,6 +160,7 @@ def _kill_process_tree(pid: int) -> None:
 
 
 def _pump(stream: Any, chunks: list[str]) -> None:
+    """Drain one child pipe into ``chunks`` and echo each line."""
     for line in stream:
         chunks.append(line)
         try:
@@ -178,6 +180,7 @@ def _run_bounded(
     capture: bool,
     kill_tree: bool,
 ) -> subprocess.CompletedProcess[str]:
+    """Run ``cmd`` under ``timeout``. ``kill_tree`` tees both pipes and ends the whole tree."""
     # The harness default streams and lets subprocess.run kill the direct child.
     # kill_tree tees both pipes and ends the whole tree, which a uv grandchild needs.
     if not kill_tree:
@@ -295,6 +298,7 @@ def stop_if_live_deps(*, record: Callable[[str, bool, object], None] = check) ->
 
 
 def driver(label: str, tree: Path, python: Path, live: Path, work: Path) -> int:
+    """Build the shared throwaway root, bootstrap it, and run both probes on its store Python."""
     # One shared fake root: its dependency generation is expensive, its state is wiped per label.
     run = work / "shared"
     fake_local = run / "localappdata"

@@ -26,6 +26,7 @@ def _passed() -> dict[str, str]:
 
 
 def test_matrix_selection_is_read_only(tmp_path: Path) -> None:
+    """Selection keeps armed profiles, says why each other one is excluded, and edits no file."""
     live = tmp_path / "live"
     root_plugin = live / "plugins" / "petasos"
     root_plugin.mkdir(parents=True)
@@ -34,6 +35,7 @@ def test_matrix_selection_is_read_only(tmp_path: Path) -> None:
     (live / "gateway.parked").write_text("ignored for the root\n", encoding="utf-8")
 
     def home(name: str, config: str | None, *, plugin: bool, parked: bool) -> None:
+        """Create one named profile home under the fake live root."""
         path = live / "profiles" / name
         path.mkdir(parents=True)
         if config is not None:
@@ -82,6 +84,7 @@ def test_matrix_selection_is_read_only(tmp_path: Path) -> None:
 
 
 def test_section_copy_withholds_and_records_overrides() -> None:
+    """The copied section drops secrets and unknown keys and records both forced overrides."""
     copied = gate.copy_section(
         {
             "fail_mode": "closed",
@@ -103,6 +106,7 @@ def test_section_copy_withholds_and_records_overrides() -> None:
 
 
 def test_call_ids_are_unique_for_a_planned_run() -> None:
+    """Every planned call has its own tool call id and turn id, which Hermes's hook gate needs."""
     plan = gate.plan_run_calls(["only"], warmup_rounds=2, approve_profiles=["only"])
     call_ids = [item["tool_call_id"] for item in plan]
     turn_ids = [item["turn_id"] for item in plan]
@@ -122,6 +126,7 @@ def test_call_ids_are_unique_for_a_planned_run() -> None:
 
 
 def test_host_skip_is_per_stage() -> None:
+    """A Hermes skip message fails only the stage it was logged in."""
     stages = ["cold-first", "warmup", "corpus", "load", "negative"]
     unrelated = {"setup": ["plugin loaded slowly"]}
     checks = gate.host_skip_checks(unrelated)
@@ -137,6 +142,7 @@ def test_host_skip_is_per_stage() -> None:
 
 
 def test_spool_reader_reports_line_numbers_and_honors_the_start() -> None:
+    """The spool reader skips rows before the start count and numbers each bad line."""
     text = "\n".join(
         [
             json.dumps({"event_type": "old", "session_id": "before"}),
@@ -181,6 +187,7 @@ def test_isolated_config_has_no_approval_or_timeout() -> None:
 
 
 def test_corpus_file_shape() -> None:
+    """The tracked corpus validates, has unique case ids, and carries measured margins."""
     corpus = gate.load_corpus()
     assert gate.validate_corpus(corpus) == []
     ids = [case["id"] for case in corpus["cases"]]
@@ -234,6 +241,7 @@ def test_expectation_lookup_uses_defaults_and_json_tuples() -> None:
 
 
 def test_match_function_fails_one_field_at_a_time() -> None:
+    """One wrong field in a spool row or directive fails the match and is named."""
     row = {
         "session_id": "s",
         "event_type": "quarantine",
@@ -314,6 +322,8 @@ def test_match_function_fails_one_field_at_a_time() -> None:
 
 
 def test_cold_first_classifier() -> None:
+    """Cold-first outcomes are allowed or refused by fail mode, directive and spool rows."""
+
     def quarantine(reason: str = "cold") -> dict[str, Any]:
         return {"event_type": "quarantine", "param_scan_degraded": True, "reason": reason}
 
@@ -380,6 +390,7 @@ def test_cold_first_classifier() -> None:
 
 
 def test_negative_rule() -> None:
+    """With PromptGuard absent, closed and degraded block, and open passes."""
     closed = gate.negative_expectation(tool_guard_enabled=True, fail_mode="closed")
     degraded = gate.negative_expectation(tool_guard_enabled=True, fail_mode="degraded")
     opened = gate.negative_expectation(tool_guard_enabled=True, fail_mode="open")
@@ -452,6 +463,7 @@ def test_verdict_ignores_info_timing_and_unexercised_approval() -> None:
 
 
 def test_redaction_rewrites_spellings_and_passes_an_oserror(tmp_path: Path) -> None:
+    """Redaction rewrites every spelling of a root and the sweep refuses what is left."""
     home = tmp_path / "HomeBox"
     live = tmp_path / "LiveRoot"
     work = tmp_path / "WorkDir"
@@ -532,6 +544,7 @@ def test_evidence_write_is_atomic_and_labeled(
 
 
 def test_wheel_and_tree_and_workdir(tmp_path: Path) -> None:
+    """Preflight refuses a wheel that differs from the tree, a wrong name, and a bad workdir."""
     tree = tmp_path / "tree"
     member = b"x = 1\n"
     (tree / "petasos").mkdir(parents=True)
@@ -566,6 +579,7 @@ def test_wheel_and_tree_and_workdir(tmp_path: Path) -> None:
 
 
 def test_load_plan_and_barrier_abort() -> None:
+    """Eight calls are spread over the profiles, and one failed worker aborts the barrier."""
     assert gate.load_bindings(1) == [0, 0, 0, 0, 0, 0, 0, 0]
     assert gate.load_bindings(3) == [0, 1, 2, 0, 1, 2, 0, 1]
     assert gate.load_bindings(8) == list(range(8))
@@ -573,7 +587,10 @@ def test_load_plan_and_barrier_abort() -> None:
     assert all(0 <= item < 10 for item in gate.load_bindings(10))
 
     def make(index: int) -> Any:
+        """Build a worker that fails for index 0 and waits at the barrier otherwise."""
+
         def worker(barrier: Any) -> None:
+            """Raise for index 0, else wait at the barrier."""
             if index == 0:
                 raise RuntimeError("boom")
             barrier.wait()
@@ -772,6 +789,7 @@ class _Plugin:
 def test_margin_is_checked_on_every_profile(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Each profile's own scanners are checked against every calibrated margin."""
     # Regression for PET-261: one profile's passing scan must not stand in for another's.
     path = _checks_into(tmp_path, monkeypatch)
     rule = gate.ML_RULES["presidio"]
@@ -880,6 +898,7 @@ def test_tool_store_stays_inside_the_isolated_root(tmp_path: Path) -> None:
 
 
 def test_stop_hosts_calls_shutdown_and_reports_failures() -> None:
+    """Every host is shut down, a missing one is skipped, and a failure is reported by name."""
     calls: list[str] = []
 
     class Host:
@@ -888,6 +907,7 @@ def test_stop_hosts_calls_shutdown_and_reports_failures() -> None:
             self.fail = fail
 
         def shutdown(self) -> None:
+            """Record the call and fail when asked to."""
             calls.append(self.name)
             if self.fail:
                 raise RuntimeError("stuck")
@@ -926,6 +946,7 @@ _SPAWN = (
 def test_kill_tree_returns_when_a_grandchild_keeps_the_pipes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """A grandchild that holds the pipes cannot keep the call past its bound."""
     # The child exits at once and leaves a grandchild holding both pipes for a minute.
     monkeypatch.setattr(harness, "_PUMP_JOIN_SECONDS", 0.5)
     started = time.monotonic()
@@ -970,6 +991,7 @@ def test_kill_tree_ends_the_whole_group_on_posix(
 def test_session_env_names_the_isolated_tool_store(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    """The printed session environment names the isolated tool store and no secret value."""
     root = tmp_path / "localappdata" / "hermes"
     gate._print_session_env(root, tmp_path, tmp_path / "live", tmp_path / "hf")
     lines = capsys.readouterr().out.splitlines()
@@ -1005,6 +1027,7 @@ def test_stale_evidence_is_removed_before_a_later_preflight_stop(
 
 
 def test_driver_schema_must_match_the_release_tree(tmp_path: Path) -> None:
+    """Preflight stops when the driver's config schema is not the release tree's."""
     checkout = tmp_path / "driver"
     tree = tmp_path / "release"
     for base in (checkout, tree):
