@@ -57,6 +57,21 @@ def test_no_script_error_and_no_failed_api_call(tab_report: dict[str, Any]) -> N
 def test_each_view_renders_content(tab_report: dict[str, Any], view: str) -> None:
     """Each view is selected, finished loading, and shows real content."""
     seen = tab_report["views"][view]
-    assert seen["selected"].startswith(_LABELS[view]), seen
+    assert seen["selected"].lower().startswith(_LABELS[view].lower()), seen
     assert seen["loading"] is False, seen
     assert seen["chars"] > 200, seen
+
+
+@pytest.mark.parametrize("view", sorted(_LABELS))
+def test_each_view_takes_and_gives_focus_well(tab_report: dict[str, Any], view: str) -> None:
+    """Tab reaches the view's controls, shows a ring on each, and moves on past them.
+
+    A view that grabs focus when it opens, a control that takes focus without a
+    visible ring, or a trap that keeps Tab inside the tab fails here.
+    """
+    focus = tab_report["focus"][view]
+    assert focus["stolen"] is False, focus
+    assert focus["entered"] is True, focus
+    assert focus["distinct"] >= 4, focus
+    assert focus["invisible"] == [], focus
+    assert focus["left"] is True, focus

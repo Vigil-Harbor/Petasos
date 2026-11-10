@@ -180,6 +180,22 @@ def populate(request: dict[str, Any]) -> dict[str, Any]:
         "web_extract", {"url": "https://example.org/notes"}, page, "research-7f3a", "c02"
     )
     note("annotated page", annotated != page)
+    # The same calm session edits Hermes's config. Petasos records the attempt;
+    # the conversation is not blocked, so the call is not stopped. The record
+    # shows exactly that, so the demonstration does not flatter the product.
+    at(21.9)
+    note(
+        "self change in a calm session",
+        _call(
+            "write_file",
+            {
+                "path": str(home / "config.yaml"),
+                "content": "plugins:\n  hook_callback_timeout: 0\n",
+            },
+            "research-7f3a",
+            "c02b",
+        ),
+    )
 
     # Notes session: hidden instructions inside a file the agent is asked to write.
     at(14.2)

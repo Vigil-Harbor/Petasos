@@ -83,10 +83,76 @@ def _theme(page: Any, base: str, label: str) -> None:
     page.wait_for_timeout(900)
 
 
+_FOCUS_WALK = """() => {
+  const el = document.activeElement;
+  if (!el || el === document.body) return {where: 'body'};
+  const tab = document.querySelector('.petasos');
+  const inside = Boolean(tab && tab.contains(el));
+  const style = getComputedStyle(el);
+  const visible = style.outlineStyle !== 'none' && parseFloat(style.outlineWidth) > 0
+    || (style.boxShadow && style.boxShadow !== 'none');
+  const label = (el.getAttribute('aria-label') || el.innerText || el.value || el.id || el.tagName)
+    .trim().slice(0, 60);
+  return {
+    where: inside ? 'tab' : 'page', label: label, tag: el.tagName, id: el.id, visible: visible,
+  };
+}"""
+
+_FOCUSABLE = """() => {
+  const tab = document.querySelector('.petasos');
+  if (!tab) return 0;
+  return Array.from(tab.querySelectorAll(
+    'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), '
+    + 'select:not([disabled]), summary, [tabindex]:not([tabindex="-1"])'
+  )).filter((el) => el.offsetParent !== null).length;
+}"""
+
+
+def focus_walk(page: Any, limit: int = 120) -> dict[str, Any]:
+    """Press Tab from the top of the page and report where focus went.
+
+    ``entered`` is true when focus reached the tab, ``left`` when it went on
+    past the tab's last control, ``stolen`` when a control inside the view had
+    focus before any key was pressed, and ``invisible`` lists controls that
+    took focus without a visible ring.
+    """
+    before = page.evaluate(_FOCUS_WALK)
+    view = page.locator(".petasos-view").first
+    stolen = before.get("where") == "tab" and bool(
+        view.evaluate("(v) => v.contains(document.activeElement)")
+    )
+    page.evaluate("() => { if (document.activeElement) document.activeElement.blur(); }")
+    page.locator("body").focus()
+    seen: list[str] = []
+    invisible: list[str] = []
+    entered = False
+    left = False
+    for _ in range(limit):
+        page.keyboard.press("Tab")
+        now = page.evaluate(_FOCUS_WALK)
+        if now.get("where") == "tab":
+            entered = True
+            key = f"{now.get('tag')}#{now.get('id')}:{now.get('label')}"
+            seen.append(key)
+            if not now.get("visible"):
+                invisible.append(key)
+        elif entered:
+            left = True
+            break
+    return {
+        "entered": entered,
+        "left": left,
+        "stolen": stolen,
+        "distinct": len(set(seen)),
+        "focusable": page.evaluate(_FOCUSABLE),
+        "invisible": sorted(set(invisible)),
+    }
+
+
 def check(request: dict[str, Any]) -> dict[str, Any]:
     """Load every view once and report what went wrong, if anything."""
     base = str(request["url"])
-    report: dict[str, Any] = {"views": {}, "errors": [], "failed": []}
+    report: dict[str, Any] = {"views": {}, "errors": [], "failed": [], "focus": {}}
     sync = _playwright()
     with sync.sync_playwright() as play:
         browser = play.chromium.launch(headless=True)
@@ -104,6 +170,7 @@ def check(request: dict[str, Any]) -> dict[str, Any]:
                 "loading": "Loading" in text[:40],
                 "head": text[:160],
             }
+            report["focus"][view] = focus_walk(page)
         report["errors"] = watch.errors
         report["failed"] = watch.failed
         browser.close()
@@ -138,6 +205,19 @@ def _scroll_to(page: Any, selector: str, where: str = "start") -> None:
     page.wait_for_timeout(250)
 
 
+def _tab_to(page: Any, name: str, limit: int = 80) -> bool:
+    """Move keyboard focus with Tab until it rests on a control named ``name``."""
+    page.locator("body").focus()
+    for _ in range(limit):
+        page.keyboard.press("Tab")
+        label = page.evaluate(
+            "() => (document.activeElement && (document.activeElement.innerText || '')).trim()"
+        )
+        if label == name:
+            return True
+    return False
+
+
 def _capture_theme(
     browser: Any, demo: str, empty: str, out: Path, prefix: str, label: str
 ) -> tuple[list[str], list[str]]:
@@ -149,20 +229,20 @@ def _capture_theme(
     watch = Watch(page)
     _theme(page, demo, label)
 
-    # 01 Overview, protected.
+    # 01 Overview, protected: status and coverage, the last day, then setup.
     _open(page, demo, "overview")
-    page.get_by_text("Petasos is checking this agent").first.wait_for(timeout=20000)
-    page.locator(".petasos-tile").first.wait_for()
+    page.get_by_text("Protection on").first.wait_for(timeout=20000)
+    page.locator(".petasos-stat").first.wait_for()
     _settle(page, 1500)
     _shot(page, out, f"{prefix}-01-overview-protected", shots)
 
-    # 03 A job change being previewed.
-    page.locator("label[for='petasos-job-research']").click()
-    page.locator(".petasos-preview .petasos-change").first.wait_for(timeout=15000)
-    _scroll_to(page, ".petasos-grid-2")
+    # 03 A job change being previewed: consequences first, details folded.
+    page.locator("#petasos-choose-job-research").click()
+    page.locator(".petasos-preview .petasos-when").first.wait_for(timeout=15000)
+    _scroll_to(page, "#petasos-setup")
     _settle(page)
     _shot(page, out, f"{prefix}-03-overview-choice-preview", shots)
-    page.get_by_role("button", name="Cancel").first.click()
+    page.locator(".petasos-preview").get_by_role("button", name="Cancel").click()
     page.wait_for_timeout(300)
 
     # 02 Paused, through the tab's own pause and its confirmation.
@@ -173,9 +253,17 @@ def _capture_theme(
     _settle(page, 1500)
     _shot(page, out, f"{prefix}-02-overview-paused", shots)
     page.get_by_role("button", name="Resume protection").click()
-    page.get_by_text("Petasos is checking this agent").first.wait_for(timeout=20000)
+    page.get_by_text("Protection on").first.wait_for(timeout=20000)
 
-    # 04 Activity list, everything recorded.
+    # x5 Keyboard focus on a control, reached with Tab.
+    _open(page, demo, "overview")
+    page.get_by_text("Protection on").first.wait_for(timeout=20000)
+    _settle(page, 800)
+    if _tab_to(page, "Pause protection"):
+        page.wait_for_timeout(300)
+        _shot(page, out, f"{prefix}-x5-keyboard-focus", shots)
+
+    # 04 Activity list, everything recorded, repeats grouped.
     _open(page, demo, "activity", "?range=all")
     page.locator(".petasos-event").first.wait_for(timeout=15000)
     _settle(page, 1000)
@@ -188,14 +276,35 @@ def _capture_theme(
     _settle(page)
     _shot(page, out, f"{prefix}-05-activity-detail", shots)
 
-    # 07 Try it: a hidden instruction, blocked.
-    _open(page, demo, "tryit", "?example=hidden")
-    page.locator(".petasos-decision").wait_for(timeout=20000)
+    # x4 A search and a custom range in use.
+    window = page.evaluate(
+        """() => {
+          const pad = (n) => String(n).padStart(2, '0');
+          const fmt = (d) => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate())
+            + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+          const now = new Date();
+          const from = new Date(now.getTime() - 26 * 3600 * 1000);
+          return {from: fmt(from), to: fmt(now)};
+        }"""
+    )
+    _open(
+        page,
+        demo,
+        "activity",
+        f"?range=custom&from={window['from']}&to={window['to']}&q=settings",
+    )
+    page.locator(".petasos-event").first.wait_for(timeout=15000)
+    _settle(page, 1000)
+    _shot(page, out, f"{prefix}-x4-activity-search", shots)
+
+    # 07 Try it: a file write carrying a hidden instruction, blocked.
+    _open(page, demo, "tryit", "?example=notes")
+    page.locator(".petasos-decision").first.wait_for(timeout=20000)
     _settle(page)
     _shot(page, out, f"{prefix}-07-tryit-blocked", shots)
 
-    # 08 Try it: a download piped into a shell, held for a person by saved settings, then
-    # tried without that rule (not saved) and shown beside the saved answer.
+    # 08 Try it: a download piped into a shell, held for a person by the live
+    # settings, then tried without that rule (not saved) beside the live answer.
     _open(page, demo, "tryit", "?example=download")
     page.locator(".petasos-finding").first.wait_for(timeout=20000)
     # Lifting one command rule can leave another underneath; lift each in turn.
@@ -204,22 +313,30 @@ def _capture_theme(
         page.locator(".petasos-compare").wait_for(timeout=20000)
         page.wait_for_load_state("networkidle")
         page.wait_for_timeout(600)
-        if page.locator(".petasos-decision-success").count():
+        if page.locator(".petasos-compare-cell").first.get_by_text("Trial: Allowed").count():
             break
-    page.locator(".petasos-decision-success").wait_for(timeout=20000)
+    page.locator(".petasos-compare-cell").first.get_by_text("Trial: Allowed").wait_for(
+        timeout=20000
+    )
     _settle(page)
     _shot(page, out, f"{prefix}-08-tryit-allowed", shots)
 
-    # 09 Settings: a value the user changed, with where each value comes from,
-    # and one more change staged for review.
+    # 09 Settings: a value the user set, with where each value comes from, and
+    # one more change (a tool exemption) staged and waiting for review.
     _open(page, demo, "settings", "?path=tools.dangerous_posture")
     page.locator("#petasos-row-tools\\.dangerous_posture").wait_for(timeout=15000)
     page.locator("#petasos-field-tools-exempt").fill("web_search")
-    page.locator(".petasos-savebar").wait_for(timeout=10000)
-    page.get_by_text("ready to save").first.wait_for(timeout=10000)
+    page.get_by_text("1 unsaved change").first.wait_for(timeout=10000)
     _scroll_to(page, "#petasos-row-tools\\.dangerous_posture", "center")
     _settle(page)
     _shot(page, out, f"{prefix}-09-settings-override", shots)
+
+    # x1 The review of staged changes, before anything is saved.
+    page.get_by_role("button", name="Review and save").click()
+    page.locator(".petasos-review").wait_for(timeout=10000)
+    _settle(page)
+    _shot(page, out, f"{prefix}-x1-settings-review", shots)
+    page.get_by_role("button", name="Back to editing").click()
     page.get_by_role("button", name="Discard").click()
 
     # 10 Settings: an invalid value explained at the field.
@@ -230,6 +347,33 @@ def _capture_theme(
     _settle(page)
     _shot(page, out, f"{prefix}-10-settings-error", shots)
     page.get_by_role("button", name="Discard").click()
+
+    # x2 A save that needs a restart: PromptGuard switched to always on.
+    _open(page, demo, "settings", "?path=scanners.prompt_guard.enabled")
+    page.locator("#petasos-field-scanners-prompt_guard-enabled").click()
+    page.get_by_role("option", name="Always (report a problem if it is missing)").click()
+    page.get_by_text("1 unsaved change").first.wait_for(timeout=10000)
+    page.get_by_role("button", name="Review and save").click()
+    page.locator(".petasos-review").get_by_role("button", name="Save 1 change").click()
+    page.get_by_text("Saved at").first.wait_for(timeout=15000)
+    _scroll_to(page, ".petasos-topbar")
+    _settle(page)
+    _shot(page, out, f"{prefix}-x2-settings-saved", shots)
+
+    # x3 The verdict while a recommended optional check is missing.
+    _open(page, demo, "overview")
+    page.locator(".petasos-verdict").wait_for(timeout=20000)
+    page.wait_for_timeout(1500)
+    _settle(page, 1200)
+    _shot(page, out, f"{prefix}-x3-overview-partial", shots)
+
+    # Put the demo home back: reset that one setting through the tab.
+    _open(page, demo, "settings", "?path=scanners.prompt_guard.enabled")
+    page.locator("#petasos-row-scanners\\.prompt_guard\\.enabled").get_by_role(
+        "button", name="Reset to default"
+    ).click()
+    page.get_by_role("alertdialog").get_by_role("button", name="Reset").click()
+    page.get_by_text("Saved at").first.wait_for(timeout=15000)
 
     # 06 Activity on a home with no record yet.
     empty_page = context.new_page()
@@ -244,7 +388,7 @@ def _capture_theme(
     if prefix == "teal":
         page.set_viewport_size({"width": 900, "height": HEIGHT})
         _open(page, demo, "overview")
-        page.get_by_text("Petasos is checking this agent").first.wait_for(timeout=20000)
+        page.get_by_text("Protection on").first.wait_for(timeout=20000)
         _scroll_to(page, ".petasos-topbar")
         _settle(page, 1200)
         _shot(page, out, "11-overview-narrow", shots)
