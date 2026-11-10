@@ -920,8 +920,9 @@ new API.
 
 | Package | Scope |
 |---|---|
-| C1 | `enforce/`: extract the plugin's policy and lifecycle into `Enforcer` |
-| C2 | `hermes/` and `cli.py`: adapter, manifest, doctor, install. Needs C1's interface and the plugin-surface report |
+| C1a | `enforce/` as functions: lift the plugin's decisions, fallback, approvals, messages and event spool into the library unchanged; the plugin calls them |
+| C1b | `Enforcer`: the stateful object of section 6 that owns lifecycle and replaces the plugin's globals; the plugin becomes a shell around it |
+| C2 | `hermes/` and `cli.py`: adapter, manifest, doctor, install, tested against upstream Hermes in a throwaway home; the reference plugin and its tests are retired into it. Needs C1b |
 | C3 | Console rebased on `describe()` and `resolve()`; `server.py` split |
 | C4 | Module splits and renames: `guard/`, `pipeline/`, `scanners/minimal/`, `scanners/semgrep/`, `model.py` |
 
