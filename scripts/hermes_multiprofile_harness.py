@@ -15,12 +15,14 @@ hash sits in the live interpreter's path.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import contextvars
 import importlib.util
 import json
 import logging
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -61,6 +63,7 @@ def write_cfg(home: Path, enabled: bool) -> None:
 
 
 _ENV_KEEP = ("SYSTEMROOT", "SYSTEMDRIVE", "COMSPEC", "PATH", "TEMP", "TMP", "WINDIR")
+_PUMP_JOIN_SECONDS = 5.0
 _BOOTSTRAP_CODE = 0
 _STORE_FINDER = (
     "import sys;from pathlib import Path;sys.path.insert(0, sys.argv[1]);"
@@ -139,8 +142,11 @@ def base_env(
 
 
 def _kill_process_tree(pid: int) -> None:
-    """End pid and every child. Windows needs taskkill /T; the direct child is not enough."""
-    if os.name == "nt":
+    """End pid and every child. Windows needs taskkill /T; the direct child is not enough.
+
+    On POSIX the child leads its own session (see ``_run_bounded``), so its group is the tree.
+    """
+    if sys.platform == "win32":
         subprocess.run(
             ["taskkill", "/T", "/F", "/PID", str(pid)],
             check=False,
@@ -148,7 +154,8 @@ def _kill_process_tree(pid: int) -> None:
             text=True,
         )
         return
-    os.kill(pid, 9)
+    with contextlib.suppress(ProcessLookupError):
+        os.killpg(pid, signal.SIGKILL)
 
 
 def _pump(stream: Any, chunks: list[str]) -> None:
@@ -192,12 +199,16 @@ def _run_bounded(
         # The children run with PYTHONUTF8=1, so decode as UTF-8 whatever the parent's code page.
         encoding="utf-8",
         errors="replace",
+        # POSIX: a session of its own, so _kill_process_tree can end the whole group.
+        start_new_session=sys.platform != "win32",
     )
     out_chunks: list[str] = []
     err_chunks: list[str] = []
+    # Daemons with bounded joins: a grandchild that outlives the child keeps the pipes open, and
+    # an unbounded join would then hold the caller past its timeout.
     pumps = [
-        threading.Thread(target=_pump, args=(proc.stdout, out_chunks)),
-        threading.Thread(target=_pump, args=(proc.stderr, err_chunks)),
+        threading.Thread(target=_pump, args=(proc.stdout, out_chunks), daemon=True),
+        threading.Thread(target=_pump, args=(proc.stderr, err_chunks), daemon=True),
     ]
     for pump in pumps:
         pump.start()
@@ -207,10 +218,10 @@ def _run_bounded(
         _kill_process_tree(proc.pid)
         proc.wait(timeout=30)
         for pump in pumps:
-            pump.join(timeout=5)
+            pump.join(timeout=_PUMP_JOIN_SECONDS)
         raise
     for pump in pumps:
-        pump.join()
+        pump.join(timeout=_PUMP_JOIN_SECONDS)
     return subprocess.CompletedProcess(
         cmd, proc.returncode or 0, "".join(out_chunks), "".join(err_chunks)
     )

@@ -5,7 +5,10 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import signal
+import subprocess
 import sys
+import time
 import zipfile
 from pathlib import Path
 from typing import Any
@@ -585,7 +588,7 @@ def test_load_plan_and_barrier_abort() -> None:
 def test_exit_codes(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    gate.STAGE = "wipe"
+    monkeypatch.setattr(gate, "STAGE", "wipe")
 
     def boom() -> int:
         raise RuntimeError("boom")
@@ -632,6 +635,10 @@ def test_probe_exit_4_writes_no_evidence(tmp_path: Path, monkeypatch: pytest.Mon
             [],
         ),
     )
+
+    # drive() and the fake below assign these module globals; registering them restores both.
+    monkeypatch.setattr(gate, "STAGE", gate.STAGE)
+    monkeypatch.setattr(harness, "_BOOTSTRAP_CODE", harness._BOOTSTRAP_CODE)
 
     def fake_prepare(*_args: object, **_kwargs: object) -> str:
         harness._BOOTSTRAP_CODE = 0
@@ -903,3 +910,66 @@ def test_kill_tree_child_output_is_decoded_as_utf8(tmp_path: Path) -> None:
     )
     assert done.returncode == 0
     assert done.stdout == "caf\u00e9 \u2713\n"
+
+
+_SLEEPER = "import time; time.sleep(60)"
+_SPAWN = (
+    "import subprocess, sys; "
+    f"p = subprocess.Popen([sys.executable, '-c', {_SLEEPER!r}], "
+    "stdout=sys.stdout, stderr=sys.stderr); print(p.pid, flush=True); "
+)
+
+
+def test_kill_tree_returns_when_a_grandchild_keeps_the_pipes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The child exits at once and leaves a grandchild holding both pipes for a minute.
+    monkeypatch.setattr(harness, "_PUMP_JOIN_SECONDS", 0.5)
+    started = time.monotonic()
+    done = harness._run_bounded(
+        [sys.executable, "-c", _SPAWN],
+        env=dict(os.environ),
+        cwd=tmp_path,
+        timeout=60,
+        capture=True,
+        kill_tree=True,
+    )
+    elapsed = time.monotonic() - started
+    grandchild = int(done.stdout.split()[0])
+    if sys.platform == "win32":
+        harness._kill_process_tree(grandchild)
+    else:
+        os.kill(grandchild, signal.SIGKILL)
+    assert done.returncode == 0
+    assert elapsed < 30
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX process groups")
+def test_kill_tree_ends_the_whole_group_on_posix(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # With the grandchild dead the pipes close and the pumps finish at once. A surviving
+    # grandchild would hold both joins for the full bound.
+    monkeypatch.setattr(harness, "_PUMP_JOIN_SECONDS", 30.0)
+    started = time.monotonic()
+    with pytest.raises(subprocess.TimeoutExpired):
+        harness._run_bounded(
+            [sys.executable, "-c", _SPAWN + "import time; time.sleep(60)"],
+            env=dict(os.environ),
+            cwd=tmp_path,
+            timeout=3,
+            capture=True,
+            kill_tree=True,
+        )
+    assert time.monotonic() - started < 20
+
+
+def test_session_env_names_the_isolated_tool_store(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = tmp_path / "localappdata" / "hermes"
+    gate._print_session_env(root, tmp_path, tmp_path / "live", tmp_path / "hf")
+    lines = capsys.readouterr().out.splitlines()
+    assert f"HERMES_RUNTIME_DIR={root / 'tools'}" in lines
+    assert f"HERMES_HOME={root}" in lines
+    assert not any("k" * 64 in line for line in lines)

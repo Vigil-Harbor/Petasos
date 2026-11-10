@@ -14,9 +14,10 @@ not fixed by editing an expectation to fit what was observed.
 ## What a verdict counts for
 
 A verdict counts only for the script, harness, corpus, wheel, and plugin-file
-hashes and the copied configuration named in its evidence file. A later
-commit, a different wheel, or a different copied `petasos:` section needs a
-new run.
+hashes and the copied configuration named in its evidence file. A commit
+that changes one of those files, a different wheel, or a different copied
+`petasos:` section needs a new run. A commit that only adds the evidence
+file and its verdict entry does not.
 
 ## What the gate shows
 

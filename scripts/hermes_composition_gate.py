@@ -2929,6 +2929,7 @@ def _print_session_env(root: Path, run: Path, live: Path, hf_cache: Path) -> Non
     print("session env (no secret values):", flush=True)
     print(f"HERMES_HOME={root}", flush=True)
     print(f"LOCALAPPDATA={root.parent}", flush=True)
+    print(f"HERMES_RUNTIME_DIR={root / 'tools'}", flush=True)
     print(f"USERPROFILE={run}", flush=True)
     print(f"HOME={run}", flush=True)
     print(f"PYTHONPATH={live / 'hermes-agent'}", flush=True)

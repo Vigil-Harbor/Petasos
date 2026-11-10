@@ -17,9 +17,16 @@ the live Hermes home.
 `PYTHONDONTWRITEBYTECODE=1`. `HF_HUB_OFFLINE=1` and `TRANSFORMERS_OFFLINE=1`.
 `HF_HUB_CACHE` is the cache the gate printed. `HERMES_GATEWAY_SESSION=1`.
 
+`HERMES_RUNTIME_DIR` must be the isolated root's `tools` directory, as
+printed. Without it Hermes uses the live root's tool store, and can repair
+it.
+
 ## Turns
 
-On one armed profile from the run's matrix, record pass or fail:
+Pick one armed profile from the run's matrix whose copied section has
+`tool_guard_enabled: true`. A profile with the tool guard off passes the
+injection command by design, so the second turn would read as a failure.
+Record pass or fail:
 
 | Turn | Pass condition | Result |
 |---|---|---|
