@@ -4,6 +4,21 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-02
+
+Headline release since 0.4.0: the scanner backend migration begins. Meta's
+PromptGuard 2 now runs as a direct `prompt_guard` backend on torch and
+transformers, proven on native Windows with Python 3.14, and `petasos[all]` is
+now Presidio, PromptGuard and the console. LLM Guard and LlamaFirewall are
+deprecated: they still work, each constructor warns, and removal comes no
+earlier than the release after this one. Read the upgrade note first, because a
+registered backend that is not installed blocks all content under the default
+fail mode. The reference plugin gains a dependency manifest for Hermes
+generations, Hermes's context-local home override now leads config resolution,
+the console reports which served profiles can actually load a hook and works on
+Hermes's default profile, approval decisions are recorded on the enforcement
+spool, and a degraded approve re-arms until a session or always answer.
+
 ### Upgrade note: PET-242 can block all content until you act
 
 The new `prompt_guard` backend registers even when its packages or model are
@@ -966,7 +981,8 @@ First public release. Every feature ships free and keyless: no license key, no t
 - **Tool-name canonicalization parity**: enforcement and classification share one canonical primitive, closing case / homoglyph / namespace / CamelCase / `_tool`-suffix variant-named egress bypasses
 - **PII-egress hardening**: egress-scoped guard blocking, corrected ordinal severity ranking (a lone CRITICAL now blocks), and a parse-time PII-entity vocabulary guard
 
-[Unreleased]: https://github.com/Vigil-Harbor/Petasos/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/Vigil-Harbor/Petasos/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/Vigil-Harbor/Petasos/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/Vigil-Harbor/Petasos/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/Vigil-Harbor/Petasos/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Vigil-Harbor/Petasos/compare/v0.1.2...v0.2.0
