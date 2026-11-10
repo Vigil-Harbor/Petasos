@@ -1,0 +1,258 @@
+"""Save and clear settings through the caller's writer.
+
+The writer is Hermes's plugin-settings writer. This module does not open
+``config.yaml``. An invalid document is refused before the writer is called.
+"""
+
+from __future__ import annotations
+
+import logging
+from collections.abc import Callable, Mapping
+from pathlib import Path
+from typing import Any
+
+from petasos.config.layers import resolve
+from petasos.config.schema import ConfigError
+from petasos.hermes.dashboard.catalog import (
+    combine,
+    preview_settings,
+    read_settings,
+    restart_paths,
+    stored_document,
+)
+from petasos.hermes.dashboard.errors import ApiError, envelope
+from petasos.hermes.dashboard.values import copy_tree, has_path, hermes_merge, without_path
+
+logger = logging.getLogger("petasos.hermes.dashboard")
+
+Writer = Callable[[Mapping[str, object], Path], None]
+
+_SECRET_KEYS = frozenset({"session_secret", "hash_key"})
+
+
+def save_settings(
+    stored: Mapping[str, Any],
+    candidate: Mapping[str, Any],
+    *,
+    plugin_dir: Path,
+    write: Writer,
+    secrets: Mapping[str, str],
+) -> dict[str, Any]:
+    """Validate ``candidate``, then write it.
+
+    ``overrides`` in the candidate is a patch. Keys it omits stay. Nothing is
+    written when the merged document does not resolve. A restart-required
+    change is reported and still saved: the running gateway keeps the previous
+    value of those fields until it restarts.
+    """
+    _reject_secrets(candidate)
+    proposed = combine(stored, candidate)
+    before = _resolved_or_none(stored_document(stored))
+    after = _require_resolved(proposed)
+    current = _overrides(stored_document(stored))
+    desired = _overrides(proposed)
+    _write_document(proposed, current, desired, plugin_dir, write)
+    restart = restart_paths(before, after)
+    body = read_settings(proposed, secrets=secrets)
+    body["saved"] = True
+    body["restart"] = restart
+    if restart:
+        body["restart_message"] = (
+            "Saved. These settings take effect after Hermes restarts: " + ", ".join(restart) + "."
+        )
+    else:
+        body["restart_message"] = "Saved. This change takes effect on the next tool call."
+    return body
+
+
+def clear_overrides(
+    stored: Mapping[str, Any],
+    path: str | None,
+    *,
+    plugin_dir: Path,
+    write: Writer,
+    secrets: Mapping[str, str],
+) -> dict[str, Any]:
+    """Remove one override, or every override when ``path`` is None.
+
+    Hermes's writer keeps a mapping key the new document omits. Removal
+    writes a list first, which replaces the mapping, then writes the mapping
+    that should remain. A reader between the two writes sees a list and the
+    enforcer keeps the last settings that resolved.
+    """
+    document = stored_document(stored)
+    current = _overrides(document)
+    if path is None:
+        desired: dict[str, Any] = {}
+        removed = bool(current)
+    else:
+        try:
+            if not has_path(current, path):
+                return envelope(
+                    cleared=False,
+                    message="That override is not set.",
+                    **_view(document, secrets),
+                )
+            desired = without_path(current, path)
+        except ValueError as exc:
+            raise ApiError("invalid_path", "Name the override to clear.", path=path) from exc
+        removed = True
+    proposed = combine(document, {"overrides": desired})
+    # combine treats overrides as a patch. desired is the full remainder, so
+    # replace rather than patch.
+    proposed["overrides"] = desired
+    before = _resolved_or_none(document)
+    after = _require_resolved(proposed)
+    if not removed:
+        return envelope(
+            cleared=False,
+            message="There are no overrides to clear.",
+            **_view(document, secrets),
+        )
+    _write_overrides(current, desired, plugin_dir, write)
+    restart = restart_paths(before, after)
+    return envelope(
+        cleared=True,
+        message="Cleared. The role and level apply again.",
+        restart=restart,
+        restart_message=(
+            "These settings take effect after Hermes restarts: " + ", ".join(restart) + "."
+            if restart
+            else "This change takes effect on the next tool call."
+        ),
+        **_view(proposed, secrets),
+    )
+
+
+def preview(stored: Mapping[str, Any], candidate: Mapping[str, Any]) -> dict[str, Any]:
+    """The preview body. ``candidate`` is not saved."""
+    _reject_secrets(candidate)
+    return preview_settings(stored, candidate)
+
+
+def _view(document: Mapping[str, Any], secrets: Mapping[str, str]) -> dict[str, Any]:
+    # read_settings already wraps a version. The clear response uses one envelope.
+    body = read_settings(document, secrets=secrets)
+    body.pop("version", None)
+    return {"settings": body}
+
+
+def _reject_secrets(candidate: Mapping[str, Any]) -> None:
+    found = sorted(key for key in candidate if key in _SECRET_KEYS)
+    if found:
+        raise ApiError(
+            "secret",
+            "The session secret and the hash key are set in the profile environment, "
+            "not from this panel.",
+            path=found[0],
+        )
+
+
+def _overrides(document: Mapping[str, Any]) -> dict[str, Any]:
+    raw = document.get("overrides", {})
+    if isinstance(raw, Mapping):
+        copied = copy_tree(raw)
+        if isinstance(copied, dict):
+            return copied
+    return {}
+
+
+def _resolved_or_none(document: Mapping[str, Any]) -> Any:
+    try:
+        return resolve(document)
+    except ConfigError:
+        return None
+
+
+def _require_resolved(document: Mapping[str, Any]) -> Any:
+    try:
+        return resolve(document)
+    except ConfigError as exc:
+        first = exc.errors[0]
+        raise ApiError(
+            "invalid_settings",
+            first[1],
+            path=first[0] or None,
+        ) from exc
+
+
+def _write_document(
+    proposed: Mapping[str, Any],
+    current: Mapping[str, Any],
+    desired: Mapping[str, Any],
+    plugin_dir: Path,
+    write: Writer,
+) -> None:
+    scalars = {
+        "enabled": proposed["enabled"],
+        "role": proposed["role"],
+        "level": proposed["level"],
+    }
+    if hermes_merge(current, desired) == desired:
+        payload = dict(scalars)
+        payload["overrides"] = desired
+        _call(write, payload, plugin_dir)
+        return
+    _call(write, scalars, plugin_dir)
+    _write_overrides(current, desired, plugin_dir, write)
+
+
+def _write_overrides(
+    current: Mapping[str, Any],
+    desired: Mapping[str, Any],
+    plugin_dir: Path,
+    write: Writer,
+) -> None:
+    if hermes_merge(current, desired) == desired:
+        _call(write, {"overrides": desired}, plugin_dir)
+        return
+    try:
+        _call(write, {"overrides": []}, plugin_dir)
+    except ApiError:
+        raise
+    try:
+        _call(write, {"overrides": desired}, plugin_dir)
+    except ApiError:
+        _restore(current, plugin_dir, write)
+        raise
+
+
+def _restore(current: Mapping[str, Any], plugin_dir: Path, write: Writer) -> None:
+    try:
+        write({"overrides": copy_tree(current)}, plugin_dir)
+    except Exception:
+        logger.exception("could not restore overrides after a refused save")
+
+
+def _call(write: Writer, values: Mapping[str, object], plugin_dir: Path) -> None:
+    try:
+        write(values, plugin_dir)
+    except PermissionError as exc:
+        raise ApiError(
+            "managed",
+            "An administrator has locked this setting. Change it in the managed "
+            "Hermes configuration, or ask the administrator to unlock it.",
+            status=403,
+        ) from exc
+    except RuntimeError as exc:
+        raise ApiError(
+            "writer_unavailable",
+            "Hermes is not available to save settings.",
+            status=503,
+        ) from exc
+    except ValueError as exc:
+        raise ApiError("refused", _plain(exc), status=400) from exc
+    except OSError as exc:
+        logger.exception("settings write failed")
+        raise ApiError(
+            "write_failed",
+            "The settings could not be saved. The detail is in the log.",
+            status=500,
+        ) from exc
+
+
+def _plain(exc: ValueError) -> str:
+    text = str(exc).strip()
+    if not text or "Traceback" in text:
+        return "Hermes refused that value."
+    return text
