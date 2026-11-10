@@ -8,6 +8,10 @@ Single-shot calls inside :func:`batch` share one pipeline per profile and
 clear its frequency table before every call, so cases cannot influence each
 other. :func:`run_session` always builds a new pipeline and keeps it for
 the whole sequence. Verdicts omit timings, scores and free-text reasons.
+
+A profile label ``plugin:<name>`` binds ``<name>`` to the pipeline only.
+The guard is constructed without a profile, as the reference plugin does.
+A bare built-in name is passed to both. ``none`` binds neither.
 """
 
 from __future__ import annotations
@@ -25,6 +29,7 @@ from petasos.pipeline import Pipeline
 from petasos.session.frequency import FrequencyTracker
 from petasos.session.guard import GuardResult, ToolCallGuard
 from petasos.session.profiles import ProfileResolver, ResolvedProfile
+from tests.parity.load import ALL_PROFILES, expand_args, text_of
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Mapping
@@ -57,7 +62,12 @@ class _Engine:
         self.tracker = tracker
 
     @classmethod
-    def build(cls, profile: str | None) -> _Engine:
+    def build(cls, profile: str | None, *, guard_profile: bool = True) -> _Engine:
+        """Build a pipeline bound to ``profile`` and a guard.
+
+        ``guard_profile`` false leaves the guard's profile argument unset even
+        when the pipeline is bound. The reference plugin always does that.
+        """
         saved = os.environ.pop("PETASOS_LICENSE_KEY", None)
         try:
             config = PetasosConfig()
@@ -74,13 +84,19 @@ class _Engine:
                 pipeline,
                 tracker,
                 config,
-                profile=resolved,
+                profile=resolved if guard_profile else None,
                 home=PARITY_HOME,
             )
             return cls(pipeline, guard, tracker)
         finally:
             if saved is not None:
                 os.environ["PETASOS_LICENSE_KEY"] = saved
+
+    @classmethod
+    def from_label(cls, label: str) -> _Engine:
+        """Build the engine a corpus profile label names."""
+        name, use_guard = _arrangement(label)
+        return cls.build(name, guard_profile=use_guard)
 
 
 class _Batch:
@@ -106,11 +122,28 @@ def batch() -> Iterator[None]:
         _batch.reset(token)
 
 
-def _normalize_profile(profile: str | None) -> str | None:
+def _arrangement(label: str) -> tuple[str | None, bool]:
+    """Return the pipeline profile and whether the guard receives it.
+
+    ``none`` binds neither. ``plugin:<name>`` binds the pipeline only.
+    A bare built-in name binds both.
+    """
+    if label == "none":
+        return None, False
+    if label.startswith("plugin:"):
+        name = label.removeprefix("plugin:")
+        if name not in _PROFILE_NAMES:
+            raise ValueError(f"unknown profile {label!r}")
+        return name, False
+    if label not in _PROFILE_NAMES:
+        raise ValueError(f"unknown profile {label!r}")
+    return label, True
+
+
+def _label(profile: str | None) -> str:
     if profile is None or profile == "none":
-        return None
-    if profile not in _PROFILE_NAMES:
-        raise ValueError(f"unknown profile {profile!r}")
+        return "none"
+    _arrangement(profile)
     return profile
 
 
@@ -124,15 +157,14 @@ def _direction(value: str) -> Direction:
 
 def _bind(profile: str | None) -> tuple[_Engine, str]:
     """Return an engine and a session id that no earlier single-shot used."""
-    normalized = _normalize_profile(profile)
+    label = _label(profile)
     active = _batch.get()
     if active is None:
-        return _Engine.build(normalized), "parity-oneshot"
-    key = "none" if normalized is None else normalized
-    engine = active.engines.get(key)
+        return _Engine.from_label(label), "parity-oneshot"
+    engine = active.engines.get(label)
     if engine is None:
-        engine = _Engine.build(normalized)
-        active.engines[key] = engine
+        engine = _Engine.from_label(label)
+        active.engines[label] = engine
     engine.tracker.clear()
     active.n += 1
     return engine, f"parity-{active.n}"
@@ -191,7 +223,7 @@ async def _evaluate_tool_call(
     profile: str | None,
 ) -> dict[str, Any]:
     engine, session_id = _bind(profile)
-    result = await engine.guard.evaluate(tool, dict(args), session_id)
+    result = await engine.guard.evaluate(tool, expand_args(dict(args)), session_id)
     return _tool_verdict(result)
 
 
@@ -200,7 +232,7 @@ async def _run_session(
 ) -> list[dict[str, Any]]:
     # A new engine, not the batch cache: the sequence is one session, and
     # it must not see single-shot state or another sequence's state.
-    engine = _Engine.build(_normalize_profile(profile))
+    engine = _Engine.from_label(_label(profile))
     session_id = "parity-session"
     out: list[dict[str, Any]] = []
     for step in steps:
@@ -224,7 +256,7 @@ async def _run_session(
             args = step.get("args")
             if not isinstance(tool, str) or not isinstance(args, dict):
                 raise TypeError("tool step needs a string tool and an args object")
-            guard_result = await engine.guard.evaluate(tool, dict(args), session_id)
+            guard_result = await engine.guard.evaluate(tool, expand_args(dict(args)), session_id)
             verdict = _tool_verdict(guard_result)
             verdict["kind"] = "tool"
             out.append(verdict)
@@ -255,6 +287,74 @@ def evaluate_tool_call(
     one fired. A fresh session is used, so ``tier`` is the tier at entry.
     """
     return asyncio.run(_evaluate_tool_call(tool, args, profile=profile))
+
+
+def _require_cases(corpus: dict[str, Any], kind: str) -> list[Any]:
+    cases = corpus.get(kind)
+    if not isinstance(cases, list):
+        raise TypeError(f"corpus {kind} section must be an array")
+    return cases
+
+
+async def _replay_corpus(corpus: dict[str, Any]) -> dict[str, Any]:
+    """Replay every case under every profile label on one event loop."""
+    text_cases = _require_cases(corpus, "text")
+    tool_cases = _require_cases(corpus, "tool")
+    session_cases = _require_cases(corpus, "session")
+    text_out: dict[str, dict[str, Any]] = {}
+    tool_out: dict[str, dict[str, Any]] = {}
+    session_out: dict[str, dict[str, Any]] = {}
+    token = _batch.set(_Batch())
+    try:
+        for label in ALL_PROFILES:
+            name, use_guard = _arrangement(label)
+            # Text never reaches the guard. A plugin label's pipeline profile
+            # was already scanned under the bare name, which is built first.
+            if not use_guard and name is not None:
+                copied = text_out.get(name)
+                if copied is None:
+                    raise RuntimeError(f"{label} replayed before pipeline profile {name}")
+                text_out[label] = dict(copied)
+            else:
+                per_text: dict[str, Any] = {}
+                for case in text_cases:
+                    if not isinstance(case, dict) or not isinstance(case.get("id"), str):
+                        raise TypeError("text case needs a string id")
+                    scanned = text_of(case)
+                    per_text[case["id"]] = {
+                        "inbound": await _scan_text(scanned, direction="inbound", profile=label),
+                        "outbound": await _scan_text(scanned, direction="outbound", profile=label),
+                    }
+                text_out[label] = per_text
+
+            per_tool: dict[str, Any] = {}
+            for case in tool_cases:
+                if not isinstance(case, dict) or not isinstance(case.get("id"), str):
+                    raise TypeError("tool case needs a string id")
+                tool = case.get("tool")
+                args = case.get("args")
+                if not isinstance(tool, str) or not isinstance(args, dict):
+                    raise TypeError("tool case needs a string tool and an args object")
+                per_tool[case["id"]] = await _evaluate_tool_call(tool, args, profile=label)
+            tool_out[label] = per_tool
+
+            per_session: dict[str, Any] = {}
+            for case in session_cases:
+                if not isinstance(case, dict) or not isinstance(case.get("id"), str):
+                    raise TypeError("session case needs a string id")
+                steps = case.get("steps")
+                if not isinstance(steps, list):
+                    raise TypeError("session case needs a steps array")
+                per_session[case["id"]] = await _run_session(steps, profile=label)
+            session_out[label] = per_session
+    finally:
+        _batch.reset(token)
+    return {"session": session_out, "text": text_out, "tool": tool_out}
+
+
+def replay_corpus(corpus: dict[str, Any]) -> dict[str, Any]:
+    """Replay ``corpus`` and return verdicts keyed by kind, profile, then case id."""
+    return asyncio.run(_replay_corpus(corpus))
 
 
 def run_session(steps: list[dict[str, Any]], *, profile: str | None) -> list[dict[str, Any]]:
