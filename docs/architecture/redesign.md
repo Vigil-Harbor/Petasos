@@ -516,11 +516,21 @@ def compose(config: PetasosConfig, context: BuildContext) -> Composition
 
 Every scanner section starts with `enabled: Literal["auto", "on", "off"]`:
 
-| Value | Backend present and working | Backend missing or broken |
-|---|---|---|
-| `auto` | active | `not_installed` or `unavailable`; no effect on verdicts beyond today's behaviour for a broken installed backend |
-| `on` | active | `unavailable`; treated as a scanner error on every scan, so `fail_mode` applies |
-| `off` | `off`; never constructed | `off` |
+| Value | Package installed and usable | Installed but unusable | Not installed |
+|---|---|---|---|
+| `auto` | `active` | `unavailable`; registered, so every scan errors and `fail_mode` applies | `not_installed`; not registered, no effect on verdicts |
+| `on` | `active` | `unavailable`, as above | `unavailable`; a stand-in that errors on every scan is registered, so `fail_mode` applies |
+| `off` | `off`; never constructed | `off` | `off` |
+
+"Installed but unusable" is a backend whose package imports but whose model or
+engine cannot be used: gated weights not downloaded, a load failure, a missing
+engine binary. It blocks under the default fail mode on purpose. Someone who
+installed a scanner meant to run it, and letting it fall away silently would
+hide a broken protection. "Not installed" under `auto` is the one case that is
+quiet, and it is a deliberate change: in 0.5 PromptGuard registers even when
+its packages are absent, so a base install blocks everything until the
+operator disables it. Scanners tell the two apart through the cause their
+`availability()` probe already reports (`absent` or `load_failed`).
 
 `Composition` holds the scanner list (the syntactic scanner first, always) and
 one `ScannerStatus(id, state, reason)` per registry entry, where `state` is
