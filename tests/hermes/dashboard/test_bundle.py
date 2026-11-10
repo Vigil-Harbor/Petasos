@@ -73,3 +73,33 @@ def test_the_tab_uses_only_hermes_and_its_own_api() -> None:
     # Colours come from Hermes's variables. A literal hex colour is a palette of our own.
     assert re.search(r"#[0-9a-fA-F]{3,8}\b", css) is None
     assert 'var API = "/api/plugins/petasos";' in script
+
+
+# Strings Hermes's plugin guard (tools/plugin_guard.py at v0.23.1) reads as an
+# attack. A plugin directory that holds one gets a "dangerous" verdict, and
+# Hermes refuses to load the plugin. Sample attacks for Try it are served by
+# the API from the wheel instead.
+_GUARD_TRIPS = (
+    "ignore previous instructions",
+    "ignore all previous instructions",
+    "rm -rf",
+    "| bash",
+    "| sh",
+    "~/.ssh",
+    "system override",
+    "developer mode",
+)
+
+
+def test_the_plugin_directory_holds_no_sample_attack() -> None:
+    """Nothing Hermes scans before loading the plugin looks like an attack."""
+    plugin = _DASHBOARD.parent
+    found = []
+    for path in sorted(plugin.rglob("*")):
+        if not path.is_file() or "__pycache__" in path.parts:
+            continue
+        text = path.read_text(encoding="utf-8", errors="ignore").lower()
+        found.extend(
+            f"{path.relative_to(plugin)}: {trip}" for trip in _GUARD_TRIPS if trip in text
+        )
+    assert found == []

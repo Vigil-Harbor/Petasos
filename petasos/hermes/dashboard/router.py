@@ -19,7 +19,8 @@ from petasos.hermes.dashboard.activity import (
 )
 from petasos.hermes.dashboard.catalog import read_settings
 from petasos.hermes.dashboard.changes import clear_overrides, preview, save_settings
-from petasos.hermes.dashboard.errors import ApiError, error_body
+from petasos.hermes.dashboard.errors import ApiError, envelope, error_body
+from petasos.hermes.dashboard.examples import DEFAULT_EXAMPLE, examples
 from petasos.hermes.dashboard.playground import try_input
 from petasos.hermes.dashboard.scope import active_home, load_home, require_plugin_dir
 from petasos.hermes.dashboard.status import status
@@ -65,6 +66,7 @@ def build_router() -> Any:
     router.add_route("/overrides", _wrap(_clear_all), methods=["DELETE"])
     router.add_route("/overrides/{path:path}", _wrap(_clear_one), methods=["DELETE"])
     router.add_route("/playground", _wrap(_playground), methods=["POST"])
+    router.add_route("/playground/examples", _wrap(_examples), methods=["GET"])
     router.add_route("/activity", _wrap(_activity), methods=["GET"])
     router.add_route("/activity/summary", _wrap(_summary), methods=["GET"])
     router.add_route("/activity/{scan_id}", _wrap(_one_event), methods=["GET"])
@@ -169,6 +171,10 @@ async def _playground(request: Any) -> dict[str, Any]:
         redactor=_redactor(),
         protected_paths=lambda: _protected(state.home),
     )
+
+
+async def _examples(_request: Any) -> dict[str, Any]:
+    return envelope(examples=examples(), default=DEFAULT_EXAMPLE)
 
 
 async def _activity(request: Any) -> dict[str, Any]:
