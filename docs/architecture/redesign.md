@@ -897,19 +897,83 @@ Still open, because the sandbox run started no long-lived Hermes process:
 - Whether a kanban worker sees current settings or those from when its
   session was created.
 
-## 8. Console
+## 8. The user-facing surface
 
-The console is a view. It reads `describe()` for the editor, `resolve()` for
-effective values and origins, the registry for scanner states, and the event
-spool for activity. It writes settings through the same writer the host uses.
+`docs/architecture/hermes-native-fit.md` records what Hermes `v0.23.1` offers
+a plugin and what Petasos should stop doing itself. This section is the
+design that follows from it. The standalone console (its own local web
+server, its own token, its own visual language, kept alive by the operating
+system) is retired. Petasos is met through Hermes.
 
-- It holds no field metadata, validation, role or level data of its own. The
-  JavaScript receives all of that from the API and mirrors nothing.
-- `server.py` splits into `app.py` plus one module per route group (config,
-  events, history, approvals, health, playground).
-- The ordered classic-script frontend and the no-bundler rule stand.
-- The single `petasos` command gains `petasos console`; the separate
-  `petasos-console` script is removed.
+### 8.1 Where each piece lives
+
+| Piece | Home | How |
+|---|---|---|
+| The two choices (on, role, level) | Hermes Desktop, Settings, Plugins | The manifest's `config_schema`. No Petasos code. |
+| The same two choices, on the web dashboard | The Petasos tab | The dashboard does not draw `config_schema`, so the tab's first panel offers them. |
+| Everything else (`overrides`) | The Petasos tab's settings panel | Built from `describe()` and `resolve()`; shows where each value came from |
+| Scanner playground | The Petasos tab | Beside the settings, so a change can be tried at once |
+| Activity: what was blocked and why | The Petasos tab | Reads the event spool. Hermes's Logs page is its own log and is the wrong place. |
+| Health and diagnostics | `hermes petasos doctor`, and a status line on the tab | A command the plugin registers with Hermes. `hermes doctor` has no plugin row to join. |
+
+The tab is a Hermes dashboard plugin: a manifest, a script and an API router
+shipped in the plugin directory, the last two as one-line imports from the
+wheel like `__init__.py`. Hermes puts plugin tabs in a Plugins group in its
+sidebar, beside the kanban board.
+
+### 8.2 Rules
+
+- **Hermes's kit, not ours.** The tab is drawn with the components, styles
+  and colour tokens Hermes exposes to plugin front ends, and follows both of
+  its themes. Petasos ships no font, palette or layout shell of its own.
+- **One writer.** Every settings change, from the tab, the Desktop form or
+  the command line, goes through Hermes's plugin-settings writer. Nothing
+  else writes Hermes's config.
+- **No data of its own.** The tab's API holds no field metadata, validation,
+  role or level data. It serves what `describe()`, `resolve()`, the scanner
+  registry and the event spool say. The front end mirrors nothing.
+- **Its own pipeline for the playground.** The dashboard is a different
+  process from the gateway that enforces, so the playground builds a
+  pipeline from the same resolved settings. It shows what would happen; the
+  activity panel shows what did.
+- **Hermes asks, Hermes redacts.** Approvals appear in Hermes's own approval
+  prompt. Text shown to a person goes through Hermes's redactor.
+- **Two switches, explained.** Hermes's enable list decides whether the
+  plugin loads; Petasos's `enabled` pauses protection without a restart and
+  records what passed while it was paused. The tab and `doctor` say which
+  one is off.
+
+### 8.3 Words
+
+Every description a user reads is written for someone who has not heard of a
+fail mode or an escalation tier, and is reviewed as copy. The technical name
+follows the plain statement; it does not replace it.
+
+### 8.4 How the interface is built
+
+The front end is developed in a judged loop: a generator revises the tab
+against judges scoring design, usability, conventions and fit with Hermes,
+each out of ten, until every score reaches the bar the owner sets. The
+judges work from screenshots of the result beside reference screenshots:
+Hermes's own dashboard in both themes for what native looks like, and a
+well-regarded secrets manager for how a security tool presents status,
+policy and an audit log. The references are kept outside the repository.
+
+### 8.5 Overlap with Hermes, to settle separately
+
+Hermes already detects dangerous terminal commands and gates them through
+approvals. Petasos's command rules cover the same ground for the `terminal`
+and `execute_code` tools, and its encoding rules overlap for shell commands.
+The native-fit report recommends deferring to Hermes there and keeping
+Petasos's rules for command-shaped text that never reaches those tools.
+Doing that changes verdicts and what feeds the session score, so it is its
+own package, decided after the order in which Hermes runs plugin hooks and
+its own gate has been run and observed, not read.
+
+One collision needs no decision: when two plugins both rewrite a tool
+result, Hermes keeps the first in load order, and its bundled
+`security-guidance` plugin loads before Petasos. `doctor` warns when both
+are enabled.
 
 ## 9. Public API
 
@@ -1049,7 +1113,10 @@ new API.
 | E0 | Enforcement parity oracle: host-neutral scenarios and the reference plugin's recorded outcomes for them, in `tests/enforce_parity/` |
 | C1b | `Enforcer`: the stateful object of section 6, written beside the plugin and accepted when it replays the E0 record. The plugin is not rewired; it is retired in C2 |
 | C2 | `hermes/` and `cli.py`: adapter, manifest, doctor, install, tested against upstream Hermes in a throwaway home; the reference plugin and its tests are retired into it. Needs C1b |
-| C3 | Console rebased on `describe()` and `resolve()`; `server.py` split |
+| C3 | The Petasos tab's API: served by Hermes's dashboard, built on `describe()`, `resolve()`, the registry and the event spool, writing through Hermes's settings writer. The standalone console server is retired |
+| U | The Petasos tab's front end, on Hermes's plugin kit, built in the judged loop of section 8.4; the plain-language pass over every description |
+| S1 | Guardrail integrity (`guardrail-integrity.md`) |
+| S2 | Deferring to Hermes where it already decides (section 8.5) |
 | C4 | Module splits and renames: `guard/`, `pipeline/`, `scanners/minimal/`, `scanners/semgrep/`, `model.py` |
 
 **Wave D. Finish**
