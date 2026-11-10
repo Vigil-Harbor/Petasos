@@ -14,7 +14,8 @@ when every score reaches the bar.
   competent with notable weaknesses, 8 is good with only minor issues, 9 is
   excellent, 10 is exemplary.
 - The screenshot set is fixed so rounds compare: ten states in each of
-  Hermes's two themes, and one narrow layout. Screenshots and references live
+  Hermes's two themes, and one narrow layout. Round 2 added five states,
+  kept since. Screenshots and references live
   in `.ux-reference/`, which is not committed.
 - Bar: 8 on every criterion.
 
@@ -24,6 +25,7 @@ when every score reaches the bar.
 |---|---|---|---|---|
 | 1 | 6 | 6 | 7 | 7 |
 | 2 | 7 | 7 | 7 | 8 |
+| 3 | 7 | 7 | 7 | 8 |
 
 ## Round 1
 
@@ -237,3 +239,115 @@ equivalent for.
   outcome in a sentence. The input editor, the model-facing message and rule
   identifiers are technical detail, one click away.
 - **Hermes's switch stays as it is**, without added state text.
+
+## Round 3
+
+Revised under the rulings above. Seven named defects were fixed, among them
+the activity summary that miscounted blocked events (the count now comes
+from the same rows it sits above, with a test) and a failed required check
+shown in warning amber. The light theme's flat text had a cause: a text
+variable the tab used was not defined in that theme, so everything fell
+back to one colour. It now uses Hermes's own primary and secondary text
+tokens. The API gained an outcome filter, a count of calls blocked by
+accumulated risk, and plain words for what each optional check covers.
+
+### Round 3 scores
+
+Visual design 7, usability 7, conventions 7, fit with Hermes 8: unchanged.
+Fresh judges, same briefs. Again nearly everything numbered in the previous
+round was fixed or credited (the selected event row, the settings review,
+validation, the trial beside the live result, the signature statement), and
+again the scores held on a new, finer set.
+
+What more than one judge found:
+
+- **The paused view still contradicts itself** (design, usability,
+  conventions; the first thing each would change). Round 3 fixed the status
+  panel, which now reads "Suspended". The Checks panel lower on the same
+  page still says "Basic checks always run" beside a green "Running". This
+  was a named defect and it was half fixed.
+- **Status badges in condensed lettering** (design, conventions), for the
+  third round.
+- **The light theme's blue** (design, conventions): ordinary text, links
+  and values in closely related blues. Fit credits it again, in so many
+  words: "faithful to Hermes, even where that host convention is visually
+  aggressive".
+- **Switches without state text** (design, usability).
+- **The floating change review** (design: weak separation in the dark
+  theme; fit: Hermes has no floating surface).
+
+Visual design, 7. Orderly alignment, the selected row, the Try it match
+highlight and the invalid field are credited. Held back by the light theme,
+badge and small-label lettering, a statistics strip whose counts are
+smaller than their labels and lose their baseline when labels wrap, an
+uneven wrap of rule actions in the trial column, and an unbalanced Try it
+layout.
+
+Usability, 7. All ten tasks succeed or mostly succeed. Held back by the
+paused contradiction and by three statements that leave someone unsure of
+their protection: the choice that requires a check reads "report a problem
+if it is missing" when the effect is that tool calls are held; "Protection
+on" sits in a frame whose sidebar reads "Gateway Status: Off"; a settings
+change that was not stopped still has no route to the current settings.
+Also: tool and product names where a casual user reads; vague option
+descriptions ("runs as standard", "steps in"); no handoff from an event to
+a test of its rule; no route from a risk-score block to the events that
+caused it; an empty state that says "every record is written"; "blocked for
+good" with no word on how work resumes.
+
+Conventions, 7. Staged changes, validation, list-to-detail behaviour, the
+trial and live split and focus are credited. Held back by the paused
+contradiction, badge lettering, the light theme, state-changing actions
+drawn as links, list timestamps without year or timezone, and a mapping
+setting edited as raw JSON.
+
+Fit with Hermes, 8. Frame, panels, settings foundations, the empty state
+and both themes are credited. Remaining tells: the explanatory voice;
+settings rows taller and more annotated than Config's; the floating review;
+severity drawn as signal bars; activity rows that read as cards; button
+case that does not follow Config's; a status panel composed unlike
+Hermes's.
+
+### What three rounds show
+
+The first round bought a point on three criteria; the second and third
+bought none on three of four. Each round's named problems are fixed, and
+fresh judges find a finer set, so a flat score is not a flat interface:
+what holds a 7 in round 3 (an action drawn as a link) is smaller than what
+held a 7 in round 1 (a status that claimed more protection than there
+was). The scale's step from 7 to 8 is "only minor issues remain", and two
+things have kept three judges from taking it. One is a defect that has
+survived two rounds, the paused contradiction. The other is a ruling: the
+light theme and the condensed badge are Hermes's own, and judges who do not
+score fit count them against the tab.
+
+The loop has also been the best source of honesty defects in the product:
+overstated coverage, a wrong "tool was not executed" message, the miscount,
+and the plugin's own admission failure were all found by it.
+
+### Rulings for round 4
+
+- **The light theme's blue stands**, a third time. It is Hermes's theme,
+  and the tab is a page in it. Within it: every state-changing action is a
+  button, so that underlined text only ever navigates; nothing else is
+  underlined.
+- **Operational badges leave the condensed face.** Outcome and check-state
+  badges keep Hermes's badge container and take the body face at the size
+  of the text around them. The condensed face stays where Hermes uses it,
+  on counts. This reverses round 1's "within Hermes's kit first": three
+  rounds of the same finding from two criteria outweigh a credit from one.
+- **Severity is a word**, set beside the outcome, with Critical heavier
+  than High. No bars, no second rectangle.
+- **State text without touching the switch.** Each setting gets one
+  secondary line that carries its state and its source ("On · Default"),
+  which also answers fit's request for a single annotation line.
+- **The change list is inline**, a panel under the toolbar, not a floating
+  surface.
+- **One rule for button case**: filled and outlined form buttons follow
+  Config's upper case; quiet utilities stay as they are.
+- **A consequence is computed, not written.** Any sentence that says what
+  happens to tool calls (a required check that cannot run, a failed check)
+  is derived from the resolved fail mode, so it is true under each.
+- **Stopping rule.** If round 4 moves no score, the loop stops and the
+  remaining conflict between fidelity and the design score goes to the
+  owner as a choice.
