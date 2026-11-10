@@ -23,11 +23,11 @@ if TYPE_CHECKING:
 pytest.importorskip("fastapi")
 
 import petasos.console._approvals as approvals  # noqa: E402
-import petasos.console._events as events  # noqa: E402
 import petasos.console._history as history  # noqa: E402
 import petasos.console._paths as paths_mod  # noqa: E402
 import petasos.console.hermes.plugin_api as plugin_mod  # noqa: E402
 import petasos.console.server as server  # noqa: E402
+import petasos.enforce.events as events  # noqa: E402
 from petasos._types import ScanFinding, Severity  # noqa: E402
 from petasos.config import PetasosConfig  # noqa: E402
 from petasos.pipeline import Pipeline  # noqa: E402

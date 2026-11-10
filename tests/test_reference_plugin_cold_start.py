@@ -31,7 +31,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-import petasos.console._events as ev
+import petasos.enforce.events as ev
 from petasos import GuardResult, PetasosConfig, ScanFinding, ScanResult, Severity
 
 if TYPE_CHECKING:

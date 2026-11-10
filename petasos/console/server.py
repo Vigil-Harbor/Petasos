@@ -875,7 +875,7 @@ class ConsoleHandlers:
         # and embedded (`plugin_api.init_handlers`) modes, so `self._spool_key` is always
         # bound (no AttributeError on any drain path) and both modes obtain the key from the
         # `session_secret` the pipeline already carries. `None` => integrity off ("unattested").
-        from petasos.console import _events
+        import petasos.enforce.events as _events
 
         session_secret = (
             pipeline.legacy_config.session_secret if pipeline.legacy_config is not None else None
@@ -1028,7 +1028,7 @@ class ConsoleHandlers:
             self._integrity_log_last = now
             # PET-157 (D3): the single source of truth for the failure class. Byte-identical
             # output to the prior inline expression for the dict this path always passes.
-            from petasos.console import _events
+            import petasos.enforce.events as _events
 
             failure_class = _events.classify_integrity_failure(ev)
             _logger.warning(
@@ -1187,7 +1187,7 @@ class ConsoleHandlers:
         logged (D9), and EXCLUDED from the authoritative block tally so a forged row can never
         be counted as a trusted block.
         """
-        from petasos.console import _events
+        import petasos.enforce.events as _events
 
         if not isinstance(ev.get("event_type"), str):
             ev = dict(ev)
@@ -1252,7 +1252,7 @@ class ConsoleHandlers:
         """
         import os
 
-        from petasos.console import _events
+        import petasos.enforce.events as _events
 
         try:
             events, new_off = _events.drain_enforcement_events(rot_path, self._rot_offset)
@@ -1280,7 +1280,7 @@ class ConsoleHandlers:
         """
         import os
 
-        from petasos.console import _events
+        import petasos.enforce.events as _events
 
         async with self._enforcement_lock:
             path = _events._spool_path(use_override=False)
@@ -2184,7 +2184,7 @@ class ConsoleHandlers:
                 if profile is not None:
                     body["read_scope"] = _read_scope_payload(scope)
                 return body
-            from petasos.console import _events
+            import petasos.enforce.events as _events
 
             wrote = _events.emit_console_event(
                 {

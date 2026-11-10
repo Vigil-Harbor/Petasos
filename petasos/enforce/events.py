@@ -1,12 +1,10 @@
-"""Cross-process enforcement-event spool — sibling of ``_armed.py`` / ``_reload.py`` (PET-131).
+"""Signed enforcement-event spool.
 
-The Hermes gateway runs in a separate process from the dashboard. On every
-block / quarantine / tier3 / disarmed-bypass decision the gateway appends a
-structured enforcement event here; the dashboard drains the spool into its
-``scan_history`` ring buffer + ``scan_result`` SSE stream so live enforcement
-reaches the Observability tab. The only cross-process primitive in this codebase
-is file-based (``_armed.py``/``_reload.py``); this is the third member of that
-family.
+The writer and the reader run in separate processes. On every block, quarantine,
+tier-3, or disarmed-bypass decision the writer appends a structured enforcement
+event here; a reader drains the spool forward from a byte offset. The spool is
+the file. Path resolution belongs to the host: this module never chooses a
+directory.
 
 Identity model (spec D3): the cross-process event identity is the writer-stamped
 unique ``scan_id`` (prefix ``e-``); the reader's cursor is a **byte offset** into
@@ -24,8 +22,8 @@ Posture (matches the family):
 * **Reader is fail-safe.** ``drain_enforcement_events`` returns
   ``([], after_offset)`` (keep last-good) on any error and reads strictly forward,
   so a drained event is surfaced exactly once and no ``scan_id`` seen-set is needed.
-* **Writer path.** The plugin writer passes its captured resolution. The console
-  drain resolves the process binding (``use_override=False``).
+* **Writer path.** A caller passes ``path`` or a ``res`` the installed resolver
+  understands. ``use_override=False`` asks the resolver for the process binding.
 
 Never raises out of any public function.
 """
@@ -38,26 +36,52 @@ import json
 import os
 import time
 import uuid
+from collections.abc import Callable
 from typing import Any
 
-from petasos.console import _paths as _paths_mod
-from petasos.console._paths import _ROT_SUFFIX as _ROT_SUFFIX
-from petasos.console._paths import HermesConfigResolution
+# The rotated sibling keeps the historical suffix. Hosts that name the live file
+# name the rotated file by appending this.
+_ROT_SUFFIX = ".rot"
 
-# The resolver lives in _paths (single source for guard, writer, and tests); this
-# module keeps its historical private name for server.py and the test seams.
-_spool_path = _paths_mod.spool_path
+# The host installs both. The resolver returns the spool path; the setter is how
+# ``_reset_events_state`` retargets that resolver's override. Neither is imported
+# from a host package.
+_SpoolResolver = Callable[..., str]
+_OverrideSetter = Callable[[str | None], None]
+_resolver: _SpoolResolver | None = None
+_override_setter: _OverrideSetter | None = None
 
 # Sized well above the motivating burst (~40 blocks / 2h18m, ~300 B/line) and far
-# above one tailer interval's worth at peak rate (spec D4). Module-level so a test
+# above one tailer interval's worth at peak rate. Module-level so a test
 # can shrink it via _reset_events_state to force rotation.
 SPOOL_CAP_BYTES = 2_000_000
+
+
+def install_spool_resolver(resolver: _SpoolResolver, override_setter: _OverrideSetter) -> None:
+    """Bind the host's path function and the setter for its test override.
+
+    The resolver is called as ``resolver(res, use_override=...)``. ``res`` is
+    whatever the host uses to name a config file; this module does not look
+    inside it. The setter receives the override path, or ``None`` to clear it.
+    """
+    global _resolver, _override_setter
+    _resolver = resolver
+    _override_setter = override_setter
+
+
+def _spool_path(res: object | None = None, *, use_override: bool = True) -> str:
+    """Resolve the spool path through the installed host resolver."""
+    if _resolver is None:
+        raise RuntimeError("enforcement spool path resolver is not installed")
+    return _resolver(res, use_override=use_override)
 
 
 def _reset_events_state(path: str | None = None, cap: int | None = None) -> None:
     """Test seam: point the spool at *path* (and optionally set the byte cap)."""
     global SPOOL_CAP_BYTES
-    _paths_mod._SPOOL_PATH_OVERRIDE = path
+    if _override_setter is None:
+        raise RuntimeError("enforcement spool path resolver is not installed")
+    _override_setter(path)
     if cap is not None:
         SPOOL_CAP_BYTES = cap
 
@@ -183,7 +207,10 @@ def _append_record(rec: dict[str, Any], spool: str, key: bytes | None) -> None:
 
 
 def emit_enforcement_event(
-    event: dict[str, Any], *, res: HermesConfigResolution | None = None
+    event: dict[str, Any],
+    *,
+    path: str | None = None,
+    res: object | None = None,
 ) -> bool:
     """Append one enforcement event as a JSONL line. O(1), fail-open.
 
@@ -193,7 +220,7 @@ def emit_enforcement_event(
     """
     try:
         rec = dict(event)
-        spool = _spool_path(res)
+        spool = path if path is not None else _spool_path(res)
         _append_record(rec, spool, _spool_key_for(spool))
         return True
     except Exception:

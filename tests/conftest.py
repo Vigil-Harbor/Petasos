@@ -37,8 +37,8 @@ def _isolate_enforcement_spool(tmp_path_factory: pytest.TempPathFactory) -> Iter
     returns this per-test path. A no-op if the console module is unimportable.
     """
     try:
-        import petasos.console._events as _ev
         import petasos.console._paths as _paths
+        import petasos.enforce.events as _ev
     except Exception:
         yield
         return

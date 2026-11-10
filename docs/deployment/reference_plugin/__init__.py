@@ -12,7 +12,7 @@ Config: add a top-level ``petasos:`` section to the profile's config.yaml
 Env:    PETASOS_SESSION_SECRET, PETASOS_HASH_KEY,
         PETASOS_AUDIT_FINDING
 Needs:  a ``petasos`` release exporting ``petasos.scanners.build_scanners``,
-        ``petasos.session.formatting.format_result_notice``,
+        ``petasos.enforce.messages.format_result_notice``,
         ``petasos.session.ingest.scan_ingestion_result``,
         ``petasos.session.guard.INGESTION_TOOLS``, AND
         ``petasos.session.guard.NON_INGESTING_TOOLS``; sync this file and the
@@ -52,42 +52,59 @@ import base64
 import concurrent.futures  # PET-170: dep-light (stdlib; the run_coroutine_threadsafe timeout)
 import contextlib
 import hashlib  # PET-236: dep-light (stdlib; the load-identity digest)
-import json  # PET-223: dep-light (stdlib; approval command excerpt)
 import logging
 import math  # PET-167: dep-light (stdlib; isfinite guard on the raw init-wait budget)
 import os
-import re  # PET-222: dep-light (stdlib; approval command tool-name regex)
 import sys  # PET-170: dep-light (stdlib; the transform_tool_result availability probe)
 import threading
 import time
-import unicodedata  # PET-223: dep-light (stdlib; excerpt escape categories)
 import uuid
-from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from petasos._types import (  # stdlib only: enum and dataclasses, no ML imports
-    Severity,
-    at_least,
-    severity_rank,
+from petasos._limits import MAX_PARAM_TEXT_LEN
+from petasos._limits import MAX_PARAM_TEXT_LEN as _MAX_PARAM_TEXT_LEN  # noqa: F401
+from petasos.enforce.approvals import (
+    _EXCERPT_MAX_DEPTH as _EXCERPT_MAX_DEPTH,  # noqa: F401
 )
-from petasos.normalize import (  # PET-118: dep-light (re + unicodedata)
-    _is_strippable,  # PET-223: the console's canonical invisible-character predicate
-    canonicalize_tool_name,
+from petasos.enforce.approvals import (
+    _EXCERPT_MAX_NODES as _EXCERPT_MAX_NODES,  # noqa: F401
 )
-from petasos.session.formatting import (  # PET-77: dep-light (string formatting over dataclasses)
-    format_block_message,
-    format_content_block,
-    format_result_notice,
+from petasos.enforce.approvals import (
+    approval_choice,
+    approval_decided_by,
+    approval_event,
+    approval_pattern_keys,
+    approval_session_id,
+    approval_text,
+    approval_tool,
+    command_excerpt,
+    credential_reason,
+    degraded_choice_confirmed,
+    degraded_pending_key,
+    is_degraded_pattern,
+    redact_display_text,
+    redaction_status,
 )
+from petasos.enforce.decisions import (
+    annotate_ingestion,
+    approve_decision,
+    blocks,
+    dangerous_tool_decision,
+    guard_denial,
+    is_dangerous,
+    is_egress_sink,
+    is_ingestion,
+    match_source_namespace,
+    normalize_posture,
+    worst,
+)
+from petasos.enforce.fallback import fallback_decision, scan_fallback, tier3_unavailable_block
+from petasos.normalize import canonicalize_tool_name  # PET-118: dep-light
 from petasos.session.guard import (
-    _MAX_PARAM_TEXT_LEN,  # PET-223: excerpt segment budget, same bound as scan text
     INGESTION_TOOLS,
     NON_INGESTING_TOOLS,
-    PARAM_SCAN_DIRECTION,
     READ_ONLY_TOOLS,
-    GuardResult,
-    render_param_text,
 )
 from petasos.session.ingest import (  # PET-178: dep-light (chunked result scan)
     _acquire_inspect_lock,
@@ -95,9 +112,8 @@ from petasos.session.ingest import (  # PET-178: dep-light (chunked result scan)
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
     from petasos import PetasosConfig
+    from petasos._types import Severity
     from petasos.console._paths import HermesConfigResolution
 
 logger = logging.getLogger("petasos.plugin")
@@ -403,14 +419,11 @@ if _dropped_exclusion_names:
 
 
 def _is_dangerous(tool_name: str) -> bool:
-    return canonicalize_tool_name(tool_name) not in _READ_ONLY_CANON
+    return is_dangerous(tool_name, _READ_ONLY_CANON)
 
 
 def _is_ingestion(tool_name: str) -> bool:
-    canon = canonicalize_tool_name(tool_name)
-    if not canon:
-        return False  # named-tool floor; blank/missing/whitespace-only
-    return canon not in _NON_INGESTING_CANON
+    return is_ingestion(tool_name, _NON_INGESTING_CANON)
 
 
 # ---------------------------------------------------------------------------
@@ -423,7 +436,7 @@ def _blocks(severity: Severity) -> bool:
 
     A value that is not a known severity does not block.
     """
-    return at_least(severity, Severity.HIGH)
+    return blocks(severity)
 
 
 def _worst(findings):
@@ -432,7 +445,7 @@ def _worst(findings):
     The caller passes a non-empty sequence. A finding whose severity is not
     known loses to every known severity.
     """
-    return max(findings, key=lambda f: (severity_rank(f.severity), f.confidence))
+    return worst(findings)
 
 
 # Resolved in _deferred_init from config.egress_sink_tools, canonicalized once at init
@@ -454,11 +467,10 @@ _DEGRADED_CONFIRMED_CHOICES: frozenset[str] = frozenset({"session", "always"})
 _degraded_approve_pending: dict[tuple[str, str, str], str] = {}
 _degraded_approve_lock = threading.Lock()
 _MAX_DEGRADED_PENDING = _MAX_DISARM_SESSIONS
-_COMMAND_RULE_PREFIX = "petasos.syntactic.command."
 
 
 def _is_egress_sink(tool_name: str) -> bool:
-    return canonicalize_tool_name(tool_name) in _egress_sink_tools
+    return is_egress_sink(tool_name, _egress_sink_tools)
 
 
 # ---------------------------------------------------------------------------
@@ -479,16 +491,9 @@ _source_taint_namespaces: frozenset[str] = frozenset()
 def _match_source_namespace(tool_name: str) -> str | None:
     """Return the declared source-namespace prefix the producing ``tool_name`` falls under,
     or ``None``. Canonicalizes the tool name through the SAME primitive as the sinks
-    (PET-118: closes the variant bypass on the source side) and PREFIX-matches it (a source
-    namespace labels a FAMILY of tools, unlike the exact membership a sink uses). The
-    LONGEST matching prefix wins, so overlapping declarations (``mcp_`` and ``mcp_bank_``)
-    resolve deterministically to the most specific provenance (D-NS)."""
-    canon_tool = canonicalize_tool_name(tool_name)
-    return max(
-        (p for p in _source_taint_namespaces if canon_tool.startswith(p)),
-        key=len,
-        default=None,
-    )
+    and PREFIX-matches it (a source namespace labels a FAMILY of tools, unlike the exact
+    membership a sink uses). The LONGEST matching prefix wins."""
+    return match_source_namespace(tool_name, _source_taint_namespaces)
 
 
 # ---------------------------------------------------------------------------
@@ -853,8 +858,8 @@ def _deferred_init() -> None:
                 # env contract, so writer and reader agree. Wrapped fail-safe: a failure degrades
                 # to integrity-off (no `sig`), never breaks boot.
                 try:
-                    from petasos.console._events import set_spool_key
                     from petasos.console._paths import spool_path
+                    from petasos.enforce.events import set_spool_key
 
                     set_spool_key(config.session_secret, path=spool_path(_session_resolution))
                 except Exception as exc:  # pragma: no cover - defensive; integrity is best-effort
@@ -1125,87 +1130,23 @@ def _fallback_pre_tool_call(
     """Syntactic-only guard during init window. Scans tool params through
     MinimalScanner. Blocks if injection patterns found in dangerous tools.
 
-    PET-167: the signature and return type are UNCHANGED — three distinct outcomes still
-    collapse to ``None`` here, and existing callers depend on that. The outcome is recorded
-    out-of-band on ``_fallback_state`` instead, so the cold-window branch in
-    ``_pre_tool_call`` can tell "scanned clean" from "scan errored" from "read-only, never
-    scanned". Every return path writes it.
-
-    PET-190: parameter text comes from ``render_param_text``, the same derivation the
-    healthy guard uses, at the same cap and direction.
+    The signature and return type are unchanged: three outcomes still collapse
+    to ``None`` here. The outcome is recorded on ``_fallback_state``.
     """
-    if not _is_dangerous(tool_name):
-        _fallback_state.outcome = "skipped"
+    scanned = scan_fallback(
+        tool_name,
+        args,
+        is_dangerous=_is_dangerous,
+        session_id_for=lambda: _derive_session_id(task_id, kwargs),
+        scanner_for=_get_fallback_scanner,
+        run=_run_async,
+        logger=logger,
+        emit=_emit_enforcement_event,
+    )
+    _fallback_state.outcome = scanned.outcome
+    if scanned.block is None:
         return None
-    try:
-        session_id = _derive_session_id(task_id, kwargs)
-        scanner = _get_fallback_scanner()
-        rendered = render_param_text(args)
-        if rendered.truncated:
-            logger.warning(
-                "PETASOS_PARAM_TRUNCATED tool=%s session=%s len=%d scanned=%d",
-                tool_name,
-                session_id,
-                rendered.original_len,
-                len(rendered.text),
-            )
-        if not rendered.text:
-            _fallback_state.outcome = "clean"
-            return None
-        result = _run_async(scanner.scan(rendered.text, direction=PARAM_SCAN_DIRECTION))
-        if result.findings:
-            # PET-112: ordinal gate (a lone CRITICAL now blocks; MEDIUM/LOW no longer do).
-            # MinimalScanner emits no PII findings (syntactic only), so no egress logic here.
-            worst = _worst(result.findings)
-            if _blocks(worst.severity):
-                # PET-171: cause-neutral. This callee now serves both cold-window branches
-                # and cannot know which one called it, so "init in progress" would be a lie
-                # on the init-failed branch. The operator correlates through the
-                # cold_start_degraded / init_failed marker row instead.
-                logger.warning(
-                    "PETASOS_FALLBACK_BLOCK tool=%s — syntactic fallback, scan found: %s",
-                    tool_name,
-                    worst.rule_id,
-                )
-                # PET-131: a cold-start (init-window) block is still a gateway block the
-                # operator must see — emit it beside the log line like the main path.
-                _emit_enforcement_event(
-                    session_id=session_id,
-                    tool=tool_name,
-                    event_type="quarantine",
-                    severity=worst.severity.name,
-                    rule_id=worst.rule_id,
-                    reason=worst.message,
-                )
-                _fallback_state.outcome = "blocked"
-                return {
-                    "action": "block",
-                    # PET-77: route through the library formatter (contract: [BLOCKED by Petasos]
-                    # prefix, tool name, NOT executed, top-finding clause).
-                    "message": format_content_block("init", tool_name, result.findings),
-                }
-        if result.error is not None:
-            # PET-199: empty findings plus a set error is not a clean scan. MinimalScanner
-            # never raises; it returns error=str(exc). Recording errored blocks under every
-            # fail_mode, including open — stricter than healthy _compute_safe open, because
-            # the fallback has only this scanner.
-            logger.warning(
-                "PETASOS_FALLBACK_SCAN_ERROR tool=%s error=%r",
-                tool_name,
-                result.error,
-            )
-            _fallback_state.outcome = "errored"
-            return None
-    except Exception as exc:
-        logger.warning(
-            "PETASOS_FALLBACK_SCAN_ERROR tool=%s error=%r",
-            tool_name,
-            str(exc),
-        )
-        _fallback_state.outcome = "errored"
-        return None
-    _fallback_state.outcome = "clean"
-    return None
+    return {"action": "block", "message": scanned.block.message}
 
 
 def _run_fallback_gate(
@@ -1252,57 +1193,28 @@ def _fallback_decision(
     log_cause: str,
     block_reason: str,
 ) -> dict[str, str] | None:
-    """PET-171: the fail-secure gate shared by both cold-window branches and the
-    warm-path ``_pre_tool_call`` except arm (PET-224).
+    """The fail-secure gate shared by both cold-window branches and the
+    warm-path evaluation-failure arm.
 
-    ``log_cause`` and ``block_reason`` are separate so each caller keeps its own
-    operator-facing log wording while the enforcement event carries the branch-specific
-    reason. The warm-path except arm passes the same string for both arguments.
-    Cold-window callers keep their own wording. Homogenizing the two log lines would
-    be an unrequested behavior change hiding inside a parity fix (PET-174's recorded
-    shape: a shared helper returns data, callers keep their own message).
+    ``log_cause`` and ``block_reason`` stay caller-owned so each branch keeps
+    its own wording. The fail mode is the loaded section value: during the
+    cold window there is no config tree yet, and a live reconfigure does not
+    rewrite this dict.
     """
-    try:
-        dangerous = _is_dangerous(tool_name)
-    except Exception:
-        dangerous = True  # an unclassifiable name fails secure, it does not raise
-    if not dangerous:
-        # AHEAD of the outcome read, so the fail-secure default below can never
-        # mass-block read_file / search / web_search / list_directory.
-        return None
-    if outcome == "clean" and (_config or {}).get("fail_mode") == "open":
-        # Only `open` can allow a dangerous call, and only when the syntactic scan actually
-        # ran and came back clean. Any fail_mode value that is not exactly "open" is treated
-        # as degraded, mirroring _compute_safe's invalid-value fallback — garbage fails
-        # secure by construction. An unreadable outcome (None or unrecognized) is treated as
-        # errored and blocks under every fail_mode.
-        return None
-    logger.warning(
-        "PETASOS_QUARANTINE tool=%s session=%s — %s, scan outcome=%s",
+    decision = fallback_decision(
         tool_name,
-        session_id,
-        log_cause,
-        outcome if outcome in ("clean", "errored") else "unreadable",
-    )
-    # Block-class so the operator surface counts it: _BLOCK_EVENT_TYPES drives the blocked
-    # tile, the per-session tally and the red badge. Without it a real enforcement block
-    # renders as a green "safe" row. NOT emitted on the finding-driven path, which already
-    # emitted its own.
-    _emit_enforcement_event(
+        outcome,
         session_id=session_id,
-        tool=tool_name,
-        event_type="quarantine",
-        param_scan_degraded=True,
-        reason=block_reason,
+        log_cause=log_cause,
+        block_reason=block_reason,
+        fail_mode=(_config or {}).get("fail_mode"),
+        is_dangerous=_is_dangerous,
+        logger=logger,
+        emit=_emit_enforcement_event,
     )
-    return {
-        "action": "block",
-        # No finding to format on this sub-path. "degraded" is an existing ContentBlockPath
-        # whose reason is exactly this branch's semantics; a new token would encode a
-        # distinction that does not exist. The operator-facing distinction rides the
-        # enforcement event's reason instead.
-        "message": format_content_block("degraded", tool_name, ()),
-    }
+    if decision is None:
+        return None
+    return {"action": "block", "message": decision.message}
 
 
 def _note_eval_unavailable(
@@ -1368,23 +1280,10 @@ def _terminated_floor(session_id: str) -> bool:
 
 def _tier3_unavailable_block(tool_name: str, session_id: str) -> dict[str, str]:
     """Tier-3 block for the evaluation-failure arm. One event, not the fallback."""
-    logger.critical(
-        "PETASOS_TIER3 tool=%s session=%s — all tool calls blocked", tool_name, session_id
+    decision = tier3_unavailable_block(
+        tool_name, session_id, logger=logger, emit=_emit_enforcement_event
     )
-    _emit_enforcement_event(
-        session_id=session_id, tool=tool_name, event_type="tier3", tier="tier3"
-    )
-    message = format_block_message(
-        GuardResult(
-            allowed=False,
-            reason="session terminated (tier3)",
-            findings=(),
-            tier="tier3",
-            param_scan_unsafe=False,
-        ),
-        tool_name,
-    )
-    return {"action": "block", "message": message}
+    return {"action": "block", "message": decision.message}
 
 
 def _is_armed() -> bool:
@@ -1523,35 +1422,26 @@ _CREDENTIAL_MASKED_NOTICE = "Sensitive content masked locally; exposure unconfir
 _CREDENTIAL_WITHHELD_NOTICE = "Sensitive display withheld; redaction unavailable."
 
 
+def _host_redactor():
+    """The host vault redactor, or None when this process has none."""
+    try:
+        from agent.redact import redact_sensitive_text  # type: ignore[import-not-found]
+    except Exception:
+        return None
+    return redact_sensitive_text
+
+
 def _redact_display_text(value: object, limit: int) -> tuple[str, str]:
     """Force host redaction before clipping any persisted free-text display field.
 
     No credential retrieval, global secret cache or execution-input mutation.
     The host resolves its vault registry in the caller's active profile context.
     """
-    if not isinstance(value, str) or not value:
-        return "", "unchanged"
-    try:
-        if len(value) > _MAX_PARAM_TEXT_LEN:
-            raise ValueError("display input exceeds redaction budget")
-        from agent.redact import redact_sensitive_text  # type: ignore[import-not-found]
-
-        safe = redact_sensitive_text(value, force=True, redact_url_credentials=True)
-        if not isinstance(safe, str) or len(safe) > _MAX_PARAM_TEXT_LEN:
-            raise ValueError("invalid display redaction result")
-        status = "unchanged" if safe == value else "redacted"
-        return safe[:limit], status
-    except Exception:
-        # Do not log the exception: it can echo the value being protected.
-        return "withheld (redaction unavailable)"[:limit], "withheld"
+    return redact_display_text(value, limit, redact=_host_redactor(), max_len=MAX_PARAM_TEXT_LEN)
 
 
 def _credential_reason(reason: str, status: str) -> str:
-    if status == "redacted":
-        return f"{_CREDENTIAL_MASKED_NOTICE} {reason}"
-    if status == "withheld":
-        return f"{_CREDENTIAL_WITHHELD_NOTICE} {reason}"
-    return reason
+    return credential_reason(reason, status)
 
 
 def _emit_enforcement_event(
@@ -1578,7 +1468,7 @@ def _emit_enforcement_event(
 
     Self-guarded and fail-open (spec D5): surfacing a block must never gate, delay,
     or break the tool call, so the whole body is wrapped and swallows everything.
-    The write itself is an O(1) local append (``petasos.console._events``), the same
+    The write itself is an O(1) local append (``petasos.enforce.events``), the same
     hot-path cost class as the per-call ``read_armed`` file read — not a network
     call and not a blocking ``await`` on the decision path.
 
@@ -1588,7 +1478,7 @@ def _emit_enforcement_event(
     return, and claiming the key there would consume the latch with no durable row.
     """
     try:
-        from petasos.console._events import emit_enforcement_event
+        from petasos.enforce.events import emit_enforcement_event
 
         safe_reason, redaction = _redact_display_text(reason, 200)
         return emit_enforcement_event(
@@ -1854,8 +1744,8 @@ def _apply_reconfigure_body(cfg: PetasosConfig) -> None:
     # ``_rebind_to_resolution`` installs the same live secret onto the new spool path.
     # Wrapped fail-safe: a failure degrades to integrity-off, never breaks the reconfigure.
     try:
-        from petasos.console._events import set_spool_key
         from petasos.console._paths import spool_path
+        from petasos.enforce.events import set_spool_key
 
         _secret = (
             _pipeline.legacy_config.session_secret if _pipeline.legacy_config is not None else None
@@ -2067,8 +1957,8 @@ def _rebind_to_resolution(res: HermesConfigResolution) -> None:
             _guard._selfmod_owned_cache = (0.0, frozenset())
         if _pipeline is not None:
             try:
-                from petasos.console._events import set_spool_key
                 from petasos.console._paths import spool_path
+                from petasos.enforce.events import set_spool_key
 
                 _secret = (
                     _pipeline.legacy_config.session_secret
@@ -2142,16 +2032,7 @@ def _degraded_pending_key(
     or non-str component stores nothing and pops nothing. The Petasos session
     id is the stored value and is not part of this guard.
     """
-    if (
-        isinstance(hermes_session_id, str)
-        and hermes_session_id != ""
-        and isinstance(turn_id, str)
-        and turn_id != ""
-        and isinstance(tool_call_id, str)
-        and tool_call_id != ""
-    ):
-        return (hermes_session_id, turn_id, tool_call_id)
-    return None
+    return degraded_pending_key(hermes_session_id, turn_id, tool_call_id)
 
 
 def _degraded_session_recorded(session_id: str) -> bool:
@@ -2189,12 +2070,13 @@ def _apply_degraded_approve_response(
 ) -> None:
     """Record the Petasos session only for a confirmed degraded approve."""
     try:
-        if pattern_key != "plugin_rule:petasos.degraded":
+        if not is_degraded_pattern(pattern_key):
             return
         key = _degraded_pending_key(hermes_session_id, turn_id, tool_call_id)
         if key is None:
             return
-        confirmed = isinstance(choice, str) and choice in _DEGRADED_CONFIRMED_CHOICES
+        confirmed = degraded_choice_confirmed(choice)
+
         with _degraded_approve_lock:
             session = _degraded_approve_pending.pop(key, None)
             if confirmed and session is not None:
@@ -2287,306 +2169,45 @@ def _always_approved(rule_key: str) -> bool:
 def _read_posture() -> str:
     """``approve`` or ``block``. Anything else, including a failed read, is block."""
     try:
-        profile = _pipeline.default_profile if _pipeline is not None else None
-        raw = (
-            getattr(profile, "dangerous_tool_posture", "block") if profile is not None else "block"
-        )
-        return raw if raw == "approve" else "block"
+        pipeline = _pipeline
+        if pipeline is None:
+            return "block"
+        tree = getattr(pipeline, "config", None)
+        tools = getattr(tree, "tools", None) if tree is not None else None
+        if tools is not None and hasattr(tools, "dangerous_posture"):
+            raw: object = tools.dangerous_posture
+        else:
+            profile = getattr(pipeline, "default_profile", None)
+            raw = (
+                getattr(profile, "dangerous_tool_posture", "block")
+                if profile is not None
+                else "block"
+            )
+        return normalize_posture(raw)
     except Exception:
         return "block"
 
 
-_EXCERPT_BUDGET = 160
-_BARE_KEY = re.compile(r"[A-Za-z0-9_.\-]{1,64}")
-_EXCERPT_MAX_DEPTH = 16
-_EXCERPT_MAX_NODES = 4096
+def _load_excerpt_redactor():
+    from agent.redact import redact_sensitive_text  # type: ignore[import-not-found]
 
-
-def _excerpt_redact_arguments(
-    args: Mapping[object, object], redact: Callable[..., str]
-) -> list[tuple[str, str]]:
-    """Redact original string leaves before JSON escaping or display normalization.
-
-    The host's exact vault-value registry needs the original characters. Work on
-    copies only, and withhold the entire excerpt if the input cannot be bounded.
-    """
-    nodes = 0
-    characters = 0
-    redaction_characters = 0
-
-    def spend(text: str) -> None:
-        nonlocal characters
-        characters += len(text)
-        if characters > _MAX_PARAM_TEXT_LEN:
-            raise ValueError("excerpt input exceeds character budget")
-
-    def mask(text: str) -> str:
-        nonlocal redaction_characters
-        # Count work, not just input: list leaves reuse their parent's field
-        # name, and the host may expand a value into a longer masking marker.
-        redaction_characters += len(text)
-        if redaction_characters > _MAX_PARAM_TEXT_LEN:
-            raise ValueError("excerpt redaction exceeds character budget")
-        masked = redact(text, force=True, redact_url_credentials=True)
-        if not isinstance(masked, str) or len(masked) > _MAX_PARAM_TEXT_LEN:
-            raise ValueError("invalid excerpt redaction result")
-        return masked
-
-    def clean(value: object, depth: int, key: str | None = None) -> Any:
-        nonlocal nodes
-        nodes += 1
-        if depth > _EXCERPT_MAX_DEPTH or nodes > _EXCERPT_MAX_NODES:
-            raise ValueError("excerpt input exceeds traversal budget")
-        if isinstance(value, str):
-            spend(value)
-            masked = mask(value)
-            if key is not None:
-                # Retain assignment context for opaque values under secret field
-                # names. If redaction changes the key too, withhold rather than
-                # trying to recover a value from an ambiguous assignment.
-                prefix = key + "="
-                assignment = mask(prefix + masked)
-                if not assignment.startswith(prefix):
-                    raise ValueError("excerpt field name was redacted")
-                masked = assignment[len(prefix) :]
-            return masked
-        if value is None or isinstance(value, (bool, int, float)):
-            spend(str(value))
-            return value
-        if isinstance(value, (list, tuple)):
-            return [clean(item, depth + 1, key) for item in value]
-        if isinstance(value, Mapping):
-            result: dict[str, Any] = {}
-            for field, item in value.items():
-                if not isinstance(field, str):
-                    raise TypeError("non-string excerpt field")
-                spend(field)
-                safe_field = mask(field)
-                if safe_field in result:
-                    raise ValueError("excerpt fields collide after redaction")
-                result[safe_field] = clean(item, depth + 1, field)
-            return result
-        raise TypeError("unsupported excerpt argument")
-
-    cleaned = clean(args, 0)
-    pairs: list[tuple[str, str]] = []
-    serialized_size = 0
-    for key, value in cleaned.items():
-        if value is None:
-            continue
-        text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
-        serialized_size += len(key) + 1 + len(text)
-        if serialized_size > _MAX_PARAM_TEXT_LEN:
-            raise ValueError("serialized excerpt exceeds character budget")
-        pairs.append((key, text))
-    return pairs
-
-
-def _excerpt_drop_invisible(text: str) -> tuple[str, bool]:
-    """Drop non-whitespace characters the console's PET-90 predicate strips."""
-    dropped = False
-    kept: list[str] = []
-    for ch in text:
-        if ch.isspace():
-            kept.append(ch)
-            continue
-        if (not ch.isprintable()) or _is_strippable(ch):
-            dropped = True
-            continue
-        kept.append(ch)
-    return "".join(kept), dropped
-
-
-def _excerpt_escape_units(text: str) -> list[str]:
-    """One display unit per source character. An escape is never split later."""
-    units: list[str] = []
-    for ch in text:
-        if ch == '"':
-            units.append('\\"')
-        elif ch == "\\":
-            units.append("\\\\")
-        elif ch == "\n":
-            units.append("\\n")
-        elif ch == "\r":
-            units.append("\\r")
-        elif ch == "\t":
-            units.append("\\t")
-        elif unicodedata.category(ch) in {"Cc", "Zl", "Zp"} or (ch.isspace() and ch != " "):
-            units.append(f"\\u{ord(ch):04x}")
-        else:
-            units.append(ch)
-    return units
-
-
-def _excerpt_part_full(kind: str, content: list[str]) -> str:
-    body = "".join(content)
-    if kind == "bare":
-        return body
-    if kind == "quoted":
-        return f'"{body}"'
-    return f'="{body}"'
-
-
-def _excerpt_part_cut(kind: str, content: list[str], remaining: int) -> tuple[str, int]:
-    """Fit a part into *remaining* display characters. Close an open quote."""
-    if kind == "bare":
-        taken: list[str] = []
-        used = 0
-        for unit in content:
-            if used + len(unit) > remaining:
-                break
-            taken.append(unit)
-            used += len(unit)
-        return "".join(taken), len(taken)
-    reserve = 2 if kind == "quoted" else 3
-    if remaining < reserve:
-        return "", 0
-    room = remaining - reserve
-    taken = []
-    used = 0
-    for unit in content:
-        if used + len(unit) > room:
-            break
-        taken.append(unit)
-        used += len(unit)
-    body = "".join(taken)
-    if kind == "quoted":
-        return f'"{body}"', len(taken)
-    return f'="{body}"', 1 + len(taken)
-
-
-def _excerpt_assemble(
-    segments: list[list[tuple[str, list[str]]]],
-    source_lens: list[int],
-    past_raw: int,
-) -> tuple[str, int]:
-    """Keep whole segments, then cut the first part that does not fit."""
-    shown: list[str] = []
-    used = 0
-    omitted = past_raw
-    for index, parts in enumerate(segments):
-        sep = 0 if index == 0 else 1
-        full = ("" if index == 0 else " ") + "".join(
-            _excerpt_part_full(kind, content) for kind, content in parts
-        )
-        if used + len(full) <= _EXCERPT_BUDGET:
-            shown.append(full)
-            used += len(full)
-            continue
-        if used + sep > _EXCERPT_BUDGET:
-            omitted += sum(source_lens[index:])
-            break
-        if sep:
-            shown.append(" ")
-            used += 1
-        represented = 0
-        remaining = _EXCERPT_BUDGET - used
-        cut = False
-        for kind, content in parts:
-            if cut:
-                break
-            piece = _excerpt_part_full(kind, content)
-            if len(piece) <= remaining:
-                shown.append(piece)
-                remaining -= len(piece)
-                used += len(piece)
-                represented += len(content) if kind != "value" else 1 + len(content)
-                continue
-            cut_text, cut_source = _excerpt_part_cut(kind, content, remaining)
-            if cut_text:
-                shown.append(cut_text)
-            represented += cut_source
-            cut = True
-        omitted += source_lens[index] - represented
-        omitted += sum(source_lens[index + 1 :])
-        break
-    return "".join(shown), omitted
+    return redact_sensitive_text
 
 
 def _approval_command_excerpt(args: object, result: object) -> str:
     """Capped, redacted, quoted command excerpt. Fail closed. Never raises."""
-    try:
-        findings = getattr(result, "findings", ())
-        for finding in findings:
-            if getattr(finding, "finding_type", None) == "pii":
-                return "withheld (PII in parameters)"
-        if not isinstance(args, Mapping) or not args:
-            if not args:
-                return "(no parameters)"
-            raise TypeError("non-mapping args")
-        try:
-            from agent.redact import redact_sensitive_text  # type: ignore[import-not-found]
-        except Exception:
-            return "withheld (redactor unavailable)"
-        changed = False
-
-        def redact(text: str, **options: bool) -> str:
-            nonlocal changed
-            safe: str = redact_sensitive_text(text, **options)
-            if not isinstance(safe, str):
-                raise ValueError("invalid excerpt redaction result")
-            changed = changed or safe != text
-            return safe
-
-        taken = _excerpt_redact_arguments(args, redact)
-        if not taken:
-            return "(no parameters)"
-        segments: list[list[tuple[str, list[str]]]] = []
-        source_lens: list[int] = []
-        invisible = False
-        for key_s, value_s in taken:
-            canon_key, dropped_key = _excerpt_drop_invisible(key_s)
-            canon_value, dropped_value = _excerpt_drop_invisible(value_s)
-            invisible = invisible or dropped_key or dropped_value
-            raw_segment = f"{canon_key}={canon_value}"
-            try:
-                redacted = redact(raw_segment, force=True, redact_url_credentials=True)
-            except Exception:
-                return "withheld (redactor unavailable)"
-            if not isinstance(redacted, str):
-                return "withheld (redactor unavailable)"
-            if redacted.startswith(canon_key + "="):
-                value_text = redacted[len(canon_key) + 1 :]
-                key_kind = "bare" if _BARE_KEY.fullmatch(canon_key) else "quoted"
-                key_units = (
-                    list(canon_key) if key_kind == "bare" else _excerpt_escape_units(canon_key)
-                )
-                segments.append(
-                    [
-                        (key_kind, key_units),
-                        ("value", _excerpt_escape_units(value_text)),
-                    ]
-                )
-                source_lens.append(len(canon_key) + 1 + len(value_text))
-            else:
-                segments.append([("quoted", _excerpt_escape_units(redacted))])
-                source_lens.append(len(redacted))
-        body, omitted = _excerpt_assemble(segments, source_lens, 0)
-        suffix = f" (+{omitted} chars not shown)" if omitted else ""
-        if changed:
-            suffix += f" ({_CREDENTIAL_MASKED_NOTICE})"
-        if invisible:
-            suffix += " (invisible characters removed)"
-        return body + suffix
-    except Exception:
-        return "withheld (excerpt unavailable)"
+    return command_excerpt(args, result, load_redactor=_load_excerpt_redactor)
 
 
 def _approve_return(
     tool_name: str, session_id: str, rule_key: str, excerpt: str
 ) -> dict[str, str]:
-    label = f"Command (from tool arguments): {excerpt}"
-    if rule_key == "petasos.degraded":
-        message = (
-            f"Petasos asks for approval before running '{tool_name}'. "
-            f"Parameter scan is unreliable (petasos.degraded). {label}"
-        )
-    else:
-        message = (
-            f"Petasos asks for approval before running '{tool_name}'. Rule: {rule_key}. {label}"
-        )
-    logger.info("PETASOS_APPROVE tool=%s session=%s rule_key=%s", tool_name, session_id, rule_key)
-    return {"action": "approve", "rule_key": rule_key, "message": message}
+    decision = approve_decision(tool_name, session_id, rule_key, excerpt, logger=logger)
+    return {
+        "action": "approve",
+        "rule_key": decision.rule_key,
+        "message": decision.message,
+    }
 
 
 def _dangerous_tool_directive(
@@ -2599,138 +2220,33 @@ def _dangerous_tool_directive(
     approve_available: bool,
     yolo: bool,
 ) -> dict[str, str] | None:
-    """Decision 14 for a dangerous tool after the read-only gate.
+    """Decision for a dangerous tool after the read-only gate.
 
-    The cold window and the PET-224 guard-evaluation arm do not call this.
+    The cold window and the guard-evaluation arm do not call this.
     """
-    approve_effective = posture == "approve" and approve_available and not yolo
-    blocking = [f for f in result.findings if _blocks(f.severity)]
-    non_pii = [f for f in blocking if f.finding_type != "pii"]
-    pii = [f for f in blocking if f.finding_type == "pii"]
-    command = [f for f in non_pii if str(f.rule_id).startswith(_COMMAND_RULE_PREFIX)]
-    other = [f for f in non_pii if not str(f.rule_id).startswith(_COMMAND_RULE_PREFIX)]
-
-    if egress and _source_taint_namespaces and _taint_store is not None:
-        tainted_ns = _taint_store.tainted_source(session_id, args)
-        if tainted_ns is not None:
-            reason = f"source-taint egress: {tainted_ns} -> {tool_name}"
-            logger.warning(
-                "PETASOS_QUARANTINE tool=%s session=%s — %s", tool_name, session_id, reason
-            )
-            _emit_enforcement_event(
-                session_id=session_id,
-                tool=tool_name,
-                event_type="quarantine",
-                reason=reason,
-            )
-            return {
-                "action": "block",
-                "message": format_content_block("taint_egress", tool_name, ()),
-            }
-
-    if other:
-        worst = _worst(other)
-        logger.warning(
-            "PETASOS_QUARANTINE tool=%s session=%s — %s finding: %s",
-            tool_name,
-            session_id,
-            worst.severity.name,
-            worst.message,
-        )
-        _emit_enforcement_event(
-            session_id=session_id,
-            tool=tool_name,
-            event_type="quarantine",
-            severity=worst.severity.name,
-            rule_id=worst.rule_id,
-            reason=worst.message,
-        )
-        return {
-            "action": "block",
-            "message": format_content_block("non_pii_param", tool_name, tuple(other)),
-        }
-
-    if pii and egress:
-        worst = _worst(pii)
-        logger.warning(
-            "PETASOS_QUARANTINE tool=%s session=%s — PII to egress sink: %s",
-            tool_name,
-            session_id,
-            worst.message,
-        )
-        _emit_enforcement_event(
-            session_id=session_id,
-            tool=tool_name,
-            event_type="quarantine",
-            severity=worst.severity.name,
-            rule_id=worst.rule_id,
-            reason=worst.message,
-        )
-        return {
-            "action": "block",
-            "message": format_content_block("pii_egress", tool_name, tuple(pii)),
-        }
-
-    if result.param_scan_degraded:
-        if _always_approved("petasos.degraded"):
-            pass
-        elif not approve_effective:
-            logger.warning(
-                "PETASOS_QUARANTINE tool=%s session=%s — param scan degraded",
-                tool_name,
-                session_id,
-            )
-            _emit_enforcement_event(
-                session_id=session_id,
-                tool=tool_name,
-                event_type="quarantine",
-                param_scan_degraded=True,
-                reason="param scan degraded",
-            )
-            return {
-                "action": "block",
-                "message": format_content_block("degraded", tool_name, tuple(blocking)),
-            }
-        elif _degraded_session_recorded(session_id):
-            pass
-        else:
-            return _approve_return(
-                tool_name,
-                session_id,
-                "petasos.degraded",
-                _approval_command_excerpt(args, result),
-            )
-
-    remaining = [f for f in command if not _always_approved(f.rule_id)]
-    if remaining:
-        worst = _worst(remaining)
-        if approve_effective:
-            return _approve_return(
-                tool_name,
-                session_id,
-                worst.rule_id,
-                _approval_command_excerpt(args, result),
-            )
-        logger.warning(
-            "PETASOS_QUARANTINE tool=%s session=%s — %s finding: %s",
-            tool_name,
-            session_id,
-            worst.severity.name,
-            worst.message,
-        )
-        _emit_enforcement_event(
-            session_id=session_id,
-            tool=tool_name,
-            event_type="quarantine",
-            severity=worst.severity.name,
-            rule_id=worst.rule_id,
-            reason=worst.message,
-        )
-        return {
-            "action": "block",
-            "message": format_content_block("non_pii_param", tool_name, tuple(remaining)),
-        }
-    return None
+    decision = dangerous_tool_decision(
+        tool_name,
+        args,
+        session_id,
+        result,
+        egress,
+        posture,
+        approve_available,
+        yolo,
+        namespaces=_source_taint_namespaces,
+        taint_store=_taint_store,
+        always_approved=_always_approved,
+        degraded_recorded=_degraded_session_recorded,
+        excerpt_for=lambda: _approval_command_excerpt(args, result),
+        logger=logger,
+        emit=_emit_enforcement_event,
+    )
+    if decision is None:
+        return None
+    rule_key = getattr(decision, "rule_key", None)
+    if rule_key:
+        return {"action": "approve", "rule_key": rule_key, "message": decision.message}
+    return {"action": "block", "message": decision.message}
 
 
 def _expanded_home_text(text: str) -> str:
@@ -3014,33 +2530,11 @@ def _pre_tool_call(
         except Exception:
             pass
 
-    if result.tier == "tier3":
-        logger.critical(
-            "PETASOS_TIER3 tool=%s session=%s — all tool calls blocked", tool_name, session_id
-        )
-        _emit_enforcement_event(
-            session_id=session_id, tool=tool_name, event_type="tier3", tier="tier3"
-        )
-        return {
-            "action": "block",
-            "message": format_block_message(result, tool_name),  # PET-77
-        }
-
-    if not result.allowed:
-        logger.warning(
-            "PETASOS_BLOCK tool=%s session=%s reason=%s", tool_name, session_id, result.reason
-        )
-        _emit_enforcement_event(
-            session_id=session_id,
-            tool=tool_name,
-            event_type="block",
-            tier=result.tier,
-            reason=result.reason,
-        )
-        # PET-77: route through the formatter so internal reason strings (exempt-with-scan,
-        # tier2: tool calls blocked, ...) never reach the model. (The enforcement event
-        # above carries the raw reason to the OPERATOR dashboard, not the model.)
-        return {"action": "block", "message": format_block_message(result, tool_name)}
+    denied = guard_denial(
+        tool_name, session_id, result, logger=logger, emit=_emit_enforcement_event
+    )
+    if denied is not None:
+        return {"action": "block", "message": denied.message}
 
     # PET-112: read-only tools never take a content block (both old blocks were
     # _is_dangerous-gated; preserved exactly).
@@ -3274,8 +2768,6 @@ def _transform_tool_result(
             else None
         )
         findings = () if scan is None else scan.findings
-        blocking = [f for f in findings if _blocks(f.severity)]
-        non_pii = [f for f in blocking if f.finding_type != "pii"]
         if cause is None:
             if scan is not None and getattr(scan, "inspect_failed", False):
                 cause = "inspect_error"
@@ -3308,75 +2800,34 @@ def _transform_tool_result(
                     tool_name,
                     cause,
                 )
-            return format_result_notice("scan_unavailable", tool_name) + "\n\n" + result
+            return annotate_ingestion(
+                tool_name,
+                result,
+                findings,
+                cause=cause,
+                regime=None,
+                scanned_chars=0,
+                total_chars=0,
+                session_id=session_id,
+                logger=logger,
+                emit=_emit_enforcement_event,
+            )
 
         coverage = scan.coverage
-        # PET-112 ordinal gate, partitioned by finding type. PII produces NO banner and NO
-        # ingestion event: reading a file containing PII is the ordinary case, the model
-        # gains nothing from being told, and the boundary that matters is defended on the
-        # pre-call path of every egress sink. That is the one visibility gap this accepts
-        # (ingestion PII still reaches the alert channel via the un-session-gated
-        # PII-volume rule). Only a successful scan reaches the findings path;
-        # partial failures use scan_unavailable without claiming full coverage.
-        if non_pii:
-            worst = _worst(non_pii)
-            logger.warning(
-                "PETASOS_INGEST_FLAGGED tool=%s session=%s rule=%s severity=%s",
-                tool_name,
-                session_id,
-                worst.rule_id,
-                worst.severity.name,
-            )
-            # Message FIRST: `_enforcement_summary` clips head-keep / tail-drop at
-            # `_MAX_REASON_LEN`, so message-last would cut the payload evidence this field
-            # exists to preserve. Message-first loses only metadata the uncapped log line
-            # above already carries.
-            _emit_enforcement_event(
-                session_id=session_id,
-                tool=tool_name,
-                event_type="ingest_flagged",
-                severity=worst.severity.name,
-                rule_id=worst.rule_id,
-                reason=(
-                    f"{worst.message} (tool result len={len(result)}, "
-                    f"coverage={coverage.regime}, scanned={coverage.scanned_chars})"
-                ),
-            )
-            return (
-                format_result_notice(
-                    "findings",
-                    tool_name,
-                    worst,
-                    len(non_pii),
-                    coverage.scanned_chars,
-                    coverage.total_chars,
-                    coverage=coverage.regime,
-                )
-                + "\n\n"
-                + result
-            )
-
-        if coverage.regime == "ceiling":
-            logger.info(
-                "PETASOS_RESULT_CEILING tool=%s len=%d scanned=%d",
-                tool_name,
-                coverage.total_chars,
-                coverage.scanned_chars,
-            )
-            return (
-                format_result_notice(
-                    "ceiling",
-                    tool_name,
-                    None,
-                    0,
-                    coverage.scanned_chars,
-                    coverage.total_chars,
-                    coverage="ceiling",
-                )
-                + "\n\n"
-                + result
-            )
-        return None
+        # PII produces no banner and no ingestion event. Only a successful scan
+        # reaches the findings path; partial failures use scan_unavailable.
+        return annotate_ingestion(
+            tool_name,
+            result,
+            findings,
+            cause=None,
+            regime=coverage.regime,
+            scanned_chars=coverage.scanned_chars,
+            total_chars=coverage.total_chars,
+            session_id=session_id,
+            logger=logger,
+            emit=_emit_enforcement_event,
+        )
     except Exception as exc:
         logger.warning(
             "PETASOS_RESULT_SCAN_ERROR tool=%s: %r; content passed through untouched",
@@ -3433,69 +2884,42 @@ def _subagent_stop(child_session_id: str = "", **kwargs) -> None:
 # server; it lazy-imports narrow console submodules at the call site.
 _APPROVAL_FIELD_MAX = 200
 _APPROVAL_DESCRIPTION_MAX = 400
-_APPROVAL_TOOL_RE = re.compile(r"^<([^>\n]+)> \(plugin approval rule\)$")
 
 
 def _approval_text(value: object, *, limit: int = _APPROVAL_FIELD_MAX) -> str:
     """Coerce a hook field to str, then cap it. A non-str becomes empty."""
-    if not isinstance(value, str):
-        return ""
-    if len(value) > limit:
-        return value[:limit]
-    return value
+    return approval_text(value, limit=limit)
 
 
 def _approval_pattern_keys(value: object) -> list[str]:
     """Keep str elements only, cap each, and stop at 8. A non-list is empty."""
-    if not isinstance(value, list):
-        return []
-    kept: list[str] = []
-    for item in value:
-        if isinstance(item, str):
-            kept.append(_approval_text(item))
-            if len(kept) == 8:
-                break
-    return kept
+    return approval_pattern_keys(value)
 
 
 def _approval_session_id(session_id: object, session_key: object) -> str:
     """Prefer a non-empty str session_id, else a non-empty str session_key."""
-    if isinstance(session_id, str) and session_id:
-        chosen: object = session_id
-    elif isinstance(session_key, str) and session_key:
-        chosen = session_key
-    else:
-        chosen = ""
-    return _approval_text(chosen)
+    return approval_session_id(session_id, session_key)
 
 
 def _approval_choice(phase: str, raw: object) -> str | None:
     """Request phase is always null. A response stores str(choice), or null."""
-    if phase == "request" or raw is None:
-        return None
-    return _approval_text(str(raw))
+    return approval_choice(phase, raw)
 
 
 def _approval_decided_by(value: object) -> str | None:
     """A str is capped. Anything else is null (not an empty string)."""
-    if not isinstance(value, str):
-        return None
-    return _approval_text(value)
+    return approval_decided_by(value)
 
 
 def _approval_tool(command: str) -> str:
     """Bracketed plugin-rule display target, else empty (shell and other prompts)."""
-    match = _APPROVAL_TOOL_RE.match(command)
-    if match is None:
-        return ""
-    name = match.group(1)
-    return name if isinstance(name, str) else ""
+    return approval_tool(command)
 
 
 def _emit_approval_observation(phase: str, *, choice: object = None, **kwargs: Any) -> None:
     """Append one approval observation. The whole body is fail-open.
 
-    PET-222: Hermes owns the prompt. This stamps armed, appends one spool row, and
+    Hermes owns the prompt. This stamps armed, appends one spool row, and
     logs. It does not scan, prompt, or return an action. A raised writer and a false
     return are the same outcome: debug log, return None, approval wait continues.
     """
@@ -3506,70 +2930,32 @@ def _emit_approval_observation(phase: str, *, choice: object = None, **kwargs: A
         description, description_redaction = _redact_display_text(
             kwargs.get("description"), _APPROVAL_DESCRIPTION_MAX
         )
-        statuses = {command_redaction, description_redaction}
-        redaction = (
-            "withheld"
-            if "withheld" in statuses
-            else "redacted"
-            if "redacted" in statuses
-            else "unchanged"
-        )
-        session_key = _approval_text(kwargs.get("session_key"))
-        surface = _approval_text(kwargs.get("surface"))
-        tool_call_id = _approval_text(kwargs.get("tool_call_id"))
-        turn_id = _approval_text(kwargs.get("turn_id"))
-        pattern_keys = _approval_pattern_keys(kwargs.get("pattern_keys"))
-        decided_by = _approval_decided_by(kwargs.get("decided_by"))
-        stored_choice = _approval_choice(phase, choice)
-        rule_id = _approval_text(kwargs.get("pattern_key"))
-        tool = _approval_tool(_approval_text(kwargs.get("command")))
-        session_id = _approval_session_id(kwargs.get("session_id"), kwargs.get("session_key"))
-        coalesced = kwargs.get("coalesced") is True
+        redaction = redaction_status({command_redaction, description_redaction})
         armed = _is_armed()
-        reason = _credential_reason(
-            "approval requested" if phase == "request" else "approval response", redaction
+        event = approval_event(
+            phase,
+            choice=choice,
+            armed=armed,
+            command=command,
+            description=description,
+            redaction=redaction,
+            fields=kwargs,
         )
-        from petasos.console._events import emit_enforcement_event
+        from petasos.enforce.events import emit_enforcement_event
 
-        wrote = emit_enforcement_event(
-            {
-                "event_type": "approval",
-                "phase": phase,
-                "choice": stored_choice,
-                "rule_id": rule_id,
-                "pattern_keys": pattern_keys,
-                "tool": tool,
-                "session_id": session_id,
-                "session_key": session_key,
-                "surface": surface,
-                "tool_call_id": tool_call_id,
-                "turn_id": turn_id,
-                "command": command,
-                "description": description,
-                "credential_redaction": redaction,
-                "decided_by": decided_by,
-                "coalesced": coalesced,
-                "reason": reason,
-                "armed": armed,
-                "tier": None,
-                "severity": None,
-                "param_scan_degraded": False,
-                "direction": "tool_call",
-                "bypassed_count": None,
-            },
-            res=_session_resolution,
-        )
+        wrote = emit_enforcement_event(event, res=_session_resolution)
         if not wrote:
             logger.debug("PETASOS_APPROVAL emit failed phase=%s", phase)
             return
+        stored_choice = event["choice"]
         logger.info(
             "PETASOS_APPROVAL phase=%s choice=%s tool=%s session_id=%s rule_id=%s surface=%s",
             phase,
             "" if stored_choice is None else stored_choice,
-            tool,
-            session_id,
-            rule_id,
-            surface,
+            event["tool"],
+            event["session_id"],
+            event["rule_id"],
+            event["surface"],
         )
     except Exception:
         logger.debug("PETASOS_APPROVAL emit failed")

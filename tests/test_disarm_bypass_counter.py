@@ -28,7 +28,7 @@ import pytest
 
 pytest.importorskip("fastapi")
 
-import petasos.console._events as ev  # noqa: E402
+import petasos.enforce.events as ev  # noqa: E402
 from petasos import GuardResult  # noqa: E402
 
 if TYPE_CHECKING:

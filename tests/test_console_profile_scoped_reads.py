@@ -30,10 +30,10 @@ import pytest
 pytest.importorskip("fastapi")
 
 import petasos.console._armed as armed_mod  # noqa: E402
-import petasos.console._events as events_mod  # noqa: E402
 import petasos.console._history as history_mod  # noqa: E402
 import petasos.console._paths as paths_mod  # noqa: E402
 import petasos.console.server as server_mod  # noqa: E402
+import petasos.enforce.events as events_mod  # noqa: E402
 from petasos.config import PetasosConfig  # noqa: E402
 from petasos.console.server import (  # noqa: E402
     ConsoleHandlers,

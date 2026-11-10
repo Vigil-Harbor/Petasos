@@ -16,7 +16,7 @@ from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parent.parent
 _GUARD_PATH = _ROOT / "petasos" / "session" / "guard.py"
-_PLUGIN_PATH = _ROOT / "docs" / "deployment" / "reference_plugin" / "__init__.py"
+_FALLBACK_PATH = _ROOT / "petasos" / "enforce" / "fallback.py"
 
 
 def _parse(path: Path) -> ast.Module:
@@ -66,7 +66,7 @@ def _direction_keyword(node: ast.AST, callee_suffix: str) -> ast.expr:
 
 
 def test_fallback_uses_the_shared_helper_and_no_json_dumps() -> None:
-    fallback = _find_function(_parse(_PLUGIN_PATH), "_fallback_pre_tool_call")
+    fallback = _find_function(_parse(_FALLBACK_PATH), "scan_fallback")
     calls = _called_names(fallback)
 
     assert calls.count("render_param_text") == 1
@@ -74,7 +74,7 @@ def test_fallback_uses_the_shared_helper_and_no_json_dumps() -> None:
 
 
 def test_fallback_direction_is_the_shared_constant() -> None:
-    fallback = _find_function(_parse(_PLUGIN_PATH), "_fallback_pre_tool_call")
+    fallback = _find_function(_parse(_FALLBACK_PATH), "scan_fallback")
     direction = _direction_keyword(fallback, "scan")
 
     assert isinstance(direction, ast.Name), "direction must be the constant, not a literal"

@@ -9,13 +9,6 @@ from petasos.session.escalation import (
     evaluate_tier,
     max_tier,
 )
-from petasos.session.formatting import (
-    format_block_message,
-    format_content_block,
-    format_pipeline_block_message,
-    format_result_notice,
-    shorten_rule_id,
-)
 from petasos.session.frequency import FrequencyTracker, FrequencyUpdateResult, SessionToken
 from petasos.session.guard import GuardResult, ToolCallGuard
 from petasos.session.ingest import IngestionScanResult, scan_ingestion_result
@@ -38,10 +31,6 @@ __all__ = [
     "GuardResult",
     "LineageRegistry",
     "max_tier",
-    "format_block_message",
-    "format_content_block",
-    "format_pipeline_block_message",
-    "format_result_notice",
     "IngestionScanResult",
     "ProfileResolver",
     "ResolvedProfile",
@@ -52,5 +41,4 @@ __all__ = [
     "evaluate_escalation",
     "evaluate_tier",
     "scan_ingestion_result",
-    "shorten_rule_id",
 ]

@@ -30,7 +30,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-import petasos.console._events as evmod
+import petasos.enforce.events as evmod
 from petasos import (
     FrequencyTracker,
     LineageRegistry,
@@ -42,9 +42,9 @@ from petasos import (
     Severity,
     ToolCallGuard,
 )
+from petasos.enforce.messages import format_block_message
 from petasos.normalize import canonicalize_tool_name
 from petasos.scanners.minimal import MinimalScanner
-from petasos.session.formatting import format_block_message
 from petasos.session.guard import INGESTION_TOOLS, NON_INGESTING_TOOLS, GuardResult
 from petasos.session.ingest import scan_ingestion_result
 
