@@ -635,9 +635,16 @@ de-duplicated here: B4 and C1 rewrite every site that holds one.
 | B3 | `scanners/registry.py`, reading the scanner sections B2 defines | B2 |
 | B4 | Cutover: every component takes its own section; old `config.py`, profiles and presets deleted | B2, B3 |
 
-B4 is one lane. Acceptance is verdict parity against the Wave 0 fixture under
-the role and level mapping in section 4.2, with the `research` and `admin`
-tier change as the only permitted difference.
+B4 is one lane. Acceptance is the parity record in `tests/parity/`. The record
+holds two arrangements per old profile: the profile passed to both pipeline and
+guard (the library's behaviour), and the profile passed to the pipeline only
+(`plugin:<profile>`, what the Hermes plugin does). They differ only for
+`admin` and `research`, whose tier thresholds reach the guard in the first
+arrangement and not the second. After the cutover each role at level
+`balanced` must reproduce the `plugin:` arrangement of the profile it replaces,
+case for case. The other arrangement's `admin` and `research` session verdicts
+are the one deliberate change and are re-recorded in the same commit that
+makes it.
 
 **Wave C. Structure (parallel after B4)**
 
