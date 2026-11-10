@@ -14,10 +14,11 @@ not fixed by editing an expectation to fit what was observed.
 ## What a verdict counts for
 
 A verdict counts only for the script, harness, corpus, wheel, and plugin-file
-hashes and the copied configuration named in its evidence file. A commit
-that changes one of those files, a different wheel, or a different copied
-`petasos:` section needs a new run. A commit that only adds the evidence
-file and its verdict entry does not.
+hashes, the Hermes commit, and the copied configuration named in its
+evidence file. A commit that changes one of those files, a different
+wheel, a different Hermes commit, or a different copied `petasos:` section
+needs a new run. A commit that only adds the evidence file and its verdict
+entry does not.
 
 ## What the gate shows
 
@@ -117,7 +118,11 @@ Read the evidence file before committing it.
 3. Read the store-Python path from the live `installs/<key>/facts.json`.
    Do not hardcode it. Do not use anything else in that file.
 4. Run the gate with a throwaway `--workdir` whose path has no space and no
-   comma:
+   comma. The `python` that runs the driver needs PyJWT and PyYAML, for
+   example a venv with `pip install "pyjwt[crypto]" pyyaml` or this
+   repo's dev environment. The driver imports `petasos` from its own
+   checkout. `--hermes-python` is a different interpreter and only starts
+   the Hermes bootstrap:
 
 ```
 python scripts/hermes_composition_gate.py <label> <release_tree> ^

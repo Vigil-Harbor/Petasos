@@ -188,6 +188,7 @@ def _run_bounded(
             timeout=timeout,
             capture_output=capture,
             text=True,
+            check=False,
         )
     proc = subprocess.Popen(
         cmd,
