@@ -201,6 +201,60 @@ def test_enforce_has_no_module_state_beyond_the_legacy_spool() -> None:
     assert offenders == []
 
 
+# The console and the guard's legacy path discovery still import the resolver.
+# Both shrink when those callers move off Hermes paths.
+_HERMES_IMPORT_OK = {
+    Path("petasos/session/guard.py"),
+}
+
+
+def _under_hermes_adapter(path: Path) -> bool:
+    return path.parts[:2] == ("petasos", "hermes")
+
+
+def _under_console(path: Path) -> bool:
+    return "console" in path.parts
+
+
+def test_only_the_adapter_imports_hermes() -> None:
+    """Hermes is a name only the adapter, the console, and the guard fallback use."""
+    offenders: list[str] = []
+    root = Path("petasos")
+    for path in sorted(root.rglob("*.py")):
+        if _under_hermes_adapter(path) or _under_console(path) or path in _HERMES_IMPORT_OK:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for line, module in _imported_modules(tree):
+            if "hermes" in module.lower():
+                offenders.append(f"{path}:{line} imports {module}")
+    assert offenders == []
+
+
+def test_hermes_state_is_the_registered_enforcer() -> None:
+    """The adapter's only module global is the enforcer a registered plugin holds.
+
+    ``home.py`` also assigns ``_SPOOL_PATH_OVERRIDE`` once. The console writes
+    that attribute; the adapter does not mutate it. It is not a collection.
+    """
+    offenders: list[str] = []
+    root = Path("petasos/hermes")
+    for path in sorted(root.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Global):
+                continue
+            names = set(node.names)
+            if path.name == "plugin.py" and names <= {"_registration"}:
+                continue
+            offenders.append(f"{path}:{node.lineno} global {sorted(names)}")
+        for stmt in tree.body:
+            for name, value in _assigned(stmt):
+                if not _mutable(value) or not _written(tree, name):
+                    continue
+                offenders.append(f"{path}:{stmt.lineno} mutates module-level {name}")
+    assert offenders == []
+
+
 def test_only_the_bridge_imports_the_flat_config_and_profiles() -> None:
     """Internals read the config tree. The bridge is the one temporary importer."""
     offenders: list[str] = []

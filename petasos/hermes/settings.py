@@ -1,0 +1,315 @@
+"""Read and write the Hermes plugin settings for the active profile.
+
+The four settings are read on every call. Defaults live in
+``petasos.config.layers``. Secrets are read with Hermes's env-file reader,
+not from ``config.yaml``. Nothing here mutates a container Hermes returned.
+"""
+
+from __future__ import annotations
+
+import base64
+import hashlib
+import json
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, Protocol
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+from petasos.config.layers import resolve
+from petasos.config.schema import ConfigError
+from petasos.config.secrets import Secrets
+from petasos.enforce.types import SettingsSnapshot
+from petasos.hermes.host import load_mapping, read_env, save_env, save_plugin_settings
+
+PLUGIN_ID = "petasos"
+SESSION_ENV = "PETASOS_SESSION_SECRET"
+HASH_ENV = "PETASOS_HASH_KEY"
+_SECRET_KEYS = frozenset({"session_secret", "hash_key"})
+
+
+class ConfigStore(Protocol):
+    """The slice of a Hermes plugin context that reads settings."""
+
+    def get_config(self, key: str, default: object = None) -> object:
+        """The stored value, or ``default`` when the key was never set."""
+        ...
+
+
+def _plain(value: object) -> object:
+    """A deep copy. Mappings and lists the caller still holds are not shared."""
+    if isinstance(value, Mapping):
+        return {str(key): _plain(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)) and not isinstance(value, (str, bytes)):
+        return [_plain(item) for item in value]
+    return value
+
+
+def _digest(raw: bytes | None) -> str:
+    if raw is None:
+        return ""
+    return hashlib.sha256(raw).hexdigest()
+
+
+def _token(
+    enabled: object,
+    role: object,
+    level: object,
+    overrides: object,
+    secrets: Secrets,
+) -> tuple[object, ...]:
+    """The four settings, plus a digest of each secret.
+
+    The enforcer applies secrets only when the token changes. A rotation has
+    to be visible without putting the secret itself in the token.
+    """
+    blob = json.dumps(_plain(overrides), sort_keys=True, separators=(",", ":"), default=str)
+    hash_key = None if secrets.hash_key is None else secrets.hash_key.encode()
+    return (enabled, role, level, blob, _digest(secrets.session_secret), _digest(hash_key))
+
+
+def _decode_session(raw: str | None) -> tuple[bytes | None, bool]:
+    if raw is None:
+        return None, False
+    try:
+        return base64.b64decode(raw, validate=True), False
+    except Exception:
+        return None, True
+
+
+def _secrets_from(session_raw: str | None, hash_raw: str | None) -> tuple[Secrets, bool]:
+    session, invalid = _decode_session(session_raw)
+    return Secrets(session_secret=session, hash_key=hash_raw), invalid
+
+
+def read_profile_env(home: Path, name: str) -> str | None:
+    """One value from ``<home>/.env``. ``None`` when the file or the name is absent."""
+    path = home / ".env"
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    prefix = name + "="
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if stripped.startswith("export "):
+            stripped = stripped[len("export ") :]
+        if not stripped.startswith(prefix):
+            continue
+        raw = stripped[len(prefix) :]
+        if len(raw) >= 2 and raw[0] == raw[-1] and raw[0] in "\"'":
+            raw = raw[1:-1]
+        return raw or None
+    return None
+
+
+def _plugin_settings(document: object) -> dict[str, object] | None:
+    """A copy of ``plugins.entries.petasos.settings``, or ``None`` when absent."""
+    if not isinstance(document, dict):
+        return None
+    plugins = document.get("plugins")
+    if not isinstance(plugins, dict):
+        return None
+    entries = plugins.get("entries")
+    if not isinstance(entries, dict):
+        return None
+    owned = entries.get(PLUGIN_ID)
+    if not isinstance(owned, dict):
+        return None
+    settings = owned.get("settings")
+    if not isinstance(settings, dict):
+        return None
+    copied = _plain(settings)
+    if not isinstance(copied, dict):
+        return None
+    return copied
+
+
+def profile_binding(path: Path) -> tuple[str, dict[str, object] | None]:
+    """How ``path`` holds Petasos settings.
+
+    The kind is ``settings`` (the plugin block is present), ``legacy`` (a
+    non-empty top-level ``petasos:`` section and no plugin block), ``empty``,
+    or ``broken``. The legacy section's contents are not returned.
+    """
+    if not path.is_file():
+        return "empty", None
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return "broken", None
+    document = load_mapping(text)
+    if document is None:
+        return "empty", None
+    if not isinstance(document, dict):
+        return "broken", None
+    settings = _plugin_settings(document)
+    if settings is not None:
+        return "settings", settings
+    legacy = document.get("petasos")
+    if isinstance(legacy, dict) and len(legacy) > 0:
+        return "legacy", None
+    return "empty", None
+
+
+def _four_from_mapping(values: Mapping[str, object]) -> tuple[object, object, object, object]:
+    enabled = values.get("enabled", True)
+    role = values.get("role", "general")
+    level = values.get("level", "balanced")
+    overrides = values.get("overrides", {})
+    if isinstance(overrides, Mapping):
+        overrides = _plain(overrides)
+    return enabled, role, level, overrides
+
+
+def _four_from_store(ctx: ConfigStore) -> tuple[object, object, object, object]:
+    enabled = ctx.get_config("enabled", True)
+    role = ctx.get_config("role", "general")
+    level = ctx.get_config("level", "balanced")
+    overrides = ctx.get_config("overrides", None)
+    if isinstance(overrides, Mapping):
+        overrides = _plain(overrides)
+    elif overrides is None:
+        overrides = {}
+    return enabled, role, level, overrides
+
+
+def _snapshot(
+    enabled: object,
+    role: object,
+    level: object,
+    overrides: object,
+    secrets: Secrets,
+    invalid: bool,
+) -> SettingsSnapshot:
+    armed = enabled if type(enabled) is bool else True
+    token = _token(enabled, role, level, overrides, secrets)
+    try:
+        resolved = resolve(
+            {"enabled": enabled, "role": role, "level": level, "overrides": overrides}
+        )
+    except ConfigError as exc:
+        return SettingsSnapshot(
+            armed=armed,
+            config=None,
+            secrets=secrets,
+            token=token,
+            error=f"build failed: {exc}",
+            secret_invalid=invalid,
+        )
+    except Exception as exc:
+        return SettingsSnapshot(
+            armed=armed,
+            config=None,
+            secrets=Secrets(),
+            token=token,
+            error=f"build failed: {exc}",
+            secret_invalid=invalid,
+        )
+    return SettingsSnapshot(
+        armed=resolved.settings.enabled,
+        config=resolved.config,
+        secrets=secrets,
+        token=token,
+        secret_invalid=invalid,
+    )
+
+
+class HermesSettings:
+    """The enforcer's settings source for one Hermes process.
+
+    ``bind_profile`` points later calls at a profile directory the host named,
+    so a profile switch is visible before the process home changes.
+    """
+
+    def __init__(self, ctx: ConfigStore) -> None:
+        self._ctx = ctx
+        self._profile: Path | None = None
+
+    def bind_profile(self, home: Path | None) -> None:
+        """Read later snapshots from ``home``."""
+        self._profile = home
+
+    @property
+    def profile(self) -> Path | None:
+        """The profile directory later reads use, or ``None`` for the context."""
+        return self._profile
+
+    def __call__(self) -> SettingsSnapshot:
+        """The snapshot as of this call. An unusable observation carries ``error``."""
+        try:
+            return self._read()
+        except Exception as exc:
+            return SettingsSnapshot(
+                armed=True,
+                config=None,
+                secrets=Secrets(),
+                token=("error", type(exc).__name__),
+                error=f"build failed: {exc}",
+            )
+
+    def _secret_pair(self, home: Path | None) -> tuple[Secrets, bool]:
+        if home is not None:
+            session_raw = read_profile_env(home, SESSION_ENV)
+            hash_raw = read_profile_env(home, HASH_ENV)
+        else:
+            session_raw = read_env(SESSION_ENV)
+            hash_raw = read_env(HASH_ENV)
+        return _secrets_from(session_raw, hash_raw)
+
+    def _read(self) -> SettingsSnapshot:
+        home = self._profile
+        if home is not None:
+            kind, settings = profile_binding(home / "config.yaml")
+            if kind == "broken" or settings is None:
+                secrets, invalid = self._secret_pair(home)
+                return SettingsSnapshot(
+                    armed=True,
+                    config=None,
+                    secrets=secrets,
+                    token=("unreadable", str(home)),
+                    error="build failed: malformed settings",
+                    secret_invalid=invalid,
+                )
+            enabled, role, level, overrides = _four_from_mapping(settings)
+        else:
+            enabled, role, level, overrides = _four_from_store(self._ctx)
+        secrets, invalid = self._secret_pair(home)
+        return _snapshot(enabled, role, level, overrides, secrets, invalid)
+
+
+def write_settings(
+    values: Mapping[str, object],
+    *,
+    plugin_dir: Path,
+    plugin_id: str = PLUGIN_ID,
+) -> None:
+    """Write settings through Hermes.
+
+    ``plugin_dir`` is the installed plugin directory. Hermes reads
+    ``plugin.yaml`` there. Non-secret keys use the form writer, which rejects
+    a value outside the manifest's choices and refuses to put a secret in
+    ``config.yaml``. The two secrets are written to the profile env file
+    under their ``env:`` names.
+    """
+    if not isinstance(values, Mapping):
+        raise TypeError("settings must be a mapping")
+    plain: dict[str, object] = {}
+    secrets: dict[str, str] = {}
+    for key, value in values.items():
+        if not isinstance(key, str):
+            raise TypeError("a setting name must be text")
+        if key in _SECRET_KEYS:
+            if not isinstance(value, str):
+                raise TypeError(f"{key} must be text")
+            secrets[key] = value
+            continue
+        copied = _plain(value)
+        plain[key] = copied
+    if plain:
+        save_plugin_settings(plugin_id, plugin_dir, plain)
+    for key, value in secrets.items():
+        env_name = SESSION_ENV if key == "session_secret" else HASH_ENV
+        save_env(env_name, value)

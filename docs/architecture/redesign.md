@@ -769,8 +769,10 @@ Rules the host imposes:
 - Settings are read with `ctx.get_config` on each call, never captured in
   `register()`. Hermes sends no change notification; within one process a
   write on disk is visible on the next read. `hermes.settings` wraps
-  this as the enforcer's `SettingsSource` and derives the change token from
-  the four values.
+  this as the enforcer's `SettingsSource`. The change token is the four
+  values plus a digest of each secret, because the enforcer applies secrets
+  only when the token changes. The digest is not the secret. Re-arming to
+  the same four values is not a new configuration.
 - Nothing but Hermes writes `config.yaml`. The plugin uses `ctx.set_config`;
   the console and the CLI use Hermes's own writer. A plain YAML dump by another
   process has already misplaced keys once on this machine.
@@ -791,17 +793,29 @@ hooks below, and translates between hook arguments and `ToolCall` /
 | `on_session_start` | Session bookkeeping | Ignored |
 | `subagent_start`, `subagent_stop` | Lineage | Ignored; the fan-out budget is enforced on the `delegate_task` tool call |
 | `pre_approval_request`, `post_approval_response` | Approval observation | Ignored. Neither runs when Hermes refuses an approval because nobody is attached |
+| `on_profile_change` | Log the profile, the resolution, and the path, then re-read settings | Ignored by Hermes. A relative profile home is rejected. A profile with no plugin settings keeps the previous configuration |
 
 Consequences for the adapter and the enforcer:
 
 - **A block always carries a message.** Hermes ignores a block directive
   that has none, which would turn a block into an allow. The adapter refuses
   to emit one.
+- **Callbacks do not raise, including `pre_tool_call`.** Hermes would turn
+  an exception there into a block whose text includes the exception, which
+  can echo tool arguments, and an exception in `transform_tool_result`
+  fails open. The adapter returns its own block from `pre_tool_call` and
+  `None` from the other hooks, and logs the exception for the operator.
+- A profile whose config still has a top-level `petasos:` section, and no
+  plugin settings, is not read. The adapter logs one line that names
+  `petasos config migrate`.
 - The enforcer's own time limits sit below the host's, so a slow scan becomes
   a Petasos decision under `fail_mode` and not a host timeout followed by a
   minute of blanket blocking.
 - `tool_result` catches everything and always returns a string, because the
   host fails open there.
+- `HostInfo.host_id` is the stable product id `petasos`. Hermes does not
+  expose an installation id, and a hash of the home would change the session
+  token when the profile changes.
 - **What `approve` means depends on the host's state.** Hermes grants a
   plugin's approve directive without asking when `approvals.mode` is `off`,
   when yolo is on, when the process is a single-query, cron or unattended

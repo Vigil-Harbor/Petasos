@@ -26,3 +26,9 @@ class Secrets:
         session = "set" if self.session_secret is not None else "unset"
         digest = "set" if self.hash_key is not None else "unset"
         return f"Secrets(session_secret={session}, hash_key={digest})"
+
+
+SESSION_SECRET_HELP = (
+    "Secret that binds session tokens. The profile env file holds it, not config."
+)
+HASH_KEY_HELP = "Key for hash-mode anonymization. The profile env file holds it, not config."

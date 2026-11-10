@@ -1,0 +1,49 @@
+name: petasos
+version: "0.4.0"
+description: "Content security for Hermes agent tool calls and tool results."
+requires_hermes: ">=0.23.1"
+provides_hooks:
+  - pre_tool_call
+  - transform_tool_result
+  - post_tool_call
+  - on_session_start
+  - subagent_start
+  - subagent_stop
+  - pre_approval_request
+  - post_approval_response
+  - on_profile_change
+config_schema:
+  enabled:
+    type: bool
+    description: "Whether Petasos enforces on this profile. Off lets tool calls through and records that they bypassed enforcement."
+    default: true
+  role:
+    type: string
+    description: "What the agent does. A role sets the checks that belong to the job."
+    choices:
+      - general
+      - coding
+      - research
+      - support
+      - admin
+    default: general
+  level:
+    type: string
+    description: "How strict the checks are. A level sets fail mode, escalation, and hiding."
+    choices:
+      - relaxed
+      - balanced
+      - strict
+    default: balanced
+  overrides:
+    type: dict
+    description: "Settings that replace what the role and level resolved to. A JSON object whose keys are config paths."
+    default: {}
+  session_secret:
+    type: secret
+    env: PETASOS_SESSION_SECRET
+    description: "Secret that binds session tokens. The profile env file holds it, not config."
+  hash_key:
+    type: secret
+    env: PETASOS_HASH_KEY
+    description: "Key for hash-mode anonymization. The profile env file holds it, not config."
