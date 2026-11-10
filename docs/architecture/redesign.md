@@ -1034,11 +1034,12 @@ when the committed file drifts.
 The route functions are thin. Each response is built by a plain function
 that takes a home, a settings mapping, or a spool path and returns a dict.
 Those functions do not import a web framework. Every body, including an
-error, carries `version` (currently `1`). A client ignores keys it does not
-know. A failure is `{version, error: {code, message, path}}`. `path` is a
-settings path or null. The message is one sentence. The server log holds
-the detail. There is no stack trace and no long-lived stream: the front end
-polls.
+error, carries `version`. `GET /status` is version `2` because it now
+includes the doctor report. Every other body, including an error, is
+version `1`. A client ignores keys it does not know. A failure is
+`{version, error: {code, message, path}}`. `path` is a settings path or
+null. The message is one sentence. The server log holds the detail. There
+is no stack trace and no long-lived stream: the front end polls.
 
 Hermes's dashboard session protects these routes the same way it protects
 the rest of `/api/`. `/api/plugins/` is not on the public allowlist in
@@ -1064,7 +1065,7 @@ is available, and is withheld when it is not.
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "protection": "on",
   "switches": {
     "hermes": {"on": true, "detail": "Hermes is loading Petasos."},
@@ -1079,7 +1080,21 @@ is available, and is withheld when it is not.
   "level": "balanced",
   "secrets": {"session_secret": "unset", "hash_key": "unset"},
   "home": "~/hermes",
-  "petasos_version": "0.4.0"
+  "petasos_version": "0.4.0",
+  "doctor": {
+    "verdict": "protected",
+    "exit_code": 0,
+    "summary": "Protected. Petasos is checking tool calls for this agent.",
+    "home": "/home/me/.hermes",
+    "home_reason": "the home Hermes is using",
+    "checks": [
+      {"id": "petasos", "status": "ok", "summary": "Petasos 0.4.0, running under Python 3.11.15.", "meaning": "", "next_step": ""}
+    ],
+    "suggestions": [],
+    "protected_paths": [],
+    "paths_summary": "Petasos watches 9 places an agent could change to turn protection off.",
+    "detail": {}
+  }
 }
 ```
 
@@ -1088,8 +1103,25 @@ is available, and is withheld when it is not.
 false, or null when the file cannot be read. `switches.petasos` is the arm
 switch. `scanners` is the syntactic scanner plus one row per registry
 entry: `state` is `active`, `unavailable`, `not_installed`, or `off`;
-`reason` and `fix` are sentences. `recommendations` is the registry's list
-for the current role. A later diagnostics report can add keys here.
+`reason` and `fix` are sentences. A pip install line is not used here.
+When a package is missing, `fix` says to add `petasos[<extra>]` to the
+plugin's dependency list and install the plugin again with Hermes.
+`recommendations` is that same list of sentences the doctor prints under
+Suggestions. `doctor` is the object `petasos doctor --json` prints, built
+by the same check. `scanners` and `recommendations` are the rows and
+sentences inside that object, not a second composition.
+
+The dashboard does not start the plugin to re-validate it. Hermes's
+validator imports the plugin in a subprocess, which is too much work for a
+polled status. The `plugin_load` check then says the plugin was not started
+again, and the file checks still run. `petasos doctor` does run the
+validator. The approval line reads this process, the same way the command
+does, so a dashboard process does not invent the gateway's unattended flags.
+
+`doctor.verdict` also requires the plugin files. `protection` does not: it
+is only the two switches and whether the settings resolve. A profile whose
+switches are on before the files are installed can report `protection: on`
+while `doctor.verdict` is `not_protected`.
 
 #### `GET /settings`
 

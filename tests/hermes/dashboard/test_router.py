@@ -69,7 +69,8 @@ def test_status_and_settings_follow_the_active_home(monkeypatch: Any, tmp_path: 
     client = _client(monkeypatch, tmp_path)
     status = client.get("/api/plugins/petasos/status", params={"home": "/etc/passwd"})
     assert status.status_code == 200
-    assert status.json()["version"] == 1
+    assert status.json()["version"] == 2
+    assert "checks" in status.json()["doctor"]
     assert status.json()["switches"]["hermes"]["on"] is True
     settings = client.get("/api/plugins/petasos/settings", params={"home": "/tmp/not-this"})
     assert settings.status_code == 200
