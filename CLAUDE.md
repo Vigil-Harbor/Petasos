@@ -16,7 +16,7 @@ Petasos is [Drawbridge](https://github.com/ziomancer/clawmoat-drawbridge)-*inspi
 
 ## Status
 
-Work items tracked in Plane (PET project). The file `petasos-project-spec-DRAFT-PARKED.md` is a superseded earlier draft preserved for reference — it proposed Drawbridge coupling that was explicitly rejected.
+Work items tracked in Plane (PET project).
 
 ## Build & Run
 

@@ -59,8 +59,7 @@ flag. Incomplete coverage is not a clean sample. ML backends still see only the
 ### HIGH+ calibration (PET-200)
 
 The HIGH+ annotate gate was remeasured through `_transform_tool_result` on a
-frozen constructed corpus (templates under `tests/fixtures/pet200/` plus listed
-in-repo text files in `manifest.json`). Base install, layered PET-178
+frozen constructed corpus. Base install, layered PET-178
 coverage. Scanner rules and `_BLOCK_RANK` did not change in PET-200. Manifest
 SHA-256 (newline-normalized UTF-8):
 `53d7a6023e1b83f3c31d8fe245abd48b71c02bfd122514b7dee600aa790ba715`.
@@ -72,8 +71,7 @@ calibration-run commit `efe6974b001a5a510fc3ae84ef63e0a8a4f4d503`, which is a
 merge of that master into the PET-200 branch and is what the report records
 as `scanner_commit.git` / `plugin_commit`. The two SHAs are deliberately
 distinct: the first names the scanner tree being measured, the second names
-the tree the harness and corpus were run from. Report:
-`docs/specs/TODO/PET-200.post-pet-201.report.json`
+the tree the harness and corpus were run from
 (`phase=post-pet-201`, `--remeasure`, no `--limit`, `measurement=complete`,
 `config_label=base`, `scanner_commit.minimal_py`
 `6173e1d0f54da1ac9465cd2d24920cd348e757900307d3f6c063eb21dc781b63`).
