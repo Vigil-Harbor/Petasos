@@ -7,13 +7,16 @@ home and does not write.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from petasos.config.layers import LEVELS, ROLES, SETTING_HELP, SETTING_LABEL, Resolved, resolve
 from petasos.config.schema import ConfigError, FieldInfo, SectionInfo, describe, to_mapping
 from petasos.config.sections import PetasosConfig
 from petasos.hermes.dashboard.errors import envelope, problems_of
 from petasos.hermes.dashboard.values import copy_tree, dig, json_value
+
+if TYPE_CHECKING:
+    from petasos.scanners.registry import ScannerSpec
 
 _FOUR = ("enabled", "role", "level", "overrides")
 _SETTINGS_KEY = "plugins.entries.petasos.settings"
@@ -75,6 +78,7 @@ def setting_rows(resolved: Resolved | None) -> list[dict[str, Any]]:
                 "type": item.type_name,
                 "choices": None if item.choices is None else [json_value(c) for c in item.choices],
                 "choice_labels": None if item.choice_labels is None else dict(item.choice_labels),
+                "entry_labels": None if item.entry_labels is None else list(item.entry_labels),
                 "bounds": {"ge": item.ge, "gt": item.gt, "le": item.le, "lt": item.lt},
                 "label": item.label,
                 "help": item.help,
@@ -174,11 +178,48 @@ def locked_paths(managed: frozenset[str] | None) -> dict[str, Any]:
     }
 
 
+def required_consequences(
+    resolved: Resolved | None,
+    *,
+    registry: tuple[ScannerSpec, ...] | None = None,
+) -> dict[str, dict[str, Any]]:
+    """For each check set to Required that cannot run, what happens to tool calls.
+
+    Keyed by the setting's path, such as ``scanners.prompt_guard.enabled``.
+    Only checks set to Required are built, so the common case builds none.
+    The sentence is the doctor's, computed from the fail mode and the
+    dangerous-action setting in ``resolved``.
+    """
+    if resolved is None:
+        return {}
+    from petasos.hermes.doctor_advice import scanner_report
+    from petasos.scanners.registry import REGISTRY
+
+    specs = REGISTRY if registry is None else registry
+    required = tuple(
+        spec
+        for spec in specs
+        if getattr(getattr(resolved.config.scanners, spec.section, None), "enabled", None) == "on"
+    )
+    if not required:
+        return {}
+    _checks, _suggestions, rows = scanner_report(resolved, registry=required)
+    sections = {spec.id: spec.section for spec in required}
+    found: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        consequence = row.get("consequence")
+        section = sections.get(str(row.get("id")))
+        if isinstance(consequence, dict) and section is not None:
+            found[f"scanners.{section}.enabled"] = dict(consequence)
+    return found
+
+
 def read_settings(
     stored: Mapping[str, Any],
     *,
     secrets: Mapping[str, str],
     managed: frozenset[str] | None = None,
+    registry: tuple[ScannerSpec, ...] | None = None,
 ) -> dict[str, Any]:
     """The settings screen for one stored document.
 
@@ -205,6 +246,7 @@ def read_settings(
         },
         valid=not problems,
         problems=problems,
+        consequences=required_consequences(resolved, registry=registry),
     )
 
 
@@ -244,11 +286,14 @@ def _add_reset_targets(rows: list[dict[str, Any]], document: Mapping[str, Any]) 
 def preview_settings(
     stored: Mapping[str, Any],
     candidate: Mapping[str, Any],
+    *,
+    registry: tuple[ScannerSpec, ...] | None = None,
 ) -> dict[str, Any]:
     """What ``candidate`` would resolve to, and what would differ from now.
 
     Nothing is written. An invalid candidate returns ``valid`` false and an
-    empty change list.
+    empty change list. ``consequences`` says, for each check the candidate
+    makes Required that cannot run, what would happen to tool calls on save.
     """
     current = stored_document(stored)
     proposed = combine(stored, candidate)
@@ -264,6 +309,7 @@ def preview_settings(
         changes=changes,
         valid=not after_problems,
         problems=after_problems,
+        consequences=required_consequences(after, registry=registry),
     )
 
 

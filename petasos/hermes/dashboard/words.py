@@ -161,7 +161,7 @@ def outcome(
             return {"code": "approved", "label": "Person said yes"}
         return {"code": "answered", "label": "Answered"}
     if kind == "bypassed_disarmed":
-        return {"code": "allowed", "label": "Let through (paused)"}
+        return {"code": "allowed", "label": "Let through"}
     if kind == "ingest_flagged":
         return {"code": "flagged", "label": "Flagged to the agent"}
     if kind == "ingest_unscanned":
@@ -171,70 +171,122 @@ def outcome(
     return {"code": "recorded", "label": "Recorded"}
 
 
+# What the agent was doing, for Hermes tools whose kind of action Petasos
+# knows: "tried to <action>". A tool not listed here is named by its id.
+_ACTIONS = MappingProxyType(
+    {
+        "terminal": "run a shell command",
+        "execute_code": "run code",
+        "write_file": "write a file",
+        "patch": "edit a file",
+        "read_file": "read a file",
+        "search_files": "search files",
+        "send_message": "send a message",
+        "web_search": "search the web",
+        "web_extract": "read a web page",
+        "browser_navigate": "open a web page",
+        "delegate_task": "start a helper agent",
+        "memory": "change its memory",
+        "skill_manage": "change a skill",
+        "cronjob": "schedule a job",
+    }
+)
+
+# The thing a tool hands back, for a sentence about a tool result.
+_RESULTS = MappingProxyType(
+    {
+        "web_extract": "a web page it read",
+        "web_search": "search results it read",
+        "browser_navigate": "a web page it opened",
+        "read_file": "a file it read",
+        "search_files": "files it searched",
+        "terminal": "a command's output",
+        "execute_code": "code output",
+    }
+)
+
+
+def action(tool: str) -> str:
+    """What the agent tried to do with ``tool``, or empty when Petasos does not know."""
+    return _ACTIONS.get(tool, "")
+
+
+def _attempt(tool: str) -> str:
+    """An attempt, named by its action when known, else by the tool's id."""
+    known = _ACTIONS.get(tool)
+    if known:
+        return f"an attempt to {known}"
+    if tool:
+        return f"a {tool} call"
+    return "an action"
+
+
 def describe_event(
     event: Mapping[str, object],
     follower: Mapping[str, object] | None = None,
 ) -> str:
-    """One sentence for what an enforcement event did. ``follower`` is as for :func:`outcome`."""
+    """One sentence for what an enforcement event did. ``follower`` is as for :func:`outcome`.
+
+    The sentence says what the agent tried to do where Petasos knows the kind
+    of action; the tool's id is served beside it, not in it.
+    """
     kind = _text(event.get("event_type"))
     tool = _text(event.get("tool"))
     rule = _text(event.get("rule_id"))
     family = _FAMILY.get(rule_family(rule), "")
+    subject = _attempt(tool)
     if rule.endswith("destructive-recursive"):
         return "Blocked a shell command that would delete files recursively."
     if kind == "block" and _text(event.get("tier")) == "tier2":
-        subject = f"a {tool} call" if tool else "a tool call"
-        return f"Blocked {subject} because warning signs earlier in this conversation added up."
+        return f"Blocked {subject}: warning signs in this conversation had added up."
     if kind in {"quarantine", "block"}:
-        if tool in {"terminal", "execute_code"}:
-            subject = "a shell command"
-        elif tool:
-            subject = f"a {tool} call"
-        else:
-            subject = "a tool call"
         if family:
             return f"Blocked {subject} that contained {family}."
         return f"Blocked {subject}."
     if kind == "tier3":
-        return "Stopped every tool call because the session reached the highest risk level."
+        return "Stopped the conversation at the highest risk level. Every action in it is blocked."
     if kind == "bypassed_disarmed":
-        return "Let a tool call through because protection is paused, and recorded it."
+        if tool in _ACTIONS:
+            return f"Let the agent {_ACTIONS[tool]} unchecked, because protection was paused."
+        return f"Let {subject} through unchecked, because protection was paused."
     if kind == "init_failed":
-        return "Used only the basic checks, because the scanners did not finish starting."
+        return "Used only the basic checks: the extra checks did not finish starting."
     if kind == "cold_start_degraded":
-        return "Used only the basic checks, because the scanners were still starting."
+        return "Used only the basic checks: the extra checks were still starting."
     if kind == "selfmod_attempt":
-        subject = f"A {tool} call" if tool else "A tool call"
         verdict = outcome(event, follower)["code"]
         if verdict == "attempt_blocked":
             why = _stop_reason(follower)
-            return f"{subject} tried to change Petasos or Hermes settings. It was blocked, {why}."
+            return f"Blocked an attempt to change Petasos or Hermes settings, {why}."
         if verdict == "attempt_asked":
-            return (
-                f"{subject} tried to change Petasos or Hermes settings. "
-                "It waited for a person to approve it."
-            )
+            return "Asked a person about an attempt to change Petasos or Hermes settings."
         return (
-            f"{subject} tried to change Petasos or Hermes settings. Petasos recorded it "
-            "and did not stop it, so the change may have gone through."
+            "Did not stop an attempt to change Petasos or Hermes settings. "
+            "The change may have gone through."
         )
     if kind == "ingest_flagged":
-        source = f"a {tool} result" if tool else "a tool result"
+        source = _RESULTS.get(tool) or (f"a {tool} result" if tool else "a tool result")
         found = family or "something that matched a rule"
-        return f"Warned the agent that {source} contained {found}, and passed it on marked."
+        return f"Warned the agent that {source} contained {found}."
     if kind == "ingest_unscanned":
-        return "Could not scan a tool result, and passed it on unmarked."
+        return "Could not check a tool result, and passed it on unmarked."
     if kind == "approval":
-        subject = f"a {tool} call" if tool else "a tool call"
         phase = _text(event.get("phase"))
+        doing = _ACTIONS.get(tool)
         if phase == "request":
+            if doing:
+                return f"Asked a person before letting the agent {doing}."
             return f"Asked a person before running {subject}."
         verdict = outcome(event)["code"]
         if verdict == "declined":
-            return f"A person said no to {subject} that Petasos asked about."
+            if doing:
+                return f"A person did not let the agent {doing}."
+            return f"A person said no to {subject}."
         if verdict == "approved":
-            return f"A person allowed {subject} that Petasos asked about."
-        return "Recorded the answer to an approval ask."
+            if doing:
+                return f"A person let the agent {doing}."
+            return f"A person allowed {subject}."
+        return "Recorded the answer to an approval request."
     if tool:
         return f"Recorded a Petasos event for {tool}."
     return "Recorded a Petasos event."
@@ -245,18 +297,15 @@ def _stop_reason(follower: Mapping[str, object] | None) -> str:
     if then == "tier3":
         return "because the conversation had already been stopped"
     if then == "block":
-        return "because warning signs earlier in this conversation had already added up"
-    return "because the call also matched another rule"
+        return "because warning signs in this conversation had added up"
+    return "because it also matched another rule"
 
 
 def selfmod_note(event: Mapping[str, object], follower: Mapping[str, object] | None) -> str:
     """What an attempt to change the guardrails means for the person reading it."""
     if outcome(event, follower)["code"] == "not_stopped":
-        return (
-            "Recording an attempt does not stop it. This event alone cannot show whether "
-            "the change took effect: check the current settings and the target below."
-        )
-    return "The attempt did not go through. It was stopped for the reason above."
+        return "The record cannot show whether the change took effect."
+    return "The attempt did not go through."
 
 
 def selfmod_target(event: Mapping[str, object]) -> str:
@@ -281,6 +330,31 @@ CAPABILITY_WORDS = MappingProxyType(
 # What the basic checks look for, in the same register.
 BASIC_CHECKS_COVER = "Hidden instructions, dangerous commands and disguised text"
 
+# What the checks list is, without a claim about whether they run now.
+CHECKS_NOTE = "Basic checks are built in. Extra checks add a model or a code checker."
+
+# What "on" covers. Hermes loads an enabled plugin into every process that
+# runs an agent for the profile (chat, gateway, scheduled jobs, the
+# dashboard's chat), except a safe-mode session; Petasos reads its settings
+# again on each tool call.
+PROTECTION_SCOPE = (
+    "Every agent Hermes starts from this profile, except in safe mode. "
+    "A saved change applies from the agent's next action."
+)
+
+# A check's operating state, as a person reads it: whether it is checking
+# the agent's actions now. Distinct from whether it is installed or turned on.
+OPERATING_WORDS = MappingProxyType(
+    {
+        "running": "Running",
+        "paused": "Paused",
+        "stopped": "Not running",
+        "failed": "Failed",
+        "not_installed": "Not installed",
+        "off": "Off",
+    }
+)
+
 # Where to run the command that adds a check. The command itself is served beside it.
 ADD_CHECK_WHERE = (
     "In a terminal on the computer where Hermes runs, run this command, then restart "
@@ -304,7 +378,7 @@ WHO_CAN_CHANGE = MappingProxyType(
 
 # Sentences about the record itself, served with each event.
 MATCHED_TEXT_NOTE = (
-    "Not kept in the record, because it can contain secrets. Try it shows what a rule matches."
+    "Not kept, because it can contain secrets. To test this rule, paste the text into Try it."
 )
 
 SIGNATURE_MEANING = MappingProxyType(

@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any
+
 from petasos.hermes.dashboard.catalog import preview_settings, read_settings
+
+if TYPE_CHECKING:
+    from petasos._types import Scanner
 
 _SECRETS = {"session_secret": "unset", "hash_key": "unset"}
 
@@ -132,3 +137,52 @@ def test_a_value_you_set_says_what_resetting_it_would_leave() -> None:
     rows = {row["path"]: row for row in body["settings"]}
     assert rows["tools.dangerous_posture"]["reset_to"] == {"value": "approve", "origin": "role"}
     assert "reset_to" not in rows["tools.exempt"]
+
+
+def _absent_prompt_guard() -> tuple[object, ...]:
+    from petasos.scanners.registry import REGISTRY, BuildContext, ScannerSpec
+
+    def absent(section: Any, context: BuildContext) -> Scanner:
+        raise ImportError("No module named 'transformers'")
+
+    spec = next(item for item in REGISTRY if item.id == "prompt_guard")
+    return (
+        ScannerSpec(
+            id=spec.id,
+            label=spec.label,
+            extra=spec.extra,
+            detects=spec.detects,
+            section=spec.section,
+            default_enabled=spec.default_enabled,
+            build=absent,
+            purpose=spec.purpose,
+        ),
+    )
+
+
+def test_making_a_missing_check_required_says_what_happens_before_save() -> None:
+    """The preview computes the consequence from the candidate's own fail mode."""
+    from petasos.hermes.dashboard.catalog import preview_settings
+
+    registry = _absent_prompt_guard()
+    required = {"overrides": {"scanners": {"prompt_guard": {"enabled": "on"}}}}
+    body = preview_settings({}, required, registry=registry)  # type: ignore[arg-type]
+    found = body["consequences"]["scanners.prompt_guard.enabled"]
+    assert found["holds"] is True
+    assert "blocked" in found["sentence"]
+    opened = {"overrides": {"fail_mode": "open", "scanners": {"prompt_guard": {"enabled": "on"}}}}
+    body = preview_settings({}, opened, registry=registry)  # type: ignore[arg-type]
+    found = body["consequences"]["scanners.prompt_guard.enabled"]
+    assert found["holds"] is False
+    assert "blocked" not in found["sentence"]
+    assert preview_settings({}, {}, registry=registry)["consequences"] == {}  # type: ignore[arg-type]
+
+
+def test_a_mapping_setting_names_the_two_halves_of_an_entry() -> None:
+    """The rows editor takes its field names from the schema, not from the tab."""
+    from petasos.hermes.dashboard.catalog import read_settings
+
+    rows = {row["path"]: row for row in read_settings({}, secrets={})["settings"]}
+    assert rows["tools.aliases"]["entry_labels"] == ["Other name", "Real tool"]
+    assert rows["rules.severity_overrides"]["entry_labels"] == ["Rule id", "Severity"]
+    assert rows["tools.enabled"]["entry_labels"] is None

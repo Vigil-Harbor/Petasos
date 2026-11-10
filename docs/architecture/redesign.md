@@ -1173,11 +1173,25 @@ again, and the file checks still run. `petasos doctor` does run the
 validator. The approval line reads this process, the same way the command
 does, so a dashboard process does not invent the gateway's unattended flags.
 
+Each scanner row also carries `operating`, `{code, label}`: whether the
+check is checking the agent's actions now (`running`, `paused`, `stopped`
+while Hermes is not running Petasos or the settings cannot be used,
+`failed`, `not_installed`, `off`). It is the one value every view draws a
+check's state from, so a paused status never shows a check running; a
+test fails if it does. `paused` is true when Hermes runs Petasos and its
+own switch is off. `scope` says what "on" covers (every agent Hermes
+starts from the profile, except in safe mode; a saved change applies from
+the next action), and `checks_note` describes the checks without claiming
+they run.
+
 `coverage` is read from the same scanner rows: `running` and `missing`
-(each `id`, `label`, `state`, and `covers`, what the check looks for in
+(each `id`, `label`, `name`, the registry's purpose name with the product
+after it, `state`, `operating`, and `covers`, what the check looks for in
 plain words from the registry's capabilities; a missing one also
 `recommended`, `reason`, `held`, true when a check that is turned on
-cannot run and tool calls wait, and `command`, the one command that adds
+cannot run, `consequence`, `{holds, title, sentence}`, what that does to
+tool calls computed by the doctor from `fail_mode` and
+`tools.dangerous_posture`, and `command`, the one command that adds
 it, or null), `add_where` (where to run that command), and `complete`, true
 only when every check runs. The tab says what is on and what is not from
 it, so "on" never reads as complete coverage, and names a missing check by

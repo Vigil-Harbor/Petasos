@@ -183,12 +183,15 @@ function PetasosTab() {
     else if (view === "tryit")
       body = h(
         TryIt,
-        Object.assign({ key: (route.params.example || "") + "|" + (route.params.settings || ""), onStage: stage }, shared)
+        Object.assign({ key: (route.params.example || "") + "|" + (route.params.settings || "") + "|" + (route.params.rule || ""), onStage: stage }, shared)
       );
     else if (view === "settings")
       body = h(
         Settings,
-        Object.assign({ key: (route.params.rule || "") + "|" + (route.params.review || ""), draft: draft, setDraft: draftState[1] }, shared)
+        Object.assign(
+          { key: (route.params.rule || "") + "|" + (route.params.review || "") + "|" + (route.params.changed || ""), draft: draft, setDraft: draftState[1] },
+          shared
+        )
       );
     else
       body = h(
@@ -204,7 +207,7 @@ function PetasosTab() {
       );
   }
 
-  var paused = status && status.switches && status.switches.petasos && status.switches.petasos.on === false;
+  var paused = Boolean(status && (status.paused || (status.switches && status.switches.petasos && status.switches.petasos.on === false)));
   var viewLabel = (VIEW_TABS.filter(function (tab) {
     return tab.value === view;
   })[0] || VIEW_TABS[0]).label;
@@ -227,7 +230,7 @@ function PetasosTab() {
             go(value);
           },
         }),
-        paused ? h(Status, { tone: "warning" }, "Paused") : null,
+        paused ? h(Status, { tone: "warning", state: "paused" }, "Paused") : null,
         dirty && view !== "settings"
           ? h(
               "button",
@@ -252,7 +255,7 @@ function PetasosTab() {
             title: "Protection is paused",
             action: h(Btn, { onClick: function () { save({ enabled: true }).catch(function () {}); }, disabled: locked }, "Resume"),
           },
-          "Tool calls go through unchecked. Each one is recorded."
+          "Actions run unchecked. Each one is recorded."
         )
       : null,
     h(
@@ -264,7 +267,7 @@ function PetasosTab() {
       open: pauseState[0],
       title: "Pause protection?",
       description:
-        "Until you resume, Petasos lets every tool call through without checking it. Each one is still recorded in Activity. Pausing applies from the agent's next tool call. Hermes keeps running the plugin.",
+        "Until you resume, the agent's actions run unchecked. Each one is still recorded in Activity. Applies from the agent's next action.",
       confirmLabel: "Pause",
       cancelLabel: "Keep protecting",
       destructive: true,

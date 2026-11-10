@@ -37,11 +37,12 @@ class PromptGuardConfig:
         label="Use PromptGuard",
         help=(
             "PromptGuard is an optional model that catches reworded hidden "
-            "instructions the basic checks miss."
+            "instructions the basic checks miss. Required makes it a failure when it "
+            "cannot run."
         ),
         choice_labels={
             "auto": "Use it when it is installed",
-            "on": "Always (report a problem if it is missing)",
+            "on": "Required",
             "off": "Never",
         },
     )
@@ -68,11 +69,12 @@ class PresidioConfig:
         label="Use Presidio",
         help=(
             "Presidio is an optional check that finds personal details such as names, "
-            "emails, phone numbers and card numbers."
+            "emails, phone numbers and card numbers. Required makes it a failure when it "
+            "cannot run."
         ),
         choice_labels={
             "auto": "Use it when it is installed",
-            "on": "Always (report a problem if it is missing)",
+            "on": "Required",
             "off": "Never",
         },
     )
@@ -142,11 +144,12 @@ class SemgrepConfig:
         label="Use Semgrep",
         help=(
             "Semgrep is an optional code checker that looks for risky code the agent "
-            "writes. It needs a separately installed engine, set below."
+            "writes. It needs a separately installed engine, set below. Required makes "
+            "it a failure when it cannot run."
         ),
         choice_labels={
             "auto": "Use it when it is installed",
-            "on": "Always (report a problem if it is missing)",
+            "on": "Required",
             "off": "Never",
         },
     )

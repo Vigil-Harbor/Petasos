@@ -15,6 +15,9 @@ from petasos.hermes.dashboard.words import (
     ADD_CHECK_WHERE,
     BASIC_CHECKS_COVER,
     CAPABILITY_WORDS,
+    CHECKS_NOTE,
+    OPERATING_WORDS,
+    PROTECTION_SCOPE,
     WHO_CAN_CHANGE,
 )
 from petasos.hermes.doctor import examine, report_payload
@@ -56,6 +59,14 @@ def status(
     scanners = detail.get("scanners")
     if not isinstance(scanners, list):
         scanners = []
+    loaded = hermes_flag is True and valid and not environment_off
+    paused = petasos_flag is False
+    scanners = [
+        dict(row, operating=operating(row, loaded=loaded, paused=paused))
+        if isinstance(row, dict)
+        else row
+        for row in scanners
+    ]
     role = detail.get("role")
     level = detail.get("level")
     secrets = detail.get("secrets")
@@ -71,6 +82,9 @@ def status(
             "valid": valid,
             "error": settings_error if isinstance(settings_error, dict) else None,
         },
+        paused=loaded and paused,
+        scope=PROTECTION_SCOPE,
+        checks_note=CHECKS_NOTE,
         scanners=scanners,
         coverage=coverage(scanners, list(report.suggestions), registry=registry),
         who_can_change=dict(WHO_CAN_CHANGE),
@@ -85,6 +99,31 @@ def status(
     )
     body["version"] = STATUS_VERSION
     return body
+
+
+def operating(row: dict[str, Any], *, loaded: bool, paused: bool) -> dict[str, str]:
+    """Whether one check is checking the agent's actions now, as ``{code, label}``.
+
+    This is the one value every view draws a check's state from. It is not
+    whether the check is installed or turned on: a working check is
+    ``paused`` while protection is paused, and ``stopped`` while Hermes is
+    not running Petasos or the saved settings cannot be used. A check that is
+    not installed, or turned off, says so whatever the switches are.
+    """
+    state = row.get("state")
+    if state == "not_installed":
+        code = "not_installed"
+    elif state == "off":
+        code = "off"
+    elif not loaded:
+        code = "stopped"
+    elif paused:
+        code = "paused"
+    elif state == "active":
+        code = "running"
+    else:
+        code = "failed"
+    return {"code": code, "label": OPERATING_WORDS[code]}
 
 
 def record_signing(secrets: dict[str, Any], home_label: str) -> dict[str, Any]:
@@ -123,7 +162,10 @@ def coverage(
     capabilities the registry lists, so a person reads what is missing before
     the product's name. ``held`` is true for a check that is turned on and
     cannot run: the doctor counts it as failed, and tool calls wait.
-    ``command``, when set, is the one command that adds the check, and
+    ``consequence`` is what happens to tool calls while a held check cannot
+    run, computed by the doctor from the fail mode and the dangerous-action
+    setting. ``name`` leads with what the check does and puts the product
+    after it. ``command``, when set, is the one command that adds the check, and
     ``add_where`` says where to run it. The front end says what is on and what
     is not from this, not from a guess.
     """
@@ -138,7 +180,9 @@ def coverage(
         entry = {
             "id": row.get("id"),
             "label": row.get("label"),
+            "name": _name(row),
             "state": row.get("state"),
+            "operating": row.get("operating"),
             "covers": _covers(row.get("id"), specs),
         }
         if row.get("state") == "active":
@@ -149,6 +193,7 @@ def coverage(
         fix = row.get("fix")
         entry["recommended"] = bool(named)
         entry["held"] = row.get("state") == "unavailable"
+        entry["consequence"] = row.get("consequence")
         entry["reason"] = row.get("reason")
         entry["command"] = (
             fix if isinstance(fix, str) and fix.startswith("petasos scanner add ") else None
@@ -160,6 +205,15 @@ def coverage(
         "missing": missing,
         "add_where": ADD_CHECK_WHERE,
     }
+
+
+def _name(row: dict[str, Any]) -> str:
+    """A check named by what it does, then its product: "Personal details check (Presidio)"."""
+    label = row.get("label")
+    purpose = row.get("purpose")
+    if not isinstance(purpose, str) or not purpose or purpose == label:
+        return label if isinstance(label, str) else ""
+    return f"{purpose} ({label})" if isinstance(label, str) and label else purpose
 
 
 def _covers(scanner_id: object, specs: dict[str, ScannerSpec]) -> str:

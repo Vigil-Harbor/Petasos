@@ -53,8 +53,9 @@ class RulesConfig:
         label="Rules with a different severity",
         help=(
             "Make a rule count as more or less serious. Low and info findings are "
-            "reported without blocking. Written as rule id and severity."
+            "reported without blocking."
         ),
+        entry_labels=("Rule id", "Severity"),
     )
     confidence_floor: float = setting(
         default=0.0,

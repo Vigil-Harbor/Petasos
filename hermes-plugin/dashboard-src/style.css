@@ -67,7 +67,6 @@
 }
 
 .petasos-detail:focus,
-.petasos-sheet:focus,
 .petasos-subhead:focus {
   outline: none;
 }
@@ -132,6 +131,28 @@
   color: var(--petasos-tertiary);
 }
 
+.petasos-dot {
+  color: var(--petasos-tertiary);
+}
+
+.petasos .petasos-faint {
+  color: var(--petasos-tertiary);
+}
+
+/* Form buttons (filled and outlined) in upper case, as Config and Plugins
+ * set them. Ghost buttons are page utilities and keep their case. */
+.petasos .petasos-btn-caps {
+  text-transform: uppercase;
+}
+
+/* A quiet button inside a line of text: Undo, Reset, Show every outcome. */
+.petasos .petasos-btn-compact {
+  height: auto;
+  min-height: 0;
+  padding: 0.1rem 0.35rem;
+  vertical-align: baseline;
+}
+
 .petasos-strong,
 .petasos strong {
   font-weight: 700;
@@ -150,8 +171,8 @@
   text-align: center;
 }
 
-/* Links are underlined everywhere, so they read as links in a theme that
- * draws all text in one colour. */
+/* Underlined text navigates, and nothing else is underlined: an action
+ * that changes or runs something is one of Hermes's buttons. */
 .petasos-link,
 .petasos a.petasos-link {
   background: none;
@@ -253,9 +274,7 @@
   color: var(--petasos-secondary);
   font: inherit;
   font-size: 0.875rem;
-  text-decoration: underline;
-  text-decoration-thickness: 1px;
-  text-underline-offset: 3px;
+  font-weight: 500;
   cursor: pointer;
 }
 
@@ -267,7 +286,8 @@
   transition: transform 120ms;
 }
 
-.petasos-disclosure-open > .petasos-disclosure-toggle .petasos-disclosure-chevron {
+.petasos-disclosure-open > .petasos-disclosure-toggle .petasos-disclosure-chevron,
+.petasos-chevron-open {
   transform: rotate(90deg);
 }
 
@@ -461,6 +481,15 @@
   min-width: 0;
 }
 
+/* A panel title with its state badge beside it, as Plugins sets a badge
+ * beside a name. */
+.petasos-panel-titlerow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+}
+
 .petasos-panel-desc {
   font-size: 0.875rem;
   color: var(--petasos-secondary);
@@ -506,21 +535,25 @@
 
 /* ---- Status: Hermes's Badge, legible -------------------------------- */
 
-/* Hermes's Badge already sets the face, case, border, fill and tracking.
- * These rules raise its size a step and tighten its tracking a little so
- * an outcome reads at a glance; light themes darken the ink. */
+/* Hermes's Badge container (shape, border, tint) with the words in the
+ * body face, medium weight, at the size of the text around them. Hermes's
+ * condensed face stays on counts (.petasos-tag). Light themes darken the
+ * ink. */
 .petasos .petasos-status {
-  font-size: 1.05rem;
-  letter-spacing: 0.1em;
-  padding: 0.28rem 0.5rem 0.24rem;
-  line-height: 1;
+  font-family: var(--theme-font-sans);
+  font-size: 0.875rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  text-transform: none;
+  padding: 0.22rem 0.55rem;
+  line-height: 1.2;
   white-space: nowrap;
   vertical-align: middle;
 }
 
 .petasos .petasos-status-large {
-  font-size: 1.2rem;
-  padding: 0.32rem 0.6rem 0.28rem;
+  font-size: 0.9375rem;
+  padding: 0.28rem 0.65rem;
 }
 
 .petasos .petasos-status-success {
@@ -567,62 +600,17 @@
   color: var(--petasos-tertiary);
 }
 
-/* Severity: a quiet word with a four-step meter beside the outcome. */
+/* Severity: a word in plain text beside the outcome. Critical is set
+ * heavier than High; there is no second coloured shape. */
 .petasos-sev {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   color: var(--petasos-secondary);
   white-space: nowrap;
 }
 
-.petasos-sev-meter {
-  display: inline-flex;
-  align-items: flex-end;
-  gap: 2px;
-  height: 0.75rem;
-}
-
-.petasos-sev-bar {
-  width: 3px;
-  background: color-mix(in srgb, var(--midground) 22%, transparent);
-}
-
-.petasos-sev-bar:nth-child(1) {
-  height: 35%;
-}
-
-.petasos-sev-bar:nth-child(2) {
-  height: 55%;
-}
-
-.petasos-sev-bar:nth-child(3) {
-  height: 78%;
-}
-
-.petasos-sev-bar:nth-child(4) {
-  height: 100%;
-}
-
-.petasos-sev-bar-on {
-  background: currentColor;
-}
-
-.petasos-sev-destructive .petasos-sev-meter {
-  color: color-mix(in srgb, var(--color-destructive) 60%, white);
-}
-
-.petasos-sev-warning .petasos-sev-meter {
-  color: var(--color-warning);
-}
-
-.petasos-light .petasos-sev-destructive .petasos-sev-meter {
-  color: color-mix(in srgb, var(--color-destructive) 75%, black);
-}
-
-.petasos-light .petasos-sev-warning .petasos-sev-meter {
-  color: color-mix(in srgb, var(--color-warning) 55%, black);
+.petasos-sev-high {
+  color: var(--petasos-ink);
+  font-weight: 500;
 }
 
 .petasos-sev-critical {
@@ -752,8 +740,8 @@
 
 .petasos-empty-body {
   max-width: 30rem;
-  font-size: 0.8125rem;
-  color: var(--petasos-tertiary);
+  font-size: 0.875rem;
+  color: var(--petasos-secondary);
 }
 
 .petasos-empty-action {
@@ -772,12 +760,12 @@
 
 .petasos-kv dt {
   font-family: var(--font-mondwest);
-  font-size: 0.78rem;
+  font-size: 0.8rem;
   font-weight: 400;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--petasos-tertiary);
-  padding-top: 0.15rem;
+  color: var(--petasos-secondary);
+  padding-top: 0.12rem;
 }
 
 .petasos-kv dd {
@@ -796,39 +784,12 @@
 
 /* ---- Overview: status, with the two choices inside ------------------ */
 
-.petasos-verdict {
-  display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
-  padding: 1.1rem 1.2rem 1.2rem;
-  border: 1px solid var(--color-border);
-  background: var(--color-card);
-}
-
-.petasos-verdict-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1rem;
-}
-
-.petasos-verdict-titles {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-  min-width: 0;
-}
-
+/* The status panel's first line: the state, in one sentence. */
 .petasos-verdict-title {
   margin: 0;
-  font-size: 1.125rem;
-  font-weight: 700;
-  line-height: 1.35;
-}
-
-.petasos-verdict-action {
-  flex-shrink: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.4;
 }
 
 .petasos-verdict-reason {
@@ -855,8 +816,8 @@
   display: flex;
   flex-direction: column;
   gap: 0.9rem;
-  margin-top: 0.5rem;
-  padding-top: 1rem;
+  margin-top: 0.25rem;
+  padding-top: 0.9rem;
   border-top: 1px solid var(--color-border);
 }
 
@@ -998,9 +959,19 @@
   font-weight: 700;
 }
 
+/* The line under a control: state and source, then Reset or Undo, which
+ * stay on the line. */
 .petasos-provenance {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 0.3rem;
   font-size: 0.8125rem;
-  color: var(--petasos-tertiary);
+  color: var(--petasos-secondary);
+}
+
+.petasos .petasos-provenance .petasos-btn-compact {
+  font-size: 0.75rem;
 }
 
 .petasos-key {
@@ -1010,26 +981,31 @@
 
 /* ---- Overview: last 24 hours, as System lays out its figures -------- */
 
+/* The figures, as System lays out its own: a small label above, the value
+ * beneath at a size that reads as the value. Each cell stretches to its
+ * row, and the value sits at the cell's foot, so values in a row stay on
+ * one line when a label wraps. */
 .petasos-stats {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 0.75rem 1.25rem;
+  gap: 0.9rem 1.5rem;
   margin: 0;
 }
 
 .petasos-stat {
   display: flex;
   flex-direction: column;
-  gap: 0.2rem;
+  justify-content: space-between;
+  gap: 0.3rem;
   min-width: 0;
 }
 
 .petasos-stat dt {
   font-size: 0.75rem;
   letter-spacing: 0.06em;
-  line-height: 1.3;
+  line-height: 1.35;
   text-transform: uppercase;
-  color: var(--petasos-tertiary);
+  color: var(--petasos-secondary);
 }
 
 .petasos-stat dd {
@@ -1042,14 +1018,15 @@
   padding: 0;
   color: inherit;
   font: inherit;
-  font-size: 1rem;
+  font-size: 1.625rem;
   font-weight: 600;
-  line-height: 1.3;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
   cursor: pointer;
   text-decoration: underline;
   text-decoration-color: var(--petasos-line);
   text-decoration-thickness: 1px;
-  text-underline-offset: 4px;
+  text-underline-offset: 5px;
 }
 
 .petasos-stat-value:hover {
@@ -1064,6 +1041,18 @@
 .petasos-light .petasos-stat-alarm .petasos-stat-value,
 .petasos-light .petasos-stat-alarm dt {
   color: color-mix(in srgb, var(--color-destructive) 70%, black);
+}
+
+/* Setting changes that were not stopped: what that means, and the route. */
+.petasos-alarm-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.6rem 1rem;
+  padding: 0.65rem 0 0.1rem;
+  border-top: 1px solid var(--color-border);
+  font-size: 0.9rem;
 }
 
 .petasos-mini-list {
@@ -1096,7 +1085,7 @@
 
 .petasos-mini-when {
   font-size: 0.8125rem;
-  color: var(--petasos-tertiary);
+  color: var(--petasos-secondary);
 }
 
 /* A safety sentence wraps; it is never cut short. */
@@ -1161,7 +1150,7 @@
 .petasos-scanner-product {
   font-weight: 400;
   font-size: 0.8125rem;
-  color: var(--petasos-tertiary);
+  color: var(--petasos-secondary);
 }
 
 /* ---- Activity -------------------------------------------------------- */
@@ -1191,7 +1180,7 @@
 }
 
 .petasos-filter-label {
-  color: var(--petasos-tertiary);
+  color: var(--petasos-secondary);
 }
 
 .petasos-search {
@@ -1365,6 +1354,18 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+/* Try it: the input beside a wider result; the checks run full width
+ * beneath, so neither column is left half empty. */
+.petasos-split-try {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr);
+}
+
+.petasos-trial-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
 .petasos-split-main {
   min-width: 0;
 }
@@ -1385,11 +1386,11 @@
   padding: 0.6rem 0.75rem;
   border-bottom: 1px solid var(--color-border);
   font-family: var(--font-mondwest);
-  font-size: 0.75rem;
+  font-size: 0.78rem;
   font-weight: 400;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--petasos-tertiary);
+  color: var(--petasos-secondary);
 }
 
 .petasos-events {
@@ -1414,7 +1415,7 @@
 .petasos-event {
   position: relative;
   width: 100%;
-  padding: 0.65rem 0.75rem;
+  padding: 0.5rem 0.75rem;
   border: 0;
   background: none;
   color: inherit;
@@ -1464,9 +1465,9 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.4rem;
   font-size: 0.8125rem;
-  color: var(--petasos-tertiary);
+  color: var(--petasos-secondary);
 }
 
 .petasos-event-meta .petasos-mono {
@@ -1478,7 +1479,7 @@
   display: flex;
   align-items: center;
   gap: 1rem;
-  padding: 0 0.75rem 0.6rem 10.25rem;
+  padding: 0 0.75rem 0.5rem 10.25rem;
   font-size: 0.8125rem;
   color: var(--petasos-secondary);
 }
@@ -1614,13 +1615,13 @@
   overflow-wrap: anywhere;
 }
 
+/* The matched text: a tinted, outlined span. Not underlined, because
+ * underlined text only navigates. */
 .petasos-mark {
-  background: color-mix(in srgb, var(--color-destructive) 18%, transparent);
+  background: color-mix(in srgb, var(--color-destructive) 24%, transparent);
   color: inherit;
-  text-decoration: underline;
-  text-decoration-color: var(--color-destructive);
-  text-decoration-thickness: 2px;
-  text-underline-offset: 3px;
+  outline: 1px solid color-mix(in srgb, var(--color-destructive) 65%, transparent);
+  outline-offset: 0;
 }
 
 .petasos-mark-n {
@@ -1707,25 +1708,26 @@
   font-size: 0.875rem;
 }
 
+/* One row per rule: its sentence and id on the left, the action in a fixed
+ * column on the right. */
 .petasos-quieted li {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.25rem 0.75rem;
-  align-items: baseline;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.25rem 1rem;
+  align-items: center;
+  padding: 0.45rem 0;
+  border-bottom: 1px solid var(--color-border);
 }
 
-.petasos-advanced summary {
-  cursor: pointer;
-  font-size: 0.875rem;
-  color: var(--petasos-secondary);
-  text-decoration: underline;
-  text-underline-offset: 3px;
+.petasos-quieted li:first-child {
+  border-top: 1px solid var(--color-border);
 }
 
-.petasos-advanced[open] {
+.petasos-quieted-name {
   display: flex;
   flex-direction: column;
-  gap: 0.45rem;
+  gap: 0.1rem;
+  min-width: 0;
 }
 
 /* ---- Settings: Config's layout -------------------------------------- */
@@ -1749,10 +1751,12 @@
   margin-left: auto;
 }
 
+/* The count of staged changes opens the list beneath: a disclosure, so it
+ * is a quiet toggle with a chevron, not underlined. */
 .petasos-changecount {
   display: inline-flex;
   align-items: center;
-  gap: 0.25rem;
+  gap: 0.3rem;
   padding: 0.2rem 0.1rem;
   border: 0;
   background: none;
@@ -1760,9 +1764,6 @@
   font: inherit;
   font-size: 0.875rem;
   font-weight: 600;
-  text-decoration: underline;
-  text-decoration-thickness: 1px;
-  text-underline-offset: 3px;
   cursor: pointer;
 }
 
@@ -1773,39 +1774,6 @@
 
 .petasos-changecount[aria-expanded="true"] .petasos-changecount-chevron {
   transform: rotate(-90deg);
-}
-
-/* The change list sits over the page under the toolbar, so nothing below
- * moves when it opens. */
-.petasos-sheet {
-  position: absolute;
-  top: calc(100% + 0.4rem);
-  right: 0;
-  z-index: 30;
-  display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
-  width: min(34rem, 100%);
-  max-height: 26rem;
-  overflow-y: auto;
-  padding: 0.85rem 1rem 1rem;
-  border: 1px solid var(--petasos-control-line);
-  background: var(--background-base, var(--background));
-  box-shadow: 0 10px 28px color-mix(in srgb, black 35%, transparent);
-}
-
-.petasos-sheet-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.petasos-sheet-title {
-  font-family: var(--font-mondwest);
-  font-size: 0.8rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--petasos-secondary);
 }
 
 .petasos-settings-body {
@@ -1918,9 +1886,6 @@
   scroll-margin: 1rem;
 }
 
-.petasos-field + .petasos-field {
-  border-top: 1px solid color-mix(in srgb, var(--midground-base, var(--midground)) 7%, transparent);
-}
 
 .petasos-field-head {
   display: flex;
@@ -1979,11 +1944,33 @@
   border-color: var(--color-destructive) !important;
 }
 
-.petasos-field-focused {
+/* Background emphasis only on the field being edited or in error. */
+.petasos-field-staged,
+.petasos-field-invalid {
   background: color-mix(in srgb, var(--midground) 5%, transparent);
   margin: 0 -0.6rem;
   padding-left: 0.6rem;
   padding-right: 0.6rem;
+}
+
+/* What a Required check that cannot run does, before Save. */
+.petasos-consequence {
+  font-size: 0.875rem;
+  padding-left: 0.6rem;
+  border-left: 2px solid var(--color-warning);
+}
+
+.petasos-maprows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.petasos-maprow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 5.5rem;
+  gap: 0.5rem;
+  align-items: center;
 }
 
 .petasos-rule-helper .petasos-kv {
@@ -1995,6 +1982,7 @@
 @media (max-width: 1100px) {
   .petasos-split-open,
   .petasos-split-even,
+  .petasos-split-try,
   .petasos-grid-3 {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -2005,7 +1993,7 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .petasos-stats {
-    grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 

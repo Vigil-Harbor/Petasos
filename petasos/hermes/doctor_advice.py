@@ -23,6 +23,7 @@ _SCANNER_JOB = {
     "semgrep": "risky code",
 }
 _PII_ROLES = frozenset({"support", "admin"})
+_HOST_ONLY = "semgrep.host_lifecycle_unavailable"
 
 
 def _add_command(scanner_id: str) -> str:
@@ -76,16 +77,24 @@ def scanner_report(
             none,
             (_syntactic_row(), row),
         )
+    paused = resolved.settings.enabled is False
+    consequence = held_consequence(
+        resolved.config.fail_mode, resolved.config.tools.dangerous_posture
+    )
     checks = [
         Check(
             id="scanner_builtin",
             status="ok",
-            summary=("The built-in text checks are running. They look for hidden instructions."),
+            summary=(
+                "The built-in text checks are paused, with the rest of protection."
+                if paused
+                else "The built-in text checks are running. They look for hidden instructions."
+            ),
         )
     ]
     rows: list[dict[str, object]] = [_syntactic_row()]
     for status in composition.statuses:
-        kind, summary, meaning, step = _scanner_line(status)
+        kind, summary, meaning, step = _scanner_line(status, consequence, paused=paused)
         checks.append(
             Check(
                 id=f"scanner_{status.id}",
@@ -95,8 +104,46 @@ def scanner_report(
                 next_step=step,
             )
         )
-        rows.append(_scanner_row(status))
+        rows.append(_scanner_row(status, consequence))
     return tuple(checks), hermes_suggestions(composition, resolved.settings.role), tuple(rows)
+
+
+def held_consequence(fail_mode: object, posture: object) -> dict[str, object]:
+    """What happens to tool calls while a required check cannot run.
+
+    Computed from the two settings that decide it, so the sentence is true
+    under each value. A required check that cannot run errors on every scan.
+    Under ``open`` that error does not make a scan unsafe, so nothing is held.
+    Otherwise a tool call that can change things is blocked, or handed to a
+    person when dangerous actions are set to ask; a read-only tool call runs.
+    An unrecognised fail mode is treated as ``degraded``, as the engine does.
+    """
+    if fail_mode == "open":
+        return {
+            "holds": False,
+            "title": "A required check cannot run",
+            "sentence": (
+                "Tool calls still run without it, because a check that breaks is set "
+                "to let text through."
+            ),
+        }
+    if posture == "approve":
+        return {
+            "holds": True,
+            "title": "Tool calls that change things wait for a person",
+            "sentence": (
+                "Until it is added or turned off, a person is asked before a tool call "
+                "that can change things runs. Read-only tool calls still run."
+            ),
+        }
+    return {
+        "holds": True,
+        "title": "Tool calls that change things are blocked",
+        "sentence": (
+            "Until it is added or turned off, tool calls that can change things are "
+            "blocked. Read-only tool calls still run."
+        ),
+    }
 
 
 def approval_check(resolved: Resolved | None, *, hermes_available: bool) -> Check:
@@ -210,8 +257,17 @@ def _capability_active(composition: Composition, capability: str) -> bool:
     )
 
 
-def _scanner_line(status: ScannerStatus) -> tuple[Status, str, str, str]:
+def _scanner_line(
+    status: ScannerStatus, consequence: dict[str, object], *, paused: bool = False
+) -> tuple[Status, str, str, str]:
     job = _SCANNER_JOB.get(status.id, status.label)
+    if status.state == "active" and paused:
+        return (
+            "ok",
+            f"{status.label} is paused, with the rest of protection. It checks for {job}.",
+            "",
+            "",
+        )
     if status.state == "active":
         return "ok", f"{status.label} is running. It checks for {job}.", "", ""
     if status.state == "off":
@@ -227,8 +283,7 @@ def _scanner_line(status: ScannerStatus) -> tuple[Status, str, str, str]:
         return (
             "warn",
             f"{status.label} is turned on but not installed.",
-            f"It would check for {job}. A check that is turned on and cannot run "
-            "counts as failed, so tool calls are held back until it is added or turned off.",
+            f"It would check for {job}. It is required and cannot run. {consequence['sentence']}",
             f"Add it: {_add_command(status.id)}. Or turn it off in Settings.",
         )
     reason = status.reason or "no reason was reported"
@@ -244,6 +299,7 @@ def _syntactic_row() -> dict[str, object]:
     return {
         "id": "syntactic",
         "label": "Basic checks",
+        "purpose": "Basic checks",
         "state": "active",
         "reason": None,
         "fix": None,
@@ -251,14 +307,19 @@ def _syntactic_row() -> dict[str, object]:
     }
 
 
-def _scanner_row(status: ScannerStatus) -> dict[str, object]:
+def _scanner_row(status: ScannerStatus, consequence: dict[str, object]) -> dict[str, object]:
+    # A check this process cannot run only because Hermes owns it here says
+    # nothing about the agent, so it carries no consequence.
+    held = status.state == "unavailable" and status.reason != _HOST_ONLY
     return {
         "id": status.id,
         "label": status.label,
+        "purpose": status.purpose,
         "state": status.state,
         "reason": _hermes_reason(status),
         "fix": _hermes_fix(status),
         "extra": status.extra,
+        "consequence": dict(consequence) if held else None,
     }
 
 
@@ -280,7 +341,7 @@ def _hermes_fix(status: ScannerStatus) -> str | None:
     text = fix_for(status)
     if text is None:
         return None
-    if status.reason == "semgrep.host_lifecycle_unavailable":
+    if status.reason == _HOST_ONLY:
         return (
             "Semgrep needs Hermes to run it, and this process cannot. "
             "Turn Semgrep off, or use it where Hermes is running the agent."

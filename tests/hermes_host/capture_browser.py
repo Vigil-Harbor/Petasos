@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -184,6 +185,7 @@ def check(request: dict[str, Any]) -> dict[str, Any]:
                 "head": text[:160],
             }
             report["focus"][view] = focus_walk(page)
+        report["paused"] = paused_states(page, base)
         report["errors"] = watch.errors
         report["failed"] = watch.failed
         browser.close()
@@ -219,16 +221,58 @@ def _scroll_to(page: Any, selector: str, where: str = "start") -> None:
 
 
 def _tab_to(page: Any, name: str, limit: int = 80) -> bool:
-    """Move keyboard focus with Tab until it rests on a control named ``name``."""
+    """Move keyboard focus with Tab until it rests on a control named ``name``.
+
+    Form buttons are set in upper case, so the rendered text is compared
+    without regard to case.
+    """
     page.locator("body").focus()
     for _ in range(limit):
         page.keyboard.press("Tab")
         label = page.evaluate(
             "() => (document.activeElement && (document.activeElement.innerText || '')).trim()"
         )
-        if label == name:
+        if label.lower() == name.lower():
             return True
     return False
+
+
+def _named(text: str) -> Any:
+    """A whole, case-blind accessible name: form buttons render in upper case."""
+    return re.compile("^" + re.escape(text) + "$", re.IGNORECASE)
+
+
+_PROTECTED = ".petasos-verdict [data-petasos-state=protected]"
+
+
+_STATES = """() => Array.from(document.querySelectorAll('.petasos-view [data-petasos-state]'))
+  .filter((el) => el.closest('.petasos-scanners, .petasos-took-part'))
+  .map((el) => el.getAttribute('data-petasos-state'))"""
+
+
+def paused_states(page: Any, base: str) -> dict[str, Any]:
+    """Pause protection through the tab, read every check's state, then resume.
+
+    Returns the state codes the Overview's Checks panel and Try it's list of
+    checks show while paused, and the sentences on the Overview.
+    """
+    _open(page, base, "overview")
+    page.locator(_PROTECTED).first.wait_for(timeout=20000)
+    page.get_by_role("button", name=_named("Pause protection")).click()
+    page.get_by_role("alertdialog").get_by_role("button", name=_named("Pause")).click()
+    page.get_by_text("Protection is paused").first.wait_for(timeout=20000)
+    page.locator(".petasos-scanners [data-petasos-state]").first.wait_for(timeout=15000)
+    _settle(page, 600)
+    found: dict[str, Any] = {"overview": page.evaluate(_STATES)}
+    found["overview_text"] = page.locator(".petasos-view").inner_text()
+    _open(page, base, "tryit", "?example=notes")
+    page.locator(".petasos-took-part [data-petasos-state]").first.wait_for(timeout=20000)
+    _settle(page, 600)
+    found["tryit"] = page.evaluate(_STATES)
+    _open(page, base, "overview")
+    page.get_by_role("button", name=_named("Resume protection")).click()
+    page.locator(_PROTECTED).first.wait_for(timeout=20000)
+    return found
 
 
 def _capture_theme(
@@ -244,7 +288,7 @@ def _capture_theme(
 
     # 01 Overview, protected: status and coverage, the last day, then setup.
     _open(page, demo, "overview")
-    page.get_by_text("Protection on").first.wait_for(timeout=20000)
+    page.locator(_PROTECTED).first.wait_for(timeout=20000)
     page.locator(".petasos-stat").first.wait_for()
     _settle(page, 1500)
     _shot(page, out, f"{prefix}-01-overview-protected", shots)
@@ -255,22 +299,30 @@ def _capture_theme(
     _scroll_to(page, ".petasos-topbar")
     _settle(page)
     _shot(page, out, f"{prefix}-03-overview-choice-preview", shots)
-    page.locator(".petasos-preview").get_by_role("button", name="Cancel").click()
+    page.locator(".petasos-preview").get_by_role("button", name=_named("Cancel")).click()
     page.wait_for_timeout(300)
 
-    # 02 Paused, through the tab's own pause and its confirmation.
+    # 02 Paused, through the tab's own pause and its confirmation. The page
+    # is taller than the window, so this one picture is taken at the height
+    # that brings the Checks panel into view, to show its state.
     _scroll_to(page, ".petasos-topbar")
-    page.get_by_role("button", name="Pause protection").click()
-    page.get_by_role("alertdialog").get_by_role("button", name="Pause").click()
+    page.get_by_role("button", name=_named("Pause protection")).click()
+    page.get_by_role("alertdialog").get_by_role("button", name=_named("Pause")).click()
     page.get_by_text("Protection is paused").first.wait_for(timeout=20000)
+    page.locator(".petasos-scanners [data-petasos-state=paused]").first.wait_for(timeout=20000)
     _settle(page, 1500)
+    bottom = page.locator("#petasos-checks").evaluate("(e) => e.getBoundingClientRect().bottom")
+    tall = max(HEIGHT, int(bottom) + 24)
+    page.set_viewport_size({"width": WIDTH, "height": tall})
+    _settle(page, 600)
     _shot(page, out, f"{prefix}-02-overview-paused", shots)
-    page.get_by_role("button", name="Resume protection").click()
-    page.get_by_text("Protection on").first.wait_for(timeout=20000)
+    page.set_viewport_size({"width": WIDTH, "height": HEIGHT})
+    page.get_by_role("button", name=_named("Resume protection")).click()
+    page.locator(_PROTECTED).first.wait_for(timeout=20000)
 
     # x5 Keyboard focus on a control, reached with Tab.
     _open(page, demo, "overview")
-    page.get_by_text("Protection on").first.wait_for(timeout=20000)
+    page.locator(_PROTECTED).first.wait_for(timeout=20000)
     _settle(page, 800)
     if _tab_to(page, "Pause protection"):
         _unscroll(page)
@@ -323,7 +375,7 @@ def _capture_theme(
     page.locator(".petasos-finding").first.wait_for(timeout=20000)
     # Lifting one command rule can leave another underneath; lift each in turn.
     for _attempt in range(3):
-        page.get_by_role("button", name="Try without this rule").first.click()
+        page.get_by_role("button", name=_named("Try without this rule")).first.click()
         page.locator(".petasos-compare").wait_for(timeout=20000)
         page.wait_for_load_state("networkidle")
         page.wait_for_timeout(600)
@@ -351,7 +403,7 @@ def _capture_theme(
     _settle(page)
     _shot(page, out, f"{prefix}-x1-settings-review", shots)
     page.locator(".petasos-sheet").get_by_role("button", name="Close the list of changes").click()
-    page.get_by_role("button", name="Discard").click()
+    page.get_by_role("button", name=re.compile("^Discard all", re.IGNORECASE)).click()
 
     # 10 Settings: an invalid value explained at the field.
     _open(page, demo, "settings", "?path=escalation.tier3")
@@ -360,14 +412,15 @@ def _capture_theme(
     _scroll_to(page, "#petasos-row-escalation\\.tier3", "center")
     _settle(page)
     _shot(page, out, f"{prefix}-10-settings-error", shots)
-    page.get_by_role("button", name="Discard").click()
+    page.get_by_role("button", name=re.compile("^Discard all", re.IGNORECASE)).click()
 
     # x2 A save that needs a restart: PromptGuard switched to always on.
     _open(page, demo, "settings", "?path=scanners.prompt_guard.enabled")
     page.locator("#petasos-field-scanners-prompt_guard-enabled").click()
-    page.get_by_role("option", name="Always (report a problem if it is missing)").click()
+    page.get_by_role("option", name="Required").click()
     page.get_by_text("1 unsaved change").first.wait_for(timeout=10000)
-    page.locator(".petasos-savebox").get_by_role("button", name="Save", exact=True).click()
+    page.locator(".petasos-consequence").first.wait_for(timeout=10000)
+    page.locator(".petasos-savebox").get_by_role("button", name=_named("Save")).click()
     page.get_by_text("Saved at").first.wait_for(timeout=15000)
     _scroll_to(page, ".petasos-topbar")
     _settle(page)
@@ -383,9 +436,9 @@ def _capture_theme(
     # Put the demo home back: reset that one setting through the tab.
     _open(page, demo, "settings", "?path=scanners.prompt_guard.enabled")
     page.locator("#petasos-row-scanners\\.prompt_guard\\.enabled").get_by_role(
-        "button", name="Reset to default"
+        "button", name=re.compile("^Reset ", re.IGNORECASE)
     ).click()
-    page.get_by_role("alertdialog").get_by_role("button", name="Reset").click()
+    page.get_by_role("alertdialog").get_by_role("button", name=_named("Reset")).click()
     page.get_by_text("Saved at").first.wait_for(timeout=15000)
 
     # 06 Activity on a home with no record yet.
@@ -401,7 +454,7 @@ def _capture_theme(
     if prefix == "teal":
         page.set_viewport_size({"width": 900, "height": HEIGHT})
         _open(page, demo, "overview")
-        page.get_by_text("Protection on").first.wait_for(timeout=20000)
+        page.locator(_PROTECTED).first.wait_for(timeout=20000)
         _scroll_to(page, ".petasos-topbar")
         _settle(page, 1200)
         _shot(page, out, "11-overview-narrow", shots)

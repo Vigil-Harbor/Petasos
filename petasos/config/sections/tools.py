@@ -117,8 +117,9 @@ class ToolsConfig:
         label="Other names for tools",
         help=(
             "When a tool is reachable under another name, map that name to the real "
-            "tool so it is checked the same way. Written as other name and real name."
+            "tool so it is checked the same way."
         ),
+        entry_labels=("Other name", "Real tool"),
     )
     delegate_names: tuple[str, ...] = setting(
         default=("delegate_task",),

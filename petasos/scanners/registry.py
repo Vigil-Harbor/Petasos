@@ -121,6 +121,8 @@ class ScannerSpec:
     ``id`` equals the scanner's ``name`` and the attribute under
     ``config.scanners``. ``build`` receives that section and the context.
     It runs only when the section's ``enabled`` value is ``auto`` or ``on``.
+    ``purpose`` names the check by what it does, for a reader who does not
+    know the product; ``label`` is the product's name.
     """
 
     id: str
@@ -130,6 +132,7 @@ class ScannerSpec:
     section: str
     default_enabled: Enabled
     build: Callable[[Any, BuildContext], Scanner]
+    purpose: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -144,7 +147,7 @@ class ScannerStatus:
     ``missing`` is true when the backend reported itself absent: its package
     is not installed, or its model has not been downloaded. It tells a
     required scanner that is absent from one that is present and broken:
-    both are ``unavailable``.
+    both are ``unavailable``. ``purpose`` is copied from the spec.
     """
 
     id: str
@@ -154,6 +157,7 @@ class ScannerStatus:
     detects: frozenset[Capability]
     label: str
     missing: bool = False
+    purpose: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -197,6 +201,7 @@ def _status(
         detects=spec.detects,
         label=spec.label,
         missing=missing,
+        purpose=spec.purpose,
     )
 
 
@@ -337,6 +342,7 @@ REGISTRY: tuple[ScannerSpec, ...] = (
         section="presidio",
         default_enabled="auto",
         build=_build_presidio,
+        purpose="Personal details check",
     ),
     ScannerSpec(
         id="prompt_guard",
@@ -346,6 +352,7 @@ REGISTRY: tuple[ScannerSpec, ...] = (
         section="prompt_guard",
         default_enabled="auto",
         build=_build_prompt_guard,
+        purpose="Reworded instructions check",
     ),
     ScannerSpec(
         id="semgrep",
@@ -355,6 +362,7 @@ REGISTRY: tuple[ScannerSpec, ...] = (
         section="semgrep",
         default_enabled="off",
         build=_build_semgrep,
+        purpose="Risky code check",
     ),
 )
 

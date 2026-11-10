@@ -16,7 +16,7 @@ The browser lives in the sandbox, not in this repository's environment:
 Then:
 
     python tests/hermes_host/capture_round.py --sandbox <sandbox> \\
-        --out .ux-reference/rounds/round-03
+        --out .ux-reference/rounds/round-04
 """
 
 from __future__ import annotations
@@ -41,65 +41,80 @@ BROWSER = Path(__file__).resolve().parent / "capture_browser.py"
 
 DESCRIPTIONS = {
     "01-overview-protected": (
-        "Overview with protection on: the status names what runs (basic checks) and what "
-        "does not, by what each extra check looks for; the job and strictness controls sit "
-        "in the same panel, each with its selected option in one line; then the last 24 "
-        "hours with repeats grouped."
+        "Overview with protection on: a Protection panel with an On badge in its header and "
+        "Pause protection at the header's end; one line for the state, then compact rows for "
+        "what protection covers, what runs and what does not (each check named by what it "
+        "does, product after it); the job and strictness choices beneath. Then the last 24 "
+        "hours: figures with labels above the values, one setting change that was not "
+        "stopped with a button to the changed settings, and recent events with repeats grouped."
     ),
     "02-overview-paused": (
-        "Overview after Pause protection was confirmed: the paused status, the Resume "
-        "button, which checks are suspended and that they resume when protection is back "
-        "on, and a Paused badge beside the tabs."
+        "Overview after Pause protection was confirmed, taken taller than the window (1440 by "
+        "the height that reaches the Checks panel): the Paused badge beside the tabs and in "
+        "the Protection header, Resume protection, which checks are paused; the Checks panel "
+        "shows Basic checks as Paused and the extra checks as Not installed or Off."
     ),
     "03-overview-choice-preview": (
         "The job switched to Research but not applied: the new job's description under the "
-        "control, and an inset panel with the usual strictness for it and what that does, "
-        "when the change applies, the settings it changes folded away, and Apply."
+        "control, and a panel saying when the change applies, the settings it changes folded "
+        "away, what Relaxed strictness trades, and buttons: Apply, Apply Research with "
+        "Relaxed, Try it first, Cancel."
     ),
     "04-activity-list": (
-        "Activity over all time: range, search and filters on the page; the count of events "
-        "and blocked tool calls; one sentence per event with date, tool, conversation, a "
-        "quiet severity mark and an outcome badge; nine repeats grouped into one row."
+        "Activity over all time: range, search and filters; the count of events and blocked "
+        "tool calls with the time zone named once; one sentence per event saying what the "
+        "agent tried to do, with the tool and conversation on one line beneath, a 24-hour "
+        "time, severity as a word and an outcome badge; nine repeats grouped into one row."
     ),
     "05-activity-detail": (
         "One event opened: its row stays marked in the list beside the detail, which names "
-        "its time and conversation, the rule in words, why the matched text is not kept, and "
-        "what the signature proves. Technical fields are folded away."
+        "its time with the time zone, the rule in words, that the matched text is not kept, "
+        "and what the signature proves; Try this rule opens Try it on that rule. Technical "
+        "fields are folded away."
     ),
     "06-activity-empty": (
-        "Activity on a freshly installed profile, drawn as Sessions draws an empty list."
+        "Activity on a freshly installed profile, drawn as Sessions draws an empty list: what "
+        "is recorded (blocks, approval requests and warnings) and that clean actions are not."
     ),
     "07-tryit-blocked": (
         "Try it with an example chosen: a file write carrying a hidden instruction, blocked, "
-        "in one sentence; the match marked in the input; the checks. The input editor and "
-        "the agent's message are folded away."
+        "in one sentence; the match marked in the input; the rule with a Try without this "
+        "rule button; beneath, full width, the checks in this run, each named by what it does."
     ),
     "08-tryit-allowed": (
-        "A download piped into a shell, tried with its rules turned off (not saved): the "
-        "trial result beside the live result, which asks a person; the trial names each "
-        "rule it turns off; the trial settings below."
+        "A download piped into a shell, tried with its two rules turned off (not saved): the "
+        "trial result beside the live result, which asks a person; one Check with trial "
+        "settings button; the trial settings beneath, one row per rule turned off (its "
+        "sentence, its id, Turn back on), the JSON folded under Technical detail, and Copy to "
+        "Settings."
     ),
     "09-settings-override": (
-        "Settings, Tool calls: Config's field layout; a value the user set, with the value a "
-        "reset restores, and a tool exemption staged and not saved, counted beside Save."
+        "Settings, Tool calls: Config's field layout; under each control one line with the "
+        "value and where it comes from (On · Default; Ask a person for approval · Your "
+        "setting · Reset to Block it); a tool exemption staged and not saved, with Undo; an "
+        "empty mapping with Add; the count of unsaved changes beside Discard all, Try it "
+        "first and Save."
     ),
     "10-settings-error": (
         "Settings, Escalation: stop-the-conversation set to 20, below its floor; the field "
-        "says to enter 30 or higher, and its description says why. Save is not offered."
+        "says to enter 30 or higher, and its description says what a stopped conversation "
+        "means and how to carry on. Save is not offered."
     ),
     "11-overview-narrow": "Overview at 900 pixels wide, Hermes Teal.",
     "x1-settings-review": (
-        "The list of staged changes, opened from the count beside Save over the page: what "
-        "changes, from what to what, and when it applies. Nothing is saved yet."
+        "The list of staged changes, opened from the count beside Save as a panel under the "
+        "toolbar that pushes the form down: what changes, from what to what, and when it "
+        "applies. Nothing is saved yet."
     ),
     "x2-settings-saved": (
-        "After saving PromptGuard as always on: a check-marked confirmation with the time, "
-        "and beneath it, separately, the setting that waits for a Hermes restart."
+        "After saving PromptGuard as Required while it is not installed: a check-marked "
+        "confirmation with the time, the setting that waits for a Hermes restart, and under "
+        "the control what that does to tool calls under the current settings."
     ),
     "x3-overview-partial": (
-        "Overview while PromptGuard is set to always on but is not installed: a failed check "
-        "holding tool calls, where to run the command that adds it, the command to copy, and "
-        "a link to turn it off in Settings."
+        "Overview while PromptGuard is Required but not installed: a failed check, what that "
+        "does to tool calls under the current settings, where to run the command that adds "
+        "it, the command to copy, and a link to turn it off in Settings."
     ),
     "x4-activity-search": (
         "Activity with a custom range (the last 26 hours, written year-month-day) and a "
@@ -165,7 +180,7 @@ def write_index(out: Path, shots: list[str]) -> Path:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--sandbox", required=True, type=Path)
-    parser.add_argument("--out", type=Path, default=ROOT / ".ux-reference/rounds/round-03")
+    parser.add_argument("--out", type=Path, default=ROOT / ".ux-reference/rounds/round-04")
     parser.add_argument("--skip-wheel", action="store_true")
     args = parser.parse_args(argv)
     sandbox = args.sandbox.resolve()

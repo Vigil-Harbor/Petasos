@@ -85,8 +85,8 @@ _TIME_LIMIT = "Did not finish within Try it's time limit."
 # Why an optional check took no part, in words. A check that is on but not
 # working keeps the registry's own reason, which names the fault.
 _PLAIN_REASON = {
-    "not_installed": "Not installed, so it took no part. Overview says how to add it.",
-    "off": "Turned off in Settings, so it took no part.",
+    "not_installed": "Not installed. Overview says how to add it.",
+    "off": "Turned off in Settings.",
 }
 
 _Redactor = Callable[..., str]
@@ -114,6 +114,70 @@ async def try_input(
     download. ``protected_paths`` defaults to an empty set so this call does
     not discover a Hermes home.
     """
+    document = combine(stored, candidate or {})
+    body = await _try(
+        document,
+        text=text,
+        direction=direction,
+        tool=tool,
+        arguments=arguments,
+        registry=registry,
+        redactor=redactor,
+        protected_paths=protected_paths,
+        time_budget=time_budget,
+        max_chars=max_chars,
+    )
+    return _mark(body, paused=document.get("enabled") is False)
+
+
+# While protection is paused a trial still runs every check, but none of
+# them checks the agent. Each check row says so, from one operating value.
+PAUSED_NOTE = (
+    "Protection is paused, so the agent's actions run unchecked. "
+    "This shows what Petasos does once it is resumed."
+)
+_TRIAL_STATES = {
+    "checked": "Checked",
+    "skipped": "Skipped",
+    "paused": "Paused",
+}
+_PAUSED_REASON = "Ran for this trial only. Paused for the agent."
+
+
+def _mark(body: dict[str, Any], *, paused: bool) -> dict[str, Any]:
+    """Name each check plain-first and give it one operating state for this trial."""
+    specs = {spec.id: spec for spec in REGISTRY}
+    for row in body.get("scanners", []):
+        spec = specs.get(row.get("id"))
+        purpose = spec.purpose if spec is not None else ""
+        label = str(row.get("label") or "")
+        row["name"] = f"{purpose} ({label})" if purpose and purpose != label else label
+        if row.get("participated") and paused:
+            code = "paused"
+            row["reason"] = _PAUSED_REASON
+        elif row.get("participated"):
+            code = "checked"
+        else:
+            code = "skipped"
+        row["operating"] = {"code": code, "label": _TRIAL_STATES[code]}
+    body["paused"] = paused
+    body["paused_note"] = PAUSED_NOTE if paused else ""
+    return body
+
+
+async def _try(
+    document: Mapping[str, Any],
+    *,
+    text: str | None,
+    direction: str | None,
+    tool: str | None,
+    arguments: Mapping[str, Any] | None,
+    registry: tuple[ScannerSpec, ...] | None,
+    redactor: _Redactor | None,
+    protected_paths: Callable[[], Iterable[str]] | None,
+    time_budget: float,
+    max_chars: int,
+) -> dict[str, Any]:
     if (text is None) == (tool is None):
         raise ApiError("invalid_input", "Send either a piece of text or a tool call.")
     if text is not None and not isinstance(text, str):
@@ -123,7 +187,6 @@ async def try_input(
     if arguments is not None and not isinstance(arguments, Mapping):
         raise ApiError("invalid_input", "Tool arguments must be an object.")
     _bound_size(text, arguments, max_chars)
-    document = combine(stored, candidate or {})
     try:
         resolved = resolve(document)
     except ConfigError as exc:
