@@ -915,23 +915,78 @@ and extends them to everything the sandbox run showed would stop enforcement:
   and enables it.
 - `petasos config migrate`: section 4.3.
 
-### 7.6 Installing, and what is still open
+### 7.6 Installing
 
-There are two install routes, and they suit different moments.
+There are two install routes. The command says which one it is. Both leave
+Petasos in the environment a new Hermes process activates, which is the
+committed environment under `<HERMES_HOME>/installs/`, not whatever Python
+happened to run the installer. A process that is already running keeps the
+old environment until it starts again.
 
-- **Released.** `hermes plugins install <repository URL>#<plugin directory>`.
-  Hermes clones the directory and installs the index requirements in its
-  `pyproject.toml`, which is the `petasos` wheel from PyPI, into its own
-  managed environment. The new environment is picked up when the gateway
-  next starts. This is the route upstream documents, and the one users get.
-- **Unreleased.** Hermes will not manage a wheel that is not on a package
-  index. For a branch build, `petasos hermes install` installs the wheel into
-  the interpreter Hermes is running on and copies the directory into place.
-  That works and validates, but Hermes's package manager does not know about
-  it, so a later managed environment may not contain it. It is for
-  development and the researcher soak only.
+- **Released.** One command:
 
-Still open, because the sandbox run started no long-lived Hermes process:
+  `hermes plugins install https://github.com/Vigil-Harbor/Petasos.git#hermes-plugin/petasos --enable --yes-deps`
+
+  Hermes clones the plugin directory and installs the `petasos` requirement
+  in that directory's `pyproject.toml` from a package index into the
+  committed environment. `--enable` and `--yes-deps` answer the two prompts
+  (turn the plugin on, and allow the Python dependencies). Without them, a
+  non-interactive run leaves the plugin installed and not enabled. At a
+  terminal the same command without the flags asks, and answering yes is the
+  same result. `UV_INDEX_URL` (or `PIP_INDEX_URL` / `index-url` in pip.conf,
+  which Hermes bridges) replaces the default index. An extra index
+  (`UV_EXTRA_INDEX_URL` or `PIP_EXTRA_INDEX_URL`) is searched first. uv stops
+  at the first index that publishes a package name, so a package on the extra
+  index is taken from there and not from the default index. A name the extra
+  index does not publish falls through. A direct URL requirement is not
+  installed.
+
+- **Development.** `petasos hermes install`, and `hermes petasos install`
+  once the plugin can load. This is for a build that is not the package the
+  index would supply. The same version number can already be on the index
+  and be a different build, so the command does not ask the index for
+  `petasos`. It writes the plugin directory, including a wheel of this build,
+  and a `pyproject.toml` that depends on `petasos==<this version>` with
+  `[tool.uv.sources]` pointing at that wheel file. Turning the plugin on
+  goes through Hermes, which installs the file into the committed
+  environment. Running it again refreshes the wheel and, when the plugin is
+  already on, asks Hermes to rebuild.
+
+`petasos doctor` asks the committed environment's own Python whether it can
+import a compatible Petasos. It does not trust the interpreter that launched
+doctor. When that environment exists and the import fails, or the version
+does not satisfy the requirement in the plugin's `pyproject.toml`, the
+verdict is not protected and the next step is `petasos hermes install`.
+When Hermes has not committed an environment, doctor says so and does not
+treat that alone as a failure.
+
+An optional scanner is one command, `petasos scanner add <name>` (and
+`hermes petasos scanner add <name>`). `<name>` is the scanner id
+(`prompt_guard`, `presidio`, `semgrep`), its label, or its extra. The
+registry maps the name to the extra. The command adds that extra to the
+plugin's `petasos` requirement and asks Hermes to rebuild, which is how
+Hermes installs a plugin dependency. `petasos scanner remove <name>` takes
+it off. Doctor's suggestion for a missing scanner is that command. The
+command says to restart Hermes, and for PromptGuard it says the packages
+are large and the first run downloads the model (about 1.1 GB, after the
+model terms are accepted).
+
+Enabling or disabling any plugin, installing or updating one, and a Hermes
+update that syncs dependencies (`step_provision_runtimes` in
+`hermes_cli/post_update.py`, and the update-completion sync) rebuild the
+committed environment from the current plugin set. An enable of a plugin
+that is already enabled does not. The development wheel survives a rebuild
+because the path source is inside the plugin directory, which Hermes copies
+into each generation. Disabling Petasos drops it; enabling it again installs
+the same wheel. Deleting the installed package while the plugin files are
+unchanged does not change that stamp, so the ordinary rebuild does not put
+the package back. `petasos doctor` still reports that the committed
+environment cannot import Petasos, and `petasos hermes install` restores
+the recorded environment. Hermes refuses that restore when it is also asked
+to change the plugin set, so the command calls `sync_venv` with repair and
+with no plugin selection.
+
+Still open, because no gateway was started:
 
 - When a running gateway re-reads settings changed from the Desktop form or
   the CLI.
