@@ -639,6 +639,6 @@ def test_a_scanner_whose_model_is_missing_keeps_its_own_reason() -> None:
         missing=True,
     )
 
-    row = _scanner_row(status)
+    row = _scanner_row(status, {"holds": True, "title": "t", "sentence": "s"})
 
     assert row["reason"] == status.reason

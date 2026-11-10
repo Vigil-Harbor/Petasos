@@ -171,3 +171,21 @@ def test_arguments_must_be_a_mapping() -> None:
     with pytest.raises(ApiError) as caught:
         _run(tool="terminal", arguments=["rm"])
     assert caught.value.code == "invalid_input"
+
+
+def test_a_paused_trial_reports_no_check_as_checking_the_agent() -> None:
+    """While protection is paused, a check that ran for the trial is served as paused."""
+    paused = asyncio.run(
+        try_input({"enabled": False}, text=_INJECTION, direction="inbound", redactor=_identity)
+    )
+    assert paused["paused"] is True
+    assert "paused" in paused["paused_note"]
+    codes = {row["id"]: row["operating"]["code"] for row in paused["scanners"]}
+    assert codes["syntactic"] == "paused"
+    assert "checked" not in codes.values(), codes
+    live = _run(text=_INJECTION, direction="inbound")
+    assert live["paused"] is False
+    assert live["scanners"][0]["operating"] == {"code": "checked", "label": "Checked"}
+    names = {row["id"]: row["name"] for row in live["scanners"]}
+    assert names["syntactic"] == "Basic checks"
+    assert names["presidio"] == "Personal details check (Presidio)"

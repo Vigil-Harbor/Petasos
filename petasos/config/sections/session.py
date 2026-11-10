@@ -30,6 +30,7 @@ class FrequencyConfig:
         default=None,
         ge=0,
         label="Points per rule",
+        entry_labels=("Rule id or pattern", "Points"),
         help=(
             "How many points each rule adds to the risk score. Leave empty for the built-in "
             "points."
@@ -99,8 +100,9 @@ class EscalationConfig:
         ge=TIER3_FLOOR,
         label="Stop the conversation at",
         help=(
-            "At this risk score every tool call is blocked for good. It cannot be set below 30, so"
-            " a hijacked conversation can always be stopped."
+            "At this risk score the conversation is stopped: every tool call in it, and in its"
+            " helper agents, is blocked until Hermes restarts. Start a new conversation to carry"
+            " on. It cannot be set below 30, so a hijacked conversation can always be stopped."
         ),
     )
 

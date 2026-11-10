@@ -83,7 +83,8 @@ class FieldSpec:
     Stored on the dataclass field under the ``FieldSpec`` metadata key.
     Bounds on a mapping apply to each value. ``normalize`` runs on each item
     of a text list after the item is trimmed. ``label`` is the short name a
-    person reads; ``choice_labels`` names each choice in plain words.
+    person reads; ``choice_labels`` names each choice in plain words;
+    ``entry_labels`` names the two halves of one entry of a mapping.
     """
 
     help: str
@@ -96,6 +97,7 @@ class FieldSpec:
     normalize: Callable[[str], str] | None = None
     label: str | None = None
     choice_labels: Mapping[str, str] | None = None
+    entry_labels: tuple[str, str] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,7 +111,8 @@ class FieldInfo:
     a mapping apply to each value. ``label`` is the declared label, or the
     field name in words when none was declared. ``choice_labels`` maps each
     choice to plain words when the declaration gave them, and is otherwise
-    None.
+    None. ``entry_labels`` names what one entry of a mapping holds, key then
+    value, when the declaration gave them.
     """
 
     path: str
@@ -126,6 +129,7 @@ class FieldInfo:
     nullable: bool
     label: str = ""
     choice_labels: Mapping[str, str] | None = None
+    entry_labels: tuple[str, str] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -179,13 +183,15 @@ def setting(
     normalize: Callable[[str], str] | None = None,
     label: str | None = None,
     choice_labels: Mapping[str, str] | None = None,
+    entry_labels: tuple[str, str] | None = None,
 ) -> _T:
     """Declare one setting's default and constraints.
 
     ``default`` is keyword-only so a type checker sees the constructor default.
     A list, set, or bytearray default is rejected. A dict default is copied
-    into a read-only mapping, so the caller's dict is not shared. ``label``
-    and ``choice_labels`` are words for a person and change no behaviour.
+    into a read-only mapping, so the caller's dict is not shared. ``label``,
+    ``choice_labels`` and ``entry_labels`` are words for a person and change
+    no behaviour.
     """
     if help.strip() == "":
         raise TypeError("setting() help must be a non-empty string")
@@ -196,6 +202,11 @@ def setting(
         for key, value in choice_labels.items()
     ):
         raise TypeError("setting() choice_labels must map each choice to non-empty text")
+    if entry_labels is not None and (
+        len(entry_labels) != 2
+        or not all(isinstance(word, str) and word.strip() for word in entry_labels)
+    ):
+        raise TypeError("setting() entry_labels must be two non-empty texts")
     lower_ge = _bound("ge", ge)
     lower_gt = _bound("gt", gt)
     upper_le = _bound("le", le)
@@ -212,6 +223,7 @@ def setting(
         normalize=normalize,
         label=label,
         choice_labels=None if choice_labels is None else MappingProxyType(dict(choice_labels)),
+        entry_labels=None if entry_labels is None else (entry_labels[0], entry_labels[1]),
     )
     frozen = _freeze_default(default)
     # Dataclasses reject an unhashable default. A mapping, or a section that
@@ -460,6 +472,8 @@ def _check_kind(cls: type[object], name: str, kind: _Kind, spec: FieldSpec) -> N
             raise TypeError(f"{cls.__name__}.{name}: choice_labels apply only to a choice")
         if set(spec.choice_labels) != {str(choice) for choice in kind.choices}:
             raise TypeError(f"{cls.__name__}.{name}: choice_labels must name every choice")
+    if spec.entry_labels is not None and kind.kind not in ("map_str", "map_float"):
+        raise TypeError(f"{cls.__name__}.{name}: entry_labels apply only to a mapping")
 
 
 def _construct(self: object, kwargs: Mapping[str, object]) -> None:
@@ -887,6 +901,7 @@ def _rows(cls: type[object], prefix: str, holder: object | None) -> list[FieldIn
                 nullable=item.nullable,
                 label=_label(item),
                 choice_labels=item.spec.choice_labels if item.kind == "choice" else None,
+                entry_labels=item.spec.entry_labels,
             )
         )
     return rows

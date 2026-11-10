@@ -218,7 +218,7 @@ ROLES: Final[Mapping[str, Role]] = MappingProxyType(
             _role(
                 "general",
                 "General",
-                "For everyday work. Every check runs as standard.",
+                "For everyday work. Every rule is on, and a risky tool call is blocked.",
                 "balanced",
             ),
             _role(
@@ -328,8 +328,8 @@ LEVELS: Final[Mapping[str, Level]] = MappingProxyType(
             _level(
                 "relaxed",
                 "Relaxed",
-                "Fewer interruptions. Conversations continue longer before Petasos "
-                "blocks their actions.",
+                "Fewer interruptions, less protection: a conversation's warning signs "
+                "must add up further before its tool calls are blocked.",
                 {
                     "fail_mode": "degraded",
                     "escalation": {"tier1": 25.0, "tier2": 45.0, "tier3": 65.0},
@@ -340,8 +340,8 @@ LEVELS: Final[Mapping[str, Level]] = MappingProxyType(
             _level(
                 "balanced",
                 "Balanced",
-                "The default. Blocks clear attacks, and steps in when a conversation "
-                "keeps showing warning signs.",
+                "The default. Blocks a clear attack at once, and blocks a conversation's "
+                "tool calls once its warning signs add up.",
                 {
                     "fail_mode": "degraded",
                     "escalation": {"tier1": 15.0, "tier2": 30.0, "tier3": 50.0},
@@ -352,8 +352,8 @@ LEVELS: Final[Mapping[str, Level]] = MappingProxyType(
             _level(
                 "strict",
                 "Strict",
-                "Steps in earliest. Personal details are hidden once the "
-                "personal-details check is added.",
+                "Blocks a conversation's tool calls soonest. Personal details are hidden "
+                "once the personal details check is added.",
                 {
                     "fail_mode": "closed",
                     "escalation": {"tier1": 10.0, "tier2": 22.0, "tier3": 40.0},
@@ -416,7 +416,7 @@ SETTING_HELP: Final[Mapping[str, str]] = MappingProxyType(
             "through unchecked and records each one."
         ),
         "role": "What the agent mostly does. It decides which checks matter.",
-        "level": "How soon Petasos steps in.",
+        "level": "How soon Petasos blocks a conversation whose warning signs add up.",
         "overrides": (
             "Your own changes on top of the job and strictness, as a JSON object "
             "keyed by setting path."

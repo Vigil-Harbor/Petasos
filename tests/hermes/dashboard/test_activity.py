@@ -267,16 +267,22 @@ def test_each_event_says_what_was_done_in_words(tmp_path: Path) -> None:
     tier2, paused, answered, asked, blocked = events
     assert blocked["outcome"] == {"code": "blocked", "label": "Blocked"}
     assert blocked["kind_label"] == "Blocked tool call"
-    assert blocked["summary"] == "Blocked a write_file call that contained hidden instructions."
+    # The sentence says what the agent tried to do; the tool's id is served beside it.
+    assert blocked["summary"] == (
+        "Blocked an attempt to write a file that contained hidden instructions."
+    )
+    assert "write_file" not in blocked["summary"]
+    assert blocked["tool"] == "write_file"
     assert blocked["rule_sentence"].startswith("Looks for text that tells the agent to ignore")
     assert asked["outcome"]["code"] == "asked"
-    assert asked["summary"] == "Asked a person before running a terminal call."
+    assert asked["summary"] == "Asked a person before letting the agent run a shell command."
     assert asked["rule_sentence"] == "Looks for a command that downloads a script and runs it."
     assert answered["outcome"]["code"] == "declined"
-    assert "said no" in answered["summary"]
+    assert answered["summary"] == "A person did not let the agent run a shell command."
+    assert paused["summary"].startswith("Let the agent run a shell command unchecked")
     assert paused["outcome"]["code"] == "allowed"
     assert paused["rule_sentence"] == ""
-    assert tier2["summary"].endswith("warning signs earlier in this conversation added up.")
+    assert tier2["summary"].endswith("warning signs in this conversation had added up.")
     assert tier2["risk_block"] is True
     assert blocked["risk_block"] is False
 
@@ -349,14 +355,13 @@ def test_a_guardrail_change_says_whether_the_call_was_stopped(tmp_path: Path) ->
     }
     hot = by_session["hot"]
     assert hot["outcome"] == {"code": "attempt_blocked", "label": "Blocked"}
-    assert "warning signs earlier in this conversation had already added up" in hot["summary"]
+    assert "warning signs in this conversation had added up" in hot["summary"]
     assert hot["target"] == "~/.hermes/config.yaml"
     assert hot["risk_block"] is True
     calm = by_session["calm"]
     # The next event is for another tool, so it is not this call's outcome.
     assert calm["outcome"] == {"code": "not_stopped", "label": "Not stopped"}
-    assert "did not stop it" in calm["summary"]
-    assert "Recording an attempt does not stop it" in calm["outcome_note"]
+    assert calm["summary"].startswith("Did not stop an attempt to change")
     assert calm["risk_block"] is False
     assert "cannot show whether the change took effect" in calm["outcome_note"]
     counts = summarize(live, _rot(live), key=None, verification=_OFF, query=ActivityQuery())[
@@ -457,3 +462,21 @@ def test_an_outcome_filter_applies_to_the_page_and_the_counts(tmp_path: Path) ->
     blocked = ActivityQuery(outcomes=("blocked", "stopped", "attempt_blocked"))
     summary = summarize(live, _rot(live), key=None, verification=_OFF, query=blocked)
     assert (summary["total"], summary["blocked"]) == (3, 2)
+
+
+def test_a_tool_petasos_cannot_name_keeps_its_id_in_the_sentence() -> None:
+    """Known tools are named by what the agent tried to do; others by their id."""
+    from petasos.hermes.dashboard.words import describe_event
+
+    known = describe_event({"event_type": "quarantine", "tool": "send_message"})
+    assert known == "Blocked an attempt to send a message."
+    unknown = describe_event({"event_type": "quarantine", "tool": "mcp_lookup"})
+    assert unknown == "Blocked a mcp_lookup call."
+    flagged = describe_event(
+        {
+            "event_type": "ingest_flagged",
+            "tool": "web_extract",
+            "rule_id": "petasos.syntactic.injection.ignore-previous",
+        }
+    )
+    assert flagged == "Warned the agent that a web page it read contained hidden instructions."

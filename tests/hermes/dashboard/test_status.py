@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
+
+import pytest
 
 from petasos.hermes.dashboard.scope import load_home
 from petasos.hermes.dashboard.status import status
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from petasos._types import Scanner
 
 
 def _home(tmp_path: Path, text: str) -> Path:
@@ -74,7 +78,11 @@ def test_both_switches_on_is_protection_on(tmp_path: Path) -> None:
     assert isinstance(body["recommendations"], list)
     assert body["version"] == 2
     assert body["doctor"]["checks"]
-    assert body["scanners"] == body["doctor"]["detail"]["scanners"]
+    served = [{k: v for k, v in row.items() if k != "operating"} for row in body["scanners"]]
+    assert served == body["doctor"]["detail"]["scanners"]
+    assert body["scanners"][0]["operating"] == {"code": "running", "label": "Running"}
+    assert body["paused"] is False
+    assert "this profile" in body["scope"]
     assert body["recommendations"] == body["doctor"]["suggestions"]
     joined = " ".join(body["recommendations"])
     assert "No injection scanner is active" not in joined
@@ -185,3 +193,124 @@ def test_status_says_who_can_change_settings_and_how_to_sign_records(tmp_path: P
     assert signing["signed"] is False
     assert signing["env_file"] == "~/hermes/.env"
     assert any("PETASOS_SESSION_SECRET" in step for step in signing["steps"])
+
+
+def test_a_paused_status_reports_no_check_as_running(tmp_path: Path) -> None:
+    """While protection is paused, every check that would run is served as paused.
+
+    Every view draws a check's state from ``operating``. A paused status with
+    any check served as running is the contradiction this guards against.
+    """
+    body = status(load_home(_home(tmp_path, _PAUSED)))
+    assert body["paused"] is True
+    codes = {row["id"]: row["operating"]["code"] for row in body["scanners"]}
+    assert "running" not in codes.values(), codes
+    assert codes["syntactic"] == "paused"
+    for row in body["coverage"]["running"] + body["coverage"]["missing"]:
+        assert row["operating"]["code"] != "running", row
+    assert "always" not in body["checks_note"].lower()
+    summaries = [check["summary"] for check in body["doctor"]["checks"]]
+    assert not [line for line in summaries if "checks are running" in line], summaries
+
+
+def test_a_check_is_not_running_while_hermes_does_not_load_petasos(tmp_path: Path) -> None:
+    """Hermes's own switch off: no check is served as running or paused."""
+    body = status(load_home(_home(tmp_path, _DISABLED)))
+    assert body["paused"] is False
+    assert {row["operating"]["code"] for row in body["scanners"]} <= {
+        "stopped",
+        "not_installed",
+        "off",
+    }
+
+
+def _required(fail_mode: str | None, posture: str | None) -> str:
+    lines = [
+        "plugins:",
+        "  enabled:",
+        "    - petasos",
+        "  entries:",
+        "    petasos:",
+        "      settings:",
+        "        overrides:",
+        "          scanners:",
+        "            prompt_guard:",
+        '              enabled: "on"',
+    ]
+    if fail_mode is not None:
+        lines.append(f"          fail_mode: {fail_mode}")
+    if posture is not None:
+        lines += ["          tools:", f"            dangerous_posture: {posture}"]
+    return "\n".join(lines) + "\n"
+
+
+def _missing_prompt_guard() -> tuple[object, ...]:
+    """A registry whose PromptGuard is required and absent, whatever is installed here."""
+    from petasos.scanners.registry import REGISTRY, BuildContext, ScannerSpec
+
+    def absent(section: Any, context: BuildContext) -> Scanner:
+        raise ImportError("No module named 'transformers'")
+
+    spec = next(item for item in REGISTRY if item.id == "prompt_guard")
+    return (
+        ScannerSpec(
+            id=spec.id,
+            label=spec.label,
+            extra=spec.extra,
+            detects=spec.detects,
+            section=spec.section,
+            default_enabled=spec.default_enabled,
+            build=absent,
+            purpose=spec.purpose,
+        ),
+    )
+
+
+@pytest.mark.parametrize(
+    ("fail_mode", "posture", "holds", "words"),
+    [
+        (None, None, True, "are blocked"),
+        ("degraded", "block", True, "are blocked"),
+        ("closed", "block", True, "are blocked"),
+        ("degraded", "approve", True, "a person is asked"),
+        ("closed", "approve", True, "a person is asked"),
+        ("open", "block", False, "still run without it"),
+        ("open", "approve", False, "still run without it"),
+    ],
+)
+def test_what_a_required_check_that_cannot_run_does_is_computed(
+    tmp_path: Path, fail_mode: str | None, posture: str | None, holds: bool, words: str
+) -> None:
+    """The sentence follows the fail mode and the dangerous-action setting, never a fixed text."""
+    home = _home(tmp_path, _required(fail_mode, posture))
+    body = status(load_home(home), registry=_missing_prompt_guard())  # type: ignore[arg-type]
+    held = [row for row in body["coverage"]["missing"] if row["held"]]
+    assert [row["id"] for row in held] == ["prompt_guard"]
+    consequence = held[0]["consequence"]
+    assert consequence["holds"] is holds
+    assert words in consequence["sentence"]
+    assert held[0]["operating"]["code"] == "failed"
+    doctor = {check["id"]: check for check in body["doctor"]["checks"]}
+    assert consequence["sentence"] in doctor["scanner_prompt_guard"]["meaning"]
+    if not holds:
+        assert "held" not in doctor["scanner_prompt_guard"]["meaning"]
+        assert "blocked" not in consequence["sentence"]
+
+
+def test_checks_are_named_by_what_they_do_first() -> None:
+    """Plain first, product second, from the registry's purpose names."""
+    from petasos.hermes.dashboard.status import coverage
+
+    rows = [
+        {"id": "syntactic", "label": "Basic checks", "purpose": "Basic checks", "state": "active"},
+        {
+            "id": "presidio",
+            "label": "Presidio",
+            "purpose": "Personal details check",
+            "state": "not_installed",
+            "extra": "presidio",
+        },
+    ]
+    found = coverage(rows, [])
+    assert found["running"][0]["name"] == "Basic checks"
+    assert found["missing"][0]["name"] == "Personal details check (Presidio)"

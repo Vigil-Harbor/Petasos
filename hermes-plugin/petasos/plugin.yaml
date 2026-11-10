@@ -28,7 +28,7 @@ config_schema:
     default: general
   level:
     type: string
-    description: "How soon Petasos steps in."
+    description: "How soon Petasos blocks a conversation whose warning signs add up."
     choices:
       - relaxed
       - balanced
