@@ -841,20 +841,38 @@ de-duplicated here: B4 and C1 rewrite every site that holds one.
 | B1 | `config/schema.py` with exhaustive tests | Wave A |
 | B2 | `config/sections.py`, `layers.py`, `migrate.py` | B1 |
 | B3 | `scanners/registry.py`, reading the scanner sections B2 defines | B2 |
-| B4 | Cutover: every component takes its own section; old `config.py`, profiles and presets deleted | B2, B3 |
+| B4a | Internals read the new tree; a temporary bridge keeps old callers working | B2 |
+| B4c | Delete the old config, the bridge, profiles, presets and the old bootstrap | every caller migrated (C1, C3, T) |
 
-B4 is one lane. Acceptance is the parity record in `tests/parity/`. The record
-holds two arrangements per old profile: the profile passed to both pipeline and
-guard (the library's behaviour), and the profile passed to the pipeline only
-(`plugin:<profile>`, what the Hermes plugin does). They differ only for
-`admin` and `research`, whose tier thresholds reach the guard in the first
-arrangement and not the second. After the cutover each role at level
-`balanced` must reproduce the `plugin:` arrangement of the profile it replaces,
-case for case. The other arrangement's `admin` and `research` session verdicts
-are the one deliberate change and are re-recorded in the same commit that
-makes it.
+The cutover is staged so that the existing test suite checks it.
 
-**Wave C. Structure (parallel after B4)**
+**B4a** moves every component (pipeline, guard, frequency, escalation, audit,
+alerting, lineage, taint) onto the new tree. One temporary module,
+`petasos/config/legacy.py`, converts an old flat config and an old profile
+into the new tree at the public constructors, reproducing the old leniencies
+for old inputs. With it, the 3,400 existing tests run unchanged against the
+new internals, which is the proof that the internals are right. Nothing but
+that module may import the old config or the profiles package.
+
+The one deliberate behaviour change lands here: the guard no longer takes
+tier thresholds from a profile. The parity record holds two arrangements per
+old profile, the profile passed to both pipeline and guard and the profile
+passed to the pipeline only (`plugin:<profile>`, what the Hermes plugin
+does). They differ only for `admin` and `research`. After B4a every
+`plugin:` arrangement, and every arrangement of the other profiles, must
+replay with no change to the record; the `admin` and `research`
+guard-with-profile entries become equal to their `plugin:` twins and are
+re-recorded in the same commit.
+
+Callers then move off the old config in parallel, each in its own package:
+the plugin's logic in C1, the console in C3, and the core tests in **T**
+(two or three lanes split by directory, a mechanical rewrite of how tests
+build configs). **B4c** runs when nothing imports the bridge: it deletes the
+old flat config, the bridge, `session/profiles/`, the presets, the old
+bootstrap and the legacy parity tests, and points the parity adapter at the
+new API.
+
+**Wave C. Structure (C1 and C3 after B4a, alongside T; C2 after C1; C4 after B4c)**
 
 | Package | Scope |
 |---|---|
