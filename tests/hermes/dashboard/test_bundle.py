@@ -94,7 +94,7 @@ _GUARD_TRIPS = (
 def test_the_plugin_directory_holds_no_sample_attack() -> None:
     """Nothing Hermes scans before loading the plugin looks like an attack."""
     plugin = _DASHBOARD.parent
-    found = []
+    found: list[str] = []
     for path in sorted(plugin.rglob("*")):
         if not path.is_file() or "__pycache__" in path.parts:
             continue
