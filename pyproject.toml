@@ -42,6 +42,7 @@ Changelog = "https://github.com/Vigil-Harbor/Petasos/blob/master/CHANGELOG.md"
 # to `python -m petasos.console`; the OS supervisor (Task Scheduler / launchd)
 # owns the lifecycle.
 petasos-console = "petasos.console.__main__:main"
+petasos = "petasos.cli:main"
 
 [project.optional-dependencies]
 # huggingface-hub 0.34 is the first with the `hf` command the docs and the scanner's
