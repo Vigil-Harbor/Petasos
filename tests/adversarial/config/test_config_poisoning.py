@@ -98,6 +98,16 @@ def test_pipeline_config_isolation() -> None:
     assert pipeline.config.fail_mode == "degraded"
 
 
+def test_default_configs_share_no_nested_section() -> None:
+    """Tampering with one default config's section reaches no other config."""
+    first = PetasosConfig()
+    second = PetasosConfig()
+    assert first.escalation is not second.escalation
+    object.__setattr__(first.escalation, "tier1", 49.0)
+    assert second.escalation.tier1 == 15.0
+    assert PetasosConfig().escalation.tier1 == 15.0
+
+
 def test_pipeline_replace_preserves_session_secret() -> None:
     """CFG-05: reconfiguring the tree keeps the secret passed beside it."""
     secret = b"key"

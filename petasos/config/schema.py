@@ -458,7 +458,7 @@ def _convert_fields(
     values: dict[str, object] = {}
     for item in plan:
         if item.name not in provided:
-            values[item.name] = item.default
+            values[item.name] = _fresh_default(item)
             continue
         value, field_errors = _convert(item, provided[item.name], item.name)
         if field_errors:
@@ -466,6 +466,14 @@ def _convert_fields(
         else:
             values[item.name] = value
     return values, errors
+
+
+def _fresh_default(item: _Field) -> object:
+    # Each instance gets its own nested section. A shared one would let a
+    # write that bypasses the frozen guard reach every config built from defaults.
+    if item.kind == "section" and item.default is not None:
+        return from_mapping(type(item.default), to_mapping(item.default))
+    return item.default
 
 
 def _run_check(obj: object) -> None:
