@@ -232,3 +232,82 @@ def test_redaction_hides_a_secret_in_the_reason(tmp_path: Path) -> None:
     assert body["events"][0]["scan_id"] == "e-1"
     dumped = json.dumps(body)
     assert "sk-secret" not in dumped
+
+
+def test_each_event_says_what_was_done_in_words(tmp_path: Path) -> None:
+    """Every event carries an outcome, a plain kind name, and what its rule looks for."""
+    live = tmp_path / "petasos-enforcement.jsonl"
+    _emit(
+        live,
+        [
+            {
+                "event_type": "quarantine",
+                "tool": "write_file",
+                "rule_id": "petasos.syntactic.injection.ignore-previous",
+                "severity": "HIGH",
+            },
+            {
+                "event_type": "approval",
+                "phase": "request",
+                "tool": "terminal",
+                "rule_id": "plugin_rule:petasos.syntactic.command.fetch-exec",
+            },
+            {
+                "event_type": "approval",
+                "phase": "response",
+                "choice": "deny",
+                "tool": "terminal",
+                "rule_id": "plugin_rule:petasos.syntactic.command.fetch-exec",
+            },
+            {"event_type": "bypassed_disarmed", "tool": "terminal"},
+            {"event_type": "block", "tool": "write_file", "tier": "tier2"},
+        ],
+    )
+    events = _page(live)["events"]
+    tier2, paused, answered, asked, blocked = events
+    assert blocked["outcome"] == {"code": "blocked", "label": "Blocked"}
+    assert blocked["kind_label"] == "Blocked tool call"
+    assert blocked["summary"] == "Blocked a write_file call that contained hidden instructions."
+    assert blocked["rule_sentence"].startswith("Looks for text that tells the agent to ignore")
+    assert asked["outcome"]["code"] == "asked"
+    assert asked["summary"] == "Asked a person before running a terminal call."
+    assert asked["rule_sentence"] == "Looks for a command that downloads a script and runs it."
+    assert answered["outcome"]["code"] == "declined"
+    assert "said no" in answered["summary"]
+    assert paused["outcome"]["code"] == "allowed"
+    assert paused["rule_sentence"] == ""
+    assert tier2["summary"].endswith("risk score is too high.")
+
+
+def test_summary_breaks_counts_down_for_filters(tmp_path: Path) -> None:
+    """The summary lists tools, conversations and outcomes, and folds severity case."""
+    live = tmp_path / "petasos-enforcement.jsonl"
+    _emit(
+        live,
+        [
+            {
+                "event_type": "quarantine",
+                "tool": "terminal",
+                "session_id": "a",
+                "severity": "HIGH",
+            },
+            {
+                "event_type": "quarantine",
+                "tool": "write_file",
+                "session_id": "b",
+                "severity": "high",
+            },
+            {"event_type": "ingest_flagged", "tool": "web_extract", "session_id": "a"},
+        ],
+    )
+    summary = summarize(live, _rot(live), key=None, verification=_OFF, query=ActivityQuery())
+    assert summary["by_severity"] == {"high": 2}
+    assert summary["by_tool"] == {"terminal": 1, "write_file": 1, "web_extract": 1}
+    assert summary["by_session"] == {"a": 2, "b": 1}
+    assert summary["by_outcome"] == {"blocked": 2, "flagged": 1}
+    assert summary["kind_labels"] == {
+        "quarantine": "Blocked tool call",
+        "ingest_flagged": "Tool result flagged",
+    }
+    page = _page(live, query=ActivityQuery(severity="high"))
+    assert len(page["events"]) == 2
