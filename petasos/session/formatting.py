@@ -2,18 +2,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Literal
 
-from petasos._types import PipelineResult, ScanFinding, Severity
+from petasos._types import PipelineResult, ScanFinding, severity_rank
 
 if TYPE_CHECKING:
     from petasos.session.guard import GuardResult
-
-_SEVERITY_RANK: dict[Severity, int] = {
-    Severity.CRITICAL: 0,
-    Severity.HIGH: 1,
-    Severity.MEDIUM: 2,
-    Severity.LOW: 3,
-    Severity.INFO: 4,
-}
 
 _STRIP_PREFIX = "petasos.syntactic."
 
@@ -77,7 +69,7 @@ def _top_finding_clause(findings: tuple[ScanFinding, ...]) -> str:
     if not findings:
         return ""
 
-    top = min(findings, key=lambda f: _SEVERITY_RANK.get(f.severity, 999))
+    top = max(findings, key=lambda f: severity_rank(f.severity))
 
     short_id = shorten_rule_id(top.rule_id)
     severity = top.severity.name
@@ -211,9 +203,9 @@ def format_result_notice(
     enforcement event.
 
     ``finding`` is the already-selected worst, passed in by the caller rather than
-    re-derived: the shim's ``_worst`` sorts on severity AND ``-confidence`` while
-    ``_top_finding_clause`` sorts on severity alone, so re-deriving here would let the
-    banner and the console row name different findings on a tie.
+    re-derived: the shim's ``_worst`` breaks severity ties toward higher confidence
+    while ``_top_finding_clause`` sorts on severity alone, so re-deriving here would
+    let the banner and the console row name different findings on a tie.
 
     The reason lookup is fail-closed on an out-of-set ``path``, mirroring
     ``format_content_block``. Path ``"ceiling"`` must not reuse the findings

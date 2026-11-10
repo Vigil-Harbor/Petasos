@@ -477,7 +477,7 @@ def test_unknown_severity_and_empty_findings_safe(monkeypatch: pytest.MonkeyPatc
         gr = _guard_result(findings=(unknown,), param_scan_unsafe=True)
         assert _drive(monkeypatch, tool, gr) is None, f"unknown severity must not block on {tool}"
 
-    # Empty findings + not degraded → None (proves _worst/min is never reached empty).
+    # Empty findings + not degraded → None (proves _worst is never reached empty).
     assert _drive(monkeypatch, "write_file", _guard_result(findings=())) is None
 
 

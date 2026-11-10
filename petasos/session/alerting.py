@@ -7,7 +7,7 @@ from collections import deque
 from types import MappingProxyType
 from typing import TYPE_CHECKING
 
-from petasos._types import Alert, Severity
+from petasos._types import Alert, Severity, at_least
 from petasos.session.escalation import evaluate_tier
 
 _logger = logging.getLogger(__name__)
@@ -18,14 +18,6 @@ if TYPE_CHECKING:
     from petasos._types import PipelineResult, ScanFinding
     from petasos.config import PetasosConfig
     from petasos.session.frequency import FrequencyUpdateResult
-
-_SEVERITY_RANK: dict[Severity, int] = {
-    Severity.CRITICAL: 0,
-    Severity.HIGH: 1,
-    Severity.MEDIUM: 2,
-    Severity.LOW: 3,
-    Severity.INFO: 4,
-}
 
 
 class AlertManager:
@@ -310,11 +302,9 @@ class AlertManager:
         session_id: str | None,
     ) -> Alert | None:
         threshold = Severity(self._config.alert_high_severity_threshold)
-        threshold_rank = _SEVERITY_RANK[threshold]
 
         for finding in result.findings:
-            finding_rank = _SEVERITY_RANK.get(finding.severity, 999)
-            if finding_rank <= threshold_rank:
+            if at_least(finding.severity, threshold):
                 return Alert(
                     alert_id=uuid.uuid4().hex,
                     timestamp=time.time(),

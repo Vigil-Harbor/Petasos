@@ -22,6 +22,8 @@ from petasos._types import (
     ScanResult,
     Severity,
     _validate_scanner,
+    at_least,
+    severity_rank,
 )
 from petasos.config import PetasosConfig
 from petasos.normalize import normalize
@@ -91,14 +93,6 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
     from petasos._types import Direction, FloorScope, Scanner
-
-_SEVERITY_RANK: dict[Severity, int] = {
-    Severity.CRITICAL: 0,
-    Severity.HIGH: 1,
-    Severity.MEDIUM: 2,
-    Severity.LOW: 3,
-    Severity.INFO: 4,
-}
 
 # Default per-scanner timeout (PIPE-03). Lowered from 30s; overridable per
 # Pipeline via PetasosConfig.scanner_timeout_seconds. Kept as the _scan_one
@@ -218,9 +212,9 @@ def merge_findings(results: Sequence[ScanResult]) -> tuple[ScanFinding, ...]:
         assert current.position is not None
         assert nxt.position is not None
         if nxt.position.start < current.position.end:
-            nxt_rank = _SEVERITY_RANK.get(nxt.severity, 999)
-            cur_rank = _SEVERITY_RANK.get(current.severity, 999)
-            if nxt_rank < cur_rank:
+            nxt_rank = severity_rank(nxt.severity)
+            cur_rank = severity_rank(current.severity)
+            if nxt_rank > cur_rank:
                 current = nxt
             elif nxt_rank == cur_rank:
                 if nxt.confidence > current.confidence:
@@ -246,7 +240,7 @@ def _compute_safe(
         fail_mode = "degraded"
     safe = True
     for f in findings:
-        if f.severity in (Severity.CRITICAL, Severity.HIGH):
+        if at_least(f.severity, Severity.HIGH):
             safe = False
             break
 
@@ -549,20 +543,6 @@ class Pipeline:
                     probe_reason = probe_result[1] if len(probe_result) > 1 else None
                     probe_cause = probe_result[2] if len(probe_result) > 2 else None
 
-            # Consult load_health() for a retryable or pending load state that
-            # availability() does not cover. getattr-guarded, arity-tolerant,
-            # and exception-suppressed: a missing, malformed, or raising
-            # load_health leaves load_failed False, so the scanner reports
-            # healthy rather than degraded.
-            load_failed = False
-            load_error: str | None = None
-            lh = getattr(s, "load_health", None)
-            if lh is not None:
-                with contextlib.suppress(Exception):
-                    lh_result = lh()
-                    load_failed = bool(lh_result[0])
-                    load_error = lh_result[1] if len(lh_result) > 1 else None
-
             if not probe_ok:
                 if probe_cause == AVAILABILITY_CAUSE_LOAD_FAILED:
                     status = _HEALTH_STATUS_ERROR
@@ -573,15 +553,6 @@ class Pipeline:
                 # ``scan_err``. ``is not None`` (not ``or``) preserves an
                 # explicitly-empty crash reason. (PET-103)
                 last_error = probe_reason if probe_reason is not None else scan_err
-            elif load_failed:
-                # PET-108 D10: retryable/pending load failure → degraded. Ordered
-                # AFTER the terminal ``not probe_ok`` check so a cap-exhausted load
-                # (availability() → load_failed → probe_ok False) still wins
-                # ``error``; the two states partition cleanly by availability().
-                # ``is not None`` (not ``or``) preserves an explicitly-empty
-                # reason, matching the ``error`` branch's provenance rule.
-                status = _HEALTH_STATUS_DEGRADED
-                last_error = load_error if load_error is not None else scan_err
             elif open_until > _time.monotonic():
                 status = _HEALTH_STATUS_CIRCUIT_OPEN
                 last_error = scan_err
@@ -998,7 +969,7 @@ class Pipeline:
                     except ValueError:
                         overridden.append(f)
                         continue
-                    if _SEVERITY_RANK.get(override_sev, 999) < _SEVERITY_RANK.get(f.severity, 999):
+                    if severity_rank(override_sev) > severity_rank(f.severity):
                         overridden.append(replace(f, severity=override_sev))  # escalate only
                     else:
                         overridden.append(f)  # refuse downgrade/equal
