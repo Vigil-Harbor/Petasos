@@ -327,7 +327,7 @@ class TestConfigMaxTerminatedTombstonesValidation:
                         "max_tombstones": "foo",
                     },
                 },
-            )  # type: ignore[arg-type]
+            )
 
     def test_valid_positive_integer(self) -> None:
         cfg = from_mapping(

@@ -9,7 +9,9 @@ from typing import Any
 
 import pytest
 
-from petasos.config import PetasosConfig
+from petasos.config import PetasosConfig as FlatConfig
+from petasos.config.schema import from_mapping
+from petasos.config.sections import PetasosConfig
 from petasos.pipeline import Pipeline
 from petasos.scanners.minimal import MinimalScanner
 
@@ -208,8 +210,18 @@ def test_benchmark_prompt_guard_8wide(benchmark) -> None:  # type: ignore[no-unt
     from petasos.session.ingest import HEAD_CHARS
 
     _prompt_guard_scanner()
-    config = PetasosConfig(disabled_scanners=("presidio",))
-    scanners, _statuses = build_scanners(config)
+    # build_scanners still reads the flat config. The pipeline measures the tree.
+    scanners, _statuses = build_scanners(FlatConfig(disabled_scanners=("presidio",)))
+    config = from_mapping(
+        PetasosConfig,
+        {
+            "scanners": {
+                "presidio": {
+                    "enabled": "off",
+                },
+            },
+        },
+    )
     pipe = Pipeline(scanners=scanners, config=config)
     text = _natural(HEAD_CHARS)
     loop = asyncio.new_event_loop()
@@ -237,8 +249,9 @@ def test_benchmark_full_pipeline_migrated(benchmark) -> None:  # type: ignore[no
     from petasos.scanners import build_scanners
 
     _prompt_guard_scanner()
+    # build_scanners still reads the flat config. The pipeline measures the tree.
+    scanners, statuses = build_scanners(FlatConfig())
     config = PetasosConfig()
-    scanners, statuses = build_scanners(config)
     if any(s.outcome != "verified" for s in statuses if s.outcome != "disabled"):
         pytest.skip(f"migrated stack not available: {statuses}")
     pipe = Pipeline(scanners=scanners, config=config)
@@ -267,11 +280,22 @@ def test_benchmark_full_pipeline_migrated(benchmark) -> None:  # type: ignore[no
 
 
 def test_benchmark_full_pipeline(benchmark) -> None:  # type: ignore[no-untyped-def]
-    config = PetasosConfig(
-        frequency_enabled=True,
-        escalation_enabled=True,
-        audit_enabled=True,
-        alert_enabled=True,
+    config = from_mapping(
+        PetasosConfig,
+        {
+            "frequency": {
+                "enabled": True,
+            },
+            "escalation": {
+                "enabled": True,
+            },
+            "audit": {
+                "enabled": True,
+            },
+            "alerting": {
+                "enabled": True,
+            },
+        },
     )
     pipe = Pipeline(scanners=[MinimalScanner()], config=config)
     loop = asyncio.new_event_loop()

@@ -11,7 +11,9 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from petasos import PetasosConfig, Pipeline, Position, ScanFinding, ScanResult, Severity
+from petasos import Pipeline, Position, ScanFinding, ScanResult, Severity
+from petasos.config.schema import evolve, from_mapping
+from petasos.config.sections import PetasosConfig
 from petasos.pipeline import merge_findings
 from petasos.scanners.semgrep import SemgrepLifecycleOwner, SemgrepScanner
 from petasos.session.guard import render_param_text
@@ -54,7 +56,15 @@ async def test_missing_owned_engine_obeys_failure_policy_but_no_code_stays_safe(
 ) -> None:
     async with SemgrepLifecycleOwner() as owner:
         scanner = SemgrepScanner(owner=owner)
-        pipeline = Pipeline([scanner], config=PetasosConfig(fail_mode=fail_mode))
+        pipeline = Pipeline(
+            [scanner],
+            config=from_mapping(
+                PetasosConfig,
+                {
+                    "fail_mode": fail_mode,
+                },
+            ),
+        )
         result = await pipeline.inspect("eval(data)")
         assert result.safe is safe
         assert require(result.backend_coverage)["semgrep"].status == "error"
@@ -91,17 +101,34 @@ async def test_prepared_policy_exactly_once_and_wrong_owner_has_no_side_effects(
 async def test_policy_reconfigure_preserves_restart_settings_and_live_token() -> None:
     async with SemgrepLifecycleOwner() as owner:
         scanner = SemgrepScanner(owner=owner)
-        config = PetasosConfig(semgrep_enabled=True)
+        config = from_mapping(
+            PetasosConfig,
+            {
+                "scanners": {
+                    "semgrep": {
+                        "enabled": "on",
+                    },
+                },
+            },
+        )
         pipeline = Pipeline([scanner], config=config)
         token = require(await pipeline._prepare_semgrep("eval(data)"))
-        pipeline.reconfigure(
-            replace(
-                config, semgrep_enabled=False, semgrep_request_timeout_seconds=2, fail_mode="open"
+        applied = pipeline.reconfigure(
+            evolve(
+                config,
+                {
+                    "scanners": {
+                        "semgrep": {"enabled": "off", "request_timeout_seconds": 2},
+                    },
+                    "fail_mode": "open",
+                },
             )
         )
-        assert pipeline.legacy_config is not None
-        assert pipeline.legacy_config.semgrep_enabled
-        assert pipeline.legacy_config.semgrep_request_timeout_seconds == 8
+        assert "scanners.semgrep.enabled" in applied.restart_required
+        assert "scanners.semgrep.request_timeout_seconds" in applied.restart_required
+        assert pipeline.config.scanners.semgrep.enabled == "on"
+        assert pipeline.config.scanners.semgrep.request_timeout_seconds == 8
+        assert pipeline.config.fail_mode == "open"
         result = await pipeline._inspect_with_prepared_semgrep("eval(data)", token)
         assert result.safe
 
@@ -153,7 +180,17 @@ async def real_pipeline() -> AsyncIterator[Pipeline]:
         while scanner.availability()[1] == "semgrep.probe_pending" and time.monotonic() < deadline:
             await asyncio.sleep(0.01)
         assert scanner.availability() == (True, None)
-        yield Pipeline([scanner], config=PetasosConfig(scanner_timeout_seconds=0.001))
+        yield Pipeline(
+            [scanner],
+            config=from_mapping(
+                PetasosConfig,
+                {
+                    "scanners": {
+                        "timeout_seconds": 0.001,
+                    },
+                },
+            ),
+        )
 
 
 async def test_real_ingest_scans_beyond_head_and_survives_second_merge(
@@ -257,10 +294,31 @@ async def test_ingestion_coverage_mapping_is_frozen_and_asdict_compatible() -> N
 async def test_source_limit_bounds_match_qualified_maximum(limit: int, ok: bool) -> None:
     # The supported maximum is the measured 64 KiB workload (S7 protocol v3).
     if ok:
-        assert PetasosConfig(semgrep_max_source_bytes=limit).semgrep_max_source_bytes == limit
+        assert (
+            from_mapping(
+                PetasosConfig,
+                {
+                    "scanners": {
+                        "semgrep": {
+                            "max_source_bytes": limit,
+                        },
+                    },
+                },
+            ).scanners.semgrep.max_source_bytes
+            == limit
+        )
     else:
-        with pytest.raises(ValueError, match="semgrep_max_source_bytes"):
-            PetasosConfig(semgrep_max_source_bytes=limit)
+        with pytest.raises(ValueError, match="scanners.semgrep.max_source_bytes"):
+            from_mapping(
+                PetasosConfig,
+                {
+                    "scanners": {
+                        "semgrep": {
+                            "max_source_bytes": limit,
+                        },
+                    },
+                },
+            )
     async with SemgrepLifecycleOwner() as owner:
         if ok:
             SemgrepScanner(owner=owner, max_source_bytes=limit)
