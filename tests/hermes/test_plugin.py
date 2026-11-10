@@ -90,6 +90,76 @@ def _install_host(
     monkeypatch.setitem(sys.modules, "agent.redact", redact)
 
 
+def test_command_registration_is_optional_and_cannot_stop_the_hooks(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Hooks are bound when the host has no command registration, and when it rejects one."""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+
+    class _Reject(_Ctx):
+        def register_cli_command(self, *args: object, **kwargs: object) -> None:
+            raise RuntimeError("rejected")
+
+    plain = _Ctx()
+    rejected = _Reject()
+    try:
+        register(plain)
+        register(rejected)
+    finally:
+        close()
+    assert plain.hooks["pre_tool_call"]
+    assert rejected.hooks["pre_tool_call"]
+
+
+def test_command_registration_offers_doctor(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A host that accepts the call gets doctor, install, and config migrate."""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    seen: dict[str, object] = {}
+
+    class _Host(_Ctx):
+        def register_cli_command(
+            self,
+            name: str,
+            help_text: str,
+            setup: object,
+            handler: object,
+            description: str = "",
+        ) -> None:
+            seen["name"] = name
+            seen["help"] = help_text
+            seen["setup"] = setup
+            seen["handler"] = handler
+            seen["description"] = description
+
+    ctx = _Host()
+    try:
+        register(ctx)
+    finally:
+        close()
+    assert seen["name"] == "petasos"
+    assert callable(seen["setup"])
+    import argparse
+
+    parser = argparse.ArgumentParser(prog="hermes")
+    sub = parser.add_subparsers(dest="command")
+    target = sub.add_parser("petasos")
+    seen["setup"](target)
+    help_text = target.format_help()
+    assert "doctor" in help_text
+    assert "install" in help_text
+    assert "config" in help_text
+    migrated = parser.parse_args(["petasos", "config", "migrate", "--home", str(tmp_path)])
+    assert migrated.config_command == "migrate"
+    args = parser.parse_args(["petasos", "doctor", "--home", str(tmp_path), "--json"])
+    handler = seen["handler"]
+    assert callable(handler)
+    code = handler(args)
+    assert code == 2
+    assert ctx.hooks["pre_tool_call"]
+
+
 def test_directive_never_emits_an_empty_block() -> None:
     """Hermes ignores a block with no message, which would allow the call."""
     assert directive(Allow()) is None

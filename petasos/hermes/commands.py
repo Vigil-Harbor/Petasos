@@ -182,6 +182,91 @@ def _target_flags(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def install_registered_cli(parser: argparse.ArgumentParser) -> None:
+    """Add Petasos subcommands to the parser Hermes created for ``hermes petasos``.
+
+    Hermes calls this while it is building ``hermes --help``. The handler is
+    :func:`run_registered`, which Hermes sets as the command function.
+    """
+    sub = parser.add_subparsers(dest="petasos_command")
+    doctor = sub.add_parser(
+        "doctor",
+        help="Say whether Petasos is protecting this profile, and what to do if it is not.",
+    )
+    _target_flags(doctor)
+    doctor.add_argument(
+        "--json",
+        action="store_true",
+        help="Print the same report as JSON for a script.",
+    )
+    doctor.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Add paths, versions, and every setting with where it came from.",
+    )
+    install = sub.add_parser(
+        "install",
+        help="Refresh the plugin files for this profile and turn the plugin on.",
+    )
+    _target_flags(install)
+    install.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show what would change, and change nothing.",
+    )
+    install.add_argument(
+        "--force",
+        action="store_true",
+        help="Replace a plugin directory that is not already Petasos.",
+    )
+    install.add_argument(
+        "--released",
+        action="store_true",
+        help="Print Hermes's install command for the published plugin instead of writing files.",
+    )
+    install.add_argument(
+        "--run",
+        action="store_true",
+        help="With --released, run Hermes's installer from this Python.",
+    )
+    config = sub.add_parser("config", help="Work with Petasos settings.")
+    config_sub = config.add_subparsers(dest="config_command")
+    migrate = config_sub.add_parser(
+        "migrate",
+        help="Show the new settings that match an old petasos: section.",
+    )
+    _target_flags(migrate)
+    migrate.add_argument(
+        "--write",
+        action="store_true",
+        help="Store the new settings through Hermes. The old section is left in place.",
+    )
+    migrate.add_argument(
+        "--proceed",
+        action="store_true",
+        help="With --write, store the settings even when some old values were not copied.",
+    )
+
+
+def run_registered(args: argparse.Namespace) -> int:
+    """Run the subcommand Hermes parsed for ``hermes petasos``. Return the exit status."""
+    command = getattr(args, "petasos_command", None)
+    if command == "doctor":
+        return _doctor(args)
+    if command == "install":
+        return _install(args)
+    if command == "config":
+        if getattr(args, "config_command", None) != "migrate":
+            print(
+                "Choose a config command. Try: hermes petasos config migrate --help",
+                file=sys.stderr,
+            )
+            return 2
+        return _migrate(args)
+    print("Choose a command: doctor, install, or config migrate.", file=sys.stderr)
+    return 2
+
+
 def _color(json_output: bool) -> bool:
     if json_output:
         return False

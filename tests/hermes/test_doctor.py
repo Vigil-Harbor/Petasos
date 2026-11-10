@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 from petasos.cli import main
 from petasos.enforce.types import ApprovalGrant
-from petasos.hermes.doctor import examine, hermes_view, render_text
+from petasos.hermes.doctor import examine, hermes_view, render_json, render_text
 from tests.hermes.conftest import enabled_config, healthy_home, write_config, write_plugin
 
 if TYPE_CHECKING:
@@ -52,8 +52,12 @@ def test_healthy_install_is_protected(
     assert "turned off" in out
     assert "Dangerous tool calls are blocked" in out
     assert "not reported yet" in out
-    assert "plugins/petasos" in out
+    assert "places an agent could change" in out
+    assert "Paths protected today" not in out
+    assert "No injection scanner is active" not in out
+    assert "pip install" not in out
     assert "prompt-guard" in out
+    assert "The Petasos tab should appear" in out
 
 
 def test_fresh_home_is_not_protected(
@@ -434,7 +438,7 @@ def test_yaml_reader_missing_is_explained(
     code, out = _run(monkeypatch, ["doctor", "--home", str(tmp_path)], capsys)
 
     assert code == 2
-    assert "no YAML reader" in out
+    assert "cannot read Hermes's config file" in out
     assert "same Python Hermes uses" in out
 
 
@@ -489,6 +493,107 @@ def test_profile_flag_selects_the_profile_directory(
     code = main(["doctor", "--home", str(tmp_path), "--profile", "../escape"])
     assert code == 2
     assert "not a single directory name" in capsys.readouterr().err
+
+
+def test_text_and_json_share_one_report(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every sentence in the JSON object is the sentence the text prints."""
+    home = healthy_home(tmp_path, monkeypatch)
+    report = examine(home, home_reason="the home you named with --home")
+    text = render_text(report, verbose=False, color=False)
+    verbose = render_text(report, verbose=True, color=False)
+    payload = json.loads(render_json(report))
+    assert payload["summary"] in text
+    assert payload["paths_summary"] in text
+    for check in payload["checks"]:
+        assert check["summary"] in text
+    for suggestion in payload["suggestions"]:
+        assert suggestion in text
+    assert payload["protected_paths"]
+    assert "Paths protected today" not in text
+    assert "Paths protected today" in verbose
+    for path in payload["protected_paths"]:
+        assert path in verbose
+
+
+def test_a_redundant_override_is_not_called_custom(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """An override that matches the role and level is not described as custom."""
+    home = healthy_home(tmp_path, monkeypatch)
+    write_config(
+        home,
+        "plugins:\n"
+        "  enabled:\n"
+        "    - petasos\n"
+        "  entries:\n"
+        "    petasos:\n"
+        "      settings:\n"
+        "        enabled: true\n"
+        "        role: general\n"
+        "        level: balanced\n"
+        "        overrides:\n"
+        "          fail_mode: degraded\n",
+    )
+    code, out = _run(monkeypatch, ["doctor", "--home", str(home)], capsys)
+
+    assert code == 0
+    assert "custom setting" not in out
+    payload = json.loads(_run(monkeypatch, ["doctor", "--json", "--home", str(home)], capsys)[1])
+    origins = {row["path"]: row["origin"] for row in payload["detail"]["resolved"]}
+    assert origins["fail_mode"] == "override"
+
+
+def test_a_real_override_is_a_sentence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A value the role would not have chosen is named, and the line starts with a capital."""
+    home = healthy_home(tmp_path, monkeypatch)
+    write_config(home, enabled_config(role="coding"))
+    monkeypatch.setattr(
+        "petasos.hermes.host.approval_grant",
+        lambda: ApprovalGrant(),
+    )
+    code, out = _run(monkeypatch, ["doctor", "--home", str(home)], capsys)
+
+    assert code == 0
+    assert "Dangerous tool calls wait for a person to confirm them." in out
+    assert "\ndangerous tool calls" not in out
+    assert "the coding job" in out
+
+
+def test_two_result_rewriters_are_named(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """When security-guidance is also on, the report says Petasos's note is dropped."""
+    home = healthy_home(tmp_path, monkeypatch)
+    text = enabled_config().replace(
+        "    - petasos\n",
+        "    - security-guidance\n    - petasos\n",
+        1,
+    )
+    write_config(home, text)
+    code, out = _run(monkeypatch, ["doctor", "--home", str(home)], capsys)
+
+    assert code == 1
+    assert "security-guidance" in out
+    assert "first" in out
+    assert "Tool calls are still checked" in out
+    assert "hermes plugins disable security-guidance" in out
+
+
+def test_missing_dashboard_files_mean_no_tab(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A current plugin without the dashboard files warns that the tab will not appear."""
+    home = healthy_home(tmp_path, monkeypatch)
+    dashboard = home / "plugins" / "petasos" / "dashboard"
+    for path in dashboard.iterdir():
+        path.unlink()
+    code, out = _run(monkeypatch, ["doctor", "--home", str(home)], capsys)
+
+    assert code == 1
+    assert "tab will not appear" in out
+    assert "manifest.json" in out
 
 
 def test_colour_is_not_the_only_mark(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

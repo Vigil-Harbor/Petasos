@@ -1,31 +1,23 @@
-"""Whether protection is on, and what each scanner is doing.
+"""Whether protection is on, and the doctor's checks for the same home.
 
-The shape is a status line a later diagnostics report can add fields to.
-Scanner construction is the registry's. This module does not start a download.
+The doctor report is the computation. The summary fields are read from it,
+so the tab and ``petasos doctor --json`` cannot disagree about scanners,
+suggestions, or whether the settings resolved. The plugin is not started
+again: Hermes's validator would import it in a subprocess.
 """
 
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING, Any
 
-from petasos.config.layers import resolve
-from petasos.config.schema import ConfigError
-from petasos.hermes.dashboard.catalog import stored_document
 from petasos.hermes.dashboard.errors import envelope
-from petasos.scanners.registry import (
-    REGISTRY,
-    BuildContext,
-    ScannerSpec,
-    compose,
-    fix_for,
-    recommendations,
-)
+from petasos.hermes.doctor import examine, report_payload
 
 if TYPE_CHECKING:
     from petasos.hermes.dashboard.scope import HomeState
+    from petasos.scanners.registry import ScannerSpec
 
-logger = logging.getLogger("petasos.hermes.dashboard")
+STATUS_VERSION = 2
 
 
 def status(
@@ -34,102 +26,70 @@ def status(
     registry: tuple[ScannerSpec, ...] | None = None,
     home_label: str = "",
 ) -> dict[str, Any]:
-    """Protection, the two switches, and each scanner, for ``state``."""
+    """Protection, the two switches, and the doctor report for ``state``."""
     import petasos
 
-    document = stored_document(state.stored)
-    settings_error: dict[str, str] | None = None
-    resolved = None
-    if not state.readable:
-        settings_error = {
-            "path": "",
-            "message": "The settings file could not be read.",
-        }
-    else:
-        try:
-            resolved = resolve(document)
-        except ConfigError as exc:
-            path, message = exc.errors[0]
-            settings_error = {"path": path, "message": message}
-    petasos_on = document["enabled"] is True
-    if not state.readable:
-        petasos_detail = "Petasos's own switch could not be read."
-        petasos_flag: bool | None = None
-    elif petasos_on:
-        petasos_detail = "Petasos enforcement is on."
-        petasos_flag = True
-    else:
-        petasos_detail = (
-            "Petasos is paused. Tool calls are allowed through, and the pause is recorded."
-        )
-        petasos_flag = False
-    armed = state.hermes_enabled is True and petasos_on and settings_error is None
-    protection = "on" if armed else "off"
-    scanners, advice = _scanners(
-        None if resolved is None else resolved.config,
-        registry if registry is not None else REGISTRY,
-        None if resolved is None else document["role"],
+    report = examine(
+        state.home,
+        home_reason="the home Hermes is using",
+        probe_plugin=False,
+        registry=registry,
     )
-    return envelope(
-        protection=protection,
+    detail = report.detail
+    settings_error = detail.get("settings_error")
+    readable = detail.get("readable") is True
+    hermes_on = detail.get("hermes_enabled")
+    hermes_flag = hermes_on if isinstance(hermes_on, bool) or hermes_on is None else None
+    petasos_raw = detail.get("petasos_enabled")
+    petasos_flag = petasos_raw if isinstance(petasos_raw, bool) or petasos_raw is None else None
+    valid = settings_error is None and readable
+    armed = hermes_flag is True and petasos_flag is True and valid
+    scanners = detail.get("scanners")
+    if not isinstance(scanners, list):
+        scanners = []
+    role = detail.get("role")
+    level = detail.get("level")
+    secrets = detail.get("secrets")
+    if not isinstance(secrets, dict):
+        secrets = {"session_secret": "unset", "hash_key": "unset"}
+    body = envelope(
+        protection="on" if armed else "off",
         switches={
-            "hermes": {"on": state.hermes_enabled, "detail": state.hermes_detail},
-            "petasos": {"on": petasos_flag, "detail": petasos_detail},
+            "hermes": {"on": hermes_flag, "detail": _hermes_detail(detail)},
+            "petasos": {"on": petasos_flag, "detail": _petasos_detail(petasos_flag, readable)},
         },
-        settings={"valid": settings_error is None and state.readable, "error": settings_error},
+        settings={
+            "valid": valid,
+            "error": settings_error if isinstance(settings_error, dict) else None,
+        },
         scanners=scanners,
-        recommendations=list(advice),
-        role=document["role"] if isinstance(document["role"], str) else None,
-        level=document["level"] if isinstance(document["level"], str) else None,
-        secrets=dict(state.secrets),
+        recommendations=list(report.suggestions),
+        role=role if isinstance(role, str) else None,
+        level=level if isinstance(level, str) else None,
+        secrets=dict(secrets),
         home=home_label,
         petasos_version=petasos.__version__,
+        doctor=report_payload(report),
     )
+    body["version"] = STATUS_VERSION
+    return body
 
 
-def _scanners(
-    config: Any,
-    registry: tuple[ScannerSpec, ...],
-    role: str | None,
-) -> tuple[list[dict[str, Any]], tuple[str, ...]]:
-    syntactic = {
-        "id": "syntactic",
-        "label": "Basic checks",
-        "state": "active",
-        "reason": None,
-        "fix": None,
-        "extra": None,
-    }
-    if config is None:
-        return [syntactic], ()
-    try:
-        composition = compose(config, BuildContext(), registry=registry)
-    except Exception:
-        logger.exception("scanner composition failed")
-        return (
-            [
-                syntactic,
-                {
-                    "id": "scanners",
-                    "label": "Optional scanners",
-                    "state": "unavailable",
-                    "reason": "The scanners could not be checked.",
-                    "fix": "Try again. If it keeps happening, the detail is in the log.",
-                    "extra": None,
-                },
-            ],
-            (),
-        )
-    rows = [syntactic]
-    for item in composition.statuses:
-        rows.append(
-            {
-                "id": item.id,
-                "label": item.label,
-                "state": item.state,
-                "reason": item.reason,
-                "fix": fix_for(item),
-                "extra": item.extra,
-            }
-        )
-    return rows, recommendations(composition, role)
+def _hermes_detail(detail: object) -> str:
+    if not isinstance(detail, dict):
+        return "The settings file could not be read, so the plugin switch is unknown."
+    if detail.get("readable") is not True:
+        return "The settings file could not be read, so the plugin switch is unknown."
+    if detail.get("hermes_disabled") is True:
+        return "Petasos is on Hermes's disabled list, so Hermes will not load it."
+    if detail.get("hermes_enabled") is True:
+        return "Hermes is loading Petasos."
+    return "Petasos is not in Hermes's enabled plugins."
+
+
+def _petasos_detail(flag: bool | None, readable: bool) -> str:
+    if not readable or flag is None:
+        return "Petasos's own switch could not be read."
+    if flag:
+        return "Petasos enforcement is on."
+    return "Petasos is paused. Tool calls are allowed through, and the pause is recorded."

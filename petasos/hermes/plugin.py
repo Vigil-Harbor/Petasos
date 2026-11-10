@@ -440,15 +440,39 @@ def register(ctx: PluginContext) -> None:
             attached = True
         if created:
             reg.enforcer.start()
-    if not (created or attached):
+    if created or attached:
+        _log_resolution()
+        if created:
+            logger.info(
+                "PETASOS_HOST_CAPS approve_directive=%s subagent_hooks=%s",
+                "available" if approve_directive_available() else "unavailable",
+                "available" if subagent_hooks_available() else "unavailable",
+            )
+    _register_cli(ctx)
+
+
+def _register_cli(ctx: object) -> None:
+    """Offer ``hermes petasos`` when the host can register a command.
+
+    A missing call, or a host that rejects the registration, is logged and
+    ignored. Hook registration has already finished, so enforcement still starts.
+    """
+    register = getattr(ctx, "register_cli_command", None)
+    if not callable(register):
+        logger.info("PETASOS_CLI unavailable: this Hermes has no register_cli_command")
         return
-    _log_resolution()
-    if created:
-        logger.info(
-            "PETASOS_HOST_CAPS approve_directive=%s subagent_hooks=%s",
-            "available" if approve_directive_available() else "unavailable",
-            "available" if subagent_hooks_available() else "unavailable",
+    try:
+        from petasos.hermes.commands import install_registered_cli, run_registered
+
+        register(
+            "petasos",
+            "Check Petasos and update its settings.",
+            install_registered_cli,
+            run_registered,
+            "Doctor, a file refresh, and settings migration for an installed Petasos plugin.",
         )
+    except Exception as exc:
+        logger.warning("PETASOS_CLI rejected: %s", exc)
 
 
 def close() -> None:

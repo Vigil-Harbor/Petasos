@@ -1,9 +1,9 @@
 """Put the Petasos plugin in place for one Hermes profile.
 
-The development route writes the three plugin files from this install and
-turns the plugin on through Hermes. The released route prints Hermes's own
-install command, and runs it only when asked. Neither route writes
-``config.yaml`` itself.
+The development route writes the plugin files and the dashboard tab from
+this install, and turns the plugin on through Hermes. The released route
+prints Hermes's own install command, and runs it only when asked. Neither
+route writes ``config.yaml`` itself.
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import petasos
+from petasos.hermes.dashboard.manifest import DASHBOARD_DIR, render_dashboard_manifest
 from petasos.hermes.doctor import Report, examine, render_text
 from petasos.hermes.manifest import render_manifest
 from petasos.hermes.settings import PLUGIN_ID
@@ -108,6 +109,9 @@ def _development(
         f"  {target / 'plugin.yaml'}",
         f"  {target / '__init__.py'}",
         f"  {target / 'pyproject.toml'}",
+        f"  {target / 'dashboard' / 'manifest.json'}",
+        f"  {target / 'dashboard' / 'plugin_api.py'}",
+        f"  {target / 'dashboard' / 'index.js'}",
         "It will turn the plugin on through Hermes, if Hermes is available in this Python.",
         "Running this again refreshes those files to this version of Petasos.",
     ]
@@ -239,12 +243,29 @@ def run_released_install() -> tuple[bool, str]:
     return True, "Hermes finished the install."
 
 
+def dashboard_texts() -> dict[str, str]:
+    """The dashboard files for a copy this Petasos wrote.
+
+    The manifest is rendered for this version. The API module and the page
+    script are the files shipped with the plugin.
+    """
+    texts = {"manifest.json": render_dashboard_manifest()}
+    for name in ("plugin_api.py", "index.js"):
+        texts[name] = (DASHBOARD_DIR / name).read_text(encoding="utf-8")
+    return texts
+
+
 def _write_tree(target: Path) -> bool:
-    """Write the three files. Return True when a byte changed."""
+    """Write the plugin files and the dashboard tab. Return True when a byte changed."""
     target.mkdir(parents=True, exist_ok=True)
     changed = _write_if_changed(target / "plugin.yaml", render_manifest())
     changed = _write_if_changed(target / "__init__.py", _INIT_SOURCE) or changed
-    return _write_if_changed(target / "pyproject.toml", render_project()) or changed
+    changed = _write_if_changed(target / "pyproject.toml", render_project()) or changed
+    dashboard = target / "dashboard"
+    dashboard.mkdir(parents=True, exist_ok=True)
+    for name, text in dashboard_texts().items():
+        changed = _write_if_changed(dashboard / name, text) or changed
+    return changed
 
 
 def _write_if_changed(path: Path, text: str) -> bool:
