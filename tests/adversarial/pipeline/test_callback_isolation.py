@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
 from typing import Any
 from unittest.mock import patch
 
@@ -19,7 +18,6 @@ from petasos.scanners.minimal import MinimalScanner
 from petasos.session.alerting import AlertManager
 from petasos.session.audit import AuditEmitter
 from petasos.session.frequency import FrequencyUpdateResult
-from petasos.session.license import LicenseClaims, LicenseState
 
 
 def _cfg(**overrides: object) -> PetasosConfig:
@@ -68,35 +66,17 @@ def _freq_result(
     )
 
 
-def _mock_claims() -> LicenseClaims:
-    return LicenseClaims(
-        tier="pro",
-        customer_id="test",
-        expiry=datetime.now(tz=timezone.utc) + timedelta(days=365),
-        issued_at=datetime.now(tz=timezone.utc),
-        features=frozenset(),
-    )
-
-
 def _session_pipeline(
     *,
     on_audit: Any = None,
     on_alert: Any = None,
 ) -> Pipeline:
-    with patch.object(
-        Pipeline,
-        "activate",
-        return_value=LicenseState.VALID,
-    ):
-        p = Pipeline(
-            [MinimalScanner()],
-            config=_cfg(),
-            on_audit=on_audit,
-            on_alert=on_alert,
-        )
-        p._license_state = LicenseState.VALID
-        p._license_claims = _mock_claims()
-        return p
+    return Pipeline(
+        [MinimalScanner()],
+        config=_cfg(),
+        on_audit=on_audit,
+        on_alert=on_alert,
+    )
 
 
 # ---------------------------------------------------------------------------

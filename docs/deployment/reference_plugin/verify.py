@@ -4,7 +4,7 @@
 Run with Hermes's Python:
     %LOCALAPPDATA%\\hermes\\hermes-agent\\venv\\Scripts\\python.exe verify.py
 
-Checks: scanner imports, config validation, credentials, license activation,
+Checks: scanner imports, config validation, credentials,
 session-feature state read from the deployed config, arming state, a synthetic
 injection scan, plugin file presence, config split-brain detection between root
 and profile homes, and one row per served profile: which folder wins the petasos
@@ -290,31 +290,7 @@ def check_env_vars() -> CheckResult:
             missing.append(var)
     if missing:
         return FAIL, f"Missing required: {', '.join(missing)}"
-    if not os.environ.get("PETASOS_LICENSE_KEY"):
-        return (
-            WARN,
-            "PETASOS_SESSION_SECRET and PETASOS_HASH_KEY present."
-            " PETASOS_LICENSE_KEY not set (optional — supporter recognition only)",
-        )
-    return PASS, "All 3 env vars present"
-
-
-def check_license() -> CheckResult:
-    from petasos import LicenseState, LicenseValidator
-
-    key = os.environ.get("PETASOS_LICENSE_KEY")
-    if not key:
-        return WARN, "PETASOS_LICENSE_KEY not set (optional — all features are free)"
-
-    validator = LicenseValidator()
-    state, claims = validator.validate(key)
-    if state != LicenseState.VALID:
-        return (
-            WARN,
-            f"License state: {state}"
-            " (features still available — license is supporter recognition only)",
-        )
-    return PASS, f"tier={claims.tier}, features={sorted(claims.features)}"
+    return PASS, "PETASOS_SESSION_SECRET and PETASOS_HASH_KEY present"
 
 
 def check_features() -> CheckResult:
@@ -820,7 +796,6 @@ def main() -> int:
     check("Plugin files", check_plugin_files)
     check("Config validation", check_config)
     check("Environment variables", check_env_vars)
-    check("License validation", check_license)
     check("Feature activation", check_features)
     check("Arming state", check_armed)
     check("Injection detection", check_injection_scan)

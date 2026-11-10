@@ -261,8 +261,7 @@ def _read(path: str) -> str | None:
 
     The explicit encoding is load-bearing on this ticket's declared local gate:
     the 3.10 dev interpreter's default locale encoding is cp1252, which cannot
-    decode petasos/normalize.py or petasos/session/license.py (both carry UTF-8
-    zero-width characters).
+    decode petasos/normalize.py (it carries UTF-8 zero-width characters).
     """
     p = _REPO_ROOT / path
     if not p.is_file():

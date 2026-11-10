@@ -20,7 +20,6 @@
         Pet.h("div", { className: "mono", dataset: { petVer: "1" }, ariaBusy: true, ariaLabel: "Loading version",
                        style: { fontSize: "11px", color: "var(--tx-faint)", marginTop: "4px" } },
           Pet.skel(48, 11)),
-        Pet.h("span", { className: "pill ok", style: { marginTop: "8px", height: "18px", fontSize: "10px" } }, "MIT License"),
         Pet.h("p", { style: { fontSize: "13px", color: "var(--tx-mut)", lineHeight: "1.6", margin: "12px 0 0", maxWidth: "440px" } },
           "Thank you for checking out the plugin! It is my hope that it helps extend trust to your agents, and assists you in enforcing your guardrails.",
           Pet.h("br"),

@@ -317,7 +317,7 @@ def test_benchmark_full_pipeline_migrated(benchmark) -> None:  # type: ignore[no
     loop.close()
 
 
-def test_benchmark_full_pipeline(benchmark, valid_key) -> None:  # type: ignore[no-untyped-def]
+def test_benchmark_full_pipeline(benchmark) -> None:  # type: ignore[no-untyped-def]
     config = PetasosConfig(
         frequency_enabled=True,
         escalation_enabled=True,
@@ -325,7 +325,6 @@ def test_benchmark_full_pipeline(benchmark, valid_key) -> None:  # type: ignore[
         alert_enabled=True,
     )
     pipe = Pipeline(scanners=[MinimalScanner()], config=config)
-    pipe.activate(valid_key)
     loop = asyncio.new_event_loop()
 
     def run() -> None:

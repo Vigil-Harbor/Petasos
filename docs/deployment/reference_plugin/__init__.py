@@ -9,7 +9,7 @@ Deploy: copy this directory to the active Hermes profile's plugin dir:
         v0.15   ~/.hermes/plugins/petasos/  (macOS)
                 %LOCALAPPDATA%\\hermes\\plugins\\petasos\\  (Windows)
 Config: add a top-level ``petasos:`` section to the profile's config.yaml
-Env:    PETASOS_LICENSE_KEY, PETASOS_SESSION_SECRET, PETASOS_HASH_KEY,
+Env:    PETASOS_SESSION_SECRET, PETASOS_HASH_KEY,
         PETASOS_AUDIT_FINDING
 Needs:  a ``petasos`` release exporting ``petasos.scanners.build_scanners``,
         ``petasos.session.formatting.format_result_notice``,
@@ -836,8 +836,7 @@ def _deferred_init() -> None:
                     # tracker, wire the tracker's pin/unpin callbacks to it, and
                     # hand both to the guard below. Deliberately NOT published to
                     # _lineage_registry here: Pipeline(...) below can raise (D1's
-                    # requires_token check) and so can _pipeline.activate() in
-                    # the license block. A published registry on a failed-init
+                    # requires_token check). A published registry on a failed-init
                     # boot would keep accepting host lineage edges via
                     # _subagent_start/_subagent_stop (which gate only on
                     # `reg is None`, never on _initialized) into a registry no
@@ -874,35 +873,6 @@ def _deferred_init() -> None:
                     logger.warning(
                         "PETASOS_INTEGRITY spool-key install failed at boot: %s — integrity off",
                         exc,
-                    )
-
-                license_key = os.environ.get("PETASOS_LICENSE_KEY")
-                if license_key:
-                    from petasos import LicenseState
-
-                    state = _pipeline.activate(license_key)
-                    if state == LicenseState.VALID:
-                        logger.info("Petasos license validated (enterprise)")
-                        for feat in (
-                            "frequency",
-                            "escalation",
-                            "tool_guard",
-                            "audit",
-                            "alerting",
-                        ):
-                            if not _pipeline.is_feature_enabled(feat):
-                                logger.warning(
-                                    "Premium feature '%s' not available despite valid license",
-                                    feat,
-                                )
-                    else:
-                        logger.warning(
-                            "Petasos license invalid (state=%s) — running OSS-only", state
-                        )
-                else:
-                    logger.info(
-                        "PETASOS_LICENSE_KEY not set — all features available "
-                        "(license is optional)"
                     )
 
                 from petasos import SessionTaintStore

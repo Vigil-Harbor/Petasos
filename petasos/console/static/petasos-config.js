@@ -85,7 +85,7 @@
   };
 
   // Humanize a config key for display: "tier3_threshold" -> "Tier 3 Threshold".
-  Pet.CONFIG_ACRONYMS = { pii: "PII", iban: "IBAN", ssn: "SSN", ttl: "TTL", id: "ID", ip: "IP", rtl: "RTL", nfkc: "NFKC", hmac: "HMAC", url: "URL", ml: "ML", jwt: "JWT", api: "API", json: "JSON", llm: "LLM" };
+  Pet.CONFIG_ACRONYMS = { pii: "PII", iban: "IBAN", ssn: "SSN", ttl: "TTL", id: "ID", ip: "IP", rtl: "RTL", nfkc: "NFKC", hmac: "HMAC", url: "URL", ml: "ML", api: "API", json: "JSON", llm: "LLM" };
   Pet.humanizeKey = function (key) {
     if (typeof key !== "string" || !key) return "";
     var s = key.replace(/^petasos\./, "").replace(/[._]+/g, " ").replace(/([a-zA-Z])([0-9])/g, "$1 $2").trim();

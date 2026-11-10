@@ -17,7 +17,7 @@ license = "MIT"
 authors = [{ name = "Vigil Harbor", email = "support@vigilharbor.com" }]
 description = "Pluggable, session-aware content security pipeline for Python AI agents"
 readme = "README.md"
-dependencies = ["pyjwt[crypto]>=2.8,<3"]
+dependencies = []
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -101,8 +101,6 @@ module = [
     "presidio_anonymizer.*",
     "spacy",
     "spacy.*",
-    "jwt",
-    "jwt.*",
     "llm_guard",
     "llm_guard.*",
     "llamafirewall",

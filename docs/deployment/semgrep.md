@@ -21,7 +21,7 @@ python -m pip install "petasos[semgrep]"
 ```
 
 Install Semgrep CE **1.183.0** in a separate virtual environment. Keep its adjacent
-libraries and upstream license notices; copying just the executable is unsupported.
+libraries and the notices that ship with the upstream distribution; copying just the executable is unsupported.
 The Petasos extra installs `psutil>=7,<8`, not Semgrep or its Python dependencies.
 Semgrep is absent from the base install and `[all]`.
 

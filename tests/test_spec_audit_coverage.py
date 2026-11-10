@@ -27,7 +27,6 @@ from petasos.session.alerting import AlertManager
 from petasos.session.audit import AuditEmitter
 from petasos.session.escalation import derive_tier, evaluate_tier
 from petasos.session.frequency import FrequencyTracker
-from petasos.session.license import LicenseState, LicenseValidator
 from petasos.session.lineage import LineageRegistry
 from petasos.session.taint import SessionTaintStore
 
@@ -204,23 +203,6 @@ def test_lineage_apply_config_rebinds_depth_preserves_edges() -> None:
     reg.apply_config(PetasosConfig(lineage_max_depth=1))
     assert reg._max_depth == 1
     assert reg.ancestors("a") == ["b"]  # edges preserved, depth bound applied live
-
-
-# --- LIC-07: LicenseValidator ctor validation ---
-@pytest.mark.parametrize("skew", [400.0, -1.0, float("nan")])
-def test_license_validator_rejects_bad_clock_skew(skew: float) -> None:
-    with pytest.raises(ValueError):
-        LicenseValidator(clock_skew_seconds=skew)
-
-
-def test_license_validator_rejects_non_superset_tiers() -> None:
-    with pytest.raises(ValueError):
-        LicenseValidator(valid_tiers=frozenset({"free"}))  # missing built-in tiers
-
-
-def test_license_validator_accepts_valid_ctor() -> None:
-    v = LicenseValidator(clock_skew_seconds=10.0)
-    assert v.validate("not-a-token")[0] == LicenseState.INVALID
 
 
 # --- MIN-23: set_decode_encoded_payloads live toggle ---

@@ -9,7 +9,6 @@ Regression tests produced by the cross-model red-team pass. Each file maps to at
 | `pipeline/` | Degraded fail-mode, merge, config surface |
 | `config/` | Config poisoning |
 | `guard/` | Tool-name / alias smuggling |
-| `license/` | JWT hard constraints |
 
 Run: `pytest tests/adversarial`
 

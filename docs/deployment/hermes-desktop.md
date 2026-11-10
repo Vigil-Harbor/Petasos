@@ -96,7 +96,7 @@ on Intel macOS.
 
 **PromptGuard prerequisite:** the PromptGuard backend needs the gated
 `meta-llama/Llama-Prompt-Guard-2-86M` model at a pinned revision. Accept the model
-license, then pre-download it or make a token available before first use, or every
+access terms, then pre-download it or make a token available before first use, or every
 scan through the backend errors. Full steps are in
 [PromptGuard model prerequisites](#promptguard-model-prerequisites) below.
 
@@ -156,10 +156,6 @@ PETASOS_HASH_KEY=<hex output>
 These match `*_KEY` / `*_SECRET` patterns, so Hermes automatically strips them
 from terminal subprocess environments (no credential leakage into
 agent-executed commands).
-
-> **License is optional and gates nothing.** Every feature ships free. The
-> `PETASOS_LICENSE_KEY` env var exists only for future supporter or compliance
-> recognition, so leave it unset unless you have been given one.
 
 ## 3. Create the plugin
 
@@ -349,7 +345,7 @@ petasos:
   pii_entities: ["PERSON", "EMAIL_ADDRESS", "PHONE_NUMBER", "CREDIT_CARD"]
   redaction_mode: "hash"
 
-  # Session features (all default true, no license required)
+  # Session features (all default true)
   frequency_enabled: true
   escalation_enabled: true
   tool_guard_enabled: true
@@ -600,7 +596,7 @@ checks all components, including split-brain detection:
 ```
 
 Expected output: rows for scanner imports, plugin files, config validation,
-environment variables, license, feature activation, arming state, injection
+environment variables, feature activation, arming state, injection
 detection, and config split-brain. The header shows which config file was
 resolved, the winning tier, and which plugin copy the script imported. The
 config validation and feature activation rows are read from that config file
@@ -767,7 +763,6 @@ plist:
 - `PETASOS_CONSOLE_TOKEN` set to a **non-blank** value, so every `/api/*` data
   route requires `Authorization: Bearer <token>`. A set-but-blank value disables
   auth with one WARNING; do not register it blank.
-- `PETASOS_LICENSE_KEY` if you use one.
 
 **Auth posture.** When `PETASOS_CONSOLE_TOKEN` is a non-blank string, every
 `/api/*` route returns `401` without a valid bearer token. The static page,
@@ -825,9 +820,9 @@ supervised standalone console above as the durable answer.
 The `prompt_guard` backend, and the deprecated LlamaFirewall PromptGuard component,
 use the gated Hugging Face model `meta-llama/Llama-Prompt-Guard-2-86M`. To use it:
 
-1. **Accept the license.** Visit
+1. **Accept the access terms.** Visit
    [the model page](https://huggingface.co/meta-llama/Llama-Prompt-Guard-2-86M)
-   and accept the Meta license from the Hugging Face account you will use.
+   and accept Meta's access terms from the Hugging Face account you will use.
 2. **Pre-download the pinned revision** (recommended), with `HF_TOKEN` set for this
    command or after `hf auth login`. The download needs that account's token. A
    cached model then loads with no network call, so the token can be removed:
@@ -955,17 +950,9 @@ on a Hermes generation, or list it in `disabled_scanners`. The syntactic pre-fil
 dependencies the ML backends import indirectly. The classic failure is a missing
 `packaging`, which makes spaCy/thinc raise on import and takes Presidio down with
 it even though the plugin manifest declares it. After any rebuild, check that the
-plugin's `pyproject.toml` still declares the backends, keep the JWT lib pinned at `pyjwt==2.12.1`
-(the version the reference plugin expects), and confirm which backends actually
-loaded from the plugin health endpoint (`/api/plugins/petasos/health`) rather
-than assuming the install succeeded.
-
-### License invalid
-
-A `Petasos license invalid` warning is harmless: the license gates nothing and
-every feature stays on. It only matters if you use the optional
-`PETASOS_LICENSE_KEY` for supporter/compliance recognition, in which case check
-that the value in `.env` has no trailing whitespace or newlines.
+plugin's `pyproject.toml` still declares the backends, and confirm which backends
+actually loaded from the plugin health endpoint (`/api/plugins/petasos/health`)
+rather than assuming the install succeeded.
 
 ### Config section wiped
 

@@ -486,7 +486,6 @@ def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "PETASOS_HASH_KEY",
         "PETASOS_SESSION_SECRET",
         "PETASOS_AUDIT_FINDING",
-        "PETASOS_LICENSE_KEY",
     ):
         monkeypatch.delenv(var, raising=False)
 
@@ -611,32 +610,6 @@ def test_check_features_rejected_section_fails(
     assert status_cfg == verify.FAIL
     assert "rejected" in detail_cfg
     assert "bogus" in detail_cfg
-
-
-def test_check_features_ignores_license_key(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """All features are free; the license key must not move the row.
-
-    Two independent module loads, not two calls on one module: the resolver
-    memoises, so a second call would return the first answer and pass vacuously.
-    """
-    _clean_env(monkeypatch)
-    _setup_clean_install(
-        tmp_path,
-        monkeypatch,
-        profile="gibson",
-        root_section={"fail_mode": "closed"},
-        profile_section={"tool_guard_enabled": False, "alert_enabled": False},
-    )
-
-    monkeypatch.delenv("PETASOS_LICENSE_KEY", raising=False)
-    without_key = _load_verify_module().check_features()
-
-    monkeypatch.setenv("PETASOS_LICENSE_KEY", "not-a-real-jwt")
-    with_key = _load_verify_module().check_features()
-
-    assert without_key == with_key
 
 
 def test_check_features_sibling_skew_fails(
