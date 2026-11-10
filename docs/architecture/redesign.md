@@ -36,6 +36,21 @@ but the Hermes integration is the product and ships in the wheel.
    host.
 4. **Subtract first.** Code with no consumer is deleted, not parked. Git keeps
    history.
+5. **Native to the host.** Petasos should feel as if it had always been part
+   of Hermes, the way the kanban board does. It uses what Hermes already has
+   (its settings, approvals, redaction, dashboard, plugin hub, install and
+   doctor commands) and fills the gaps Hermes leaves, chiefly tool calls and
+   egress. Where Hermes owns something, Petasos defers to it. Upstream moves
+   fast, so every dependency on Hermes goes through one small seam, and
+   nothing Petasos ships cuts across how Hermes expects a plugin to behave.
+6. **One or two choices, then proof.** A casual user sets it up with one or
+   two choices on well-calibrated defaults, and no description should make
+   them feel they need to be a security engineer to read it. A technical user
+   can see and change everything, and can prove a change does what they meant
+   in the scanner playground straight away.
+7. **Readable on inspection.** Someone deciding whether to install it can open
+   a module and see that it does what it says.
+8. **The guarded cannot move the guard.** See `guardrail-integrity.md`.
 
 ### Invariants carried over unchanged
 
