@@ -26,6 +26,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote, unquote
 
+from petasos._types import severity_rank
 from petasos.console import _approvals, _history
 from petasos.console._config_meta import generate_config_metadata, generate_section_metadata
 from petasos.console._paths import (
@@ -145,12 +146,6 @@ _SCAN_HISTORY_RING_CAPACITY = 500
 _MAX_DETAIL_FINDINGS = 50
 _MAX_DETAIL_NORMALIZED_CHARS = 2_000
 _MAX_DETAIL_BYTES = 8_000
-# Severity ordering for detail-blob shedding. A 6th local copy (the cross-module rank is
-# private; the reference plugin documents preferring a local copy over a cross-boundary
-# import). Keyed by the Severity `.value` string; an unknown severity ranks highest so it
-# is kept (shed last), never silently dropped first.
-_SEVERITY_RANK: dict[str, int] = {"info": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
-_SEVERITY_RANK_MAX = max(_SEVERITY_RANK.values()) + 1
 
 
 def _detail_bytes(blob: dict[str, Any]) -> int:
@@ -186,7 +181,7 @@ def _build_playground_detail(result: Any, normalized: Any) -> dict[str, Any]:
                 sorted(
                     range(total),
                     key=lambda i: (
-                        -_SEVERITY_RANK.get(findings[i]["severity"], _SEVERITY_RANK_MAX),
+                        -severity_rank(findings[i]["severity"], unknown_wins=True),
                         i,
                     ),
                 )[:_MAX_DETAIL_FINDINGS]
@@ -248,7 +243,7 @@ def _build_playground_detail(result: Any, normalized: Any) -> dict[str, Any]:
             shed = sorted(
                 range(len(blob["findings"])),
                 key=lambda i: (
-                    _SEVERITY_RANK.get(blob["findings"][i]["severity"], _SEVERITY_RANK_MAX),
+                    severity_rank(blob["findings"][i]["severity"], unknown_wins=True),
                     -i,
                 ),
             )

@@ -66,7 +66,11 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from petasos._types import Severity  # PET-112: dep-light (enum + dataclasses, no ML imports)
+from petasos._types import (  # stdlib only: enum and dataclasses, no ML imports
+    Severity,
+    at_least,
+    severity_rank,
+)
 from petasos.normalize import (  # PET-118: dep-light (re + unicodedata)
     _is_strippable,  # PET-223: the console's canonical invisible-character predicate
     canonicalize_tool_name,
@@ -410,39 +414,25 @@ def _is_ingestion(tool_name: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# PET-112: ordinal severity gate + egress-sink classification
+# Ordinal severity gate + egress-sink classification
 # ---------------------------------------------------------------------------
-
-# Lower rank = worse — the established convention (four existing copies in
-# pipeline.py / presidio.py / alerting.py / formatting.py). A fifth copy in this
-# deployment artifact is preferable to importing a private name across the
-# package -> docs/deployment/ boundary.
-_SEVERITY_RANK: dict[Severity, int] = {
-    Severity.CRITICAL: 0,
-    Severity.HIGH: 1,
-    Severity.MEDIUM: 2,
-    Severity.LOW: 3,
-    Severity.INFO: 4,
-}
-_BLOCK_RANK = _SEVERITY_RANK[Severity.HIGH]  # block at HIGH or worse (rank <= 1)
 
 
 def _blocks(severity: Severity) -> bool:
-    """Ordinal severity gate (replaces the broken lexicographic compare, PET-112 D-CAVEAT).
+    """True when ``severity`` is high or critical.
 
-    Unknown severities sort to 999 -> do not block, matching the _SEVERITY_RANK.get(..., 999)
-    idiom used across the package.
+    A value that is not a known severity does not block.
     """
-    return _SEVERITY_RANK.get(severity, 999) <= _BLOCK_RANK
+    return at_least(severity, Severity.HIGH)
 
 
 def _worst(findings):
-    """Severity-first, confidence-tiebreak selection (PET-51 ordering).
+    """The most severe finding, breaking ties toward higher confidence.
 
-    Caller guarantees a non-empty sequence (only ever called inside an `if list:` guard),
-    so min() never raises on empty input.
+    The caller passes a non-empty sequence. A finding whose severity is not
+    known loses to every known severity.
     """
-    return min(findings, key=lambda f: (_SEVERITY_RANK.get(f.severity, 999), -f.confidence))
+    return max(findings, key=lambda f: (severity_rank(f.severity), f.confidence))
 
 
 # Resolved in _deferred_init from config.egress_sink_tools, canonicalized once at init

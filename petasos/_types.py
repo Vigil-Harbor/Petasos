@@ -33,11 +33,73 @@ AVAILABILITY_CAUSE_LOAD_FAILED: AvailabilityCause = "load_failed"
 
 
 class Severity(enum.Enum):
+    """How severe a finding is.
+
+    ``rank`` runs from info (0) to critical (4). A higher rank is more severe.
+    Member order is not rank order: serialization and ``list(Severity)`` follow
+    the declaration order below.
+    """
+
     CRITICAL = "critical"
     HIGH = "high"
     MEDIUM = "medium"
     LOW = "low"
     INFO = "info"
+
+    @property
+    def rank(self) -> int:
+        """This member's place on the severity scale.
+
+        Info is 0 and critical is 4. A higher rank is more severe.
+        """
+        return _RANK_BY_VALUE[self.value]
+
+
+# Least severe first. Rank is the index into this tuple, not the member's
+# declaration order.
+_SEVERITY_ORDER: tuple[Severity, ...] = (
+    Severity.INFO,
+    Severity.LOW,
+    Severity.MEDIUM,
+    Severity.HIGH,
+    Severity.CRITICAL,
+)
+if len(_SEVERITY_ORDER) != len(set(_SEVERITY_ORDER)) or set(_SEVERITY_ORDER) != set(Severity):
+    raise RuntimeError("severity order must list each Severity member once")
+
+_RANK_BY_VALUE: Mapping[str, int] = MappingProxyType(
+    {member.value: index for index, member in enumerate(_SEVERITY_ORDER)}
+)
+# Strictly below info. Two values that are not known severities compare equal,
+# and both lose to every known severity.
+_UNKNOWN_BELOW = -1
+# Strictly above critical. One past the last index, so an unknown value wins a
+# "higher is more severe" comparison against every member.
+_UNKNOWN_ABOVE = len(_SEVERITY_ORDER)
+
+
+def severity_rank(value: object, *, unknown_wins: bool = False) -> int:
+    """Rank of a severity. Info is 0 and critical is 4; higher is more severe.
+
+    ``value`` may be a ``Severity`` or its value string. A value that is not a
+    known severity ranks below info, unless ``unknown_wins`` is set, in which
+    case it ranks above critical.
+    """
+    if isinstance(value, Severity):
+        return value.rank
+    if isinstance(value, str):
+        found = _RANK_BY_VALUE.get(value)
+        if found is not None:
+            return found
+    return _UNKNOWN_ABOVE if unknown_wins else _UNKNOWN_BELOW
+
+
+def at_least(severity: object, threshold: Severity) -> bool:
+    """True when ``severity`` is ``threshold`` or more severe.
+
+    A value that is not a known severity is not at least any threshold.
+    """
+    return severity_rank(severity) >= threshold.rank
 
 
 @dataclass(frozen=True)

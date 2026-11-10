@@ -23,6 +23,7 @@ from petasos._types import (
     ScanFinding,
     ScanResult,
     Severity,
+    severity_rank,
 )
 
 _REQUIRED_PACKAGES: tuple[str, ...] = ("presidio_analyzer", "presidio_anonymizer")
@@ -44,14 +45,6 @@ _SEVERITY_MAP: dict[str, Severity] = {
     "LOCATION": Severity.MEDIUM,
     "DATE_TIME": Severity.MEDIUM,
     "NRP": Severity.MEDIUM,
-}
-
-_SEVERITY_RANK: dict[Severity, int] = {
-    Severity.CRITICAL: 0,
-    Severity.HIGH: 1,
-    Severity.MEDIUM: 2,
-    Severity.LOW: 3,
-    Severity.INFO: 4,
 }
 
 # PET-109: the security-relevant default detection set (the CRITICAL/HIGH band
@@ -390,9 +383,9 @@ def _resolve_overlaps(
         assert prev_finding.position is not None
         assert current_finding.position is not None
         if current_finding.position.start < prev_finding.position.end:
-            cur_sev = _SEVERITY_RANK.get(current_finding.severity, 999)
-            prev_sev = _SEVERITY_RANK.get(prev_finding.severity, 999)
-            if cur_sev < prev_sev or (
+            cur_sev = severity_rank(current_finding.severity)
+            prev_sev = severity_rank(prev_finding.severity)
+            if cur_sev > prev_sev or (
                 cur_sev == prev_sev and current_finding.confidence > prev_finding.confidence
             ):
                 result[-1] = (current_finding, current_entity)

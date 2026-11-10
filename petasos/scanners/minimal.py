@@ -853,9 +853,8 @@ class MinimalScanner:
                 depth += 1
                 if depth > max_depth:
                     max_depth = depth
-            elif ch in ("}", "]"):
-                if depth > 0:
-                    depth -= 1
+            elif ch in ("}", "]") and depth > 0:
+                depth -= 1
         if not has_brackets:
             return 0
         return max_depth
