@@ -150,7 +150,7 @@ def test_plugin_routes_require_the_dashboard_session(dashboard: dict[str, Any]) 
     assert petasos["has_api"] is True
     status, payload = _request(port, "/api/plugins/petasos/status", token=_TOKEN)
     assert status == 200
-    assert payload["version"] == 1
+    assert payload["version"] == 2
     assert payload["switches"]["hermes"]["on"] is True
 
 
