@@ -992,9 +992,13 @@ follows the plain statement; it does not replace it.
 
 ### 8.4 How the interface is built
 
-The front end is developed in a judged loop: a generator revises the tab
-against judges scoring design, usability, conventions and fit with Hermes,
-each out of ten, until every score reaches the bar the owner sets. The
+The front end is developed in a judged loop: a generator (Opus) revises the
+tab, and judges (Codex) score each revision on design, usability,
+conventions and fit with Hermes, each out of ten. The loop ends when every
+score is 8 or higher. The judges are never told the bar, or that there is
+one: they score what they see, so the number is a measurement and not a
+target to be met. Every round's scores and the judges' reasons are kept, so
+improvement across rounds can be read afterwards and the bar revisited. The
 judges work from screenshots of the result beside reference screenshots:
 Hermes's own dashboard in both themes for what native looks like, and a
 well-regarded secrets manager for how a security tool presents status,
