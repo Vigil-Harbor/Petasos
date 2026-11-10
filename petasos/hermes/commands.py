@@ -8,10 +8,12 @@ from __future__ import annotations
 
 import argparse
 import sys
+from typing import Any
 
 from petasos.hermes.doctor import examine, render_json, render_text
 from petasos.hermes.install import install_plugin
 from petasos.hermes.migrate_cmd import migrate_profile
+from petasos.hermes.scanners_cmd import change_scanner
 from petasos.hermes.target import resolve_target
 
 
@@ -36,6 +38,8 @@ def main(argv: list[str] | None = None) -> int:
             print("Choose a config command. Try: petasos config migrate --help", file=sys.stderr)
             return 2
         return _migrate(args)
+    if command == "scanner":
+        return _scanner(args)
     parser.print_help(sys.stderr)
     return 2
 
@@ -79,6 +83,24 @@ def _install(args: argparse.Namespace) -> int:
     )
     sys.stdout.write(result.text)
     return result.exit_code
+
+
+def _scanner(args: argparse.Namespace) -> int:
+    action = getattr(args, "scanner_command", None)
+    if action not in {"add", "remove"}:
+        print(
+            "Choose add or remove. Try: petasos scanner add prompt_guard",
+            file=sys.stderr,
+        )
+        return 2
+    try:
+        home, _reason = resolve_target(home=args.home, profile=args.profile)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    text, code = change_scanner(home, str(args.name), present=action == "add")
+    sys.stdout.write(text)
+    return code
 
 
 def _migrate(args: argparse.Namespace) -> int:
@@ -168,7 +190,28 @@ def _parser() -> argparse.ArgumentParser:
         help="With --write, store the settings even when some old values were not copied.",
     )
     migrate.set_defaults(command="config", config_command="migrate")
+
+    _scanner_parser(sub)
     return parser
+
+
+def _scanner_parser(sub: Any) -> None:
+    scanner = sub.add_parser(
+        "scanner",
+        help="Add or remove one scanner's packages in the environment Hermes runs.",
+    )
+    scanner_sub = scanner.add_subparsers(dest="scanner_command")
+    for name, help_text in (
+        ("add", "Install one scanner's packages. Example: petasos scanner add prompt_guard"),
+        ("remove", "Remove one scanner's packages. Example: petasos scanner remove prompt_guard"),
+    ):
+        parser = scanner_sub.add_parser(name, help=help_text)
+        parser.add_argument(
+            "name",
+            help="Scanner name, for example prompt_guard, presidio, or semgrep.",
+        )
+        _target_flags(parser)
+        parser.set_defaults(command="scanner", scanner_command=name)
 
 
 def _target_flags(parser: argparse.ArgumentParser) -> None:
@@ -246,6 +289,7 @@ def install_registered_cli(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="With --write, store the settings even when some old values were not copied.",
     )
+    _scanner_parser(sub)
 
 
 def run_registered(args: argparse.Namespace) -> int:
@@ -263,7 +307,9 @@ def run_registered(args: argparse.Namespace) -> int:
             )
             return 2
         return _migrate(args)
-    print("Choose a command: doctor, install, or config migrate.", file=sys.stderr)
+    if command == "scanner":
+        return _scanner(args)
+    print("Choose a command: doctor, install, scanner, or config migrate.", file=sys.stderr)
     return 2
 
 

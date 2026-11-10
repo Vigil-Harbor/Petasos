@@ -56,7 +56,7 @@ def test_healthy_install_is_protected(
     assert "Paths protected today" not in out
     assert "No injection scanner is active" not in out
     assert "pip install" not in out
-    assert "prompt-guard" in out
+    assert "petasos scanner add prompt_guard" in out
     assert "The Petasos tab should appear" in out
 
 

@@ -23,12 +23,10 @@ _SCANNER_JOB = {
     "semgrep": "risky code",
 }
 _PII_ROLES = frozenset({"support", "admin"})
-_EXTRA_HOW = (
-    "Hermes installs the packages named in the plugin's dependency list, "
-    "into the environment Hermes runs. Add petasos[{extra}] to that list "
-    "and install the plugin again with Hermes, then restart Hermes. "
-    "Installing it with pip puts the package where Hermes may not look."
-)
+
+
+def _add_command(scanner_id: str) -> str:
+    return f"petasos scanner add {scanner_id}"
 
 
 def scanner_report(
@@ -193,12 +191,14 @@ def hermes_suggestions(composition: Composition, role: str | None) -> tuple[str,
     if not _capability_active(composition, "injection"):
         lines.append(
             "The extra model that looks for hidden instructions is not installed. "
-            "The built-in checks still run. " + _EXTRA_HOW.format(extra="prompt-guard")
+            "The built-in checks still run. "
+            "Add it: " + _add_command("prompt_guard")
         )
     if role in _PII_ROLES and not _capability_active(composition, "pii"):
         lines.append(
             f"The {role} job has no extra check for personal information. "
-            "The built-in checks do not look for it. " + _EXTRA_HOW.format(extra="presidio")
+            "The built-in checks do not look for it. "
+            "Add it: " + _add_command("presidio")
         )
     return tuple(lines)
 
@@ -264,5 +264,5 @@ def _hermes_fix(status: ScannerStatus) -> str | None:
             "Turn Semgrep off, or use it where Hermes is running the agent."
         )
     if status.extra is not None and "pip install" in text:
-        return _EXTRA_HOW.format(extra=status.extra)
+        return _add_command(status.id)
     return text
