@@ -14,7 +14,9 @@ from typing import Any
 
 import pytest
 
-from petasos.config import PetasosConfig
+from petasos.config.layers import resolve
+from petasos.config.schema import from_mapping, to_mapping
+from petasos.config.sections import PetasosConfig
 from petasos.pipeline import Pipeline
 from petasos.scanners.minimal import (
     _STRUCTURAL_RULE_IDS,
@@ -105,61 +107,158 @@ def test_default_scanner_entities_wired() -> None:
 
 
 def test_config_round_trips_presidio_fields() -> None:
-    cfg = PetasosConfig(
-        presidio_entities=("EMAIL_ADDRESS", "US_SSN"),
-        presidio_entities_extra=("URL",),
-        presidio_score_threshold=0.5,
+    cfg = from_mapping(
+        PetasosConfig,
+        {
+            "scanners": {
+                "presidio": {
+                    "entities": ("EMAIL_ADDRESS", "US_SSN"),
+                    "entities_extra": ("URL",),
+                    "score_threshold": 0.5,
+                },
+            },
+        },
     )
-    rt = PetasosConfig.from_dict(cfg.to_dict())
-    assert rt.presidio_entities == ("EMAIL_ADDRESS", "US_SSN")
-    assert rt.presidio_entities_extra == ("URL",)
-    assert rt.presidio_score_threshold == 0.5
+    rt = from_mapping(PetasosConfig, to_mapping(cfg))
+    assert rt.scanners.presidio.entities == ("EMAIL_ADDRESS", "US_SSN")
+    assert rt.scanners.presidio.entities_extra == ("URL",)
+    assert rt.scanners.presidio.score_threshold == 0.5
 
     # None -> to_dict -> from_dict -> None (no existing precedent; assert explicitly)
     base = PetasosConfig()
-    assert base.presidio_entities is None
-    rt_none = PetasosConfig.from_dict(base.to_dict())
-    assert rt_none.presidio_entities is None
+    assert base.scanners.presidio.entities is None
+    rt_none = from_mapping(PetasosConfig, to_mapping(base))
+    assert rt_none.scanners.presidio.entities is None
 
     # invalid threshold
     with pytest.raises(ValueError):
-        PetasosConfig(presidio_score_threshold=1.5)
+        from_mapping(
+            PetasosConfig,
+            {
+                "scanners": {
+                    "presidio": {
+                        "score_threshold": 1.5,
+                    },
+                },
+            },
+        )
     with pytest.raises(ValueError):
-        PetasosConfig(presidio_score_threshold=math.nan)
+        from_mapping(
+            PetasosConfig,
+            {
+                "scanners": {
+                    "presidio": {
+                        "score_threshold": math.nan,
+                    },
+                },
+            },
+        )
     # empty explicit presidio_entities is meaningless
     with pytest.raises(ValueError):
-        PetasosConfig(presidio_entities=())
+        from_mapping(
+            PetasosConfig,
+            {
+                "scanners": {
+                    "presidio": {
+                        "entities": (),
+                    },
+                },
+            },
+        )
     # bare-string / empty-string entries
     with pytest.raises(ValueError):
-        PetasosConfig(presidio_entities="EMAIL_ADDRESS")  # type: ignore[arg-type]
+        from_mapping(
+            PetasosConfig,
+            {
+                "scanners": {
+                    "presidio": {
+                        "entities": "EMAIL_ADDRESS",
+                    },
+                },
+            },
+        )
     with pytest.raises(ValueError):
-        PetasosConfig(presidio_entities=("",))
+        from_mapping(
+            PetasosConfig,
+            {
+                "scanners": {
+                    "presidio": {
+                        "entities": ("",),
+                    },
+                },
+            },
+        )
     with pytest.raises(ValueError):
-        PetasosConfig(presidio_entities_extra="URL")  # type: ignore[arg-type]
+        from_mapping(
+            PetasosConfig,
+            {
+                "scanners": {
+                    "presidio": {
+                        "entities_extra": "URL",
+                    },
+                },
+            },
+        )
 
 
 def test_presidio_entities_casing_normalized() -> None:
     # case-folded AND surrounding whitespace trimmed (a " URL " entry would otherwise
     # be a silent no-op — it matches no recognizer in analyzer.analyze).
-    cfg = PetasosConfig(
-        presidio_entities=(" person ", "url"),
-        presidio_entities_extra=("ip_address ",),
-        pii_entities=(" EMAIL_ADDRESS ",),
+    cfg = from_mapping(
+        PetasosConfig,
+        {
+            "scanners": {
+                "presidio": {
+                    "entities": (" person ", "url"),
+                    "entities_extra": ("ip_address ",),
+                },
+            },
+            "anonymization": {
+                "entities": (" EMAIL_ADDRESS ",),
+            },
+        },
     )
-    assert cfg.presidio_entities == ("PERSON", "URL")
-    assert cfg.presidio_entities_extra == ("IP_ADDRESS",)
-    assert cfg.pii_entities == ("EMAIL_ADDRESS",)  # trimmed (D7 filter uppercases at read)
+    assert cfg.scanners.presidio.entities == ("PERSON", "URL")
+    assert cfg.scanners.presidio.entities_extra == ("IP_ADDRESS",)
+    assert cfg.anonymization.entities == (
+        "EMAIL_ADDRESS",
+    )  # trimmed (D7 filter uppercases at read)
 
 
 def test_whitespace_only_entity_entries_rejected() -> None:
     # whitespace-only entries are non-empty but normalize to nothing — reject them
     # rather than let them silently disable a security-sensitive detector/filter.
     with pytest.raises(ValueError):
-        PetasosConfig(presidio_entities=("   ",))
+        from_mapping(
+            PetasosConfig,
+            {
+                "scanners": {
+                    "presidio": {
+                        "entities": ("   ",),
+                    },
+                },
+            },
+        )
     with pytest.raises(ValueError):
-        PetasosConfig(presidio_entities_extra=("\t",))
+        from_mapping(
+            PetasosConfig,
+            {
+                "scanners": {
+                    "presidio": {
+                        "entities_extra": ("\t",),
+                    },
+                },
+            },
+        )
     with pytest.raises(ValueError):
-        PetasosConfig(pii_entities=("  ",))
+        from_mapping(
+            PetasosConfig,
+            {
+                "anonymization": {
+                    "entities": ("  ",),
+                },
+            },
+        )
 
 
 def test_structural_ids_subset_of_unsuppressible() -> None:
@@ -170,10 +269,22 @@ def test_structural_ids_subset_of_unsuppressible() -> None:
 
 def test_config_scopes_presidio_entities_and_threshold() -> None:
     # A scanner built the way plugin_api builds it yields the expected wiring.
-    cfg = PetasosConfig(presidio_entities_extra=("URL",), presidio_score_threshold=0.4)
+    cfg = from_mapping(
+        PetasosConfig,
+        {
+            "scanners": {
+                "presidio": {
+                    "entities_extra": ("URL",),
+                    "score_threshold": 0.4,
+                },
+            },
+        },
+    )
     scanner = PresidioScanner(
-        entities=resolve_presidio_entities(cfg.presidio_entities, cfg.presidio_entities_extra),
-        score_threshold=cfg.presidio_score_threshold,
+        entities=resolve_presidio_entities(
+            cfg.scanners.presidio.entities, cfg.scanners.presidio.entities_extra
+        ),
+        score_threshold=cfg.scanners.presidio.score_threshold,
     )
     assert scanner._entities == list(DEFAULT_PRESIDIO_ENTITIES) + ["URL"]
     assert scanner._score_threshold == 0.4
@@ -183,9 +294,20 @@ def test_config_scopes_presidio_entities_and_threshold() -> None:
 def test_presidio_entities_extra_url_fires() -> None:
     # Integration arm of the config-scoping row: opting URL in via the extra makes
     # URL fire on a URL string (it does not under the curated default).
-    cfg = PetasosConfig(presidio_entities_extra=("URL",))
+    cfg = from_mapping(
+        PetasosConfig,
+        {
+            "scanners": {
+                "presidio": {
+                    "entities_extra": ("URL",),
+                },
+            },
+        },
+    )
     scanner = PresidioScanner(
-        entities=resolve_presidio_entities(cfg.presidio_entities, cfg.presidio_entities_extra),
+        entities=resolve_presidio_entities(
+            cfg.scanners.presidio.entities, cfg.scanners.presidio.entities_extra
+        ),
     )
     import asyncio
 
@@ -344,8 +466,11 @@ def test_scan_unknown_extra_threads_through() -> None:
 
 def test_pipeline_passes_profile_extras_to_presidio() -> None:
     rec_presidio = _RecordingPresidio()
-    pipeline = Pipeline([MinimalScanner(), rec_presidio])
-    asyncio.run(pipeline.inspect("benign text", profile="customer_service"))
+    pipeline = Pipeline(
+        [MinimalScanner(), rec_presidio],
+        config=resolve({"role": "support"}).config,
+    )
+    asyncio.run(pipeline.inspect("benign text"))
     # customer_service extras = [PERSON, EMAIL_ADDRESS, PHONE_NUMBER]; EMAIL_ADDRESS
     # and PHONE_NUMBER are already in the base, so the order-preserving union adds
     # only PERSON.
@@ -367,8 +492,11 @@ def test_pipeline_general_profile_empty_extras_uses_base() -> None:
     # distinct from the no-profile branch (keyword omitted) and the most common live
     # path whenever general is active.
     rec_presidio = _RecordingPresidio()
-    pipeline = Pipeline([MinimalScanner(), rec_presidio])
-    asyncio.run(pipeline.inspect("benign text", profile="general"))
+    pipeline = Pipeline(
+        [MinimalScanner(), rec_presidio],
+        config=resolve({"role": "general"}).config,
+    )
+    asyncio.run(pipeline.inspect("benign text"))
     assert rec_presidio._rec.entities == list(DEFAULT_PRESIDIO_ENTITIES)
 
 
@@ -390,13 +518,14 @@ class TestProfilePresidioScoping:
     # recognizer, so a bare "John Smith" can fall below threshold and flake.
     _CORPUS = "Customer name: Dr. Margaret Thompson called about her account."
 
-    def _pipeline(self) -> Pipeline:
-        return Pipeline([MinimalScanner(), PresidioScanner()])
+    def _pipeline(self, role: str) -> Pipeline:
+        return Pipeline(
+            [MinimalScanner(), PresidioScanner()],
+            config=resolve({"role": role}).config,
+        )
 
     def test_person_fires_under_customer_service_not_general(self) -> None:
-        pipeline = self._pipeline()
-
-        cs = asyncio.run(pipeline.inspect(self._CORPUS, profile="customer_service"))
+        cs = asyncio.run(self._pipeline("support").inspect(self._CORPUS))
         assert cs.errors == ()
         person = [f for f in cs.findings if f.rule_id == "petasos.presidio.person"]
         assert person, f"expected a PERSON finding under customer_service, got {cs.findings}"
@@ -404,15 +533,14 @@ class TestProfilePresidioScoping:
         # loudly rather than flaking.
         assert max(f.confidence for f in person) > 0.45
 
-        general = asyncio.run(pipeline.inspect(self._CORPUS, profile="general"))
+        general = asyncio.run(self._pipeline("general").inspect(self._CORPUS))
         assert general.errors == ()
         assert not any(f.rule_id == "petasos.presidio.person" for f in general.findings), (
             f"PERSON must not fire under general (no opt-in), got {general.findings}"
         )
 
     def test_admin_person_fires(self) -> None:
-        pipeline = self._pipeline()
-        admin = asyncio.run(pipeline.inspect(self._CORPUS, profile="admin"))
+        admin = asyncio.run(self._pipeline("admin").inspect(self._CORPUS))
         assert admin.errors == ()
         assert any(f.rule_id == "petasos.presidio.person" for f in admin.findings), (
             f"expected a PERSON finding under admin, got {admin.findings}"

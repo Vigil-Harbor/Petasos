@@ -6,17 +6,16 @@ from unittest.mock import patch
 
 import pytest
 
-from petasos.config import PetasosConfig
+from petasos.config.schema import from_mapping
+from petasos.config.sections import PetasosConfig
 from petasos.session.frequency import FrequencyTracker
 
 
-def _cfg(**overrides: object) -> PetasosConfig:
-    defaults: dict[str, object] = {
-        "frequency_enabled": True,
-        "escalation_enabled": True,
-    }
-    defaults.update(overrides)
-    return PetasosConfig(**defaults)  # type: ignore[arg-type]
+def _cfg(partial: dict[str, object] | None = None) -> PetasosConfig:
+    """Build a config tree from a partial document."""
+    if not partial:
+        return PetasosConfig()
+    return from_mapping(PetasosConfig, partial)
 
 
 # ---------------------------------------------------------------------------
@@ -60,7 +59,13 @@ class TestTerminateSessionTombstoneWhenStateMissing:
 
 class TestTier3UpdateSetsTombstone:
     def test_tier3_update_sets_tombstone(self) -> None:
-        cfg = _cfg(tier3_threshold=50.0)
+        cfg = _cfg(
+            {
+                "escalation": {
+                    "tier3": 50.0,
+                },
+            }
+        )
         tracker = FrequencyTracker(cfg)
 
         t0 = 1000.0
@@ -123,7 +128,13 @@ class TestForceResetClearsTombstone:
 
 class TestTombstoneBoundedFifo:
     def test_tombstone_bounded_fifo(self) -> None:
-        cfg = _cfg(max_terminated_tombstones=3)
+        cfg = _cfg(
+            {
+                "sessions": {
+                    "max_tombstones": 3,
+                },
+            }
+        )
         tracker = FrequencyTracker(cfg)
 
         tracker.terminate_session("s1")
@@ -146,7 +157,13 @@ class TestTombstoneBoundedFifo:
 
 class TestTombstoneCapAtOne:
     def test_tombstone_cap_at_one(self) -> None:
-        cfg = _cfg(max_terminated_tombstones=1)
+        cfg = _cfg(
+            {
+                "sessions": {
+                    "max_tombstones": 1,
+                },
+            }
+        )
         tracker = FrequencyTracker(cfg)
 
         tracker.terminate_session("s1")
@@ -238,7 +255,13 @@ class TestTombstoneCountProperty:
 
 class TestDoubleTerminationIdempotent:
     def test_double_termination_idempotent(self) -> None:
-        cfg = _cfg(max_terminated_tombstones=10)
+        cfg = _cfg(
+            {
+                "sessions": {
+                    "max_tombstones": 10,
+                },
+            }
+        )
         tracker = FrequencyTracker(cfg)
 
         tracker.terminate_session("s1")
@@ -261,23 +284,58 @@ class TestDoubleTerminationIdempotent:
 
 class TestConfigMaxTerminatedTombstonesValidation:
     def test_zero_raises(self) -> None:
-        with pytest.raises(ValueError, match="max_terminated_tombstones"):
-            PetasosConfig(max_terminated_tombstones=0)
+        with pytest.raises(ValueError, match="sessions.max_tombstones"):
+            from_mapping(
+                PetasosConfig,
+                {
+                    "sessions": {
+                        "max_tombstones": 0,
+                    },
+                },
+            )
 
     def test_negative_raises(self) -> None:
-        with pytest.raises(ValueError, match="max_terminated_tombstones"):
-            PetasosConfig(max_terminated_tombstones=-1)
+        with pytest.raises(ValueError, match="sessions.max_tombstones"):
+            from_mapping(
+                PetasosConfig,
+                {
+                    "sessions": {
+                        "max_tombstones": -1,
+                    },
+                },
+            )
 
     def test_bool_raises(self) -> None:
-        with pytest.raises(ValueError, match="max_terminated_tombstones"):
-            PetasosConfig(max_terminated_tombstones=True)
+        with pytest.raises(ValueError, match="sessions.max_tombstones"):
+            from_mapping(
+                PetasosConfig,
+                {
+                    "sessions": {
+                        "max_tombstones": True,
+                    },
+                },
+            )
 
     def test_string_raises(self) -> None:
         with pytest.raises(
             (ValueError, TypeError),
         ):
-            PetasosConfig(max_terminated_tombstones="foo")  # type: ignore[arg-type]
+            from_mapping(
+                PetasosConfig,
+                {
+                    "sessions": {
+                        "max_tombstones": "foo",
+                    },
+                },
+            )
 
     def test_valid_positive_integer(self) -> None:
-        cfg = PetasosConfig(max_terminated_tombstones=500)
-        assert cfg.max_terminated_tombstones == 500
+        cfg = from_mapping(
+            PetasosConfig,
+            {
+                "sessions": {
+                    "max_tombstones": 500,
+                },
+            },
+        )
+        assert cfg.sessions.max_tombstones == 500

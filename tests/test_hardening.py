@@ -12,10 +12,11 @@ from petasos._types import (
     ScanResult,
     Severity,
 )
-from petasos.config import PetasosConfig
+from petasos.config.layers import ROLES
+from petasos.config.schema import from_mapping, to_mapping
+from petasos.config.sections import PetasosConfig
 from petasos.pipeline import Pipeline
 from petasos.scanners.minimal import RULE_TAXONOMY
-from petasos.session.profiles import ProfileResolver
 
 
 class TestFrozenDataclasses:
@@ -71,7 +72,9 @@ class TestDefensiveCopies:
     def test_pipeline_config_is_copy(self) -> None:
         cfg = PetasosConfig()
         p = Pipeline(config=cfg)
-        assert p.legacy_config is not cfg
+        assert p.config == cfg
+        with pytest.raises(AttributeError):
+            p.config.fail_mode = "open"  # type: ignore[misc]
 
     def test_pipeline_result_findings_is_tuple(self) -> None:
         r = PipelineResult(safe=True, findings=())
@@ -86,7 +89,16 @@ class TestDefensiveCopies:
         assert isinstance(r.errors, tuple)
 
     def test_feature_status_is_mapping_proxy(self) -> None:
-        p = Pipeline(config=PetasosConfig(frequency_enabled=True))
+        p = Pipeline(
+            config=from_mapping(
+                PetasosConfig,
+                {
+                    "frequency": {
+                        "enabled": True,
+                    },
+                },
+            )
+        )
         result_sync = p._build_feature_status()
         assert isinstance(result_sync, MappingProxyType)
         with pytest.raises(TypeError):
@@ -98,15 +110,20 @@ class TestImmutableExports:
         assert isinstance(RULE_TAXONOMY, frozenset)
 
     def test_builtin_profiles_immutable(self) -> None:
-        resolver = ProfileResolver()
-        profile = resolver.resolve("general")
-        assert isinstance(profile.suppress_rules, frozenset)
-        assert isinstance(profile.severity_overrides, MappingProxyType)
-        assert isinstance(profile.tool_exempt_list, frozenset)
-        assert isinstance(profile.tool_alias_map, MappingProxyType)
+        for role in ROLES.values():
+            assert isinstance(role.document, MappingProxyType)
 
     def test_config_copy_preserves_frequency_weights(self) -> None:
-        cfg = PetasosConfig(frequency_weights=MappingProxyType({"injection": 10.0}))
-        copy = cfg.copy()
-        assert isinstance(copy.frequency_weights, MappingProxyType)
-        assert copy.frequency_weights == cfg.frequency_weights
+        cfg = from_mapping(
+            PetasosConfig,
+            {
+                "frequency": {
+                    "weights": {"injection": 10.0},
+                },
+            },
+        )
+        copy = from_mapping(PetasosConfig, to_mapping(cfg))
+        assert isinstance(cfg.frequency.weights, MappingProxyType)
+        assert isinstance(copy.frequency.weights, MappingProxyType)
+        assert copy.frequency.weights == cfg.frequency.weights
+        assert copy.frequency.weights is not cfg.frequency.weights

@@ -6,7 +6,8 @@ from collections import Counter
 import pytest
 
 from petasos._types import Position, Scanner, ScanResult, Severity
-from petasos.config import PetasosConfig
+from petasos.config.schema import from_mapping
+from petasos.config.sections import PetasosConfig
 from petasos.normalize import normalize
 from petasos.pipeline import Pipeline
 from petasos.scanners.minimal import (
@@ -1038,7 +1039,15 @@ class TestDecodeAndRescan:
         # decoded injection survives PET-51 severity-first merge while the LOW
         # base64-in-text flag at the same span is dropped.
         blob = base64.b64encode(_INJECTION_PHRASE.encode()).decode()
-        pipe = Pipeline(scanners=[MinimalScanner()], config=PetasosConfig(fail_mode="degraded"))
+        pipe = Pipeline(
+            scanners=[MinimalScanner()],
+            config=from_mapping(
+                PetasosConfig,
+                {
+                    "fail_mode": "degraded",
+                },
+            ),
+        )
         result = await pipe.inspect(blob, direction="inbound")
         rule_ids = {f.rule_id for f in result.findings}
         assert _IGNORE_PREVIOUS in rule_ids

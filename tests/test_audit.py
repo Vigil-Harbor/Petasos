@@ -7,7 +7,8 @@ from unittest.mock import patch
 import pytest
 
 from petasos._types import AuditEvent, PipelineResult, ScanFinding, ScanResult, Severity
-from petasos.config import PetasosConfig
+from petasos.config.schema import from_mapping
+from petasos.config.sections import PetasosConfig
 from petasos.session.audit import AuditEmitter
 from petasos.session.frequency import FrequencyUpdateResult
 
@@ -21,13 +22,11 @@ class _AuditCallbackKill(BaseException):
     """
 
 
-def _cfg(**overrides: object) -> PetasosConfig:
-    defaults: dict[str, object] = {
-        "audit_enabled": True,
-        "audit_verbosity": "standard",
-    }
-    defaults.update(overrides)
-    return PetasosConfig(**defaults)  # type: ignore[arg-type]
+def _cfg(partial: dict[str, object] | None = None) -> PetasosConfig:
+    """Build a config tree from a partial document."""
+    if not partial:
+        return PetasosConfig()
+    return from_mapping(PetasosConfig, partial)
 
 
 def _result(
@@ -113,12 +112,28 @@ class TestAuditEventConstruction:
 
 class TestVerbosityLevels:
     def test_minimal_payload_keys(self) -> None:
-        emitter = AuditEmitter(_cfg(audit_verbosity="minimal"))
+        emitter = AuditEmitter(
+            _cfg(
+                {
+                    "audit": {
+                        "verbosity": "minimal",
+                    },
+                }
+            )
+        )
         event = emitter.emit(_result(), "s1", None)
         assert set(event.payload.keys()) == {"safe", "finding_count", "emit_findings"}
 
     def test_standard_payload_keys(self) -> None:
-        emitter = AuditEmitter(_cfg(audit_verbosity="standard"))
+        emitter = AuditEmitter(
+            _cfg(
+                {
+                    "audit": {
+                        "verbosity": "standard",
+                    },
+                }
+            )
+        )
         fr = _freq_result()
         event = emitter.emit(_result(findings=(_finding(),)), "s1", fr)
         expected = {
@@ -132,7 +147,15 @@ class TestVerbosityLevels:
         assert set(event.payload.keys()) == expected
 
     def test_verbose_payload_keys(self) -> None:
-        emitter = AuditEmitter(_cfg(audit_verbosity="verbose"))
+        emitter = AuditEmitter(
+            _cfg(
+                {
+                    "audit": {
+                        "verbosity": "verbose",
+                    },
+                }
+            )
+        )
         sr = ScanResult(scanner_name="minimal", findings=(), duration_ms=1.0)
         fr = _freq_result()
         event = emitter.emit(_result(scanner_results=(sr,)), "s1", fr)
@@ -150,7 +173,15 @@ class TestVerbosityLevels:
         assert set(event.payload.keys()) == expected
 
     def test_minimal_no_extra_keys(self) -> None:
-        emitter = AuditEmitter(_cfg(audit_verbosity="minimal"))
+        emitter = AuditEmitter(
+            _cfg(
+                {
+                    "audit": {
+                        "verbosity": "minimal",
+                    },
+                }
+            )
+        )
         fr = _freq_result()
         event = emitter.emit(_result(findings=(_finding(),)), "s1", fr)
         assert "findings" not in event.payload
@@ -158,7 +189,15 @@ class TestVerbosityLevels:
 
     def test_standard_findings_content(self) -> None:
         f = _finding(rule_id="test.injection", severity=Severity.HIGH, confidence=0.85)
-        emitter = AuditEmitter(_cfg(audit_verbosity="standard"))
+        emitter = AuditEmitter(
+            _cfg(
+                {
+                    "audit": {
+                        "verbosity": "standard",
+                    },
+                }
+            )
+        )
         event = emitter.emit(_result(findings=(f,)), "s1", _freq_result())
         findings_list = event.payload["findings"]
         assert len(findings_list) == 1
@@ -171,7 +210,15 @@ class TestVerbosityLevels:
 
     def test_verbose_scanner_results_content(self) -> None:
         sr = ScanResult(scanner_name="test_scanner", findings=(), duration_ms=5.5, error="oops")
-        emitter = AuditEmitter(_cfg(audit_verbosity="verbose"))
+        emitter = AuditEmitter(
+            _cfg(
+                {
+                    "audit": {
+                        "verbosity": "verbose",
+                    },
+                }
+            )
+        )
         event = emitter.emit(_result(scanner_results=(sr,)), "s1", _freq_result())
         srs = event.payload["scanner_results"]
         assert len(srs) == 1
@@ -180,10 +227,18 @@ class TestVerbosityLevels:
         assert srs[0]["error"] == "oops"
 
     def test_verbose_config_snapshot_is_dict(self) -> None:
-        emitter = AuditEmitter(_cfg(audit_verbosity="verbose"))
+        emitter = AuditEmitter(
+            _cfg(
+                {
+                    "audit": {
+                        "verbosity": "verbose",
+                    },
+                }
+            )
+        )
         event = emitter.emit(_result(), "s1", _freq_result())
         assert isinstance(event.payload["config_snapshot"], dict)
-        assert "audit_verbosity" in event.payload["config_snapshot"]
+        assert event.payload["config_snapshot"]["audit"]["verbosity"] == "verbose"
 
 
 # ---------------------------------------------------------------------------
@@ -285,12 +340,28 @@ class TestEventTypes:
 
 class TestEdgeCases:
     def test_empty_findings_zero_count(self) -> None:
-        emitter = AuditEmitter(_cfg(audit_verbosity="minimal"))
+        emitter = AuditEmitter(
+            _cfg(
+                {
+                    "audit": {
+                        "verbosity": "minimal",
+                    },
+                }
+            )
+        )
         event = emitter.emit(_result(findings=()), "s1", None)
         assert event.payload["finding_count"] == 0
 
     def test_freq_result_none_standard_payload(self) -> None:
-        emitter = AuditEmitter(_cfg(audit_verbosity="standard"))
+        emitter = AuditEmitter(
+            _cfg(
+                {
+                    "audit": {
+                        "verbosity": "standard",
+                    },
+                }
+            )
+        )
         event = emitter.emit(_result(), "s1", None)
         assert event.payload["session_score"] is None
         assert event.payload["escalation_tier"] is None
@@ -307,30 +378,40 @@ class TestEdgeCases:
         assert seq["s3"] == [2, 5, 8]
 
     def test_payload_is_immutable(self) -> None:
-        emitter = AuditEmitter(_cfg(audit_verbosity="minimal"))
+        emitter = AuditEmitter(
+            _cfg(
+                {
+                    "audit": {
+                        "verbosity": "minimal",
+                    },
+                }
+            )
+        )
         event = emitter.emit(_result(), "s1", None)
         with pytest.raises(TypeError):
             event.payload["injected"] = True  # type: ignore[index]
 
     def test_verbose_payload_redacts_hash_key(self) -> None:
+        # The hash key is a secret, not a setting, so the verbose snapshot has no place to put it.
         cfg = _cfg(
-            audit_verbosity="verbose",
-            anonymize=True,
-            redaction_mode="hash",
-            hash_key="super-secret-hmac-key-for-test",
+            {
+                "audit": {"verbosity": "verbose"},
+                "anonymization": {"enabled": True, "mode": "hash"},
+            }
         )
         emitter = AuditEmitter(cfg)
         event = emitter.emit(_result(), "s1", _freq_result())
         snapshot = event.payload["config_snapshot"]
-        assert snapshot["hash_key"] == "[REDACTED]"
+        assert "hash_key" not in snapshot
+        assert snapshot["anonymization"]["mode"] == "hash"
 
     def test_verbose_payload_no_raw_secret_in_str(self) -> None:
         raw_key = "super-secret-hmac-key-for-test"
         cfg = _cfg(
-            audit_verbosity="verbose",
-            anonymize=True,
-            redaction_mode="hash",
-            hash_key=raw_key,
+            {
+                "audit": {"verbosity": "verbose"},
+                "anonymization": {"enabled": True, "mode": "hash"},
+            }
         )
         emitter = AuditEmitter(cfg)
         event = emitter.emit(_result(), "s1", _freq_result())
@@ -386,7 +467,15 @@ class TestSequenceAdversarial:
     def test_sequence_does_not_reset_after_ttl_prune(self) -> None:
         # Literal AUD-01 attack: let a session's TTL elapse (which pre-fix would
         # prune), churn other sessions, then reconnect the original session_id.
-        emitter = AuditEmitter(_cfg(session_ttl_seconds=10.0))
+        emitter = AuditEmitter(
+            _cfg(
+                {
+                    "sessions": {
+                        "ttl_seconds": 10.0,
+                    },
+                }
+            )
+        )
         with patch("petasos.session.audit.time") as mock_time:
             mock_time.time.return_value = 2000.0
 

@@ -12,7 +12,8 @@ from typing import Any
 
 import pytest
 
-from petasos import Direction, PetasosConfig, Pipeline, PipelineResult, ScanFinding, ScanResult
+from petasos import Direction, Pipeline, PipelineResult, ScanFinding, ScanResult
+from petasos.config.sections import PetasosConfig
 from petasos.scanners.minimal import MinimalScanner
 from petasos.session.guard import _MAX_PARAM_TEXT_LEN
 from petasos.session.ingest import (

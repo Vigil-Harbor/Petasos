@@ -14,7 +14,7 @@ not what these tests isolate.
 from __future__ import annotations
 
 from petasos._types import Direction, ScanFinding, ScanResult, Severity
-from petasos.config import PetasosConfig
+from petasos.config.layers import resolve
 from petasos.pipeline import Pipeline
 from petasos.scanners.prompt_guard import _RULE_ID
 
@@ -60,7 +60,7 @@ class TestPromptGuardDowngradedUnderCodegen:
 
     async def test_prompt_guard_is_nonblocking_under_codegen(self) -> None:
         pipe = Pipeline(
-            config=PetasosConfig(profile_name="code_generation"),
+            config=resolve({"role": "coding"}).config,
             scanners=[_StubPromptGuardScanner()],
         )
         # Benign input on purpose: the Pipeline always runs MinimalScanner, so a
@@ -79,7 +79,7 @@ class TestPromptGuardStillBlocksElsewhere:
 
     async def test_prompt_guard_still_blocks_under_general(self) -> None:
         pipe = Pipeline(
-            config=PetasosConfig(profile_name="general"),
+            config=resolve({"role": "general"}).config,
             scanners=[_StubPromptGuardScanner()],
         )
         res = await pipe.inspect("anything", direction="outbound")
@@ -91,7 +91,7 @@ class TestPromptGuardStillBlocksElsewhere:
 
     async def test_prompt_guard_still_blocks_under_customer_service_inbound(self) -> None:
         pipe = Pipeline(
-            config=PetasosConfig(profile_name="customer_service"),
+            config=resolve({"role": "support"}).config,
             scanners=[_StubPromptGuardScanner()],
         )
         res = await pipe.inspect("anything", direction="inbound")

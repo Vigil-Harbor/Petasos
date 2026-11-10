@@ -22,7 +22,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from petasos._types import PipelineResult, ScanFinding, Severity
-from petasos.config import PetasosConfig
+from petasos.config.schema import from_mapping
+from petasos.config.sections import PetasosConfig
 from petasos.pipeline import Pipeline
 from petasos.scanners.minimal import MinimalScanner
 from petasos.session.audit import AuditEmitter
@@ -65,10 +66,11 @@ _PLUGIN = _import_reference_plugin()
 # ---------------------------------------------------------------------------
 
 
-def _cfg(**overrides: object) -> PetasosConfig:
-    defaults: dict[str, object] = {"audit_enabled": True}
-    defaults.update(overrides)
-    return PetasosConfig(**defaults)  # type: ignore[arg-type]
+def _cfg(partial: dict[str, object] | None = None) -> PetasosConfig:
+    """Build a config tree from a partial document."""
+    if not partial:
+        return PetasosConfig()
+    return from_mapping(PetasosConfig, partial)
 
 
 def _finding(
@@ -123,7 +125,16 @@ class TestPerFindingSink:
         non_blocking = _finding(
             rule_id="minimal.role.suspicious", severity=Severity.LOW, confidence=0.3
         )
-        emitter = AuditEmitter(_cfg(audit_emit_findings=True), on_audit=_PLUGIN._handle_audit)
+        emitter = AuditEmitter(
+            _cfg(
+                {
+                    "audit": {
+                        "emit_findings": True,
+                    },
+                }
+            ),
+            on_audit=_PLUGIN._handle_audit,
+        )
 
         with caplog.at_level(logging.INFO, logger="petasos.plugin"):
             event = emitter.emit(
@@ -157,7 +168,16 @@ class TestPerFindingSink:
         # not suppress emission. The records carry real rule_ids, contrasting
         # petasos-enforcement.jsonl's rule_id:null while disarmed.
         allowed = _finding(rule_id="minimal.encoding.base64", severity=Severity.MEDIUM)
-        emitter = AuditEmitter(_cfg(audit_emit_findings=True), on_audit=_PLUGIN._handle_audit)
+        emitter = AuditEmitter(
+            _cfg(
+                {
+                    "audit": {
+                        "emit_findings": True,
+                    },
+                }
+            ),
+            on_audit=_PLUGIN._handle_audit,
+        )
 
         with caplog.at_level(logging.INFO, logger="petasos.plugin"):
             emitter.emit(_result(safe=True, findings=(allowed,)), "s1", None)
@@ -188,7 +208,16 @@ class TestPerFindingSink:
         # the finding dicts and never reaches a log line, even with the toggle on.
         sentinel = "SENTINEL_SECRET_LEAK_abc123"
         leaky = _finding(rule_id="minimal.pii.email", matched_text=sentinel)
-        emitter = AuditEmitter(_cfg(audit_emit_findings=True), on_audit=_PLUGIN._handle_audit)
+        emitter = AuditEmitter(
+            _cfg(
+                {
+                    "audit": {
+                        "emit_findings": True,
+                    },
+                }
+            ),
+            on_audit=_PLUGIN._handle_audit,
+        )
 
         with caplog.at_level(logging.INFO, logger="petasos.plugin"):
             event = emitter.emit(_result(safe=False, findings=(leaky,)), "s1", None)
@@ -204,7 +233,16 @@ class TestPerFindingSink:
     ) -> None:
         # Regression for PET-136: an outbound scan tags direction=outbound, inbound
         # tags inbound — on both the payload and the emitted line.
-        emitter = AuditEmitter(_cfg(audit_emit_findings=True), on_audit=_PLUGIN._handle_audit)
+        emitter = AuditEmitter(
+            _cfg(
+                {
+                    "audit": {
+                        "emit_findings": True,
+                    },
+                }
+            ),
+            on_audit=_PLUGIN._handle_audit,
+        )
 
         with caplog.at_level(logging.INFO, logger="petasos.plugin"):
             outbound = emitter.emit(
@@ -238,7 +276,13 @@ class TestPerFindingSink:
 
         pipeline = Pipeline(
             scanners=[MinimalScanner()],
-            config=_cfg(audit_emit_findings=True),
+            config=_cfg(
+                {
+                    "audit": {
+                        "emit_findings": True,
+                    },
+                }
+            ),
             on_audit=_PLUGIN._handle_audit,
         )
         result = await pipeline.inspect(

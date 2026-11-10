@@ -18,7 +18,8 @@ import json
 import time
 from typing import Any
 
-from petasos import PetasosConfig
+from petasos.config.schema import from_mapping
+from petasos.config.sections import PetasosConfig
 from petasos.session.taint import (
     _MAX_SCAN_LEAVES,
     _MAX_SCAN_TEXT,
@@ -35,7 +36,16 @@ _CYRILLIC_O = "о"  # Cyrillic small letter o (folds to ASCII 'o')
 
 
 def _store(min_span_length: int = 12) -> SessionTaintStore:
-    return SessionTaintStore(PetasosConfig(taint_min_span_length=min_span_length))
+    return SessionTaintStore(
+        from_mapping(
+            PetasosConfig,
+            {
+                "egress": {
+                    "taint_min_span_length": min_span_length,
+                },
+            },
+        )
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -222,7 +232,16 @@ def test_taint_apply_config_updates_floor() -> None:
     store = _store(20)
     store.capture("s1", "fifteen-chars12", "ns")  # 15 chars < 20 -> dropped
     assert store.tainted_source("s1", {"v": "fifteen-chars12"}) is None
-    store.apply_config(PetasosConfig(taint_min_span_length=10))  # lower the floor live
+    store.apply_config(
+        from_mapping(
+            PetasosConfig,
+            {
+                "egress": {
+                    "taint_min_span_length": 10,
+                },
+            },
+        )
+    )  # lower the floor live
     store.capture("s1", "fifteen-chars99", "ns")  # 15 chars >= 10 -> stored
     assert store.tainted_source("s1", {"v": "fifteen-chars99"}) == "ns"
 
@@ -231,12 +250,30 @@ def test_taint_apply_config_floor_not_retroactive() -> None:
     # F-5: a live floor change applies to FUTURE captures only.
     store = _store(10)
     store.capture("s1", "twelve-chars1", "ns")  # 13 chars >= 10 -> stored
-    store.apply_config(PetasosConfig(taint_min_span_length=50))  # raise the floor
+    store.apply_config(
+        from_mapping(
+            PetasosConfig,
+            {
+                "egress": {
+                    "taint_min_span_length": 50,
+                },
+            },
+        )
+    )  # raise the floor
     assert store.tainted_source("s1", {"v": "twelve-chars1"}) == "ns"  # not retroactively removed
 
     store2 = _store(50)
     store2.capture("s2", "short-twelve", "ns")  # 12 chars < 50 -> never stored
-    store2.apply_config(PetasosConfig(taint_min_span_length=5))  # lower the floor
+    store2.apply_config(
+        from_mapping(
+            PetasosConfig,
+            {
+                "egress": {
+                    "taint_min_span_length": 5,
+                },
+            },
+        )
+    )  # lower the floor
     assert store2.tainted_source("s2", {"v": "short-twelve"}) is None  # not retroactively admitted
 
 
