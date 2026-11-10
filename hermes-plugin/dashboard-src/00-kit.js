@@ -331,20 +331,22 @@ function Panel(props) {
   );
 }
 
-// A status that carries a safety meaning (outcome, severity, verdict, check
-// state): Hermes's sans at a readable size, with stronger contrast. Words
-// always say the same thing as the colour.
+// A status that carries a safety meaning (an outcome, the verdict, a check's
+// state): Hermes's own Badge, with its shape, border, case and spacing, set
+// only as much larger as legibility needs. Words always say the same thing
+// as the colour. One badge family: severity is not a badge (see Severity).
 var TONES = ["success", "warning", "destructive", "neutral"];
+var BADGE_TONE = { success: "success", warning: "warning", destructive: "destructive", neutral: "secondary" };
 
 function Status(props) {
   var tone = TONES.indexOf(props.tone) >= 0 ? props.tone : "neutral";
   return h(
-    "span",
+    C.Badge,
     {
+      tone: BADGE_TONE[tone],
       className: cn("petasos-status", "petasos-status-" + tone, props.large && "petasos-status-large", props.className),
       title: props.title,
     },
-    h("span", { className: "petasos-status-dot", "aria-hidden": true }),
     props.children
   );
 }
@@ -362,10 +364,27 @@ var SEVERITY_TONE = {
   info: "neutral",
 };
 
+// How serious a finding is: a quiet text indicator, not a second coloured
+// rectangle. A four-step meter gives each level its own shape, so Critical
+// and High differ by more than colour; Critical is also set in bold.
+var SEVERITY_STEPS = { critical: 4, high: 3, medium: 2, low: 1, info: 0 };
+
 function Severity(props) {
   var severity = String(props.value || "").toLowerCase();
   if (!severity) return h("span", { className: "petasos-none", "aria-label": "No severity" }, "—");
-  return h(Status, { tone: SEVERITY_TONE[severity] || "neutral" }, capital(severity));
+  var steps = SEVERITY_STEPS[severity] === undefined ? 0 : SEVERITY_STEPS[severity];
+  var bars = [];
+  for (var i = 0; i < 4; i += 1) {
+    bars.push(h("span", { key: i, className: cn("petasos-sev-bar", i < steps && "petasos-sev-bar-on") }));
+  }
+  return h(
+    "span",
+    {
+      className: cn("petasos-sev", "petasos-sev-" + (SEVERITY_TONE[severity] || "neutral"), severity === "critical" && "petasos-sev-critical"),
+    },
+    h("span", { className: "petasos-sev-meter", "aria-hidden": true }, bars),
+    h("span", { className: "petasos-sev-word" }, h("span", { className: "sr-only" }, "Severity: "), capital(severity))
+  );
 }
 
 function outcomeTone(code) {
@@ -377,8 +396,9 @@ function outcomeTone(code) {
   return "neutral";
 }
 
-// A notice. The tone is a dot and a word, not a thick edge; only an
-// exceptional warning (``strong``) keeps the marked edge.
+// A notice. The tone is a mark and a word, not a thick edge; only an
+// exceptional warning (``strong``) keeps the marked edge. Success is a check
+// mark, so a confirmation never looks like a warning.
 function Notice(props) {
   var tone = props.tone || "info";
   return h(
@@ -394,7 +414,9 @@ function Notice(props) {
         ? h(
             "p",
             { className: "petasos-notice-title" },
-            h("span", { className: "petasos-notice-dot", "aria-hidden": true }),
+            tone === "success"
+              ? h(Icon, { name: "check", size: 15, className: "petasos-notice-check" })
+              : h("span", { className: "petasos-notice-dot", "aria-hidden": true }),
             props.title
           )
         : null,
@@ -425,6 +447,8 @@ var ICONS = {
   copy: ["M9 9h11v11H9z", "M5 15H4V4h11v1"],
   search: ["M11 4a7 7 0 1 0 0 14a7 7 0 1 0 0-14", "M20 20l-4-4"],
   shield: ["M12 3l8 3v6c0 5-3.5 8-8 9c-4.5-1-8-4-8-9V6z"],
+  check: ["M5 12.5l4.5 4.5L19 7.5"],
+  calendar: ["M4 6h16v14H4z", "M4 10h16", "M8 3v4", "M16 3v4"],
 };
 
 function Icon(props) {
@@ -470,6 +494,65 @@ function LinkButton(props) {
       disabled: props.disabled,
     },
     props.children
+  );
+}
+
+// A disclosure in Hermes's style: an underlined action with a turning
+// chevron. With ``remember``, the choice to open it is kept in this browser
+// so a technical reader opens it once.
+function readRemembered(key) {
+  try {
+    return window.localStorage.getItem("petasos." + key) === "open";
+  } catch (_e) {
+    return false;
+  }
+}
+
+function writeRemembered(key, open) {
+  try {
+    if (open) window.localStorage.setItem("petasos." + key, "open");
+    else window.localStorage.removeItem("petasos." + key);
+  } catch (_e) {
+    // Storage can be refused; the disclosure still works for this visit.
+  }
+}
+
+function Disclosure(props) {
+  var openState = useState(function () {
+    return props.remember ? readRemembered(props.remember) : Boolean(props.defaultOpen);
+  });
+  var open = openState[0];
+  var id = props.id || "petasos-disclosure-" + String(props.remember || props.label).replace(/[^a-z0-9]+/gi, "-").toLowerCase();
+  return h(
+    "div",
+    { className: cn("petasos-disclosure", open && "petasos-disclosure-open", props.className) },
+    h(
+      "button",
+      {
+        type: "button",
+        className: "petasos-disclosure-toggle",
+        "aria-expanded": open,
+        "aria-controls": id,
+        onClick: function () {
+          var next = !open;
+          openState[1](next);
+          if (props.remember) writeRemembered(props.remember, next);
+        },
+      },
+      h(Icon, { name: "chevron", size: 14, className: "petasos-disclosure-chevron" }),
+      h("span", null, open && props.openLabel ? props.openLabel : props.label)
+    ),
+    open ? h("div", { className: "petasos-disclosure-body", id: id }, props.children) : null
+  );
+}
+
+// A command a person copies into a terminal: the command itself, and Copy.
+function Command(props) {
+  return h(
+    "div",
+    { className: "petasos-command" },
+    h("code", { className: "petasos-command-text" }, props.value),
+    h(CopyButton, { value: props.value, label: props.label || "Copy the command" })
   );
 }
 
@@ -575,6 +658,7 @@ function Segmented(props) {
       role: "radiogroup",
       "aria-label": props.label,
       "aria-labelledby": props.labelledBy,
+      "aria-describedby": props.describedBy,
     },
     props.options.map(function (option) {
       var active = option.value === props.value;
@@ -659,9 +743,9 @@ function ViewTabs(props) {
   );
 }
 
-// Config's field layout: the label, the setting's key in faint mono, one
-// plain sentence, then the control across the panel. A switch sits at the
-// end of the label row instead.
+// Config's field layout: the label, the setting's key in Hermes's tertiary
+// text, one plain sentence, then the control across the panel. A switch sits
+// at the end of the label row instead.
 function Field(props) {
   var labelId = props.id + "-label";
   var helpId = props.id + "-help";

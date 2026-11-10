@@ -38,6 +38,8 @@ _DISPLAY_LIMIT = 500
 _MAX_TEXT = 200
 # Events Petasos writes for one tool call land within this many seconds.
 _SAME_CALL_S = 5.0
+# Event types for a call stopped by the conversation's risk score.
+_RISK_KINDS = frozenset({"block", "tier3"})
 # Outcomes that mean the tool call did not run.
 _BLOCKED_OUTCOMES = frozenset({"blocked", "stopped", "attempt_blocked"})
 
@@ -441,6 +443,12 @@ def _event(
     rule = record.get("rule_id")
     shown["rule_sentence"] = rule_sentence(rule) if isinstance(rule, str) else ""
     shown["matched_note"] = MATCHED_TEXT_NOTE if isinstance(rule, str) and rule else ""
+    # True when the call was stopped by the conversation's risk score, which
+    # earlier warnings in the same conversation built up, not by one rule.
+    then = follower.get("event_type") if follower is not None else None
+    shown["risk_block"] = kind in _RISK_KINDS or (
+        kind == "selfmod_attempt" and then in _RISK_KINDS
+    )
     if kind == "selfmod_attempt":
         target = selfmod_target(record)
         shown["target"] = _redact(target, redactor) if target else ""

@@ -277,6 +277,8 @@ def test_each_event_says_what_was_done_in_words(tmp_path: Path) -> None:
     assert paused["outcome"]["code"] == "allowed"
     assert paused["rule_sentence"] == ""
     assert tier2["summary"].endswith("warning signs earlier in this conversation added up.")
+    assert tier2["risk_block"] is True
+    assert blocked["risk_block"] is False
 
 
 def test_summary_breaks_counts_down_for_filters(tmp_path: Path) -> None:
@@ -349,11 +351,13 @@ def test_a_guardrail_change_says_whether_the_call_was_stopped(tmp_path: Path) ->
     assert hot["outcome"] == {"code": "attempt_blocked", "label": "Blocked"}
     assert "warning signs earlier in this conversation had already added up" in hot["summary"]
     assert hot["target"] == "~/.hermes/config.yaml"
+    assert hot["risk_block"] is True
     calm = by_session["calm"]
     # The next event is for another tool, so it is not this call's outcome.
     assert calm["outcome"] == {"code": "not_stopped", "label": "Not stopped"}
     assert "did not stop it" in calm["summary"]
     assert "Recording an attempt does not stop it" in calm["outcome_note"]
+    assert calm["risk_block"] is False
     assert "cannot show whether the change took effect" in calm["outcome_note"]
     counts = summarize(live, _rot(live), key=None, verification=_OFF, query=ActivityQuery())[
         "by_outcome"
