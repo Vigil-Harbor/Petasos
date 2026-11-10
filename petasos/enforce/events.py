@@ -36,7 +36,7 @@ import json
 import os
 import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any
 
 # The rotated sibling keeps the historical suffix. Hosts that name the live file
@@ -105,6 +105,49 @@ def _derive_spool_key(secret: bytes) -> bytes:
     key distinct from any other HMAC use of the same ``session_secret``.
     """
     return hmac.new(secret, b"petasos/enforcement-spool/v1", hashlib.sha256).digest()
+
+
+class EventSpool:
+    """A signed enforcement spool at one explicit path.
+
+    ``secret`` is the session secret. The file key is derived from it, and
+    ``None`` writes unsigned lines. The path, the key and the byte cap belong
+    to this object. Two spools in one process do not share them, and this
+    object does not read or write the legacy module-level writer.
+    """
+
+    def __init__(
+        self,
+        path: str,
+        *,
+        secret: bytes | None = None,
+        cap: int = SPOOL_CAP_BYTES,
+    ) -> None:
+        self._path = os.fspath(path)
+        self._cap = cap
+        self._key = _derive_spool_key(secret) if secret else None
+
+    @property
+    def path(self) -> str:
+        """The live spool file."""
+        return self._path
+
+    @property
+    def cap(self) -> int:
+        """The byte cap a reader uses when it decides to rotate."""
+        return self._cap
+
+    def set_secret(self, secret: bytes | None) -> None:
+        """Replace the signing key. ``None`` leaves later lines unsigned."""
+        self._key = _derive_spool_key(secret) if secret else None
+
+    def emit(self, event: Mapping[str, Any]) -> bool:
+        """Append one event. Returns ``False`` on any error and never raises."""
+        try:
+            _append_record(dict(event), self._path, self._key)
+            return True
+        except Exception:
+            return False
 
 
 def set_spool_key(secret: bytes | None, *, path: str | None = None) -> None:
