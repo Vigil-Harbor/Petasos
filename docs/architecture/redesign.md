@@ -564,8 +564,10 @@ test suite green.
 | A2 | Remove license machinery and `pyjwt` | `session/license.py`, `_keys/`, license code in `pipeline.py`, plugin, `_standalone.py` |
 | A3 | Repository hygiene | `scripts/`, `docs/specs/`, `assets/`, stale lines in `CLAUDE.md` and docs |
 
-A4, after A1 and A2 merge: one severity rank in `model.py`, one copy of each
-shared default. Touches files A1 and A2 also touch, so it goes last.
+A4, after A1 and A2 merge: one severity rank beside `Severity`, the dead
+`load_health` path in the pipeline (no scanner implements it once LLM Guard is
+gone), and the one outstanding lint error. Shared defaults are not
+de-duplicated here: B4 and C1 rewrite every site that holds one.
 
 **Wave B. Config core**
 
