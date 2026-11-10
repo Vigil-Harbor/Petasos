@@ -26,6 +26,7 @@ when every score reaches the bar.
 | 1 | 6 | 6 | 7 | 7 |
 | 2 | 7 | 7 | 7 | 8 |
 | 3 | 7 | 7 | 7 | 8 |
+| 4 | 7 | 7 | 7 | 8 |
 
 ## Round 1
 
@@ -351,3 +352,81 @@ and the plugin's own admission failure were all found by it.
 - **Stopping rule.** If round 4 moves no score, the loop stops and the
   remaining conflict between fidelity and the design score goes to the
   owner as a choice.
+
+## Round 4
+
+Revised under the round 4 rulings. Every view now draws a check's state
+from one `operating` value the API serves, so a paused status cannot show
+a running check; two tests fail if it does. The option that requires a
+check reads "Required", and Settings says before Save what that does to
+tool calls, computed from the fail mode and the dangerous-action setting;
+`tests/hermes/test_consequence_is_true.py` runs the enforcer in that state
+under each combination and holds the sentence to what it does. The status
+panel says what "on" covers (every agent Hermes starts from this profile,
+except in safe mode) and makes no claim about Hermes's gateway, whose
+sidebar status only reports whether a gateway process is alive. Every
+action is a button; operational badges use the body face; severity is a
+word; the change list is inline; a mapping is edited as rows, from a new
+`entry_labels` declaration in the schema.
+
+### Round 4 scores
+
+Visual design 7, usability 7, conventions 7, fit with Hermes 8: unchanged
+for the second round running. The paused contradiction, badge lettering,
+floating review, link-styled actions, timestamps and the JSON mapping are
+gone from every list.
+
+What the judges found this time:
+
+- **Hermes's own look** (design, conventions): the light theme's blue
+  again, first on the design list, with the remark that "inheriting
+  Hermes's visual treatment does not remove those weaknesses"; Hermes's
+  serif labels, full-width fields, small switches and quiet text actions.
+- **The reverse, from fit**: the operational badges should go back to
+  Hermes's condensed lettering, which two criteria marked down for three
+  rounds; outcome words should be terser ("Approval requested", not
+  "Asked a person"), which usability marks down.
+- **Saved against in effect** (usability, conventions; first for
+  conventions): after a check is saved as Required, "waits for a Hermes
+  restart" sits above a present-tense statement about tool calls.
+- **A description read as a state** (usability, first): the General job
+  reads "Every rule is on, and a risky tool call is blocked" while
+  protection is paused. Round 4 introduced this wording.
+- **Two commit buttons in the job preview** (usability, conventions):
+  "Apply" beside "Apply Research with Relaxed" while Balanced is selected.
+- **Figures that do not reconcile** (conventions): "18 events" above five
+  numbers that sum to 16, one of them a finding and not an outcome.
+- Smaller: a dash for a severity that does not apply; "Signed · 18
+  checked" without its limit; "Show changed settings" implying the event's
+  change is known; no direct route from a skipped check to its setting; a
+  trial result narrower than the live one.
+
+### The loop stops here
+
+The stopping rule set before this round was: no score moves, the loop
+stops. None did.
+
+What four rounds show about the method:
+
+- **As a defect finder it earned its cost.** Each round's judges found
+  things that were wrong and that tests did not: overstated coverage, a
+  miscount, a status contradiction, a consequence that was false under one
+  setting, the plugin's own admission failure. Usability, the criterion
+  told to weigh anything misleading about protection most heavily, was the
+  most productive.
+- **As a gauge it stopped registering after round 2.** Three criteria
+  returned 7 in rounds 2, 3 and 4 with almost wholly different problem
+  lists each time. A fresh judge asked for every problem it can
+  substantiate finds some, and "notable weaknesses" then describes any
+  interface. An absolute score from a new judge each round cannot show
+  improvement between rounds; a judge shown two rounds side by side
+  could.
+- **The criteria now pull directly against each other.** What design and
+  conventions mark down first is what fit credits, and round 4's fit
+  judge asked for the reversal of round 4's badge ruling. With Hermes's
+  theme fixed by ruling, 8 on visual design is probably not reachable by
+  revising the tab.
+
+The round 4 defects that are faults and not taste are being fixed in an
+ordinary lane, outside the loop. The rulings stand as the tab's design
+record.
