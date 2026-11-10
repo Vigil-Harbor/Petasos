@@ -3,22 +3,25 @@
 from __future__ import annotations
 
 from collections import deque
+from typing import Any
 from unittest.mock import patch
 
-from petasos.config import PetasosConfig
+from petasos.config.schema import from_mapping, merge
+from petasos.config.sections import PetasosConfig
 from petasos.pipeline import Pipeline
 from petasos.session.frequency import FrequencyTracker, SessionState
 from petasos.session.guard import ToolCallGuard
 
 
-def _cfg(**overrides: object) -> PetasosConfig:
-    defaults: dict[str, object] = {
-        "frequency_enabled": True,
-        "escalation_enabled": True,
-        "tool_guard_enabled": True,
+def _cfg(changes: dict[str, Any] | None = None) -> PetasosConfig:
+    document: dict[str, Any] = {
+        "frequency": {"enabled": True},
+        "escalation": {"enabled": True},
+        "tools": {"enabled": True},
     }
-    defaults.update(overrides)
-    return PetasosConfig(**defaults)  # type: ignore[arg-type]
+    if changes:
+        document = merge(document, changes)
+    return from_mapping(PetasosConfig, document)
 
 
 # ---------------------------------------------------------------------------
@@ -28,7 +31,7 @@ def _cfg(**overrides: object) -> PetasosConfig:
 
 class TestTerminatedSurvivesTtlEviction:
     def test_terminated_survives_ttl_eviction(self) -> None:
-        cfg = _cfg(session_ttl_seconds=100.0, tier3_threshold=50.0)
+        cfg = _cfg({"sessions": {"ttl_seconds": 100.0}, "escalation": {"tier3": 50.0}})
         tracker = FrequencyTracker(cfg)
 
         t0 = 1000.0
@@ -57,7 +60,7 @@ class TestTerminatedSurvivesTtlEviction:
 
 class TestTerminatedSurvivesLruEviction:
     def test_terminated_survives_lru_eviction(self) -> None:
-        cfg = _cfg(max_sessions=3, tier3_threshold=50.0, session_ttl_seconds=9999.0)
+        cfg = _cfg({"sessions": {"max": 3, "ttl_seconds": 9999.0}, "escalation": {"tier3": 50.0}})
         tracker = FrequencyTracker(cfg)
 
         t0 = 1000.0
@@ -87,7 +90,7 @@ class TestTerminatedSurvivesLruEviction:
 
 class TestGuardBlocksAfterTtlEviction:
     async def test_guard_blocks_after_ttl_eviction(self) -> None:
-        cfg = _cfg(session_ttl_seconds=100.0, tier3_threshold=50.0)
+        cfg = _cfg({"sessions": {"ttl_seconds": 100.0}, "escalation": {"tier3": 50.0}})
         pipe = Pipeline(config=cfg)
         tracker = FrequencyTracker(cfg)
         guard = ToolCallGuard(pipe, tracker, cfg)
@@ -114,7 +117,7 @@ class TestGuardBlocksAfterTtlEviction:
 
 class TestGuardBlocksAfterLruEviction:
     async def test_guard_blocks_after_lru_eviction(self) -> None:
-        cfg = _cfg(max_sessions=3, tier3_threshold=50.0, session_ttl_seconds=9999.0)
+        cfg = _cfg({"sessions": {"max": 3, "ttl_seconds": 9999.0}, "escalation": {"tier3": 50.0}})
         pipe = Pipeline(config=cfg)
         tracker = FrequencyTracker(cfg)
         guard = ToolCallGuard(pipe, tracker, cfg)
@@ -145,7 +148,7 @@ class TestGuardBlocksAfterLruEviction:
 
 class TestResetDoesNotResurrect:
     async def test_reset_does_not_resurrect_terminated(self) -> None:
-        cfg = _cfg(tier3_threshold=50.0)
+        cfg = _cfg({"escalation": {"tier3": 50.0}})
         pipe = Pipeline(config=cfg)
         tracker = FrequencyTracker(cfg)
         guard = ToolCallGuard(pipe, tracker, cfg)
@@ -170,7 +173,7 @@ class TestResetDoesNotResurrect:
 
 class TestUpdateReturnsTier3ForTombstoned:
     def test_update_returns_tier3_for_tombstoned_session(self) -> None:
-        cfg = _cfg(session_ttl_seconds=100.0, tier3_threshold=50.0)
+        cfg = _cfg({"sessions": {"ttl_seconds": 100.0}, "escalation": {"tier3": 50.0}})
         tracker = FrequencyTracker(cfg)
 
         t0 = 1000.0
@@ -189,7 +192,7 @@ class TestUpdateReturnsTier3ForTombstoned:
 
         assert result.tier == "tier3"
         assert result.terminated is True
-        assert result.current_score == cfg.tier3_threshold
+        assert result.current_score == cfg.escalation.tier3
         # Session must NOT be re-created
         assert "s1" not in tracker._sessions
 
@@ -201,7 +204,7 @@ class TestUpdateReturnsTier3ForTombstoned:
 
 class TestTombstonedUpdateNoSpuriousAlert:
     def test_tombstoned_update_no_spurious_alert(self) -> None:
-        cfg = _cfg(session_ttl_seconds=100.0, tier3_threshold=50.0)
+        cfg = _cfg({"sessions": {"ttl_seconds": 100.0}, "escalation": {"tier3": 50.0}})
         tracker = FrequencyTracker(cfg)
 
         t0 = 1000.0
@@ -236,9 +239,10 @@ class TestTtlEvictionDefensiveTombstone:
     def test_ttl_eviction_defensive_tombstone(self) -> None:
         """PET-34 D7: FIFO-evict tombstone, then TTL-expire — defensive write restores it."""
         cfg = _cfg(
-            max_terminated_tombstones=2,
-            session_ttl_seconds=100.0,
-            tier3_threshold=50.0,
+            {
+                "sessions": {"max_tombstones": 2, "ttl_seconds": 100.0},
+                "escalation": {"tier3": 50.0},
+            }
         )
         tracker = FrequencyTracker(cfg)
 
@@ -276,7 +280,7 @@ class TestTtlEvictionDefensiveTombstone:
 
 class TestEvictOneDefensiveTombstone:
     def test_evict_one_defensive_tombstone_write(self) -> None:
-        cfg = _cfg(max_sessions=2, tier3_threshold=50.0, session_ttl_seconds=9999.0)
+        cfg = _cfg({"sessions": {"max": 2, "ttl_seconds": 9999.0}, "escalation": {"tier3": 50.0}})
         tracker = FrequencyTracker(cfg)
 
         t0 = 1000.0

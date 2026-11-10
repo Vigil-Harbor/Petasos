@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 
 from petasos._types import Position, ScanFinding, Severity
-from petasos.config import PetasosConfig
+from petasos.config.sections import PetasosConfig
 from petasos.normalize import normalize
 from petasos.pipeline import Pipeline
 from petasos.scanners.minimal import (

@@ -42,7 +42,8 @@ from petasos._types import (
     ScanResult,
     Severity,
 )
-from petasos.config import PetasosConfig
+from petasos.config.schema import from_mapping, merge
+from petasos.config.sections import PetasosConfig
 from petasos.pipeline import Pipeline
 
 _TEXT = "Alice met alice@example.com today"
@@ -81,10 +82,10 @@ class _PiiStubScanner:
         return ScanResult(scanner_name="pii-stub", findings=findings)
 
 
-def _pipeline(field: str, value: object) -> Pipeline:
+def _pipeline(overrides: dict[str, Any]) -> Pipeline:
     """A pipeline differing from the anonymizing baseline in exactly one field."""
-    base: dict[str, Any] = {"anonymize": True, "redaction_mode": "replace", field: value}
-    return Pipeline(scanners=[_PiiStubScanner()], config=PetasosConfig(**base))
+    document = merge({"anonymization": {"enabled": True, "mode": "replace"}}, overrides)
+    return Pipeline(scanners=[_PiiStubScanner()], config=from_mapping(PetasosConfig, document))
 
 
 def _reduce(result: PipelineResult) -> dict[str, Any]:
@@ -95,29 +96,33 @@ def _reduce(result: PipelineResult) -> dict[str, Any]:
 
 
 @pytest.mark.parametrize(
-    ("field", "on_value", "off_value"),
+    ("on_overrides", "off_overrides"),
     [
-        # The three PET-109 Presidio detection-scope keys. Since PET-174 their only
-        # reads are inside the shared build_scanners helper
-        # (petasos/scanners/bootstrap.py:99, :101), which both the console and the
-        # Hermes-plugin bootstrap call — so they are honored at startup on the
-        # enforcement path too, not just the console one. What did NOT change is
-        # the claim this row pins: Pipeline never constructs a PresidioScanner, it
-        # fans out over whatever the caller supplied. So an embedder running
-        # `pip install petasos[presidio]` and passing
-        # Pipeline(scanners=[PresidioScanner()]) still gets nothing from these
-        # three: the extra is installed and they are still inert. That is why
-        # their caveat names the bootstrap and not the extra, and why it now also
-        # points that embedder at build_scanners(config).
-        ("presidio_entities", ("EMAIL_ADDRESS",), None),
-        ("presidio_entities_extra", ("URL",), ()),
-        ("presidio_score_threshold", 0.99, 0.01),
-        # The two PET-112 / PET-134 egress-fence keys. Their only behavior reads
-        # are the Hermes plugin's; inside petasos/ the names appear solely in
-        # config.py validation and coercion, their _FIELD_META entries, a scope
-        # comment, and a taint.py docstring mention, none of which is a read.
-        ("egress_sink_tools", ("send_email",), ()),
-        ("source_taint_namespaces", ("mcp_bank",), ()),
+        # Presidio detection scope. Pipeline never constructs a PresidioScanner;
+        # it fans out over the scanners the caller supplied. An embedder who
+        # passes their own scanner still gets nothing from these three.
+        (
+            {"scanners": {"presidio": {"entities": ["EMAIL_ADDRESS"]}}},
+            {"scanners": {"presidio": {"entities": None}}},
+        ),
+        (
+            {"scanners": {"presidio": {"entities_extra": ["URL"]}}},
+            {"scanners": {"presidio": {"entities_extra": []}}},
+        ),
+        (
+            {"scanners": {"presidio": {"score_threshold": 0.99}}},
+            {"scanners": {"presidio": {"score_threshold": 0.01}}},
+        ),
+        # Egress-fence keys. Their behavior reads are the host's; a library
+        # Pipeline that is handed its scanners does not consult them.
+        (
+            {"egress": {"sink_tools": ["send_email"]}},
+            {"egress": {"sink_tools": []}},
+        ),
+        (
+            {"egress": {"taint_namespaces": ["mcp_bank"]}},
+            {"egress": {"taint_namespaces": []}},
+        ),
     ],
     ids=[
         "presidio_entities",
@@ -128,13 +133,13 @@ def _reduce(result: PipelineResult) -> dict[str, Any]:
     ],
 )
 async def test_live_shim_key_moves_no_library_outcome(
-    field: str, on_value: object, off_value: object
+    on_overrides: dict[str, Any], off_overrides: dict[str, Any]
 ) -> None:
     """Regression for PET-169: flipping a `live-shim` key changes nothing a
     library embedder's Pipeline produces. A future change that threads any of
     these into `petasos/` reds this and owes the verdict a re-classification."""
-    on = await _pipeline(field, on_value).inspect(_TEXT, direction="inbound")
-    off = await _pipeline(field, off_value).inspect(_TEXT, direction="inbound")
+    on = await _pipeline(on_overrides).inspect(_TEXT, direction="inbound")
+    off = await _pipeline(off_overrides).inspect(_TEXT, direction="inbound")
 
     # Positive control: the run reached the anonymization stage under BOTH arms,
     # so the equality below is a real comparison and not a vacuous one.

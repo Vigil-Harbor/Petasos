@@ -12,7 +12,8 @@ from petasos._types import (
     ScanFinding,
     Severity,
 )
-from petasos.config import PetasosConfig
+from petasos.config.schema import from_mapping, merge
+from petasos.config.sections import PetasosConfig
 from petasos.pipeline import Pipeline
 from petasos.scanners.minimal import MinimalScanner
 from petasos.session.alerting import AlertManager
@@ -20,15 +21,16 @@ from petasos.session.audit import AuditEmitter
 from petasos.session.frequency import FrequencyUpdateResult
 
 
-def _cfg(**overrides: object) -> PetasosConfig:
-    defaults: dict[str, object] = {
-        "audit_enabled": True,
-        "alert_enabled": True,
-        "frequency_enabled": True,
-        "escalation_enabled": True,
+def _cfg(changes: dict[str, Any] | None = None) -> PetasosConfig:
+    document: dict[str, Any] = {
+        "audit": {"enabled": True},
+        "alerting": {"enabled": True},
+        "frequency": {"enabled": True},
+        "escalation": {"enabled": True},
     }
-    defaults.update(overrides)
-    return PetasosConfig(**defaults)  # type: ignore[arg-type]
+    if changes:
+        document = merge(document, changes)
+    return from_mapping(PetasosConfig, document)
 
 
 def _pipeline_result(
@@ -128,7 +130,7 @@ class TestAlertCallbackIsolation:
         def bad_cb(a: Alert) -> None:
             raise RuntimeError("alert-boom")
 
-        mgr = AlertManager(_cfg(alert_cooldown_seconds=0.001), on_alert=bad_cb)
+        mgr = AlertManager(_cfg({"alerting": {"cooldown_seconds": 0.001}}), on_alert=bad_cb)
         r = _pipeline_result(findings=(_finding(severity=Severity.HIGH),))
         alerts = mgr.evaluate(r, "s1", None)
         assert len(alerts) >= 1
@@ -140,7 +142,7 @@ class TestAlertCallbackIsolation:
         def bad_cb(a: Alert) -> None:
             raise KeyboardInterrupt("simulated")
 
-        mgr = AlertManager(_cfg(alert_cooldown_seconds=0.001), on_alert=bad_cb)
+        mgr = AlertManager(_cfg({"alerting": {"cooldown_seconds": 0.001}}), on_alert=bad_cb)
         r = _pipeline_result(findings=(_finding(severity=Severity.HIGH),))
         alerts = mgr.evaluate(r, "s1", None)
         assert len(alerts) >= 1
@@ -151,7 +153,7 @@ class TestAlertCallbackIsolation:
         def bad_cb(a: Alert) -> None:
             raise ValueError("bad-alert")
 
-        mgr = AlertManager(_cfg(alert_cooldown_seconds=0.001), on_alert=bad_cb)
+        mgr = AlertManager(_cfg({"alerting": {"cooldown_seconds": 0.001}}), on_alert=bad_cb)
         r = _pipeline_result(findings=(_finding(severity=Severity.HIGH),))
         with patch("petasos.session.alerting._logger") as mock_logger:
             mgr.evaluate(r, "s1", None)
@@ -205,11 +207,15 @@ class TestCrossSessionBurstTracker:
     def test_cross_session_burst_accurate_under_eviction(self) -> None:
         mgr = AlertManager(
             _cfg(
-                alert_ring_buffer_capacity=5,
-                alert_cross_session_burst_count=4,
-                alert_rapid_fire_count=5,
-                alert_cooldown_seconds=1.0,
-                alert_cross_session_burst_window_seconds=60.0,
+                {
+                    "alerting": {
+                        "ring_buffer_capacity": 5,
+                        "cross_session_burst_count": 4,
+                        "rapid_fire_count": 5,
+                        "cooldown_seconds": 1.0,
+                        "cross_session_burst_window_seconds": 60.0,
+                    }
+                }
             )
         )
         r = _pipeline_result(findings=(_finding(),))
@@ -231,9 +237,13 @@ class TestCrossSessionBurstTracker:
         base_time = 1000.0
         mgr = AlertManager(
             _cfg(
-                alert_cross_session_burst_count=3,
-                alert_cross_session_burst_window_seconds=10.0,
-                alert_cooldown_seconds=0.001,
+                {
+                    "alerting": {
+                        "cross_session_burst_count": 3,
+                        "cross_session_burst_window_seconds": 10.0,
+                        "cooldown_seconds": 0.001,
+                    }
+                }
             )
         )
         r = _pipeline_result(findings=(_finding(),))
@@ -253,9 +263,13 @@ class TestCrossSessionBurstTracker:
     def test_cross_session_tracker_cap_bounds_memory(self) -> None:
         mgr = AlertManager(
             _cfg(
-                alert_ring_buffer_capacity=50,
-                alert_cross_session_burst_count=3,
-                alert_cooldown_seconds=0.001,
+                {
+                    "alerting": {
+                        "ring_buffer_capacity": 50,
+                        "cross_session_burst_count": 3,
+                        "cooldown_seconds": 0.001,
+                    }
+                }
             )
         )
         r = _pipeline_result(findings=(_finding(),))

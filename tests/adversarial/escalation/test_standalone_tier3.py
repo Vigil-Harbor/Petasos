@@ -2,21 +2,25 @@
 
 from __future__ import annotations
 
-from types import MappingProxyType
+from typing import Any
+
+import pytest
 
 from petasos._types import Severity
-from petasos.config import PetasosConfig
+from petasos.config.schema import ConfigError, from_mapping, merge
+from petasos.config.sections import PetasosConfig
 from petasos.pipeline import Pipeline
 from petasos.scanners.minimal import MinimalScanner
 
 
-def _cfg(**overrides: object) -> PetasosConfig:
-    defaults: dict[str, object] = {
-        "frequency_enabled": False,
-        "escalation_enabled": False,
+def _cfg(changes: dict[str, Any] | None = None) -> PetasosConfig:
+    document: dict[str, Any] = {
+        "frequency": {"enabled": False},
+        "escalation": {"enabled": False},
     }
-    defaults.update(overrides)
-    return PetasosConfig(**defaults)  # type: ignore[arg-type]
+    if changes:
+        document = merge(document, changes)
+    return from_mapping(PetasosConfig, document)
 
 
 def _payload_3_critical() -> str:
@@ -28,7 +32,7 @@ def _payload_3_critical() -> str:
 
 async def test_tier3_fires_without_frequency() -> None:
     scanner = MinimalScanner(max_payload_bytes=100, max_json_depth=5)
-    cfg = _cfg(frequency_enabled=False, escalation_enabled=False)
+    cfg = _cfg()
     pipe = Pipeline(scanners=[scanner], config=cfg)
     result = await pipe.inspect(_payload_3_critical())
     critical_count = sum(1 for f in result.findings if f.severity == Severity.CRITICAL)
@@ -39,7 +43,7 @@ async def test_tier3_fires_without_frequency() -> None:
 
 async def test_below_threshold_no_tier3() -> None:
     scanner = MinimalScanner(max_payload_bytes=100, max_json_depth=5)
-    cfg = _cfg(frequency_enabled=False, escalation_enabled=True)
+    cfg = _cfg({"escalation": {"enabled": True}})
     pipe = Pipeline(scanners=[scanner], config=cfg)
     result = await pipe.inspect("\x01" * 10 + "[" * 20 + "]" * 20)
     critical_count = sum(1 for f in result.findings if f.severity == Severity.CRITICAL)
@@ -49,11 +53,7 @@ async def test_below_threshold_no_tier3() -> None:
 
 async def test_standalone_idempotent_with_frequency() -> None:
     scanner = MinimalScanner(max_payload_bytes=100, max_json_depth=5)
-    cfg = _cfg(
-        frequency_enabled=True,
-        escalation_enabled=True,
-        tier3_threshold=50.0,
-    )
+    cfg = _cfg({"frequency": {"enabled": True}, "escalation": {"enabled": True, "tier3": 50.0}})
     pipe = Pipeline(scanners=[scanner], config=cfg)
     for _ in range(6):
         result = await pipe.inspect(_payload_3_critical(), session_id="s1")
@@ -62,27 +62,22 @@ async def test_standalone_idempotent_with_frequency() -> None:
 
 
 async def test_standalone_survives_severity_override() -> None:
-    from petasos.session.profiles import ResolvedProfile
-
     scanner = MinimalScanner(max_payload_bytes=100, max_json_depth=5)
-    cfg = _cfg(frequency_enabled=False, escalation_enabled=True)
-    pipe = Pipeline(scanners=[scanner], config=cfg)
-    profile = ResolvedProfile(
-        name="test",
-        suppress_rules=frozenset(),
-        severity_overrides=MappingProxyType(
-            {
+    hostile = {
+        "frequency": {"enabled": False},
+        "escalation": {"enabled": True},
+        "rules": {
+            "severity_overrides": {
                 "petasos.syntactic.structural.binary-content": "low",
                 "petasos.syntactic.structural.excessive-depth": "low",
                 "petasos.syntactic.structural.oversized-payload": "low",
             }
-        ),
-        confidence_floor=0.0,
-        tier_thresholds=None,
-        pii_entities_extra=(),
-        tool_exempt_list=frozenset(),
-        tool_alias_map=MappingProxyType({}),
-    )
-    result = await pipe.inspect(_payload_3_critical(), profile=profile)
+        },
+    }
+    with pytest.raises(ConfigError, match="structural"):
+        from_mapping(PetasosConfig, hostile)
+    # The refused overrides never apply. The payload still reaches tier 3.
+    pipe = Pipeline(scanners=[scanner], config=_cfg({"escalation": {"enabled": True}}))
+    result = await pipe.inspect(_payload_3_critical())
     assert result.escalation_tier == "tier3"
     assert result.safe is False

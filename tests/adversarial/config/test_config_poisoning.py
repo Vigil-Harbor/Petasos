@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
+
 import pytest
 
 import petasos.config as config_mod
+import petasos.config.floors as floors
 from petasos._types import ScanResult
-from petasos.config import PetasosConfig
+from petasos.config.schema import ConfigError, from_mapping
+from petasos.config.secrets import Secrets
+from petasos.config.sections import PetasosConfig
 from petasos.pipeline import Pipeline, _compute_safe
 from petasos.session.escalation import evaluate_tier
 
@@ -21,30 +27,31 @@ def test_frozen_config_bypass_via_setattr() -> None:
     assert cfg.fail_mode == "open"
 
 
-def test_anonymize_truthy_non_bool_rejected() -> None:
-    """CFG-02: int 1 for anonymize is now rejected by __post_init__."""
-    with pytest.raises(TypeError, match="anonymize must be a bool"):
-        PetasosConfig(anonymize=1)  # type: ignore[arg-type]
+def _owned_escalation(tier3: float) -> PetasosConfig:
+    """A config whose escalation section is not the shared default object."""
+    cfg = from_mapping(
+        PetasosConfig,
+        {"escalation": {"tier1": 15.0, "tier2": 30.0, "tier3": 50.0}},
+    )
+    object.__setattr__(cfg.escalation, "tier3", tier3)
+    return cfg
 
 
 def test_tier3_floor_module_global_mutable(monkeypatch: pytest.MonkeyPatch) -> None:
-    """CFG-04: reassigning TIER3_FLOOR lowers the construction floor, but
-    evaluate_tier() catches it with an inline literal guard."""
+    """CFG-04: rebinding the tier-3 floor constant does not open a hole.
+
+    The bound is fixed when the section is declared, so a document under the
+    floor is refused. Tampering a built value still fail-secures in
+    evaluate_tier.
+    """
+    monkeypatch.setattr(floors, "TIER3_FLOOR", 5.0)
     monkeypatch.setattr(config_mod, "TIER3_FLOOR", 5.0)
-    cfg = PetasosConfig(tier1_threshold=1.0, tier2_threshold=2.0, tier3_threshold=10.0)
-    assert cfg.tier3_threshold == 10.0
-    assert evaluate_tier(0.0, cfg) == "tier3"
-
-
-def test_tier3_below_floor_rejected() -> None:
-    """CFG-04: blocked-validated for config object path."""
-    with pytest.raises(ValueError):
-        PetasosConfig(tier3_threshold=10.0)
-
-
-# ---------------------------------------------------------------------------
-# PET-23: Config immutability hardening tests
-# ---------------------------------------------------------------------------
+    with pytest.raises(ConfigError, match="escalation.tier3"):
+        from_mapping(
+            PetasosConfig,
+            {"escalation": {"tier1": 1.0, "tier2": 2.0, "tier3": 10.0}},
+        )
+    assert evaluate_tier(0.0, _owned_escalation(10.0)) == "tier3"
 
 
 def test_slots_no_dict() -> None:
@@ -69,37 +76,40 @@ def test_object_setattr_on_defined_field_residual() -> None:
 
 
 def test_evaluate_tier_failsecure_on_low_tier3() -> None:
-    """CFG-04: evaluate_tier returns 'tier3' fail-secure when tier3_threshold
+    """CFG-04: evaluate_tier returns 'tier3' fail-secure when tier 3
     is tampered below 30.0."""
-    cfg = PetasosConfig()
-    object.__setattr__(cfg, "tier3_threshold", 5.0)
-    assert evaluate_tier(0.0, cfg) == "tier3"
+    assert evaluate_tier(0.0, _owned_escalation(5.0)) == "tier3"
 
 
 def test_evaluate_tier_ignores_module_mutation(monkeypatch: pytest.MonkeyPatch) -> None:
-    """CFG-04: mutating TIER3_FLOOR module variable does not bypass the inline
-    literal guard in evaluate_tier()."""
+    """CFG-04: mutating the floor constant does not bypass evaluate_tier."""
     monkeypatch.setattr(config_mod, "TIER3_FLOOR", 5.0)
-    cfg = PetasosConfig(tier1_threshold=1.0, tier2_threshold=2.0, tier3_threshold=10.0)
-    assert evaluate_tier(0.0, cfg) == "tier3"
+    assert evaluate_tier(0.0, _owned_escalation(10.0)) == "tier3"
 
 
 def test_pipeline_config_isolation() -> None:
-    """CFG-05: mutating original config after Pipeline construction has no
-    effect on pipeline's internal copy."""
-    cfg = PetasosConfig()
+    """CFG-05: mutating the flat config after construction does not change the
+    tree the pipeline already built from it."""
+    from petasos.config import PetasosConfig as FlatConfig
+
+    cfg = FlatConfig()
     pipeline = Pipeline(config=cfg)
     object.__setattr__(cfg, "fail_mode", "open")
     assert pipeline.config.fail_mode == "degraded"
 
 
 def test_pipeline_replace_preserves_session_secret() -> None:
-    """CFG-05: dataclasses.replace() preserves session_secret without the
-    object.__setattr__ workaround."""
-    cfg = PetasosConfig(session_secret=b"key")
-    pipeline = Pipeline(config=cfg, host_id="h1")
-    assert pipeline.legacy_config is not None
-    assert pipeline.legacy_config.session_secret == b"key"
+    """CFG-05: reconfiguring the tree keeps the secret passed beside it."""
+    secret = b"key"
+    pipeline = Pipeline(
+        config=PetasosConfig(), secrets=Secrets(session_secret=secret), host_id="h1"
+    )
+    pipeline.reconfigure(PetasosConfig(fail_mode="open"))
+    tracker = pipeline._frequency_tracker
+    assert tracker.requires_token is True
+    token = tracker.mint_token("s1", "h1")
+    expected = hmac.new(secret, b"s1\x00h1", hashlib.sha256).hexdigest()
+    assert token.hmac_digest == expected
 
 
 def test_compute_safe_fallback_on_invalid_fail_mode() -> None:
