@@ -687,6 +687,20 @@ def test_probe_exit_4_writes_no_evidence(tmp_path: Path, monkeypatch: pytest.Mon
     assert not (work / "composition-probe4.json").exists()
 
 
+def test_base_env_keeps_pathext(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A child without PATHEXT cannot resolve git.exe, which failed the first gating run."""
+    monkeypatch.setenv("PATHEXT", ".COM;.EXE")
+    env = harness.base_env(
+        tmp_path / "tree",
+        tmp_path / "live",
+        tmp_path / "run" / "localappdata" / "hermes",
+        tmp_path / "run",
+        tmp_path / "work",
+        "label",
+    )
+    assert env["PATHEXT"] == ".COM;.EXE"
+
+
 def test_harness_refactor_and_gate_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     tree = Path(__file__).resolve().parents[1]
     side = tmp_path / "side.jsonl"
