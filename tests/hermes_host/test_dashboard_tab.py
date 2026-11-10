@@ -75,3 +75,21 @@ def test_each_view_takes_and_gives_focus_well(tab_report: dict[str, Any], view: 
     assert focus["distinct"] >= 4, focus
     assert focus["invisible"] == [], focus
     assert focus["left"] is True, focus
+
+
+def test_a_paused_tab_shows_no_check_running(tab_report: dict[str, Any]) -> None:
+    """While protection is paused, no check anywhere in the tab is drawn as running.
+
+    The Overview's Checks panel and Try it's list of checks both draw a
+    check's state from the API's operating value. Paused through the tab's
+    own button, neither may show a check running, and no sentence may say
+    the checks always run.
+    """
+    paused = tab_report["paused"]
+    assert paused["overview"], paused
+    assert "running" not in paused["overview"], paused
+    assert "paused" in paused["overview"], paused
+    assert paused["tryit"], paused
+    assert "checked" not in paused["tryit"], paused
+    assert "paused" in paused["tryit"], paused
+    assert "always run" not in paused["overview_text"].lower()
