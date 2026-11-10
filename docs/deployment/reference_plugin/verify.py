@@ -29,8 +29,8 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from petasos import PetasosConfig
-    from petasos.console._paths import HermesConfigResolution
     from petasos.console._plugin_files import ProtectionStatus
+    from petasos.hermes.home import HermesConfigResolution
 
 PASS = "PASS"
 FAIL = "FAIL"
@@ -143,7 +143,7 @@ def resolve_deployed_config() -> ResolvedConfig:
     if _resolved is not None:
         return _resolved
     from petasos import PetasosConfig
-    from petasos.console._paths import read_petasos_section_checked, resolve_hermes_config_path
+    from petasos.hermes.home import read_petasos_section_checked, resolve_hermes_config_path
 
     res = resolve_hermes_config_path()
     builder = _plugin_builder()  # PluginSkewError propagates; nothing is memoised
@@ -323,7 +323,7 @@ def check_armed() -> CheckResult:
     saw a boolean WARN rather than PASS, and each names what was not read.
     """
     from petasos.console._armed import read_armed
-    from petasos.console._paths import read_petasos_section_checked, resolve_hermes_config_path
+    from petasos.hermes.home import read_petasos_section_checked, resolve_hermes_config_path
 
     res = resolve_hermes_config_path()
     where = _where(res)
@@ -379,7 +379,7 @@ def check_injection_scan() -> CheckResult:
 
 
 def check_plugin_files() -> CheckResult:
-    from petasos.console._paths import resolve_hermes_config_path
+    from petasos.hermes.home import resolve_hermes_config_path
 
     res = resolve_hermes_config_path()
     plugin_dir = res.path.parent / "plugins" / "petasos"
@@ -402,7 +402,7 @@ def _paths_are_same_file(a: Path, b: Path) -> bool:
 
 
 def check_config_split_brain() -> CheckResult:
-    from petasos.console._paths import (
+    from petasos.hermes.home import (
         hermes_root,
         read_petasos_section,
         resolve_hermes_config_path,
@@ -422,7 +422,7 @@ def check_config_split_brain() -> CheckResult:
     if res.tier == "root" or _paths_are_same_file(res.path, root_path):
         return PASS, "Single governing config file — no split-brain possible"
 
-    from petasos.console._paths import HermesConfigResolution
+    from petasos.hermes.home import HermesConfigResolution
 
     root_res = HermesConfigResolution(path=root_path, tier="root")
     profile_res = res
@@ -515,7 +515,7 @@ def _gateway_is_live(state: dict[str, Any] | None) -> bool:
 
 def _live_gateway(res: HermesConfigResolution) -> dict[str, Any] | None:
     """The live gateway record for this deployment, or None."""
-    from petasos.console._paths import hermes_root
+    from petasos.hermes.home import hermes_root
 
     if res.tier == "hermes_home":
         candidates = [res.path.parent / _GATEWAY_STATE_FILE]
@@ -584,7 +584,7 @@ def _newest_line_for_home(
     lines: list[_IdentityLine], status: ProtectionStatus, home: Path
 ) -> _IdentityLine | None:
     """This home's newest line by timestamp; later reading order breaks ties."""
-    from petasos.console._paths import _resolved_normcase
+    from petasos.hermes.home import _resolved_normcase
 
     own = {_resolved_normcase(folder) for folder in status.claimants}
     if status.winner is not None:
@@ -618,7 +618,7 @@ def _hook_can_load_row(
     state_word: str,
     lines: list[_IdentityLine] | None,
 ) -> CheckResult:
-    from petasos.console._paths import _resolved_normcase
+    from petasos.hermes.home import _resolved_normcase
 
     winner = cast("Path", status.winner)
     where = f"predicted folder {winner}, {state_word}"
@@ -656,8 +656,8 @@ def _profile_row(
     lines: list[_IdentityLine] | None,
 ) -> CheckResult:
     from petasos.console._armed import read_armed
-    from petasos.console._paths import HermesConfigResolution
     from petasos.console._plugin_files import protection_status
+    from petasos.hermes.home import HermesConfigResolution
 
     status = protection_status(home, profile=profile)
     # An unconfigured profile's fail-secure default is not intent, so this differs on
@@ -684,7 +684,7 @@ def _profile_row(
 
 def check_profile_rows() -> None:
     """PET-236: one row per served profile, plus at most one preamble row."""
-    from petasos.console._paths import (
+    from petasos.hermes.home import (
         hermes_root,
         list_hermes_profiles,
         resolve_hermes_config_path,
@@ -748,7 +748,7 @@ def check_profile_rows() -> None:
 
 
 def main() -> int:
-    from petasos.console._paths import hermes_root, resolve_hermes_config_path
+    from petasos.hermes.home import hermes_root, resolve_hermes_config_path
 
     res = resolve_hermes_config_path()
 

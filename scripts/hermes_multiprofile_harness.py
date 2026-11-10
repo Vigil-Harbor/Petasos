@@ -725,7 +725,7 @@ def probe_hooks() -> int:
     # 9. Plugin-host/child shape: HERMES_HOME=profile, no override -> tier hermes_home, same file.
     code = (
         "import hermes_bootstrap,os,json;"
-        "from petasos.console._paths import resolve_hermes_config_path as r;"
+        "from petasos.hermes.home import resolve_hermes_config_path as r;"
         "x=r();print(json.dumps({'tier':x.tier,'path':str(x.path)}))"
     )
     env = dict(os.environ, HERMES_HOME=str(gibson))
@@ -986,7 +986,7 @@ def main() -> int:
         return {"hooks": probe_hooks, "dash": probe_dash}[sys.argv[2]]()
 
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-    from petasos.console._paths import hermes_root
+    from petasos.hermes.home import hermes_root
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("label")

@@ -396,6 +396,23 @@ class Settings:
         object.__setattr__(self, "overrides", _copy_tree(self.overrides, prefix="overrides"))
 
 
+# The four settings a host stores. The manifest and the docs read this map.
+SETTING_HELP: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "enabled": (
+            "Whether Petasos enforces on this profile. Off lets tool calls through "
+            "and records that they bypassed enforcement."
+        ),
+        "role": "What the agent does. A role sets the checks that belong to the job.",
+        "level": ("How strict the checks are. A level sets fail mode, escalation, and hiding."),
+        "overrides": (
+            "Settings that replace what the role and level resolved to. "
+            "A JSON object whose keys are config paths."
+        ),
+    }
+)
+
+
 @dataclass(frozen=True, slots=True)
 class Resolved:
     """One settings document resolved to a config, with the source of each value.

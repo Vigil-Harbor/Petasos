@@ -37,7 +37,7 @@ import threading
 import time
 from typing import Any
 
-from petasos.console._paths import (
+from petasos.hermes.home import (
     HermesConfigResolution,
     read_petasos_section,
     resolve_hermes_config_path,

@@ -1,5 +1,5 @@
 """PET-146: tests for the Hermes-profile enumeration helpers in
-``petasos.console._paths``.
+``petasos.hermes.home``.
 
 ``list_hermes_profiles`` enumerates ``profiles/*/config.yaml`` under the Hermes
 root, marking the active binding by a normalized-path compare; it is fail-soft
@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, Any
 
 import yaml
 
-from petasos.console._paths import (
+from petasos.hermes.home import (
     hermes_root,
     list_hermes_profiles,
     resolve_hermes_config_path,

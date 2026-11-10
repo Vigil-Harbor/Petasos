@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 
 from tests.enforce_parity.enforcer_adapter import EnforcerOracle
+from tests.enforce_parity.hermes_adapter import HermesOracle
 from tests.enforce_parity.load import (
     OUTCOMES_PATH,
     SCENARIOS_PATH,
@@ -218,6 +219,17 @@ def _differences() -> list[dict[str, Any]]:
     return [row for row in rows if isinstance(row, dict)]
 
 
+def _adapters_of(row: dict[str, Any]) -> list[str]:
+    raw = row.get("adapters")
+    if not isinstance(raw, list) or not raw or not all(isinstance(item, str) for item in raw):
+        raise AssertionError("a difference must name the adapters it applies to")
+    return list(raw)
+
+
+def _rows_for(adapter: str) -> list[dict[str, Any]]:
+    return [row for row in _differences() if adapter in _adapters_of(row)]
+
+
 def _matches(pattern: str, value: str) -> bool:
     return pattern == "*" or pattern == value
 
@@ -276,18 +288,16 @@ def _apply_differences(
 
 
 @pytest.mark.parametrize("scenario_id", _ids())
-def test_enforcer_matches_record(scenario_id: str) -> None:
-    """The enforcer matches the record except the listed differences."""
+def _compare(scenario_id: str, actual: list[Any], adapter: str) -> None:
+    """Fail when ``actual`` differs from the record after that adapter's rows."""
     recorded = load_json(OUTCOMES_PATH)
     scenarios = recorded.get("scenarios")
     if not isinstance(scenarios, dict) or scenario_id not in scenarios:
         raise AssertionError(f"{scenario_id} is missing from outcomes.json")
-    scenario = next(item for item in _scenarios() if item["id"] == scenario_id)
-    actual = EnforcerOracle().replay(expand_scenario(scenario))
     expected = scenarios[scenario_id]
     if not isinstance(expected, list):
         raise AssertionError(f"{scenario_id} recorded outcomes are not a list")
-    rows = _differences()
+    rows = _rows_for(adapter)
     used: set[int] = set()
     compared_expected: list[dict[str, Any]] = []
     compared_actual: list[dict[str, Any]] = []
@@ -317,17 +327,29 @@ def test_enforcer_matches_record(scenario_id: str) -> None:
         if len(diffs) >= _MAX_DIFFS:
             break
     raise AssertionError(
-        "enforcer outcomes differ from the record after listed differences\n\n"
+        f"{adapter} outcomes differ from the record after listed differences\n\n"
         + "\n\n".join(diffs)
     )
 
 
-def test_listed_differences_all_occur() -> None:
-    """A listed difference that the enforcer no longer exhibits fails the run."""
-    # The parametrized test records which rows it applied. Running this test
-    # alone, or before those, replays enough to know. Replaying here keeps the
-    # check independent of test order.
-    rows = _differences()
+@pytest.mark.parametrize("scenario_id", _ids())
+def test_enforcer_matches_record(scenario_id: str) -> None:
+    """The enforcer matches the record except the differences listed for it."""
+    scenario = next(item for item in _scenarios() if item["id"] == scenario_id)
+    actual = EnforcerOracle().replay(expand_scenario(scenario))
+    _compare(scenario_id, actual, "enforcer")
+
+
+@pytest.mark.parametrize("scenario_id", _ids())
+def test_hermes_adapter_matches_record(scenario_id: str) -> None:
+    """The Hermes hooks match the record except the differences listed for them."""
+    scenario = next(item for item in _scenarios() if item["id"] == scenario_id)
+    actual = HermesOracle().replay(expand_scenario(scenario))
+    _compare(scenario_id, actual, "hermes")
+
+
+def _used_rows(adapter: str, replay: Any) -> set[int]:
+    rows = _rows_for(adapter)
     used: set[int] = set()
     recorded = load_json(OUTCOMES_PATH)
     scenarios = recorded.get("scenarios")
@@ -336,7 +358,7 @@ def test_listed_differences_all_occur() -> None:
     for scenario in _scenarios():
         scenario_id = str(scenario["id"])
         expected = scenarios[scenario_id]
-        actual = EnforcerOracle().replay(expand_scenario(scenario))
+        actual = replay(expand_scenario(scenario))
         if not isinstance(expected, list):
             continue
         for index in range(min(len(expected), len(actual))):
@@ -348,8 +370,17 @@ def test_listed_differences_all_occur() -> None:
             right = json.loads(json.dumps(right))
             step_id = str(right.get("id", ""))
             _apply_differences(left, right, rows, scenario_id, step_id, used)
+    return used
+
+
+@pytest.mark.parametrize("adapter", ["enforcer", "hermes"])
+def test_listed_differences_all_occur(adapter: str) -> None:
+    """A listed difference that this adapter does not exhibit fails the run."""
+    rows = _rows_for(adapter)
+    oracle = EnforcerOracle() if adapter == "enforcer" else HermesOracle()
+    used = _used_rows(adapter, oracle.replay)
     missing = [rows[index]["reason"] for index in range(len(rows)) if index not in used]
-    assert not missing, "listed differences that did not occur:\n" + "\n".join(missing)
+    assert not missing, f"{adapter} listed differences that did not occur:\n" + "\n".join(missing)
 
 
 def test_record_drops_volatile_event_fields() -> None:

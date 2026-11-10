@@ -1128,8 +1128,8 @@
     // The binding's parenthetical is emitted ONLY for a tier that names something an
     // operator can act on. `equipped_tier` falls back to the raw resolution tier when no
     // member is active (server.py:613), so "profile" IS reachable here (an active_profile
-    // pointing at a directory with no config.yaml: _paths.py:104 admits the dir, and
-    // list_hermes_profiles skips it at _paths.py:184). "(this profile)" would name nothing
+    // pointing at a directory with no config.yaml: home.py admits the dir, and
+    // list_hermes_profiles skips it when config.yaml is absent). "(this profile)" would name nothing
     // and read as a contradiction, so that tier and an absent tier get no parenthetical.
     var where = st === "unknown" ? ""
       : (s.equipped_tier === "hermes_home" ? " (HERMES_HOME)"

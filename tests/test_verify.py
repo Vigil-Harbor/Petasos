@@ -25,7 +25,7 @@ from typing import Any
 import pytest  # noqa: TC002
 import yaml
 
-import petasos.console._paths as paths_mod
+import petasos.hermes.home as paths_mod
 
 # ---------------------------------------------------------------------------
 # Helpers

@@ -14,8 +14,8 @@ from typing import Any
 
 import pytest
 
-import petasos.console._paths as paths_mod
-from petasos.console._paths import (
+import petasos.hermes.home as paths_mod
+from petasos.hermes.home import (
     read_petasos_section,
     resolve_active_profile_dir,
     resolve_hermes_config_path,
@@ -490,7 +490,7 @@ def test_load_config_uses_process_binding(tmp_path: Path, monkeypatch: pytest.Mo
     """_load_config resolves with use_override=False."""
     pytest.importorskip("fastapi")
     import petasos.console.hermes.plugin_api as plugin_api_mod
-    from petasos.console._paths import resolve_hermes_config_path
+    from petasos.hermes.home import resolve_hermes_config_path
 
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / "launch"))
     (tmp_path / "launch").mkdir()

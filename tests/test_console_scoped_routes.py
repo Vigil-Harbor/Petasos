@@ -22,9 +22,9 @@ pytest.importorskip("fastapi")
 
 import petasos.console._armed as armed_mod  # noqa: E402
 import petasos.console._history as history_mod  # noqa: E402
-import petasos.console._paths as paths_mod  # noqa: E402
 import petasos.console.hermes.plugin_api as plugin_mod  # noqa: E402
 import petasos.console.server as server_mod  # noqa: E402
+import petasos.hermes.home as paths_mod  # noqa: E402
 from petasos.config import PetasosConfig  # noqa: E402
 from petasos.pipeline import Pipeline  # noqa: E402
 from petasos.scanners.minimal import MinimalScanner  # noqa: E402

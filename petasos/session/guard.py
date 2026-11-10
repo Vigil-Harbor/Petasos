@@ -57,7 +57,7 @@ if TYPE_CHECKING:
     from petasos._types import Direction
     from petasos.config.legacy import ResolvedProfile
     from petasos.config.sections import PetasosConfig
-    from petasos.console._paths import HermesConfigResolution
+    from petasos.hermes.home import HermesConfigResolution
     from petasos.pipeline import Pipeline
     from petasos.session.frequency import FrequencyTracker, SessionState
     from petasos.session.lineage import LineageRegistry
@@ -792,7 +792,7 @@ class ToolCallGuard:
         supplier = self._protected_paths
         if supplier is not None:
             return [str(item) for item in supplier()]
-        from petasos.console._paths import (
+        from petasos.hermes.home import (
             HermesConfigResolution,
             hermes_root,
             list_hermes_profiles,

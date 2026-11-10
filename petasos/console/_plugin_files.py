@@ -3,7 +3,7 @@
 Applies Hermes's plugin selection rules to ``<home>/plugins`` and returns a closed
 status (PET-236). ``hook_can_load`` is the strongest thing files can say: a plugin
 that fails at load is not visible here, and ``verify.py`` compares the gateway's
-load log. Same contract as ``_paths.py``: stdlib plus lazy PyYAML, no logging, and
+load log. Same contract as ``petasos.hermes.home``: stdlib plus lazy PyYAML, no logging, and
 ``protection_status`` never raises.
 """
 
@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-from petasos.console._paths import (
+from petasos.hermes.home import (
     HermesConfigResolution,
     _resolved_normcase,
     display_path,

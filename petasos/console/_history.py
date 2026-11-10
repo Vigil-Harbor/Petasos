@@ -45,10 +45,10 @@ import time
 import uuid
 from typing import TYPE_CHECKING, Any
 
-from petasos.console._paths import resolve_hermes_config_path
+from petasos.hermes.home import resolve_hermes_config_path
 
 if TYPE_CHECKING:
-    from petasos.console._paths import HermesConfigResolution
+    from petasos.hermes.home import HermesConfigResolution
 
 _HISTORY_FILENAME = "petasos-scan-history.jsonl"
 _ROT_SUFFIX = ".rot"

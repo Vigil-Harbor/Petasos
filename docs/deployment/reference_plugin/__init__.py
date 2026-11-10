@@ -114,7 +114,7 @@ from petasos.session.ingest import (  # PET-178: dep-light (chunked result scan)
 if TYPE_CHECKING:
     from petasos import PetasosConfig
     from petasos._types import Severity
-    from petasos.console._paths import HermesConfigResolution
+    from petasos.hermes.home import HermesConfigResolution
 
 logger = logging.getLogger("petasos.plugin")
 
@@ -636,7 +636,7 @@ def _load_config(res: HermesConfigResolution | None = None) -> dict[str, Any]:
     exactly once (the same file the armed/reload reads are pinned to). When ``None``,
     resolve from environment as before.
     """
-    from petasos.console._paths import read_petasos_section, resolve_hermes_config_path
+    from petasos.hermes.home import read_petasos_section, resolve_hermes_config_path
 
     res = res if res is not None else resolve_hermes_config_path()
     logger.info("loading config from %s [tier=%s]", res.path, res.tier)
@@ -858,8 +858,8 @@ def _deferred_init() -> None:
                 # env contract, so writer and reader agree. Wrapped fail-safe: a failure degrades
                 # to integrity-off (no `sig`), never breaks boot.
                 try:
-                    from petasos.console._paths import spool_path
                     from petasos.enforce.events import set_spool_key
+                    from petasos.hermes.home import spool_path
 
                     set_spool_key(config.session_secret, path=spool_path(_session_resolution))
                 except Exception as exc:  # pragma: no cover - defensive; integrity is best-effort
@@ -1744,8 +1744,8 @@ def _apply_reconfigure_body(cfg: PetasosConfig) -> None:
     # ``_rebind_to_resolution`` installs the same live secret onto the new spool path.
     # Wrapped fail-safe: a failure degrades to integrity-off, never breaks the reconfigure.
     try:
-        from petasos.console._paths import spool_path
         from petasos.enforce.events import set_spool_key
+        from petasos.hermes.home import spool_path
 
         _secret = (
             _pipeline.legacy_config.session_secret if _pipeline.legacy_config is not None else None
@@ -1957,8 +1957,8 @@ def _rebind_to_resolution(res: HermesConfigResolution) -> None:
             _guard._selfmod_owned_cache = (0.0, frozenset())
         if _pipeline is not None:
             try:
-                from petasos.console._paths import spool_path
                 from petasos.enforce.events import set_spool_key
+                from petasos.hermes.home import spool_path
 
                 _secret = (
                     _pipeline.legacy_config.session_secret
@@ -2008,7 +2008,7 @@ def _rebind_to_profile(profile_home: Any) -> None:
     if home is None:
         _log_rebind_skipped(reason)  # binding + caches + config unchanged
         return
-    from petasos.console._paths import HermesConfigResolution
+    from petasos.hermes.home import HermesConfigResolution
 
     # tier="profile" is a valid Tier literal; omitting warning defaults it to None, which
     # satisfies the dataclass invariant "warning non-None only when tier=='root'".
@@ -2335,7 +2335,7 @@ def _warn_hook_home_mismatch() -> None:
         res = _session_resolution
         if res is None:
             return
-        from petasos.console._paths import _override_home
+        from petasos.hermes.home import _override_home
 
         probed = _override_home()
         if probed is None:
@@ -2517,7 +2517,7 @@ def _pre_tool_call(
 
     if result.selfmod_target is not None:
         try:
-            from petasos.console._paths import display_path
+            from petasos.hermes.home import display_path
 
             _emit_enforcement_event(
                 session_id=session_id,
@@ -3063,7 +3063,7 @@ def register(ctx) -> None:
     # here too.
     _session_resolution = None
     try:
-        from petasos.console._paths import resolve_hermes_config_path
+        from petasos.hermes.home import resolve_hermes_config_path
 
         _session_resolution = resolve_hermes_config_path()
         _log_relative_override_once(_session_resolution)
@@ -3131,7 +3131,7 @@ def register(ctx) -> None:
         # so forward-compatible plugins don't break"), so try/except around registration
         # cannot detect a host without the seam; and importing `hermes_cli.plugins` would
         # be this plugin's first direct host import (everything else goes through `ctx` or
-        # `petasos.console._paths`). So read `sys.modules`, entirely inside one
+        # `petasos.hermes.home`). So read `sys.modules`, entirely inside one
         # try/except Exception.
         #
         # The guard is load-bearing, not defensive habit: this block sits between the three

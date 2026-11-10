@@ -88,6 +88,8 @@ anyio_mode = "auto"
 [tool.mypy]
 strict = true
 python_version = "3.11"
+# The installed plugin directory is also named petasos. It is not a second copy of this package.
+exclude = ["^hermes-plugin/"]
 
 [[tool.mypy.overrides]]
 module = [

@@ -12,10 +12,10 @@ from pathlib import Path
 
 import pytest
 
-import petasos.console._paths as paths_mod
 import petasos.console._plugin_files as pf
-from petasos.console._paths import HermesConfigResolution
+import petasos.hermes.home as paths_mod
 from petasos.console._plugin_files import is_hermes_home, protection_status
+from petasos.hermes.home import HermesConfigResolution
 
 ENABLED = "plugins:\n  enabled:\n  - petasos\n"
 

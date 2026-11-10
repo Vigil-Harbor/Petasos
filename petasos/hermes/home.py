@@ -1,9 +1,8 @@
-"""Hermes config-path resolver — shared by plugin_api and reference_plugin.
+"""Hermes home, profile, and config-path resolution.
 
-Resolves the effective config.yaml path across Hermes v0.15 (root) and
-v0.16+ (per-profile home) layouts.  Uses stdlib (pathlib, os, platform)
-and PyYAML for config parsing; no logging, no fastapi.  The resolver
-never raises (D3).
+Resolves the effective config.yaml path across the v0.15 root layout and
+the per-profile home. Stdlib only, plus PyYAML when a config file is read.
+No logging. The resolver never raises.
 """
 
 from __future__ import annotations

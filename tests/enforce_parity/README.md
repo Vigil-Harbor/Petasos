@@ -6,8 +6,13 @@ The replacement is checked by replaying `scenarios.json` through an adapter
 and diffing the result against `outcomes.json`.
 
 `plugin_adapter.py` is the only file here that loads the reference plugin.
-A later adapter implements `EnforcementAdapter` in `protocol.py` and leaves
-the corpus, the recorded outcomes and `test_enforce_parity.py` alone.
+`enforcer_adapter.py` replays through `Enforcer` directly.
+`hermes_adapter.py` replays through `petasos.hermes.plugin.register` and the
+hooks it registers, against a fake Hermes context and a temporary home.
+`differences.json` names, on each entry, which of those adapters the
+difference applies to. An unlisted difference fails. A listed difference
+that does not occur for an adapter it names fails too. The corpus and
+`outcomes.json` stay as recorded.
 
 Every scenario starts from a freshly loaded plugin in its own temporary
 home. Nothing in the harness reads or writes a real Hermes home. Scenarios
@@ -112,7 +117,7 @@ cannot express is confined to `plugin_adapter.py`:
 - After `profile_change`, the adapter submits one `sleep(0)` on the
   plugin's loop. The hook schedules the apply and returns; the yield runs
   after that apply's commit.
-- `petasos.console._paths.hermes_root` is pointed at the temporary home
+- `petasos.hermes.home.hermes_root` is pointed at the temporary home
   for the duration of the scenario. Self-modification discovery otherwise
   lists `~/.hermes`.
 

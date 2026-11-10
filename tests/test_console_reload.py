@@ -30,7 +30,7 @@ if TYPE_CHECKING:
     import types
     from collections.abc import Iterator
 
-    from petasos.console._paths import Tier
+    from petasos.hermes.home import Tier
 
 
 _REF_PLUGIN_PATH = (
@@ -160,7 +160,7 @@ def test_reload_malformed_yaml_keeps_last_good(cfg: Path) -> None:
 
 def test_reload_cache_slots_are_per_path(tmp_path: Path) -> None:
     """Two paths that share a stat key each report their own section."""
-    from petasos.console._paths import HermesConfigResolution
+    from petasos.hermes.home import HermesConfigResolution
 
     def _write(path: Path, name: str) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -296,7 +296,7 @@ class _FakeCtx:
 
 
 def _make_resolution(path: Path, tier: Tier) -> Any:
-    from petasos.console._paths import HermesConfigResolution
+    from petasos.hermes.home import HermesConfigResolution
 
     return HermesConfigResolution(path=path, tier=tier)
 

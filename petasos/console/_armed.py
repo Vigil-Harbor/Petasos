@@ -1,7 +1,7 @@
 """Equipped/Unequipped (``petasos.enabled``) read/write — the single source of truth.
 
-Anchored on ``_paths.resolve_hermes_config_path()`` so the gateway and the
-dashboard agree on which ``config.yaml`` holds the bit. Keeps ``_paths.py`` pure
+Anchored on ``petasos.hermes.home.resolve_hermes_config_path()`` so the gateway and the
+dashboard agree on which ``config.yaml`` holds the bit. Keeps ``home.py`` pure
 (PET-111 Decision 4 — no cache, no writes added there). Fail-secure: read errors
 arm. Never raises out of ``read_armed``/``write_armed``.
 
@@ -27,7 +27,7 @@ import threading
 import time
 from typing import Any
 
-from petasos.console._paths import (
+from petasos.hermes.home import (
     HermesConfigResolution,
     read_petasos_section,
     resolve_hermes_config_path,

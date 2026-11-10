@@ -404,7 +404,7 @@ async def test_pipeline_feature_status_is_immutable_snapshot() -> None:
 
 # --- CINF-02: _paths active_profile traversal guard ---
 def test_active_profile_traversal_is_rejected(tmp_path: pathlib.Path) -> None:
-    from petasos.console._paths import resolve_active_profile_dir
+    from petasos.hermes.home import resolve_active_profile_dir
 
     (tmp_path / "profiles").mkdir()
     (tmp_path / "active_profile").write_text("../../evil")
