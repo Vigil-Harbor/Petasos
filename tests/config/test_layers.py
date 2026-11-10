@@ -14,16 +14,16 @@ from petasos.config.layers import (
     document_fields,
     resolve,
 )
-from petasos.config.schema import ConfigError, describe, to_mapping
+from petasos.config.schema import ConfigError, leaves, to_mapping
 from petasos.config.sections import PetasosConfig
 
 
 def test_axes_are_disjoint_and_name_real_leaves() -> None:
-    leaves = {row.path for row in describe(PetasosConfig)}
+    paths = {row.path for row in leaves(PetasosConfig)}
 
     assert ROLE_FIELDS.isdisjoint(LEVEL_FIELDS)
-    assert leaves >= ROLE_FIELDS
-    assert leaves >= LEVEL_FIELDS
+    assert paths >= ROLE_FIELDS
+    assert paths >= LEVEL_FIELDS
 
 
 def test_every_builtin_stays_inside_its_axis() -> None:
@@ -60,13 +60,13 @@ def test_origin_names_the_layer_that_supplied_each_leaf() -> None:
             assert source == "level"
         else:
             assert source == "default"
-    assert set(resolved.origin) == {row.path for row in describe(PetasosConfig)}
+    assert set(resolved.origin) == {row.path for row in leaves(PetasosConfig)}
 
 
 def test_balanced_origin_is_level_for_the_level_fields() -> None:
     resolved = resolve({})
 
-    for row in describe(PetasosConfig):
+    for row in leaves(PetasosConfig):
         expected = "level" if row.path in LEVEL_FIELDS else "default"
         assert resolved.origin[row.path] == expected
 
@@ -142,4 +142,4 @@ def test_enabled_is_not_part_of_the_config() -> None:
 
     assert resolved.settings.enabled is False
     assert not hasattr(resolved.config, "enabled")
-    assert "enabled" not in {row.path for row in describe(PetasosConfig)}
+    assert "enabled" not in {row.path for row in leaves(PetasosConfig)}

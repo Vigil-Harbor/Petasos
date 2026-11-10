@@ -28,7 +28,7 @@ from petasos.config.floors import (
 )
 from petasos.config.layers import PROFILE_TO_ROLE, ROLES, resolve
 from petasos.config.migrate import MOVES, Migration, canon, migrate
-from petasos.config.schema import ConfigError, FieldInfo, describe, from_mapping, to_mapping
+from petasos.config.schema import ConfigError, FieldInfo, from_mapping, leaves, to_mapping
 from petasos.config.sections import PetasosConfig
 from petasos.console._presets import _PRESET_REGISTRY
 from petasos.scanners.minimal import (
@@ -41,7 +41,7 @@ from petasos.scanners.presidio import PresidioScanner
 from petasos.scanners.prompt_guard import _BLOCK_THRESHOLD
 from petasos.session.profiles import ProfileResolver, _parse_profile
 
-_INFO = {row.path: row for row in describe(PetasosConfig)}
+_INFO = {row.path: row for row in leaves(PetasosConfig)}
 _BY_OLD = {move.old: move for move in MOVES}
 _LEAF = {move.old: move.path for move in MOVES if move.kind == "leaf" and move.path is not None}
 _PRESET_LEVEL = {"bronze": "relaxed", "iron": "balanced", "steel": "strict"}

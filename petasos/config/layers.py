@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Final
 
-from petasos.config.schema import ConfigError, describe, from_mapping, merge, to_mapping
+from petasos.config.schema import ConfigError, from_mapping, leaves, merge, to_mapping
 from petasos.config.sections import PetasosConfig
 
 # A role may set only these leaves. A level may set only the others.
@@ -447,7 +447,7 @@ def _origins(
     overrides: Mapping[str, Any],
 ) -> Mapping[str, str]:
     origin: dict[str, str] = {}
-    for info in describe(PetasosConfig):
+    for info in leaves(PetasosConfig):
         source = "default"
         if contains(role_doc, info.path):
             source = "role"

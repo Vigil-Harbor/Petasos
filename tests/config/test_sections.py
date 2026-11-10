@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from petasos.config.schema import ConfigError, describe, from_mapping, to_mapping
+from petasos.config.schema import ConfigError, from_mapping, leaves, to_mapping
 from petasos.config.sections import PetasosConfig
 
 _TYPES = {
@@ -71,7 +71,7 @@ def test_replace_revalidates() -> None:
 
 
 def test_describe_covers_every_leaf() -> None:
-    rows = describe(PetasosConfig)
+    rows = leaves(PetasosConfig)
 
     assert rows
     assert len({row.path for row in rows}) == len(rows)
@@ -84,7 +84,7 @@ def test_describe_covers_every_leaf() -> None:
 
 
 def test_expert_fields_are_the_internals() -> None:
-    expert = {row.path for row in describe(PetasosConfig) if row.audience == "expert"}
+    expert = {row.path for row in leaves(PetasosConfig) if row.audience == "expert"}
 
     assert expert == {
         "scanners.breaker_threshold",
@@ -281,3 +281,12 @@ def test_config_modules_import_nothing_above_the_config_layer() -> None:
                 offenders.append(f"{path}: {module}")
 
     assert offenders == []
+
+
+def test_leaves_are_the_field_rows_of_describe() -> None:
+    from petasos.config.schema import FieldInfo, describe
+
+    rows = describe(PetasosConfig)
+
+    assert leaves(PetasosConfig) == tuple(row for row in rows if isinstance(row, FieldInfo))
+    assert len(rows) > len(leaves(PetasosConfig))

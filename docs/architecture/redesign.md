@@ -232,6 +232,8 @@ class SectionInfo:  # frozen
   carries, so an override baked into a nested default is visible. `choices`
   is set only for a `choice`. These records are enough for a settings form,
   including group headings, and a reference table.
+- `leaves` returns only the `FieldInfo` rows of `describe`, for callers that
+  need every setting and no headings.
 - `merge` deep-merges partial documents and does not validate them. A missing
   key keeps the base value. An explicit `None` in the layer replaces the base
   value, so a layer can clear an optional setting. When both values are
@@ -354,7 +356,11 @@ class ReconfigureResult:
     restart_required: tuple[str, ...]
 ```
 
-Everything under `scanners.<id>` is `restart` in the first cut. A change that
+Everything under `scanners.<id>` is `restart` in the first cut. One field
+should not stay that way: `scanners.presidio.entities_extra` is what roles
+set, and today the equivalent profile list is passed to Presidio on each scan,
+so a profile switch takes effect live. B4 keeps that by passing the field per
+scan and marks it live. A change that
 needs a restart is always reported, never silently ignored.
 
 ## 4. Layers: role and level

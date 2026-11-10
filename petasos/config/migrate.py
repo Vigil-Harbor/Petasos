@@ -18,7 +18,7 @@ from petasos.config.layers import (
     ROLES,
     contains,
 )
-from petasos.config.schema import ConfigError, FieldInfo, describe, merge, to_mapping
+from petasos.config.schema import ConfigError, FieldInfo, leaves, merge, to_mapping
 from petasos.config.sections import PetasosConfig
 
 _Kind = Literal["leaf", "role", "arm", "scanners", "drop"]
@@ -169,7 +169,7 @@ MOVES: tuple[FieldMove, ...] = (
 )
 
 _BY_OLD: dict[str, FieldMove] = {move.old: move for move in MOVES}
-_INFO: dict[str, FieldInfo] = {info.path: info for info in describe(PetasosConfig)}
+_INFO: dict[str, FieldInfo] = {info.path: info for info in leaves(PetasosConfig)}
 _REVERSE: dict[str, str] = {
     move.path: move.old for move in MOVES if move.kind == "leaf" and move.path is not None
 }

@@ -812,6 +812,11 @@ def describe(cls: type[object]) -> tuple[FieldInfo | SectionInfo, ...]:
     return tuple(_rows(cls, "", None))
 
 
+def leaves(cls: type[object]) -> tuple[FieldInfo, ...]:
+    """Every leaf setting of a section tree, in declaration order, without group rows."""
+    return tuple(row for row in describe(cls) if isinstance(row, FieldInfo))
+
+
 def _rows(cls: type[object], prefix: str, holder: object | None) -> list[FieldInfo | SectionInfo]:
     rows: list[FieldInfo | SectionInfo] = []
     for item in _require_plan(cls):
@@ -909,6 +914,7 @@ __all__ = [
     "SectionInfo",
     "describe",
     "from_mapping",
+    "leaves",
     "merge",
     "section",
     "setting",
