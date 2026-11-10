@@ -30,8 +30,9 @@ import pytest
 
 pytest.importorskip("fastapi")
 
+import petasos.enforce.events as _events  # noqa: E402
 from petasos.config import PetasosConfig  # noqa: E402
-from petasos.console import _events, _history  # noqa: E402
+from petasos.console import _history  # noqa: E402
 from petasos.console.server import (  # noqa: E402
     _SCAN_HISTORY_RING_CAPACITY,
     ConsoleHandlers,

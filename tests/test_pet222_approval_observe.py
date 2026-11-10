@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-import petasos.console._events as ev
+import petasos.enforce.events as ev
 from petasos.console.server import (
     _BLOCK_EVENT_TYPES,
     _MAX_APPROVAL_DESCRIPTION_LEN,

@@ -26,6 +26,24 @@ __all__ = ["create_app", "serve"]
 _shared_pipeline: Pipeline | None = None
 
 
+def _bind_enforcement_spool() -> None:
+    """Point the spool at this host's config-path resolver.
+
+    Importing the console package is what installs it. The spool module does
+    not import the console.
+    """
+    from petasos.console import _paths
+    from petasos.enforce.events import install_spool_resolver
+
+    def _set_override(path: str | None) -> None:
+        _paths._SPOOL_PATH_OVERRIDE = path
+
+    install_spool_resolver(_paths.spool_path, _set_override)
+
+
+_bind_enforcement_spool()
+
+
 def create_app(pipeline: Pipeline, *, auth_token: str | None = None) -> FastAPI:
     """Build a FastAPI app wired to *pipeline* for the console dashboard.
 

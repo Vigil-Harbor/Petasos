@@ -16,7 +16,7 @@ from typing import Any
 
 import pytest
 
-import petasos.console._events as ev
+import petasos.enforce.events as ev
 from petasos import GuardResult, PetasosConfig, Pipeline, ScanFinding, Severity
 from petasos.scanners.minimal import MinimalScanner
 

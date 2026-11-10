@@ -12,7 +12,7 @@ Config: add a top-level ``petasos:`` section to the profile's config.yaml
 Env:    PETASOS_SESSION_SECRET, PETASOS_HASH_KEY,
         PETASOS_AUDIT_FINDING
 Needs:  a ``petasos`` release exporting ``petasos.scanners.build_scanners``,
-        ``petasos.session.formatting.format_result_notice``,
+        ``petasos.enforce.messages.format_result_notice``,
         ``petasos.session.ingest.scan_ingestion_result``,
         ``petasos.session.guard.INGESTION_TOOLS``, AND
         ``petasos.session.guard.NON_INGESTING_TOOLS``; sync this file and the
@@ -71,14 +71,14 @@ from petasos._types import (  # stdlib only: enum and dataclasses, no ML imports
     at_least,
     severity_rank,
 )
-from petasos.normalize import (  # PET-118: dep-light (re + unicodedata)
-    _is_strippable,  # PET-223: the console's canonical invisible-character predicate
-    canonicalize_tool_name,
-)
-from petasos.session.formatting import (  # PET-77: dep-light (string formatting over dataclasses)
+from petasos.enforce.messages import (  # dep-light: string formatting over dataclasses
     format_block_message,
     format_content_block,
     format_result_notice,
+)
+from petasos.normalize import (  # PET-118: dep-light (re + unicodedata)
+    _is_strippable,  # PET-223: the console's canonical invisible-character predicate
+    canonicalize_tool_name,
 )
 from petasos.session.guard import (
     _MAX_PARAM_TEXT_LEN,  # PET-223: excerpt segment budget, same bound as scan text
@@ -853,8 +853,8 @@ def _deferred_init() -> None:
                 # env contract, so writer and reader agree. Wrapped fail-safe: a failure degrades
                 # to integrity-off (no `sig`), never breaks boot.
                 try:
-                    from petasos.console._events import set_spool_key
                     from petasos.console._paths import spool_path
+                    from petasos.enforce.events import set_spool_key
 
                     set_spool_key(config.session_secret, path=spool_path(_session_resolution))
                 except Exception as exc:  # pragma: no cover - defensive; integrity is best-effort
@@ -1578,7 +1578,7 @@ def _emit_enforcement_event(
 
     Self-guarded and fail-open (spec D5): surfacing a block must never gate, delay,
     or break the tool call, so the whole body is wrapped and swallows everything.
-    The write itself is an O(1) local append (``petasos.console._events``), the same
+    The write itself is an O(1) local append (``petasos.enforce.events``), the same
     hot-path cost class as the per-call ``read_armed`` file read — not a network
     call and not a blocking ``await`` on the decision path.
 
@@ -1588,7 +1588,7 @@ def _emit_enforcement_event(
     return, and claiming the key there would consume the latch with no durable row.
     """
     try:
-        from petasos.console._events import emit_enforcement_event
+        from petasos.enforce.events import emit_enforcement_event
 
         safe_reason, redaction = _redact_display_text(reason, 200)
         return emit_enforcement_event(
@@ -1854,8 +1854,8 @@ def _apply_reconfigure_body(cfg: PetasosConfig) -> None:
     # ``_rebind_to_resolution`` installs the same live secret onto the new spool path.
     # Wrapped fail-safe: a failure degrades to integrity-off, never breaks the reconfigure.
     try:
-        from petasos.console._events import set_spool_key
         from petasos.console._paths import spool_path
+        from petasos.enforce.events import set_spool_key
 
         _secret = (
             _pipeline.legacy_config.session_secret if _pipeline.legacy_config is not None else None
@@ -2067,8 +2067,8 @@ def _rebind_to_resolution(res: HermesConfigResolution) -> None:
             _guard._selfmod_owned_cache = (0.0, frozenset())
         if _pipeline is not None:
             try:
-                from petasos.console._events import set_spool_key
                 from petasos.console._paths import spool_path
+                from petasos.enforce.events import set_spool_key
 
                 _secret = (
                     _pipeline.legacy_config.session_secret
@@ -3529,7 +3529,7 @@ def _emit_approval_observation(phase: str, *, choice: object = None, **kwargs: A
         reason = _credential_reason(
             "approval requested" if phase == "request" else "approval response", redaction
         )
-        from petasos.console._events import emit_enforcement_event
+        from petasos.enforce.events import emit_enforcement_event
 
         wrote = emit_enforcement_event(
             {

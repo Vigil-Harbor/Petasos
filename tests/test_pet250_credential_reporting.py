@@ -11,7 +11,8 @@ from typing import Any
 
 import pytest
 
-from petasos.console import _approvals, _events, _history
+import petasos.enforce.events as _events
+from petasos.console import _approvals, _history
 from petasos.console.server import _enforcement_summary, _history_disk_row
 
 

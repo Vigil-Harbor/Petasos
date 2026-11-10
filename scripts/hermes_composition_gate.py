@@ -1363,7 +1363,7 @@ def _verify_spools(
 
 
 def _row_verified(row: Mapping[str, Any], secret: str | None = None) -> bool:
-    from petasos.console._events import _derive_spool_key, verify_event
+    from petasos.enforce.events import _derive_spool_key, verify_event
 
     raw = secret if secret is not None else os.environ["PETASOS_SESSION_SECRET"]
     key = _derive_spool_key(base64.b64decode(raw))

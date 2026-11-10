@@ -437,7 +437,7 @@ def _shim_source() -> str:
 def test_shim_imports_formatter() -> None:
     # Regression for PET-77: the in-repo shim imports the library formatter.
     src = _shim_source()
-    assert "from petasos.session.formatting import" in src
+    assert "from petasos.enforce.messages import" in src
     assert "format_block_message" in src
     assert "format_content_block" in src
     # PET-170: the ingestion-annotation notice is the same contract in the other

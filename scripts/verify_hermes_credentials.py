@@ -83,7 +83,8 @@ def verify(root: Path, hermes: Path, scratch: Path, rounds: int) -> dict[str, An
     redact: Any = importlib.import_module("agent.redact")
     secrets: Any = importlib.import_module("agent.secret_scope")
     constants: Any = importlib.import_module("hermes_constants")
-    from petasos.console import _approvals, _events, _history, _paths
+    import petasos.enforce.events as _events
+    from petasos.console import _approvals, _history, _paths
     from petasos.console.server import _enforcement_summary, _history_disk_row
 
     # Imports may query local version metadata with git. Enforce the I/O guard
@@ -383,7 +384,7 @@ def main() -> None:
             name: digest(root / name)
             for name in (
                 "petasos/console/_paths.py",
-                "petasos/console/_events.py",
+                "petasos/enforce/events.py",
                 "petasos/console/_history.py",
                 "petasos/console/_approvals.py",
                 "petasos/console/server.py",

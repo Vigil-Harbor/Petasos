@@ -13,6 +13,13 @@ from petasos._types import (
     Severity,
 )
 from petasos.config.legacy import PetasosConfig, ProfileResolver, ResolvedProfile, TierThresholds
+from petasos.enforce.messages import (
+    format_block_message,
+    format_content_block,
+    format_pipeline_block_message,
+    format_result_notice,
+    shorten_rule_id,
+)
 from petasos.normalize import normalize
 from petasos.pipeline import Pipeline
 from petasos.scanners.minimal import RULE_TAXONOMY, MinimalScanner
@@ -26,13 +33,6 @@ from petasos.scanners.semgrep import (
 from petasos.session.alerting import AlertManager
 from petasos.session.audit import AuditEmitter
 from petasos.session.escalation import max_tier
-from petasos.session.formatting import (
-    format_block_message,
-    format_content_block,
-    format_pipeline_block_message,
-    format_result_notice,
-    shorten_rule_id,
-)
 from petasos.session.frequency import FrequencyTracker, FrequencyUpdateResult, SessionToken
 from petasos.session.guard import GuardResult, ToolCallGuard
 from petasos.session.ingest import IngestionScanResult, scan_ingestion_result

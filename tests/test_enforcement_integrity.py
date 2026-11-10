@@ -28,7 +28,7 @@ import pytest
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-import petasos.console._events as ev
+import petasos.enforce.events as ev
 import petasos.console.server as server_mod
 from petasos import PetasosConfig, Pipeline
 from petasos.console.server import ConsoleHandlers

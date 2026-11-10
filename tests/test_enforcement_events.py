@@ -27,7 +27,7 @@ import pytest
 
 pytest.importorskip("fastapi")
 
-import petasos.console._events as ev  # noqa: E402
+import petasos.enforce.events as ev  # noqa: E402
 from petasos import GuardResult, PetasosConfig, Pipeline, ScanFinding, Severity  # noqa: E402
 from petasos.console.server import ConsoleHandlers  # noqa: E402
 from petasos.scanners.minimal import MinimalScanner  # noqa: E402

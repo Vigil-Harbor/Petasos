@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from petasos._types import PipelineResult, ScanFinding, Severity
-from petasos.session.formatting import (
+from petasos.enforce.messages import (
     _RESULT_NOTICE,
     _RESULT_NOTICE_FALLBACK,
     format_block_message,
