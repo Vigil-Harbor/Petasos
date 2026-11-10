@@ -52,7 +52,7 @@ from petasos.session.escalation import evaluate_tier, max_tier
 _logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Callable, Iterable, Mapping
 
     from petasos._types import Direction
     from petasos.config.legacy import ResolvedProfile
@@ -662,6 +662,23 @@ _SCAN_WEIGHT_CAP_DIVISOR: float = 4.0
 _MAX_POISONED_SCAN_WEIGHT: float = 80.0
 
 
+def _owned_paths(raw_entries: list[str]) -> frozenset[str]:
+    """Absolute, resolved, deep-enough paths, compared case-insensitively."""
+    result: set[str] = set()
+    for raw in raw_entries:
+        path = Path(raw)
+        if not path.is_absolute():
+            continue
+        try:
+            resolved = str(path.resolve(strict=False))
+        except OSError:
+            continue
+        if len(Path(resolved).parts) < 3:
+            continue
+        result.add(os.path.normcase(resolved))
+    return frozenset(result)
+
+
 class ToolCallGuard:
     def __init__(
         self,
@@ -674,6 +691,7 @@ class ToolCallGuard:
         lineage: LineageRegistry | None = None,
         home: HermesConfigResolution | None = None,
         secrets: Secrets | None = None,
+        protected_paths: Callable[[], Iterable[str]] | None = None,
     ) -> None:
         bound = bind(config, profile, secrets=secrets, use_profile_name=False)
         self._pipeline = pipeline
@@ -686,6 +704,9 @@ class ToolCallGuard:
         self._exempt_param_scan = exempt_param_scan
         # Lineage edge store. None leaves the chain walk and pinning off.
         self._lineage = lineage
+        # When set, self-modification checks this set instead of discovering
+        # a host layout. None keeps the discovery used by existing callers.
+        self._protected_paths = protected_paths
 
         # Delegate tool names are stored raw in config; normalize them once
         # here through the guard's own normalizer so recognition matches every
@@ -732,56 +753,30 @@ class ToolCallGuard:
         # reconfigurable.
         self._cap_threshold_warned: bool = False
 
+    def session_tier(self, session_id: str) -> str:
+        """The tier enforcement uses for ``session_id``, including an inherited one.
+
+        The same derivation ``evaluate`` reads. An internal failure is tier 3.
+        """
+        return self._derive_tier(session_id)
+
+    def forget_protected_paths(self) -> None:
+        """Drop the cached owned-path set so the next check reads it again."""
+        self._selfmod_owned_cache = (0.0, frozenset())
+
     def selfmod_target_paths(self) -> frozenset[str]:
-        """Build the owned-path set from ``_paths.py`` resolvers with 1 s TTL cache."""
+        """The paths a tool call must not modify, cached for one second.
+
+        A caller that supplied ``protected_paths`` is the source. Otherwise the
+        set is discovered from the host layout, which is what existing callers
+        still get.
+        """
         now = time.monotonic()
         ts, cached = self._selfmod_owned_cache
         if now - ts < 1.0 and cached:
             return cached
         try:
-            from petasos.console._paths import (
-                HermesConfigResolution,
-                hermes_root,
-                list_hermes_profiles,
-                resolve_hermes_config_path,
-                spool_path,
-                spool_rot_path,
-            )
-
-            def _beside(res: HermesConfigResolution) -> list[str]:
-                return [str(res.path), spool_path(res), spool_rot_path(res)]
-
-            raw_entries: list[str] = []
-            if self._selfmod_home is not None:
-                raw_entries.extend(_beside(self._selfmod_home))
-            raw_entries.extend(_beside(resolve_hermes_config_path(use_override=False)))
-            raw_entries.extend(
-                _beside(HermesConfigResolution(path=hermes_root() / "config.yaml", tier="root"))
-            )
-            for prof in list_hermes_profiles():
-                raw_entries.extend(
-                    _beside(HermesConfigResolution(path=Path(prof["path"]), tier="profile"))
-                )
-            if self._selfmod_home is None:
-                raw_entries.append(str(resolve_hermes_config_path().path))
-                raw_entries.append(spool_path())
-                raw_entries.append(spool_rot_path())
-
-            result: set[str] = set()
-            for raw in raw_entries:
-                p = Path(raw)
-                if not p.is_absolute():
-                    continue
-                try:
-                    resolved = str(p.resolve(strict=False))
-                except OSError:
-                    continue
-                parts = Path(resolved).parts
-                if len(parts) < 3:
-                    continue
-                result.add(os.path.normcase(resolved))
-
-            owned = frozenset(result)
+            owned = _owned_paths(self._raw_protected_entries())
             if not owned and not self._selfmod_empty_warned:
                 _logger.warning("selfmod_target_paths: owned set is empty after hygiene")
                 self._selfmod_empty_warned = True
@@ -792,6 +787,39 @@ class ToolCallGuard:
         except Exception:
             _logger.debug("selfmod_target_paths: failed to build owned set", exc_info=True)
             return cached or frozenset()
+
+    def _raw_protected_entries(self) -> list[str]:
+        supplier = self._protected_paths
+        if supplier is not None:
+            return [str(item) for item in supplier()]
+        from petasos.console._paths import (
+            HermesConfigResolution,
+            hermes_root,
+            list_hermes_profiles,
+            resolve_hermes_config_path,
+            spool_path,
+            spool_rot_path,
+        )
+
+        def _beside(res: HermesConfigResolution) -> list[str]:
+            return [str(res.path), spool_path(res), spool_rot_path(res)]
+
+        raw_entries: list[str] = []
+        if self._selfmod_home is not None:
+            raw_entries.extend(_beside(self._selfmod_home))
+        raw_entries.extend(_beside(resolve_hermes_config_path(use_override=False)))
+        raw_entries.extend(
+            _beside(HermesConfigResolution(path=hermes_root() / "config.yaml", tier="root"))
+        )
+        for prof in list_hermes_profiles():
+            raw_entries.extend(
+                _beside(HermesConfigResolution(path=Path(prof["path"]), tier="profile"))
+            )
+        if self._selfmod_home is None:
+            raw_entries.append(str(resolve_hermes_config_path().path))
+            raw_entries.append(spool_path())
+            raw_entries.append(spool_rot_path())
+        return raw_entries
 
     _EXTRACT_OVERFLOW = "\x00__PETASOS_DEPTH_OVERFLOW__"
 

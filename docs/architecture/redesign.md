@@ -609,50 +609,102 @@ ahead of those suggestions.
 
 ## 6. Enforcement
 
-`petasos.enforce.Enforcer` is the host-facing object. It owns everything the
-reference plugin does today except Hermes-specific wiring.
+`petasos.enforce.Enforcer` is the host-facing object. It owns the lifecycle and
+the orchestration the reference plugin keeps in module globals. It does not
+know which host it is running in. The pure decisions it calls live in the
+same package (`decisions`, `fallback`, `approvals`, `messages`).
 
 ```python
 class Enforcer:
-    def __init__(self, source: SettingsSource, *, secrets: Secrets, host: HostInfo,
-                 events: EventSink | None = None) -> None
-    def start(self) -> None                         # begins background init, returns at once
+    def __init__(self, source: SettingsSource, *, host: HostInfo | None = None,
+                 events: EventSink | None = None, clock: Clock | None = None,
+                 scanners: Sequence[Scanner] = (),
+                 registry: tuple[ScannerSpec, ...] | None = None,
+                 limits: Limits | None = None, init: InitGate | None = None,
+                 evaluation: EvaluationFault | None = None,
+                 spool_path: str | None = None) -> None
+    def start(self) -> None                          # background init, returns at once
+    def settle(self, timeout: float = 30.0) -> bool  # optional wait until init finishes
     def tool_call(self, call: ToolCall) -> Decision
-    def tool_result(self, call: ToolCall, result: str) -> str | None
-    def session_started(self, session_id: str) -> None
+    def tool_result(self, call: ToolCall, result: object) -> str | None
+    def tool_finished(self, call: ToolCall, result: str = "", *, duration_ms: int = 0) -> None
+    def session_started(self, session_id: str = "") -> None
     def subagent_started(self, child: str, parent: str) -> None
     def subagent_stopped(self, child: str) -> None
-    def approval_requested(self, request: ApprovalRequest) -> None
-    def approval_answered(self, answer: ApprovalAnswer) -> None
+    def approval_requested(self, notice: ApprovalNotice) -> None
+    def approval_answered(self, notice: ApprovalNotice) -> None
+    def refresh(self) -> None                        # apply the current snapshot now
     def status(self) -> Status
-    def close(self) -> None
+    def session_tier(self, session_id: str) -> str | None
+    def close(self) -> None                          # idempotent
 
-Decision = Allow | Block | Approve       # frozen dataclasses; Block and Approve carry model-facing text
+Decision = Allow | Block | Approve
 ```
 
-- The API is synchronous. The enforcer owns its event loop thread.
-- `SettingsSource` is a callable returning the current settings mapping and a
-  change token. The enforcer polls it and reconfigures; the host decides where
-  settings live.
-- `HostInfo` states what the host can do: whether an approve directive exists,
-  whether sub-agent hooks fire, callables for "auto-approve is on" and "this
-  rule is always approved", and a stable host id. The library never imports a
-  host.
-- State is on the instance. There are no module-level globals and no
-  `_reset_*` test hooks; a test builds a fresh `Enforcer`.
-- The lifecycle is an explicit state: `disarmed`, `starting`, `ready`,
-  `failed`. `starting` and `failed` route through `fallback`, which scans with
-  the syntactic scanner only and applies `fail_mode`.
-- `tool_call` never raises. An internal error becomes a `Block` or `Allow`
-  according to `fail_mode`, plus an event.
+`SettingsSnapshot` carries `armed`, the resolved config tree, the secrets, a
+change `token` compared with `==`, and an `error` when the observation is not
+usable. `SettingsSource` is a callable returning that snapshot. The enforcer
+reads it on each call. A new token is applied through `apply_live` and the
+pipeline and guard reconfigure paths. Restart-only fields are left as they are
+and logged. An error keeps the last good tree and logs `PETASOS_RELOAD_FAILED`.
+Arming is the snapshot's switch, checked on every call.
 
-The decision ladder, egress fence, taint store, approve posture, approval
-observation and block-message formatting move here from the plugin with their
-behaviour unchanged. The guard reads tier thresholds, exemptions and aliases
-from the resolved config, so there is no separate profile argument to forget.
+`HostInfo` is what the host can answer: `host_id`; `approve_directive`;
+`approval_grant()`, an `ApprovalGrant` whose `mode_off`, `yolo`, and `context`
+flags are the combination that would grant an approve with nobody attached
+(any one of them means the enforcer does not hand the host an approve it would
+allow); `rule_always_approved(rule_key)`; `subagent_hooks`; an optional
+`redactor` (`None` means redaction is unavailable); `display_path`; and
+`protected_paths()`, the filesystem paths the agent must not modify. The guard
+uses that set when it is supplied. Callers that supply nothing keep the
+previous discovery.
 
-Events are written through `EventSink`. The default sink is the signed spool
-that the console reads; it moves from `console/` to `enforce/events.py`.
+`Limits` defaults to the plugin's deadlines: 2s to wait for initialisation,
+15s for one evaluation, and 5s added to the configured scanner timeout for a
+tool-result scan. `Clock` supplies monotonic time for those deadlines and for
+the 30s operator-log windows. `ManualClock.advance` opens a window without
+sleeping. Spool timestamps stay on the wall clock.
+
+`init` is an `InitGate`. `held` keeps the enforcer in `starting` until
+`release` or `fail`. `failed` finishes in `failed` without building a pipeline.
+`skip_wait` marks the cold-start budget already spent. `evaluation` is an
+`EvaluationFault` a test arms so a guard evaluation raises or does not return;
+the production path leaves it disarmed.
+
+Lifecycle is one state from `status()`: `disarmed` when the switch is off,
+otherwise `starting`, `ready`, or `failed`. `starting` and `failed` use the
+syntactic fallback and `fail_mode`. A call that is still waiting when
+initialisation finishes, and whose syntactic scan was clean, continues on the
+live pipeline. A non-clean scan stays on the fallback.
+
+No host-facing method raises. `tool_call` turns an internal failure into
+`Allow` or `Block` under `fail_mode`, with an event and a log line. A block
+always has a message. `tool_result` returns `None` when the text is unchanged
+or the scan fails, which is the host's signal to keep the original string. A
+value that is not text is not scanned.
+
+Threading. `start` returns immediately. The methods above may run concurrently
+on the host's hook threads. Evaluation and result scans use two loops owned by
+the instance, and the inspect lock serialises pipeline access. `close` stops
+the loops, is idempotent, and may overlap those calls. After it returns,
+further calls do not scan. Two enforcers in one process share nothing. There
+is no module-level mutable state under `petasos/enforce/` except the legacy
+spool helpers in `events.py`, which the plugin and the console still call.
+`EventSpool(path, secret=...)` is the default sink when `spool_path` is set
+and `events` is omitted. It does not touch that legacy state.
+
+Scanner composition uses `petasos.scanners.registry.compose`. Extra scanners
+are appended when their names are not already present. `auto` for a missing
+package leaves the scanner out. `on` registers a stand-in that fails every
+scan, so `fail_mode` applies. Operator lines use the `PETASOS_...` markers and
+the logger `petasos.enforce`.
+
+The modules are `enforcer` (the public object), `core` (lifecycle and
+settings), `calls` (the tool-call decision), `results` (result scan and taint),
+`observe` (session, sub-agent, and approval records), `engine` (compose and
+live apply), `runtime` (the two loops), `book` (counters and log windows),
+and `types` (the values above). The decision functions stay where package C1a
+put them.
 
 ## 7. Hermes binding
 

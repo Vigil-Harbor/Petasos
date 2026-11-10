@@ -1,0 +1,100 @@
+{
+  "differences": [
+    {
+      "scenario": "*",
+      "step": "*",
+      "field": "logs",
+      "old": "PETASOS_RECONFIGURED: live config.yaml change applied to the running session",
+      "new": null,
+      "reason": "The plugin logs a reconfigure on the first armed call because its reload cache starts empty. The enforcer applies the snapshot during initialisation and logs only when the token later changes. The line is removed only when it is the first log of the step, so a later real change that also carries the line stays pinned."
+    },
+    {
+      "scenario": "settings-while-running",
+      "step": "still-blocked",
+      "field": "logs",
+      "old": "PETASOS_RELOAD_FAILED: build failed: egress_sink_tools must be an iterable of tool names, not a string, got 'send_email'; keeping last-good config",
+      "new": "PETASOS_RELOAD_FAILED: build failed: overrides.egress.sink_tools: must be a list of text values, not a single text value, got \"send_email\"; keeping last-good config",
+      "reason": "Invalid settings are reported with the config tree's schema error (redesign section 3). The flat config's wording is not reproduced. The decision is unchanged: the previous good configuration stays in force."
+    },
+    {
+      "scenario": "settings-while-running",
+      "step": "allowed",
+      "field": "logs",
+      "old": null,
+      "new": "PETASOS_RECONFIGURED: live config.yaml change applied to the running session",
+      "reason": "The plugin's empty-cache log on the first call consumed the 30s attribution window, so this real change was silent. The enforcer did not emit that first log, so the window is open and the change that applied is logged."
+    },
+    {
+      "scenario": "arm-mid-session",
+      "step": "blocked-again",
+      "field": "logs",
+      "old": null,
+      "new": "PETASOS_RECONFIGURED: live config.yaml change applied to the running session",
+      "reason": "The plugin's empty-cache log on the first call consumed the 30s attribution window, so re-arming was silent. The enforcer logs the change that applied."
+    },
+    {
+      "scenario": "profile-and-arm",
+      "step": "bad-profile",
+      "field": "logs",
+      "old": "PETASOS_PROFILE_CHANGE name='nope'",
+      "new": null,
+      "reason": "A profile change is a host event. The Hermes adapter logs the profile name. The enforcer only applies a snapshot the host has already resolved, and this step does not present one."
+    },
+    {
+      "scenario": "profile-and-arm",
+      "step": "bad-profile",
+      "field": "logs",
+      "old": "PETASOS_REBIND_SKIPPED reason=non-absolute profile_home 'relative/nope'",
+      "new": null,
+      "reason": "Rejecting a relative profile home is the host's path check. The Hermes adapter logs the skip. The enforcer is not given a new snapshot, so its configuration does not change."
+    },
+    {
+      "scenario": "profile-and-arm",
+      "step": "swap",
+      "field": "logs",
+      "old": "PETASOS_PROFILE_CHANGE name='coding'",
+      "new": null,
+      "reason": "A profile change is a host event. The Hermes adapter logs the profile name. The enforcer applies the snapshot the host resolved from that profile."
+    },
+    {
+      "scenario": "profile-and-arm",
+      "step": "swap",
+      "field": "logs",
+      "old": "PETASOS_ARMED_RESOLUTION tier=profile path=<home>/profiles/coding/config.yaml",
+      "new": null,
+      "reason": "The resolution tier and the profile path are Hermes host facts. The Hermes adapter logs them. The enforcer sees only the resolved settings snapshot."
+    },
+    {
+      "scenario": "profile-and-arm",
+      "step": "swap",
+      "field": "logs",
+      "old": null,
+      "new": "restart required: scanners.prompt_guard.enabled, scanners.presidio.enabled",
+      "reason": "Those enabled flags are restart settings. The swapped profile turns the scanners on after they were off. The enforcer reports restart-only changes and does not rebuild scanners, which is the redesign's live-apply rule. The plugin dropped the change silently."
+    },
+    {
+      "scenario": "profile-without-section",
+      "step": "empty",
+      "field": "logs",
+      "old": "PETASOS_PROFILE_CHANGE name='empty'",
+      "new": null,
+      "reason": "A profile change is a host event. The Hermes adapter logs the profile name. The enforcer is not given a new snapshot."
+    },
+    {
+      "scenario": "profile-without-section",
+      "step": "empty",
+      "field": "logs",
+      "old": "PETASOS_ARMED_RESOLUTION tier=profile path=<home>/profiles/empty/config.yaml",
+      "new": null,
+      "reason": "The resolution tier and the profile path are Hermes host facts. The Hermes adapter logs them."
+    },
+    {
+      "scenario": "profile-without-section",
+      "step": "empty",
+      "field": "logs",
+      "old": "PETASOS_REBIND_CONFIG_STALE path=<home>/profiles/empty/config.yaml: no petasos: section at new profile; keeping last-good policy",
+      "new": null,
+      "reason": "An empty profile section is the host's reading of the new file. The Hermes adapter logs that the binding moved and the policy did not. The enforcer keeps the previous snapshot because the host does not present a replacement."
+    }
+  ]
+}
