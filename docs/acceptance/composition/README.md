@@ -156,10 +156,24 @@ refused the file. Exit 6 is an unexpected error.
 
 ## Verdict log
 
-No run has been recorded. The evidence file is produced only by a real
-gating run, and this repository does not contain one yet. There is therefore
-no written go or no-go for unholding draft PR #209.
-
 Each recorded run adds one entry: date, evidence file and its SHA-256,
 verdict, failed checks, Plane items, and the written go or no-go for
 unholding #209.
+
+### 2026-11-10, run1: no-go
+
+- Evidence: `windows-5549d62-run1.json`, SHA-256
+  `09606e18e1912112cbc458aeaa4dfd2026f8e37fb20e96f95b51d927d4d880f9`.
+- Verdict: no-go. The run stopped at stage 1, so `hooks`, `cold`, `negative`,
+  and `dash` were skipped and no corpus case ran.
+- Failed checks: `stage1.bootstrap`, `stage1.plugin_kept`, `stage1.completed`.
+  `stage1.store_isolated` passed: Hermes resolved its Python from the isolated
+  root's own tool store.
+- Cause: a defect in the gate's harness, not in the wheel or the plugin.
+  Hermes disabled the plugin on all three matrix profiles because its
+  dependency resolve needs git, and the resolver could not find `git.exe`. The
+  harness kept `PATH` for its children and dropped `PATHEXT`. A real Hermes
+  session inherits `PATHEXT`. The harness now keeps it.
+- Plane: PET-262.
+- Unholding #209: no-go. This run says nothing about the wheel. The harness
+  changed, so a new run is needed.

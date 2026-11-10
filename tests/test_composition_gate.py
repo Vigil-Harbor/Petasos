@@ -105,6 +105,51 @@ def test_section_copy_withholds_and_records_overrides() -> None:
         assert key not in copied["section"]
 
 
+def test_evidence_carries_no_settings_and_no_excluded_names() -> None:
+    """The published matrix is a digest per profile, and excluded profiles are only counted."""
+    copied = gate.copy_section({"fail_mode": "closed", "host_id": "box"})
+    home = gate.publish_home({"name": "default", **copied})
+    assert set(home) == {"name", "section_sha256", "overridden", "withheld_key_count"}
+    assert home["overridden"] == ["enabled", "semgrep_enabled"]
+    assert home["withheld_key_count"] == 1
+    other = gate.publish_home({"name": "default", **gate.copy_section({"fail_mode": "open"})})
+    assert other["section_sha256"] != home["section_sha256"]
+    assert "closed" not in json.dumps(home)
+    excluded = gate.publish_excluded(
+        [
+            {"name": "alpha", "reason": "no_section"},
+            {"name": "beta", "reason": "no_plugin_copy"},
+            {"name": "gamma", "reason": "no_section"},
+        ]
+    )
+    assert excluded == {"no_plugin_copy": 1, "no_section": 2}
+
+
+def test_gate_started_as_a_file_takes_the_harness_beside_it(tmp_path: Path) -> None:
+    """A ``scripts`` package from another checkout does not replace the gate's own harness."""
+    decoy = tmp_path / "scripts"
+    decoy.mkdir()
+    (decoy / "__init__.py").write_text("", encoding="utf-8")
+    (decoy / "hermes_multiprofile_harness.py").write_text("DECOY = True\n", encoding="utf-8")
+    gate_file = Path(gate.__file__).resolve()
+    # ``python <file>`` puts the file's directory first on sys.path; run_path does not.
+    code = (
+        "import os, runpy, sys; "
+        "sys.path.insert(0, os.path.dirname(sys.argv[1])); "
+        "print(runpy.run_path(sys.argv[1], run_name='gate_as_file')['harness'].__file__)"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code, str(gate_file)],
+        cwd=tmp_path,  # ``-c`` puts the working directory on sys.path, so the decoy is importable
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=120,
+    )
+    loaded = Path(result.stdout.strip().splitlines()[-1]).resolve()
+    assert loaded == gate_file.with_name("hermes_multiprofile_harness.py")
+
+
 def test_call_ids_are_unique_for_a_planned_run() -> None:
     """Every planned call has its own tool call id and turn id, which Hermes's hook gate needs."""
     plan = gate.plan_run_calls(["only"], warmup_rounds=2, approve_profiles=["only"])
