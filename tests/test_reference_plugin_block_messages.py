@@ -504,7 +504,8 @@ def test_shim_routes_every_block_site_through_formatter() -> None:
                 and isinstance(node.func, ast.Name)
                 and node.func.id in targets
             )
-    assert call_sites == 13, f"expected 13 formatter call sites, found {call_sites}"
+    # The enforcer's internal-failure block is one more format_content_block site.
+    assert call_sites == 14, f"expected 14 formatter call sites, found {call_sites}"
 
 
 def test_manifest_and_runbook_hook_lists_agree() -> None:

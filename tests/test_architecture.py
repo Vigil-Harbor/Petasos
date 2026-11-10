@@ -81,6 +81,126 @@ def test_lower_layers_do_not_import_enforce() -> None:
     assert offenders == []
 
 
+# The legacy spool writer still keeps process-global path and key state.
+# New enforce modules, and any new name in events.py, may not.
+_LEGACY_EVENT_STATE = frozenset(
+    {
+        "SPOOL_CAP_BYTES",
+        "_ROT_SUFFIX",
+        "_SPOOL_KEY",
+        "_SPOOL_KEYS",
+        "_SpoolResolver",
+        "_OverrideSetter",
+        "_override_setter",
+        "_resolver",
+    }
+)
+_MUTABLE_CALLS = frozenset(
+    {
+        "BoundedSemaphore",
+        "Condition",
+        "Event",
+        "Lock",
+        "RLock",
+        "Semaphore",
+        "defaultdict",
+        "deque",
+        "dict",
+        "list",
+        "local",
+        "set",
+    }
+)
+
+
+def _assigned(stmt: ast.stmt) -> list[tuple[str, ast.AST | None]]:
+    if isinstance(stmt, ast.Assign):
+        names = [target.id for target in stmt.targets if isinstance(target, ast.Name)]
+        return [(name, stmt.value) for name in names]
+    if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
+        return [(stmt.target.id, stmt.value)]
+    return []
+
+
+_MUTATIONS = frozenset(
+    {
+        "add",
+        "append",
+        "clear",
+        "discard",
+        "extend",
+        "insert",
+        "pop",
+        "popitem",
+        "remove",
+        "setdefault",
+        "update",
+    }
+)
+
+
+def _mutable(value: ast.AST | None) -> bool:
+    if isinstance(value, (ast.List, ast.Dict, ast.Set)):
+        return True
+    if not isinstance(value, ast.Call):
+        return False
+    func = value.func
+    if isinstance(func, ast.Name):
+        return func.id in _MUTABLE_CALLS
+    if isinstance(func, ast.Attribute):
+        return func.attr in _MUTABLE_CALLS
+    return False
+
+
+def _written(tree: ast.AST, name: str) -> bool:
+    """True when ``name`` is updated after it is created."""
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Attribute)
+            and isinstance(node.value, ast.Name)
+            and node.value.id == name
+            and node.attr in _MUTATIONS
+        ):
+            return True
+        targets: tuple[ast.expr, ...] | list[ast.expr]
+        if isinstance(node, ast.Assign):
+            targets = node.targets
+        elif isinstance(node, (ast.AnnAssign, ast.AugAssign)):
+            targets = (node.target,)
+        elif isinstance(node, ast.Delete):
+            targets = tuple(node.targets)
+        else:
+            continue
+        for target in targets:
+            if (
+                isinstance(target, ast.Subscript)
+                and isinstance(target.value, ast.Name)
+                and target.value.id == name
+            ):
+                return True
+    return False
+
+
+def test_enforce_has_no_module_state_beyond_the_legacy_spool() -> None:
+    """Enforce state lives on the enforcer. The legacy spool writer is the exception."""
+    offenders: list[str] = []
+    root = Path("petasos/enforce")
+    for path in sorted(root.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Global) and path.name != "events.py":
+                offenders.append(f"{path}:{node.lineno} uses global")
+        legacy = path.name == "events.py"
+        for stmt in tree.body:
+            for name, value in _assigned(stmt):
+                if not _mutable(value) or not _written(tree, name):
+                    continue
+                if legacy and name in _LEGACY_EVENT_STATE:
+                    continue
+                offenders.append(f"{path}:{stmt.lineno} mutates module-level {name}")
+    assert offenders == []
+
+
 def test_only_the_bridge_imports_the_flat_config_and_profiles() -> None:
     """Internals read the config tree. The bridge is the one temporary importer."""
     offenders: list[str] = []

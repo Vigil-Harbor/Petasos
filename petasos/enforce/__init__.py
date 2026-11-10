@@ -25,8 +25,10 @@ from petasos.enforce.decisions import (
     normalize_posture,
     worst,
 )
+from petasos.enforce.enforcer import Enforcer
 from petasos.enforce.events import (
     SPOOL_CAP_BYTES,
+    EventSpool,
     classify_integrity_failure,
     drain_enforcement_events,
     emit_console_event,
@@ -50,13 +52,39 @@ from petasos.enforce.messages import (
     format_result_notice,
     shorten_rule_id,
 )
+from petasos.enforce.types import (
+    ApprovalGrant,
+    ApprovalNotice,
+    EvaluationFault,
+    HostInfo,
+    InitGate,
+    Limits,
+    ManualClock,
+    SettingsSnapshot,
+    Status,
+    SystemClock,
+    ToolCall,
+)
 
 __all__ = [
     "Allow",
+    "ApprovalGrant",
+    "ApprovalNotice",
     "Approve",
     "Block",
+    "Enforcer",
+    "EvaluationFault",
+    "EventSpool",
     "FallbackScan",
+    "HostInfo",
+    "InitGate",
+    "Limits",
+    "ManualClock",
     "SPOOL_CAP_BYTES",
+    "SettingsSnapshot",
+    "Status",
+    "SystemClock",
+    "ToolCall",
     "annotate_ingestion",
     "approval_event",
     "blocks",
