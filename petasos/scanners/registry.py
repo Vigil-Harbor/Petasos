@@ -396,6 +396,19 @@ def _capability_active(composition: Composition, capability: Capability) -> bool
     )
 
 
+def fix_for(status: ScannerStatus) -> str | None:
+    """What to do about a scanner that is not running, or None when it is active.
+
+    ``off`` repeats the status reason, which already says how to turn it on.
+    Anything else is the install or repair step.
+    """
+    if status.state == "active":
+        return None
+    if status.state == "off":
+        return status.reason
+    return _fix(status)
+
+
 def recommendations(composition: Composition, role: str | None = None) -> tuple[str, ...]:
     """Plain-language actions for an operator, in a stable order.
 
@@ -433,6 +446,7 @@ __all__ = [
     "ScannerStatus",
     "UnavailableScanner",
     "compose",
+    "fix_for",
     "is_registered",
     "recommendations",
 ]

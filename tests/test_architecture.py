@@ -292,3 +292,70 @@ def test_only_the_bridge_imports_the_flat_config_and_profiles() -> None:
         for line, module in _imports(tree):
             offenders.append(f"{path}:{line} imports {module}")
     assert offenders == []
+
+
+_DASHBOARD = Path("petasos/hermes/dashboard")
+_WEB_MODULES = frozenset({"fastapi", "starlette", "uvicorn"})
+
+
+def _is_web(module: str) -> bool:
+    root = module.split(".", 1)[0]
+    return root in _WEB_MODULES
+
+
+def test_dashboard_has_no_module_state() -> None:
+    """The dashboard package computes a response and forgets it."""
+    offenders: list[str] = []
+    for path in sorted(_DASHBOARD.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Global):
+                offenders.append(f"{path}:{node.lineno} global {sorted(node.names)}")
+        for stmt in tree.body:
+            for name, value in _assigned(stmt):
+                if _mutable(value) and _written(tree, name):
+                    offenders.append(f"{path}:{stmt.lineno} mutates module-level {name}")
+    assert offenders == []
+
+
+def test_only_hermes_imports_the_dashboard() -> None:
+    """Nothing outside the Hermes adapter imports the dashboard package."""
+    offenders: list[str] = []
+    root = Path("petasos")
+    for path in sorted(root.rglob("*.py")):
+        if path.parts[:3] == ("petasos", "hermes", "dashboard"):
+            continue
+        if path.parts[:2] == ("petasos", "hermes"):
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for line, module in _imported_modules(tree):
+            dashboard = module == "petasos.hermes.dashboard"
+            child = module.startswith("petasos.hermes.dashboard.")
+            if dashboard or child:
+                offenders.append(f"{path}:{line} imports {module}")
+    assert offenders == []
+
+
+def test_dashboard_responses_do_not_import_a_web_framework() -> None:
+    """Response code does not import a web framework."""
+    offenders: list[str] = []
+    for path in sorted(_DASHBOARD.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        if path.name == "router.py":
+            for stmt in tree.body:
+                if not isinstance(stmt, (ast.Import, ast.ImportFrom)):
+                    continue
+                if isinstance(stmt, ast.Import):
+                    modules = [alias.name for alias in stmt.names]
+                else:
+                    modules = []
+                if isinstance(stmt, ast.ImportFrom) and stmt.module:
+                    modules.append(stmt.module)
+                for module in modules:
+                    if _is_web(module):
+                        offenders.append(f"{path}:{stmt.lineno} imports {module} at module level")
+            continue
+        for line, module in _imported_modules(tree):
+            if _is_web(module):
+                offenders.append(f"{path}:{line} imports {module}")
+    assert offenders == []
