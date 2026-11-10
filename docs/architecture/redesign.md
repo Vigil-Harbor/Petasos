@@ -223,8 +223,10 @@ class FieldInfo:  # frozen
 
 ### 3.3 The tree
 
-`PetasosConfig` is the root. Scanner sections are declared next to their
-scanner and collected under `scanners` by the registry (section 5).
+`PetasosConfig` is the root. Every section lives in the config layer,
+including the per-scanner ones: the scanner layer sits above config and reads
+its own section from the tree (section 5). The config layer imports nothing
+from scanners.
 
 ```
 fail_mode            open | degraded | closed
@@ -273,8 +275,12 @@ Changes from the 0.5 flat config:
   `enabled`.
 - `profile_name` is replaced by `role` (section 4), which is not part of the
   tree.
-- `rules.suppress` naming a structural rule, and `rules.severity_overrides`
-  targeting one, are errors. (Today they are stripped with a warning.)
+- A `rules` entry that reaches a floor is an error. (Today it is stripped
+  with a warning.) `rules.suppress` may not name a structural or
+  self-modification rule, and may name an injection rule only when
+  `rules.injection_floor_scope` is `inbound`. `rules.severity_overrides` may
+  not target a structural rule. The config layer recognises these families by
+  rule-id prefix; a test ties the prefixes to the scanner's own id sets.
 
 ### 3.4 Secrets
 
@@ -399,9 +405,9 @@ class ScannerSpec:
     label: str
     extra: str | None                # pip extra that provides the backend
     detects: frozenset[Capability]   # "injection" | "pii" | "code"
-    settings: type                   # the section dataclass
+    section: str                     # attribute under `config.scanners` holding its settings
     default_enabled: Enabled         # "auto" for prompt_guard and presidio, "off" for semgrep
-    build: Callable[[Any, BuildContext], Scanner]
+    build: Callable[[Any, BuildContext], Scanner]   # receives that section instance
 
 REGISTRY: tuple[ScannerSpec, ...]
 
@@ -626,7 +632,7 @@ de-duplicated here: B4 and C1 rewrite every site that holds one.
 |---|---|---|
 | B1 | `config/schema.py` with exhaustive tests | Wave A |
 | B2 | `config/sections.py`, `layers.py`, `migrate.py` | B1 |
-| B3 | `scanners/registry.py`; scanner sections beside their scanners | B1; parallel with B2 |
+| B3 | `scanners/registry.py`, reading the scanner sections B2 defines | B2 |
 | B4 | Cutover: every component takes its own section; old `config.py`, profiles and presets deleted | B2, B3 |
 
 B4 is one lane. Acceptance is verdict parity against the Wave 0 fixture under
