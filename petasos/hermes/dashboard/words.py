@@ -88,6 +88,9 @@ _KIND_LABELS = MappingProxyType(
     }
 )
 
+# Event types that mean the call they follow did not run.
+_STOPPED_KINDS = frozenset({"quarantine", "block", "tier3"})
+
 _DECLINED = frozenset({"deny", "denied", "timeout", "cancelled", "refused"})
 _APPROVED = frozenset({"once", "session", "always", "approve", "approved", "allow"})
 
@@ -123,9 +126,25 @@ def rule_sentence(rule_id: str) -> str:
     return ""
 
 
-def outcome(event: Mapping[str, object]) -> dict[str, str]:
-    """What Petasos did about an event: a stable ``code`` and a short ``label``."""
+def outcome(
+    event: Mapping[str, object],
+    follower: Mapping[str, object] | None = None,
+) -> dict[str, str]:
+    """What Petasos did about an event: a stable ``code`` and a short ``label``.
+
+    ``follower`` is the event Petasos wrote for the same tool call right after
+    this one, when there is one. It decides what happened to a call that tried
+    to change Petasos's or Hermes's own settings: recording that attempt does
+    not stop the call by itself.
+    """
     kind = _text(event.get("event_type"))
+    if kind == "selfmod_attempt":
+        then = _text(follower.get("event_type")) if follower is not None else ""
+        if then in _STOPPED_KINDS:
+            return {"code": "blocked", "label": "Blocked"}
+        if then == "approval":
+            return {"code": "asked", "label": "Asked a person"}
+        return {"code": "not_stopped", "label": "Not stopped"}
     if kind in {"quarantine", "block"}:
         return {"code": "blocked", "label": "Blocked"}
     if kind == "tier3":
@@ -150,8 +169,11 @@ def outcome(event: Mapping[str, object]) -> dict[str, str]:
     return {"code": "recorded", "label": "Recorded"}
 
 
-def describe_event(event: Mapping[str, object]) -> str:
-    """One sentence for what an enforcement event did."""
+def describe_event(
+    event: Mapping[str, object],
+    follower: Mapping[str, object] | None = None,
+) -> str:
+    """One sentence for what an enforcement event did. ``follower`` is as for :func:`outcome`."""
     kind = _text(event.get("event_type"))
     tool = _text(event.get("tool"))
     rule = _text(event.get("rule_id"))
@@ -180,7 +202,20 @@ def describe_event(event: Mapping[str, object]) -> str:
     if kind == "cold_start_degraded":
         return "Used only the basic checks, because the scanners were still starting."
     if kind == "selfmod_attempt":
-        return "Recorded an attempt to change Petasos or Hermes settings."
+        subject = f"A {tool} call" if tool else "A tool call"
+        verdict = outcome(event, follower)["code"]
+        if verdict == "blocked":
+            why = _stop_reason(follower)
+            return f"{subject} tried to change Petasos or Hermes settings. It was blocked, {why}."
+        if verdict == "asked":
+            return (
+                f"{subject} tried to change Petasos or Hermes settings. "
+                "It waited for a person to approve it."
+            )
+        return (
+            f"{subject} tried to change Petasos or Hermes settings. Petasos recorded it "
+            "and did not stop it, so the change may have gone through."
+        )
     if kind == "ingest_flagged":
         source = f"a {tool} result" if tool else "a tool result"
         found = family or "something that matched a rule"
@@ -201,6 +236,63 @@ def describe_event(event: Mapping[str, object]) -> str:
     if tool:
         return f"Recorded a Petasos event for {tool}."
     return "Recorded a Petasos event."
+
+
+def _stop_reason(follower: Mapping[str, object] | None) -> str:
+    then = _text(follower.get("event_type")) if follower is not None else ""
+    if then == "tier3":
+        return "because the conversation had already been stopped"
+    if then == "block":
+        return "because the conversation's risk score was already too high"
+    return "because the call also matched another rule"
+
+
+def selfmod_note(event: Mapping[str, object], follower: Mapping[str, object] | None) -> str:
+    """What an attempt to change the guardrails means for the person reading it."""
+    if outcome(event, follower)["code"] == "not_stopped":
+        return (
+            "Recording an attempt does not stop it. Petasos blocks such a call only when "
+            "the conversation is already blocked or the call matches another rule. Check "
+            "the target below for a change you did not make."
+        )
+    return (
+        "The attempt did not go through. Recording it does not stop a call on its own: "
+        "this one was stopped for the reason above."
+    )
+
+
+def selfmod_target(event: Mapping[str, object]) -> str:
+    """The file or setting an attempt aimed at, from the recorded reason, or empty."""
+    reason = _text(event.get("reason"))
+    marker = "selfmod target:"
+    if reason.startswith(marker):
+        return reason[len(marker) :].strip()
+    return ""
+
+
+# Sentences about the record itself, served with each event.
+MATCHED_TEXT_NOTE = (
+    "Petasos does not keep the matched text in its record, because it can contain "
+    "secrets. Try it shows exactly what a rule matches."
+)
+
+SIGNATURE_MEANING = MappingProxyType(
+    {
+        "verified": (
+            "Signed with this profile's session secret, and the signature matches: this "
+            "entry has not been changed since Petasos wrote it. A signature cannot show "
+            "whether other entries were deleted."
+        ),
+        "failed": (
+            "The signature does not match. This entry was changed after Petasos wrote it, "
+            "or was written by something else. Do not trust it."
+        ),
+        "off": (
+            "Not signed, because this profile has no session secret. Anything that can "
+            "write to the profile could change this entry without it showing here."
+        ),
+    }
+)
 
 
 def _text(value: object) -> str:

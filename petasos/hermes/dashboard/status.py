@@ -63,6 +63,7 @@ def status(
             "error": settings_error if isinstance(settings_error, dict) else None,
         },
         scanners=scanners,
+        coverage=coverage(scanners, list(report.suggestions)),
         recommendations=list(report.suggestions),
         role=role if isinstance(role, str) else None,
         level=level if isinstance(level, str) else None,
@@ -73,6 +74,34 @@ def status(
     )
     body["version"] = STATUS_VERSION
     return body
+
+
+def coverage(scanners: list[Any], suggestions: list[str]) -> dict[str, Any]:
+    """Which checks are running, which are not, and which of those the doctor recommends.
+
+    ``complete`` is true only when every check in the list is active. A missing
+    check is ``recommended`` when a doctor suggestion names its package extra.
+    The front end says what is on and what is not from this, not from a guess.
+    """
+    running: list[dict[str, Any]] = []
+    missing: list[dict[str, Any]] = []
+    for row in scanners:
+        if not isinstance(row, dict):
+            continue
+        entry = {"id": row.get("id"), "label": row.get("label"), "state": row.get("state")}
+        if row.get("state") == "active":
+            running.append(entry)
+            continue
+        extra = row.get("extra")
+        named = isinstance(extra, str) and any(f"petasos[{extra}]" in line for line in suggestions)
+        entry["recommended"] = bool(named)
+        entry["reason"] = row.get("reason")
+        missing.append(entry)
+    return {
+        "complete": not missing and bool(running),
+        "running": running,
+        "missing": missing,
+    }
 
 
 def _hermes_detail(detail: object) -> str:

@@ -9,26 +9,35 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from petasos.config.layers import LEVELS, ROLES, SETTING_HELP, Resolved, resolve
+from petasos.config.layers import LEVELS, ROLES, SETTING_HELP, SETTING_LABEL, Resolved, resolve
 from petasos.config.schema import ConfigError, FieldInfo, SectionInfo, describe, to_mapping
 from petasos.config.sections import PetasosConfig
 from petasos.hermes.dashboard.errors import envelope, problems_of
 from petasos.hermes.dashboard.values import copy_tree, dig, json_value
 
 _FOUR = ("enabled", "role", "level", "overrides")
+_SETTINGS_KEY = "plugins.entries.petasos.settings"
 
 
 def role_choices() -> list[dict[str, str]]:
     """Roles in the order a settings screen offers them."""
     return [
-        {"name": role.name, "description": role.description, "suggests": role.suggests}
+        {
+            "name": role.name,
+            "label": role.label,
+            "description": role.description,
+            "suggests": role.suggests,
+        }
         for role in ROLES.values()
     ]
 
 
 def level_choices() -> list[dict[str, str]]:
     """Levels in the order a settings screen offers them."""
-    return [{"name": level.name, "description": level.description} for level in LEVELS.values()]
+    return [
+        {"name": level.name, "label": level.label, "description": level.description}
+        for level in LEVELS.values()
+    ]
 
 
 def sections() -> list[dict[str, Any]]:
@@ -39,6 +48,7 @@ def sections() -> list[dict[str, Any]]:
             rows.append(
                 {
                     "path": item.path,
+                    "label": item.label,
                     "help": item.help,
                     "audience": item.audience,
                     "restart": item.restart,
@@ -64,7 +74,9 @@ def setting_rows(resolved: Resolved | None) -> list[dict[str, Any]]:
                 "default": json_value(item.default),
                 "type": item.type_name,
                 "choices": None if item.choices is None else [json_value(c) for c in item.choices],
+                "choice_labels": None if item.choice_labels is None else dict(item.choice_labels),
                 "bounds": {"ge": item.ge, "gt": item.gt, "le": item.le, "lt": item.lt},
+                "label": item.label,
                 "help": item.help,
                 "audience": item.audience,
                 "restart": item.restart,
@@ -127,21 +139,60 @@ def _try_resolve(document: Mapping[str, Any]) -> tuple[Resolved | None, list[dic
         return None, problems_of(exc.errors)
 
 
+def locked_paths(managed: frozenset[str] | None) -> dict[str, Any]:
+    """Which of Petasos's settings an administrator pinned, read-only.
+
+    ``managed`` is Hermes's set of pinned dotted keys, or None when Hermes
+    cannot say. ``stored`` lists pinned keys among the four; ``settings``
+    lists pinned leaf paths inside ``overrides``. ``plugin`` is true when the
+    administrator pinned Hermes's own plugin list.
+    """
+    if managed is None:
+        return {"known": False, "stored": [], "settings": [], "plugin": False}
+    prefix = _SETTINGS_KEY + "."
+    stored: set[str] = set()
+    leaves: set[str] = set()
+    for key in managed:
+        if key == _SETTINGS_KEY:
+            stored.update(_FOUR)
+            continue
+        if not key.startswith(prefix):
+            continue
+        rest = key[len(prefix) :]
+        head, _, tail = rest.partition(".")
+        if head not in _FOUR:
+            continue
+        if head == "overrides" and tail:
+            leaves.add(tail)
+        else:
+            stored.add(head)
+    return {
+        "known": True,
+        "stored": [key for key in _FOUR if key in stored],
+        "settings": sorted(leaves),
+        "plugin": "plugins.enabled" in managed or "plugins.disabled" in managed,
+    }
+
+
 def read_settings(
     stored: Mapping[str, Any],
     *,
     secrets: Mapping[str, str],
+    managed: frozenset[str] | None = None,
 ) -> dict[str, Any]:
     """The settings screen for one stored document.
 
     ``secrets`` maps ``session_secret`` and ``hash_key`` to ``set`` or
-    ``unset``. The values themselves are not accepted.
+    ``unset``. The values themselves are not accepted. ``managed`` is the set
+    of keys Hermes's managed config pins, or None when it cannot be read.
     """
     document = stored_document(stored)
     resolved, problems = _try_resolve(document)
     return envelope(
         stored=document,
+        labels={key: SETTING_LABEL[key] for key in _FOUR},
         help={key: SETTING_HELP[key] for key in _FOUR},
+        locked=locked_paths(managed),
         roles=role_choices(),
         levels=level_choices(),
         sections=sections(),

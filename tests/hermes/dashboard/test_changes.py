@@ -135,6 +135,23 @@ def test_a_restart_field_is_named(tmp_path: Path) -> None:
     )
     assert "scanners.prompt_guard.threshold" in body["restart"]
     assert "restart" in body["restart_message"].lower()
+    # The message names the setting the way the screen does, not by its path.
+    assert "PromptGuard sensitivity" in body["restart_message"]
+    assert "next tool call" in body["restart_message"]
+
+
+def test_a_live_change_says_it_applies_from_the_next_tool_call(tmp_path: Path) -> None:
+    """A change with no restart says when it takes effect."""
+    store = _Store()
+    body = save_settings(
+        store.settings,
+        {"role": "research"},
+        plugin_dir=tmp_path,
+        write=store.write,
+        secrets=_SECRETS,
+    )
+    assert body["restart"] == []
+    assert body["restart_message"] == "Saved. Petasos uses it from the agent's next tool call."
 
 
 def test_secrets_are_not_accepted(tmp_path: Path) -> None:

@@ -27,8 +27,9 @@ from petasos.enforce.decisions import (
     guard_denial,
     is_dangerous,
     is_egress_sink,
+    worst,
 )
-from petasos.enforce.messages import format_content_block
+from petasos.enforce.messages import format_content_block, format_result_notice
 from petasos.hermes.dashboard.catalog import combine
 from petasos.hermes.dashboard.errors import ApiError, envelope
 from petasos.hermes.dashboard.words import looks_for
@@ -42,6 +43,45 @@ COMPOSE_BUDGET_S = 2.0
 SCAN_BUDGET_S = 2.0
 _SESSION = "petasos-playground"
 _DISPLAY_LIMIT = 500
+# A tool's name in a message when the input was text, not a tool call.
+_ANY_TOOL = "<tool>"
+
+# What each decision means, in words. ``text`` is said of a tool call;
+# ``text_in`` and ``text_out`` of text coming in or going out.
+_OUTCOMES: dict[str, dict[str, str]] = {
+    "block": {
+        "label": "Blocked",
+        "sentence": "The tool call would not run. The agent is told why.",
+        "text_out": ("A tool call carrying this text would not run. The agent is told why."),
+    },
+    "approve": {
+        "label": "Asks a person",
+        "sentence": (
+            "Hermes would ask a person before the tool call runs. It runs only if they say yes."
+        ),
+    },
+    "flag": {
+        "label": "Flagged",
+        "sentence": (
+            "The agent would get this text with a warning above it, and it counts toward "
+            "the conversation's risk score. The text itself is not withheld."
+        ),
+    },
+    "allow": {
+        "label": "Allowed",
+        "sentence": "Petasos would let this through unchanged.",
+    },
+    "none": {
+        "label": "No decision",
+        "sentence": "The check did not finish in time, so this preview has no decision.",
+    },
+}
+
+CONFIDENCE_HELP = (
+    "Match strength is how closely the text matched the rule, from 0 to 100%. "
+    "It is not the chance that this is an attack."
+)
+_TIME_LIMIT = "Did not finish within Try it's time limit."
 
 _Redactor = Callable[..., str]
 
@@ -102,7 +142,7 @@ async def try_input(
             protected_paths=paths,
             time_budget=time_budget,
             skipped=skipped,
-            reason="Did not finish loading within the playground time limit.",
+            reason="Did not finish starting within Try it's time limit.",
         )
     if text is not None:
         return await _text(
@@ -164,7 +204,7 @@ def _registry(
             "label": "PromptGuard",
             "participated": False,
             "state": "unavailable",
-            "reason": "Weights are not on disk. The playground will not download them.",
+            "reason": "Its model is not downloaded, and Try it does not download one.",
         }
     ]
     return kept, skipped
@@ -260,12 +300,23 @@ async def _text(
         # The pipeline catches cancellation and returns it as an error. That is
         # the time limit firing, not a decision.
         timed_out = True
+    # Text coming in is a tool result: Petasos never withholds it. It puts a
+    # warning above it when a non-personal-detail finding would block, the same
+    # test the result hook uses. Text going out is what the agent writes into a
+    # tool call, and a call carrying it is blocked.
+    flagged = tuple(item for item in blocking if item.finding_type != "pii")
+    unsafe = bool(blocking) or (result is not None and not result.safe)
+    inbound = way != "outbound"
     if timed_out:
         decision = "allow"
-        message = "The check did not finish in time, so this preview has no decision."
-    elif blocking or (result is not None and not result.safe):
+        message = _OUTCOMES["none"]["sentence"]
+    elif inbound and flagged:
+        decision = "flag"
+        top = worst(flagged)
+        message = format_result_notice("findings", _ANY_TOOL, top, len(flagged))
+    elif not inbound and unsafe:
         decision = "block"
-        message = format_content_block("non_pii_param", "content", blocking or findings)
+        message = format_content_block("non_pii_param", _ANY_TOOL, blocking or findings)
     else:
         decision = "allow"
         message = ""
@@ -278,6 +329,7 @@ async def _text(
         _scanner_rows(statuses, skipped, timed_out),
         timed_out,
         redactor,
+        subject="text_out" if way == "outbound" else "text_in",
     )
 
 
@@ -389,6 +441,7 @@ def _body(
     scanners: list[dict[str, Any]],
     timed_out: bool,
     redactor: _Redactor | None,
+    subject: str = "sentence",
 ) -> dict[str, Any]:
     flags = resolved.config.normalization
     normalised = normalize(
@@ -399,8 +452,15 @@ def _body(
     ).normalized
     changed = normalised != source
     shown = _show(message, redactor)
+    words = _OUTCOMES["none" if timed_out else decision]
     return envelope(
         decision=decision,
+        outcome={
+            "code": "none" if timed_out else decision,
+            "label": words["label"],
+            "sentence": words.get(subject, words["sentence"]),
+        },
+        confidence_help=CONFIDENCE_HELP,
         message=shown,
         findings=[_finding(item) for item in findings[:50]],
         findings_omitted=max(0, len(findings) - 50),
@@ -439,14 +499,14 @@ def _scanner_rows(
             "label": "Basic checks",
             "participated": not timed_out,
             "state": "active" if not timed_out else "unavailable",
-            "reason": "The check did not finish within the time limit." if timed_out else None,
+            "reason": _TIME_LIMIT if timed_out else None,
         }
     ]
     for status in statuses:
         participated = status.state == "active" and not timed_out
         reason = status.reason
         if status.state == "active" and timed_out:
-            reason = "The check did not finish within the time limit."
+            reason = _TIME_LIMIT
         rows.append(
             {
                 "id": status.id,

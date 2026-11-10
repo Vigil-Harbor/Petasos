@@ -107,3 +107,37 @@ def test_invalid_settings_are_reported(tmp_path: Path) -> None:
     assert body["protection"] == "off"
     assert body["settings"]["valid"] is False
     assert body["settings"]["error"]["path"] == "role"
+
+
+def test_coverage_says_which_checks_run_and_which_do_not(tmp_path: Path) -> None:
+    """Protected is never read as complete when an optional check is missing."""
+    from petasos.hermes.dashboard.status import coverage
+
+    rows = [
+        {"id": "syntactic", "label": "Basic checks", "state": "active", "extra": None},
+        {
+            "id": "prompt_guard",
+            "label": "PromptGuard",
+            "state": "not_installed",
+            "extra": "prompt-guard",
+            "reason": "Not installed.",
+        },
+        {
+            "id": "semgrep",
+            "label": "Semgrep",
+            "state": "off",
+            "extra": "semgrep",
+            "reason": "Off.",
+        },
+    ]
+    found = coverage(rows, ["Add petasos[prompt-guard] to the plugin's dependency list."])
+    assert found["complete"] is False
+    assert [row["label"] for row in found["running"]] == ["Basic checks"]
+    missing = {row["id"]: row for row in found["missing"]}
+    assert missing["prompt_guard"]["recommended"] is True
+    assert missing["semgrep"]["recommended"] is False
+    whole = coverage(rows[:1], [])
+    assert whole["complete"] is True
+    body = status(load_home(_home(tmp_path, _RESEARCH)))
+    assert "coverage" in body
+    assert body["coverage"]["running"][0]["id"] == "syntactic"

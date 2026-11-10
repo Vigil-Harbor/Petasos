@@ -21,21 +21,33 @@ def _run(**kwargs: Any) -> dict[str, Any]:
     return asyncio.run(try_input(_STORED, redactor=_identity, **kwargs))
 
 
-def test_text_is_blocked_and_a_coding_role_lets_the_same_text_through() -> None:
-    """The decision follows the candidate role, and the finding says what the rule looks for."""
-    blocked = _run(text=_INJECTION, direction="inbound")
-    assert blocked["decision"] == "block"
-    assert blocked["message"]
-    finding = blocked["findings"][0]
+def test_text_coming_in_is_flagged_not_blocked() -> None:
+    """A tool result is never withheld: the agent gets it under the warning the hook writes."""
+    flagged = _run(text=_INJECTION, direction="inbound")
+    assert flagged["decision"] == "flag"
+    assert flagged["outcome"]["code"] == "flag"
+    assert flagged["outcome"]["label"] == "Flagged"
+    assert "not withheld" in flagged["outcome"]["sentence"]
+    assert flagged["message"].startswith("[Petasos] Output from tool '<tool>'.")
+    assert "NOT executed" not in flagged["message"]
+    finding = flagged["findings"][0]
     assert finding["rule"] == "petasos.syntactic.injection.ignore-previous"
     assert finding["span"] == {"start": 0, "end": len(_INJECTION)}
     assert "ignore" in finding["sentence"].lower()
-    # Coding quiets this rule on the way out. Inbound stays a floor.
+    assert "not the chance" in flagged["confidence_help"]
+
+
+def test_text_going_out_is_blocked_and_a_coding_role_lets_it_through() -> None:
+    """Text the agent writes into a tool call blocks that call; coding quiets it outbound only."""
+    blocked = _run(text=_INJECTION, direction="outbound")
+    assert blocked["decision"] == "block"
+    assert "Tool '<tool>' was NOT executed" in blocked["message"]
+    assert "carrying this text" in blocked["outcome"]["sentence"]
     allowed = _run(text=_INJECTION, direction="outbound", candidate={"role": "coding"})
     assert allowed["decision"] == "allow"
     assert allowed["findings"] == []
     inbound = _run(text=_INJECTION, direction="inbound", candidate={"role": "coding"})
-    assert inbound["decision"] == "block"
+    assert inbound["decision"] == "flag"
 
 
 def test_a_recursive_delete_is_blocked() -> None:
@@ -73,7 +85,7 @@ def test_a_missing_scanner_does_not_take_part(monkeypatch: Any) -> None:
         build=_missing,
     )
     body = _run(text=_INJECTION, registry=(spec,))
-    assert body["decision"] == "block"
+    assert body["decision"] == "flag"
     presidio = next(row for row in body["scanners"] if row["id"] == "presidio")
     assert presidio["participated"] is False
     assert presidio["state"] == "not_installed"

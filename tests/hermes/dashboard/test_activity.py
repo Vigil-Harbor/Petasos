@@ -311,3 +311,82 @@ def test_summary_breaks_counts_down_for_filters(tmp_path: Path) -> None:
     }
     page = _page(live, query=ActivityQuery(severity="high"))
     assert len(page["events"]) == 2
+
+
+def _selfmod(session: str) -> dict[str, Any]:
+    return {
+        "event_type": "selfmod_attempt",
+        "tool": "write_file",
+        "session_id": session,
+        "severity": "critical",
+        "rule_id": "petasos.selfmod.config-write",
+        "reason": "selfmod target: ~/.hermes/config.yaml",
+    }
+
+
+def test_a_guardrail_change_says_whether_the_call_was_stopped(tmp_path: Path) -> None:
+    """Recording the attempt is not stopping it: the event after it for the same call decides."""
+    live = tmp_path / "petasos-enforcement.jsonl"
+    _emit(
+        live,
+        [
+            _selfmod("calm"),
+            {"event_type": "quarantine", "tool": "read_file", "session_id": "calm"},
+            _selfmod("hot"),
+            {
+                "event_type": "block",
+                "tier": "tier2",
+                "tool": "write_file",
+                "session_id": "hot",
+            },
+        ],
+    )
+    events = _page(live)["events"]
+    by_session = {
+        event["session_id"]: event for event in events if event["event_type"] == "selfmod_attempt"
+    }
+    hot = by_session["hot"]
+    assert hot["outcome"] == {"code": "blocked", "label": "Blocked"}
+    assert "risk score was already too high" in hot["summary"]
+    assert hot["target"] == "~/.hermes/config.yaml"
+    calm = by_session["calm"]
+    # The next event is for another tool, so it is not this call's outcome.
+    assert calm["outcome"] == {"code": "not_stopped", "label": "Not stopped"}
+    assert "did not stop it" in calm["summary"]
+    assert "Recording an attempt does not stop it" in calm["outcome_note"]
+    counts = summarize(live, _rot(live), key=None, verification=_OFF, query=ActivityQuery())[
+        "by_outcome"
+    ]
+    assert counts["not_stopped"] == 1
+
+
+def test_search_finds_an_event_by_id_start_or_words(tmp_path: Path) -> None:
+    """``q`` matches the start of an event id, or the event's sentence and fields."""
+    live = tmp_path / "petasos-enforcement.jsonl"
+    _emit(
+        live,
+        [
+            {"event_type": "quarantine", "tool": "terminal", "session_id": "ops-1"},
+            {"event_type": "approval", "phase": "request", "tool": "send_message"},
+        ],
+    )
+    every = _page(live)["events"]
+    wanted = every[1]["scan_id"]
+    by_id = _page(live, query=ActivityQuery(text=wanted[:8]))["events"]
+    assert [event["scan_id"] for event in by_id] == [wanted]
+    by_word = _page(live, query=ActivityQuery(text="SHELL COMMAND"))["events"]
+    assert [event["tool"] for event in by_word] == ["terminal"]
+    assert _page(live, query=ActivityQuery(text="nothing like this"))["events"] == []
+
+
+def test_each_event_says_what_its_signature_proves(tmp_path: Path) -> None:
+    """A verified signature covers this entry and says it cannot show a deletion."""
+    live = tmp_path / "petasos-enforcement.jsonl"
+    secret = b"s" * 32
+    _emit(live, [{"event_type": "quarantine", "tool": "terminal"}], secret=secret)
+    signed = _page(live, key=verification_key(secret), verification="")["events"][0]
+    assert signed["integrity"]["status"] == "verified"
+    assert "cannot show whether other entries were deleted" in signed["integrity"]["meaning"]
+    unsigned = _page(live)["events"][0]
+    assert unsigned["integrity"]["status"] == "off"
+    assert unsigned["integrity"]["meaning"].startswith("Not signed")

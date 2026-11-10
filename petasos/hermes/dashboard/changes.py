@@ -12,7 +12,8 @@ from pathlib import Path
 from typing import Any
 
 from petasos.config.layers import resolve
-from petasos.config.schema import ConfigError
+from petasos.config.schema import ConfigError, leaves
+from petasos.config.sections import PetasosConfig
 from petasos.hermes.dashboard.catalog import (
     combine,
     preview_settings,
@@ -37,6 +38,7 @@ def save_settings(
     plugin_dir: Path,
     write: Writer,
     secrets: Mapping[str, str],
+    managed: frozenset[str] | None = None,
 ) -> dict[str, Any]:
     """Validate ``candidate``, then write it.
 
@@ -53,15 +55,10 @@ def save_settings(
     desired = _overrides(proposed)
     _write_document(proposed, current, desired, plugin_dir, write)
     restart = restart_paths(before, after)
-    body = read_settings(proposed, secrets=secrets)
+    body = read_settings(proposed, secrets=secrets, managed=managed)
     body["saved"] = True
     body["restart"] = restart
-    if restart:
-        body["restart_message"] = (
-            "Saved. These settings take effect after Hermes restarts: " + ", ".join(restart) + "."
-        )
-    else:
-        body["restart_message"] = "Saved. This change takes effect on the next tool call."
+    body["restart_message"] = _when_message("Saved.", restart)
     return body
 
 
@@ -72,6 +69,7 @@ def clear_overrides(
     plugin_dir: Path,
     write: Writer,
     secrets: Mapping[str, str],
+    managed: frozenset[str] | None = None,
 ) -> dict[str, Any]:
     """Remove one override, or every override when ``path`` is None.
 
@@ -90,12 +88,12 @@ def clear_overrides(
             if not has_path(current, path):
                 return envelope(
                     cleared=False,
-                    message="That override is not set.",
-                    **_view(document, secrets),
+                    message="That setting has no change of yours to reset.",
+                    **_view(document, secrets, managed),
                 )
             desired = without_path(current, path)
         except ValueError as exc:
-            raise ApiError("invalid_path", "Name the override to clear.", path=path) from exc
+            raise ApiError("invalid_path", "Name the setting to reset.", path=path) from exc
         removed = True
     proposed = combine(document, {"overrides": desired})
     # combine treats overrides as a patch. desired is the full remainder, so
@@ -106,21 +104,21 @@ def clear_overrides(
     if not removed:
         return envelope(
             cleared=False,
-            message="There are no overrides to clear.",
-            **_view(document, secrets),
+            message="You have no changes of your own to reset.",
+            **_view(document, secrets, managed),
         )
     _write_overrides(current, desired, plugin_dir, write)
     restart = restart_paths(before, after)
     return envelope(
         cleared=True,
-        message="Cleared. The role and level apply again.",
-        restart=restart,
-        restart_message=(
-            "These settings take effect after Hermes restarts: " + ", ".join(restart) + "."
-            if restart
-            else "This change takes effect on the next tool call."
+        message=(
+            "Reset. The job and strictness decide this again."
+            if path is not None
+            else "Reset. The job and strictness decide every setting again."
         ),
-        **_view(proposed, secrets),
+        restart=restart,
+        restart_message=_when_message("Reset.", restart),
+        **_view(proposed, secrets, managed),
     )
 
 
@@ -130,11 +128,27 @@ def preview(stored: Mapping[str, Any], candidate: Mapping[str, Any]) -> dict[str
     return preview_settings(stored, candidate)
 
 
-def _view(document: Mapping[str, Any], secrets: Mapping[str, str]) -> dict[str, Any]:
+def _view(
+    document: Mapping[str, Any],
+    secrets: Mapping[str, str],
+    managed: frozenset[str] | None,
+) -> dict[str, Any]:
     # read_settings already wraps a version. The clear response uses one envelope.
-    body = read_settings(document, secrets=secrets)
+    body = read_settings(document, secrets=secrets, managed=managed)
     body.pop("version", None)
     return {"settings": body}
+
+
+def _when_message(lead: str, restart: list[str]) -> str:
+    """When a saved change takes effect, in words, naming restart settings by label."""
+    if not restart:
+        return f"{lead} Petasos uses it from the agent's next tool call."
+    labels = {row.path: row.label for row in leaves(PetasosConfig)}
+    named = ", ".join(labels.get(path, path) for path in restart)
+    return (
+        f"{lead} These wait for Hermes to restart: {named}. "
+        "Everything else applies from the agent's next tool call."
+    )
 
 
 def _reject_secrets(candidate: Mapping[str, Any]) -> None:
@@ -142,8 +156,8 @@ def _reject_secrets(candidate: Mapping[str, Any]) -> None:
     if found:
         raise ApiError(
             "secret",
-            "The session secret and the hash key are set in the profile environment, "
-            "not from this panel.",
+            "The session secret and the hash key live in the profile's .env file, "
+            "and cannot be set from this page.",
             path=found[0],
         )
 
@@ -230,14 +244,14 @@ def _call(write: Writer, values: Mapping[str, object], plugin_dir: Path) -> None
     except PermissionError as exc:
         raise ApiError(
             "managed",
-            "An administrator has locked this setting. Change it in the managed "
-            "Hermes configuration, or ask the administrator to unlock it.",
+            "Not saved: an administrator has locked this setting in Hermes's managed "
+            "configuration. Ask them to change it there.",
             status=403,
         ) from exc
     except RuntimeError as exc:
         raise ApiError(
             "writer_unavailable",
-            "Hermes is not available to save settings.",
+            "Not saved: Hermes's settings writer is not available in this dashboard.",
             status=503,
         ) from exc
     except ValueError as exc:
@@ -246,7 +260,8 @@ def _call(write: Writer, values: Mapping[str, object], plugin_dir: Path) -> None
         logger.exception("settings write failed")
         raise ApiError(
             "write_failed",
-            "The settings could not be saved. The detail is in the log.",
+            "Not saved: the settings file could not be written. "
+            "The dashboard's log has the detail.",
             status=500,
         ) from exc
 
