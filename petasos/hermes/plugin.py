@@ -1,20 +1,24 @@
 """Register Petasos with Hermes.
 
-``register`` builds one enforcer, registers the hooks, and translates.
-It does not decide a tool call. An empty block message is filled in, because
-Hermes treats a block with no message as an allow.
+``register`` binds one enforcer's hooks on the context it was given and
+translates. It does not decide a tool call. An empty block message is filled
+in, because Hermes treats a block with no message as an allow.
 
 Callbacks do not raise. ``pre_tool_call`` returns its own block when the
 adapter fails, instead of relying on Hermes turning the exception into a
 block: that host message includes the exception text, and the other hooks
 fail open on an exception. One policy covers every hook.
+
+Hermes keeps one plugin manager per resolved home and can serve several
+homes in one process (``set_hermes_home_override``). A force reload unloads
+a manager and calls ``register`` again. The table below is how a repeated
+``register`` finds the enforcer it already built for that home.
 """
 
 from __future__ import annotations
 
 import logging
-import os
-import time
+import threading
 from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
@@ -34,7 +38,7 @@ from petasos.hermes.host import (
     rule_always_approved,
     subagent_hooks_available,
 )
-from petasos.hermes.settings import PLUGIN_ID, HermesSettings, profile_binding
+from petasos.hermes.settings import PLUGIN_ID, HermesSettings
 
 if TYPE_CHECKING:
     from petasos.enforce.decisions import Decision
@@ -50,19 +54,18 @@ HOOKS: tuple[str, ...] = (
     "subagent_stop",
     "pre_approval_request",
     "post_approval_response",
-    "on_profile_change",
 )
 
 _EMPTY_BLOCK = "Petasos blocked this tool call."
 _INTERNAL_BLOCK = "Petasos could not evaluate this tool call."
-_STALE = "no petasos: section at new profile; keeping last-good policy"
-_MIGRATE = (
-    "this profile has a petasos: section and no plugin settings; run `petasos config migrate`"
-)
-_REBIND_WINDOW_S = 30.0
 
-# The one enforcer a registered plugin holds. ``register`` assigns it.
-_registration: _Registration | None = None
+# The only module-level mutable state in the adapter.
+# ``_registrations`` has one entry per Hermes home this process has loaded.
+# A repeated ``register`` for that home reuses the enforcer (session scores,
+# tiers, taint, lineage, and the loaded scanners). ``close`` clears the table.
+# ``_registration_lock`` serialises the lookup. Hooks read it at call time.
+_registrations: dict[str, _Registration] = {}
+_registration_lock = threading.Lock()
 
 
 class PluginContext(Protocol):
@@ -77,25 +80,183 @@ class PluginContext(Protocol):
         ...
 
 
-class _Registration:
-    """The enforcer and the settings source for this process."""
+def _home_key(ctx: object) -> str:
+    """The home this context's manager was built for.
 
-    def __init__(self, enforcer: Enforcer, source: HermesSettings) -> None:
+    Hermes stores that path on the manager and does not share a manager
+    across homes. A context with no manager — a unit-test double — uses one
+    shared key.
+    """
+    manager = getattr(ctx, "_manager", None)
+    home = getattr(manager, "home_path", None)
+    if home is None:
+        return ""
+    try:
+        return str(Path(home).resolve())
+    except (OSError, RuntimeError, ValueError):
+        return str(home)
+
+
+def _hook_callbacks(ctx: object, name: str) -> list[object]:
+    """Callbacks already stored for ``name`` on this context's manager.
+
+    Hermes keeps them on the manager. A test double keeps them on the context.
+    """
+    manager = getattr(ctx, "_manager", None)
+    hooks = getattr(manager, "_hooks", None)
+    if not isinstance(hooks, dict):
+        hooks = getattr(ctx, "hooks", None)
+    if not isinstance(hooks, dict):
+        return []
+    found = hooks.get(name)
+    if isinstance(found, list):
+        return list(found)
+    return []
+
+
+def _is_ours(callback: object) -> bool:
+    return getattr(callback, "__func__", None) is _Registration.pre_tool_call
+
+
+class _Registration:
+    """Hooks and the enforcer for one Hermes home.
+
+    The methods are what the manager calls. They read the table at call time,
+    so a ``register`` after ``close`` starts on a new enforcer without leaving
+    a second copy of the hooks on a manager that still has these methods.
+    """
+
+    def __init__(self, home_key: str, enforcer: Enforcer, source: HermesSettings) -> None:
+        self.home_key = home_key
         self.enforcer = enforcer
         self.source = source
-        self.hooks = False
-        self._rebind_at: dict[str, float] = {}
 
-    def warn_rebind(self, message: str) -> None:
-        """Log one rebind warning at most once per window. A different reason still logs."""
-        now = time.monotonic()
-        last = self._rebind_at.get(message, 0.0)
-        if now - last < _REBIND_WINDOW_S:
+    def live(self) -> _Registration | None:
+        """The registration serving this home now, if ``close`` has not dropped it."""
+        return _registrations.get(self.home_key)
+
+    def pre_tool_call(
+        self,
+        tool_name: str = "",
+        args: object = None,
+        task_id: str = "",
+        **kwargs: object,
+    ) -> dict[str, str] | None:
+        reg = self.live()
+        if reg is None:
+            return {"action": "block", "message": _INTERNAL_BLOCK}
+        try:
+            call = _tool_call(tool_name, args, task_id, kwargs)
+            return directive(reg.enforcer.tool_call(call))
+        except Exception:
+            logger.exception("Petasos pre_tool_call failed")
+            return {"action": "block", "message": _INTERNAL_BLOCK}
+
+    def transform_tool_result(
+        self,
+        tool_name: str = "",
+        args: object = None,
+        result: object = None,
+        task_id: str = "",
+        **kwargs: object,
+    ) -> str | None:
+        reg = self.live()
+        if reg is None:
+            return None
+        try:
+            call = _tool_call(tool_name, args, task_id, kwargs)
+            return reg.enforcer.tool_result(call, result)
+        except Exception:
+            logger.exception("Petasos transform_tool_result failed")
+            return None
+
+    def post_tool_call(
+        self,
+        tool_name: str = "",
+        args: object = None,
+        result: object = None,
+        task_id: str = "",
+        duration_ms: object = 0,
+        **kwargs: object,
+    ) -> None:
+        reg = self.live()
+        if reg is None:
             return
-        if len(self._rebind_at) >= 32:
-            self._rebind_at.pop(next(iter(self._rebind_at)))
-        self._rebind_at[message] = now
-        logger.warning("%s", message)
+        try:
+            call = _tool_call(tool_name, args, task_id, kwargs)
+            text = result if isinstance(result, str) else ""
+            duration = duration_ms if type(duration_ms) is int else 0
+            reg.enforcer.tool_finished(call, text, duration_ms=duration)
+        except Exception:
+            logger.exception("Petasos post_tool_call failed")
+
+    def on_session_start(self, session_id: str = "", **kwargs: object) -> None:
+        del kwargs
+        reg = self.live()
+        if reg is None:
+            return
+        try:
+            reg.enforcer.session_started(session_id if isinstance(session_id, str) else "")
+        except Exception:
+            logger.exception("Petasos on_session_start failed")
+
+    def subagent_start(
+        self,
+        parent_session_id: str = "",
+        child_session_id: str = "",
+        **kwargs: object,
+    ) -> None:
+        del kwargs
+        reg = self.live()
+        if reg is None:
+            return
+        try:
+            reg.enforcer.subagent_started(
+                child_session_id if isinstance(child_session_id, str) else "",
+                parent_session_id if isinstance(parent_session_id, str) else "",
+            )
+        except Exception:
+            logger.exception("Petasos subagent_start failed")
+
+    def subagent_stop(self, child_session_id: str = "", **kwargs: object) -> None:
+        del kwargs
+        reg = self.live()
+        if reg is None:
+            return
+        try:
+            child = child_session_id if isinstance(child_session_id, str) else ""
+            reg.enforcer.subagent_stopped(child)
+        except Exception:
+            logger.exception("Petasos subagent_stop failed")
+
+    def pre_approval_request(self, **kwargs: object) -> None:
+        reg = self.live()
+        if reg is None:
+            return
+        try:
+            reg.enforcer.approval_requested(_notice(kwargs, choice=None))
+        except Exception:
+            logger.debug("PETASOS_APPROVAL emit failed")
+
+    def post_approval_response(self, **kwargs: object) -> None:
+        reg = self.live()
+        if reg is None:
+            return
+        try:
+            reg.enforcer.approval_answered(_notice(kwargs, choice=kwargs.get("choice")))
+        except Exception:
+            logger.debug("PETASOS_APPROVAL emit failed")
+
+    def attach(self, ctx: PluginContext) -> None:
+        """Bind these methods on ``ctx``. The caller has already checked."""
+        ctx.register_hook("pre_tool_call", self.pre_tool_call)
+        ctx.register_hook("transform_tool_result", self.transform_tool_result)
+        ctx.register_hook("post_tool_call", self.post_tool_call)
+        ctx.register_hook("on_session_start", self.on_session_start)
+        _try_register(ctx, "subagent_start", self.subagent_start)
+        _try_register(ctx, "subagent_stop", self.subagent_stop)
+        ctx.register_hook("pre_approval_request", self.pre_approval_request)
+        ctx.register_hook("post_approval_response", self.post_approval_response)
 
 
 def directive(decision: Decision) -> dict[str, str] | None:
@@ -229,172 +390,6 @@ def _notice(fields: Mapping[str, object], *, choice: object) -> ApprovalNotice:
     )
 
 
-def _validated_home(profile_home: object) -> tuple[Path | None, str]:
-    """An absolute existing directory, or a reason the payload was rejected."""
-    if not profile_home:
-        return None, "empty profile_home"
-    if not isinstance(profile_home, (str, os.PathLike)):
-        return None, f"non-path profile_home type={type(profile_home).__name__}"
-    candidate = Path(profile_home)
-    if not candidate.is_absolute():
-        return None, f"non-absolute profile_home {str(profile_home)!r}"
-    try:
-        home = candidate.resolve(strict=False)
-    except (OSError, RuntimeError, ValueError):
-        return None, f"unresolvable profile_home {str(profile_home)!r}"
-    if not home.is_dir():
-        return None, f"profile_home is not an existing directory: {home}"
-    return home, ""
-
-
-def _pre_tool_call(
-    tool_name: str = "",
-    args: object = None,
-    task_id: str = "",
-    **kwargs: object,
-) -> dict[str, str] | None:
-    reg = _registration
-    if reg is None:
-        return {"action": "block", "message": _INTERNAL_BLOCK}
-    try:
-        call = _tool_call(tool_name, args, task_id, kwargs)
-        return directive(reg.enforcer.tool_call(call))
-    except Exception:
-        logger.exception("Petasos pre_tool_call failed")
-        return {"action": "block", "message": _INTERNAL_BLOCK}
-
-
-def _transform_tool_result(
-    tool_name: str = "",
-    args: object = None,
-    result: object = None,
-    task_id: str = "",
-    **kwargs: object,
-) -> str | None:
-    reg = _registration
-    if reg is None:
-        return None
-    try:
-        call = _tool_call(tool_name, args, task_id, kwargs)
-        return reg.enforcer.tool_result(call, result)
-    except Exception:
-        logger.exception("Petasos transform_tool_result failed")
-        return None
-
-
-def _post_tool_call(
-    tool_name: str = "",
-    args: object = None,
-    result: object = None,
-    task_id: str = "",
-    duration_ms: object = 0,
-    **kwargs: object,
-) -> None:
-    reg = _registration
-    if reg is None:
-        return
-    try:
-        call = _tool_call(tool_name, args, task_id, kwargs)
-        text = result if isinstance(result, str) else ""
-        duration = duration_ms if type(duration_ms) is int else 0
-        reg.enforcer.tool_finished(call, text, duration_ms=duration)
-    except Exception:
-        logger.exception("Petasos post_tool_call failed")
-
-
-def _on_session_start(session_id: str = "", **kwargs: object) -> None:
-    del kwargs
-    reg = _registration
-    if reg is None:
-        return
-    try:
-        reg.enforcer.session_started(session_id if isinstance(session_id, str) else "")
-    except Exception:
-        logger.exception("Petasos on_session_start failed")
-
-
-def _subagent_start(
-    parent_session_id: str = "",
-    child_session_id: str = "",
-    **kwargs: object,
-) -> None:
-    del kwargs
-    reg = _registration
-    if reg is None:
-        return
-    try:
-        reg.enforcer.subagent_started(
-            child_session_id if isinstance(child_session_id, str) else "",
-            parent_session_id if isinstance(parent_session_id, str) else "",
-        )
-    except Exception:
-        logger.exception("Petasos subagent_start failed")
-
-
-def _subagent_stop(child_session_id: str = "", **kwargs: object) -> None:
-    del kwargs
-    reg = _registration
-    if reg is None:
-        return
-    try:
-        child = child_session_id if isinstance(child_session_id, str) else ""
-        reg.enforcer.subagent_stopped(child)
-    except Exception:
-        logger.exception("Petasos subagent_stop failed")
-
-
-def _pre_approval_request(**kwargs: object) -> None:
-    reg = _registration
-    if reg is None:
-        return
-    try:
-        reg.enforcer.approval_requested(_notice(kwargs, choice=None))
-    except Exception:
-        logger.debug("PETASOS_APPROVAL emit failed")
-
-
-def _post_approval_response(**kwargs: object) -> None:
-    reg = _registration
-    if reg is None:
-        return
-    try:
-        reg.enforcer.approval_answered(_notice(kwargs, choice=kwargs.get("choice")))
-    except Exception:
-        logger.debug("PETASOS_APPROVAL emit failed")
-
-
-def _on_profile_change(profile_name: str = "", profile_home: str = "", **kwargs: object) -> None:
-    """A profile switch. Settings are re-read; the old ``petasos:`` section is not."""
-    del kwargs
-    reg = _registration
-    if reg is None:
-        return
-    try:
-        _apply_profile(reg, profile_name, profile_home)
-    except Exception:
-        logger.exception("Petasos on_profile_change failed")
-
-
-def _apply_profile(reg: _Registration, profile_name: object, profile_home: object) -> None:
-    name = profile_name if isinstance(profile_name, str) and profile_name else "<unnamed>"
-    logger.info("PETASOS_PROFILE_CHANGE name=%r", name)
-    home, reason = _validated_home(profile_home)
-    if home is None:
-        reg.warn_rebind(f"PETASOS_REBIND_SKIPPED reason={reason}")
-        return
-    config = home / "config.yaml"
-    logger.info("PETASOS_ARMED_RESOLUTION tier=profile path=%s", config)
-    kind, _settings = profile_binding(config)
-    if kind == "legacy":
-        logger.warning("PETASOS_CONFIG_MIGRATE path=%s: %s", config, _MIGRATE)
-        return
-    if kind != "settings":
-        reg.warn_rebind(f"PETASOS_REBIND_CONFIG_STALE path={config}: {_STALE}")
-        return
-    reg.source.bind_profile(home)
-    reg.enforcer.refresh()
-
-
 def _try_register(ctx: PluginContext, name: str, handler: object) -> None:
     try:
         ctx.register_hook(name, handler)
@@ -403,6 +398,12 @@ def _try_register(ctx: PluginContext, name: str, handler: object) -> None:
 
 
 def _log_resolution() -> None:
+    """The home and the config file this call bound to.
+
+    During ``register`` Hermes has the manager's home as the context-local
+    override, so the path is that home's ``config.yaml``. Plugin settings
+    live in that file.
+    """
     res = resolve_hermes_config_path()
     logger.info("PETASOS_ARMED_RESOLUTION tier=%s path=%s", res.tier, res.path)
     if res.tier == "override" and not res.path.is_absolute():
@@ -412,46 +413,48 @@ def _log_resolution() -> None:
         )
 
 
-def _bind(ctx: PluginContext) -> None:
-    ctx.register_hook("pre_tool_call", _pre_tool_call)
-    ctx.register_hook("transform_tool_result", _transform_tool_result)
-    ctx.register_hook("post_tool_call", _post_tool_call)
-    ctx.register_hook("on_session_start", _on_session_start)
-    _try_register(ctx, "subagent_start", _subagent_start)
-    _try_register(ctx, "subagent_stop", _subagent_stop)
-    ctx.register_hook("pre_approval_request", _pre_approval_request)
-    ctx.register_hook("post_approval_response", _post_approval_response)
-    _try_register(ctx, "on_profile_change", _on_profile_change)
+def _already_bound(ctx: object) -> bool:
+    return any(_is_ours(callback) for callback in _hook_callbacks(ctx, "pre_tool_call"))
 
 
 def register(ctx: PluginContext) -> None:
-    """Build one enforcer, start it, and register the hooks on ``ctx``.
+    """Bind hooks on ``ctx`` and reuse the enforcer already built for its home.
 
-    A second call refreshes settings and does not register the hooks again.
+    A second call on a manager that still has the hooks does not add another
+    copy. A call after Hermes has unloaded those hooks binds them again and
+    does not build another enforcer.
     """
-    global _registration
-    if _registration is None:
-        source = HermesSettings(ctx)
-        enforcer = Enforcer(source, host=host_info(), spool_path=spool_path())
-        _registration = _Registration(enforcer, source)
-        enforcer.start()
-        _log_resolution()
+    key = _home_key(ctx)
+    created = False
+    attached = False
+    with _registration_lock:
+        reg = _registrations.get(key)
+        if reg is None:
+            source = HermesSettings(ctx)
+            enforcer = Enforcer(source, host=host_info(), spool_path=spool_path())
+            reg = _Registration(key, enforcer, source)
+            _registrations[key] = reg
+            created = True
+        if not _already_bound(ctx):
+            reg.attach(ctx)
+            attached = True
+        if created:
+            reg.enforcer.start()
+    if not (created or attached):
+        return
+    _log_resolution()
+    if created:
         logger.info(
             "PETASOS_HOST_CAPS approve_directive=%s subagent_hooks=%s",
             "available" if approve_directive_available() else "unavailable",
             "available" if subagent_hooks_available() else "unavailable",
         )
-    if _registration.hooks:
-        _registration.enforcer.refresh()
-        return
-    _bind(ctx)
-    _registration.hooks = True
 
 
 def close() -> None:
-    """Stop the registered enforcer. A later ``register`` starts a new one."""
-    global _registration
-    reg = _registration
-    _registration = None
-    if reg is not None:
+    """Stop every registered enforcer. A later ``register`` starts a new one."""
+    with _registration_lock:
+        regs = list(_registrations.values())
+        _registrations.clear()
+    for reg in regs:
         reg.enforcer.close()

@@ -796,9 +796,51 @@ Rules the host imposes:
 
 ### 7.3 Hooks
 
-`petasos.hermes.plugin.register(ctx)` builds one `Enforcer`, registers the
-hooks below, and translates between hook arguments and `ToolCall` /
+`petasos.hermes.plugin.register(ctx)` binds one home's `Enforcer` to the
+hooks below and translates between hook arguments and `ToolCall` /
 `Decision`. It contains no policy.
+
+Hermes calls `register` from `PluginLoaderMixin._load_plugin_scoped`
+(`hermes_cli/plugins_loader.py`, the `register_fn(ctx)` call). A second
+`discover_and_load()` on a manager that has already loaded returns without
+calling it. `discover_and_load(force=True)` unloads that manager, which
+drops its hooks, then loads again and calls `register` with a new context
+on the same manager. That is what `discover_plugins(force=True)` does, and
+what the gateway's `reload-plugins` verb, the dashboard, and plugin
+activation call. A different resolved home is a different manager:
+`get_plugin_manager` (`hermes_cli/plugins.py`) keys `_plugin_managers_by_home`
+by `get_hermes_home()`, and `set_hermes_home_override` (`hermes_constants.py`)
+is the context-local switch a multiplexed process uses. Loading that manager
+calls `register` again.
+
+One process can therefore serve more than one profile, and each profile has
+its own settings and its own enforcement state. The enforcer is chosen when
+the hook runs: Hermes dispatches the manager for the active home
+(`invoke_hook` goes through `get_plugin_manager`), and the callback is a
+method of that home's registration. A repeated `register` for the same home
+reuses the enforcer, so a reload does not rebuild it and does not reload
+scanners. It binds the hooks again only when that manager no longer has
+them. A second `register` on a manager that still has them does not add
+another copy. `close()` stops every home's enforcer. A `register` after
+that starts a new one; hooks left on a manager from before `close` fail
+closed until that load replaces them.
+
+The context object passed to `register` stays callable. `PluginContext.get_config`
+(`hermes_cli/plugins_context.py`) reads `load_config_readonly()` of whichever
+home is active at the call, and does not capture the home at construction.
+Force reload keeps the same manager object. Keeping the context and calling
+`get_config` from a hook is safe because the hook runs on the manager Hermes
+selected for the active home. It is not a snapshot of the home at `register`.
+
+Startup logs `PETASOS_ARMED_RESOLUTION` with the tier and the `config.yaml`
+the call bound to. During `register` the manager's home is the context-local
+override, so the path is that home's config file, which is where the plugin
+settings live.
+
+`on_profile_change` is not a Hermes hook. v0.23.1 does not list it and has
+no site that fires it. Registering it only logs that the hook is unknown.
+Settings for the active profile are whatever `get_config` returns on the
+next call. There is no profile-change handler.
 
 | Hook | Use | If the callback fails |
 |---|---|---|
@@ -808,7 +850,6 @@ hooks below, and translates between hook arguments and `ToolCall` /
 | `on_session_start` | Session bookkeeping | Ignored |
 | `subagent_start`, `subagent_stop` | Lineage | Ignored; the fan-out budget is enforced on the `delegate_task` tool call |
 | `pre_approval_request`, `post_approval_response` | Approval observation | Ignored. Neither runs when Hermes refuses an approval because nobody is attached |
-| `on_profile_change` | Log the profile, the resolution, and the path, then re-read settings | Ignored by Hermes. A relative profile home is rejected. A profile with no plugin settings keeps the previous configuration |
 
 Consequences for the adapter and the enforcer:
 
@@ -820,9 +861,9 @@ Consequences for the adapter and the enforcer:
   can echo tool arguments, and an exception in `transform_tool_result`
   fails open. The adapter returns its own block from `pre_tool_call` and
   `None` from the other hooks, and logs the exception for the operator.
-- A profile whose config still has a top-level `petasos:` section, and no
-  plugin settings, is not read. The adapter logs one line that names
-  `petasos config migrate`.
+- A profile whose config still has a top-level `petasos:` section is not a
+  host event the adapter watches. `petasos config migrate` is the command
+  that reads that section. The running plugin reads `ctx.get_config`.
 - The enforcer's own time limits sit below the host's, so a slow scan becomes
   a Petasos decision under `fail_mode` and not a host timeout followed by a
   minute of blanket blocking.
