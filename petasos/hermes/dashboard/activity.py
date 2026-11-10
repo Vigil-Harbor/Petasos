@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any
 from petasos.enforce.approvals import redact_display_text
 from petasos.enforce.events import classify_integrity_failure, verify_event
 from petasos.hermes.dashboard.errors import ApiError, envelope
-from petasos.hermes.dashboard.words import describe_event
+from petasos.hermes.dashboard.words import describe_event, kind_label, outcome, rule_sentence
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -171,6 +171,9 @@ def summarize(
     located, complete = _collect(spool, rotated, max_bytes, None)
     counts: dict[str, int] = {}
     severities: dict[str, int] = {}
+    tools: dict[str, int] = {}
+    sessions: dict[str, int] = {}
+    outcomes: dict[str, int] = {}
     blocked = 0
     failed = 0
     checked = 0
@@ -186,7 +189,11 @@ def summarize(
             counts[kind] = counts.get(kind, 0) + 1
         severity = item.record.get("severity")
         if isinstance(severity, str) and severity:
-            severities[severity] = severities.get(severity, 0) + 1
+            folded = severity.lower()
+            severities[folded] = severities.get(folded, 0) + 1
+        _count(tools, item.record.get("tool"))
+        _count(sessions, item.record.get("session_id"))
+        _count(outcomes, outcome(item.record)["code"])
         if kind in {"quarantine", "block", "tier3"}:
             blocked += 1
         if key is not None:
@@ -198,6 +205,10 @@ def summarize(
         blocked=blocked,
         by_kind=counts,
         by_severity=severities,
+        by_tool=tools,
+        by_session=sessions,
+        by_outcome=outcomes,
+        kind_labels={kind: kind_label(kind) for kind in counts},
         complete=complete,
         integrity={
             "mode": _mode(key, checked, failed),
@@ -206,6 +217,11 @@ def summarize(
             "failed": failed,
         },
     )
+
+
+def _count(counts: dict[str, int], value: object) -> None:
+    if isinstance(value, str) and value:
+        counts[value] = counts.get(value, 0) + 1
 
 
 def _collect(
@@ -303,7 +319,11 @@ def _matches(record: Mapping[str, Any], query: ActivityQuery) -> bool:
         return False
     if query.session and record.get("session_id") != query.session:
         return False
-    return not (query.severity and record.get("severity") != query.severity)
+    if query.severity:
+        severity = record.get("severity")
+        if not isinstance(severity, str) or severity.lower() != query.severity.lower():
+            return False
+    return True
 
 
 def _event(
@@ -313,6 +333,11 @@ def _event(
 ) -> dict[str, Any]:
     shown = _redact_record(record, redactor)
     shown["summary"] = describe_event(record)
+    shown["outcome"] = outcome(record)
+    kind = record.get("event_type")
+    shown["kind_label"] = kind_label(kind) if isinstance(kind, str) else ""
+    rule = record.get("rule_id")
+    shown["rule_sentence"] = rule_sentence(rule) if isinstance(rule, str) else ""
     shown["integrity"] = _one(record, key)
     return shown
 
