@@ -45,7 +45,7 @@ Build backend is Hatch (`pyproject.toml`).
 
 ### All Features Free
 
-All features ship free and keyless. Detection (scanner protocol, pluggable backends, syntactic pre-filter, normalization, PII anonymization) and session intelligence (frequency tracking, escalation tiers, profiles, tool call guard, audit trails, alerting) are both available out of the box. License machinery (`LicenseValidator`, `activate`/`deactivate`) is preserved for future supporter-token or compliance-tier use but does not gate any feature.
+All features ship free and keyless. Detection (scanner protocol, pluggable backends, syntactic pre-filter, normalization, PII anonymization) and session intelligence (frequency tracking, escalation tiers, profiles, tool call guard, audit trails, alerting) are both available out of the box. Every feature is controlled by config toggles.
 
 ### Scanner Protocol
 
@@ -100,8 +100,7 @@ petasos/
 │   ├── guard.py         # ToolCallGuard
 │   ├── ingest.py        # scan_ingestion_result, IngestionScanResult, head/chunk/ceiling constants
 │   ├── audit.py         # AuditEmitter (verbosity-gated)
-│   ├── alerting.py      # AlertManager (5 rules + rate limiting)
-│   └── license.py       # JWT validation (local, parked for future use)
+│   └── alerting.py      # AlertManager (5 rules + rate limiting)
 ```
 
 ## Key Design Invariants
@@ -111,7 +110,6 @@ petasos/
 - **Zero required ML deps at base install** — scanner backends are pip extras, not hard deps. `pip install petasos` is lightweight; `pip install petasos[all]` is about 1.2 GiB (Windows, Python 3.14) plus about 1.1 GB of gated PromptGuard weights.
 - **Frozen exports** — built-in profiles, rules, and default configs must be immutable (defensive copies, frozen dataclasses).
 - **Tier 3 escalation cannot be disabled** — hardcoded floor, no config override.
-- **License machinery is parked** — `activate()` validates and stores JWT state for future supporter/compliance recognition but does not gate any feature. All features are controlled by config toggles.
 
 ## Test Standards
 

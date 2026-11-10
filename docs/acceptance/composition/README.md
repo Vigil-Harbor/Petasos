@@ -118,8 +118,8 @@ Read the evidence file before committing it.
 3. Read the store-Python path from the live `installs/<key>/facts.json`.
    Do not hardcode it. Do not use anything else in that file.
 4. Run the gate with a throwaway `--workdir` whose path has no space and no
-   comma. The `python` that runs the driver needs PyJWT and PyYAML, for
-   example a venv with `pip install "pyjwt[crypto]" pyyaml` or this
+   comma. The `python` that runs the driver needs PyYAML, for
+   example a venv with `pip install pyyaml` or this
    repo's dev environment. The driver imports `petasos` from its own
    checkout and uses that `PetasosConfig` to decide which live settings
    to copy. Preflight stops when its `petasos/config.py` differs from the

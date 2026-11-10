@@ -67,7 +67,7 @@ def _reset(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     # Cache is keyed by (mtime_ns, size), not path — reset so a fresh tmp file
     # can't be served a coincidentally-matching stale key.
     reload_mod._reset_reload_cache()
-    for var in ("PETASOS_SESSION_SECRET", "PETASOS_HASH_KEY", "PETASOS_LICENSE_KEY"):
+    for var in ("PETASOS_SESSION_SECRET", "PETASOS_HASH_KEY"):
         monkeypatch.delenv(var, raising=False)
     yield
     reload_mod._reset_reload_cache()

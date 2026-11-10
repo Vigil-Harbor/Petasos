@@ -31,7 +31,6 @@ def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Strip the env knobs the builder/entrypoint read, so each test controls them
     explicitly and an ambient value (a live deployment's secret) can't leak in."""
     for var in (
-        "PETASOS_LICENSE_KEY",
         "PETASOS_SESSION_SECRET",
         "PETASOS_HASH_KEY",
         "PETASOS_CONSOLE_TOKEN",

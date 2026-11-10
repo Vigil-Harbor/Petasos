@@ -159,50 +159,6 @@ paths:
               schema:
                 $ref: "#/components/schemas/HealthResponse"
 
-  /api/activate:
-    post:
-      operationId: activateLicense
-      summary: Activate a premium license key
-      description: |
-        Accepts a JWT license key and calls `pipeline.activate(key)`.
-        Returns the resulting license state. On success (state=valid),
-        premium features unlock immediately — the frontend should
-        re-render premium sections as enabled without a page reload.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [key]
-              properties:
-                key:
-                  type: string
-                  description: JWT license key
-      responses:
-        "200":
-          description: Activation result
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ActivationResult"
-
-  /api/deactivate:
-    post:
-      operationId: deactivateLicense
-      summary: Deactivate the current license
-      description: |
-        Calls `pipeline.deactivate()`. Premium features revert to
-        locked state. Frontend should re-render premium sections
-        as disabled + CTA.
-      responses:
-        "200":
-          description: Deactivation confirmed
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ActivationResult"
-
   /api/profiles:
     get:
       operationId: listProfiles
@@ -775,9 +731,6 @@ components:
               description: SHA256 of serialized config — use to detect config drift
         premium_features:
           $ref: "#/components/schemas/PremiumFeatureManifest"
-        license_state:
-          type: string
-          enum: [inactive, valid, expired, invalid]
 
     ScannerHealth:
       type: object
@@ -805,41 +758,6 @@ components:
           type: string
           nullable: true
           description: Most recent scan error or probe reason, null when healthy
-
-    # ── Activation ──
-
-    ActivationResult:
-      type: object
-      required: [state, premium_features]
-      properties:
-        state:
-          type: string
-          enum: [inactive, valid, expired, invalid]
-        premium_features:
-          $ref: "#/components/schemas/PremiumFeatureManifest"
-        claims:
-          $ref: "#/components/schemas/LicenseClaims"
-
-    LicenseClaims:
-      type: object
-      nullable: true
-      description: Present only when state=valid
-      properties:
-        tier:
-          type: string
-          enum: [free, standard, pro, enterprise]
-        customer_id:
-          type: string
-        expiry:
-          type: string
-          format: date-time
-        issued_at:
-          type: string
-          format: date-time
-        features:
-          type: array
-          items:
-            type: string
 
     # ── Profiles ──
 

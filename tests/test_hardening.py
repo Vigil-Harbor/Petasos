@@ -15,7 +15,6 @@ from petasos._types import (
 from petasos.config import PetasosConfig
 from petasos.pipeline import Pipeline
 from petasos.scanners.minimal import RULE_TAXONOMY
-from petasos.session.license import LicenseClaims
 from petasos.session.profiles import ProfileResolver
 
 
@@ -67,19 +66,6 @@ class TestFrozenDataclasses:
         with pytest.raises(AttributeError):
             a.message = "hacked"  # type: ignore[misc]
 
-    def test_license_claims_frozen(self) -> None:
-        from datetime import datetime, timezone
-
-        c = LicenseClaims(
-            tier="pro",
-            customer_id="c1",
-            expiry=datetime.now(tz=timezone.utc),
-            issued_at=datetime.now(tz=timezone.utc),
-            features=frozenset(),
-        )
-        with pytest.raises(AttributeError):
-            c.tier = "hacked"  # type: ignore[misc]
-
 
 class TestDefensiveCopies:
     def test_pipeline_config_is_copy(self) -> None:
@@ -99,9 +85,8 @@ class TestDefensiveCopies:
         r = PipelineResult(safe=True, findings=(), errors=())
         assert isinstance(r.errors, tuple)
 
-    def test_feature_status_is_mapping_proxy(self, valid_key: str) -> None:
+    def test_feature_status_is_mapping_proxy(self) -> None:
         p = Pipeline(config=PetasosConfig(frequency_enabled=True))
-        p.activate(valid_key)
         result_sync = p._build_feature_status()
         assert isinstance(result_sync, MappingProxyType)
         with pytest.raises(TypeError):

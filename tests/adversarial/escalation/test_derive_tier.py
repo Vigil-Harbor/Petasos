@@ -51,10 +51,9 @@ class TestDeriveTierBoundaries:
 
 
 class TestGuardDeriveTier:
-    async def test_guard_with_profile_thresholds(self, valid_key: str) -> None:
+    async def test_guard_with_profile_thresholds(self) -> None:
         cfg = _cfg(tier1_threshold=15.0, tier2_threshold=30.0, tier3_threshold=50.0)
         pipe = Pipeline(config=cfg)
-        pipe.activate(valid_key)
         tracker = FrequencyTracker(cfg)
 
         profile = ResolvedProfile(
@@ -76,10 +75,9 @@ class TestGuardDeriveTier:
         result = await guard.evaluate("bash", {}, "s1")
         assert result.tier == "tier2"
 
-    async def test_guard_without_profile_falls_back(self, valid_key: str) -> None:
+    async def test_guard_without_profile_falls_back(self) -> None:
         cfg = _cfg(tier1_threshold=15.0, tier2_threshold=30.0, tier3_threshold=50.0)
         pipe = Pipeline(config=cfg)
-        pipe.activate(valid_key)
         tracker = FrequencyTracker(cfg)
         guard = ToolCallGuard(pipe, tracker, cfg)
 

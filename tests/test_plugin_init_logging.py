@@ -109,7 +109,7 @@ def test_identity_hash_read_error_logs_unavailable_and_register_continues(
 
 @pytest.fixture(autouse=True)
 def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    for var in ("PETASOS_LICENSE_KEY", "PETASOS_SESSION_SECRET", "PETASOS_HASH_KEY"):
+    for var in ("PETASOS_SESSION_SECRET", "PETASOS_HASH_KEY"):
         monkeypatch.delenv(var, raising=False)
 
 

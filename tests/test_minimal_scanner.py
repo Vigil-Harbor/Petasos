@@ -1051,11 +1051,11 @@ class TestDecodeAndRescan:
         result = await MinimalScanner().scan(blob)
         assert [f for f in result.findings if f.finding_type == "injection"] == []
 
-    async def test_jwt_and_hash_stay_silent(self) -> None:
-        # Regression for PET-98: a JWT, a SHA/commit hash, an even-length hex blob,
+    async def test_dotted_token_and_hash_stay_silent(self) -> None:
+        # A three-part dotted token, a SHA/commit hash, an even-length hex blob,
         # and an image data: URI decode to bytes carrying no injection anchor (or
         # fail strict decode) — no injection finding.
-        jwt = (
+        dotted = (
             "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
             "eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ."
             "SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV"
@@ -1067,7 +1067,7 @@ class TestDecodeAndRescan:
             "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
         )
         scanner = MinimalScanner()
-        for text in (jwt, sha, hex_blob, data_uri):
+        for text in (dotted, sha, hex_blob, data_uri):
             result = await scanner.scan(text)
             injection = [f.rule_id for f in result.findings if f.finding_type == "injection"]
             assert injection == [], f"{text[:40]!r} fired injection rules {injection}"

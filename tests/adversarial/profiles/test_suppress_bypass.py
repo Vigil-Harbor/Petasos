@@ -9,9 +9,8 @@ from petasos.scanners.minimal import _COMMAND_RULE_IDS, RULE_TAXONOMY
 from petasos.session.profiles import _UNSUPPRESSIBLE_RULE_IDS
 
 
-async def test_suppress_all_rules_adversarial(valid_key: str) -> None:
+async def test_suppress_all_rules_adversarial() -> None:
     pipe = Pipeline()
-    pipe.activate(valid_key)
 
     suppress_all_profile = {"suppress_rules": sorted(RULE_TAXONOMY)}
 
@@ -30,13 +29,12 @@ async def test_suppress_all_rules_adversarial(valid_key: str) -> None:
     )
 
 
-async def test_family_is_suppressible(valid_key: str) -> None:
+async def test_family_is_suppressible() -> None:
     # Regression for PET-94 (Decision 1): the command family IS suppressible
     # (unlike injection). A custom profile listing the five command rule_ids
     # keeps all five through _validate_suppress_rules and they take effect, while
     # an injection rule_id in the same list is stripped and keeps firing.
     pipe = Pipeline()
-    pipe.activate(valid_key)
 
     inj_id = "petasos.syntactic.injection.ignore-previous"
     profile = {"suppress_rules": sorted(_COMMAND_RULE_IDS) + [inj_id]}

@@ -2232,7 +2232,6 @@ class ConsoleHandlers:
             # hardcoded fallback (a literal can only mask a real packaging defect).
             "version": petasos.__version__,
             "repo_url": "https://github.com/Vigil-Harbor/Petasos",
-            "license": "MIT",
             "description": (
                 "Pluggable, session-aware content security pipeline for Python AI agents"
             ),

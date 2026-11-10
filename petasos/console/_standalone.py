@@ -41,8 +41,8 @@ def build_dashboard_pipeline(raw_config: dict[str, Any]) -> Pipeline:
     (``PETASOS_SESSION_SECRET`` base64-decoded into ``session_secret``,
     ``PETASOS_HASH_KEY`` into ``hash_key``), the ``PetasosConfig.from_dict``
     bad-config-falls-back-to-defaults guard, the scanner build with per-scanner
-    probe logging, the ``Pipeline(host_id="dashboard")`` construction, the
-    ``PETASOS_LICENSE_KEY`` activation, and the self-initialized summary log.
+    probe logging, the ``Pipeline(host_id="dashboard")`` construction, and the
+    self-initialized summary log.
 
     The caller owns only the two ends: resolving ``raw_config`` (e.g.
     ``plugin_api._load_config()``) and wiring the result (e.g. ``init_handlers``).
@@ -114,10 +114,6 @@ def build_dashboard_pipeline(raw_config: dict[str, Any]) -> Pipeline:
             logger.warning("Dashboard scanner %s failed: %s", st.display_name, st.reason)
 
     pipeline = Pipeline(config=config, scanners=scanners, host_id="dashboard")
-
-    license_key = os.environ.get("PETASOS_LICENSE_KEY")
-    if license_key:
-        pipeline.activate(license_key)
 
     logger.info(
         "Dashboard self-initialized pipeline: scanners=%s, unavailable=%s",

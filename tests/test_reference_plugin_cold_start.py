@@ -64,7 +64,7 @@ def _import_reference_plugin() -> types.ModuleType:
 
 @pytest.fixture(autouse=True)
 def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    for var in ("PETASOS_LICENSE_KEY", "PETASOS_SESSION_SECRET", "PETASOS_HASH_KEY"):
+    for var in ("PETASOS_SESSION_SECRET", "PETASOS_HASH_KEY"):
         monkeypatch.delenv(var, raising=False)
 
 

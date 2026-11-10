@@ -179,7 +179,7 @@ def _reset(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     # can't be served a coincidentally-matching stale key.
     armed_mod._reset_armed_cache()
     reload_mod._reset_reload_cache()
-    for var in ("PETASOS_SESSION_SECRET", "PETASOS_HASH_KEY", "PETASOS_LICENSE_KEY"):
+    for var in ("PETASOS_SESSION_SECRET", "PETASOS_HASH_KEY"):
         monkeypatch.delenv(var, raising=False)
     yield
     armed_mod._reset_armed_cache()

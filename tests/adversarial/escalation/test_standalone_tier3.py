@@ -1,4 +1,4 @@
-"""PET-75 ESC-01: Standalone tier-3 safety net fires regardless of license/frequency state."""
+"""Standalone tier-3 safety net fires when frequency tracking is off."""
 
 from __future__ import annotations
 
@@ -37,27 +37,17 @@ async def test_tier3_fires_without_frequency() -> None:
     assert result.safe is False
 
 
-async def test_tier3_fires_without_license() -> None:
-    scanner = MinimalScanner(max_payload_bytes=100, max_json_depth=5)
-    cfg = _cfg()
-    pipe = Pipeline(scanners=[scanner], config=cfg)
-    result = await pipe.inspect(_payload_3_critical())
-    assert result.escalation_tier == "tier3"
-    assert result.safe is False
-
-
-async def test_below_threshold_no_tier3(valid_key: str) -> None:
+async def test_below_threshold_no_tier3() -> None:
     scanner = MinimalScanner(max_payload_bytes=100, max_json_depth=5)
     cfg = _cfg(frequency_enabled=False, escalation_enabled=True)
     pipe = Pipeline(scanners=[scanner], config=cfg)
-    pipe.activate(valid_key)
     result = await pipe.inspect("\x01" * 10 + "[" * 20 + "]" * 20)
     critical_count = sum(1 for f in result.findings if f.severity == Severity.CRITICAL)
     assert critical_count == 2
     assert result.escalation_tier is None
 
 
-async def test_standalone_idempotent_with_frequency(valid_key: str) -> None:
+async def test_standalone_idempotent_with_frequency() -> None:
     scanner = MinimalScanner(max_payload_bytes=100, max_json_depth=5)
     cfg = _cfg(
         frequency_enabled=True,
@@ -65,20 +55,18 @@ async def test_standalone_idempotent_with_frequency(valid_key: str) -> None:
         tier3_threshold=50.0,
     )
     pipe = Pipeline(scanners=[scanner], config=cfg)
-    pipe.activate(valid_key)
     for _ in range(6):
         result = await pipe.inspect(_payload_3_critical(), session_id="s1")
     assert result.escalation_tier == "tier3"
     assert result.safe is False
 
 
-async def test_standalone_survives_severity_override(valid_key: str) -> None:
+async def test_standalone_survives_severity_override() -> None:
     from petasos.session.profiles import ResolvedProfile
 
     scanner = MinimalScanner(max_payload_bytes=100, max_json_depth=5)
     cfg = _cfg(frequency_enabled=False, escalation_enabled=True)
     pipe = Pipeline(scanners=[scanner], config=cfg)
-    pipe.activate(valid_key)
     profile = ResolvedProfile(
         name="test",
         suppress_rules=frozenset(),

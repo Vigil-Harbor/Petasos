@@ -36,7 +36,6 @@ from petasos.session.formatting import (
 from petasos.session.frequency import FrequencyTracker, FrequencyUpdateResult, SessionToken
 from petasos.session.guard import GuardResult, ToolCallGuard
 from petasos.session.ingest import IngestionScanResult, scan_ingestion_result
-from petasos.session.license import LicenseClaims, LicenseState, LicenseValidator, validate_license
 from petasos.session.lineage import LineageRegistry
 from petasos.session.profiles import ProfileResolver, ResolvedProfile, TierThresholds
 from petasos.session.taint import SessionTaintStore
@@ -57,9 +56,6 @@ __all__ = [
     "format_pipeline_block_message",
     "format_result_notice",
     "IngestionScanResult",
-    "LicenseClaims",
-    "LicenseState",
-    "LicenseValidator",
     "LineageRegistry",
     "max_tier",
     "MinimalScanner",
@@ -87,7 +83,6 @@ __all__ = [
     "normalize",
     "scan_ingestion_result",
     "shorten_rule_id",
-    "validate_license",
 ]
 
 __version__ = "0.4.0"

@@ -7,8 +7,8 @@ how it works, when it runs, and what you get by installing its optional extra.
 
 Detection ships free and keyless. The zero-dependency syntactic scanner is
 always present. The four machine-learning backends are *dependency-gated*: they
-are normal pip extras you opt into (`pip install petasos[...]`), not paid or
-licensed tiers. A backend you do not want belongs in `disabled_scanners`, which
+are normal pip extras you opt into (`pip install petasos[...]`), not paid
+tiers. A backend you do not want belongs in `disabled_scanners`, which
 leaves it out of the pipeline. A backend that stays registered without its extra
 errors on every scan, which blocks content under `degraded` (the default) and
 `closed`.
@@ -140,7 +140,7 @@ model sees at most 512 tokens of those. Text past that window is not scored by
 this backend. `MinimalScanner` still covers it. This matches the LlamaFirewall
 wrapper.
 
-**Getting the model.** It is gated. Accept the license on the
+**Getting the model.** It is gated. Accept the access terms on the
 [model page](https://huggingface.co/meta-llama/Llama-Prompt-Guard-2-86M), then
 either make a token available (`HF_TOKEN`, `HUGGING_FACE_HUB_TOKEN`,
 `HF_TOKEN_PATH`, or `<HF_HOME>/token`) or pre-download the pinned revision. The
@@ -238,7 +238,7 @@ installing the extra is not enough on its own. Before the first live scan:
 
 1. Request access on the model page,
    [huggingface.co/meta-llama/Llama-Prompt-Guard-2-86M](https://huggingface.co/meta-llama/Llama-Prompt-Guard-2-86M),
-   while signed in, and accept Meta's license. Approval is usually quick.
+   while signed in, and accept Meta's access terms. Approval is usually quick.
 2. Authenticate locally so the download can use that grant: run
    `huggingface-cli login`, or set `HF_TOKEN` to a read token from your account.
    Confirm with `huggingface-cli whoami`.

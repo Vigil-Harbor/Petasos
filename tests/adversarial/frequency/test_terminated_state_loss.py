@@ -86,10 +86,9 @@ class TestTerminatedSurvivesLruEviction:
 
 
 class TestGuardBlocksAfterTtlEviction:
-    async def test_guard_blocks_after_ttl_eviction(self, valid_key: str) -> None:
+    async def test_guard_blocks_after_ttl_eviction(self) -> None:
         cfg = _cfg(session_ttl_seconds=100.0, tier3_threshold=50.0)
         pipe = Pipeline(config=cfg)
-        pipe.activate(valid_key)
         tracker = FrequencyTracker(cfg)
         guard = ToolCallGuard(pipe, tracker, cfg)
 
@@ -114,10 +113,9 @@ class TestGuardBlocksAfterTtlEviction:
 
 
 class TestGuardBlocksAfterLruEviction:
-    async def test_guard_blocks_after_lru_eviction(self, valid_key: str) -> None:
+    async def test_guard_blocks_after_lru_eviction(self) -> None:
         cfg = _cfg(max_sessions=3, tier3_threshold=50.0, session_ttl_seconds=9999.0)
         pipe = Pipeline(config=cfg)
-        pipe.activate(valid_key)
         tracker = FrequencyTracker(cfg)
         guard = ToolCallGuard(pipe, tracker, cfg)
 
@@ -146,10 +144,9 @@ class TestGuardBlocksAfterLruEviction:
 
 
 class TestResetDoesNotResurrect:
-    async def test_reset_does_not_resurrect_terminated(self, valid_key: str) -> None:
+    async def test_reset_does_not_resurrect_terminated(self) -> None:
         cfg = _cfg(tier3_threshold=50.0)
         pipe = Pipeline(config=cfg)
-        pipe.activate(valid_key)
         tracker = FrequencyTracker(cfg)
         guard = ToolCallGuard(pipe, tracker, cfg)
 

@@ -218,7 +218,6 @@ async def test_get_about(handlers: ConsoleHandlers) -> None:
     # Regression for PET-141: version pins to the package single-source, not a
     # hand-bumped "0.1.2" literal — the payload-shape smoke check stays.
     assert result["version"] == petasos.__version__
-    assert result["license"] == "MIT"
     assert "donation" in result
     assert "url" in result["donation"]
     assert "credits" in result

@@ -49,7 +49,7 @@ _EGRESS = frozenset({canonicalize_tool_name(t) for t in ("send_email", "http_req
 
 @pytest.fixture(autouse=True)
 def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    for var in ("PETASOS_LICENSE_KEY", "PETASOS_SESSION_SECRET", "PETASOS_HASH_KEY"):
+    for var in ("PETASOS_SESSION_SECRET", "PETASOS_HASH_KEY"):
         monkeypatch.delenv(var, raising=False)
 
 

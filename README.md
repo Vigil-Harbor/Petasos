@@ -19,7 +19,7 @@ A capable agent runtime already guards the dangerous edges: it sandboxes executi
 
 Detection is only half of it. A runtime gives you the hooks to log what happens; Petasos turns them into security visibility you don't have to build. Every scan is recorded, each session's risk is scored, and alerts fire on the patterns that matter (rapid-fire attempts, cross-session bursts, PII spikes), so a prompt injection that was only *attempted* becomes a signal you can act on, not a silent non-event. When it blocks something, it tells the agent exactly what happened and why: no silent failures, no guessing.
 
-All features ship free. No license key, no tiered pricing, no "contact sales." Install it and it works out of the box. (The optional ML backends fetch their own model weights on first use, and PromptGuard 2 is a gated model that needs a one-time Hugging Face approval; see Install below.)
+All features ship free. No tiered pricing, no "contact sales." Install it and it works out of the box. (The optional ML backends fetch their own model weights on first use, and PromptGuard 2 is a gated model that needs a one-time Hugging Face approval; see Install below.)
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/Vigil-Harbor/Petasos/master/assets/petasos-demo-loop.webp" alt="Petasos guardrail scan demo" width="800"/>

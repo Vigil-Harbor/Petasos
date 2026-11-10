@@ -5,7 +5,6 @@ import contextlib
 import hashlib
 import logging
 import math
-import os
 import threading
 import time
 from collections.abc import Callable
@@ -37,7 +36,6 @@ from petasos.scanners.semgrep import PreparedSemgrepScan, SemgrepScanner
 from petasos.session.alerting import AlertManager
 from petasos.session.audit import AuditEmitter
 from petasos.session.frequency import FrequencyTracker, FrequencyUpdateResult
-from petasos.session.license import LicenseClaims, LicenseState, LicenseValidator
 from petasos.session.profiles import ProfileResolver, ResolvedProfile
 
 _logger = logging.getLogger(__name__)
@@ -360,9 +358,6 @@ class Pipeline:
         self._host_id = host_id
         if self._config.session_secret is not None and not host_id:
             raise ValueError("host_id is required when session_secret is configured")
-        self._license_validator = LicenseValidator()
-        self._license_state = LicenseState.INACTIVE
-        self._license_claims: LicenseClaims | None = None
 
         scanner_list = list(scanners)
         if sum(isinstance(s, SemgrepScanner) for s in scanner_list) > 1:
@@ -409,20 +404,13 @@ class Pipeline:
         self._audit_emitter = AuditEmitter(self._config, on_audit=on_audit)
         self._alert_manager = AlertManager(self._config, on_alert=on_alert)
 
-        # Per-scanner circuit-breaker state (PIPE-03). Single-threaded asyncio
-        # access only — same threading contract as license state (see activate()).
+        # Per-scanner circuit-breaker state. Single-threaded asyncio access only.
         self._breaker_consecutive_timeouts: dict[str, int] = {}
         self._breaker_open_until: dict[str, float] = {}
         self._last_scan_durations: dict[str, float] = {}
         self._last_scan_errors: dict[str, str] = {}
         self._semgrep_lock = threading.Lock()
         self._semgrep_reconfigure_warned = False
-
-        # Auto-activation from the process environment for supporter/compliance
-        # recognition. License state is tracked but does not gate features.
-        env_key = os.environ.get("PETASOS_LICENSE_KEY")
-        if env_key:
-            self.activate(env_key)
 
     @property
     def config(self) -> PetasosConfig:
@@ -504,32 +492,6 @@ class Pipeline:
         # Commit the swap, then re-resolve the profile with constructor precedence.
         self._config = applied
         self._default_profile = self._resolve_profile(self._profile_arg)
-
-    def activate(self, key: str) -> LicenseState:
-        """Validate a license key for supporter/compliance recognition.
-
-        License state is tracked but does not gate feature execution — all
-        features are controlled by config toggles. The key serves as a
-        supporter token or future compliance tier marker.
-
-        Threading (PIPE-10): license state is mutated non-atomically. Petasos is
-        single-threaded asyncio; do not call ``activate``/``deactivate`` from a
-        thread other than the one driving the event loop while a scan is in
-        flight. Accepted residual — no lock.
-        """
-        state, claims = self._license_validator.validate(key)
-        self._license_state = state
-        self._license_claims = claims if state == LicenseState.VALID else None
-        return state
-
-    def deactivate(self) -> None:
-        """Reset license state to INACTIVE.
-
-        Does not affect feature availability — features are controlled by
-        config toggles. Threading: not synchronized — see ``activate``.
-        """
-        self._license_state = LicenseState.INACTIVE
-        self._license_claims = None
 
     @property
     def host_id(self) -> str:
@@ -1162,7 +1124,7 @@ class Pipeline:
         This never throws and never bypasses the syntactic pre-filter, so the
         never-throws and fail-mode invariants hold — in degraded mode a tripped
         breaker still blocks content (the error counts toward _compute_safe).
-        Single-threaded asyncio access only (see activate() threading contract).
+        Single-threaded asyncio access only.
         """
         sname = getattr(scanner, "name", "unknown")
         threshold = self._config.scanner_circuit_breaker_threshold

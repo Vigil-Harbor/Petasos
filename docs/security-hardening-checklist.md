@@ -30,16 +30,14 @@ Audit artifact for the 0.1.0 release. Verifies existing code against [Drawbridge
 
 | Check | Status | Evidence |
 |-------|--------|----------|
-| Local-only license validation | PASS | `LicenseValidator` uses Ed25519/EdDSA with a bundled public key (`premium/license.py`). Zero network calls at runtime. |
-| Keys never logged | PASS | `AuditEmitter.emit()` records `finding_count`, `safe`, `escalation_tier`, `session_score` — never license keys, raw tokens, or PII content. Payload is constructed from `PipelineResult` fields only (`premium/audit.py`). |
-| No key persistence | PASS | License state is held in-memory (`_license_state`, `_license_claims`). No disk write, no environment mutation. `deactivate()` clears both fields. |
+| Keys never logged | PASS | `AuditEmitter.emit()` records `finding_count`, `safe`, `escalation_tier`, `session_score` — never raw tokens or PII content. Payload is constructed from `PipelineResult` fields only (`premium/audit.py`). |
 | Hash key isolation | PASS | `hash_key` for HMAC anonymization is passed through `PetasosConfig` and used only in `_HmacSha256Operator.operate()`. Never logged, never stored beyond the function scope. |
 
 ## 4. Frozen Exports
 
 | Check | Status | Evidence |
 |-------|--------|----------|
-| Immutable data types | PASS | `ScanFinding`, `ScanResult`, `PipelineResult`, `Position`, `AuditEvent`, `Alert`, `LicenseClaims` — all `@dataclass(frozen=True)`. |
+| Immutable data types | PASS | `ScanFinding`, `ScanResult`, `PipelineResult`, `Position`, `AuditEvent`, `Alert` — all `@dataclass(frozen=True)`. |
 | Immutable config copies | PASS | `PetasosConfig.copy()` returns a new instance via `replace()`. Pipeline stores `config.copy()` (pipeline.py line 161). |
 | Immutable built-in profiles | PASS | `BUILT_IN_PROFILES` uses `MappingProxyType`. `ResolvedProfile` is `frozen=True`. `suppress_rules` is `frozenset`. |
 | Immutable rule taxonomy | PASS | `RULE_TAXONOMY` in `minimal.py` is `frozenset[str]`. Pattern lists are module-level constants. |
