@@ -276,7 +276,7 @@ def test_each_event_says_what_was_done_in_words(tmp_path: Path) -> None:
     assert "said no" in answered["summary"]
     assert paused["outcome"]["code"] == "allowed"
     assert paused["rule_sentence"] == ""
-    assert tier2["summary"].endswith("risk score is too high.")
+    assert tier2["summary"].endswith("warning signs earlier in this conversation added up.")
 
 
 def test_summary_breaks_counts_down_for_filters(tmp_path: Path) -> None:
@@ -347,13 +347,14 @@ def test_a_guardrail_change_says_whether_the_call_was_stopped(tmp_path: Path) ->
     }
     hot = by_session["hot"]
     assert hot["outcome"] == {"code": "attempt_blocked", "label": "Blocked"}
-    assert "risk score was already too high" in hot["summary"]
+    assert "warning signs earlier in this conversation had already added up" in hot["summary"]
     assert hot["target"] == "~/.hermes/config.yaml"
     calm = by_session["calm"]
     # The next event is for another tool, so it is not this call's outcome.
     assert calm["outcome"] == {"code": "not_stopped", "label": "Not stopped"}
     assert "did not stop it" in calm["summary"]
     assert "Recording an attempt does not stop it" in calm["outcome_note"]
+    assert "cannot show whether the change took effect" in calm["outcome_note"]
     counts = summarize(live, _rot(live), key=None, verification=_OFF, query=ActivityQuery())[
         "by_outcome"
     ]
@@ -393,3 +394,62 @@ def test_each_event_says_what_its_signature_proves(tmp_path: Path) -> None:
     unsigned = _page(live)["events"][0]
     assert unsigned["integrity"]["status"] == "off"
     assert unsigned["integrity"]["meaning"].startswith("Not signed")
+
+
+def test_the_blocked_count_agrees_with_the_rows_it_sits_above(tmp_path: Path) -> None:
+    """A search can match a blocked attempt without the block written for the same call.
+
+    The attempt still counts as one blocked call; when both match, the call counts once.
+    """
+    live = tmp_path / "petasos-enforcement.jsonl"
+    _emit(
+        live,
+        [
+            _selfmod("calm"),
+            {"event_type": "quarantine", "tool": "read_file", "session_id": "calm"},
+            _selfmod("hot"),
+            {"event_type": "block", "tier": "tier2", "tool": "write_file", "session_id": "hot"},
+        ],
+    )
+
+    def counted(query: ActivityQuery) -> tuple[int, int, list[str]]:
+        summary = summarize(live, _rot(live), key=None, verification=_OFF, query=query)
+        rows = _page(live, query=query)["events"]
+        assert summary["total"] == len(rows)
+        return summary["total"], summary["blocked"], [row["outcome"]["label"] for row in rows]
+
+    # The words of a guardrail attempt match both attempts and neither block.
+    total, blocked, labels = counted(ActivityQuery(text="settings"))
+    assert total == 2
+    assert labels.count("Blocked") == 1
+    assert blocked == 1
+    # Everything: the hot call's attempt and its block are one blocked call.
+    total, blocked, labels = counted(ActivityQuery())
+    assert total == 4
+    assert blocked == 2
+    # One conversation, attempt and block together: still one call.
+    total, blocked, labels = counted(ActivityQuery(session="hot"))
+    assert (total, blocked) == (2, 1)
+
+
+def test_an_outcome_filter_applies_to_the_page_and_the_counts(tmp_path: Path) -> None:
+    """Filtering by outcome happens in the reader, so paging and counts agree with it."""
+    live = tmp_path / "petasos-enforcement.jsonl"
+    _emit(
+        live,
+        [
+            _selfmod("calm"),
+            {"event_type": "quarantine", "tool": "read_file", "session_id": "calm"},
+            _selfmod("hot"),
+            {"event_type": "block", "tier": "tier2", "tool": "write_file", "session_id": "hot"},
+            {"event_type": "bypassed_disarmed", "tool": "terminal", "session_id": "calm"},
+        ],
+    )
+    query = ActivityQuery(outcomes=("not_stopped",))
+    page = _page(live, query=query)
+    assert [event["outcome"]["code"] for event in page["events"]] == ["not_stopped"]
+    summary = summarize(live, _rot(live), key=None, verification=_OFF, query=query)
+    assert (summary["total"], summary["blocked"]) == (1, 0)
+    blocked = ActivityQuery(outcomes=("blocked", "stopped", "attempt_blocked"))
+    summary = summarize(live, _rot(live), key=None, verification=_OFF, query=blocked)
+    assert (summary["total"], summary["blocked"]) == (3, 2)

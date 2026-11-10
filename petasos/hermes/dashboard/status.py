@@ -11,7 +11,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from petasos.hermes.dashboard.errors import envelope
-from petasos.hermes.dashboard.words import WHO_CAN_CHANGE
+from petasos.hermes.dashboard.words import (
+    ADD_CHECK_WHERE,
+    BASIC_CHECKS_COVER,
+    CAPABILITY_WORDS,
+    WHO_CAN_CHANGE,
+)
 from petasos.hermes.doctor import examine, report_payload
 
 if TYPE_CHECKING:
@@ -67,7 +72,7 @@ def status(
             "error": settings_error if isinstance(settings_error, dict) else None,
         },
         scanners=scanners,
-        coverage=coverage(scanners, list(report.suggestions)),
+        coverage=coverage(scanners, list(report.suggestions), registry=registry),
         who_can_change=dict(WHO_CAN_CHANGE),
         record_signing=record_signing(secrets, home_label),
         recommendations=list(report.suggestions),
@@ -104,32 +109,67 @@ def record_signing(secrets: dict[str, Any], home_label: str) -> dict[str, Any]:
     }
 
 
-def coverage(scanners: list[Any], suggestions: list[str]) -> dict[str, Any]:
+def coverage(
+    scanners: list[Any],
+    suggestions: list[str],
+    *,
+    registry: tuple[ScannerSpec, ...] | None = None,
+) -> dict[str, Any]:
     """Which checks are running, which are not, and which of those the doctor recommends.
 
     ``complete`` is true only when every check in the list is active. A missing
     check is ``recommended`` when a doctor suggestion names its package extra.
-    The front end says what is on and what is not from this, not from a guess.
+    ``covers`` says in plain words what each check looks for, from the
+    capabilities the registry lists, so a person reads what is missing before
+    the product's name. ``held`` is true for a check that is turned on and
+    cannot run: the doctor counts it as failed, and tool calls wait.
+    ``command``, when set, is the one command that adds the check, and
+    ``add_where`` says where to run it. The front end says what is on and what
+    is not from this, not from a guess.
     """
+    from petasos.scanners.registry import REGISTRY
+
+    specs = {spec.id: spec for spec in (REGISTRY if registry is None else registry)}
     running: list[dict[str, Any]] = []
     missing: list[dict[str, Any]] = []
     for row in scanners:
         if not isinstance(row, dict):
             continue
-        entry = {"id": row.get("id"), "label": row.get("label"), "state": row.get("state")}
+        entry = {
+            "id": row.get("id"),
+            "label": row.get("label"),
+            "state": row.get("state"),
+            "covers": _covers(row.get("id"), specs),
+        }
         if row.get("state") == "active":
             running.append(entry)
             continue
         extra = row.get("extra")
         named = isinstance(extra, str) and any(f"petasos[{extra}]" in line for line in suggestions)
+        fix = row.get("fix")
         entry["recommended"] = bool(named)
+        entry["held"] = row.get("state") == "unavailable"
         entry["reason"] = row.get("reason")
+        entry["command"] = (
+            fix if isinstance(fix, str) and fix.startswith("petasos scanner add ") else None
+        )
         missing.append(entry)
     return {
         "complete": not missing and bool(running),
         "running": running,
         "missing": missing,
+        "add_where": ADD_CHECK_WHERE,
     }
+
+
+def _covers(scanner_id: object, specs: dict[str, ScannerSpec]) -> str:
+    if scanner_id == "syntactic":
+        return BASIC_CHECKS_COVER
+    spec = specs.get(scanner_id) if isinstance(scanner_id, str) else None
+    if spec is None:
+        return ""
+    words = [CAPABILITY_WORDS[name] for name in sorted(spec.detects) if name in CAPABILITY_WORDS]
+    return ", ".join(words)
 
 
 def _hermes_detail(detail: object) -> str:

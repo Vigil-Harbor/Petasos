@@ -38,6 +38,8 @@ _DISPLAY_LIMIT = 500
 _MAX_TEXT = 200
 # Events Petasos writes for one tool call land within this many seconds.
 _SAME_CALL_S = 5.0
+# Outcomes that mean the tool call did not run.
+_BLOCKED_OUTCOMES = frozenset({"blocked", "stopped", "attempt_blocked"})
 
 _KEEP = frozenset(
     {
@@ -74,6 +76,7 @@ class ActivityQuery:
 
     ``text`` matches an event id exactly or by its start, or any of the event's
     words (its sentence, tool, conversation, rule, kind and reason), ignoring case.
+    ``outcomes`` keeps events whose outcome code is one of these.
     """
 
     since: float | None = None
@@ -83,6 +86,7 @@ class ActivityQuery:
     session: str | None = None
     severity: str | None = None
     text: str | None = None
+    outcomes: tuple[str, ...] = ()
     limit: int = DEFAULT_LIMIT
 
 
@@ -188,6 +192,12 @@ def summarize(
 ) -> dict[str, Any]:
     """Counts over the events that match ``query``.
 
+    ``total`` is the number of matching events, the rows a list shows.
+    ``blocked`` is the number of tool calls among them that did not run. An
+    attempt to change the guardrails that was blocked is written together with
+    the block that stopped it; the call counts once when both match, and once
+    when only the attempt does (a search for its words, say).
+
     A spool larger than ``max_bytes`` sets ``complete`` false. The counts then
     cover the newest bytes only.
     """
@@ -202,12 +212,14 @@ def summarize(
     failed = 0
     checked = 0
     shown = 0
-    for item in located:
-        if item.corrupt:
-            continue
+    matched = [
+        item
+        for item in located
+        if not item.corrupt and _matches(item.record, query, followers.get(id(item)))
+    ]
+    matched_records = {id(item.record) for item in matched}
+    for item in matched:
         follower = followers.get(id(item))
-        if not _matches(item.record, query, follower):
-            continue
         shown += 1
         kind = item.record.get("event_type")
         if isinstance(kind, str) and kind:
@@ -218,8 +230,11 @@ def summarize(
             severities[folded] = severities.get(folded, 0) + 1
         _count(tools, item.record.get("tool"))
         _count(sessions, item.record.get("session_id"))
-        _count(outcomes, outcome(item.record, follower)["code"])
-        if kind in {"quarantine", "block", "tier3"}:
+        code = outcome(item.record, follower)["code"]
+        _count(outcomes, code)
+        if code in _BLOCKED_OUTCOMES and not (
+            code == "attempt_blocked" and follower is not None and id(follower) in matched_records
+        ):
             blocked += 1
         if key is not None:
             checked += 1
@@ -382,6 +397,8 @@ def _matches(
         severity = record.get("severity")
         if not isinstance(severity, str) or severity.lower() != query.severity.lower():
             return False
+    if query.outcomes and outcome(record, follower)["code"] not in query.outcomes:
+        return False
     if query.text:
         return _text_matches(record, query.text, follower)
     return True

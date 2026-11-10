@@ -138,15 +138,49 @@ def test_coverage_says_which_checks_run_and_which_do_not(tmp_path: Path) -> None
     assert missing["semgrep"]["recommended"] is False
     whole = coverage(rows[:1], [])
     assert whole["complete"] is True
+    assert found["running"][0]["covers"].startswith("Hidden instructions")
+    assert missing["prompt_guard"]["covers"] == "reworded hidden instructions"
+    assert missing["semgrep"]["covers"] == "risky code"
+    assert "terminal" in found["add_where"]
     body = status(load_home(_home(tmp_path, _RESEARCH)))
     assert "coverage" in body
     assert body["coverage"]["running"][0]["id"] == "syntactic"
 
 
+def test_a_check_turned_on_that_cannot_run_is_held_with_its_command() -> None:
+    """``held`` marks a check whose failure holds tool calls; the add command is served alone."""
+    from petasos.hermes.dashboard.status import coverage
+
+    rows = [
+        {"id": "syntactic", "label": "Basic checks", "state": "active", "extra": None},
+        {
+            "id": "prompt_guard",
+            "label": "PromptGuard",
+            "state": "unavailable",
+            "extra": "prompt-guard",
+            "reason": "PromptGuard is not installed.",
+            "fix": "petasos scanner add prompt_guard",
+        },
+        {
+            "id": "semgrep",
+            "label": "Semgrep",
+            "state": "unavailable",
+            "extra": "semgrep",
+            "reason": "semgrep.host_lifecycle_unavailable",
+            "fix": "Semgrep needs Hermes to run it, and this process cannot.",
+        },
+    ]
+    missing = {row["id"]: row for row in coverage(rows, [])["missing"]}
+    assert missing["prompt_guard"]["held"] is True
+    assert missing["prompt_guard"]["command"] == "petasos scanner add prompt_guard"
+    assert missing["semgrep"]["held"] is True
+    assert missing["semgrep"]["command"] is None
+
+
 def test_status_says_who_can_change_settings_and_how_to_sign_records(tmp_path: Path) -> None:
     """The agent's attempts are recorded, not stopped; unsigned records come with steps."""
     body = status(load_home(_home(tmp_path, _RESEARCH)), home_label="~/hermes")
-    assert "Recording does not stop it" in body["who_can_change"]["agent"]
+    assert "Recording alone does not stop it" in body["who_can_change"]["agent"]
     signing = body["record_signing"]
     assert signing["signed"] is False
     assert signing["env_file"] == "~/hermes/.env"

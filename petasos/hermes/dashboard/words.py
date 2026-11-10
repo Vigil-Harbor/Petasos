@@ -184,7 +184,7 @@ def describe_event(
         return "Blocked a shell command that would delete files recursively."
     if kind == "block" and _text(event.get("tier")) == "tier2":
         subject = f"a {tool} call" if tool else "a tool call"
-        return f"Blocked {subject} because this conversation's risk score is too high."
+        return f"Blocked {subject} because warning signs earlier in this conversation added up."
     if kind in {"quarantine", "block"}:
         if tool in {"terminal", "execute_code"}:
             subject = "a shell command"
@@ -245,7 +245,7 @@ def _stop_reason(follower: Mapping[str, object] | None) -> str:
     if then == "tier3":
         return "because the conversation had already been stopped"
     if then == "block":
-        return "because the conversation's risk score was already too high"
+        return "because warning signs earlier in this conversation had already added up"
     return "because the call also matched another rule"
 
 
@@ -253,14 +253,10 @@ def selfmod_note(event: Mapping[str, object], follower: Mapping[str, object] | N
     """What an attempt to change the guardrails means for the person reading it."""
     if outcome(event, follower)["code"] == "not_stopped":
         return (
-            "Recording an attempt does not stop it. Petasos blocks such a call only when "
-            "the conversation is already blocked or the call matches another rule. Check "
-            "the target below for a change you did not make."
+            "Recording an attempt does not stop it. This event alone cannot show whether "
+            "the change took effect: check the current settings and the target below."
         )
-    return (
-        "The attempt did not go through. Recording it does not stop a call on its own: "
-        "this one was stopped for the reason above."
-    )
+    return "The attempt did not go through. It was stopped for the reason above."
 
 
 def selfmod_target(event: Mapping[str, object]) -> str:
@@ -272,37 +268,50 @@ def selfmod_target(event: Mapping[str, object]) -> str:
     return ""
 
 
+# What each optional check adds, by the capability the registry lists for it.
+# The status names a missing check by what it would add, and the product second.
+CAPABILITY_WORDS = MappingProxyType(
+    {
+        "injection": "reworded hidden instructions",
+        "pii": "personal details",
+        "code": "risky code",
+    }
+)
+
+# What the basic checks look for, in the same register.
+BASIC_CHECKS_COVER = "Hidden instructions, dangerous commands and disguised text"
+
+# Where to run the command that adds a check. The command itself is served beside it.
+ADD_CHECK_WHERE = (
+    "In a terminal on the computer where Hermes runs, run this command, then restart "
+    "Hermes with Restart Gateway in the sidebar."
+)
+
 # Who can change Petasos's settings, served with the status.
 WHO_CAN_CHANGE = MappingProxyType(
     {
         "agent": (
-            "If the agent tries to change Petasos's or Hermes's settings, Petasos records "
-            "the attempt and raises the conversation's risk score. Recording does not stop "
-            "it: the call is blocked only once the conversation is blocked, or when it "
-            "matches another rule."
+            "An attempt is recorded and raises the conversation's risk score. Recording "
+            "alone does not stop it."
         ),
-        "you": (
-            "Here, in Hermes Desktop's plugin settings, or with hermes config on the command line."
-        ),
+        "you": "Here, in Hermes Desktop's plugin settings, or with hermes config.",
         "switches": (
-            "Hermes's plugin switch, on the Plugins page, decides whether Petasos runs at "
-            "all. Pause, here, keeps Petasos running and recording."
+            "Hermes's plugin switch, on Plugins, decides whether Petasos runs at all. "
+            "Pause, here, keeps it running and recording."
         ),
     }
 )
 
 # Sentences about the record itself, served with each event.
 MATCHED_TEXT_NOTE = (
-    "Petasos does not keep the matched text in its record, because it can contain "
-    "secrets. Try it shows exactly what a rule matches."
+    "Not kept in the record, because it can contain secrets. Try it shows what a rule matches."
 )
 
 SIGNATURE_MEANING = MappingProxyType(
     {
         "verified": (
-            "Signed with this profile's session secret, and the signature matches: this "
-            "entry has not been changed since Petasos wrote it. A signature cannot show "
-            "whether other entries were deleted."
+            "The signature matches: this entry has not changed since Petasos wrote it. "
+            "A signature cannot show whether other entries were deleted."
         ),
         "failed": (
             "The signature does not match. This entry was changed after Petasos wrote it, "
@@ -310,7 +319,7 @@ SIGNATURE_MEANING = MappingProxyType(
         ),
         "off": (
             "Not signed, because this profile has no session secret. Anything that can "
-            "write to the profile could change this entry without it showing here."
+            "write to the profile could change this entry unnoticed."
         ),
     }
 )

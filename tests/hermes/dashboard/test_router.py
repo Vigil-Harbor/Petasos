@@ -156,3 +156,21 @@ def test_preview_route(monkeypatch: Any, tmp_path: Path) -> None:
     assert response.json()["valid"] is True
     current = client.get("/api/plugins/petasos/settings")
     assert current.json()["stored"]["role"] == "general"
+
+
+def test_activity_takes_an_outcome_filter(monkeypatch: Any, tmp_path: Path) -> None:
+    """``outcome`` is a comma-separated list of codes; a silly list is refused plainly."""
+    from petasos.enforce.events import EventSpool
+
+    client = _client(monkeypatch, tmp_path)
+    writer = EventSpool(str(tmp_path / "petasos-enforcement.jsonl"), secret=None)
+    assert writer.emit({"event_type": "quarantine", "tool": "terminal"})
+    assert writer.emit({"event_type": "bypassed_disarmed", "tool": "terminal"})
+    page = client.get("/api/plugins/petasos/activity?outcome=blocked,stopped").json()
+    assert [event["outcome"]["code"] for event in page["events"]] == ["blocked"]
+    summary = client.get("/api/plugins/petasos/activity/summary?outcome=allowed").json()
+    assert (summary["total"], summary["blocked"]) == (1, 0)
+    many = ",".join(f"c{i}" for i in range(30))
+    refused = client.get(f"/api/plugins/petasos/activity?outcome={many}")
+    assert refused.status_code == 400
+    assert refused.json()["error"]["code"] == "invalid_query"

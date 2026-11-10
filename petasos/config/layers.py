@@ -218,15 +218,14 @@ ROLES: Final[Mapping[str, Role]] = MappingProxyType(
             _role(
                 "general",
                 "General",
-                "A bit of everything. Every rule runs at its usual sensitivity.",
+                "For everyday work. Every check runs as standard.",
                 "balanced",
             ),
             _role(
                 "coding",
                 "Coding",
-                "Writes and runs code on your own machine. Quiets rules that trip on "
-                "ordinary code, and a risky command waits for a person to approve it. "
-                "Hidden instructions coming in are still caught.",
+                "For writing and running code. Fewer false alarms on code; risky "
+                "commands wait for your approval.",
                 "balanced",
                 {
                     "rules": {
@@ -258,9 +257,8 @@ ROLES: Final[Mapping[str, Role]] = MappingProxyType(
             _role(
                 "research",
                 "Research",
-                "Reads a lot of web pages. Ignores the odd characters pages are full of "
-                "and reports only stronger matches: fewer interruptions, but weaker "
-                "warning signs can be missed.",
+                "For reading websites and documents. Fewer warnings about unusual "
+                "formatting; some subtle warning signs may be missed.",
                 "relaxed",
                 {
                     "rules": {
@@ -277,8 +275,9 @@ ROLES: Final[Mapping[str, Role]] = MappingProxyType(
             _role(
                 "support",
                 "Customer support",
-                "Talks to people outside your team. Treats attempts to take over the "
-                "agent as critical, and looks for names, emails and phone numbers.",
+                "For talking with people outside your team. Takeover attempts count as "
+                "most serious; contact details are looked for once the personal-details "
+                "check is added.",
                 "balanced",
                 {
                     "rules": {
@@ -301,8 +300,8 @@ ROLES: Final[Mapping[str, Role]] = MappingProxyType(
             _role(
                 "admin",
                 "Admin",
-                "Has powerful access. Looks for names, emails, phone numbers, card "
-                "numbers and bank account numbers.",
+                "For an agent with powerful access. Contact, card and bank details are "
+                "looked for once the personal-details check is added.",
                 "strict",
                 {
                     "scanners": {
@@ -329,8 +328,8 @@ LEVELS: Final[Mapping[str, Level]] = MappingProxyType(
             _level(
                 "relaxed",
                 "Relaxed",
-                "Fewer interruptions. A conversation has to look clearly risky before "
-                "its tool calls are blocked.",
+                "Fewer interruptions. Conversations continue longer before Petasos "
+                "blocks their actions.",
                 {
                     "fail_mode": "degraded",
                     "escalation": {"tier1": 25.0, "tier2": 45.0, "tier3": 65.0},
@@ -341,8 +340,8 @@ LEVELS: Final[Mapping[str, Level]] = MappingProxyType(
             _level(
                 "balanced",
                 "Balanced",
-                "The default. Blocks clear attacks, and steps in sooner when a "
-                "conversation keeps looking risky.",
+                "The default. Blocks clear attacks, and steps in when a conversation "
+                "keeps showing warning signs.",
                 {
                     "fail_mode": "degraded",
                     "escalation": {"tier1": 15.0, "tier2": 30.0, "tier3": 50.0},
@@ -353,8 +352,8 @@ LEVELS: Final[Mapping[str, Level]] = MappingProxyType(
             _level(
                 "strict",
                 "Strict",
-                "Steps in earliest: blocks a risky conversation sooner, and hides "
-                "personal details before text moves on.",
+                "Steps in earliest. Personal details are hidden once the "
+                "personal-details check is added.",
                 {
                     "fail_mode": "closed",
                     "escalation": {"tier1": 10.0, "tier2": 22.0, "tier3": 40.0},
@@ -416,11 +415,8 @@ SETTING_HELP: Final[Mapping[str, str]] = MappingProxyType(
             "Whether Petasos checks this agent's tool calls. Off lets tool calls "
             "through unchecked and records each one."
         ),
-        "role": "What the agent does. The job decides which checks matter for that work.",
-        "level": (
-            "How strict Petasos is: how soon it blocks a risky conversation, what "
-            "happens when a check breaks, and whether personal details are hidden."
-        ),
+        "role": "What the agent mostly does. It decides which checks matter.",
+        "level": "How soon Petasos steps in.",
         "overrides": (
             "Your own changes on top of the job and strictness, as a JSON object "
             "keyed by setting path."
