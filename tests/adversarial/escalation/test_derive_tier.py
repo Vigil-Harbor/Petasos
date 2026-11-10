@@ -51,7 +51,7 @@ class TestDeriveTierBoundaries:
 
 
 class TestGuardDeriveTier:
-    async def test_guard_with_profile_thresholds(self) -> None:
+    async def test_guard_ignores_profile_thresholds(self) -> None:
         cfg = _cfg(tier1_threshold=15.0, tier2_threshold=30.0, tier3_threshold=50.0)
         pipe = Pipeline(config=cfg)
         tracker = FrequencyTracker(cfg)
@@ -73,7 +73,7 @@ class TestGuardDeriveTier:
             tracker.update("s1", ["petasos.syntactic.injection.a"] * 2)
 
         result = await guard.evaluate("bash", {}, "s1")
-        assert result.tier == "tier2"
+        assert result.tier == "tier1"
 
     async def test_guard_without_profile_falls_back(self) -> None:
         cfg = _cfg(tier1_threshold=15.0, tier2_threshold=30.0, tier3_threshold=50.0)

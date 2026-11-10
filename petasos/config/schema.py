@@ -906,13 +906,88 @@ def _copy_json(value: object) -> Any:
     return value
 
 
+@dataclass(frozen=True, slots=True)
+class ReconfigureResult:
+    """Which changed settings took effect, and which need a process restart.
+
+    Paths are dotted leaf paths, in declaration order. A setting marked
+    ``restart`` is listed and left unchanged.
+    """
+
+    applied: tuple[str, ...]
+    restart_required: tuple[str, ...]
+
+
+def evolve(obj: _S, changes: Mapping[str, Any]) -> _S:
+    """Return a new section with a partial mapping applied, then validated.
+
+    ``changes`` uses the same shape as ``to_mapping``. A missing key keeps the
+    current value. An explicit ``None`` clears an optional setting.
+    """
+    if not isinstance(changes, Mapping):
+        raise ConfigError(f"changes must be a group of named values, got {_got(changes)}")
+    return from_mapping(type(obj), merge(to_mapping(obj), changes))
+
+
+def apply_live(current: _S, proposed: _S) -> tuple[_S, ReconfigureResult]:
+    """Apply every non-restart change from ``proposed`` onto ``current``.
+
+    Both values are the same section. Restart changes are reported and stay
+    as they are on ``current``.
+    """
+    if type(current) is not type(proposed):
+        raise ConfigError("reconfigure expects two values of the same section")
+    info = leaves(type(current))
+    current_map = to_mapping(current)
+    proposed_map = to_mapping(proposed)
+    changes: dict[str, Any] = {}
+    applied: list[str] = []
+    restart_required: list[str] = []
+    for row in info:
+        old = _at(current_map, row.path)
+        new = _at(proposed_map, row.path)
+        if old == new:
+            continue
+        if row.restart:
+            restart_required.append(row.path)
+            continue
+        applied.append(row.path)
+        _place(changes, row.path, new)
+    updated = evolve(current, changes) if changes else current
+    return updated, ReconfigureResult(tuple(applied), tuple(restart_required))
+
+
+def _at(document: Mapping[str, Any], path: str) -> Any:
+    node: object = document
+    for part in path.split("."):
+        if not isinstance(node, Mapping) or part not in node:
+            raise KeyError(path)
+        node = node[part]
+    return node
+
+
+def _place(document: dict[str, Any], path: str, value: object) -> None:
+    parts = path.split(".")
+    node = document
+    for part in parts[:-1]:
+        child = node.get(part)
+        if not isinstance(child, dict):
+            child = {}
+            node[part] = child
+        node = child
+    node[parts[-1]] = value
+
+
 __all__ = [
     "Audience",
     "ConfigError",
     "FieldInfo",
     "FieldSpec",
+    "ReconfigureResult",
     "SectionInfo",
+    "apply_live",
     "describe",
+    "evolve",
     "from_mapping",
     "leaves",
     "merge",

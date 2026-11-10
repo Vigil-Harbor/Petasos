@@ -48,7 +48,8 @@ def test_reconfigure_frequency_takes_effect_same_instance() -> None:
 
     assert pipe._frequency_tracker._half_life == 5.0
     assert pipe._frequency_tracker._rolling_threshold == 3
-    assert pipe.config.frequency_half_life_seconds == 5.0
+    assert pipe.legacy_config is not None
+    assert pipe.legacy_config.frequency_half_life_seconds == 5.0
 
 
 def test_reconfigure_audit_verbosity_takes_effect() -> None:
@@ -154,7 +155,8 @@ def test_reconfigure_session_secret_noop_with_warning(caplog: pytest.LogCaptureF
         pipe.reconfigure(PetasosConfig(session_secret=b"d" * 32))
     warnings = [r for r in caplog.records if "session_secret" in r.getMessage()]
     assert len(warnings) == 1
-    assert pipe.config.session_secret == secret
+    assert pipe.legacy_config is not None
+    assert pipe.legacy_config.session_secret == secret
     assert tracker._session_secret == secret  # never rebound (Decision 2)
     assert tracker.get_state(token) is not None  # minted token still verifies
 
@@ -163,7 +165,8 @@ def test_reconfigure_session_secret_noop_with_warning(caplog: pytest.LogCaptureF
     with caplog.at_level(logging.WARNING, logger="petasos.pipeline"):
         pipe.reconfigure(PetasosConfig(session_secret=None, frequency_half_life_seconds=7.0))
     assert not [r for r in caplog.records if "session_secret" in r.getMessage()]
-    assert pipe.config.session_secret == secret
+    assert pipe.legacy_config is not None
+    assert pipe.legacy_config.session_secret == secret
     assert tracker._session_secret == secret
 
 
@@ -203,7 +206,8 @@ def test_reconfigure_atomic_on_invalid_weights(bad_weights: dict[str, float]) ->
     # The fail-prone tracker step runs first, so nothing downstream was touched.
     assert pipe.config is before
     assert pipe._frequency_tracker._half_life == 60.0
-    assert pipe._audit_emitter._config.audit_verbosity == "standard"
+    assert pipe._audit_emitter.legacy_config is not None
+    assert pipe._audit_emitter.legacy_config.audit_verbosity == "standard"
 
 
 def test_reconfigure_profile_switch_takes_effect() -> None:
@@ -236,7 +240,8 @@ def test_reconfigure_rejects_subfloor_or_unordered_tiers() -> None:
     # An invalid tier config can therefore never be built to hand to reconfigure.
     pipe = _pipe(PetasosConfig())
     before = pipe.config
-    base = before.to_dict()
+    assert pipe.legacy_config is not None
+    base = pipe.legacy_config.to_dict()
 
     with pytest.raises(ValueError):
         PetasosConfig.from_dict({**base, "tier3_threshold": 10.0})  # below TIER3_FLOOR

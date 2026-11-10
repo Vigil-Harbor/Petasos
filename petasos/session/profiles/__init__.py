@@ -3,12 +3,13 @@ from __future__ import annotations
 import importlib.resources
 import json
 import logging
+import math
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any, Literal
 
 from petasos._types import FloorScope, Severity
-from petasos.config import _validate_tier_thresholds
+from petasos.config.floors import TIER3_FLOOR
 from petasos.scanners.minimal import _STRUCTURAL_RULE_IDS
 from petasos.scanners.minimal import _UNSUPPRESSIBLE_RULE_IDS as _UNSUPPRESSIBLE_RULE_IDS
 from petasos.scanners.presidio import KNOWN_PII_ENTITIES
@@ -16,6 +17,17 @@ from petasos.scanners.presidio import KNOWN_PII_ENTITIES
 _logger = logging.getLogger(__name__)
 
 _VALID_FLOOR_SCOPES: frozenset[str] = frozenset({"all", "inbound"})
+
+
+def _validate_tier_thresholds(tier1: float, tier2: float, tier3: float) -> None:
+    if not all(math.isfinite(v) for v in (tier1, tier2, tier3)):
+        raise ValueError(f"thresholds must be finite, got {tier1}, {tier2}, {tier3}")
+    if not (tier1 < tier2 < tier3):
+        raise ValueError(f"thresholds must be strictly ascending: {tier1} < {tier2} < {tier3}")
+    if tier3 < TIER3_FLOOR:
+        raise ValueError(f"tier3 must be >= {TIER3_FLOOR}, got {tier3}")
+
+
 _VALID_POSTURES: frozenset[str] = frozenset({"block", "approve"})
 
 

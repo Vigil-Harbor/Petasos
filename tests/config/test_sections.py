@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from petasos.config.schema import ConfigError, from_mapping, leaves, to_mapping
+from petasos.config.schema import ConfigError, apply_live, evolve, from_mapping, leaves, to_mapping
 from petasos.config.sections import PetasosConfig
 
 _TYPES = {
@@ -26,6 +26,8 @@ _RESTART_ROOTS = (
     "scanners.presidio.",
     "scanners.semgrep.",
 )
+# A scan reads this list itself, so a role change applies without a restart.
+_LIVE = frozenset({"scanners.presidio.entities_extra"})
 _CONFIG_ROOT = Path("petasos/config")
 
 
@@ -79,8 +81,40 @@ def test_describe_covers_every_leaf() -> None:
         assert row.help.strip()
         assert row.type_name in _TYPES
         assert row.audience in ("advanced", "expert")
-        restart = row.path.startswith(_RESTART_ROOTS)
+        restart = row.path.startswith(_RESTART_ROOTS) and row.path not in _LIVE
         assert row.restart is restart
+
+
+def test_evolve_applies_a_partial_mapping_and_revalidates() -> None:
+    evolved = evolve(
+        PetasosConfig(),
+        {"fail_mode": "open", "escalation": {"tier1": 12}},
+    )
+
+    assert evolved.fail_mode == "open"
+    assert evolved.escalation.tier1 == 12.0
+    assert evolved.escalation.tier2 == 30.0
+    with pytest.raises(ConfigError):
+        evolve(PetasosConfig(), {"escalation": {"tier3": 10}})
+
+
+def test_apply_live_leaves_restart_settings() -> None:
+    current = PetasosConfig()
+    proposed = evolve(
+        current,
+        {
+            "fail_mode": "closed",
+            "scanners": {"presidio": {"score_threshold": 0.5, "entities_extra": ["URL"]}},
+        },
+    )
+
+    updated, result = apply_live(current, proposed)
+
+    assert updated.fail_mode == "closed"
+    assert updated.scanners.presidio.entities_extra == ("URL",)
+    assert updated.scanners.presidio.score_threshold == current.scanners.presidio.score_threshold
+    assert result.applied == ("fail_mode", "scanners.presidio.entities_extra")
+    assert result.restart_required == ("scanners.presidio.score_threshold",)
 
 
 def test_expert_fields_are_the_internals() -> None:
@@ -261,6 +295,9 @@ def test_config_modules_import_nothing_above_the_config_layer() -> None:
     offenders: list[str] = []
     for path in sorted(_CONFIG_ROOT.rglob("*.py")):
         if path.name == "__init__.py" and path.parent == _CONFIG_ROOT:
+            continue
+        # The temporary bridge is the one config module that imports profiles.
+        if path.name == "legacy.py":
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):

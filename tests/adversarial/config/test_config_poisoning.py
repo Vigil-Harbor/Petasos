@@ -98,7 +98,8 @@ def test_pipeline_replace_preserves_session_secret() -> None:
     object.__setattr__ workaround."""
     cfg = PetasosConfig(session_secret=b"key")
     pipeline = Pipeline(config=cfg, host_id="h1")
-    assert pipeline.config.session_secret == b"key"
+    assert pipeline.legacy_config is not None
+    assert pipeline.legacy_config.session_secret == b"key"
 
 
 def test_compute_safe_fallback_on_invalid_fail_mode() -> None:

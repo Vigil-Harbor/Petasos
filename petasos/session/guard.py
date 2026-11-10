@@ -43,10 +43,11 @@ from typing import TYPE_CHECKING, Any, Final, NamedTuple
 
 from petasos._limits import MAX_PARAM_TEXT_LEN
 from petasos._types import ScanFinding, Severity
+from petasos.config.legacy import ConfigInput, FlatConfig, Secrets, bind
 from petasos.normalize import _NAMESPACE_PREFIX_RE as _NAMESPACE_PREFIX_RE
 from petasos.normalize import canonicalize_tool_name
 from petasos.session._safe_json import safe_json_dumps
-from petasos.session.escalation import derive_tier, evaluate_tier, max_tier
+from petasos.session.escalation import evaluate_tier, max_tier
 
 _logger = logging.getLogger(__name__)
 
@@ -54,12 +55,12 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from petasos._types import Direction
-    from petasos.config import PetasosConfig
+    from petasos.config.legacy import ResolvedProfile
+    from petasos.config.sections import PetasosConfig
     from petasos.console._paths import HermesConfigResolution
     from petasos.pipeline import Pipeline
     from petasos.session.frequency import FrequencyTracker, SessionState
     from petasos.session.lineage import LineageRegistry
-    from petasos.session.profiles import ResolvedProfile
 
 
 class ToolAxes(NamedTuple):
@@ -666,45 +667,62 @@ class ToolCallGuard:
         self,
         pipeline: Pipeline,
         frequency_tracker: FrequencyTracker,
-        config: PetasosConfig,
+        config: ConfigInput,
         profile: ResolvedProfile | None = None,
         *,
         exempt_param_scan: bool = True,
         lineage: LineageRegistry | None = None,
         home: HermesConfigResolution | None = None,
+        secrets: Secrets | None = None,
     ) -> None:
+        bound = bind(config, profile, secrets=secrets, use_profile_name=False)
         self._pipeline = pipeline
         self._frequency_tracker = frequency_tracker
-        self._config = config
-        self._profile = profile
+        self._config = bound.config
+        self._legacy = bound.legacy
+        self._secrets = bound.secrets
+        self._profile_arg = profile
         self._selfmod_home = home
         self._exempt_param_scan = exempt_param_scan
-        # PET-107 A: lineage edge store (None → chain walk + pinning disabled,
-        # behavior is byte-for-byte today's).
+        # Lineage edge store. None leaves the chain walk and pinning off.
         self._lineage = lineage
 
-        # PET-107 C: delegate tool names are stored RAW in config; normalize
-        # them once here through the guard's OWN _normalize_tool_name (never a
-        # parallel normalizer) so recognition at Step 3.5 matches the same
-        # casefold/homoglyph/alias/namespace handling applied to every tool.
-        self._delegate_tool_names: frozenset[str] = frozenset(
-            n for n in (self._normalize_tool_name(raw) for raw in config.delegate_tool_names) if n
-        )
-        # D8: a delegate must never be exempt — an exempt delegate would skip the
+        # Delegate tool names are stored raw in config; normalize them once
+        # here through the guard's own normalizer so recognition matches every
+        # other tool name.
+        self._delegate_tool_names = self._delegates_from(bound.config)
+        # A delegate must never be exempt — an exempt delegate would skip the
         # tier ladder, defeating the spray ceiling on the normal path.
-        if self._profile is not None:
-            exempt_overlap = self._delegate_tool_names & self._profile.tool_exempt_list
-            if exempt_overlap:
-                raise ValueError(
-                    f"delegate tool name(s) {sorted(exempt_overlap)} appear in the profile "
-                    f"exempt list; a delegate must not be exempt (it would skip the tier ladder)"
-                )
-        if config.delegate_fanout_enabled and not self._delegate_tool_names:
+        self._reject_exempt_delegates(self._delegate_tool_names, bound.config)
+        if bound.config.tools.fanout.enabled and not self._delegate_tool_names:
             _logger.warning(
                 "delegate_fanout_enabled but delegate_tool_names is empty (or all normalized "
                 "away) — the delegation fan-out gate is inert"
             )
-        self._spawn_budget = SpawnBudget(config.delegate_fanout_window_seconds)
+        self._spawn_budget = SpawnBudget(bound.config.tools.fanout.window_seconds)
+
+    @property
+    def config(self) -> PetasosConfig:
+        """The config tree this guard reads."""
+        return self._config
+
+    @property
+    def legacy_config(self) -> FlatConfig | None:
+        """The flat config most recently supplied, or None when a tree was."""
+        return self._legacy
+
+    def _delegates_from(self, config: PetasosConfig) -> frozenset[str]:
+        return frozenset(
+            n for n in (self._normalize_tool_name(raw) for raw in config.tools.delegate_names) if n
+        )
+
+    def _reject_exempt_delegates(self, delegates: frozenset[str], config: PetasosConfig) -> None:
+        exempt_overlap = delegates & set(config.tools.exempt)
+        if exempt_overlap:
+            raise ValueError(
+                f"delegate tool name(s) {sorted(exempt_overlap)} appear in the profile "
+                f"exempt list; a delegate must not be exempt (it would skip the tier ladder)"
+            )
         self._selfmod_owned_cache: tuple[float, frozenset[str]] = (0.0, frozenset())
         self._selfmod_empty_warned: bool = False
         # PET-176 D3/D4: warn-once latch for the scan_weight_cap tripwires
@@ -860,40 +878,26 @@ class ToolCallGuard:
             _logger.warning("selfmod classifier error for tool=%s", canon_pre_alias, exc_info=True)
             return None
 
-    def validate_config(self, new_config: PetasosConfig) -> None:
-        """Dry-run validation of a candidate config: raises, never mutates (D5/D8).
+    def validate_config(self, new_config: ConfigInput) -> None:
+        """Dry-run validation of a candidate config: raises, never mutates.
 
-        Two guard-only invariants that ``PetasosConfig.__post_init__`` does not
-        cover, run here BEFORE any commit so ``apply_config`` is all-or-nothing:
-
-        1. D8 exempt-overlap: a delegate tool must never also be profile-exempt (an
-           exempt delegate would skip the tier ladder). Mirrors the ``__init__``
-           check against the candidate's normalized delegate set.
-        2. ``frequency_weights`` parse trial: the full glob-position and
-           non-negative/finite weight validation lives in ``FrequencyTracker``,
-           not in ``__post_init__``. Trial-parse the candidate so a malformed map
-           is caught here, before the guard's tracker is reconfigured.
+        A delegate tool must never also be exempt, and a frequency weight map
+        must parse. Both run before ``apply_config`` changes anything.
         """
-        if self._profile is not None:
-            candidate_delegates = frozenset(
-                n
-                for n in (self._normalize_tool_name(raw) for raw in new_config.delegate_tool_names)
-                if n
-            )
-            exempt_overlap = candidate_delegates & self._profile.tool_exempt_list
-            if exempt_overlap:
-                raise ValueError(
-                    f"delegate tool name(s) {sorted(exempt_overlap)} appear in the profile "
-                    f"exempt list; a delegate must not be exempt (it would skip the tier ladder)"
-                )
-        # Weight-parse trial: a throwaway FrequencyTracker re-runs the full weight
-        # validation with no side effects beyond the parse, so a malformed
-        # frequency_weights map raises here, before any commit.
-        from petasos.session.frequency import FrequencyTracker
+        bound = bind(
+            new_config,
+            self._profile_arg,
+            secrets=self._secrets,
+            use_profile_name=False,
+        )
+        self._reject_exempt_delegates(self._delegates_from(bound.config), bound.config)
 
-        FrequencyTracker(new_config)
-
-    def apply_config(self, new_config: PetasosConfig) -> None:
+    def apply_config(
+        self,
+        new_config: ConfigInput,
+        *,
+        legacy: FlatConfig | None = None,
+    ) -> None:
         """PET-126: live-reconfigure the guard in place (spec D2/D5).
 
         Calls ``validate_config`` FIRST, so a D8 violation or a malformed
@@ -917,18 +921,27 @@ class ToolCallGuard:
         session/tombstone state, and ``_config.session_secret``.
         """
         self.validate_config(new_config)
-        self._config = replace(new_config, session_secret=self._config.session_secret)
-        self._delegate_tool_names = frozenset(
-            n
-            for n in (self._normalize_tool_name(raw) for raw in new_config.delegate_tool_names)
-            if n
+        bound = bind(
+            new_config,
+            self._profile_arg,
+            secrets=self._secrets,
+            use_profile_name=False,
         )
-        self._spawn_budget.set_window(new_config.delegate_fanout_window_seconds)
+        self._config = bound.config
+        if legacy is not None:
+            self._legacy = legacy
+        elif bound.legacy is not None:
+            incoming = bound.legacy
+            if incoming.session_secret != self._secrets.session_secret:
+                incoming = replace(incoming, session_secret=self._secrets.session_secret)
+            self._legacy = incoming
+        self._delegate_tool_names = self._delegates_from(bound.config)
+        self._spawn_budget.set_window(bound.config.tools.fanout.window_seconds)
         # PET-176: thresholds are reconfigurable, so the warned-about condition
         # can clear; re-arm the cap tripwire (same shape as the
         # _selfmod_empty_warned self-clear above).
         self._cap_threshold_warned = False
-        self._frequency_tracker.apply_config(self._config)
+        self._frequency_tracker.apply_config(self._config, legacy=self._legacy)
 
     @property
     def scan_weight_cap(self) -> float:
@@ -936,16 +949,10 @@ class ToolCallGuard:
 
         A capped scan contributes exactly this value or exactly 0.0, never
         anything between (PET-176 D2 quantizes rather than truncates). Sized so
-        no single scan can cross a tier on EITHER threshold source (D3): the
-        guard's tier read prefers the profile's tier_thresholds, but the
-        tracker's irreversible termination latch is always config-sourced, so
-        the cap takes the minimum of both tier1 readings. Hosts that construct
-        ToolCallGuard with a profile get that profile's bound; the reference
-        plugin passes no profile, so config governs.
+        no single scan can cross a tier. The step is the config tree's tier 1
+        divided by the cap divisor. A profile's tier thresholds are not read.
         """
-        tier1 = float(self._config.tier1_threshold)
-        if self._profile and self._profile.tier_thresholds:
-            tier1 = min(tier1, float(self._profile.tier_thresholds.tier1))
+        tier1 = float(self._config.escalation.tier1)
         if tier1 <= 0:
             # Reachable degenerate case, not non-finite: _validate_tier_thresholds
             # rejects NaN/inf but never requires tier1 > 0, so
@@ -970,9 +977,7 @@ class ToolCallGuard:
         # "every tool call unsafe". Ratio is checked before either step band
         # because a sub-ratio configuration is the most urgent of the three.
         if not self._cap_threshold_warned:
-            tier2 = float(self._config.tier2_threshold)
-            if self._profile and self._profile.tier_thresholds:
-                tier2 = min(tier2, float(self._profile.tier_thresholds.tier2))
+            tier2 = float(self._config.escalation.tier2)
             cap = tier1 / _SCAN_WEIGHT_CAP_DIVISOR
             if tier2 / tier1 < 2.0:
                 self._cap_threshold_warned = True
@@ -1088,7 +1093,7 @@ class ToolCallGuard:
             )
 
         # Step 3.5: Delegation fan-out gate (PET-107 C).
-        if self._config.delegate_fanout_enabled and normalized_name in self._delegate_tool_names:
+        if self._config.tools.fanout.enabled and normalized_name in self._delegate_tool_names:
             cap = self._fanout_cap(tier)
             if not self._spawn_budget.try_consume(session_id, cap, time.monotonic()):
                 return _finish(
@@ -1102,7 +1107,7 @@ class ToolCallGuard:
                 )
 
         # Step 4: Exempt check
-        if self._profile and normalized_name in self._profile.tool_exempt_list:
+        if normalized_name in self._config.tools.exempt:
             if not self._exempt_param_scan:
                 return _finish(
                     GuardResult(
@@ -1197,8 +1202,9 @@ class ToolCallGuard:
         # plugin's classification reuses canonicalize_tool_name WITHOUT this alias layer,
         # so the two normalizers never diverge (D-CANON / D-EQUIV).
         name = canonicalize_tool_name(tool_name)
-        if self._profile and self._profile.tool_alias_map:
-            raw_aliases = {**DEFAULT_TOOL_ALIASES, **self._profile.tool_alias_map}
+        aliases = dict(self._config.tools.aliases)
+        if aliases:
+            raw_aliases = {**DEFAULT_TOOL_ALIASES, **aliases}
         else:
             raw_aliases = dict(DEFAULT_TOOL_ALIASES)
         # PET-121: canonicalize alias-map KEYS into the same space as `name`, so an alias keyed
@@ -1214,9 +1220,8 @@ class ToolCallGuard:
         # Compare `name` against the profile's CANONICALIZED keys (PET-121: same space as name).
         if (
             resolved != pre_alias
-            and self._profile
-            and name in {canonicalize_tool_name(k) for k in self._profile.tool_alias_map}
-            and resolved.strip().casefold() in self._profile.tool_exempt_list
+            and name in {canonicalize_tool_name(k) for k in aliases}
+            and resolved.strip().casefold() in self._config.tools.exempt
         ):
             _logger.warning(
                 "profile alias %r -> %r blocked: target is exempt (GUARD-03)",
@@ -1230,7 +1235,7 @@ class ToolCallGuard:
         """Tier-adjusted fan-out cap. tier3 is already blocked at Step 3, so it
         never reaches here; tier2 is tightest (1) and is also blocked at Step 6,
         so Step 3.5 only accounts the attempt for a tier-2 delegate."""
-        base = self._config.delegate_max_fanout_per_window
+        base = self._config.tools.fanout.max_per_window
         if tier == "tier1":
             return max(1, base // 2)
         if tier == "tier2":
@@ -1240,15 +1245,12 @@ class ToolCallGuard:
     def _state_to_tier(self, state: SessionState | None) -> str:
         if state is None:
             return "none"
-        if self._profile and self._profile.tier_thresholds:
-            t = self._profile.tier_thresholds
-            return derive_tier(state.last_score, t.tier1, t.tier2, t.tier3)
         return evaluate_tier(state.last_score, self._config)
 
     def _read_state(self, session_id: str) -> SessionState | None:
         # Mirror the own-session path: with a session_secret set, get_state is
         # keyed by a per-id minted token, not the raw id (PET-31).
-        if self._config.session_secret is not None:
+        if self._secrets.session_secret is not None:
             token = self._frequency_tracker.mint_token(session_id, self._pipeline.host_id)
             return self._frequency_tracker.get_state(token)
         return self._frequency_tracker.get_state(session_id)
@@ -1277,7 +1279,7 @@ class ToolCallGuard:
             # tier-1/2 inheritance, but a terminated ancestor's tier-3 floor (D4)
             # has NO config override — "Tier 3 escalation cannot be disabled" — so
             # the chain is still walked for tombstones even when the flag is off.
-            inherit_full = self._config.subagent_lineage_enabled
+            inherit_full = self._config.tools.lineage.enabled
             anc_tiers: list[str] = []
             for aid in self._lineage.ancestors(session_id):
                 if self._frequency_tracker.is_terminated(aid):

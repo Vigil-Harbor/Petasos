@@ -248,18 +248,20 @@ _MODEL_TABLE: dict[tuple[str | None, float], tuple[int | None, ...]] = {
     (None, 20.0): (8, None, None, None),
     (None, 30.0): (None, None, None, None),
     (None, 60.0): (None, None, None, None),
-    ("admin", 0.0): (4, 8, 14, 20),
-    ("admin", 1.0): (5, 9, 16, 23),
-    ("admin", 5.0): (5, 11, 27, None),
+    # admin and research profiles no longer supply tier thresholds to the guard,
+    # so their trajectories match the config defaults above.
+    ("admin", 0.0): (4, 8, 14, 14),
+    ("admin", 1.0): (5, 9, 15, 15),
+    ("admin", 5.0): (5, 11, 24, 24),
     ("admin", 10.0): (5, 18, None, None),
     ("admin", 20.0): (8, None, None, None),
     ("admin", 30.0): (None, None, None, None),
     ("admin", 60.0): (None, None, None, None),
-    ("research", 0.0): (7, 12, 14, 14),
-    ("research", 1.0): (7, 13, 15, 15),
-    ("research", 5.0): (9, 20, 24, 24),
-    ("research", 10.0): (12, None, None, None),
-    ("research", 20.0): (None, None, None, None),
+    ("research", 0.0): (4, 8, 14, 14),
+    ("research", 1.0): (5, 9, 15, 15),
+    ("research", 5.0): (5, 11, 24, 24),
+    ("research", 10.0): (5, 18, None, None),
+    ("research", 20.0): (8, None, None, None),
     ("research", 30.0): (None, None, None, None),
     ("research", 60.0): (None, None, None, None),
 }
@@ -372,8 +374,8 @@ def _drive_shipped_reads(
         (None, 1.0, 9),
         ("admin", 0.0, 8),
         ("admin", 1.0, 9),
-        ("research", 0.0, 12),
-        ("research", 1.0, 13),
+        ("research", 0.0, 8),
+        ("research", 1.0, 9),
     ],
     ids=lambda v: str(v),
 )
@@ -432,15 +434,13 @@ def test_benign_reads_do_not_escalate_sub_step_rule() -> None:
     assert len(state.rolling_findings) == 0
 
 
-def test_sub_step_immunity_is_unavailable_under_admin(
+def test_admin_profile_does_not_lower_the_scan_cap(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # ...and the SAME content under an admin-profiled guard escalates: admin's
-    # cap of 2.5 sits below the 3.0 encoding weight, so every re-read costs a
-    # full step. D4 proves no divisor avoids this at tier1=10; the shipped
-    # wiring passes no profile and is unaffected.
+    # The guard reads the config tier, so an admin profile does not pull the
+    # per-scan step under the 3.0 encoding weight.
     ref, tracker, guard = _shipped_ref(monkeypatch, "admin")
-    assert guard.scan_weight_cap == pytest.approx(2.5)
+    assert guard.scan_weight_cap == pytest.approx(15.0 / 4.0)
     landed, terminated = _drive_shipped_reads(
         ref,
         tracker,
@@ -450,8 +450,9 @@ def test_sub_step_immunity_is_unavailable_under_admin(
         max_calls=20,
         expect_banner=False,
     )
-    assert landed < 20, "under admin the benign re-read must stop dispatch"
+    assert landed == 20
     assert terminated is False
+    assert _read_tier(guard, "s-b2") == "none"
 
 
 def test_benign_full_injection_rule_residual_is_pinned(
@@ -654,19 +655,19 @@ _COMPOSED_TABLE: dict[tuple[str | None, float], tuple[int | None, ...]] = {
     (None, 20.0): (3, 8, None),
     (None, 30.0): (3, None, None),
     (None, 60.0): (None, None, None),
-    ("admin", 0.0): (2, 4, 10),
-    ("admin", 1.0): (3, 5, 11),
-    ("admin", 5.0): (3, 5, 15),
-    ("admin", 10.0): (3, 5, None),
+    ("admin", 0.0): (2, 4, 7),
+    ("admin", 1.0): (3, 5, 7),
+    ("admin", 5.0): (3, 5, 9),
+    ("admin", 10.0): (3, 5, 12),
     ("admin", 20.0): (3, 8, None),
     ("admin", 30.0): (3, None, None),
     ("admin", 60.0): (None, None, None),
-    ("research", 0.0): (4, 6, 7),
-    ("research", 1.0): (4, 7, 7),
-    ("research", 5.0): (4, 8, 9),
-    ("research", 10.0): (4, 10, 12),
-    ("research", 20.0): (6, None, None),
-    ("research", 30.0): (11, None, None),
+    ("research", 0.0): (2, 4, 7),
+    ("research", 1.0): (3, 5, 7),
+    ("research", 5.0): (3, 5, 9),
+    ("research", 10.0): (3, 5, 12),
+    ("research", 20.0): (3, 8, None),
+    ("research", 30.0): (3, None, None),
     ("research", 60.0): (None, None, None),
 }
 
@@ -727,7 +728,7 @@ def test_composed_call_trajectory_model(source: str | None, interval: float) -> 
 
 @pytest.mark.parametrize(
     ("profile", "expected_term"),
-    [(None, 10), ("admin", None), ("research", 8)],
+    [(None, 10), ("admin", 10), ("research", 10)],
     ids=lambda v: str(v),
 )
 def test_composed_call_trajectory_shipped(

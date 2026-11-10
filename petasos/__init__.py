@@ -12,7 +12,7 @@ from petasos._types import (
     ScanResult,
     Severity,
 )
-from petasos.config import PetasosConfig
+from petasos.config.legacy import PetasosConfig, ProfileResolver, ResolvedProfile, TierThresholds
 from petasos.normalize import normalize
 from petasos.pipeline import Pipeline
 from petasos.scanners.minimal import RULE_TAXONOMY, MinimalScanner
@@ -37,7 +37,6 @@ from petasos.session.frequency import FrequencyTracker, FrequencyUpdateResult, S
 from petasos.session.guard import GuardResult, ToolCallGuard
 from petasos.session.ingest import IngestionScanResult, scan_ingestion_result
 from petasos.session.lineage import LineageRegistry
-from petasos.session.profiles import ProfileResolver, ResolvedProfile, TierThresholds
 from petasos.session.taint import SessionTaintStore
 
 __all__ = [

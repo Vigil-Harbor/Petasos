@@ -97,7 +97,8 @@ def main(argv: list[str] | None = None) -> int:
     # the tripwire exists to catch.
     token = os.environ.get("PETASOS_CONSOLE_TOKEN")
     auth_on = token is not None and token.strip() != ""
-    attestation_on = pipeline.config.session_secret is not None
+    legacy = pipeline.legacy_config
+    attestation_on = legacy is not None and legacy.session_secret is not None
 
     # Banner logged at INFO immediately before serve(). serve() blocks in
     # uvicorn.run and builds the app internally, so the banner and the bind-failure

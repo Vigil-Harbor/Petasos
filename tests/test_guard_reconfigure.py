@@ -166,14 +166,16 @@ def test_guard_apply_config_preserves_session_secret() -> None:
     # Presence flip to None.
     guard.apply_config(_cfg(session_secret=None))
     assert tracker._session_secret == secret  # immutable
-    assert guard._config.session_secret == secret  # merge-preserved
+    assert guard.legacy_config is not None
+    assert guard.legacy_config.session_secret == secret  # merge-preserved
     assert tracker.get_state(token) is not None  # token still verifies
     assert guard._derive_tier("sess") != "tier3"  # no fail-secure flip
 
     # A differing non-None secret is likewise preserved.
     guard.apply_config(_cfg(session_secret=b"different" * 4))
     assert tracker._session_secret == secret
-    assert guard._config.session_secret == secret
+    assert guard.legacy_config is not None
+    assert guard.legacy_config.session_secret == secret
     assert guard._derive_tier("sess") != "tier3"
 
 

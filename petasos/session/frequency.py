@@ -7,15 +7,16 @@ import math
 import threading
 import time
 from collections import OrderedDict, deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING
 
+from petasos.config.legacy import ConfigInput, FlatConfig, Secrets, bind
 from petasos.session.escalation import evaluate_tier
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
-    from petasos.config import PetasosConfig
+    from petasos.config.sections import PetasosConfig
 
 _logger = logging.getLogger(__name__)
 
@@ -78,19 +79,25 @@ RATE_LIMITED_RESULT = FrequencyUpdateResult(
 class FrequencyTracker:
     def __init__(
         self,
-        config: PetasosConfig,
+        config: ConfigInput,
         *,
         is_pinned: Callable[[str], bool] | None = None,
         on_terminate: Callable[[str], None] | None = None,
+        secrets: Secrets | None = None,
     ) -> None:
-        self._half_life = config.frequency_half_life_seconds
-        self._rolling_window = config.rolling_window_seconds
-        self._rolling_threshold = config.rolling_threshold
-        self._max_sessions = config.max_sessions
-        self._session_ttl = config.session_ttl_seconds
-        self._max_new_per_minute = config.max_new_sessions_per_minute
-        self._config = config
-        self._session_secret: bytes | None = config.session_secret
+        bound = bind(config, secrets=secrets)
+        frequency = bound.config.frequency
+        sessions = bound.config.sessions
+        self._half_life = frequency.half_life_seconds
+        self._rolling_window = frequency.rolling_window_seconds
+        self._rolling_threshold = frequency.rolling_threshold
+        self._max_sessions = sessions.max
+        self._session_ttl = sessions.ttl_seconds
+        self._max_new_per_minute = sessions.max_new_per_minute
+        self._config = bound.config
+        self._legacy = bound.legacy
+        self._secrets = bound.secrets
+        self._session_secret: bytes | None = bound.secrets.session_secret
 
         # PET-107: cross-thread access from concurrent delegated children. The
         # RLock guards ALL mutable state (sessions, tombstones, deques). Internal
@@ -107,9 +114,7 @@ class FrequencyTracker:
         self._on_terminate = on_terminate
 
         raw_weights = (
-            config.frequency_weights
-            if config.frequency_weights is not None
-            else DEFAULT_FREQUENCY_WEIGHTS
+            frequency.weights if frequency.weights is not None else DEFAULT_FREQUENCY_WEIGHTS
         )
 
         self._exact_weights: dict[str, float] = {}
@@ -134,10 +139,25 @@ class FrequencyTracker:
         self._sessions: dict[str, SessionState] = {}
         self._creation_timestamps: deque[float] = deque()
         self._terminated_ids: OrderedDict[str, None] = OrderedDict()
-        self._max_terminated: int = config.max_terminated_tombstones
+        self._max_terminated: int = sessions.max_tombstones
         self._ttl_deque: deque[tuple[float, str]] = deque()
 
-    def apply_config(self, new_config: PetasosConfig) -> None:
+    @property
+    def config(self) -> PetasosConfig:
+        """The config tree this tracker reads."""
+        return self._config
+
+    @property
+    def legacy_config(self) -> FlatConfig | None:
+        """The flat config most recently supplied, or None when a tree was."""
+        return self._legacy
+
+    def apply_config(
+        self,
+        new_config: ConfigInput,
+        *,
+        legacy: FlatConfig | None = None,
+    ) -> None:
         """Re-read tunables from ``new_config`` in place, preserving session state.
 
         PET-126: the live-reconfigure hook. Re-parses ``frequency_weights`` and
@@ -160,10 +180,11 @@ class FrequencyTracker:
         # Stage: re-run the full weight parse (mirrors __init__). May raise
         # ValueError on a malformed glob key or a negative/non-finite weight;
         # nothing has been mutated yet, so reconfigure aborts cleanly.
+        bound = bind(new_config, secrets=self._secrets)
+        frequency = bound.config.frequency
+        sessions = bound.config.sessions
         raw_weights = (
-            new_config.frequency_weights
-            if new_config.frequency_weights is not None
-            else DEFAULT_FREQUENCY_WEIGHTS
+            frequency.weights if frequency.weights is not None else DEFAULT_FREQUENCY_WEIGHTS
         )
         new_exact_weights: dict[str, float] = {}
         new_glob_entries: list[tuple[str, float]] = []
@@ -187,16 +208,23 @@ class FrequencyTracker:
         # tombstones (a no-op unless _max_terminated shrank below the live count).
         # _session_secret is intentionally NOT rebound (Decision 2).
         with self._lock:
-            self._half_life = new_config.frequency_half_life_seconds
-            self._rolling_window = new_config.rolling_window_seconds
-            self._rolling_threshold = new_config.rolling_threshold
-            self._max_sessions = new_config.max_sessions
-            self._session_ttl = new_config.session_ttl_seconds
-            self._max_new_per_minute = new_config.max_new_sessions_per_minute
-            self._max_terminated = new_config.max_terminated_tombstones
+            self._half_life = frequency.half_life_seconds
+            self._rolling_window = frequency.rolling_window_seconds
+            self._rolling_threshold = frequency.rolling_threshold
+            self._max_sessions = sessions.max
+            self._session_ttl = sessions.ttl_seconds
+            self._max_new_per_minute = sessions.max_new_per_minute
+            self._max_terminated = sessions.max_tombstones
             self._exact_weights = new_exact_weights
             self._glob_weights = new_glob_entries
-            self._config = new_config
+            self._config = bound.config
+            if legacy is not None:
+                self._legacy = legacy
+            elif bound.legacy is not None:
+                incoming = bound.legacy
+                if incoming.session_secret != self._secrets.session_secret:
+                    incoming = replace(incoming, session_secret=self._secrets.session_secret)
+                self._legacy = incoming
             self._enforce_tombstone_cap()
 
     @property
@@ -295,7 +323,7 @@ class FrequencyTracker:
 
             # Step 1.5: Tombstone early-return
             if session_id not in self._sessions and session_id in self._terminated_ids:
-                sentinel = self._config.tier3_threshold
+                sentinel = self._config.escalation.tier3
                 return FrequencyUpdateResult(
                     previous_score=sentinel,
                     current_score=sentinel,

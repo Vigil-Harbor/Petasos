@@ -24,8 +24,10 @@ import threading
 import time
 from typing import TYPE_CHECKING
 
+from petasos.config.legacy import ConfigInput, FlatConfig, bind
+
 if TYPE_CHECKING:
-    from petasos.config import PetasosConfig
+    from petasos.config.sections import PetasosConfig
 
 _logger = logging.getLogger(__name__)
 
@@ -33,14 +35,31 @@ _logger = logging.getLogger(__name__)
 class LineageRegistry:
     """Thread-safe store of ``child -> (parent, registered_monotonic)`` edges."""
 
-    def __init__(self, config: PetasosConfig) -> None:
-        self._max_depth = config.lineage_max_depth
-        self._max_edges = config.lineage_max_edges
-        self._edge_ttl = config.lineage_edge_ttl_seconds
+    def __init__(self, config: ConfigInput) -> None:
+        bound = bind(config)
+        self._config = bound.config
+        self._legacy = bound.legacy
+        self._apply_bounds(bound.config)
         self._lock = threading.Lock()
         self._edges: dict[str, tuple[str, float]] = {}
 
-    def apply_config(self, new_config: PetasosConfig) -> None:
+    @property
+    def config(self) -> PetasosConfig:
+        """The config tree this registry reads."""
+        return self._config
+
+    @property
+    def legacy_config(self) -> FlatConfig | None:
+        """The flat config most recently supplied, or None when a tree was."""
+        return self._legacy
+
+    def _apply_bounds(self, config: PetasosConfig) -> None:
+        lineage = config.tools.lineage
+        self._max_depth = lineage.max_depth
+        self._max_edges = lineage.max_edges
+        self._edge_ttl = lineage.edge_ttl_seconds
+
+    def apply_config(self, new_config: ConfigInput, *, legacy: FlatConfig | None = None) -> None:
         """PET-126: rebind the cached bounds in place, preserving ``_edges``.
 
         ``_max_depth`` / ``_max_edges`` / ``_edge_ttl`` are cached at construction
@@ -50,10 +69,14 @@ class LineageRegistry:
         invariant is preserved: this method touches only registry state and never
         calls into ``FrequencyTracker`` (spec D10).
         """
+        bound = bind(new_config)
         with self._lock:
-            self._max_depth = new_config.lineage_max_depth
-            self._max_edges = new_config.lineage_max_edges
-            self._edge_ttl = new_config.lineage_edge_ttl_seconds
+            self._config = bound.config
+            if legacy is not None:
+                self._legacy = legacy
+            elif bound.legacy is not None:
+                self._legacy = bound.legacy
+            self._apply_bounds(bound.config)
 
     def register(self, child: str, parent: str) -> None:
         """Record (or re-parent) the ``child -> parent`` edge.

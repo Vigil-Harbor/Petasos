@@ -1857,7 +1857,10 @@ def _apply_reconfigure_body(cfg: PetasosConfig) -> None:
         from petasos.console._events import set_spool_key
         from petasos.console._paths import spool_path
 
-        set_spool_key(_pipeline.config.session_secret, path=spool_path(_session_resolution))
+        _secret = (
+            _pipeline.legacy_config.session_secret if _pipeline.legacy_config is not None else None
+        )
+        set_spool_key(_secret, path=spool_path(_session_resolution))
     except Exception as exc:  # pragma: no cover - defensive; integrity is best-effort
         logger.warning(
             "PETASOS_INTEGRITY spool-key re-install failed on reconfigure: %s — integrity off", exc
@@ -2067,7 +2070,12 @@ def _rebind_to_resolution(res: HermesConfigResolution) -> None:
                 from petasos.console._events import set_spool_key
                 from petasos.console._paths import spool_path
 
-                set_spool_key(_pipeline.config.session_secret, path=spool_path(res))
+                _secret = (
+                    _pipeline.legacy_config.session_secret
+                    if _pipeline.legacy_config is not None
+                    else None
+                )
+                set_spool_key(_secret, path=spool_path(res))
             except Exception as exc:  # pragma: no cover - integrity is best-effort
                 logger.warning("PETASOS_INTEGRITY spool-key install failed on rebind: %s", exc)
         _reset_armed_cache()  # Decision 5: drop W's (mtime,size)-keyed bit

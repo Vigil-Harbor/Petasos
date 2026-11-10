@@ -122,7 +122,8 @@ def test_builder_attestation_on_with_valid_secret(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setenv("PETASOS_SESSION_SECRET", secret)
 
     pipeline = build_dashboard_pipeline({})
-    assert pipeline.config.session_secret is not None
+    assert pipeline.legacy_config is not None
+    assert pipeline.legacy_config.session_secret is not None
 
 
 def test_builder_attestation_off_with_invalid_secret(
@@ -136,7 +137,8 @@ def test_builder_attestation_off_with_invalid_secret(
     with caplog.at_level(logging.WARNING, logger=_DASHBOARD_LOGGER):
         pipeline = build_dashboard_pipeline({})
 
-    assert pipeline.config.session_secret is None
+    assert pipeline.legacy_config is not None
+    assert pipeline.legacy_config.session_secret is None
     assert any("not valid base64" in line for line in _dashboard_logs(caplog))
 
 

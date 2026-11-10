@@ -8,6 +8,7 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 from petasos._types import Alert, Severity, at_least
+from petasos.config.legacy import ConfigInput, FlatConfig, bind
 from petasos.session.escalation import evaluate_tier
 
 _logger = logging.getLogger(__name__)
@@ -16,18 +17,20 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from petasos._types import PipelineResult, ScanFinding
-    from petasos.config import PetasosConfig
+    from petasos.config.sections import PetasosConfig
     from petasos.session.frequency import FrequencyUpdateResult
 
 
 class AlertManager:
     def __init__(
         self,
-        config: PetasosConfig,
+        config: ConfigInput,
         *,
         on_alert: Callable[[Alert], None] | None = None,
     ) -> None:
-        self._config = config
+        bound = bind(config)
+        self._config = bound.config
+        self._legacy = bound.legacy
         self._on_alert = on_alert
         self._listeners: list[Callable[[Alert], None]] = []
         self._rule_cooldowns: dict[tuple[str, str | None], float] = {}
@@ -36,7 +39,7 @@ class AlertManager:
         self._critical_per_minute_timestamps: dict[str, deque[float]] = {}
         self._ring_buffers: dict[str, deque[tuple[float, str]]] = {}
         self._pii_ring_buffer: deque[tuple[float, int]] = deque(
-            maxlen=config.alert_ring_buffer_capacity
+            maxlen=self._config.alerting.ring_buffer_capacity
         )
         self._per_session_minute_timestamps: dict[tuple[str, str | None], deque[float]] = {}
         self._alert_count: int = 0
@@ -46,7 +49,17 @@ class AlertManager:
         self._cross_session_tracker: dict[str, float] = {}
         self._callback_errors: list[str] = []
 
-    def apply_config(self, new_config: PetasosConfig) -> None:
+    @property
+    def config(self) -> PetasosConfig:
+        """The config tree this manager reads."""
+        return self._config
+
+    @property
+    def legacy_config(self) -> FlatConfig | None:
+        """The flat config most recently supplied, or None when a tree was."""
+        return self._legacy
+
+    def apply_config(self, new_config: ConfigInput, *, legacy: FlatConfig | None = None) -> None:
         """PET-126: rebind ``_config``; rebuild ``_pii_ring_buffer`` only when
         ``alert_ring_buffer_capacity`` changed.
 
@@ -59,9 +72,14 @@ class AlertManager:
         (harmless: ``__post_init__`` bounds ``alert_rapid_fire_count <= capacity``);
         newly-created entries pick up the new capacity.
         """
-        old_capacity = self._config.alert_ring_buffer_capacity
-        self._config = new_config
-        new_capacity = new_config.alert_ring_buffer_capacity
+        old_capacity = self._config.alerting.ring_buffer_capacity
+        bound = bind(new_config)
+        self._config = bound.config
+        if legacy is not None:
+            self._legacy = legacy
+        elif bound.legacy is not None:
+            self._legacy = bound.legacy
+        new_capacity = self._config.alerting.ring_buffer_capacity
         if new_capacity != old_capacity:
             self._pii_ring_buffer = deque(self._pii_ring_buffer, maxlen=new_capacity)
 
@@ -130,7 +148,7 @@ class AlertManager:
                     candidate.rule_id, deque()
                 )
                 self._evict_old(crit_deque, now, 60.0)
-                if len(crit_deque) >= self._config.alert_critical_per_minute_cap:
+                if len(crit_deque) >= self._config.alerting.critical_per_minute_cap:
                     self._rate_limited_count += 1
                     continue
                 crit_deque.append(now)
@@ -138,7 +156,7 @@ class AlertManager:
                 dedup_key = (candidate.rule_id, session_id)
 
                 last_fire = self._rule_cooldowns.get(dedup_key)
-                cooldown = self._config.alert_cooldown_seconds
+                cooldown = self._config.alerting.cooldown_seconds
                 if last_fire is not None and (now - last_fire) < cooldown:
                     self._suppressed_count += 1
                     continue
@@ -147,7 +165,7 @@ class AlertManager:
                 if (
                     session_minute_key not in self._per_session_minute_timestamps
                     and len(self._per_session_minute_timestamps)
-                    >= self._config.alert_max_session_contribution_entries
+                    >= self._config.alerting.max_session_contribution_entries
                 ):
                     self._session_rate_limited_count += 1
                     continue
@@ -156,19 +174,19 @@ class AlertManager:
                     session_minute_key, deque()
                 )
                 self._evict_old(session_minute_deque, now, 60.0)
-                if len(session_minute_deque) >= self._config.alert_per_session_contribution_cap:
+                if len(session_minute_deque) >= self._config.alerting.per_session_contribution_cap:
                     self._session_rate_limited_count += 1
                     continue
 
                 minute_deque = self._per_minute_timestamps.setdefault(candidate.rule_id, deque())
                 self._evict_old(minute_deque, now, 60.0)
-                if len(minute_deque) >= self._config.alert_per_minute_cap:
+                if len(minute_deque) >= self._config.alerting.per_minute_cap:
                     self._rate_limited_count += 1
                     continue
 
                 hour_deque = self._per_hour_timestamps.setdefault(candidate.rule_id, deque())
                 self._evict_old(hour_deque, now, 3600.0)
-                if len(hour_deque) >= self._config.alert_per_hour_cap:
+                if len(hour_deque) >= self._config.alerting.per_hour_cap:
                     self._rate_limited_count += 1
                     continue
 
@@ -244,7 +262,7 @@ class AlertManager:
         cap_key = finding.rule_id
         cap_deque = self._critical_per_minute_timestamps.setdefault(cap_key, deque())
         self._evict_old(cap_deque, now, 60.0)
-        if len(cap_deque) >= self._config.alert_critical_per_minute_cap:
+        if len(cap_deque) >= self._config.alerting.critical_per_minute_cap:
             self._rate_limited_count += 1
             return None
         cap_deque.append(now)
@@ -301,7 +319,7 @@ class AlertManager:
         result: PipelineResult,
         session_id: str | None,
     ) -> Alert | None:
-        threshold = Severity(self._config.alert_high_severity_threshold)
+        threshold = Severity(self._config.alerting.high_severity_threshold)
 
         for finding in result.findings:
             if at_least(finding.severity, threshold):
@@ -349,14 +367,14 @@ class AlertManager:
 
         buf_key = f"rapid_fire|{session_id}"
         buf = self._ring_buffers.setdefault(
-            buf_key, deque(maxlen=self._config.alert_ring_buffer_capacity)
+            buf_key, deque(maxlen=self._config.alerting.ring_buffer_capacity)
         )
         buf.append((now, session_id))
 
-        window = self._config.alert_rapid_fire_window_seconds
+        window = self._config.alerting.rapid_fire_window_seconds
         count = sum(1 for ts, _ in buf if (now - ts) <= window)
 
-        if count >= self._config.alert_rapid_fire_count:
+        if count >= self._config.alerting.rapid_fire_count:
             return Alert(
                 alert_id=uuid.uuid4().hex,
                 timestamp=time.time(),
@@ -372,7 +390,7 @@ class AlertManager:
                         "session_id": session_id,
                         "count": count,
                         "window_seconds": window,
-                        "threshold": self._config.alert_rapid_fire_count,
+                        "threshold": self._config.alerting.rapid_fire_count,
                     }
                 ),
             )
@@ -392,20 +410,20 @@ class AlertManager:
 
         buf_key = "cross_session_burst"
         buf = self._ring_buffers.setdefault(
-            buf_key, deque(maxlen=self._config.alert_ring_buffer_capacity)
+            buf_key, deque(maxlen=self._config.alerting.ring_buffer_capacity)
         )
         buf.append((now, session_id))
 
         self._cross_session_tracker[session_id] = now
-        window = self._config.alert_cross_session_burst_window_seconds
+        window = self._config.alerting.cross_session_burst_window_seconds
         stale_sids = [
             sid for sid, ts in self._cross_session_tracker.items() if (now - ts) > window
         ]
         for sid in stale_sids:
             del self._cross_session_tracker[sid]
         tracker_cap = max(
-            2 * self._config.alert_ring_buffer_capacity,
-            self._config.alert_cross_session_burst_count,
+            2 * self._config.alerting.ring_buffer_capacity,
+            self._config.alerting.cross_session_burst_count,
         )
         if len(self._cross_session_tracker) > tracker_cap:
             sorted_entries = sorted(self._cross_session_tracker.items(), key=lambda x: x[1])
@@ -413,7 +431,7 @@ class AlertManager:
                 del self._cross_session_tracker[sid]
 
         distinct_count = len(self._cross_session_tracker)
-        if distinct_count >= self._config.alert_cross_session_burst_count:
+        if distinct_count >= self._config.alerting.cross_session_burst_count:
             return Alert(
                 alert_id=uuid.uuid4().hex,
                 timestamp=time.time(),
@@ -425,7 +443,7 @@ class AlertManager:
                     {
                         "distinct_sessions": distinct_count,
                         "window_seconds": window,
-                        "threshold": self._config.alert_cross_session_burst_count,
+                        "threshold": self._config.alerting.cross_session_burst_count,
                     }
                 ),
             )
@@ -442,10 +460,10 @@ class AlertManager:
         if entity_count > 0:
             self._pii_ring_buffer.append((now, entity_count))
 
-        window = self._config.alert_pii_volume_window_seconds
+        window = self._config.alerting.pii_volume_window_seconds
         total = sum(count for ts, count in self._pii_ring_buffer if (now - ts) <= window)
 
-        if total >= self._config.alert_pii_volume_threshold:
+        if total >= self._config.alerting.pii_volume_threshold:
             return Alert(
                 alert_id=uuid.uuid4().hex,
                 timestamp=time.time(),
@@ -457,7 +475,7 @@ class AlertManager:
                     {
                         "entity_count": total,
                         "window_seconds": window,
-                        "threshold": self._config.alert_pii_volume_threshold,
+                        "threshold": self._config.alerting.pii_volume_threshold,
                     }
                 ),
             )
@@ -469,7 +487,7 @@ class AlertManager:
             d.popleft()
 
     def _prune_stale(self, now: float) -> None:
-        cooldown_ttl = 2 * self._config.alert_cooldown_seconds
+        cooldown_ttl = 2 * self._config.alerting.cooldown_seconds
         stale_cooldown_keys = [
             k for k, t in self._rule_cooldowns.items() if (now - t) > cooldown_ttl
         ]
@@ -509,9 +527,9 @@ class AlertManager:
             del self._critical_per_minute_timestamps[ck]
 
         ring_ttl = max(
-            self._config.alert_rapid_fire_window_seconds,
-            self._config.alert_cross_session_burst_window_seconds,
-            self._config.alert_pii_volume_window_seconds,
+            self._config.alerting.rapid_fire_window_seconds,
+            self._config.alerting.cross_session_burst_window_seconds,
+            self._config.alerting.pii_volume_window_seconds,
         )
         stale_ring_keys: list[str] = []
         for rk, buf in self._ring_buffers.items():
@@ -520,7 +538,7 @@ class AlertManager:
         for rk in stale_ring_keys:
             del self._ring_buffers[rk]
 
-        burst_window = self._config.alert_cross_session_burst_window_seconds
+        burst_window = self._config.alerting.cross_session_burst_window_seconds
         stale_tracker_keys = [
             sid for sid, ts in self._cross_session_tracker.items() if (now - ts) > burst_window
         ]
