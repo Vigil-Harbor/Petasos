@@ -196,3 +196,21 @@ Both runs used release tree `5549d62` and stopped at stage 1, so `hooks`,
 - Plane: PET-262.
 - Unholding #209: no-go. Neither run says anything about the wheel. The gate
   and the harness changed, so a new run is needed.
+
+### 2026-11-10, run3: no-go
+
+- Evidence: `windows-5549d62-run3.json`, SHA-256
+  `05f54d8d0472d8be9899b69760e82ab98e31eb8f4d7c0cfe5521cd56f2ed08bb`.
+- Verdict: no-go. The run stopped at stage 1, so `hooks`, `cold`, `negative`,
+  and `dash` were skipped and no corpus case ran.
+- Failed checks: `stage1.bootstrap`, `stage1.plugin_kept`, `stage1.completed`.
+  `stage1.store_isolated` passed.
+- Cause: a defect in the reference plugin manifest, found with the fixed
+  harness loaded. Hermes locks one workspace for every platform, Android
+  included. The manifest required `petasos[presidio,prompt-guard]` on every
+  platform, and torch has no Android wheel, so the lock had no solution.
+  Hermes then disabled the plugin on all three matrix profiles. A real
+  Hermes 0.22.5 host would have installed the 0.5.0 plugin with no hooks. The
+  manifest's requirement now excludes Android.
+- Plane: PET-263.
+- Unholding #209: no-go. The manifest changed, so a new run is needed.
