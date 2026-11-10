@@ -15,7 +15,12 @@ from typing import TYPE_CHECKING, Any
 import pytest
 
 import petasos.console._events as ev
-from petasos.console.server import _BLOCK_EVENT_TYPES, _MAX_REASON_LEN, _enforcement_summary
+from petasos.console.server import (
+    _BLOCK_EVENT_TYPES,
+    _MAX_APPROVAL_DESCRIPTION_LEN,
+    _MAX_REASON_LEN,
+    _enforcement_summary,
+)
 
 if TYPE_CHECKING:
     import types
@@ -108,6 +113,7 @@ class _Unanswered(str):
 
 def test_approval_field_max_matches_server(ref: types.ModuleType) -> None:
     assert ref._APPROVAL_FIELD_MAX == _MAX_REASON_LEN
+    assert ref._APPROVAL_DESCRIPTION_MAX == _MAX_APPROVAL_DESCRIPTION_LEN == 400
 
 
 @pytest.mark.parametrize("choice", _CHOICES)
@@ -141,7 +147,9 @@ def test_post_empty_choice_stays_empty(ref: types.ModuleType) -> None:
     assert _only_row()["choice"] == ""
 
 
-def test_payload_shape_on_request_and_response(ref: types.ModuleType) -> None:
+def test_payload_shape_on_request_and_response(
+    ref: types.ModuleType, identity_redactor: None
+) -> None:
     assert ref._pre_approval_request(**_payload(ignored_extra="nope")) is None
     assert ref._post_approval_response(**_payload(choice="once", ignored_extra="nope")) is None
     request, response = _read_spool()
@@ -199,7 +207,9 @@ def test_empty_session_id_falls_back_to_session_key(ref: types.ModuleType) -> No
     assert row["session_key"] == "from-key"
 
 
-def test_command_and_pattern_keys_are_capped(ref: types.ModuleType) -> None:
+def test_command_and_pattern_keys_are_capped(
+    ref: types.ModuleType, identity_redactor: None
+) -> None:
     cap = ref._APPROVAL_FIELD_MAX
     long_key = "k" * (cap + 40)
     keys = [long_key, *([f"k{i}" for i in range(8)])]

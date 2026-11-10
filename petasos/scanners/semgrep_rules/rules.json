@@ -1,0 +1,236 @@
+{
+  "rules": [
+    {
+      "id": "petasos.semgrep.python.dynamic_code",
+      "languages": [
+        "python"
+      ],
+      "severity": "WARNING",
+      "message": "Dynamic code evaluation call.",
+      "metadata": {
+        "cwe": "CWE-94",
+        "confidence": "HIGH",
+        "license": "MIT"
+      },
+      "pattern-either": [
+        {
+          "pattern": "eval(...)"
+        },
+        {
+          "pattern": "exec(...)"
+        }
+      ]
+    },
+    {
+      "id": "petasos.semgrep.python.shell",
+      "languages": [
+        "python"
+      ],
+      "severity": "WARNING",
+      "message": "Shell invocation.",
+      "metadata": {
+        "cwe": "CWE-78",
+        "confidence": "HIGH",
+        "license": "MIT"
+      },
+      "pattern-either": [
+        {
+          "pattern": "os.system(...)"
+        },
+        {
+          "pattern": "os.popen(...)"
+        },
+        {
+          "pattern": "subprocess.run(..., shell=True, ...)"
+        },
+        {
+          "pattern": "subprocess.Popen(..., shell=True, ...)"
+        },
+        {
+          "pattern": "subprocess.call(..., shell=True, ...)"
+        }
+      ]
+    },
+    {
+      "id": "petasos.semgrep.python.deserialization",
+      "languages": [
+        "python"
+      ],
+      "severity": "WARNING",
+      "message": "Object deserialization.",
+      "metadata": {
+        "cwe": "CWE-502",
+        "confidence": "HIGH",
+        "license": "MIT"
+      },
+      "pattern-either": [
+        {
+          "pattern": "pickle.loads(...)"
+        },
+        {
+          "pattern": "pickle.load(...)"
+        },
+        {
+          "pattern": "dill.loads(...)"
+        },
+        {
+          "pattern": "jsonpickle.decode(...)"
+        }
+      ]
+    },
+    {
+      "id": "petasos.semgrep.python.unsafe_yaml",
+      "languages": [
+        "python"
+      ],
+      "severity": "WARNING",
+      "message": "Unsafe YAML loader.",
+      "metadata": {
+        "cwe": "CWE-502",
+        "confidence": "HIGH",
+        "license": "MIT"
+      },
+      "pattern-either": [
+        {
+          "pattern": "yaml.load(..., Loader=yaml.Loader, ...)"
+        },
+        {
+          "pattern": "yaml.load(..., Loader=yaml.UnsafeLoader, ...)"
+        },
+        {
+          "pattern": "yaml.unsafe_load(...)"
+        }
+      ]
+    },
+    {
+      "id": "petasos.semgrep.javascript.dynamic_code",
+      "languages": [
+        "javascript",
+        "typescript"
+      ],
+      "severity": "WARNING",
+      "message": "Dynamic code evaluation call.",
+      "metadata": {
+        "cwe": "CWE-94",
+        "confidence": "HIGH",
+        "license": "MIT"
+      },
+      "pattern-either": [
+        {
+          "pattern": "eval(...)"
+        },
+        {
+          "pattern": "new Function(...)"
+        }
+      ]
+    },
+    {
+      "id": "petasos.semgrep.javascript.shell",
+      "languages": [
+        "javascript",
+        "typescript"
+      ],
+      "severity": "WARNING",
+      "message": "Shell invocation.",
+      "metadata": {
+        "cwe": "CWE-78",
+        "confidence": "HIGH",
+        "license": "MIT"
+      },
+      "pattern-either": [
+        {
+          "pattern": "require(\"child_process\").exec(...)"
+        },
+        {
+          "pattern": "require(\"node:child_process\").exec(...)"
+        },
+        {
+          "pattern": "require(\"child_process\").execSync(...)"
+        },
+        {
+          "pattern": "require(\"node:child_process\").execSync(...)"
+        },
+        {
+          "patterns": [
+            {
+              "pattern-inside": "const $CP = require(\"child_process\"); ..."
+            },
+            {
+              "pattern": "$CP.exec(...)"
+            }
+          ]
+        },
+        {
+          "patterns": [
+            {
+              "pattern-inside": "import { exec as $RUN } from \"child_process\"; ..."
+            },
+            {
+              "pattern": "$RUN(...)"
+            }
+          ]
+        },
+        {
+          "patterns": [
+            {
+              "pattern-inside": "const $CP = require(\"child_process\"); ..."
+            },
+            {
+              "pattern": "$CP.execSync(...)"
+            }
+          ]
+        },
+        {
+          "patterns": [
+            {
+              "pattern-inside": "import { execSync as $RUN } from \"child_process\"; ..."
+            },
+            {
+              "pattern": "$RUN(...)"
+            }
+          ]
+        },
+        {
+          "patterns": [
+            {
+              "pattern-inside": "const $CP = require(\"node:child_process\"); ..."
+            },
+            {
+              "pattern": "$CP.exec(...)"
+            }
+          ]
+        },
+        {
+          "patterns": [
+            {
+              "pattern-inside": "import { exec as $RUN } from \"node:child_process\"; ..."
+            },
+            {
+              "pattern": "$RUN(...)"
+            }
+          ]
+        },
+        {
+          "patterns": [
+            {
+              "pattern-inside": "const $CP = require(\"node:child_process\"); ..."
+            },
+            {
+              "pattern": "$CP.execSync(...)"
+            }
+          ]
+        },
+        {
+          "patterns": [
+            {
+              "pattern-inside": "import { execSync as $RUN } from \"node:child_process\"; ..."
+            },
+            {
+              "pattern": "$RUN(...)"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

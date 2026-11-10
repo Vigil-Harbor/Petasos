@@ -3,8 +3,9 @@ from __future__ import annotations
 import logging
 
 from petasos.scanners.minimal import MinimalScanner
+from petasos.scanners.semgrep import SemgrepScanner
 
-__all__: list[str] = ["MinimalScanner"]
+__all__: list[str] = ["MinimalScanner", "SemgrepScanner"]
 
 _logger = logging.getLogger(__name__)
 

@@ -10,7 +10,7 @@ import logging
 import sys
 import types
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -37,10 +37,11 @@ _REF_PLUGIN_PATH = (
 _DESTRUCTIVE = "petasos.syntactic.command.destructive-recursive"
 _FETCH = "petasos.syntactic.command.fetch-exec"
 _DEGRADED = "petasos.degraded"
-_APPROVE_CMD = "Petasos asks for approval before running '{tool}'. Rule: {rule}."
+_EXCERPT_EMPTY = "Command (from tool arguments): (no parameters)"
+_APPROVE_CMD = "Petasos asks for approval before running '{tool}'. Rule: {rule}. " + _EXCERPT_EMPTY
 _APPROVE_DEGRADED = (
     "Petasos asks for approval before running '{tool}'. "
-    "Parameter scan is unreliable (petasos.degraded)."
+    "Parameter scan is unreliable (petasos.degraded). " + _EXCERPT_EMPTY
 )
 _ALWAYS_WARN = "always-approval read unavailable; operator always will not waive Petasos blocks"
 
@@ -102,8 +103,24 @@ def _pipeline(name: str, *, fail_mode: str = "degraded") -> Pipeline:
     )
 
 
+def _install_identity_redactor(monkeypatch: pytest.MonkeyPatch) -> None:
+    """PET-223: the approve message must not depend on whether Hermes is importable."""
+    redact_mod = cast("Any", types.ModuleType("agent.redact"))
+
+    def redact_sensitive_text(
+        text: str, force: bool = False, redact_url_credentials: bool = False
+    ) -> str:
+        return text
+
+    redact_mod.redact_sensitive_text = redact_sensitive_text
+    if "agent" not in sys.modules:
+        monkeypatch.setitem(sys.modules, "agent", types.ModuleType("agent"))
+    monkeypatch.setitem(sys.modules, "agent.redact", redact_mod)
+
+
 @pytest.fixture
 def ref(monkeypatch: pytest.MonkeyPatch) -> Any:
+    _install_identity_redactor(monkeypatch)
     mod = _import_reference_plugin()
     monkeypatch.setattr(mod, "_initialized", True)
     monkeypatch.setattr(mod, "_init_error", None)

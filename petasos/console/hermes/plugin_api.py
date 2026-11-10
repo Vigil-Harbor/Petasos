@@ -329,6 +329,80 @@ async def set_armed(request: Request, profile: str | None = None) -> Any:
     return result
 
 
+@router.get("/approvals/refused")
+async def get_refused_approvals(profile: str | None = None) -> Any:
+    from fastapi.responses import JSONResponse
+
+    from petasos.console.server import ProfileNotFoundError
+
+    try:
+        return await _require_handlers().get_refused_approvals(profile)
+    except ProfileNotFoundError as exc:
+        return JSONResponse(
+            status_code=422,
+            content={"detail": [{"field": "profile", "message": str(exc)}]},
+        )
+
+
+@router.post("/approvals/reviewed")
+async def mark_approval_reviewed(request: Request, profile: str | None = None) -> Any:
+    from fastapi.responses import JSONResponse
+
+    from petasos.console.server import (
+        ProfileNotEquippedError,
+        ProfileNotFoundError,
+        ReviewRefusedError,
+    )
+
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse(
+            status_code=422,
+            content={"detail": [{"field": "body", "message": "Invalid JSON"}]},
+        )
+    if not isinstance(body, dict):
+        return JSONResponse(
+            status_code=422,
+            content={"detail": [{"field": "body", "message": "Expected JSON object"}]},
+        )
+    body_profile = body.get("profile")
+    if body_profile is not None and not isinstance(body_profile, str):
+        return JSONResponse(
+            status_code=422,
+            content={"detail": [{"field": "profile", "message": "Must be a string"}]},
+        )
+    # PET-238: Hermes's SDK appends ?profile= to every request. Honor it.
+    # Only a disagreement between query and body is refused.
+    if profile is not None and body_profile is not None and profile != body_profile:
+        return JSONResponse(
+            status_code=422,
+            content={
+                "detail": [
+                    {"field": "profile", "message": "query and body name different profiles"}
+                ]
+            },
+        )
+    chosen = body_profile if body_profile is not None else profile
+    try:
+        return await _require_handlers().mark_approval_reviewed(body.get("item_id"), chosen)
+    except ProfileNotFoundError as exc:
+        return JSONResponse(
+            status_code=422,
+            content={"detail": [{"field": "profile", "message": str(exc)}]},
+        )
+    except ProfileNotEquippedError as exc:
+        return JSONResponse(
+            status_code=409,
+            content={"detail": [{"field": "profile", "message": str(exc)}]},
+        )
+    except ReviewRefusedError as exc:
+        return JSONResponse(
+            status_code=exc.status,
+            content={"detail": [{"field": exc.field, "message": str(exc)}]},
+        )
+
+
 @router.get("/diag")
 async def get_diag() -> Any:
     """Debug endpoint — pipeline wiring diagnostics."""

@@ -48,6 +48,9 @@ _REF_PLUGIN_PATH = (
 
 _FAIL_MODES = ("open", "degraded", "closed")
 
+# These tests assert cold-start reasons, not credential pattern coverage.
+pytestmark = pytest.mark.usefixtures("identity_redactor")
+
 
 def _import_reference_plugin() -> types.ModuleType:
     spec = importlib.util.spec_from_file_location(

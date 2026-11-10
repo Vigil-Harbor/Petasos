@@ -1,0 +1,261 @@
+{
+  "schema": 1,
+  "utc": "2026-11-03T21:33:16.534404+00:00",
+  "python": "3.11.15",
+  "hermes_commit": "5019bf706732a85a6bb2af8ec083bf82b6f94c5f",
+  "petasos_commit": "e31241b4bf41e24f7ed779fae85978fb3e2636e1",
+  "harness_sha256": "a4f364890d95d4372f027bf08a5edcbd11da444d385418a5aea79884dfb4cd62",
+  "petasos_plugin_sha256": "1819a96fc579e9f49710780bf3da7e1765ba3eac1657edf0b0bb494b5c0f52ed",
+  "petasos_sources_sha256": {
+    "petasos/console/_paths.py": "bcbcdb460bd7edb12d6b8ae915d1108201803200049a7babfef44304f5fd7943",
+    "petasos/console/_events.py": "908430865040d07e4b97f7045922002b26348f784db82717fed6e35b4517ab6d",
+    "petasos/console/_history.py": "aa8b393d045470da1a735ef45c85e82c3f17b9733523c0a38f21405424913e98",
+    "petasos/console/_approvals.py": "3906e7196d79f58103470a57903c157e051563ed0af66d2159f0dc4221a0a5e1",
+    "petasos/console/server.py": "47dd9ceaeb624220b33c2a7d18cb0ff5d20fabbeed0fb00c22b9e54db8c5f868"
+  },
+  "host_sources_sha256": {
+    "gateway/run.py": "0c440eb8b361d28a2f02f3f30c2e7dd738b5ca3249caf267fb90ef087af83d35",
+    "gateway/turn_executor.py": "d47465aa5f7c5d56435ddcebf6667a7d1ccf57fba88177535613a2878110b3ec",
+    "hermes_cli/plugins.py": "a1ae6586cb5d968cb1fb6a499960c6a75e078f355ef328b5c906f73ec64aff20",
+    "hermes_cli/plugins_dispatch.py": "a3960ec7a3c4ebfa4053f3019dcb67b73de5df384bfa4c0a8484a7815972833c",
+    "hermes_cli/lifecycle.py": "86fe6336a6c887bc874b9e801ad67fc3612422feb5996c6453cd75b18d7b5769",
+    "tools/approval_context.py": "9bcac985edbcd610392ac40c84c47ca38f169976f42b7e4acade5eb82709dd97",
+    "tools/approval_gateway_wait.py": "2d4cf33858fb520a6b9329ab0c6dedfc63986a0d0a58a1c53f501236de481d4b",
+    "tools/approval.py": "6f19d962993e563e527a6310f481c38d131ad34ab422e540db5c3f949ffa742d",
+    "agent/redact.py": "cea25df8139675b600eca448f70756bfa9ad22f537abf4f123d01bcbfc71e563",
+    "agent/secret_scope.py": "dce64ce99a6966836108e202e1db41c4be97bd3dad41a79e357f39b8d7e90dec"
+  },
+  "fixture_seams": [
+    "Startup bootstrap/updater excluded",
+    "Synthetic prepared secret scopes and registered values",
+    "Only fixture callbacks registered; plugin discovery/scanner startup excluded",
+    "First-party lifecycle telemetry disabled",
+    "Pre-tool callback invokes actual excerpt/enforcement helpers; no model/scanner",
+    "History writers exercised sequentially after concurrent spool writes"
+  ],
+  "limits": [
+    "Offline source integration, not a deployed gateway or Desktop smoke test",
+    "No actual password-manager retrieval, provider authentication or credential rotation",
+    "Does not exercise routing admission/profile selection or every gateway turn surface"
+  ],
+  "results": {
+    "scenarios": [
+      {
+        "profile": "A",
+        "outcome": "deny",
+        "round": 0,
+        "passed": true
+      },
+      {
+        "profile": "B",
+        "outcome": "deny",
+        "round": 0,
+        "passed": true
+      },
+      {
+        "profile": "A",
+        "outcome": "timeout",
+        "round": 0,
+        "passed": true
+      },
+      {
+        "profile": "B",
+        "outcome": "timeout",
+        "round": 0,
+        "passed": true
+      },
+      {
+        "profile": "A",
+        "outcome": "notify_failed",
+        "round": 0,
+        "passed": true
+      },
+      {
+        "profile": "B",
+        "outcome": "notify_failed",
+        "round": 0,
+        "passed": true
+      },
+      {
+        "profile": "A",
+        "outcome": "deny",
+        "round": 1,
+        "passed": true
+      },
+      {
+        "profile": "B",
+        "outcome": "deny",
+        "round": 1,
+        "passed": true
+      },
+      {
+        "profile": "A",
+        "outcome": "timeout",
+        "round": 1,
+        "passed": true
+      },
+      {
+        "profile": "B",
+        "outcome": "timeout",
+        "round": 1,
+        "passed": true
+      },
+      {
+        "profile": "A",
+        "outcome": "notify_failed",
+        "round": 1,
+        "passed": true
+      },
+      {
+        "profile": "B",
+        "outcome": "notify_failed",
+        "round": 1,
+        "passed": true
+      },
+      {
+        "profile": "A",
+        "outcome": "deny",
+        "round": 2,
+        "passed": true
+      },
+      {
+        "profile": "B",
+        "outcome": "deny",
+        "round": 2,
+        "passed": true
+      },
+      {
+        "profile": "A",
+        "outcome": "timeout",
+        "round": 2,
+        "passed": true
+      },
+      {
+        "profile": "B",
+        "outcome": "timeout",
+        "round": 2,
+        "passed": true
+      },
+      {
+        "profile": "A",
+        "outcome": "notify_failed",
+        "round": 2,
+        "passed": true
+      },
+      {
+        "profile": "B",
+        "outcome": "notify_failed",
+        "round": 2,
+        "passed": true
+      },
+      {
+        "profile": "A",
+        "outcome": "deny",
+        "round": 3,
+        "passed": true
+      },
+      {
+        "profile": "B",
+        "outcome": "deny",
+        "round": 3,
+        "passed": true
+      },
+      {
+        "profile": "A",
+        "outcome": "timeout",
+        "round": 3,
+        "passed": true
+      },
+      {
+        "profile": "B",
+        "outcome": "timeout",
+        "round": 3,
+        "passed": true
+      },
+      {
+        "profile": "A",
+        "outcome": "notify_failed",
+        "round": 3,
+        "passed": true
+      },
+      {
+        "profile": "B",
+        "outcome": "notify_failed",
+        "round": 3,
+        "passed": true
+      },
+      {
+        "profile": "A",
+        "outcome": "deny",
+        "round": 4,
+        "passed": true
+      },
+      {
+        "profile": "B",
+        "outcome": "deny",
+        "round": 4,
+        "passed": true
+      },
+      {
+        "profile": "A",
+        "outcome": "timeout",
+        "round": 4,
+        "passed": true
+      },
+      {
+        "profile": "B",
+        "outcome": "timeout",
+        "round": 4,
+        "passed": true
+      },
+      {
+        "profile": "A",
+        "outcome": "notify_failed",
+        "round": 4,
+        "passed": true
+      },
+      {
+        "profile": "B",
+        "outcome": "notify_failed",
+        "round": 4,
+        "passed": true
+      }
+    ],
+    "hook_observations": 90,
+    "negative_control": {
+      "wrong_home_detected": true,
+      "opaque_value_unmasked": true,
+      "wrong_manager_detected": true
+    },
+    "forced_redaction_with_preference_off": true,
+    "resource_check": {
+      "withheld": true,
+      "redactor_input_characters": 500008,
+      "seconds": 0.007451
+    },
+    "persistence": [
+      {
+        "profile": "A",
+        "spool_rows": 45,
+        "history_rows": 45,
+        "refused_items": 15,
+        "signatures_valid": true,
+        "other_profile_key_rejected": true,
+        "secrets_absent": true,
+        "identifiers_preserved": true
+      },
+      {
+        "profile": "B",
+        "spool_rows": 45,
+        "history_rows": 45,
+        "refused_items": 15,
+        "signatures_valid": true,
+        "other_profile_key_rejected": true,
+        "secrets_absent": true,
+        "identifiers_preserved": true
+      }
+    ],
+    "external_io_attempts": []
+  },
+  "passed": true
+}

@@ -52,6 +52,7 @@ import base64
 import concurrent.futures  # PET-170: dep-light (stdlib; the run_coroutine_threadsafe timeout)
 import contextlib
 import hashlib  # PET-236: dep-light (stdlib; the load-identity digest)
+import json  # PET-223: dep-light (stdlib; approval command excerpt)
 import logging
 import math  # PET-167: dep-light (stdlib; isfinite guard on the raw init-wait budget)
 import os
@@ -59,18 +60,24 @@ import re  # PET-222: dep-light (stdlib; approval command tool-name regex)
 import sys  # PET-170: dep-light (stdlib; the transform_tool_result availability probe)
 import threading
 import time
+import unicodedata  # PET-223: dep-light (stdlib; excerpt escape categories)
 import uuid
+from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from petasos._types import Severity  # PET-112: dep-light (enum + dataclasses, no ML imports)
-from petasos.normalize import canonicalize_tool_name  # PET-118: dep-light (re + unicodedata)
+from petasos.normalize import (  # PET-118: dep-light (re + unicodedata)
+    _is_strippable,  # PET-223: the console's canonical invisible-character predicate
+    canonicalize_tool_name,
+)
 from petasos.session.formatting import (  # PET-77: dep-light (string formatting over dataclasses)
     format_block_message,
     format_content_block,
     format_result_notice,
 )
 from petasos.session.guard import (
+    _MAX_PARAM_TEXT_LEN,  # PET-223: excerpt segment budget, same bound as scan text
     INGESTION_TOOLS,
     NON_INGESTING_TOOLS,
     PARAM_SCAN_DIRECTION,
@@ -84,6 +91,8 @@ from petasos.session.ingest import (  # PET-178: dep-light (chunked result scan)
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from petasos import PetasosConfig
     from petasos.console._paths import HermesConfigResolution
 
@@ -167,6 +176,16 @@ _last_cold_start_fail_log = 0.0
 # None means capture has not run (or failed) -> the readers fall back to an ambient
 # per-call resolve. Never re-derived from in-session-mutable state (PET-125).
 _session_resolution: HermesConfigResolution | None = None
+
+# PET-237: hook-time home-mismatch warning. The captured key is lazy and is
+# compared with ``is`` on the resolution object. The memo and the seen-map are
+# separate, both capped at 16. Neither is an enforcement input.
+_home_mismatch_lock = threading.Lock()
+_home_mismatch_seen: dict[tuple[str, str], None] = {}
+_home_mismatch_key_memo: dict[str, str] = {}
+_HOME_MISMATCH_SEEN_MAX = 16
+_captured_key_obj: object | None = None
+_captured_key_value: str | None = None
 
 
 def _reset_session_resolution() -> None:
@@ -1542,6 +1561,41 @@ def _log_disarmed_bypass(tool_name: str) -> bool:
     return True
 
 
+_CREDENTIAL_MASKED_NOTICE = "Sensitive content masked locally; exposure unconfirmed."
+_CREDENTIAL_WITHHELD_NOTICE = "Sensitive display withheld; redaction unavailable."
+
+
+def _redact_display_text(value: object, limit: int) -> tuple[str, str]:
+    """Force host redaction before clipping any persisted free-text display field.
+
+    No credential retrieval, global secret cache or execution-input mutation.
+    The host resolves its vault registry in the caller's active profile context.
+    """
+    if not isinstance(value, str) or not value:
+        return "", "unchanged"
+    try:
+        if len(value) > _MAX_PARAM_TEXT_LEN:
+            raise ValueError("display input exceeds redaction budget")
+        from agent.redact import redact_sensitive_text  # type: ignore[import-not-found]
+
+        safe = redact_sensitive_text(value, force=True, redact_url_credentials=True)
+        if not isinstance(safe, str) or len(safe) > _MAX_PARAM_TEXT_LEN:
+            raise ValueError("invalid display redaction result")
+        status = "unchanged" if safe == value else "redacted"
+        return safe[:limit], status
+    except Exception:
+        # Do not log the exception: it can echo the value being protected.
+        return "withheld (redaction unavailable)"[:limit], "withheld"
+
+
+def _credential_reason(reason: str, status: str) -> str:
+    if status == "redacted":
+        return f"{_CREDENTIAL_MASKED_NOTICE} {reason}"
+    if status == "withheld":
+        return f"{_CREDENTIAL_WITHHELD_NOTICE} {reason}"
+    return reason
+
+
 def _emit_enforcement_event(
     *,
     session_id: str,
@@ -1578,6 +1632,7 @@ def _emit_enforcement_event(
     try:
         from petasos.console._events import emit_enforcement_event
 
+        safe_reason, redaction = _redact_display_text(reason, 200)
         return emit_enforcement_event(
             {
                 "session_id": session_id,
@@ -1586,7 +1641,8 @@ def _emit_enforcement_event(
                 "tier": tier,
                 "rule_id": rule_id,
                 "severity": severity,
-                "reason": reason,
+                "reason": safe_reason,
+                "credential_redaction": redaction,
                 "param_scan_degraded": param_scan_degraded,
                 "direction": "tool_call",
                 "armed": armed,
@@ -2274,14 +2330,295 @@ def _read_posture() -> str:
         return "block"
 
 
-def _approve_return(tool_name: str, session_id: str, rule_key: str) -> dict[str, str]:
+_EXCERPT_BUDGET = 160
+_BARE_KEY = re.compile(r"[A-Za-z0-9_.\-]{1,64}")
+_EXCERPT_MAX_DEPTH = 16
+_EXCERPT_MAX_NODES = 4096
+
+
+def _excerpt_redact_arguments(
+    args: Mapping[object, object], redact: Callable[..., str]
+) -> list[tuple[str, str]]:
+    """Redact original string leaves before JSON escaping or display normalization.
+
+    The host's exact vault-value registry needs the original characters. Work on
+    copies only, and withhold the entire excerpt if the input cannot be bounded.
+    """
+    nodes = 0
+    characters = 0
+    redaction_characters = 0
+
+    def spend(text: str) -> None:
+        nonlocal characters
+        characters += len(text)
+        if characters > _MAX_PARAM_TEXT_LEN:
+            raise ValueError("excerpt input exceeds character budget")
+
+    def mask(text: str) -> str:
+        nonlocal redaction_characters
+        # Count work, not just input: list leaves reuse their parent's field
+        # name, and the host may expand a value into a longer masking marker.
+        redaction_characters += len(text)
+        if redaction_characters > _MAX_PARAM_TEXT_LEN:
+            raise ValueError("excerpt redaction exceeds character budget")
+        masked = redact(text, force=True, redact_url_credentials=True)
+        if not isinstance(masked, str) or len(masked) > _MAX_PARAM_TEXT_LEN:
+            raise ValueError("invalid excerpt redaction result")
+        return masked
+
+    def clean(value: object, depth: int, key: str | None = None) -> Any:
+        nonlocal nodes
+        nodes += 1
+        if depth > _EXCERPT_MAX_DEPTH or nodes > _EXCERPT_MAX_NODES:
+            raise ValueError("excerpt input exceeds traversal budget")
+        if isinstance(value, str):
+            spend(value)
+            masked = mask(value)
+            if key is not None:
+                # Retain assignment context for opaque values under secret field
+                # names. If redaction changes the key too, withhold rather than
+                # trying to recover a value from an ambiguous assignment.
+                prefix = key + "="
+                assignment = mask(prefix + masked)
+                if not assignment.startswith(prefix):
+                    raise ValueError("excerpt field name was redacted")
+                masked = assignment[len(prefix) :]
+            return masked
+        if value is None or isinstance(value, (bool, int, float)):
+            spend(str(value))
+            return value
+        if isinstance(value, (list, tuple)):
+            return [clean(item, depth + 1, key) for item in value]
+        if isinstance(value, Mapping):
+            result: dict[str, Any] = {}
+            for field, item in value.items():
+                if not isinstance(field, str):
+                    raise TypeError("non-string excerpt field")
+                spend(field)
+                safe_field = mask(field)
+                if safe_field in result:
+                    raise ValueError("excerpt fields collide after redaction")
+                result[safe_field] = clean(item, depth + 1, field)
+            return result
+        raise TypeError("unsupported excerpt argument")
+
+    cleaned = clean(args, 0)
+    pairs: list[tuple[str, str]] = []
+    serialized_size = 0
+    for key, value in cleaned.items():
+        if value is None:
+            continue
+        text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+        serialized_size += len(key) + 1 + len(text)
+        if serialized_size > _MAX_PARAM_TEXT_LEN:
+            raise ValueError("serialized excerpt exceeds character budget")
+        pairs.append((key, text))
+    return pairs
+
+
+def _excerpt_drop_invisible(text: str) -> tuple[str, bool]:
+    """Drop non-whitespace characters the console's PET-90 predicate strips."""
+    dropped = False
+    kept: list[str] = []
+    for ch in text:
+        if ch.isspace():
+            kept.append(ch)
+            continue
+        if (not ch.isprintable()) or _is_strippable(ch):
+            dropped = True
+            continue
+        kept.append(ch)
+    return "".join(kept), dropped
+
+
+def _excerpt_escape_units(text: str) -> list[str]:
+    """One display unit per source character. An escape is never split later."""
+    units: list[str] = []
+    for ch in text:
+        if ch == '"':
+            units.append('\\"')
+        elif ch == "\\":
+            units.append("\\\\")
+        elif ch == "\n":
+            units.append("\\n")
+        elif ch == "\r":
+            units.append("\\r")
+        elif ch == "\t":
+            units.append("\\t")
+        elif unicodedata.category(ch) in {"Cc", "Zl", "Zp"} or (ch.isspace() and ch != " "):
+            units.append(f"\\u{ord(ch):04x}")
+        else:
+            units.append(ch)
+    return units
+
+
+def _excerpt_part_full(kind: str, content: list[str]) -> str:
+    body = "".join(content)
+    if kind == "bare":
+        return body
+    if kind == "quoted":
+        return f'"{body}"'
+    return f'="{body}"'
+
+
+def _excerpt_part_cut(kind: str, content: list[str], remaining: int) -> tuple[str, int]:
+    """Fit a part into *remaining* display characters. Close an open quote."""
+    if kind == "bare":
+        taken: list[str] = []
+        used = 0
+        for unit in content:
+            if used + len(unit) > remaining:
+                break
+            taken.append(unit)
+            used += len(unit)
+        return "".join(taken), len(taken)
+    reserve = 2 if kind == "quoted" else 3
+    if remaining < reserve:
+        return "", 0
+    room = remaining - reserve
+    taken = []
+    used = 0
+    for unit in content:
+        if used + len(unit) > room:
+            break
+        taken.append(unit)
+        used += len(unit)
+    body = "".join(taken)
+    if kind == "quoted":
+        return f'"{body}"', len(taken)
+    return f'="{body}"', 1 + len(taken)
+
+
+def _excerpt_assemble(
+    segments: list[list[tuple[str, list[str]]]],
+    source_lens: list[int],
+    past_raw: int,
+) -> tuple[str, int]:
+    """Keep whole segments, then cut the first part that does not fit."""
+    shown: list[str] = []
+    used = 0
+    omitted = past_raw
+    for index, parts in enumerate(segments):
+        sep = 0 if index == 0 else 1
+        full = ("" if index == 0 else " ") + "".join(
+            _excerpt_part_full(kind, content) for kind, content in parts
+        )
+        if used + len(full) <= _EXCERPT_BUDGET:
+            shown.append(full)
+            used += len(full)
+            continue
+        if used + sep > _EXCERPT_BUDGET:
+            omitted += sum(source_lens[index:])
+            break
+        if sep:
+            shown.append(" ")
+            used += 1
+        represented = 0
+        remaining = _EXCERPT_BUDGET - used
+        cut = False
+        for kind, content in parts:
+            if cut:
+                break
+            piece = _excerpt_part_full(kind, content)
+            if len(piece) <= remaining:
+                shown.append(piece)
+                remaining -= len(piece)
+                used += len(piece)
+                represented += len(content) if kind != "value" else 1 + len(content)
+                continue
+            cut_text, cut_source = _excerpt_part_cut(kind, content, remaining)
+            if cut_text:
+                shown.append(cut_text)
+            represented += cut_source
+            cut = True
+        omitted += source_lens[index] - represented
+        omitted += sum(source_lens[index + 1 :])
+        break
+    return "".join(shown), omitted
+
+
+def _approval_command_excerpt(args: object, result: object) -> str:
+    """Capped, redacted, quoted command excerpt. Fail closed. Never raises."""
+    try:
+        findings = getattr(result, "findings", ())
+        for finding in findings:
+            if getattr(finding, "finding_type", None) == "pii":
+                return "withheld (PII in parameters)"
+        if not isinstance(args, Mapping) or not args:
+            if not args:
+                return "(no parameters)"
+            raise TypeError("non-mapping args")
+        try:
+            from agent.redact import redact_sensitive_text  # type: ignore[import-not-found]
+        except Exception:
+            return "withheld (redactor unavailable)"
+        changed = False
+
+        def redact(text: str, **options: bool) -> str:
+            nonlocal changed
+            safe: str = redact_sensitive_text(text, **options)
+            if not isinstance(safe, str):
+                raise ValueError("invalid excerpt redaction result")
+            changed = changed or safe != text
+            return safe
+
+        taken = _excerpt_redact_arguments(args, redact)
+        if not taken:
+            return "(no parameters)"
+        segments: list[list[tuple[str, list[str]]]] = []
+        source_lens: list[int] = []
+        invisible = False
+        for key_s, value_s in taken:
+            canon_key, dropped_key = _excerpt_drop_invisible(key_s)
+            canon_value, dropped_value = _excerpt_drop_invisible(value_s)
+            invisible = invisible or dropped_key or dropped_value
+            raw_segment = f"{canon_key}={canon_value}"
+            try:
+                redacted = redact(raw_segment, force=True, redact_url_credentials=True)
+            except Exception:
+                return "withheld (redactor unavailable)"
+            if not isinstance(redacted, str):
+                return "withheld (redactor unavailable)"
+            if redacted.startswith(canon_key + "="):
+                value_text = redacted[len(canon_key) + 1 :]
+                key_kind = "bare" if _BARE_KEY.fullmatch(canon_key) else "quoted"
+                key_units = (
+                    list(canon_key) if key_kind == "bare" else _excerpt_escape_units(canon_key)
+                )
+                segments.append(
+                    [
+                        (key_kind, key_units),
+                        ("value", _excerpt_escape_units(value_text)),
+                    ]
+                )
+                source_lens.append(len(canon_key) + 1 + len(value_text))
+            else:
+                segments.append([("quoted", _excerpt_escape_units(redacted))])
+                source_lens.append(len(redacted))
+        body, omitted = _excerpt_assemble(segments, source_lens, 0)
+        suffix = f" (+{omitted} chars not shown)" if omitted else ""
+        if changed:
+            suffix += f" ({_CREDENTIAL_MASKED_NOTICE})"
+        if invisible:
+            suffix += " (invisible characters removed)"
+        return body + suffix
+    except Exception:
+        return "withheld (excerpt unavailable)"
+
+
+def _approve_return(
+    tool_name: str, session_id: str, rule_key: str, excerpt: str
+) -> dict[str, str]:
+    label = f"Command (from tool arguments): {excerpt}"
     if rule_key == "petasos.degraded":
         message = (
             f"Petasos asks for approval before running '{tool_name}'. "
-            "Parameter scan is unreliable (petasos.degraded)."
+            f"Parameter scan is unreliable (petasos.degraded). {label}"
         )
     else:
-        message = f"Petasos asks for approval before running '{tool_name}'. Rule: {rule_key}."
+        message = (
+            f"Petasos asks for approval before running '{tool_name}'. Rule: {rule_key}. {label}"
+        )
     logger.info("PETASOS_APPROVE tool=%s session=%s rule_key=%s", tool_name, session_id, rule_key)
     return {"action": "approve", "rule_key": rule_key, "message": message}
 
@@ -2391,13 +2728,23 @@ def _dangerous_tool_directive(
         elif _degraded_session_recorded(session_id):
             pass
         else:
-            return _approve_return(tool_name, session_id, "petasos.degraded")
+            return _approve_return(
+                tool_name,
+                session_id,
+                "petasos.degraded",
+                _approval_command_excerpt(args, result),
+            )
 
     remaining = [f for f in command if not _always_approved(f.rule_id)]
     if remaining:
         worst = _worst(remaining)
         if approve_effective:
-            return _approve_return(tool_name, session_id, worst.rule_id)
+            return _approve_return(
+                tool_name,
+                session_id,
+                worst.rule_id,
+                _approval_command_excerpt(args, result),
+            )
         logger.warning(
             "PETASOS_QUARANTINE tool=%s session=%s — %s finding: %s",
             tool_name,
@@ -2420,12 +2767,135 @@ def _dangerous_tool_directive(
     return None
 
 
+def _expanded_home_text(text: str) -> str:
+    """expandvars then expanduser. A failure returns the original string."""
+    try:
+        return os.path.expanduser(os.path.expandvars(text))
+    except Exception:
+        return text
+
+
+def _resolved_text(text: str) -> str:
+    """Resolve symlinks, junctions and short names. A failure returns the original string."""
+    try:
+        return str(Path(text).resolve(strict=False))
+    except Exception:
+        return text
+
+
+def _comparison_key(text: str) -> str:
+    """Home key: hermes_home_key when callable, else expand, resolve, then normcase."""
+    try:
+        import hermes_constants  # type: ignore[import-not-found]
+
+        fn = getattr(hermes_constants, "hermes_home_key", None)
+        if callable(fn):
+            result = fn(text)
+            if isinstance(result, str):
+                return result
+    except Exception:
+        pass
+    return os.path.normcase(_resolved_text(_expanded_home_text(text)))
+
+
+def _store_mismatch_memo(text: str, key: str) -> None:
+    """Insert under the lock already held. Drop-oldest past the cap."""
+    _home_mismatch_key_memo.pop(text, None)
+    _home_mismatch_key_memo[text] = key
+    while len(_home_mismatch_key_memo) > _HOME_MISMATCH_SEEN_MAX:
+        _home_mismatch_key_memo.pop(next(iter(_home_mismatch_key_memo)))
+
+
+def _probe_home_key(text: str) -> str:
+    """Memoized comparison key. Normalize outside the lock; store only if the path exists."""
+    with _home_mismatch_lock:
+        hit = _home_mismatch_key_memo.get(text)
+    if hit is not None:
+        return hit
+    key = _comparison_key(text)
+    store = os.path.exists(_expanded_home_text(text))
+    if not store:
+        return key
+    with _home_mismatch_lock:
+        existing = _home_mismatch_key_memo.get(text)
+        if existing is not None:
+            return existing
+        _store_mismatch_memo(text, key)
+    return key
+
+
+def _current_captured_key() -> str:
+    """Normcase of the resolved, unexpanded captured path. Cached while it exists and is current.
+
+    Resolving follows what ``read_armed`` stats, so a capture through a symlink,
+    a junction or a Windows short name keys like its target. ``~`` is not
+    expanded: a literal ``~`` capture stays detectable as a mismatch.
+    """
+    global _captured_key_obj, _captured_key_value
+    res = _session_resolution
+    assert res is not None
+    with _home_mismatch_lock:
+        if _captured_key_obj is res and _captured_key_value is not None:
+            return _captured_key_value
+    text = str(res.path.parent)
+    key = os.path.normcase(_resolved_text(text))
+    if not os.path.exists(_expanded_home_text(text)):
+        return key
+    with _home_mismatch_lock:
+        _captured_key_obj = res
+        _captured_key_value = key
+    return key
+
+
+def _warn_hook_home_mismatch() -> None:
+    """Log once when the hook override home disagrees with the captured home."""
+    try:
+        res = _session_resolution
+        if res is None:
+            return
+        from petasos.console._paths import _override_home
+
+        probed = _override_home()
+        if probed is None:
+            return
+        captured_key = _current_captured_key()
+        hook_key = _probe_home_key(str(probed))
+        if captured_key == hook_key:
+            return
+        pair = (captured_key, hook_key)
+        with _home_mismatch_lock:
+            if pair in _home_mismatch_seen:
+                return
+            _home_mismatch_seen.pop(pair, None)
+            _home_mismatch_seen[pair] = None
+            while len(_home_mismatch_seen) > _HOME_MISMATCH_SEEN_MAX:
+                _home_mismatch_seen.pop(next(iter(_home_mismatch_seen)))
+        logger.warning(
+            "PETASOS_ARMED_RESOLUTION_WARNING captured=%s hook=%s reason=home_mismatch",
+            res.path.parent,
+            probed,
+        )
+    except Exception:
+        return
+
+
+def _reset_home_mismatch_warned() -> None:
+    """Test seam — clear the mismatch seen-map, key memo, and captured-key cache."""
+    global _captured_key_obj, _captured_key_value
+    with _home_mismatch_lock:
+        _home_mismatch_seen.clear()
+        _home_mismatch_key_memo.clear()
+        _captured_key_obj = None
+        _captured_key_value = None
+
+
 def _pre_tool_call(
     tool_name: str, args: dict, task_id: str = "", **kwargs
 ) -> dict[str, str] | None:
     # PET-111: operator-disarmed -> zero enforcement, pass through. The gate sits
     # ABOVE _ensure_initialized so it covers the initialized, init-failed, and
     # init-in-progress windows uniformly (a disarmed boot skips the fallback scan).
+    _warn_hook_home_mismatch()
     if not _is_armed():
         # PET-138: count EVERY bypassed call (authoritative tally, not a sample),
         # independent of the rate-limited heartbeat below. O(1) locked bump; no
@@ -2996,15 +3466,16 @@ def _subagent_stop(child_session_id: str = "", **kwargs) -> None:
 # tests/test_pet222_approval_observe.py. This module does not import the console
 # server; it lazy-imports narrow console submodules at the call site.
 _APPROVAL_FIELD_MAX = 200
+_APPROVAL_DESCRIPTION_MAX = 400
 _APPROVAL_TOOL_RE = re.compile(r"^<([^>\n]+)> \(plugin approval rule\)$")
 
 
-def _approval_text(value: object) -> str:
+def _approval_text(value: object, *, limit: int = _APPROVAL_FIELD_MAX) -> str:
     """Coerce a hook field to str, then cap it. A non-str becomes empty."""
     if not isinstance(value, str):
         return ""
-    if len(value) > _APPROVAL_FIELD_MAX:
-        return value[:_APPROVAL_FIELD_MAX]
+    if len(value) > limit:
+        return value[:limit]
     return value
 
 
@@ -3063,8 +3534,20 @@ def _emit_approval_observation(phase: str, *, choice: object = None, **kwargs: A
     return are the same outcome: debug log, return None, approval wait continues.
     """
     try:
-        command = _approval_text(kwargs.get("command"))
-        description = _approval_text(kwargs.get("description"))
+        command, command_redaction = _redact_display_text(
+            kwargs.get("command"), _APPROVAL_FIELD_MAX
+        )
+        description, description_redaction = _redact_display_text(
+            kwargs.get("description"), _APPROVAL_DESCRIPTION_MAX
+        )
+        statuses = {command_redaction, description_redaction}
+        redaction = (
+            "withheld"
+            if "withheld" in statuses
+            else "redacted"
+            if "redacted" in statuses
+            else "unchanged"
+        )
         session_key = _approval_text(kwargs.get("session_key"))
         surface = _approval_text(kwargs.get("surface"))
         tool_call_id = _approval_text(kwargs.get("tool_call_id"))
@@ -3073,11 +3556,13 @@ def _emit_approval_observation(phase: str, *, choice: object = None, **kwargs: A
         decided_by = _approval_decided_by(kwargs.get("decided_by"))
         stored_choice = _approval_choice(phase, choice)
         rule_id = _approval_text(kwargs.get("pattern_key"))
-        tool = _approval_tool(command)
+        tool = _approval_tool(_approval_text(kwargs.get("command")))
         session_id = _approval_session_id(kwargs.get("session_id"), kwargs.get("session_key"))
         coalesced = kwargs.get("coalesced") is True
         armed = _is_armed()
-        reason = "approval requested" if phase == "request" else "approval response"
+        reason = _credential_reason(
+            "approval requested" if phase == "request" else "approval response", redaction
+        )
         from petasos.console._events import emit_enforcement_event
 
         wrote = emit_enforcement_event(
@@ -3095,6 +3580,7 @@ def _emit_approval_observation(phase: str, *, choice: object = None, **kwargs: A
                 "turn_id": turn_id,
                 "command": command,
                 "description": description,
+                "credential_redaction": redaction,
                 "decided_by": decided_by,
                 "coalesced": coalesced,
                 "reason": reason,
@@ -3119,8 +3605,8 @@ def _emit_approval_observation(phase: str, *, choice: object = None, **kwargs: A
             rule_id,
             surface,
         )
-    except Exception as exc:
-        logger.debug("PETASOS_APPROVAL emit failed phase=%s error=%r", phase, exc)
+    except Exception:
+        logger.debug("PETASOS_APPROVAL emit failed")
 
 
 def _pre_approval_request(**kwargs: Any) -> None:

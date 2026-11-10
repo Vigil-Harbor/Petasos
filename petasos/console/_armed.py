@@ -17,7 +17,7 @@ ordinary), so path is part of the key. Raw ``os.path.normcase``, deliberately no
 YAML parse), never a false hit, and ``read_armed`` sits on the gateway's
 per-tool-call path whose documented budget is one ``os.stat`` per call. The
 sibling ``_reload.py`` cache is keyed by the normcase resolution path and bounded
-to 8 slots; this armed cache stays ``(normcase(path), mtime_ns, size)``.
+to 16 slots; this armed cache stays ``(normcase(path), mtime_ns, size)``.
 """
 
 from __future__ import annotations
@@ -38,7 +38,11 @@ _ARMED_TTL_S = 1.0
 # PET-166 D5: bounded so alternating equipped/scoped reads cannot grow the dict
 # without bound; drop-oldest by insertion order under _ARMED_LOCK (mirrors the
 # _MAX_TALLY_SESSIONS discipline — the repo does not ship inline cap literals).
-_ARMED_CACHE_MAX = 8
+# Twelve served homes. Stage 1 at cap 8 re-parsed every home; stage 2 at 16 was
+# 0, so this ships at 16 and is never left at 8. Spare slots are shared with the
+# console process-binding key and with stale (mtime_ns, size) keys from rewrites.
+# Eviction past those occupants costs a re-parse only, not a wrong bool.
+_ARMED_CACHE_MAX = 16
 # {(normcase(path), st_mtime_ns, st_size): (armed, monotonic_ts)}
 _ARMED_CACHE: dict[tuple[str, int, int], tuple[bool, float]] = {}
 

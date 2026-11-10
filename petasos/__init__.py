@@ -1,10 +1,12 @@
 from petasos._types import (
     Alert,
     AuditEvent,
+    CoverageSpan,
     Direction,
     NormalizedText,
     PipelineResult,
     Position,
+    ScanCoverage,
     ScanFinding,
     Scanner,
     ScanResult,
@@ -14,6 +16,13 @@ from petasos.config import PetasosConfig
 from petasos.normalize import normalize
 from petasos.pipeline import Pipeline
 from petasos.scanners.minimal import RULE_TAXONOMY, MinimalScanner
+from petasos.scanners.semgrep import (
+    SemgrepCleanupError,
+    SemgrepCloseResult,
+    SemgrepLifecycleOwner,
+    SemgrepScanner,
+    close_semgrep_runtime,
+)
 from petasos.session.alerting import AlertManager
 from petasos.session.audit import AuditEmitter
 from petasos.session.escalation import max_tier
@@ -37,7 +46,9 @@ __all__ = [
     "AlertManager",
     "AuditEmitter",
     "AuditEvent",
+    "CoverageSpan",
     "Direction",
+    "ScanCoverage",
     "FrequencyTracker",
     "FrequencyUpdateResult",
     "GuardResult",
@@ -66,6 +77,11 @@ __all__ = [
     "Scanner",
     "SessionTaintStore",
     "Severity",
+    "SemgrepScanner",
+    "SemgrepLifecycleOwner",
+    "SemgrepCloseResult",
+    "SemgrepCleanupError",
+    "close_semgrep_runtime",
     "TierThresholds",
     "ToolCallGuard",
     "normalize",

@@ -46,7 +46,15 @@ from petasos.scanners.minimal import MinimalScanner  # noqa: E402
 
 pytestmark = pytest.mark.anyio
 
-_SCOPED_ROUTES = ("scan-history", "armed-get", "armed-post", "health", "events")
+_SCOPED_ROUTES = (
+    "scan-history",
+    "armed-get",
+    "armed-post",
+    "health",
+    "events",
+    "approvals-refused",
+    "approvals-reviewed",
+)
 
 
 def _sign(rec: dict[str, Any], key: bytes) -> str:
@@ -433,6 +441,11 @@ async def test_unknown_profile_422_on_every_scoped_route(env: _Env, route: str) 
             await h.set_armed(False, profile="ghost")
         elif route == "health":
             await h.get_health(profile="ghost")
+        elif route == "approvals-refused":
+            await h.get_refused_approvals(profile="ghost")
+        elif route == "approvals-reviewed":
+            h._review_auth_configured = True
+            await h.mark_approval_reviewed("e-x", profile="ghost")
         else:
             h.resolve_events_scope("ghost")
 

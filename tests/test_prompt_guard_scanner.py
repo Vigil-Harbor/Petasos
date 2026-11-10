@@ -477,6 +477,49 @@ class TestPromptGuardFailModes:
 
 
 class TestPromptGuardSharing:
+    async def test_cancelled_waiter_exits_before_lock_is_released(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        seen = _stub_score(monkeypatch)
+        entered = threading.Event()
+        finished = threading.Event()
+        scan_sync = pg._scan_sync
+        infer_lock = threading.Lock()
+
+        class ObservedLock:
+            def acquire(self, *, timeout: float) -> bool:
+                entered.set()
+                return infer_lock.acquire(timeout=timeout)
+
+            def release(self) -> None:
+                infer_lock.release()
+
+        def tracked(*args: Any) -> float | None:
+            try:
+                return scan_sync(*args)
+            finally:
+                finished.set()
+
+        monkeypatch.setattr(pg, "_scan_sync", tracked)
+        monkeypatch.setattr(pg, "_INFER_LOCK", ObservedLock())
+        assert infer_lock.acquire(blocking=False)
+        task = asyncio.create_task(pg.PromptGuardScanner().scan(_BENIGN))
+        try:
+            assert await asyncio.to_thread(entered.wait, 5)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+            # A cancelled waiter must free its executor thread even when the
+            # active inference is wedged and never releases the shared lock.
+            assert await asyncio.to_thread(finished.wait, 1)
+            assert seen == []
+        finally:
+            task.cancel()
+            infer_lock.release()
+            await asyncio.to_thread(finished.wait, 5)
+        assert (await pg.PromptGuardScanner().scan("next caller")).error is None
+        assert seen == ["next caller"]
+
     async def test_three_instances_load_once_and_losers_report_warming_up(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
@@ -517,6 +560,11 @@ class TestPromptGuardSharing:
         _complete_snapshot(tmp_path)
         release = threading.Event()
         calls: list[bool] = []
+        scored: list[str] = []
+
+        def score(text: str) -> float:
+            scored.append(text)
+            return 0.1
 
         def load(*, local_files_only: bool) -> tuple[Any, Any]:
             calls.append(local_files_only)
@@ -524,7 +572,7 @@ class TestPromptGuardSharing:
             return (object(), object())
 
         monkeypatch.setattr(pg, "_load", load)
-        monkeypatch.setattr(pg, "_score", lambda text: 0.1)
+        monkeypatch.setattr(pg, "_score", score)
         scanner = pg.PromptGuardScanner()
         with pytest.raises(asyncio.TimeoutError):
             await asyncio.wait_for(scanner.scan(_BENIGN), timeout=0.05)
@@ -532,8 +580,29 @@ class TestPromptGuardSharing:
         deadline = time.monotonic() + 10
         while pg._MODEL is None and time.monotonic() < deadline:
             await asyncio.sleep(0.01)
-        assert (await scanner.scan(_BENIGN)).error is None
+        assert (await scanner.scan("next caller")).error is None
         assert calls == [True]
+        assert scored == ["next caller"]
+
+    def test_cancellation_during_lock_acquisition_releases_without_scoring(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        seen = _stub_score(monkeypatch)
+        cancelled = threading.Event()
+        released = threading.Event()
+
+        class CancellingLock:
+            def acquire(self, *, timeout: float) -> bool:
+                cancelled.set()
+                return True
+
+            def release(self) -> None:
+                released.set()
+
+        monkeypatch.setattr(pg, "_INFER_LOCK", CancellingLock())
+        assert pg._scan_sync(_BENIGN, cancelled) is None
+        assert released.is_set()
+        assert seen == []
 
     async def test_inference_never_overlaps(self, monkeypatch: pytest.MonkeyPatch) -> None:
         active = 0

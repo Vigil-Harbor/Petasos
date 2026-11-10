@@ -1,0 +1,4 @@
+Petasos focused Semgrep rules
+Copyright (c) 2026 Vigil Harbor
+License: MIT (see repository LICENSE).
+Authored locally; no registry rules are fetched. Semgrep CE is separately installed and licensed by its upstream distribution.

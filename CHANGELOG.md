@@ -42,6 +42,32 @@ fails config validation, because an older release rejects the unknown id.
 
 ### Added
 
+- **Opt-in isolated Semgrep library scanner (PET-254, package S).** Adds explicit
+  `SemgrepLifecycleOwner`, bounded shared engine ownership, original-coordinate
+  findings, and additive coverage metadata. Prepared scans compose once through
+  Pipeline, guard and full-input ingestion. Five restart-only settings and the
+  `semgrep` extra configure a separately installed engine. Existing serialized
+  result payloads are unchanged when the additive fields are absent. Bundled
+  dashboards and current Hermes bootstraps refuse unowned enablement; host cleanup,
+  reporting, delivery and eight-hour qualification remain separate release gates.
+  `SemgrepCloseResult.diagnostics` carries source-free cleanup lines when close
+  fails (PET-255).
+
+
+- **Credential handling in approval reporting (PET-250).** Approval text and
+  enforcement reasons use forced Hermes redaction before clipping and signing.
+  The approval prompt, history and refused queue distinguish local masking
+  from a withheld display without claiming a confirmed exposure. The deployment
+  guide adds password-manager compatibility and an operator rotation runbook.
+
+- **Refused-approvals queue (PET-223).** Observability lists every hook-recorded
+  approval refusal for the selected profile, with the choice, the command, and
+  the Petasos rule or Hermes pattern key. `GET /api/approvals/refused` and
+  `POST /api/approvals/reviewed` (and the same paths on the embedded plugin
+  router) read that list and mark an item reviewed. Marks are stored in
+  `petasos-approvals-reviewed.json` beside the profile config, and each mark
+  appends an `approval_reviewed` audit row before the file is written.
+
 - **`PromptGuardScanner` and the `prompt-guard` extra (PET-242).** Meta's PromptGuard
   2 runs directly on torch, transformers and sentencepiece, on Python 3.11 through
   3.14, proven on native Windows with Python 3.14. Rule id
@@ -77,6 +103,24 @@ fails config validation, because an older release rejects the unknown id.
 
 ### Fixed
 
+- **Scanner cancellation and cold starts.** Cancelled PromptGuard requests leave
+  the inference queue without running the model (PET-249), including requests
+  cancelled during first load. Presidio loads off the event loop so pipeline
+  timeouts remain effective during cold starts; cancelled loads do not proceed
+  to analyze abandoned text. Already-running model work still finishes safely.
+
+- **Credential redaction in approval excerpts (PET-251).** Redact original
+  argument strings before removing invisible characters or encoding nested
+  values as JSON, so the host can recognize registered vault passwords and
+  control-split tokens. Execution arguments stay unchanged. Excessively large,
+  deeply nested or unsupported argument structures withhold the excerpt.
+
+- **One malformed enforcement-spool record no longer stops scan history (PET-223).**
+  A non-string `event_type` used to raise inside the drain before the offset
+  advanced, so every later scan-history read retried the same line and failed.
+  The field is read as a string or absent, and a record that still raises is
+  skipped and logged so the drain moves past it.
+
 - **The embedded console works on the default profile (PET-238).**
   Hermes's dashboard selects the root as `?profile=default`, and every scoped read
   answered 422, so the banner never got its status and stayed on Equipped under a false
@@ -106,6 +150,24 @@ fails config validation, because an older release rejects the unknown id.
   installable by name until then.
 
 ### Changed
+
+- **Approve prompts carry a redacted command excerpt (PET-223).** The message's
+  last clause is `Command (from tool arguments):`, then one `key="value"` part
+  per parameter. Quotes, backslashes, line breaks, and controls are shown
+  escaped. The approval `description` cap is 400 characters. Other approval
+  fields stay at 200. Scan-history rows gain `item_id` (set on
+  `approval_reviewed`, otherwise absent).
+
+- **Twelve-home cache bound and a hook-time home mismatch warning (PET-237).**
+  Each of the process-wide reload cache and the armed cache ships at 16:
+  stage 1 at cap 8 reproduced the churn, and stage 2 at 16 was 0 at 12 and
+  16 homes. The constants are never left at 8. A hook whose override home
+  disagrees with the home captured at `register()` logs
+  `PETASOS_ARMED_RESOLUTION_WARNING captured=<path> hook=<path> reason=home_mismatch`
+  once per home pair. Enforcement stays on the captured home. Both sides of
+  the comparison are resolved, so a symlink, junction or Windows short-name
+  spelling of the captured home does not warn; `~` is expanded only on the
+  hook side.
 
 - **`petasos[all]` is now presidio, prompt-guard and console (PET-242).** It no longer
   installs LLM Guard or LlamaFirewall, and it now pulls torch and transformers. It is

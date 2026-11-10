@@ -493,6 +493,28 @@
     });
     wrapper.appendChild(historyPanel);
 
+    // PET-223: refused approvals. Painted from state. The seed fetch is below, not here.
+    var refusedBody = Pet.h("div", { className: "refused-body" });
+    Pet._runtime.refusedBody = refusedBody;
+    var refusedPanel = Pet.Panel({
+      icon: "list",
+      title: "Refused approvals",
+      flush: true,
+      right: Pet.h("button", {
+        className: "btn btn-ghost btn-sm",
+        type: "button",
+        onClick: function () {
+          Pet.state.refusedQueue.markError = null;
+          Pet.state.refusedQueue.body = null;
+          Pet._runtime.refusedSeeded = false;
+          if (Pet._runtime.container) Pet.renderDashboard(Pet._runtime.container);
+        },
+      }, "Refresh"),
+      content: refusedBody,
+    });
+    wrapper.appendChild(refusedPanel);
+    Pet.paintRefusedQueue();
+
     container.appendChild(wrapper);
 
     // PET-111: fetch the authoritative armed bit once per obs ENTRY (guarded by
@@ -619,6 +641,157 @@
         }
       });
     }
+
+    // PET-223: one fetch per Observability entry. Renders during an in-flight fetch see the latch.
+    if (!Pet._runtime.refusedSeeded && !Pet.state.scopeError) Pet._fetchRefusedApprovals();
+  };
+
+  function _clearRefusedNode(node) {
+    while (node.firstChild) node.removeChild(node.firstChild);
+  }
+
+  function _setRefusedFilter(patch) {
+    var current = (Pet.state.refusedQueue && Pet.state.refusedQueue.filters) || {};
+    Pet.state.refusedQueue.filters = {
+      choice: current.choice || "all",
+      origin: current.origin || "all",
+      includeReviewed: !!current.includeReviewed,
+      showUnverifiable: !!current.showUnverifiable,
+    };
+    var next = Pet.state.refusedQueue.filters;
+    Object.keys(patch).forEach(function (key) { next[key] = patch[key]; });
+    Pet.paintRefusedQueue();
+  }
+
+  function _refusedFilterBar(filters) {
+    filters = filters || {};
+    var choices = ["all", "deny", "timeout", "cancelled", "notify_failed", "smart_deny"];
+    var origins = ["all", "petasos", "plugin", "hermes"];
+    var choice = Pet.h("select", {
+      className: "input mono",
+      ariaLabel: "Refusal choice",
+      onChange: function (ev) {
+        _setRefusedFilter({ choice: ev && ev.target ? ev.target.value : "all" });
+      },
+    });
+    choices.forEach(function (value) {
+      choice.appendChild(Pet.h("option", { value: value }, value));
+    });
+    // A value assigned before a matching option exists does not stick, and the
+    // control then displays the first option ("all"). Set it after the options.
+    choice.value = filters.choice || "all";
+    var origin = Pet.h("select", {
+      className: "input mono",
+      ariaLabel: "Rule origin",
+      onChange: function (ev) {
+        _setRefusedFilter({ origin: ev && ev.target ? ev.target.value : "all" });
+      },
+    });
+    origins.forEach(function (value) {
+      origin.appendChild(Pet.h("option", { value: value }, value));
+    });
+    origin.value = filters.origin || "all";
+    var reviewed = Pet.h("input", {
+      type: "checkbox",
+      ariaLabel: "Show reviewed",
+      onChange: function (ev) {
+        var checked = ev && ev.target ? ev.target.checked : reviewed.checked;
+        _setRefusedFilter({ includeReviewed: !!checked });
+      },
+    });
+    reviewed.checked = !!filters.includeReviewed;
+    return Pet.h("div", { className: "refused-filters" },
+      "choice ", choice, " origin ", origin, " ", reviewed, " Show reviewed");
+  }
+
+  Pet.paintRefusedQueue = function () {
+    var node = Pet._runtime.refusedBody;
+    if (!node) return;
+    _clearRefusedNode(node);
+    var queue = Pet.state.refusedQueue || {};
+    if (queue.markError) {
+      node.appendChild(Pet.h("div", { className: "mono" }, String(queue.markError)));
+    }
+    if (!queue.body) {
+      node.appendChild(Pet.h("div", { className: "mono" }, queue.note || "loading"));
+      return;
+    }
+    node.appendChild(_refusedFilterBar(queue.filters));
+    var view = Pet.refusedQueueView(queue.body, queue.filters);
+    if (view.summary) node.appendChild(Pet.h("div", { className: "mono" }, view.summary));
+    if (view.note) node.appendChild(Pet.h("div", { className: "mono" }, view.note));
+    var rows = Pet.refusedApprovalRows(view.rows, Pet._markRefusedApproval, view.canMark);
+    for (var i = 0; i < rows.length; i++) node.appendChild(rows[i]);
+    if (view.unverifiableRows && view.unverifiableRows.length) {
+      node.appendChild(Pet.h("button", {
+        type: "button",
+        className: "mono",
+        ariaLabel: view.unverifiableLabel,
+        ariaExpanded: !view.unverifiableCollapsed,
+        onClick: function () { _setRefusedFilter({ showUnverifiable: !!view.unverifiableCollapsed }); },
+      }, view.unverifiableLabel));
+      if (!view.unverifiableCollapsed) {
+        var hidden = Pet.refusedApprovalRows(view.unverifiableRows, Pet._markRefusedApproval, view.canMark);
+        for (var j = 0; j < hidden.length; j++) node.appendChild(hidden[j]);
+      }
+    }
+  };
+
+  Pet._markRefusedApproval = function (itemId) {
+    var gen = Pet._runtime.scopeGen;
+    Pet.api.markApprovalReviewed(itemId).then(function (d) {
+      if (Pet.auth.on401(d)) return;
+      if (gen !== Pet._runtime.scopeGen) return;
+      var failed = d && typeof d._status === "number" && d._status >= 400;
+      if (!d || failed || d.reviewed !== true) {
+        var message = null;
+        if (d && Array.isArray(d.detail) && d.detail[0] && typeof d.detail[0].message === "string") {
+          message = d.detail[0].message;
+        } else if (d && typeof d.error === "string") message = d.error;
+        else message = "mark failed";
+        Pet.state.refusedQueue.markError = message;
+        Pet.paintRefusedQueue();
+        return;
+      }
+      Pet.state.refusedQueue.markError = null;
+      Pet._runtime.refusedSeeded = false;
+      Pet._fetchRefusedApprovals();
+    });
+  };
+
+  Pet._fetchRefusedApprovals = function () {
+    if (Pet.state.scopeError) return;
+    Pet._runtime.refusedSeeded = true;
+    var gen = Pet._runtime.scopeGen;
+    Pet._runtime.refusedFetchSeq += 1;
+    var seq = Pet._runtime.refusedFetchSeq;
+    Pet.api.getRefusedApprovals().then(function (d) {
+      if (seq !== Pet._runtime.refusedFetchSeq) return;
+      if (Pet.auth.on401(d)) return;
+      if (gen !== Pet._runtime.scopeGen) {
+        Pet._runtime.refusedSeeded = false;
+        return;
+      }
+      if (Pet.isProfile422(d)) {
+        var hit = d.detail.filter(function (x) { return x && x.field === "profile"; })[0];
+        Pet.state.scopeError = {
+          surface: "approvals",
+          message: (hit && hit.message) || "profile not found",
+        };
+        Pet._runtime.refusedSeeded = false;
+        Pet.state.refusedQueue.body = null;
+        if (Pet.state.tab === "obs" && Pet._runtime.container) Pet.renderDashboard(Pet._runtime.container);
+        return;
+      }
+      if (d && !d.error && Array.isArray(d.items)) {
+        Pet.state.refusedQueue.body = d;
+        Pet.state.refusedQueue.note = null;
+      } else {
+        Pet.state.refusedQueue.body = null;
+        Pet.state.refusedQueue.note = "refused approvals could not be loaded";
+      }
+      Pet.paintRefusedQueue();
+    });
   };
 
 

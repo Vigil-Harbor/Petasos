@@ -284,8 +284,22 @@ behaviors to preserve in any custom integration:
   `resolve_hermes_config_path()` to find `config.yaml`. When Hermes has set a
   home override, that home wins and the resolution tier is `override`. With no
   usable override the order is `HERMES_HOME`, then the active profile, then
-  the v0.15 root. The agent plugin and the dashboard plugin share this resolver
-  so they always read the same file (no split-brain).
+  the v0.15 root. The override is host-controlled: Hermes sets it before
+  `register()`, and the capture does not read tool arguments, session text, or
+  the console request body. The plugin enforcement binding is the resolution
+  captured at `register()`. Console equipped surfaces pass `use_override=False`
+  and read the process binding. Those two files are the same only when the
+  process binding and the captured home are the same path. Hermes normalizes
+  the case of the home path in its own log line (`os.path.normcase`, so
+  lowercase on Windows and unchanged elsewhere), and the launch home logs
+  `tier=override`. A hook whose
+  override home disagrees with the captured home logs
+  `PETASOS_ARMED_RESOLUTION_WARNING captured=<path> hook=<path> reason=home_mismatch`:
+  the homes disagree, and enforcement stays on the capture. The comparison
+  resolves symlinks, junctions and Windows short names on both sides and folds
+  case where the platform does, so two spellings of one directory never warn.
+  Only the hook side expands `~`, so a literal `~` capture warns against its
+  expanded hook home.
 
 ## 4. Enable the plugin
 
@@ -427,7 +441,39 @@ evaluation unavailable: evaluation_error" always block a dangerous tool.
 They are not an approve, and always and the once-per-session record do not
 apply to them.
 
+The Observability tab lists refused approvals for the profile you have open:
+`deny`, `timeout`, `cancelled`, `notify_failed`, and `smart_deny`. A guardian
+deny that a person then answered is replaced by that answer. The list needs a
+plugin copy at PET-222 or later to receive any approval rows, and PET-223 or
+later for the command excerpt. "no approval events recorded" usually means an
+older copy. The approve prompt's last clause, after `Command (from tool
+arguments): `, is a redacted, quoted excerpt of the tool arguments. One
+`name="value"` part is shown per argument. `\n`, `\"`, `\\`, and `\uXXXX` stand
+for a real line break, quote, backslash, or control character in the argument.
+`(invisible characters removed)` means the argument contains invisible
+characters the prompt does not show. A cut excerpt (`(+N chars not shown)`, or
+a prompt cut by the chat platform) is never enough to approve on. PET-251
+redacts original string values before display normalization and JSON encoding,
+including nested arguments, while leaving execution arguments unchanged.
+An excerpt is withheld if redaction fails or its input exceeds the character,
+16-level nesting or 4,096-node traversal limit. Total text sent through leaf
+redaction is also bounded by the character budget, including repeated field-name
+context for list values; unsupported argument objects
+are also withheld. This does not change the approval decision. Approvals
+Hermes parks with no notifier, YOLO, approvals off, and already-approved
+patterns never fire the hooks and never appear. `transport_*` outcomes are
+counted as unknown. Setting, changing, or first adding `session_secret` makes
+earlier history rows and reviewed marks unverifiable, so previously overridden
+refusals reappear as flagged items and marks must be redone. A forged row is
+ignored for grouping on the equipped view. An undrained spool row of another
+profile cannot be verified from this console. On a non-gated loopback dashboard
+the session token is readable from `GET /`, so the embedded mark is reachable
+by any local process. OAuth-gated mode or `withhold_session_token` closes that.
+
 ### What stays at defaults
+
+For password-manager setup, credential-handling notices and the operator
+rotation procedure, see [Credentials and reports](credentials.md).
 
 | Key | Default | Why it's fine |
 |-----|---------|---------------|

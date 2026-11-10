@@ -30,7 +30,7 @@ import json
 import logging
 import platform
 import textwrap
-from collections.abc import Iterator
+from collections.abc import Iterator, MutableMapping
 from pathlib import Path
 from typing import Any
 
@@ -252,7 +252,7 @@ async def test_idle_responses_torn_down_leave_counter_at_zero(profiles: Path) ->
     assert h._idle_stream_count == bound
     for overflow in built[bound:]:
         assert overflow.status_code == 503
-        assert json.loads(overflow.body)["scope_refusal"] == "capacity"
+        assert json.loads(bytes(overflow.body))["scope_refusal"] == "capacity"
 
     for response in built:
         await _tear_down(response)
@@ -292,9 +292,11 @@ async def test_started_then_closed_releases_exactly_once(profiles: Path, arm: st
         await gone.wait()
         return {"type": "http.disconnect"}
 
-    async def send(message: dict[str, Any]) -> None:
-        if message["type"] == "http.response.body" and message.get("body"):
-            frames.append(message["body"])
+    async def send(message: MutableMapping[str, Any]) -> None:
+        raw_body = message.get("body")
+        if message["type"] == "http.response.body" and raw_body:
+            assert isinstance(raw_body, bytes)
+            frames.append(raw_body)
             gone.set()
 
     if arm == "equipped":
@@ -327,7 +329,7 @@ async def test_idle_over_admit_is_retired(profiles: Path) -> None:
 
     second = events_response(h, "beta")
     assert second.status_code == 503
-    assert json.loads(second.body)["scope_refusal"] == "capacity"
+    assert json.loads(bytes(second.body))["scope_refusal"] == "capacity"
 
     await _tear_down(first)
     assert h._idle_stream_count == bound - 1

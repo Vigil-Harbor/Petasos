@@ -47,6 +47,7 @@ _MAX_TOKENS = 512
 _WINDOW_CHARS = 8192
 
 _INFER_WAIT_SECONDS = 8.0
+_INFER_POLL_SECONDS = 0.05
 _LOAD_RETRY_SECONDS = 30.0
 
 _SNAPSHOT_FILES: tuple[str, ...] = (
@@ -347,12 +348,14 @@ def _map_score(score: float, duration_ms: float) -> ScanResult:
     return ScanResult(scanner_name="prompt_guard", findings=findings, duration_ms=duration_ms)
 
 
-def _scan_sync(text: str) -> float | None:
+def _scan_sync(text: str, cancelled: threading.Event) -> float | None:
     """Load and infer off the event loop. ``None`` means nothing to score.
 
     Blank input is clean before availability is consulted, so an absent backend
     reports an error only for text it would have scored.
     """
+    if cancelled.is_set():
+        return None
     window = _window(text)
     if not window:
         return None
@@ -360,7 +363,22 @@ def _scan_sync(text: str) -> float | None:
     if not ok:
         raise _ScanRefused(reason or "prompt_guard unavailable")
     _ensure_model()
-    if not _INFER_LOCK.acquire(timeout=_INFER_WAIT_SECONDS):
+    deadline = time.monotonic() + _INFER_WAIT_SECONDS
+    while not cancelled.is_set():
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        if not _INFER_LOCK.acquire(timeout=min(_INFER_POLL_SECONDS, remaining)):
+            continue
+        try:
+            # Cancellation may have arrived during load or lock acquisition.
+            # Never spend inference capacity on that abandoned request.
+            if cancelled.is_set():
+                return None
+            return _score(window)
+        finally:
+            _INFER_LOCK.release()
+    if not cancelled.is_set():
         # pipeline.py imports petasos.scanners, so this import stays local. The
         # prefix makes a miss count toward the breaker; a plain error would clear
         # the streak and a wedged forward would cost every call this wait forever.
@@ -370,10 +388,7 @@ def _scan_sync(text: str) -> float | None:
             f"{_TIMEOUT_ERROR_PREFIX}: prompt_guard inference lock not acquired "
             f"within {_INFER_WAIT_SECONDS}s"
         )
-    try:
-        return _score(window)
-    finally:
-        _INFER_LOCK.release()
+    return None
 
 
 class PromptGuardScanner:
@@ -397,17 +412,19 @@ class PromptGuardScanner:
         Both directions score identically, as the LlamaFirewall wrapper does.
 
         Load and inference run in a worker thread, so ``asyncio.wait_for`` in the
-        pipeline can return during a slow load. A cancelled scan's thread runs to
-        completion: a load finishes for the next scan, and a queued inference
-        gives up at ``_INFER_WAIT_SECONDS``.
+        pipeline can return during a slow load. Cancellation abandons queued
+        inference within one lock-poll interval. An already-running load finishes
+        for the next scan, and an already-running inference runs to completion;
+        Python cannot interrupt either worker operation safely.
         """
         start = time.perf_counter()
+        cancelled = threading.Event()
 
         def elapsed() -> float:
             return (time.perf_counter() - start) * 1000
 
         try:
-            score = await asyncio.to_thread(_scan_sync, text)
+            score = await asyncio.to_thread(_scan_sync, text, cancelled)
             if score is None:
                 return ScanResult(scanner_name=self.name, findings=(), duration_ms=elapsed())
             return _map_score(score, elapsed())
@@ -418,3 +435,5 @@ class PromptGuardScanner:
                 duration_ms=elapsed(),
                 error=str(exc),
             )
+        finally:
+            cancelled.set()
