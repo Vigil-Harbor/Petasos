@@ -374,3 +374,27 @@ def test_doctor_names_environment_dependent_pin_values(scope: SimpleNamespace) -
     checks, facts, _ = pin_report(scope.profile)
     assert facts["environment_references"] is True
     assert "depend on environment variables" in checks[0].meaning
+
+
+def test_bypassed_machine_pin_still_reports_the_active_overlay(
+    scope: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    change_pin(scope.home, write=True)
+    other = scope.home / "other-managed"
+    other.mkdir()
+    alternate = {
+        "plugins": {"enabled": [], "entries": {"petasos": {"settings": {"enabled": False}}}}
+    }
+    (other / "config.yaml").write_text(json.dumps(alternate))
+    monkeypatch.setenv("HERMES_MANAGED_DIR", str(other))
+    scope.module.get_managed_dir = lambda: other
+    scope.module.load_managed_config = lambda: alternate
+    scope.module.managed_config_keys = lambda: {".".join(p) for p in leaf_paths(alternate)}
+    monkeypatch.setattr(
+        "petasos.hermes.doctor_pin.effective_config",
+        lambda: hermes_merge(scope.profile, alternate),
+    )
+    checks, facts, effective = pin_report(scope.profile)
+    assert facts["state"] == "not_in_force" and checks[0].status == "fail"
+    assert isinstance(effective, dict) and effective["plugins"]["enabled"] == []
+    assert effective["plugins"]["entries"]["petasos"]["settings"]["enabled"] is False

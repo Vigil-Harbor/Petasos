@@ -54,7 +54,11 @@ def pin_report(profile: object) -> tuple[tuple[Check, ...], dict[str, Any], obje
             ),
             next_step="Remove the managed-directory override and run petasos doctor again.",
         )
-        return (check,), {"state": "not_in_force", "known": True}, profile
+        try:
+            redirected: object = effective_config()
+        except ValueError:
+            redirected = profile
+        return (check,), {"state": "not_in_force", "known": True}, redirected
     if not relevant:
         return (), {"state": "unpinned", "known": True}, profile
     try:
