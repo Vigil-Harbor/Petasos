@@ -27,6 +27,11 @@ def test_read_lists_roles_levels_and_resolved_rows() -> None:
         "admin",
     ]
     assert body["roles"][1]["suggests"] == "balanced"
+    general = body["roles"][0]["description"]
+    assert general == "For everyday work. Uses every built-in rule and blocks risky tool calls."
+    assert "is on" not in general
+    balanced = next(level for level in body["levels"] if level["name"] == "balanced")
+    assert balanced["description"].startswith("The default. Sets a clear attack")
     assert [level["name"] for level in body["levels"]] == ["relaxed", "balanced", "strict"]
     paths = [row["path"] for row in body["settings"]]
     assert paths[0] == "fail_mode"
@@ -75,8 +80,25 @@ def test_preview_shows_what_a_role_would_change() -> None:
     changed = {row["path"]: row for row in body["changes"]}
     assert changed["rules.suppress"]["origin_after"] == "role"
     assert changed["tools.dangerous_posture"]["after"] == "approve"
+    posture = changed["tools.dangerous_posture"]
+    assert posture["applies"] == "Applies from the agent's next tool call."
+    assert body["applies"] == "Applies from the agent's next tool call."
     assert body["stored"]["role"] == "coding"
     assert body["stored"]["overrides"] == {}
+
+
+def test_a_restart_preview_separates_a_new_agent_from_one_already_running() -> None:
+    """A restart-bound preview says who uses the new value, and who keeps the old one."""
+    body = preview_settings({}, {"overrides": {"scanners": {"prompt_guard": {"threshold": 0.2}}}})
+    assert body["valid"] is True
+    change = next(
+        row for row in body["changes"] if row["path"] == "scanners.prompt_guard.threshold"
+    )
+    assert change["restart"] is True
+    assert "started from now on" in change["applies"]
+    assert "already running keeps the previous value" in change["applies"]
+    assert "PromptGuard sensitivity" in body["applies"]
+    assert "next tool call" not in body["applies"]
 
 
 def test_preview_of_an_invalid_value_writes_nothing_and_names_the_path() -> None:
@@ -86,6 +108,7 @@ def test_preview_of_an_invalid_value_writes_nothing_and_names_the_path() -> None
     assert body["changes"] == []
     assert body["problems"][0]["path"].startswith("overrides")
     assert body["problems"][0]["message"]
+    assert body["applies"] == ""
 
 
 def test_read_serves_labels_for_every_name_a_person_reads() -> None:

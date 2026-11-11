@@ -132,7 +132,15 @@ function ScannerTakePart(props) {
         { key: row.id },
         h(CheckState, { operating: operating }),
         h("span", { className: "petasos-took-name" }, row.name || row.label),
-        h("span", { className: "petasos-secondary" }, row.reason && operating.code !== "checked" ? row.reason : "")
+        row.reason && operating.code !== "checked"
+          ? h(
+              "span",
+              { className: "petasos-secondary" },
+              row.link && row.link.href
+                ? h("a", { className: "petasos-link", href: row.link.href }, row.reason)
+                : row.reason
+            )
+          : null
       );
     })
   );
@@ -219,6 +227,8 @@ function TryIt(props) {
 
   var examplesState = useState(null);
   var examples = examplesState[0];
+  var noteState = useState("");
+  var checkNote = noteState[0];
   var modeState = useState("tool");
   var mode = modeState[0];
   var textState = useState("");
@@ -270,6 +280,7 @@ function TryIt(props) {
       .then(function (body) {
         var list = body.examples || [];
         examplesState[1](list);
+        noteState[1](body.check_note || "");
         if (params.rule) {
           // Opened to test a rule: an empty input to paste into, nothing run.
           modeState[1]("text");
@@ -517,6 +528,7 @@ function TryIt(props) {
       "div",
       { className: "petasos-row-actions" },
       h(Btn, { onClick: function () { run(); }, disabled: running }, checkLabel),
+      checkNote ? h("p", { className: "petasos-secondary petasos-check-note" }, checkNote) : null,
       h(
         Btn,
         {
@@ -581,13 +593,15 @@ function TryIt(props) {
               "div",
               { className: "petasos-compare-cell" },
               h("p", { className: "petasos-label" }, "With trial settings (not saved)"),
-              h(OutcomeHead, { outcome: result.outcome, prefix: "Trial: " })
+              h(Status, { tone: outcomeTone(result.outcome.code), large: true, state: result.outcome.code }, "Trial: " + (result.outcome.label || "")),
+              h("p", { className: "petasos-decision-text" }, result.outcome.sentence)
             ),
             h(
               "div",
               { className: "petasos-compare-cell" },
               h("p", { className: "petasos-label" }, "With your live settings"),
-              h(OutcomeHead, { outcome: baseline.outcome, prefix: "Live: " })
+              h(Status, { tone: outcomeTone(baseline.outcome.code), large: true, state: baseline.outcome.code }, "Live: " + (baseline.outcome.label || "")),
+              h("p", { className: "petasos-decision-text" }, baseline.outcome.sentence)
             )
           )
         : h(OutcomeHead, { outcome: result.outcome }),

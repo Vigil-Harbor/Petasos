@@ -93,3 +93,31 @@ def test_a_paused_tab_shows_no_check_running(tab_report: dict[str, Any]) -> None
     assert "checked" not in paused["tryit"], paused
     assert "paused" in paused["tryit"], paused
     assert "always run" not in paused["overview_text"].lower()
+    assert "These apply when protection resumes." in paused["overview_text"]
+    assert "Every rule is on" not in paused["overview_text"]
+
+
+def test_the_tab_says_what_the_record_can_show(tab_report: dict[str, Any]) -> None:
+    """Overview, Activity and the search fields use the words the API serves."""
+    overview = tab_report["views"]["overview"]["text"]
+    activity = tab_report["views"]["activity"]["text"]
+    folded = overview.casefold()
+    assert "uses every built-in rule" in folded
+    # Form buttons are drawn in upper case; the source label is sentence case.
+    assert "review current settings" in folded
+    assert "show changed settings" not in folded
+    assert "setting changes not stopped" not in folded
+    assert "signatures verified" in activity
+    assert "Signed ·" not in activity
+    assert "Conversation risk" in activity
+    assert "No rule" in activity
+    assert tab_report["activity_search"] == {
+        "label": "Search activity",
+        "placeholder": "Search activity",
+    }
+    assert tab_report["settings_search"] == {
+        "label": "Search settings",
+        "placeholder": "Search settings",
+    }
+    tryit = tab_report["views"]["tryit"]["text"]
+    assert "adds no Activity record" in tryit

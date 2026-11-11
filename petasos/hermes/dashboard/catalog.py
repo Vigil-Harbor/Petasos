@@ -10,10 +10,11 @@ from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
 from petasos.config.layers import LEVELS, ROLES, SETTING_HELP, SETTING_LABEL, Resolved, resolve
-from petasos.config.schema import ConfigError, FieldInfo, SectionInfo, describe, to_mapping
+from petasos.config.schema import ConfigError, FieldInfo, SectionInfo, describe, leaves, to_mapping
 from petasos.config.sections import PetasosConfig
 from petasos.hermes.dashboard.errors import envelope, problems_of
 from petasos.hermes.dashboard.values import copy_tree, dig, json_value
+from petasos.hermes.dashboard.words import change_applies, saved_effect
 
 if TYPE_CHECKING:
     from petasos.scanners.registry import ScannerSpec
@@ -307,6 +308,7 @@ def preview_settings(
         sections=sections(),
         settings=setting_rows(after),
         changes=changes,
+        applies="" if after_problems else _preview_applies(changes),
         valid=not after_problems,
         problems=after_problems,
         consequences=required_consequences(after, registry=registry),
@@ -328,11 +330,35 @@ def _changes(before: Resolved | None, after: Resolved) -> list[dict[str, Any]]:
                 "origin_before": old.get("origin"),
                 "origin_after": row["origin"],
                 "restart": row["restart"],
+                "applies": change_applies(row["restart"] is True),
             }
         )
     return found
 
 
+def setting_changes(before: Resolved | None, after: Resolved) -> list[dict[str, Any]]:
+    """Leaves whose value or origin would differ, each with when that change applies."""
+    return _changes(before, after)
+
+
 def restart_paths(before: Resolved | None, after: Resolved) -> list[str]:
     """Leaf paths whose value changed and whose spec needs a process restart."""
-    return [row["path"] for row in _changes(before, after) if row["restart"] is True]
+    return [row["path"] for row in setting_changes(before, after) if row["restart"] is True]
+
+
+def _restart_names(changes: list[dict[str, Any]]) -> list[str]:
+    labels = {row.path: row.label for row in leaves(PetasosConfig)}
+    return [
+        labels.get(str(row["path"]), str(row["path"])) for row in changes if row["restart"] is True
+    ]
+
+
+def _preview_applies(changes: list[dict[str, Any]]) -> str:
+    """When the previewed changes would take effect. Nothing is claimed to have restarted."""
+    if not changes:
+        return "No setting would change."
+    names = _restart_names(changes)
+    if not names:
+        return "Applies from the agent's next tool call."
+    also_live = any(row["restart"] is not True for row in changes)
+    return saved_effect("", names, also_live=also_live)

@@ -32,7 +32,7 @@ from petasos.enforce.decisions import (
 from petasos.enforce.messages import format_content_block, format_result_notice
 from petasos.hermes.dashboard.catalog import combine
 from petasos.hermes.dashboard.errors import ApiError, envelope
-from petasos.hermes.dashboard.words import looks_for
+from petasos.hermes.dashboard.words import CHECK_NOTE, looks_for
 from petasos.normalize import canonicalize_tool_name, normalize
 from petasos.scanners.registry import REGISTRY, BuildContext, ScannerSpec, ScannerStatus, compose
 
@@ -537,6 +537,7 @@ def _body(
         normalized_changed=changed,
         scanners=scanners,
         timed_out=timed_out,
+        check_note=CHECK_NOTE,
     )
 
 
@@ -569,10 +570,12 @@ def _scanner_rows(
             "participated": not timed_out,
             "state": "active" if not timed_out else "unavailable",
             "reason": _TIME_LIMIT if timed_out else None,
+            "link": None,
         }
     ]
     for status in statuses:
         participated = status.state == "active" and not timed_out
+        state = "unavailable" if timed_out and status.state == "active" else status.state
         reason = _PLAIN_REASON.get(status.state, status.reason)
         if status.state == "active" and timed_out:
             reason = _TIME_LIMIT
@@ -581,12 +584,29 @@ def _scanner_rows(
                 "id": status.id,
                 "label": status.label,
                 "participated": participated,
-                "state": "unavailable" if timed_out and status.state == "active" else status.state,
+                "state": state,
                 "reason": reason,
+                "link": _link(state, status.id),
             }
         )
+    for row in skipped:
+        if "link" not in row:
+            row["link"] = _link(str(row.get("state") or ""), str(row.get("id") or ""))
     rows.extend(skipped)
     return rows
+
+
+def _link(state: str, scanner_id: str) -> dict[str, str] | None:
+    """Where a skipped check's reason points, when it points somewhere.
+
+    A check that is not installed is explained on Overview. One that is turned
+    off is that check's setting. Anything else has no route.
+    """
+    if state == "not_installed":
+        return {"href": "#overview?panel=checks"}
+    if state == "off" and scanner_id and scanner_id != "syntactic":
+        return {"href": f"#settings?path=scanners.{scanner_id}.enabled"}
+    return None
 
 
 def _names(values: Iterable[str]) -> frozenset[str]:

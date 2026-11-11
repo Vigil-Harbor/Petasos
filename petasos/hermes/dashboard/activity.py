@@ -18,6 +18,8 @@ from petasos.enforce.events import classify_integrity_failure, verify_event
 from petasos.hermes.dashboard.errors import ApiError, envelope
 from petasos.hermes.dashboard.words import (
     MATCHED_TEXT_NOTE,
+    REVIEW_CURRENT_SETTINGS,
+    SIGNATURE_LIMIT_LABEL,
     SIGNATURE_MEANING,
     describe_event,
     kind_label,
@@ -25,6 +27,7 @@ from petasos.hermes.dashboard.words import (
     rule_sentence,
     selfmod_note,
     selfmod_target,
+    severity_label,
 )
 
 if TYPE_CHECKING:
@@ -42,6 +45,24 @@ _SAME_CALL_S = 5.0
 _RISK_KINDS = frozenset({"block", "tier3"})
 # Outcomes that mean the tool call did not run.
 _BLOCKED_OUTCOMES = frozenset({"blocked", "stopped", "attempt_blocked"})
+
+# Outcome figures for the overview, in the order they are offered. Codes that
+# share a label are one figure. ``not_stopped`` is a finding, not a figure;
+# its events are counted under Other so the figures still add up to the total.
+_FIGURES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    ("blocked", "Blocked", ("blocked", "attempt_blocked")),
+    ("stopped", "Conversation stopped", ("stopped",)),
+    ("asked", "Asked a person", ("asked", "attempt_asked")),
+    ("flagged", "Flagged to the agent", ("flagged",)),
+    ("allowed", "Let through while paused", ("allowed",)),
+    ("declined", "Person said no", ("declined",)),
+    ("approved", "Person said yes", ("approved",)),
+    ("answered", "Answered", ("answered",)),
+    ("unchecked", "Not checked", ("unchecked",)),
+    ("degraded", "Basic checks only", ("degraded",)),
+    ("recorded", "Recorded", ("recorded",)),
+)
+_FIGURED = frozenset(code for _key, _label, members in _FIGURES for code in members)
 
 _KEEP = frozenset(
     {
@@ -242,6 +263,7 @@ def summarize(
             checked += 1
             if not verify_event(item.record, key):
                 failed += 1
+    figures, finding = _figures(outcomes)
     return envelope(
         total=shown,
         blocked=blocked,
@@ -250,15 +272,58 @@ def summarize(
         by_tool=tools,
         by_session=sessions,
         by_outcome=outcomes,
+        figures=figures,
+        finding=finding,
         kind_labels={kind: kind_label(kind) for kind in counts},
         complete=complete,
-        integrity={
-            "mode": _mode(key, checked, failed),
-            "reason": verification if key is None else "",
-            "checked": checked,
-            "failed": failed,
-        },
+        integrity=_integrity_body(key, verification, checked, failed),
     )
+
+
+def _figures(outcomes: dict[str, int]) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+    """One figure per outcome that occurred, and the guardrail finding.
+
+    Every event is in exactly one figure. ``not_stopped`` is not an outcome
+    figure: those events are the finding, and they are counted in Other so
+    the figures add up to the event total. A figure's ``outcomes`` are the
+    codes the activity list filters on.
+    """
+    rows: list[dict[str, Any]] = []
+    for code, label, members in _FIGURES:
+        count = sum(outcomes.get(member, 0) for member in members)
+        if not count:
+            continue
+        rows.append(
+            {
+                "code": code,
+                "label": label,
+                "count": count,
+                "outcomes": [member for member in members if outcomes.get(member, 0)],
+            }
+        )
+    other_codes = [code for code, count in outcomes.items() if count and code not in _FIGURED]
+    other = sum(outcomes.get(code, 0) for code in other_codes)
+    if other:
+        rows.append(
+            {
+                "code": "other",
+                "label": "Other",
+                "count": other,
+                "outcomes": sorted(other_codes),
+            }
+        )
+    missed = outcomes.get("not_stopped", 0)
+    if not missed:
+        return rows, None
+    if missed == 1:
+        lead = "1 attempt to change settings was not stopped."
+    else:
+        lead = f"{missed} attempts to change settings were not stopped."
+    return rows, {
+        "count": missed,
+        "sentence": f"{lead} The record cannot show whether a change took effect.",
+        "action": REVIEW_CURRENT_SETTINGS,
+    }
 
 
 def _count(counts: dict[str, int], value: object) -> None:
@@ -426,6 +491,7 @@ def _text_matches(
         value = record.get(name)
         if isinstance(value, str):
             words.append(value)
+    words.append(severity_label(record))
     return any(needle in word.casefold() for word in words)
 
 
@@ -438,6 +504,9 @@ def _event(
     shown = _redact_record(record, redactor)
     shown["summary"] = describe_event(record, follower)
     shown["outcome"] = outcome(record, follower)
+    shown["severity_label"] = severity_label(record)
+    if shown["outcome"]["code"] == "not_stopped":
+        shown["review_action"] = REVIEW_CURRENT_SETTINGS
     kind = record.get("event_type")
     shown["kind_label"] = kind_label(kind) if isinstance(kind, str) else ""
     rule = record.get("rule_id")
@@ -499,12 +568,39 @@ def _integrity(
 ) -> dict[str, Any]:
     failed = sum(1 for event in events if event.get("integrity", {}).get("status") == "failed")
     checked = len(events) if key is not None else 0
-    return {
-        "mode": _mode(key, checked, failed),
+    return _integrity_body(key, verification, checked, failed)
+
+
+def _integrity_body(
+    key: bytes | None,
+    verification: str,
+    checked: int,
+    failed: int,
+) -> dict[str, Any]:
+    """The list badge, and, when every signature matched, what that does not prove."""
+    mode = _mode(key, checked, failed)
+    body: dict[str, Any] = {
+        "mode": mode,
         "reason": verification if key is None else "",
         "checked": checked,
         "failed": failed,
+        "label": _integrity_label(mode, checked, failed),
     }
+    if mode == "verified":
+        body["limit"] = SIGNATURE_MEANING["verified"]
+        body["limit_label"] = SIGNATURE_LIMIT_LABEL
+    return body
+
+
+def _integrity_label(mode: str, checked: int, failed: int) -> str:
+    if mode == "verified":
+        noun = "signature" if checked == 1 else "signatures"
+        return f"{checked} {noun} verified"
+    if mode == "mixed":
+        return f"{failed} of {checked} do not match"
+    if mode == "failed":
+        return "Signatures do not match"
+    return "Not signed"
 
 
 def _mode(key: bytes | None, checked: int, failed: int) -> str:

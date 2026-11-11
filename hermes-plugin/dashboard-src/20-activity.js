@@ -143,16 +143,19 @@ function rangeWindow(filters) {
 function IntegrityStatus(props) {
   var integrity = props.integrity;
   if (!integrity) return null;
-  if (integrity.mode === "verified") {
-    return h(Status, { tone: "success", title: "Each record shown carries a signature that matches." }, "Signed · " + integrity.checked + " checked");
-  }
-  if (integrity.mode === "mixed") {
-    return h(Status, { tone: "destructive" }, integrity.failed + " of " + integrity.checked + " do not match");
-  }
-  if (integrity.mode === "failed") {
-    return h(Status, { tone: "destructive" }, "Signatures do not match");
-  }
-  return h(Status, { tone: "warning", title: integrity.reason }, "Not signed");
+  var tone = integrity.mode === "verified" ? "success" : integrity.mode === "off" ? "warning" : "destructive";
+  var badge = h(
+    Status,
+    { tone: tone, title: integrity.mode === "off" ? integrity.reason : undefined },
+    integrity.label
+  );
+  if (!integrity.limit) return badge;
+  return h(
+    "div",
+    { className: "petasos-integrity" },
+    badge,
+    h(Disclosure, { label: integrity.limit_label, openLabel: "Hide what a signature shows" }, integrity.limit)
+  );
 }
 
 function IntegrityNotice(props) {
@@ -268,8 +271,8 @@ function ActivityFilters(props) {
         h(C.Input, {
           id: "petasos-activity-search",
           type: "search",
-          "aria-label": "Search activity by event id or words",
-          placeholder: "Search by event id or words…",
+          "aria-label": "Search activity",
+          placeholder: "Search activity",
           value: searchState[0],
           onChange: function (event) {
             searchState[1](event.target.value);
@@ -392,7 +395,7 @@ function EventRow(props) {
         failed ? h(Status, { tone: "destructive" }, "Signature does not match") : null
       )
     ),
-    h("span", { className: "petasos-event-severity" }, h(Severity, { value: event.severity })),
+    h("span", { className: "petasos-event-severity" }, h(Severity, { value: event.severity, label: event.severity_label })),
     h("span", { className: "petasos-event-outcome" }, h(Status, { tone: outcomeTone(outcome.code), state: outcome.code }, outcome.label || "Recorded")),
     h(Icon, { name: "chevron", className: "petasos-chevron" })
   );
@@ -524,7 +527,7 @@ function EventDetail(props) {
       "div",
       { className: "petasos-detail-status" },
       h(Status, { tone: outcomeTone(outcome.code), large: true, state: outcome.code }, outcome.label || "Recorded"),
-      event.severity ? h(Severity, { value: event.severity }) : null
+      h(Severity, { value: event.severity, label: event.severity_label })
     ),
     h("h3", { className: "petasos-detail-title", id: "petasos-detail-title" }, event.summary),
     event.outcome_note ? h("p", { className: "petasos-detail-note" }, event.outcome_note) : null,
@@ -533,7 +536,7 @@ function EventDetail(props) {
           "div",
           { className: "petasos-row-actions" },
           notStopped
-            ? h(Btn, { outlined: true, onClick: function () { go("settings", { changed: "1" }); } }, "Show changed settings")
+            ? h(Btn, { outlined: true, onClick: function () { go("settings", { changed: "1" }); } }, event.review_action)
             : null,
           risky
             ? h(
@@ -668,7 +671,9 @@ function Activity(props) {
     go("activity", route);
   }
 
-  var codes = filters.outcome ? OUTCOME_CODES[filters.outcome] || [filters.outcome] : [];
+  var codes = filters.outcome
+    ? OUTCOME_CODES[filters.outcome] || filters.outcome.split(",").filter(Boolean)
+    : [];
   var span = rangeWindow(filters);
   var request = {
     limit: 100,
@@ -875,7 +880,7 @@ function Activity(props) {
           ? h(
               "span",
               { className: "petasos-secondary" },
-              " · Only " + (OUTCOME_FILTER_WORDS[filters.outcome] || filters.outcome) + " ",
+              " · Only " + (params.word || OUTCOME_FILTER_WORDS[filters.outcome] || filters.outcome) + " ",
               h(Btn, { ghost: true, compact: true, onClick: function () { setFilters(Object.assign({}, filters, { outcome: "" })); } }, "Show every outcome")
             )
           : null,

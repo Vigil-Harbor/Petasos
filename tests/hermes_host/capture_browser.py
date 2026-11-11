@@ -174,6 +174,14 @@ def check(request: dict[str, Any]) -> dict[str, Any]:
         watch = Watch(page)
         for view in VIEWS:
             _open(page, base, view)
+            if view == "overview":
+                page.get_by_role("button", name=_named("Review current settings")).wait_for(
+                    timeout=20000
+                )
+            elif view == "activity":
+                page.get_by_text("signatures verified").wait_for(timeout=20000)
+            elif view == "tryit":
+                page.get_by_text("adds no Activity record").wait_for(timeout=20000)
             _settle(page, 1200)
             panel = page.locator(".petasos-view")
             text = panel.inner_text().strip()
@@ -183,7 +191,20 @@ def check(request: dict[str, Any]) -> dict[str, Any]:
                 "selected": selected,
                 "loading": "Loading" in text[:40],
                 "head": text[:160],
+                "text": text,
             }
+            if view == "activity" and page.locator("#petasos-activity-search").count():
+                field = page.locator("#petasos-activity-search")
+                report["activity_search"] = {
+                    "label": field.get_attribute("aria-label"),
+                    "placeholder": field.get_attribute("placeholder"),
+                }
+            if view == "settings" and page.locator("#petasos-settings-search").count():
+                field = page.locator("#petasos-settings-search")
+                report["settings_search"] = {
+                    "label": field.get_attribute("aria-label"),
+                    "placeholder": field.get_attribute("placeholder"),
+                }
             report["focus"][view] = focus_walk(page)
         report["paused"] = paused_states(page, base)
         report["errors"] = watch.errors

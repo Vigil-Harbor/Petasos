@@ -259,6 +259,23 @@ function VerdictPanel(props) {
       actions: action,
     },
     h("p", { className: "petasos-verdict-title", id: "petasos-verdict-title" }, verdict.title),
+    props.finding && props.finding.count
+      ? h(
+          "div",
+          { className: "petasos-alarm-row", role: "status" },
+          h("p", null, props.finding.sentence),
+          h(
+            Btn,
+            {
+              outlined: true,
+              onClick: function () {
+                go("settings", { changed: "1" });
+              },
+            },
+            props.finding.action
+          )
+        )
+      : null,
     verdict.reason ? h("p", { className: "petasos-verdict-reason" }, verdict.reason) : null,
     verdict.stepText ? h("p", { className: "petasos-verdict-reason" }, h("strong", null, "Next step: "), verdict.stepText) : null,
     verdict.held ? h(HeldFix, { row: verdict.held, status: status }) : null,
@@ -406,6 +423,9 @@ function SetupControls(props) {
     "div",
     { className: "petasos-setup", id: "petasos-setup", role: "group", "aria-label": "Setup" },
     roleLocked || levelLocked ? h("p", { className: "petasos-secondary" }, "Locked by your administrator.") : null,
+    status.choices_note
+      ? h("p", { className: "petasos-secondary", role: "status" }, status.choices_note)
+      : null,
     h(
       "div",
       { className: "petasos-setup-grid" },
@@ -441,13 +461,11 @@ function SetupControls(props) {
           previewed: previewed,
           stored: stored,
           roleInfo: roleInfo,
+          currentRole: currentRole,
           currentLevel: currentLevel,
           busy: busyState[0],
           onApply: function () {
             apply();
-          },
-          onApplyWith: function (level) {
-            apply({ level: level });
           },
           onCancel: function () {
             setPending(null);
@@ -458,8 +476,8 @@ function SetupControls(props) {
 }
 
 // The pending change, on its own inset surface: when it applies, the usual
-// pairing stated as a trade with a button that names the combination, then
-// Apply.
+// pairing stated as a trade, and one button that names both controls as
+// they stand.
 function ChoicePreview(props) {
   var catalog = props.catalog;
   var pending = props.pending;
@@ -489,7 +507,7 @@ function ChoicePreview(props) {
     body = h(
       Fragment,
       null,
-      h("p", { className: "petasos-when" }, whenItApplies(changes, catalog.settings)),
+      previewed.applies ? h("p", { className: "petasos-when" }, previewed.applies) : null,
       h(
         Disclosure,
         { label: "Show the settings this changes (" + changes.length + ")", openLabel: "Hide the settings this changes" },
@@ -528,21 +546,13 @@ function ChoicePreview(props) {
           onClick: props.onApply,
           disabled: props.busy || !previewed || Boolean(previewed.failure) || !previewed.valid,
         },
-        props.busy ? "Applying…" : "Apply"
+        props.busy
+          ? "Applying…"
+          : "Apply " +
+            roleLabel(catalog, pending.role || props.currentRole) +
+            " with " +
+            levelLabel(catalog, pending.level || props.currentLevel)
       ),
-      suggestion
-        ? h(
-            Btn,
-            {
-              outlined: true,
-              onClick: function () {
-                props.onApplyWith(suggestion);
-              },
-              disabled: props.busy || !previewed || Boolean(previewed.failure) || !previewed.valid,
-            },
-            "Apply " + roleLabel(catalog, pending.role) + " with " + levelLabel(catalog, suggestion)
-          )
-        : null,
       h(
         Btn,
         {
@@ -558,32 +568,15 @@ function ChoicePreview(props) {
   );
 }
 
-var STAT_TILES = [
-  { key: "blocked", label: "Blocked" },
-  { key: "asked", label: "Asked a person" },
-  { key: "flagged", label: "Flagged to the agent" },
-  { key: "allowed", label: "Let through while paused" },
-  { key: "not_stopped", label: "Setting changes not stopped", alarm: true },
-];
-
 // The figures, as Hermes's System page lays them out: a small label above,
 // the value beneath at a size that reads as the value. Each figure is a
 // grid cell whose value sits on the cell's last row, so values stay on one
-// line when a label wraps.
+// line when a label wraps. The figures are the API's, and they add up to
+// the total above them.
 function RecentPanel(props) {
   var summary = props.summary;
   var events = props.events || [];
-  var counts = (summary && summary.by_outcome) || {};
-  var values = {
-    blocked: summary ? summary.blocked || 0 : 0,
-    asked: (counts.asked || 0) + (counts.attempt_asked || 0),
-    flagged: counts.flagged || 0,
-    allowed: counts.allowed || 0,
-    not_stopped: counts.not_stopped || 0,
-  };
-  var tiles = STAT_TILES.filter(function (tile) {
-    return !tile.alarm || values[tile.key];
-  });
+  var tiles = (summary && summary.figures) || [];
   var groups = groupEvents(events).slice(0, 4);
   return h(
     Panel,
@@ -600,10 +593,10 @@ function RecentPanel(props) {
       "dl",
       { className: "petasos-stats" },
       tiles.map(function (tile) {
-        var value = values[tile.key];
+        var value = tile.count;
         return h(
           "div",
-          { key: tile.key, className: cn("petasos-stat", tile.alarm && "petasos-stat-alarm") },
+          { key: tile.code, className: "petasos-stat" },
           h("dt", null, tile.label),
           h(
             "dd",
@@ -616,7 +609,11 @@ function RecentPanel(props) {
                 title: "Show them in Activity",
                 "aria-label": value + " " + tile.label + ": show them in Activity",
                 onClick: function () {
-                  go("activity", { range: "24h", outcome: tile.key });
+                  go("activity", {
+                    range: "24h",
+                    outcome: (tile.outcomes || [tile.code]).join(","),
+                    word: tile.label,
+                  });
                 },
               },
               String(value)
@@ -625,34 +622,6 @@ function RecentPanel(props) {
         );
       })
     ),
-    values.not_stopped
-      ? h(
-          "div",
-          { className: "petasos-alarm-row", role: "status" },
-          h(
-            "p",
-            null,
-            h(
-              "strong",
-              null,
-              values.not_stopped === 1
-                ? "1 attempt to change settings was not stopped. "
-                : values.not_stopped + " attempts to change settings were not stopped. "
-            ),
-            "The record cannot show whether a change took effect."
-          ),
-          h(
-            Btn,
-            {
-              outlined: true,
-              onClick: function () {
-                go("settings", { changed: "1" });
-              },
-            },
-            "Show changed settings"
-          )
-        )
-      : null,
     groups.length
       ? h(
           "ul",
@@ -808,6 +777,15 @@ function Overview(props) {
     30000,
     [props.refreshKey]
   );
+  useEffect(
+    function () {
+      var panel = props.route && props.route.params && props.route.params.panel;
+      if (panel !== "checks") return;
+      var target = document.getElementById("petasos-checks");
+      if (target) revealInView(target, "start");
+    },
+    [props.route && props.route.params && props.route.params.panel, Boolean(status)]
+  );
   function reveal(id) {
     return function () {
       var target = document.getElementById(id);
@@ -835,6 +813,7 @@ function Overview(props) {
         onPause: props.onPause,
         onResume: props.onResume,
         onShowChecks: reveal("petasos-checks"),
+        finding: summaryState[0] && summaryState[0].finding,
       },
       setup
     ),

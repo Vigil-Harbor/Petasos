@@ -45,8 +45,9 @@ DESCRIPTIONS = {
         "Pause protection at the header's end; one line for the state, then compact rows for "
         "what protection covers, what runs and what does not (each check named by what it "
         "does, product after it); the job and strictness choices beneath. Then the last 24 "
-        "hours: figures with labels above the values, one setting change that was not "
-        "stopped with a button to the changed settings, and recent events with repeats grouped."
+        "hours: figures with labels above the values, adding up to the event total, and "
+        "recent events with repeats grouped. A setting change that was not stopped is a row "
+        "in the Protection panel, under the state line, with Review current settings."
     ),
     "02-overview-paused": (
         "Overview after Pause protection was confirmed, taken taller than the window (1440 by "
@@ -57,14 +58,16 @@ DESCRIPTIONS = {
     "03-overview-choice-preview": (
         "The job switched to Research but not applied: the new job's description under the "
         "control, and a panel saying when the change applies, the settings it changes folded "
-        "away, what Relaxed strictness trades, and buttons: Apply, Apply Research with "
-        "Relaxed, Try it first, Cancel."
+        "away, what Relaxed strictness trades in one sentence, and buttons: Apply Research "
+        "with Balanced, Try it first, Cancel."
     ),
     "04-activity-list": (
         "Activity over all time: range, search and filters; the count of events and blocked "
         "tool calls with the time zone named once; one sentence per event saying what the "
         "agent tried to do, with the tool and conversation on one line beneath, a 24-hour "
-        "time, severity as a word and an outcome badge; nine repeats grouped into one row."
+        "time, severity as a word (Conversation risk, or No rule, where a rank does not "
+        "apply) and an outcome badge; a badge of how many signatures were verified, with "
+        "what that does not prove one click away; nine repeats grouped into one row."
     ),
     "05-activity-detail": (
         "One event opened: its row stays marked in the list beside the detail, which names "
@@ -108,8 +111,9 @@ DESCRIPTIONS = {
     ),
     "x2-settings-saved": (
         "After saving PromptGuard as Required while it is not installed: a check-marked "
-        "confirmation with the time, the setting that waits for a Hermes restart, and under "
-        "the control what that does to tool calls under the current settings."
+        "confirmation with the time. It says an agent started from now on uses the saved "
+        "value, and an agent already running keeps the previous value until it restarts. "
+        "Under the control, the consequence is attached with Once in use."
     ),
     "x3-overview-partial": (
         "Overview while PromptGuard is Required but not installed: a failed check, what that "

@@ -387,12 +387,14 @@ function Tag(props) {
 // Critical is set heavier than High; there is no second coloured shape.
 function Severity(props) {
   var severity = String(props.value || "").toLowerCase();
-  if (!severity) return h("span", { className: "petasos-none", "aria-label": "No severity" }, "—");
+  var known = { critical: 1, high: 1, medium: 1, low: 1, info: 1 };
+  var label = props.label || (known[severity] ? capital(severity) : "");
+  if (!label) return null;
   return h(
     "span",
-    { className: cn("petasos-sev", "petasos-sev-" + severity) },
+    { className: cn("petasos-sev", known[severity] && "petasos-sev-" + severity) },
     h("span", { className: "sr-only" }, "Severity: "),
-    capital(severity)
+    label
   );
 }
 

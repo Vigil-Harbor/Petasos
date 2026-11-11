@@ -137,7 +137,9 @@ def test_a_restart_field_is_named(tmp_path: Path) -> None:
     assert "restart" in body["restart_message"].lower()
     # The message names the setting the way the screen does, not by its path.
     assert "PromptGuard sensitivity" in body["restart_message"]
-    assert "next tool call" in body["restart_message"]
+    assert "An agent started from now on uses the saved value" in body["restart_message"]
+    assert "already running keeps the previous value until it restarts" in body["restart_message"]
+    assert "next tool call" not in body["restart_message"]
 
 
 def test_a_live_change_says_it_applies_from_the_next_tool_call(tmp_path: Path) -> None:
@@ -152,6 +154,27 @@ def test_a_live_change_says_it_applies_from_the_next_tool_call(tmp_path: Path) -
     )
     assert body["restart"] == []
     assert body["restart_message"] == "Saved. Petasos uses it from the agent's next tool call."
+
+
+def test_a_mixed_save_separates_restart_settings_from_live_ones(tmp_path: Path) -> None:
+    """One save can do both, and the sentence says which is which."""
+    store = _Store()
+    body = save_settings(
+        store.settings,
+        {
+            "overrides": {
+                "rules": {"confidence_floor": 0.8},
+                "scanners": {"prompt_guard": {"threshold": 0.2}},
+            }
+        },
+        plugin_dir=tmp_path,
+        write=store.write,
+        secrets=_SECRETS,
+    )
+    assert body["restart"] == ["scanners.prompt_guard.threshold"]
+    assert "started from now on" in body["restart_message"]
+    assert "already running" in body["restart_message"]
+    assert "next tool call" in body["restart_message"]
 
 
 def test_secrets_are_not_accepted(tmp_path: Path) -> None:
