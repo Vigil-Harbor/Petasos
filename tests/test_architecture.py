@@ -497,3 +497,18 @@ def test_removed_implementation_modules_cannot_be_imported() -> None:
         except ModuleNotFoundError:
             continue
         raise AssertionError(f"{name} still imports")
+
+
+def test_the_suite_does_not_look_at_the_accounts_hermes_home() -> None:
+    """Every test gets a throwaway home, so no test finds a real Hermes installation."""
+    import os
+
+    import pytest
+
+    from petasos.hermes.home import hermes_root
+
+    pwd = pytest.importorskip("pwd")
+
+    account = Path(pwd.getpwuid(os.getuid()).pw_dir).resolve()
+    root = hermes_root().resolve()
+    assert account != root and account not in root.parents

@@ -26,6 +26,30 @@ def identity_redactor(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
+def _isolate_account_home(
+    tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Give every test a throwaway home directory.
+
+    A guard built without its own paths finds the Hermes home from the
+    account's home directory. Under the real one that reads the profile
+    pointer and lists the profiles of whatever Hermes is installed for this
+    account. No test may depend on that installation, or look at it.
+
+    Model caches are found through the home too, so the cache a real-backend
+    test needs is named before the home changes.
+    """
+    if not os.environ.get("HF_HOME"):
+        cache = os.path.join(os.path.expanduser("~"), ".cache", "huggingface")
+        monkeypatch.setenv("HF_HOME", cache)
+    home = tmp_path_factory.mktemp("home")
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
+    if os.environ.get("LOCALAPPDATA"):
+        monkeypatch.setenv("LOCALAPPDATA", str(home / "AppData" / "Local"))
+
+
+@pytest.fixture(autouse=True)
 def _isolate_enforcement_spool(tmp_path_factory: pytest.TempPathFactory) -> Iterator[None]:
     """Point the module-level spool writer at a throwaway file for every test.
 
