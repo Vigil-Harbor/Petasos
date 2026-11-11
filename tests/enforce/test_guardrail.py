@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
 import pytest
@@ -215,7 +216,13 @@ def test_an_always_entry_for_the_old_key_does_not_auto_approve(tmp_path: Path) -
     assert decision.rule_key == "petasos.guardrail.2.s1"
 
 
-def test_a_stopped_conversation_stays_blocked(tmp_path: Path) -> None:
+def test_a_stopped_conversation_stays_blocked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The third score must reach exactly 30, without real-time decay between calls.
+    monkeypatch.setattr(
+        "petasos.session.frequency.time", SimpleNamespace(monotonic=lambda: 1000.0)
+    )
     sink = _Sink()
     enforcer, _source, path = _enforcer(tmp_path, sink, mode="never", tiers=(10.0, 29.0, 30.0))
     for _ in range(3):
