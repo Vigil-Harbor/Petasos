@@ -1,3 +1,4 @@
+# Declaration, coercion, validation, and description share one schema field vocabulary.
 """Declarative config sections.
 
 One declaration drives validation, mapping, and the description a settings

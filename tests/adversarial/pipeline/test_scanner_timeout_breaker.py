@@ -7,9 +7,9 @@ import time
 
 import pytest
 
-from petasos._types import Direction, ScanResult
 from petasos.config.schema import ConfigError, from_mapping
 from petasos.config.sections import PetasosConfig
+from petasos.model import Direction, ScanResult
 from petasos.pipeline import Pipeline
 from petasos.scanners.minimal import MinimalScanner
 

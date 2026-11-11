@@ -12,7 +12,7 @@ import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal, Protocol
 
-from petasos.session.guardrail import GuardrailSurface
+from petasos.guard.surface import GuardrailSurface
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping

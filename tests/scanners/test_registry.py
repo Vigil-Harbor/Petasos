@@ -9,10 +9,10 @@ from typing import Any
 
 import pytest
 
-from petasos._types import Direction, ScanResult
 from petasos.config.floors import PROMPT_GUARD_THRESHOLD
 from petasos.config.sections import PetasosConfig, PresidioConfig
 from petasos.config.sections.scanners import PromptGuardConfig
+from petasos.model import Direction, ScanResult
 from petasos.scanners.minimal import MinimalScanner
 from petasos.scanners.presidio import DEFAULT_PRESIDIO_ENTITIES, PresidioScanner
 from petasos.scanners.prompt_guard import _BLOCK_THRESHOLD, _INSTALL_HINT, PromptGuardScanner

@@ -12,7 +12,7 @@ from typing import Any
 
 import pytest
 
-from petasos.scanners._semgrep_process import child_environment, run_process
+from petasos.scanners.semgrep.process import child_environment, run_process
 
 pytestmark = pytest.mark.skipif(
     importlib.util.find_spec("psutil") is None, reason="process monitor extra required"
@@ -28,7 +28,7 @@ def test_posix_signal_denial_requires_exited_leader_and_absent_group(
     import signal
     from types import SimpleNamespace
 
-    from petasos.scanners import _semgrep_process as process
+    from petasos.scanners.semgrep import process as process
 
     events: list[str] = []
     child = process._PosixChild.__new__(process._PosixChild)
@@ -79,7 +79,7 @@ async def test_exited_posix_leader_is_reaped_before_group_absence_check(
     import errno
     import json
 
-    from petasos.scanners._semgrep_process import _PosixChild
+    from petasos.scanners.semgrep.process import _PosixChild
 
     if sys.platform == "win32":
         pytest.skip("native POSIX zombie/group semantics")
@@ -122,7 +122,7 @@ def _stub_posix_child(monkeypatch: pytest.MonkeyPatch, poll: Any, events: list[s
     import signal
     from types import SimpleNamespace
 
-    from petasos.scanners import _semgrep_process as process
+    from petasos.scanners.semgrep import process as process
 
     child = process._PosixChild.__new__(process._PosixChild)
     child.pid = 2000000001
@@ -186,7 +186,7 @@ def test_absent_group_signal_still_requires_post_reap_absence(
 def test_external_reap_during_signal_denial_retains_cleanup_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from petasos.scanners import _semgrep_process as process
+    from petasos.scanners.semgrep import process as process
 
     events: list[str] = []
 
@@ -272,7 +272,7 @@ async def test_cancellation_reaps_descendant_holding_inherited_pipes(
 ) -> None:
     import psutil
 
-    from petasos.scanners import _semgrep_process as process_module
+    from petasos.scanners.semgrep import process as process_module
 
     child_type = (
         process_module._WindowsChild if sys.platform == "win32" else process_module._PosixChild
@@ -342,7 +342,7 @@ async def test_cleanup_os_error_retains_child_ownership(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from petasos.scanners import _semgrep_process as process_module
+    from petasos.scanners.semgrep import process as process_module
 
     class Child:
         pid = 2000000000
@@ -379,7 +379,7 @@ def test_posix_leader_is_reaped_only_after_last_group_signal(
 
     import psutil
 
-    from petasos.scanners import _semgrep_process as module
+    from petasos.scanners.semgrep import process as module
 
     events: list[str] = []
 
@@ -418,8 +418,8 @@ async def test_slow_native_spawn_does_not_block_control_loop(
 ) -> None:
     from concurrent.futures import ThreadPoolExecutor
 
-    from petasos.scanners import _semgrep_process as process
-    from petasos.scanners._semgrep_engine import run_owned_process
+    from petasos.scanners.semgrep import process as process
+    from petasos.scanners.semgrep.engine import run_owned_process
 
     child_type = process._WindowsChild if sys.platform == "win32" else process._PosixChild
     original = child_type.__init__
@@ -460,7 +460,7 @@ async def test_slow_native_spawn_does_not_block_control_loop(
 
 @pytest.mark.skipif(sys.platform != "win32", reason="native Windows job membership")
 async def test_detached_child_has_no_console_host(tmp_path: Path) -> None:
-    from petasos.scanners._semgrep_process import _WindowsChild
+    from petasos.scanners.semgrep.process import _WindowsChild
 
     child = _WindowsChild(
         [str(vars(sys)["_base_executable"]), "-c", "import time;time.sleep(30)"],
@@ -492,7 +492,7 @@ def test_root_recovery_skips_out_of_range_pids_and_continues(
     import subprocess
     import tempfile
 
-    from petasos.scanners._semgrep_roots import recover_roots
+    from petasos.scanners.semgrep.roots import recover_roots
 
     exited = subprocess.Popen([sys.executable, "-c", "pass"])
     exited.wait()
@@ -536,7 +536,7 @@ def test_root_recovery_leaves_another_users_roots_alone(
 ) -> None:
     import tempfile
 
-    from petasos.scanners._semgrep_roots import recover_roots
+    from petasos.scanners.semgrep.roots import recover_roots
 
     stale = _stale_root(tmp_path, "psg-foreign0")
     monkeypatch.setattr(tempfile, "gettempdir", lambda: str(tmp_path))
@@ -553,7 +553,7 @@ def test_root_recovery_does_not_block_on_a_fifo_marker(
 ) -> None:
     import tempfile
 
-    from petasos.scanners._semgrep_roots import recover_roots
+    from petasos.scanners.semgrep.roots import recover_roots
 
     if sys.platform == "win32":
         pytest.skip("FIFO markers need POSIX")
@@ -578,7 +578,7 @@ def test_root_recovery_does_not_block_on_a_fifo_marker(
 async def test_descendant_memory_counts_against_the_budget(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from petasos.scanners import _semgrep_process as process
+    from petasos.scanners.semgrep import process as process
 
     monkeypatch.setattr(process, "RSS_LIMIT", 96 * 1024 * 1024)
     python = str(vars(sys)["_base_executable"])
@@ -604,7 +604,7 @@ class _Clock:
 def _install(monkeypatch: pytest.MonkeyPatch, child: type[Any]) -> None:
     import psutil
 
-    from petasos.scanners import _semgrep_process as process
+    from petasos.scanners.semgrep import process as process
 
     monkeypatch.setattr(process, "_WindowsChild", child)
     monkeypatch.setattr(process, "_PosixChild", child)
@@ -695,7 +695,7 @@ async def test_post_loop_check_confirms_cleanup_after_the_end(
 async def test_overrun_that_stays_dirty_does_not_close_the_child(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from petasos.scanners import _semgrep_process as process
+    from petasos.scanners.semgrep import process as process
 
     class Child:
         def __init__(self, argv: list[str], root: Path) -> None:
@@ -743,7 +743,7 @@ async def test_capture_failure_keeps_the_cancel_when_finally_is_clean(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # Regression for PET-255: a terminate CleanupFailure does not replace semgrep.cancelled.
-    from petasos.scanners import _semgrep_process as process
+    from petasos.scanners.semgrep import process as process
 
     class Child:
         def __init__(self, argv: list[str], root: Path) -> None:
@@ -775,7 +775,7 @@ async def test_capture_failure_keeps_the_cancel_when_finally_is_clean(
 async def test_capture_failure_stays_open_when_cleanup_does_not_confirm(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from petasos.scanners import _semgrep_process as process
+    from petasos.scanners.semgrep import process as process
 
     class Child:
         def __init__(self, argv: list[str], root: Path) -> None:
@@ -810,7 +810,7 @@ async def test_poll_failure_during_a_normal_run_becomes_engine_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # Regression for PET-255: a child-method raise with no interrupt becomes engine_error.
-    from petasos.scanners import _semgrep_process as process
+    from petasos.scanners.semgrep import process as process
 
     class Child:
         def __init__(self, argv: list[str], root: Path) -> None:
@@ -844,7 +844,7 @@ async def test_poll_failure_during_a_normal_run_becomes_engine_error(
 async def test_spawn_cleanup_failure_carries_an_empty_tracked_snapshot(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from petasos.scanners import _semgrep_process as process
+    from petasos.scanners.semgrep import process as process
 
     class Child:
         def __init__(self, argv: list[str], root: Path) -> None:
@@ -859,7 +859,7 @@ async def test_spawn_cleanup_failure_carries_an_empty_tracked_snapshot(
 def test_posix_cleaned_records_each_early_path(monkeypatch: pytest.MonkeyPatch) -> None:
     from types import SimpleNamespace
 
-    from petasos.scanners import _semgrep_process as process
+    from petasos.scanners.semgrep import process as process
 
     child = process._PosixChild.__new__(process._PosixChild)
     child.pid = 2000000000
@@ -894,7 +894,7 @@ async def test_poll_cleanup_failure_keeps_tracked_descendant_keys(
 
     import psutil
 
-    from petasos.scanners import _semgrep_process as process
+    from petasos.scanners.semgrep import process as process
 
     class Desc:
         pid = 42

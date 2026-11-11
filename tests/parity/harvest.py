@@ -931,7 +931,7 @@ out = Path(sys.argv[2])
 files = sys.argv[3:]
 home = str(Path.home())
 sys.path.insert(0, str(root))
-import petasos.session.guard as guard_mod
+import petasos.guard.guard as guard_mod
 seen = []
 orig = guard_mod.ToolCallGuard.evaluate
 async def wrapped(self, tool_name, tool_params, session_id):

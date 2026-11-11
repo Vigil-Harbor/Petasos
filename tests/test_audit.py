@@ -6,9 +6,9 @@ from unittest.mock import patch
 
 import pytest
 
-from petasos._types import AuditEvent, PipelineResult, ScanFinding, ScanResult, Severity
 from petasos.config.schema import from_mapping
 from petasos.config.sections import PetasosConfig
+from petasos.model import AuditEvent, PipelineResult, ScanFinding, ScanResult, Severity
 from petasos.session.audit import AuditEmitter
 from petasos.session.frequency import FrequencyUpdateResult
 

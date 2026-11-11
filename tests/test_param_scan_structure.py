@@ -15,7 +15,7 @@ import ast
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parent.parent
-_GUARD_PATH = _ROOT / "petasos" / "session" / "guard.py"
+_GUARD_PATH = _ROOT / "petasos" / "guard" / "params.py"
 _FALLBACK_PATH = _ROOT / "petasos" / "enforce" / "fallback.py"
 
 

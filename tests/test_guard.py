@@ -7,20 +7,15 @@ from unittest.mock import patch
 
 import pytest
 
-from petasos._types import ScanFinding, Severity
 from petasos.config.layers import ROLES, resolve
 from petasos.config.schema import ConfigError, evolve, from_mapping
 from petasos.config.secrets import Secrets
 from petasos.config.sections import PetasosConfig
-from petasos.normalize import canonicalize_tool_name
+from petasos.guard.guard import _FEATURE_DISABLED, GuardResult, ToolCallGuard
+from petasos.model import ScanFinding, Severity
+from petasos.normalize import _NAMESPACE_PREFIX_RE, canonicalize_tool_name
 from petasos.pipeline import Pipeline
 from petasos.session.frequency import FrequencyTracker, SessionState
-from petasos.session.guard import (
-    _FEATURE_DISABLED,
-    _NAMESPACE_PREFIX_RE,
-    GuardResult,
-    ToolCallGuard,
-)
 from petasos.session.lineage import LineageRegistry
 
 
@@ -415,7 +410,7 @@ class TestGuard03AliasExempt:
 
     def test_default_aliases_not_in_builtin_exempt(self) -> None:
         """Structural tripwire: no default alias target collides with built-in exempt."""
-        from petasos.session.guard import DEFAULT_TOOL_ALIASES
+        from petasos.guard.tools import DEFAULT_TOOL_ALIASES
 
         alias_targets = {v.lower() for v in DEFAULT_TOOL_ALIASES.values()}
         for name, role in ROLES.items():
@@ -620,7 +615,7 @@ class TestScanParamsCatchAll:
 # PET-107: sub-agent lineage (A) + delegation fan-out gate (C)
 # ---------------------------------------------------------------------------
 
-_GUARD_CLOCK = "petasos.session.guard.time.monotonic"
+_GUARD_CLOCK = "petasos.guard.guard.time.monotonic"
 
 
 def _lineage_setup(
@@ -768,7 +763,7 @@ class TestDelegationFanout:
 
     def test_fanout_concurrent_atomic(self) -> None:
         # C TOCTOU: N threads racing a budget of 1 → exactly one passes.
-        from petasos.session.guard import SpawnBudget
+        from petasos.guard.fanout import SpawnBudget
 
         budget = SpawnBudget(window_seconds=60.0)
         results: list[bool] = []
@@ -793,7 +788,7 @@ class TestDelegationFanout:
         # a stale deque in _events forever; the amortized global sweep (fired by a
         # later consume past the window) drops it so the map tracks active windows
         # rather than every distinct session ID ever seen.
-        from petasos.session.guard import SpawnBudget
+        from petasos.guard.fanout import SpawnBudget
 
         budget = SpawnBudget(window_seconds=60.0)
         for sid in ("a", "b", "c"):

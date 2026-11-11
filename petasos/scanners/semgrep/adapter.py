@@ -16,10 +16,10 @@ import threading
 import time
 from typing import TYPE_CHECKING, Any
 
-from petasos._limits import MAX_PARAM_TEXT_LEN
-from petasos.scanners._semgrep_engine import result_for
-from petasos.scanners._semgrep_qualification import qualification_warning
-from petasos.scanners._semgrep_runtime import (
+from petasos.limits import MAX_PARAM_TEXT_LEN
+from petasos.scanners.semgrep.engine import result_for
+from petasos.scanners.semgrep.qualification import qualification_warning
+from petasos.scanners.semgrep.runtime import (
     Job,
     Lease,
     SemgrepCleanupError,
@@ -31,7 +31,7 @@ from petasos.scanners._semgrep_runtime import (
     close_semgrep_runtime,
     error_result,
 )
-from petasos.scanners._semgrep_source import (
+from petasos.scanners.semgrep.source import (
     ProjectionError,
     Selection,
     preflight,
@@ -42,7 +42,7 @@ from petasos.scanners._semgrep_source import (
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from petasos._types import Direction, ScanResult
+    from petasos.model import Direction, ScanResult
 
 __all__ = [
     "SemgrepCleanupError",
@@ -95,7 +95,9 @@ class SemgrepLifecycleOwner:
         if result.status != "closed":
             if exc is None:
                 raise SemgrepCleanupError(result)
-            logging.getLogger(__name__).error("semgrep.cleanup_failed during context exit")
+            logging.getLogger("petasos.scanners.semgrep").error(
+                "semgrep.cleanup_failed during context exit"
+            )
             if hasattr(exc, "add_note"):
                 exc.add_note("Semgrep cleanup incomplete; see owner.close_result")
 
@@ -122,7 +124,7 @@ class PreparedSemgrepScan:
     ) -> None:
         self._scanner = scanner
         self._binding: object | None = binding
-        from petasos.session.ingest import HEAD_CHARS
+        from petasos.limits import HEAD_CHARS
 
         self._text = text
         self._input_evidence = self._evidence(text) if text is not None else None
@@ -240,7 +242,7 @@ class SemgrepScanner:
             raise ValueError("semgrep.invalid_source_limit")
         self.qualification_warning = qualification_warning(request_timeout_seconds, engine_sha256)
         if self.qualification_warning:
-            logging.getLogger(__name__).warning(self.qualification_warning)
+            logging.getLogger("petasos.scanners.semgrep").warning(self.qualification_warning)
         self._owner = owner
         self._closed = False
         self._lease: Lease | None = None

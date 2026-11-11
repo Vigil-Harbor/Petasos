@@ -18,7 +18,8 @@ from typing import TYPE_CHECKING, Any
 from petasos.config.schema import to_mapping
 from petasos.enforce.approvals import redact_display_text
 from petasos.enforce.decisions import Approve, Block, Decision
-from petasos.session.guardrail import GuardrailHit, GuardrailSurface, recognize
+from petasos.guard.guardrail import recognize
+from petasos.guard.surface import GuardrailHit, GuardrailSurface
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping

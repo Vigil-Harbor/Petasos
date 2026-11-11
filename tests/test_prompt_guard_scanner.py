@@ -23,15 +23,17 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from petasos._types import (
+from petasos.config.layers import resolve
+from petasos.config.schema import from_mapping
+from petasos.config.sections import PetasosConfig
+from petasos.model import (
+    _TIMEOUT_ERROR_PREFIX,
     AVAILABILITY_CAUSE_ABSENT,
     AVAILABILITY_CAUSE_LOAD_FAILED,
     Severity,
 )
-from petasos.config.layers import resolve
-from petasos.config.schema import from_mapping
-from petasos.config.sections import PetasosConfig
-from petasos.pipeline import _BREAKER_OPEN_ERROR_PREFIX, _TIMEOUT_ERROR_PREFIX, Pipeline
+from petasos.pipeline import Pipeline
+from petasos.pipeline.health import _BREAKER_OPEN_ERROR_PREFIX
 from petasos.scanners import prompt_guard as pg
 
 if TYPE_CHECKING:

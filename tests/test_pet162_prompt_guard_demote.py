@@ -13,8 +13,8 @@ not what these tests isolate.
 
 from __future__ import annotations
 
-from petasos._types import Direction, ScanFinding, ScanResult, Severity
 from petasos.config.layers import resolve
+from petasos.model import Direction, ScanFinding, ScanResult, Severity
 from petasos.pipeline import Pipeline
 from petasos.scanners.prompt_guard import _RULE_ID
 

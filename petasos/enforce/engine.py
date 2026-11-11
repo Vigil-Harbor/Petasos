@@ -12,11 +12,11 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from petasos.config.sections import PetasosConfig
+from petasos.guard.guard import ToolCallGuard
 from petasos.normalize import canonicalize_tool_name
 from petasos.pipeline import Pipeline
 from petasos.scanners.registry import REGISTRY, BuildContext, ScannerSpec, compose
 from petasos.session.frequency import FrequencyTracker
-from petasos.session.guard import ToolCallGuard
 from petasos.session.lineage import LineageRegistry
 from petasos.session.taint import SessionTaintStore
 
@@ -24,10 +24,10 @@ if TYPE_CHECKING:
     import logging
     from collections.abc import Callable, Sequence
 
-    from petasos._types import Scanner
     from petasos.config.schema import ReconfigureResult
     from petasos.config.secrets import Secrets
     from petasos.enforce.types import HostInfo
+    from petasos.model import Scanner
 
 _SEMGREP_PREFIX = "scanners.semgrep."
 _SECRET_UNSET = "PETASOS_SESSION_SECRET not set — HMAC session binding disabled"

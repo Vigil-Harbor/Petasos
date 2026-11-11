@@ -245,7 +245,7 @@ it got in.
   (default 30, whole minutes from 1 to 1440). 1440 is one day: a messaging
   session can live longer than that, and a longer grant would be a standing
   approval.
-- **Recognition.** `petasos.session.guardrail` matches paths and commands. The
+- **Recognition.** `petasos.guard.guardrail` matches paths and commands. The
   Hermes adapter supplies its paths and command patterns on
   `HostInfo.guardrail_surface`. The library matches its own package directory
   and its own commands. The guard calls that unit. Reading is not a change.

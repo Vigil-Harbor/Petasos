@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from petasos._types import ScanFinding, Severity
+from petasos.model import ScanFinding, Severity
 
 if TYPE_CHECKING:
     import pytest
@@ -17,7 +17,8 @@ from petasos.enforce.fallback import (
     tier3_unavailable_block,
 )
 from petasos.enforce.messages import format_block_message, format_content_block
-from petasos.session.guard import PARAM_SCAN_DIRECTION, GuardResult
+from petasos.guard.guard import GuardResult
+from petasos.guard.params import PARAM_SCAN_DIRECTION
 
 
 class _Result:
@@ -204,7 +205,7 @@ def test_tier3_unavailable_block_uses_the_guard_message() -> None:
 def test_a_truncated_parameter_is_logged_and_a_raising_scan_is_errored(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    from petasos._limits import MAX_PARAM_TEXT_LEN
+    from petasos.limits import MAX_PARAM_TEXT_LEN
 
     logger_name = "petasos.enforce.test.fallback"
     scanner = _Scanner(_Result())

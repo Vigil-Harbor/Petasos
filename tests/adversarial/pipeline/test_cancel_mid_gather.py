@@ -7,15 +7,16 @@ from unittest.mock import patch
 
 import pytest
 
-from petasos._types import (
+from petasos.config.sections import PetasosConfig
+from petasos.model import (
     Direction,
     PipelineResult,
     ScanFinding,
     ScanResult,
     Severity,
 )
-from petasos.config.sections import PetasosConfig
-from petasos.pipeline import Pipeline, _scan_one
+from petasos.pipeline import Pipeline
+from petasos.pipeline.health import _scan_one
 
 # ---------------------------------------------------------------------------
 # Stub scanners
@@ -172,7 +173,7 @@ async def test_cancelled_error_logged() -> None:
     pipe = Pipeline(config=PetasosConfig())
     with (
         patch.object(pipe, "_inspect_inner", side_effect=asyncio.CancelledError()),
-        patch("petasos.pipeline._logger") as mock_logger,
+        patch("petasos.pipeline.pipeline._logger") as mock_logger,
     ):
         result = await pipe.inspect("test input")
     assert isinstance(result, PipelineResult)

@@ -65,7 +65,11 @@ def test_enforce_does_not_import_a_host() -> None:
 def test_lower_layers_do_not_import_enforce() -> None:
     """The session package, the pipeline, and the scanners sit below enforce."""
     offenders: list[str] = []
-    roots = [Path("petasos/session"), Path("petasos/pipeline.py"), Path("petasos/scanners")]
+    roots = [
+        Path("petasos/session"),
+        Path("petasos/pipeline"),
+        Path("petasos/scanners"),
+    ]
     paths: list[Path] = []
     for root in roots:
         if root.is_file():
@@ -202,7 +206,8 @@ def test_enforce_has_no_module_state_beyond_the_legacy_spool() -> None:
 
 # The guard's legacy path discovery still imports the resolver.
 _HERMES_IMPORT_OK = {
-    Path("petasos/session/guard.py"),
+    Path("petasos/guard/guard.py"),
+    Path("petasos/guard/selfmod.py"),
 }
 
 
@@ -340,3 +345,155 @@ def test_dashboard_responses_do_not_import_a_web_framework() -> None:
             if _is_web(module):
                 offenders.append(f"{path}:{line} imports {module}")
     assert offenders == []
+
+
+# Modules on the same level may share implementation helpers.
+_LAYER = {
+    "model": 0,
+    "coverage": 0,
+    "limits": 0,
+    "normalize": 0,
+    "profile_lint": 0,
+    "config": 1,
+    "scanners": 2,
+    "session": 2,
+    "pipeline": 3,
+    "guard": 4,
+    "enforce": 5,
+    "hermes": 6,
+    "cli": 7,
+    "__main__": 7,
+}
+_GUARD_HOME_IMPORTS = {
+    Path("petasos/guard/guard.py"),
+    Path("petasos/guard/selfmod.py"),
+}
+
+
+def _absolute_imports(path: Path, tree: ast.AST) -> list[tuple[int, str]]:
+    """Resolve import-from aliases as well as relative package imports."""
+    found: list[tuple[int, str]] = []
+    package = list(path.parent.parts)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            found.extend((node.lineno, alias.name) for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            if node.level:
+                base = package[: len(package) - node.level + 1]
+                module = (
+                    ".".join([*base, *node.module.split(".")]) if node.module else ".".join(base)
+                )
+            else:
+                module = node.module or ""
+            found.append((node.lineno, module))
+            found.extend((node.lineno, module + "." + alias.name) for alias in node.names)
+    return found
+
+
+def test_imports_follow_the_package_layers() -> None:
+    """Every library import points to its own level or a lower one."""
+    offenders: list[str] = []
+    for path in sorted(Path("petasos").rglob("*.py")):
+        if path == Path("petasos/__init__.py"):
+            continue
+        source = path.parts[1].removesuffix(".py")
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for line, module in _absolute_imports(path, tree):
+            parts = module.split(".")
+            if len(parts) < 2 or parts[0] != "petasos":
+                continue
+            target = parts[1]
+            if path in _GUARD_HOME_IMPORTS and module in {
+                "petasos.hermes.home",
+                "petasos.hermes.home.HermesConfigResolution",
+                "petasos.hermes.home.hermes_root",
+                "petasos.hermes.home.list_hermes_profiles",
+                "petasos.hermes.home.resolve_hermes_config_path",
+                "petasos.hermes.home.spool_path",
+                "petasos.hermes.home.spool_rot_path",
+            }:
+                continue
+            if target not in _LAYER or _LAYER[target] > _LAYER[source]:
+                offenders.append(f"{path}:{line} imports {module}")
+    assert offenders == []
+
+
+def test_library_module_names_do_not_start_with_an_underscore() -> None:
+    """Only Python's package and script entry modules use underscore names."""
+    offenders = [
+        str(path)
+        for path in sorted(Path("petasos").rglob("*.py"))
+        if path.stem.startswith("_") and path.name not in {"__init__.py", "__main__.py"}
+    ]
+    assert offenders == []
+
+
+def test_packages_declare_their_public_names() -> None:
+    """Each package declares its public surface explicitly."""
+    for path in sorted(Path("petasos").rglob("__init__.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        names = {name for stmt in tree.body for name, _value in _assigned(stmt)}
+        assert "__all__" in names, str(path)
+
+
+def test_large_modules_state_why_they_stay_together() -> None:
+    """A module over 800 lines states its cohesion constraint at the top."""
+    for path in sorted(Path("petasos").rglob("*.py")):
+        lines = path.read_text(encoding="utf-8").splitlines()
+        if len(lines) > 800:
+            assert lines[0].startswith("# ") and len(lines[0]) > 20, str(path)
+
+
+def test_root_public_api_is_the_contract() -> None:
+    """The root exports exactly the names in redesign section 9."""
+    import petasos
+
+    assert petasos.__all__ == [
+        "Pipeline",
+        "PipelineResult",
+        "PetasosConfig",
+        "Settings",
+        "resolve",
+        "ConfigError",
+        "Secrets",
+        "Scanner",
+        "ScanResult",
+        "ScanFinding",
+        "Severity",
+        "Direction",
+        "Position",
+        "MinimalScanner",
+        "Enforcer",
+        "Decision",
+        "Allow",
+        "Block",
+        "Approve",
+        "ToolCall",
+        "__version__",
+    ]
+    assert all(hasattr(petasos, name) for name in petasos.__all__)
+
+
+def test_removed_implementation_modules_cannot_be_imported() -> None:
+    """Moved implementation modules leave no compatibility shims."""
+    names = (
+        "petasos._types",
+        "petasos._coverage",
+        "petasos._limits",
+        "petasos.session._safe_json",
+        "petasos.session.guard",
+        "petasos.session.guardrail",
+        "petasos.session.ingest",
+        "petasos.scanners._semgrep_engine",
+        "petasos.scanners._semgrep_process",
+        "petasos.scanners._semgrep_runtime",
+        "petasos.scanners._semgrep_source",
+        "petasos.scanners._semgrep_roots",
+        "petasos.scanners._semgrep_qualification",
+    )
+    for name in names:
+        try:
+            importlib.import_module(name)
+        except ModuleNotFoundError:
+            continue
+        raise AssertionError(f"{name} still imports")

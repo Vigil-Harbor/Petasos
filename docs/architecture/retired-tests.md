@@ -142,7 +142,7 @@ is named.
 | File | Edit |
 |---|---|
 | `tests/test_architecture.py` | Drop the console from the import-direction allowlist. The direction check stays. |
-| `tests/test_scanner_bootstrap_structure.py` | Drop the reference plugin, `verify.py`, and `petasos/console/_standalone.py` from the allowlist and the bootstrap pair. `Pipeline.__init__` and `petasos/session/ingest.py` stay. |
+| `tests/test_scanner_bootstrap_structure.py` | Drop the reference plugin, `verify.py`, and `petasos/console/_standalone.py` from the allowlist and the bootstrap pair. `Pipeline.__init__` and `petasos/pipeline/ingest.py` stay. |
 | `tests/test_ingestion_backstop.py` | Delete the three plugin-driven tests named in class B, and the plugin importer. The guard and frequency tests stay. |
 | `tests/test_scanner_composition.py` | Rewrite `test_real_scanners_reach_plugin_decisions` onto `Enforcer`. The other two tests stay. |
 | `tests/test_audit_finding_sink.py` | Deleted. The live lines are the class C port. The module import of the plugin would fail collection. |

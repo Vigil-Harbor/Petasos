@@ -13,11 +13,11 @@ import logging
 
 import pytest
 
-from petasos._types import PipelineResult, ScanFinding, Severity
 from petasos.config.layers import resolve
 from petasos.config.schema import from_mapping
 from petasos.config.secrets import Secrets
 from petasos.config.sections import PetasosConfig
+from petasos.model import PipelineResult, ScanFinding, Severity
 from petasos.pipeline import Pipeline
 from petasos.scanners.minimal import MinimalScanner
 
@@ -398,8 +398,8 @@ def test_reconfigure_rejects_subfloor_or_unordered_tiers() -> None:
 
 
 def test_shared_tracker_double_apply_is_idempotent_and_preserves_scores() -> None:
+    from petasos.guard.guard import ToolCallGuard
     from petasos.session.frequency import FrequencyTracker
-    from petasos.session.guard import ToolCallGuard
 
     cfg = PetasosConfig()
     tracker = FrequencyTracker(cfg)

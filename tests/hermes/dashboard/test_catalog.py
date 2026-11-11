@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 from petasos.hermes.dashboard.catalog import preview_settings, read_settings
 
 if TYPE_CHECKING:
-    from petasos._types import Scanner
+    from petasos.model import Scanner
 
 _SECRETS = {"session_secret": "unset", "hash_key": "unset"}
 

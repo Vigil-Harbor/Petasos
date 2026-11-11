@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from petasos.scanners import _semgrep_qualification as q
-from petasos.scanners._semgrep_engine import ENGINE_VERSION
+from petasos.scanners.semgrep import qualification as q
+from petasos.scanners.semgrep.engine import ENGINE_VERSION
 
 
 async def test_benchmark_error_diagnostics_are_bounded_and_omit_paths() -> None:

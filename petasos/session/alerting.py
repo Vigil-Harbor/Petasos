@@ -7,7 +7,7 @@ from collections import deque
 from types import MappingProxyType
 from typing import TYPE_CHECKING
 
-from petasos._types import Alert, Severity, at_least
+from petasos.model import Alert, Severity, at_least
 from petasos.session.escalation import evaluate_tier
 
 _logger = logging.getLogger(__name__)
@@ -15,8 +15,8 @@ _logger = logging.getLogger(__name__)
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from petasos._types import PipelineResult, ScanFinding
     from petasos.config.sections import PetasosConfig
+    from petasos.model import PipelineResult, ScanFinding
     from petasos.session.frequency import FrequencyUpdateResult
 
 

@@ -6,16 +6,16 @@ import uuid
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
-from petasos._types import AuditEvent
 from petasos.config.schema import to_mapping
+from petasos.model import AuditEvent
 
 _logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from petasos._types import Direction, PipelineResult
     from petasos.config.sections import PetasosConfig
+    from petasos.model import Direction, PipelineResult
     from petasos.session.frequency import FrequencyUpdateResult
 
 

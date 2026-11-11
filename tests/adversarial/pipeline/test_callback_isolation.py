@@ -5,15 +5,15 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import patch
 
-from petasos._types import (
+from petasos.config.schema import from_mapping, merge
+from petasos.config.sections import PetasosConfig
+from petasos.model import (
     Alert,
     AuditEvent,
     PipelineResult,
     ScanFinding,
     Severity,
 )
-from petasos.config.schema import from_mapping, merge
-from petasos.config.sections import PetasosConfig
 from petasos.pipeline import Pipeline
 from petasos.scanners.minimal import MinimalScanner
 from petasos.session.alerting import AlertManager

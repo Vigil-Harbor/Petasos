@@ -10,20 +10,20 @@ import time
 from types import MappingProxyType
 from typing import Any, cast
 
-from petasos._types import (
+from petasos.config.secrets import Secrets
+from petasos.config.sections import PetasosConfig
+from petasos.guard.guard import ToolCallGuard
+from petasos.model import (
     Alert,
     AuditEvent,
     ScanResult,
     Severity,
     severity_rank,
 )
-from petasos.config.secrets import Secrets
-from petasos.config.sections import PetasosConfig
 from petasos.pipeline import Pipeline
+from petasos.pipeline.ingest import scan_ingestion_result
 from petasos.scanners.minimal import MinimalScanner
 from petasos.scanners.semgrep import SemgrepScanner
-from petasos.session.guard import ToolCallGuard
-from petasos.session.ingest import scan_ingestion_result
 
 
 class _StubScanner:

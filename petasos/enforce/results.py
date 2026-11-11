@@ -19,9 +19,9 @@ from petasos.enforce.decisions import (
     is_ingestion,
     match_source_namespace,
 )
+from petasos.guard.tools import NON_INGESTING_TOOLS
 from petasos.normalize import canonicalize_tool_name
-from petasos.session.guard import NON_INGESTING_TOOLS
-from petasos.session.ingest import scan_ingestion_result
+from petasos.pipeline.ingest import scan_ingestion_result
 
 if TYPE_CHECKING:
     from petasos.enforce.types import ToolCall

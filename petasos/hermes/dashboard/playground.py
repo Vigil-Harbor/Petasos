@@ -13,7 +13,6 @@ import logging
 from collections.abc import Callable, Iterable, Mapping
 from typing import TYPE_CHECKING, Any
 
-from petasos._types import Direction, PipelineResult, ScanFinding, Severity
 from petasos.config.layers import resolve
 from petasos.config.schema import ConfigError
 from petasos.config.secrets import Secrets
@@ -34,6 +33,7 @@ from petasos.hermes.dashboard.catalog import combine
 from petasos.hermes.dashboard.errors import ApiError, envelope
 from petasos.hermes.dashboard.words import CHECK_NOTE, RISK_NOTE, RISK_TIERS, looks_for
 from petasos.hermes.host import command_will_be_asked
+from petasos.model import Direction, PipelineResult, ScanFinding, Severity
 from petasos.normalize import canonicalize_tool_name, normalize
 from petasos.pipeline import Pipeline
 from petasos.scanners.registry import REGISTRY, BuildContext, ScannerSpec, ScannerStatus, compose
@@ -429,7 +429,7 @@ async def _text(
             "Petasos would let this through with the selected personal information hidden."
         )
     # Score separately so a session overlay cannot change the text verdict.
-    from petasos.session.guard import ToolCallGuard
+    from petasos.guard.guard import ToolCallGuard
 
     tracker = FrequencyTracker(resolved.config, secrets=Secrets())
     risk_unavailable = False
@@ -457,7 +457,8 @@ async def _tool(
     protected_paths: Callable[[], Iterable[str]],
     time_budget: float,
 ) -> dict[str, Any]:
-    from petasos.session.guard import READ_ONLY_TOOLS, ToolCallGuard
+    from petasos.guard.guard import ToolCallGuard
+    from petasos.guard.tools import READ_ONLY_TOOLS
     from petasos.session.taint import SessionTaintStore
 
     config = resolved.config

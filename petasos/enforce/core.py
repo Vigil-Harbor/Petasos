@@ -14,7 +14,6 @@ import threading
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
-from petasos._limits import MAX_PARAM_TEXT_LEN
 from petasos.config.sections import PetasosConfig
 from petasos.enforce.approvals import redact_display_text
 from petasos.enforce.book import Book
@@ -34,12 +33,13 @@ from petasos.enforce.types import (
     Status,
     SystemClock,
 )
+from petasos.limits import MAX_PARAM_TEXT_LEN
 from petasos.scanners.registry import REGISTRY, ScannerSpec
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from petasos._types import Scanner
+    from petasos.model import Scanner
 
 logger = logging.getLogger("petasos.enforce")
 

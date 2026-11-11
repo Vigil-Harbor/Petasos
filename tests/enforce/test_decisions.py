@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 
-from petasos._types import ScanFinding, Severity
 from petasos.enforce.decisions import (
     Approve,
     Block,
@@ -21,7 +20,8 @@ from petasos.enforce.decisions import (
     worst,
 )
 from petasos.enforce.messages import format_block_message, format_content_block
-from petasos.session.guard import GuardResult
+from petasos.guard.guard import GuardResult
+from petasos.model import ScanFinding, Severity
 
 _READ_ONLY = frozenset({"read_file", "web_search"})
 _SINKS = frozenset({"send_email"})

@@ -6,9 +6,9 @@ from typing import Any
 
 import pytest
 
-from petasos._types import Severity
 from petasos.config.schema import ConfigError, from_mapping, merge
 from petasos.config.sections import PetasosConfig
+from petasos.model import Severity
 from petasos.pipeline import Pipeline
 from petasos.scanners.minimal import MinimalScanner
 

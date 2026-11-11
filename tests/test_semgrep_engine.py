@@ -12,8 +12,8 @@ from typing import Any
 
 import pytest
 
-from petasos.scanners._semgrep_engine import scan_selected
-from petasos.scanners._semgrep_source import select_sources
+from petasos.scanners.semgrep.engine import scan_selected
+from petasos.scanners.semgrep.source import select_sources
 from tests._semgrep_helpers import require
 
 
@@ -220,7 +220,7 @@ class TestSemgrepRealEngine:
         kind: str,
         engine_root: Path,
     ) -> None:
-        from petasos.scanners._semgrep_source import preflight
+        from petasos.scanners.semgrep.source import preflight
 
         call = "os.system" if kind == "tabs" else "eval"
         body = " " * 7899 + call + ("\t" if kind == "tabs" else " ") * 400 + "(payload)"
@@ -250,7 +250,7 @@ class TestSemgrepRealEngine:
     async def test_unusual_call_separators_keep_real_findings(
         self, separator: str, engine_root: Path
     ) -> None:
-        from petasos.scanners._semgrep_source import preflight
+        from petasos.scanners.semgrep.source import preflight
 
         source = json.dumps("x = eval" + separator + "(payload)")
         assert await preflight(source)
@@ -274,8 +274,8 @@ class TestSemgrepRealEngine:
         monkeypatch: pytest.MonkeyPatch,
         failed_batch: int,
     ) -> None:
-        from petasos.scanners import _semgrep_engine as engine
-        from petasos.scanners._semgrep_process import CleanupFailure, run_process
+        from petasos.scanners.semgrep import engine as engine
+        from petasos.scanners.semgrep.process import CleanupFailure, run_process
 
         original = run_process
         calls = 0
@@ -314,7 +314,7 @@ class TestSemgrepRealEngine:
     async def test_postfilter_failure_retains_engine_parse_coverage(
         self, engine_root: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from petasos.scanners import _semgrep_engine as engine
+        from petasos.scanners.semgrep import engine as engine
 
         original = engine.await_cpu
 
@@ -358,7 +358,7 @@ class TestSemgrepWindowsEngine:
     ) -> None:
         import psutil
 
-        from petasos.scanners._semgrep_process import _WindowsChild
+        from petasos.scanners.semgrep.process import _WindowsChild
 
         original = _WindowsChild.poll
         original_cleaned = _WindowsChild.cleaned

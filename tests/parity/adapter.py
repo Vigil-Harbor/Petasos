@@ -24,17 +24,17 @@ from typing import TYPE_CHECKING, Any
 
 from petasos.config.layers import resolve
 from petasos.config.migrate import migrate
+from petasos.guard.guard import GuardResult, ToolCallGuard
 from petasos.hermes.home import HermesConfigResolution
 from petasos.pipeline import Pipeline
 from petasos.session.frequency import FrequencyTracker
-from petasos.session.guard import GuardResult, ToolCallGuard
 from tests.parity.load import ALL_PROFILES, expand_args, text_of
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Mapping
 
-    from petasos._types import Direction, PipelineResult
     from petasos.config.sections import PetasosConfig
+    from petasos.model import Direction, PipelineResult
 
 # Absolute, and long enough for the self-modification owned-path check.
 # The corpus uses this same path. It does not need to exist on disk.

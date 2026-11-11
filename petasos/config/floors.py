@@ -9,7 +9,7 @@ from __future__ import annotations
 from types import MappingProxyType
 from typing import Final
 
-from petasos._types import Severity
+from petasos.model import Severity
 
 # Hard minimum for the tier that terminates a session.
 TIER3_FLOOR: Final[float] = 30.0

@@ -7,16 +7,14 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from petasos.guard.guardrail import recognize
+from petasos.guard.paths import normalize_path_text
 from petasos.hermes.guardrail import hermes_surface
-from petasos.session.guardrail import (
-    GuardrailHit,
-    GuardrailSurface,
-    normalize_path_text,
-    recognize,
-)
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from petasos.guard.surface import GuardrailHit, GuardrailSurface
 
 
 def _home(tmp_path: Path) -> tuple[Path, Path, GuardrailSurface, dict[str, str]]:

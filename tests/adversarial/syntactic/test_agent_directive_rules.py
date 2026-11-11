@@ -27,17 +27,16 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from petasos._types import Position, ScanFinding, Severity
 from petasos.config.sections import PetasosConfig
+from petasos.model import Position, ScanFinding, Severity
 from petasos.normalize import normalize
 from petasos.pipeline import Pipeline
-from petasos.scanners.minimal import (
+from petasos.scanners.minimal import MinimalScanner
+from petasos.scanners.minimal.agent_directive import (
     _AGENT_DIRECTIVE_MARKERS,
-    _ALL_INJECTION_IDS,
-    _UNSUPPRESSIBLE_RULE_IDS,
-    MinimalScanner,
     _agent_directive_line_hit,
 )
+from petasos.scanners.minimal.taxonomy import _ALL_INJECTION_IDS, _UNSUPPRESSIBLE_RULE_IDS
 from tests.adversarial.syntactic.benign_corpus import (
     AGENT_DIRECTIVE_ACCEPTED_FP,
     AGENT_DIRECTIVE_ACCEPTED_MISS,

@@ -1,6 +1,6 @@
 """Direct PromptGuard 2 scanner on torch and transformers (PET-242).
 
-Module-level imports are stdlib plus ``petasos._types``. torch and transformers
+Module-level imports are stdlib plus ``petasos.model``. torch and transformers
 import locally inside ``_load`` and ``_score``, so ``import petasos.scanners``
 stays ML-free. ``_score`` holds every torch use in the inference path, which lets
 the default test lane replace it and test the rest of the scanner without torch.
@@ -24,7 +24,7 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-from petasos._types import (
+from petasos.model import (
     AVAILABILITY_CAUSE_ABSENT,
     AVAILABILITY_CAUSE_LOAD_FAILED,
     AvailabilityCause,
@@ -401,10 +401,9 @@ def _scan_sync(text: str, cancelled: threading.Event) -> float | None:
         finally:
             _INFER_LOCK.release()
     if not cancelled.is_set():
-        # pipeline.py imports petasos.scanners, so this import stays local. The
-        # prefix makes a miss count toward the breaker; a plain error would clear
+        # The shared prefix makes a miss count toward the breaker; a plain error would clear
         # the streak and a wedged forward would cost every call this wait forever.
-        from petasos.pipeline import _TIMEOUT_ERROR_PREFIX
+        from petasos.model import _TIMEOUT_ERROR_PREFIX
 
         raise _ScanRefused(
             f"{_TIMEOUT_ERROR_PREFIX}: prompt_guard inference lock not acquired "

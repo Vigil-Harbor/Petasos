@@ -143,7 +143,7 @@ class NonSkippingLane:
     below and tests/test_ci_extras_lanes.py. Add a backend = add a row here +
     add .github/workflows/extras-<extra>.yml (the meta-test enforces the pair).
     Frozen dataclass per CLAUDE.md § Key Design Invariants 'Frozen exports' and
-    the petasos/_types.py idiom (round-1 conventions F-1)."""
+    the petasos/model.py idiom (round-1 conventions F-1)."""
 
     extra: str  # pyproject optional-dependency key, e.g. "presidio"
     env_flag: str  # CI lane env var, e.g. "PETASOS_REQUIRE_PRESIDIO"
@@ -159,7 +159,8 @@ def _require_semgrep() -> None:
     import json
     import time
 
-    from petasos.scanners.semgrep import SemgrepLifecycleOwner, SemgrepScanner, supported_platform
+    from petasos.scanners.semgrep import SemgrepLifecycleOwner, SemgrepScanner
+    from petasos.scanners.semgrep.adapter import supported_platform
 
     engine, expected = (
         os.environ.get("SEMGREP_ENGINE_PATH"),

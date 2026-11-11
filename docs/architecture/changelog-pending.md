@@ -121,3 +121,49 @@ deleted.
 - `Severity.rank` is the one severity scale: info is 0, critical is 4, higher
   is more severe. Six hand-written copies of the ordering are gone. Finding
   comparisons behave as before.
+
+## Import paths
+
+- **Breaking.** Module splits remove the old implementation modules; no
+  compatibility modules remain. These are the owning import paths:
+
+  | Old | New |
+  |---|---|
+  | `petasos._types` | `petasos.model` |
+  | `petasos._coverage` | `petasos.coverage` |
+  | `petasos._limits` | `petasos.limits` |
+  | `petasos.session._safe_json` | `petasos.session.safe_json` |
+  | `petasos.pipeline` implementation | `petasos.pipeline.pipeline` (orchestration), `petasos.pipeline.findings` (merge, suppression, floors, safe and coverage computation), `petasos.pipeline.health` (timeouts, breaker and health) |
+  | `petasos.session.ingest` | `petasos.pipeline.ingest` |
+  | `petasos.session.guard` | `petasos.guard.guard` (guard and result), `petasos.guard.tools` (tool table and aliases), `petasos.guard.params` (rendering and scan constants), `petasos.guard.selfmod` (classification and depth sentinel), `petasos.guard.fanout` (`SpawnBudget`) |
+  | `petasos.session.guardrail` | `petasos.guard.guardrail` (`recognize`), `petasos.guard.surface` (surface types, library rules and package roots), `petasos.guard.paths` (`normalize_path_text` and path matching), `petasos.guard.shell`, `petasos.guard.shell_parse`, `petasos.guard.mutations`, `petasos.guard.program`, `petasos.guard.bounds` |
+  | `petasos.scanners.minimal` implementation | `petasos.scanners.minimal.scanner`, `.taxonomy`, `.injection`, `.command`, `.role_switch`, `.agent_directive`, `.structural`, `.encoding`, `.decode`, `.views` |
+  | `petasos.scanners.semgrep` implementation | `petasos.scanners.semgrep.adapter` |
+  | `petasos.scanners._semgrep_engine` | `petasos.scanners.semgrep.engine` |
+  | `petasos.scanners._semgrep_process` | `petasos.scanners.semgrep.process` |
+  | `petasos.scanners._semgrep_runtime` | `petasos.scanners.semgrep.runtime` |
+  | `petasos.scanners._semgrep_source` | `petasos.scanners.semgrep.source` |
+  | `petasos.scanners._semgrep_roots` | `petasos.scanners.semgrep.roots` |
+  | `petasos.scanners._semgrep_qualification` | `petasos.scanners.semgrep.qualification` |
+
+  The package imports `petasos.pipeline.Pipeline`,
+  `petasos.scanners.minimal.MinimalScanner` / `RULE_TAXONOMY`, and the five
+  names in `petasos.scanners.semgrep.__all__` remain the package APIs. Private
+  helpers must be imported from their owning submodule. Semgrep's data moves
+  from `scanners/semgrep_rules/` and `scanners/semgrep_qualification.json` to
+  `scanners/semgrep/rules/` and `scanners/semgrep/qualification.json`.
+
+- **Breaking.** `petasos.__all__` is exactly the section 9 API. Former root
+  exports stay available from their owning submodules: coverage and normalized
+  text records from `petasos.model`; message formatters from
+  `petasos.enforce.messages`; guard types from `petasos.guard.guard`;
+  `RULE_TAXONOMY` from `petasos.scanners.minimal.taxonomy`; Semgrep types and
+  closure from `petasos.scanners.semgrep`; ingestion helpers from
+  `petasos.pipeline.ingest`; session managers, tokens, tier helpers and stores
+  from their `petasos.session` submodules; `normalize` from `petasos.normalize`.
+  The root adds `Settings`, `resolve`, `ConfigError`, `Secrets`, `Enforcer`,
+  `Decision`, `Allow`, `Block`, `Approve`, and `ToolCall`.
+
+The shared timeout-error prefix moves from `petasos.pipeline._TIMEOUT_ERROR_PREFIX`
+to `petasos.model._TIMEOUT_ERROR_PREFIX`. The ingestion head length moves from
+`petasos.session.ingest.HEAD_CHARS` to `petasos.limits.HEAD_CHARS`.

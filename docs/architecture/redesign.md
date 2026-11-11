@@ -71,55 +71,87 @@ but the Hermes integration is the product and ships in the wheel.
 ```
 petasos/
   __init__.py        public API (section 9)
-  model.py           Scanner protocol, findings, results, Severity and its rank
+  __main__.py        python -m petasos
+  model.py           scanner protocol, findings, results, Severity and rank
+  coverage.py        immutable scanner coverage metadata
+  limits.py          shared examination ceiling
   normalize.py
+  profile_lint.py    local-inference endpoint predicate
   config/
-    schema.py        setting(), describe(), from_mapping(), to_mapping(), ConfigError
-    sections.py      section dataclasses and the PetasosConfig root
-    layers.py        roles, levels, resolve(), Resolved
-    migrate.py       0.5 flat section -> settings (one-shot)
+    schema.py        declaration, coercion, validation, description, live apply
+    sections/        root, rules, scanners, session, tools
+    layers.py        roles, levels, Settings, resolve(), Resolved
+    floors.py  secrets.py  migrate.py
   scanners/
     registry.py      ScannerSpec, REGISTRY, compose()
-    minimal/         rule families, one module each
     prompt_guard.py  presidio.py
-    semgrep/         adapter, engine, process, runtime, source, roots
-  session/           frequency, escalation, audit, alerting, lineage, taint
+    minimal/
+      scanner.py     rule-family orchestration
+      injection.py  command.py  role_switch.py  agent_directive.py
+      structural.py  encoding.py  decode.py  views.py  taxonomy.py
+    semgrep/
+      adapter.py  engine.py  process.py  runtime.py  source.py  roots.py
+      qualification.py  qualification.json  rules/
+  session/
+    frequency.py  escalation.py  audit.py  alerting.py  lineage.py  taint.py
+    safe_json.py
   pipeline/
-    pipeline.py      orchestration only
-    findings.py      merge, suppression, floors, safe computation
+    pipeline.py      orchestration
+    findings.py      merge, suppression, floors, safe computation, coverage
     health.py        timeouts, circuit breaker, scanner health
+    ingest.py        bounded ingestion-result scan through the pipeline
   guard/
-    guard.py         the evaluate ladder
-    tools.py         tool classification table (data)
+    guard.py         the evaluate ladder and state owner
+    tools.py         tool classification data and derived sets
     params.py  selfmod.py  fanout.py
+    guardrail.py     recognition dispatch
+    surface.py       host surface types and library command rules
+    paths.py         protected-path matching
+    shell.py  shell_parse.py  mutations.py  program.py  bounds.py
   enforce/
-    enforcer.py      lifecycle state machine and the host-facing API
-    decisions.py     dangerous-tool ladder, egress fence, taint
-    fallback.py      syntactic-only gate for cold start and init failure
-    approvals.py     approval observation, excerpt redaction
-    events.py        signed event spool
-    messages.py      model-facing block and notice text
+    enforcer.py      host-facing API
+    core.py  calls.py  results.py  observe.py  engine.py  runtime.py  book.py
+    types.py  decisions.py  fallback.py  approvals.py  events.py
+    messages.py  guardrail.py
   hermes/
-    plugin.py        register(ctx): hook wiring and translation only
-    home.py          Hermes home and profile path resolution
-    settings.py      read and watch the settings block
-    manifest.py      generate plugin.yaml from the schema
-    doctor.py
-  console/           optional extra: app.py, routes/, static/
-  cli.py             the `petasos` command
+    plugin.py        register(ctx): hook wiring and translation
+    home.py  host.py  target.py  settings.py  guardrail.py  semgrep_host.py
+    manifest.py  install.py  wheel.py  environment.py  dependencies.py
+    managed.py  pinning.py
+    commands.py      command dispatch, reached through cli.py
+    config_set.py  migrate_cmd.py  pin_cmd.py  scanners_cmd.py
+    doctor.py  doctor_advice.py  doctor_environment.py  doctor_install.py
+    doctor_model.py  doctor_pin.py  doctor_render.py  doctor_report.py
+    doctor_settings.py  doctor_support.py
+    dashboard/       the Petasos tab's response API
+  cli.py             the petasos script entry; commands live under hermes/
 ```
 
-Imports point one way:
+Each package has an `__init__.py` declaring its public names in `__all__`.
+Imports point one way (siblings on one level may import each other):
 
 ```
-model, normalize < config < scanners, session < pipeline < guard < enforce < hermes < console < cli
+model, coverage, limits, normalize, profile_lint < config < scanners, session < pipeline < guard < enforce < hermes < cli
 ```
 
-Only `hermes/` knows Hermes exists. Nothing imports `console/`. One test
-(`tests/test_architecture.py`) enforces the direction by parsing imports.
+Only `hermes/` binds to Hermes. The existing guard fallback is the explicit
+exception: `guard/selfmod.py` lazily imports `hermes.home` when a caller has
+not supplied protected paths, and `guard/guard.py` imports its resolution type
+only for type checking. Keeping that fallback preserves plain-library callers.
+The adapter supplies paths in normal operation. `tests/test_architecture.py`
+checks the dependency direction and pins those two exceptions.
 
-No module name starts with an underscore. A package's public names are what its
-`__init__.py` lists in `__all__`.
+There is no standalone `console/`; the UI is served by Hermes's dashboard.
+The front-end resources stay in `hermes-plugin/petasos/dashboard/`.
+The script entry remains `cli.py`, while its implementation is
+`hermes/commands.py`. Ingestion scanning belongs to `pipeline/` because it
+calls the pipeline; `session/` contains only the lower-level session helpers.
+`limits.py` remains shared by scanners, ingestion, and enforcement, so it is
+not a removal candidate.
+
+No module name starts with an underscore (apart from Python's `__init__.py`
+and `__main__.py`). A package's public names are what its `__init__.py` lists
+in `__all__`.
 
 ## 3. Config schema
 
@@ -1563,7 +1595,7 @@ Tests
 | `console/_config_meta.py`, `console/_presets.py`, the JS preset comparator | Replaced by `describe()` and `layers.py` |
 | `session/profiles/` | Replaced by `layers.py` |
 | `docs/deployment/reference_plugin/` | Replaced by `petasos.enforce` and `petasos.hermes` |
-| `profile_lint.py`, `_limits.py` | No package consumer; three lines |
+| `profile_lint.py` | No package consumer |
 | `scripts/pet135_replay.py`, `pet242_copy_footprint.py`, `pet184_dispatch/`, `pet200_calibrate.py` and its test | One-off ticket artefacts |
 | Tracked files under `docs/specs/` | The directory is gitignored; the files predate that |
 | `assets/petasos-shield.svg` | Unreferenced |
@@ -1591,7 +1623,7 @@ test suite green.
 | Package | Scope | Owns |
 |---|---|---|
 | A1 | Remove LLM Guard and LlamaFirewall | their modules, tests, lanes, extras, doc mentions, `bootstrap.py` rows |
-| A2 | Remove license machinery and `pyjwt` | `session/license.py`, `_keys/`, license code in `pipeline.py`, plugin, `_standalone.py` |
+| A2 | Remove license machinery and `pyjwt` | `session/license.py`, `_keys/`, license code in `pipeline/pipeline.py`, plugin, `_standalone.py` |
 | A3 | Repository hygiene | `scripts/`, `docs/specs/`, `assets/`, stale lines in `CLAUDE.md` and docs |
 
 A4, after A1 and A2 merge: one severity rank beside `Severity`, the dead
@@ -1646,7 +1678,7 @@ the remaining reader of the old field names.
 | U | The Petasos tab's front end, on Hermes's plugin kit, built in the judged loop of section 8.4; the plain-language pass over every description |
 | S1 | Guardrail integrity (`guardrail-integrity.md`) |
 | S2 | Deferring to Hermes where it already decides (section 8.5) |
-| C4 | Module splits and renames: `guard/`, `pipeline/`, `scanners/minimal/`, `scanners/semgrep/`, `model.py` |
+| C4 | **Done.** Module splits and renames: `guard/`, `pipeline/`, `scanners/minimal/`, `scanners/semgrep/`, `model.py`; public API pinned to section 9 |
 
 **Wave D. Finish**
 

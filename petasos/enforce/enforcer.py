@@ -51,7 +51,7 @@ from petasos.enforce.types import (
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from petasos._types import Scanner
+    from petasos.model import Scanner
     from petasos.scanners.registry import ScannerSpec
 
 logger = logging.getLogger("petasos.enforce")

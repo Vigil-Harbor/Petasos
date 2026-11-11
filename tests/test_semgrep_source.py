@@ -7,8 +7,8 @@ from typing import Any
 
 import pytest
 
-from petasos.scanners._semgrep_engine import result_for
-from petasos.scanners._semgrep_source import ProjectionError, select_sources
+from petasos.scanners.semgrep.engine import result_for
+from petasos.scanners.semgrep.source import ProjectionError, select_sources
 from tests._semgrep_helpers import require
 
 
@@ -178,7 +178,7 @@ async def test_truncated_envelope_without_code_reads_no_targets() -> None:
 
 @pytest.mark.parametrize("layers", [1, 2])
 async def test_preflight_decodes_json_candidates_without_maps(layers: int) -> None:
-    from petasos.scanners._semgrep_source import preflight
+    from petasos.scanners.semgrep.source import preflight
 
     text = r'"\u0065\u0076\u0061\u006c\u0028payload)"'
     if layers == 2:
@@ -189,7 +189,7 @@ async def test_preflight_decodes_json_candidates_without_maps(layers: int) -> No
 
 @pytest.mark.parametrize("kind", ["raw", "json", "tabs", "mixed", "unicode", "double"])
 async def test_long_whitespace_across_chunk_boundaries_is_selected(kind: str) -> None:
-    from petasos.scanners._semgrep_source import preflight
+    from petasos.scanners.semgrep.source import preflight
 
     call = "os.system" if kind == "tabs" else "eval"
     gap = "\t" * 400 if kind == "tabs" else " " * 400
@@ -210,7 +210,7 @@ async def test_long_whitespace_across_chunk_boundaries_is_selected(kind: str) ->
 
 
 async def test_escape_and_whitespace_carry_at_every_boundary_alignment() -> None:
-    from petasos.scanners._semgrep_source import preflight
+    from petasos.scanners.semgrep.source import preflight
 
     for offset in range(8155, 8198):
         raw = " " * offset + "eval" + " " * 17000 + "(payload)"
@@ -230,7 +230,7 @@ async def test_leaf_overflow_recognizes_second_layer_code() -> None:
 
 @pytest.mark.parametrize("separator", ["\n", "/**/", "\f", "\u00a0", "\ufeff", "// note\n"])
 async def test_sensitive_call_separators_survive_streaming(separator: str) -> None:
-    from petasos.scanners._semgrep_source import preflight
+    from petasos.scanners.semgrep.source import preflight
 
     for offset in (0, 8188, 8190, 8192):
         body = " " * offset + "eval" + separator + "(payload)"
@@ -256,7 +256,7 @@ async def test_sensitive_call_separators_survive_streaming(separator: str) -> No
     ],
 )
 async def test_prose_separators_do_not_admit_engine_work(body: str) -> None:
-    from petasos.scanners._semgrep_source import preflight
+    from petasos.scanners.semgrep.source import preflight
 
     for text in (body, json.dumps(body), json.dumps({"value": body})):
         assert not await preflight(text), text
@@ -265,7 +265,7 @@ async def test_prose_separators_do_not_admit_engine_work(body: str) -> None:
 
 @pytest.mark.parametrize("space", ["\n", "\r\n", "\f", "\u00a0", "\ufeff"])
 async def test_long_unicode_call_gaps_and_declaration_anchors(space: str) -> None:
-    from petasos.scanners._semgrep_source import preflight
+    from petasos.scanners.semgrep.source import preflight
 
     body = "prefix." + "method" * 1600 + space * 17000 + "(payload)"
     assert await preflight(body)
@@ -277,7 +277,7 @@ def test_whitespace_compaction_matches_reference_for_ascii_and_unicode() -> None
     import random
     import re
 
-    from petasos.scanners._semgrep_source import _compact_whitespace
+    from petasos.scanners.semgrep.source import _compact_whitespace
 
     pattern = re.compile(r"[\s\ufeff]+")
     whitespace = "".join(chr(i) for i in range(0x110000) if chr(i).isspace()) + "\ufeff"
@@ -296,7 +296,7 @@ def test_candidate_token_semantics_match_short_reference_inputs() -> None:
     import random
     import re
 
-    from petasos.scanners._semgrep_source import _is_candidate
+    from petasos.scanners.semgrep.source import _is_candidate
 
     reference = re.compile(
         r"\b[A-Za-z_$][\w.$]*\("
@@ -318,7 +318,7 @@ def test_header_and_fence_classification_matches_short_reference_inputs() -> Non
     import random
     import re
 
-    from petasos.scanners._semgrep_source import (
+    from petasos.scanners.semgrep.source import (
         _FENCE,
         _is_candidate,
         _is_header,
@@ -350,7 +350,7 @@ def test_million_character_header_fence_and_search_attacks_are_bounded() -> None
     script = r"""
 import asyncio, json, sys, time
 sys.path[:] = json.loads(sys.argv[1])
-from petasos.scanners._semgrep_source import (
+from petasos.scanners.semgrep.source import (
     _FENCE, _is_header, _is_search_header, preflight, select_sources,
 )
 
@@ -395,7 +395,7 @@ def test_million_character_dotted_input_has_bounded_candidate_cost() -> None:
     script = r"""
 import asyncio, json, sys, time
 sys.path[:] = json.loads(sys.argv[1])
-from petasos.scanners._semgrep_source import _is_candidate, preflight, select_sources
+from petasos.scanners.semgrep.source import _is_candidate, preflight, select_sources
 
 async def run():
     dotted = "a." * 499950
@@ -457,7 +457,7 @@ async def test_code_shaped_search_headers_are_not_discarded() -> None:
     ],
 )
 async def test_expression_callees_and_continuations_are_candidates(call: str) -> None:
-    from petasos.scanners._semgrep_source import preflight
+    from petasos.scanners.semgrep.source import preflight
 
     for text in (call, json.dumps({"content": call})):
         assert await preflight(text), text

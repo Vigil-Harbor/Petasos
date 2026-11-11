@@ -10,22 +10,23 @@ import asyncio
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Literal
 
-from petasos._coverage import FrozenCoverageMapping
-from petasos._types import Direction, PipelineResult, Position, ScanFinding, ScanResult
-from petasos.scanners.minimal import _DECODE_MAX_BYTES, MinimalScanner
-from petasos.scanners.semgrep import PreparedSemgrepScan
+from petasos.coverage import FrozenCoverageMapping
+from petasos.model import Direction, PipelineResult, Position, ScanFinding, ScanResult
+from petasos.scanners.minimal import MinimalScanner
+from petasos.scanners.minimal.decode import _DECODE_MAX_BYTES
+from petasos.scanners.semgrep.adapter import PreparedSemgrepScan
 
 if TYPE_CHECKING:
     import threading
     from collections.abc import Mapping
 
-    from petasos._coverage import ScanCoverage
+    from petasos.coverage import ScanCoverage
     from petasos.pipeline import Pipeline
-from petasos.session.guard import _MAX_PARAM_TEXT_LEN
+from petasos.limits import HEAD_CHARS
+from petasos.limits import MAX_PARAM_TEXT_LEN as _MAX_PARAM_TEXT_LEN
 
 _PREPARE_HERE = object()
 
-HEAD_CHARS = 2_048
 CHUNK_CHARS = 65_536
 CHUNK_OVERLAP_CHARS = _DECODE_MAX_BYTES  # 8_192
 _STRIDE = CHUNK_CHARS - CHUNK_OVERLAP_CHARS
@@ -144,7 +145,7 @@ async def scan_ingestion_result(
     original-result coordinates. The inspect mutex, when provided, is held only
     around the head ``inspect()``.
     """
-    from petasos.pipeline import merge_findings
+    from petasos.pipeline.findings import merge_findings
 
     errors: list[str] = []
     head: PipelineResult | None = None

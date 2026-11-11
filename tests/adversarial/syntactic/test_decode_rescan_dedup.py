@@ -26,8 +26,8 @@ from __future__ import annotations
 import base64
 from collections import Counter
 
-from petasos._types import Severity
 from petasos.config.sections import PetasosConfig
+from petasos.model import Severity
 from petasos.pipeline import Pipeline
 from petasos.scanners.minimal import MinimalScanner
 

@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from petasos.scanners._semgrep_engine import ProtocolError, _local_functions, strict_output
+from petasos.scanners.semgrep.engine import ProtocolError, _local_functions, strict_output
 
 
 @pytest.mark.parametrize(
@@ -63,8 +63,8 @@ def test_uncertain_binding_is_never_excluded(source: str) -> None:
 
 
 def _expected(tmp_path: Path, count: int = 1) -> tuple[list[str], dict[str, Any]]:
-    from petasos.scanners._semgrep_engine import _path
-    from petasos.scanners._semgrep_source import Region, Target
+    from petasos.scanners.semgrep.engine import _path
+    from petasos.scanners.semgrep.source import Region, Target
 
     paths = [str(tmp_path / f"candidate-{i}.source") for i in range(count)]
     targets = [Target(Region("eval(x)\n", 0, 8)) for _ in paths]
@@ -82,7 +82,7 @@ def _expected(tmp_path: Path, count: int = 1) -> tuple[list[str], dict[str, Any]
 def test_engine_failures_never_leave_targets_complete(
     tmp_path: Path, error: dict[str, Any]
 ) -> None:
-    from petasos.scanners._semgrep_engine import _findings
+    from petasos.scanners.semgrep.engine import _findings
 
     error = json.loads(json.dumps(error))
 
@@ -111,7 +111,7 @@ def test_engine_failures_never_leave_targets_complete(
 def test_malformed_nested_structures_are_protocol_errors(
     tmp_path: Path, mutation: dict[str, Any]
 ) -> None:
-    from petasos.scanners._semgrep_engine import _findings
+    from petasos.scanners.semgrep.engine import _findings
 
     mutation = json.loads(json.dumps(mutation))
 
@@ -132,9 +132,9 @@ async def test_protocol_error_keeps_findings_from_earlier_grammars(
     import time
     from concurrent.futures import ThreadPoolExecutor
 
-    from petasos.scanners import _semgrep_engine as engine
-    from petasos.scanners._semgrep_process import ProcessResult
-    from petasos.scanners._semgrep_source import select_sources
+    from petasos.scanners.semgrep import engine as engine
+    from petasos.scanners.semgrep.process import ProcessResult
+    from petasos.scanners.semgrep.source import select_sources
 
     selection = await select_sources("eval(payload)\n")
     assert len(selection.targets) == 1
@@ -177,8 +177,8 @@ async def test_protocol_error_keeps_findings_from_earlier_grammars(
 
 
 async def test_omitted_tail_without_targets_is_partial_coverage() -> None:
-    from petasos.scanners._semgrep_engine import result_for
-    from petasos.scanners._semgrep_source import select_sources
+    from petasos.scanners.semgrep.engine import result_for
+    from petasos.scanners.semgrep.source import select_sources
 
     selection = await select_sources(json.dumps(" " * 65536 + "eval(payload)"))
     assert not selection.targets

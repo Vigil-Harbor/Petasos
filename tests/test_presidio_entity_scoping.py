@@ -18,11 +18,8 @@ from petasos.config.layers import resolve
 from petasos.config.schema import from_mapping, to_mapping
 from petasos.config.sections import PetasosConfig
 from petasos.pipeline import Pipeline
-from petasos.scanners.minimal import (
-    _STRUCTURAL_RULE_IDS,
-    _UNSUPPRESSIBLE_RULE_IDS,
-    MinimalScanner,
-)
+from petasos.scanners.minimal import MinimalScanner
+from petasos.scanners.minimal.taxonomy import _STRUCTURAL_RULE_IDS, _UNSUPPRESSIBLE_RULE_IDS
 from petasos.scanners.presidio import (
     DEFAULT_PRESIDIO_ENTITIES,
     NOISY_OPT_IN_ENTITIES,

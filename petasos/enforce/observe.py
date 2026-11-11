@@ -9,7 +9,6 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from petasos._limits import MAX_PARAM_TEXT_LEN
 from petasos.enforce.approvals import (
     approval_event,
     degraded_choice_confirmed,
@@ -20,6 +19,7 @@ from petasos.enforce.approvals import (
 )
 from petasos.enforce.core import Core, Phase
 from petasos.enforce.guardrail import note_answer
+from petasos.limits import MAX_PARAM_TEXT_LEN
 
 if TYPE_CHECKING:
     from petasos.enforce.types import ApprovalNotice

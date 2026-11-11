@@ -491,7 +491,7 @@ consequences:
   and add false matches). Use the **full wire name** wherever you name the tool.
   Note these are two separate mechanisms, not two config steps:
   `egress_sink_tools` is an operator knob in `config.yaml` (below), while the
-  read-only set is *code* (`_TOOL_AXES_ROWS` in `petasos/session/guard.py`,
+  read-only set is *code* (`_TOOL_AXES_ROWS` in `petasos/guard/guard.py`,
   not `_TOOL_AXES`, the immutable `MappingProxyType` built from it),
   canonicalized at load into `_READ_ONLY_CANON`, which `_is_dangerous()`
   consults directly. Customize either axis by adding a row to
@@ -501,7 +501,7 @@ consequences:
   add ingestion scanning; `search_files` is `acts=False` so a
   `config_ref` selfmod finding on a search of an owned path is an accepted
   FP, compensated by the ingestion scan. Edit the table in
-  `petasos/session/guard.py`, not `config.yaml`.
+  `petasos/guard/guard.py`, not `config.yaml`.
 
   ```yaml
   # Right: full single-underscore wire name; its case / CamelCase / _tool

@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Literal
 
-from petasos._types import PipelineResult, ScanFinding, severity_rank
+from petasos.model import PipelineResult, ScanFinding, severity_rank
 
 if TYPE_CHECKING:
-    from petasos.session.guard import GuardResult
+    from petasos.guard.guard import GuardResult
 
 _STRIP_PREFIX = "petasos.syntactic."
 

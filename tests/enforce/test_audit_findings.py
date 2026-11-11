@@ -9,10 +9,10 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from petasos._types import PipelineResult, ScanFinding, Severity
 from petasos.config.schema import from_mapping
 from petasos.config.sections import PetasosConfig
 from petasos.enforce.engine import _audit
+from petasos.model import PipelineResult, ScanFinding, Severity
 from petasos.session.audit import AuditEmitter
 
 if TYPE_CHECKING:

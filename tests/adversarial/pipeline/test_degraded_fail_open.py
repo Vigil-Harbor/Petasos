@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import pytest
 
-from petasos._types import Position, ScanFinding, ScanResult, Severity
 from petasos.config.schema import ConfigError, from_mapping
 from petasos.config.sections import PetasosConfig
-from petasos.pipeline import Pipeline, merge_findings
+from petasos.model import Position, ScanFinding, ScanResult, Severity
+from petasos.pipeline import Pipeline
+from petasos.pipeline.findings import merge_findings
 from petasos.scanners.minimal import MinimalScanner
 
 
