@@ -8,7 +8,6 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 from petasos._types import Alert, Severity, at_least
-from petasos.config.legacy import ConfigInput, FlatConfig, bind
 from petasos.session.escalation import evaluate_tier
 
 _logger = logging.getLogger(__name__)
@@ -24,13 +23,11 @@ if TYPE_CHECKING:
 class AlertManager:
     def __init__(
         self,
-        config: ConfigInput,
+        config: PetasosConfig,
         *,
         on_alert: Callable[[Alert], None] | None = None,
     ) -> None:
-        bound = bind(config)
-        self._config = bound.config
-        self._legacy = bound.legacy
+        self._config = config
         self._on_alert = on_alert
         self._listeners: list[Callable[[Alert], None]] = []
         self._rule_cooldowns: dict[tuple[str, str | None], float] = {}
@@ -54,12 +51,7 @@ class AlertManager:
         """The config tree this manager reads."""
         return self._config
 
-    @property
-    def legacy_config(self) -> FlatConfig | None:
-        """The flat config most recently supplied, or None when a tree was."""
-        return self._legacy
-
-    def apply_config(self, new_config: ConfigInput, *, legacy: FlatConfig | None = None) -> None:
+    def apply_config(self, new_config: PetasosConfig) -> None:
         """PET-126: rebind ``_config``; rebuild ``_pii_ring_buffer`` only when
         ``alert_ring_buffer_capacity`` changed.
 
@@ -73,12 +65,7 @@ class AlertManager:
         newly-created entries pick up the new capacity.
         """
         old_capacity = self._config.alerting.ring_buffer_capacity
-        bound = bind(new_config)
-        self._config = bound.config
-        if legacy is not None:
-            self._legacy = legacy
-        elif bound.legacy is not None:
-            self._legacy = bound.legacy
+        self._config = new_config
         new_capacity = self._config.alerting.ring_buffer_capacity
         if new_capacity != old_capacity:
             self._pii_ring_buffer = deque(self._pii_ring_buffer, maxlen=new_capacity)

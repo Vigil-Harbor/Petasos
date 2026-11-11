@@ -6,7 +6,6 @@ They call the library directly.
 
 from __future__ import annotations
 
-import logging
 import time
 from types import MappingProxyType
 from typing import Any, cast
@@ -28,8 +27,6 @@ from petasos.scanners.minimal import MinimalScanner
 from petasos.scanners.semgrep import SemgrepScanner
 from petasos.session.guard import ToolCallGuard
 from petasos.session.ingest import scan_ingestion_result
-from petasos.session.lineage import LineageRegistry
-from petasos.session.taint import SessionTaintStore
 
 
 class _StubScanner:
@@ -163,66 +160,15 @@ def test_semgrep_health_carries_its_qualification_warning() -> None:
     assert row["warning"] == "engine is not qualified"
 
 
-def test_list_profiles_names_the_built_ins() -> None:
-    profiles = Pipeline(config=PetasosConfig()).list_profiles()
-    names = [item["name"] for item in profiles]
-    assert len(profiles) == 5
-    assert "general" in names
-    assert "admin" in names
-
-
-def test_flat_reconfigure_keeps_the_secret_and_names_semgrep(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    secret = b"s" * 32
-    pipe = Pipeline(
-        scanners=[MinimalScanner()],
-        config=FlatConfig(session_secret=secret),
-        host_id="host-1",
-    )
-    assert pipe.legacy_config is not None
-    assert pipe.legacy_config.session_secret == secret
-    _profile = pipe.default_profile
-    assert _profile is None or _profile.name
-
-    with pytest.raises(TypeError, match="config tree"):
-        pipe_tree = Pipeline(config=PetasosConfig())
-        pipe_tree.reconfigure(FlatConfig())
-    with pytest.raises(TypeError, match="flat config or a config tree"):
-        pipe.reconfigure(object())  # type: ignore[arg-type]
-
-    with caplog.at_level(logging.WARNING, logger="petasos.pipeline"):
-        pipe.reconfigure(FlatConfig(session_secret=b"t" * 32))
-        pipe.reconfigure(FlatConfig(semgrep_enabled=True, fail_mode="closed"))
-    assert pipe.legacy_config is not None
-    assert pipe.legacy_config.session_secret == secret
-    assert pipe.legacy_config.fail_mode == "closed"
-    assert any("session_secret" in record.getMessage() for record in caplog.records)
-    assert any("Semgrep" in record.getMessage() for record in caplog.records)
-
-
-def test_flat_apply_keeps_an_explicit_legacy_on_the_session_objects() -> None:
-    tree = PetasosConfig()
-    lineage = LineageRegistry(tree)
-    lineage.apply_config(FlatConfig())
-    assert lineage.legacy_config is not None
-
-    store = SessionTaintStore(tree)
-    store.apply_config(FlatConfig())
-    assert store.legacy_config is not None
-
-    pipe = Pipeline(scanners=[MinimalScanner()], config=FlatConfig())
+def test_a_classifier_error_does_not_raise() -> None:
+    pipe = Pipeline(scanners=[MinimalScanner()], config=PetasosConfig())
     guard = ToolCallGuard(
         pipe,
         pipe._frequency_tracker,
-        FlatConfig(),
+        PetasosConfig(),
         secrets=Secrets(session_secret=b"a" * 32),
         protected_paths=lambda: ["/owned/config.yaml"],
     )
-    assert guard.legacy_config is not None
-    guard.apply_config(FlatConfig(session_secret=b"b" * 32))
-    assert guard.legacy_config is not None
-    assert guard.legacy_config.session_secret == b"a" * 32
     match = guard._classify_selfmod("terminal", cast("dict[str, Any]", _BoomParams()))
     assert match is None
 

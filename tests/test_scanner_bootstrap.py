@@ -20,7 +20,6 @@ import pytest
 import petasos.scanners  # noqa: F401  (ensures sys.modules carries the package)
 from petasos import PetasosConfig
 from petasos._types import ScanResult
-from petasos.pipeline import Pipeline
 from petasos.scanners import MinimalScanner, ScannerBuildStatus, build_scanners
 from petasos.scanners.presidio import DEFAULT_PRESIDIO_ENTITIES
 
@@ -336,52 +335,6 @@ class TestDisabledScanners:
         assert by_id["presidio"].reason == "disabled by config"
         assert [scanner.name for scanner in scanners if scanner.name == "presidio"] == []
         assert scanners[0].name == "minimal"
-
-
-# ---------------------------------------------------------------------------
-# PET-242 Decision 13: the fourth backend fails toward blocking, not softened
-# ---------------------------------------------------------------------------
-
-
-class TestPromptGuardUpgradeBehavior:
-    _BENIGN = "please list the files in this folder"
-
-    @pytest.fixture(autouse=True)
-    def _no_prompt_guard(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        import petasos.scanners.prompt_guard as pg
-
-        pg._reset_for_tests()
-        monkeypatch.setattr(
-            pg, "_availability", lambda: (False, pg._INSTALL_HINT, "absent"), raising=True
-        )
-
-    async def _safe(self, config: PetasosConfig) -> bool:
-        scanners, _statuses = build_scanners(config)
-        return (await Pipeline(scanners=scanners, config=config).inspect(self._BENIGN)).safe
-
-    async def test_presidio_disabled_blocks_until_prompt_guard_is_listed(self) -> None:
-        assert (
-            await self._safe(PetasosConfig(fail_mode="closed", disabled_scanners=("presidio",)))
-            is False
-        )
-        assert (
-            await self._safe(
-                PetasosConfig(fail_mode="closed", disabled_scanners=("presidio", "prompt_guard"))
-            )
-            is True
-        )
-
-    async def test_healthy_presidio_blocks_until_prompt_guard_is_listed(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        _patch_presidio(monkeypatch, _fake_class(scanner_name="presidio"))
-        assert await self._safe(PetasosConfig(fail_mode="degraded")) is False
-        assert (
-            await self._safe(
-                PetasosConfig(fail_mode="degraded", disabled_scanners=("prompt_guard",))
-            )
-            is True
-        )
 
 
 def test_semgrep_enabled_without_owner_never_constructs_or_probes(

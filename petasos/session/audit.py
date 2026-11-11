@@ -7,7 +7,6 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
 from petasos._types import AuditEvent
-from petasos.config.legacy import ConfigInput, FlatConfig, bind
 from petasos.config.schema import to_mapping
 
 _logger = logging.getLogger(__name__)
@@ -23,13 +22,11 @@ if TYPE_CHECKING:
 class AuditEmitter:
     def __init__(
         self,
-        config: ConfigInput,
+        config: PetasosConfig,
         *,
         on_audit: Callable[[AuditEvent], None] | None = None,
     ) -> None:
-        bound = bind(config)
-        self._config = bound.config
-        self._legacy = bound.legacy
+        self._config = config
         self._on_audit = on_audit
         self._global_sequence: int = 0
         self._last_callback_error: str | None = None
@@ -40,12 +37,7 @@ class AuditEmitter:
         """The config tree this emitter reads."""
         return self._config
 
-    @property
-    def legacy_config(self) -> FlatConfig | None:
-        """The flat config most recently supplied, or None when a tree was."""
-        return self._legacy
-
-    def apply_config(self, new_config: ConfigInput, *, legacy: FlatConfig | None = None) -> None:
+    def apply_config(self, new_config: PetasosConfig) -> None:
         """PET-126: rebind ``_config`` in place.
 
         ``audit_verbosity`` is read live off ``_config`` in ``_build_payload``, so
@@ -53,12 +45,7 @@ class AuditEmitter:
         ``_global_sequence`` (the audit sequence is not reset), ``_listeners``, and
         ``_last_callback_error``.
         """
-        bound = bind(new_config)
-        self._config = bound.config
-        if legacy is not None:
-            self._legacy = legacy
-        elif bound.legacy is not None:
-            self._legacy = bound.legacy
+        self._config = new_config
 
     @property
     def last_callback_error(self) -> str | None:
@@ -165,10 +152,7 @@ class AuditEmitter:
                 }
                 for sr in result.scanner_results
             ]
-            if self._legacy is not None:
-                data["config_snapshot"] = self._legacy.to_dict(redact_secrets=True)
-            else:
-                data["config_snapshot"] = to_mapping(self._config)
+            data["config_snapshot"] = to_mapping(self._config)
             data["timing"] = {
                 "timestamp": time.time(),
             }

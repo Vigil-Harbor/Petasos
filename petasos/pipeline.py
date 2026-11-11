@@ -10,7 +10,7 @@ import time
 from collections.abc import Callable
 from dataclasses import replace
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, ClassVar, cast
+from typing import TYPE_CHECKING, Any
 
 from petasos._types import (
     AVAILABILITY_CAUSE_LOAD_FAILED,
@@ -25,20 +25,8 @@ from petasos._types import (
     at_least,
     severity_rank,
 )
-from petasos.config.legacy import (
-    PROFILE_WITH_TREE,
-    ConfigInput,
-    FlatConfig,
-    ResolvedProfile,
-    Secrets,
-    bind,
-    preserved_flat,
-    require_hash_key,
-    secret_change_ignored,
-    semgrep_settings_changed,
-)
-from petasos.config.legacy import list_profiles as _list_profiles
 from petasos.config.schema import ReconfigureResult, apply_live
+from petasos.config.secrets import Secrets, require_hash_key
 from petasos.config.sections import PetasosConfig, RulesConfig
 from petasos.normalize import normalize
 from petasos.scanners._semgrep_runtime import error_result as _semgrep_error
@@ -54,9 +42,6 @@ from petasos.session.audit import AuditEmitter
 from petasos.session.frequency import FrequencyTracker, FrequencyUpdateResult
 
 _logger = logging.getLogger(__name__)
-
-# Reconfigure of a tree does not re-resolve a profile.
-_UNCHANGED = object()
 
 # Lower rank claims less coverage. Two scanners may share a name (Pipeline does not
 # require unique names), so a collision keeps the claim that examined the least
@@ -357,23 +342,16 @@ class Pipeline:
         self,
         scanners: Sequence[Scanner] = (),
         *,
-        config: ConfigInput | None = None,
-        profile: str | ResolvedProfile | dict[str, Any] | None = None,
+        config: PetasosConfig | None = None,
         on_audit: Callable[[AuditEvent], None] | None = None,
         on_alert: Callable[[Alert], None] | None = None,
         host_id: str = "",
         frequency_tracker: FrequencyTracker | None = None,
         secrets: Secrets | None = None,
     ) -> None:
-        if isinstance(config, PetasosConfig) and profile is not None:
-            raise ValueError(PROFILE_WITH_TREE)
-        bound = bind(config, profile, secrets=secrets)
-        require_hash_key(bound.config, bound.secrets)
-        self._config = bound.config
-        self._legacy = bound.legacy
-        self._secrets = bound.secrets
-        self._profile_arg = profile
-        self._default_profile = bound.profile
+        self._config = config if config is not None else PetasosConfig()
+        self._secrets = secrets if secrets is not None else Secrets()
+        require_hash_key(self._config, self._secrets)
         self._host_id = host_id
         if self._secrets.session_secret is not None and not host_id:
             raise ValueError("host_id is required when session_secret is configured")
@@ -414,14 +392,8 @@ class Pipeline:
             self._frequency_tracker = frequency_tracker
         else:
             self._frequency_tracker = FrequencyTracker(self._config, secrets=self._secrets)
-            if self._legacy is not None:
-                self._frequency_tracker._legacy = self._legacy
         self._audit_emitter = AuditEmitter(self._config, on_audit=on_audit)
-        if self._legacy is not None:
-            self._audit_emitter._legacy = self._legacy
         self._alert_manager = AlertManager(self._config, on_alert=on_alert)
-        if self._legacy is not None:
-            self._alert_manager._legacy = self._legacy
 
         # Per-scanner circuit-breaker state. Single-threaded asyncio access only.
         self._breaker_consecutive_timeouts: dict[str, int] = {}
@@ -429,76 +401,27 @@ class Pipeline:
         self._last_scan_durations: dict[str, float] = {}
         self._last_scan_errors: dict[str, str] = {}
         self._semgrep_lock = threading.Lock()
-        self._semgrep_reconfigure_warned = False
 
     @property
     def config(self) -> PetasosConfig:
         """The config tree this pipeline reads."""
         return self._config
 
-    @property
-    def legacy_config(self) -> FlatConfig | None:
-        """The flat config most recently supplied, or None when a tree was."""
-        return self._legacy
-
-    @property
-    def default_profile(self) -> ResolvedProfile | None:
-        """The live resolved default profile, or None when none is bound.
-
-        ``reconfigure`` replaces ``_default_profile``, so a later read sees the
-        new ``dangerous_tool_posture``. The object is frozen; this returns it
-        directly.
-        """
-        return self._default_profile
-
-    def reconfigure(self, new_config: ConfigInput) -> ReconfigureResult:
+    def reconfigure(self, new_config: PetasosConfig) -> ReconfigureResult:
         """Apply live settings and report the ones that need a restart.
 
-        A flat config keeps today's Semgrep and session-secret handling: those
-        changes are logged and left as they are. A malformed frequency weight
-        map raises ``ValueError`` before any live state changes. A pinned
-        profile stays pinned. With no pinned profile, ``profile_name`` on the
-        flat config selects the profile again.
+        Secrets stay as they were. A malformed frequency weight map raises
+        ``ValueError`` before any live state changes.
         """
-        proposed, secrets, applied_flat, pending_profile = self._proposed(new_config)
-        updated, result = apply_live(self._config, proposed)
-        require_hash_key(updated, secrets)
-        self._frequency_tracker.apply_config(updated, legacy=applied_flat)
-        self._audit_emitter.apply_config(updated, legacy=applied_flat)
-        self._alert_manager.apply_config(updated, legacy=applied_flat)
+        updated, result = apply_live(self._config, new_config)
+        require_hash_key(updated, self._secrets)
+        self._frequency_tracker.apply_config(updated)
+        self._audit_emitter.apply_config(updated)
+        self._alert_manager.apply_config(updated)
         assert self._minimal_scanner is not None
         self._minimal_scanner.set_decode_encoded_payloads(updated.normalization.decode_payloads)
         self._config = updated
-        self._secrets = secrets
-        if applied_flat is not None:
-            self._legacy = applied_flat
-        if pending_profile is not _UNCHANGED:
-            self._default_profile = cast("ResolvedProfile | None", pending_profile)
         return result
-
-    def _proposed(
-        self, new_config: ConfigInput
-    ) -> tuple[PetasosConfig, Secrets, FlatConfig | None, ResolvedProfile | None | object]:
-        if isinstance(new_config, PetasosConfig):
-            return new_config, self._secrets, self._legacy, _UNCHANGED
-        if not isinstance(new_config, FlatConfig):
-            raise TypeError(
-                f"config must be a flat config or a config tree, got {type(new_config).__name__}"
-            )
-        if self._legacy is None:
-            raise TypeError("this pipeline was built from a config tree; reconfigure with a tree")
-        semgrep_changed = semgrep_settings_changed(self._legacy, new_config)
-        if semgrep_changed and not self._semgrep_reconfigure_warned:
-            _logger.warning("Semgrep settings change ignored: restart required")
-            self._semgrep_reconfigure_warned = True
-        if secret_change_ignored(self._legacy, new_config):
-            _logger.warning(
-                "reconfigure: session_secret change ignored (restart required); "
-                "the live secret is preserved"
-            )
-        applied_flat = preserved_flat(self._legacy, new_config)
-        bound = bind(applied_flat, self._profile_arg)
-        return bound.config, bound.secrets, applied_flat, bound.profile
 
     @property
     def host_id(self) -> str:
@@ -589,10 +512,6 @@ class Pipeline:
                 result[-1]["warning"] = s.qualification_warning
         return result
 
-    def list_profiles(self) -> list[dict[str, Any]]:
-        """Return all loaded scanner profiles."""
-        return sorted(_list_profiles(), key=lambda p: p["name"])
-
     def add_audit_listener(self, callback: Callable[[AuditEvent], None]) -> None:
         """Register an additional audit event listener."""
         self._audit_emitter.add_listener(callback)
@@ -623,15 +542,6 @@ class Pipeline:
             except Exception:
                 _logger.exception("record_selfmod: audit emit failed")
 
-    # Flat field names. The reference plugin's feature table mirrors this map.
-    _FEATURE_GATES: ClassVar[dict[str, str]] = {
-        "frequency": "frequency_enabled",
-        "escalation": "escalation_enabled",
-        "tool_guard": "tool_guard_enabled",
-        "audit": "audit_enabled",
-        "alerting": "alert_enabled",
-    }
-
     def _is_enabled(self, feature_name: str) -> bool:
         config = self._config
         flags = {
@@ -645,21 +555,10 @@ class Pipeline:
             return flags[feature_name]
         return True
 
-    def _rules_for(
-        self, profile: str | ResolvedProfile | dict[str, Any] | None
-    ) -> tuple[RulesConfig, tuple[str, ...]]:
-        """Rules and extra entity types for this scan.
-
-        No profile uses the tree already resolved at construction. A profile
-        is resolved through the bridge and is not stored.
-        """
-        if profile is None:
-            extra = self._config.scanners.presidio.entities_extra
-            return self._config.rules, extra
-        if self._legacy is None:
-            raise ValueError(PROFILE_WITH_TREE)
-        bound = bind(self._legacy, profile, secrets=self._secrets, use_profile_name=False)
-        return bound.config.rules, bound.config.scanners.presidio.entities_extra
+    def _rules_for(self) -> tuple[RulesConfig, tuple[str, ...]]:
+        """Rules and extra entity types for this scan."""
+        extra = self._config.scanners.presidio.entities_extra
+        return self._config.rules, extra
 
     def _build_feature_status(self) -> MappingProxyType[str, str]:
         def _status(enabled: bool) -> str:
@@ -670,7 +569,7 @@ class Pipeline:
             {
                 "frequency": _status(config.frequency.enabled),
                 "escalation": _status(config.escalation.enabled),
-                "profiles": "enabled" if self._default_profile is not None else "disabled",
+                "profiles": "disabled",
                 "tool_guard": _status(config.tools.enabled),
                 "audit": _status(config.audit.enabled),
                 "alerting": _status(config.alerting.enabled),
@@ -775,7 +674,6 @@ class Pipeline:
         *,
         direction: Direction | None = None,
         session_id: str | None = None,
-        profile: str | ResolvedProfile | dict[str, Any] | None = None,
         weight_cap: float | None = None,
     ) -> PipelineResult:
         if prepared is None:
@@ -787,7 +685,6 @@ class Pipeline:
                 text,
                 direction=direction,
                 session_id=session_id,
-                profile=profile,
                 weight_cap=weight_cap,
             )
         try:
@@ -796,7 +693,7 @@ class Pipeline:
                 return PipelineResult(
                     safe=False, findings=(), errors=("semgrep.prepared_invalid",)
                 )
-            rules, entities_extra = self._rules_for(profile)
+            rules, entities_extra = self._rules_for()
             return await self._inspect_inner(
                 text,
                 direction=direction or self._config.direction,
@@ -817,7 +714,6 @@ class Pipeline:
         *,
         direction: Direction | None = None,
         session_id: str | None = None,
-        profile: str | ResolvedProfile | dict[str, Any] | None = None,
         weight_cap: float | None = None,
     ) -> PipelineResult:
         resolved_direction: Direction = (
@@ -825,7 +721,7 @@ class Pipeline:
         )
 
         try:
-            rules, entities_extra = self._rules_for(profile if profile is not None else None)
+            rules, entities_extra = self._rules_for()
             return await self._inspect_inner(
                 text,
                 direction=resolved_direction,
