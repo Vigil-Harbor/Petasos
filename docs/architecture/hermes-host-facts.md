@@ -1022,8 +1022,13 @@ gate's own helpers for the container skip, the hardline floor, the approval
 mode, yolo, the permanent allowlist, `_presence`, and an earlier session
 answer. A hardline match is a refusal, not a prompt, so the predicate is
 false there even when the detector also flags the command. Where the live
-gate prompts, the predicate is true. Where the gate approves without asking,
-it is false. Where `detect_dangerous_command` is missing or raises, it is
+gate prompts in `manual` mode, the predicate is true. Where the gate
+approves without asking, it is false. In `smart` mode it is always false:
+`_human_decision` calls `_smart_gate` first, and an `approve` verdict from
+the guardian model returns approved with no prompt. A plugin's approve
+request does not take that path. `request_tool_approval` calls
+`_run_approval_gate`, which calls `_human_decision` without `smart`, so it
+always reaches a person. Where `detect_dangerous_command` is missing or raises, it is
 false while the gate, which bound the function at import, can still prompt.
 
 ## What was not run

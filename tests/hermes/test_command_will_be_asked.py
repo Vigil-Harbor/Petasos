@@ -85,6 +85,7 @@ def test_each_host_fact_that_means_nobody_is_asked_answers_no(
         ("container", {"skip": lambda _env, has_host_access=False: True}),
         ("hardline", {"floor": lambda _command, sudo_guard=False: {"approved": False}}),
         ("mode off", {"mode": lambda: "off"}),
+        ("smart mode", {"mode": lambda: "smart"}),
         ("unknown mode", {"mode": lambda: "approve"}),
         ("yolo", {"yolo": lambda: True}),
         ("allowlist", {"allow": lambda _command: True}),

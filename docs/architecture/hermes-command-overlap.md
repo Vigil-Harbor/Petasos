@@ -618,6 +618,14 @@ that command to a person. The default answers no. The Hermes adapter calls
 session-approval, and container facts section 2 lists. It does not copy the
 pattern list. A missing, moved, or raising detector answers no.
 
+Only `approvals.mode: manual` counts as asking. `smart` is Hermes's default,
+and there a guardian model looks at the command first and can approve it
+with nobody asked. Which way it will go is not known when Petasos decides,
+and a model's approval is not a person's. So under `smart` Petasos asks, as
+a plugin's approve request always reaches a person, and Hermes's guardian
+then runs as usual. That can be two prompts for one command. One prompt
+needs `approvals.mode: manual`.
+
 Petasos stands aside only for a `terminal` call whose posture is `approve`,
 whose decision would have been a command-rule finding, when that predicate
 is true, and when the host would not grant the approval with nobody

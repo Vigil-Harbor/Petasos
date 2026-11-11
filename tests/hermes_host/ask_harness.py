@@ -91,7 +91,8 @@ def _case(name: str, command: str, **setup: object) -> dict[str, Any]:
     _reset()
     interactive = bool(setup.pop("interactive", False))
     yolo = bool(setup.pop("yolo", False))
-    smart = bool(setup.pop("smart", False))
+    # What the stand-in for Hermes's guardian model answers, when one is used.
+    smart = setup.pop("smart", None)
     env = setup.pop("env", {})
     terminal_env = setup.pop("terminal_env", None)
     volumes = setup.pop("volumes", None)
@@ -108,10 +109,10 @@ def _case(name: str, command: str, **setup: object) -> dict[str, Any]:
         os.environ["TERMINAL_DOCKER_VOLUMES"] = volumes
     approval_smart = None
     real = None
-    if smart:
+    if isinstance(smart, str):
         approval_smart = _load("tools.approval_smart")
         real = approval_smart._smart_verdict
-        approval_smart._smart_verdict = lambda *_args, **_kwargs: "escalate"
+        approval_smart._smart_verdict = lambda *_args, **_kwargs: smart
     try:
         yolo_token = None
         if yolo:
@@ -168,7 +169,8 @@ def ask_cases() -> dict[str, Any]:
         _case("headless", DANGEROUS),
         _case("mode_off", DANGEROUS, interactive=True, mode="off"),
         _case("yolo", DANGEROUS, interactive=True, yolo=True),
-        _case("smart", DANGEROUS, interactive=True, mode="smart", smart=True),
+        _case("smart_escalates", DANGEROUS, interactive=True, mode="smart", smart="escalate"),
+        _case("smart_approves", DANGEROUS, interactive=True, mode="smart", smart="approve"),
         _case(
             "cron_approve",
             DANGEROUS,

@@ -34,7 +34,7 @@ def rows(petasos_wheel: Path) -> dict[str, dict[str, Any]]:
 
 
 def test_where_the_gate_prompts_the_predicate_is_true(rows: dict[str, dict[str, Any]]) -> None:
-    for name in ("interactive", "smart", "docker_host"):
+    for name in ("interactive", "docker_host"):
         row = rows[name]
         assert row["prompted"] is True, name
         assert row["approved"] is False, name
@@ -60,6 +60,17 @@ def test_where_the_gate_approves_without_asking_the_predicate_is_false(
         assert row["approved"] is True, name
         assert row["prompted"] is False, name
         assert row["asked"] is False, name
+
+
+def test_smart_mode_is_not_an_ask(rows: dict[str, dict[str, Any]]) -> None:
+    """The guardian model can approve with nobody asked, so the predicate never says yes."""
+    approves = rows["smart_approves"]
+    assert approves["approved"] is True
+    assert approves["prompted"] is False
+    assert approves["asked"] is False
+    escalates = rows["smart_escalates"]
+    assert escalates["prompted"] is True
+    assert escalates["asked"] is False
 
 
 def test_a_hardline_refusal_is_not_an_ask(rows: dict[str, dict[str, Any]]) -> None:

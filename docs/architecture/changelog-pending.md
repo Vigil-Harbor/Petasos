@@ -81,7 +81,9 @@ deleted.
   egress sink, and a degraded parameter scan are decided as before. A command
   Hermes does not flag, or would approve or refuse without asking, stays
   Petasos's own decision. If Hermes's detector cannot be imported, has moved,
-  or raises, Petasos decides as it does today.
+  or raises, Petasos decides as it does today. This applies under
+  `approvals.mode: manual`. Under `smart`, Hermes's default, a model can
+  approve the command with nobody asked, so Petasos still asks.
 
 - **Breaking.** A tool call that changes a Petasos or Hermes guardrail is no
   longer allowed just because the conversation is below tier 2. `tools.self_change`

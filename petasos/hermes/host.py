@@ -202,6 +202,10 @@ def command_will_be_asked(command: str) -> bool:
     False when ``detect_dangerous_command`` cannot be imported, has moved, or
     raises, when it does not flag the command, and when Hermes would approve
     or refuse the command without asking. A hardline command is a refusal.
+
+    Only ``approvals.mode: manual`` is an ask. In ``smart`` mode, which is
+    Hermes's default, a model looks at the command first and can approve it
+    with nobody asked, and which way it will go is not known here.
     """
     if not isinstance(command, str) or command == "":
         return False
@@ -233,8 +237,7 @@ def _command_will_be_asked(command: str) -> bool:
     mode = getattr(context, "_get_approval_mode", None) if context is not None else None
     if not callable(mode):
         return False
-    read_mode = mode()
-    if read_mode not in {"manual", "smart"}:
+    if mode() != "manual":
         return False
     yolo = getattr(approval, "_yolo_active", None)
     if not callable(yolo) or yolo():
