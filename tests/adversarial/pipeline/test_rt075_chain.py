@@ -7,7 +7,8 @@ import pytest
 from petasos.config.sections import PetasosConfig
 from petasos.model import Direction, ScanResult, Severity
 from petasos.pipeline import Pipeline
-from petasos.scanners.minimal import _ALL_INJECTION_IDS, MinimalScanner
+from petasos.scanners.minimal import MinimalScanner
+from petasos.scanners.minimal.taxonomy import _ALL_INJECTION_IDS
 
 TAG_CHAR = "\U000e0001"  # U+E0001 TAG LATIN CAPITAL LETTER A
 

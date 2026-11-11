@@ -7,7 +7,7 @@ import pytest
 from petasos.config.schema import ConfigError, from_mapping
 from petasos.config.sections import PetasosConfig
 from petasos.pipeline import Pipeline
-from petasos.scanners.minimal import _COMMAND_RULE_IDS, RULE_TAXONOMY
+from petasos.scanners.minimal.taxonomy import _COMMAND_RULE_IDS, RULE_TAXONOMY
 
 
 async def test_suppress_all_rules_adversarial() -> None:

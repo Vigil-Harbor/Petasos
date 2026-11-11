@@ -26,7 +26,7 @@ from pathlib import Path
 
 import pytest
 
-from petasos.scanners.minimal import (
+from petasos.scanners.minimal.taxonomy import (
     _AGENT_DIRECTIVE_RULE_IDS,
     _COMMAND_RULE_IDS,
     _ENCODING_RULE_IDS,

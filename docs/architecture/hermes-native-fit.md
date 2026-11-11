@@ -555,7 +555,7 @@ mechanism, which is the same limit the guardrail note already states.
 The table in the conclusions is the recommendation. The specific
 re-implementations, with the file that owns the Hermes behaviour:
 
-- Terminal command patterns. Petasos `petasos/scanners/minimal.py` lines
+- Terminal command patterns. Petasos `petasos/scanners/minimal/scanner.py` lines
   170–207 (pipe-to-shell, decode-exec, fetch-exec) match a subset of
   `DANGEROUS_PATTERNS` (approval_detection.py lines 520–550). Hermes also
   covers Windows, git, docker, and the hardline. For a `terminal` call,

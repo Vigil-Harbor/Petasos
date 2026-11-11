@@ -23,7 +23,7 @@ Two incidents from June 2026 make the residual risk concrete:
 
 In both cases the **syntactic pre-filter is the only always-on layer** — it
 has zero ML dependencies and runs unconditionally in every scan
-(`petasos/scanners/minimal.py`). This is why `fail_mode` defaults to
+(`petasos/scanners/minimal/scanner.py`). This is why `fail_mode` defaults to
 `degraded` — partial or total ML scanner failure marks content unsafe rather
 than waving it through (`petasos/config.py:56`).
 

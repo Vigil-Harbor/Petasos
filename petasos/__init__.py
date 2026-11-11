@@ -24,7 +24,8 @@ from petasos.model import (
 from petasos.normalize import normalize
 from petasos.pipeline import Pipeline
 from petasos.pipeline.ingest import IngestionScanResult, scan_ingestion_result
-from petasos.scanners.minimal import RULE_TAXONOMY, MinimalScanner
+from petasos.scanners.minimal import MinimalScanner
+from petasos.scanners.minimal.taxonomy import RULE_TAXONOMY
 from petasos.scanners.semgrep import (
     SemgrepCleanupError,
     SemgrepCloseResult,

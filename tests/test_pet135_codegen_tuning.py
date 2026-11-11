@@ -39,7 +39,7 @@ import pytest
 from petasos.config.layers import resolve
 from petasos.model import Direction, ScanFinding, ScanResult, Severity
 from petasos.pipeline import Pipeline
-from petasos.scanners.minimal import (
+from petasos.scanners.minimal.taxonomy import (
     _ALL_INJECTION_IDS,
     _COMMAND_RULE_IDS,
     _ENCODING_RULE_IDS,

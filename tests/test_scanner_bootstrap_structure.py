@@ -60,7 +60,7 @@ _SWEEP_ROOTS = ("petasos", "docs/deployment")
 # Repo-relative POSIX strings, per the Paths rule below.
 _DEFINITION_MODULES = frozenset(
     {
-        "petasos/scanners/minimal.py",
+        "petasos/scanners/minimal/scanner.py",
         "petasos/scanners/presidio.py",
         "petasos/scanners/prompt_guard.py",
         "petasos/scanners/semgrep.py",

@@ -7,16 +7,15 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from petasos.scanners.minimal import (
+from petasos.scanners.minimal import MinimalScanner
+from petasos.scanners.minimal.encoding import _BASE64_PATTERN
+from petasos.scanners.minimal.injection import _INJECTION_PATTERNS
+from petasos.scanners.minimal.role_switch import _ROLE_GRANTS, _ROLE_TRIGGERS
+from petasos.scanners.minimal.structural import _BINARY_PATTERN
+from petasos.scanners.minimal.taxonomy import (
     _ALL_INJECTION_IDS,
-    _BASE64_PATTERN,
-    _BINARY_PATTERN,
     _ENCODING_RULE_IDS,
-    _INJECTION_PATTERNS,
     _INJECTION_RULE_IDS,
-    _ROLE_GRANTS,
-    _ROLE_TRIGGERS,
-    MinimalScanner,
 )
 from tests.adversarial.syntactic.benign_corpus import BENIGN_CORPUS
 from tests.test_minimal_scanner import _LEET_FOLD_PINS

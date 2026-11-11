@@ -12,7 +12,8 @@ from typing import TYPE_CHECKING, Literal
 
 from petasos.coverage import FrozenCoverageMapping
 from petasos.model import Direction, PipelineResult, Position, ScanFinding, ScanResult
-from petasos.scanners.minimal import _DECODE_MAX_BYTES, MinimalScanner
+from petasos.scanners.minimal import MinimalScanner
+from petasos.scanners.minimal.decode import _DECODE_MAX_BYTES
 from petasos.scanners.semgrep import PreparedSemgrepScan
 
 if TYPE_CHECKING:

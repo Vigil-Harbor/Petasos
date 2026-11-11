@@ -26,7 +26,7 @@ from petasos.config.sections import PetasosConfig
 from petasos.model import ScanFinding, Severity
 from petasos.pipeline import Pipeline
 from petasos.pipeline.findings import _is_floor_rule
-from petasos.scanners.minimal import (
+from petasos.scanners.minimal.taxonomy import (
     _ALL_INJECTION_IDS,
     _STRUCTURAL_RULE_IDS,
     _UNSUPPRESSIBLE_RULE_IDS,

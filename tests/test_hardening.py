@@ -16,7 +16,7 @@ from petasos.model import (
     Severity,
 )
 from petasos.pipeline import Pipeline
-from petasos.scanners.minimal import RULE_TAXONOMY
+from petasos.scanners.minimal.taxonomy import RULE_TAXONOMY
 
 
 class TestFrozenDataclasses:

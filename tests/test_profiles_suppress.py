@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from petasos.config.layers import resolve
 from petasos.pipeline import Pipeline
-from petasos.scanners.minimal import _COMMAND_RULE_IDS
+from petasos.scanners.minimal.taxonomy import _COMMAND_RULE_IDS
 
 
 class TestCodeGenerationCommandSuppress:

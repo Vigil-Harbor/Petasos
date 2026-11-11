@@ -18,7 +18,8 @@ from petasos.config.schema import from_mapping
 from petasos.config.sections import PetasosConfig
 from petasos.model import PipelineResult, ScanFinding, Severity
 from petasos.pipeline import Pipeline
-from petasos.scanners.minimal import _COMMAND_RULE_IDS, MinimalScanner
+from petasos.scanners.minimal import MinimalScanner
+from petasos.scanners.minimal.taxonomy import _COMMAND_RULE_IDS
 from tests.adversarial.syntactic.benign_corpus import (
     COMMAND_ACCEPTED_FP,
     COMMAND_BENIGN,

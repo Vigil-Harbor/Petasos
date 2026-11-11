@@ -16,7 +16,7 @@ Node is v22.23.0.
 | `ruff format --check .` | pass, 228 files already formatted |
 | `mypy --strict .` | pass, no issues in 228 source files |
 
-The ruff error is `SIM102` in `petasos/scanners/minimal.py:856` (nested
+The ruff error is `SIM102` in `petasos/scanners/minimal/scanner.py:856` (nested
 `if` inside the JSON-depth walk). Ruff marks the suggested fix unsafe.
 
 ## Tests

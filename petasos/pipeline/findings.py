@@ -14,10 +14,7 @@ from petasos.model import (
     at_least,
     severity_rank,
 )
-from petasos.scanners.minimal import (
-    _ALL_INJECTION_IDS,
-    _STRUCTURAL_RULE_IDS,
-)
+from petasos.scanners.minimal.taxonomy import _ALL_INJECTION_IDS, _STRUCTURAL_RULE_IDS
 
 _logger = logging.getLogger("petasos.pipeline")
 
