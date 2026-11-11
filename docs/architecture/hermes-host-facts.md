@@ -854,6 +854,21 @@ the committed environment and blocked the same injection. The dashboard API
 answered after `petasos hermes install` with no separate wheel install into
 the committed environment.
 
+## 12. Command gate and plugin hooks
+
+Ran later, against the same tag, in a copy of a prepared sandbox. The full
+record is `docs/architecture/hermes-command-overlap.md`. The order tests
+are `tests/hermes_host/test_command_gate_order.py`.
+
+`pre_tool_call` runs before the terminal command gate and before the
+`execute_code` script gate. A plugin block skips both gates. A plugin
+approve plus a command Hermes would also ask about is two prompts. With
+`approvals.mode: off`, a plugin block still stops the command before the
+gate, and a hook cannot block once the gate has approved, because
+`post_tool_call` runs after execution. A headless process whose mode is
+`manual` approves a non-hardline dangerous command and still blocks
+`rm -rf /`. `write_file` does not enter the command gate.
+
 ## What was not run
 
 - No Hermes gateway, no messaging platform, no model provider, and no

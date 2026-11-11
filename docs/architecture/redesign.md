@@ -1074,6 +1074,9 @@ result, Hermes keeps the first in load order, and its bundled
 `security-guidance` plugin loads before Petasos. `doctor` warns when both
 are enabled.
 
+The order has been run and the overlap measured in
+`docs/architecture/hermes-command-overlap.md`, which is the record for this decision.
+
 ### 8.6 The dashboard API
 
 Package C3. The tab's API lives in `petasos/hermes/dashboard/` and is
