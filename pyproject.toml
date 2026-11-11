@@ -146,7 +146,3 @@ disallow_untyped_decorators = false
 module = "petasos.console._sse_route"
 disallow_subclassing_any = false
 
-[[tool.mypy.overrides]]
-module = ["reference_plugin", "reference_plugin.*"]
-ignore_errors = true
-disallow_subclassing_any = false

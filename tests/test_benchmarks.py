@@ -4,14 +4,19 @@ import asyncio
 import base64
 import importlib
 import statistics
+import tempfile
 import time
+from pathlib import Path
 from typing import Any
 
 import pytest
 
 from petasos.config import PetasosConfig as FlatConfig
 from petasos.config.schema import from_mapping
+from petasos.config.secrets import Secrets
 from petasos.config.sections import PetasosConfig
+from petasos.enforce import Enforcer, HostInfo, ToolCall
+from petasos.enforce.types import InitGate, SettingsSnapshot
 from petasos.pipeline import Pipeline
 from petasos.scanners.minimal import MinimalScanner
 
@@ -315,52 +320,41 @@ def test_benchmark_full_pipeline(benchmark) -> None:  # type: ignore[no-untyped-
 # above: shared CI runners are too slow and noisy for a wall-clock assertion. The budget
 # these numbers are read against is stated in CLAUDE.md (12 ms of scan at the 8,000-char
 # cap; ~15 ms end to end), and the correctness of the clipping that keeps the input inside
-# that cap is pinned deterministically in tests/test_reference_plugin_tool_result.py.
+# that cap is pinned by tests/enforce_parity/test_enforce_parity.py
+# test_enforcer_matches_record[tool-result-oversized].
 
 
-def _ingestion_plugin(pipeline: object) -> Any:
-    """A post-init, armed plugin module wired to a real pipeline, driven synchronously."""
-    import importlib.util
-    from pathlib import Path
+def _bench_enforcer(
+    directory: Path, *, armed: bool = True, init: InitGate | None = None
+) -> Enforcer:
+    """An enforcer that has finished starting, armed or not."""
+    snapshot = SettingsSnapshot(armed=armed, config=PetasosConfig(), secrets=Secrets(), token=1)
 
-    path = (
-        Path(__file__).resolve().parent.parent
-        / "docs"
-        / "deployment"
-        / "reference_plugin"
-        / "__init__.py"
+    enforcer = Enforcer(
+        lambda: snapshot,
+        host=HostInfo(subagent_hooks=False),
+        init=init,
+        spool_path=str(directory / "events.jsonl"),
     )
-    spec = importlib.util.spec_from_file_location("petasos_reference_plugin_bench", str(path))
-    assert spec is not None and spec.loader is not None
-    ref = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(ref)
-    ref_any: Any = ref
-    ref_any._initialized = True
-    ref_any._init_error = None
-    ref_any._is_armed = lambda: True
-    ref_any._config = {}
-    ref_any._pipeline = pipeline
-    ref_any._emit_enforcement_event = lambda **kwargs: True
-    ref_any._ingest_lock = None
-    return ref_any
+    enforcer.start()
+    enforcer.settle(30)
+    return enforcer
 
 
 def _ingestion_case(  # type: ignore[no-untyped-def]
     benchmark, payload: str, *, tool: str = "read_file", armed: bool = True
 ) -> None:
-    loop = asyncio.new_event_loop()
-    pipeline = Pipeline(config=PetasosConfig())
-    ref: Any = _ingestion_plugin(pipeline)
-    ref._is_armed = lambda: armed
-    ref._run_async = lambda coro, timeout=15: loop.run_until_complete(coro)
-    ref._run_ingest_async = lambda coro: loop.run_until_complete(coro)
-    ref._ingest_lock = None
+    directory = Path(tempfile.mkdtemp())
+    enforcer = _bench_enforcer(directory, armed=armed)
+    call = ToolCall(tool=tool, session="bench")
 
     def run() -> None:
-        ref._transform_tool_result(tool_name=tool, result=payload, task_id="bench")
+        enforcer.tool_result(call, payload)
 
-    benchmark.pedantic(run, warmup_rounds=3, rounds=20)
-    loop.close()
+    try:
+        benchmark.pedantic(run, warmup_rounds=3, rounds=20)
+    finally:
+        enforcer.close()
 
 
 def test_benchmark_ingestion_result_1kb(benchmark) -> None:  # type: ignore[no-untyped-def]
@@ -382,26 +376,7 @@ def test_benchmark_ingestion_result_8kb_armed_correlator(benchmark) -> None:  # 
     so the CLAUDE.md 12 ms budget is re-measured here rather than asserted; record the
     measured headroom in the PR.
     """
-    from petasos.session.frequency import FrequencyTracker
-    from petasos.session.guard import ToolCallGuard
-
-    loop = asyncio.new_event_loop()
-    cfg = PetasosConfig()
-    tracker = FrequencyTracker(cfg)
-    pipeline = Pipeline(config=cfg, frequency_tracker=tracker)
-    guard = ToolCallGuard(pipeline, tracker, cfg)
-    ref: Any = _ingestion_plugin(pipeline)
-    ref._guard = guard
-    ref._run_async = lambda coro, timeout=15: loop.run_until_complete(coro)
-    ref._run_ingest_async = lambda coro: loop.run_until_complete(coro)
-    ref._ingest_lock = None
-    payload = "an ordinary line of file content\n" * 256
-
-    def run() -> None:
-        ref._transform_tool_result(tool_name="read_file", result=payload, task_id="bench-armed")
-
-    benchmark.pedantic(run, warmup_rounds=3, rounds=20)
-    loop.close()
+    _ingestion_case(benchmark, "an ordinary line of file content\n" * 256)
 
 
 def test_benchmark_ingestion_result_8wide_concurrent(benchmark) -> None:  # type: ignore[no-untyped-def]
@@ -498,11 +473,14 @@ def test_benchmark_fallback_param_scan_1mb(benchmark) -> None:  # type: ignore[n
     """
     from petasos.session.guard import _MAX_PARAM_TEXT_LEN
 
-    ref: Any = _ingestion_plugin(Pipeline(config=PetasosConfig()))
-    ref._init_error = "bench"
-    args = {"data": "x" * _MAX_PARAM_TEXT_LEN}
+    directory = Path(tempfile.mkdtemp())
+    enforcer = _bench_enforcer(directory, init=InitGate.failed("bench"))
+    call = ToolCall(tool="write_file", args={"data": "x" * _MAX_PARAM_TEXT_LEN}, session="s1")
 
     def run() -> None:
-        ref._fallback_pre_tool_call("write_file", args, "s1")
+        enforcer.tool_call(call)
 
-    benchmark.pedantic(run, rounds=3, iterations=1)
+    try:
+        benchmark.pedantic(run, rounds=3, iterations=1)
+    finally:
+        enforcer.close()

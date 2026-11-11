@@ -17,7 +17,6 @@ from tests.enforce_parity.load import (
     expand_scenario,
     load_json,
 )
-from tests.enforce_parity.plugin_adapter import PluginOracle
 
 _DIFFERENCES_PATH = OUTCOMES_PATH.parent / "differences.json"
 _RECONFIGURED = "PETASOS_RECONFIGURED: live config.yaml change applied to the running session"
@@ -132,45 +131,6 @@ def _walk(node: object, found: set[str]) -> None:
     elif isinstance(node, list):
         for item in node:
             _walk(item, found)
-
-
-@pytest.mark.parametrize("scenario_id", _ids())
-def test_scenario_matches_record(scenario_id: str) -> None:
-    """The live plugin outcomes for one scenario equal the committed record."""
-    recorded = load_json(OUTCOMES_PATH)
-    scenarios = recorded.get("scenarios")
-    if not isinstance(scenarios, dict) or scenario_id not in scenarios:
-        raise AssertionError(f"{scenario_id} is missing from outcomes.json")
-    scenario = next(item for item in _scenarios() if item["id"] == scenario_id)
-    actual = PluginOracle().replay(expand_scenario(scenario))
-    expected = scenarios[scenario_id]
-    if actual == expected:
-        return
-    diffs: list[str] = []
-    if not isinstance(expected, list):
-        raise AssertionError(f"{scenario_id} recorded outcomes are not a list")
-    pairs = max(len(expected), len(actual))
-    for index in range(pairs):
-        left = expected[index] if index < len(expected) else None
-        right = actual[index] if index < len(actual) else None
-        if left == right:
-            continue
-        step_id = ""
-        if isinstance(right, dict):
-            step_id = str(right.get("id", ""))
-        elif isinstance(left, dict):
-            step_id = str(left.get("id", ""))
-        diffs.append(f"{scenario_id} step={step_id or index}\n{_step_diff(left, right)}")
-        if len(diffs) >= _MAX_DIFFS:
-            break
-    extra = ""
-    if len(diffs) >= _MAX_DIFFS:
-        extra = f"\n(stopped after {_MAX_DIFFS} differing steps)"
-    raise AssertionError(
-        "enforcement outcomes differ from tests/enforce_parity/outcomes.json\n\n"
-        + "\n\n".join(diffs)
-        + extra
-    )
 
 
 def test_record_is_canonical() -> None:

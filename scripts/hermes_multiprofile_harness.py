@@ -73,12 +73,15 @@ _STORE_FINDER = (
 
 
 def install_plugin(tree: Path, home: Path, side: Path, *, manifest: bool = False) -> None:
-    """Copy the reference plugin and console files into ``home``."""
+    """Copy the Hermes plugin directory and the console files into ``home``.
+
+    ``verify.py`` belonged to the reference plugin and is not copied.
+    """
     dst = home / "plugins" / "petasos"
     dist = dst / "dashboard" / "dist"
     dist.mkdir(parents=True)
-    ref = tree / "docs/deployment/reference_plugin"
-    for name in ("__init__.py", "plugin.yaml", "verify.py"):
+    ref = tree / "hermes-plugin" / "petasos"
+    for name in ("__init__.py", "plugin.yaml"):
         shutil.copy2(ref / name, dst / name)
     if manifest:
         shutil.copy2(ref / "pyproject.toml", dst / "pyproject.toml")
