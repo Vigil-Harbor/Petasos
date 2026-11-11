@@ -50,13 +50,20 @@ def test_text_going_out_is_blocked_and_a_coding_role_lets_it_through() -> None:
     assert inbound["decision"] == "flag"
 
 
-def test_a_recursive_delete_is_blocked() -> None:
-    """A terminal call that would delete files recursively is a block."""
-    body = _run(tool="terminal", arguments={"command": "rm -rf /var"})
-    assert body["decision"] == "block"
-    assert body["message"]
-    rules = [finding["rule"] for finding in body["findings"]]
+def test_a_recursive_delete_is_asked_for_general_and_blocked_for_research() -> None:
+    """General asks before a risky command. Research still blocks it."""
+    asked = _run(tool="terminal", arguments={"command": "rm -rf /var"})
+    assert asked["decision"] == "approve"
+    assert "person" in asked["outcome"]["sentence"]
+    rules = [finding["rule"] for finding in asked["findings"]]
     assert "petasos.syntactic.command.destructive-recursive" in rules
+    blocked = _run(
+        tool="terminal",
+        arguments={"command": "rm -rf /var"},
+        candidate={"role": "research"},
+    )
+    assert blocked["decision"] == "block"
+    assert blocked["message"]
 
 
 def test_plain_text_is_allowed() -> None:

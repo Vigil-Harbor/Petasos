@@ -25,6 +25,7 @@ _INTENTIONAL = (
     "was removed",
     "were not applied",
     "disabled wins",
+    "does not start asking",
 )
 
 

@@ -258,14 +258,16 @@ class TestOverrideLoopDirectionScoping:
 
 
 class TestDangerousToolPosture:
-    """Coding waits for approval. Every other role blocks. A typo is refused."""
+    """General and coding ask. Research, support and admin block. A typo is refused."""
 
     def test_default_posture_is_block(self) -> None:
         assert PetasosConfig().tools.dangerous_posture == "block"
 
     def test_builtins(self) -> None:
-        assert resolve({"role": "coding"}).config.tools.dangerous_posture == "approve"
-        for name in ("admin", "support", "general", "research"):
+        for name in ("general", "coding"):
+            posture = resolve({"role": name}).config.tools.dangerous_posture
+            assert posture == "approve", name
+        for name in ("admin", "support", "research"):
             posture = resolve({"role": name}).config.tools.dangerous_posture
             assert posture == "block", name
 

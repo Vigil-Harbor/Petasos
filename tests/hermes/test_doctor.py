@@ -50,7 +50,9 @@ def test_healthy_install_is_protected(
     assert "built-in text checks are running" in out
     assert "not installed" in out
     assert "turned off" in out
-    assert "Dangerous tool calls are blocked" in out
+    assert "Hermes would ask a person" in out
+    assert "Dangerous tool calls wait for a person to confirm them." in out
+    assert "the general job" in out
     assert "Open. The agent can change guardrails with a fresh approval." in out
     assert "30 minutes" in out
     assert "places an agent could change" in out

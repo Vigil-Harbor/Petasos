@@ -65,5 +65,6 @@ def test_migration_does_not_write_the_new_fields() -> None:
     assert migrated.settings["role"] == "support"
     assert migrated.settings["overrides"] == {}
     assert resolve(migrated.settings).config.tools.self_change == "never"
-    assert migrate({}).settings["overrides"] == {}
-    assert resolve(migrate({}).settings).config.tools.self_change == "approve"
+    pinned = migrate({})
+    assert pinned.settings["overrides"] == {"tools": {"dangerous_posture": "block"}}
+    assert resolve(pinned.settings).config.tools.self_change == "approve"

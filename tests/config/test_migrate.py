@@ -3,17 +3,22 @@
 from petasos.config.layers import resolve
 from petasos.config.migrate import migrate
 
+_PINNED_BLOCK = {"tools": {"dangerous_posture": "block"}}
 
-def test_a_default_section_has_empty_overrides() -> None:
+
+def test_a_default_section_keeps_the_old_general_block() -> None:
     result = migrate({})
 
     assert result.settings["enabled"] is True
     assert result.settings["role"] == "general"
     assert result.settings["level"] == "balanced"
-    assert result.settings["overrides"] == {}
+    assert result.settings["overrides"] == _PINNED_BLOCK
     assert result.dropped == ()
-    assert result.notes == ()
-    assert resolve(result.settings).config.fail_mode == "degraded"
+    assert "does not start asking" in result.notes[0]
+    assert "tools.dangerous_posture" in result.notes[0]
+    resolved = resolve(result.settings)
+    assert resolved.config.fail_mode == "degraded"
+    assert resolved.config.tools.dangerous_posture == "block"
 
 
 def test_profile_names_become_roles() -> None:
@@ -45,9 +50,9 @@ def test_exact_level_values_become_that_level() -> None:
     )
 
     assert relaxed.settings["level"] == "relaxed"
-    assert relaxed.settings["overrides"] == {}
+    assert relaxed.settings["overrides"] == _PINNED_BLOCK
     assert strict.settings["level"] == "strict"
-    assert strict.settings["overrides"] == {}
+    assert strict.settings["overrides"] == _PINNED_BLOCK
 
 
 def test_unmatched_level_fields_become_overrides_on_balanced() -> None:
@@ -118,7 +123,7 @@ def test_scanner_switches_and_removed_backends() -> None:
 def test_disabled_wins_when_semgrep_is_also_enabled() -> None:
     result = migrate({"disabled_scanners": ["semgrep"], "semgrep_enabled": True})
 
-    assert result.settings["overrides"] == {}
+    assert result.settings["overrides"] == _PINNED_BLOCK
     assert resolve(result.settings).config.scanners.semgrep.enabled == "off"
     assert any("disabled wins" in note for note in result.notes)
 
@@ -138,7 +143,7 @@ def test_secrets_unknown_keys_and_inert_flags_are_not_copied() -> None:
     )
     rendered = repr(result)
 
-    assert result.settings["overrides"] == {}
+    assert result.settings["overrides"] == _PINNED_BLOCK
     assert result.dropped == (
         "hash_key",
         "session_secret",
@@ -170,8 +175,8 @@ def test_integer_frequency_weights_become_floats() -> None:
 def test_disabling_semgrep_matches_the_default() -> None:
     result = migrate({"semgrep_enabled": False})
 
-    assert result.settings["overrides"] == {}
-    assert result.notes == ()
+    assert result.settings["overrides"] == _PINNED_BLOCK
+    assert any("does not start asking" in note for note in result.notes)
     assert resolve(result.settings).config.scanners.semgrep.enabled == "off"
 
 
@@ -186,6 +191,33 @@ def test_unknown_profile_is_dropped_and_names_the_roles() -> None:
     result = migrate({"profile_name": "night_watch"})
 
     assert result.settings["role"] == "general"
+    assert result.settings["overrides"] == _PINNED_BLOCK
     assert "profile_name" in result.dropped
     assert "night_watch" in result.notes[0]
     assert "code_generation" in result.notes[0]
+    assert any("does not start asking" in note for note in result.notes)
+
+
+def test_an_old_general_profile_is_pinned_to_block_and_says_why() -> None:
+    result = migrate({"profile_name": "general"})
+
+    assert result.settings["role"] == "general"
+    assert result.settings["overrides"] == _PINNED_BLOCK
+    assert resolve(result.settings).config.tools.dangerous_posture == "block"
+    assert "old profile blocked" in result.notes[0]
+    assert "does not start asking" in result.notes[0]
+
+
+def test_a_named_posture_is_kept() -> None:
+    blocked = migrate({"profile_name": "general", "dangerous_tool_posture": "block"})
+    asked = migrate({"profile_name": "general", "dangerous_tool_posture": "approve"})
+    coding = migrate({"profile_name": "code_generation", "dangerous_tool_posture": "block"})
+
+    assert blocked.settings["overrides"] == _PINNED_BLOCK
+    assert blocked.notes == ()
+    assert asked.settings["overrides"] == {}
+    assert asked.notes == ()
+    assert resolve(asked.settings).config.tools.dangerous_posture == "approve"
+    assert coding.settings["overrides"] == _PINNED_BLOCK
+    assert coding.notes == ()
+    assert resolve(coding.settings).config.tools.dangerous_posture == "block"
