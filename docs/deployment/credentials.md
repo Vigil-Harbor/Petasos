@@ -125,23 +125,8 @@ was withheld within the cumulative redaction budget. External network and
 subprocess attempts were blocked during profile setup and exercise; none were
 attempted. The receipt includes source hashes and the exact fixture exclusions.
 
-Reproduce from the Petasos checkout with the host's Python and dependencies:
-
-```text
-# Windows:
-python -S -B scripts/verify_hermes_credentials.py --hermes-source PATH --output receipt.json
-# macOS/Linux (replace python3.X with the host interpreter's version):
-python -S -B scripts/verify_hermes_credentials.py --hermes-source PATH \
-  --site-packages /path/to/venv/lib/python3.X/site-packages --output receipt.json
-```
-
-The [probe](../../scripts/verify_hermes_credentials.py) requires assertions
-enabled. On Windows it locates the interpreter's `Lib/site-packages`; elsewhere,
-or with another dependency layout, supply `--site-packages PATH`. It creates
-temporary profiles, clears inherited credential/configuration environment
-variables, bypasses the startup updater and excludes installed-plugin discovery,
-scanner initialization and first-party telemetry. History writes run separately
-after the concurrent spool writes. No deployed gateway is started or changed.
+The probe script is retired with the reference plugin. Check an install with
+`petasos doctor`. The receipt above is a frozen record of that run.
 
 This closes the isolated executor/approval-hook propagation evidence gap for
 the tested path. It does not verify routing admission, every gateway surface,
@@ -151,7 +136,7 @@ credentials with the coding agent.
 
 This change protects newly written approval text and enforcement reasons.
 It does not rewrite legacy history, sanitize arbitrary third-party log handlers,
-or change the standalone console playground's input/result contract. Host logs,
+or change the Petasos tab's Try it input. Host logs,
 model transcripts, downstream tool output and exported files need their own
 redaction and access-control policies. Scan finding metadata omits matched text,
 but custom scanner messages and errors are not a universal safe-data guarantee.

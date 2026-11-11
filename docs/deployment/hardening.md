@@ -32,13 +32,12 @@ than waving it through (`petasos/config.py:56`).
 - [ ] Treat Petasos verdicts as signals for policy, not as containment.
 - [ ] Run it inside an OS-level sandbox story, not instead of one (§5).
 - [ ] Verify at startup that the scanners you configured actually loaded
-      (the console health panel and scanner init logs tell the truth —
+      (`petasos doctor` and the Petasos tab tell the truth —
       PET-87).
 
 ### Tool-result scan coverage (PET-178)
 
-The reference plugin scans ingestion-tool results through `_transform_tool_result`
-(`docs/deployment/reference_plugin/__init__.py`) via
+Ingestion-tool results are scanned by
 `petasos.session.ingest.scan_ingestion_result`. Below 1,000,000 characters every
 ingesting result is scanned with no unscanned gap: one `Pipeline.inspect()` on a
 2,048-character head, plus overlapping `MinimalScanner.scan` chunks (65,536
@@ -121,20 +120,7 @@ figures are historical; they are not current evidence for this gate.
 
 ## 2. Console binding
 
-The standalone console binds to loopback by design: `serve()` hardcodes
-`host="127.0.0.1"` with default port `8384`
-(`petasos/console/__init__.py:34-39`).
-
-- [ ] Keep it on loopback, or reach it through Tailscale/WireGuard.
-- [ ] Never rebind to `0.0.0.0` or put it behind a plain reverse proxy —
-      the standalone console has **no authentication of its own**.
-- [ ] In Hermes plugin mode the console rides Hermes' own session-token
-      auth (PET-83); the same network posture still applies.
-
-That "no authentication of its own" default is also a self-disarm path: a
-loopback `POST /api/armed` flips the master Equipped bit with zero credentials.
-See section 6 for the full self-disarm / self-tamper threat and the optional
-`PETASOS_CONSOLE_TOKEN` that gates the `/api/*` routes.
+The standalone console is retired. Install the plugin with `petasos hermes install`, check it with `petasos doctor`, and use the Petasos tab in Hermes's dashboard. Hermes authenticates that tab with its own session token. See section 6 for the self-disarm and self-tamper threat.
 
 ## 3. Secrets
 
@@ -142,8 +128,8 @@ Two secrets, both environment-variable-first, never committed config:
 
 | Secret | Purpose | Handling |
 |---|---|---|
-| `PETASOS_SESSION_SECRET` | HMAC session binding (FREQ-03) **and** enforcement-spool integrity (PET-139); see [§3.1](#31-enforcement-spool-integrity-pet-139) | base64 in env; decoded at dashboard init (`petasos/console/hermes/plugin_api.py:65-73`). Invalid base64 → a warning is logged and **session binding is silently disabled** — watch for that log line. |
-| `PETASOS_HASH_KEY` / `hash_key` | HMAC key for hash-mode PII anonymization | env override at `plugin_api.py:75-77`; required non-empty when `anonymize=True` and `redaction_mode="hash"` (`petasos/config.py:139-142`, SCAN-05). |
+| `PETASOS_SESSION_SECRET` | HMAC session binding (FREQ-03) **and** enforcement-spool integrity (PET-139); see [§3.1](#31-enforcement-spool-integrity-pet-139) | base64 in the environment. `petasos/hermes/settings.py` decodes it. Invalid base64 disables HMAC session binding. |
+| `PETASOS_HASH_KEY` / `hash_key` | HMAC key for hash-mode PII anonymization | Read from the environment by `petasos/hermes/settings.py`. Required non-empty when anonymization is on and the mode is hash (`petasos/config/__init__.py`). |
 
 Leak resistance is built in — and worth knowing the exact shape of:
 
@@ -153,8 +139,7 @@ Leak resistance is built in — and worth knowing the exact shape of:
 - `hash_key` is a registered secret field (`petasos/config.py:40`) and
   serializes as `[REDACTED]` whenever `redact_secrets=True`
   (`petasos/config.py:384-385`) — which is how verbose audit snapshots
-  (`petasos/session/audit.py:121`, AUD-03) and console config reads
-  (`petasos/console/server.py:132`) call it.
+  (`petasos/session/audit.py:121`, AUD-03). The dashboard does not return secret values.
 
 **Checklist:**
 
@@ -258,11 +243,9 @@ tampering (that is PET-83's domain).
 | `closed` | Everything in `degraded`, plus early-exit block on CRITICAL findings from the syntactic pre-filter | Strictest posture; latency-sensitive blocking on the always-on layer |
 | `open` | ML failures ignored — content passes with whatever the remaining scanners say | Only if availability beats detection. **Warning:** `open` + an ML outage = syntactic-only coverage, silently. |
 
-**The reference plugin reads this same dial after a failed init.** A process whose scanner
-init failed permanently runs the syntactic fallback under `fail_mode`: under `degraded` it
-allows read-only tools and blocks every other tool call until the process is restarted, with
-no in-process recovery (`_deferred_init` returns early once `_init_error` latches,
-`docs/deployment/reference_plugin/__init__.py:505`). `search_files` is in
+**A failed scanner init reads this same dial.** The enforcer runs the syntactic fallback under `fail_mode` (`petasos.enforce`). Under `degraded` it
+allows read-only tools and blocks every other tool call until init is released.
+`petasos doctor` reports whether the scanners loaded. `search_files` is in
 `READ_ONLY_TOOLS` (PET-179), so the fallback allows it. The fallback
 scans the same parameter text as the healthy guard, to the same cap
 (`_MAX_PARAM_TEXT_LEN` in `petasos/session/guard.py`), in the same direction, and each path
@@ -370,71 +353,17 @@ active-binding confirmation in *Profile changes require a restart* below):
 - **Windows:** `icacls "...\hermes\profiles\*\config.yaml"` should show no write
   grant for the agent's account.
 
-Then ensure neither the standalone console nor the embedded plugin API is
-reachable by the agent's shell or http tools (network-namespace isolation, or no
-shell/http tool in the agent's toolset). Loopback alone is insufficient.
+Then keep Hermes's dashboard out of the agent's shell and http tools
+(network-namespace isolation, or no shell/http tool in the agent's toolset).
+Loopback alone is insufficient.
 
 <!-- petasos-doc-assert: multihome_config_unreachable=all-profile-homes -->
 <!-- petasos-doc-assert: multihome_prestage_threat=equip-or-live-swap -->
 <!-- petasos-doc-assert: config_boundary_mechanism=deployment-posture -->
 
-### Optional console token (`PETASOS_CONSOLE_TOKEN`)
+### Operator authentication
 
-The standalone console reads an optional bearer token from the
-`PETASOS_CONSOLE_TOKEN` environment variable. When it is set to a non-blank
-value, every `/api/*` route (including `POST /api/armed` and `PUT /api/config`,
-plus the config and scan-history reads and the SSE stream) requires an
-`Authorization: Bearer <token>` header; the HTML shell (`GET /`) and `/static`
-assets still load so the page renders.
-
-What it covers, and what it does not:
-
-- It raises the bar against a network-only or non-shell HTTP caller (Vector B).
-- It does **not** defend against an agent that can read the host environment or
-  the config file. Under the common same-uid Hermes deployment the token lives in
-  the agent's own process environment and is readable by a shell-capable agent
-  (which could also just use Vector A). The primary mitigation remains deployment
-  posture (config and console out of reach, separate uid or netns).
-- It is most useful when the console is **not** loopback-only. Keep the section 2
-  binding guidance (loopback, or reach it over Tailscale/WireGuard) even with the
-  token on: the token raises the bar for a network-reachable console but does not
-  replace the network posture.
-
-Operational notes:
-
-- It is **off by default**, and a blank value (empty or whitespace) is also off
-  (a single set-but-blank WARNING is logged). Verify it is on by observing a 401
-  on an unauthenticated `/api` call, not by trusting a log line.
-- The token is compared **verbatim**: do not rely on leading or trailing
-  whitespace being meaningful, trimmed for you, or preserved in transit.
-- The scheme match is case-sensitive (`Bearer`, not `bearer`).
-- With the token on, the bundled browser console now drives the `/api` routes
-  itself (PET-129). Opening the served console shows a clear **authenticate** state
-  (not broken tiles, not skeletons): enter the token in the unlock field and all
-  panels (config, scan, scan-history, armed, SSE) function. A 401 stops the 10
-  second health and fallback polls and renders an honest banner instead of looping,
-  and a "clear token" affordance drops the credential and returns to the
-  authenticate state. An authenticated client or a credential-injecting reverse
-  proxy still works for scripted access, for example:
-  `curl -H "Authorization: Bearer <token>" -H "Content-Type: application/json" -X POST http://127.0.0.1:8384/api/armed -d '{"armed": true}'`.
-- **Where the token lives in the browser:** the console holds the operator-supplied
-  token in `sessionStorage`, so it survives a reload within the tab and is cleared
-  when the tab closes. It is no stronger than the operator's browser session: any
-  script on the origin can read it for the life of that tab. It is never written to
-  `localStorage` (which would persist a bearer indefinitely), and is never read from
-  the server or environment into the page (the operator supplies it in the browser).
-- **Served-UI follow-up (shipped, PET-129):** in-UI token entry, graceful 401
-  handling, equip-banner correctness (a 401'd armed read shows the authenticate
-  state, never a false EQUIPPED), and poll-stop are now in the browser client. This
-  is convenience plus a bar against a network-only or non-shell caller (Vector B);
-  it is **not** a defense against a shell-capable agent that can read the env or
-  config (Vector A), for which the primary mitigation remains deployment posture.
-- **Forward-looking invariant:** the dependency gates by the `/api/` path prefix,
-  so every sensitive route must live under `/api/`. A future non-asset route
-  added outside `/api/` would be served unauthenticated.
-- The event stream pool is small and fixed. A slot is released when its response
-  tears down, so a client that opens `/api/events` and disconnects before the first
-  frame cannot pin one (PET-191).
+The standalone console and its bearer token are retired. Install with `petasos hermes install`, check with `petasos doctor`, and open the Petasos tab in Hermes's dashboard. Hermes's own session token authenticates that tab.
 
 ### The floor that survives a hostile config
 

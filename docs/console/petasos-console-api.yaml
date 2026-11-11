@@ -3,12 +3,11 @@ info:
   title: Petasos Console API
   version: 0.1.0
   description: |
-    API contract for the Petasos Console — the vanilla HTML/JS frontend
-    shipped inside `petasos[console]`.
+    Retired. The standalone console this contract describes is gone.
+    Install with `petasos hermes install`, check with `petasos doctor`,
+    and use the Petasos tab in Hermes's dashboard.
 
-    **Audience:** Frontend implementor building the Console SPA.
-    **Backend:** FastAPI, in-process with the Pipeline. Binds 127.0.0.1 only.
-    **Companion doc:** `petasos-console-frontend-handoff.md` (narrative, sequencing, boundary rules).
+    The paths below are the old contract, kept until the docs rewrite.
 
     ### OSS / Premium boundary
 
