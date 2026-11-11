@@ -6,6 +6,7 @@ a person reads.
 
 from __future__ import annotations
 
+import time
 from types import MappingProxyType
 from typing import TYPE_CHECKING
 
@@ -81,6 +82,8 @@ _KIND_LABELS = MappingProxyType(
         "approval": "Asked a person",
         "bypassed_disarmed": "Let through while paused",
         "selfmod_attempt": "Attempt to change the guardrails",
+        "guardrail": "Guardrail change",
+        "settings_changed": "Settings change",
         "ingest_flagged": "Tool result flagged",
         "ingest_unscanned": "Tool result not checked",
         "init_failed": "Ran with basic checks only",
@@ -142,11 +145,15 @@ def outcome(
         then = _text(follower.get("event_type")) if follower is not None else ""
         # The block itself is its own event; these codes keep the call from
         # being counted twice among the blocks.
-        if then in _STOPPED_KINDS:
+        if then in _STOPPED_KINDS or _guardrail_name(follower) in _GUARDRAIL_BLOCKED:
             return {"code": "attempt_blocked", "label": "Blocked"}
-        if then == "approval":
+        if then == "approval" or _guardrail_name(follower) == "held":
             return {"code": "attempt_asked", "label": "Asked a person"}
+        if _guardrail_name(follower) in {"covered", "session", "once"}:
+            return {"code": "approved", "label": "Allowed for this session"}
         return {"code": "not_stopped", "label": "Not stopped"}
+    if kind == "guardrail":
+        return _guardrail_outcome(event)
     if kind in {"quarantine", "block"}:
         return {"code": "blocked", "label": "Blocked"}
     if kind == "tier3":
@@ -255,6 +262,8 @@ def describe_event(
         return "Used only the basic checks: the extra checks were still starting."
     if kind == "selfmod_attempt":
         verdict = outcome(event, follower)["code"]
+        if _guardrail_name(follower):
+            return describe_event(follower or {})
         if verdict == "attempt_blocked":
             why = _stop_reason(follower)
             return f"Blocked an attempt to change Petasos or Hermes settings, {why}."
@@ -264,6 +273,10 @@ def describe_event(
             "Did not stop an attempt to change Petasos or Hermes settings. "
             "The change may have gone through."
         )
+    if kind == "guardrail":
+        return _guardrail_sentence(event)
+    if kind == "settings_changed":
+        return _settings_sentence(event)
     if kind == "ingest_flagged":
         source = _RESULTS.get(tool) or (f"a {tool} result" if tool else "a tool result")
         found = family or "something that matched a rule"
@@ -290,6 +303,78 @@ def describe_event(
     if tool:
         return f"Recorded a Petasos event for {tool}."
     return "Recorded a Petasos event."
+
+
+_GUARDRAIL_BLOCKED = frozenset({"refused", "unattended", "denied"})
+
+
+def _guardrail_name(event: Mapping[str, object] | None) -> str:
+    if event is None or _text(event.get("event_type")) != "guardrail":
+        return ""
+    return _text(event.get("decision"))
+
+
+def _guardrail_outcome(event: Mapping[str, object]) -> dict[str, str]:
+    name = _guardrail_name(event)
+    if name in _GUARDRAIL_BLOCKED:
+        return {"code": "blocked", "label": "Blocked"}
+    if name == "held":
+        return {"code": "asked", "label": "Asked a person"}
+    if name in {"covered", "session", "once"}:
+        label = "Allowed once" if name == "once" else "Allowed for this session"
+        return {"code": "approved", "label": label}
+    return {"code": "recorded", "label": "Recorded"}
+
+
+def _guardrail_sentence(event: Mapping[str, object]) -> str:
+    name = _guardrail_name(event)
+    when = _until_clause(event.get("until"))
+    if name == "refused":
+        return (
+            "Blocked an attempt to change Petasos or Hermes settings. "
+            "The agent is not allowed to change its own guardrails from the conversation. "
+            "The operator makes those changes from outside the agent."
+        )
+    if name == "unattended":
+        return (
+            "Blocked an attempt to change Petasos or Hermes settings. "
+            "Nobody could be asked to approve it."
+        )
+    if name == "held":
+        return "Asked a person before changing Petasos or Hermes settings."
+    if name == "denied":
+        scope = _text(event.get("scope"))
+        if scope == "timeout":
+            return (
+                "Blocked an attempt to change Petasos or Hermes settings. Nobody answered in time."
+            )
+        return "Blocked an attempt to change Petasos or Hermes settings. A person said no."
+    if name == "once":
+        return "A person allowed one change to Petasos or Hermes settings."
+    if name in {"covered", "session"}:
+        if when:
+            return "Allowed a change to Petasos or Hermes settings for this session, " + when + "."
+        return "Allowed a change to Petasos or Hermes settings for this session."
+    return "Recorded a decision about changing Petasos or Hermes settings."
+
+
+def _until_clause(raw: object) -> str:
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+        return ""
+    return "until " + time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(raw))
+
+
+def _settings_sentence(event: Mapping[str, object]) -> str:
+    paths = event.get("paths")
+    if isinstance(paths, list) and all(isinstance(item, str) for item in paths) and paths:
+        listed = ", ".join(paths)
+    else:
+        listed = "the settings"
+    if event.get("approval_live") is True:
+        tail = "A session approval was live."
+    else:
+        tail = "No session approval was live."
+    return f"Recorded a change to {listed}. {tail}"
 
 
 def _stop_reason(follower: Mapping[str, object] | None) -> str:

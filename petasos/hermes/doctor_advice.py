@@ -207,16 +207,40 @@ def approval_check(resolved: Resolved | None, *, hermes_available: bool) -> Chec
     )
 
 
-def guardrail_check(paths: tuple[str, ...]) -> Check:
-    """The self-protection line. The path list itself is not part of the sentence."""
+def guardrail_words(mode: str, minutes: int) -> tuple[str, str]:
+    """The summary and meaning for open (approve) or blocked (never)."""
+    if mode == "never":
+        return (
+            "Blocked. The agent is not allowed to change guardrails from the conversation.",
+            (
+                "Changes are refused wherever Petasos recognises them. "
+                "A determined agent with a shell could still find a way round. "
+                "The operator changes them from outside the agent."
+            ),
+        )
+    return (
+        "Open. The agent can change guardrails with a fresh approval.",
+        (
+            "A person approves the change for that action or for this session. "
+            f"A session approval lasts {minutes} minutes and does not carry into "
+            "another conversation."
+        ),
+    )
+
+
+def guardrail_check(paths: tuple[str, ...], *, mode: str = "approve", minutes: int = 30) -> Check:
+    """Which of the built states this profile is in. Pinned is not one of them yet.
+
+    ``mode`` is ``approve`` (open) or ``never`` (blocked). The path list stays
+    in the meaning, after the state, so the default report still names it.
+    """
+    summary, meaning = guardrail_words(mode, minutes)
+    places = paths_summary(paths)
     return Check(
         id="guardrail",
         status="info",
-        summary=paths_summary(paths),
-        meaning=(
-            "Whether a change needs a person's approval, is refused, "
-            "or is locked by an administrator is not reported yet."
-        ),
+        summary=summary,
+        meaning=f"{meaning} {places}",
     )
 
 

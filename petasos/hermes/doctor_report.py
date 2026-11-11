@@ -134,7 +134,12 @@ def _build(
     checks.append(approval_check(resolved, hermes_available=hermes_available))
     checks.append(rewriter_check(document))
     paths = current_paths()
-    checks.append(guardrail_check(paths))
+    if resolved is None:
+        mode, minutes = "approve", 30
+    else:
+        mode = resolved.config.tools.self_change
+        minutes = resolved.config.tools.self_change_minutes
+    checks.append(guardrail_check(paths, mode=mode, minutes=minutes))
     detail = _detail(
         home,
         document=document,
