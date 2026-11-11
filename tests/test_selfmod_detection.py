@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from petasos._types import ScanFinding, Severity
+from petasos.config.floors import SELFMOD_BASE_SEVERITY
 from petasos.config.schema import from_mapping
 from petasos.config.sections import PetasosConfig
 from petasos.pipeline import Pipeline
@@ -473,3 +474,33 @@ async def test_guard_without_home_resolves_ambiently(
     guard = ToolCallGuard(Pipeline(config=config), FrequencyTracker(config), config)
     owned = guard.selfmod_target_paths()
     assert os.path.normcase(str(cfg.resolve())) in owned
+
+
+async def test_selfmod_base_severities_match_the_guard(tmp_path: Path) -> None:
+    """A config write stays critical and a config mention stays high."""
+    owned = tmp_path / "profiles" / "gibson" / "config.yaml"
+    owned.parent.mkdir(parents=True)
+    owned.touch()
+    owned_text = os.path.normcase(str(owned.resolve(strict=False)))
+    config = _cfg()
+    pipeline = Pipeline(config=config)
+    tracker = FrequencyTracker(config)
+    guard = ToolCallGuard(pipeline, tracker, config)
+    guard._selfmod_owned_cache = (time.monotonic() + 9999, frozenset({owned_text}))
+
+    write = await guard.evaluate("write_file", {"path": owned_text, "content": "x"}, "s1")
+    mention = await guard.evaluate(
+        "write_file", {"path": "notes.md", "content": f"see {owned_text}"}, "s1"
+    )
+    assert write.selfmod_finding is not None
+    assert mention.selfmod_finding is not None
+    assert (
+        SELFMOD_BASE_SEVERITY["petasos.selfmod.config_write"]
+        == write.selfmod_finding.severity.value
+    )
+    assert write.selfmod_finding.severity is Severity.CRITICAL
+    assert (
+        SELFMOD_BASE_SEVERITY["petasos.selfmod.config_ref"]
+        == mention.selfmod_finding.severity.value
+    )
+    assert mention.selfmod_finding.severity is Severity.HIGH

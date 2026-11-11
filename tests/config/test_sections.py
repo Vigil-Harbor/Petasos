@@ -306,9 +306,6 @@ def test_config_modules_import_nothing_above_the_config_layer() -> None:
     for path in sorted(_CONFIG_ROOT.rglob("*.py")):
         if path.name == "__init__.py" and path.parent == _CONFIG_ROOT:
             continue
-        # The temporary bridge is the one config module that imports profiles.
-        if path.name == "legacy.py":
-            continue
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             modules: list[str | None]

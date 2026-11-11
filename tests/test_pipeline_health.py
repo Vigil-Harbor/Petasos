@@ -10,8 +10,6 @@ import time
 from types import MappingProxyType
 from typing import Any, cast
 
-import pytest
-
 from petasos._types import (
     Alert,
     AuditEvent,
@@ -19,7 +17,6 @@ from petasos._types import (
     Severity,
     severity_rank,
 )
-from petasos.config import PetasosConfig as FlatConfig
 from petasos.config.secrets import Secrets
 from petasos.config.sections import PetasosConfig
 from petasos.pipeline import Pipeline
@@ -171,15 +168,6 @@ def test_a_classifier_error_does_not_raise() -> None:
     )
     match = guard._classify_selfmod("terminal", cast("dict[str, Any]", _BoomParams()))
     assert match is None
-
-
-def test_flat_config_rejects_a_low_tier_a_long_wait_and_a_blank_sink() -> None:
-    with pytest.raises(ValueError, match="tier3 must be >= "):
-        FlatConfig(tier1_threshold=1, tier2_threshold=2, tier3_threshold=10)
-    with pytest.raises(ValueError, match="init_wait_timeout_seconds must be <= 60"):
-        FlatConfig(init_wait_timeout_seconds=61)
-    with pytest.raises(ValueError, match="egress_sink_tools entries"):
-        FlatConfig(egress_sink_tools=("",))
 
 
 def test_unknown_severity_and_audit_dicts_round_trip() -> None:

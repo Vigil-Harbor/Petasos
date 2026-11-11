@@ -948,11 +948,9 @@ class ToolCallGuard:
         """
         tier1 = float(self._config.escalation.tier1)
         if tier1 <= 0:
-            # Reachable degenerate case, not non-finite: _validate_tier_thresholds
-            # rejects NaN/inf but never requires tier1 > 0, so
-            # TierThresholds(0.0, 1.0, 30.0) validates. derive_tier already
-            # returns at least tier1 for every non-negative score under such a
-            # profile, so contributing nothing is coherent.
+            # A zero tier 1 still validates when the three scores ascend.
+            # derive_tier already returns at least tier 1 for every
+            # non-negative score, so contributing nothing is coherent.
             if not self._cap_threshold_warned:
                 self._cap_threshold_warned = True
                 _logger.warning(

@@ -13,11 +13,6 @@ from petasos.session.frequency import FrequencyTracker, FrequencyUpdateResult, S
 from petasos.session.guard import GuardResult, ToolCallGuard
 from petasos.session.ingest import IngestionScanResult, scan_ingestion_result
 from petasos.session.lineage import LineageRegistry
-from petasos.session.profiles import (
-    ProfileResolver,
-    ResolvedProfile,
-    TierThresholds,
-)
 
 __all__ = [
     "Alert",
@@ -32,11 +27,8 @@ __all__ = [
     "LineageRegistry",
     "max_tier",
     "IngestionScanResult",
-    "ProfileResolver",
-    "ResolvedProfile",
     "SessionToken",
     "TIER3_FLOOR",
-    "TierThresholds",
     "ToolCallGuard",
     "evaluate_escalation",
     "evaluate_tier",
