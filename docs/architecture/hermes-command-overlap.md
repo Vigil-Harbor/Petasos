@@ -601,3 +601,35 @@ decides as it does today.
 An upgrade does not loosen anyone's settings without their choosing it.
 `petasos config migrate` writes `tools.dangerous_posture: block` for a
 configuration converted from the old `general` profile, and says so.
+
+## Built
+
+This is what the code does.
+
+The `general` role sets `tools.dangerous_posture` to `approve`. `research`,
+`support`, and `admin` stay `block`. `petasos config migrate` pins `block`
+on a configuration converted as `general`, and the note says the old profile
+blocked and the conversion does not start asking. A section that already
+names `dangerous_tool_posture` keeps that value.
+
+`HostInfo.command_will_be_asked(command)` answers whether the host will put
+that command to a person. The default answers no. The Hermes adapter calls
+`detect_dangerous_command` and reads the same mode, yolo, presence, allowlist,
+session-approval, and container facts section 2 lists. It does not copy the
+pattern list. A missing, moved, or raising detector answers no.
+
+Petasos stands aside only for a `terminal` call whose posture is `approve`,
+whose decision would have been a command-rule finding, when that predicate
+is true, and when the host would not grant the approval with nobody
+attached. It writes a `deferred` event, which Activity reads as "Hermes will
+ask", and leaves the session score alone. The call then proceeds so Hermes's
+prompt is the one a person sees.
+
+Hardline commands are not that case. Hermes refuses them without asking, so
+the predicate answers no and Petasos decides as it does today. The command
+does not become a silent allow: Petasos blocks or asks, and Hermes's floor
+still refuses unless a container backend skips the gate. A container skip
+answers no as well, so Petasos's decision is what stands in front of it.
+Taint, a non-command finding, PII leaving through an egress sink, and a
+degraded parameter scan are not stood aside from. A block posture stays a
+block.

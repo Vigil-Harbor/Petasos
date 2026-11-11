@@ -998,6 +998,34 @@ are a change. `get_managed_dir` (`hermes_cli/managed_scope.py` 45–59) uses
 `HERMES_MANAGED_DIR` when it is set. Assigning `HERMES_HOME` on a command
 that is not `hermes`, and is not an export, is not.
 
+## 15. What counts as yolo, and what the ask predicate reads
+
+Read from the Hermes `v0.23.1` tree in the sandbox copy, and pinned by
+`tests/hermes_host/test_command_will_be_asked.py`. Nothing in that test is
+executed. The command strings are arguments.
+
+`_yolo_active` (`tools/approval.py`) is true when `HERMES_YOLO_MODE` was set
+at import, when the current session's yolo flag is on, or when
+`gateway.session_finite.unattended_turn()` is true. That third source is
+`hermes -z`: a finite turn marked unattended. It is not cron, single-query,
+or a platform `unattended_mode`. The command gate treats it as yolo, so a
+dangerous pattern is approved with no prompt. The study's yolo row is the
+session flag. This is the extra source. The session flag is checked against
+`get_current_session_key(default="")`, not the `"default"` fallback.
+
+`_get_approval_mode` lives on `tools.approval_context`, not on
+`tools.approval`. The gate calls it as `approval_context._get_approval_mode`.
+
+The predicate Petasos calls is `command_will_be_asked` in
+`petasos/hermes/host.py`. It calls `detect_dangerous_command` and then the
+gate's own helpers for the container skip, the hardline floor, the approval
+mode, yolo, the permanent allowlist, `_presence`, and an earlier session
+answer. A hardline match is a refusal, not a prompt, so the predicate is
+false there even when the detector also flags the command. Where the live
+gate prompts, the predicate is true. Where the gate approves without asking,
+it is false. Where `detect_dangerous_command` is missing or raises, it is
+false while the gate, which bound the function at import, can still prompt.
+
 ## What was not run
 
 - No Hermes gateway, no messaging platform, no model provider, and no

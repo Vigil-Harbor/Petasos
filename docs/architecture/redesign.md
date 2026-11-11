@@ -445,7 +445,7 @@ Roles, replacing the five profiles:
 
 | Role | Was | Sets | Suggests |
 |---|---|---|---|
-| `general` | general | nothing | balanced |
+| `general` | general | dangerous posture `approve` | balanced |
 | `coding` | code_generation | suppressions for code-shaped text, confidence floor 0.6, PromptGuard injection downgraded, injection floor scoped to inbound, dangerous posture `approve` | balanced |
 | `research` | research | encoding suppressions, confidence floor 0.7 | relaxed |
 | `support` | customer_service | injection openers raised to critical, extra PII entities | balanced |
@@ -483,8 +483,12 @@ equivalent `Settings`. The library function is `migrate` in
 is no runtime support for the old format.
 
 `profile_name` becomes `role`, using the rename in section 4.2. A missing
-profile, or an explicit null, is `general`, which has the same rule levers as
-no profile. An unknown profile is dropped, and the note names the roles.
+profile, or an explicit null, is `general`. An unknown profile is dropped, and
+the note names the roles. The general role asks before a risky tool call. A
+configuration converted as general did not: the old profile blocked. Migration
+writes `tools.dangerous_posture: block` for that configuration, unless the old
+section already names `dangerous_tool_posture`, and the note says why. An
+upgrade does not start asking on its own.
 `enabled` becomes
 `Settings.enabled`. `host_id` is dropped; the host supplies it beside the
 config.
@@ -670,9 +674,11 @@ Arming is the snapshot's switch, checked on every call.
 `approval_grant()`, an `ApprovalGrant` whose `mode_off`, `yolo`, and `context`
 flags are the combination that would grant an approve with nobody attached
 (any one of them means the enforcer does not hand the host an approve it would
-allow); `rule_always_approved(rule_key)`; `subagent_hooks`; an optional
-`redactor` (`None` means redaction is unavailable); `display_path`; `protected_paths()`, the filesystem paths the agent must not
-modify; and `guardrail_surface()`, the host's labelled paths and command
+allow); `rule_always_approved(rule_key)`; `command_will_be_asked(command)`,
+true only when the host will put that command string to a person, and false
+by default; `subagent_hooks`; an optional `redactor` (`None` means redaction
+is unavailable); `display_path`; `protected_paths()`, the filesystem paths the
+agent must not modify; and `guardrail_surface()`, the host's labelled paths and command
 patterns. The guard uses the path set when it is supplied. Callers that supply
 nothing keep the previous discovery. A recognised guardrail change is decided
 before the rest of the ladder and can only make the outcome stricter. Under
@@ -1089,7 +1095,8 @@ result, Hermes keeps the first in load order, and its bundled
 are enabled.
 
 The order has been run and the overlap measured in
-`docs/architecture/hermes-command-overlap.md`, which is the record for this decision.
+`docs/architecture/hermes-command-overlap.md`. The decision at the end of
+that document is what the code does.
 
 ### 8.6 The dashboard API
 
