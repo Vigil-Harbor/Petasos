@@ -200,6 +200,30 @@ def test_a_settings_change_is_what_hermes_and_the_plugin_read(dashboard: dict[st
     assert read["file"]["overrides"] == overrides
 
 
+def test_requiring_semgrep_is_refused_and_the_stored_settings_stay(
+    dashboard: dict[str, Any],
+) -> None:
+    """A live save of Required Semgrep is refused and the profile is unchanged."""
+    port = dashboard["port"]
+    sandbox = dashboard["sandbox"]
+    home = dashboard["home"]
+    before = _invoke(sandbox, home, _DASHBOARD_HARNESS, {"action": "read_settings"})
+    status, refused = _request(
+        port,
+        "/api/plugins/petasos/settings",
+        method="PUT",
+        token=_TOKEN,
+        body={"overrides": {"scanners": {"semgrep": {"enabled": "on"}}}},
+    )
+    assert status == 400, refused
+    message = refused["error"]["message"]
+    assert "cannot be set to Required" in message
+    assert "lifecycle" not in message.casefold()
+    after = _invoke(sandbox, home, _DASHBOARD_HARNESS, {"action": "read_settings"})
+    assert after["file"] == before["file"]
+    assert after["get_config"] == before["get_config"]
+
+
 def test_a_hook_block_shows_in_activity_and_matches_the_playground(
     dashboard: dict[str, Any],
 ) -> None:
