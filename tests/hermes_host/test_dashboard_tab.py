@@ -101,10 +101,12 @@ def test_the_tab_says_what_the_record_can_show(tab_report: dict[str, Any]) -> No
     """Overview, Activity and the search fields use the words the API serves."""
     overview = tab_report["views"]["overview"]["text"]
     activity = tab_report["views"]["activity"]["text"]
-    assert "Uses every built-in rule" in overview
-    assert "Review current settings" in overview
-    assert "Show changed settings" not in overview
-    assert "Setting changes not stopped" not in overview
+    folded = overview.casefold()
+    assert "uses every built-in rule" in folded
+    # Form buttons are drawn in upper case; the source label is sentence case.
+    assert "review current settings" in folded
+    assert "show changed settings" not in folded
+    assert "setting changes not stopped" not in folded
     assert "signatures verified" in activity
     assert "Signed ·" not in activity
     assert "Conversation risk" in activity
