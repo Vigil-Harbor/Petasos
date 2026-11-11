@@ -26,7 +26,6 @@ from pathlib import Path
 
 import pytest
 
-from petasos.console._config_meta import _FIELD_META, _SECTION_REGISTRY
 from petasos.scanners.minimal import (
     _AGENT_DIRECTIVE_RULE_IDS,
     _COMMAND_RULE_IDS,
@@ -48,8 +47,6 @@ _MARKER_PREFIX = "petasos-doc-assert:"
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _SCANNERS_DOC = _REPO_ROOT / "docs" / "usage" / "scanners.md"
-_CONFIG_DOC = _REPO_ROOT / "docs" / "usage" / "configuration.md"
-_CONSOLE_JS = _REPO_ROOT / "petasos" / "console" / "static" / "petasos-shell.js"
 
 
 def _parse_doc_asserts(
@@ -168,57 +165,6 @@ def test_docs_presidio_default_set_matches_source() -> None:
     )
     assert set(_csv(parsed, "presidio_default")) == set(DEFAULT_PRESIDIO_ENTITIES)
     assert set(_csv(parsed, "presidio_opt_in")) == set(NOISY_OPT_IN_ENTITIES)
-
-
-def test_docs_config_sections_match_meta() -> None:
-    # Regression for PET-128: configuration.md must match the editor's sections
-    # (in render order) and document every editor-surfaced field.
-    parsed = _parse_doc_asserts(
-        _CONFIG_DOC,
-        required=frozenset({"config_sections", "config_field_count", "config_fields"}),
-        int_keys=frozenset({"config_field_count"}),
-    )
-
-    registry_order = [section.key for section in _SECTION_REGISTRY]
-
-    # (a) section list, in render order (tuple position is the contract).
-    assert _csv(parsed, "config_sections") == registry_order
-
-    # (b) the human-facing field count equals the live field total.
-    assert int(parsed["config_field_count"]) == len(_FIELD_META)
-
-    # (c) every field's `section` value has a registry entry. Closes the gap
-    # where a field could carry a section value with no registry entry (the
-    # "unknown" sentinel) yet still count toward the total.
-    assert {meta["section"] for meta in _FIELD_META.values()} == set(registry_order)
-
-    # (d) documented field set matches the live field set, bidirectionally, over
-    # the author-maintained config_fields marker (not an open-ended scan of every
-    # backtick span, which would false-positive on profile/section/enum spans).
-    documented = _csv(parsed, "config_fields")
-    assert set(documented) == set(_FIELD_META)
-    assert int(parsed["config_field_count"]) == len(documented)
-
-    # Forward prose coverage: each documented field appears as a backtick-
-    # delimited token in the prose (marker lines excluded). Backtick delimiting
-    # is required because `presidio_entities` is a substring of
-    # `presidio_entities_extra`; a bare substring match would let the longer
-    # field satisfy the shorter field's check.
-    prose = "\n".join(
-        line
-        for line in _CONFIG_DOC.read_text(encoding="utf-8").splitlines()
-        if _MARKER_PREFIX not in line
-    )
-    for name in documented:
-        assert f"`{name}`" in prose, name
-
-
-def test_docs_links_present_in_console_js() -> None:
-    # Regression for PET-128: the About tab links both usage pages. String pin
-    # only (no DOM/JS execution); guards the surfacing edit against silent loss.
-    js = _CONSOLE_JS.read_text(encoding="utf-8")
-    assert "docs/usage/scanners.md" in js
-    assert "docs/usage/configuration.md" in js
 
 
 # --- Parser fail-loud contract (the silent-drift guard itself) --------------

@@ -51,11 +51,10 @@ _WORKFLOWS_DIR = _REPO_ROOT / ".github" / "workflows"
 _PYPROJECT = _REPO_ROOT / "pyproject.toml"
 
 # PET-106: non-scanner optional-dependency keys that legitimately have no
-# extras-<extra>.yml lane. `all`/`dev` are meta/tooling aggregates; `console`
-# is a frontend extra with no live-model path (brief § Out of scope).
+# extras-<extra>.yml lane. `all` and `dev` are meta/tooling aggregates.
 # Deny-list, not allow-list: a NEW extra is assumed to be a scanner (and thus
 # require a lane) until proven otherwise — fail-closed (spec Decision 2).
-_NON_SCANNER_EXTRAS = frozenset({"all", "dev", "console"})
+_NON_SCANNER_EXTRAS = frozenset({"all", "dev"})
 
 
 # --------------------------------------------------------------------------- #
@@ -407,11 +406,11 @@ def test_pairing_check_empty_extras_returns_no_violations() -> None:
 # --------------------------------------------------------------------------- #
 
 
-def test_all_extra_is_presidio_prompt_guard_and_console() -> None:
-    """``all`` installs the current scanner extras plus the console."""
+def test_all_extra_is_presidio_and_prompt_guard() -> None:
+    """``all`` installs the current scanner extras."""
     with (pathlib.Path(__file__).resolve().parents[1] / "pyproject.toml").open("rb") as f:
         extras = tomllib.load(f)["project"]["optional-dependencies"]
-    assert extras["all"] == ["petasos[presidio,prompt-guard,console]"]
+    assert extras["all"] == ["petasos[presidio,prompt-guard]"]
 
 
 def _matrix(lane: str) -> dict[str, Any]:

@@ -12,7 +12,6 @@ twice, and could not fail on the rename it exists to catch.
 
 from __future__ import annotations
 
-import logging
 import sys
 from typing import TYPE_CHECKING, Any, ClassVar, cast
 
@@ -324,91 +323,6 @@ def test_build_scanners_never_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     assert scanners[0].name == "minimal"
 
 
-# ---------------------------------------------------------------------------
-# Caller formatting (Done-when #4)
-# ---------------------------------------------------------------------------
-
-_FOUR_OUTCOMES: list[ScannerBuildStatus] = [
-    ScannerBuildStatus("prompt_guard", "PromptGuard", "verified"),
-    ScannerBuildStatus("semgrep", "Semgrep", "degraded", "no model"),
-    ScannerBuildStatus("presidio", "Presidio", "missing", "import blew up"),
-    ScannerBuildStatus("extra_backend", "Extra Backend", "failed", "kaboom"),
-]
-
-
-def _patch_build_scanners(
-    monkeypatch: pytest.MonkeyPatch, statuses: list[ScannerBuildStatus]
-) -> None:
-    """Patch on ``petasos.scanners``, NOT on the caller module.
-
-    Both callers import ``build_scanners`` function-locally, and a function-local
-    ``from X import Y`` reads the attribute off ``X`` at call time and binds a
-    local — patching the caller module has no effect (and would raise
-    ``AttributeError``, since the name never lands there).
-    """
-
-    def _fake_build(config: Any) -> tuple[list[Any], list[ScannerBuildStatus]]:
-        return [MinimalScanner()], list(statuses)
-
-    monkeypatch.setattr(_scanners_module(), "build_scanners", _fake_build)
-
-
-class TestCallerFormatting:
-    def test_console_renders_all_four_outcomes(
-        self, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        from petasos.console._standalone import build_dashboard_pipeline
-
-        _patch_build_scanners(monkeypatch, _FOUR_OUTCOMES)
-        with caplog.at_level(logging.DEBUG):
-            build_dashboard_pipeline({})
-
-        rendered = {r.getMessage(): r.levelno for r in caplog.records}
-        assert rendered["Dashboard scanner PromptGuard: backend verified"] == logging.INFO
-        assert (
-            rendered[
-                "Dashboard scanner Semgrep: backend unusable — scanner registered degraded "
-                "(every scan will error): no model. Install the backend's runtime, "
-                "or add semgrep to disabled_scanners."
-            ]
-            == logging.WARNING
-        )
-        assert rendered["Dashboard scanner Presidio: import failed"] == logging.WARNING
-        assert rendered["Dashboard scanner Extra Backend failed: kaboom"] == logging.WARNING
-        # The unavailable list keeps display-name vocabulary.
-        assert any("unavailable=['Semgrep', 'Presidio', 'Extra Backend']" in m for m in rendered)
-
-
-# ---------------------------------------------------------------------------
-# Enforcement parity (Done-when #1)
-# ---------------------------------------------------------------------------
-
-
-class TestEnforcementParity:
-    def test_both_bootstraps_construct_identically(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Regression for PET-174: one non-default config, two bootstraps, one
-        set of Presidio constructor arguments."""
-        from petasos.console._standalone import build_dashboard_pipeline
-
-        fake = _patch_presidio(monkeypatch, _fake_class(scanner_name="presidio"))
-        raw: dict[str, Any] = {
-            "host_id": "test-host",
-            "enabled": True,
-            "presidio_entities": ["US_SSN"],
-            "presidio_entities_extra": ["URL"],
-            "presidio_score_threshold": 0.9,
-            "decode_encoded_payloads": False,
-        }
-
-        console_pipeline = build_dashboard_pipeline(dict(raw))
-
-        assert len(fake.calls) == 1
-        assert fake.calls[0] == {"entities": ["US_SSN", "URL"], "score_threshold": 0.9}
-        minimal = console_pipeline._minimal_scanner
-        assert minimal is not None
-        assert minimal._decode_encoded_payloads is False
-
-
 class TestDisabledScanners:
     def test_disabled_backend_is_skipped_and_still_statused(self) -> None:
         config = PetasosConfig(disabled_scanners=("presidio",))
@@ -470,9 +384,7 @@ class TestPromptGuardUpgradeBehavior:
         )
 
 
-@pytest.mark.parametrize("entrypoint", ["builder", "dashboard", "embedded"])
 def test_semgrep_enabled_without_owner_never_constructs_or_probes(
-    entrypoint: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from petasos.scanners.semgrep import SemgrepScanner
@@ -488,23 +400,9 @@ def test_semgrep_enabled_without_owner_never_constructs_or_probes(
         semgrep_enabled=True,
         disabled_scanners=("presidio", "prompt_guard"),
     )
-    if entrypoint == "builder":
-        scanners, statuses = build_scanners(config)
-        status = _status_by_id(statuses, "semgrep")
-        assert status.outcome == "failed"
-        assert status.reason == "semgrep.host_lifecycle_unavailable"
-        assert [scanner.name for scanner in scanners] == ["minimal"]
-    elif entrypoint == "dashboard":
-        from petasos.console._standalone import build_dashboard_pipeline
-
-        pipeline = build_dashboard_pipeline(config.to_dict())
-        assert not pipeline._ml_scanners
-    elif entrypoint == "embedded":
-        from petasos.console.hermes import plugin_api
-
-        pipelines: list[Pipeline] = []
-        monkeypatch.setattr(plugin_api, "_load_config", config.to_dict)
-        monkeypatch.setattr(plugin_api, "init_handlers", pipelines.append)
-        plugin_api._self_init()
-        assert len(pipelines) == 1 and not pipelines[0]._ml_scanners
+    scanners, statuses = build_scanners(config)
+    status = _status_by_id(statuses, "semgrep")
+    assert status.outcome == "failed"
+    assert status.reason == "semgrep.host_lifecycle_unavailable"
+    assert [scanner.name for scanner in scanners] == ["minimal"]
     assert not calls

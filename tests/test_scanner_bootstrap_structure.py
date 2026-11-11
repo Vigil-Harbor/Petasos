@@ -86,7 +86,9 @@ _ALLOWLIST = frozenset(
 )
 
 # (repo-relative POSIX path, bootstrap function) - invariant 1's targets.
-_BOOTSTRAPS = (("petasos/console/_standalone.py", "build_dashboard_pipeline"),)
+# The console and the reference plugin were the last callers outside the
+# registry. Nothing in the package bootstraps scanners beside compose().
+_BOOTSTRAPS: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)

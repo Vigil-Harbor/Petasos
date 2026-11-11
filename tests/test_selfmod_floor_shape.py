@@ -147,14 +147,13 @@ class TestNoSelfmodConfigField:
                             f"PetasosConfig has a field containing 'selfmod': {item.target.id}"
                         )
 
-    def test_no_selfmod_in_field_meta(self) -> None:
-        source = (_SRC / "console" / "_config_meta.py").read_text(encoding="utf-8")
-        tree = ast.parse(source)
-        for node in ast.walk(tree):
-            if (
-                isinstance(node, ast.Constant)
-                and isinstance(node.value, str)
-                and "selfmod" in node.value.lower()
-            ):
-                msg = f"_config_meta.py contains a selfmod-related string: {node.value!r}"
-                raise AssertionError(msg)
+    def test_no_selfmod_field_in_the_config_tree(self) -> None:
+        root = _SRC / "config" / "sections"
+        for path in sorted(root.glob("*.py")):
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.AnnAssign) or not isinstance(node.target, ast.Name):
+                    continue
+                assert "selfmod" not in node.target.id.lower(), (
+                    f"{path.name} has a field containing 'selfmod': {node.target.id}"
+                )

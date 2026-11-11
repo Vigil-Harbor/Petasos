@@ -73,24 +73,17 @@ _STORE_FINDER = (
 
 
 def install_plugin(tree: Path, home: Path, side: Path, *, manifest: bool = False) -> None:
-    """Copy the Hermes plugin directory and the console files into ``home``.
+    """Copy ``hermes-plugin/petasos`` into ``home`` and prepend a probe to its API.
 
-    ``verify.py`` belonged to the reference plugin and is not copied.
+    The probe records which Petasos the host child imported. ``pyproject.toml``
+    is copied only when ``manifest`` is set, matching the old optional copy.
     """
-    dst = home / "plugins" / "petasos"
-    dist = dst / "dashboard" / "dist"
-    dist.mkdir(parents=True)
     ref = tree / "hermes-plugin" / "petasos"
-    for name in ("__init__.py", "plugin.yaml"):
-        shutil.copy2(ref / name, dst / name)
-    if manifest:
-        shutil.copy2(ref / "pyproject.toml", dst / "pyproject.toml")
-    con = tree / "petasos/console"
-    shutil.copy2(con / "hermes/manifest.json", dst / "dashboard/manifest.json")
-    shutil.copytree(con / "static", dist, dirs_exist_ok=True)
-    shutil.copy2(con / "hermes/petasos-plugin.js", dist / "petasos-plugin.js")
-    # Temp copy only: record which petasos the host child actually imported, and from where.
-    src = (con / "hermes/plugin_api.py").read_text(encoding="utf-8")
+    dst = home / "plugins" / "petasos"
+    shutil.copytree(ref, dst)
+    if not manifest:
+        (dst / "pyproject.toml").unlink()
+    src = (dst / "dashboard" / "plugin_api.py").read_text(encoding="utf-8")
     snippet = (
         "import os as _o, sys as _s, json as _j\n"
         "import petasos as _p\n"
@@ -99,11 +92,7 @@ def install_plugin(tree: Path, home: Path, side: Path, *, manifest: bool = False
         "'HERMES_HOME': _o.environ.get('HERMES_HOME'), 'argv0': _s.argv[0]"
         "}) + chr(10))\n"
     )
-    marker = "from __future__ import annotations\n"
-    src = src.replace("\r\n", "\n")
-    assert marker in src
-    src = src.replace(marker, marker + snippet, 1)
-    (dst / "dashboard/plugin_api.py").write_text(src, encoding="utf-8")
+    (dst / "dashboard/plugin_api.py").write_text(snippet + src, encoding="utf-8")
 
 
 def base_env(
@@ -410,8 +399,7 @@ def check_predictor_conformance(root: Path) -> None:
         collect_directory_manifests,
         resolve_manifest_winners,
     )
-
-    from petasos.console._plugin_files import protection_status
+    from petasos.console._plugin_files import protection_status  # type: ignore[import-not-found]
 
     shapes: dict[str, list[tuple[str, str | None]]] = {
         "no_folder": [],
