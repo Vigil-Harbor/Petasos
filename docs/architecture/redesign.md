@@ -1632,3 +1632,24 @@ auth; classic scripts with no bundler.
    live-appliable cheaply, or stay `restart`.
 3. Whether the console keeps a settings editor once the host renders one, or
    becomes activity and diagnostics only. Decide after the researcher soak.
+
+### Settled by the owner, 2026-11-11
+
+- **Credits and the donation panel** from the old About page go in the
+  README, as a footer. The tab does not carry them. The owner proofreads the
+  README before it is called done.
+- **A list in a layer or an override replaces the list beneath it.** No
+  additive form for now.
+- **Semgrep cannot be required inside Hermes.** Nothing in the adapter owns
+  the engine's lifecycle, so `on` can only fail. The settings form does not
+  offer it, a save that sets it is refused, and `doctor` says so plainly.
+  A hand-written `on` still fails closed, which is what Required means.
+  Running Semgrep inside Hermes is wanted later and is its own package.
+- **No compatibility path for the 0.18 fork**, as section 7 says. Petasos
+  support there is not a goal.
+- **Two switches stay.** Hermes's plugin list decides whether Petasos loads,
+  and Petasos's `enabled` pauses it. The tab offers only Pause. `doctor` and
+  the tab say which of the two is off.
+
+Left for a later polish pass: the light theme's single blue, and which
+product the owner meant as the visual reference.
