@@ -430,3 +430,28 @@ What four rounds show about the method:
 The round 4 defects that are faults and not taste are being fixed in an
 ordinary lane, outside the loop. The rulings stand as the tab's design
 record.
+
+### Owner's decision, 2026-11-10
+
+Stop here, keep Hermes's look, fix what the judges found. A later loop
+should grade from a firmer rubric. What this one suggests that rubric
+needs:
+
+- **Items, not an impression.** A fixed list of checks per criterion, each
+  passed or failed with the screenshot that shows it, and the score derived
+  from the list. Two judges then differ on named items, and a round's gain
+  is the items that changed.
+- **The host's constraints stated as given.** The theme's palette,
+  typefaces and stock controls belong to Hermes. A judge scores how well the
+  tab uses them, and reports a complaint about the host separately.
+- **A side-by-side for improvement.** One judge sees the previous round and
+  the current one, unlabelled and in random order, and says which is better
+  on each item. Absolute scores from fresh judges did not register change.
+- **Precedence between criteria written down first**: honesty about
+  protection, then the casual user's understanding, then fit with Hermes,
+  then general convention and polish. The rulings above arrived at this
+  order one conflict at a time.
+- **Honesty as its own criterion.** The most valuable findings were
+  statements that let someone believe more than was true. They were found
+  under usability; they deserve a judge whose only question is whether each
+  sentence on screen is true in the state shown.
