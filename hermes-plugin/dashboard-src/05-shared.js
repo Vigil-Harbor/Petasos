@@ -93,24 +93,6 @@ function leafCount(tree) {
   return count;
 }
 
-// When a change applies, from the preview's restart flags and the labels.
-function whenItApplies(changes, rows) {
-  var byPath = rowsByPath(rows);
-  var waiting = (changes || []).filter(function (change) {
-    return change.restart;
-  });
-  if (!waiting.length) return "Applies from the agent's next tool call.";
-  var names = waiting.map(function (change) {
-    return rowLabel(byPath[change.path] || { path: change.path });
-  });
-  return (
-    "Waits for Hermes to restart: " +
-    names.join(", ") +
-    ". " +
-    (waiting.length < changes.length ? "The rest applies from the agent's next tool call." : "")
-  ).trim();
-}
-
 // What a change would do, setting by setting: the label and plain sentence
 // above, the value below at full width, where it would come from beneath.
 function ChangeValues(props) {
@@ -181,7 +163,7 @@ function ChangeList(props) {
           change.origin_before !== change.origin_after
             ? " · was " + originText(change.origin_before, props.stored, props.catalog).toLowerCase()
             : "",
-          change.restart ? " · waits for a Hermes restart" : "",
+          change.applies ? " · " + change.applies : "",
           " · ",
           h("span", { className: "petasos-key" }, change.path)
         )

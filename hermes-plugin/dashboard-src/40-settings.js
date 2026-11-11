@@ -356,7 +356,7 @@ function FieldRow(props) {
           h(
             "strong",
             null,
-            (staged ? (row.restart ? "Once saved and Hermes restarts: " : "On save: ") : "") + props.consequence.title + ". "
+            (row.restart ? "Once in use: " : staged ? "On save: " : "") + props.consequence.title + ". "
           ),
           props.consequence.sentence
         )
@@ -432,7 +432,7 @@ function ChangeSheet(props) {
         className: "petasos-sheet",
         title: "What will change",
         titleId: "petasos-sheet-title",
-        description: draft.enabled === false ? "Pausing applies from the agent's next tool call." : whenItApplies(changes, catalog.settings),
+        description: draft.enabled === false ? "Pausing applies from the agent's next tool call." : (preview && preview.applies) || "",
         actions: h(Btn, { ghost: true, onClick: props.onClose, "aria-label": "Close the list of changes" }, "Close"),
       },
       top.length
@@ -635,7 +635,8 @@ function Settings(props) {
     var url = path === "*" ? "/overrides" : "/overrides/" + path;
     call(url, { method: "DELETE" })
       .then(function (body) {
-        afterWrite(body, (body.message || "") + " " + (body.restart_message || ""));
+        var effect = String(body.restart_message || "").replace(/^Reset\.\s*/, "");
+        afterWrite(body, [body.message, effect].filter(Boolean).join(" "));
         props.onSaved(body.settings);
       })
       .catch(function (failure) {
@@ -883,7 +884,8 @@ function Settings(props) {
       h(Icon, { name: "search", className: "petasos-search-icon" }),
       h(C.Input, {
         type: "search",
-        placeholder: "Search settings…",
+        id: "petasos-settings-search",
+        placeholder: "Search settings",
         "aria-label": "Search settings",
         value: searchState[0],
         onChange: function (e) {
@@ -973,20 +975,8 @@ function Settings(props) {
               title: "Saved at " + clockTime(saved.at),
               action: h(Btn, { ghost: true, onClick: function () { savedState[1](null); } }, "Dismiss"),
             },
-            saved.restart.length ? null : h("p", null, "Applies from the agent's next tool call.")
-          ),
-          saved.restart.length
-            ? h(
-                "p",
-                { className: "petasos-restart-note" },
-                h("strong", null, "Waits for a Hermes restart: "),
-                saved.restart
-                  .map(function (path) {
-                    return rowLabel(savedBy[path] || { path: path });
-                  })
-                  .join(", ") + ". Restart Gateway, in the sidebar, restarts Hermes."
-              )
-            : null
+            h("p", null, saved.message)
+          )
         )
       : null,
     lockedAll
@@ -1117,8 +1107,10 @@ function Settings(props) {
               showValue(resetRow.reset_to.value, resetRow) +
               " (" +
               originText(resetRow.reset_to.origin, stored, catalog).toLowerCase() +
-              "). This saves now" +
-              (resetRow.restart ? " and applies after a Hermes restart." : " and applies from the agent's next tool call.")
+              "). This saves now. " +
+              (resetRow.restart
+                ? "An agent started from now on uses this. An agent already running keeps the previous value until it restarts."
+                : "It applies from the agent's next tool call.")
             : "This setting goes back to what the job, the strictness or the default gives. This saves now.",
       confirmLabel: "Reset",
       cancelLabel: "Keep it",

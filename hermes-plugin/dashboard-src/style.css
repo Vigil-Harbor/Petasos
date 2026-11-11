@@ -204,6 +204,11 @@
   gap: 0.6rem 0.9rem;
 }
 
+.petasos-check-note {
+  flex: 1 1 16rem;
+  margin: 0;
+}
+
 .petasos-count {
   font-size: 0.875rem;
   font-weight: 600;
@@ -987,7 +992,7 @@
  * one line when a label wraps. */
 .petasos-stats {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
   gap: 0.9rem 1.5rem;
   margin: 0;
 }
@@ -1288,8 +1293,16 @@
   padding-top: 0.6rem;
 }
 
-.petasos-listbar > .petasos-status {
+.petasos-listbar > .petasos-status,
+.petasos-listbar > .petasos-integrity {
   margin-top: 0.6rem;
+}
+
+.petasos-integrity {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.8rem;
 }
 
 .petasos-split {
@@ -1588,14 +1601,18 @@
 
 .petasos-compare {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1.25rem;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-rows: auto auto auto;
+  column-gap: 1.25rem;
 }
 
 .petasos-compare-cell {
-  display: flex;
-  flex-direction: column;
-  gap: 0.45rem;
+  display: grid;
+  grid-template-rows: subgrid;
+  grid-row: 1 / -1;
+  align-content: start;
+  row-gap: 0.45rem;
+  min-width: 0;
 }
 
 .petasos-compare-cell + .petasos-compare-cell {
@@ -1941,7 +1958,15 @@
 
 .petasos-field-invalid input,
 .petasos-field-invalid textarea {
+  border-width: 2px;
+  border-style: solid;
   border-color: var(--color-destructive) !important;
+}
+
+.petasos-field-invalid input:focus-visible,
+.petasos-field-invalid textarea:focus-visible {
+  outline: 2px solid var(--midground);
+  outline-offset: 2px;
 }
 
 /* Background emphasis only on the field being edited or in error. */
@@ -2003,10 +2028,18 @@
   .petasos-settings-body,
   .petasos-compare {
     grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: none;
+  }
+  .petasos-compare-cell {
+    display: flex;
+    flex-direction: column;
+    grid-row: auto;
   }
   .petasos-compare-cell + .petasos-compare-cell {
     padding-left: 0;
     border-left: 0;
+    padding-top: 0.8rem;
+    border-top: 1px solid var(--color-border);
   }
   .petasos-sections {
     position: static;
