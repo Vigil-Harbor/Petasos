@@ -312,8 +312,11 @@ def test_unavailable_scanner_is_named(
     code, out = _run(monkeypatch, ["doctor", "--home", str(home)], capsys)
 
     assert code == 1
-    assert "Semgrep is installed but cannot be used" in out
-    assert "semgrep.host_lifecycle_unavailable" in out
+    assert "Semgrep cannot run inside Hermes yet." in out
+    assert "It is set to Required, so Petasos is blocking tool calls that change things." in out
+    assert "petasos config set scanners.semgrep.enabled off" in out
+    assert "semgrep.host_lifecycle_unavailable" not in out
+    assert "lifecycle" not in out.casefold()
 
 
 def test_approve_without_a_person_is_called_out(

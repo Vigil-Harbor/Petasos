@@ -14,6 +14,7 @@ from typing import Any
 from petasos.config.layers import resolve
 from petasos.config.schema import ConfigError, leaves
 from petasos.config.sections import PetasosConfig
+from petasos.hermes import semgrep_host
 from petasos.hermes.dashboard.catalog import (
     combine,
     preview_settings,
@@ -52,6 +53,7 @@ def save_settings(
     proposed = combine(stored, candidate)
     before = _resolved_or_none(stored_document(stored))
     after = _require_resolved(proposed)
+    _refuse_semgrep(before, after)
     current = _overrides(stored_document(stored))
     desired = _overrides(proposed)
     _write_document(proposed, current, desired, plugin_dir, write)
@@ -108,6 +110,7 @@ def clear_overrides(
             message="You have no changes of your own to reset.",
             **_view(document, secrets, managed),
         )
+    _refuse_semgrep(before, after)
     _write_overrides(current, desired, plugin_dir, write)
     restart, also_live = _effect(before, after)
     return envelope(
@@ -156,6 +159,16 @@ def _when_message(lead: str, restart: list[str], *, also_live: bool) -> str:
     labels = {row.path: row.label for row in leaves(PetasosConfig)}
     names = [labels.get(path, path) for path in restart]
     return saved_effect(lead, names, also_live=also_live)
+
+
+def _refuse_semgrep(before: Any, after: Any) -> None:
+    """Refuse a document that would leave Semgrep Required inside Hermes."""
+    message = semgrep_host.save_refusal(
+        None if before is None else semgrep_host.semgrep_enabled(before.config),
+        semgrep_host.semgrep_enabled(after.config),
+    )
+    if message is not None:
+        raise ApiError("semgrep_required", message, path=semgrep_host.SEMGREP_ENABLED)
 
 
 def _reject_secrets(candidate: Mapping[str, Any]) -> None:

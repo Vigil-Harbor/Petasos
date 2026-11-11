@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any
 from petasos.config.layers import resolve
 from petasos.config.migrate import Migration, migrate
 from petasos.config.schema import ConfigError
+from petasos.hermes import semgrep_host
 from petasos.hermes.settings import HASH_ENV, SESSION_ENV, write_settings
 
 if TYPE_CHECKING:
@@ -266,6 +267,17 @@ def _store(home: Path, result: Migration) -> tuple[bool, str]:
             f"for this profile, and Hermes reads the plugin description from {manifest}. "
             "Run petasos hermes install first, then petasos config migrate --write."
         )
+    try:
+        resolved = resolve(result.settings)
+    except ConfigError as exc:
+        return False, (
+            "The new settings were not stored. "
+            f"{exc} "
+            "This command does not edit the config file itself."
+        )
+    blocked = semgrep_host.save_refusal(None, semgrep_host.semgrep_enabled(resolved.config))
+    if blocked is not None:
+        return False, blocked + " Nothing was written."
     try:
         write_settings(dict(result.settings), plugin_dir=plugin)
     except Exception as exc:
