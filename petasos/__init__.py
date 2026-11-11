@@ -12,7 +12,7 @@ from petasos._types import (
     ScanResult,
     Severity,
 )
-from petasos.config.legacy import PetasosConfig, ProfileResolver, ResolvedProfile, TierThresholds
+from petasos.config import PetasosConfig
 from petasos.enforce.messages import (
     format_block_message,
     format_content_block,
@@ -63,9 +63,7 @@ __all__ = [
     "Pipeline",
     "PipelineResult",
     "Position",
-    "ProfileResolver",
     "RULE_TAXONOMY",
-    "ResolvedProfile",
     "SessionToken",
     "ScanFinding",
     "ScanResult",
@@ -77,7 +75,6 @@ __all__ = [
     "SemgrepCloseResult",
     "SemgrepCleanupError",
     "close_semgrep_runtime",
-    "TierThresholds",
     "ToolCallGuard",
     "normalize",
     "scan_ingestion_result",

@@ -18,20 +18,26 @@ from __future__ import annotations
 import asyncio
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 from unittest.mock import patch
 
 import pytest
 
-from petasos.config import PetasosConfig
+from petasos.config.layers import resolve
+from petasos.config.schema import from_mapping
+from petasos.config.sections import PetasosConfig
 from petasos.pipeline import Pipeline
 from petasos.session.frequency import FrequencyTracker
 from petasos.session.guard import _SCAN_WEIGHT_CAP_DIVISOR, ToolCallGuard
 from petasos.session.lineage import LineageRegistry
-from petasos.session.profiles import ProfileResolver
 
-if TYPE_CHECKING:
-    from petasos.session.profiles import ResolvedProfile
+_ROLES = {
+    "admin": "admin",
+    "research": "research",
+    "general": "general",
+    "customer_service": "support",
+    "code_generation": "coding",
+}
 
 _CLOCK = "petasos.session.frequency.time.monotonic"
 
@@ -72,10 +78,9 @@ _MAX_WINDOW = _MAX_WINDOW[:8000]
 _TIER_RANK = {"none": 0, "tier1": 1, "tier2": 2, "tier3": 3}
 
 
-def _resolve(profile: str | dict[str, Any] | None) -> ResolvedProfile | None:
-    if profile is None:
-        return None
-    return ProfileResolver().resolve(profile)
+def _role_config(profile: str) -> PetasosConfig:
+    """The role that succeeded ``profile``. Roles do not carry tier thresholds."""
+    return resolve({"role": _ROLES[profile]}).config
 
 
 def _stack(
@@ -86,13 +91,14 @@ def _stack(
     on_alert: Any = None,
     on_audit: Any = None,
 ) -> tuple[PetasosConfig, FrequencyTracker, Pipeline, ToolCallGuard, LineageRegistry | None]:
-    """The shim's exact construction order: registry -> tracker -> pipeline -> guard.
+    """Registry, tracker, pipeline, then guard.
 
-    ``profile`` goes to the GUARD (the enforcement surface D3 sizes the cap
-    from), never to the pipeline — the shipped wiring passes no profile at all,
-    and the ``admin``/``research`` rows are library-contract pins.
+    ``profile`` selects the guard's role. The pipeline keeps ``config``, so a
+    role's suppressions do not change the scan the trajectory measures. The
+    cap is the guard's tier 1, and no role changes that tier.
     """
     cfg = config if config is not None else PetasosConfig()
+    guard_cfg = _role_config(profile) if profile is not None else cfg
     registry: LineageRegistry | None = None
     if lineage:
         registry = LineageRegistry(cfg)
@@ -107,7 +113,7 @@ def _stack(
         on_alert=on_alert,
         on_audit=on_audit,
     )
-    guard = ToolCallGuard(pipeline, tracker, cfg, profile=_resolve(profile), lineage=registry)
+    guard = ToolCallGuard(pipeline, tracker, guard_cfg, lineage=registry)
     return cfg, tracker, pipeline, guard, registry
 
 
@@ -168,25 +174,26 @@ def test_unified_tracker_escalates_through_guard() -> None:
 # 2/6. Done-when 3 — no single scan crosses a tier or terminates, either path
 # ---------------------------------------------------------------------------
 
-_SINGLE_SCAN_SOURCES: list[str | dict[str, Any] | None] = [
-    None,  # bare config
+_SINGLE_SCAN_SOURCES: list[str | None] = [
+    None,
     "admin",
     "research",
     "general",
     "customer_service",
     "code_generation",
-    # The v1 formula's one-scan-kill case: profile-only sizing would publish a
-    # cap of 37.5 here, crossing config tier1 (15) AND tier2 (30) in one scan.
-    {"name": "custom-hi", "tier_thresholds": {"tier1": 150.0, "tier2": 300.0, "tier3": 500.0}},
 ]
 
 
 @pytest.mark.parametrize("source", _SINGLE_SCAN_SOURCES, ids=lambda s: str(s)[:16])
-def test_no_single_scan_crosses_a_tier_or_terminates(source: Any) -> None:
+def test_no_single_scan_crosses_a_tier_or_terminates(source: str | None) -> None:
     _cfg, tracker, pipeline, guard, _reg = _stack()
-    guard = ToolCallGuard(pipeline, tracker, _cfg, profile=_resolve(source))
+    guard = ToolCallGuard(
+        pipeline,
+        tracker,
+        _role_config(source) if source is not None else _cfg,
+    )
     cap = guard.scan_weight_cap
-    assert 0.0 < cap < float(_cfg.tier1_threshold) + 1e-9
+    assert 0.0 < cap < float(guard.config.escalation.tier1) + 1e-9
     with patch(_CLOCK, return_value=1000.0):
         res = _ingest(pipeline, guard, _MAX_WINDOW, "s-one")
         assert res.findings, "the maximally-poisoned window must produce findings"
@@ -198,12 +205,14 @@ def test_no_single_scan_crosses_a_tier_or_terminates(source: Any) -> None:
 
 
 @pytest.mark.parametrize("source", _SINGLE_SCAN_SOURCES, ids=lambda s: str(s)[:16])
-def test_no_single_param_scan_crosses_a_tier_or_terminates(source: Any) -> None:
-    # D5's regression: the measured-89.0 shape as a tool *parameter* through
-    # _guard.evaluate. Both halves of Done-when 3, because admin's cap of 2.5
-    # makes the tier half the tighter one.
+def test_no_single_param_scan_crosses_a_tier_or_terminates(source: str | None) -> None:
+    # The measured-89.0 shape as a tool parameter through the guard.
     _cfg, tracker, pipeline, guard, _reg = _stack()
-    guard = ToolCallGuard(pipeline, tracker, _cfg, profile=_resolve(source))
+    guard = ToolCallGuard(
+        pipeline,
+        tracker,
+        _role_config(source) if source is not None else _cfg,
+    )
     with patch(_CLOCK, return_value=1000.0):
         verdict = asyncio.run(guard.evaluate("write_file", {"text": _MAX_WINDOW}, "s-p1"))
         assert verdict.findings, "the corpus must produce parameter findings"
@@ -395,7 +404,7 @@ def test_weight_cap_contract() -> None:
 
 
 def test_lineage_pinning_survives_unification() -> None:
-    cfg = PetasosConfig(session_ttl_seconds=10.0)
+    cfg = from_mapping(PetasosConfig, {"sessions": {"ttl_seconds": 10.0}})
     _cfg, tracker, pipeline, guard, registry = _stack(config=cfg, lineage=True)
     assert registry is not None
 
@@ -426,7 +435,7 @@ def test_lineage_pinning_survives_unification() -> None:
 def test_ingestion_audit_carries_session() -> None:
     audits: list[Any] = []
     alerts: list[Any] = []
-    cfg = PetasosConfig(audit_verbosity="verbose")
+    cfg = from_mapping(PetasosConfig, {"audit": {"verbosity": "verbose"}})
     _cfg, tracker, pipeline, guard, _reg = _stack(
         config=cfg, on_alert=alerts.append, on_audit=audits.append
     )
@@ -450,7 +459,7 @@ def test_ingestion_audit_carries_session() -> None:
 
 
 def test_rate_limited_scan_with_findings_warns(caplog: pytest.LogCaptureFixture) -> None:
-    cfg = PetasosConfig(max_sessions=1, max_new_sessions_per_minute=1)
+    cfg = from_mapping(PetasosConfig, {"sessions": {"max": 1, "max_new_per_minute": 1}})
     _cfg, tracker, pipeline, guard, _reg = _stack(config=cfg)
     with patch(_CLOCK, return_value=1000.0):
         _ingest(pipeline, guard, _POISON, "s-first")

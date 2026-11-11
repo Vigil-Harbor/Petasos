@@ -82,6 +82,61 @@ These test only the deleted console, the deleted plugin file, or `verify.py`.
 | `tests/test_spec_audit_coverage.py` | It calls `petasos.console.server._extract_field_from_error`. |
 | `tests/enforce_parity/plugin_adapter.py`, and `record.py`'s ability to regenerate `outcomes.json` from the plugin | The record stays. Replay against the enforcer and the Hermes adapter stays. |
 
+## B4c — the flat config, the bridge, the profiles, and the old builder
+
+Class A tests only the deleted code. Class B is live behaviour an existing
+tree test already pins. Class C was rewritten onto the tree and passes beside
+the old modules until those modules go. When a file mixed classes, each test
+is named.
+
+### Class A
+
+| Old test | Why it is only the deleted code |
+|---|---|
+| `tests/config/test_legacy.py` | The bridge: `bind`, profile forms, preserved flat Semgrep fields, the leniencies. |
+| `tests/config/test_legacy_parity.py` except `test_selfmod_base_severities_match_the_guard` | Equality of the flat document, the profile JSON, and the strength presets with the tree. |
+| `tests/scanners/test_legacy_bootstrap_parity.py` | Registration differences between `build_scanners` and `compose`. |
+| `tests/test_config.py` | The flat dataclass: validation, `from_dict`/`to_dict`, secret redaction, bool coercion. Bool rejection and the tier-3 floor are `tests/config/test_schema.py` and `tests/config/test_sections.py`. |
+| `tests/test_profiles.py` | `ProfileResolver` loading, merge, register, and serialisation. |
+| `tests/test_profiles_retained_ref.py` | A caller cannot mutate a parsed profile through the dict it passed in. The tree stores mappings read-only (`tests/config/test_schema.py`). |
+| `tests/test_profiles_suppress.py` except `TestCodeGenerationCommandSuppress` | The profile parser strips unsuppressible rules. The tree rejects them (`tests/config/test_sections.py`, `tests/adversarial/profiles/test_suppress_bypass.py`). |
+| `tests/test_scanner_bootstrap.py` | `build_scanners` outcomes and log-free status records. `auto` plus a missing package is `tests/scanners/test_registry.py`. |
+| `tests/test_scanner_bootstrap.py::TestPromptGuardUpgradeBehavior` | The old builder registered an absent PromptGuard and then fail mode blocked. `compose` does not register `auto` when the probe says absent. |
+| `tests/test_pipeline_health.py::test_list_profiles_names_the_built_ins` | `Pipeline.list_profiles`. The five roles are `tests/config/test_layers.py`. |
+| `tests/test_pipeline_health.py::test_flat_reconfigure_keeps_the_secret_and_names_semgrep`, `test_flat_apply_keeps_an_explicit_legacy_on_the_session_objects` | Flat reconfigure preserving Semgrep fields and a session secret on the flat object. A tree reconfigure keeps `Secrets` (`tests/adversarial/config/test_config_poisoning.py::test_pipeline_replace_preserves_session_secret`). |
+| `tests/test_pipeline_health.py::test_flat_config_rejects_a_low_tier_a_long_wait_and_a_blank_sink` | Flat validation. The tree rejects the same values in `tests/config/test_sections.py`. |
+| `tests/test_hermes_integration_defaults.py::TestConfigFromDictRoundTrip` | Flat `from_dict`: unknown keys dropped, base64 `session_secret`, `detect_rtl_override`. The tree rejects unknown keys. Secrets are bytes beside the config. |
+| `tests/config/test_legacy.py::test_tree_route_matches_the_bridge`, `test_guard_tree_route_matches_the_bridge` | The bridge and the tree agree. `tests/parity` is that proof. |
+| `tests/test_composition_gate.py`, `scripts/hermes_composition_gate.py`, `scripts/hermes_multiprofile_harness.py` | They import `build_scanners` and the flat `from_dict`. Another task owned them. This change made `mypy --strict .` fail on the script, so they were deleted here. |
+
+### Class B
+
+| Old test | Covering test |
+|---|---|
+| `tests/test_hermes_smoke.py` was rewritten in place rather than deleted. The import-and-scan path is also `tests/test_pipeline.py`. | `tests/test_pipeline.py` |
+| The profile-description essay in `tests/test_pet135_codegen_tuning.py::test_codegen_suppression_set_is_exactly_what_we_decided` | The suppress set, confidence floor, severity override, injection scope, and posture stay on that test, read from the coding role. The long JSON description was the profile file. |
+| `tests/test_ingestion_backstop.py` custom profile `tier_thresholds` of 150/300/500 | Roles do not carry tier thresholds. The cap is the tree's tier 1 divided by four (`tests/test_ingestion_backstop.py::test_admin_profile_does_not_lower_the_scan_cap`). |
+
+### Class C
+
+| Old test | New test | What it protects |
+|---|---|---|
+| `tests/test_selfmod_detection.py` | same file, tree config and `tools.aliases` | A hostile alias does not hide a config write. |
+| `tests/test_ingestion_backstop.py` | same file, roles on the guard and tree fields for ttl, audit, and session caps | One scan cannot cross a tier. Admin and research do not change the cap. |
+| `tests/test_pet135_codegen_tuning.py` | same file, `resolve({"role": "coding"})` | Routine coding stays clean, inbound injection still blocks, outbound injection does not, and the downgraded ML finding does not reach a blocking tier. |
+| `tests/test_profiles_suppress.py::TestCodeGenerationCommandSuppress` | same test, coding and general roles | `curl \| sh` stays a finding. A bare pipe does not, under coding. |
+| `tests/adversarial/profiles/test_suppress_bypass.py` register tests | same names, `resolve` | Unknown roles are rejected. Overrides do not replace the built-in role. |
+| `tests/adversarial/normalization/test_unicode_bypass.py::test_fold_leet_not_a_detection_control`, `test_detect_rtl_override_inert_end_to_end` | same names, one tree scan | Leet folding and RTL detection still fire. There is no toggle to contrast. |
+| `tests/adversarial/config/test_config_poisoning.py::test_pipeline_config_isolation` | same test | The pipeline holds the frozen tree it was given. `reconfigure` replaces it. |
+| `tests/config/test_legacy_parity.py::test_selfmod_base_severities_match_the_guard` | `tests/test_selfmod_detection.py::test_selfmod_base_severities_match_the_guard` | A config write is critical and a config mention is high. |
+| `tests/config/test_legacy_parity.py` integer `frequency_weights`, `semgrep_enabled: false`, and an explicit null | `tests/config/test_migrate.py` | An integer weight becomes a float. Disabling Semgrep matches the default. A null is carried into overrides. |
+| `tests/config/test_legacy_parity.py` unknown `entities_extra` | `tests/config/test_sections.py::test_invalid_document_names_the_path` | An unknown extra entity names `scanners.presidio.entities_extra`. |
+| `tests/config/test_legacy.py` hash mode without a key | `tests/config/test_secrets.py::test_hash_mode_without_a_key_is_rejected_where_config_meets_secrets` | The pipeline and `reconfigure` still reject hash mode when `Secrets` has no key. |
+| `tests/test_hermes_integration_defaults.py` live cases | same file, tree plus `Secrets` | An exempt tool can be allowed while its parameters are unsafe. A session secret requires `host_id`. |
+| `tests/test_benchmarks.py` scanner construction | `compose` | The benchmark still measures the composed stack. |
+| `tests/test_scanner_composition.py::test_real_scanners_reach_plugin_decisions` | same test, `Enforcer` | The four real-scanner decisions, for general and coding. Not run: the weights are not on disk. |
+| `tests/test_pipeline_health.py::test_a_classifier_error_does_not_raise` | new, from the flat apply test | A self-modification classifier error is recorded as no match. |
+
 ## Kept, and edited only where a deleted path is named
 
 | File | Edit |

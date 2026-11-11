@@ -32,21 +32,30 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
 from petasos._types import Direction, ScanFinding, ScanResult, Severity
-from petasos.config import PetasosConfig
+from petasos.config.layers import resolve
 from petasos.pipeline import Pipeline
 from petasos.scanners.minimal import (
     _ALL_INJECTION_IDS,
     _COMMAND_RULE_IDS,
     _ENCODING_RULE_IDS,
 )
-from petasos.session.profiles import ProfileResolver
+
+if TYPE_CHECKING:
+    from petasos.config.sections import PetasosConfig
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "pet135_codegen_corpus.json"
+
+
+def _role(name: str) -> PetasosConfig:
+    """The tree for an old profile name. ``code_generation`` is the coding role."""
+    role = "coding" if name == "code_generation" else name
+    return resolve({"role": role}).config
+
 
 # The plugin's block gate (reference_plugin/__init__.py): a non-PII finding at
 # HIGH or CRITICAL on a dangerous tool blocks the call.
@@ -75,16 +84,6 @@ _STRUCTURAL_DEPTH_RULE = "petasos.syntactic.structural.excessive-depth"
 # verbatim and not regenerable. Pin its integrity (count + redaction) so a
 # re-typed / truncated / un-redacted fixture trips review rather than passing.
 _EXPECTED_CORPUS_SIZE = 22
-
-# U+2014 EM DASH. House style bans it in shipped Petasos copy; the freeze test
-# asserts the resolved description does not contain it.
-_EM_DASH = "—"
-
-# Shipped operator copy. Pinned exactly so a future edit that reintroduces an em
-# dash or silently drops the trade-off note trips review. Kept on one line so the
-# equality is character-for-character against the code_generation.json string;
-# E501 is suppressed deliberately for the pin (D-PROFILE-CONTRACT).
-_EXPECTED_DESCRIPTION = "Tuned for coding agents. Suppresses encoding rules and the pipe-to-shell command rule that fire on legitimate code (base64, homoglyphs, pipe-to-shell), raises the confidence floor to 0.6, downgrades the PromptGuard prompt-injection verdict (petasos.promptguard.injection) to non-blocking, and direction-scopes the syntactic injection floor (injection_floor_scope=inbound) so the agent's own outbound tool calls may carry injection-shaped text as data. That classifier flags ordinary outbound tool calls (ls, curl, git status, file searches over security docs, heredocs that process attack strings as data) as injection at confidence 0.5-1.0, so the 0.6 floor cannot tame them; the overrides keep the findings visible for audit (still logged at low, and still counted toward session frequency/escalation, so an armed session may sit at a non-blocking tier1) without blocking. The syntactic injection, role-switch, and agent-directive rules are suppressed on outbound only: an inbound injection attempt (someone trying to manipulate THIS model) still blocks at full strength under this profile. Unlike the ML downgrades, a suppressed outbound injection is dropped before merge: it leaves only a debug-log trace, does not appear in the audit spool, and is not counted toward frequency or escalation. For: code-writing and dev-tooling agents on a trusted operator's own machine. Trade-off: pipe-to-shell stays suppressed, so a bare ... | sh with no fetch or decode stage is not a Petasos finding under this profile (Hermes's own approval patterns still prompt on that literal form); curl/wget ... | sh and base64 -d ... | sh still fire fetch-exec / decode-exec and route to Hermes approval. The other four command rules (destructive-recursive, fetch-exec, decode-exec, alias-escape) stay active. With dangerous_tool_posture=approve they route a dangerous tool call to Hermes approval instead of a Petasos quarantine, keyed by the worst command finding; an unanswered or denied approval fails closed in Hermes. Under YOLO, or on a host without the approve directive, those same findings block. ML prompt-injection on tool-call params no longer blocks, and outbound syntactic injection no longer blocks. The ML injection downgrade is direction-blind, so if this profile is ever used on an inbound surface, ML injection blocking is off there too; the syntactic injection relaxation is direction-scoped, but it is only safe if the host labels untrusted content direction=inbound (the per-call default falls back to config.direction, so keep that set to inbound), and second-order egress (an induced outbound attack payload) is guarded by the egress fence (PET-134/133/112) where that fence is deployed; if it is not present, the second-order egress path is uncovered, so arm this profile only if you accept that residual. Still blocking: structural anomalies (unsuppressible on every direction), inbound syntactic injection, role-switch, and agent-directive rules, Presidio PII egress (PET-135, PET-162), source-taint egress, non-command HIGH findings, and tier-2 or tier-3 escalation."  # noqa: E501
 
 
 def _blocking(findings: tuple[ScanFinding, ...]) -> list[ScanFinding]:
@@ -131,7 +130,7 @@ class TestRoutineCorpusIsClean:
     noisy MinimalScanner rule on this profile."""
 
     async def test_codegen_profile_routine_corpus_is_clean(self) -> None:
-        pipe = Pipeline(config=PetasosConfig(profile_name="code_generation"))
+        pipe = Pipeline(config=_role("code_generation"))
         corpus = _load_corpus()
         assert corpus, "fixture corpus is empty"
         offenders: list[tuple[str, list[str]]] = []
@@ -151,7 +150,7 @@ class TestMlInjectionDowngraded:
 
     async def test_ml_injection_is_nonblocking_under_codegen(self) -> None:
         pipe = Pipeline(
-            config=PetasosConfig(profile_name="code_generation"),
+            config=_role("code_generation"),
             scanners=[_StubInjectionScanner()],
         )
         res = await pipe.inspect("ls -la ~", direction="outbound")
@@ -162,7 +161,7 @@ class TestMlInjectionDowngraded:
 
     async def test_ml_injection_still_blocks_under_general(self) -> None:
         pipe = Pipeline(
-            config=PetasosConfig(profile_name="general"),
+            config=_role("general"),
             scanners=[_StubInjectionScanner()],
         )
         res = await pipe.inspect("ls -la ~", direction="outbound")
@@ -182,16 +181,16 @@ class TestDowngradedInjectionEscalationBound:
     carries 0.0 frequency weight, so current_score stays 0)."""
 
     async def test_codegen_downgraded_injection_does_not_escalate_to_blocking_tier(self) -> None:
-        config = PetasosConfig(profile_name="code_generation")
+        config = _role("code_generation")
         # Guard against a vacuous pass: the hooks that engage the bound must be on
         # (a config that disabled them would yield escalation_tier == None and the
         # rolling window would never run).
-        assert config.frequency_enabled is True
-        assert config.escalation_enabled is True
+        assert config.frequency.enabled is True
+        assert config.escalation.enabled is True
 
         pipe = Pipeline(config=config, scanners=[_StubInjectionScanner()])
         session_id = "pet135-escalation-bound"
-        threshold = config.rolling_threshold
+        threshold = config.frequency.rolling_threshold
         tiers: list[str | None] = []
         for _ in range(threshold):
             res = await pipe.inspect("ls -la ~", direction="outbound", session_id=session_id)
@@ -239,7 +238,7 @@ class TestKeepsRealCatches:
         # floor is now direction-scoped under code_generation. Inbound STILL blocks
         # at full strength; the agent's own outbound tool call carrying the same
         # text as data no longer blocks (the family is suppressed pre-merge).
-        pipe = Pipeline(config=PetasosConfig(profile_name="code_generation"))
+        pipe = Pipeline(config=_role("code_generation"))
 
         inbound = await pipe.inspect(payload, direction="inbound")
         assert any(f.rule_id in _ALL_INJECTION_IDS for f in _blocking(inbound.findings)), (
@@ -273,7 +272,7 @@ class TestKeepsRealCatches:
         # threshold bump fails loudly here rather than silently de-fanging the test,
         # and assert the specific rule_id at CRITICAL.
         deep = "[" * 32 + "]" * 32
-        pipe = Pipeline(config=PetasosConfig(profile_name="code_generation"))
+        pipe = Pipeline(config=_role("code_generation"))
         res = await pipe.inspect(deep, direction="outbound")
         blocking = _blocking(res.findings)
         assert any(
@@ -290,38 +289,19 @@ class TestSuppressionSetIsExactlyDecided:
     the frozen-profile invariant in CLAUDE.md), and pin the shipped description."""
 
     def test_codegen_suppression_set_is_exactly_what_we_decided(self) -> None:
-        profile = ProfileResolver().resolve("code_generation")
-        assert profile.suppress_rules == _EXPECTED_SUPPRESS, (
-            f"suppress_rules drifted: {sorted(profile.suppress_rules)}"
+        config = _role("code_generation")
+        assert set(config.rules.suppress) == _EXPECTED_SUPPRESS, (
+            f"suppress_rules drifted: {sorted(config.rules.suppress)}"
         )
-        assert _RETURNED_COMMAND_IDS.isdisjoint(profile.suppress_rules)
+        assert _RETURNED_COMMAND_IDS.isdisjoint(config.rules.suppress)
         for rule_id in sorted(_RETURNED_COMMAND_IDS):
-            assert rule_id not in profile.suppress_rules
-        assert profile.confidence_floor == _EXPECTED_CONFIDENCE_FLOOR
-        assert dict(profile.severity_overrides) == _EXPECTED_SEVERITY_OVERRIDES, (
-            f"severity_overrides drifted: {dict(profile.severity_overrides)}"
+            assert rule_id not in config.rules.suppress
+        assert config.rules.confidence_floor == _EXPECTED_CONFIDENCE_FLOOR
+        assert dict(config.rules.severity_overrides) == _EXPECTED_SEVERITY_OVERRIDES, (
+            f"severity_overrides drifted: {dict(config.rules.severity_overrides)}"
         )
-        # Description pin (shipped operator copy; PET-135 round 2).
-        assert profile.description == _EXPECTED_DESCRIPTION, (
-            "shipped code_generation description drifted from the spec"
-        )
-        # House style: no em dash (U+2014) in shipped Petasos copy.
-        assert _EM_DASH not in profile.description, (
-            "em dash is banned in profile copy (house style)"
-        )
-        # The key trade-off notes must stay legible to operators.
-        for phrase in (
-            "petasos.promptguard.injection",
-            "direction-blind",
-            "still counted toward session frequency/escalation",
-            "pipe-to-shell stays suppressed",
-            "fire fetch-exec / decode-exec",
-            "dangerous_tool_posture=approve",
-            "Hermes approval",
-        ):
-            assert phrase in profile.description, (
-                f"description dropped trade-off phrase: {phrase!r}"
-            )
+        assert config.rules.injection_floor_scope == "inbound"
+        assert config.tools.dangerous_posture == "approve"
 
 
 class TestCorpusIntegrity:
@@ -354,7 +334,7 @@ class TestReplayDeterminism:
 
     async def test_replay_determinism(self) -> None:
         corpus = _load_corpus()
-        pipe = Pipeline(config=PetasosConfig(profile_name="code_generation"))
+        pipe = Pipeline(config=_role("code_generation"))
         sample = corpus[0]["param_text"]
         first = await pipe.inspect(sample, direction="outbound")
         second = await pipe.inspect(sample, direction="outbound")

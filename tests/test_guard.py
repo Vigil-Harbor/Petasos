@@ -522,7 +522,7 @@ class TestGuardNoProfile:
         tracker = FrequencyTracker(cfg)
         tracker._sessions["s1"] = SessionState(last_score=15.0, last_update=0.0)
 
-        g = ToolCallGuard(pipe, tracker, cfg, profile=None)
+        g = ToolCallGuard(pipe, tracker, cfg)
         result = await g.evaluate("read", {}, "s1")
         assert result.tier in ("none", "tier1", "tier2", "tier3")
 

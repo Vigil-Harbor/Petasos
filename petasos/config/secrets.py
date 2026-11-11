@@ -7,6 +7,24 @@ never includes a value.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from petasos.config.sections import PetasosConfig
+
+
+def require_hash_key(config: PetasosConfig, secrets: Secrets) -> None:
+    """Reject hash-mode anonymization that has no hash key.
+
+    The config tree does not carry the key. The check runs where a config
+    and a ``Secrets`` meet.
+    """
+    anonymization = config.anonymization
+    if anonymization.enabled and anonymization.mode == "hash" and not secrets.hash_key:
+        raise ValueError(
+            "hash_key is required and must be non-empty when "
+            "redaction_mode='hash' and anonymize=True"
+        )
 
 
 @dataclass(frozen=True, slots=True)

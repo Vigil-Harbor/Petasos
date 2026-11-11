@@ -7,10 +7,10 @@ import math
 import threading
 import time
 from collections import OrderedDict, deque
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from petasos.config.legacy import ConfigInput, FlatConfig, Secrets, bind
+from petasos.config.secrets import Secrets
 from petasos.session.escalation import evaluate_tier
 
 if TYPE_CHECKING:
@@ -79,25 +79,24 @@ RATE_LIMITED_RESULT = FrequencyUpdateResult(
 class FrequencyTracker:
     def __init__(
         self,
-        config: ConfigInput,
+        config: PetasosConfig,
         *,
         is_pinned: Callable[[str], bool] | None = None,
         on_terminate: Callable[[str], None] | None = None,
         secrets: Secrets | None = None,
     ) -> None:
-        bound = bind(config, secrets=secrets)
-        frequency = bound.config.frequency
-        sessions = bound.config.sessions
+        held = secrets if secrets is not None else Secrets()
+        frequency = config.frequency
+        sessions = config.sessions
         self._half_life = frequency.half_life_seconds
         self._rolling_window = frequency.rolling_window_seconds
         self._rolling_threshold = frequency.rolling_threshold
         self._max_sessions = sessions.max
         self._session_ttl = sessions.ttl_seconds
         self._max_new_per_minute = sessions.max_new_per_minute
-        self._config = bound.config
-        self._legacy = bound.legacy
-        self._secrets = bound.secrets
-        self._session_secret: bytes | None = bound.secrets.session_secret
+        self._config = config
+        self._secrets = held
+        self._session_secret: bytes | None = held.session_secret
 
         # PET-107: cross-thread access from concurrent delegated children. The
         # RLock guards ALL mutable state (sessions, tombstones, deques). Internal
@@ -147,17 +146,7 @@ class FrequencyTracker:
         """The config tree this tracker reads."""
         return self._config
 
-    @property
-    def legacy_config(self) -> FlatConfig | None:
-        """The flat config most recently supplied, or None when a tree was."""
-        return self._legacy
-
-    def apply_config(
-        self,
-        new_config: ConfigInput,
-        *,
-        legacy: FlatConfig | None = None,
-    ) -> None:
+    def apply_config(self, new_config: PetasosConfig) -> None:
         """Re-read tunables from ``new_config`` in place, preserving session state.
 
         PET-126: the live-reconfigure hook. Re-parses ``frequency_weights`` and
@@ -180,9 +169,8 @@ class FrequencyTracker:
         # Stage: re-run the full weight parse (mirrors __init__). May raise
         # ValueError on a malformed glob key or a negative/non-finite weight;
         # nothing has been mutated yet, so reconfigure aborts cleanly.
-        bound = bind(new_config, secrets=self._secrets)
-        frequency = bound.config.frequency
-        sessions = bound.config.sessions
+        frequency = new_config.frequency
+        sessions = new_config.sessions
         raw_weights = (
             frequency.weights if frequency.weights is not None else DEFAULT_FREQUENCY_WEIGHTS
         )
@@ -217,14 +205,7 @@ class FrequencyTracker:
             self._max_terminated = sessions.max_tombstones
             self._exact_weights = new_exact_weights
             self._glob_weights = new_glob_entries
-            self._config = bound.config
-            if legacy is not None:
-                self._legacy = legacy
-            elif bound.legacy is not None:
-                incoming = bound.legacy
-                if incoming.session_secret != self._secrets.session_secret:
-                    incoming = replace(incoming, session_secret=self._secrets.session_secret)
-                self._legacy = incoming
+            self._config = new_config
             self._enforce_tombstone_cap()
 
     @property

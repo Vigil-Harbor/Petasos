@@ -7,7 +7,6 @@ import hmac
 
 import pytest
 
-import petasos.config as config_mod
 import petasos.config.floors as floors
 from petasos._types import ScanResult
 from petasos.config.schema import ConfigError, from_mapping
@@ -45,7 +44,6 @@ def test_tier3_floor_module_global_mutable(monkeypatch: pytest.MonkeyPatch) -> N
     evaluate_tier.
     """
     monkeypatch.setattr(floors, "TIER3_FLOOR", 5.0)
-    monkeypatch.setattr(config_mod, "TIER3_FLOOR", 5.0)
     with pytest.raises(ConfigError, match="escalation.tier3"):
         from_mapping(
             PetasosConfig,
@@ -82,20 +80,26 @@ def test_evaluate_tier_failsecure_on_low_tier3() -> None:
 
 
 def test_evaluate_tier_ignores_module_mutation(monkeypatch: pytest.MonkeyPatch) -> None:
-    """CFG-04: mutating the floor constant does not bypass evaluate_tier."""
-    monkeypatch.setattr(config_mod, "TIER3_FLOOR", 5.0)
+    """Rebinding the floor constant does not lower the tier evaluate_tier enforces."""
+    monkeypatch.setattr(floors, "TIER3_FLOOR", 5.0)
     assert evaluate_tier(0.0, _owned_escalation(10.0)) == "tier3"
 
 
 def test_pipeline_config_isolation() -> None:
-    """CFG-05: mutating the flat config after construction does not change the
-    tree the pipeline already built from it."""
-    from petasos.config import PetasosConfig as FlatConfig
+    """The pipeline holds the tree it was given.
 
-    cfg = FlatConfig()
+    The tree is frozen, so assignment does not change it. ``reconfigure``
+    replaces the object and leaves the one the caller still holds alone.
+    """
+    cfg = PetasosConfig()
     pipeline = Pipeline(config=cfg)
-    object.__setattr__(cfg, "fail_mode", "open")
-    assert pipeline.config.fail_mode == "degraded"
+    assert pipeline.config is cfg
+    with pytest.raises(AttributeError):
+        cfg.fail_mode = "open"  # type: ignore[misc]
+    pipeline.reconfigure(PetasosConfig(fail_mode="open"))
+    assert pipeline.config is not cfg
+    assert pipeline.config.fail_mode == "open"
+    assert cfg.fail_mode == "degraded"
 
 
 def test_default_configs_share_no_nested_section() -> None:

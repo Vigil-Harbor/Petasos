@@ -141,6 +141,23 @@ class TestImportGuardIntegration:
             importlib.import_module("petasos.scanners")
         assert any("PromptGuardScanner not available" in r.message for r in caplog.records)
 
+    def test_broken_presidio_reraises(self) -> None:
+        original_import = __import__
+
+        def selective_import(name: str, *args: Any, **kwargs: Any) -> Any:
+            if "presidio" in name and "scanners" in name:
+                raise ImportError(name="not_a_backend_dep")
+            return original_import(name, *args, **kwargs)
+
+        sys.modules.pop("petasos.scanners", None)
+        sys.modules.pop("petasos.scanners.presidio", None)
+        with (
+            patch("builtins.__import__", side_effect=selective_import),
+            pytest.raises(ImportError) as exc_info,
+        ):
+            importlib.import_module("petasos.scanners")
+        assert getattr(exc_info.value, "name", None) == "not_a_backend_dep"
+
     def test_missing_presidio_removes_both_from_all(self) -> None:
         original_import = __import__
 

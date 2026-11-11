@@ -3,36 +3,36 @@
 from __future__ import annotations
 
 import ast
+import importlib
 from pathlib import Path
 
-# Still on the flat config or the profiles package. Each one is removed by a
-# later package: the console, the scanner bootstrap, and the session re-export.
-_ALLOWED = {
-    Path("petasos/config/legacy.py"),
-    Path("petasos/config/__init__.py"),
-    Path("petasos/scanners/bootstrap.py"),
-    Path("petasos/session/__init__.py"),
-}
+_REMOVED = (
+    "petasos.config.legacy",
+    "petasos.scanners.bootstrap",
+    "petasos.session.profiles",
+)
+_CONFIG_TYPE = "petasos/config/sections/root.py"
 
 
-def _forbidden(module: str | None) -> bool:
-    if module is None:
-        return False
-    if module == "petasos.config":
-        return True
-    return module == "petasos.session.profiles" or module.startswith("petasos.session.profiles.")
+def test_removed_config_modules_cannot_be_imported() -> None:
+    """The flat config, the bridge, the profiles package, and the old builder are gone."""
+    for name in _REMOVED:
+        try:
+            importlib.import_module(name)
+        except ModuleNotFoundError:
+            continue
+        raise AssertionError(f"{name} still imports")
 
 
-def _imports(tree: ast.AST) -> list[tuple[int, str]]:
-    found: list[tuple[int, str]] = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                if alias.name == "petasos.config" or _forbidden(alias.name):
-                    found.append((node.lineno, alias.name))
-        elif isinstance(node, ast.ImportFrom) and _forbidden(node.module):
-            found.append((node.lineno, node.module or ""))
-    return found
+def test_one_config_type() -> None:
+    """The only class named PetasosConfig is the tree."""
+    found: list[str] = []
+    for path in sorted(Path("petasos").rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef) and node.name == "PetasosConfig":
+                found.append(path.as_posix())
+    assert found == [_CONFIG_TYPE]
 
 
 def _imported_modules(tree: ast.AST) -> list[tuple[int, str]]:
@@ -272,19 +272,6 @@ def test_hermes_state_is_the_registered_enforcer() -> None:
                 if path.name == "plugin.py" and name == _ADAPTER_TABLE:
                     continue
                 offenders.append(f"{path}:{stmt.lineno} mutates module-level {name}")
-    assert offenders == []
-
-
-def test_only_the_bridge_imports_the_flat_config_and_profiles() -> None:
-    """Internals read the config tree. The bridge is the one temporary importer."""
-    offenders: list[str] = []
-    root = Path("petasos")
-    for path in sorted(root.rglob("*.py")):
-        if path in _ALLOWED:
-            continue
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        for line, module in _imports(tree):
-            offenders.append(f"{path}:{line} imports {module}")
     assert offenders == []
 
 

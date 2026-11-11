@@ -1097,10 +1097,10 @@ class TestMinimalScannerError:
 # The three PET-151 normalization toggles are exempt (transcribed, pins already
 # shipped as test_normalize_nfkc_is_an_ml_control and its two siblings above).
 # `hash_key` is exempt with its rationale recorded: it is consumed only under
-# mode == "hash", an engine-path mode, and config.py:233 rejects anonymize=True
-# with redaction_mode="hash" and hash_key=None at construction, so no
-# extras-free configuration exists in which flipping it changes anything. Its
-# caveat rests on the redaction_mode arm plus the read trace.
+# mode == "hash", an engine-path mode, and the pipeline rejects that mode when
+# Secrets has no hash key, so no extras-free configuration exists in which
+# flipping it changes a scan. Its caveat rests on the redaction_mode arm plus
+# the read trace.
 #
 # No arm here requires a scanner extra: the PII positive control is a stub
 # Scanner emitting positioned finding_type="pii" findings, necessary because

@@ -11,7 +11,6 @@ from typing import Any
 
 import pytest
 
-from petasos.config import PetasosConfig as FlatConfig
 from petasos.config.schema import from_mapping
 from petasos.config.secrets import Secrets
 from petasos.config.sections import PetasosConfig
@@ -211,12 +210,10 @@ def test_benchmark_prompt_guard_8wide(benchmark) -> None:  # type: ignore[no-unt
     and the median is invalid when that count is non-zero: both return at far
     lower cost than an inference.
     """
-    from petasos.scanners import build_scanners
+    from petasos.scanners.registry import BuildContext, compose
     from petasos.session.ingest import HEAD_CHARS
 
     _prompt_guard_scanner()
-    # build_scanners still reads the flat config. The pipeline measures the tree.
-    scanners, _statuses = build_scanners(FlatConfig(disabled_scanners=("presidio",)))
     config = from_mapping(
         PetasosConfig,
         {
@@ -227,6 +224,7 @@ def test_benchmark_prompt_guard_8wide(benchmark) -> None:  # type: ignore[no-unt
             },
         },
     )
+    scanners = list(compose(config, BuildContext()).scanners)
     pipe = Pipeline(scanners=scanners, config=config)
     text = _natural(HEAD_CHARS)
     loop = asyncio.new_event_loop()
@@ -251,14 +249,14 @@ def test_benchmark_prompt_guard_8wide(benchmark) -> None:  # type: ignore[no-unt
 def test_benchmark_full_pipeline_migrated(benchmark) -> None:  # type: ignore[no-untyped-def]
     """Minimal, Presidio and PromptGuard. test_benchmark_full_pipeline builds only
     MinimalScanner, so it says nothing about this stack."""
-    from petasos.scanners import build_scanners
+    from petasos.scanners.registry import BuildContext, compose
 
     _prompt_guard_scanner()
-    # build_scanners still reads the flat config. The pipeline measures the tree.
-    scanners, statuses = build_scanners(FlatConfig())
     config = PetasosConfig()
-    if any(s.outcome != "verified" for s in statuses if s.outcome != "disabled"):
-        pytest.skip(f"migrated stack not available: {statuses}")
+    composition = compose(config, BuildContext())
+    scanners = list(composition.scanners)
+    if any(status.state not in {"active", "off"} for status in composition.statuses):
+        pytest.skip(f"migrated stack not available: {composition.statuses}")
     pipe = Pipeline(scanners=scanners, config=config)
     payloads = _prompt_guard_payloads()
     loop = asyncio.new_event_loop()

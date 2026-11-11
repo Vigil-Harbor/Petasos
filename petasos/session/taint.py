@@ -31,7 +31,6 @@ from collections import OrderedDict
 from collections.abc import Iterator, Mapping
 from typing import TYPE_CHECKING, Any
 
-from petasos.config.legacy import ConfigInput, FlatConfig, bind
 from petasos.normalize import normalize
 
 if TYPE_CHECKING:
@@ -117,11 +116,9 @@ def _result_leaf_strings(result: object) -> Iterator[str]:
 class SessionTaintStore:
     """Thread-safe per-session store of normalized tainted spans -> source namespace."""
 
-    def __init__(self, config: ConfigInput) -> None:
-        bound = bind(config)
-        self._config = bound.config
-        self._legacy = bound.legacy
-        self._min_span_len = bound.config.egress.taint_min_span_length
+    def __init__(self, config: PetasosConfig) -> None:
+        self._config = config
+        self._min_span_len = config.egress.taint_min_span_length
         self._lock = threading.Lock()
         # session_id -> ordered { normalized span -> source namespace it came from }.
         # The outer OrderedDict is the global session LRU; the inner one is the
@@ -133,12 +130,7 @@ class SessionTaintStore:
         """The config tree this store reads."""
         return self._config
 
-    @property
-    def legacy_config(self) -> FlatConfig | None:
-        """The flat config most recently supplied, or None when a tree was."""
-        return self._legacy
-
-    def apply_config(self, new_config: ConfigInput, *, legacy: FlatConfig | None = None) -> None:
+    def apply_config(self, new_config: PetasosConfig) -> None:
         """PET-126: rebind the cached FP floor in place under the store lock.
 
         Only rebinds an already-validated scalar (no fallible work), so it cannot
@@ -150,14 +142,9 @@ class SessionTaintStore:
         under the lock ``capture`` reads the floor through, the happens-before for
         the next floor read.
         """
-        bound = bind(new_config)
         with self._lock:
-            self._config = bound.config
-            if legacy is not None:
-                self._legacy = legacy
-            elif bound.legacy is not None:
-                self._legacy = bound.legacy
-            self._min_span_len = bound.config.egress.taint_min_span_length
+            self._config = new_config
+            self._min_span_len = new_config.egress.taint_min_span_length
 
     def capture(self, session_id: str, result: object, source_ns: str) -> None:
         """Taint each floor-clearing leaf of ``result`` for ``session_id``.

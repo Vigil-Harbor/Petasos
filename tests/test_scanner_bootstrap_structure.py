@@ -12,7 +12,7 @@ synthetic sources, then run them against the real repo as a live witness.
 
 Two invariants:
 
-1. Both bootstraps call ``build_scanners`` and construct no scanner themselves.
+1. A bootstrap calls ``compose`` and constructs no scanner itself.
 2. No un-allowlisted site under ``petasos/`` or ``docs/deployment/`` constructs
    any of the four scanner classes, ``MinimalScanner`` included. ``scripts/`` and
    ``tests/`` are out of the sweep by design (replay harnesses and fixtures
@@ -64,7 +64,6 @@ _DEFINITION_MODULES = frozenset(
         "petasos/scanners/presidio.py",
         "petasos/scanners/prompt_guard.py",
         "petasos/scanners/semgrep.py",
-        "petasos/scanners/bootstrap.py",
         "petasos/scanners/registry.py",
     }
 )
@@ -185,14 +184,14 @@ def _find_function(tree: ast.Module, name: str) -> ast.FunctionDef | ast.AsyncFu
     return None
 
 
-def _calls_build_scanners(func: ast.AST) -> bool:
+def _calls_compose(func: ast.AST) -> bool:
     for node in ast.walk(func):
         if not isinstance(node, ast.Call):
             continue
         called = node.func
-        if isinstance(called, ast.Name) and called.id == "build_scanners":
+        if isinstance(called, ast.Name) and called.id == "compose":
             return True
-        if isinstance(called, ast.Attribute) and called.attr == "build_scanners":
+        if isinstance(called, ast.Attribute) and called.attr == "compose":
             return True
     return False
 
@@ -210,15 +209,15 @@ def check_bootstrap_routes(source: str | None, path: str, func_name: str) -> lis
     if func is None:
         return [f"{path}: function {func_name!r} not found — the bootstrap pin cannot run."]
     violations = []
-    if not _calls_build_scanners(func):
+    if not _calls_compose(func):
         violations.append(
-            f"{path}::{func_name} does not call build_scanners — every scanner "
-            f"bootstrap must route through petasos.scanners.build_scanners."
+            f"{path}::{func_name} does not call compose — scanners are built "
+            f"through petasos.scanners.registry.compose."
         )
     for c in _constructions_in(func, path, func_name):
         violations.append(
             f"{path}::{c.function}:{c.lineno} constructs {c.class_name} directly — "
-            f"call build_scanners(config) instead."
+            f"call compose(config) instead."
         )
     return violations
 
@@ -349,7 +348,7 @@ def test_retro_pre_fix_plugin_would_be_flagged() -> None:
     violations = check_bootstrap_routes(
         _PRE_FIX_PLUGIN, "docs/deployment/reference_plugin/__init__.py", "_deferred_init"
     )
-    assert any("build_scanners" in v for v in violations)
+    assert any("compose" in v for v in violations)
     assert any("PresidioScanner" in v for v in violations)
     assert any("MinimalScanner" in v for v in violations)
 
@@ -416,7 +415,7 @@ def test_module_scope_construction_is_reported() -> None:
 def test_definition_modules_are_excluded() -> None:
     """The five defining modules may construct freely; everything else may not."""
     sources = {
-        "petasos/scanners/bootstrap.py": "def build():\n    return MinimalScanner()\n",
+        "petasos/scanners/registry.py": "def build():\n    return MinimalScanner()\n",
         "petasos/scanners/factory.py": "def build():\n    return MinimalScanner()\n",
     }
     violations = check_no_unallowlisted_constructions(sources, _ALLOWLIST)

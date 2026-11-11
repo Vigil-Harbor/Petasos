@@ -5,7 +5,7 @@ import importlib
 import pytest
 
 from petasos._types import PipelineResult
-from petasos.config import PetasosConfig
+from petasos.config.sections import PetasosConfig
 from petasos.pipeline import Pipeline
 
 

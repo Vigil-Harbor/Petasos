@@ -76,7 +76,7 @@ async def inspect_code(engine_path: str, trusted_digest: str) -> None:
         print(result.to_dict())
 ```
 
-Use `build_scanners(config, semgrep_lifecycle=owner)` for config-driven construction.
+Use `compose(config, BuildContext(semgrep_lifecycle=owner))` from `petasos.scanners.registry` for config-driven construction.
 An optional opaque `semgrep_scheduling_key` identifies a profile's queue across
 scanner replacements; the owner and scheduling identity are separate. The owner
 may span caller threads and event loops. Close one scanner with `await

@@ -43,7 +43,7 @@ pip install "petasos[prompt-guard]"  # Meta's PromptGuard 2 on torch + transform
 pip install "petasos[presidio]"      # PII detection + anonymization
 ```
 
-The size above is measured on Windows with Python 3.14, includes the 425 MiB spaCy model, and may be larger on Linux. `petasos[prompt-guard]` needs access to the **gated** PromptGuard 2 model on Hugging Face (about 1.1 GB): a quick one-time approval on the model page plus an HF token or a pre-download. A backend that is registered but not installed blocks all content under the default fail mode, so list what you do not want in `disabled_scanners`. See [scanner setup](https://github.com/Vigil-Harbor/Petasos/blob/master/docs/usage/scanners.md) for the steps.
+The size above is measured on Windows with Python 3.14, includes the 425 MiB spaCy model, and may be larger on Linux. `petasos[prompt-guard]` needs access to the **gated** PromptGuard 2 model on Hugging Face (about 1.1 GB): a quick one-time approval on the model page plus an HF token or a pre-download. A backend left on `auto` is skipped when its package is missing. Set `scanners.<id>.enabled` to `off` to leave one out, or to `on` to keep a failing one in the fail mode. See [scanner setup](https://github.com/Vigil-Harbor/Petasos/blob/master/docs/usage/scanners.md) for the steps.
 
 Requires Python 3.11+.
 
@@ -155,11 +155,11 @@ result = await scanner.scan(text, direction="outbound")
 Each session accumulates a frequency score based on violation history. Recent violations weigh more (exponential decay). The tracker handles rate limiting, TTL-based session expiry, and LRU eviction for memory-bounded operation.
 
 ```python
-from petasos import PetasosConfig
+from petasos.config import PetasosConfig, from_mapping
 
-config = PetasosConfig(
-    frequency_enabled=True,        # default
-    session_ttl_seconds=3600.0,    # 1-hour sessions
+config = from_mapping(
+    PetasosConfig,
+    {"frequency": {"enabled": True}, "sessions": {"ttl_seconds": 3600.0}},
 )
 ```
 </details>
@@ -199,21 +199,15 @@ result.findings           # the ScanFindings from the parameter scan
 <details>
 <summary><strong>Profiles</strong>: tunable security postures</summary>
 
-Five built-in profiles (general, customer_service, code_generation, research, admin) with per-profile severity overrides, tool alias maps, and suppress-rule sets. Custom profiles layer on top via dict merge. Profiles are frozen: built-in profiles cannot be overwritten.
-
-`resolve()` takes either a built-in profile name or a dict (merged onto the `general` base). `pipeline.inspect()` also accepts a `profile=` directly as a name, dict, or resolved profile.
+Five roles (general, support, coding, research, admin) decide which checks matter. A level (relaxed, balanced, strict) sets how soon a conversation's warnings add up. Overrides sit on top. A pipeline is bound to one resolved config. Previewing another role means resolving a second config.
 
 ```python
-from petasos import ProfileResolver
+from petasos.config import resolve
 
-resolver = ProfileResolver()
+coding = resolve({"role": "coding"}).config
+custom = resolve({"role": "general", "overrides": {"rules": {"confidence_floor": 0.8}}}).config
 
-profile = resolver.resolve("code_generation")          # a built-in, by name
-custom  = resolver.resolve({"confidence_floor": 0.8})  # a dict, merged onto `general`
-
-result = await pipeline.inspect(text, profile=profile)
-# or skip the resolver entirely:
-result = await pipeline.inspect(text, profile="code_generation")
+result = await pipeline.inspect(text)
 ```
 </details>
 
@@ -241,41 +235,32 @@ pipeline = Pipeline(
 All configuration lives in a single frozen dataclass. JSON-serializable for frontend binding.
 
 ```python
-from petasos import PetasosConfig
+from petasos.config import PetasosConfig, from_mapping
+from petasos.config.secrets import Secrets
 
-config = PetasosConfig(
-    # Fail mode: "open" | "closed" | "degraded" (default)
-    fail_mode="degraded",
-
-    # Normalization (all default True)
-    normalize_nfkc=True,
-    strip_zero_width=True,
-    map_homoglyphs=True,
-    detect_rtl_override=True,
-
-    # PII anonymization
-    anonymize=True,
-    pii_entities=["PERSON", "EMAIL_ADDRESS", "PHONE_NUMBER", "CREDIT_CARD"],
-    redaction_mode="hash",   # "redact" | "hash" | "mask" | "replace"
-    hash_key="your-hmac-key",  # required when redaction_mode="hash"
-
-    # Session features (all default True)
-    frequency_enabled=True,
-    escalation_enabled=True,
-    tool_guard_enabled=True,
-    audit_enabled=True,
-    alert_enabled=True,
-
-    # Escalation thresholds
-    tier1_threshold=15.0,
-    tier2_threshold=30.0,
-    tier3_threshold=50.0,      # floor: 30.0
-
-    # Scanner timeout + circuit breaker
-    scanner_timeout_seconds=10.0,   # max 60
-    scanner_circuit_breaker_threshold=3,
-    scanner_circuit_breaker_cooldown_seconds=30.0,
+config = from_mapping(
+    PetasosConfig,
+    {
+        "fail_mode": "degraded",  # "open" | "closed" | "degraded"
+        "normalization": {"nfkc": True, "zero_width": True, "homoglyphs": True},
+        "anonymization": {
+            "enabled": True,
+            "entities": ["PERSON", "EMAIL_ADDRESS", "PHONE_NUMBER", "CREDIT_CARD"],
+            "mode": "hash",  # "redact" | "hash" | "mask" | "replace"
+        },
+        "frequency": {"enabled": True},
+        "escalation": {"enabled": True, "tier1": 15.0, "tier2": 30.0, "tier3": 50.0},
+        "tools": {"enabled": True},
+        "audit": {"enabled": True},
+        "alerting": {"enabled": True},
+        "scanners": {
+            "timeout_seconds": 10.0,
+            "breaker_threshold": 3,
+            "breaker_cooldown_seconds": 30.0,
+        },
+    },
 )
+secrets = Secrets(hash_key="your-hmac-key")  # required when anonymization.mode is "hash"
 ```
 </details>
 

@@ -44,6 +44,26 @@ deleted.
   it in a real install. The operator surface is the Petasos tab in Hermes's
   dashboard.
 
+- **Breaking.** The flat `PetasosConfig`, `ProfileResolver`, `ResolvedProfile`,
+  and `TierThresholds`. `from petasos import PetasosConfig` is the config tree.
+  Build one with `PetasosConfig()`, `from_mapping`, or `resolve` (a role, a
+  level, and overrides). Roles are `general`, `coding`, `research`, `support`, and
+  `admin` (the old `code_generation` and `customer_service` names). An old
+  settings document, including `profile_name`, is converted by
+  `petasos config migrate`.
+- **Breaking.** `profile` on `Pipeline`, `Pipeline.inspect`,
+  `Pipeline.reconfigure`, and `ToolCallGuard`. A pipeline is bound to one tree.
+  Pass the resolved config to the constructor. `Pipeline.list_profiles` and
+  `default_profile` are gone.
+- **Breaking.** `legacy_config` on the pipeline, the guard, the frequency
+  tracker, the audit emitter, the alert manager, the lineage registry, and the
+  taint store. `apply_config` no longer takes `legacy`. Reconfigure with a tree.
+  `session_secret` and `hash_key` are `Secrets` passed beside the config, not
+  fields. Hash mode with no hash key is still rejected where the two meet.
+- **Breaking.** `petasos.scanners.build_scanners`, `ScannerBuildStatus`, and
+  `ScannerOutcome`. Build scanners with
+  `petasos.scanners.registry.compose(config, BuildContext())`.
+
 ## Changed
 
 - `Severity.rank` is the one severity scale: info is 0, critical is 4, higher

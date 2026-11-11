@@ -315,8 +315,7 @@ Changes from the 0.5 flat config:
   `enabled`.
 - `profile_name` is replaced by `role` (section 4), which is not part of the
   tree.
-- A `rules` entry that reaches a floor is an error. (Today it is stripped
-  with a warning.) `rules.suppress` may not name a structural or
+- A `rules` entry that reaches a floor is an error. `rules.suppress` may not name a structural or
   self-modification rule, and may name an injection rule only when
   `rules.injection_floor_scope` is `inbound`. `rules.severity_overrides` may
   not target a structural rule at all. A self-modification rule may not be set
@@ -1546,7 +1545,7 @@ de-duplicated here: B4 and C1 rewrite every site that holds one.
 | B2 | `config/sections.py`, `layers.py`, `migrate.py` | B1 |
 | B3 | `scanners/registry.py`, reading the scanner sections B2 defines | B2 |
 | B4a | Internals read the new tree; a temporary bridge keeps old callers working | B2 |
-| B4c | Delete the old config, the bridge, profiles, presets and the old bootstrap | every caller migrated (C1, C3, T) |
+| B4c | Delete the old config, the bridge, profiles, presets and the old bootstrap | **Done** |
 
 The cutover is staged so that the existing test suite checks it.
 
@@ -1568,13 +1567,10 @@ replay with no change to the record; the `admin` and `research`
 guard-with-profile entries become equal to their `plugin:` twins and are
 re-recorded in the same commit.
 
-Callers then move off the old config in parallel, each in its own package:
-the plugin's logic in C1, the console in C3, and the core tests in **T**
-(two or three lanes split by directory, a mechanical rewrite of how tests
-build configs). **B4c** runs when nothing imports the bridge: it deletes the
-old flat config, the bridge, `session/profiles/`, the presets, the old
-bootstrap and the legacy parity tests, and points the parity adapter at the
-new API.
+**B4c is done.** The flat config, the bridge, `session/profiles/`, and the old
+bootstrap are gone. `PetasosConfig` is the tree. The parity adapter builds each
+old profile label through `migrate` and `resolve`. `petasos config migrate` is
+the remaining reader of the old field names.
 
 **Wave C. Structure (C1 and C3 after B4a, alongside T; C2 after C1; C4 after B4c)**
 

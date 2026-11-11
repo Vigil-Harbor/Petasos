@@ -218,6 +218,10 @@ def test_non_positive_tier1_is_accepted_when_the_tiers_still_ascend() -> None:
         ({"scanners": {"presidio": {"entities": []}}}, "scanners.presidio.entities"),
         ({"scanners": {"presidio": {"entities": ["not_a_type"]}}}, "scanners.presidio.entities"),
         (
+            {"scanners": {"presidio": {"entities_extra": ["NOT_A_TYPE"]}}},
+            "scanners.presidio.entities_extra",
+        ),
+        (
             {"scanners": {"presidio": {"entities_extra": "URL"}}},
             "scanners.presidio.entities_extra",
         ),
@@ -305,9 +309,6 @@ def test_config_modules_import_nothing_above_the_config_layer() -> None:
     offenders: list[str] = []
     for path in sorted(_CONFIG_ROOT.rglob("*.py")):
         if path.name == "__init__.py" and path.parent == _CONFIG_ROOT:
-            continue
-        # The temporary bridge is the one config module that imports profiles.
-        if path.name == "legacy.py":
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):

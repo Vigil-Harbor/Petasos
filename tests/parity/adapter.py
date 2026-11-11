@@ -1,40 +1,40 @@
 """The only module in the parity oracle that imports Petasos.
 
 ``scan_text``, ``evaluate_tool_call`` and ``run_session`` return plain
-verdicts. A later cutover re-points this file at the new interfaces and
-leaves the corpus, the recorded verdicts and the replay test alone.
+verdicts. An old profile label, with the flat defaults, goes through
+``migrate`` into settings and ``resolve`` into one config tree.
 
 Single-shot calls inside :func:`batch` share one pipeline per profile and
 clear its frequency table before every call, so cases cannot influence each
 other. :func:`run_session` always builds a new pipeline and keeps it for
 the whole sequence. Verdicts omit timings, scores and free-text reasons.
 
-A profile label ``plugin:<name>`` binds ``<name>`` to the pipeline only.
-The guard is constructed without a profile, as the reference plugin does.
-A bare built-in name is passed to both. ``none`` binds neither.
+A profile label ``plugin:<name>`` resolves ``<name>`` for the pipeline only.
+The guard is resolved with no profile, as the reference plugin did.
+A bare built-in name is resolved for both. ``none`` resolves neither.
 """
 
 from __future__ import annotations
 
 import asyncio
-import os
 from contextlib import contextmanager
 from contextvars import ContextVar
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from petasos.config import PetasosConfig
+from petasos.config.layers import resolve
+from petasos.config.migrate import migrate
 from petasos.hermes.home import HermesConfigResolution
 from petasos.pipeline import Pipeline
 from petasos.session.frequency import FrequencyTracker
 from petasos.session.guard import GuardResult, ToolCallGuard
-from petasos.session.profiles import ProfileResolver, ResolvedProfile
 from tests.parity.load import ALL_PROFILES, expand_args, text_of
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Mapping
 
     from petasos._types import Direction, PipelineResult
+    from petasos.config.sections import PetasosConfig
 
 # Absolute, and long enough for the self-modification owned-path check.
 # The corpus uses this same path. It does not need to exist on disk.
@@ -46,6 +46,14 @@ PARITY_HOME = HermesConfigResolution(
 _PROFILE_NAMES = frozenset({"general", "code_generation", "research", "customer_service", "admin"})
 
 _FindingPairs = list[list[str]]
+
+
+def _tree(profile: str | None) -> PetasosConfig:
+    """The tree ``migrate`` then ``resolve`` makes from flat defaults and a profile name."""
+    section: dict[str, Any] = {}
+    if profile is not None:
+        section["profile_name"] = profile
+    return resolve(migrate(section).settings).config
 
 
 class _Engine:
@@ -63,34 +71,17 @@ class _Engine:
 
     @classmethod
     def build(cls, profile: str | None, *, guard_profile: bool = True) -> _Engine:
-        """Build a pipeline bound to ``profile`` and a guard.
+        """Build a pipeline for ``profile`` and a guard.
 
-        ``guard_profile`` false leaves the guard's profile argument unset even
-        when the pipeline is bound. The reference plugin always does that.
+        ``guard_profile`` false resolves the guard with no profile even when
+        the pipeline has one. The reference plugin always did that.
         """
-        saved = os.environ.pop("PETASOS_LICENSE_KEY", None)
-        try:
-            config = PetasosConfig()
-            tracker = FrequencyTracker(config)
-            resolved: ResolvedProfile | None = None
-            if profile is not None:
-                resolved = ProfileResolver().resolve(profile)
-            pipeline = Pipeline(
-                config=config,
-                profile=resolved,
-                frequency_tracker=tracker,
-            )
-            guard = ToolCallGuard(
-                pipeline,
-                tracker,
-                config,
-                profile=resolved if guard_profile else None,
-                home=PARITY_HOME,
-            )
-            return cls(pipeline, guard, tracker)
-        finally:
-            if saved is not None:
-                os.environ["PETASOS_LICENSE_KEY"] = saved
+        pipeline_config = _tree(profile)
+        guard_config = _tree(profile if guard_profile else None)
+        tracker = FrequencyTracker(pipeline_config)
+        pipeline = Pipeline(config=pipeline_config, frequency_tracker=tracker)
+        guard = ToolCallGuard(pipeline, tracker, guard_config, home=PARITY_HOME)
+        return cls(pipeline, guard, tracker)
 
     @classmethod
     def from_label(cls, label: str) -> _Engine:
