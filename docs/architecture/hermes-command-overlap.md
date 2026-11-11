@@ -575,3 +575,29 @@ the double prompt and still goes soft for the four commands Hermes does
 not flag, and for every `execute_code` script. (d) is the one that uses
 Hermes where Hermes actually decides, and keeps a block where Hermes will
 not.
+
+## Decision, 2026-11-10
+
+The owner chose the asking route. Two things follow, and they are built
+together.
+
+**The general job asks.** `general` sets `tools.dangerous_posture` to
+`approve`, as `coding` already does. A risky tool call is put to a person
+where one can be asked, and is blocked where nobody can: a headless run, a
+cron job, Hermes approvals switched off, yolo, a host with no way to ask.
+`research`, `support` and `admin` keep `block`. A research agent reads and
+has little call for a risky command. A support agent's conversation is
+with an outsider, who must not be the one asked. An admin agent holds
+powerful access.
+
+**Hermes asks once.** Option (d), narrowed: Petasos stands aside for a
+`terminal` call only when its own posture is `approve`, Hermes's detector
+flags the command, and a person will be asked. It records the finding and
+lets Hermes's prompt be the one the person sees. Where the posture is
+`block`, a block stays a block. Where Hermes does not flag the command, or
+would approve it without asking, or the tool is not `terminal`, Petasos
+decides as it does today.
+
+An upgrade does not loosen anyone's settings without their choosing it.
+`petasos config migrate` writes `tools.dangerous_posture: block` for a
+configuration converted from the old `general` profile, and says so.
