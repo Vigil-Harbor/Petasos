@@ -109,14 +109,6 @@ class TestPipelineHooks:
 
 
 class TestPipelineResultFields:
-    def test_escalation_tier_defaults_to_none(self) -> None:
-        result = PipelineResult(safe=True, findings=())
-        assert result.escalation_tier is None
-
-    def test_session_score_defaults_to_none(self) -> None:
-        result = PipelineResult(safe=True, findings=())
-        assert result.session_score is None
-
     async def test_feature_status_enabled_by_config_defaults(self) -> None:
         cfg = _cfg()
         pipe = Pipeline(config=cfg)

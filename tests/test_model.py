@@ -305,3 +305,42 @@ def test_unknown_severity_and_audit_dicts_round_trip() -> None:
     assert event.to_dict()["payload"]["sev"] == "high"
     alert = Alert("a", 1.0, "rule", "high", "s", "msg", payload)
     assert alert.to_dict()["context"]["items"] == [{"nested": 1}]
+
+
+class TestAuditEventConstruction:
+    def test_frozen_dataclass_raises_on_mutation(self) -> None:
+        event = AuditEvent(
+            event_id="abc",
+            timestamp=1.0,
+            session_id="s1",
+            event_type="scan_complete",
+            payload=MappingProxyType({}),
+            sequence_number=0,
+        )
+        with pytest.raises(AttributeError):
+            event.event_id = "xyz"  # type: ignore[misc]
+
+
+class TestAlertConstruction:
+    def test_frozen_dataclass(self) -> None:
+        alert = Alert(
+            alert_id="abc",
+            timestamp=1.0,
+            rule_id="test",
+            severity="high",
+            session_id="s1",
+            message="msg",
+            context=MappingProxyType({}),
+        )
+        with pytest.raises(dataclasses.FrozenInstanceError):
+            alert.alert_id = "xyz"  # type: ignore[misc]
+
+
+class TestPipelineResultFields:
+    def test_escalation_tier_defaults_to_none(self) -> None:
+        result = PipelineResult(safe=True, findings=())
+        assert result.escalation_tier is None
+
+    def test_session_score_defaults_to_none(self) -> None:
+        result = PipelineResult(safe=True, findings=())
+        assert result.session_score is None

@@ -76,18 +76,6 @@ def _freq_result(
 
 
 class TestAuditEventConstruction:
-    def test_frozen_dataclass_raises_on_mutation(self) -> None:
-        event = AuditEvent(
-            event_id="abc",
-            timestamp=1.0,
-            session_id="s1",
-            event_type="scan_complete",
-            payload=MappingProxyType({}),
-            sequence_number=0,
-        )
-        with pytest.raises(AttributeError):
-            event.event_id = "xyz"  # type: ignore[misc]
-
     def test_all_fields_populated(self) -> None:
         emitter = AuditEmitter(_cfg())
         event = emitter.emit(_result(), "s1", None)

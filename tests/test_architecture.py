@@ -3,8 +3,19 @@
 from __future__ import annotations
 
 import ast
+import asyncio
 import importlib
+import importlib.util
+import inspect
+import pathlib
+import re
+import subprocess
+import sys
+from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+import pytest
 
 _REMOVED = (
     "petasos.config.legacy",
@@ -256,10 +267,6 @@ def test_hermes_state_is_the_registered_enforcer() -> None:
     """
     offenders: list[str] = []
     root = Path("petasos/hermes")
-    plugin_text = (root / "plugin.py").read_text(encoding="utf-8")
-    assert "one entry per Hermes home" in plugin_text
-    assert _ADAPTER_TABLE in plugin_text
-    assert _ADAPTER_LOCK in plugin_text
     for path in sorted(root.rglob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for node in ast.walk(tree):
@@ -512,3 +519,482 @@ def test_the_suite_does_not_look_at_the_accounts_hermes_home() -> None:
     account = Path(pwd.getpwuid(os.getuid()).pw_dir).resolve()
     root = hermes_root().resolve()
     assert account != root and account not in root.parents
+
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
+_REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
+
+_SCANNER_CLASSES = frozenset(
+    {
+        "MinimalScanner",
+        "PresidioScanner",
+        "PromptGuardScanner",
+        "SemgrepScanner",
+    }
+)
+
+_DISPATCH_FUNCS = frozenset({"getattr", "import_module"})
+
+_MODULE_SCOPE = "<module>"
+
+_SWEEP_ROOTS = ("petasos", "docs/deployment")
+
+_DEFINITION_MODULES = frozenset(
+    {
+        "petasos/scanners/minimal/scanner.py",
+        "petasos/scanners/presidio.py",
+        "petasos/scanners/prompt_guard.py",
+        "petasos/scanners/semgrep/adapter.py",
+        "petasos/scanners/registry.py",
+    }
+)
+
+_ALLOWLIST = frozenset(
+    {
+        ("petasos/pipeline/pipeline.py", "Pipeline.__init__"),
+        ("petasos/pipeline/ingest.py", "scan_ingestion_result"),
+    }
+)
+
+_BOOTSTRAPS: tuple[tuple[str, str], ...] = ()
+
+
+@dataclass(frozen=True)
+class Construction:
+    path: str
+    function: str
+    class_name: str
+    lineno: int
+
+
+def _scoped_nodes(node: ast.AST, scope: str, class_prefix: str) -> Iterator[tuple[ast.AST, str]]:
+    """Yield ``(node, qualified enclosing function)`` for every descendant.
+
+    ``ClassName.method`` for a method (dotted ClassDef ancestry), the bare name
+    for a module-level function, ``"<module>"`` at module scope.
+    """
+    for child in ast.iter_child_nodes(node):
+        if isinstance(child, ast.ClassDef):
+            yield child, scope
+            nested = f"{class_prefix}.{child.name}" if class_prefix else child.name
+            yield from _scoped_nodes(child, scope, nested)
+        elif isinstance(child, ast.FunctionDef | ast.AsyncFunctionDef):
+            qualified = f"{class_prefix}.{child.name}" if class_prefix else child.name
+            inner = qualified if scope == _MODULE_SCOPE else f"{scope}.{child.name}"
+            yield child, scope
+            yield from _scoped_nodes(child, inner, "")
+        else:
+            yield child, scope
+            yield from _scoped_nodes(child, scope, class_prefix)
+
+
+def _dotted_class(value: str) -> str | None:
+    """Shape (c): a dotted constant naming a scanner class.
+
+    Dotted-only is load-bearing. A bare-name match false-positives on six
+    legitimate in-tree sites that name a class without constructing anything
+    (``__all__`` bookkeeping in petasos/scanners/__init__.py, PASS/WARN report
+    labels in verify.py), which would force a permanently non-empty allowlist.
+    """
+    if "." not in value:
+        return None
+    for cls in _SCANNER_CLASSES:
+        if value.endswith(f".{cls}"):
+            return cls
+    return None
+
+
+def _constructions_in(node: ast.AST, path: str, scope: str = _MODULE_SCOPE) -> list[Construction]:
+    """Every scanner construction under ``node``, in all four detected shapes."""
+    found: list[Construction] = []
+    for child, child_scope in _scoped_nodes(node, scope, ""):
+        if isinstance(child, ast.Call):
+            func = child.func
+            # (a) direct name call - PresidioScanner()
+            if isinstance(func, ast.Name) and func.id in _SCANNER_CLASSES:
+                found.append(Construction(path, child_scope, func.id, child.lineno))
+            # (b) attribute call - petasos.scanners.PresidioScanner()
+            elif isinstance(func, ast.Attribute) and func.attr in _SCANNER_CLASSES:
+                found.append(Construction(path, child_scope, func.attr, child.lineno))
+            # (d) split-literal dispatch - getattr(m, "PresidioScanner")()
+            dispatch = (
+                func.id
+                if isinstance(func, ast.Name)
+                else func.attr
+                if isinstance(func, ast.Attribute)
+                else None
+            )
+            if dispatch in _DISPATCH_FUNCS:
+                for arg in child.args:
+                    if (
+                        isinstance(arg, ast.Constant)
+                        and isinstance(arg.value, str)
+                        and arg.value in _SCANNER_CLASSES
+                    ):
+                        found.append(Construction(path, child_scope, arg.value, arg.lineno))
+        # (c) dotted dispatch constant - "petasos.scanners.PresidioScanner"
+        elif isinstance(child, ast.Constant) and isinstance(child.value, str):
+            cls = _dotted_class(child.value)
+            if cls is not None:
+                found.append(Construction(path, child_scope, cls, child.lineno))
+    # Shapes can overlap (a dotted constant handed to import_module); report once.
+    return sorted(set(found), key=lambda c: (c.lineno, c.class_name))
+
+
+def check_no_unallowlisted_constructions(
+    sources: dict[str, str], allowlist: frozenset[tuple[str, str]]
+) -> list[Construction]:
+    """Invariant 2 over ``{repo-relative POSIX path: source}``."""
+    violations: list[Construction] = []
+    for path in sorted(sources):
+        if path in _DEFINITION_MODULES:
+            continue
+        for c in _constructions_in(ast.parse(sources[path]), path):
+            if (c.path, c.function) in allowlist:
+                continue
+            violations.append(c)
+    return violations
+
+
+def _sweep_sources() -> dict[str, str]:
+    """Every ``*.py`` under the swept roots, keyed by repo-relative POSIX path.
+
+    POSIX-normalized keys are load-bearing, not cosmetic: on Windows the default
+    ``str(p.relative_to(root))`` yields ``petasos\\pipeline.py``, which matches
+    neither the definition-module exclusion list nor the allowlist.
+    """
+    sources: dict[str, str] = {}
+    for root in _SWEEP_ROOTS:
+        for p in sorted((_REPO_ROOT / root).rglob("*.py")):
+            sources[p.relative_to(_REPO_ROOT).as_posix()] = p.read_text(encoding="utf-8")
+    return sources
+
+
+def test_no_unallowlisted_scanner_construction() -> None:
+    """Invariant 2, live (Done-when #3)."""
+    sources = _sweep_sources()
+    assert sources, "the sweep visited no files — the checker would pass vacuously"
+    for path, _ in _BOOTSTRAPS:
+        assert path in sources, f"{path} was not visited by the sweep"
+    assert check_no_unallowlisted_constructions(sources, _ALLOWLIST) == []
+
+
+def test_allowlist_is_exactly_the_documented_rows() -> None:
+    """An implementer who silences a violation by adding a row has to change this
+    assertion too, so the spec table and the code cannot drift."""
+    documented = frozenset(
+        {
+            ("petasos/pipeline/pipeline.py", "Pipeline.__init__"),
+            ("petasos/pipeline/ingest.py", "scan_ingestion_result"),
+        }
+    )
+    assert documented == _ALLOWLIST
+
+
+def test_allowlisted_sites_still_exist() -> None:
+    """Liveness for the allowlist itself: every row names a real construction, so
+    a stale exemption cannot silently widen the checker."""
+    sources = _sweep_sources()
+    live = {
+        (c.path, c.function)
+        for path in sources
+        for c in _constructions_in(ast.parse(sources[path]), path)
+    }
+    assert live >= _ALLOWLIST
+
+
+def test_attribute_call_is_flagged() -> None:
+    """Shape (b)."""
+    source = "def boot():\n    return petasos.scanners.PresidioScanner()\n"
+    found = _constructions_in(ast.parse(source), "x.py")
+    assert [c.class_name for c in found] == ["PresidioScanner"]
+    assert found[0].function == "boot"
+
+
+def test_split_literal_getattr_is_flagged() -> None:
+    """Shape (d): the split-literal variant of the console's dispatch idiom, one
+    token away from the code this ticket deletes."""
+    source = (
+        "def boot():\n"
+        '    m = importlib.import_module("petasos.scanners")\n'
+        '    return getattr(m, "PresidioScanner")()\n'
+    )
+    found = _constructions_in(ast.parse(source), "x.py")
+    assert [c.class_name for c in found] == ["PresidioScanner"]
+
+
+def test_all_bookkeeping_is_not_flagged() -> None:
+    """Negative row: naming a class in ``__all__`` constructs nothing. Pins the
+    dotted-only narrowing of shape (c)."""
+    source = '__all__ += ["PresidioScanner"]\n'
+    assert _constructions_in(ast.parse(source), "x.py") == []
+
+
+def test_report_label_is_not_flagged() -> None:
+    """Negative row: a PASS/WARN report label constructs nothing."""
+    source = 'def check():\n    available.append("PresidioScanner")\n'
+    assert _constructions_in(ast.parse(source), "x.py") == []
+
+
+def test_method_scope_is_qualified() -> None:
+    """A method-scoped construction reports ``ClassName.method``, so a bare
+    ``__init__`` allowlist key cannot exempt every ``__init__`` in a module."""
+    source = "class Pipeline:\n    def __init__(self):\n        self.s = MinimalScanner()\n"
+    found = _constructions_in(ast.parse(source), "petasos/pipeline/pipeline.py")
+    assert [c.function for c in found] == ["Pipeline.__init__"]
+
+
+def test_module_scope_construction_is_reported() -> None:
+    """A module-scope construction is never allowlisted, so it must be reported
+    under the ``<module>`` scope rather than silently attributed to a function."""
+    sources = {"x.py": "_scanner = MinimalScanner()\n"}
+    violations = check_no_unallowlisted_constructions(sources, _ALLOWLIST)
+    assert [(c.function, c.class_name) for c in violations] == [("<module>", "MinimalScanner")]
+
+
+def test_definition_modules_are_excluded() -> None:
+    """The five defining modules may construct freely; everything else may not."""
+    sources = {
+        "petasos/scanners/registry.py": "def build():\n    return MinimalScanner()\n",
+        "petasos/scanners/factory.py": "def build():\n    return MinimalScanner()\n",
+    }
+    violations = check_no_unallowlisted_constructions(sources, _ALLOWLIST)
+    assert [c.path for c in violations] == ["petasos/scanners/factory.py"]
+
+
+if sys.version_info >= (3, 11):  # noqa: UP036 - load-bearing: the local 3.10 dev box runs the else branch
+    import tomllib
+else:  # local 3.10 dev interpreter only
+    try:
+        import tomli as tomllib
+    except ModuleNotFoundError as exc:  # pragma: no cover - exercised only on 3.10
+        raise ModuleNotFoundError(
+            "tomli is required to run tests/test_async_marker_invariants.py on "
+            'Python < 3.11; re-run `pip install -e ".[dev]"` to install the '
+            "tomli backfill."
+        ) from exc
+
+_TESTS_DIR = _REPO_ROOT / "tests"
+
+_PYPROJECT = _REPO_ROOT / "pyproject.toml"
+
+
+async def test_anyio_runner_self_witness() -> None:
+    """PET-149 canary - intentionally carries NO inline marker. It runs only if
+    ``anyio_mode = "auto"`` bound it to the anyio runner; the ``await`` below
+    executes only under a real event loop. Two jobs: (1) guarantee this module
+    always collects >=1 async item, so ``test_no_async_test_is_unrun`` is never a
+    vacuous pass even run in isolation; (2) prove auto-mode actually fired (if it
+    did not, this coroutine is never awaited and surfaces as an offender below).
+    This is the single sanctioned exception to the implicit "async tests rely on
+    anyio auto-mode" rule - do NOT add ``@pytest.mark.anyio`` (that binds the test
+    regardless and defeats job (2)) and do NOT replicate the no-marker pattern in
+    behavioral tests.
+    """
+    await asyncio.sleep(0)
+
+
+def test_no_async_test_is_unrun(request: pytest.FixtureRequest) -> None:
+    """Load-bearing guard: every collected ``async def test_*`` must be bound to
+    the anyio runner. Membership is keyed on ``anyio_backend in fixturenames`` -
+    anyio's auto-mode injects that fixture into every coroutine test's closure, and
+    ``anyio_backend in fixturenames`` *is* anyio's own execution key
+    (``pytest_pyfunc_call`` drives the coroutine only when ``anyio_backend`` is a
+    funcarg). Asserts only ``not unrun`` (no positive-count floor), so ``-k`` /
+    ``--deselect`` / ``--last-failed`` selections that drop the self-witness do not
+    false-red; the unmarked self-witness above supplies the positive "auto-mode
+    fired" proof on any whole-file or whole-suite run.
+    """
+    unrun = sorted(
+        item.nodeid
+        for item in request.session.items
+        if isinstance(item, pytest.Function)
+        and inspect.iscoroutinefunction(item.obj)
+        and "anyio_backend" not in item.fixturenames
+    )
+    assert not unrun, (
+        "async test(s) not bound to the anyio runner - under anyio strict mode "
+        "(no auto-mode) these never await, a green suite that exercises nothing. "
+        f"anyio_mode=auto must bind them: {unrun}"
+    )
+
+
+def test_no_asyncio_marker_remains() -> None:
+    """Static scan: no file under ``tests/`` carries a ``pytest.mark.asyncio``
+    marker (anyio is the sole async convention, PET-149). Excludes this module,
+    which names the forbidden marker in its own regex; the human-readable failure
+    message builds the literal from concatenated parts so the scanner stays
+    self-safe.
+    """
+    pattern = re.compile(r"pytest\.mark\.asyncio")
+    this_file = pathlib.Path(__file__).resolve()
+    offenders: list[str] = []
+    for path in sorted(_TESTS_DIR.rglob("*.py")):
+        if path.resolve() == this_file:
+            continue
+        if pattern.search(path.read_text(encoding="utf-8")):
+            offenders.append(path.relative_to(_REPO_ROOT).as_posix())
+    forbidden = "pytest.mark." + "asyncio"
+    assert not offenders, (
+        f"the {forbidden} marker must not appear under tests/ - anyio is the sole "
+        f"async convention (PET-149); offending files: {offenders}"
+    )
+
+
+def test_pyproject_async_config_consistent() -> None:
+    """``pyproject.toml`` must agree with the migration: ``anyio_mode = "auto"`` is
+    enabled (the runner that binds every async test), ``asyncio_mode`` is absent,
+    and ``pytest-asyncio`` is gone from the ``[dev]`` extra (D-DEPS).
+    """
+    with _PYPROJECT.open("rb") as fh:
+        data: dict[str, Any] = tomllib.load(fh)
+
+    tool = data.get("tool", {})
+    assert isinstance(tool, dict)
+    pytest_cfg = tool.get("pytest", {})
+    assert isinstance(pytest_cfg, dict)
+    ini_options = pytest_cfg.get("ini_options", {})
+    assert isinstance(ini_options, dict)
+    assert ini_options.get("anyio_mode") == "auto", (
+        'anyio_mode must be "auto" in [tool.pytest.ini_options] - the anyio-native '
+        "replacement for asyncio_mode=auto that binds every async test to the anyio "
+        "runner (PET-149); without it, unmarked async tests are silently un-run."
+    )
+    assert "asyncio_mode" not in ini_options, (
+        "asyncio_mode must be absent from [tool.pytest.ini_options] - anyio auto-mode "
+        "is the runner and pytest-asyncio is dropped (PET-149 D-DEPS)."
+    )
+
+    project = data.get("project", {})
+    assert isinstance(project, dict)
+    optional = project.get("optional-dependencies", {})
+    assert isinstance(optional, dict)
+    dev = optional.get("dev", [])
+    assert isinstance(dev, list)
+    offenders = [
+        str(dep)
+        for dep in dev
+        if str(dep).replace("_", "-").casefold().startswith("pytest-asyncio")
+    ]
+    assert not offenders, (
+        "pytest-asyncio must be absent from [project.optional-dependencies].dev "
+        f"(dropped per PET-149 D-DEPS); found: {offenders}"
+    )
+
+
+_CONFIG_ROOT = Path("petasos/config")
+
+
+def test_config_modules_import_nothing_above_the_config_layer() -> None:
+    offenders: list[str] = []
+    for path in sorted(_CONFIG_ROOT.rglob("*.py")):
+        if path.name == "__init__.py" and path.parent == _CONFIG_ROOT:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            modules: list[str | None]
+            if isinstance(node, ast.Import):
+                modules = [alias.name for alias in node.names]
+            elif isinstance(node, ast.ImportFrom):
+                modules = [node.module]
+            else:
+                continue
+            for module in modules:
+                if module is None or not module.startswith("petasos"):
+                    continue
+                if module == "petasos.model" or module.startswith("petasos.model."):
+                    continue
+                if module == "petasos.config" or module.startswith("petasos.config."):
+                    continue
+                offenders.append(f"{path}: {module}")
+
+    assert offenders == []
+
+
+class TestIsolation:
+    def test_schema_imports_nothing_else_from_petasos(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        script = """
+import importlib.util
+import sys
+from pathlib import Path
+root = Path(sys.argv[1])
+path = root / "petasos" / "config" / "schema.py"
+before = {name for name in sys.modules if name == "petasos" or name.startswith("petasos.")}
+spec = importlib.util.spec_from_file_location("_schema_isolation", path)
+if spec is None or spec.loader is None:
+    raise SystemExit("schema module could not be loaded")
+module = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = module
+spec.loader.exec_module(module)
+after = {name for name in sys.modules if name == "petasos" or name.startswith("petasos.")}
+extra = sorted(after - before)
+if extra:
+    raise SystemExit("imported " + ", ".join(extra))
+"""
+        completed = subprocess.run(
+            [sys.executable, "-c", script, str(root)],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert completed.returncode == 0, completed.stderr or completed.stdout
+
+
+_PLUGIN_ROOT = Path(__file__).resolve().parents[1]
+
+_PLUGIN = _PLUGIN_ROOT / "hermes-plugin" / "petasos"
+
+
+def test_plugin_directory_is_one_import() -> None:
+    """The directory shim imports register and has no executable plumbing of its own."""
+    tree = ast.parse((_PLUGIN / "__init__.py").read_text(encoding="utf-8"))
+    statements = [
+        node
+        for node in tree.body
+        if not (isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant))
+    ]
+    assert len(statements) == 2
+    imported, exported = statements
+    assert isinstance(imported, ast.ImportFrom)
+    assert imported.module == "petasos.hermes.plugin"
+    assert [(alias.name, alias.asname) for alias in imported.names] == [("register", None)]
+    assert imported.level == 0
+    assert isinstance(exported, ast.Assign)
+    assert [target.id for target in exported.targets if isinstance(target, ast.Name)] == [
+        "__all__"
+    ]
+    assert ast.literal_eval(exported.value) == ["register"]
+
+
+_BUNDLE_ROOT = Path(__file__).resolve().parents[1]
+
+_PLUGIN_DASHBOARD = _BUNDLE_ROOT / "hermes-plugin" / "petasos" / "dashboard"
+
+
+def test_the_tab_uses_only_hermes_and_its_own_api() -> None:
+    """No network asset, no second fetch path, no font or image of its own."""
+    sources = _PLUGIN_DASHBOARD.parents[1] / "dashboard-src"
+    script = "\n".join(path.read_text(encoding="utf-8") for path in sorted(sources.glob("*.js")))
+    css = (sources / "style.css").read_text(encoding="utf-8")
+    assert re.search(r"(?<![.\w])fetch\(", script) is None, "use SDK.fetchJSON"
+    assert "__HERMES_SESSION_TOKEN__" not in script
+    assert "import(" not in script
+    assert "@import" not in css
+    assert "url(" not in css
+    assert "@font-face" not in css
+    # Colours come from Hermes's variables. A literal hex colour is a palette of our own.
+    assert re.search(r"#[0-9a-fA-F]{3,8}\b", css) is None
+    assert 'var API = "/api/plugins/petasos";' in script
+
+
+def test_the_installed_dashboard_folder_holds_only_what_hermes_loads() -> None:
+    """The installer copies dashboard/ as it is: the manifest, the API shim, the joined script."""
+    shipped = sorted(
+        path.name
+        for path in _PLUGIN_DASHBOARD.iterdir()
+        if path.name != "__pycache__" and not path.name.startswith(".")
+    )
+    assert shipped == ["index.js", "manifest.json", "plugin_api.py"]

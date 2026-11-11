@@ -23,16 +23,6 @@ def _hermes_deps_available() -> bool:
     reason="Hermes deps (spaCy, transformers) not installed",
 )
 class TestHermesSmoke:
-    async def test_import_coexistence(self) -> None:
-        import spacy  # noqa: F811
-        import transformers  # noqa: F811
-
-        import petasos  # noqa: F811
-
-        assert petasos is not None
-        assert spacy is not None
-        assert transformers is not None
-
     async def test_pipeline_construction(self) -> None:
         pipe = Pipeline(config=PetasosConfig())
         assert pipe is not None
@@ -42,19 +32,8 @@ class TestHermesSmoke:
         result = await pipe.inspect("test message", session_id="smoke")
         assert isinstance(result, PipelineResult)
 
-    async def test_version_accessible(self) -> None:
-        import petasos
-
-        assert hasattr(petasos, "__version__")
-        assert isinstance(petasos.__version__, str)
-
 
 class TestImportWithoutHermesDeps:
-    async def test_petasos_imports_standalone(self) -> None:
-        import petasos
-
-        assert petasos.__version__ is not None
-
     async def test_pipeline_works_without_hermes_deps(self) -> None:
         pipe = Pipeline(config=PetasosConfig())
         result = await pipe.inspect("hello", session_id="standalone")

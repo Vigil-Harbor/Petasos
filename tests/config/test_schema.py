@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 import json
-import subprocess
 import sys
 import types
 from collections.abc import Callable, Mapping
 from dataclasses import FrozenInstanceError, fields, is_dataclass, replace
-from pathlib import Path
 from typing import Any, Literal
 
 import pytest
@@ -738,36 +736,6 @@ class Bad:
                 names: tuple[str, ...] = setting(default=(), help="Names.", normalize=bad)
 
             construct(Box, names=["ab"])
-
-
-class TestIsolation:
-    def test_schema_imports_nothing_else_from_petasos(self) -> None:
-        root = Path(__file__).resolve().parents[2]
-        script = """
-import importlib.util
-import sys
-from pathlib import Path
-root = Path(sys.argv[1])
-path = root / "petasos" / "config" / "schema.py"
-before = {name for name in sys.modules if name == "petasos" or name.startswith("petasos.")}
-spec = importlib.util.spec_from_file_location("_schema_isolation", path)
-if spec is None or spec.loader is None:
-    raise SystemExit("schema module could not be loaded")
-module = importlib.util.module_from_spec(spec)
-sys.modules[spec.name] = module
-spec.loader.exec_module(module)
-after = {name for name in sys.modules if name == "petasos" or name.startswith("petasos.")}
-extra = sorted(after - before)
-if extra:
-    raise SystemExit("imported " + ", ".join(extra))
-"""
-        completed = subprocess.run(
-            [sys.executable, "-c", script, str(root)],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-        assert completed.returncode == 0, completed.stderr or completed.stdout
 
 
 def _assign(obj: Any, name: str, value: object) -> None:

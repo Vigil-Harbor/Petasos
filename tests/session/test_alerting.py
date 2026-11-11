@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import dataclasses
 import time
 from types import MappingProxyType
 from unittest.mock import patch
@@ -73,19 +72,6 @@ def _freq(
 
 
 class TestAlertConstruction:
-    def test_frozen_dataclass(self) -> None:
-        alert = Alert(
-            alert_id="abc",
-            timestamp=1.0,
-            rule_id="test",
-            severity="high",
-            session_id="s1",
-            message="msg",
-            context=MappingProxyType({}),
-        )
-        with pytest.raises(dataclasses.FrozenInstanceError):
-            alert.alert_id = "xyz"  # type: ignore[misc]
-
     def test_all_fields_populated(self) -> None:
         mgr = AlertManager(_cfg())
         fr = _freq(previous_score=0.0, current_score=20.0, tier="tier1")
