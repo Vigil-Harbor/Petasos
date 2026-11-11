@@ -455,6 +455,55 @@ def test_a_guardrail_change_says_whether_the_call_was_stopped(tmp_path: Path) ->
     assert counts["attempt_blocked"] == 1
 
 
+def test_a_guardrail_decision_has_its_own_sentence(tmp_path: Path) -> None:
+    """New decisions say what happened. An old attempt with no follower stays unstopped."""
+    live = tmp_path / "petasos-enforcement.jsonl"
+    _emit(
+        live,
+        [
+            _selfmod("refused"),
+            {
+                "event_type": "guardrail",
+                "decision": "refused",
+                "tool": "write_file",
+                "session_id": "refused",
+                "kind": "settings",
+            },
+            _selfmod("asked"),
+            {
+                "event_type": "guardrail",
+                "decision": "held",
+                "tool": "write_file",
+                "session_id": "asked",
+            },
+            {
+                "event_type": "settings_changed",
+                "paths": ["tools.self_change"],
+                "approval_live": False,
+                "session_id": "ops",
+            },
+        ],
+    )
+    events = _page(live)["events"]
+
+    def attempt(session: str) -> dict[str, Any]:
+        return next(
+            event
+            for event in events
+            if event["session_id"] == session and event["event_type"] == "selfmod_attempt"
+        )
+
+    refused = attempt("refused")
+    asked = attempt("asked")
+    assert refused["outcome"]["code"] == "attempt_blocked"
+    assert "not allowed to change its own guardrails" in refused["summary"]
+    assert "impossible" not in refused["summary"].casefold()
+    assert asked["outcome"]["label"] == "Asked a person"
+    changed = next(event for event in events if event["event_type"] == "settings_changed")
+    assert "tools.self_change" in changed["summary"]
+    assert "No session approval was live" in changed["summary"]
+
+
 def test_search_finds_an_event_by_id_start_or_words(tmp_path: Path) -> None:
     """``q`` matches the start of an event id, or the event's sentence and fields."""
     live = tmp_path / "petasos-enforcement.jsonl"

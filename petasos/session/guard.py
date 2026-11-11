@@ -32,7 +32,6 @@ from __future__ import annotations
 import logging
 import math
 import os
-import re
 import threading
 import time
 from collections import deque
@@ -48,6 +47,7 @@ from petasos.normalize import _NAMESPACE_PREFIX_RE as _NAMESPACE_PREFIX_RE
 from petasos.normalize import canonicalize_tool_name
 from petasos.session._safe_json import safe_json_dumps
 from petasos.session.escalation import evaluate_tier, max_tier
+from petasos.session.guardrail import GuardrailSurface, normalize_path_text, recognize
 
 _logger = logging.getLogger(__name__)
 
@@ -458,6 +458,7 @@ _READ_ONLY_CANON: frozenset[str] = frozenset(
 class _SelfmodMatch(NamedTuple):
     rule_id: str
     target: str
+    kind: str | None = None
 
 
 # Recorded as the selfmod target when the fail-secure depth-overflow branch fires.
@@ -557,6 +558,7 @@ class GuardResult:
     param_scan_degraded: bool = False
     selfmod_target: str | None = None
     selfmod_finding: ScanFinding | None = None
+    guardrail_kind: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -567,6 +569,7 @@ class GuardResult:
             "param_scan_unsafe": self.param_scan_unsafe,
             "param_scan_degraded": self.param_scan_degraded,
             "selfmod_target": self.selfmod_target,
+            "guardrail_kind": self.guardrail_kind,
         }
         if self.selfmod_finding is not None:
             d["selfmod_finding"] = self.selfmod_finding.to_dict()
@@ -690,6 +693,7 @@ class ToolCallGuard:
         home: HermesConfigResolution | None = None,
         secrets: Secrets | None = None,
         protected_paths: Callable[[], Iterable[str]] | None = None,
+        guardrail_surface: Callable[[], GuardrailSurface] | None = None,
     ) -> None:
         self._pipeline = pipeline
         self._frequency_tracker = frequency_tracker
@@ -702,6 +706,7 @@ class ToolCallGuard:
         # When set, self-modification checks this set instead of discovering
         # a host layout. None keeps the discovery used by existing callers.
         self._protected_paths = protected_paths
+        self._guardrail_surface = guardrail_surface
 
         # Delegate tool names are stored raw in config; normalize them once
         # here through the guard's own normalizer so recognition matches every
@@ -753,6 +758,20 @@ class ToolCallGuard:
     def forget_protected_paths(self) -> None:
         """Drop the cached owned-path set so the next check reads it again."""
         self._selfmod_owned_cache = (0.0, frozenset())
+
+    def _surface(self) -> GuardrailSurface:
+        """The host's command patterns, or an empty surface when none was supplied."""
+        supplier = self._guardrail_surface
+        if supplier is None:
+            return GuardrailSurface()
+        try:
+            value = supplier()
+        except Exception:
+            _logger.debug("guardrail surface failed", exc_info=True)
+            return GuardrailSurface()
+        if isinstance(value, GuardrailSurface):
+            return value
+        return GuardrailSurface()
 
     def selfmod_target_paths(self) -> frozenset[str]:
         """The paths a tool call must not modify, cached for one second.
@@ -838,6 +857,18 @@ class ToolCallGuard:
         try:
             if canon_pre_alias in _READ_ONLY_CANON:
                 return None
+            hit = recognize(
+                canon_pre_alias,
+                tool_params,
+                protected=self.selfmod_target_paths(),
+                surface=self._surface(),
+            )
+            if hit is not None:
+                return _SelfmodMatch(
+                    rule_id="petasos.selfmod.config_write",
+                    target=hit.target,
+                    kind=hit.kind,
+                )
             owned = self.selfmod_target_paths()
             if not owned:
                 return None
@@ -868,16 +899,7 @@ class ToolCallGuard:
                 return None
 
             def _normalize_for_compare(s: str) -> str:
-                s = re.sub(r"\\u([0-9a-fA-F]{4})", lambda m: chr(int(m.group(1), 16)), s)
-                s = s.replace("\\\\", "/").replace("\\", "/").replace("/", os.sep)
-                s = os.path.normcase(s)
-                try:
-                    p = Path(s)
-                    if p.is_absolute():
-                        s = os.path.normcase(str(p.resolve(strict=False)))
-                except (OSError, ValueError):
-                    pass
-                return s
+                return normalize_path_text(s)
 
             for tls in top_level_strs:
                 normed = _normalize_for_compare(tls)
@@ -1063,6 +1085,7 @@ class ToolCallGuard:
                 result,
                 selfmod_target=selfmod.target,
                 selfmod_finding=selfmod_finding,
+                guardrail_kind=selfmod.kind,
             )
             if result.tier != "tier3":
                 self._record_selfmod_weight(session_id, selfmod_finding)

@@ -12,6 +12,8 @@ import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal, Protocol
 
+from petasos.session.guardrail import GuardrailSurface
+
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
@@ -149,6 +151,10 @@ def _no_paths() -> frozenset[str]:
     return frozenset()
 
 
+def _no_surface() -> GuardrailSurface:
+    return GuardrailSurface()
+
+
 @dataclass(frozen=True, slots=True)
 class HostInfo:
     """What the host can do, and how the enforcer should ask it.
@@ -167,6 +173,7 @@ class HostInfo:
     redactor: Callable[..., str] | None = _identity_text
     display_path: Callable[[str], str] = _identity_path
     protected_paths: Callable[[], frozenset[str]] = _no_paths
+    guardrail_surface: Callable[[], GuardrailSurface] = _no_surface
 
 
 @dataclass(frozen=True, slots=True)

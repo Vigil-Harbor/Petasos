@@ -11,8 +11,9 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+import contextlib
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from petasos.enforce.approvals import command_excerpt, degraded_pending_key
 from petasos.enforce.core import Core, Phase
@@ -27,12 +28,14 @@ from petasos.enforce.decisions import (
     is_egress_sink,
 )
 from petasos.enforce.fallback import fallback_decision, scan_fallback, tier3_unavailable_block
+from petasos.enforce.guardrail import hit_for, note_covered, ruling_for
 from petasos.normalize import canonicalize_tool_name
 from petasos.session.guard import READ_ONLY_TOOLS
 from petasos.session.ingest import _acquire_inspect_lock
 
 if TYPE_CHECKING:
     from petasos.enforce.types import ToolCall
+    from petasos.session.guard import GuardResult
 
 logger = logging.getLogger("petasos.enforce")
 
@@ -143,12 +146,6 @@ def _fallback(
         logger=logger,
         emit=core.emit,
     )
-
-
-def _as_decision(block: Block | None) -> Decision:
-    if block is None:
-        return Allow()
-    return block
 
 
 async def _evaluate(core: Core, call: ToolCall, session_id: str) -> Any:
@@ -281,7 +278,10 @@ def decide(core: Core, call: ToolCall) -> Decision:
             block, outcome = _scan(core, call)
             if block is not None:
                 return block
-            return _as_decision(
+            return _guardrail_or_fallback(
+                core,
+                call,
+                session_id,
                 _fallback(
                     core,
                     call,
@@ -289,7 +289,7 @@ def decide(core: Core, call: ToolCall) -> Decision:
                     session_id=session_id,
                     log_cause="init failed",
                     block_reason=_FAILED_BLOCK,
-                )
+                ),
             )
         if core.phase is not Phase.READY:
             reason = _COLD_REASON if core._started else _COLD_REASON_NO_INIT
@@ -305,7 +305,10 @@ def decide(core: Core, call: ToolCall) -> Decision:
         if block is not None:
             return block
         if outcome != "clean" or core.phase is not Phase.READY:
-            return _as_decision(
+            return _guardrail_or_fallback(
+                core,
+                call,
+                session_id,
                 _fallback(
                     core,
                     call,
@@ -313,7 +316,7 @@ def decide(core: Core, call: ToolCall) -> Decision:
                     session_id=session_id,
                     log_cause="cold window",
                     block_reason=_COLD_BLOCK,
-                )
+                ),
             )
 
     core.observe(announce=True)
@@ -332,7 +335,10 @@ def decide(core: Core, call: ToolCall) -> Decision:
         _note_eval(core, call, session_id, exc, cause)
         if _terminated(core, session_id):
             return tier3_unavailable_block(call.tool, session_id, logger=logger, emit=core.emit)
-        return _as_decision(
+        return _guardrail_or_fallback(
+            core,
+            call,
+            session_id,
             _fallback(
                 core,
                 call,
@@ -340,7 +346,7 @@ def decide(core: Core, call: ToolCall) -> Decision:
                 session_id=session_id,
                 log_cause=reason,
                 block_reason=reason,
-            )
+            ),
         )
 
     target = getattr(result, "selfmod_target", None)
@@ -359,11 +365,31 @@ def decide(core: Core, call: ToolCall) -> Decision:
             pass
 
     denied = guard_denial(call.tool, session_id, result, logger=logger, emit=core.emit)
+    kind = getattr(result, "guardrail_kind", None)
+    if isinstance(kind, str) and kind:
+        if denied is not None:
+            return denied
+        ruling = ruling_for(
+            core,
+            call,
+            session_id,
+            kind=kind,
+            target=str(getattr(result, "selfmod_target", "") or ""),
+        )
+        if ruling.decision is not None:
+            return ruling.decision
+        decision = _dangerous_or_allow(core, call, session_id, result)
+        if isinstance(decision, Allow):
+            note_covered(core, call, session_id, ruling)
+        return decision
     if denied is not None:
         return denied
+    return _dangerous_or_allow(core, call, session_id, result)
+
+
+def _dangerous_or_allow(core: Core, call: ToolCall, session_id: str, result: object) -> Decision:
     if not _dangerous(call.tool):
         return Allow()
-
     engine = core.engine
     namespaces = engine.namespaces if engine is not None else frozenset()
     taint = engine.taint if engine is not None else None
@@ -372,7 +398,7 @@ def decide(core: Core, call: ToolCall) -> Decision:
         call.tool,
         dict(call.args),
         session_id,
-        result,
+        cast("GuardResult", result),
         sink,
         _posture(core),
         core.host.approve_directive,
@@ -393,3 +419,31 @@ def decide(core: Core, call: ToolCall) -> Decision:
     if decision is None:
         return Allow()
     return decision
+
+
+def _guardrail_or_fallback(
+    core: Core,
+    call: ToolCall,
+    session_id: str,
+    fallback: Block | None,
+) -> Decision:
+    """A fallback block wins. A recognised change is still not allowed through."""
+    if fallback is not None:
+        return fallback
+    hit = hit_for(core, call)
+    if hit is None:
+        return Allow()
+    with contextlib.suppress(Exception):
+        core.emit(
+            session_id=session_id,
+            tool=call.tool,
+            event_type="selfmod_attempt",
+            rule_id="petasos.selfmod.config_write",
+            severity="critical",
+            reason=f"selfmod target: {core.host.display_path(hit.target)}",
+        )
+    ruling = ruling_for(core, call, session_id, kind=hit.kind, target=hit.target)
+    if ruling.decision is not None:
+        return ruling.decision
+    note_covered(core, call, session_id, ruling)
+    return Allow()

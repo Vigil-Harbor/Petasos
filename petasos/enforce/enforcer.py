@@ -208,8 +208,11 @@ class Enforcer:
             if snap.token == self._core._token:
                 return
             from petasos.enforce.engine import apply_snapshot
+            from petasos.enforce.guardrail import record_applied_settings
 
+            before = engine.config
             apply_snapshot(engine, snap.config, snap.secrets, logger)
+            record_applied_settings(self._core, before)
             self._core._token = snap.token
             self._core.fail_mode = engine.fail_mode()
             self._core._install_secret(engine.secrets)

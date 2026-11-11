@@ -869,6 +869,66 @@ gate, and a hook cannot block once the gate has approved, because
 `manual` approves a non-hardline dangerous command and still blocks
 `rm -rf /`. `write_file` does not enter the command gate.
 
+## 13. Machine-level pinning
+
+Read from the Hermes `v0.23.1` tree in the sandbox. Nothing was created under
+`/etc/hermes` or any other machine-level Hermes location on this computer.
+
+**What can be pinned.** Any leaf of `/etc/hermes/config.yaml` (or the
+relocated file) is pinned. `managed_config_keys` flattens mappings to dotted
+names and treats a non-mapping, including a list, as one leaf
+(`hermes_cli/managed_scope.py` lines 157–175). A managed value is deep-merged
+on top of the user config after the user's `${VAR}` expansion, so the pinned
+leaf wins (`hermes_cli/config.py` `_merge_managed_overlay`, lines 2170–2185).
+`hermes config set` refuses a pinned key and names the file
+(`hermes_cli/config.py` `_exit_if_key_managed`, lines 3253–3266). A bulk save
+drops pinned leaves instead of writing them (`_strip_managed_keys_for_save`,
+lines 2340–2351, called from `save_config` at line 2381).
+
+**Plugin enablement and settings.** There is no separate pin API. Putting
+`plugins.enabled` or `plugins.disabled` in the managed file pins that whole
+list, because a list is one leaf. The loader reads those lists through
+`load_config()` (`hermes_cli/plugins_discovery.py` lines 112–129), so the
+pinned list is what a later process loads. `hermes plugins disable` does not
+consult the pin: it rewrites the profile `config.yaml` lists in
+`pm/publication.py` `PluginSelection` (lines 106–107) via
+`_admit_and_save_plugin_sets` (`hermes_cli/plugins_cmd.py` lines 498–517).
+`pm/` has no call to `is_key_managed`. The profile file can change; the next
+load still returns the pinned list. Putting
+`plugins.entries.petasos.settings.<key>` pins that exact key.
+`save_plugin_setting` raises `PermissionError` when
+`is_key_managed` is true for `plugins.entries.<id>.settings.<path>`
+(`hermes_cli/plugins_state.py` lines 66–82). A sibling key that is not in the
+managed file stays writable. A separate coarse lock, `is_managed()`, refuses
+every plugin-setting write (same function, lines 77–78). That is not the
+per-key pin.
+
+**Where the file is.** `get_managed_dir` (`hermes_cli/managed_scope.py` lines
+45–59) uses `$HERMES_MANAGED_DIR` when it is non-empty and the directory
+exists, otherwise `/etc/hermes` when that directory exists (line 31). Under
+pytest, `/etc/hermes` is ignored unless the variable is set (lines 39–42).
+The comment on lines 6–7 says other-platform locations belong only inside
+`get_managed_dir`, and v1 does not add them. The user guide says the same:
+native macOS and Windows locations are out of scope
+(`website/docs/user-guide/managed-scope.md` line 158). On all three systems
+the code's default path is `/etc/hermes`. The guide's expected ownership is
+root, directory mode `0755`, files `0644` (lines 36–39). There is no
+`ProgramData` path.
+
+**Redirect.** `$HERMES_MANAGED_DIR` can point at a directory inside a sandbox.
+It is not written to any `.env` (lines 47–49 of `managed_scope.py`, and the
+guide lines 45–54). A user who can set the variable can point it at a
+directory they control. The next task can exercise pinning by setting the
+variable to a sandbox directory. It must not create `/etc/hermes`.
+
+**What `ctx.get_config` sees.** `PluginContext.get_config` reads
+`load_config_readonly()` (`hermes_cli/plugins_context.py` lines 73–83). Both
+loaders go through `_load_config_impl`, which applies the overlay after the
+user's expansion (`hermes_cli/config.py` line 2283, overlay at 2170–2185).
+A pinned `plugins.entries.petasos.settings` key is the value `get_config`
+returns, including when the profile file has a different value. A write of
+that key is refused, as above.
+
 ## What was not run
 
 - No Hermes gateway, no messaging platform, no model provider, and no

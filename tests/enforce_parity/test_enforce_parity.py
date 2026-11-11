@@ -224,6 +224,47 @@ def _apply_log(expected: dict[str, Any], actual: dict[str, Any], row: dict[str, 
     return False
 
 
+def _apply_value(expected: dict[str, Any], actual: dict[str, Any], row: dict[str, Any]) -> bool:
+    """Apply one decision or appended-event difference. True when this step showed it."""
+    field = row.get("field")
+    if not isinstance(field, str) or field == "logs":
+        return False
+    if row.get("op") == "append" and field == "events":
+        extra = row.get("new")
+        left = expected.get("events")
+        right = actual.get("events")
+        if not isinstance(left, list) or not isinstance(right, list):
+            return False
+        if right != [*left, extra]:
+            return False
+        left.append(extra)
+        return True
+    if _lookup(expected, field) != row.get("old") or _lookup(actual, field) != row.get("new"):
+        return False
+    _assign(expected, field, row.get("new"))
+    return True
+
+
+def _lookup(node: dict[str, Any], field: str) -> Any:
+    current: Any = node
+    for part in field.split("."):
+        if not isinstance(current, dict) or part not in current:
+            return None
+        current = current[part]
+    return current
+
+
+def _assign(node: dict[str, Any], field: str, value: Any) -> None:
+    current = node
+    parts = field.split(".")
+    for part in parts[:-1]:
+        child = current[part]
+        if not isinstance(child, dict):
+            return
+        current = child
+    current[parts[-1]] = value
+
+
 def _apply_differences(
     expected: dict[str, Any],
     actual: dict[str, Any],
@@ -244,6 +285,9 @@ def _apply_differences(
         if scenario == "*" and index in used:
             continue
         if row.get("field") == "logs" and _apply_log(expected, actual, row):
+            used.add(index)
+            continue
+        if _apply_value(expected, actual, row):
             used.add(index)
 
 

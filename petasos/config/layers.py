@@ -28,6 +28,7 @@ ROLE_FIELDS: Final[frozenset[str]] = frozenset(
         "tools.dangerous_posture",
         "tools.exempt",
         "tools.aliases",
+        "tools.self_change",
         "scanners.presidio.entities_extra",
     }
 )
@@ -295,6 +296,7 @@ ROLES: Final[Mapping[str, Role]] = MappingProxyType(
                             "entities_extra": ["PERSON", "EMAIL_ADDRESS", "PHONE_NUMBER"],
                         }
                     },
+                    "tools": {"self_change": "never"},
                 },
             ),
             _role(

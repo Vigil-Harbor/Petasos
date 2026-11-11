@@ -142,6 +142,133 @@
         "enforcer",
         "hermes"
       ]
+    },
+    {
+      "scenario": "self-modification",
+      "step": "write-config",
+      "field": "decision",
+      "old": {"action": "allow"},
+      "new": {
+        "action": "block",
+        "message": "[BLOCKED by Petasos] Tool 'write_file' was NOT executed. Changing Petasos or Hermes guardrails needs a person to approve it, and nobody can be asked. The change was refused."
+      },
+      "reason": "Guardrail integrity (docs/architecture/guardrail-integrity.md): a write to the profile config is a guardrail change. tools.self_change defaults to approve, and this host cannot ask a person (approve_directive is false), so the call is blocked. The previous record allowed it below tier 2.",
+      "adapters": ["enforcer", "hermes"]
+    },
+    {
+      "scenario": "self-modification",
+      "step": "write-config",
+      "field": "events",
+      "op": "append",
+      "new": {
+        "armed": true,
+        "bypassed_count": null,
+        "credential_redaction": "unchanged",
+        "decision": "unattended",
+        "direction": "tool_call",
+        "event_type": "guardrail",
+        "kind": "settings",
+        "param_scan_degraded": false,
+        "reason": "guardrail unattended (settings): <config>",
+        "rule_id": null,
+        "scope": null,
+        "session_id": "s1",
+        "severity": "critical",
+        "target": "<config>",
+        "tier": null,
+        "tool": "write_file",
+        "until": null
+      },
+      "reason": "The block is recorded as its own guardrail event (decision unattended) after the existing selfmod_attempt. The attempt event is unchanged.",
+      "adapters": ["enforcer", "hermes"]
+    },
+    {
+      "scenario": "self-modification",
+      "step": "write-config",
+      "field": "logs",
+      "old": null,
+      "new": "PETASOS_GUARDRAIL decision=unattended tool=write_file session=s1 kind=settings",
+      "reason": "The enforcer logs the guardrail decision. The call is the config write that is now blocked because nobody can be asked.",
+      "adapters": ["enforcer", "hermes"]
+    },
+    {
+      "scenario": "settings-while-running",
+      "step": "allowed",
+      "field": "events",
+      "op": "append",
+      "new": {
+        "approval_live": false,
+        "armed": true,
+        "bypassed_count": null,
+        "credential_redaction": "unchanged",
+        "direction": "tool_call",
+        "event_type": "settings_changed",
+        "param_scan_degraded": false,
+        "paths": ["egress.sink_tools"],
+        "reason": "settings changed: egress.sink_tools; no session approval was live",
+        "rule_id": null,
+        "session_id": "",
+        "severity": null,
+        "tier": null,
+        "tool": "",
+        "values": {"egress.sink_tools": []}
+      },
+      "reason": "Guardrail integrity records every settings change the enforcer applies, including whether a self-change approval was live. This step clears the egress sinks. No session approval was live. The decision stays allow.",
+      "adapters": ["enforcer", "hermes"]
+    },
+    {
+      "scenario": "profile-and-arm",
+      "step": "swap",
+      "field": "events",
+      "op": "append",
+      "new": {
+        "approval_live": false,
+        "armed": true,
+        "bypassed_count": null,
+        "credential_redaction": "unchanged",
+        "direction": "tool_call",
+        "event_type": "settings_changed",
+        "param_scan_degraded": false,
+        "paths": [
+          "rules.confidence_floor",
+          "rules.injection_floor_scope",
+          "rules.severity_overrides.petasos.promptguard.injection",
+          "rules.suppress",
+          "tools.dangerous_posture"
+        ],
+        "reason": "settings changed: rules.confidence_floor, rules.injection_floor_scope, rules.severity_overrides.petasos.promptguard.injection, rules.suppress, tools.dangerous_posture; no session approval was live",
+        "rule_id": null,
+        "session_id": "",
+        "severity": null,
+        "tier": null,
+        "tool": "",
+        "values": {
+          "rules.confidence_floor": 0.6,
+          "rules.injection_floor_scope": "inbound",
+          "rules.severity_overrides.petasos.promptguard.injection": "low",
+          "rules.suppress": [
+            "petasos.syntactic.encoding.invisible-chars",
+            "petasos.syntactic.encoding.base64-in-text",
+            "petasos.syntactic.encoding.homoglyph-substitution",
+            "petasos.syntactic.encoding.rtl-override",
+            "petasos.syntactic.command.pipe-to-shell",
+            "petasos.syntactic.injection.ignore-previous",
+            "petasos.syntactic.injection.ignore-all",
+            "petasos.syntactic.injection.disregard",
+            "petasos.syntactic.injection.new-instructions",
+            "petasos.syntactic.injection.system-override",
+            "petasos.syntactic.injection.system-prefix",
+            "petasos.syntactic.injection.inst-delimiter",
+            "petasos.syntactic.injection.you-are-now",
+            "petasos.syntactic.injection.role-switch-capability",
+            "petasos.syntactic.injection.role-switch-only",
+            "petasos.syntactic.injection.agent-directed-fetch"
+          ],
+          "tools.dangerous_posture": "approve"
+        }
+      },
+      "reason": "Swapping to the coding role applies that role's rule and posture fields. The enforcer records the paths and the new values. No self-change approval was live. The step still has no tool-call decision.",
+      "adapters": ["enforcer", "hermes"]
     }
   ]
 }

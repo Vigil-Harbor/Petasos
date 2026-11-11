@@ -19,6 +19,7 @@ from petasos.enforce.approvals import (
     redaction_status,
 )
 from petasos.enforce.core import Core, Phase
+from petasos.enforce.guardrail import note_answer
 
 if TYPE_CHECKING:
     from petasos.enforce.types import ApprovalNotice
@@ -126,6 +127,10 @@ def approval_answered(core: Core, notice: ApprovalNotice) -> None:
             )
     except Exception as exc:
         logger.debug("PETASOS_DEGRADED_PENDING apply failed error=%r", exc)
+    try:
+        note_answer(core, notice)
+    except Exception as exc:
+        logger.debug("PETASOS_GUARDRAIL answer failed error=%r", exc)
     _emit(core, "response", notice, notice.choice)
 
 

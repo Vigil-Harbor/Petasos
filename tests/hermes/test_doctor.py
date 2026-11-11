@@ -51,7 +51,8 @@ def test_healthy_install_is_protected(
     assert "not installed" in out
     assert "turned off" in out
     assert "Dangerous tool calls are blocked" in out
-    assert "not reported yet" in out
+    assert "Open. The agent can change guardrails with a fresh approval." in out
+    assert "30 minutes" in out
     assert "places an agent could change" in out
     assert "Paths protected today" not in out
     assert "No injection scanner is active" not in out

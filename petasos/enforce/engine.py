@@ -196,6 +196,7 @@ def build_engine(
         secrets=secrets,
         lineage=lineage,
         protected_paths=host.protected_paths,
+        guardrail_surface=host.guardrail_surface,
     )
     egress = _names(config.egress.sink_tools)
     namespaces = _names(config.egress.taint_namespaces)

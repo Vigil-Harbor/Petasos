@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Protocol
 
 from petasos.enforce import Allow, Approve, Block, Enforcer
 from petasos.enforce.types import ApprovalNotice, HostInfo, ToolCall
+from petasos.hermes.guardrail import hermes_surface
 from petasos.hermes.home import (
     display_path,
     resolve_hermes_config_path,
@@ -334,6 +335,7 @@ def host_info() -> HostInfo:
         redactor=redactor if callable(redactor) else None,
         display_path=display_path,
         protected_paths=protected_paths,
+        guardrail_surface=lambda: hermes_surface(protected_paths()),
     )
 
 

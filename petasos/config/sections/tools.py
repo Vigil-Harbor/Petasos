@@ -139,6 +139,35 @@ class ToolsConfig:
         label="Helper launch limit",
         help="How fast one conversation may launch helper agents.",
     )
+    self_change: Literal["approve", "never"] = setting(
+        default="approve",
+        label="When the agent tries to change its own guardrails",
+        help=(
+            "The agent may change Petasos or Hermes guardrails only after a person "
+            "approves that change, or those changes may be refused in the conversation. "
+            "A session approval lasts only for the time below, and it does not carry "
+            "into another conversation. Refusing a change does not make one impossible: "
+            "an agent with a shell can still try a form Petasos does not recognise. "
+            "You can always change these settings from outside the agent."
+        ),
+        choice_labels={
+            "approve": "Ask a person first",
+            "never": "Refuse the change",
+        },
+    )
+    self_change_minutes: int = setting(
+        default=30,
+        ge=1,
+        le=1440,
+        label="How long a session approval lasts (minutes)",
+        help=(
+            "After a person allows guardrail changes for this conversation, further "
+            "changes are allowed only until this many minutes have passed. Then a "
+            "person has to approve again, even if the conversation is still open. "
+            "The longest is 24 hours (1440 minutes), so an approval cannot stand "
+            "indefinitely."
+        ),
+    )
 
     def check(self) -> None:
         problems: list[tuple[str, str]] = []

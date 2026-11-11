@@ -93,7 +93,7 @@ def status(
         ),
         scanners=scanners,
         coverage=coverage(scanners, list(report.suggestions), registry=registry),
-        who_can_change=dict(WHO_CAN_CHANGE),
+        who_can_change=_who(report),
         record_signing=record_signing(secrets, home_label),
         recommendations=list(report.suggestions),
         role=role if isinstance(role, str) else None,
@@ -105,6 +105,32 @@ def status(
     )
     body["version"] = STATUS_VERSION
     return body
+
+
+def _who(report: object) -> dict[str, str]:
+    """Who can change settings. The agent line is the profile's guardrail state."""
+    who = dict(WHO_CAN_CHANGE)
+    checks = getattr(report, "checks", ())
+    for check in checks:
+        if getattr(check, "id", "") != "guardrail":
+            continue
+        summary = getattr(check, "summary", "")
+        meaning = getattr(check, "meaning", "")
+        if isinstance(summary, str) and summary:
+            parts = _state_sentences(meaning)
+            # Blocked keeps the caveat that a shell can still get round recognition.
+            take = 2 if summary.startswith("Blocked.") else 1
+            extra = ". ".join(parts[:take])
+            who["agent"] = f"{summary} {extra}." if extra else summary
+        break
+    return who
+
+
+def _state_sentences(meaning: object) -> list[str]:
+    """Sentences of a doctor meaning, without a trailing stop."""
+    if not isinstance(meaning, str) or not meaning:
+        return []
+    return [part.strip().rstrip(".") for part in meaning.split(". ") if part.strip()]
 
 
 def operating(row: dict[str, Any], *, loaded: bool, paused: bool) -> dict[str, str]:

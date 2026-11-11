@@ -192,7 +192,17 @@ def test_a_check_turned_on_that_cannot_run_is_held_with_its_command() -> None:
 def test_status_says_who_can_change_settings_and_how_to_sign_records(tmp_path: Path) -> None:
     """The agent's attempts are recorded, not stopped; unsigned records come with steps."""
     body = status(load_home(_home(tmp_path, _RESEARCH)), home_label="~/hermes")
-    assert "Recording alone does not stop it" in body["who_can_change"]["agent"]
+    assert "Open." in body["who_can_change"]["agent"]
+    assert "fresh approval" in body["who_can_change"]["agent"]
+
+
+def test_a_support_profile_says_guardrail_changes_are_blocked(tmp_path: Path) -> None:
+    """Support refuses guardrail changes, and the panel says a shell can still get round that."""
+    text = _RESEARCH.replace("role: research", "role: support")
+    body = status(load_home(_home(tmp_path, text)), home_label="~/hermes")
+    agent = body["who_can_change"]["agent"]
+    assert agent.startswith("Blocked.")
+    assert "shell" in agent
     signing = body["record_signing"]
     assert signing["signed"] is False
     assert signing["env_file"] == "~/hermes/.env"
