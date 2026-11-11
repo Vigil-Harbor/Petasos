@@ -509,10 +509,73 @@ def capture(request: dict[str, Any]) -> dict[str, Any]:
     return {"shots": shots, "problems": problems}
 
 
+def followups(request: dict[str, Any]) -> dict[str, Any]:
+    """Exercise the new result blocks against a real sandbox API, and optionally capture."""
+    base = str(request["url"])
+    out = Path(str(request["out"])) if request.get("out") else None
+    if out is not None:
+        out.mkdir(parents=True, exist_ok=True)
+    report: dict[str, Any] = {"shots": [], "states": [], "errors": [], "failed": []}
+    sync = _playwright()
+    with sync.sync_playwright() as play:
+        browser = play.chromium.launch(headless=True)
+        for prefix, label in THEMES:
+            for width in (1440, 700):
+                context = browser.new_context(viewport={"width": WIDTH, "height": HEIGHT})
+                page = context.new_page()
+                watch = Watch(page)
+                _theme(page, base, label)
+                page.set_viewport_size({"width": width, "height": HEIGHT})
+                _open(page, base, "tryit")
+                page.get_by_role("button", name="Show and edit the input").click()
+                page.get_by_role("radio", name="Text", exact=True).click()
+                page.locator("#petasos-try-text").fill(
+                    "Please contact someone@example.org about the meeting."
+                )
+                page.get_by_role("button", name=_named("Check"), exact=True).click()
+                preview = page.get_by_label("Text with personal information hidden")
+                preview.wait_for(timeout=20000)
+                page.get_by_role("button", name="Hide the input").click()
+                _unscroll(page)
+                _settle(page)
+                report["states"].append(
+                    {
+                        "theme": prefix,
+                        "width": width,
+                        "hidden": preview.inner_text(),
+                        "result": page.locator(".petasos-result").inner_text(),
+                        "version": page.locator(".petasos-topbar-side").inner_text(),
+                        "check_rows": page.locator(".petasos-took-part li").evaluate_all(
+                            "rows => rows.map(e => e.getBoundingClientRect().top)"
+                        ),
+                        "overflow": page.locator(".petasos").evaluate(
+                            "e => e.scrollWidth > e.clientWidth"
+                        ),
+                    }
+                )
+                if out is not None:
+                    # Fit the complete result while preserving the tested width.
+                    bottom = page.locator(".petasos-result").evaluate(
+                        "e => e.getBoundingClientRect().bottom"
+                    )
+                    page.set_viewport_size(
+                        {"width": width, "height": max(HEIGHT, int(bottom) + 30)}
+                    )
+                    _unscroll(page)
+                    _settle(page)
+                    _shot(page, out, f"{prefix}-tryit-{width}", report["shots"])
+                report["errors"].extend(watch.errors)
+                report["failed"].extend(watch.failed)
+                report["states"][-1]["focus"] = focus_walk(page)
+                context.close()
+        browser.close()
+    return report
+
+
 def main() -> None:
     request = json.loads(sys.stdin.read() or "{}")
     action = str(request.get("action", ""))
-    handlers = {"check": check, "capture": capture}
+    handlers = {"check": check, "capture": capture, "followups": followups}
     handler = handlers.get(action)
     if handler is None:
         raise SystemExit(f"unknown action {action}")

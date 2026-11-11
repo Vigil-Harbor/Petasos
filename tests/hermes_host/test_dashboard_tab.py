@@ -14,7 +14,7 @@ import pytest
 
 from tests.hermes_host.capture_round import run_browser
 from tests.hermes_host.dashboard_server import start, stop
-from tests.hermes_host.demo_home import prepare
+from tests.hermes_host.demo_home import prepare, prepare_trial
 from tests.hermes_host.marks import requires_hermes_sandbox
 
 if TYPE_CHECKING:
@@ -129,3 +129,30 @@ def test_the_tab_says_what_the_record_can_show(tab_report: dict[str, Any]) -> No
     }
     tryit = tab_report["views"]["tryit"]["text"]
     assert "adds no Activity record" in tryit
+
+
+def test_try_it_hidden_text_risk_and_version(petasos_wheel: Path) -> None:
+    """Both themes and widths show the API's hidden text, score, limits and version."""
+    home = prepare_trial(petasos_wheel)
+    board = start(petasos_wheel, home)
+    try:
+        report = run_browser(petasos_wheel, {"action": "followups", "url": board.url}, timeout=300)
+    finally:
+        assert stop(board.pid)
+    assert report["errors"] == []
+    assert report["failed"] == []
+    assert len(report["states"]) == 4
+    for state in report["states"]:
+        assert state["hidden"] == "Please contact <EMAIL_ADDRESS_1> about the meeting."
+        assert "conversation risk" in state["result"].casefold()
+        assert "This input alone scores 0: normal." in state["result"]
+        assert "closer watch at 15" in state["result"]
+        assert "blocked at 30" in state["result"]
+        assert "stopped at 50" in state["result"]
+        assert "fades with time" in state["result"]
+        assert "Petasos 0." in state["version"]
+        assert state["overflow"] is False
+        assert state["check_rows"][1] > state["check_rows"][0]
+        assert state["focus"]["entered"] is True
+        assert state["focus"]["left"] is True
+        assert state["focus"]["invisible"] == []
