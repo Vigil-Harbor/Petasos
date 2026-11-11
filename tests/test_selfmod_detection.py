@@ -10,17 +10,16 @@ from __future__ import annotations
 
 import os
 import time
-from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 import pytest
 
 from petasos._types import ScanFinding, Severity
-from petasos.config import PetasosConfig
+from petasos.config.schema import from_mapping
+from petasos.config.sections import PetasosConfig
 from petasos.pipeline import Pipeline
 from petasos.session.frequency import FrequencyTracker
 from petasos.session.guard import SELFMOD_DEPTH_OVERFLOW_TARGET, ToolCallGuard
-from petasos.session.profiles import ResolvedProfile
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -33,14 +32,9 @@ _GuardPair = tuple[Pipeline, ToolCallGuard, FrequencyTracker, str]
 # ---------------------------------------------------------------------------
 
 
-def _cfg(**overrides: object) -> PetasosConfig:
-    defaults: dict[str, object] = {
-        "frequency_enabled": True,
-        "escalation_enabled": True,
-        "tool_guard_enabled": True,
-    }
-    defaults.update(overrides)
-    return PetasosConfig(**defaults)  # type: ignore[arg-type]
+def _cfg() -> PetasosConfig:
+    """A default tree. Frequency, escalation, and the tool guard are on."""
+    return PetasosConfig()
 
 
 # ---------------------------------------------------------------------------
@@ -197,20 +191,13 @@ class TestHostileAliasMap:
     selfmod classifier inspects."""
 
     async def test_hostile_alias_map_still_classifies(self, owned_path: str) -> None:
-        config = _cfg()
+        config = from_mapping(
+            PetasosConfig,
+            {"tools": {"aliases": {"write_file": "read_file"}}},
+        )
         pipeline = Pipeline(config=config)
         tracker = FrequencyTracker(config)
-        profile = ResolvedProfile(
-            name="hostile",
-            suppress_rules=frozenset(),
-            severity_overrides=MappingProxyType({}),
-            confidence_floor=0.0,
-            tier_thresholds=None,
-            pii_entities_extra=(),
-            tool_exempt_list=frozenset(),
-            tool_alias_map=MappingProxyType({"write_file": "read_file"}),
-        )
-        guard = ToolCallGuard(pipeline, tracker, config, profile)
+        guard = ToolCallGuard(pipeline, tracker, config)
         guard._selfmod_owned_cache = (
             time.monotonic() + 9999,
             frozenset({owned_path}),

@@ -49,102 +49,40 @@ async def test_family_is_suppressible() -> None:
     assert inj_id in rids, "injection must still fire despite being listed in suppress_rules"
 
 
-# ---------------------------------------------------------------------------
-# PROF-03: built-in profile name protection (PET-58)
-# ---------------------------------------------------------------------------
-
-
 def test_register_general_raises() -> None:
-    """PROF-03: register('general', ...) raises ValueError."""
-    from types import MappingProxyType
+    """An unknown role is rejected. The suggestion names the nearest real role."""
+    from petasos.config.layers import resolve
 
-    from petasos.session.profiles import ProfileResolver, ResolvedProfile
-
-    resolver = ProfileResolver()
-    evil = ResolvedProfile(
-        name="general",
-        suppress_rules=frozenset(),
-        severity_overrides=MappingProxyType({}),
-        confidence_floor=0.0,
-        tier_thresholds=None,
-        pii_entities_extra=(),
-        tool_exempt_list=frozenset(),
-        tool_alias_map=MappingProxyType({}),
-    )
-    with pytest.raises(ValueError, match="Cannot overwrite built-in profile"):
-        resolver.register("general", evil)
+    assert resolve({"role": "general"}).settings.role == "general"
+    with pytest.raises(ConfigError, match="coding"):
+        resolve({"role": "code_generation"})
 
 
 def test_register_all_builtins_raises() -> None:
-    """PROF-03: all five built-in names are protected."""
-    from types import MappingProxyType
+    """The five roles resolve, and a name outside that list does not."""
+    from petasos.config.layers import resolve
 
-    from petasos.session.profiles import _BUILTIN_NAMES, ProfileResolver, ResolvedProfile
-
-    resolver = ProfileResolver()
-    fake = ResolvedProfile(
-        name="evil",
-        suppress_rules=frozenset(),
-        severity_overrides=MappingProxyType({}),
-        confidence_floor=0.0,
-        tier_thresholds=None,
-        pii_entities_extra=(),
-        tool_exempt_list=frozenset(),
-        tool_alias_map=MappingProxyType({}),
-    )
-    for name in _BUILTIN_NAMES:
-        with pytest.raises(ValueError, match="Cannot overwrite built-in profile"):
-            resolver.register(name, fake)
+    for role in ("general", "coding", "research", "support", "admin"):
+        assert resolve({"role": role}).settings.role == role
+    with pytest.raises(ConfigError, match="role"):
+        resolve({"role": "operator"})
 
 
 def test_register_custom_name_succeeds() -> None:
-    """PROF-03: custom names are allowed."""
-    from types import MappingProxyType
+    """A caller changes a role with overrides. The role itself stays the built-in."""
+    from petasos.config.layers import resolve
 
-    from petasos.session.profiles import ProfileResolver, ResolvedProfile
-
-    resolver = ProfileResolver()
-    custom = ResolvedProfile(
-        name="my_custom",
-        suppress_rules=frozenset(),
-        severity_overrides=MappingProxyType({}),
-        confidence_floor=0.0,
-        tier_thresholds=None,
-        pii_entities_extra=(),
-        tool_exempt_list=frozenset(),
-        tool_alias_map=MappingProxyType({}),
-    )
-    resolver.register("my_custom", custom)
-    assert resolver.resolve("my_custom").name == "my_custom"
+    custom = resolve({"role": "general", "overrides": {"rules": {"confidence_floor": 0.4}}})
+    assert custom.settings.role == "general"
+    assert custom.config.rules.confidence_floor == 0.4
+    assert resolve({"role": "general"}).config.rules.confidence_floor == 0.0
 
 
 def test_register_overwrite_custom_allowed() -> None:
-    """PROF-03: overwriting a previously-registered custom profile is allowed."""
-    from types import MappingProxyType
+    """Two resolutions do not share an overrides document."""
+    from petasos.config.layers import resolve
 
-    from petasos.session.profiles import ProfileResolver, ResolvedProfile
-
-    resolver = ProfileResolver()
-    v1 = ResolvedProfile(
-        name="custom",
-        suppress_rules=frozenset(),
-        severity_overrides=MappingProxyType({}),
-        confidence_floor=0.5,
-        tier_thresholds=None,
-        pii_entities_extra=(),
-        tool_exempt_list=frozenset(),
-        tool_alias_map=MappingProxyType({}),
-    )
-    v2 = ResolvedProfile(
-        name="custom",
-        suppress_rules=frozenset(),
-        severity_overrides=MappingProxyType({}),
-        confidence_floor=0.9,
-        tier_thresholds=None,
-        pii_entities_extra=(),
-        tool_exempt_list=frozenset(),
-        tool_alias_map=MappingProxyType({}),
-    )
-    resolver.register("custom", v1)
-    resolver.register("custom", v2)
-    assert resolver.resolve("custom").confidence_floor == 0.9
+    first = resolve({"role": "general", "overrides": {"rules": {"confidence_floor": 0.5}}})
+    second = resolve({"role": "general", "overrides": {"rules": {"confidence_floor": 0.9}}})
+    assert first.config.rules.confidence_floor == 0.5
+    assert second.config.rules.confidence_floor == 0.9
