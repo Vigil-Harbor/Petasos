@@ -20,10 +20,10 @@ from petasos.model import (
     severity_rank,
 )
 from petasos.pipeline import Pipeline
+from petasos.pipeline.ingest import scan_ingestion_result
 from petasos.scanners.minimal import MinimalScanner
 from petasos.scanners.semgrep import SemgrepScanner
 from petasos.session.guard import ToolCallGuard
-from petasos.session.ingest import scan_ingestion_result
 
 
 class _StubScanner:

@@ -22,6 +22,7 @@ from petasos.model import (
 )
 from petasos.normalize import normalize
 from petasos.pipeline import Pipeline
+from petasos.pipeline.ingest import IngestionScanResult, scan_ingestion_result
 from petasos.scanners.minimal import RULE_TAXONOMY, MinimalScanner
 from petasos.scanners.semgrep import (
     SemgrepCleanupError,
@@ -35,7 +36,6 @@ from petasos.session.audit import AuditEmitter
 from petasos.session.escalation import max_tier
 from petasos.session.frequency import FrequencyTracker, FrequencyUpdateResult, SessionToken
 from petasos.session.guard import GuardResult, ToolCallGuard
-from petasos.session.ingest import IngestionScanResult, scan_ingestion_result
 from petasos.session.lineage import LineageRegistry
 from petasos.session.taint import SessionTaintStore
 

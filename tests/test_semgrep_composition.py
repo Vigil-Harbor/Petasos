@@ -14,10 +14,10 @@ import pytest
 from petasos import Pipeline, Position, ScanFinding, ScanResult, Severity
 from petasos.config.schema import evolve, from_mapping
 from petasos.config.sections import PetasosConfig
-from petasos.pipeline import merge_findings
+from petasos.pipeline.findings import merge_findings
+from petasos.pipeline.ingest import HEAD_CHARS, scan_ingestion_result
 from petasos.scanners.semgrep import SemgrepLifecycleOwner, SemgrepScanner
 from petasos.session.guard import render_param_text
-from petasos.session.ingest import HEAD_CHARS, scan_ingestion_result
 from tests._semgrep_helpers import require
 
 

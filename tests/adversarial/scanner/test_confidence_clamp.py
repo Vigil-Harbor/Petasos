@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Any
 
 from petasos.model import Position, ScanFinding, ScanResult, Severity
-from petasos.pipeline import merge_findings
+from petasos.pipeline.findings import merge_findings
 from petasos.scanners.presidio import PresidioScanner
 
 # --- presidio ---------------------------------------------------------------

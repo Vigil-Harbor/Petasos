@@ -31,7 +31,8 @@ from petasos.model import (
     AVAILABILITY_CAUSE_LOAD_FAILED,
     Severity,
 )
-from petasos.pipeline import _BREAKER_OPEN_ERROR_PREFIX, _TIMEOUT_ERROR_PREFIX, Pipeline
+from petasos.pipeline import Pipeline
+from petasos.pipeline.health import _BREAKER_OPEN_ERROR_PREFIX, _TIMEOUT_ERROR_PREFIX
 from petasos.scanners import prompt_guard as pg
 
 if TYPE_CHECKING:

@@ -38,7 +38,7 @@ than waving it through (`petasos/config.py:56`).
 ### Tool-result scan coverage (PET-178)
 
 Ingestion-tool results are scanned by
-`petasos.session.ingest.scan_ingestion_result`. Below 1,000,000 characters every
+`petasos.pipeline.ingest.scan_ingestion_result`. Below 1,000,000 characters every
 ingesting result is scanned with no unscanned gap: one `Pipeline.inspect()` on a
 2,048-character head, plus overlapping `MinimalScanner.scan` chunks (65,536
 characters, 8,192 overlap) over the original text. Findings map back to
@@ -149,7 +149,7 @@ Leak resistance is built in — and worth knowing the exact shape of:
       [hermes-desktop.md §2](hermes-desktop.md#2-generate-credentials) for one-liners).
 - [ ] If you set `PETASOS_SESSION_SECRET`, also configure `host_id` —
       the pipeline requires it when a session secret is present
-      (`petasos/pipeline.py:225-226`).
+      (`petasos/pipeline/pipeline.py:225-226`).
 - [ ] Grep your logs once after deploy for the invalid-base64 warning;
       binding that silently disabled is worse than binding you never
       configured.

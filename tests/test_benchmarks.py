@@ -152,7 +152,7 @@ def _natural(chars: int) -> str:
 
 
 def _prompt_guard_payloads() -> list[tuple[str, str]]:
-    from petasos.session.ingest import HEAD_CHARS
+    from petasos.pipeline.ingest import HEAD_CHARS
 
     return [("short", _SHORT), ("head", _natural(HEAD_CHARS)), ("window", _natural(8192))]
 
@@ -210,8 +210,8 @@ def test_benchmark_prompt_guard_8wide(benchmark) -> None:  # type: ignore[no-unt
     and the median is invalid when that count is non-zero: both return at far
     lower cost than an inference.
     """
+    from petasos.pipeline.ingest import HEAD_CHARS
     from petasos.scanners.registry import BuildContext, compose
-    from petasos.session.ingest import HEAD_CHARS
 
     _prompt_guard_scanner()
     config = from_mapping(
@@ -385,7 +385,7 @@ def test_benchmark_ingestion_result_8wide_concurrent(benchmark) -> None:  # type
     ``inspect()`` calls at ``HEAD_CHARS`` so the CLAUDE.md 8-wide overrun has an
     in-repo anchor. Measure-only.
     """
-    from petasos.session.ingest import HEAD_CHARS
+    from petasos.pipeline.ingest import HEAD_CHARS
 
     payload = "x" * HEAD_CHARS
     loop = asyncio.new_event_loop()
@@ -414,7 +414,7 @@ def test_benchmark_ingestion_result_1e6(benchmark) -> None:  # type: ignore[no-u
 def test_benchmark_ingestion_helper_8wide_serial(benchmark) -> None:  # type: ignore[no-untyped-def]
     """Eight helper runs on a lock-equivalent in-process path. Measure-only; records K=1
     serialization. Does not assert every slot finishes inside the scan budget."""
-    from petasos.session.ingest import scan_ingestion_result
+    from petasos.pipeline.ingest import scan_ingestion_result
 
     payload = "an ordinary line of file content\n" * 256
     loop = asyncio.new_event_loop()

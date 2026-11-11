@@ -168,8 +168,8 @@ async def test_semgrep_composes_with_real_presidio_and_prompt_guard(
 ) -> None:
     import hashlib
 
+    from petasos.pipeline.ingest import HEAD_CHARS, scan_ingestion_result
     from petasos.scanners.semgrep import SemgrepLifecycleOwner, SemgrepScanner
-    from petasos.session.ingest import HEAD_CHARS, scan_ingestion_result
 
     engine = os.environ["SEMGREP_ENGINE_PATH"]  # required, never skip a requested gate
     with open(engine, "rb") as stream:

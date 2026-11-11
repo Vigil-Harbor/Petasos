@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from petasos.model import Position, ScanFinding, ScanResult, Severity
-from petasos.pipeline import merge_findings
+from petasos.pipeline.findings import merge_findings
 
 
 def _finding(

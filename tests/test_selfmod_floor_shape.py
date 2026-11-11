@@ -30,7 +30,7 @@ class TestRecordSelfmodShape:
 
     def test_single_is_enabled_gate(self) -> None:
         func = _find_method_in_class(
-            _SRC / "pipeline.py",
+            _SRC / "pipeline" / "pipeline.py",
             "Pipeline",
             "record_selfmod",
         )
@@ -40,7 +40,7 @@ class TestRecordSelfmodShape:
 
     def test_is_enabled_audit_only(self) -> None:
         func = _find_method_in_class(
-            _SRC / "pipeline.py",
+            _SRC / "pipeline" / "pipeline.py",
             "Pipeline",
             "record_selfmod",
         )

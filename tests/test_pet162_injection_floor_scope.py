@@ -24,7 +24,8 @@ from petasos.config.layers import resolve
 from petasos.config.schema import ConfigError, evolve, from_mapping
 from petasos.config.sections import PetasosConfig
 from petasos.model import ScanFinding, Severity
-from petasos.pipeline import Pipeline, _is_floor_rule
+from petasos.pipeline import Pipeline
+from petasos.pipeline.findings import _is_floor_rule
 from petasos.scanners.minimal import (
     _ALL_INJECTION_IDS,
     _STRUCTURAL_RULE_IDS,

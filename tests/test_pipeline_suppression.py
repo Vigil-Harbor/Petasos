@@ -17,7 +17,8 @@ from petasos.config.schema import ConfigError, from_mapping
 from petasos.config.secrets import Secrets
 from petasos.config.sections import PetasosConfig
 from petasos.model import Direction, Position, ScanFinding, ScanResult, Severity
-from petasos.pipeline import Pipeline, _is_floor_rule, _suppress_scanner_findings
+from petasos.pipeline import Pipeline
+from petasos.pipeline.findings import _is_floor_rule, _suppress_scanner_findings
 
 _INJECTION_ID = "petasos.syntactic.injection.role-switch-capability"  # a floor rule
 

@@ -30,8 +30,8 @@ from petasos.enforce.decisions import (
 from petasos.enforce.fallback import fallback_decision, scan_fallback, tier3_unavailable_block
 from petasos.enforce.guardrail import hit_for, note_covered, ruling_for
 from petasos.normalize import canonicalize_tool_name
+from petasos.pipeline.ingest import _acquire_inspect_lock
 from petasos.session.guard import READ_ONLY_TOOLS
-from petasos.session.ingest import _acquire_inspect_lock
 
 if TYPE_CHECKING:
     from petasos.enforce.types import ToolCall

@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 
     from petasos.coverage import ScanCoverage
     from petasos.pipeline import Pipeline
-from petasos.session.guard import _MAX_PARAM_TEXT_LEN
+from petasos.limits import MAX_PARAM_TEXT_LEN as _MAX_PARAM_TEXT_LEN
 
 _PREPARE_HERE = object()
 
@@ -144,7 +144,7 @@ async def scan_ingestion_result(
     original-result coordinates. The inspect mutex, when provided, is held only
     around the head ``inspect()``.
     """
-    from petasos.pipeline import merge_findings
+    from petasos.pipeline.findings import merge_findings
 
     errors: list[str] = []
     head: PipelineResult | None = None

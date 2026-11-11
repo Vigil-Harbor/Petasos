@@ -47,7 +47,7 @@ package total below is from `--cov=petasos`.
 
 | Module | Statements | Missed | Cover |
 |---|---:|---:|---:|
-| `petasos/pipeline.py` | 574 | 38 | 93% |
+| `petasos/pipeline/pipeline.py` | 574 | 38 | 93% |
 | `petasos/session/frequency.py` | 311 | 10 | 97% |
 | `petasos/session/guard.py` | 430 | 27 | 94% |
 | `petasos/session/audit.py` | 56 | 0 | 100% |

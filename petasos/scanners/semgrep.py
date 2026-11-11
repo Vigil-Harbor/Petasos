@@ -122,7 +122,7 @@ class PreparedSemgrepScan:
     ) -> None:
         self._scanner = scanner
         self._binding: object | None = binding
-        from petasos.session.ingest import HEAD_CHARS
+        from petasos.pipeline.ingest import HEAD_CHARS
 
         self._text = text
         self._input_evidence = self._evidence(text) if text is not None else None

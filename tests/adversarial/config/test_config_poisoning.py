@@ -12,7 +12,8 @@ from petasos.config.schema import ConfigError, from_mapping
 from petasos.config.secrets import Secrets
 from petasos.config.sections import PetasosConfig
 from petasos.model import ScanResult
-from petasos.pipeline import Pipeline, _compute_safe
+from petasos.pipeline import Pipeline
+from petasos.pipeline.findings import _compute_safe
 from petasos.session.escalation import evaluate_tier
 
 

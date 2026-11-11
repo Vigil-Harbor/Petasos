@@ -65,7 +65,11 @@ def test_enforce_does_not_import_a_host() -> None:
 def test_lower_layers_do_not_import_enforce() -> None:
     """The session package, the pipeline, and the scanners sit below enforce."""
     offenders: list[str] = []
-    roots = [Path("petasos/session"), Path("petasos/pipeline.py"), Path("petasos/scanners")]
+    roots = [
+        Path("petasos/session"),
+        Path("petasos/pipeline"),
+        Path("petasos/scanners"),
+    ]
     paths: list[Path] = []
     for root in roots:
         if root.is_file():

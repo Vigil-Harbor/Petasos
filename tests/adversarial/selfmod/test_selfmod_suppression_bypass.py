@@ -141,7 +141,7 @@ class TestSeverityOverrideRefused:
     """severity_overrides downgrade attempt -> refused (floor rule)."""
 
     def test_selfmod_is_floor_rule(self) -> None:
-        from petasos.pipeline import _is_floor_rule
+        from petasos.pipeline.findings import _is_floor_rule
 
         assert _is_floor_rule("petasos.selfmod.config_write") is True
         assert _is_floor_rule("petasos.selfmod.config_ref") is True

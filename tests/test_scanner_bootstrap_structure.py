@@ -70,17 +70,17 @@ _DEFINITION_MODULES = frozenset(
 
 # (repo-relative POSIX path, qualified enclosing function) pairs that may construct
 # a scanner. Each row carries its reason:
-#   petasos/pipeline.py :: Pipeline.__init__          - the no-minimal-supplied
+#   petasos/pipeline/pipeline.py :: Pipeline.__init__          - the no-minimal-supplied
 #       fallback; spec Decision 4 keeps it.
-#   petasos/session/ingest.py :: scan_ingestion_result - PET-178 private sweep
+#   petasos/pipeline/ingest.py :: scan_ingestion_result - PET-178 private sweep
 #       scanner; Decision 12 keeps it off pipeline._minimal_scanner.
 # The function is QUALIFIED (ClassName.method): a bare "__init__" key would exempt
 # every __init__ in pipeline.py, present and future. A module-scope construction
 # is never allowlisted.
 _ALLOWLIST = frozenset(
     {
-        ("petasos/pipeline.py", "Pipeline.__init__"),
-        ("petasos/session/ingest.py", "scan_ingestion_result"),
+        ("petasos/pipeline/pipeline.py", "Pipeline.__init__"),
+        ("petasos/pipeline/ingest.py", "scan_ingestion_result"),
     }
 )
 
@@ -295,8 +295,8 @@ def test_allowlist_is_exactly_the_documented_rows() -> None:
     assertion too, so the spec table and the code cannot drift."""
     documented = frozenset(
         {
-            ("petasos/pipeline.py", "Pipeline.__init__"),
-            ("petasos/session/ingest.py", "scan_ingestion_result"),
+            ("petasos/pipeline/pipeline.py", "Pipeline.__init__"),
+            ("petasos/pipeline/ingest.py", "scan_ingestion_result"),
         }
     )
     assert documented == _ALLOWLIST
@@ -400,7 +400,7 @@ def test_method_scope_is_qualified() -> None:
     """A method-scoped construction reports ``ClassName.method``, so a bare
     ``__init__`` allowlist key cannot exempt every ``__init__`` in a module."""
     source = "class Pipeline:\n    def __init__(self):\n        self.s = MinimalScanner()\n"
-    found = _constructions_in(ast.parse(source), "petasos/pipeline.py")
+    found = _constructions_in(ast.parse(source), "petasos/pipeline/pipeline.py")
     assert [c.function for c in found] == ["Pipeline.__init__"]
 
 

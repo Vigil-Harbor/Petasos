@@ -7,7 +7,8 @@ import pytest
 from petasos.config.schema import ConfigError, from_mapping
 from petasos.config.sections import PetasosConfig
 from petasos.model import Position, ScanFinding, ScanResult, Severity
-from petasos.pipeline import Pipeline, merge_findings
+from petasos.pipeline import Pipeline
+from petasos.pipeline.findings import merge_findings
 from petasos.scanners.minimal import MinimalScanner
 
 
