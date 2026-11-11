@@ -914,8 +914,9 @@ call for a person, with a session-scoped rule key that expires after
 `tools.self_change_minutes` (default 30, at most 24 hours). `never` refuses it.
 The Hermes adapter supplies the host paths and command patterns through
 `HostInfo.guardrail_surface`. Petasos's own package files and commands are
-recognised in the library. Pinning those settings in Hermes's machine-level
-config is not built yet. What the guard recognises:
+recognised in the library. The pin commands now store those settings in Hermes's machine-level config. Open mappings, unset-value merge behavior and
+redirecting the managed directory limit what they can fix; see
+`guardrail-integrity.md`. What the guard recognises:
 
 - the commands `hermes plugins disable`, `enable` and `remove`, the
   `--safe-mode` flag, and `hermes gateway restart`;
@@ -932,6 +933,17 @@ config is not built yet. What the guard recognises:
   recommendations. Replaces `verify.py`.
 - `petasos hermes install`: puts the plugin directory in place for a profile
   and enables it.
+- `petasos hermes pin [--write]`: previews the complete plugin lists, all
+  resolved Petasos settings, and the effective plugin-check timeout. With
+  `--write`, writes atomically to a writable managed directory, or prepares a
+  private merged document and prints only system `mkdir`/`install` commands
+  for a person to run with administrator rights. Never run Petasos as root.
+  The file applies to every profile using that directory. The preview names
+  mapping/unset-value gaps and the limits on files, Python and the record.
+- `petasos hermes unpin [--write] [--accept-profile-changes]`: removes only
+  the recorded pin keys, preserving unrelated managed values. Differences in
+  the profile are shown and block removal unless explicitly accepted. Uses
+  the same direct-write or administrator-staging route as pin.
 - `petasos config migrate`: section 4.3.
 - `petasos config set <setting> <value>`: changes one simple setting through
   Hermes, with the same checks as the settings form, and says when the change

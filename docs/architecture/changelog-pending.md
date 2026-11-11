@@ -66,6 +66,11 @@ deleted.
 
 ## Changed
 
+- `petasos hermes pin` and `unpin` preview and optionally prepare managed
+  settings and plugin-list changes without invoking administrator rights.
+  Doctor and the Overview show writable, partial, bypassed and changed-profile
+  states, naming the open-mapping and unset-value gaps in Hermes's overlay.
+
 - **Breaking.** The `general` role sets `tools.dangerous_posture` to `approve`.
   A risky tool call is put to a person when one can be asked, and blocked when
   nobody can. `research`, `support`, and `admin` still block. `petasos config
