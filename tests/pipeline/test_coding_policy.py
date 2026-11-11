@@ -46,7 +46,7 @@ from petasos.scanners.minimal.taxonomy import (
 if TYPE_CHECKING:
     from petasos.config.sections import PetasosConfig
 
-_FIXTURE = Path(__file__).parent / "fixtures" / "pet135_codegen_corpus.json"
+_FIXTURE = Path(__file__).parents[1] / "fixtures" / "pet135_codegen_corpus.json"
 
 
 def _role(name: str) -> PetasosConfig:
