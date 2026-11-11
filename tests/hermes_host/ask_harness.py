@@ -107,12 +107,14 @@ def _case(name: str, command: str, **setup: object) -> dict[str, Any]:
         os.environ["TERMINAL_ENV"] = terminal_env
     if isinstance(volumes, str):
         os.environ["TERMINAL_DOCKER_VOLUMES"] = volumes
-    approval_smart = None
+    guardian = None
     real = None
     if isinstance(smart, str):
-        approval_smart = _load("tools.approval_smart")
-        real = approval_smart._smart_verdict
-        approval_smart._smart_verdict = lambda *_args, **_kwargs: smart
+        # The gate calls the name it imported, so that is the one to replace.
+        # The real function would send the command to a model.
+        guardian = _load("tools.approval")
+        real = guardian._smart_verdict
+        guardian._smart_verdict = lambda *_args, **_kwargs: smart
     try:
         yolo_token = None
         if yolo:
@@ -130,8 +132,8 @@ def _case(name: str, command: str, **setup: object) -> dict[str, Any]:
                 approval.disable_session_yolo("ask-harness")
                 context.reset_current_session_key(yolo_token)
     finally:
-        if approval_smart is not None and real is not None:
-            approval_smart._smart_verdict = real
+        if guardian is not None and real is not None:
+            guardian._smart_verdict = real
     row["name"] = name
     return row
 
