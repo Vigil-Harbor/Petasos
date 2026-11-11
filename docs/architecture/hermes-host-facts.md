@@ -929,6 +929,75 @@ A pinned `plugins.entries.petasos.settings` key is the value `get_config`
 returns, including when the profile file has a different value. A write of
 that key is refused, as above.
 
+## 14. Commands that change a guardrail
+
+Read from the Hermes `v0.23.1` tree in the sandbox copy
+`/tmp/petasos-s1a-sbx` (the same tag as the sections above). Nothing was
+run. Line numbers are the parser or the function that performs the write.
+
+**Plugins** (`hermes_cli/subcommands/plugins.py`). These change which
+plugins are installed, enabled, or disabled, or replace a plugin's files:
+
+| Command | Lines | When it is a change |
+|---|---|---|
+| `plugins install` | 18–48 | The identifier is `petasos`, ends with `#petasos` or `/petasos`, or names every plugin (`--all`, `-a`, `all`, `*`). `file:///tmp/other#petasos` is this case. |
+| `plugins update` | 68–78 | A name of `petasos` or a source for it, or no name at all. With no name the help says it offers every plugin that has an update. |
+| `plugins remove`, `rm`, `uninstall` | 131–133 | The name is `petasos` or every plugin. |
+| `plugins enable` | 147–156 | Same. |
+| `plugins disable` | 158–160 | Same. The parser has no `--all` flag; a word `--all` or `-a` is still treated as every plugin. |
+| `plugins auto-update` / `autoupdate` | 80–88 | The next word is `on` or `off`. That sets `plugins.auto_apply`, which applies later plugin updates with nobody present. With no word it only shows the setting. |
+| `plugins adopt` | 90–99 | The name is `petasos`. It writes provenance so a later `update` can replace that plugin's files. |
+| `plugins trust-update-url` | 101–111 | The name is `petasos`. It is the only command that changes the saved update URL. |
+| `plugins pack install` | 187–191 | Always. The pack is a set of installs and its contents are not in the command. `pack show` and `pack export` only read. |
+
+Not a change: `list` / `ls` (135), `search` (50), `browse` (57), `show` (205),
+`doctor` (171), `capabilities` (162), `check-updates` / `check` (113, "NEVER
+mutates"), and `validate` (59). `validate --install-deps` (62–66) installs
+the plugin under test's declared dependencies into the current venv for a
+probe. It does not enable a plugin or replace Petasos's files, so it is not
+matched.
+
+**Configuration** (`hermes_cli/subcommands/config.py`). `set` and `unset`
+(27–37) on `plugins.enabled`, `plugins.disabled`, `plugins.hook_callback_timeout`,
+`plugins.entries.petasos`, and `plugins.auto_apply`. `edit` (18) opens the
+config file in an editor, so it can change any of those keys. `migrate` (42)
+writes new options into the file. `show`, `get`, `path`, `env-path`, and
+`check` only read.
+
+**Active profile.** `set_active_profile` (`hermes_cli/profiles.py` 1956–1968)
+writes or removes `active_profile`. `hermes profile use` always calls it
+(`hermes_cli/profile_cmd.py` 151–158). `profile delete` (profiles.py
+1792–1793) and `profile rename` (2304–2305) retarget the pointer when it
+names that profile; both are treated as a change because the command can do
+so. `profile update --force-config` (subcommands/profile.py 147–157)
+overwrites that profile's `config.yaml`. `profile list`, `show`, `create`,
+`install`, `export`, and `update` without `--force-config` do not write the
+pointer. `--profile` and `-p` (`hermes_cli/_parser.py` 13–16) are consumed
+before argparse and point the process at another home.
+
+**Safe mode.** `--safe-mode` (`_parser.py` 210–211) disables plugins for
+that process. `_apply_safe_mode` (`main.py` 2842–2847) sets
+`HERMES_SAFE_MODE`, `HERMES_IGNORE_USER_CONFIG`, and `HERMES_IGNORE_RULES`.
+`--ignore-user-config` (`_parser.py` 206–207) ignores `config.yaml`, which
+is where the enabled-plugin list lives. `HERMES_IGNORE_USER_CONFIG` is the
+environment form (`gateway_chat.py` 42).
+
+**Restart or reload.** `gateway restart` (subcommands/gateway.py 164),
+`gateway start` (151), and `gateway run --replace` (83–87, replaces the
+running instance). `hermes update` (subcommands/update.py) replaces the
+install and restarts gateways unless `--no-gateway-restart` (111–114); a
+restart is the normal end of the command, so the command is a change.
+`--check` (19), `--plan` (22), `--list-venv-holders` (28), and
+`--install-id` (91) are read-only and are not. `gateway stop` (159) stops
+the service and does not reload it. `gateway status` and `gateway run`
+without `--replace` do not either.
+
+**Home variables.** A prefix assignment of `HERMES_HOME` or
+`HERMES_MANAGED_DIR` on a `hermes` command, and `export` of either name,
+are a change. `get_managed_dir` (`hermes_cli/managed_scope.py` 45–59) uses
+`HERMES_MANAGED_DIR` when it is set. Assigning `HERMES_HOME` on a command
+that is not `hermes`, and is not an export, is not.
+
 ## What was not run
 
 - No Hermes gateway, no messaging platform, no model provider, and no

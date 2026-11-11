@@ -165,9 +165,42 @@ it got in.
 
 - `petasos hermes pin` and `unpin`.
 - The doctor's third state, pinned.
-- A complete answer to a disguised shell. The known gaps are listed in the
-  implementation report: encoded commands, aliases, and commands assembled at
-  runtime.
+- A complete answer to a disguised shell. Recognition fails closed for a
+  program that is not on the small reader list, so some honest reads now ask.
+  What a string match still does not catch:
+
+  - Encoded commands (`base64`, `eval`), aliases, and command substitution
+    (`$(...)`, `` `...` ``). Nothing is decoded or executed.
+  - A shell variable that holds the program (`cmd=hermes; $cmd ...`).
+  - A Python path built in a variable and used later
+    (`root = os.environ["HERMES_HOME"]` then `open(root + "/config.yaml")`).
+    A path written next to `Path.home()`, `expanduser`, or a lookup of
+    `HERMES_HOME` is recognised. A bare relative name in program text is
+    recognised only when it resolves against the working directory, `HOME`,
+    or `HERMES_HOME` the same way a shell word does.
+  - The body of a script file the command only names (`python write.py`).
+  - A protected path that is only inside a larger shell argument
+    (`echo 'see …/config.yaml'`). The path has to be an argument the program
+    acts on, or a redirect target. Option values glued on (`--output=path`,
+    `-o/path`) count. `name=path` on a word that is not an option does not.
+  - `echo`, `printf`, and the other programs whose arguments are never file
+    operands (`basename`, `dirname`, `expr`, `false`, `pwd`, `seq`, `sleep`,
+    `true`, `uname`, `uptime`, `whoami`, `yes`, `:`). A redirect into a
+    protected path is still a change. A comment in program text is not: a
+    `#` outside a string runs to the end of the line, and a `#` inside a
+    string stays. An unclosed string swallows the rest of the text, which
+    is the approximation.
+  - A plain read in program text. `open` with no mode, or a literal `r`,
+    `rb` or `rt`, and `Path` / `pathlib.Path` followed directly by
+    `read_text`, `read_bytes`, `exists`, `is_file` or `stat`. A write or
+    append mode, a mode that is not a literal, the path assigned to a name,
+    or the path passed to any other call is a change. `hermes` or `petasos`
+    with `--help` or `-h` is not a change.
+
+  Reads that are not on the reader list now ask. That includes `sed` and
+  `perl` even without `-i`, `awk`, editors (including a read-only `vim -R`),
+  `git` commands that name the file, `strings`, `od`, `hexdump`, `sort`,
+  `tar`, `ack`, and `ag`. `rg` is treated as a grep and does not ask.
 
 ## Behaviour change
 
