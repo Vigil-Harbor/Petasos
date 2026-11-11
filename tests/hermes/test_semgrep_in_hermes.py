@@ -1,4 +1,4 @@
-"""Semgrep cannot be required inside Hermes, and the form says so."""
+"""Semgrep cannot be turned on inside Hermes, and the form says so."""
 
 from __future__ import annotations
 
@@ -43,15 +43,14 @@ def _row(body: dict[str, Any]) -> dict[str, Any]:
     return next(row for row in body["settings"] if row["path"] == semgrep_host.SEMGREP_ENABLED)
 
 
-def test_the_form_does_not_offer_required_and_says_semgrep_cannot_run() -> None:
-    """While Hermes cannot run Semgrep, Required is absent and the help says so."""
+def test_the_form_offers_only_never_and_says_semgrep_cannot_run() -> None:
+    """While Hermes cannot run Semgrep, Never is the one choice and the help says why."""
     row = _row(read_settings({}, secrets=_SECRETS))
 
-    assert row["choices"] == ["auto", "off"]
-    assert row["choice_labels"]["auto"] == semgrep_host.SEMGREP_AUTO_LABEL
-    assert "on" not in row["choice_labels"]
+    assert row["value"] == "off"
+    assert row["choices"] == ["off"]
+    assert row["choice_labels"] == {"off": "Never"}
     assert row["help"] == semgrep_host.SEMGREP_CANNOT_RUN
-    assert "when it is installed" not in row["choice_labels"]["auto"]
     assert "lifecycle" not in row["help"].casefold()
 
 
@@ -74,9 +73,17 @@ def test_a_stored_required_stays_visible_and_is_marked() -> None:
     row = _row(read_settings(_ON, secrets=_SECRETS))
 
     assert row["value"] == "on"
-    assert row["choices"] == ["auto", "on", "off"]
-    assert row["choice_labels"]["on"] == semgrep_host.SEMGREP_ON_LABEL
-    assert "cannot run" in row["choice_labels"]["on"]
+    assert row["choices"] == ["on", "off"]
+    assert row["choice_labels"] == {"on": "Required (cannot run yet)", "off": "Never"}
+
+
+def test_a_stored_auto_stays_visible_and_is_marked() -> None:
+    """auto asks for a check that cannot start, so it is marked the same way."""
+    row = _row(read_settings(_AUTO, secrets=_SECRETS))
+
+    assert row["value"] == "auto"
+    assert row["choices"] == ["auto", "off"]
+    assert row["choice_labels"]["auto"] == "Use it when it is installed (cannot run yet)"
 
 
 def test_saving_required_is_refused_and_nothing_is_written(tmp_path: Path) -> None:
@@ -87,8 +94,8 @@ def test_saving_required_is_refused_and_nothing_is_written(tmp_path: Path) -> No
             store.settings, _ON, plugin_dir=tmp_path, write=store.write, secrets=_SECRETS
         )
 
-    assert caught.value.code == "semgrep_required"
-    assert caught.value.message == semgrep_host.SEMGREP_SET_ON_REFUSED
+    assert caught.value.code == "semgrep_cannot_run"
+    assert caught.value.message == semgrep_host.SEMGREP_TURN_ON_REFUSED
     assert caught.value.path == semgrep_host.SEMGREP_ENABLED
     assert store.calls == []
 
@@ -100,7 +107,7 @@ def test_a_preview_of_required_is_refused() -> None:
     assert body["valid"] is False
     assert body["changes"] == []
     assert body["problems"] == [
-        {"path": semgrep_host.SEMGREP_ENABLED, "message": semgrep_host.SEMGREP_SET_ON_REFUSED}
+        {"path": semgrep_host.SEMGREP_ENABLED, "message": semgrep_host.SEMGREP_TURN_ON_REFUSED}
     ]
 
 
@@ -140,17 +147,32 @@ def test_turning_required_off_is_saved(tmp_path: Path) -> None:
     assert store.settings["overrides"]["scanners"]["semgrep"]["enabled"] == "off"
 
 
-def test_auto_can_be_saved_and_is_not_described_as_used_when_installed(tmp_path: Path) -> None:
-    """auto is still a choice. The words do not say it runs when it is installed."""
+def test_saving_auto_is_refused_and_nothing_is_written(tmp_path: Path) -> None:
+    """auto would block tool calls that change things, so it is refused like Required."""
     store = _Store()
-    body = save_settings(
-        store.settings, _AUTO, plugin_dir=tmp_path, write=store.write, secrets=_SECRETS
-    )
+    with pytest.raises(ApiError) as caught:
+        save_settings(
+            store.settings, _AUTO, plugin_dir=tmp_path, write=store.write, secrets=_SECRETS
+        )
 
-    assert body["saved"] is True
-    row = _row(body)
-    assert row["value"] == "auto"
-    assert "installed" not in row["choice_labels"]["auto"]
+    assert caught.value.message == semgrep_host.SEMGREP_TURN_ON_REFUSED
+    assert store.calls == []
+    assert preview_settings({}, _AUTO)["valid"] is False
+
+
+def test_changing_something_else_while_auto_is_stored_is_refused(tmp_path: Path) -> None:
+    store = _Store(_AUTO)
+    with pytest.raises(ApiError) as caught:
+        save_settings(
+            store.settings,
+            {"level": "strict"},
+            plugin_dir=tmp_path,
+            write=store.write,
+            secrets=_SECRETS,
+        )
+
+    assert store.calls == []
+    assert caught.value.message == semgrep_host.SEMGREP_LEFT_ON_REFUSED
 
 
 def test_clearing_another_override_while_required_is_stored_is_refused(tmp_path: Path) -> None:

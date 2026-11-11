@@ -217,7 +217,7 @@ def test_requiring_semgrep_is_refused_and_the_stored_settings_stay(
     )
     assert status == 400, refused
     message = refused["error"]["message"]
-    assert "cannot be set to Required" in message
+    assert "can only be set to Never" in message
     assert "lifecycle" not in message.casefold()
     after = _invoke(sandbox, home, _DASHBOARD_HARNESS, {"action": "read_settings"})
     assert after["file"] == before["file"]

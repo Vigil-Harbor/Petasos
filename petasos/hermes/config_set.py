@@ -1,7 +1,7 @@
 """Change one Petasos setting through Hermes's writer.
 
 ``petasos config set`` and ``hermes petasos config set`` both call
-:func:`set_one`. A value that would leave Semgrep Required is refused
+:func:`set_one`. A value that would leave Semgrep turned on is refused
 before anything is written.
 """
 
@@ -10,11 +10,12 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
-from petasos.config.layers import LEVEL_NAMES, ROLE_NAMES, resolve
+from petasos.config.layers import LEVEL_NAMES, ROLE_NAMES, Resolved, resolve
 from petasos.config.schema import ConfigError, FieldInfo, leaves
 from petasos.config.sections import PetasosConfig
 from petasos.hermes import semgrep_host
 from petasos.hermes.dashboard.catalog import combine, stored_document
+from petasos.hermes.dashboard.changes import saved_message
 from petasos.hermes.dashboard.values import copy_tree
 from petasos.hermes.settings import PLUGIN_ID, profile_binding, write_settings
 
@@ -47,8 +48,11 @@ def set_one(home: Path, path: str, raw: str) -> tuple[str, int]:
         after = resolve(proposed)
     except ConfigError as exc:
         return exc.errors[0][1] + "\n", 2
-    before_enabled = _stored_semgrep(document)
-    blocked = semgrep_host.save_refusal(before_enabled, semgrep_host.semgrep_enabled(after.config))
+    before = _resolved_or_none(document)
+    blocked = semgrep_host.save_refusal(
+        None if before is None else semgrep_host.semgrep_enabled(before.config),
+        semgrep_host.semgrep_enabled(after.config),
+    )
     if blocked is not None:
         return blocked + "\n", 2
     payload = {
@@ -65,12 +69,12 @@ def set_one(home: Path, path: str, raw: str) -> tuple[str, int]:
             f"{exc} "
             "This command does not edit the config file itself.\n"
         ), 2
-    return "Saved.\n", 0
+    return saved_message(before, after) + "\n", 0
 
 
-def _stored_semgrep(document: Mapping[str, Any]) -> str | None:
+def _resolved_or_none(document: Mapping[str, Any]) -> Resolved | None:
     try:
-        return semgrep_host.semgrep_enabled(resolve(document).config)
+        return resolve(document)
     except ConfigError:
         return None
 

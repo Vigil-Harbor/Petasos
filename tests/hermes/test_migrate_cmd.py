@@ -115,8 +115,9 @@ def test_write_refuses_to_store_required_semgrep(
 
     assert code == 2
     assert calls == []
-    assert "cannot be set to Required" in out
+    assert "turns Semgrep on" in out
     assert "Nothing was written" in out
+    assert "Set semgrep_enabled to false" in out
     assert (tmp_path / "config.yaml").read_text(encoding="utf-8") == original
 
 

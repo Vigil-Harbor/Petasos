@@ -96,24 +96,19 @@ def setting_rows(resolved: Resolved | None) -> list[dict[str, Any]]:
 
 
 def _present_semgrep(row: dict[str, Any]) -> None:
-    """Drop Required while Hermes cannot run Semgrep, and say so in the help.
+    """Offer only Never while Hermes cannot run Semgrep, and say so in the help.
 
-    A stored Required stays in the list, marked as unable to run, so the form
-    does not show some other choice in its place.
+    A stored value that turns Semgrep on stays in the list, marked as unable
+    to run, so the form does not show some other choice in its place.
     """
     if row["path"] != semgrep_host.SEMGREP_ENABLED or semgrep_host.semgrep_can_run():
         return
-    labels = dict(row["choice_labels"] or {})
-    choices = [
-        choice for choice in (row["choices"] or []) if choice != "on" or row["value"] == "on"
-    ]
-    if row["value"] == "on" and "on" not in choices:
-        choices.append("on")
-    labels["auto"] = semgrep_host.SEMGREP_AUTO_LABEL
-    if row["value"] == "on":
-        labels["on"] = semgrep_host.SEMGREP_ON_LABEL
-    else:
-        labels.pop("on", None)
+    known = dict(row["choice_labels"] or {})
+    stored = row["value"]
+    choices = [choice for choice in (row["choices"] or []) if choice in ("off", stored)]
+    labels = {choice: known.get(choice, choice) for choice in choices}
+    if stored in labels and stored != "off":
+        labels[stored] += semgrep_host.SEMGREP_CANNOT_RUN_SUFFIX
     row["choices"] = choices
     row["choice_labels"] = labels
     row["help"] = semgrep_host.SEMGREP_CANNOT_RUN

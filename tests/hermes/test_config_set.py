@@ -58,7 +58,7 @@ def test_set_required_is_refused(
 
     assert code == 2
     assert calls == []
-    assert "cannot be set to Required" in out
+    assert "can only be set to Never" in out
     assert "on" not in (tmp_path / "config.yaml").read_text(encoding="utf-8")
 
 
@@ -88,7 +88,9 @@ def test_set_off_is_stored(
     out = capsys.readouterr().out
 
     assert code == 0
-    assert out == "Saved.\n"
+    # Semgrep's setting is read when an agent starts, and the command says so.
+    assert out.startswith("Saved. An agent started from now on uses the saved value for ")
+    assert "until it restarts" in out
     assert calls[0]["values"]["overrides"]["scanners"]["semgrep"]["enabled"] == "off"
     assert calls[0]["plugin_dir"] == tmp_path / "plugins" / "petasos"
 
@@ -119,4 +121,4 @@ def test_registered_set_refuses_required(
 
     assert code == 2
     assert calls == []
-    assert "cannot be set to Required" in out
+    assert "can only be set to Never" in out

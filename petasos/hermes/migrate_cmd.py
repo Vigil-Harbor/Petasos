@@ -275,9 +275,8 @@ def _store(home: Path, result: Migration) -> tuple[bool, str]:
             f"{exc} "
             "This command does not edit the config file itself."
         )
-    blocked = semgrep_host.save_refusal(None, semgrep_host.semgrep_enabled(resolved.config))
-    if blocked is not None:
-        return False, blocked + " Nothing was written."
+    if semgrep_host.save_refusal(None, semgrep_host.semgrep_enabled(resolved.config)):
+        return False, semgrep_host.SEMGREP_MIGRATE_REFUSED
     try:
         write_settings(dict(result.settings), plugin_dir=plugin)
     except Exception as exc:

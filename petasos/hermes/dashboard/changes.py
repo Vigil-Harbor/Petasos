@@ -65,6 +65,12 @@ def save_settings(
     return body
 
 
+def saved_message(before: Any, after: Any) -> str:
+    """``Saved.`` and when the change takes effect, for a save made outside the form."""
+    restart, also_live = _effect(before, after)
+    return _when_message("Saved.", restart, also_live=also_live)
+
+
 def clear_overrides(
     stored: Mapping[str, Any],
     path: str | None,
@@ -162,13 +168,13 @@ def _when_message(lead: str, restart: list[str], *, also_live: bool) -> str:
 
 
 def _refuse_semgrep(before: Any, after: Any) -> None:
-    """Refuse a document that would leave Semgrep Required inside Hermes."""
+    """Refuse a document that would leave Semgrep turned on inside Hermes."""
     message = semgrep_host.save_refusal(
         None if before is None else semgrep_host.semgrep_enabled(before.config),
         semgrep_host.semgrep_enabled(after.config),
     )
     if message is not None:
-        raise ApiError("semgrep_required", message, path=semgrep_host.SEMGREP_ENABLED)
+        raise ApiError("semgrep_cannot_run", message, path=semgrep_host.SEMGREP_ENABLED)
 
 
 def _reject_secrets(candidate: Mapping[str, Any]) -> None:
