@@ -12,7 +12,7 @@ async def test_benchmark_error_diagnostics_are_bounded_and_omit_paths() -> None:
     import errno
     import importlib.util
 
-    script = Path(__file__).resolve().parents[1] / "scripts/semgrep_benchmark.py"
+    script = Path(__file__).resolve().parents[3] / "scripts/semgrep_benchmark.py"
     spec = importlib.util.spec_from_file_location("semgrep_benchmark", script)
     assert spec is not None and spec.loader is not None
     benchmark = importlib.util.module_from_spec(spec)

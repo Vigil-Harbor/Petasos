@@ -81,8 +81,9 @@ dev = [
 # via anyio's early usefixtures("anyio_backend") collection path, which composes
 # with `@pytest.mark.parametrize`, so no async test is silently collected but
 # never awaited. The shared `anyio_backend` fixture (tests/conftest.py) pins it to
-# function-scoped asyncio. Guarded by tests/test_async_marker_invariants.py.
+# function-scoped asyncio. Guarded by tests/test_architecture.py.
 anyio_mode = "auto"
+testpaths = ["tests"]
 
 [tool.mypy]
 strict = true
@@ -124,3 +125,7 @@ warn_unused_ignores = false
 disallow_subclassing_any = false
 
 
+
+[tool.coverage.run]
+source = ["petasos"]
+relative_files = true

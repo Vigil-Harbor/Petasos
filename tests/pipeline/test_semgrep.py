@@ -19,7 +19,7 @@ from petasos.limits import HEAD_CHARS
 from petasos.pipeline.findings import merge_findings
 from petasos.pipeline.ingest import scan_ingestion_result
 from petasos.scanners.semgrep import SemgrepLifecycleOwner, SemgrepScanner
-from tests._semgrep_helpers import require
+from tests.scanners.semgrep.helpers import require
 
 
 def test_second_merge_cannot_evict_original_semgrep_finding() -> None:

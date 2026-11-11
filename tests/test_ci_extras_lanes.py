@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import pathlib
 import re
+import shlex
 import sys
 from typing import Any
 
@@ -55,6 +56,26 @@ _PYPROJECT = _REPO_ROOT / "pyproject.toml"
 # Deny-list, not allow-list: a NEW extra is assumed to be a scanner (and thus
 # require a lane) until proven otherwise — fail-closed (spec Decision 2).
 _NON_SCANNER_EXTRAS = frozenset({"all", "dev"})
+
+_REAL_BACKEND_TESTS = {
+    "presidio": {
+        "tests/scanners/test_presidio.py",
+        "tests/scanners/test_presidio_entities.py",
+        "tests/config/test_presidio_validation.py",
+        "tests/pipeline/test_presidio_entities.py",
+    },
+    "prompt-guard": {"tests/scanners/test_prompt_guard.py"},
+    "semgrep": {
+        "tests/scanners/semgrep/test_engine.py",
+        "tests/scanners/semgrep/test_source.py",
+        "tests/scanners/semgrep/test_protocol.py",
+        "tests/scanners/semgrep/test_process.py",
+        "tests/scanners/semgrep/test_runtime.py",
+        "tests/pipeline/test_semgrep.py",
+        "tests/scanners/semgrep/test_qualification.py",
+        "tests/scanners/semgrep/test_benchmark.py",
+    },
+}
 
 
 # --------------------------------------------------------------------------- #
@@ -246,6 +267,17 @@ def test_all_scanner_extras_have_paired_lanes() -> None:
         _lane_filename(extra): _load_workflow(_lane_filename(extra)) for extra in extras
     }
     assert _check_lane_pairing(extras, workflows) == []
+    for extra, expected in _REAL_BACKEND_TESTS.items():
+        runs = _run_steps(workflows[_lane_filename(extra)])
+        selected = {
+            token
+            for run in runs
+            if re.match(r"(?:python\s+-m\s+)?pytest\s", run)
+            for token in shlex.split(run)
+            if token.startswith("tests/") and token.endswith(".py")
+        }
+        assert selected == expected, (extra, selected, expected)
+        assert all((_REPO_ROOT / path).is_file() for path in selected)
 
 
 def test_every_nonskipping_lane_arms_its_env_flag() -> None:
@@ -340,7 +372,7 @@ def test_pairing_check_flags_lane_without_install() -> None:
             "scanner-tests": {
                 "steps": [
                     {"run": "pip install some-presidio-helper"},
-                    {"run": "pytest tests/test_presidio_scanner.py"},
+                    {"run": "pytest tests/scanners/test_presidio.py"},
                 ],
             }
         }
@@ -385,7 +417,7 @@ def test_pairing_check_rejects_hyphenated_superstring_in_bracket() -> None:
             "scanner-tests": {
                 "steps": [
                     {"run": 'pip install -e ".[presidio-helper,dev]"'},
-                    {"run": "pytest tests/test_presidio_scanner.py"},
+                    {"run": "pytest tests/scanners/test_presidio.py"},
                 ],
             }
         }

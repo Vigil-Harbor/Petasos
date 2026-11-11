@@ -9,7 +9,7 @@ import pytest
 
 from petasos.scanners.semgrep.engine import result_for
 from petasos.scanners.semgrep.source import ProjectionError, select_sources
-from tests._semgrep_helpers import require
+from tests.scanners.semgrep.helpers import require
 
 
 @pytest.mark.parametrize("text", ["Hello (world); goodbye.", "ls -la; cd foo", "FOO=1 make"])

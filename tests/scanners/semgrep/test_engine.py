@@ -14,7 +14,7 @@ import pytest
 
 from petasos.scanners.semgrep.engine import scan_selected
 from petasos.scanners.semgrep.source import select_sources
-from tests._semgrep_helpers import require
+from tests.scanners.semgrep.helpers import require
 
 
 @pytest.fixture
@@ -401,7 +401,7 @@ class TestSemgrepWindowsEngine:
 class TestSemgrepHeldOut:
     @pytest.mark.parametrize(
         "case",
-        json.loads((Path(__file__).parent / "fixtures/semgrep/held_out.json").read_text()),
+        json.loads((Path(__file__).parents[2] / "fixtures/semgrep/held_out.json").read_text()),
         ids=lambda case: case["id"],
     )
     async def test_corpus(self, case: dict[str, Any], engine_root: Path) -> None:

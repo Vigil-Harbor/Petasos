@@ -18,7 +18,7 @@ from petasos.scanners.minimal.taxonomy import (
     _INJECTION_RULE_IDS,
 )
 from tests.adversarial.syntactic.benign_corpus import BENIGN_CORPUS
-from tests.test_minimal_scanner import _LEET_FOLD_PINS
+from tests.scanners.minimal.test_scanner import _LEET_FOLD_PINS
 
 if TYPE_CHECKING:
     import re

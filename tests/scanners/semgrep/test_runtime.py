@@ -16,7 +16,7 @@ from petasos.scanners.semgrep import SemgrepLifecycleOwner, SemgrepScanner
 from petasos.scanners.semgrep import runtime as rt
 from petasos.scanners.semgrep.engine import result_for
 from petasos.scanners.semgrep.source import select_sources
-from tests._semgrep_helpers import require
+from tests.scanners.semgrep.helpers import require
 
 
 async def _bounded_result(task: asyncio.Task[Any]) -> Any:
@@ -438,7 +438,7 @@ async def test_real_owned_probe_scan_and_clean_close() -> None:
 
 
 def test_process_close_deadline_terminal_tokens_and_permanent_seal() -> None:
-    script = Path(__file__).parent / "fixtures/semgrep/close_owner.py"
+    script = Path(__file__).parents[2] / "fixtures/semgrep/close_owner.py"
     result = subprocess.run(
         [sys.executable, str(script)], capture_output=True, text=True, timeout=15
     )
