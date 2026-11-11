@@ -20,7 +20,13 @@ from petasos.config.layers import resolve
 from petasos.config.schema import ConfigError
 from petasos.config.secrets import Secrets
 from petasos.enforce.types import SettingsSnapshot
-from petasos.hermes.host import load_mapping, read_env, save_env, save_plugin_settings
+from petasos.hermes.host import (
+    load_mapping,
+    managed_overlay,
+    read_env,
+    save_env,
+    save_plugin_settings,
+)
 
 PLUGIN_ID = "petasos"
 SESSION_ENV = "PETASOS_SESSION_SECRET"
@@ -145,6 +151,7 @@ def profile_binding(path: Path) -> tuple[str, dict[str, object] | None]:
         return "empty", None
     if not isinstance(document, dict):
         return "broken", None
+    document = managed_overlay(document)
     settings = _plugin_settings(document)
     if settings is not None:
         return "settings", settings
