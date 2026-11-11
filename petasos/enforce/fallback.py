@@ -13,11 +13,8 @@ from typing import TYPE_CHECKING, Any
 
 from petasos.enforce.decisions import Block, blocks, worst
 from petasos.enforce.messages import format_block_message, format_content_block
-from petasos.session.guard import (
-    PARAM_SCAN_DIRECTION,
-    GuardResult,
-    render_param_text,
-)
+from petasos.guard.guard import GuardResult
+from petasos.guard.params import PARAM_SCAN_DIRECTION, render_param_text
 
 if TYPE_CHECKING:
     import logging

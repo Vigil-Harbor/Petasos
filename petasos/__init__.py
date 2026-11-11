@@ -6,6 +6,7 @@ from petasos.enforce.messages import (
     format_result_notice,
     shorten_rule_id,
 )
+from petasos.guard.guard import GuardResult, ToolCallGuard
 from petasos.model import (
     Alert,
     AuditEvent,
@@ -35,7 +36,6 @@ from petasos.session.alerting import AlertManager
 from petasos.session.audit import AuditEmitter
 from petasos.session.escalation import max_tier
 from petasos.session.frequency import FrequencyTracker, FrequencyUpdateResult, SessionToken
-from petasos.session.guard import GuardResult, ToolCallGuard
 from petasos.session.lineage import LineageRegistry
 from petasos.session.taint import SessionTaintStore
 

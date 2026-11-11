@@ -12,6 +12,7 @@ from typing import Any, cast
 
 from petasos.config.secrets import Secrets
 from petasos.config.sections import PetasosConfig
+from petasos.guard.guard import ToolCallGuard
 from petasos.model import (
     Alert,
     AuditEvent,
@@ -23,7 +24,6 @@ from petasos.pipeline import Pipeline
 from petasos.pipeline.ingest import scan_ingestion_result
 from petasos.scanners.minimal import MinimalScanner
 from petasos.scanners.semgrep import SemgrepScanner
-from petasos.session.guard import ToolCallGuard
 
 
 class _StubScanner:

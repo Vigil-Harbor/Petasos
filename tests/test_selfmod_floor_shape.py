@@ -61,7 +61,7 @@ class TestGuardSelfmodWeightShape:
 
     def test_uses_requires_token(self) -> None:
         func = _find_method_in_class(
-            _SRC / "session" / "guard.py",
+            _SRC / "guard" / "guard.py",
             "ToolCallGuard",
             "_record_selfmod_weight",
         )
@@ -70,7 +70,7 @@ class TestGuardSelfmodWeightShape:
 
     def test_no_session_secret_if(self) -> None:
         func = _find_method_in_class(
-            _SRC / "session" / "guard.py",
+            _SRC / "guard" / "guard.py",
             "ToolCallGuard",
             "_record_selfmod_weight",
         )

@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+from petasos.guard.guardrail import recognize
 from petasos.hermes.guardrail import hermes_surface
-from petasos.session.guardrail import GuardrailHit, recognize
+
+if TYPE_CHECKING:
+    from petasos.guard.surface import GuardrailHit
 
 _SURFACE = hermes_surface(())
 

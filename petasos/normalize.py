@@ -168,7 +168,7 @@ _HOMOGLYPH_TABLE = str.maketrans(
     }
 )
 
-# Relocated from petasos/session/guard.py (PET-118): single definition, shared by
+# Relocated from petasos/guard/guard.py (PET-118): single definition, shared by
 # ToolCallGuard's normalizer and the reference plugin's classification. Strips a
 # SINGLE leading namespace prefix — `mcp__<ns>__` or `hermes__`. Co-located with
 # _HOMOGLYPH_TABLE because canonicalize_tool_name composes both.

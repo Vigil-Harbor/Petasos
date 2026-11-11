@@ -17,7 +17,8 @@ from petasos.enforce.fallback import (
     tier3_unavailable_block,
 )
 from petasos.enforce.messages import format_block_message, format_content_block
-from petasos.session.guard import PARAM_SCAN_DIRECTION, GuardResult
+from petasos.guard.guard import GuardResult
+from petasos.guard.params import PARAM_SCAN_DIRECTION
 
 
 class _Result:

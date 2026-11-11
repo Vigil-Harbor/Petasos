@@ -8,7 +8,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from petasos.session.guardrail import CommandRule, EnvRule, FlagRule, GuardrailSurface
+from petasos.guard.surface import CommandRule, EnvRule, FlagRule, GuardrailSurface
 
 if TYPE_CHECKING:
     from collections.abc import Iterable

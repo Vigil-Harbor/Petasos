@@ -469,7 +469,7 @@ def test_benchmark_fallback_param_scan_1mb(benchmark) -> None:  # type: ignore[n
     the caller's wait. ``pedantic`` with 3 rounds: the default calibration would spend
     minutes of wall clock on a 1 MB scan. No assertion; the recorded figure is the artifact.
     """
-    from petasos.session.guard import _MAX_PARAM_TEXT_LEN
+    from petasos.guard.params import _MAX_PARAM_TEXT_LEN
 
     directory = Path(tempfile.mkdtemp())
     enforcer = _bench_enforcer(directory, init=InitGate.failed("bench"))

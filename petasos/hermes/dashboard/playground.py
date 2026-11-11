@@ -429,7 +429,7 @@ async def _text(
             "Petasos would let this through with the selected personal information hidden."
         )
     # Score separately so a session overlay cannot change the text verdict.
-    from petasos.session.guard import ToolCallGuard
+    from petasos.guard.guard import ToolCallGuard
 
     tracker = FrequencyTracker(resolved.config, secrets=Secrets())
     risk_unavailable = False
@@ -457,7 +457,8 @@ async def _tool(
     protected_paths: Callable[[], Iterable[str]],
     time_budget: float,
 ) -> dict[str, Any]:
-    from petasos.session.guard import READ_ONLY_TOOLS, ToolCallGuard
+    from petasos.guard.guard import ToolCallGuard
+    from petasos.guard.tools import READ_ONLY_TOOLS
     from petasos.session.taint import SessionTaintStore
 
     config = resolved.config

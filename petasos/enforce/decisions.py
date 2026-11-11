@@ -22,7 +22,7 @@ from petasos.normalize import canonicalize_tool_name
 if TYPE_CHECKING:
     import logging
 
-    from petasos.session.guard import GuardResult
+    from petasos.guard.guard import GuardResult
 
 COMMAND_RULE_PREFIX = "petasos.syntactic.command."
 RESULT_SCAN_ERROR_REASON = "result scan unavailable"

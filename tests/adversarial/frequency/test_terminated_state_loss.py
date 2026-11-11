@@ -8,9 +8,9 @@ from unittest.mock import patch
 
 from petasos.config.schema import from_mapping, merge
 from petasos.config.sections import PetasosConfig
+from petasos.guard.guard import ToolCallGuard
 from petasos.pipeline import Pipeline
 from petasos.session.frequency import FrequencyTracker, SessionState
-from petasos.session.guard import ToolCallGuard
 
 
 def _cfg(changes: dict[str, Any] | None = None) -> PetasosConfig:

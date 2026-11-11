@@ -248,7 +248,7 @@ allows read-only tools and blocks every other tool call until init is released.
 `petasos doctor` reports whether the scanners loaded. `search_files` is in
 `READ_ONLY_TOOLS` (PET-179), so the fallback allows it. The fallback
 scans the same parameter text as the healthy guard, to the same cap
-(`_MAX_PARAM_TEXT_LEN` in `petasos/session/guard.py`), in the same direction, and each path
+(`_MAX_PARAM_TEXT_LEN` in `petasos/guard/guard.py`), in the same direction, and each path
 logs its own truncation warning (PET-190). On both paths, text above `MinimalScanner`'s
 `max_payload_bytes` also raises the structural oversized-payload rule, which blocks on its
 own whatever else the scan finds. Under `open`, that scan's outcome is the only thing
@@ -488,7 +488,7 @@ mechanism; this layer is a
 tripwire. An unlisted read-only tool whose top-level arg *is* the owned path
 classifies as `config_write` even when the tool only reads (accepted FP
 direction; add an `acts=False` row to **`_TOOL_AXES_ROWS`** in
-`petasos/session/guard.py` (not `_TOOL_AXES`, which is the immutable
+`petasos/guard/guard.py` (not `_TOOL_AXES`, which is the immutable
 `MappingProxyType` built from it), give the row a conforming `evidence`
 anchor, then update the membership and count pins in
 `tests/test_tool_axes.py`, noting this does not by itself add ingestion

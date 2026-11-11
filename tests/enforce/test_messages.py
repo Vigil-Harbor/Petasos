@@ -8,8 +8,8 @@ from petasos.enforce.messages import (
     format_result_notice,
     shorten_rule_id,
 )
+from petasos.guard.guard import GuardResult
 from petasos.model import PipelineResult, ScanFinding, Severity
-from petasos.session.guard import GuardResult
 
 _PREFIX = "[BLOCKED by Petasos]"
 

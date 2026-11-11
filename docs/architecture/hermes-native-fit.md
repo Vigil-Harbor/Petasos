@@ -568,7 +568,7 @@ re-implementations, with the file that owns the Hermes behaviour:
   around lines 1428 and 2192). Keep that call. Do not grow a second
   pattern list in the console.
 - Path handling. Petasos `ToolCallGuard._classify_selfmod`
-  (`petasos/session/guard.py` lines 844–907) normalises strings and checks
+  (`petasos/guard/guard.py` lines 844–907) normalises strings and checks
   them against an owned set. Hermes `file_safety` resolves real paths,
   refuses NT namespaces, and treats `config.yaml` as approval-gated rather
   than denied. Use Hermes for "may this write proceed" on file tools.

@@ -10,7 +10,7 @@ from types import MappingProxyType
 
 import pytest
 
-from petasos.session.guard import (
+from petasos.guard.tools import (
     _TOOL_AXES,
     _TOOL_AXES_ROWS,
     INGESTION_TOOLS,

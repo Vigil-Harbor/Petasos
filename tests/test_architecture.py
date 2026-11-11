@@ -206,7 +206,8 @@ def test_enforce_has_no_module_state_beyond_the_legacy_spool() -> None:
 
 # The guard's legacy path discovery still imports the resolver.
 _HERMES_IMPORT_OK = {
-    Path("petasos/session/guard.py"),
+    Path("petasos/guard/guard.py"),
+    Path("petasos/guard/selfmod.py"),
 }
 
 

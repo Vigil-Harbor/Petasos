@@ -11,9 +11,9 @@ import pytest
 from petasos.config.layers import resolve
 from petasos.config.schema import ConfigError, from_mapping
 from petasos.config.sections import PetasosConfig
+from petasos.guard.guard import ToolCallGuard
 from petasos.pipeline import Pipeline
 from petasos.session.frequency import FrequencyTracker
-from petasos.session.guard import ToolCallGuard
 
 if TYPE_CHECKING:
     from pathlib import Path

@@ -49,7 +49,7 @@ package total below is from `--cov=petasos`.
 |---|---:|---:|---:|
 | `petasos/pipeline/pipeline.py` | 574 | 38 | 93% |
 | `petasos/session/frequency.py` | 311 | 10 | 97% |
-| `petasos/session/guard.py` | 430 | 27 | 94% |
+| `petasos/guard/guard.py` | 430 | 27 | 94% |
 | `petasos/session/audit.py` | 56 | 0 | 100% |
 | `petasos/session/alerting.py` | 259 | 12 | 95% |
 | `petasos` total | 9693 | 1525 | 84% |

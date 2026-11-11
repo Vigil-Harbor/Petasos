@@ -24,10 +24,10 @@ from typing import TYPE_CHECKING, Any
 
 from petasos.config.layers import resolve
 from petasos.config.migrate import migrate
+from petasos.guard.guard import GuardResult, ToolCallGuard
 from petasos.hermes.home import HermesConfigResolution
 from petasos.pipeline import Pipeline
 from petasos.session.frequency import FrequencyTracker
-from petasos.session.guard import GuardResult, ToolCallGuard
 from tests.parity.load import ALL_PROFILES, expand_args, text_of
 
 if TYPE_CHECKING:

@@ -26,9 +26,9 @@ import pytest
 from petasos.config.layers import resolve
 from petasos.config.schema import from_mapping
 from petasos.config.sections import PetasosConfig
+from petasos.guard.guard import _SCAN_WEIGHT_CAP_DIVISOR, ToolCallGuard
 from petasos.pipeline import Pipeline
 from petasos.session.frequency import FrequencyTracker
-from petasos.session.guard import _SCAN_WEIGHT_CAP_DIVISOR, ToolCallGuard
 from petasos.session.lineage import LineageRegistry
 
 _ROLES = {

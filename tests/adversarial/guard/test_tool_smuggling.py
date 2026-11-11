@@ -9,9 +9,9 @@ import pytest
 from petasos.config.layers import resolve
 from petasos.config.schema import ConfigError, from_mapping
 from petasos.config.sections import PetasosConfig
+from petasos.guard.guard import ToolCallGuard
 from petasos.pipeline import Pipeline
 from petasos.session.frequency import FrequencyTracker
-from petasos.session.guard import ToolCallGuard
 
 
 def _guard(config: PetasosConfig | None = None) -> ToolCallGuard:
@@ -222,7 +222,7 @@ async def test_command_truncation_beyond_cap_missed(
     so _scan_params truncates it before the scanner runs and the family does NOT
     fire — fail-quiet. The guard's truncation warning is the operator tripwire."""
     # Regression for PET-94: pins the fail-quiet construction miss + its tripwire.
-    from petasos.session.guard import _MAX_PARAM_TEXT_LEN
+    from petasos.guard.params import _MAX_PARAM_TEXT_LEN
 
     cfg = PetasosConfig()
     pipe = Pipeline(config=cfg)

@@ -11,6 +11,7 @@ import pytest
 from petasos.config.schema import from_mapping, to_mapping
 from petasos.config.secrets import Secrets
 from petasos.config.sections import PetasosConfig
+from petasos.guard.guard import ToolCallGuard
 from petasos.model import (
     Direction,
     PipelineResult,
@@ -20,7 +21,6 @@ from petasos.model import (
 )
 from petasos.pipeline import Pipeline
 from petasos.session.frequency import FrequencyTracker
-from petasos.session.guard import ToolCallGuard
 
 _SECRETS = Secrets(hash_key="test-hmac-key-for-anonymization")
 

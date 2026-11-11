@@ -398,8 +398,8 @@ def test_reconfigure_rejects_subfloor_or_unordered_tiers() -> None:
 
 
 def test_shared_tracker_double_apply_is_idempotent_and_preserves_scores() -> None:
+    from petasos.guard.guard import ToolCallGuard
     from petasos.session.frequency import FrequencyTracker
-    from petasos.session.guard import ToolCallGuard
 
     cfg = PetasosConfig()
     tracker = FrequencyTracker(cfg)
