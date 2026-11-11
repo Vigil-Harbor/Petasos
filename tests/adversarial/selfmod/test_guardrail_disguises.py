@@ -35,6 +35,17 @@ def test_mentions_and_reads_are_not_changes() -> None:
         assert _command(command) is None, command
 
 
+def test_a_backslash_and_joined_quotes_still_name_the_command() -> None:
+    for command in (
+        r"her\mes plugins disable petasos",
+        'her""mes plugins disable petasos',
+        "h'e'rmes plugins disable petasos",
+        r"hermes plu\gins disable petasos",
+    ):
+        hit = _command(command)
+        assert hit is not None and hit.kind == "plugin", command
+
+
 def test_encoded_and_indirect_forms_are_not_claimed() -> None:
     """These are real ways past a string match. Recognition does not catch them."""
     for command in (

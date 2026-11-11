@@ -2,13 +2,21 @@
 
 The guard stays host-agnostic. A host supplies the paths and the command
 patterns that belong to it. Petasos's own package files and its own commands
-are recognised here. Reading a path is not a change. A command that only
-mentions the words, or writes them into some other file, is not a change.
+are recognised here. A shell command that names a protected path is a change
+unless the program is a plain reader and is used as one. A redirect into a
+protected path is always a change. A path that only appears inside text the
+command writes somewhere else is not.
 
-Recognition is the plain forms and the cheap disguises: quotes, an
-environment-variable prefix, ``sh -c``, a relative path, ``~``, ``$HERMES_HOME``,
-and commands chained with ``&&``, ``||``, ``;`` or ``|``. It is not a sandbox.
-Encoded payloads, aliases, and commands built at runtime are not matched.
+Program text (``execute_code``, ``python``, and ``python -c``) is not read as
+a shell line. Embedded commands are judged as shell, and any protected path
+the text names is a change. Python is not treated as read-only.
+
+Recognition is the plain forms and the cheap disguises: quotes joined inside
+a word, a backslash before an ordinary character, an environment-variable
+prefix, ``sh -c``, a relative path, ``~``, ``$HERMES_HOME``, and commands
+chained with ``&&``, ``||``, ``;`` or ``|``. It is not a sandbox. Encoded
+payloads, aliases, command substitution, and a path assembled at runtime
+from separate pieces are not matched.
 """
 
 from __future__ import annotations
@@ -77,20 +85,132 @@ _WRITE_TOOLS = frozenset(
         "write_file",
     }
 )
-_MUTATE_ANY = frozenset(
+# A shell program is a reader only when it is used as one. Anything else that
+# names a protected path fails closed and asks. ``rg`` is included as a grep.
+_READERS = frozenset(
     {
-        "chmod",
-        "chown",
-        "chgrp",
-        "rm",
-        "rmdir",
-        "shred",
-        "truncate",
-        "unlink",
+        "[",
+        "b2sum",
+        "bzgrep",
+        "cat",
+        "cksum",
+        "cmp",
+        "diff",
+        "egrep",
+        "fgrep",
+        "file",
+        "find",
+        "grep",
+        "head",
+        "jq",
+        "less",
+        "ls",
+        "md5",
+        "md5sum",
+        "more",
+        "readlink",
+        "realpath",
+        "rg",
+        "rgrep",
+        "sha1sum",
+        "sha224sum",
+        "sha256sum",
+        "sha384sum",
+        "sha512sum",
+        "shasum",
+        "stat",
+        "sum",
+        "tail",
+        "test",
+        "wc",
+        "xzgrep",
+        "yq",
+        "zegrep",
+        "zfgrep",
+        "zgrep",
     }
 )
-_MUTATE_BOTH = frozenset({"mv"})
-_MUTATE_DEST = frozenset({"cp", "install", "ln", "tee"})
+_IN_PLACE = frozenset({"-i", "--in-place", "--inplace"})
+_FIND_WRITES = frozenset(
+    {
+        "-delete",
+        "-exec",
+        "-execdir",
+        "-fls",
+        "-fprint",
+        "-fprint0",
+        "-fprintf",
+        "-ok",
+        "-okdir",
+    }
+)
+# Last positional is the path written, unless ``-t`` names it. A protected
+# source with an unprotected destination is a read. ``install`` and ``ln``
+# have that same shape. ``rsync --remove-source-files`` deletes the source.
+_COPIES = frozenset({"cp", "install", "ln", "rsync", "scp"})
+_COPY_DEST_FLAGS = frozenset({"-t", "--target-directory"})
+_CODE_TOOLS = frozenset({"execute_code", "python"})
+# PowerShell read cmdlets. A write cmdlet in the same command is not a read.
+_PS_READS = frozenset(
+    {
+        "gc",
+        "gci",
+        "get-childitem",
+        "get-content",
+        "get-filehash",
+        "get-item",
+        "gi",
+        "resolve-path",
+        "select-string",
+        "sls",
+        "test-path",
+    }
+)
+_PS_WRITES = frozenset(
+    {
+        "ac",
+        "add-content",
+        "clear-content",
+        "clc",
+        "copy-item",
+        "del",
+        "erase",
+        "move-item",
+        "new-item",
+        "out-file",
+        "rd",
+        "remove-item",
+        "rename-item",
+        "ri",
+        "rmdir",
+        "sc",
+        "set-content",
+        "set-item",
+    }
+)
+# Arguments are text or a number, never a file the program opens.
+_TEXT_ONLY = frozenset(
+    {
+        ":",
+        "basename",
+        "dirname",
+        "echo",
+        "expr",
+        "false",
+        "printf",
+        "pwd",
+        "seq",
+        "sleep",
+        "true",
+        "uname",
+        "uptime",
+        "whoami",
+        "yes",
+    }
+)
+_HELP_FLAGS = frozenset({"-h", "--help"})
+_READ_MODES = frozenset({"r", "rb", "rt"})
+_PATH_READ_METHODS = frozenset({"read_text", "read_bytes", "exists", "is_file", "stat"})
 _SHELLS = frozenset({"ash", "bash", "dash", "ksh", "sh", "zsh"})
 _WRAPPERS = frozenset({"command", "env", "nice", "nohup", "sudo", "time"})
 _ALL_NAMES = frozenset({"*", "--all", "-a", "all"})
@@ -125,6 +245,13 @@ class CommandRule:
     label: str
     name: str | None = None
     tail: str | None = None
+    # Match when no later word names a target. ``hermes plugins update``
+    # with no name updates every plugin.
+    bare: bool = False
+    # The next positional word must be one of these (``auto-update on``).
+    one_of: tuple[str, ...] = ()
+    requires_flag: str | None = None
+    unless_flags: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if self.kind not in _KINDS:
@@ -150,6 +277,11 @@ class EnvRule:
     kind: str
     name: str
     label: str
+    # When set, any assigned value counts, not only a turned-on one.
+    any_value: bool = False
+    # A prefix assignment counts only when this program is what runs.
+    # An ``export`` of the name still counts.
+    program: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -282,6 +414,12 @@ def recognize(
     env = os.environ if environ is None else environ
     work = os.getcwd() if cwd is None else cwd
     owned = _owned(protected, host, package if package is not None else package_roots())
+    if _is_code_tool(tool):
+        for text in _command_texts(params):
+            hit = _judge_code(text, owned, host, env, work)
+            if hit is not None:
+                return hit
+        return None
     path_hit = _path_change(tool, params, owned, env, work, host.command_tools)
     if path_hit is not None:
         return path_hit
@@ -440,15 +578,14 @@ def _one_command(
     *,
     depth: int,
 ) -> GuardrailHit | None:
-    for name, value in command.assignments:
-        for rule in surface.env:
-            if name == rule.name and value.strip().casefold() in _TRUTHY:
-                return GuardrailHit(rule.kind, rule.label)
     prepared, assignments = _strip_wrappers(command.argv)
-    for name, value in assignments:
-        for rule in surface.env:
-            if name == rule.name and value.strip().casefold() in _TRUTHY:
-                return GuardrailHit(rule.kind, rule.label)
+    program = _program(prepared[0]) if prepared else ""
+    if program in {"hermes", "petasos"} and _HELP_FLAGS.intersection(prepared):
+        return None
+    for name, value in (*command.assignments, *assignments):
+        hit = _env_hit(name, value, surface.env, program=program or None, exporting=False)
+        if hit is not None:
+            return hit
     if not prepared:
         return None
     program = _program(prepared[0])
@@ -464,28 +601,30 @@ def _one_command(
     hit = _mutation(prepared, command.redirects, owned, env, cwd)
     if hit is not None:
         return hit
-    if program in _SHELLS or program == "python":
+    if program == "python" and depth < 3:
         script = _c_argument(prepared)
-        if script is not None and depth < 3:
-            if program == "python":
-                for piece in _embedded(script):
-                    found = _nested(piece, owned, surface, rules, env, cwd, depth)
-                    if found is not None:
-                        return found
+        if script is not None:
+            found = _judge_code(script, owned, surface, env, cwd)
+            if found is not None:
+                return found
+        if len(prepared) >= 3 and prepared[1] == "-m":
+            rewritten = (prepared[2], *prepared[3:])
+            return _one_command(
+                _Simple(rewritten, command.redirects, ()),
+                owned,
+                surface,
+                rules,
+                env,
+                cwd,
+                depth=depth + 1,
+            )
+        return None
+    if program in _SHELLS and depth < 3:
+        script = _c_argument(prepared)
+        if script is not None:
             found = _nested(script, owned, surface, rules, env, cwd, depth)
             if found is not None:
                 return found
-    if program == "python" and len(prepared) >= 3 and prepared[1] == "-m":
-        rewritten = (prepared[2], *prepared[3:])
-        return _one_command(
-            _Simple(rewritten, command.redirects, ()),
-            owned,
-            surface,
-            rules,
-            env,
-            cwd,
-            depth=depth + 1,
-        )
     return None
 
 
@@ -558,16 +697,36 @@ def _rule_matches(argv: tuple[str, ...], rule: CommandRule) -> bool:
         actual = _program(argv[index]) if index == 0 else argv[index].casefold()
         if actual != expected.casefold():
             return False
-    if rule.tail is not None:
-        if len(argv) <= len(rule.words):
-            return False
-        if not argv[len(rule.words)].casefold().startswith(rule.tail.casefold()):
+    if rule.requires_flag is not None and rule.requires_flag not in argv:
+        return False
+    if rule.unless_flags and any(flag in argv for flag in rule.unless_flags):
+        return False
+    rest = argv[len(rule.words) :]
+    if rule.tail is not None and (
+        not rest or not rest[0].casefold().startswith(rule.tail.casefold())
+    ):
+        return False
+    positionals = [word for word in rest if not word.startswith("-")]
+    if rule.one_of:
+        allowed = {item.casefold() for item in rule.one_of}
+        if not positionals or positionals[0].casefold() not in allowed:
             return False
     if rule.name is None:
         return True
-    rest = [word.casefold() for word in argv[len(rule.words) :]]
-    wanted = rule.name.casefold()
-    return wanted in rest or any(word in _ALL_NAMES for word in rest)
+    if any(_names_plugin(word, rule.name) for word in rest):
+        return True
+    return rule.bare and not positionals
+
+
+def _names_plugin(word: str, name: str) -> bool:
+    """True when ``word`` names the plugin, everything, or a source for it."""
+    folded = word.casefold()
+    wanted = name.casefold()
+    if folded == wanted or folded in _ALL_NAMES:
+        return True
+    if "#" in word and word.rsplit("#", 1)[-1].strip("/").casefold() == wanted:
+        return True
+    return folded.rstrip("/").rsplit("/", 1)[-1] == wanted
 
 
 def _mutation(
@@ -577,6 +736,7 @@ def _mutation(
     env: Mapping[str, str],
     cwd: str,
 ) -> GuardrailHit | None:
+    """A protected path this command acts on, unless the program only reads it."""
     for target in redirects:
         hit = _match_path(target, owned, env, cwd)
         if hit is not None:
@@ -584,22 +744,180 @@ def _mutation(
     if not argv:
         return None
     program = _program(argv[0])
-    args = [word for word in argv[1:] if not word.startswith("-")]
-    if program == "dd":
-        for word in argv[1:]:
-            if word.startswith("of="):
-                hit = _match_path(word[3:], owned, env, cwd)
-                if hit is not None:
-                    return hit
+    if program in _TEXT_ONLY or _powershell_reads(program, argv):
         return None
-    if program in _MUTATE_ANY or program in _MUTATE_BOTH:
-        for word in args:
-            hit = _match_path(word, owned, env, cwd)
+    if program == "dd":
+        return _dd_hit(argv, owned, env, cwd)
+    if program in _COPIES:
+        return _copy_hit(argv, owned, env, cwd)
+    if _reads(program, argv):
+        return None
+    for word in _operands(argv):
+        hit = _operand_path(word, owned, env, cwd)
+        if hit is not None:
+            return hit
+    return _match_path(argv[0], owned, env, cwd)
+
+
+def _powershell_reads(program: str, argv: tuple[str, ...]) -> bool:
+    """True when ``powershell`` or ``pwsh`` is only running a read cmdlet."""
+    name = program[:-4] if program.endswith(".exe") else program
+    if name not in {"powershell", "pwsh"}:
+        return False
+    words = [word.casefold() for word in argv[1:]]
+    if any(word in _PS_WRITES for word in words):
+        return False
+    return any(word in _PS_READS for word in words)
+
+
+def _reads(program: str, argv: tuple[str, ...]) -> bool:
+    """True when ``program`` is on the reader list and this invocation only reads."""
+    if program not in _READERS:
+        return False
+    if program in {"jq", "yq"} and _in_place(argv):
+        return False
+    writing = program == "find" and any(word in _FIND_WRITES for word in argv[1:])
+    return not writing
+
+
+def _in_place(argv: tuple[str, ...]) -> bool:
+    for word in argv[1:]:
+        if word in _IN_PLACE or word.startswith("--in-place=") or word.startswith("--inplace="):
+            return True
+    return False
+
+
+def _dd_hit(
+    argv: tuple[str, ...],
+    owned: Mapping[str, str],
+    env: Mapping[str, str],
+    cwd: str,
+) -> GuardrailHit | None:
+    """``of=`` writes. ``if=`` only reads."""
+    for word in argv[1:]:
+        if word.startswith("of="):
+            hit = _match_path(word[3:], owned, env, cwd)
             if hit is not None:
                 return hit
-        return None
-    if program in _MUTATE_DEST and args:
-        return _match_path(args[-1], owned, env, cwd)
+    return None
+
+
+def _copy_hit(
+    argv: tuple[str, ...],
+    owned: Mapping[str, str],
+    env: Mapping[str, str],
+    cwd: str,
+) -> GuardrailHit | None:
+    """A read only when every protected path is a source and the destination is not."""
+    destination, sources, removes_source = _copy_ends(argv)
+    if destination:
+        hit = _match_path(destination, owned, env, cwd)
+        if hit is not None:
+            return hit
+    if removes_source:
+        for source in sources:
+            hit = _match_path(source, owned, env, cwd)
+            if hit is not None:
+                return hit
+    if not destination:
+        for source in sources:
+            hit = _match_path(source, owned, env, cwd)
+            if hit is not None:
+                return hit
+    return None
+
+
+def _copy_ends(argv: tuple[str, ...]) -> tuple[str | None, list[str], bool]:
+    """Destination, sources, and whether the source is deleted afterwards."""
+    positionals: list[str] = []
+    destination: str | None = None
+    removes_source = False
+    index = 1
+    while index < len(argv):
+        word = argv[index]
+        if word == "--":
+            positionals.extend(argv[index + 1 :])
+            break
+        if word == "--remove-source-files":
+            removes_source = True
+            index += 1
+            continue
+        if word.startswith("--") and "=" in word:
+            flag, value = word.split("=", 1)
+            if flag in _COPY_DEST_FLAGS:
+                destination = value
+            index += 1
+            continue
+        if word in _COPY_DEST_FLAGS and index + 1 < len(argv):
+            destination = argv[index + 1]
+            index += 2
+            continue
+        if word.startswith("-"):
+            index += 1
+            continue
+        positionals.append(word)
+        index += 1
+    if destination is None and positionals:
+        destination = positionals[-1]
+        positionals = positionals[:-1]
+    return destination, positionals, removes_source
+
+
+def _operands(argv: tuple[str, ...]) -> list[str]:
+    """Words the program receives, skipping flags. ``--`` ends the flags."""
+    words: list[str] = []
+    index = 1
+    while index < len(argv):
+        word = argv[index]
+        if word == "--":
+            words.extend(argv[index + 1 :])
+            break
+        if word.startswith("-"):
+            bound = _bound_path(word)
+            if bound:
+                words.append(bound)
+            index += 1
+            continue
+        words.append(word)
+        index += 1
+    return words
+
+
+def _bound_path(word: str) -> str | None:
+    """The path glued to an option (``--output=path``, ``-o/path``), if any."""
+    if word.startswith("--") and "=" in word:
+        return word.split("=", 1)[1]
+    if word.startswith("-") and not word.startswith("--") and len(word) > 2:
+        rest = word[2:]
+        return rest[1:] if rest.startswith("=") else rest
+    return None
+
+
+def _operand_path(
+    word: str,
+    owned: Mapping[str, str],
+    env: Mapping[str, str],
+    cwd: str,
+) -> GuardrailHit | None:
+    """The word itself when it is a protected path. Text that merely contains one is not."""
+    return _match_path(word, owned, env, cwd)
+
+
+def _env_hit(
+    name: str,
+    value: str,
+    rules: tuple[EnvRule, ...],
+    *,
+    program: str | None,
+    exporting: bool,
+) -> GuardrailHit | None:
+    for rule in rules:
+        if name != rule.name:
+            continue
+        if rule.program is not None and not exporting and program != rule.program:
+            continue
+        if rule.any_value or value.strip().casefold() in _TRUTHY:
+            return GuardrailHit(rule.kind, rule.label)
     return None
 
 
@@ -607,15 +925,279 @@ def _export_hit(argv: tuple[str, ...], surface: GuardrailSurface) -> GuardrailHi
     if not argv or _program(argv[0]) != "export":
         return None
     for word in argv[1:]:
+        if word.startswith("-"):
+            continue
         name, value, consumed = _assignment(word)
-        if not consumed or name is None or value is None:
+        if consumed and name is not None:
+            hit = _env_hit(name, value or "", surface.env, program=None, exporting=True)
+        elif re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", word):
+            hit = _env_hit(word, "", surface.env, program=None, exporting=True)
+        else:
             continue
-        if value.strip().casefold() not in _TRUTHY:
-            continue
-        for rule in surface.env:
-            if name == rule.name:
-                return GuardrailHit(rule.kind, rule.label)
+        if hit is not None:
+            return hit
     return None
+
+
+def _is_code_tool(tool: str) -> bool:
+    return _program(tool) in _CODE_TOOLS or tool in _CODE_TOOLS
+
+
+def _judge_code(
+    text: str,
+    owned: Mapping[str, str],
+    surface: GuardrailSurface,
+    env: Mapping[str, str],
+    cwd: str,
+) -> GuardrailHit | None:
+    """Embedded shell commands, then any protected path the program text names.
+
+    Comments are removed first. A ``#`` outside a string starts a comment;
+    one inside a string does not. See :func:`_strip_python_comments`.
+    """
+    if len(text) > _MAX_CHARS:
+        text = text[:_MAX_CHARS]
+    visible = _strip_python_comments(text)
+    for piece in _embedded(visible)[:_MAX_COMMANDS]:
+        hit = _command_change(piece, owned, surface, env, cwd)
+        if hit is not None:
+            return hit
+    return _code_names_path(visible, owned, env, cwd)
+
+
+_QUOTED_STRING = re.compile(r"""(?s)(?:'''(.*?)'''|\"\"\"(.*?)\"\"\"|'([^']*)'|\"([^\"]*)\")""")
+# An absolute path, a ~/path, or a $VAR/path. The prefix is optional so
+# ``/tmp/config.yaml`` matches, not only ``~/tmp`` and ``//tmp``.
+_BARE_PATH = re.compile(r"""(?:~|\$\{?[A-Za-z_][A-Za-z0-9_]*\}?)?(?:/[^\s'\"`,;)\]}<>]+)+""")
+_HOME_JOIN = re.compile(r"""(?:pathlib\.)?Path\.home\(\)((?:\s*/\s*(['"])([^'"]+)\2)+)""")
+_EXPANDUSER = re.compile(r"""(?:os\.path\.)?expanduser\(\s*(['"])([^'"]+)\1\s*\)""")
+_ENV_LOOKUP = re.compile(
+    r"""(?:os\.environ\[\s*(['"])([A-Za-z_][A-Za-z0-9_]*)\1\s*\]"""
+    r"""|os\.environ\.get\(\s*(['"])([A-Za-z_][A-Za-z0-9_]*)\3\s*\)"""
+    r"""|os\.getenv\(\s*(['"])([A-Za-z_][A-Za-z0-9_]*)\5\s*\))"""
+)
+_JOINED = re.compile(r"""\s*(?:\+|/)\s*(['"])([^'"]+)\1""")
+_JOIN_HEAD = re.compile(
+    r"""os\.path\.join\(\s*(?P<head>"""
+    r"""os\.environ\[\s*(['"])(?P<var>[A-Za-z_][A-Za-z0-9_]*)\2\s*\]"""
+    r"""|os\.environ\.get\(\s*(['"])(?P<var2>[A-Za-z_][A-Za-z0-9_]*)\4\s*\)"""
+    r"""|os\.getenv\(\s*(['"])(?P<var3>[A-Za-z_][A-Za-z0-9_]*)\6\s*\)"""
+    r"""|(?:pathlib\.)?Path\.home\(\)"""
+    r"""|(?:os\.path\.)?expanduser\(\s*(['"])~(?P<tilde>[^'"]*)\8\s*\)"""
+    r""")"""
+)
+_JOIN_PART = re.compile(r"""\s*,\s*(['"])([^'"]+)\1""")
+_JOIN_END = re.compile(r"""\s*\)""")
+
+
+def _strip_python_comments(code: str) -> str:
+    """Drop comments. A ``#`` inside a string stays; one outside runs to the line end.
+
+    Strings are ``'...'``, ``"..."``, and the triple-quoted forms, including a
+    ``r``/``b``/``f``/``u`` prefix. A backslash keeps the next character inside
+    a non-triple string, so ``"foo\\" # "`` does not end the string at the
+    escaped quote. Approximate: an unclosed string swallows the rest of the
+    text, and a backslash-newline line continuation is not joined.
+    """
+    out: list[str] = []
+    index = 0
+    length = len(code)
+    while index < length:
+        if code[index] in {"'", '"'}:
+            end = _string_end(code, index)
+            out.append(code[index:end])
+            index = end
+            continue
+        if code[index] == "#":
+            while index < length and code[index] != "\n":
+                index += 1
+            continue
+        out.append(code[index])
+        index += 1
+    return "".join(out)
+
+
+def _string_end(code: str, start: int) -> int:
+    """Index just after the string that begins at ``start``, or the text length."""
+    if code.startswith(("'''", '"""'), start):
+        quote = code[start : start + 3]
+        end = code.find(quote, start + 3)
+        return len(code) if end < 0 else end + 3
+    quote = code[start]
+    index = start + 1
+    length = len(code)
+    while index < length:
+        if code[index] == "\\" and index + 1 < length:
+            index += 2
+            continue
+        if code[index] == quote:
+            return index + 1
+        index += 1
+    return length
+
+
+def _code_names_path(
+    code: str,
+    owned: Mapping[str, str],
+    env: Mapping[str, str],
+    cwd: str,
+) -> GuardrailHit | None:
+    """A protected path in ``code`` that is not only a plain read.
+
+    A plain read is ``open`` with no mode or a literal ``r``/``rb``/``rt``, or
+    ``Path``/``pathlib.Path`` followed directly by ``read_text``, ``read_bytes``,
+    ``exists``, ``is_file`` or ``stat``. Any other use is a change. A path
+    built in a variable and used later is still not visible.
+    """
+    occurrences = _protected_uses(code, owned, env, cwd)
+    for start, end, hit in occurrences:
+        if not _is_plain_code_read(code, start, end):
+            return hit
+    return None
+
+
+def _is_plain_code_read(code: str, start: int, end: int) -> bool:
+    prefix = code[:start]
+    if re.search(r"(?:\bopen)\s*\(\s*$", prefix) and _open_tail_is_read(code[end:]):
+        return True
+    if re.search(r"(?:\bpathlib\.Path|\bPath)\s*\(\s*$", prefix):
+        rest = code[end:].lstrip()
+        method = "|".join(sorted(_PATH_READ_METHODS))
+        if re.match(rf"\)\s*\.(?:{method})\s*\(", rest):
+            return True
+    return False
+
+
+def _open_tail_is_read(rest: str) -> bool:
+    """True when what follows the path is no mode, or a literal read mode."""
+    body = rest.lstrip()
+    if body.startswith(")"):
+        return True
+    match = re.match(r""",\s*(?:(['"])([^'"]*)\1\s*)?\)""", body)
+    if match is None:
+        return False
+    mode = match.group(2)
+    return mode is None or mode in _READ_MODES
+
+
+def _protected_uses(
+    code: str,
+    owned: Mapping[str, str],
+    env: Mapping[str, str],
+    cwd: str,
+) -> list[tuple[int, int, GuardrailHit]]:
+    """Each protected path use as ``(start, end, hit)``. A use inside another is dropped."""
+    found: list[tuple[int, int, GuardrailHit]] = []
+    quoted: list[tuple[int, int]] = []
+    for match in _QUOTED_STRING.finditer(code):
+        quoted.append(match.span())
+        text = next((group for group in match.groups() if group is not None), "")
+        hit = _match_path(text, owned, env, cwd) if text else None
+        if hit is not None:
+            found.append((match.start(), match.end(), hit))
+    for match in _BARE_PATH.finditer(code):
+        start, end = match.span()
+        if any(left <= start and end <= right for left, right in quoted):
+            continue
+        hit = _match_path(match.group(0), owned, env, cwd)
+        if hit is not None:
+            found.append((start, end, hit))
+    found.extend(_expression_uses(code, owned, env, cwd))
+    return _outer_uses(found)
+
+
+def _expression_uses(
+    code: str,
+    owned: Mapping[str, str],
+    env: Mapping[str, str],
+    cwd: str,
+) -> list[tuple[int, int, GuardrailHit]]:
+    """Path expressions (``expanduser``, ``Path.home``, env joins) with their spans."""
+    found: list[tuple[int, int, GuardrailHit]] = []
+    for match in _EXPANDUSER.finditer(code):
+        hit = _match_path(match.group(2), owned, env, cwd)
+        if hit is not None:
+            found.append((match.start(), match.end(), hit))
+    home = env.get("HOME", "")
+    for match in _HOME_JOIN.finditer(code):
+        if not home:
+            continue
+        parts = re.findall(r"""['"]([^'"]+)['"]""", match.group(1))
+        hit = _match_path(str(Path(home, *parts)), owned, env, cwd)
+        if hit is not None:
+            found.append((match.start(), match.end(), hit))
+    for match in _ENV_LOOKUP.finditer(code):
+        var = next((group for group in match.groups()[1::2] if group), "")
+        root = env.get(var, "")
+        if not root:
+            continue
+        built = root
+        cursor = match.end()
+        last: tuple[int, GuardrailHit] | None = None
+        while True:
+            piece = _JOINED.match(code, cursor)
+            if piece is None:
+                break
+            part = piece.group(2)
+            if "+" in piece.group(0):
+                built += part
+            else:
+                built = str(Path(built) / part)
+            hit = _match_path(built, owned, env, cwd)
+            cursor = piece.end()
+            if hit is not None:
+                last = (cursor, hit)
+        if last is not None:
+            found.append((match.start(), last[0], last[1]))
+    for match in _JOIN_HEAD.finditer(code):
+        root = _join_root(match, env)
+        if not root:
+            continue
+        segments: list[str] = []
+        cursor = match.end()
+        while True:
+            piece = _JOIN_PART.match(code, cursor)
+            if piece is None:
+                break
+            segments.append(piece.group(2))
+            cursor = piece.end()
+        closing = _JOIN_END.match(code, cursor)
+        if closing is None:
+            continue
+        hit = _match_path(str(Path(root, *segments)), owned, env, cwd)
+        if hit is not None:
+            found.append((match.start(), closing.end(), hit))
+    return found
+
+
+def _outer_uses(
+    found: list[tuple[int, int, GuardrailHit]],
+) -> list[tuple[int, int, GuardrailHit]]:
+    """Drop a use that sits strictly inside another, so the outer call is judged."""
+    kept: list[tuple[int, int, GuardrailHit]] = []
+    for index, (start, end, hit) in enumerate(found):
+        inner = False
+        for other, (left, right, _other) in enumerate(found):
+            if other == index:
+                continue
+            if left <= start and end <= right and (left < start or end < right):
+                inner = True
+                break
+        if not inner:
+            kept.append((start, end, hit))
+    return kept
+
+
+def _join_root(match: re.Match[str], env: Mapping[str, str]) -> str:
+    head = match.group("head")
+    if "Path.home" in head:
+        return env.get("HOME", "")
+    if "expanduser" in head:
+        home = env.get("HOME", "")
+        tilde = match.group("tilde") or ""
+        return str(Path(home) / tilde) if home else ""
+    var = match.group("var") or match.group("var2") or match.group("var3") or ""
+    return env.get(var, "")
 
 
 def _embedded(script: str) -> list[str]:
@@ -685,13 +1267,15 @@ def _parse(text: str) -> list[_Simple]:
             buf.append(char)
             index += 1
             continue
+        if char == "\\" and index + 1 < length:
+            nxt = text[index + 1]
+            if nxt != "\n":
+                buf.append(nxt)
+            index += 2
+            continue
         if char in {"'", '"'}:
             quote = char
             index += 1
-            continue
-        if char == "\\" and index + 1 < length and text[index + 1] in {" ", "\t"}:
-            buf.append(text[index + 1])
-            index += 2
             continue
         if char in {" ", "\t"}:
             finish_word()
