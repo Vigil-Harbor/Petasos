@@ -149,3 +149,12 @@ is named.
 | `tests/test_benchmarks.py` | The ingestion benchmarks stop importing the plugin and call `Enforcer.tool_result`. The other benchmarks do not import it. |
 | `tests/test_pet135_codegen_tuning.py` | A comment names the plugin file. Left until the comment sweep, unless a collection or lint rule requires the edit. It does not import the plugin. |
 | `tests/parity/corpus.json` | Not edited. Some cases quote `petasos.console` and name old test files as their source. Changing the text would move the verdict oracle. |
+
+## D1: source-text checks
+
+Tests follow the package layout. These implementation-shape checks are replaced
+by the named behaviour checks; structural rules remain in `tests/test_architecture.py`.
+
+| Old test id | Why retired | Covering behaviour |
+|---|---|---|
+| `tests/enforce/test_formatter_sites.py::test_every_block_site_calls_a_formatter` | A literal count of formatter calls constrained implementation, not block or notice behaviour. | `tests/enforce/test_messages.py`; `tests/enforce/test_decisions.py::test_guard_denial_covers_tier3_and_tier2`; `tests/enforce/test_decisions.py::test_ingestion_annotation_paths`; `tests/enforce/test_fallback.py::test_read_only_is_skipped_and_a_finding_blocks`; `tests/enforce_parity/test_enforce_parity.py::test_enforcer_matches_record` |
