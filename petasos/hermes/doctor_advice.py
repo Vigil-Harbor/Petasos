@@ -377,16 +377,14 @@ def _package_missing(status: ScannerStatus) -> bool:
 
 
 def _semgrep_line(enabled: str, consequence: dict[str, object]) -> tuple[Status, str, str, str]:
-    sentence = str(consequence.get("sentence") or "")
-    blocking = consequence.get("holds") is True and "blocked" in sentence
-    if enabled == "on" and blocking:
-        meaning = semgrep_host.SEMGREP_REQUIRED_BLOCKING
-    elif enabled == "on":
-        meaning = "It is set to Required. " + sentence
-    elif blocking:
-        meaning = semgrep_host.SEMGREP_AUTO_BLOCKING
+    lead = semgrep_host.SEMGREP_SET_AS.get(enabled, "It is turned on")
+    title = str(consequence.get("title") or "")
+    if consequence.get("holds") is True and title:
+        # The title already says what happens under this fail mode and posture.
+        effect = title[0].lower() + title[1:]
+        meaning = f"{lead}, so {effect}. Read-only tool calls still run."
     else:
-        meaning = "Semgrep is not used inside Hermes. " + sentence
+        meaning = f"{lead}. {consequence.get('sentence') or ''}".strip()
     return (
         "warn",
         semgrep_host.SEMGREP_CANNOT_RUN,

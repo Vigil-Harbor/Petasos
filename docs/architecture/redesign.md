@@ -933,6 +933,14 @@ config is not built yet. What the guard recognises:
 - `petasos hermes install`: puts the plugin directory in place for a profile
   and enables it.
 - `petasos config migrate`: section 4.3.
+- `petasos config set <setting> <value>`: changes one simple setting through
+  Hermes, with the same checks as the settings form, and says when the change
+  takes effect. It exists so a `doctor` line can name a command that fixes
+  the thing it reports. Lists and groups are edited in the form.
+- `petasos scanner add|remove <name>`: changes which optional checks the
+  plugin's environment carries.
+
+Each is also `hermes petasos ...` inside a Hermes that has the plugin.
 
 ### 7.6 Installing
 
@@ -1647,11 +1655,15 @@ auth; classic scripts with no bundler.
   README before it is called done.
 - **A list in a layer or an override replaces the list beneath it.** No
   additive form for now.
-- **Semgrep cannot be required inside Hermes.** Nothing in the adapter owns
-  the engine's lifecycle, so `on` can only fail. The settings form does not
-  offer it, a save that sets it is refused, and `doctor` says so plainly.
-  A hand-written `on` still fails closed, which is what Required means.
-  Running Semgrep inside Hermes is wanted later and is its own package.
+- **Semgrep cannot be turned on inside Hermes.** Nothing in the adapter owns
+  the engine's lifecycle, so `on` can only fail. Building it showed `auto`
+  fails the same way: it asks for a check that cannot start, and that blocks
+  tool calls that change things. So the settings form offers only Never,
+  every save that would leave Semgrep on is refused, and `doctor` says so
+  plainly and names the command that turns it off. A hand-written `on` or
+  `auto` still fails closed. One place answers whether Hermes can run
+  Semgrep (`petasos/hermes/semgrep_host.py`). Running it inside Hermes is
+  wanted later and is its own package.
 - **No compatibility path for the 0.18 fork**, as section 7 says. Petasos
   support there is not a goal.
 - **Two switches stay.** Hermes's plugin list decides whether Petasos loads,

@@ -32,15 +32,12 @@ SEMGREP_MIGRATE_REFUSED = (
     "this command again."
 )
 
-SEMGREP_REQUIRED_BLOCKING = (
-    "It is set to Required, so Petasos is blocking tool calls that change things. "
-    "Read-only tool calls still run."
-)
-
-SEMGREP_AUTO_BLOCKING = (
-    "Semgrep is not used inside Hermes. It is set to run when installed, and tool "
-    "calls that change things are blocked. Read-only tool calls still run."
-)
+# How it is set, for the doctor. What that does to tool calls follows it,
+# and depends on the fail mode and on whether risky calls ask or block.
+SEMGREP_SET_AS = {
+    "on": "It is set to Required",
+    "auto": "It is set to run when it is installed",
+}
 
 SEMGREP_ADD_REFUSED = (
     "Semgrep cannot run inside Hermes yet, so it was not added. It would not check any code."

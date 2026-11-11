@@ -222,32 +222,55 @@ def test_required_can_be_saved_when_hermes_can_run_semgrep(
     assert store.settings["overrides"]["scanners"]["semgrep"]["enabled"] == "on"
 
 
-def test_doctor_says_required_semgrep_is_blocking() -> None:
-    """Required Semgrep is named as blocking, with the command that turns it off."""
-    checks, _suggestions, rows = scanner_report(resolve(_ON))
+def _doctor(settings: dict[str, Any]) -> tuple[Any, dict[str, object]]:
+    checks, _suggestions, rows = scanner_report(resolve(settings))
     check = next(item for item in checks if item.id == "scanner_semgrep")
-    row = next(item for item in rows if item["id"] == "semgrep")
+    return check, next(item for item in rows if item["id"] == "semgrep")
+
+
+def test_doctor_says_required_semgrep_is_blocking() -> None:
+    """Where risky calls block, Required Semgrep is named as blocking, with the fix."""
+    check, row = _doctor({"role": "research", **_ON})
     text = f"{check.summary} {check.meaning} {check.next_step} {row['reason']} {row['fix']}"
 
     assert check.summary == semgrep_host.SEMGREP_CANNOT_RUN
-    assert check.meaning == semgrep_host.SEMGREP_REQUIRED_BLOCKING
+    assert check.meaning == (
+        "It is set to Required, so tool calls that change things are blocked. "
+        "Read-only tool calls still run."
+    )
     assert check.next_step == semgrep_host.SEMGREP_OFF_COMMAND
     assert row["consequence"] is not None
     assert "lifecycle" not in text.casefold()
     assert "host_lifecycle" not in text
 
 
-def test_doctor_says_auto_is_not_used_and_blocks() -> None:
-    """auto does not run the check, and the report does not say it is used when installed."""
-    checks, _suggestions, _rows = scanner_report(resolve(_AUTO))
-    check = next(item for item in checks if item.id == "scanner_semgrep")
-    text = f"{check.summary} {check.meaning} {check.next_step}"
+def test_doctor_says_what_semgrep_does_where_risky_calls_ask() -> None:
+    """The general job asks, so the same setting makes those calls wait for a person."""
+    check, _row_ = _doctor(_ON)
+
+    assert check.meaning == (
+        "It is set to Required, so tool calls that change things wait for a person. "
+        "Read-only tool calls still run."
+    )
+    assert "added" not in check.meaning
+
+
+def test_doctor_says_auto_does_the_same() -> None:
+    """auto does not skip the check inside Hermes, and the report says what it does."""
+    check, _row_ = _doctor({"role": "research", **_AUTO})
 
     assert check.summary == semgrep_host.SEMGREP_CANNOT_RUN
-    assert check.meaning == semgrep_host.SEMGREP_AUTO_BLOCKING
-    assert "not used inside Hermes" in check.meaning
-    assert "when it is installed" not in text
+    assert check.meaning == (
+        "It is set to run when it is installed, so tool calls that change things are "
+        "blocked. Read-only tool calls still run."
+    )
     assert check.next_step == semgrep_host.SEMGREP_OFF_COMMAND
+
+
+def test_doctor_says_when_a_broken_check_is_let_through() -> None:
+    check, _row_ = _doctor({"overrides": {"fail_mode": "open", **_ON["overrides"]}})
+
+    assert check.meaning.startswith("It is set to Required. Tool calls still run without it")
 
 
 def test_a_hand_written_required_is_kept_and_fails_closed() -> None:
