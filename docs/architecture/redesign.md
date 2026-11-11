@@ -1380,7 +1380,8 @@ Tool trials retain the result of the guard's existing scan; no second scan runs.
 
 `risk` is `{score, tier, thresholds, sentence, threshold_sentence, note}`.
 `score` and the plain-language `tier` describe this input alone, or are null
-when the check times out or scoring is disabled. Each threshold is
+when the check times out, scoring is disabled, or guard-only settings prevent
+risk calculation (the text result is still returned). Each threshold is
 `{label, score}`. Text trials score their findings on a separate fresh tracker
 with the guard's per-scan cap, leaving the text decision unchanged. Tool trials
 read their own throwaway guard's tracker after evaluation. The note explains

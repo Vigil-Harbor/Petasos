@@ -432,10 +432,17 @@ async def _text(
     from petasos.session.guard import ToolCallGuard
 
     tracker = FrequencyTracker(resolved.config, secrets=Secrets())
-    guard = ToolCallGuard(pipeline, tracker, resolved.config, protected_paths=lambda: ())
+    risk_unavailable = False
     if not timed_out and resolved.config.frequency.enabled:
-        tracker.update(_SESSION, [f.rule_id for f in findings], weight_cap=guard.scan_weight_cap)
-    body["risk"] = _risk(resolved.config, tracker, timed_out)
+        try:
+            guard = ToolCallGuard(pipeline, tracker, resolved.config, protected_paths=lambda: ())
+            tracker.update(
+                _SESSION, [f.rule_id for f in findings], weight_cap=guard.scan_weight_cap
+            )
+        except ValueError:
+            # Guard-only validation must not discard an already completed text check.
+            risk_unavailable = True
+    body["risk"] = _risk(resolved.config, tracker, timed_out, unavailable=risk_unavailable)
     return body
 
 
@@ -596,7 +603,9 @@ def _hidden_text(
     return {"anonymized": content, "anonymization": {"code": code, "sentence": sentence}}
 
 
-def _risk(config: PetasosConfig, tracker: FrequencyTracker, timed_out: bool) -> dict[str, Any]:
+def _risk(
+    config: PetasosConfig, tracker: FrequencyTracker, timed_out: bool, *, unavailable: bool = False
+) -> dict[str, Any]:
     from petasos.session.escalation import evaluate_tier
 
     thresholds = [
@@ -609,6 +618,10 @@ def _risk(config: PetasosConfig, tracker: FrequencyTracker, timed_out: bool) -> 
     tier: str | None = label
     if timed_out:
         sentence = "The check did not finish, so this input's risk score is not available."
+        shown_score = None
+        tier = None
+    elif unavailable:
+        sentence = "The risk score could not be calculated with these settings."
         shown_score = None
         tier = None
     elif not config.frequency.enabled:

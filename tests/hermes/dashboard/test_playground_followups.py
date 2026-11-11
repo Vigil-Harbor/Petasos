@@ -278,3 +278,14 @@ def test_the_score_reaches_a_named_stage_using_the_librarys_weights() -> None:
     assert body["risk"]["score"] == 35
     assert body["risk"]["tier"] == "Tool calls blocked"
     assert body["risk"]["sentence"] == "This input alone scores 35: tool calls blocked."
+
+
+def test_guard_only_settings_cannot_discard_a_text_result() -> None:
+    body = _run(text="hello", candidate={"overrides": {"tools": {"exempt": ["delegate_task"]}}})
+    assert body["decision"] == "allow"
+    assert body["outcome"]["label"] == "Allowed"
+    assert body["risk"]["score"] is None
+    assert body["risk"]["tier"] is None
+    assert body["risk"]["sentence"] == (
+        "The risk score could not be calculated with these settings."
+    )
