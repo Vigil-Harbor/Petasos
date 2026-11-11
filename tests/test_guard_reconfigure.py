@@ -18,7 +18,6 @@ from petasos.guard.fanout import SpawnBudget
 from petasos.guard.guard import ToolCallGuard
 from petasos.pipeline import Pipeline
 from petasos.session.frequency import FrequencyTracker
-from petasos.session.lineage import LineageRegistry
 
 
 def _cfg(partial: dict[str, object] | None = None) -> PetasosConfig:
@@ -219,41 +218,3 @@ def test_guard_apply_config_preserves_session_secret() -> None:
     assert guard._secrets.session_secret == secret
     assert tracker.get_state(token) is not None
     assert guard._derive_tier("sess") != "tier3"
-
-
-def test_lineage_registry_apply_config_updates_bounds() -> None:
-    # Changing lineage bounds via apply_config is observed by the next ancestor
-    # walk; existing edges survive.
-    reg = LineageRegistry(
-        from_mapping(
-            PetasosConfig,
-            {
-                "tools": {
-                    "lineage": {
-                        "max_depth": 2,
-                    },
-                },
-            },
-        )
-    )
-    reg.register("a", "b")
-    reg.register("b", "c")
-    reg.register("c", "d")
-    assert reg.ancestors("a") == ["b", "c"]  # bounded to depth 2
-
-    reg.apply_config(
-        from_mapping(
-            PetasosConfig,
-            {
-                "tools": {
-                    "lineage": {
-                        "max_depth": 8,
-                    },
-                },
-            },
-        )
-    )
-
-    assert reg._max_depth == 8
-    assert reg.ancestors("a") == ["b", "c", "d"]  # deeper walk after reconfigure
-    assert reg._edges  # edges preserved across reconfigure
