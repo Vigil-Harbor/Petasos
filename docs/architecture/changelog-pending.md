@@ -8,6 +8,8 @@ deleted.
 
 ## Added
 
+- Reference pages generated from the settings schema, layer tables, scanner registry and command parsers; rewritten Hermes and library guides with executable examples and relative-link checks.
+
 - Try it shows the pipeline's text with selected personal information hidden, a redacted preview, and this input's conversation risk with the tried thresholds; each trial stays private and disposable. The Petasos tab shows its version beside Checked and Refresh.
 
 ## Removed
