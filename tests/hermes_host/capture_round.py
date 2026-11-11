@@ -46,8 +46,8 @@ DESCRIPTIONS = {
         "what protection covers, what runs and what does not (each check named by what it "
         "does, product after it); the job and strictness choices beneath. Then the last 24 "
         "hours: figures with labels above the values, adding up to the event total, and "
-        "recent events with repeats grouped. Who can change these settings says the agent "
-        "can change guardrails with a fresh approval. Pinning is not offered."
+        "recent events with repeats grouped, including a settings change and an attempt the "
+        "agent was not allowed to make. Who can change these settings is below this view."
     ),
     "02-overview-paused": (
         "Overview after Pause protection was confirmed, taken taller than the window (1440 by "

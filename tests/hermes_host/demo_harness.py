@@ -299,6 +299,14 @@ def populate(request: dict[str, Any]) -> dict[str, Any]:
             ),
         )
 
+    # The ops session is already stopped. A later read is blocked because the
+    # warning signs added up, which Activity calls Conversation risk.
+    at(1.4)
+    note(
+        "stopped session",
+        _call("read_file", {"path": "docs/faq.md"}, "ops-88d0", "c09"),
+    )
+
     # The operator sets never. The next call records the settings change,
     # then refuses the attempt to edit the config. Approve is written back
     # on the same key: Hermes deep-merges a save, so leaving the key out
@@ -330,7 +338,9 @@ def populate(request: dict[str, Any]) -> dict[str, Any]:
     )
     note(
         "settings restored",
-        _call("read_file", {"path": "docs/faq.md"}, "ops-88d0", "c11"),
+        # A fresh conversation, so this read is not blocked by the ops
+        # session's risk score. The call is only here so the save is recorded.
+        _call("read_file", {"path": "docs/faq.md"}, "maintain-1a21", "c11"),
     )
 
     # Recent support session: an outbound message carrying an injection.
