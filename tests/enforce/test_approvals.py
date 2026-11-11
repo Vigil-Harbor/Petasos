@@ -5,6 +5,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from petasos.enforce.approvals import (
+    _excerpt_assemble,
+    _excerpt_escape_units,
+    _excerpt_part_cut,
+    _excerpt_part_full,
     approval_choice,
     approval_event,
     approval_pattern_keys,
@@ -128,3 +132,102 @@ def test_degraded_pending_key() -> None:
     assert degraded_choice_confirmed("once") is False
     assert is_degraded_pattern("plugin_rule:petasos.degraded") is True
     assert is_degraded_pattern("other") is False
+
+
+def test_excerpt_withholds_what_it_cannot_bound() -> None:
+    from petasos._limits import MAX_PARAM_TEXT_LEN
+
+    assert (
+        command_excerpt(["not-a-map"], _result(), load_redactor=lambda: _redact)
+        == "withheld (excerpt unavailable)"
+    )
+
+    def _not_text(text: str, **_options: bool) -> str:
+        return None  # type: ignore[return-value]
+
+    assert (
+        command_excerpt({"command": "echo"}, _result(), load_redactor=lambda: _not_text)
+        == "withheld (excerpt unavailable)"
+    )
+    shown, status = redact_display_text("visible", 40, redact=_not_text)
+    assert status == "withheld"
+    assert shown.startswith("withheld")
+
+    nested: object = {"k": "v"}
+    for _depth in range(20):
+        nested = {"k": nested}
+    assert (
+        command_excerpt(nested, _result(), load_redactor=lambda: _redact)
+        == "withheld (excerpt unavailable)"
+    )
+    assert (
+        command_excerpt({1: "x"}, _result(), load_redactor=lambda: _redact)
+        == "withheld (excerpt unavailable)"
+    )
+    assert (
+        command_excerpt({"k": object()}, _result(), load_redactor=lambda: _redact)
+        == "withheld (excerpt unavailable)"
+    )
+
+    def _same(text: str, **_options: bool) -> str:
+        return "same"
+
+    assert (
+        command_excerpt({"a": "one", "b": "two"}, _result(), load_redactor=lambda: _same)
+        == "withheld (excerpt unavailable)"
+    )
+    huge = "z" * (MAX_PARAM_TEXT_LEN + 1)
+    assert (
+        command_excerpt({"command": huge}, _result(), load_redactor=lambda: _redact)
+        == "withheld (excerpt unavailable)"
+    )
+    half = "c" * (MAX_PARAM_TEXT_LEN // 2 + 10)
+    assert command_excerpt({"command": half}, _result(), load_redactor=lambda: _redact).startswith(
+        "withheld"
+    )
+    long = command_excerpt(
+        {"command": "x" * 200, "other": "y" * 200},
+        _result(),
+        load_redactor=lambda: lambda text, **_options: text,
+    )
+    assert "chars not shown" in long
+
+    def _keep(text: str, **_options: bool) -> str:
+        return text
+
+    numbers = command_excerpt(
+        {"count": 3, "flag": True, "items": ["a", "b"], "skip": None},
+        _result(),
+        load_redactor=lambda: _keep,
+    )
+    assert "count=" in numbers and "3" in numbers
+    marked = command_excerpt(
+        {"cmd": 'say "hi"\n\\\t\u00a0'},
+        _result(),
+        load_redactor=lambda: _keep,
+    )
+    assert "\\n" in marked
+    units = _excerpt_escape_units('"\\\n\t\u00a0')
+    assert '\\"' in units
+    assert "\\\\" in units
+    assert "\\n" in units
+    assert "\\t" in units
+    assert any(unit.startswith("\\u") for unit in units)
+    assert _excerpt_part_full("quoted", ["hi"]) == '"hi"'
+    cut, _taken = _excerpt_part_cut("quoted", ["q"] * 40, 10)
+    assert cut.startswith('"') and cut.endswith('"')
+    shown, omitted = _excerpt_assemble(
+        [[("bare", list("a" * 160))], [("bare", ["b"])]],
+        [160, 1],
+        0,
+    )
+    assert "b" not in shown
+    assert omitted == 1
+    cut_shown, cut_omitted = _excerpt_assemble(
+        [[("quoted", ["q"] * 200), ("value", ["v"])]],
+        [201],
+        0,
+    )
+    assert cut_shown.startswith('"')
+    assert "v" not in cut_shown
+    assert cut_omitted > 0

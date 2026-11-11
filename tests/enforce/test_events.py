@@ -134,3 +134,35 @@ def test_a_drain_reads_each_complete_line_once(tmp_path: Path) -> None:
         handle.write("3}\n")
     rest, _end = events.drain_enforcement_events(str(path), offset)
     assert rest == [{"n": 3}]
+
+
+def test_module_key_sig_class_and_console_row(tmp_path: Path) -> None:
+    events.set_spool_key(b"secret")
+    assert events._SPOOL_KEY is not None
+    slot = tmp_path / "one.jsonl"
+    events.set_spool_key(b"secret", path=str(slot))
+    events.set_spool_key(None, path=str(slot))
+    assert str(slot) not in events._SPOOL_KEYS and events._SPOOL_KEYS == {}
+    assert events.classify_integrity_failure({"event_type": "block"}) == "sig-missing"
+    assert events.classify_integrity_failure("nope") == "sig-missing"
+
+    wrote = events.emit_console_event({"event_type": "approval", "armed": True}, key=b"k")
+    assert wrote is True
+    missing, offset = events.drain_enforcement_events(str(tmp_path / "absent.jsonl"), 0)
+    assert missing == []
+    assert offset == 0
+    empty = tmp_path / "empty.jsonl"
+    empty.write_bytes(b"")
+    none, stayed = events.drain_enforcement_events(str(empty), 0)
+    assert none == []
+    assert stayed == 0
+    assert events.spool_size(str(empty)) == 0
+    assert events.spool_size(str(tmp_path / "absent.jsonl")) == 0
+
+    saved = events._resolver
+    events._resolver = None
+    try:
+        with pytest.raises(RuntimeError, match="resolver is not installed"):
+            events.spool_size()
+    finally:
+        events._resolver = saved
