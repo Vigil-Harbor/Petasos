@@ -157,6 +157,31 @@ def test_secrets_unknown_keys_and_inert_flags_are_not_copied() -> None:
     assert any("not_a_field" in note for note in result.notes)
 
 
+def test_integer_frequency_weights_become_floats() -> None:
+    result = migrate({"frequency_weights": {"petasos.syntactic.command.*": 3}})
+
+    weights = result.settings["overrides"]["frequency"]["weights"]
+    assert weights == {"petasos.syntactic.command.*": 3.0}
+    resolved = resolve(result.settings).config.frequency.weights
+    assert resolved is not None
+    assert resolved["petasos.syntactic.command.*"] == 3.0
+
+
+def test_disabling_semgrep_matches_the_default() -> None:
+    result = migrate({"semgrep_enabled": False})
+
+    assert result.settings["overrides"] == {}
+    assert result.notes == ()
+    assert resolve(result.settings).config.scanners.semgrep.enabled == "off"
+
+
+def test_an_explicit_null_is_carried_into_overrides() -> None:
+    result = migrate({"anonymize": None})
+
+    assert result.settings["overrides"]["anonymization"]["enabled"] is None
+    assert result.dropped == ()
+
+
 def test_unknown_profile_is_dropped_and_names_the_roles() -> None:
     result = migrate({"profile_name": "night_watch"})
 

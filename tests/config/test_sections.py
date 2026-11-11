@@ -218,6 +218,10 @@ def test_non_positive_tier1_is_accepted_when_the_tiers_still_ascend() -> None:
         ({"scanners": {"presidio": {"entities": []}}}, "scanners.presidio.entities"),
         ({"scanners": {"presidio": {"entities": ["not_a_type"]}}}, "scanners.presidio.entities"),
         (
+            {"scanners": {"presidio": {"entities_extra": ["NOT_A_TYPE"]}}},
+            "scanners.presidio.entities_extra",
+        ),
+        (
             {"scanners": {"presidio": {"entities_extra": "URL"}}},
             "scanners.presidio.entities_extra",
         ),
