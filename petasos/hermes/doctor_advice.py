@@ -212,7 +212,7 @@ def approval_check(resolved: Resolved | None, *, hermes_available: bool) -> Chec
 
 
 def guardrail_words(mode: str, minutes: int) -> tuple[str, str]:
-    """The summary and meaning for open (approve) or blocked (never)."""
+    """The recognition policy when no machine-level pin is in force."""
     if mode == "never":
         return (
             "Blocked. The agent is not allowed to change guardrails from the conversation.",
@@ -233,7 +233,7 @@ def guardrail_words(mode: str, minutes: int) -> tuple[str, str]:
 
 
 def guardrail_check(paths: tuple[str, ...], *, mode: str = "approve", minutes: int = 30) -> Check:
-    """Which of the built states this profile is in. Pinned is not one of them yet.
+    """The recognition policy for an unpinned profile.
 
     ``mode`` is ``approve`` (open) or ``never`` (blocked). The path list stays
     in the meaning, after the state, so the default report still names it.

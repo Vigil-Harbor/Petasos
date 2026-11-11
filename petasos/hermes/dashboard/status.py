@@ -17,6 +17,7 @@ from petasos.hermes.dashboard.words import (
     CAPABILITY_WORDS,
     CHECKS_NOTE,
     OPERATING_WORDS,
+    PIN_SCOPE,
     PROTECTION_SCOPE,
     WHO_CAN_CHANGE,
     choices_note,
@@ -94,6 +95,7 @@ def status(
         scanners=scanners,
         coverage=coverage(scanners, list(report.suggestions), registry=registry),
         who_can_change=_who(report),
+        pin=detail.get("pin", {"state": "unknown", "known": False}),
         record_signing=record_signing(secrets, home_label),
         recommendations=list(report.suggestions),
         role=role if isinstance(role, str) else None,
@@ -123,6 +125,13 @@ def _who(report: object) -> dict[str, str]:
             extra = ". ".join(parts[:take])
             who["agent"] = f"{summary} {extra}." if extra else summary
         break
+    detail = getattr(report, "detail", {})
+    pin = detail.get("pin")
+    if isinstance(pin, dict) and pin.get("state") not in {"unknown", "unpinned"}:
+        check = next((item for item in checks if getattr(item, "id", "") == "pin"), None)
+        if check is not None:
+            who["agent"] = f"{check.summary} {check.meaning}"
+            who["administrator"] = f"{check.summary} {PIN_SCOPE}"
     return who
 
 

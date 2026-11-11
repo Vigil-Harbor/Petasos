@@ -27,6 +27,7 @@ from petasos.hermes.doctor_install import (
     skipped_plugin_load,
 )
 from petasos.hermes.doctor_model import Check, HermesView, Report
+from petasos.hermes.doctor_pin import pin_report
 from petasos.hermes.doctor_settings import secret_checks, settings_check
 from petasos.hermes.doctor_support import (
     at_path,
@@ -89,6 +90,9 @@ def _build(
     registry: tuple[ScannerSpec, ...],
 ) -> Report:
     document, read_problem = read_config(home / "config.yaml")
+    pin_checks, pin_detail, effective = pin_report(document)
+    if read_problem is None:
+        document = effective
     hermes = hermes_view_fn()
     checks: list[Check] = [
         petasos_check(),
@@ -139,7 +143,14 @@ def _build(
     else:
         mode = resolved.config.tools.self_change
         minutes = resolved.config.tools.self_change_minutes
-    checks.append(guardrail_check(paths, mode=mode, minutes=minutes))
+    if pin_checks and pin_detail.get("state") not in {"unknown", "unpinned"}:
+        first = pin_checks[0]
+        checks.append(
+            Check(id="guardrail", status="info", summary=first.summary, meaning=first.meaning)
+        )
+    else:
+        checks.append(guardrail_check(paths, mode=mode, minutes=minutes))
+    checks.extend(pin_checks)
     detail = _detail(
         home,
         document=document,
@@ -151,6 +162,7 @@ def _build(
         setting_facts=setting_facts,
         secrets=secrets,
     )
+    detail["pin"] = pin_detail
     return Report(
         home=home,
         home_reason=home_reason,

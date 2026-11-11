@@ -85,7 +85,10 @@ def effective_config() -> dict[str, Any]:
     reader = getattr(module, "load_config_readonly", None)
     if not callable(reader):
         raise ValueError("This Python cannot read the settings Hermes is using.")
-    document = reader()
+    try:
+        document = reader()
+    except Exception as exc:
+        raise ValueError("Hermes could not read this profile's settings.") from exc
     if not isinstance(document, dict):
         raise ValueError("Hermes could not read this profile's settings.")
     return dict(document)
@@ -97,7 +100,10 @@ def hook_timeout() -> float:
     reader = getattr(module, "_resolve_hook_callback_timeout", None)
     if not callable(reader):
         raise ValueError("This Hermes cannot say how long plugin checks may run.")
-    value = reader()
+    try:
+        value = reader()
+    except Exception as exc:
+        raise ValueError("Hermes could not read the time limit for plugin checks.") from exc
     if not isinstance(value, (int, float)):
         raise ValueError("Hermes returned an unreadable time limit for plugin checks.")
     return float(value)

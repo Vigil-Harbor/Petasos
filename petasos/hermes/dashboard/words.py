@@ -597,3 +597,9 @@ def _text(value: object) -> str:
     if isinstance(value, str):
         return value
     return ""
+
+
+PIN_SCOPE = (
+    "The plugin's files, the Python environment and the event record still belong to "
+    "this account. A pin fixes settings and the plugin list; it is not a guarantee."
+)
