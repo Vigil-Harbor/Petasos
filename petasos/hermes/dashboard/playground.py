@@ -11,9 +11,9 @@ import asyncio
 import json
 import logging
 from collections.abc import Callable, Iterable, Mapping
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from petasos._types import Direction, ScanFinding, Severity
+from petasos._types import Direction, PipelineResult, ScanFinding, Severity
 from petasos.config.layers import resolve
 from petasos.config.schema import ConfigError
 from petasos.config.secrets import Secrets
@@ -32,10 +32,15 @@ from petasos.enforce.decisions import (
 from petasos.enforce.messages import format_content_block, format_result_notice
 from petasos.hermes.dashboard.catalog import combine
 from petasos.hermes.dashboard.errors import ApiError, envelope
-from petasos.hermes.dashboard.words import CHECK_NOTE, looks_for
+from petasos.hermes.dashboard.words import CHECK_NOTE, RISK_NOTE, RISK_TIERS, looks_for
 from petasos.hermes.host import command_will_be_asked
 from petasos.normalize import canonicalize_tool_name, normalize
+from petasos.pipeline import Pipeline
 from petasos.scanners.registry import REGISTRY, BuildContext, ScannerSpec, ScannerStatus, compose
+from petasos.session.frequency import FrequencyTracker
+
+if TYPE_CHECKING:
+    from petasos.config.sections import PetasosConfig
 
 logger = logging.getLogger("petasos.hermes.dashboard")
 
@@ -91,6 +96,25 @@ _PLAIN_REASON = {
 }
 
 _Redactor = Callable[..., str]
+
+
+class _TrialPipeline(Pipeline):
+    # The tool guard consumes a result but returns only its decision and findings.
+    # Keep the same scan's hidden text; never run the scanners a second time.
+    result: PipelineResult | None = None
+
+    async def inspect(
+        self,
+        text: str,
+        *,
+        direction: Direction | None = None,
+        session_id: str | None = None,
+        weight_cap: float | None = None,
+    ) -> PipelineResult:
+        self.result = await super().inspect(
+            text, direction=direction, session_id=session_id, weight_cap=weight_cap
+        )
+        return self.result
 
 
 async def try_input(
@@ -342,8 +366,6 @@ async def _text(
     redactor: _Redactor | None,
     time_budget: float,
 ) -> dict[str, Any]:
-    from petasos.pipeline import Pipeline
-
     way: Direction | None
     if direction is None:
         way = None
@@ -390,7 +412,7 @@ async def _text(
     else:
         decision = "allow"
         message = ""
-    return _body(
+    body = _body(
         resolved,
         decision,
         message,
@@ -401,6 +423,27 @@ async def _text(
         redactor,
         subject="text_out" if way == "outbound" else "text_in",
     )
+    body.update(_hidden_text(resolved.config, result, statuses, timed_out, redactor))
+    if decision == "allow" and body["anonymization"]["code"] == "hidden":
+        body["outcome"]["sentence"] = (
+            "Petasos would let this through with the selected personal information hidden."
+        )
+    # Score separately so a session overlay cannot change the text verdict.
+    from petasos.session.guard import ToolCallGuard
+
+    tracker = FrequencyTracker(resolved.config, secrets=Secrets())
+    risk_unavailable = False
+    if not timed_out and resolved.config.frequency.enabled:
+        try:
+            guard = ToolCallGuard(pipeline, tracker, resolved.config, protected_paths=lambda: ())
+            tracker.update(
+                _SESSION, [f.rule_id for f in findings], weight_cap=guard.scan_weight_cap
+            )
+        except ValueError:
+            # Guard-only validation must not discard an already completed text check.
+            risk_unavailable = True
+    body["risk"] = _risk(resolved.config, tracker, timed_out, unavailable=risk_unavailable)
+    return body
 
 
 async def _tool(
@@ -414,15 +457,13 @@ async def _tool(
     protected_paths: Callable[[], Iterable[str]],
     time_budget: float,
 ) -> dict[str, Any]:
-    from petasos.pipeline import Pipeline
-    from petasos.session.frequency import FrequencyTracker
     from petasos.session.guard import READ_ONLY_TOOLS, ToolCallGuard
     from petasos.session.taint import SessionTaintStore
 
     config = resolved.config
     secrets = Secrets()
     tracker = FrequencyTracker(config, secrets=secrets)
-    pipeline = Pipeline(
+    pipeline = _TrialPipeline(
         scanners,
         config=config,
         secrets=secrets,
@@ -497,7 +538,7 @@ async def _tool(
             elif chosen is None or isinstance(chosen, Allow):
                 decision = "allow"
     rendered = _argument_text(arguments)
-    return _body(
+    body = _body(
         resolved,
         decision,
         message,
@@ -507,6 +548,104 @@ async def _tool(
         timed_out,
         redactor,
     )
+    body.update(_hidden_text(config, pipeline.result, statuses, timed_out, redactor))
+    body["risk"] = _risk(config, tracker, timed_out)
+    return body
+
+
+def _hidden_text(
+    config: PetasosConfig,
+    result: PipelineResult | None,
+    statuses: tuple[ScannerStatus, ...],
+    timed_out: bool,
+    redactor: _Redactor | None,
+) -> dict[str, Any]:
+    content = None
+    if not config.anonymization.enabled:
+        code, sentence = "off", "Hiding personal information is off in these settings."
+    elif result is None and not timed_out:
+        code, sentence = "unchecked", "This input did not run the personal-information check."
+    elif timed_out or result is None:
+        code, sentence = (
+            "unfinished",
+            "The check did not finish, so there is no hidden-text preview.",
+        )
+    elif any(row.error for row in result.scanner_results if row.scanner_name == "presidio"):
+        code, sentence = "unavailable", "The personal-information check could not run."
+    elif not any(row.id == "presidio" and row.state == "active" for row in statuses) or not any(
+        row.scanner_name == "presidio" for row in result.scanner_results
+    ):
+        state = next((row.state for row in statuses if row.id == "presidio"), "unavailable")
+        code = "unavailable" if state == "active" else state
+        sentence = {
+            "off": "The personal-information check is turned off in these settings.",
+            "not_installed": "The personal-information check is not installed.",
+        }.get(state, "The personal-information check could not run.")
+    elif result.sanitized_content is not None and not any(
+        f.finding_type == "pii" and f.position is not None for f in result.findings
+    ):
+        code, sentence = "failed", "Petasos could not hide the personal information found."
+    elif result.sanitized_content is not None:
+        code, sentence = (
+            "hidden",
+            "Personal information selected by these settings is hidden below.",
+        )
+        content = _show(result.sanitized_content, redactor)
+        if not content.strip():
+            sentence = "No text remains in this preview."
+    elif not any(f.finding_type == "pii" for f in result.findings):
+        code, sentence = "none", "The personal-information check found no personal information."
+    elif config.anonymization.entities and not result.errors:
+        code, sentence = (
+            "not_selected",
+            "These settings do not hide the kinds of personal information found.",
+        )
+    else:
+        code, sentence = "failed", "Petasos could not hide the personal information found."
+    return {"anonymized": content, "anonymization": {"code": code, "sentence": sentence}}
+
+
+def _risk(
+    config: PetasosConfig, tracker: FrequencyTracker, timed_out: bool, *, unavailable: bool = False
+) -> dict[str, Any]:
+    from petasos.session.escalation import evaluate_tier
+
+    thresholds = [
+        {"label": RISK_TIERS[tier], "score": getattr(config.escalation, tier)}
+        for tier in ("tier1", "tier2", "tier3")
+    ]
+    state = tracker.get_state(_SESSION)
+    score = state.last_score if state is not None else 0.0
+    label = RISK_TIERS[evaluate_tier(score, config)]
+    tier: str | None = label
+    if timed_out:
+        sentence = "The check did not finish, so this input's risk score is not available."
+        shown_score = None
+        tier = None
+    elif unavailable:
+        sentence = "The risk score could not be calculated with these settings."
+        shown_score = None
+        tier = None
+    elif not config.frequency.enabled:
+        sentence = "Conversation risk scoring is off in these settings."
+        shown_score = None
+        tier = None
+    else:
+        shown_score = score
+        sentence = f"This input alone scores {score:g}: {label.lower()}."
+    limits = config.escalation
+    threshold_sentence = (
+        f"A conversation comes under closer watch at {limits.tier1:g}, has tool calls "
+        f"blocked at {limits.tier2:g}, and is stopped at {limits.tier3:g}."
+    )
+    return {
+        "score": shown_score,
+        "tier": tier,
+        "thresholds": thresholds,
+        "sentence": sentence,
+        "threshold_sentence": threshold_sentence,
+        "note": RISK_NOTE,
+    }
 
 
 def _body(

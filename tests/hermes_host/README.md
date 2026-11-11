@@ -146,3 +146,22 @@ not write a home outside `<sandbox>/homes`.
 A test that needs a prepared profile prepares it inside its own home.
 Assert what that home does on its own. A second profile belongs under
 `<home>/profiles/<name>`, which is still inside the sandbox.
+
+## Try it follow-ups
+
+`test_dashboard_tab.py` also exercises hidden personal information, input-only
+risk and the version, in both themes at 1440 and 700 pixels. Its isolated
+home copies `trial_fixture.py` beside the API loader. The fixture replaces
+only the trial's optional personal-information detector, on the calling
+`playground` module; the dashboard, API, pipeline anonymization (replace mode)
+and risk calculation all run normally. No optional model or API is needed.
+
+Capture the same states with the existing capture driver:
+
+```bash
+python tests/hermes_host/capture_round.py --sandbox /tmp/petasos-t1-sbx \
+  --out .ux-reference/t1 --tryit-followups
+```
+
+The driver stops its dashboard, and reports script/API failures and horizontal
+overflow. Inspect the four images before using them as evidence.

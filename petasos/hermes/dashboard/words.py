@@ -597,3 +597,17 @@ def _text(value: object) -> str:
     if isinstance(value, str):
         return value
     return ""
+
+
+RISK_TIERS = MappingProxyType(
+    {
+        "none": "Normal",
+        "tier1": "Watched",
+        "tier2": "Tool calls blocked",
+        "tier3": "Conversation stopped",
+    }
+)
+RISK_NOTE = (
+    "This is for this input alone. A real conversation's score also depends on what came "
+    "before and fades with time. No conversation is read or changed."
+)

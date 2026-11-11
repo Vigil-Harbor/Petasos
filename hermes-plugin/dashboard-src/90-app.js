@@ -243,6 +243,7 @@ function PetasosTab() {
         "div",
         { className: "petasos-topbar-side" },
         failureState[0] && status ? h(Status, { tone: "warning", title: failureState[0].message }, "Last check failed") : null,
+        status && status.petasos_version ? h("span", { className: "petasos-help" }, "Petasos " + status.petasos_version) : null,
         checkedState[0] ? h("span", { className: "petasos-help" }, "Checked " + whenText(checkedState[0] / 1000)) : null,
         h(Btn, { ghost: true, onClick: refreshAll, "aria-label": "Refresh now" }, "Refresh")
       )

@@ -31,7 +31,7 @@ from `petasos/console/hermes/plugin_api.py`.
 | Secrets redacted on read, and not accepted back on write | `GET /settings` returns `session_secret` and `hash_key` as `set` or `unset` only (`catalog.read_settings`). `PUT /settings` and `POST /settings/preview` reject both keys (`changes._reject_secrets`). The manifest declares them as environment secrets (`manifest.render_manifest`). |
 | List of old named profiles (`GET /api/profiles`) | The job list on `GET /settings` (`roles`), drawn by Overview and Settings. |
 | Live enforcement events (`GET /api/events`, the server-sent stream) | Activity and Overview poll `GET /activity`. The tab reads the spool (`redesign.md` section 8.1) and is a different process from the one that enforces (section 8.2), so there is no push socket. |
-| Version string (`GET /api/about`) | `petasos_version` on `GET /status` (`status.py`). The tab script does not draw it. |
+| Version string (`GET /api/about`) | `petasos_version` on `GET /status` (`status.py`). The tab draws it beside Checked and Refresh in its top bar. |
 | Standalone process on `127.0.0.1:8384`, `petasos-console`, and `GET /` | Dropped. `redesign.md` section 8 retires the console's own local web server. |
 | Console token (`PETASOS_CONSOLE_TOKEN`), the unlock panel, and the bearer check on `/api/*` | Dropped. Section 8 retires the console's own token. Section 8.6: Hermes's dashboard session returns 401 without `X-Hermes-Session-Token`, and Petasos adds no second token. |
 | Rate-limited `petasos.selfmod.console_probe` finding on a 401 | Dropped with the token. The probe ran only inside the console's bearer check (`server._maybe_fire_console_probe`). Section 8.6 leaves no console 401 to record. |
@@ -40,8 +40,8 @@ from `petasos/console/hermes/plugin_api.py`.
 | Refused-approvals queue (`GET /api/approvals/refused`): choice filter, rule-origin filter, show reviewed, refresh | No equivalent. Section 8.2 says an approval ask appears in Hermes's own prompt. Nothing in the tab or in `router.py` lists past refusals or filters them. |
 | Mark one refusal reviewed (`POST /api/approvals/reviewed`), including the rule that the standalone server refused the mark unless the console token was set | No equivalent. No route writes a reviewed set. |
 | Open a Hermes profile that is not the one this process is running, read its history or settings, save it without touching the live pipeline, or be refused when arming it | No equivalent. Every dashboard route calls `active_home()` (`router.py`). |
-| Anonymized output panel (the scan text with personal information hidden) | No equivalent. `POST /playground` returns the decision, the findings and the normalized text (`playground._body`). It does not return an anonymized document. |
-| Session overlay on a trial (the running risk score and escalation tier for a chosen session) | No equivalent. A trial builds a pipeline and throws it away (`playground.py`). The response has no score and no tier, and the request has no session id. The old `POST /api/scan` took `session_id`. |
+| Anonymized output panel (the scan text with personal information hidden) | Try it, the Personal information block. `POST /playground` returns `anonymized` from the pipeline, after display redaction, and `anonymization` explains when there is no preview. The pipeline applies the configured entity narrowing. |
+| Session overlay on a trial (the running risk score and escalation tier for a chosen session) | Try it, Conversation risk, from `risk` on `POST /playground`: this input alone, using a fresh private tracker, with the tried settings' thresholds. Picking a live session stays dropped; the request takes no session id and reads no conversation. The old `POST /api/scan` took `session_id`. |
 | Trap burst (a rapid series of attacks against one session, watched as the tier climbs) | No equivalent. Try it checks one input per request. |
 | Process counters on the health payload: uptime, config hash, lifetime scan count, lifetime self-tamper count, history-ring capacity | No equivalent. `GET /status` reports protection, the two switches, scanners and the doctor report. It does not report those process counters. Self-tamper events themselves are in Activity. |
 | About page: welcome text, repository link, issue tracker, scanner reference, configuration guide | No equivalent. |
@@ -56,8 +56,7 @@ These are for the project's owner to rule on. The console is still deleted.
 - Refused-approvals queue (`GET /api/approvals/refused`): choice filter, rule-origin filter, show reviewed, refresh. Section 8.2 moves the live approval ask to Hermes's own prompt. Nothing lists past refusals.
 - Mark one refusal reviewed (`POST /api/approvals/reviewed`), and the standalone rule that refused the mark unless `PETASOS_CONSOLE_TOKEN` was set.
 - Open a Hermes profile that is not the running one: read its history or settings, save it without hot-applying, or be refused when arming it. The new routes use `active_home()` only.
-- Anonymized output panel on a trial scan.
-- Session overlay on a trial (risk score, escalation tier, and a chosen session id).
+- Choosing a live session for a trial. The score and protection stage now live in Try it for one input alone.
 - Trap burst.
 - Process counters: uptime, config hash, lifetime scan count, lifetime self-tamper count, history-ring capacity.
 - About page welcome text and the links to the repository, the issue tracker, the scanner reference and the configuration guide.
@@ -65,4 +64,4 @@ These are for the project's owner to rule on. The console is still deleted.
 - `GET /diag`.
 - LIVE / POLLING blip, and the spoken announcement of the newest scan verdict.
 
-The version string is not in that list. `GET /status` returns it as `petasos_version`. The tab does not draw it.
+The version string is not in that list. `GET /status` returns it as `petasos_version`. The tab draws it in its top bar, beside Checked and Refresh.

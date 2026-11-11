@@ -34,7 +34,7 @@ if __name__ == "__main__" and __package__ in {None, ""}:
 
 from tests.hermes_host.client import sandbox_env
 from tests.hermes_host.dashboard_server import start, stop
-from tests.hermes_host.demo_home import build_wheel, prepare
+from tests.hermes_host.demo_home import build_wheel, prepare, prepare_trial
 
 ROOT = Path(__file__).resolve().parents[2]
 BROWSER = Path(__file__).resolve().parent / "capture_browser.py"
@@ -187,11 +187,24 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--sandbox", required=True, type=Path)
     parser.add_argument("--out", type=Path, default=ROOT / ".ux-reference/rounds/round-04")
     parser.add_argument("--skip-wheel", action="store_true")
+    parser.add_argument("--tryit-followups", action="store_true")
     args = parser.parse_args(argv)
     sandbox = args.sandbox.resolve()
     os.environ["PETASOS_HERMES_SANDBOX"] = str(sandbox)
     if not args.skip_wheel:
         build_wheel(sandbox)
+    if args.tryit_followups:
+        home = prepare_trial(sandbox)
+        board = start(sandbox, home)
+        try:
+            result = run_browser(
+                sandbox, {"action": "followups", "url": board.url, "out": str(args.out.resolve())}
+            )
+        finally:
+            stopped_trial = stop(board.pid)
+        result["dashboard_stopped"] = stopped_trial
+        print(json.dumps(result, indent=2))
+        return 0 if stopped_trial and not result["errors"] and not result["failed"] else 1
     demo = Path(prepare(sandbox, "round-demo")["home"])
     empty = Path(prepare(sandbox, "round-empty", populate=False)["home"])
     boards = []

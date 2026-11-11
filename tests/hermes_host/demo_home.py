@@ -66,6 +66,33 @@ def prepare(sandbox: Path, label: str, *, populate: bool = True) -> dict[str, An
     return report
 
 
+def prepare_trial(sandbox: Path) -> Path:
+    """Install a real tab with deterministic detection for the Try it evidence."""
+    import shutil
+
+    home = Path(prepare(sandbox, "trial", populate=False)["home"])
+    dashboard = home / "plugins" / "petasos" / "dashboard"
+    shutil.copyfile(Path(__file__).with_name("trial_fixture.py"), dashboard / "trial_fixture.py")
+    api = dashboard / "plugin_api.py"
+    api.write_text(
+        "import runpy\nfrom pathlib import Path\n"
+        'runpy.run_path(str(Path(__file__).with_name("trial_fixture.py")))["activate"]()\n'
+        + api.read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    # A saved setting keeps the view compact; the pipeline's own replace mode
+    # works without Presidio's optional anonymizer engine.
+    import yaml
+
+    config = home / "config.yaml"
+    document = yaml.safe_load(config.read_text(encoding="utf-8"))
+    document["plugins"].setdefault("entries", {}).setdefault("petasos", {})["settings"] = {
+        "overrides": {"anonymization": {"enabled": True, "mode": "replace"}}
+    }
+    config.write_text(yaml.safe_dump(document), encoding="utf-8")
+    return home
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--sandbox", required=True, type=Path)
