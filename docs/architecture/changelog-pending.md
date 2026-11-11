@@ -66,6 +66,16 @@ deleted.
 
 ## Changed
 
+- **Breaking.** A tool call that changes a Petasos or Hermes guardrail is no
+  longer allowed just because the conversation is below tier 2. `tools.self_change`
+  is `approve` or `never` (default `approve`; the support role sets `never`).
+  `approve` asks a person, and a session approval lasts `tools.self_change_minutes`
+  (default 30, maximum 1440). `never` refuses the change. The operator still
+  changes settings from outside the agent. Records of the old "not stopped"
+  attempts stay as they were.
+
+
+
 - `Severity.rank` is the one severity scale: info is 0, critical is 4, higher
   is more severe. Six hand-written copies of the ordering are gone. Finding
   comparisons behave as before.

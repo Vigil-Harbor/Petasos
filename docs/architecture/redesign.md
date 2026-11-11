@@ -284,6 +284,7 @@ frequency            enabled, half_life_seconds, weights, rolling_window_seconds
 escalation           enabled, tier1, tier2, tier3
 tools
   enabled, dangerous_posture (block | approve), exempt, aliases, delegate_names
+  self_change (approve | never), self_change_minutes (1 to 1440, default 30)
   lineage            enabled, max_depth, max_edges, edge_ttl_seconds
   fanout             enabled, max_per_window, window_seconds
 egress               sink_tools, taint_namespaces, taint_min_span_length
@@ -428,7 +429,9 @@ lets any UI say where a value came from. "Custom" is not stored: it means
 ### 4.1 The two axes cannot collide
 
 A role may set only: `rules.*`, `tools.dangerous_posture`, `tools.exempt`,
-`tools.aliases`, `scanners.presidio.entities_extra`.
+`tools.aliases`, `tools.self_change`, `scanners.presidio.entities_extra`.
+`tools.self_change_minutes` is not on either axis. `support` sets
+`tools.self_change` to `never`.
 
 A level may set only: `fail_mode`, `escalation.tier1..3`,
 `scanners.presidio.score_threshold`, `anonymization.enabled`.
@@ -668,10 +671,16 @@ Arming is the snapshot's switch, checked on every call.
 flags are the combination that would grant an approve with nobody attached
 (any one of them means the enforcer does not hand the host an approve it would
 allow); `rule_always_approved(rule_key)`; `subagent_hooks`; an optional
-`redactor` (`None` means redaction is unavailable); `display_path`; and
-`protected_paths()`, the filesystem paths the agent must not modify. The guard
-uses that set when it is supplied. Callers that supply nothing keep the
-previous discovery.
+`redactor` (`None` means redaction is unavailable); `display_path`; `protected_paths()`, the filesystem paths the agent must not
+modify; and `guardrail_surface()`, the host's labelled paths and command
+patterns. The guard uses the path set when it is supplied. Callers that supply
+nothing keep the previous discovery. A recognised guardrail change is decided
+before the rest of the ladder and can only make the outcome stricter. Under
+`tools.self_change: never` it is blocked. Under `approve` it is held for a
+person unless a live session grant covers it, and it is blocked when the host
+would grant the approval with nobody attached or cannot ask at all. The
+session grant and its time limit live on the enforcer's clock. See
+`guardrail-integrity.md`.
 
 `Limits` defaults to the plugin's deadlines: 2s to wait for initialisation,
 15s for one evaluation, and 5s added to the configured scanner timeout for a
@@ -893,9 +902,14 @@ That is new function, not restructuring, and is left for after the redesign.
 
 ### 7.4 Self-protection
 
-Nothing in Hermes stops the model from switching the plugin off. The guard's
-self-modification rules are the only lever. C2 checks what they cover today
-and extends them to everything the sandbox run showed would stop enforcement:
+A recognised guardrail change is no longer allowed below tier 2. `tools.self_change`
+is `approve` by default and `never` for the support role. `approve` holds the
+call for a person, with a session-scoped rule key that expires after
+`tools.self_change_minutes` (default 30, at most 24 hours). `never` refuses it.
+The Hermes adapter supplies the host paths and command patterns through
+`HostInfo.guardrail_surface`. Petasos's own package files and commands are
+recognised in the library. Pinning those settings in Hermes's machine-level
+config is not built yet. What the guard recognises:
 
 - the commands `hermes plugins disable`, `enable` and `remove`, the
   `--safe-mode` flag, and `hermes gateway restart`;

@@ -1,8 +1,10 @@
 # Guardrail integrity
 
-Status: design, agreed in principle 2026-11-10. Built as package S1, after the
-Hermes adapter (C2a). Supersedes the "self-protection" notes in section 7.4 of
-`redesign.md`.
+Status: the decision is built (2026-11-10) on branch `redesign/s1a-guardrail-integrity`.
+Pinning is not built. Supersedes the "self-protection" notes in section 7.4 of
+`redesign.md`. Where this file and the implementation brief differ, the brief
+wins: the frozen enforcement record is kept and the new outcomes are named in
+`tests/enforce_parity/differences.json`, and `pin` / `unpin` are not commands yet.
 
 ## Principle
 
@@ -61,11 +63,21 @@ must be fresh and must come from a person:
   `tools.self_change_minutes` (default 30) have passed, whichever is first.
   Sessions on a messaging gateway can live for days, so the time limit is what
   keeps a session approval from going stale.
-- **No standing approval.** Hermes offers "always", which writes a permanent
-  allow-list entry. For guardrail changes Petasos does not honour it: the
-  approval rule key carries the session, so a permanent entry cannot match
-  any other session, and it lapses with the time limit like any session
-  approval.
+- **No standing approval.** Hermes offers "always", which writes
+  `plugin_rule:<rule_key>` into the profile's `command_allowlist`
+  (`tools/approval.py` `_persist_choice`, and the short-circuit in
+  `_run_approval_gate`). "Session" stores the same key only in that process's
+  `_session_approved` for Hermes's current session key. "Once" stores nothing.
+
+  Petasos does not reuse a key. The key is `petasos.guardrail.<generation>.<session>`.
+  Each ask takes the next generation, and a generation the host already has on
+  its permanent list is skipped. An "always" entry therefore matches no later
+  ask and no other session. A "session" or "always" answer is remembered on the
+  enforcer's own clock for `tools.self_change_minutes` (default 30, at most
+  1440). While that grant is live, later guardrail changes in the same session
+  are allowed without asking again. When the clock passes it, the next ask uses
+  a new generation. "Once" does not start a grant. If the answer is missed, the
+  next ask is new and Hermes's memory of the old key does not apply.
 - **A person, not a policy.** If Hermes would grant the approval without
   asking anyone (approvals switched off, yolo, or a cron, single-query or
   unattended run whose mode is set to approve), the call is blocked. A
@@ -117,27 +129,50 @@ location and permissions on Windows.
 ## Evidence
 
 Every settings change the enforcer applies is written to the event spool,
-with what changed and, when it followed an approved self-change, which
-approval. A change the operator did not make is then visible in the console
-and to `doctor`, whichever way it got in.
+with the setting paths, the new values of ordinary settings, and whether a
+self-change approval was live in any session. The applied tree has no secret
+fields, so the event does not carry a secret value. A change the operator
+did not make is then visible in the console and to `doctor`, whichever way
+it got in.
 
-## What changes in the code
+## What is built
 
-- **Config.** `tools.self_change` and `tools.self_change_minutes`; `support`
-  sets `never`.
-- **Guard.** Recognise the commands and paths listed above, in addition to
-  today's config-file paths. The host supplies the paths (the Hermes adapter
-  already does for the files); the command patterns are Hermes-specific and
-  are supplied by the adapter too, so the guard stays host-agnostic.
-- **Enforcer.** A recognised guardrail change is decided before the rest of
-  the ladder: blocked under `never`; under `approve`, held for approval unless
-  a live session approval covers it, and blocked when no person can be asked.
-- **Hermes adapter.** Session-carrying rule keys for these approvals; reports
-  whether a person is attached.
-- **Command line.** `pin`, `unpin`, and the state in `doctor`.
+- **Config.** `tools.self_change` (`approve` or `never`, default `approve`,
+  owned by the role, `support` sets `never`) and `tools.self_change_minutes`
+  (default 30, whole minutes from 1 to 1440). 1440 is one day: a messaging
+  session can live longer than that, and a longer grant would be a standing
+  approval.
+- **Recognition.** `petasos.session.guardrail` matches paths and commands. The
+  Hermes adapter supplies its paths and command patterns on
+  `HostInfo.guardrail_surface`. The library matches its own package directory
+  and its own commands. The guard calls that unit. Reading is not a change.
+- **Enforcer.** A recognised change is decided before the rest of the ladder
+  and can only make the outcome stricter. `never` blocks. `approve` holds the
+  call unless a live session grant covers it, and blocks when the host would
+  grant the approval with nobody attached or has no approve directive. When
+  Hermes can ask but nobody is attached, Petasos returns the approve directive
+  and Hermes blocks the call, which is Hermes's own fail-closed behaviour.
+- **Record.** Each decision is a `guardrail` event (`refused`, `unattended`,
+  `held`, `covered`, `once`, `session`, `denied`). A settings change the
+  enforcer applies is a `settings_changed` event: the paths, the new values of
+  ordinary settings, and whether any session grant was live. Secret values are
+  not written.
+- **Doctor and the Overview.** Open (`approve`) or blocked (`never`), in those
+  words, including the caveat that blocked is not a guarantee against a shell.
+  Pinned is not offered.
+
+## What is not built
+
+- `petasos hermes pin` and `unpin`.
+- The doctor's third state, pinned.
+- A complete answer to a disguised shell. The known gaps are listed in the
+  implementation report: encoded commands, aliases, and commands assembled at
+  runtime.
 
 ## Behaviour change
 
 This is a deliberate change from 0.5, where a guardrail write is allowed
-below tier 2. The parity records for self-modification cases are re-recorded
-in the commit that makes it, and the changelog names it as breaking.
+below tier 2. The frozen enforcement record is not rewritten. The new
+decision, the guardrail event, and the settings-change events are named in
+`tests/enforce_parity/differences.json`. The guard corpus did not change.
+`docs/architecture/changelog-pending.md` names the break.
