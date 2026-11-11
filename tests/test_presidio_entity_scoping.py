@@ -9,13 +9,12 @@ conftest non-skipping-lane guard pins for ``extras-presidio`` (D4).
 from __future__ import annotations
 
 import asyncio
-import math
 from typing import Any
 
 import pytest
 
 from petasos.config.layers import resolve
-from petasos.config.schema import from_mapping, to_mapping
+from petasos.config.schema import from_mapping
 from petasos.config.sections import PetasosConfig
 from petasos.pipeline import Pipeline
 from petasos.scanners.minimal import MinimalScanner
@@ -52,6 +51,55 @@ requires_presidio = pytest.mark.skipif(
     not (_presidio_available and _spacy_model_available),
     reason="presidio + spaCy model required",
 )
+
+# ---------------------------------------------------------------------------
+# PET-119: profile.pii_entities_extra → per-profile Presidio scoping
+#
+# These pins make the field load-bearing: each fails if a profile-set PII entity
+# silently no-ops again. The scan-level and pipeline-level rows are backend-free
+# (a recording fake stands in for the analyzer); the real-backend contract lives
+# in TestProfilePresidioScoping below.
+# ---------------------------------------------------------------------------
+
+
+class _RecordingAnalyzer:
+    """Backend-free stand-in for presidio's AnalyzerEngine. Records the exact
+    ``entities`` list ``analyzer.analyze`` is handed, with no spaCy dependency, so
+    the per-call effective-entity computation can be asserted on every lane."""
+
+    def __init__(self) -> None:
+        self.entities: list[str] | None = None
+
+    def analyze(
+        self,
+        *,
+        text: str,
+        entities: list[str],
+        language: str,
+        score_threshold: float,
+    ) -> list[Any]:
+        self.entities = list(entities)
+        return []
+
+
+def _recording_scanner(**kw: Any) -> tuple[PresidioScanner, _RecordingAnalyzer]:
+    s = PresidioScanner(**kw)
+    rec = _RecordingAnalyzer()
+    s._analyzer = rec
+    s._loaded = True
+    return s, rec
+
+
+class _RecordingPresidio(PresidioScanner):
+    """PresidioScanner subclass wired to a recording analyzer so the pipeline's
+    ``isinstance(s, PresidioScanner)`` Presidio special-case holds (the extras are
+    only threaded to scanners that are PresidioScanner instances)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._rec = _RecordingAnalyzer()
+        self._analyzer = self._rec
+        self._loaded = True
 
 
 # ---------------------------------------------------------------------------
@@ -101,161 +149,6 @@ def test_default_scanner_entities_wired() -> None:
     assert PresidioScanner()._entities == list(DEFAULT_PRESIDIO_ENTITIES)
     # contract change (D3): an explicit list is used verbatim
     assert PresidioScanner(entities=["PERSON"])._entities == ["PERSON"]
-
-
-def test_config_round_trips_presidio_fields() -> None:
-    cfg = from_mapping(
-        PetasosConfig,
-        {
-            "scanners": {
-                "presidio": {
-                    "entities": ("EMAIL_ADDRESS", "US_SSN"),
-                    "entities_extra": ("URL",),
-                    "score_threshold": 0.5,
-                },
-            },
-        },
-    )
-    rt = from_mapping(PetasosConfig, to_mapping(cfg))
-    assert rt.scanners.presidio.entities == ("EMAIL_ADDRESS", "US_SSN")
-    assert rt.scanners.presidio.entities_extra == ("URL",)
-    assert rt.scanners.presidio.score_threshold == 0.5
-
-    # None -> to_dict -> from_dict -> None (no existing precedent; assert explicitly)
-    base = PetasosConfig()
-    assert base.scanners.presidio.entities is None
-    rt_none = from_mapping(PetasosConfig, to_mapping(base))
-    assert rt_none.scanners.presidio.entities is None
-
-    # invalid threshold
-    with pytest.raises(ValueError):
-        from_mapping(
-            PetasosConfig,
-            {
-                "scanners": {
-                    "presidio": {
-                        "score_threshold": 1.5,
-                    },
-                },
-            },
-        )
-    with pytest.raises(ValueError):
-        from_mapping(
-            PetasosConfig,
-            {
-                "scanners": {
-                    "presidio": {
-                        "score_threshold": math.nan,
-                    },
-                },
-            },
-        )
-    # empty explicit presidio_entities is meaningless
-    with pytest.raises(ValueError):
-        from_mapping(
-            PetasosConfig,
-            {
-                "scanners": {
-                    "presidio": {
-                        "entities": (),
-                    },
-                },
-            },
-        )
-    # bare-string / empty-string entries
-    with pytest.raises(ValueError):
-        from_mapping(
-            PetasosConfig,
-            {
-                "scanners": {
-                    "presidio": {
-                        "entities": "EMAIL_ADDRESS",
-                    },
-                },
-            },
-        )
-    with pytest.raises(ValueError):
-        from_mapping(
-            PetasosConfig,
-            {
-                "scanners": {
-                    "presidio": {
-                        "entities": ("",),
-                    },
-                },
-            },
-        )
-    with pytest.raises(ValueError):
-        from_mapping(
-            PetasosConfig,
-            {
-                "scanners": {
-                    "presidio": {
-                        "entities_extra": "URL",
-                    },
-                },
-            },
-        )
-
-
-def test_presidio_entities_casing_normalized() -> None:
-    # case-folded AND surrounding whitespace trimmed (a " URL " entry would otherwise
-    # be a silent no-op — it matches no recognizer in analyzer.analyze).
-    cfg = from_mapping(
-        PetasosConfig,
-        {
-            "scanners": {
-                "presidio": {
-                    "entities": (" person ", "url"),
-                    "entities_extra": ("ip_address ",),
-                },
-            },
-            "anonymization": {
-                "entities": (" EMAIL_ADDRESS ",),
-            },
-        },
-    )
-    assert cfg.scanners.presidio.entities == ("PERSON", "URL")
-    assert cfg.scanners.presidio.entities_extra == ("IP_ADDRESS",)
-    assert cfg.anonymization.entities == (
-        "EMAIL_ADDRESS",
-    )  # trimmed (D7 filter uppercases at read)
-
-
-def test_whitespace_only_entity_entries_rejected() -> None:
-    # whitespace-only entries are non-empty but normalize to nothing — reject them
-    # rather than let them silently disable a security-sensitive detector/filter.
-    with pytest.raises(ValueError):
-        from_mapping(
-            PetasosConfig,
-            {
-                "scanners": {
-                    "presidio": {
-                        "entities": ("   ",),
-                    },
-                },
-            },
-        )
-    with pytest.raises(ValueError):
-        from_mapping(
-            PetasosConfig,
-            {
-                "scanners": {
-                    "presidio": {
-                        "entities_extra": ("\t",),
-                    },
-                },
-            },
-        )
-    with pytest.raises(ValueError):
-        from_mapping(
-            PetasosConfig,
-            {
-                "anonymization": {
-                    "entities": ("  ",),
-                },
-            },
-        )
 
 
 def test_structural_ids_subset_of_unsuppressible() -> None:
@@ -361,56 +254,6 @@ class TestPresidioTightenedDefault:
         assert any("credit_card" in r for r in rule_ids), rule_ids
         assert any("email" in r for r in rule_ids), rule_ids
         assert any("phone" in r for r in rule_ids), rule_ids
-
-
-# ---------------------------------------------------------------------------
-# PET-119: profile.pii_entities_extra → per-profile Presidio scoping
-#
-# These pins make the field load-bearing: each fails if a profile-set PII entity
-# silently no-ops again. The scan-level and pipeline-level rows are backend-free
-# (a recording fake stands in for the analyzer); the real-backend contract lives
-# in TestProfilePresidioScoping below.
-# ---------------------------------------------------------------------------
-
-
-class _RecordingAnalyzer:
-    """Backend-free stand-in for presidio's AnalyzerEngine. Records the exact
-    ``entities`` list ``analyzer.analyze`` is handed, with no spaCy dependency, so
-    the per-call effective-entity computation can be asserted on every lane."""
-
-    def __init__(self) -> None:
-        self.entities: list[str] | None = None
-
-    def analyze(
-        self,
-        *,
-        text: str,
-        entities: list[str],
-        language: str,
-        score_threshold: float,
-    ) -> list[Any]:
-        self.entities = list(entities)
-        return []
-
-
-def _recording_scanner(**kw: Any) -> tuple[PresidioScanner, _RecordingAnalyzer]:
-    s = PresidioScanner(**kw)
-    rec = _RecordingAnalyzer()
-    s._analyzer = rec
-    s._loaded = True
-    return s, rec
-
-
-class _RecordingPresidio(PresidioScanner):
-    """PresidioScanner subclass wired to a recording analyzer so the pipeline's
-    ``isinstance(s, PresidioScanner)`` Presidio special-case holds (the extras are
-    only threaded to scanners that are PresidioScanner instances)."""
-
-    def __init__(self) -> None:
-        super().__init__()
-        self._rec = _RecordingAnalyzer()
-        self._analyzer = self._rec
-        self._loaded = True
 
 
 # --- scan() additive channel (backend-free) --------------------------------

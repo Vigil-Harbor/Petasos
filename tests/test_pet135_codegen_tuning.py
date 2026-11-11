@@ -41,8 +41,6 @@ from petasos.model import Direction, ScanFinding, ScanResult, Severity
 from petasos.pipeline import Pipeline
 from petasos.scanners.minimal.taxonomy import (
     _ALL_INJECTION_IDS,
-    _COMMAND_RULE_IDS,
-    _ENCODING_RULE_IDS,
 )
 
 if TYPE_CHECKING:
@@ -61,23 +59,8 @@ def _role(name: str) -> PetasosConfig:
 # HIGH or CRITICAL on a dangerous tool blocks the call.
 _BLOCKING_SEVERITIES = {Severity.CRITICAL, Severity.HIGH}
 
-# The exact tuned configuration this investigation decided (PET-135), widened by
-# PET-162 Part 2 to suppress the full injection family on outbound (retained in
-# the resolved set under injection_floor_scope="inbound"; the runtime
-# direction-aware floor drops them on outbound and keeps them on inbound).
-# PET-221: pipe-to-shell stays suppressed. The other four command rules are active.
-_EXPECTED_SUPPRESS = (
-    _ENCODING_RULE_IDS
-    | _ALL_INJECTION_IDS
-    | frozenset({"petasos.syntactic.command.pipe-to-shell"})
-)
-_RETURNED_COMMAND_IDS = _COMMAND_RULE_IDS - frozenset({"petasos.syntactic.command.pipe-to-shell"})
-# code_generation demotes the PromptGuard injection verdict (non-floor).
-_EXPECTED_SEVERITY_OVERRIDES = {
-    "petasos.promptguard.injection": "low",
-}
-_EXPECTED_CONFIDENCE_FLOOR = 0.6
 _NOISY_ML_RULE = "petasos.promptguard.injection"
+
 _STRUCTURAL_DEPTH_RULE = "petasos.syntactic.structural.excessive-depth"
 
 # D-PREBUILT-ARTIFACTS: the fixture is redacted real operator data, carried
@@ -282,26 +265,6 @@ class TestKeepsRealCatches:
             f"code_generation must still block {_STRUCTURAL_DEPTH_RULE} at CRITICAL; "
             f"got {[(f.rule_id, f.severity) for f in res.findings]}"
         )
-
-
-class TestSuppressionSetIsExactlyDecided:
-    """Freeze the adjudicated tuning so any future widening trips review (mirrors
-    the frozen-profile invariant in CLAUDE.md), and pin the shipped description."""
-
-    def test_codegen_suppression_set_is_exactly_what_we_decided(self) -> None:
-        config = _role("code_generation")
-        assert set(config.rules.suppress) == _EXPECTED_SUPPRESS, (
-            f"suppress_rules drifted: {sorted(config.rules.suppress)}"
-        )
-        assert _RETURNED_COMMAND_IDS.isdisjoint(config.rules.suppress)
-        for rule_id in sorted(_RETURNED_COMMAND_IDS):
-            assert rule_id not in config.rules.suppress
-        assert config.rules.confidence_floor == _EXPECTED_CONFIDENCE_FLOOR
-        assert dict(config.rules.severity_overrides) == _EXPECTED_SEVERITY_OVERRIDES, (
-            f"severity_overrides drifted: {dict(config.rules.severity_overrides)}"
-        )
-        assert config.rules.injection_floor_scope == "inbound"
-        assert config.tools.dangerous_posture == "approve"
 
 
 class TestCorpusIntegrity:

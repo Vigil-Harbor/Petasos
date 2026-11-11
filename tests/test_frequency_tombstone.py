@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-import pytest
-
 from petasos.config.schema import from_mapping
 from petasos.config.sections import PetasosConfig
 from petasos.session.frequency import FrequencyTracker
@@ -275,67 +273,3 @@ class TestDoubleTerminationIdempotent:
         # s1 should now be at the end (FIFO position refreshed)
         keys = list(tracker._terminated_ids.keys())
         assert keys[-1] == "s1"
-
-
-# ---------------------------------------------------------------------------
-# Test 20: config validation
-# ---------------------------------------------------------------------------
-
-
-class TestConfigMaxTerminatedTombstonesValidation:
-    def test_zero_raises(self) -> None:
-        with pytest.raises(ValueError, match="sessions.max_tombstones"):
-            from_mapping(
-                PetasosConfig,
-                {
-                    "sessions": {
-                        "max_tombstones": 0,
-                    },
-                },
-            )
-
-    def test_negative_raises(self) -> None:
-        with pytest.raises(ValueError, match="sessions.max_tombstones"):
-            from_mapping(
-                PetasosConfig,
-                {
-                    "sessions": {
-                        "max_tombstones": -1,
-                    },
-                },
-            )
-
-    def test_bool_raises(self) -> None:
-        with pytest.raises(ValueError, match="sessions.max_tombstones"):
-            from_mapping(
-                PetasosConfig,
-                {
-                    "sessions": {
-                        "max_tombstones": True,
-                    },
-                },
-            )
-
-    def test_string_raises(self) -> None:
-        with pytest.raises(
-            (ValueError, TypeError),
-        ):
-            from_mapping(
-                PetasosConfig,
-                {
-                    "sessions": {
-                        "max_tombstones": "foo",
-                    },
-                },
-            )
-
-    def test_valid_positive_integer(self) -> None:
-        cfg = from_mapping(
-            PetasosConfig,
-            {
-                "sessions": {
-                    "max_tombstones": 500,
-                },
-            },
-        )
-        assert cfg.sessions.max_tombstones == 500

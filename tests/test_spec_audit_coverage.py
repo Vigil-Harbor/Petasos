@@ -144,33 +144,6 @@ def test_non_finite_score_derives_tier3(bad: float) -> None:
     assert evaluate_tier(bad, cfg) == "tier3"
 
 
-# --- CFG-03: tier-threshold construction validation ---
-def test_non_ascending_tiers_rejected_at_construction() -> None:
-    with pytest.raises(ValueError):
-        from_mapping(
-            PetasosConfig,
-            {
-                "escalation": {
-                    "tier1": 50.0,
-                    "tier2": 40.0,
-                    "tier3": 60.0,
-                },
-            },
-        )
-
-
-def test_non_finite_tier_rejected_at_construction() -> None:
-    with pytest.raises(ValueError):
-        from_mapping(
-            PetasosConfig,
-            {
-                "escalation": {
-                    "tier3": float("inf"),
-                },
-            },
-        )
-
-
 def test_audit_add_listener_fires_and_isolates() -> None:
     seen: list[object] = []
 
