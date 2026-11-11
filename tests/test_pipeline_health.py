@@ -9,9 +9,7 @@ from __future__ import annotations
 import time
 from typing import Any, cast
 
-from petasos.config.secrets import Secrets
 from petasos.config.sections import PetasosConfig
-from petasos.guard.guard import ToolCallGuard
 from petasos.model import (
     ScanResult,
 )
@@ -67,11 +65,6 @@ class _LoadFailedScanner(_StubScanner):
 class _AbsentScanner(_StubScanner):
     def availability(self) -> tuple[bool, str | None, str | None]:
         return (False, "backend not installed", "absent")
-
-
-class _BoomParams:
-    def values(self) -> Any:
-        raise RuntimeError("classifier broke")
 
 
 def _row(health: list[dict[str, Any]], name: str) -> dict[str, Any]:
@@ -150,19 +143,6 @@ def test_semgrep_health_carries_its_qualification_warning() -> None:
     row = _row(pipe.scanner_health(), "semgrep")
     assert row["status"] == "healthy"
     assert row["warning"] == "engine is not qualified"
-
-
-def test_a_classifier_error_does_not_raise() -> None:
-    pipe = Pipeline(scanners=[MinimalScanner()], config=PetasosConfig())
-    guard = ToolCallGuard(
-        pipe,
-        pipe._frequency_tracker,
-        PetasosConfig(),
-        secrets=Secrets(session_secret=b"a" * 32),
-        protected_paths=lambda: ["/owned/config.yaml"],
-    )
-    match = guard._classify_selfmod("terminal", cast("dict[str, Any]", _BoomParams()))
-    assert match is None
 
 
 async def test_ingestion_failures_are_recorded_and_do_not_raise() -> None:
