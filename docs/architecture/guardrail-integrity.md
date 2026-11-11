@@ -166,6 +166,11 @@ machine file or administrator command was used. Tests are in
   confirmed that a hand-written mapping survives in `ctx.get_config`.
   Invalid values are still rejected by Petasos; this is a limit on the pin,
   not a recommendation to store invalid values.
+- Environment references are expanded by Hermes before the snapshot. A
+  still-unresolved reference is refused, so a later environment change cannot
+  alter a value the command calls fixed. The sandbox confirmed both a frozen
+  expanded language and refusal of an unresolved reference. Manually installed
+  references are named by the doctor.
 - The hook timeout is pinned at **Hermes's effective value**: default 30
   seconds, a negative or invalid value uses 30, a value above 600 is clamped,
   and zero is preserved. Sandbox tests covered zero, negative, and the cap,

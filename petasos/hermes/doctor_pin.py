@@ -14,6 +14,7 @@ from petasos.hermes.pinning import (
     SETTINGS,
     TIMEOUT,
     differences,
+    has_references,
     leaf_paths,
     mapping_limits,
     required_keys,
@@ -73,6 +74,9 @@ def pin_report(profile: object) -> tuple[tuple[Check, ...], dict[str, Any], obje
     missing = sorted(required_keys(effective) - scope.keys)
     open_groups = [row.label for row in MAP_FIELDS]
     unset = unset_limits(scope.document)
+    references = any(
+        has_references(at_path(scope.document, key)) for key in (SETTINGS, *LISTS, TIMEOUT)
+    )
     checks: list[Check] = []
     can_write = scope.directory is not None and (
         writable(scope.directory) or _file_writable(scope)
@@ -83,7 +87,7 @@ def pin_report(profile: object) -> tuple[tuple[Check, ...], dict[str, Any], obje
             "Pinned where this account can write. "
             "This does not protect settings from this account."
         )
-    elif missing or open_groups or unset:
+    elif missing or open_groups or unset or references:
         state = "partly_pinned"
         summary = "Partly pinned. Some settings are not fixed at machine level."
     else:
@@ -98,6 +102,11 @@ def pin_report(profile: object) -> tuple[tuple[Check, ...], dict[str, Any], obje
         details.append(mapping_limits())
     if unset:
         details.append(unset_words(unset))
+    if references:
+        details.append(
+            "Some pinned values still depend on environment variables. "
+            "Replace them with plain values before pinning."
+        )
     details.append(LIMITS)
     checks.append(
         Check(
@@ -151,6 +160,7 @@ def pin_report(profile: object) -> tuple[tuple[Check, ...], dict[str, Any], obje
             "missing": [_label(key) for key in missing],
             "open_groups": open_groups,
             "unset_values": list(unset),
+            "environment_references": references,
             "profile_differences": list(changed),
             "summary": summary,
             "meaning": " ".join(details),

@@ -52,7 +52,7 @@ def scope(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     home.mkdir()
     profile = _profile()
     (home / "config.yaml").write_text(json.dumps(profile))
-    monkeypatch.delenv("HERMES_MANAGED_DIR", raising=False)
+    monkeypatch.setenv("HERMES_MANAGED_DIR", str(directory))
 
     def document() -> dict[str, Any]:
         path = directory / "config.yaml"
@@ -352,3 +352,25 @@ def test_status_exposes_pin_and_uses_effective_switches(scope: SimpleNamespace) 
     assert "Pinned where this account can write" in body["who_can_change"]["agent"]
     assert LIMITS in body["who_can_change"]["administrator"]
     assert body["switches"]["hermes"]["on"] is True
+
+
+@pytest.mark.parametrize("reference", ["${S1B_LANGUAGE}", "${env:S1B_LANGUAGE}"])
+def test_unresolved_environment_reference_is_not_pinned(reference: str) -> None:
+    profile = _profile()
+    profile["plugins"]["entries"]["petasos"]["settings"]["overrides"] = {
+        "scanners": {"presidio": {"language": reference}}
+    }
+    with pytest.raises(ValueError, match="environment reference"):
+        pin_values(profile, timeout=30)
+
+
+def test_doctor_names_environment_dependent_pin_values(scope: SimpleNamespace) -> None:
+    change_pin(scope.home, write=True)
+    document = scope.read()
+    document["plugins"]["entries"]["petasos"]["settings"]["overrides"]["scanners"]["presidio"][
+        "language"
+    ] = "${S1B_LANGUAGE}"
+    (scope.directory / "config.yaml").write_text(json.dumps(document))
+    checks, facts, _ = pin_report(scope.profile)
+    assert facts["environment_references"] is True
+    assert "depend on environment variables" in checks[0].meaning

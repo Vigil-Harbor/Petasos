@@ -340,6 +340,29 @@ def redirect(_request: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def references(request: dict[str, Any]) -> dict[str, Any]:
+    managed, _ = _setup()
+    config = _import("hermes_cli.config")
+    raw = config.read_user_config_raw()
+    raw["plugins"].setdefault("entries", {}).setdefault("petasos", {})["settings"] = {
+        "overrides": {"scanners": {"presidio": {"language": "${env:S1B_PIN_LANGUAGE}"}}}
+    }
+    (hermes_home() / "config.yaml").write_text(json.dumps(raw))
+    if request["defined"]:
+        os.environ["S1B_PIN_LANGUAGE"] = "fr"
+    else:
+        os.environ.pop("S1B_PIN_LANGUAGE", None)
+    result = _cli("hermes", "pin", "--write")
+    os.environ["S1B_PIN_LANGUAGE"] = "de"
+    return {
+        **result,
+        "wrote": (managed / "config.yaml").exists(),
+        "language": config.load_config_readonly()["plugins"]["entries"]["petasos"]["settings"][
+            "overrides"
+        ]["scanners"]["presidio"]["language"],
+    }
+
+
 def main() -> None:
     request = json.loads(sys.stdin.read())
     actions = {
@@ -348,6 +371,7 @@ def main() -> None:
         "nullable": nullable,
         "timeout": timeout,
         "redirect": redirect,
+        "references": references,
         "writes": writes,
         "hand_edit": hand_edit,
         "disable": disable,

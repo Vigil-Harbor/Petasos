@@ -114,3 +114,16 @@ def test_redirected_machine_pin_is_a_failure(installed: Sandbox) -> None:
     result = _call(installed, "redirect")
     assert result["pin"]["state"] == "not_in_force"
     assert any(c["id"] == "pin" and c["status"] == "fail" for c in result["checks"])
+
+
+@pytest.mark.parametrize("defined", [True, False])
+def test_pin_freezes_expanded_values_and_refuses_unresolved_references(
+    installed: Sandbox, defined: bool
+) -> None:
+    result = _call(installed, "references", defined=defined)
+    if defined:
+        assert result["code"] == 0 and result["language"] == "fr"
+        assert result["wrote"] is True
+    else:
+        assert result["code"] == 2 and "environment reference" in result["text"]
+        assert result["wrote"] is False

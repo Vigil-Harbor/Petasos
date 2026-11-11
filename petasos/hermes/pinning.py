@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from typing import Any
 
@@ -27,7 +28,7 @@ def pin_values(document: Mapping[str, Any], *, timeout: float) -> dict[str, Any]
     enabled, disabled = plugin_lists(document)
     if "petasos" not in enabled or "petasos" in disabled:
         raise ValueError("Petasos must be on in Hermes's plugin list before it can be pinned.")
-    return {
+    values = {
         "plugins": {
             "enabled": list(enabled),
             "disabled": list(disabled),
@@ -44,6 +45,24 @@ def pin_values(document: Mapping[str, Any], *, timeout: float) -> dict[str, Any]
             },
         }
     }
+
+    if has_references(values):
+        raise ValueError(
+            "A setting still contains an environment reference. "
+            "Replace it with a plain value before pinning."
+        )
+    return values
+
+
+def has_references(value: object) -> bool:
+    """An unresolved reference could change under a later process environment."""
+    if isinstance(value, str):
+        return re.search(r"\$\{[^}]+\}", value) is not None
+    if isinstance(value, Mapping):
+        return any(has_references(item) for item in value.values())
+    if isinstance(value, (list, tuple)):
+        return any(has_references(item) for item in value)
+    return False
 
 
 def leaf_paths(document: Mapping[str, Any], prefix: tuple[str, ...] = ()) -> list[list[str]]:

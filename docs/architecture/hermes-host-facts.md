@@ -882,7 +882,7 @@ dotted names; a list, scalar, null, **or empty mapping** is one leaf
 (`hermes_cli/managed_scope.py`, `_flatten_keys`). An empty mapping is marked
 managed, despite being a mapping. `apply_managed_overlay` deep-merges managed
 values on top of the profile after expanding `${VAR}` in the managed document
-against the **process environment**. Existing ordinary scalar and list leaves
+through Hermes's environment-reference reader. Existing ordinary scalar and list leaves
 win. `hermes config set` refuses exact managed keys; bulk saves strip managed
 leaves instead of saving them. Parent-group writes need not be refused, but
 the overlay still fixes the ordinary pinned leaves.
@@ -898,6 +898,10 @@ unset fields affected are `scanners.presidio.entities`,
 `frequency.weights`. Their hand-written mappings are visible to `ctx.get_config`.
 Petasos may reject that type, but a pin cannot claim to hold the raw value.
 The original source-reading statement that *any* leaf wins was too broad.
+Hermes also retains unresolved `${VAR}` / `${env:VAR}` placeholders. Petasos
+refuses those in a pin snapshot; the sandbox confirmed that an already expanded
+value stays fixed after its environment variable changes, and an unresolved
+reference writes no managed document.
 
 **Plugin enablement and settings, run.** Both `plugins.enabled` and
 `plugins.disabled` are lists and pinned as whole values. The actual
