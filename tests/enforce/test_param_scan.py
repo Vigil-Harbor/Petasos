@@ -13,6 +13,7 @@ from petasos.guard.guard import ToolCallGuard
 from petasos.limits import MAX_PARAM_TEXT_LEN
 from petasos.model import ScanResult
 from petasos.pipeline import Pipeline
+from petasos.scanners.semgrep import SemgrepLifecycleOwner, SemgrepScanner
 from petasos.session.frequency import FrequencyTracker
 
 
@@ -33,6 +34,9 @@ class _FallbackRecorder:
     def __init__(self) -> None:
         self.calls: list[tuple[str, str]] = []
 
+    def scanner(self) -> _FallbackRecorder:
+        return self
+
     def scan(self, text: str, *, direction: str) -> ScanResult:
         self.calls.append((text, direction))
         return ScanResult("recorder", ())
@@ -51,21 +55,27 @@ async def test_warm_and_fallback_scan_identical_text_outbound(capped: bool) -> N
     else:
         args = {"raw": "line one\nline two", "missing": None, "items": [1, 2]}
         expected = "line one\nline two\n[1, 2]"
-    config = PetasosConfig()
-    warm = _WarmRecorder()
-    pipeline = Pipeline([warm], config=config)
-    guard = ToolCallGuard(pipeline, FrequencyTracker(config), config, protected_paths=lambda: ())
-    await guard.evaluate("write_file", args, "session")
-    fallback = _FallbackRecorder()
-    scanned = scan_fallback(
-        "write_file",
-        args,
-        is_dangerous=lambda _name: True,
-        session_id_for=lambda: "session",
-        scanner_for=lambda: fallback,
-        run=lambda result: result,
-        logger=logging.getLogger(__name__),
-        emit=_ignore_event,
-    )
-    assert scanned.outcome == "clean"
-    assert warm.calls == fallback.calls == [(expected, "outbound")]
+    async with SemgrepLifecycleOwner() as owner:
+        for prepared in (False, True):
+            config = PetasosConfig()
+            warm = _WarmRecorder()
+            pipeline = Pipeline(
+                [warm, SemgrepScanner(owner=owner)] if prepared else [warm], config=config
+            )
+            guard = ToolCallGuard(
+                pipeline, FrequencyTracker(config), config, protected_paths=lambda: ()
+            )
+            await guard.evaluate("write_file", args, "session")
+            fallback = _FallbackRecorder()
+            scanned = scan_fallback(
+                "write_file",
+                args,
+                is_dangerous=lambda _name: True,
+                session_id_for=lambda: "session",
+                scanner_for=fallback.scanner,
+                run=lambda result: result,
+                logger=logging.getLogger(__name__),
+                emit=_ignore_event,
+            )
+            assert scanned.outcome == "clean"
+            assert warm.calls == fallback.calls == [(expected, "outbound")]
