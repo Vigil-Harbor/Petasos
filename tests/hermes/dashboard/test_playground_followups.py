@@ -289,3 +289,12 @@ def test_guard_only_settings_cannot_discard_a_text_result() -> None:
     assert body["risk"]["sentence"] == (
         "The risk score could not be calculated with these settings."
     )
+
+
+def test_hiding_the_entire_input_explains_the_empty_preview(monkeypatch: Any) -> None:
+    monkeypatch.setattr("petasos.scanners.presidio.anonymize", lambda *_a, **_kw: "")
+    body = _run(text="someone@example.org")
+    assert body["anonymized"] == ""
+    assert body["anonymization"]["code"] == "hidden"
+    assert body["anonymization"]["sentence"] == "No text remains in this preview."
+    assert "unchanged" not in body["outcome"]["sentence"]

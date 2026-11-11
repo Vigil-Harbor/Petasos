@@ -591,6 +591,8 @@ def _hidden_text(
             "Personal information selected by these settings is hidden below.",
         )
         content = _show(result.sanitized_content, redactor)
+        if not content.strip():
+            sentence = "No text remains in this preview."
     elif not any(f.finding_type == "pii" for f in result.findings):
         code, sentence = "none", "The personal-information check found no personal information."
     elif config.anonymization.entities and not result.errors:
