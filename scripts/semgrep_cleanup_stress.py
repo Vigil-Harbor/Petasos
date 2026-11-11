@@ -74,8 +74,8 @@ def _labels(lines: list[str], failed: bool, error: str | None) -> set[str]:
 
 
 async def _run(iterations: int) -> tuple[dict[str, int], str, tuple[str, ...]]:
-    from petasos.scanners._semgrep_runtime import SemgrepCleanupError
     from petasos.scanners.semgrep import SemgrepLifecycleOwner
+    from petasos.scanners.semgrep.runtime import SemgrepCleanupError
 
     counts = {"clean": 0, "cleanup_failed": 0, "recovered": 0, "expired": 0}
     owner = SemgrepLifecycleOwner()

@@ -15,10 +15,10 @@ import pytest
 from petasos import Direction, Pipeline, PipelineResult, ScanFinding, ScanResult
 from petasos.config.sections import PetasosConfig
 from petasos.guard.params import _MAX_PARAM_TEXT_LEN
+from petasos.limits import HEAD_CHARS
 from petasos.pipeline.ingest import (
     CHUNK_CHARS,
     CHUNK_OVERLAP_CHARS,
-    HEAD_CHARS,
     _chunk_origins,
     scan_ingestion_result,
 )

@@ -401,10 +401,9 @@ def _scan_sync(text: str, cancelled: threading.Event) -> float | None:
         finally:
             _INFER_LOCK.release()
     if not cancelled.is_set():
-        # pipeline.py imports petasos.scanners, so this import stays local. The
-        # prefix makes a miss count toward the breaker; a plain error would clear
+        # The shared prefix makes a miss count toward the breaker; a plain error would clear
         # the streak and a wedged forward would cost every call this wait forever.
-        from petasos.pipeline.health import _TIMEOUT_ERROR_PREFIX
+        from petasos.model import _TIMEOUT_ERROR_PREFIX
 
         raise _ScanRefused(
             f"{_TIMEOUT_ERROR_PREFIX}: prompt_guard inference lock not acquired "

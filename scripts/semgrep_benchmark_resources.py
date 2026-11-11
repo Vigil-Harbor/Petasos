@@ -67,9 +67,9 @@ class Resources:
             return None
 
     def install(self, stack: ExitStack) -> None:
-        from petasos.scanners import _semgrep_process as process
-        from petasos.scanners import _semgrep_runtime as runtime
-        from petasos.scanners._semgrep_source import MapBudget
+        from petasos.scanners.semgrep import process as process
+        from petasos.scanners.semgrep import runtime as runtime
+        from petasos.scanners.semgrep.source import MapBudget
 
         new_root = runtime.Runtime._new_root
         charge = MapBudget.charge

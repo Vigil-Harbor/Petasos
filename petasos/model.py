@@ -385,3 +385,7 @@ def _deep_unproxy(obj: Any) -> Any:
     if isinstance(obj, Severity):
         return obj.value
     return obj
+
+
+# Scanner error vocabulary is shared with the pipeline circuit breaker.
+_TIMEOUT_ERROR_PREFIX = "ScannerTimeout"

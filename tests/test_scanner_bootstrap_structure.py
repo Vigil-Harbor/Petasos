@@ -63,7 +63,7 @@ _DEFINITION_MODULES = frozenset(
         "petasos/scanners/minimal/scanner.py",
         "petasos/scanners/presidio.py",
         "petasos/scanners/prompt_guard.py",
-        "petasos/scanners/semgrep.py",
+        "petasos/scanners/semgrep/adapter.py",
         "petasos/scanners/registry.py",
     }
 )

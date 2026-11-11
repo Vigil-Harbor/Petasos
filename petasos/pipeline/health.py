@@ -8,6 +8,7 @@ import time
 from typing import TYPE_CHECKING, Any
 
 from petasos.model import (
+    _TIMEOUT_ERROR_PREFIX,
     AVAILABILITY_CAUSE_LOAD_FAILED,
     ScanResult,
 )
@@ -37,7 +38,6 @@ _SCANNER_TIMEOUT = 10.0
 # Error-string prefixes used to classify scanner failures for the circuit
 # breaker (PIPE-03). A timeout increments the per-scanner consecutive-timeout
 # counter; any other error (or success) resets it.
-_TIMEOUT_ERROR_PREFIX = "ScannerTimeout"
 _BREAKER_OPEN_ERROR_PREFIX = "ScannerCircuitOpen"
 
 

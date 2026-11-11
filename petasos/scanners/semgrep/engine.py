@@ -18,20 +18,20 @@ from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
 from petasos.coverage import CoverageSpan, CoverageStatus, ScanCoverage
 from petasos.model import Position, ScanFinding, ScanResult, Severity
-from petasos.scanners._semgrep_process import (
+from petasos.scanners.semgrep.process import (
     CLEANUP_DEADLINE_OBSERVER,
     CleanupFailure,
     ProcessResult,
     run_process,
 )
-from petasos.scanners._semgrep_source import LANGUAGES, Selection, Target
+from petasos.scanners.semgrep.source import LANGUAGES, Selection, Target
 
 if TYPE_CHECKING:
     from collections.abc import Callable
     from concurrent.futures import Future, ThreadPoolExecutor
 
 ENGINE_VERSION = "1.183.0"
-_RULE_ROOT = Path(__file__).with_name("semgrep_rules")
+_RULE_ROOT = Path(__file__).with_name("rules")
 _MESSAGES = {
     "python.dynamic_code": "Dynamic code evaluation call.",
     "python.shell": "Shell invocation.",

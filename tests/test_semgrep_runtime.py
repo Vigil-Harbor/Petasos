@@ -12,10 +12,10 @@ from typing import Any
 
 import pytest
 
-from petasos.scanners import _semgrep_runtime as rt
-from petasos.scanners._semgrep_engine import result_for
-from petasos.scanners._semgrep_source import select_sources
 from petasos.scanners.semgrep import SemgrepLifecycleOwner, SemgrepScanner
+from petasos.scanners.semgrep import runtime as rt
+from petasos.scanners.semgrep.engine import result_for
+from petasos.scanners.semgrep.source import select_sources
 from tests._semgrep_helpers import require
 
 
@@ -29,8 +29,8 @@ async def _bounded_result(task: asyncio.Task[Any]) -> Any:
 
 @pytest.fixture
 def fake_engine(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
-    monkeypatch.setattr("petasos.scanners.semgrep.supported_platform", lambda: True)
-    monkeypatch.setattr("petasos.scanners.semgrep.monitor_available", lambda: True)
+    monkeypatch.setattr("petasos.scanners.semgrep.adapter.supported_platform", lambda: True)
+    monkeypatch.setattr("petasos.scanners.semgrep.adapter.monitor_available", lambda: True)
 
     async def execute(runtime: rt.Runtime, job: rt.Job) -> None:
         try:
@@ -199,7 +199,7 @@ async def test_queued_deadline_releases_capacity_while_both_workers_are_busy(
 async def test_cpu_cancellation_waits_for_owned_worker() -> None:
     import threading
 
-    from petasos.scanners._semgrep_engine import await_cpu
+    from petasos.scanners.semgrep.engine import await_cpu
 
     cancelled, release, entered = threading.Event(), threading.Event(), threading.Event()
 
@@ -231,7 +231,7 @@ async def test_owner_cleanup_failure_preserves_body_exception(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    from petasos.scanners import semgrep
+    from petasos.scanners.semgrep import adapter as semgrep
 
     async def failure(*args: Any, **kwargs: Any) -> rt.SemgrepCloseResult:
         return rt.SemgrepCloseResult("failed", jobs=1, reasons=("cleanup_failed",))
@@ -270,7 +270,7 @@ def test_stale_roots_are_removed_only_with_dead_verified_owners(
     import json
 
     psutil = pytest.importorskip("psutil")
-    from petasos.scanners._semgrep_roots import recover_roots
+    from petasos.scanners.semgrep.roots import recover_roots
 
     monkeypatch.setattr("tempfile.gettempdir", lambda: str(tmp_path))
     monkeypatch.setattr(psutil, "pid_exists", lambda pid: pid == 123)
@@ -331,7 +331,7 @@ async def test_transient_root_lock_is_retried_within_cleanup_budget(
     root = tmp_path / "owned"
     root.mkdir()
     (root / "candidate.source").write_text("synthetic", encoding="utf-8")
-    from petasos.scanners import _semgrep_roots as roots
+    from petasos.scanners.semgrep import roots as roots
 
     original = roots.remove_owned_root
     attempts = 0
@@ -357,8 +357,8 @@ async def test_projection_only_starts_in_two_admitted_active_slots(
 ) -> None:
     import threading
 
-    monkeypatch.setattr("petasos.scanners.semgrep.supported_platform", lambda: True)
-    monkeypatch.setattr("petasos.scanners.semgrep.monitor_available", lambda: True)
+    monkeypatch.setattr("petasos.scanners.semgrep.adapter.supported_platform", lambda: True)
+    monkeypatch.setattr("petasos.scanners.semgrep.adapter.monitor_available", lambda: True)
     monkeypatch.setattr(
         rt.Runtime, "_enqueue_probe", lambda runtime: setattr(runtime, "availability_error", None)
     )
@@ -448,8 +448,8 @@ def test_process_close_deadline_terminal_tokens_and_permanent_seal() -> None:
 async def test_cancelled_native_worker_cleanup_failure_is_not_discarded() -> None:
     import threading
 
-    from petasos.scanners._semgrep_engine import await_cpu
-    from petasos.scanners._semgrep_process import CleanupFailure
+    from petasos.scanners.semgrep.engine import await_cpu
+    from petasos.scanners.semgrep.process import CleanupFailure
 
     cancelled = threading.Event()
     cancelled.set()
@@ -466,7 +466,7 @@ async def test_cancelled_native_worker_cleanup_failure_is_not_discarded() -> Non
 async def test_stuck_native_worker_retains_future_after_cancellation() -> None:
     import threading
 
-    from petasos.scanners import _semgrep_engine as engine
+    from petasos.scanners.semgrep import engine as engine
 
     cancelled, release = threading.Event(), threading.Event()
     cancelled.set()
@@ -493,7 +493,7 @@ async def test_native_cleanup_uses_worker_deadline_without_reset(
     import threading
     from types import SimpleNamespace
 
-    from petasos.scanners import _semgrep_engine as engine
+    from petasos.scanners.semgrep import engine as engine
 
     clock = [0.0]
     monkeypatch.setattr(engine, "time", SimpleNamespace(monotonic=lambda: clock[0]))
@@ -529,7 +529,7 @@ async def test_native_cleanup_waits_for_worker_verdict_until_total_end(
     import threading
     from types import SimpleNamespace
 
-    from petasos.scanners import _semgrep_engine as engine
+    from petasos.scanners.semgrep import engine as engine
 
     clock = [0.0]
     monkeypatch.setattr(engine, "time", SimpleNamespace(monotonic=lambda: clock[0]))
@@ -581,7 +581,7 @@ async def test_scan_cancellation_observes_constructor_and_cleanup_caps(
     """Caller/glue test, not runtime E2E; report is constant, not late-published."""
     from types import SimpleNamespace
 
-    from petasos.scanners import _semgrep_engine as engine
+    from petasos.scanners.semgrep import engine as engine
 
     clock = [0.0]
     monkeypatch.setattr(engine, "time", SimpleNamespace(monotonic=lambda: clock[0]))
@@ -634,7 +634,7 @@ async def test_late_timeout_observation_cannot_move_request_cleanup_ceiling(
     import threading
     from types import SimpleNamespace
 
-    from petasos.scanners import _semgrep_engine as engine
+    from petasos.scanners.semgrep import engine as engine
 
     clock = [8.5]
     monkeypatch.setattr(engine, "time", SimpleNamespace(monotonic=lambda: clock[0]))
@@ -763,7 +763,7 @@ class _RuntimeHandle:
         return runtime
 
     def submit(self) -> rt.Job:
-        from petasos.scanners._semgrep_source import Selection
+        from petasos.scanners.semgrep.source import Selection
 
         assert self.runtime is not None and self.lease is not None
         return self.runtime.submit(self.lease, Selection(), time.monotonic() + 30)
@@ -854,7 +854,7 @@ async def test_worker_finishing_just_after_reported_end_is_success(
     import threading
     from types import SimpleNamespace
 
-    from petasos.scanners import _semgrep_engine as engine
+    from petasos.scanners.semgrep import engine as engine
 
     clock = [0.0]
     monkeypatch.setattr(engine, "time", SimpleNamespace(monotonic=lambda: clock[0]))
@@ -911,7 +911,7 @@ async def test_post_exit_removal_is_not_bound_by_the_native_end(
     # Regression for PET-255: a stall past the reported native end still removes the root.
     import shutil
 
-    from petasos.scanners._semgrep_process import CLEANUP_DEADLINE_OBSERVER
+    from petasos.scanners.semgrep.process import CLEANUP_DEADLINE_OBSERVER
 
     original = shutil.rmtree
 
@@ -949,7 +949,7 @@ async def test_retained_cleanup_failure_recovers_and_enqueues_probe(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     # Regression for PET-255: a retained native failure can return the runtime to service.
-    from petasos.scanners._semgrep_process import CleanupFailure
+    from petasos.scanners.semgrep.process import CleanupFailure
 
     child = _CleanChild(delay=0.3)
 
@@ -982,8 +982,8 @@ async def test_retained_cleanup_failure_recovers_and_enqueues_probe(
 async def test_recovery_waits_for_retained_worker_then_child(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    from petasos.scanners._semgrep_engine import CpuCleanupFailure
-    from petasos.scanners._semgrep_process import CleanupFailure
+    from petasos.scanners.semgrep.engine import CpuCleanupFailure
+    from petasos.scanners.semgrep.process import CleanupFailure
 
     child = _CleanChild()
     worker: concurrent.futures.Future[Any] = concurrent.futures.Future()
@@ -1018,7 +1018,7 @@ async def test_recovery_is_running_when_the_failure_is_published(
     # caller can observe cleanup_failed, not after the result is published.
     import threading
 
-    from petasos.scanners._semgrep_engine import CpuCleanupFailure
+    from petasos.scanners.semgrep.engine import CpuCleanupFailure
 
     gate = threading.Event()
     worker: concurrent.futures.Future[Any] = concurrent.futures.Future()
@@ -1048,7 +1048,7 @@ async def test_recovery_reads_the_removal_wrapper_not_the_executor_future(
 ) -> None:
     # Regression for PET-255 review: the executor future can be done while its
     # asyncio wrapper is not; reading the wrapper then must not end recovery.
-    from petasos.scanners._semgrep_process import CleanupFailure
+    from petasos.scanners.semgrep.process import CleanupFailure
 
     child = _CleanChild(delay=0.3)
 
@@ -1091,7 +1091,7 @@ async def test_recovery_reads_the_removal_wrapper_not_the_executor_future(
 async def test_runtime_error_from_retained_worker_does_not_recover(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    from petasos.scanners._semgrep_engine import CpuCleanupFailure
+    from petasos.scanners.semgrep.engine import CpuCleanupFailure
 
     jump = _jumping_clock(monkeypatch)
     worker: concurrent.futures.Future[Any] = concurrent.futures.Future()
@@ -1118,7 +1118,7 @@ async def test_runtime_error_from_retained_worker_does_not_recover(
 async def test_unfinished_constructor_stays_failed_past_the_window(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    from petasos.scanners._semgrep_engine import CpuCleanupFailure
+    from petasos.scanners.semgrep.engine import CpuCleanupFailure
 
     jump = _jumping_clock(monkeypatch)
     worker: concurrent.futures.Future[Any] = concurrent.futures.Future()
@@ -1146,7 +1146,7 @@ async def test_late_removal_worker_does_not_submit_a_second_time(
 ) -> None:
     import threading
 
-    from petasos.scanners import _semgrep_roots as roots
+    from petasos.scanners.semgrep import roots as roots
 
     release = threading.Event()
     calls = {"n": 0}
@@ -1183,8 +1183,8 @@ async def test_late_removal_worker_does_not_submit_a_second_time(
 async def test_returned_worker_settles_without_touching_the_child(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    from petasos.scanners._semgrep_engine import CpuCleanupFailure
-    from petasos.scanners._semgrep_process import ProcessResult
+    from petasos.scanners.semgrep.engine import CpuCleanupFailure
+    from petasos.scanners.semgrep.process import ProcessResult
 
     child = _CleanChild()
     worker: concurrent.futures.Future[Any] = concurrent.futures.Future()
@@ -1208,8 +1208,8 @@ async def test_returned_worker_settles_without_touching_the_child(
 async def test_closed_handle_is_not_polled_again_after_a_removal_retry(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    from petasos.scanners import _semgrep_roots as roots
-    from petasos.scanners._semgrep_process import CleanupFailure
+    from petasos.scanners.semgrep import roots as roots
+    from petasos.scanners.semgrep.process import CleanupFailure
 
     child = _CleanChild(fail_after_close=True)
     calls = {"n": 0}
@@ -1242,7 +1242,7 @@ async def test_closed_handle_is_not_polled_again_after_a_removal_retry(
 async def test_finished_removal_error_recovers_without_a_child_check(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    from petasos.scanners import _semgrep_roots as roots
+    from petasos.scanners.semgrep import roots as roots
 
     child = _CleanChild()
     phase = {"fail": True}
@@ -1283,7 +1283,7 @@ async def test_removal_future_permission_error_is_retried(
 ) -> None:
     import threading
 
-    from petasos.scanners import _semgrep_roots as roots
+    from petasos.scanners.semgrep import roots as roots
 
     release = threading.Event()
     calls = {"n": 0}
@@ -1319,7 +1319,7 @@ async def test_removal_future_permission_error_is_retried(
 async def test_plain_cleanup_failure_does_not_read_a_worker_future(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    from petasos.scanners._semgrep_process import CleanupFailure
+    from petasos.scanners.semgrep.process import CleanupFailure
 
     child = _CleanChild()
 
@@ -1345,8 +1345,8 @@ async def test_in_flight_removal_is_not_submitted_twice(
 ) -> None:
     import threading
 
-    from petasos.scanners import _semgrep_roots as roots
-    from petasos.scanners._semgrep_process import CleanupFailure
+    from petasos.scanners.semgrep import roots as roots
+    from petasos.scanners.semgrep.process import CleanupFailure
 
     release = threading.Event()
     calls = {"n": 0}
@@ -1383,7 +1383,7 @@ async def test_check_error_on_one_job_does_not_stop_the_other(
 ) -> None:
     import threading
 
-    from petasos.scanners._semgrep_process import CleanupFailure
+    from petasos.scanners.semgrep.process import CleanupFailure
 
     jump = _jumping_clock(monkeypatch)
     go = threading.Event()
@@ -1439,7 +1439,7 @@ async def test_check_error_on_one_job_does_not_stop_the_other(
 async def test_recovery_cap_is_three_successes_per_process(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    from petasos.scanners._semgrep_process import CleanupFailure
+    from petasos.scanners.semgrep.process import CleanupFailure
 
     async def scan(*args: Any, **kwargs: Any) -> Any:
         raise CleanupFailure(_CleanChild())  # type: ignore[arg-type]
@@ -1467,7 +1467,7 @@ async def test_recovery_cap_is_three_successes_per_process(
 async def test_close_during_recovery_returns_failed_then_stops(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    from petasos.scanners._semgrep_process import CleanupFailure
+    from petasos.scanners.semgrep.process import CleanupFailure
 
     child = _CleanChild()
     child.delay = 10**6
@@ -1505,7 +1505,7 @@ def test_remove_owned_root_keeps_or_restores_the_marker(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # Regression for PET-255: a failed removal does not drop the owner marker.
-    from petasos.scanners._semgrep_roots import remove_owned_root
+    from petasos.scanners.semgrep.roots import remove_owned_root
 
     denied = tmp_path / "denied"
     denied.mkdir()
@@ -1553,7 +1553,7 @@ def test_recover_roots_leaves_a_marker_when_removal_fails(
 ) -> None:
     psutil = pytest.importorskip("psutil", reason="process monitor extra required")
 
-    from petasos.scanners._semgrep_roots import recover_roots
+    from petasos.scanners.semgrep.roots import recover_roots
 
     monkeypatch.setattr("tempfile.gettempdir", lambda: str(tmp_path))
     monkeypatch.setattr(psutil, "pid_exists", lambda pid: False)
@@ -1601,7 +1601,7 @@ def test_marker_guards_refuse_without_reading_or_unlinking(
 ) -> None:
     import stat
 
-    from petasos.scanners._semgrep_roots import remove_owned_root
+    from petasos.scanners.semgrep.roots import remove_owned_root
 
     opened: list[str] = []
     real_open = Path.open
@@ -1657,7 +1657,7 @@ def test_marker_guards_refuse_without_reading_or_unlinking(
 def test_reparse_point_marker_is_not_unlinked(tmp_path: Path) -> None:
     import subprocess
 
-    from petasos.scanners._semgrep_roots import remove_owned_root
+    from petasos.scanners.semgrep.roots import remove_owned_root
 
     root = tmp_path / "junction-root"
     root.mkdir()
@@ -1684,7 +1684,7 @@ def test_linked_root_is_refused_without_touching_its_target(tmp_path: Path) -> N
     # shutil.rmtree refused one, so remove_owned_root must refuse it too.
     import subprocess
 
-    from petasos.scanners._semgrep_roots import remove_owned_root
+    from petasos.scanners.semgrep.roots import remove_owned_root
 
     target = tmp_path / "outside"
     target.mkdir()
@@ -1709,7 +1709,7 @@ def test_linked_root_is_refused_without_touching_its_target(tmp_path: Path) -> N
 
 
 def test_oversized_marker_is_not_unlinked(tmp_path: Path) -> None:
-    from petasos.scanners._semgrep_roots import remove_owned_root
+    from petasos.scanners.semgrep.roots import remove_owned_root
 
     root = tmp_path / "huge"
     root.mkdir()
@@ -1723,10 +1723,10 @@ async def test_paused_creator_fails_closed_without_retention(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     # Regression for PET-255: a root removed before its marker write is not retained.
-    from petasos.scanners._semgrep_roots import recover_roots
-    from petasos.scanners._semgrep_source import Selection
+    from petasos.scanners.semgrep.roots import recover_roots
+    from petasos.scanners.semgrep.source import Selection
 
-    monkeypatch.setattr("petasos.scanners._semgrep_roots.MARKERLESS_MIN_AGE", 0)
+    monkeypatch.setattr("petasos.scanners.semgrep.roots.MARKERLESS_MIN_AGE", 0)
     original = Path.write_text
     removed: list[int] = []
     write_errors: list[BaseException] = []
@@ -1784,7 +1784,7 @@ async def test_cleanup_diagnostics_are_bounded_and_lock_the_close_copy(
     # Regression for PET-255: diagnostic lines stay source-free and the deque holds eight.
     import threading
 
-    from petasos.scanners._semgrep_process import CleanupFailure
+    from petasos.scanners.semgrep.process import CleanupFailure
 
     root_text = str(tmp_path)
     child = _CleanChild()

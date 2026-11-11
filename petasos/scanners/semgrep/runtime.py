@@ -1,3 +1,4 @@
+# Admission, recovery, and closure share one lock and one lifecycle state owner.
 """One bounded, loop-independent owner for local Semgrep jobs.
 
 All admissions are protected by a short threading lock. Native lifecycle work
@@ -22,8 +23,8 @@ from typing import Any, Literal
 
 from petasos.coverage import ScanCoverage
 from petasos.model import ScanResult
-from petasos.scanners import _semgrep_roots as roots
-from petasos.scanners._semgrep_engine import (
+from petasos.scanners.semgrep import roots as roots
+from petasos.scanners.semgrep.engine import (
     ENGINE_VERSION,
     CpuCleanupFailure,
     await_cpu,
@@ -31,11 +32,11 @@ from petasos.scanners._semgrep_engine import (
     run_owned_process,
     scan_selected,
 )
-from petasos.scanners._semgrep_process import (
+from petasos.scanners.semgrep.process import (
     CHILD_OBSERVER,
     CleanupFailure,
 )
-from petasos.scanners._semgrep_source import Selection, select_sources
+from petasos.scanners.semgrep.source import Selection, select_sources
 
 REMOVAL_MIN_ATTEMPT = 0.25
 RECOVERY_WINDOW = 30.0
@@ -394,7 +395,7 @@ class Runtime:
 
     def _verify_identity(self) -> None:
         if self.identity_stat is None:
-            from petasos.scanners._semgrep_roots import recover_roots
+            from petasos.scanners.semgrep.roots import recover_roots
 
             recover_roots()
         path = Path(self.settings.engine)

@@ -9,10 +9,10 @@ import platform
 import sys
 from pathlib import Path
 
-from petasos.scanners._semgrep_engine import ENGINE_VERSION
+from petasos.scanners.semgrep.engine import ENGINE_VERSION
 
-_MANIFEST = Path(__file__).with_name("semgrep_qualification.json")
-_RULES = Path(__file__).with_name("semgrep_rules") / "rules.json"
+_MANIFEST = Path(__file__).with_name("qualification.json")
+_RULES = Path(__file__).with_name("rules") / "rules.json"
 _WORKLOAD = "eight_outstanding_three_profiles_16k_64k_v3"
 
 

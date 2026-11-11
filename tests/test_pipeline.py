@@ -1256,7 +1256,8 @@ class TestConfigSurfaceLoadBearingArms:
         # Regression for PET-169: at threshold 1 the second scan is
         # short-circuited by the open breaker; at threshold 3 the scanner is
         # re-awaited and times out again. Distinct error classes, same input.
-        from petasos.pipeline.health import _BREAKER_OPEN_ERROR_PREFIX, _TIMEOUT_ERROR_PREFIX
+        from petasos.model import _TIMEOUT_ERROR_PREFIX
+        from petasos.pipeline.health import _BREAKER_OPEN_ERROR_PREFIX
 
         async def _second_scan_error(threshold: int) -> str:
             pipe = Pipeline(
@@ -1286,7 +1287,8 @@ class TestConfigSurfaceLoadBearingArms:
         # Regression for PET-169: with the breaker already open, a cooldown that
         # has elapsed lets the scanner be re-awaited (timeout error); one that
         # has not keeps it short-circuited (breaker-open error).
-        from petasos.pipeline.health import _BREAKER_OPEN_ERROR_PREFIX, _TIMEOUT_ERROR_PREFIX
+        from petasos.model import _TIMEOUT_ERROR_PREFIX
+        from petasos.pipeline.health import _BREAKER_OPEN_ERROR_PREFIX
 
         async def _error_after_cooldown(cooldown: float) -> str:
             pipe = Pipeline(

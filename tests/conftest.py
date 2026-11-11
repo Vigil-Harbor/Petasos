@@ -159,7 +159,8 @@ def _require_semgrep() -> None:
     import json
     import time
 
-    from petasos.scanners.semgrep import SemgrepLifecycleOwner, SemgrepScanner, supported_platform
+    from petasos.scanners.semgrep import SemgrepLifecycleOwner, SemgrepScanner
+    from petasos.scanners.semgrep.adapter import supported_platform
 
     engine, expected = (
         os.environ.get("SEMGREP_ENGINE_PATH"),

@@ -15,8 +15,9 @@ from petasos import Pipeline, Position, ScanFinding, ScanResult, Severity
 from petasos.config.schema import evolve, from_mapping
 from petasos.config.sections import PetasosConfig
 from petasos.guard.params import render_param_text
+from petasos.limits import HEAD_CHARS
 from petasos.pipeline.findings import merge_findings
-from petasos.pipeline.ingest import HEAD_CHARS, scan_ingestion_result
+from petasos.pipeline.ingest import scan_ingestion_result
 from petasos.scanners.semgrep import SemgrepLifecycleOwner, SemgrepScanner
 from tests._semgrep_helpers import require
 
@@ -45,7 +46,7 @@ def test_second_merge_cannot_evict_original_semgrep_finding() -> None:
 @pytest.fixture(autouse=True)
 def _abstract_ownership_platform(monkeypatch: pytest.MonkeyPatch) -> None:
     if not os.environ.get("SEMGREP_ENGINE_PATH"):
-        monkeypatch.setattr("petasos.scanners.semgrep.supported_platform", lambda: True)
+        monkeypatch.setattr("petasos.scanners.semgrep.adapter.supported_platform", lambda: True)
 
 
 @pytest.mark.parametrize(

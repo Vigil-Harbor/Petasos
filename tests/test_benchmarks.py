@@ -152,7 +152,7 @@ def _natural(chars: int) -> str:
 
 
 def _prompt_guard_payloads() -> list[tuple[str, str]]:
-    from petasos.pipeline.ingest import HEAD_CHARS
+    from petasos.limits import HEAD_CHARS
 
     return [("short", _SHORT), ("head", _natural(HEAD_CHARS)), ("window", _natural(8192))]
 
@@ -210,7 +210,7 @@ def test_benchmark_prompt_guard_8wide(benchmark) -> None:  # type: ignore[no-unt
     and the median is invalid when that count is non-zero: both return at far
     lower cost than an inference.
     """
-    from petasos.pipeline.ingest import HEAD_CHARS
+    from petasos.limits import HEAD_CHARS
     from petasos.scanners.registry import BuildContext, compose
 
     _prompt_guard_scanner()
@@ -385,7 +385,7 @@ def test_benchmark_ingestion_result_8wide_concurrent(benchmark) -> None:  # type
     ``inspect()`` calls at ``HEAD_CHARS`` so the CLAUDE.md 8-wide overrun has an
     in-repo anchor. Measure-only.
     """
-    from petasos.pipeline.ingest import HEAD_CHARS
+    from petasos.limits import HEAD_CHARS
 
     payload = "x" * HEAD_CHARS
     loop = asyncio.new_event_loop()

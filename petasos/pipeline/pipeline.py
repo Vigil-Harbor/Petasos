@@ -14,6 +14,7 @@ from petasos.config.schema import ReconfigureResult, apply_live
 from petasos.config.secrets import Secrets, require_hash_key
 from petasos.config.sections import PetasosConfig, RulesConfig
 from petasos.model import (
+    _TIMEOUT_ERROR_PREFIX,
     Alert,
     AuditEvent,
     PipelineResult,
@@ -32,18 +33,13 @@ from petasos.pipeline.findings import (
     _suppress_scanner_findings,
     merge_findings,
 )
-from petasos.pipeline.health import (
-    _TIMEOUT_ERROR_PREFIX,
-    _normalize_gather_result,
-    _scan_with_breaker,
-    scanner_health,
-)
-from petasos.scanners._semgrep_runtime import error_result as _semgrep_error
+from petasos.pipeline.health import _normalize_gather_result, _scan_with_breaker, scanner_health
 from petasos.scanners.minimal import (
     MinimalScanner,
 )
 from petasos.scanners.presidio import PresidioScanner
-from petasos.scanners.semgrep import PreparedSemgrepScan, SemgrepScanner
+from petasos.scanners.semgrep import SemgrepScanner
+from petasos.scanners.semgrep.runtime import error_result as _semgrep_error
 from petasos.session.alerting import AlertManager
 from petasos.session.audit import AuditEmitter
 from petasos.session.frequency import FrequencyTracker, FrequencyUpdateResult
@@ -54,6 +50,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
     from petasos.model import Direction, Scanner
+    from petasos.scanners.semgrep.adapter import PreparedSemgrepScan
 
 
 class Pipeline:

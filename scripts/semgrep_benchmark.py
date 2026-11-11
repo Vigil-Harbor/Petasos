@@ -24,9 +24,9 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 from unittest.mock import patch
 
-from petasos.scanners._semgrep_engine import ENGINE_VERSION
-from petasos.scanners._semgrep_source import preflight
 from petasos.scanners.semgrep import SemgrepLifecycleOwner, SemgrepScanner
+from petasos.scanners.semgrep.engine import ENGINE_VERSION
+from petasos.scanners.semgrep.source import preflight
 from scripts.semgrep_benchmark_protocol import (
     CRITERIA,
     MANIFEST_SHA256,
@@ -104,10 +104,10 @@ class StageTimings:
         return synchronous
 
     def install(self, stack: ExitStack) -> None:
-        from petasos.scanners import _semgrep_engine as engine
-        from petasos.scanners import _semgrep_process as process
-        from petasos.scanners import _semgrep_roots as roots
-        from petasos.scanners import _semgrep_runtime as runtime
+        from petasos.scanners.semgrep import engine as engine
+        from petasos.scanners.semgrep import process as process
+        from petasos.scanners.semgrep import roots as roots
+        from petasos.scanners.semgrep import runtime as runtime
 
         child = process._WindowsChild if os.name == "nt" else process._PosixChild
         for owner, attribute, stage in (
@@ -149,7 +149,7 @@ def revision() -> dict[str, Any]:
 
 
 def _cleanup_diagnostics() -> list[str]:
-    from petasos.scanners import _semgrep_runtime as runtime
+    from petasos.scanners.semgrep import runtime as runtime
 
     current = runtime._RUNTIME
     if current is None:
@@ -472,7 +472,7 @@ async def measure(runs: int, records: dict[str, Any], recorder: Recorder) -> Non
     with open(engine, "rb") as stream:
         digest = hashlib.file_digest(stream, "sha256").hexdigest()
     records["engine_sha256"] = digest
-    rules = Path(__file__).resolve().parents[1] / "petasos/scanners/semgrep_rules/rules.json"
+    rules = Path(__file__).resolve().parents[1] / "petasos/scanners/semgrep/rules/rules.json"
     records["rules_sha256"] = hashlib.sha256(rules.read_bytes()).hexdigest()
     await recorder.save()
     for case in records["workloads"].values():

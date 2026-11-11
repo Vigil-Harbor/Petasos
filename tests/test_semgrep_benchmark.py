@@ -315,7 +315,7 @@ def test_stage_timings_instrument_owned_root_removal(tmp_path: Path) -> None:
     stages = bench.StageTimings()
     with ExitStack() as stack:
         stages.install(stack)
-        from petasos.scanners._semgrep_roots import remove_owned_root
+        from petasos.scanners.semgrep.roots import remove_owned_root
 
         remove_owned_root(root)
     assert stages.values["root_remove_attempt"]
@@ -327,7 +327,7 @@ async def test_recorder_checkpoint_includes_cleanup_diagnostics(
 ) -> None:
     from collections import deque
 
-    from petasos.scanners import _semgrep_runtime as runtime
+    from petasos.scanners.semgrep import runtime as runtime
 
     holder = SimpleNamespace(
         lock=threading.Lock(),
@@ -437,7 +437,7 @@ async def test_case_close_finishes_after_cancellation_and_stops_failed_runtime(
     monkeypatch: pytest.MonkeyPatch,
     cancel_count: int,
 ) -> None:
-    from petasos.scanners._semgrep_runtime import SemgrepCloseResult
+    from petasos.scanners.semgrep.runtime import SemgrepCloseResult
 
     entered = asyncio.Event()
     release = asyncio.Event()
