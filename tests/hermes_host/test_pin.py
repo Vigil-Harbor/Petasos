@@ -51,7 +51,10 @@ def test_writes_do_not_change_fixed_leaves(installed: Sandbox, method: str) -> N
         assert all(attempt["code"] != 0 for attempt in result["attempts"])
 
 
-def test_hand_edit_keeps_fixed_leaves_but_open_maps_accept_new_entries(installed: Sandbox) -> None:
+def test_hermes_merges_new_entries_into_pinned_groups_and_petasos_does_not_use_them(
+    installed: Sandbox,
+) -> None:
+    """Hermes's own view takes a profile's new entries. Petasos reads the pin whole."""
     _call(installed, "pin")
     result = _call(installed, "hand_edit")
     before, after = result["before"], result["after"]
@@ -68,6 +71,13 @@ def test_hand_edit_keeps_fixed_leaves_but_open_maps_accept_new_entries(installed
     assert before == after
     assert result["bound_armed"] is True and result["bound_error"] is None
     assert result["pin"]["profile_differences"] and result["switch"] is True
+    for used in (result["used_bound"], result["used_unbound"]):
+        assert used is not None
+        assert used["armed"] is True
+        assert "probe" not in used["severity_overrides"]
+        assert "probe" not in used["aliases"]
+        assert used["weights"] is None
+    assert result["pin"]["open_groups"] == [] and result["pin"]["unset_values"] == []
 
 
 def test_disable_does_not_unload_petasos_and_unpin_restores_profile_writes(

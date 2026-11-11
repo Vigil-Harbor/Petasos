@@ -15,12 +15,9 @@ from petasos.hermes.managed import effective_config, hook_timeout, read_managed,
 from petasos.hermes.pinning import (
     LIMITS,
     differences,
-    mapping_limits,
     merge_pin,
     pin_values,
     remove_pin,
-    unset_limits,
-    unset_words,
 )
 
 
@@ -71,8 +68,6 @@ def describe_pin(home: Path, values: dict[str, Any]) -> str:
     on = ", ".join(plugins["enabled"]) or "none"
     off = ", ".join(plugins["disabled"]) or "none"
     armed = "on" if settings["enabled"] else "off"
-    unset = unset_limits(values)
-    unset_line = unset_words(unset) + "\n" if unset else ""
     return (
         f"Pin the current settings for {home}.\n"
         f"Plugins kept on: {on}.\n"
@@ -82,8 +77,8 @@ def describe_pin(home: Path, values: dict[str, Any]) -> str:
         f"Job: {settings['role']}. Strictness: {settings['level']}.\n"
         "The time limit for plugin checks stays at "
         f"{plugins['hook_callback_timeout']:g} seconds.\n"
-        f"{mapping_limits()}\n"
-        f"{unset_line}"
+        "While pinned, Petasos uses these settings and nothing a profile holds, "
+        "and the settings form will not save.\n"
         "This managed file applies to every profile using this managed directory.\n"
         "An account that can redirect Hermes to another managed directory can bypass the pin.\n"
         f"{LIMITS}\n"

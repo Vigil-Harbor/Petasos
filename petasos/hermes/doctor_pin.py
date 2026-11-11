@@ -75,9 +75,19 @@ def pin_report(profile: object) -> tuple[tuple[Check, ...], dict[str, Any], obje
             {"state": "unknown", "known": False},
             profile,
         )
-    missing = sorted(required_keys(effective) - scope.keys)
-    open_groups = [row.label for row in MAP_FIELDS]
-    unset = unset_limits(scope.document)
+    # A pin that carries its record is read whole by Petasos, so only the keys
+    # Hermes itself enforces can be missing. A managed file written by hand is
+    # left to Hermes's overlay, which merges groups and keeps a profile's
+    # group over an unset value.
+    whole = _read_whole(scope)
+    if whole:
+        missing = sorted(key for key in (*LISTS, TIMEOUT) if key not in scope.keys)
+        open_groups: list[str] = []
+        unset: tuple[str, ...] = ()
+    else:
+        missing = sorted(required_keys(effective) - scope.keys)
+        open_groups = [row.label for row in MAP_FIELDS]
+        unset = unset_limits(scope.document)
     references = any(
         has_references(at_path(scope.document, key)) for key in (SETTINGS, *LISTS, TIMEOUT)
     )
@@ -149,7 +159,8 @@ def pin_report(profile: object) -> tuple[tuple[Check, ...], dict[str, Any], obje
                 summary="The profile differs from the pin. Something tried to change a guardrail.",
                 meaning=(
                     "Pinned values are in force. These profile changes would take effect "
-                    "when the pin is removed; new entries in groups may already take effect.\n"
+                    "when the pin is removed"
+                    + (".\n" if whole else "; new entries in groups may already take effect.\n")
                     + "\n".join(changed)
                 ),
                 next_step="Review the profile changes before removing the pin.",
@@ -170,6 +181,18 @@ def pin_report(profile: object) -> tuple[tuple[Check, ...], dict[str, Any], obje
             "meaning": " ".join(details),
         },
         effective,
+    )
+
+
+def _read_whole(scope: Managed) -> bool:
+    """True when Petasos takes its settings from this pin and not from the profile."""
+    from petasos.hermes.settings import PIN_RECORD
+
+    settings = at_path(scope.document, SETTINGS)
+    return (
+        isinstance(scope.document.get(PIN_RECORD), dict)
+        and isinstance(settings, dict)
+        and isinstance(settings.get("overrides"), dict)
     )
 
 

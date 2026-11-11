@@ -17,6 +17,8 @@ from petasos.config.layers import resolve
 from petasos.config.schema import leaves, to_mapping
 from petasos.config.sections import PetasosConfig
 from petasos.hermes.commands import main
+from petasos.hermes.dashboard.changes import clear_overrides, save_settings
+from petasos.hermes.dashboard.errors import ApiError
 from petasos.hermes.dashboard.values import hermes_merge
 from petasos.hermes.doctor_pin import pin_report
 from petasos.hermes.managed import read_managed
@@ -30,6 +32,14 @@ from petasos.hermes.pinning import (
     pin_values,
     remove_pin,
 )
+from petasos.hermes.settings import (
+    PINNED_REFUSAL,
+    HermesSettings,
+    pinned_settings,
+    profile_binding,
+)
+
+_PINNED = {"role": "coding", "level": "strict", "overrides": {}}
 
 
 def _profile() -> dict[str, Any]:
@@ -131,7 +141,7 @@ def test_preview_has_no_write_and_discloses_scope(scope: SimpleNamespace) -> Non
         "No plugin can be turned on or off",
         "Job: coding. Strictness: strict.",
         "every profile",
-        "New entries can still be added",
+        "nothing a profile holds",
         LIMITS,
     ):
         assert phrase in text
@@ -208,18 +218,102 @@ def test_pinned_and_partly_pinned_and_writable_states(
     assert "does not protect settings" in checks[0].summary
     monkeypatch.setattr("petasos.hermes.doctor_pin.writable", lambda path: False)
     monkeypatch.setattr("petasos.hermes.doctor_pin._file_writable", lambda scope: False)
-    checks, facts, _ = pin_report(scope.profile)
-    assert facts["state"] == "partly_pinned" and "Points per rule" in checks[0].meaning
-    # A fully closed schema could be pinned. Today's three open maps cannot be.
-    monkeypatch.setattr("petasos.hermes.doctor_pin.MAP_FIELDS", ())
-    monkeypatch.setattr("petasos.hermes.doctor_pin.unset_limits", lambda document: ())
+    # Petasos reads a pin with its record whole, so the groups Hermes would
+    # merge and the values it would leave open are not gaps.
     checks, facts, _ = pin_report(scope.profile)
     assert facts["state"] == "pinned" and "Only an administrator" in checks[0].summary
+    assert facts["open_groups"] == [] and facts["unset_values"] == []
     document = scope.read()
     del document["plugins"]["disabled"]
     (scope.directory / "config.yaml").write_text(json.dumps(document))
     checks, facts, _ = pin_report(scope.profile)
     assert facts["state"] == "partly_pinned" and "Plugins kept off" in checks[0].meaning
+
+
+def test_a_managed_file_written_by_hand_is_left_to_hermes_and_is_partly_pinned(
+    scope: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Without the pin's record Petasos does not read the file whole, and says what is open."""
+    change_pin(scope.home, write=True)
+    document = scope.read()
+    del document[OWNER]
+    (scope.directory / "config.yaml").write_text(json.dumps(document))
+    monkeypatch.setattr("petasos.hermes.doctor_pin.writable", lambda path: False)
+    monkeypatch.setattr("petasos.hermes.doctor_pin._file_writable", lambda scope: False)
+
+    assert pinned_settings() is None
+    checks, facts, _ = pin_report(scope.profile)
+    assert facts["state"] == "partly_pinned" and "Points per rule" in checks[0].meaning
+
+
+def test_a_pin_is_read_whole_and_a_profile_cannot_add_to_it(scope: SimpleNamespace) -> None:
+    """Hermes would merge a new entry into a pinned group. Petasos does not use it."""
+    change_pin(scope.home, write=True)
+    loosened = {
+        "role": "general",
+        "level": "relaxed",
+        "overrides": {
+            "rules": {"severity_overrides": {"command.destructive-recursive": "info"}},
+            "frequency": {"weights": {"injection": 0.0}},
+            "tools": {"aliases": {"terminal": "read_file"}},
+            "scanners": {"semgrep": {"engine_path": "/tmp/not-the-engine"}},
+        },
+    }
+    scope.profile["plugins"]["entries"]["petasos"]["settings"] = loosened
+    (scope.home / "config.yaml").write_text(json.dumps(scope.profile))
+
+    class Store:
+        def get_config(self, key: str, default: object = None) -> object:
+            # What Hermes's own overlay would hand back: the profile's entries merged in.
+            merged = hermes_merge(scope.profile, scope.read())
+            return merged["plugins"]["entries"]["petasos"]["settings"].get(key, default)
+
+    merged_view = Store().get_config("overrides")
+    assert isinstance(merged_view, dict)
+    assert merged_view["rules"]["severity_overrides"]["command.destructive-recursive"] == "info"
+    assert merged_view["tools"]["aliases"] == {"terminal": "read_file"}
+
+    snapshot = HermesSettings(Store())()
+    assert snapshot.config is not None
+    assert snapshot.config == resolve(_PINNED).config
+    assert "command.destructive-recursive" not in snapshot.config.rules.severity_overrides
+    assert snapshot.config.tools.aliases == {}
+    assert snapshot.config.scanners.semgrep.engine_path is None
+    kind, settings = profile_binding(scope.home / "config.yaml")
+    assert kind == "settings" and settings is not None
+    assert settings["role"] == "coding" and settings["level"] == "strict"
+    # A profile file that is gone does not unpin anything either.
+    bound = HermesSettings(Store())
+    bound.bind_profile(scope.home / "missing")
+    assert bound().config == snapshot.config
+
+
+def test_saves_are_refused_while_pinned(
+    scope: SimpleNamespace, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A save would be stored in the profile and then have no effect, so it is refused."""
+    change_pin(scope.home, write=True)
+    (scope.home / "plugins" / "petasos").mkdir(parents=True)
+    (scope.home / "plugins" / "petasos" / "plugin.yaml").write_text("name: petasos\n")
+    calls: list[object] = []
+
+    def write(values: object, plugin_dir: Path) -> None:
+        calls.append(values)
+
+    with pytest.raises(ApiError) as caught:
+        save_settings({}, {"level": "relaxed"}, plugin_dir=scope.home, write=write, secrets={})
+    assert caught.value.code == "pinned" and caught.value.message == PINNED_REFUSAL
+    with pytest.raises(ApiError):
+        clear_overrides(
+            {"overrides": {"fail_mode": "open"}},
+            None,
+            plugin_dir=scope.home,
+            write=write,
+            secrets={},
+        )
+    code = main(["config", "set", "level", "relaxed", "--home", str(scope.home)])
+    assert code == 2 and PINNED_REFUSAL in capsys.readouterr().out
+    assert calls == []
 
 
 def test_pin_not_in_force_uses_machine_standin(

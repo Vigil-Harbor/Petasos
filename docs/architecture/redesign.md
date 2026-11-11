@@ -914,8 +914,9 @@ call for a person, with a session-scoped rule key that expires after
 `tools.self_change_minutes` (default 30, at most 24 hours). `never` refuses it.
 The Hermes adapter supplies the host paths and command patterns through
 `HostInfo.guardrail_surface`. Petasos's own package files and commands are
-recognised in the library. The pin commands now store those settings in Hermes's machine-level config. Open mappings, unset-value merge behavior and
-redirecting the managed directory limit what they can fix; see
+recognised in the library. The pin commands store those settings in
+Hermes's machine-level config, and Petasos reads a pin whole. Redirecting
+the managed directory limits what a pin can fix; see
 `guardrail-integrity.md`. What the guard recognises:
 
 - the commands `hermes plugins disable`, `enable` and `remove`, the
@@ -939,7 +940,7 @@ redirecting the managed directory limit what they can fix; see
   private merged document and prints only system `mkdir`/`install` commands
   for a person to run with administrator rights. Never run Petasos as root.
   The file applies to every profile using that directory. The preview names
-  mapping/unset-value gaps and the limits on files, Python and the record.
+  the limits on files, Python and the record.
 - `petasos hermes unpin [--write] [--accept-profile-changes]`: removes only
   the recorded pin keys, preserving unrelated managed values. Differences in
   the profile are shown and block removal unless explicitly accepted. Uses

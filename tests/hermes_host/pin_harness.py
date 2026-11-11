@@ -212,6 +212,20 @@ def hand_edit(_request: dict[str, Any]) -> dict[str, Any]:
     source = HermesSettings(ctx)
     source.bind_profile(hermes_home())
     snapshot = source()
+    # What Petasos itself uses, read through Hermes's context and with no
+    # profile bound. Hermes's merged view above is not it.
+    unbound = HermesSettings(ctx)()
+    used = [
+        {
+            "severity_overrides": dict(item.config.rules.severity_overrides),
+            "aliases": dict(item.config.tools.aliases),
+            "weights": item.config.frequency.weights,
+            "armed": item.armed,
+        }
+        if item.config is not None
+        else None
+        for item in (snapshot, unbound)
+    ]
     from petasos.hermes.doctor import examine
 
     report = examine(hermes_home(), home_reason="sandbox", probe_plugin=False)
@@ -220,6 +234,8 @@ def hand_edit(_request: dict[str, Any]) -> dict[str, Any]:
         "after": after,
         "bound_armed": snapshot.armed,
         "bound_error": snapshot.error,
+        "used_bound": used[0],
+        "used_unbound": used[1],
         "pin": report.detail["pin"],
         "switch": report.detail["hermes_enabled"],
     }

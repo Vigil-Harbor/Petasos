@@ -10,11 +10,12 @@ from petasos.config.layers import resolve
 from petasos.config.schema import leaves, to_mapping
 from petasos.config.sections import PetasosConfig
 from petasos.hermes.doctor_support import at_path, plugin_lists, settings_mapping
+from petasos.hermes.settings import PIN_RECORD
 
 SETTINGS = "plugins.entries.petasos.settings"
 LISTS = ("plugins.enabled", "plugins.disabled")
 TIMEOUT = "plugins.hook_callback_timeout"
-OWNER = "petasos_managed_pin"
+OWNER = PIN_RECORD
 LIMITS = (
     "The plugin's files, the Python environment and the event record still belong to "
     "this account. A pin fixes settings and the plugin list; it is not a guarantee."

@@ -154,7 +154,21 @@ machine file or administrator command was used. Tests are in
   returned by `ctx.get_config`. The actual `hermes plugins disable petasos`
   command changed the profile, but a new process still loaded Petasos. Unpin
   restored unpinned writes and retained an unrelated managed model setting.
-- **A complete pin is not possible with this tree and Hermes's merge.** New
+- **Petasos reads a pin whole, because Hermes's merge alone cannot fix this
+  tree.** When the managed file carries the `petasos_managed_pin` record,
+  Petasos takes its four settings from that file and does not use the
+  profile's at all (`petasos.hermes.settings.pinned_settings`, checked before
+  the profile is read, so a missing or damaged profile file does not unpin
+  anything). The settings form locks every field, and the form, `petasos
+  config set` and `petasos config migrate --write` refuse to save, because a
+  save would be stored in the profile and then have no effect. The two gaps
+  below are what Hermes's own overlay leaves open. They still show in
+  `ctx.get_config`, and they still apply to a managed file written by hand
+  without the record, which the doctor reports as partly pinned. They do not
+  reach Petasos under a pin. The sandbox confirmed it: after a hand edit that
+  added entries to all three groups, Hermes's merged view held them and the
+  settings Petasos built did not.
+- In Hermes's overlay, new
   entries can still be added to `rules.severity_overrides`, `tools.aliases`,
   and `frequency.weights`. An empty managed mapping is marked managed, but
   does not erase a profile mapping. Hermes's save APIs strip some of these
@@ -202,11 +216,11 @@ The status API includes `pin` facts; the Overview displays the same words.
 |---|---|
 | open | Open. The agent can change guardrails with a fresh approval. |
 | blocked | Blocked. The agent is not allowed to change guardrails from the conversation. Recognition can still be evaded. |
-| pinned | Pinned. Settings are fixed at machine level. Only an administrator can change them. This needs a closed tree; today's open mappings prevent this state. |
-| partly pinned | Partly pinned. Some settings are not fixed at machine level. Missing values, open groups and unset-value gaps are named. This is a warning. |
+| pinned | Pinned. Settings are fixed at machine level. Only an administrator can change them. The file carries the pin's record, both plugin lists and the timeout, and this account cannot write it. |
+| partly pinned | Partly pinned. Some settings are not fixed at machine level. A plugin list or the timeout is missing, or the file was written by hand without the record, in which case the open groups and unset values are named. This is a warning. |
 | writable | Pinned where this account can write. This does not protect settings from this account. The directory and the file are checked. This is the expected sandbox state. |
 | not in force | Pin not in force. Hermes was pointed at a different managed directory. This is a failure. |
-| profile changed | The profile differs from the pin. Something tried to change a guardrail. Pinned values are in force; new group entries may already take effect. Differences are named. |
+| profile changed | The profile differs from the pin. Something tried to change a guardrail. Pinned values are in force. Differences are named. For a file written by hand, new group entries may already take effect. |
 | off in the pin | The pin leaves Petasos turned off. It is not protecting this agent. This is a failure, including when either plugin list disables it. |
 
 Every pin state includes the limits on files, Python and the event record.
@@ -251,9 +265,9 @@ it got in.
 
 ## What is not built
 
-- A complete immutable settings tree: Hermes's mapping and null merge behavior
-  leaves the gaps named above. An account that can redirect the managed scope
-  can also bypass a machine pin.
+- Protection against an account that can redirect the managed scope
+  (`HERMES_MANAGED_DIR`) for a new Hermes process, which bypasses a machine
+  pin. The doctor reports it when it can read the machine file.
 - A complete answer to a disguised shell. Recognition fails closed for a
   program that is not on the small reader list, so some honest reads now ask.
   What a string match still does not catch:

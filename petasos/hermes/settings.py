@@ -22,6 +22,7 @@ from petasos.config.secrets import Secrets
 from petasos.enforce.types import SettingsSnapshot
 from petasos.hermes.host import (
     load_mapping,
+    managed_document,
     managed_overlay,
     read_env,
     save_env,
@@ -29,6 +30,12 @@ from petasos.hermes.host import (
 )
 
 PLUGIN_ID = "petasos"
+# The record ``petasos hermes pin`` leaves in the managed file beside its values.
+PIN_RECORD = "petasos_managed_pin"
+PINNED_REFUSAL = (
+    "These settings are pinned at machine level, so this was not saved. "
+    "An administrator can remove the pin, starting with: petasos hermes unpin"
+)
 SESSION_ENV = "PETASOS_SESSION_SECRET"
 HASH_ENV = "PETASOS_HASH_KEY"
 _SECRET_KEYS = frozenset({"session_secret", "hash_key"})
@@ -133,6 +140,25 @@ def _plugin_settings(document: object) -> dict[str, object] | None:
     return copied
 
 
+def pinned_settings() -> dict[str, object] | None:
+    """The settings from a pin that ``petasos hermes pin`` wrote, or None.
+
+    Hermes lays the managed file over a profile and merges groups key by key.
+    A profile can therefore add an entry to a pinned group, such as a lower
+    severity for one rule, and can put a group where the pin has no value.
+    So a pin is read whole: while one is in force the profile's own Petasos
+    settings are not used at all. A managed file without the pin's record is
+    left to Hermes's overlay, which fixes only the exact values it names.
+    """
+    document = managed_document()
+    if document is None or not isinstance(document.get(PIN_RECORD), dict):
+        return None
+    settings = _plugin_settings(document)
+    if settings is None or not isinstance(settings.get("overrides"), dict):
+        return None
+    return settings
+
+
 def profile_binding(path: Path) -> tuple[str, dict[str, object] | None]:
     """How ``path`` holds Petasos settings.
 
@@ -151,6 +177,9 @@ def profile_binding(path: Path) -> tuple[str, dict[str, object] | None]:
         return "empty", None
     if not isinstance(document, dict):
         return "broken", None
+    pinned = pinned_settings()
+    if pinned is not None:
+        return "settings", pinned
     document = managed_overlay(document)
     settings = _plugin_settings(document)
     if settings is not None:
@@ -268,7 +297,12 @@ class HermesSettings:
 
     def _read(self) -> SettingsSnapshot:
         home = self._profile
-        if home is not None:
+        pinned = pinned_settings()
+        if pinned is not None:
+            # Before the profile is read at all: a missing or damaged profile
+            # file does not unpin anything.
+            enabled, role, level, overrides = _four_from_mapping(pinned)
+        elif home is not None:
             kind, settings = profile_binding(home / "config.yaml")
             if kind == "broken" or settings is None:
                 secrets, invalid = self._secret_pair(home)

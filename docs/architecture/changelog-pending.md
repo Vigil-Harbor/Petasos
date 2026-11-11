@@ -68,8 +68,12 @@ deleted.
 
 - `petasos hermes pin` and `unpin` preview and optionally prepare managed
   settings and plugin-list changes without invoking administrator rights.
-  Doctor and the Overview show writable, partial, bypassed and changed-profile
-  states, naming the open-mapping and unset-value gaps in Hermes's overlay.
+  A pin holds both plugin lists, the plugin-check time limit and every
+  Petasos setting, and applies to every profile on the machine. While one is
+  in force Petasos uses the pinned settings and nothing a profile holds, and
+  the settings form and `petasos config set` refuse to save. Doctor and the
+  Overview show pinned, partly pinned, writable, bypassed and changed-profile
+  states.
 
 - **Breaking.** The `general` role sets `tools.dangerous_posture` to `approve`.
   A risky tool call is put to a person when one can be asked, and blocked when
