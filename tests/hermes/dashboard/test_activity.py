@@ -501,7 +501,10 @@ def test_a_guardrail_decision_has_its_own_sentence(tmp_path: Path) -> None:
     assert asked["outcome"]["label"] == "Asked a person"
     changed = next(event for event in events if event["event_type"] == "settings_changed")
     assert "tools.self_change" in changed["summary"]
-    assert "No session approval was live" in changed["summary"]
+    assert changed["summary"].startswith("Changed ")
+    assert "No approval for a guardrail change was live" in changed["summary"]
+    assert changed["review_action"] == "Review current settings"
+    assert "attack" not in changed["summary"].casefold()
 
 
 def test_search_finds_an_event_by_id_start_or_words(tmp_path: Path) -> None:

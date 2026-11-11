@@ -10,14 +10,14 @@ from tests.hermes_host.marks import requires_hermes_sandbox
 
 pytestmark = requires_hermes_sandbox
 
-_SNIPPET = r"""
+# Load the plugin once per process, then save a mode and dispatch one call.
+_HEADER = r"""
 import json
 from pathlib import Path
 
 home = Path(__import__("os").environ["HERMES_HOME"])
 config = home / "config.yaml"
 plugin = home / "plugins" / "petasos"
-
 from hermes_cli.plugins import (
     _dispatch_pre_tool_call_hooks,
     _get_pre_tool_call_directive_details,
@@ -25,16 +25,19 @@ from hermes_cli.plugins import (
 )
 from hermes_cli.plugins_settings import save_plugin_settings
 
-manager = get_plugin_manager()
-manager.discover_and_load()
+get_plugin_manager().discover_and_load()
 
 
 def save(mode):
-    overrides = {"tools": {"self_change": mode}}
     save_plugin_settings(
         "petasos",
         plugin,
-        {"enabled": True, "role": "general", "level": "balanced", "overrides": overrides},
+        {
+            "enabled": True,
+            "role": "general",
+            "level": "balanced",
+            "overrides": {"tools": {"self_change": mode}},
+        },
     )
 
 
@@ -59,71 +62,23 @@ def directive(tool, args, call, session):
         tool_call_id=call,
         turn_id="turn-1",
     )
-    return {"action": details.action, "rule_key": details.rule_key, "message": details.message}
+    return {"action": details.action, "rule_key": details.rule_key}
 
 
 def enabled():
-    text = config.read_text(encoding="utf-8")
-    return "petasos" in text
-
-
-save("never")
-before = config.read_text(encoding="utf-8")
-write_block = dispatch(
-    "write_file",
-    {"path": str(config), "content": "enabled: false\n"},
-    "write-never",
-    "never-write",
-)
-after_write = config.read_text(encoding="utf-8")
-disable_block = dispatch(
-    "terminal",
-    {"command": "hermes plugins disable petasos"},
-    "disable-never",
-    "never-disable",
-)
-save("approve")
-open_before = config.read_text(encoding="utf-8")
-unattended_write = dispatch(
-    "write_file",
-    {"path": str(config), "content": "enabled: false\n"},
-    "write-open",
-    "open-write",
-)
-after_unattended = config.read_text(encoding="utf-8")
-unattended_disable = dispatch(
-    "terminal",
-    {"command": "hermes plugins disable petasos"},
-    "disable-open",
-    "open-disable",
-)
-asked = directive(
-    "write_file",
-    {"path": str(config), "content": "enabled: false\n"},
-    "write-ask",
-    "ask-session",
-)
-print(json.dumps({
-    "write_block": write_block,
-    "write_unchanged": after_write == before,
-    "disable_block": disable_block,
-    "still_enabled": enabled(),
-    "unattended_write": unattended_write,
-    "unattended_unchanged": after_unattended == open_before,
-    "unattended_disable": unattended_disable,
-    "still_enabled_after": enabled(),
-    "asked": asked,
-}))
+    return "petasos" in config.read_text(encoding="utf-8")
 """
 
+_WRITE = '{"path": str(config), "content": "enabled: false\\n"}'
 
-def _run(box: Sandbox) -> dict[str, object]:
+
+def _run(box: Sandbox, body: str) -> dict[str, object]:
     completed = subprocess.run(
         [
             str(box.root / "bin" / "with-sandbox"),
             str(box.root / "venv" / "bin" / "python"),
             "-c",
-            _SNIPPET,
+            _HEADER + "\n" + body,
         ],
         capture_output=True,
         text=True,
@@ -139,25 +94,93 @@ def _run(box: Sandbox) -> dict[str, object]:
     return payload
 
 
-def test_hermes_dispatch_blocks_or_asks_with_a_session_key(installed: Sandbox) -> None:
-    """Never and unattended approve block. A directive Hermes can ask carries the session key."""
-    result = _run(installed)
+def _blocked(result: dict[str, object]) -> str:
+    block = result["block"]
+    assert isinstance(block, str) and block.strip()
+    return block
+
+
+def test_under_never_a_write_of_the_profile_config_is_blocked(installed: Sandbox) -> None:
+    """A tool call that writes the profile config is refused, and the file stays as it was."""
+    result = _run(
+        installed,
+        f"""
+save("never")
+before = config.read_text(encoding="utf-8")
+block = dispatch("write_file", {_WRITE}, "write-never", "never-write")
+after = config.read_text(encoding="utf-8")
+print(json.dumps({{"block": block, "unchanged": after == before}}))
+""",
+    )
+    block = _blocked(result)
+    assert "refused" in block
+    assert "outside the agent" in block
+    assert result["unchanged"] is True
+
+
+def test_under_never_disabling_petasos_is_blocked(installed: Sandbox) -> None:
+    """A shell call that disables Petasos is refused, and the plugin stays enabled."""
+    result = _run(
+        installed,
+        """
+save("never")
+block = dispatch(
+    "terminal",
+    {"command": "hermes plugins disable petasos"},
+    "disable-never",
+    "never-disable",
+)
+print(json.dumps({"block": block, "enabled": enabled()}))
+""",
+    )
+    assert _blocked(result)
+    assert result["enabled"] is True
+
+
+def test_under_approve_with_nobody_to_ask_both_are_blocked(installed: Sandbox) -> None:
+    """Approve, with no person attached, still blocks the write and the disable."""
+    result = _run(
+        installed,
+        f"""
+save("approve")
+before = config.read_text(encoding="utf-8")
+write_block = dispatch("write_file", {_WRITE}, "write-open", "open-write")
+after = config.read_text(encoding="utf-8")
+disable_block = dispatch(
+    "terminal",
+    {{"command": "hermes plugins disable petasos"}},
+    "disable-open",
+    "open-disable",
+)
+print(json.dumps({{
+    "write_block": write_block,
+    "unchanged": after == before,
+    "disable_block": disable_block,
+    "enabled": enabled(),
+}}))
+""",
+    )
     write_block = result["write_block"]
     disable_block = result["disable_block"]
-    assert isinstance(write_block, str) and "refused" in write_block
-    assert "outside the agent" in write_block
-    assert result["write_unchanged"] is True
+    assert isinstance(write_block, str)
+    assert "no interactive user or gateway is present" in write_block
+    assert result["unchanged"] is True
     assert isinstance(disable_block, str) and disable_block.strip()
-    assert result["still_enabled"] is True
+    assert result["enabled"] is True
 
-    unattended_write = result["unattended_write"]
-    unattended_disable = result["unattended_disable"]
-    assert isinstance(unattended_write, str)
-    assert "no interactive user or gateway is present" in unattended_write
-    assert result["unattended_unchanged"] is True
-    assert isinstance(unattended_disable, str) and unattended_disable.strip()
-    assert result["still_enabled_after"] is True
 
+def test_under_approve_hermes_receives_a_directive_carrying_the_session(
+    installed: Sandbox,
+) -> None:
+    """Where Hermes can ask, the approve directive's key carries the session."""
+    result = _run(
+        installed,
+        f"""
+save("approve")
+asked = directive("write_file", {_WRITE}, "write-ask", "ask-session")
+print(json.dumps({{"asked": asked}}))
+""",
+    )
     asked = result["asked"]
     assert isinstance(asked, dict)
     assert asked["action"] == "approve"
@@ -165,3 +188,74 @@ def test_hermes_dispatch_blocks_or_asks_with_a_session_key(installed: Sandbox) -
     assert isinstance(rule_key, str)
     assert rule_key.startswith("petasos.guardrail.")
     assert rule_key.endswith(".ask-session")
+
+
+def test_under_never_a_code_tool_that_writes_the_config_is_blocked(installed: Sandbox) -> None:
+    """Code that opens the profile config for writing is refused, and the file stays."""
+    result = _run(
+        installed,
+        r"""
+save("never")
+before = config.read_text(encoding="utf-8")
+script = "open(" + repr(str(config)) + ", 'w').write('x')\n"
+block = dispatch("execute_code", {"code": script}, "code-never", "never-code")
+after = config.read_text(encoding="utf-8")
+print(json.dumps({"block": block, "unchanged": after == before}))
+""",
+    )
+    block = _blocked(result)
+    assert "refused" in block
+    assert "outside the agent" in block
+    assert result["unchanged"] is True
+
+
+def test_the_doctor_and_the_overview_agree_under_approve_and_never(installed: Sandbox) -> None:
+    """Both modes say open or blocked, and neither offers pinning.
+
+    The agent sentence is the Overview row "The agent" under "Who can change
+    these settings". It is taken from the doctor's guardrail line.
+    """
+    result = _run(
+        installed,
+        r"""
+from petasos.hermes.dashboard.scope import load_home
+from petasos.hermes.dashboard.status import status
+from petasos.hermes.doctor import examine, render_text
+
+
+def look(mode):
+    save(mode)
+    report = examine(home, home_reason="sandbox check", probe_plugin=False)
+    line = next(check for check in report.checks if check.id == "guardrail")
+    body = status(load_home(home))
+    return {
+        "summary": line.summary,
+        "meaning": line.meaning or "",
+        "text": render_text(report, verbose=False, color=False),
+        "agent": body["who_can_change"]["agent"],
+    }
+
+
+print(json.dumps({"never": look("never"), "approve": look("approve")}))
+""",
+    )
+    _words(result["never"], "Blocked.")
+    approve = _words(result["approve"], "Open.")
+    assert isinstance(approve["agent"], str)
+    assert "fresh approval" in approve["agent"]
+
+
+def _words(raw: object, lead: str) -> dict[str, object]:
+    assert isinstance(raw, dict)
+    summary = raw["summary"]
+    meaning = raw["meaning"]
+    text = raw["text"]
+    agent = raw["agent"]
+    assert isinstance(summary, str) and summary.startswith(lead)
+    assert isinstance(meaning, str)
+    assert isinstance(text, str) and summary in text
+    assert isinstance(agent, str) and agent.startswith(summary)
+    folded = f"{summary}\n{meaning}\n{agent}".casefold()
+    for word in ("pinned", "pinning", "unpin"):
+        assert word not in folded
+    return raw

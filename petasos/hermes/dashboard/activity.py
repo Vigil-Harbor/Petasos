@@ -505,9 +505,9 @@ def _event(
     shown["summary"] = describe_event(record, follower)
     shown["outcome"] = outcome(record, follower)
     shown["severity_label"] = severity_label(record)
-    if shown["outcome"]["code"] == "not_stopped":
-        shown["review_action"] = REVIEW_CURRENT_SETTINGS
     kind = record.get("event_type")
+    if shown["outcome"]["code"] == "not_stopped" or kind == "settings_changed":
+        shown["review_action"] = REVIEW_CURRENT_SETTINGS
     shown["kind_label"] = kind_label(kind) if isinstance(kind, str) else ""
     rule = record.get("rule_id")
     shown["rule_sentence"] = rule_sentence(rule) if isinstance(rule, str) else ""

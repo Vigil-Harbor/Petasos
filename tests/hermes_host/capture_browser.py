@@ -175,9 +175,8 @@ def check(request: dict[str, Any]) -> dict[str, Any]:
         for view in VIEWS:
             _open(page, base, view)
             if view == "overview":
-                page.get_by_role("button", name=_named("Review current settings")).wait_for(
-                    timeout=20000
-                )
+                page.get_by_text("Who can change these settings").wait_for(timeout=20000)
+                page.get_by_text("Last 24 hours").wait_for(timeout=20000)
             elif view == "activity":
                 page.get_by_text("signatures verified").wait_for(timeout=20000)
             elif view == "tryit":
