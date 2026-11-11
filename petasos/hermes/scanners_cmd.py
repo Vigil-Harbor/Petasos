@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from petasos.hermes import semgrep_host
 from petasos.hermes.dependencies import set_extra
 from petasos.hermes.doctor_support import use_home
 from petasos.hermes.environment import republish
@@ -57,6 +58,8 @@ def change_scanner(home: Path, name: str, *, present: bool) -> tuple[str, int]:
             f"There is no scanner named {name.strip() or '(blank)'}.\nScanners: {known}.\n",
             2,
         )
+    if present and spec.id == "semgrep" and not semgrep_host.semgrep_can_run():
+        return semgrep_host.SEMGREP_ADD_REFUSED + "\n", 2
     project = home / "plugins" / PLUGIN_ID / "pyproject.toml"
     if not project.is_file():
         return (

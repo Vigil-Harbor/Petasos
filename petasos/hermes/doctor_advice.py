@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from petasos.hermes import semgrep_host
 from petasos.hermes.doctor_model import Check, Status
 from petasos.hermes.doctor_support import join_reasons, paths_summary
 from petasos.hermes.plugin import protected_paths
@@ -94,7 +95,10 @@ def scanner_report(
     ]
     rows: list[dict[str, object]] = [_syntactic_row()]
     for status in composition.statuses:
-        kind, summary, meaning, step = _scanner_line(status, consequence, paused=paused)
+        enabled = _enabled_of(resolved, status.id)
+        kind, summary, meaning, step = _scanner_line(
+            status, consequence, paused=paused, enabled=enabled
+        )
         checks.append(
             Check(
                 id=f"scanner_{status.id}",
@@ -281,9 +285,28 @@ def _capability_active(composition: Composition, capability: str) -> bool:
     )
 
 
+def _enabled_of(resolved: Resolved, scanner_id: str) -> str:
+    section = getattr(resolved.config.scanners, scanner_id, None)
+    value = getattr(section, "enabled", None)
+    return value if isinstance(value, str) else ""
+
+
 def _scanner_line(
-    status: ScannerStatus, consequence: dict[str, object], *, paused: bool = False
+    status: ScannerStatus,
+    consequence: dict[str, object],
+    *,
+    paused: bool = False,
+    enabled: str = "",
 ) -> tuple[Status, str, str, str]:
+    if status.id == "semgrep" and status.reason == _HOST_ONLY and status.state == "unavailable":
+        if semgrep_host.semgrep_can_run():
+            return (
+                "warn",
+                "Semgrep cannot run in this process yet.",
+                "The check was asked for and did not start.",
+                semgrep_host.SEMGREP_OFF_COMMAND,
+            )
+        return _semgrep_line(enabled, consequence)
     job = _SCANNER_JOB.get(status.id, status.label)
     if status.state == "active" and paused:
         return (
@@ -332,9 +355,9 @@ def _syntactic_row() -> dict[str, object]:
 
 
 def _scanner_row(status: ScannerStatus, consequence: dict[str, object]) -> dict[str, object]:
-    # A check this process cannot run only because Hermes owns it here says
-    # nothing about the agent, so it carries no consequence.
-    held = status.state == "unavailable" and status.reason != _HOST_ONLY
+    # Unavailable means the check errors on every scan. That holds tool calls
+    # under the usual fail mode, including Semgrep, which Hermes cannot run.
+    held = status.state == "unavailable"
     return {
         "id": status.id,
         "label": status.label,
@@ -353,9 +376,32 @@ def _package_missing(status: ScannerStatus) -> bool:
     return status.missing and "pip install" in (status.reason or "")
 
 
+def _semgrep_line(enabled: str, consequence: dict[str, object]) -> tuple[Status, str, str, str]:
+    sentence = str(consequence.get("sentence") or "")
+    blocking = consequence.get("holds") is True and "blocked" in sentence
+    if enabled == "on" and blocking:
+        meaning = semgrep_host.SEMGREP_REQUIRED_BLOCKING
+    elif enabled == "on":
+        meaning = "It is set to Required. " + sentence
+    elif blocking:
+        meaning = semgrep_host.SEMGREP_AUTO_BLOCKING
+    else:
+        meaning = "Semgrep is not used inside Hermes. " + sentence
+    return (
+        "warn",
+        semgrep_host.SEMGREP_CANNOT_RUN,
+        meaning,
+        semgrep_host.SEMGREP_OFF_COMMAND,
+    )
+
+
 def _hermes_reason(status: ScannerStatus) -> str | None:
     # The registry's reason for a missing package names pip, which is the
     # wrong instruction inside Hermes. The fix carries the right one.
+    if status.reason == _HOST_ONLY and not semgrep_host.semgrep_can_run():
+        return semgrep_host.SEMGREP_CANNOT_RUN
+    if status.reason == _HOST_ONLY:
+        return "Semgrep cannot run in this process yet."
     if _package_missing(status):
         return f"{status.label} is not installed."
     return status.reason
@@ -366,10 +412,7 @@ def _hermes_fix(status: ScannerStatus) -> str | None:
     if text is None:
         return None
     if status.reason == _HOST_ONLY:
-        return (
-            "Semgrep needs Hermes to run it, and this process cannot. "
-            "Turn Semgrep off, or use it where Hermes is running the agent."
-        )
+        return semgrep_host.SEMGREP_OFF_COMMAND
     if status.extra is not None and "pip install" in text:
         return _add_command(status.id)
     return text

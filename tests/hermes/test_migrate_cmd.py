@@ -98,6 +98,29 @@ def test_proceed_stores_through_the_writer_and_leaves_the_section(
     assert "not_a_field" in (tmp_path / "config.yaml").read_text(encoding="utf-8")
 
 
+def test_write_refuses_to_store_required_semgrep(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """An old semgrep_enabled true would become Required, so --write stores nothing."""
+    write_plugin(tmp_path)
+    original = "petasos:\n  enabled: true\n  semgrep_enabled: true\n"
+    (tmp_path / "config.yaml").write_text(original, encoding="utf-8")
+    calls: list[dict[str, Any]] = []
+
+    def remember(values: dict[str, Any], *, plugin_dir: Path) -> None:
+        calls.append(dict(values))
+
+    monkeypatch.setattr("petasos.hermes.migrate_cmd.write_settings", remember)
+    code, out, _err = _run(["config", "migrate", "--home", str(tmp_path), "--write"], capsys)
+
+    assert code == 2
+    assert calls == []
+    assert "turns Semgrep on" in out
+    assert "Nothing was written" in out
+    assert "Set semgrep_enabled to false" in out
+    assert (tmp_path / "config.yaml").read_text(encoding="utf-8") == original
+
+
 def test_clean_write_without_hermes_does_not_edit_the_file(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -155,4 +178,4 @@ def test_usage_without_a_command_is_rejected(capsys: pytest.CaptureFixture[str])
     assert main(["hermes"]) == 2
     assert "hermes install" in capsys.readouterr().err
     assert main(["config"]) == 2
-    assert "config migrate" in capsys.readouterr().err
+    assert "config set" in capsys.readouterr().err

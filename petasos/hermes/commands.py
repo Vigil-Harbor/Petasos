@@ -10,6 +10,7 @@ import argparse
 import sys
 from typing import Any
 
+from petasos.hermes.config_set import set_one
 from petasos.hermes.doctor import examine, render_json, render_text
 from petasos.hermes.install import install_plugin
 from petasos.hermes.migrate_cmd import migrate_profile
@@ -34,10 +35,7 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         return _install(args)
     if command == "config":
-        if getattr(args, "config_command", None) != "migrate":
-            print("Choose a config command. Try: petasos config migrate --help", file=sys.stderr)
-            return 2
-        return _migrate(args)
+        return _config(args, registered=False)
     if command == "scanner":
         return _scanner(args)
     parser.print_help(sys.stderr)
@@ -99,6 +97,28 @@ def _scanner(args: argparse.Namespace) -> int:
         print(str(exc), file=sys.stderr)
         return 2
     text, code = change_scanner(home, str(args.name), present=action == "add")
+    sys.stdout.write(text)
+    return code
+
+
+def _config(args: argparse.Namespace, *, registered: bool) -> int:
+    action = getattr(args, "config_command", None)
+    if action == "migrate":
+        return _migrate(args)
+    if action == "set":
+        return _config_set(args)
+    hint = "hermes petasos config set --help" if registered else "petasos config set --help"
+    print(f"Choose a config command. Try: {hint}", file=sys.stderr)
+    return 2
+
+
+def _config_set(args: argparse.Namespace) -> int:
+    try:
+        home, _reason = resolve_target(home=args.home, profile=args.profile)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    text, code = set_one(home, str(args.key), str(args.value))
     sys.stdout.write(text)
     return code
 
@@ -190,6 +210,7 @@ def _parser() -> argparse.ArgumentParser:
         help="With --write, store the settings even when some old values were not copied.",
     )
     migrate.set_defaults(command="config", config_command="migrate")
+    _add_config_set(config_sub, registered=False)
 
     _scanner_parser(sub)
     return parser
@@ -212,6 +233,22 @@ def _scanner_parser(sub: Any) -> None:
         )
         _target_flags(parser)
         parser.set_defaults(command="scanner", scanner_command=name)
+
+
+def _add_config_set(config_sub: Any, *, registered: bool) -> None:
+    example = (
+        "hermes petasos config set scanners.semgrep.enabled off"
+        if registered
+        else "petasos config set scanners.semgrep.enabled off"
+    )
+    setter = config_sub.add_parser(
+        "set",
+        help=f"Change one setting. Example: {example}",
+    )
+    setter.add_argument("key", help="The setting, such as scanners.semgrep.enabled or role.")
+    setter.add_argument("value", help="The new value, such as off, balanced, or true.")
+    _target_flags(setter)
+    setter.set_defaults(command="config", config_command="set")
 
 
 def _target_flags(parser: argparse.ArgumentParser) -> None:
@@ -289,6 +326,7 @@ def install_registered_cli(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="With --write, store the settings even when some old values were not copied.",
     )
+    _add_config_set(config_sub, registered=True)
     _scanner_parser(sub)
 
 
@@ -300,13 +338,7 @@ def run_registered(args: argparse.Namespace) -> int:
     if command == "install":
         return _install(args)
     if command == "config":
-        if getattr(args, "config_command", None) != "migrate":
-            print(
-                "Choose a config command. Try: hermes petasos config migrate --help",
-                file=sys.stderr,
-            )
-            return 2
-        return _migrate(args)
+        return _config(args, registered=True)
     if command == "scanner":
         return _scanner(args)
     print("Choose a command: doctor, install, scanner, or config migrate.", file=sys.stderr)

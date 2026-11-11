@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any
 from petasos.config.layers import LEVELS, ROLES, SETTING_HELP, SETTING_LABEL, Resolved, resolve
 from petasos.config.schema import ConfigError, FieldInfo, SectionInfo, describe, leaves, to_mapping
 from petasos.config.sections import PetasosConfig
+from petasos.hermes import semgrep_host
 from petasos.hermes.dashboard.errors import envelope, problems_of
 from petasos.hermes.dashboard.values import copy_tree, dig, json_value
 from petasos.hermes.dashboard.words import change_applies, saved_effect
@@ -89,7 +90,28 @@ def setting_rows(resolved: Resolved | None) -> list[dict[str, Any]]:
                 "nullable": item.nullable,
             }
         )
+    for row in rows:
+        _present_semgrep(row)
     return rows
+
+
+def _present_semgrep(row: dict[str, Any]) -> None:
+    """Offer only Never while Hermes cannot run Semgrep, and say so in the help.
+
+    A stored value that turns Semgrep on stays in the list, marked as unable
+    to run, so the form does not show some other choice in its place.
+    """
+    if row["path"] != semgrep_host.SEMGREP_ENABLED or semgrep_host.semgrep_can_run():
+        return
+    known = dict(row["choice_labels"] or {})
+    stored = row["value"]
+    choices = [choice for choice in (row["choices"] or []) if choice in ("off", stored)]
+    labels = {choice: known.get(choice, choice) for choice in choices}
+    if stored in labels and stored != "off":
+        labels[stored] += semgrep_host.SEMGREP_CANNOT_RUN_SUFFIX
+    row["choices"] = choices
+    row["choice_labels"] = labels
+    row["help"] = semgrep_host.SEMGREP_CANNOT_RUN
 
 
 def stored_document(values: Mapping[str, Any]) -> dict[str, Any]:
@@ -300,8 +322,15 @@ def preview_settings(
     proposed = combine(stored, candidate)
     before, before_problems = _try_resolve(current)
     after, after_problems = _try_resolve(proposed)
+    if after is not None and not after_problems:
+        before_enabled = None if before is None else semgrep_host.semgrep_enabled(before.config)
+        blocked = semgrep_host.save_refusal(
+            before_enabled, semgrep_host.semgrep_enabled(after.config)
+        )
+        if blocked is not None:
+            after_problems = [{"path": semgrep_host.SEMGREP_ENABLED, "message": blocked}]
     changes: list[dict[str, Any]] = []
-    if after is not None and not before_problems:
+    if after is not None and not before_problems and not after_problems:
         changes = _changes(before, after)
     return envelope(
         stored=proposed,

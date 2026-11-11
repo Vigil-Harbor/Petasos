@@ -95,6 +95,16 @@ deleted.
 
 
 
+- Semgrep cannot be turned on inside Hermes, because nothing there runs its
+  engine yet. `on` and `auto` both ask for a check that cannot start, and
+  under the usual fail mode that blocks tool calls that change things. The
+  settings form offers only Never, every save that would leave Semgrep on is
+  refused, `petasos scanner add semgrep` is refused, and `petasos doctor`
+  says Semgrep cannot run there yet and gives the command that turns it off.
+  A hand-written `on` or `auto` is left as it is and still blocks.
+- New command `petasos config set <setting> <value>` (also `hermes petasos
+  config set`). It changes one simple setting through Hermes, with the same
+  checks as the settings form, and says when the change takes effect.
 - `Severity.rank` is the one severity scale: info is 0, critical is 4, higher
   is more severe. Six hand-written copies of the ordering are gone. Finding
   comparisons behave as before.
