@@ -1699,8 +1699,10 @@ One new wiki decision will supersede these, each with a back-link:
 - 2026-09-06, the config builder stays in the plugin because of version skew.
 
 These stand: one atomic `reconfigure`; scanners built in one place; per-Hermes-
-profile scope for every field; the console as an operator tool with optional
-auth; classic scripts with no bundler.
+profile scope for every field; classic scripts with no bundler. The operator
+tool they describe is now the Petasos tab, which Hermes's dashboard serves and
+authenticates; the standalone console and its optional auth are retired
+(`console-retirement.md`).
 
 ## 14. Open questions
 

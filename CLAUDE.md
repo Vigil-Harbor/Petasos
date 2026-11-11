@@ -4,7 +4,7 @@ Petasos is a Python content-security library and a Hermes Agent plugin. The libr
 
 ## Run the gate
 
-Use Python 3.11 or newer and install the `dev` extra for development. This machine's tools are `.venv/bin/python`, `.venv/bin/ruff` and `.venv/bin/mypy`; run them with the checkout as the working directory.
+Use Python 3.11 or newer and install the `dev` extra for development. Run the tools from the project's virtual environment (`.venv/bin/python`, `.venv/bin/ruff`, `.venv/bin/mypy`) with the checkout as the working directory; `python` may not be on the path.
 
 ```bash
 ruff check .
@@ -49,7 +49,9 @@ The public root API is pinned to [the redesign contract](docs/architecture/redes
 
 The default suite skips real-Hermes tests. Read [the harness instructions](tests/hermes_host/README.md) before enabling them. Prepare a new upstream clone and virtual environment under a temporary sandbox; invoke Hermes only through its `bin/with-sandbox` wrapper. Each test gets a fresh home inside that sandbox. The wrapper and in-process guard reject account Hermes homes.
 
-Never read, write, start, stop or signal live installations under `~/.hermes`, `~/.hermes-second`, `~/hermes-services`, `~/model-lab`, `~/work` or `~/notes` during sandbox work. Do not touch machine-level Hermes configuration, use administrator rights, start a gateway, configure messaging or make model API calls. A task may prohibit the sandbox entirely. Check command help or use throwaway homes for ordinary CLI work.
+Never read, write, start, stop or signal a live Hermes installation on the machine. The harness instructions list the directories that are off limits. Do not touch machine-level Hermes configuration (`/etc/hermes`), use administrator rights, start a gateway, configure messaging or make model API calls. A task may prohibit the sandbox entirely. Check command help or use throwaway homes for ordinary CLI work.
+
+The default suite gives every test a throwaway home directory (`tests/conftest.py`), so it does not look at an installation either. Do not run tests in a way that bypasses that file.
 
 ## Contracts
 

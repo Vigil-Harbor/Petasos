@@ -38,6 +38,6 @@ Section 14 records these settled decisions on 2026-11-11:
 
 Ordinary settings belong to a Hermes profile. A managed pin applies to every profile using its managed directory; it is not profile-local. Petasos reads its recorded pin whole to avoid Hermes overlay gaps for mapping entries and unset values. A pin does not protect plugin files, Python or evidence, prevent safe mode, or stop an account redirecting the managed directory. Recognition alone can miss disguised guardrail writes.
 
-The design retains atomic live application, centralized scanner construction and classic scripts without a bundler. Section 13 says the console/operator and optional-auth decision stands, while section 8 retires the standalone console and uses Hermes's authentication. The owner should reconcile that design-record wording when placing this draft; this draft follows the built host surface and does not carry forward a standalone token.
+The design retains atomic live application, centralized scanner construction and classic scripts without a bundler. The operator tool is the Petasos tab, which Hermes's dashboard serves and authenticates; the standalone console and its optional token are retired.
 
 Live gateway settings refresh, kanban-worker behaviour, cheaper live application for some Presidio fields, and visual polish remain open in the design record. Recorded sandbox checks are evidence for their stated paths, not proof of a live deployment. See [host facts](hermes-host-facts.md) and [guardrail integrity](guardrail-integrity.md).
