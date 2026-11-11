@@ -28,7 +28,10 @@ def test_read_lists_roles_levels_and_resolved_rows() -> None:
     ]
     assert body["roles"][1]["suggests"] == "balanced"
     general = body["roles"][0]["description"]
-    assert general == "For everyday work. Uses every built-in rule and blocks risky tool calls."
+    assert general == (
+        "For everyday work. Uses every built-in rule, and asks before a risky "
+        "tool call when someone can answer. When nobody can, the call is blocked."
+    )
     assert "is on" not in general
     balanced = next(level for level in body["levels"] if level["name"] == "balanced")
     assert balanced["description"].startswith("The default. Blocks a clear attack")
@@ -79,9 +82,9 @@ def test_preview_shows_what_a_role_would_change() -> None:
     assert body["valid"] is True
     changed = {row["path"]: row for row in body["changes"]}
     assert changed["rules.suppress"]["origin_after"] == "role"
-    assert changed["tools.dangerous_posture"]["after"] == "approve"
-    posture = changed["tools.dangerous_posture"]
-    assert posture["applies"] == "Applies from the agent's next tool call."
+    assert changed["rules.confidence_floor"]["after"] == 0.6
+    assert "tools.dangerous_posture" not in changed
+    assert changed["rules.suppress"]["applies"] == "Applies from the agent's next tool call."
     assert body["applies"] == "Applies from the agent's next tool call."
     assert body["stored"]["role"] == "coding"
     assert body["stored"]["overrides"] == {}
@@ -190,6 +193,11 @@ def test_making_a_missing_check_required_says_what_happens_before_save() -> None
     registry = _absent_prompt_guard()
     required = {"overrides": {"scanners": {"prompt_guard": {"enabled": "on"}}}}
     body = preview_settings({}, required, registry=registry)  # type: ignore[arg-type]
+    found = body["consequences"]["scanners.prompt_guard.enabled"]
+    assert found["holds"] is True
+    assert "a person is asked" in found["sentence"]
+    research = {"role": "research", "overrides": required["overrides"]}
+    body = preview_settings({}, research, registry=registry)  # type: ignore[arg-type]
     found = body["consequences"]["scanners.prompt_guard.enabled"]
     assert found["holds"] is True
     assert "blocked" in found["sentence"]

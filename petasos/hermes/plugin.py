@@ -35,6 +35,7 @@ from petasos.hermes.home import (
 from petasos.hermes.host import (
     approval_grant,
     approve_directive_available,
+    command_will_be_asked,
     load_redactor,
     rule_always_approved,
     subagent_hooks_available,
@@ -338,6 +339,7 @@ def host_info() -> HostInfo:
         approve_directive=approve_directive_available(),
         approval_grant=approval_grant,
         rule_always_approved=rule_always_approved,
+        command_will_be_asked=command_will_be_asked,
         subagent_hooks=subagent_hooks_available(),
         redactor=redactor if callable(redactor) else None,
         display_path=display_path,

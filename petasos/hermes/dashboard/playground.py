@@ -33,6 +33,7 @@ from petasos.enforce.messages import format_content_block, format_result_notice
 from petasos.hermes.dashboard.catalog import combine
 from petasos.hermes.dashboard.errors import ApiError, envelope
 from petasos.hermes.dashboard.words import CHECK_NOTE, looks_for
+from petasos.hermes.host import command_will_be_asked
 from petasos.normalize import canonicalize_tool_name, normalize
 from petasos.scanners.registry import REGISTRY, BuildContext, ScannerSpec, ScannerStatus, compose
 
@@ -463,6 +464,7 @@ async def _tool(
         else:
             sinks = _names(config.egress.sink_tools)
             namespaces = _names(config.egress.taint_namespaces)
+            events: list[dict[str, object]] = []
             chosen = dangerous_tool_decision(
                 tool,
                 dict(arguments),
@@ -478,14 +480,20 @@ async def _tool(
                 degraded_recorded=lambda _session: False,
                 excerpt_for=lambda: "",
                 logger=logger,
-                emit=_discard,
+                emit=lambda **fields: events.append(fields),
+                command_will_be_asked=command_will_be_asked,
             )
+            deferred = any(event.get("event_type") == "deferred" for event in events)
             if isinstance(chosen, Block):
                 decision = "block"
                 message = chosen.message
-            elif isinstance(chosen, Approve):
+            elif isinstance(chosen, Approve) or deferred:
                 decision = "approve"
-                message = chosen.message
+                message = (
+                    chosen.message
+                    if isinstance(chosen, Approve)
+                    else _OUTCOMES["approve"]["sentence"]
+                )
             elif chosen is None or isinstance(chosen, Allow):
                 decision = "allow"
     rendered = _argument_text(arguments)

@@ -219,8 +219,10 @@ ROLES: Final[Mapping[str, Role]] = MappingProxyType(
             _role(
                 "general",
                 "General",
-                "For everyday work. Uses every built-in rule and blocks risky tool calls.",
+                "For everyday work. Uses every built-in rule, and asks before a risky "
+                "tool call when someone can answer. When nobody can, the call is blocked.",
                 "balanced",
+                {"tools": {"dangerous_posture": "approve"}},
             ),
             _role(
                 "coding",

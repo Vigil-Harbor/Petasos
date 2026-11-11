@@ -66,6 +66,25 @@ deleted.
 
 ## Changed
 
+- **Breaking.** The `general` role sets `tools.dangerous_posture` to `approve`.
+  A risky tool call is put to a person when one can be asked, and blocked when
+  nobody can. `research`, `support`, and `admin` still block. `petasos config
+  migrate` writes `tools.dangerous_posture: block` for a configuration converted
+  from the old `general` profile, and says so. An upgrade does not start asking
+  unless that setting is changed. A configuration that already names a posture
+  keeps it.
+- On a `terminal` command, when the posture is `approve` and the decision would
+  have been a command-rule finding, Petasos records the finding and stands aside
+  if Hermes's own detector flags the command and Hermes will ask a person.
+  Hermes's prompt is the one the person sees. The session score is unchanged.
+  A block posture still blocks. Taint, another finding, PII leaving through an
+  egress sink, and a degraded parameter scan are decided as before. A command
+  Hermes does not flag, or would approve or refuse without asking, stays
+  Petasos's own decision. If Hermes's detector cannot be imported, has moved,
+  or raises, Petasos decides as it does today. This applies under
+  `approvals.mode: manual`. Under `smart`, Hermes's default, a model can
+  approve the command with nobody asked, so Petasos still asks.
+
 - **Breaking.** A tool call that changes a Petasos or Hermes guardrail is no
   longer allowed just because the conversation is below tier 2. `tools.self_change`
   is `approve` or `never` (default `approve`; the support role sets `never`).

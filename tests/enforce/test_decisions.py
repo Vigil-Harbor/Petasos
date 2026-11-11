@@ -76,6 +76,7 @@ def _decide(
     result: GuardResult,
     *,
     tool: str = "terminal",
+    args: dict[str, object] | None = None,
     egress: bool = False,
     posture: str = "block",
     approve: bool = False,
@@ -85,6 +86,9 @@ def _decide(
     tainted: str | None = None,
     namespaces: frozenset[str] = frozenset(),
     store: object | None = None,
+    asks: bool | None = None,
+    ask_raises: bool = False,
+    seen: list[str] | None = None,
 ) -> tuple[Block | Approve | None, list[str], list[dict[str, object]]]:
     logs: list[str] = []
     events: list[dict[str, object]] = []
@@ -94,6 +98,13 @@ def _decide(
         def emit(self, record: logging.LogRecord) -> None:
             logs.append(record.getMessage())
 
+    def predicate(command: str) -> bool:
+        if seen is not None:
+            seen.append(command)
+        if ask_raises:
+            raise RuntimeError("detector moved")
+        return bool(asks)
+
     handler = _Handler()
     logger.addHandler(handler)
     logger.setLevel(logging.DEBUG)
@@ -101,7 +112,7 @@ def _decide(
     try:
         decision = dangerous_tool_decision(
             tool,
-            {"command": "echo hi"},
+            {"command": "echo hi"} if args is None else args,
             "sess",
             result,
             egress,
@@ -115,6 +126,7 @@ def _decide(
             excerpt_for=lambda: "echo hi",
             logger=logger,
             emit=lambda **fields: events.append(fields),
+            command_will_be_asked=predicate,
         )
     finally:
         logger.removeHandler(handler)
@@ -188,6 +200,105 @@ def test_command_rule_approves_only_when_the_directive_is_usable() -> None:
         always={finding.rule_id},
     )
     assert waived is None
+
+
+def test_a_command_the_host_will_ask_about_is_recorded_and_not_decided() -> None:
+    finding = _finding("petasos.syntactic.command.fetch-exec", finding_type="command")
+    seen: list[str] = []
+    decision, logs, events = _decide(
+        _guard(finding),
+        posture="approve",
+        approve=True,
+        asks=True,
+        seen=seen,
+    )
+    assert decision is None
+    assert seen == ["echo hi"]
+    assert events == [
+        {
+            "session_id": "sess",
+            "tool": "terminal",
+            "event_type": "deferred",
+            "severity": "HIGH",
+            "rule_id": finding.rule_id,
+            "reason": finding.message,
+        }
+    ]
+    assert any("PETASOS_DEFER" in line for line in logs)
+    assert not any("PETASOS_APPROVE" in line or "PETASOS_QUARANTINE" in line for line in logs)
+
+
+def test_each_missing_condition_keeps_petasos_decision() -> None:
+    finding = _finding("petasos.syntactic.command.fetch-exec", finding_type="command")
+    injection = _finding("petasos.syntactic.injection.ignore-previous")
+    pii = _finding("pii.email", finding_type="pii", severity=Severity.CRITICAL)
+    guard = _guard(finding)
+
+    quiet, _, quiet_events = _decide(guard, posture="approve", approve=True, asks=False)
+    assert isinstance(quiet, Approve)
+    assert quiet_events == []
+
+    raised, _, _ = _decide(guard, posture="approve", approve=True, ask_raises=True)
+    assert isinstance(raised, Approve)
+
+    other_tool, _, _ = _decide(
+        guard, tool="execute_code", posture="approve", approve=True, asks=True
+    )
+    assert isinstance(other_tool, Approve)
+
+    blocked, _, blocked_events = _decide(guard, posture="block", approve=True, asks=True)
+    assert isinstance(blocked, Block)
+    assert blocked_events[0]["event_type"] == "quarantine"
+
+    unattended, _, _ = _decide(guard, posture="approve", approve=True, yolo=True, asks=True)
+    assert isinstance(unattended, Block)
+
+    no_directive, _, no_events = _decide(guard, posture="approve", approve=False, asks=True)
+    assert no_directive is None
+    assert no_events[0]["event_type"] == "deferred"
+
+    blank, _, _ = _decide(guard, posture="approve", approve=True, asks=True, args={"command": ""})
+    assert isinstance(blank, Approve)
+    missing, _, _ = _decide(guard, posture="approve", approve=True, asks=True, args={})
+    assert isinstance(missing, Approve)
+
+    earlier, _, earlier_events = _decide(
+        _guard(injection, finding), posture="approve", approve=True, asks=True
+    )
+    assert isinstance(earlier, Block)
+    assert earlier_events[0]["rule_id"] == injection.rule_id
+
+    tainted, _, tainted_events = _decide(
+        guard,
+        tool="send_email",
+        egress=True,
+        posture="approve",
+        approve=True,
+        asks=True,
+        namespaces=_NAMESPACES,
+        store=_Store("mcp_bank_"),
+    )
+    assert isinstance(tainted, Block)
+    assert tainted_events[0]["event_type"] == "quarantine"
+    assert "source-taint" in str(tainted_events[0]["reason"])
+
+    leaked, _, _ = _decide(
+        _guard(pii, finding),
+        tool="send_email",
+        egress=True,
+        posture="approve",
+        approve=True,
+        asks=True,
+    )
+    assert isinstance(leaked, Block)
+    assert "Sensitive data" in leaked.message
+
+    degraded, _, degraded_events = _decide(
+        _guard(finding, degraded=True), posture="approve", approve=True, asks=True
+    )
+    assert isinstance(degraded, Approve)
+    assert degraded.rule_key == "petasos.degraded"
+    assert degraded_events == []
 
 
 def test_degraded_scan_ladder() -> None:

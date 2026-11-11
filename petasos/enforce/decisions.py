@@ -7,7 +7,7 @@ whether auto-approve is on, and whether a rule was always approved.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -31,7 +31,30 @@ _Emit = Callable[..., object]
 _Always = Callable[[str], bool]
 _Recorded = Callable[[str], bool]
 _Excerpt = Callable[[], str]
+_Asks = Callable[[str], bool]
 _Regime = Literal["full", "ceiling"]
+
+
+def _not_asked(_command: str) -> bool:
+    return False
+
+
+def _command_text(args: Any) -> str:
+    if isinstance(args, Mapping):
+        raw = args.get("command")
+        if isinstance(raw, str):
+            return raw
+    return ""
+
+
+def _host_will_ask(command: str, asks: _Asks) -> bool:
+    """True when the host will put ``command`` to a person. A failure answers no."""
+    if not command:
+        return False
+    try:
+        return bool(asks(command))
+    except Exception:
+        return False
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,6 +178,7 @@ def dangerous_tool_decision(
     excerpt_for: _Excerpt,
     logger: logging.Logger,
     emit: _Emit,
+    command_will_be_asked: _Asks = _not_asked,
 ) -> Block | Approve | None:
     """Decide a dangerous tool call after the guard has allowed it.
 
@@ -163,6 +187,11 @@ def dangerous_tool_decision(
     findings are considered in that order. ``always_approved`` and
     ``degraded_recorded`` are host facts. ``excerpt_for`` runs only when the
     decision is an approval.
+
+    A terminal command-rule finding is recorded and not decided here when the
+    posture is ``approve``, the host would not grant that approval with nobody
+    attached, and ``command_will_be_asked`` says the host will ask a person
+    about that command. Anything else is decided as before.
     """
     approve_effective = posture == "approve" and approve_available and not yolo
     blocking = [f for f in result.findings if blocks(f.severity)]
@@ -254,6 +283,28 @@ def dangerous_tool_decision(
     remaining = [f for f in command if not always_approved(f.rule_id)]
     if remaining:
         top = worst(remaining)
+        command_text = _command_text(args)
+        if (
+            posture == "approve"
+            and not yolo
+            and canonicalize_tool_name(tool_name) == "terminal"
+            and _host_will_ask(command_text, command_will_be_asked)
+        ):
+            logger.info(
+                "PETASOS_DEFER tool=%s session=%s rule_id=%s",
+                tool_name,
+                session_id,
+                top.rule_id,
+            )
+            emit(
+                session_id=session_id,
+                tool=tool_name,
+                event_type="deferred",
+                severity=top.severity.name,
+                rule_id=top.rule_id,
+                reason=top.message,
+            )
+            return None
         if approve_effective:
             return approve_decision(
                 tool_name,

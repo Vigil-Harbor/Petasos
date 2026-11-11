@@ -44,6 +44,15 @@ _PROFILE_TIERS: dict[str, tuple[str, str, str]] = {
     "research": ("25, 45, 70", "relaxed", "25, 45, 65"),
     "admin": ("10, 20, 35", "strict", "10, 22, 40"),
 }
+_POSTURE = "tools.dangerous_posture"
+# The general role now asks. A converted general profile keeps the old block,
+# and the note says so. The phrase is what migrate_cmd treats as intentional.
+_GENERAL_BLOCK_NOTE = (
+    "The general role now asks a person before a risky tool call. "
+    "This configuration was converted as general, whose old profile blocked "
+    "those calls, so tools.dangerous_posture is set to block. "
+    "The conversion does not start asking on its own."
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,6 +147,7 @@ MOVES: tuple[FieldMove, ...] = (
     _move("semgrep_request_timeout_seconds", "scanners.semgrep.request_timeout_seconds"),
     _move("semgrep_max_source_bytes", "scanners.semgrep.max_source_bytes"),
     _move("profile_name", "role", "role"),
+    _move("dangerous_tool_posture", "tools.dangerous_posture"),
     _move("disabled_scanners", "scanners.<id>.enabled", "scanners"),
     _move("semgrep_enabled", "scanners.semgrep.enabled", "scanners"),
     _move("enabled", "enabled", "arm"),
@@ -385,6 +395,19 @@ def _plain(value: object) -> object:
     return value
 
 
+def _pin_general_block(
+    role_name: str,
+    section: Mapping[str, Any],
+    leaves: dict[str, object],
+    notes: list[str],
+) -> None:
+    """Keep a converted general profile blocking, unless it already names a posture."""
+    if role_name != "general" or "dangerous_tool_posture" in section:
+        return
+    leaves[_POSTURE] = "block"
+    notes.append(_GENERAL_BLOCK_NOTE)
+
+
 def _overrides_for(base: Mapping[str, Any], leaves: Mapping[str, object]) -> dict[str, Any]:
     overrides: dict[str, Any] = {}
     for path, value in leaves.items():
@@ -463,6 +486,7 @@ def migrate(section: Mapping[str, Any]) -> Migration:
     enabled = section.get("enabled", True)
     leaves = _explicit_leaves(section, role_name)
     leaves.update(_scanner_values(section, notes, dropped))
+    _pin_general_block(role_name, section, leaves, notes)
     # Disabled-scanner notes are about keys we did consume. Keep them, and do
     # not also list disabled_scanners as dropped.
     base = merge(_defaults(), ROLES[role_name].document)

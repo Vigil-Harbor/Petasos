@@ -34,10 +34,15 @@ def test_every_builtin_stays_inside_its_axis() -> None:
         assert document_fields(level.document) <= LEVEL_FIELDS
 
 
-def test_general_plus_balanced_equals_the_defaults() -> None:
+def test_general_plus_balanced_asks_and_otherwise_matches_the_defaults() -> None:
     resolved = resolve({"role": "general", "level": "balanced"})
+    got = to_mapping(resolved.config)
+    stock = to_mapping(PetasosConfig())
 
-    assert to_mapping(resolved.config) == to_mapping(PetasosConfig())
+    assert got["tools"]["dangerous_posture"] == "approve"
+    assert resolved.origin["tools.dangerous_posture"] == "role"
+    stock["tools"]["dangerous_posture"] = "approve"
+    assert got == stock
     assert resolved.settings.enabled is True
     assert resolved.settings.overrides == {}
 
@@ -65,9 +70,15 @@ def test_origin_names_the_layer_that_supplied_each_leaf() -> None:
 
 def test_balanced_origin_is_level_for_the_level_fields() -> None:
     resolved = resolve({})
+    general_fields = document_fields(ROLES["general"].document)
 
     for row in leaves(PetasosConfig):
-        expected = "level" if row.path in LEVEL_FIELDS else "default"
+        if row.path in LEVEL_FIELDS:
+            expected = "level"
+        elif row.path in general_fields:
+            expected = "role"
+        else:
+            expected = "default"
         assert resolved.origin[row.path] == expected
 
 

@@ -283,7 +283,7 @@ def _missing_prompt_guard() -> tuple[object, ...]:
 @pytest.mark.parametrize(
     ("fail_mode", "posture", "holds", "words"),
     [
-        (None, None, True, "are blocked"),
+        (None, None, True, "a person is asked"),
         ("degraded", "block", True, "are blocked"),
         ("closed", "block", True, "are blocked"),
         ("degraded", "approve", True, "a person is asked"),
