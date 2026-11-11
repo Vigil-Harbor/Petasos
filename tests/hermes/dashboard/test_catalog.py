@@ -31,7 +31,7 @@ def test_read_lists_roles_levels_and_resolved_rows() -> None:
     assert general == "For everyday work. Uses every built-in rule and blocks risky tool calls."
     assert "is on" not in general
     balanced = next(level for level in body["levels"] if level["name"] == "balanced")
-    assert balanced["description"].startswith("The default. Sets a clear attack")
+    assert balanced["description"].startswith("The default. Blocks a clear attack")
     assert [level["name"] for level in body["levels"]] == ["relaxed", "balanced", "strict"]
     paths = [row["path"] for row in body["settings"]]
     assert paths[0] == "fail_mode"
