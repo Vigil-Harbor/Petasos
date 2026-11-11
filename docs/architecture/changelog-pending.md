@@ -6,6 +6,10 @@ this branch would conflict with it. When the branch is rebased onto the
 released tree, these move into a new `[Unreleased]` section and this file is
 deleted.
 
+## Added
+
+- Try it shows the pipeline's text with selected personal information hidden, a redacted preview, and this input's conversation risk with the tried thresholds; each trial stays private and disposable. The Petasos tab shows its version beside Checked and Refresh.
+
 ## Removed
 
 - **Breaking.** `LlmGuardScanner`, `LlamaFirewallScanner`, and the `llm-guard`

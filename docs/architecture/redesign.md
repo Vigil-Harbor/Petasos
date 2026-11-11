@@ -1372,6 +1372,22 @@ It uses an empty secret, a private session id, a discarding event sink, and
 an explicit protected-path list for that home. It does not open the
 enforcement spool and it does not read or write another session's state.
 
+`anonymized` is the pipeline's sanitized text, display-redacted and clipped by
+`_show`, or null. `anonymization` is `{code, sentence}`: it names disabled
+anonymization, a missing, disabled, failed or unfinished personal-information
+check, no personal information, excluded entity kinds, or successful hiding.
+Tool trials retain the result of the guard's existing scan; no second scan runs.
+
+`risk` is `{score, tier, thresholds, sentence, threshold_sentence, note}`.
+`score` and the plain-language `tier` describe this input alone, or are null
+when the check times out or scoring is disabled. Each threshold is
+`{label, score}`. Text trials score their findings on a separate fresh tracker
+with the guard's per-scan cap, leaving the text decision unchanged. Tool trials
+read their own throwaway guard's tracker after evaluation. The note explains
+that real conversations include earlier inputs and decay; no live conversation
+is read or changed. Protection-stage reporting being off does not disable the
+guard's risk thresholds.
+
 #### `GET /playground/examples`
 
 `examples` (each `id`, `label` saying what it demonstrates, a one-line

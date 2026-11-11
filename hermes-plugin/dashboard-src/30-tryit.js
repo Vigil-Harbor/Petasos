@@ -618,6 +618,13 @@ function TryIt(props) {
             result.findings_omitted ? h("p", { className: "petasos-secondary" }, plural(result.findings_omitted, "more match", "more matches") + " not shown.") : null
           )
         : h("p", { className: "petasos-secondary" }, "Nothing in this input matched a rule."),
+      h("h4", { className: "petasos-subhead" }, "Personal information"),
+      h("p", { className: "petasos-secondary" }, result.anonymization.sentence),
+      result.anonymized ? h("pre", { className: "petasos-message", "aria-label": "Text with personal information hidden" }, result.anonymized) : null,
+      h("h4", { className: "petasos-subhead" }, "Conversation risk"),
+      h("p", null, result.risk.sentence),
+      h("p", { className: "petasos-secondary" }, result.risk.threshold_sentence),
+      h("p", { className: "petasos-help" }, result.risk.note),
       h(
         Disclosure,
         { label: "Technical detail", openLabel: "Hide technical detail", remember: "tryit-technical" },

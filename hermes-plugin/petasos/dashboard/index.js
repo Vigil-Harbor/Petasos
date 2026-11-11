@@ -3407,6 +3407,13 @@
               result.findings_omitted ? h("p", { className: "petasos-secondary" }, plural(result.findings_omitted, "more match", "more matches") + " not shown.") : null
             )
           : h("p", { className: "petasos-secondary" }, "Nothing in this input matched a rule."),
+        h("h4", { className: "petasos-subhead" }, "Personal information"),
+        h("p", { className: "petasos-secondary" }, result.anonymization.sentence),
+        result.anonymized ? h("pre", { className: "petasos-message", "aria-label": "Text with personal information hidden" }, result.anonymized) : null,
+        h("h4", { className: "petasos-subhead" }, "Conversation risk"),
+        h("p", null, result.risk.sentence),
+        h("p", { className: "petasos-secondary" }, result.risk.threshold_sentence),
+        h("p", { className: "petasos-help" }, result.risk.note),
         h(
           Disclosure,
           { label: "Technical detail", openLabel: "Hide technical detail", remember: "tryit-technical" },
@@ -4947,6 +4954,7 @@
           "div",
           { className: "petasos-topbar-side" },
           failureState[0] && status ? h(Status, { tone: "warning", title: failureState[0].message }, "Last check failed") : null,
+          status && status.petasos_version ? h("span", { className: "petasos-help" }, "Petasos " + status.petasos_version) : null,
           checkedState[0] ? h("span", { className: "petasos-help" }, "Checked " + whenText(checkedState[0] / 1000)) : null,
           h(Btn, { ghost: true, onClick: refreshAll, "aria-label": "Refresh now" }, "Refresh")
         )
