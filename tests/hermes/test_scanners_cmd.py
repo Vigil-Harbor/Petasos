@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from petasos.cli import main
+from petasos.hermes import semgrep_host
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -85,6 +86,53 @@ def test_remove_drops_the_extra(tmp_path: Path, capsys: pytest.CaptureFixture[st
     assert "prompt-guard" not in text
     assert "removed" in out
     assert code == 2
+
+
+def test_add_semgrep_is_refused_inside_hermes(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Semgrep cannot run inside Hermes, so add does not change the dependency list."""
+    project = _project(tmp_path)
+    before = project.read_text(encoding="utf-8")
+    code, out = _run(["scanner", "add", "semgrep", "--home", str(tmp_path)], capsys)
+
+    assert code == 2
+    assert out == (
+        "Semgrep cannot run inside Hermes yet, so it was not added. It would not check any code.\n"
+    )
+    assert "risky code" not in out
+    assert project.read_text(encoding="utf-8") == before
+
+
+def test_remove_semgrep_still_drops_the_extra(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Removing Semgrep still edits the dependency list."""
+    project = _project(tmp_path, "petasos[semgrep]==0.4.0")
+    code, out = _run(["scanner", "remove", "semgrep", "--home", str(tmp_path)], capsys)
+    text = project.read_text(encoding="utf-8")
+
+    assert "petasos==0.4.0" in text
+    assert "semgrep" not in text
+    assert "removed" in out
+    assert code == 2
+
+
+def test_add_semgrep_is_allowed_when_hermes_can_run_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The one fact, patched true, lets add name Semgrep in the dependency list."""
+    project = _project(tmp_path)
+    monkeypatch.setattr(semgrep_host, "semgrep_can_run", lambda: True)
+    monkeypatch.setattr(
+        "petasos.hermes.scanners_cmd.republish",
+        lambda: (True, "Hermes rebuilt the environment a new process runs."),
+    )
+    code, out = _run(["scanner", "add", "semgrep", "--home", str(tmp_path)], capsys)
+
+    assert code == 0
+    assert "petasos[semgrep]==0.4.0" in project.read_text(encoding="utf-8")
+    assert "Restart Hermes" in out
 
 
 def test_add_without_a_plugin_names_install(
