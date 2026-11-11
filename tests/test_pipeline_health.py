@@ -7,18 +7,13 @@ They call the library directly.
 from __future__ import annotations
 
 import time
-from types import MappingProxyType
 from typing import Any, cast
 
 from petasos.config.secrets import Secrets
 from petasos.config.sections import PetasosConfig
 from petasos.guard.guard import ToolCallGuard
 from petasos.model import (
-    Alert,
-    AuditEvent,
     ScanResult,
-    Severity,
-    severity_rank,
 )
 from petasos.pipeline import Pipeline
 from petasos.pipeline.ingest import scan_ingestion_result
@@ -168,16 +163,6 @@ def test_a_classifier_error_does_not_raise() -> None:
     )
     match = guard._classify_selfmod("terminal", cast("dict[str, Any]", _BoomParams()))
     assert match is None
-
-
-def test_unknown_severity_and_audit_dicts_round_trip() -> None:
-    assert severity_rank("not-a-severity") < severity_rank(Severity.INFO)
-    assert severity_rank("not-a-severity", unknown_wins=True) > severity_rank(Severity.CRITICAL)
-    payload = MappingProxyType({"sev": Severity.HIGH, "items": [{"nested": 1}]})
-    event = AuditEvent("e", 1.0, "s", "scan", payload, 1)
-    assert event.to_dict()["payload"]["sev"] == "high"
-    alert = Alert("a", 1.0, "rule", "high", "s", "msg", payload)
-    assert alert.to_dict()["context"]["items"] == [{"nested": 1}]
 
 
 async def test_ingestion_failures_are_recorded_and_do_not_raise() -> None:

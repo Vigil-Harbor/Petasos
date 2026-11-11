@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import dataclasses
 import json
+from types import MappingProxyType
 
 import pytest
 
 from petasos.model import (
+    Alert,
+    AuditEvent,
     NormalizedText,
     PipelineResult,
     Position,
@@ -14,6 +17,7 @@ from petasos.model import (
     Scanner,
     ScanResult,
     Severity,
+    severity_rank,
 )
 
 
@@ -201,3 +205,103 @@ class TestDirection:
         outbound: Direction = "outbound"
         assert inbound == "inbound"
         assert outbound == "outbound"
+
+
+class TestFrozenDataclasses:
+    def test_scan_finding_frozen(self) -> None:
+        f = ScanFinding(
+            rule_id="test",
+            finding_type="test",
+            severity=Severity.LOW,
+            confidence=0.5,
+            message="test",
+            scanner_name="test",
+        )
+        with pytest.raises(AttributeError):
+            f.rule_id = "hacked"  # type: ignore[misc]
+
+    def test_scan_result_frozen(self) -> None:
+        r = ScanResult(scanner_name="test", findings=())
+        with pytest.raises(AttributeError):
+            r.scanner_name = "hacked"  # type: ignore[misc]
+
+    def test_pipeline_result_frozen(self) -> None:
+        r = PipelineResult(safe=True, findings=())
+        with pytest.raises(AttributeError):
+            r.safe = False  # type: ignore[misc]
+
+    def test_audit_event_frozen(self) -> None:
+        e = AuditEvent(
+            event_id="e1",
+            timestamp=0.0,
+            session_id=None,
+            event_type="test",
+            payload=MappingProxyType({}),
+            sequence_number=0,
+        )
+        with pytest.raises(AttributeError):
+            e.event_type = "hacked"  # type: ignore[misc]
+
+    def test_alert_frozen(self) -> None:
+        a = Alert(
+            alert_id="a1",
+            timestamp=0.0,
+            rule_id="r1",
+            severity="high",
+            session_id=None,
+            message="test",
+            context=MappingProxyType({}),
+        )
+        with pytest.raises(AttributeError):
+            a.message = "hacked"  # type: ignore[misc]
+
+
+class TestDefensiveCopies:
+    def test_pipeline_result_findings_is_tuple(self) -> None:
+        r = PipelineResult(safe=True, findings=())
+        assert isinstance(r.findings, tuple)
+
+    def test_pipeline_result_scanner_results_is_tuple(self) -> None:
+        r = PipelineResult(safe=True, findings=(), scanner_results=())
+        assert isinstance(r.scanner_results, tuple)
+
+    def test_pipeline_result_errors_is_tuple(self) -> None:
+        r = PipelineResult(safe=True, findings=(), errors=())
+        assert isinstance(r.errors, tuple)
+
+
+def test_pipeline_result_to_dict_serializes_nested() -> None:
+    finding = ScanFinding(
+        rule_id="petasos.presidio.email",
+        finding_type="pii",
+        severity=Severity.HIGH,
+        confidence=0.9,
+        message="email address detected",
+        scanner_name="presidio",
+        position=Position(start=0, end=4),
+        matched_text="a@b.c",
+    )
+    sr = ScanResult(scanner_name="presidio", findings=(finding,), duration_ms=1.0, error=None)
+    result = PipelineResult(
+        safe=False,
+        findings=(finding,),
+        scanner_results=(sr,),
+        errors=("boom",),
+        feature_status=MappingProxyType({"audit": "enabled"}),
+    )
+    d = result.to_dict()
+    assert d["safe"] is False
+    assert d["findings"][0]["severity"] == "high"
+    assert d["scanner_results"][0]["scanner_name"] == "presidio"
+    assert d["errors"] == ["boom"]
+    assert d["feature_status"] == {"audit": "enabled"}
+
+
+def test_unknown_severity_and_audit_dicts_round_trip() -> None:
+    assert severity_rank("not-a-severity") < severity_rank(Severity.INFO)
+    assert severity_rank("not-a-severity", unknown_wins=True) > severity_rank(Severity.CRITICAL)
+    payload = MappingProxyType({"sev": Severity.HIGH, "items": [{"nested": 1}]})
+    event = AuditEvent("e", 1.0, "s", "scan", payload, 1)
+    assert event.to_dict()["payload"]["sev"] == "high"
+    alert = Alert("a", 1.0, "rule", "high", "s", "msg", payload)
+    assert alert.to_dict()["context"]["items"] == [{"nested": 1}]
