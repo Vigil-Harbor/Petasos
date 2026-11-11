@@ -180,12 +180,12 @@ def populate(request: dict[str, Any]) -> dict[str, Any]:
         "web_extract", {"url": "https://example.org/notes"}, page, "research-7f3a", "c02"
     )
     note("annotated page", annotated != page)
-    # The same calm session edits Hermes's config. Petasos records the attempt;
-    # the conversation is not blocked, so the call is not stopped. The record
-    # shows exactly that, so the demonstration does not flatter the product.
+    # Approvals are off, so nobody can be asked. The attempt to edit the
+    # config is blocked.
     at(21.9)
+    _merge_config({"approvals": {"mode": "off"}})
     note(
-        "self change in a calm session",
+        "unattended self change",
         _call(
             "write_file",
             {
@@ -195,6 +195,16 @@ def populate(request: dict[str, Any]) -> dict[str, Any]:
             "research-7f3a",
             "c02b",
         ),
+    )
+    _merge_config(
+        {
+            "approvals": {
+                "mode": "manual",
+                "single_query_mode": "deny",
+                "cron_mode": "deny",
+                "unattended_mode": "deny",
+            }
+        }
     )
 
     # Notes session: hidden instructions inside a file the agent is asked to write.
@@ -289,10 +299,25 @@ def populate(request: dict[str, Any]) -> dict[str, Any]:
             ),
         )
 
-    # Then it tries to switch Petasos off by editing its own config.
-    at(1.2)
+    # The ops session is already stopped. A later read is blocked because the
+    # warning signs added up, which Activity calls Conversation risk.
+    at(1.4)
     note(
-        "self change",
+        "stopped session",
+        _call("read_file", {"path": "docs/faq.md"}, "ops-88d0", "c09"),
+    )
+
+    # The operator sets never. The next call records the settings change,
+    # then refuses the attempt to edit the config. Approve is written back
+    # on the same key: Hermes deep-merges a save, so leaving the key out
+    # would keep never, and the tab would say the agent is blocked.
+    at(1.2)
+    _save(
+        True,
+        {"tools": {"dangerous_posture": "approve", "exempt": [], "self_change": "never"}},
+    )
+    note(
+        "refused self change",
         _call(
             "write_file",
             {
@@ -300,9 +325,22 @@ def populate(request: dict[str, Any]) -> dict[str, Any]:
                 "content": "plugins:\n  entries:\n    petasos:\n      settings:\n"
                 "        enabled: false\n",
             },
-            "ops-88d0",
+            # A fresh conversation. The ops session is already stopped, and a
+            # stopped session blocks the write before the never rule can.
+            "maintain-1a20",
             "c10",
         ),
+    )
+    at(1.05)
+    _save(
+        True,
+        {"tools": {"dangerous_posture": "approve", "exempt": [], "self_change": "approve"}},
+    )
+    note(
+        "settings restored",
+        # A fresh conversation, so this read is not blocked by the ops
+        # session's risk score. The call is only here so the save is recorded.
+        _call("read_file", {"path": "docs/faq.md"}, "maintain-1a21", "c11"),
     )
 
     # Recent support session: an outbound message carrying an injection.

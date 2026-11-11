@@ -103,10 +103,18 @@ def test_the_tab_says_what_the_record_can_show(tab_report: dict[str, Any]) -> No
     activity = tab_report["views"]["activity"]["text"]
     folded = overview.casefold()
     assert "uses every built-in rule" in folded
-    # Form buttons are drawn in upper case; the source label is sentence case.
-    assert "review current settings" in folded
+    assert "open." in folded
+    assert "fresh approval" in folded
+    assert "pinned" not in folded
+    assert "pinning" not in folded
+    assert "attempt to change settings was not stopped" not in folded
+    assert "attempt to change settings were not stopped" not in folded
     assert "show changed settings" not in folded
     assert "setting changes not stopped" not in folded
+    assert "Nobody could be asked" in activity
+    assert "not allowed to change its own guardrails" in activity
+    assert "Changed " in activity
+    assert "No approval for a guardrail change was live" in activity
     assert "signatures verified" in activity
     assert "Signed ·" not in activity
     assert "Conversation risk" in activity

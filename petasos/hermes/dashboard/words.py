@@ -151,6 +151,8 @@ def outcome(
             return {"code": "attempt_asked", "label": "Asked a person"}
         if _guardrail_name(follower) in {"covered", "session", "once"}:
             return {"code": "approved", "label": "Allowed for this session"}
+        if _guardrail_name(follower) == "denied":
+            return {"code": "declined", "label": "Person said no"}
         return {"code": "not_stopped", "label": "Not stopped"}
     if kind == "guardrail":
         return _guardrail_outcome(event)
@@ -305,7 +307,7 @@ def describe_event(
     return "Recorded a Petasos event."
 
 
-_GUARDRAIL_BLOCKED = frozenset({"refused", "unattended", "denied"})
+_GUARDRAIL_BLOCKED = frozenset({"refused", "unattended"})
 
 
 def _guardrail_name(event: Mapping[str, object] | None) -> str:
@@ -316,6 +318,8 @@ def _guardrail_name(event: Mapping[str, object] | None) -> str:
 
 def _guardrail_outcome(event: Mapping[str, object]) -> dict[str, str]:
     name = _guardrail_name(event)
+    if name == "denied":
+        return {"code": "declined", "label": "Person said no"}
     if name in _GUARDRAIL_BLOCKED:
         return {"code": "blocked", "label": "Blocked"}
     if name == "held":
@@ -371,10 +375,10 @@ def _settings_sentence(event: Mapping[str, object]) -> str:
     else:
         listed = "the settings"
     if event.get("approval_live") is True:
-        tail = "A session approval was live."
+        tail = "An approval for a guardrail change was live."
     else:
-        tail = "No session approval was live."
-    return f"Recorded a change to {listed}. {tail}"
+        tail = "No approval for a guardrail change was live."
+    return f"Changed {listed}. {tail}"
 
 
 def _stop_reason(follower: Mapping[str, object] | None) -> str:

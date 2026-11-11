@@ -478,7 +478,7 @@ function EventGroup(props) {
 var SHOWN_FIELDS = {
   scan_id: 1, timestamp: 1, event_type: 1, tool: 1, session_id: 1, severity: 1, rule_id: 1, reason: 1,
   summary: 1, outcome: 1, kind_label: 1, rule_sentence: 1, integrity: 1, sig: 1, matched_note: 1,
-  target: 1, outcome_note: 1, risk_block: 1,
+  target: 1, outcome_note: 1, risk_block: 1, review_action: 1,
 };
 
 function EventDetail(props) {
@@ -492,7 +492,7 @@ function EventDetail(props) {
   var rule = event.rule_id ? String(event.rule_id).replace(/^plugin_rule:/, "") : "";
   var integrity = event.integrity || {};
   var outcome = event.outcome || {};
-  var notStopped = outcome.code === "not_stopped";
+  var review = event.review_action;
   // Stopped by the conversation's risk score, which earlier warnings built up.
   var risky = Boolean(event.session_id && event.risk_block);
   useEffect(
@@ -531,12 +531,12 @@ function EventDetail(props) {
     ),
     h("h3", { className: "petasos-detail-title", id: "petasos-detail-title" }, event.summary),
     event.outcome_note ? h("p", { className: "petasos-detail-note" }, event.outcome_note) : null,
-    notStopped || risky
+    review || risky
       ? h(
           "div",
           { className: "petasos-row-actions" },
-          notStopped
-            ? h(Btn, { outlined: true, onClick: function () { go("settings", { changed: "1" }); } }, event.review_action)
+          review
+            ? h(Btn, { outlined: true, onClick: function () { go("settings", { changed: "1" }); } }, review)
             : null,
           risky
             ? h(

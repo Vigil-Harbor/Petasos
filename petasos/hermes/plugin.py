@@ -318,6 +318,13 @@ def protected_paths() -> frozenset[str]:
     return frozenset(str(path) for path in paths)
 
 
+def guardrail_roots() -> frozenset[str]:
+    """The Hermes home, and for a named profile the home above it."""
+    home = resolve_hermes_config_path().path.parent
+    root = home.parent.parent if home.parent.name == "profiles" else home
+    return frozenset({str(home), str(root)})
+
+
 def host_info() -> HostInfo:
     """What this Hermes process can answer. Callables are read on each decision.
 
@@ -335,7 +342,7 @@ def host_info() -> HostInfo:
         redactor=redactor if callable(redactor) else None,
         display_path=display_path,
         protected_paths=protected_paths,
-        guardrail_surface=lambda: hermes_surface(protected_paths()),
+        guardrail_surface=lambda: hermes_surface(protected_paths(), guardrail_roots()),
     )
 
 

@@ -46,8 +46,8 @@ DESCRIPTIONS = {
         "what protection covers, what runs and what does not (each check named by what it "
         "does, product after it); the job and strictness choices beneath. Then the last 24 "
         "hours: figures with labels above the values, adding up to the event total, and "
-        "recent events with repeats grouped. A setting change that was not stopped is a row "
-        "in the Protection panel, under the state line, with Review current settings."
+        "recent events with repeats grouped, including a settings change and an attempt the "
+        "agent was not allowed to make. Who can change these settings is below this view."
     ),
     "02-overview-paused": (
         "Overview after Pause protection was confirmed, taken taller than the window (1440 by "
@@ -122,8 +122,9 @@ DESCRIPTIONS = {
     ),
     "x4-activity-search": (
         "Activity with a custom range (the last 26 hours, written year-month-day) and a "
-        "search for 'settings': two attempts to change the settings, one blocked and one "
-        "not stopped, and a count that agrees with them."
+        "search for 'settings': blocked attempts (nobody could be asked, and a change the "
+        "agent is not allowed to make) and the applied settings changes, with a count that "
+        "agrees with the rows."
     ),
     "x5-keyboard-focus": "Overview with keyboard focus, reached with Tab, on Pause protection.",
 }
