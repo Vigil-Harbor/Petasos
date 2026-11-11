@@ -4,8 +4,8 @@ import importlib
 
 import pytest
 
-from petasos._types import PipelineResult
 from petasos.config.sections import PetasosConfig
+from petasos.model import PipelineResult
 from petasos.pipeline import Pipeline
 
 

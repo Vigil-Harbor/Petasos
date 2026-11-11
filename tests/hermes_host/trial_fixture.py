@@ -9,8 +9,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from petasos._types import Direction, Position, ScanFinding, ScanResult, Severity
 from petasos.hermes.dashboard import playground
+from petasos.model import Direction, Position, ScanFinding, ScanResult, Severity
 from petasos.scanners.registry import ScannerSpec
 
 

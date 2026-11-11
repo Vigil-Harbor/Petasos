@@ -14,10 +14,10 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from petasos._types import ScanFinding, Severity
 from petasos.config.floors import SELFMOD_BASE_SEVERITY
 from petasos.config.schema import from_mapping
 from petasos.config.sections import PetasosConfig
+from petasos.model import ScanFinding, Severity
 from petasos.pipeline import Pipeline
 from petasos.session.frequency import FrequencyTracker
 from petasos.session.guard import SELFMOD_DEPTH_OVERFLOW_TARGET, ToolCallGuard

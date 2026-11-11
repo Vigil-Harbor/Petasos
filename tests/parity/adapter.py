@@ -33,8 +33,8 @@ from tests.parity.load import ALL_PROFILES, expand_args, text_of
 if TYPE_CHECKING:
     from collections.abc import Iterator, Mapping
 
-    from petasos._types import Direction, PipelineResult
     from petasos.config.sections import PetasosConfig
+    from petasos.model import Direction, PipelineResult
 
 # Absolute, and long enough for the self-modification owned-path check.
 # The corpus uses this same path. It does not need to exist on disk.

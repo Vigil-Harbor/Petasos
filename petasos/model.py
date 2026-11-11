@@ -7,8 +7,8 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any, Literal, Protocol, runtime_checkable
 
-from petasos._coverage import CoverageSpan as CoverageSpan
-from petasos._coverage import ScanCoverage as ScanCoverage
+from petasos.coverage import CoverageSpan as CoverageSpan
+from petasos.coverage import ScanCoverage as ScanCoverage
 
 Direction = Literal["inbound", "outbound"]
 

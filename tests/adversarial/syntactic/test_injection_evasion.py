@@ -24,7 +24,7 @@ from tests.test_minimal_scanner import _LEET_FOLD_PINS
 if TYPE_CHECKING:
     import re
 
-    from petasos._types import ScanFinding
+    from petasos.model import ScanFinding
 
 
 async def test_system_prefix_case_variant() -> None:

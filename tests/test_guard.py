@@ -7,11 +7,11 @@ from unittest.mock import patch
 
 import pytest
 
-from petasos._types import ScanFinding, Severity
 from petasos.config.layers import ROLES, resolve
 from petasos.config.schema import ConfigError, evolve, from_mapping
 from petasos.config.secrets import Secrets
 from petasos.config.sections import PetasosConfig
+from petasos.model import ScanFinding, Severity
 from petasos.normalize import canonicalize_tool_name
 from petasos.pipeline import Pipeline
 from petasos.session.frequency import FrequencyTracker, SessionState

@@ -5,9 +5,9 @@ from collections import Counter
 
 import pytest
 
-from petasos._types import Position, Scanner, ScanResult, Severity
 from petasos.config.schema import from_mapping
 from petasos.config.sections import PetasosConfig
+from petasos.model import Position, Scanner, ScanResult, Severity
 from petasos.normalize import normalize
 from petasos.pipeline import Pipeline
 from petasos.scanners.minimal import (

@@ -10,8 +10,8 @@ import asyncio
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Literal
 
-from petasos._coverage import FrozenCoverageMapping
-from petasos._types import Direction, PipelineResult, Position, ScanFinding, ScanResult
+from petasos.coverage import FrozenCoverageMapping
+from petasos.model import Direction, PipelineResult, Position, ScanFinding, ScanResult
 from petasos.scanners.minimal import _DECODE_MAX_BYTES, MinimalScanner
 from petasos.scanners.semgrep import PreparedSemgrepScan
 
@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     import threading
     from collections.abc import Mapping
 
-    from petasos._coverage import ScanCoverage
+    from petasos.coverage import ScanCoverage
     from petasos.pipeline import Pipeline
 from petasos.session.guard import _MAX_PARAM_TEXT_LEN
 

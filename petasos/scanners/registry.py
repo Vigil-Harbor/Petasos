@@ -17,7 +17,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
-from petasos._types import (
+from petasos.model import (
     AVAILABILITY_CAUSE_ABSENT,
     AVAILABILITY_CAUSE_LOAD_FAILED,
     ScanResult,
@@ -27,8 +27,8 @@ from petasos.scanners.minimal import MinimalScanner
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from petasos._types import Direction, Scanner
     from petasos.config.sections import PetasosConfig
+    from petasos.model import Direction, Scanner
 
 Capability = Literal["injection", "pii", "code"]
 """What an optional backend reports. The syntactic scanner is separate."""

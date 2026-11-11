@@ -20,10 +20,10 @@ from __future__ import annotations
 
 import pytest
 
-from petasos._types import ScanFinding, Severity
 from petasos.config.layers import resolve
 from petasos.config.schema import ConfigError, evolve, from_mapping
 from petasos.config.sections import PetasosConfig
+from petasos.model import ScanFinding, Severity
 from petasos.pipeline import Pipeline, _is_floor_rule
 from petasos.scanners.minimal import (
     _ALL_INJECTION_IDS,

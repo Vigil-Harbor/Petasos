@@ -1,4 +1,4 @@
-from petasos._types import Alert, AuditEvent
+from petasos.model import Alert, AuditEvent
 from petasos.session.alerting import AlertManager
 from petasos.session.audit import AuditEmitter
 from petasos.session.escalation import (

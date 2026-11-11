@@ -135,7 +135,7 @@ def test_degraded_pending_key() -> None:
 
 
 def test_excerpt_withholds_what_it_cannot_bound() -> None:
-    from petasos._limits import MAX_PARAM_TEXT_LEN
+    from petasos.limits import MAX_PARAM_TEXT_LEN
 
     assert (
         command_excerpt(["not-a-map"], _result(), load_redactor=lambda: _redact)

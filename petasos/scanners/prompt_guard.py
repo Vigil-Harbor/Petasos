@@ -1,6 +1,6 @@
 """Direct PromptGuard 2 scanner on torch and transformers (PET-242).
 
-Module-level imports are stdlib plus ``petasos._types``. torch and transformers
+Module-level imports are stdlib plus ``petasos.model``. torch and transformers
 import locally inside ``_load`` and ``_score``, so ``import petasos.scanners``
 stays ML-free. ``_score`` holds every torch use in the inference path, which lets
 the default test lane replace it and test the rest of the scanner without torch.
@@ -24,7 +24,7 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-from petasos._types import (
+from petasos.model import (
     AVAILABILITY_CAUSE_ABSENT,
     AVAILABILITY_CAUSE_LOAD_FAILED,
     AvailabilityCause,

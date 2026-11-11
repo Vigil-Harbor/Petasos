@@ -1,4 +1,12 @@
-from petasos._types import (
+from petasos.config import PetasosConfig
+from petasos.enforce.messages import (
+    format_block_message,
+    format_content_block,
+    format_pipeline_block_message,
+    format_result_notice,
+    shorten_rule_id,
+)
+from petasos.model import (
     Alert,
     AuditEvent,
     CoverageSpan,
@@ -11,14 +19,6 @@ from petasos._types import (
     Scanner,
     ScanResult,
     Severity,
-)
-from petasos.config import PetasosConfig
-from petasos.enforce.messages import (
-    format_block_message,
-    format_content_block,
-    format_pipeline_block_message,
-    format_result_notice,
-    shorten_rule_id,
 )
 from petasos.normalize import normalize
 from petasos.pipeline import Pipeline

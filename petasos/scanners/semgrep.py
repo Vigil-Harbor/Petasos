@@ -16,7 +16,7 @@ import threading
 import time
 from typing import TYPE_CHECKING, Any
 
-from petasos._limits import MAX_PARAM_TEXT_LEN
+from petasos.limits import MAX_PARAM_TEXT_LEN
 from petasos.scanners._semgrep_engine import result_for
 from petasos.scanners._semgrep_qualification import qualification_warning
 from petasos.scanners._semgrep_runtime import (
@@ -42,7 +42,7 @@ from petasos.scanners._semgrep_source import (
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from petasos._types import Direction, ScanResult
+    from petasos.model import Direction, ScanResult
 
 __all__ = [
     "SemgrepCleanupError",

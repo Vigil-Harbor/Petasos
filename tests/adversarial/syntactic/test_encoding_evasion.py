@@ -15,8 +15,8 @@ import codecs
 
 import pytest
 
-from petasos._types import Position, Severity
 from petasos.config.sections import PetasosConfig
+from petasos.model import Position, Severity
 from petasos.pipeline import Pipeline
 from petasos.scanners.minimal import MinimalScanner
 

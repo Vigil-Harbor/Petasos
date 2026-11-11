@@ -16,10 +16,10 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from petasos._types import PipelineResult, Position, ScanFinding, ScanResult, Severity
 from petasos.config.schema import from_mapping
 from petasos.config.secrets import Secrets
 from petasos.config.sections import PetasosConfig
+from petasos.model import PipelineResult, Position, ScanFinding, ScanResult, Severity
 from petasos.pipeline import Pipeline
 from petasos.scanners.minimal import MinimalScanner
 from petasos.session.alerting import AlertManager

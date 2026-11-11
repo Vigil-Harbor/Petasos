@@ -11,9 +11,9 @@ from __future__ import annotations
 import asyncio
 import time
 
-from petasos._types import Direction, PipelineResult, ScanResult
 from petasos.config.schema import from_mapping
 from petasos.config.sections import PetasosConfig
+from petasos.model import Direction, PipelineResult, ScanResult
 from petasos.pipeline import Pipeline
 from petasos.scanners.minimal import MinimalScanner
 

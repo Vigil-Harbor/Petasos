@@ -10,15 +10,15 @@ import time
 from types import MappingProxyType
 from typing import Any, cast
 
-from petasos._types import (
+from petasos.config.secrets import Secrets
+from petasos.config.sections import PetasosConfig
+from petasos.model import (
     Alert,
     AuditEvent,
     ScanResult,
     Severity,
     severity_rank,
 )
-from petasos.config.secrets import Secrets
-from petasos.config.sections import PetasosConfig
 from petasos.pipeline import Pipeline
 from petasos.scanners.minimal import MinimalScanner
 from petasos.scanners.semgrep import SemgrepScanner

@@ -12,8 +12,8 @@ from typing import Any
 
 import pytest
 
-from petasos._coverage import CoverageSpan, ScanCoverage
-from petasos._types import Position, ScanFinding, ScanResult, Severity
+from petasos.coverage import CoverageSpan, ScanCoverage
+from petasos.model import Position, ScanFinding, ScanResult, Severity
 from scripts import semgrep_benchmark as bench
 from scripts import semgrep_benchmark_protocol as protocol
 

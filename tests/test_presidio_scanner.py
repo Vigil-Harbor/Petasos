@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from petasos._types import (
+from petasos.model import (
     Position,
     ScanFinding,
     Scanner,

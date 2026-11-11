@@ -13,7 +13,6 @@ import logging
 from collections.abc import Callable, Iterable, Mapping
 from typing import TYPE_CHECKING, Any
 
-from petasos._types import Direction, PipelineResult, ScanFinding, Severity
 from petasos.config.layers import resolve
 from petasos.config.schema import ConfigError
 from petasos.config.secrets import Secrets
@@ -34,6 +33,7 @@ from petasos.hermes.dashboard.catalog import combine
 from petasos.hermes.dashboard.errors import ApiError, envelope
 from petasos.hermes.dashboard.words import CHECK_NOTE, RISK_NOTE, RISK_TIERS, looks_for
 from petasos.hermes.host import command_will_be_asked
+from petasos.model import Direction, PipelineResult, ScanFinding, Severity
 from petasos.normalize import canonicalize_tool_name, normalize
 from petasos.pipeline import Pipeline
 from petasos.scanners.registry import REGISTRY, BuildContext, ScannerSpec, ScannerStatus, compose

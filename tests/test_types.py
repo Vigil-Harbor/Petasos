@@ -5,7 +5,7 @@ import json
 
 import pytest
 
-from petasos._types import (
+from petasos.model import (
     NormalizedText,
     PipelineResult,
     Position,
@@ -195,7 +195,7 @@ class TestSeverity:
 
 class TestDirection:
     def test_accepts_inbound_outbound(self) -> None:
-        from petasos._types import Direction
+        from petasos.model import Direction
 
         inbound: Direction = "inbound"
         outbound: Direction = "outbound"

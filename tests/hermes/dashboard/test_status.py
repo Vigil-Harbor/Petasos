@@ -12,7 +12,7 @@ from petasos.hermes.dashboard.status import status
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from petasos._types import Scanner
+    from petasos.model import Scanner
 
 
 def _home(tmp_path: Path, text: str) -> Path:

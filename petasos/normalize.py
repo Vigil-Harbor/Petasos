@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 import unicodedata
 
-from petasos._types import NormalizedText
+from petasos.model import NormalizedText
 
 RTL_OVERRIDES = frozenset(
     [

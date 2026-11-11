@@ -20,8 +20,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
-from petasos._coverage import ScanCoverage
-from petasos._types import ScanResult
+from petasos.coverage import ScanCoverage
+from petasos.model import ScanResult
 from petasos.scanners import _semgrep_roots as roots
 from petasos.scanners._semgrep_engine import (
     ENGINE_VERSION,

@@ -682,7 +682,7 @@ async def test_repeated_close_never_schedules_onto_a_closed_loop(
 
 
 def _finding() -> Any:
-    from petasos._types import ScanFinding, ScanResult, Severity
+    from petasos.model import ScanFinding, ScanResult, Severity
 
     return ScanResult(
         "semgrep",

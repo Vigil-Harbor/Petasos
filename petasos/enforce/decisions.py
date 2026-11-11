@@ -11,12 +11,12 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
-from petasos._types import ScanFinding, Severity, at_least, severity_rank
 from petasos.enforce.messages import (
     format_block_message,
     format_content_block,
     format_result_notice,
 )
+from petasos.model import ScanFinding, Severity, at_least, severity_rank
 from petasos.normalize import canonicalize_tool_name
 
 if TYPE_CHECKING:

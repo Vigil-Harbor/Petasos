@@ -40,23 +40,23 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Final, NamedTuple
 
-from petasos._limits import MAX_PARAM_TEXT_LEN
-from petasos._types import ScanFinding, Severity
 from petasos.config.secrets import Secrets
+from petasos.limits import MAX_PARAM_TEXT_LEN
+from petasos.model import ScanFinding, Severity
 from petasos.normalize import _NAMESPACE_PREFIX_RE as _NAMESPACE_PREFIX_RE
 from petasos.normalize import canonicalize_tool_name
-from petasos.session._safe_json import safe_json_dumps
 from petasos.session.escalation import evaluate_tier, max_tier
 from petasos.session.guardrail import GuardrailSurface, normalize_path_text, recognize
+from petasos.session.safe_json import safe_json_dumps
 
 _logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping
 
-    from petasos._types import Direction
     from petasos.config.sections import PetasosConfig
     from petasos.hermes.home import HermesConfigResolution
+    from petasos.model import Direction
     from petasos.pipeline import Pipeline
     from petasos.session.frequency import FrequencyTracker, SessionState
     from petasos.session.lineage import LineageRegistry

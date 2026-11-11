@@ -88,7 +88,7 @@ class _StubScanner:
         """Return the findings ``spec`` names, or fail the way it asks."""
         import asyncio
 
-        from petasos._types import ScanFinding, ScanResult, Severity
+        from petasos.model import ScanFinding, ScanResult, Severity
 
         del direction, session_id
         mode = self._spec.get("mode", "rules")

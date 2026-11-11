@@ -4,7 +4,7 @@ from types import MappingProxyType
 
 import pytest
 
-from petasos._types import (
+from petasos.model import (
     PipelineResult,
     Position,
     ScanFinding,

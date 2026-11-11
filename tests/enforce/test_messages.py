@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from petasos._types import PipelineResult, ScanFinding, Severity
 from petasos.enforce.messages import (
     _RESULT_NOTICE,
     _RESULT_NOTICE_FALLBACK,
@@ -9,6 +8,7 @@ from petasos.enforce.messages import (
     format_result_notice,
     shorten_rule_id,
 )
+from petasos.model import PipelineResult, ScanFinding, Severity
 from petasos.session.guard import GuardResult
 
 _PREFIX = "[BLOCKED by Petasos]"

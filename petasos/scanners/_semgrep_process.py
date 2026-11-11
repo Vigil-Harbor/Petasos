@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     import threading
 
-    from petasos._types import ScanResult
+    from petasos.model import ScanResult
 
 STDOUT_LIMIT = 2 * 1024 * 1024
 STDERR_LIMIT = 64 * 1024

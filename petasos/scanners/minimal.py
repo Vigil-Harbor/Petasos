@@ -7,7 +7,7 @@ import re
 import time
 from dataclasses import dataclass
 
-from petasos._types import (
+from petasos.model import (
     Direction,
     NormalizedText,
     Position,
@@ -1317,7 +1317,7 @@ class MinimalScanner:
         normalized: object,
         findings: list[ScanFinding],
     ) -> None:
-        from petasos._types import NormalizedText as _NT
+        from petasos.model import NormalizedText as _NT
 
         assert isinstance(normalized, _NT)
 

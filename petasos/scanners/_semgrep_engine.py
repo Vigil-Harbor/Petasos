@@ -16,8 +16,8 @@ from itertools import chain
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
-from petasos._coverage import CoverageSpan, CoverageStatus, ScanCoverage
-from petasos._types import Position, ScanFinding, ScanResult, Severity
+from petasos.coverage import CoverageSpan, CoverageStatus, ScanCoverage
+from petasos.model import Position, ScanFinding, ScanResult, Severity
 from petasos.scanners._semgrep_process import (
     CLEANUP_DEADLINE_OBSERVER,
     CleanupFailure,

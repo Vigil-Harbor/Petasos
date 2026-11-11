@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Literal
 
-from petasos._types import severity_rank
 from petasos.config.floors import (
     INJECTION_PREFIX,
     SELFMOD_BASE_SEVERITY,
@@ -14,6 +13,7 @@ from petasos.config.floors import (
     STRUCTURAL_PREFIX,
 )
 from petasos.config.schema import ConfigError, section, setting
+from petasos.model import severity_rank
 
 _SEVERITIES = frozenset(SEVERITY_NAMES)
 _SEVERITY_LIST = ", ".join(SEVERITY_NAMES)

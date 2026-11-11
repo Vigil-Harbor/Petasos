@@ -4,7 +4,10 @@ from types import MappingProxyType
 
 import pytest
 
-from petasos._types import (
+from petasos.config.layers import ROLES
+from petasos.config.schema import from_mapping, to_mapping
+from petasos.config.sections import PetasosConfig
+from petasos.model import (
     Alert,
     AuditEvent,
     PipelineResult,
@@ -12,9 +15,6 @@ from petasos._types import (
     ScanResult,
     Severity,
 )
-from petasos.config.layers import ROLES
-from petasos.config.schema import from_mapping, to_mapping
-from petasos.config.sections import PetasosConfig
 from petasos.pipeline import Pipeline
 from petasos.scanners.minimal import RULE_TAXONOMY
 

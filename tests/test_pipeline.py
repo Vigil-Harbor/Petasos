@@ -5,7 +5,11 @@ import time
 
 import pytest
 
-from petasos._types import (
+from petasos.config.layers import resolve
+from petasos.config.schema import ConfigError, from_mapping
+from petasos.config.secrets import Secrets
+from petasos.config.sections import PetasosConfig
+from petasos.model import (
     Direction,
     PipelineResult,
     Position,
@@ -14,10 +18,6 @@ from petasos._types import (
     ScanResult,
     Severity,
 )
-from petasos.config.layers import resolve
-from petasos.config.schema import ConfigError, from_mapping
-from petasos.config.secrets import Secrets
-from petasos.config.sections import PetasosConfig
 from petasos.pipeline import Pipeline
 from petasos.session.frequency import FrequencyTracker
 

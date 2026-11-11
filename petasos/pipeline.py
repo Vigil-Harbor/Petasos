@@ -12,7 +12,10 @@ from dataclasses import replace
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
-from petasos._types import (
+from petasos.config.schema import ReconfigureResult, apply_live
+from petasos.config.secrets import Secrets, require_hash_key
+from petasos.config.sections import PetasosConfig, RulesConfig
+from petasos.model import (
     AVAILABILITY_CAUSE_LOAD_FAILED,
     Alert,
     AuditEvent,
@@ -25,9 +28,6 @@ from petasos._types import (
     at_least,
     severity_rank,
 )
-from petasos.config.schema import ReconfigureResult, apply_live
-from petasos.config.secrets import Secrets, require_hash_key
-from petasos.config.sections import PetasosConfig, RulesConfig
 from petasos.normalize import normalize
 from petasos.scanners._semgrep_runtime import error_result as _semgrep_error
 from petasos.scanners.minimal import (
@@ -93,7 +93,7 @@ _HEALTH_STATUS_ERROR = "error"
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
-    from petasos._types import Direction, FloorScope, Scanner
+    from petasos.model import Direction, FloorScope, Scanner
 
 # Default per-scanner timeout (PIPE-03). Lowered from 30s; overridable per
 # Pipeline via PetasosConfig.scanner_timeout_seconds. Kept as the _scan_one

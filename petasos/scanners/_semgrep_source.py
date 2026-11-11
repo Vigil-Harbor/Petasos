@@ -14,10 +14,10 @@ from array import array
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, cast
 
-from petasos._limits import MAX_PARAM_TEXT_LEN
+from petasos.limits import MAX_PARAM_TEXT_LEN
 
 if TYPE_CHECKING:
-    from petasos._coverage import Projection
+    from petasos.coverage import Projection
 
 LANGUAGES = ("python", "javascript", "typescript")
 _LABELS = {

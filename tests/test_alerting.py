@@ -7,9 +7,9 @@ from unittest.mock import patch
 
 import pytest
 
-from petasos._types import Alert, PipelineResult, ScanFinding, Severity
 from petasos.config.schema import from_mapping
 from petasos.config.sections import PetasosConfig
+from petasos.model import Alert, PipelineResult, ScanFinding, Severity
 from petasos.session.alerting import AlertManager
 from petasos.session.frequency import FrequencyUpdateResult
 

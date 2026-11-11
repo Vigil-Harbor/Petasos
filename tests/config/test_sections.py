@@ -322,7 +322,7 @@ def test_config_modules_import_nothing_above_the_config_layer() -> None:
             for module in modules:
                 if module is None or not module.startswith("petasos"):
                     continue
-                if module == "petasos._types" or module.startswith("petasos._types."):
+                if module == "petasos.model" or module.startswith("petasos.model."):
                     continue
                 if module == "petasos.config" or module.startswith("petasos.config."):
                     continue

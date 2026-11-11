@@ -13,11 +13,11 @@ import logging
 
 import pytest
 
-from petasos._types import PipelineResult, ScanFinding, Severity
 from petasos.config.layers import resolve
 from petasos.config.schema import from_mapping
 from petasos.config.secrets import Secrets
 from petasos.config.sections import PetasosConfig
+from petasos.model import PipelineResult, ScanFinding, Severity
 from petasos.pipeline import Pipeline
 from petasos.scanners.minimal import MinimalScanner
 

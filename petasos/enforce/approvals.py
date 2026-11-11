@@ -12,7 +12,7 @@ import unicodedata
 from collections.abc import Callable, Mapping
 from typing import Any
 
-from petasos._limits import MAX_PARAM_TEXT_LEN
+from petasos.limits import MAX_PARAM_TEXT_LEN
 from petasos.normalize import _is_strippable
 
 CREDENTIAL_MASKED_NOTICE = "Sensitive content masked locally; exposure unconfirmed."

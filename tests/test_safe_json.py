@@ -4,7 +4,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-from petasos.session._safe_json import safe_json_dumps
+from petasos.session.safe_json import safe_json_dumps
 
 
 class TestSafeJsonDumps:

@@ -24,10 +24,10 @@ if TYPE_CHECKING:
     import logging
     from collections.abc import Callable, Sequence
 
-    from petasos._types import Scanner
     from petasos.config.schema import ReconfigureResult
     from petasos.config.secrets import Secrets
     from petasos.enforce.types import HostInfo
+    from petasos.model import Scanner
 
 _SEMGREP_PREFIX = "scanners.semgrep."
 _SECRET_UNSET = "PETASOS_SESSION_SECRET not set — HMAC session binding disabled"

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from petasos._types import Position, ScanFinding, ScanResult, Severity
+from petasos.model import Position, ScanFinding, ScanResult, Severity
 from petasos.pipeline import merge_findings
 
 

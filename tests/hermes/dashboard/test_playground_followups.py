@@ -8,9 +8,9 @@ from typing import Any
 
 import pytest
 
-from petasos._types import Direction, Position, ScanFinding, ScanResult, Severity
 from petasos.config.layers import resolve
 from petasos.hermes.dashboard.playground import try_input
+from petasos.model import Direction, Position, ScanFinding, ScanResult, Severity
 from petasos.scanners.registry import ScannerSpec
 from petasos.session.frequency import FrequencyTracker
 
