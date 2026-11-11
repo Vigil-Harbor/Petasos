@@ -1182,7 +1182,13 @@ test fails if it does. `paused` is true when Hermes runs Petasos and its
 own switch is off. `scope` says what "on" covers (every agent Hermes
 starts from the profile, except in safe mode; a saved change applies from
 the next action), and `checks_note` describes the checks without claiming
-they run.
+they run. `choices_note` is one sentence beside the job and strictness
+when those choices are not in effect, and null when they are: while
+protection is paused it says they apply when protection resumes; while
+Hermes is not running Petasos it says they apply when Hermes runs
+Petasos; while the settings cannot be used it says they are not in use
+until the settings can be used. Job and strictness descriptions say what
+the choice sets, not that protection is doing it now.
 
 `coverage` is read from the same scanner rows: `running` and `missing`
 (each `id`, `label`, `name`, the registry's purpose name with the product
@@ -1238,8 +1244,13 @@ Body: any subset of `enabled`, `role`, `level`, `overrides`. `overrides` is
 a patch: omitted keys stay. Response: `stored` (the merged four), `sections`,
 `settings` (what the merge would resolve to), `changes` (leaves whose value
 or origin would differ: `path`, `before`, `after`, `origin_before`,
-`origin_after`, `restart`), `valid`, `problems`. Nothing is written. An
-invalid candidate is `valid: false` and `changes: []`, with HTTP 200.
+`origin_after`, `restart`, `applies`), `applies` (one sentence for the
+whole preview), `valid`, `problems`. Nothing is written. An
+invalid candidate is `valid: false`, `changes: []` and `applies` empty,
+with HTTP 200. `applies` on a restart-bound change says an agent started
+from now on uses the saved value, and an agent already running keeps the
+previous value until it restarts. The response does not say whether any
+running agent has restarted. A live change applies from the next tool call.
 
 #### `PUT /settings`
 
@@ -1252,7 +1263,12 @@ If Hermes's writer is absent, HTTP 503 `writer_unavailable`.
 
 Success is the `GET /settings` body plus `saved: true`, `restart` (leaf
 paths whose value changed and whose spec needs a restart), and
-`restart_message`.
+`restart_message`. For a restart-bound change that sentence says an agent
+started from now on uses the saved value, and an agent already running
+keeps the previous value until it restarts. It does not claim to know
+whether a running agent has restarted. A live change says Petasos uses it
+from the agent's next tool call. When one save changes both, the sentence
+says so.
 
 Clearing is not a patch. Hermes's writer deep-merges a mapping and keeps
 keys the new document omits, and `None` does not replace a mapping. A list
@@ -1309,6 +1325,10 @@ finding has no position. `normalized` is the normalised input when it
 differs, otherwise null. `scanners` lists the syntactic scanner and each
 registry entry that was considered. `participated` is false for `off`,
 `not_installed`, `unavailable`, and for a check that did not finish.
+`link`, when set, is `{href}`: `#overview?panel=checks` for a check that
+is not installed, and `#settings?path=scanners.<id>.enabled` for one that
+is turned off. `check_note` says the check runs no command, writes no
+file, sends nothing, and adds no Activity record.
 PromptGuard does not take part, and no download starts, when its weights
 are not on disk; `reason` says so. Semgrep without a lifecycle owner is
 unavailable for the same reason the gateway's composition reports.
@@ -1325,8 +1345,8 @@ enforcement spool and it does not read or write another session's state.
 
 `examples` (each `id`, `label` saying what it demonstrates, a one-line
 `description`, `kind` (`text` or `tool`), and its input: `text` with
-`direction`, or `tool` with `arguments`) and `default`, the one Try it
-opens with. They are
+`direction`, or `tool` with `arguments`), `default`, the one Try it
+opens with, and `check_note`, the sentence beside Check. They are
 served from the wheel, not written in the tab's script: Hermes scans a
 plugin directory for dangerous strings before it loads the plugin
 (`tools/plugin_guard.py`), and a sample attack in the script gave the
@@ -1366,7 +1386,11 @@ rule, kind and reason.
 Events are newest first. Each event is the stored record (content fields
 redacted; ids are not) plus `summary`, `outcome`, `matched_note` (the
 matched text is not kept, and why) and `integrity`, which carries
-`meaning`: what the signature proves and what it cannot. An attempt to
+`meaning`: what the signature proves and what it cannot. `severity_label`
+is the word for the severity column: a stored rank in plain words, `Conversation risk`
+for a block from the conversation's risk score, `No rule` when no rule
+matched, and `Not recorded` when a rule is named and the event stored no
+rank. There is no dash. An attempt to
 change the guardrails (`selfmod_attempt`) takes its outcome from the event
 the enforcer wrote next for the same call (same conversation and tool,
 within seconds): `attempt_blocked`, `attempt_asked`, or `not_stopped`,
@@ -1376,7 +1400,11 @@ conversation's risk score (a `block` or `tier3` event, or an attempt the
 enforcer then blocked that way), so the tab can lead to the earlier
 warnings that built it. `integrity.status`
 is `verified`, `failed` (with `reason`), or `off`. The page `integrity.mode`
-is `verified`, `mixed`, `failed`, or `off`. `off` means no usable session
+is `verified`, `mixed`, `failed`, or `off`. `label` is the badge: when
+`verified`, `{n} signatures verified`. `limit` and `limit_label`, only when
+every signature on the page matched, are the disclosure: a matching
+signature shows the entry was not altered, and cannot show that no entry
+was deleted. `off` means no usable session
 secret; the reason says which. Failed events are still returned.
 
 `next_cursor` is opaque. Send it back as `cursor` for the next, older page.
@@ -1395,8 +1423,14 @@ The same time, kind, tool, session, severity, outcome and text filters.
 whose outcome is `blocked`, `stopped` or `attempt_blocked`, with an attempt
 and the block written for the same call counted once when both match.
 Also `by_kind`, `by_severity`, `by_tool`, `by_session`, `by_outcome`,
-`kind_labels`, `complete`, `integrity`. The read cap is 4 MiB of the newest
-bytes.
+`figures`, `finding`, `kind_labels`, `complete`, `integrity`. `figures` is
+one `{code, label, count, outcomes}` per outcome that occurred. Codes that
+share a label are one figure. The counts add up to `total`.
+`not_stopped` is not a figure: those events are counted in `Other`, and
+`finding` is `{count, sentence, action}` when that count is above zero,
+otherwise null. The sentence says the record cannot show whether a change
+took effect. `action` is `Review current settings`. The read cap is 4 MiB
+of the newest bytes.
 
 #### `GET /activity/{scan_id}`
 

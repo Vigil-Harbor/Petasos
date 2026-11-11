@@ -381,6 +381,102 @@ MATCHED_TEXT_NOTE = (
     "Not kept, because it can contain secrets. To test this rule, paste the text into Try it."
 )
 
+# The one line beside the job and strictness when those choices are not in effect.
+CHOICES_WHEN_PAUSED = "These apply when protection resumes."
+CHOICES_WHEN_HERMES = "These apply when Hermes runs Petasos."
+CHOICES_WHEN_UNUSABLE = "These are not in use until the settings can be used."
+
+# What one Try it check does. It builds a pipeline, decides, and throws that away.
+CHECK_NOTE = (
+    "This check runs no command, writes no file, sends nothing, and adds no Activity record."
+)
+
+# The button on a guardrail finding. It opens the settings that differ from the default.
+REVIEW_CURRENT_SETTINGS = "Review current settings"
+
+# The disclosure beside a verified activity list. The body is the verified meaning above.
+SIGNATURE_LIMIT_LABEL = "What a signature shows"
+
+# Severity words for an event that stored none. A stored rank uses its own word.
+_SEVERITY_WORDS = MappingProxyType(
+    {
+        "critical": "Critical",
+        "high": "High",
+        "medium": "Medium",
+        "low": "Low",
+        "info": "Info",
+    }
+)
+_RISK_EVENT = frozenset({"block", "tier3"})
+
+
+def severity_label(event: Mapping[str, object]) -> str:
+    """The severity word an activity row shows.
+
+    A stored rank is that rank. A block from the conversation's risk score has
+    no rank. An event that names no rule matched none. An event that names a
+    rule and stores no rank did not record how serious that rule was.
+    """
+    raw = _text(event.get("severity")).strip().lower()
+    if raw:
+        return _SEVERITY_WORDS.get(raw, raw[:1].upper() + raw[1:])
+    if _text(event.get("event_type")) in _RISK_EVENT:
+        return "Conversation risk"
+    if _text(event.get("rule_id")).strip():
+        return "Not recorded"
+    return "No rule"
+
+
+def change_applies(restart: bool) -> str:
+    """When one changed setting takes effect.
+
+    A restart-bound value is what an agent started from now on uses. An agent
+    already running keeps the previous value until that agent restarts. This
+    does not say which of those has happened.
+    """
+    if restart:
+        return (
+            "An agent started from now on uses this. "
+            "An agent already running keeps the previous value until it restarts."
+        )
+    return "Applies from the agent's next tool call."
+
+
+def saved_effect(lead: str, names: list[str], *, also_live: bool) -> str:
+    """When a save takes effect. ``names`` are the restart-bound settings that changed.
+
+    ``lead`` is ``Saved.`` or ``Reset.`` or empty. ``also_live`` is true when the
+    same save also changed a setting an agent picks up on its next tool call.
+    """
+    if not names:
+        body = "Petasos uses it from the agent's next tool call."
+    else:
+        named = ", ".join(names)
+        body = (
+            f"An agent started from now on uses the saved value for {named}. "
+            "An agent already running keeps the previous value until it restarts."
+        )
+        if also_live:
+            body += " Every other saved change applies from the agent's next tool call."
+    prefix = f"{lead} " if lead else ""
+    return prefix + body
+
+
+def choices_note(*, usable: bool, running: bool, paused: bool) -> str | None:
+    """The line beside the two choices, or None when those choices are in effect.
+
+    ``usable`` is false when the saved settings cannot be used. ``running`` is
+    false when Hermes is not running Petasos. ``paused`` is protection paused.
+    """
+    if not usable:
+        return CHOICES_WHEN_UNUSABLE
+    if not running:
+        return CHOICES_WHEN_HERMES
+    if paused:
+        return CHOICES_WHEN_PAUSED
+    return None
+
+
 SIGNATURE_MEANING = MappingProxyType(
     {
         "verified": (

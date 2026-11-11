@@ -157,6 +157,9 @@ def test_a_signed_event_verifies_and_a_tampered_one_does_not(tmp_path: Path) -> 
     good = _page(live, key=key, verification="")
     assert good["events"][0]["integrity"]["status"] == "verified"
     assert good["integrity"]["mode"] == "verified"
+    assert good["integrity"]["label"] == "1 signature verified"
+    assert "cannot show whether other entries were deleted" in good["integrity"]["limit"]
+    assert good["integrity"]["limit_label"]
     raw = live.read_text(encoding="utf-8")
     live.write_text(raw.replace("signed", "edited"), encoding="utf-8")
     bad = _page(live, key=key, verification="")
@@ -285,6 +288,85 @@ def test_each_event_says_what_was_done_in_words(tmp_path: Path) -> None:
     assert tier2["summary"].endswith("warning signs in this conversation had added up.")
     assert tier2["risk_block"] is True
     assert blocked["risk_block"] is False
+
+
+def _assert_figures_sum(summary: dict[str, Any]) -> None:
+    assert sum(figure["count"] for figure in summary["figures"]) == summary["total"]
+    assert all(figure["code"] != "not_stopped" for figure in summary["figures"])
+
+
+def test_outcome_figures_add_up_for_a_mix_and_name_a_missing_severity(tmp_path: Path) -> None:
+    """Every event is in one figure, and a dash is not a severity."""
+    live = tmp_path / "petasos-enforcement.jsonl"
+    _emit(
+        live,
+        [
+            {
+                "event_type": "quarantine",
+                "severity": "HIGH",
+                "rule_id": "petasos.syntactic.injection.ignore-previous",
+            },
+            {"event_type": "block", "tier": "tier2", "tool": "write_file"},
+            {
+                "event_type": "approval",
+                "phase": "request",
+                "rule_id": "plugin_rule:petasos.syntactic.command.fetch-exec",
+                "tool": "terminal",
+            },
+            {"event_type": "bypassed_disarmed", "tool": "terminal"},
+            {"event_type": "ingest_flagged", "severity": "medium", "rule_id": "r"},
+            {
+                "event_type": "selfmod_attempt",
+                "rule_id": "petasos.selfmod.config-write",
+                "severity": "critical",
+                "tool": "write_file",
+                "session_id": "calm",
+            },
+            {"event_type": "quarantine", "tool": "read_file", "session_id": "other"},
+        ],
+    )
+    summary = summarize(live, _rot(live), key=None, verification=_OFF, query=ActivityQuery())
+    _assert_figures_sum(summary)
+    assert summary["total"] == 7
+    finding = summary["finding"]
+    assert finding is not None
+    assert finding["count"] == 1
+    assert finding["action"] == "Review current settings"
+    assert "cannot show whether a change took effect" in finding["sentence"]
+    other = next(figure for figure in summary["figures"] if figure["code"] == "other")
+    assert other["outcomes"] == ["not_stopped"]
+    page = _page(live)
+    labels = {event["event_type"]: event["severity_label"] for event in page["events"]}
+    assert labels["block"] == "Conversation risk"
+    assert labels["approval"] == "Not recorded"
+    assert labels["bypassed_disarmed"] == "No rule"
+    quarantine = next(event for event in page["events"] if event.get("severity") == "HIGH")
+    assert quarantine["severity_label"] == "High"
+    attempt = next(event for event in page["events"] if event["event_type"] == "selfmod_attempt")
+    assert attempt["review_action"] == "Review current settings"
+
+
+def test_outcome_figures_add_up_for_an_arbitrary_mix(tmp_path: Path) -> None:
+    """A second mix, with no guardrail finding, still partitions the total."""
+    live = tmp_path / "petasos-enforcement.jsonl"
+    _emit(
+        live,
+        [
+            {"event_type": "tier3", "tool": "terminal"},
+            {"event_type": "approval", "phase": "response", "choice": "deny"},
+            {"event_type": "ingest_unscanned", "tool": "web_extract"},
+            {"event_type": "cold_start_degraded", "tool": "terminal"},
+        ],
+    )
+    summary = summarize(live, _rot(live), key=None, verification=_OFF, query=ActivityQuery())
+    _assert_figures_sum(summary)
+    assert summary["finding"] is None
+    assert summary["total"] == 4
+    codes = {figure["code"] for figure in summary["figures"]}
+    assert "stopped" in codes
+    assert "declined" in codes
+    assert "unchecked" in codes
+    assert "degraded" in codes
 
 
 def test_summary_breaks_counts_down_for_filters(tmp_path: Path) -> None:

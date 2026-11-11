@@ -19,6 +19,7 @@ from petasos.hermes.dashboard.words import (
     OPERATING_WORDS,
     PROTECTION_SCOPE,
     WHO_CAN_CHANGE,
+    choices_note,
 )
 from petasos.hermes.doctor import examine, report_payload
 
@@ -85,6 +86,11 @@ def status(
         paused=loaded and paused,
         scope=PROTECTION_SCOPE,
         checks_note=CHECKS_NOTE,
+        choices_note=choices_note(
+            usable=valid,
+            running=hermes_flag is True and not environment_off,
+            paused=paused,
+        ),
         scanners=scanners,
         coverage=coverage(scanners, list(report.suggestions), registry=registry),
         who_can_change=dict(WHO_CAN_CHANGE),

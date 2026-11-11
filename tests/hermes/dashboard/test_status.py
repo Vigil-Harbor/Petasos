@@ -82,6 +82,7 @@ def test_both_switches_on_is_protection_on(tmp_path: Path) -> None:
     assert served == body["doctor"]["detail"]["scanners"]
     assert body["scanners"][0]["operating"] == {"code": "running", "label": "Running"}
     assert body["paused"] is False
+    assert body["choices_note"] is None
     assert "this profile" in body["scope"]
     assert body["recommendations"] == body["doctor"]["suggestions"]
     joined = " ".join(body["recommendations"])
@@ -98,6 +99,7 @@ def test_a_paused_switch_says_which_one_is_off(tmp_path: Path) -> None:
     assert body["switches"]["hermes"]["on"] is True
     assert body["switches"]["petasos"]["on"] is False
     assert "paused" in body["switches"]["petasos"]["detail"]
+    assert body["choices_note"] == "These apply when protection resumes."
 
 
 def test_hermes_disabled_list_is_the_other_switch(tmp_path: Path) -> None:
@@ -106,6 +108,7 @@ def test_hermes_disabled_list_is_the_other_switch(tmp_path: Path) -> None:
     body = status(load_home(home))
     assert body["switches"]["hermes"]["on"] is False
     assert "disabled" in body["switches"]["hermes"]["detail"]
+    assert body["choices_note"] == "These apply when Hermes runs Petasos."
 
 
 def test_invalid_settings_are_reported(tmp_path: Path) -> None:
@@ -113,6 +116,7 @@ def test_invalid_settings_are_reported(tmp_path: Path) -> None:
     home = _home(tmp_path, _BAD_ROLE)
     body = status(load_home(home))
     assert body["protection"] == "off"
+    assert body["choices_note"] == "These are not in use until the settings can be used."
     assert body["settings"]["valid"] is False
     assert body["settings"]["error"]["path"] == "role"
 

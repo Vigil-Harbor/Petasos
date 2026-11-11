@@ -90,6 +90,21 @@ def test_a_missing_scanner_does_not_take_part(monkeypatch: Any) -> None:
     assert presidio["participated"] is False
     assert presidio["state"] == "not_installed"
     assert presidio["reason"]
+    assert presidio["link"] == {"href": "#overview?panel=checks"}
+    assert "adds no Activity record" in body["check_note"]
+    assert "runs no command" in body["check_note"]
+
+
+def test_a_check_that_is_turned_off_links_to_its_setting() -> None:
+    """Off is that check's setting. The check itself writes nothing."""
+    body = _run(
+        text="hello",
+        candidate={"overrides": {"scanners": {"presidio": {"enabled": "off"}}}},
+    )
+    presidio = next(row for row in body["scanners"] if row["id"] == "presidio")
+    assert presidio["state"] == "off"
+    assert presidio["link"] == {"href": "#settings?path=scanners.presidio.enabled"}
+    assert presidio["reason"] == "Turned off in Settings."
 
 
 def test_a_slow_scanner_does_not_hold_the_request() -> None:

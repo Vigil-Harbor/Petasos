@@ -24,6 +24,7 @@ from petasos.hermes.dashboard.examples import DEFAULT_EXAMPLE, examples
 from petasos.hermes.dashboard.playground import try_input
 from petasos.hermes.dashboard.scope import active_home, load_home, require_plugin_dir
 from petasos.hermes.dashboard.status import status
+from petasos.hermes.dashboard.words import CHECK_NOTE
 from petasos.hermes.home import display_path
 from petasos.hermes.host import managed_keys
 from petasos.hermes.settings import write_settings
@@ -174,7 +175,7 @@ async def _playground(request: Any) -> dict[str, Any]:
 
 
 async def _examples(_request: Any) -> dict[str, Any]:
-    return envelope(examples=examples(), default=DEFAULT_EXAMPLE)
+    return envelope(examples=examples(), default=DEFAULT_EXAMPLE, check_note=CHECK_NOTE)
 
 
 async def _activity(request: Any) -> dict[str, Any]:

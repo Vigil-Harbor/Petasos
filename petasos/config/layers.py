@@ -218,14 +218,14 @@ ROLES: Final[Mapping[str, Role]] = MappingProxyType(
             _role(
                 "general",
                 "General",
-                "For everyday work. Every rule is on, and a risky tool call is blocked.",
+                "For everyday work. Uses every built-in rule and blocks risky tool calls.",
                 "balanced",
             ),
             _role(
                 "coding",
                 "Coding",
-                "For writing and running code. Fewer false alarms on code; risky "
-                "commands wait for your approval.",
+                "For writing and running code. Turns down false alarms on code, and sets "
+                "risky commands to wait for your approval.",
                 "balanced",
                 {
                     "rules": {
@@ -340,8 +340,8 @@ LEVELS: Final[Mapping[str, Level]] = MappingProxyType(
             _level(
                 "balanced",
                 "Balanced",
-                "The default. Blocks a clear attack at once, and blocks a conversation's "
-                "tool calls once its warning signs add up.",
+                "The default. Sets a clear attack to be blocked at once, and a "
+                "conversation's tool calls to be blocked once its warning signs add up.",
                 {
                     "fail_mode": "degraded",
                     "escalation": {"tier1": 15.0, "tier2": 30.0, "tier3": 50.0},
@@ -352,8 +352,8 @@ LEVELS: Final[Mapping[str, Level]] = MappingProxyType(
             _level(
                 "strict",
                 "Strict",
-                "Blocks a conversation's tool calls soonest. Personal details are hidden "
-                "once the personal details check is added.",
+                "Sets a conversation's tool calls to be blocked soonest. Personal details "
+                "are hidden once the personal details check is added.",
                 {
                     "fail_mode": "closed",
                     "escalation": {"tier1": 10.0, "tier2": 22.0, "tier3": 40.0},

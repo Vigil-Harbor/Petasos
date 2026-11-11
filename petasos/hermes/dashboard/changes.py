@@ -18,11 +18,12 @@ from petasos.hermes.dashboard.catalog import (
     combine,
     preview_settings,
     read_settings,
-    restart_paths,
+    setting_changes,
     stored_document,
 )
 from petasos.hermes.dashboard.errors import ApiError, envelope
 from petasos.hermes.dashboard.values import copy_tree, has_path, hermes_merge, without_path
+from petasos.hermes.dashboard.words import saved_effect
 
 logger = logging.getLogger("petasos.hermes.dashboard")
 
@@ -54,11 +55,11 @@ def save_settings(
     current = _overrides(stored_document(stored))
     desired = _overrides(proposed)
     _write_document(proposed, current, desired, plugin_dir, write)
-    restart = restart_paths(before, after)
+    restart, also_live = _effect(before, after)
     body = read_settings(proposed, secrets=secrets, managed=managed)
     body["saved"] = True
     body["restart"] = restart
-    body["restart_message"] = _when_message("Saved.", restart)
+    body["restart_message"] = _when_message("Saved.", restart, also_live=also_live)
     return body
 
 
@@ -108,7 +109,7 @@ def clear_overrides(
             **_view(document, secrets, managed),
         )
     _write_overrides(current, desired, plugin_dir, write)
-    restart = restart_paths(before, after)
+    restart, also_live = _effect(before, after)
     return envelope(
         cleared=True,
         message=(
@@ -117,7 +118,7 @@ def clear_overrides(
             else "Reset. The job and strictness decide every setting again."
         ),
         restart=restart,
-        restart_message=_when_message("Reset.", restart),
+        restart_message=_when_message("Reset.", restart, also_live=also_live),
         **_view(proposed, secrets, managed),
     )
 
@@ -139,16 +140,22 @@ def _view(
     return {"settings": body}
 
 
-def _when_message(lead: str, restart: list[str]) -> str:
-    """When a saved change takes effect, in words, naming restart settings by label."""
-    if not restart:
-        return f"{lead} Petasos uses it from the agent's next tool call."
+def _effect(before: Any, after: Any) -> tuple[list[str], bool]:
+    """Restart-bound paths that changed, and whether another change is live."""
+    changed = setting_changes(before, after)
+    restart = [row["path"] for row in changed if row["restart"] is True]
+    return restart, any(row["restart"] is not True for row in changed)
+
+
+def _when_message(lead: str, restart: list[str], *, also_live: bool) -> str:
+    """When a saved change takes effect, naming restart settings by label.
+
+    The dashboard cannot see whether an agent already running has restarted
+    since the save, so the sentence says what each kind of agent does.
+    """
     labels = {row.path: row.label for row in leaves(PetasosConfig)}
-    named = ", ".join(labels.get(path, path) for path in restart)
-    return (
-        f"{lead} These wait for Hermes to restart: {named}. "
-        "Everything else applies from the agent's next tool call."
-    )
+    names = [labels.get(path, path) for path in restart]
+    return saved_effect(lead, names, also_live=also_live)
 
 
 def _reject_secrets(candidate: Mapping[str, Any]) -> None:
