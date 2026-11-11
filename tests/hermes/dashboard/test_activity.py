@@ -369,6 +369,36 @@ def test_outcome_figures_add_up_for_an_arbitrary_mix(tmp_path: Path) -> None:
     assert "degraded" in codes
 
 
+def test_a_deferred_command_says_hermes_will_ask(tmp_path: Path) -> None:
+    """Standing aside is its own outcome, and a delete rule does not call it a block."""
+    live = tmp_path / "petasos-enforcement.jsonl"
+    _emit(
+        live,
+        [
+            {
+                "event_type": "deferred",
+                "tool": "terminal",
+                "severity": "high",
+                "rule_id": "petasos.syntactic.command.destructive-recursive",
+                "reason": "recursive delete",
+            }
+        ],
+    )
+    page = _page(live)
+    event = page["events"][0]
+    assert event["outcome"] == {"code": "deferred", "label": "Hermes will ask"}
+    assert event["kind_label"] == "Left for Hermes to ask"
+    assert event["summary"].startswith("Recorded a dangerous command")
+    assert "Blocked" not in event["summary"]
+    assert event["risk_block"] is False
+    summary = summarize(live, _rot(live), key=None, verification=_OFF, query=ActivityQuery())
+    assert summary["blocked"] == 0
+    assert summary["by_outcome"] == {"deferred": 1}
+    figure = next(row for row in summary["figures"] if row["code"] == "deferred")
+    assert figure["label"] == "Hermes will ask"
+    assert figure["count"] == 1
+
+
 def test_summary_breaks_counts_down_for_filters(tmp_path: Path) -> None:
     """The summary lists tools, conversations and outcomes, and folds severity case."""
     live = tmp_path / "petasos-enforcement.jsonl"

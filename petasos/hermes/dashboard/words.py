@@ -80,6 +80,7 @@ _KIND_LABELS = MappingProxyType(
         "block": "Blocked: conversation too risky",
         "tier3": "Conversation stopped",
         "approval": "Asked a person",
+        "deferred": "Left for Hermes to ask",
         "bypassed_disarmed": "Let through while paused",
         "selfmod_attempt": "Attempt to change the guardrails",
         "guardrail": "Guardrail change",
@@ -169,6 +170,8 @@ def outcome(
         if choice in _APPROVED:
             return {"code": "approved", "label": "Person said yes"}
         return {"code": "answered", "label": "Answered"}
+    if kind == "deferred":
+        return {"code": "deferred", "label": "Hermes will ask"}
     if kind == "bypassed_disarmed":
         return {"code": "allowed", "label": "Let through"}
     if kind == "ingest_flagged":
@@ -244,7 +247,7 @@ def describe_event(
     rule = _text(event.get("rule_id"))
     family = _FAMILY.get(rule_family(rule), "")
     subject = _attempt(tool)
-    if rule.endswith("destructive-recursive"):
+    if rule.endswith("destructive-recursive") and kind in {"quarantine", "block"}:
         return "Blocked a shell command that would delete files recursively."
     if kind == "block" and _text(event.get("tier")) == "tier2":
         return f"Blocked {subject}: warning signs in this conversation had added up."
@@ -285,6 +288,11 @@ def describe_event(
         return f"Warned the agent that {source} contained {found}."
     if kind == "ingest_unscanned":
         return "Could not check a tool result, and passed it on unmarked."
+    if kind == "deferred":
+        return (
+            "Recorded a dangerous command and left it for Hermes to ask a person about. "
+            "The conversation's risk score is unchanged."
+        )
     if kind == "approval":
         phase = _text(event.get("phase"))
         doing = _ACTIONS.get(tool)

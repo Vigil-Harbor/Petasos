@@ -410,6 +410,7 @@ def _dangerous_or_allow(core: Core, call: ToolCall, session_id: str, result: obj
         excerpt_for=lambda: _approve_excerpt(core, call, result),
         logger=logger,
         emit=core.emit,
+        command_will_be_asked=core.host.command_will_be_asked,
     )
     if isinstance(decision, Approve) and decision.rule_key == "petasos.degraded":
         core.book.note_degraded_pending(

@@ -139,6 +139,10 @@ def _never_approved(_rule_key: str) -> bool:
     return False
 
 
+def _command_not_asked(_command: str) -> bool:
+    return False
+
+
 def _identity_text(text: str, **_options: object) -> str:
     return text
 
@@ -160,15 +164,18 @@ class HostInfo:
     """What the host can do, and how the enforcer should ask it.
 
     Callables are read on each decision, so a live host change is visible
-    without a settings token change. ``redactor`` of ``None`` means the host
-    has no redactor. ``protected_paths`` is the set of filesystem paths the
-    agent must not modify.
+    without a settings token change. ``command_will_be_asked`` is true only
+    when the host will put that command string to a person. The default
+    answers no. ``redactor`` of ``None`` means the host has no redactor.
+    ``protected_paths`` is the set of filesystem paths the agent must not
+    modify.
     """
 
     host_id: str = "petasos"
     approve_directive: bool = False
     approval_grant: Callable[[], ApprovalGrant] = _no_grant
     rule_always_approved: Callable[[str], bool] = _never_approved
+    command_will_be_asked: Callable[[str], bool] = _command_not_asked
     subagent_hooks: bool = True
     redactor: Callable[..., str] | None = _identity_text
     display_path: Callable[[str], str] = _identity_path

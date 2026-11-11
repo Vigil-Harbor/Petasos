@@ -57,6 +57,7 @@ _FIGURES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("allowed", "Let through while paused", ("allowed",)),
     ("declined", "Person said no", ("declined",)),
     ("approved", "Person said yes", ("approved",)),
+    ("deferred", "Hermes will ask", ("deferred",)),
     ("answered", "Answered", ("answered",)),
     ("unchecked", "Not checked", ("unchecked",)),
     ("degraded", "Basic checks only", ("degraded",)),

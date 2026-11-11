@@ -196,6 +196,107 @@ def approval_grant() -> ApprovalGrant:
         return ApprovalGrant(yolo=True)
 
 
+def command_will_be_asked(command: str) -> bool:
+    """True when Hermes will put this terminal command to a person.
+
+    False when ``detect_dangerous_command`` cannot be imported, has moved, or
+    raises, when it does not flag the command, and when Hermes would approve
+    or refuse the command without asking. A hardline command is a refusal.
+    """
+    if not isinstance(command, str) or command == "":
+        return False
+    try:
+        return _command_will_be_asked(command)
+    except Exception:
+        return False
+
+
+def _command_will_be_asked(command: str) -> bool:
+    detection = load_module("tools.approval_detection")
+    approval = load_module("tools.approval")
+    if detection is None or approval is None:
+        return False
+    detect = getattr(detection, "detect_dangerous_command", None)
+    if not callable(detect):
+        return False
+    flagged = detect(command)
+    if not (isinstance(flagged, tuple) and flagged and flagged[0] is True):
+        return False
+    env_type, host_access = _terminal_backend()
+    skip = getattr(approval, "_should_skip_container_guards", None)
+    if not callable(skip) or skip(env_type, has_host_access=host_access):
+        return False
+    floor = getattr(approval, "_floor_block", None)
+    if not callable(floor) or floor(command, sudo_guard=True) is not None:
+        return False
+    context = load_module("tools.approval_context")
+    mode = getattr(context, "_get_approval_mode", None) if context is not None else None
+    if not callable(mode):
+        return False
+    read_mode = mode()
+    if read_mode not in {"manual", "smart"}:
+        return False
+    yolo = getattr(approval, "_yolo_active", None)
+    if not callable(yolo) or yolo():
+        return False
+    allowlisted = getattr(approval, "_command_matches_permanent_allowlist", None)
+    if not callable(allowlisted) or allowlisted(command):
+        return False
+    presence = getattr(approval, "_presence", None)
+    if not callable(presence):
+        return False
+    present = presence(None)
+    if not isinstance(present, tuple) or len(present) < 4:
+        return False
+    if not (present[1] or present[2] or present[3]):
+        return False
+    return not _already_covered(approval, command)
+
+
+def _terminal_backend() -> tuple[str, bool]:
+    """The backend and host-access bit the command gate will use."""
+    terminal = load_module("tools.terminal_tool")
+    if terminal is None:
+        raise RuntimeError("terminal tool is unavailable")
+    config_fn = getattr(terminal, "_get_env_config", None)
+    access_fn = getattr(terminal, "_docker_has_host_access", None)
+    if not callable(config_fn) or not callable(access_fn):
+        raise RuntimeError("terminal backend facts moved")
+    config = config_fn()
+    if not isinstance(config, dict):
+        raise RuntimeError("terminal config is not a mapping")
+    env_type = config.get("env_type")
+    if not isinstance(env_type, str) or env_type == "":
+        raise RuntimeError("terminal env type missing")
+    return env_type, bool(access_fn(config))
+
+
+def _already_covered(approval: object, command: str) -> bool:
+    """True when Hermes would approve the command from an earlier answer.
+
+    A missing helper answers yes, so the caller does not stand aside.
+    """
+    findings_fn = getattr(approval, "_command_findings", None)
+    pending_fn = getattr(approval, "_pending_findings", None)
+    scope_fn = getattr(approval, "_approval_scope", None)
+    session_fn = getattr(approval, "get_current_session_key", None)
+    if not callable(findings_fn) or not callable(pending_fn):
+        return True
+    if not callable(scope_fn) or not callable(session_fn):
+        return True
+    findings = findings_fn(command)
+    if not isinstance(findings, list):
+        return True
+    session_key = session_fn()
+    scopes: dict[str, object] = {}
+    for item in findings:
+        if not isinstance(item, tuple) or not item or not isinstance(item[0], str):
+            return True
+        scopes[item[0]] = scope_fn(session_key, item[0])
+    pending = pending_fn(findings, lambda key: scopes.get(key) is not None)
+    return pending is None
+
+
 def rule_always_approved(rule_key: str) -> bool:
     """True when ``plugin_rule:<rule_key>`` is on the permanent allow-list."""
     module = _approval()
