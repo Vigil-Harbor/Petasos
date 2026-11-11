@@ -262,15 +262,6 @@ class TestDecodeEncodedPayloads:
         with pytest.raises(TypeError, match="decode_encoded_payloads must be a bool"):
             PetasosConfig(decode_encoded_payloads=1)  # type: ignore[arg-type]
 
-    def test_config_meta_help_plain_distinct(self) -> None:
-        # PET-98 (Decision 9): help_plain is distinct prose and documents that this
-        # toggle does disable the built-in scanner stage.
-        from petasos.console._config_meta import _FIELD_META
-
-        meta = _FIELD_META["decode_encoded_payloads"]
-        assert meta["help_plain"].strip() != meta["description"].strip()
-        assert meta["section"] == "normalization"
-
 
 class TestSourceTaintConfig:
     # PET-134: source_taint_namespaces + taint_min_span_length.

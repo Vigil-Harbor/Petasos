@@ -36,7 +36,7 @@ That's the base install: lightweight, zero ML dependencies. It includes a syntac
 For deeper protection, add ML scanner backends:
 
 ```bash
-pip install "petasos[all]"           # Presidio, PromptGuard and the console (about 1.2 GiB)
+pip install "petasos[all]"           # Presidio and PromptGuard (about 1.2 GiB)
 
 # Or pick what you need:
 pip install "petasos[prompt-guard]"  # Meta's PromptGuard 2 on torch + transformers
@@ -299,11 +299,11 @@ CI runs lint, typecheck, and tests on Python 3.11, 3.12, and 3.13.
 
 ## Integrations
 
-Petasos imports in-process as a Python library: no sidecar, no REST endpoint, no subprocess. The primary integration path is via the plugin system for [Hermes Agent](https://github.com/NousResearch/hermes-agent) (see `docs/deployment/` for the full deployment guide and reference plugin).
+Petasos imports in-process as a Python library: no sidecar, no REST endpoint, no subprocess. The Hermes plugin is installed with `petasos hermes install`, checked with `petasos doctor`, and operated from the Petasos tab in Hermes's dashboard (see `docs/deployment/`).
 
 Custom integrations implement the same pattern: construct a `Pipeline`, call `await pipeline.inspect()` on every message, and enforce `GuardResult` from `ToolCallGuard.evaluate()` before tool execution.
 
-Before deploying, read the [deployment hardening checklist](docs/deployment/hardening.md). Petasos is a detection layer, not a security boundary, and the checklist covers what to pair it with (console binding, secrets handling, fail-mode, OS-level isolation).
+Before deploying, read the [deployment hardening checklist](docs/deployment/hardening.md). Petasos is a detection layer, not a security boundary, and the checklist covers what to pair it with (secrets handling, fail-mode, OS-level isolation).
 
 ## Built by Vigil Harbor
 

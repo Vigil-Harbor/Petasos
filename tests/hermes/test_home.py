@@ -279,3 +279,78 @@ def test_use_override_false_ignores_override(
     res = resolve_hermes_config_path(use_override=False)
     assert res.tier == "hermes_home"
     assert res.path == tmp_path / "launch" / "config.yaml"
+
+
+def test_windows_root_uses_localappdata_and_absorbs_a_missing_home(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(platform, "system", lambda: "Windows")
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    assert hermes_root() == tmp_path / "hermes"
+
+    monkeypatch.delenv("LOCALAPPDATA", raising=False)
+
+    def _no_home() -> Path:
+        raise RuntimeError("no home")
+
+    monkeypatch.setattr(Path, "home", _no_home)
+    assert hermes_root() == Path("hermes")
+
+
+def test_a_bad_profile_pointer_falls_back_to_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _point_root_at(tmp_path, monkeypatch)
+    (root / "active_profile").write_text("default", encoding="utf-8")
+    from petasos.hermes.home import read_active_profile, resolve_active_profile_dir
+
+    assert read_active_profile(root) is None
+    (root / "active_profile").write_bytes(b"\xff")
+    assert read_active_profile(root) is None
+    (root / "active_profile").write_text("ghost", encoding="utf-8")
+    res = resolve_hermes_config_path(use_override=False)
+    assert res.tier == "root"
+    assert res.warning is not None
+    assert "ghost" in res.warning
+
+    def _boom(self: Path, strict: bool = False) -> Path:
+        raise OSError("unresolvable")
+
+    monkeypatch.setattr(Path, "resolve", _boom)
+    directory, warning = resolve_active_profile_dir(root)
+    assert directory is None
+    assert warning is not None
+    assert "could not be resolved" in warning
+
+
+def test_petasos_section_read_distinguishes_empty_from_broken(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from petasos.hermes.home import (
+        display_path,
+        read_petasos_section,
+        read_petasos_section_checked,
+    )
+
+    root = _point_root_at(tmp_path, monkeypatch)
+    res = resolve_hermes_config_path(use_override=False)
+    assert read_petasos_section_checked(res) == ({}, True)
+    res.path.parent.mkdir(parents=True, exist_ok=True)
+    res.path.write_text("", encoding="utf-8")
+    assert read_petasos_section_checked(res) == ({}, True)
+    res.path.write_text("- 1\n", encoding="utf-8")
+    assert read_petasos_section_checked(res) == ({}, False)
+    res.path.write_text("other: 1\n", encoding="utf-8")
+    assert read_petasos_section_checked(res) == ({}, True)
+    res.path.write_text("petasos:\n", encoding="utf-8")
+    assert read_petasos_section_checked(res) == ({}, True)
+    res.path.write_text("petasos: [1]\n", encoding="utf-8")
+    assert read_petasos_section_checked(res) == ({}, False)
+    res.path.write_text("{", encoding="utf-8")
+    assert read_petasos_section_checked(res) == ({}, False)
+    res.path.write_text("petasos:\n  fail_mode: open\n", encoding="utf-8")
+    assert read_petasos_section(res) == {"fail_mode": "open"}
+    home = os.path.expanduser("~")
+    shown = display_path(home + os.sep + "petasos-check")
+    assert shown == "~" + os.sep + "petasos-check"
+    assert root.is_dir()

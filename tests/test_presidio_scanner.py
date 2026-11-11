@@ -576,3 +576,91 @@ class TestAnonymizeIntegration:
         if ssn_findings:
             masked = anonymize(text, list(result.findings), mode="mask")
             assert "*" in masked
+
+
+def test_availability_names_a_crash_a_missing_package_and_a_present_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import importlib.util
+    import sys
+    import types
+
+    scanner = PresidioScanner()
+    scanner._load_error = RuntimeError("weakref load crash")
+    scanner._load_error_retryable = False
+    ok, _reason, cause = scanner.availability()
+    assert ok is False
+    assert cause == "load_failed"
+
+    scanner._load_error = ImportError(
+        "No module named 'presidio_analyzer'",
+        name="presidio_analyzer",
+    )
+    ok, reason, cause = scanner.availability()
+    assert ok is False
+    assert cause == "absent"
+    assert reason is not None
+
+    scanner._load_error = None
+    for package in ("presidio_analyzer", "presidio_anonymizer"):
+        monkeypatch.delitem(sys.modules, package, raising=False)
+    monkeypatch.setattr(importlib.util, "find_spec", lambda _name: None)
+    ok, _reason, cause = scanner.availability()
+    assert ok is False
+    assert cause == "absent"
+
+    present = types.SimpleNamespace(origin="/fake/origin")
+    monkeypatch.setattr(importlib.util, "find_spec", lambda _name: present)
+    ok, reason, cause = scanner.availability()
+    assert (ok, reason, cause) == (True, None, None)
+
+
+def test_a_retryable_load_is_retried_and_a_crash_is_raised(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scanner = PresidioScanner()
+    scanner._load_error = ImportError("temporary", name="presidio_analyzer")
+    scanner._load_error_retryable = True
+    scanner._loaded = False
+
+    class _Flip:
+        def __enter__(self) -> _Flip:
+            scanner._loaded = True
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+    scanner._load_lock = _Flip()  # type: ignore[assignment]
+    scanner._ensure_loaded()
+    assert scanner._loaded is True
+
+    scanner._loaded = False
+    scanner._load_error = RuntimeError("crash")
+    scanner._load_error_retryable = True
+
+    class _Freeze:
+        def __enter__(self) -> _Freeze:
+            scanner._load_error_retryable = False
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+    scanner._load_lock = _Freeze()  # type: ignore[assignment]
+    with pytest.raises(RuntimeError, match="crash"):
+        scanner._ensure_loaded()
+
+    scanner._load_lock = threading.Lock()
+    scanner._loaded = False
+    scanner._load_error = RuntimeError("still down")
+    scanner._load_error_retryable = True
+    monkeypatch.setattr(scanner, "availability", lambda: (False, "absent", "absent"))
+    with pytest.raises(RuntimeError, match="still down"):
+        scanner._ensure_loaded()
+
+    monkeypatch.setattr(scanner, "availability", lambda: (True, None, None))
+    monkeypatch.setattr(scanner, "_do_load", lambda: setattr(scanner, "_loaded", True))
+    scanner._ensure_loaded()
+    assert scanner._load_error is None
+    assert scanner._loaded is True

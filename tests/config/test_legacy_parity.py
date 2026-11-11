@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import inspect
 from collections.abc import Mapping
-from dataclasses import fields
+from dataclasses import dataclass, fields
 from typing import Any
 
 import pytest
@@ -30,7 +30,6 @@ from petasos.config.layers import PROFILE_TO_ROLE, ROLES, resolve
 from petasos.config.migrate import MOVES, Migration, canon, migrate
 from petasos.config.schema import ConfigError, FieldInfo, from_mapping, leaves, to_mapping
 from petasos.config.sections import PetasosConfig
-from petasos.console._presets import _PRESET_REGISTRY
 from petasos.scanners.minimal import (
     _ALL_INJECTION_IDS,
     _STRUCTURAL_RULE_IDS,
@@ -45,6 +44,65 @@ _INFO = {row.path: row for row in leaves(PetasosConfig)}
 _BY_OLD = {move.old: move for move in MOVES}
 _LEAF = {move.old: move.path for move in MOVES if move.kind == "leaf" and move.path is not None}
 _PRESET_LEVEL = {"bronze": "relaxed", "iron": "balanced", "steel": "strict"}
+
+
+@dataclass(frozen=True, slots=True)
+class _Preset:
+    key: str
+    overrides: dict[str, bool | float | str]
+
+
+# The strength dial's bundles, copied here so the comparison survives the console.
+_PRESET_REGISTRY = (
+    _Preset(
+        "bronze",
+        {
+            "fail_mode": "degraded",
+            "tier1_threshold": 25.0,
+            "tier2_threshold": 45.0,
+            "tier3_threshold": 65.0,
+            "presidio_score_threshold": 0.50,
+            "anonymize": False,
+            "tool_guard_enabled": True,
+            "normalize_nfkc": True,
+            "strip_zero_width": True,
+            "map_homoglyphs": True,
+            "decode_encoded_payloads": True,
+        },
+    ),
+    _Preset(
+        "iron",
+        {
+            "fail_mode": "degraded",
+            "tier1_threshold": 15.0,
+            "tier2_threshold": 30.0,
+            "tier3_threshold": 50.0,
+            "presidio_score_threshold": 0.35,
+            "anonymize": False,
+            "tool_guard_enabled": True,
+            "normalize_nfkc": True,
+            "strip_zero_width": True,
+            "map_homoglyphs": True,
+            "decode_encoded_payloads": True,
+        },
+    ),
+    _Preset(
+        "steel",
+        {
+            "fail_mode": "closed",
+            "tier1_threshold": 10.0,
+            "tier2_threshold": 22.0,
+            "tier3_threshold": 40.0,
+            "presidio_score_threshold": 0.30,
+            "anonymize": True,
+            "tool_guard_enabled": True,
+            "normalize_nfkc": True,
+            "strip_zero_width": True,
+            "map_homoglyphs": True,
+            "decode_encoded_payloads": True,
+        },
+    ),
+)
 _LEVEL_OWNED_OLD = {
     old: path
     for old, path in _LEAF.items()
@@ -270,15 +328,6 @@ def test_migrating_spread_matches_the_old_config() -> None:
 
     for section in sections:
         _migrated_equals(section)
-
-
-def test_three_presets_migrate_without_overrides() -> None:
-    for preset in _PRESET_REGISTRY:
-        if preset.key not in _PRESET_LEVEL:
-            continue
-        result = migrate(dict(preset.overrides))
-        assert result.settings["level"] == _PRESET_LEVEL[preset.key]
-        assert result.settings["overrides"] == {}
 
 
 @pytest.mark.parametrize(
@@ -611,16 +660,3 @@ async def test_selfmod_base_severities_match_the_guard(tmp_path: Any) -> None:
         == mention.selfmod_finding.severity.value
     )
     assert mention.selfmod_finding.severity is Severity.HIGH
-
-
-def test_console_probe_base_severity_matches_the_console() -> None:
-    from petasos.console.server import _maybe_fire_console_probe
-    from petasos.pipeline import Pipeline
-
-    pipeline = Pipeline(config=OldConfig())
-    captured: list[Any] = []
-    pipeline.record_selfmod = lambda _session_id, finding: captured.append(finding)  # type: ignore[method-assign, assignment]
-    _maybe_fire_console_probe(pipeline)
-
-    assert captured
-    assert SELFMOD_BASE_SEVERITY["petasos.selfmod.console_probe"] == captured[0].severity.value

@@ -2517,7 +2517,7 @@ def drive(argv: list[str]) -> int:
         "--",
         "petasos",
         "pyproject.toml",
-        "docs/deployment/reference_plugin",
+        "hermes-plugin/petasos",
     )
     if porcelain.strip():
         raise PreflightError(f"release tree has uncommitted edits: {porcelain.strip()}")
@@ -2735,12 +2735,10 @@ def _parse(argv: list[str]) -> argparse.Namespace:
 
 
 def _require_release(tree: Path) -> None:
-    plugin = tree / "docs/deployment/reference_plugin"
-    for name in ("__init__.py", "plugin.yaml", "verify.py", "pyproject.toml"):
+    plugin = tree / "hermes-plugin" / "petasos"
+    for name in ("__init__.py", "plugin.yaml", "pyproject.toml"):
         if not (plugin / name).is_file():
-            raise PreflightError(
-                f"release tree is missing docs/deployment/reference_plugin/{name}"
-            )
+            raise PreflightError(f"release tree is missing hermes-plugin/petasos/{name}")
     version = read_version(tree)
     diff = _git(
         tree,
@@ -2750,7 +2748,7 @@ def _require_release(tree: Path) -> None:
         "HEAD",
         "--",
         "petasos",
-        "docs/deployment/reference_plugin",
+        "hermes-plugin/petasos",
         "pyproject.toml",
     )
     names = [line for line in diff.splitlines() if line]
@@ -2863,7 +2861,7 @@ def _payload(
     root: Path,
     work: Path,
 ) -> dict[str, Any]:
-    plugin = tree / "docs/deployment/reference_plugin"
+    plugin = tree / "hermes-plugin/petasos"
     result = verdict_of(checks, stages=stages)
     approval = {"exercised": False, "reason": "no matrix profile uses the approve posture"}
     for item in checks:
@@ -2892,7 +2890,6 @@ def _payload(
             "corpus": sha256_file(corpus_path()),
             "plugin_init": sha256_file(plugin / "__init__.py"),
             "plugin_yaml": sha256_file(plugin / "plugin.yaml"),
-            "plugin_verify": sha256_file(plugin / "verify.py"),
             "plugin_pyproject": sha256_file(plugin / "pyproject.toml"),
         },
         "matrix": [dict(home) for home in homes],

@@ -51,14 +51,13 @@ def _named_for_hermes(module: str) -> bool:
 
 
 def test_enforce_does_not_import_a_host() -> None:
-    """Nothing under enforce imports the console or a Hermes-named module."""
+    """Nothing under enforce imports a Hermes-named module."""
     offenders: list[str] = []
     root = Path("petasos/enforce")
     for path in sorted(root.rglob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for line, module in _imported_modules(tree):
-            host = module == "petasos.console" or module.startswith("petasos.console.")
-            if host or _named_for_hermes(module):
+            if _named_for_hermes(module):
                 offenders.append(f"{path}:{line} imports {module}")
     assert offenders == []
 
@@ -201,8 +200,7 @@ def test_enforce_has_no_module_state_beyond_the_legacy_spool() -> None:
     assert offenders == []
 
 
-# The console and the guard's legacy path discovery still import the resolver.
-# Both shrink when those callers move off Hermes paths.
+# The guard's legacy path discovery still imports the resolver.
 _HERMES_IMPORT_OK = {
     Path("petasos/session/guard.py"),
 }
@@ -212,16 +210,12 @@ def _under_hermes_adapter(path: Path) -> bool:
     return path.parts[:2] == ("petasos", "hermes")
 
 
-def _under_console(path: Path) -> bool:
-    return "console" in path.parts
-
-
 def test_only_the_adapter_imports_hermes() -> None:
-    """Hermes is a name only the adapter, the console, and the guard fallback use."""
+    """Hermes is a name only the adapter and the guard fallback use."""
     offenders: list[str] = []
     root = Path("petasos")
     for path in sorted(root.rglob("*.py")):
-        if _under_hermes_adapter(path) or _under_console(path) or path in _HERMES_IMPORT_OK:
+        if _under_hermes_adapter(path) or path in _HERMES_IMPORT_OK:
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for line, module in _imported_modules(tree):
@@ -252,8 +246,8 @@ def _lock_names(tree: ast.AST) -> list[str]:
 def test_hermes_state_is_the_registered_enforcer() -> None:
     """The adapter's only module state is the enforcer table, one entry per home.
 
-    ``home.py`` also assigns ``_SPOOL_PATH_OVERRIDE`` once. The console writes
-    that attribute; the adapter does not mutate it. It is not a collection.
+    ``home.py`` also assigns ``_SPOOL_PATH_OVERRIDE`` once. The adapter does
+    not mutate it. It is not a collection.
     """
     offenders: list[str] = []
     root = Path("petasos/hermes")
@@ -286,7 +280,7 @@ def test_only_the_bridge_imports_the_flat_config_and_profiles() -> None:
     offenders: list[str] = []
     root = Path("petasos")
     for path in sorted(root.rglob("*.py")):
-        if "console" in path.parts or path in _ALLOWED:
+        if path in _ALLOWED:
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for line, module in _imports(tree):

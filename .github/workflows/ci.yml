@@ -41,23 +41,8 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
-      # PET-153: install the `console` extra so the fastapi-dependent standalone
-      # console suites run unskipped. `console` is a non-scanner extra (PET-106
-      # _NON_SCANNER_EXTRAS), so it needs no extras-console.yml lane; fastapi/uvicorn
-      # are pure-Python and add no ML weight, so this lane stays fast and ML-free.
-      - run: pip install -e ".[dev,console]"
+      # FastAPI is in the dev extra. The dashboard tests import it; Hermes
+      # supplies it in a real install. There is no Node job: the tab's script
+      # is tested from Python.
+      - run: pip install -e ".[dev]"
       - run: pytest tests/ -v --tb=short
-
-  # PET-82: console frontend unit test (zero npm deps; node:test built-in
-  # runner). First non-Python job — no npm install, no cache (no lockfile).
-  js-test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
-        with:
-          node-version: "22"
-      # PET-103: glob so every tests/js/*.test.mjs file runs (richtext + the new
-      # scanner-health suite). node --test treats each glob match as a test file,
-      # so any non-test helper added under tests/js/ must NOT carry .test.mjs.
-      - run: node --test tests/js/*.test.mjs

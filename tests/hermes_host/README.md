@@ -117,7 +117,7 @@ still come from PyPI.
 PETASOS_HERMES_SANDBOX=/tmp/petasos-hermes-sandbox pytest tests/hermes_host -q
 ```
 
-Use the repo's Python 3.11 environment (`uv pip install -e ".[dev,console]"`).
+Use the repo's Python 3.11 environment (`uv pip install -e ".[dev]"`).
 The tests stay on that interpreter. Each one calls the sandbox's Python
 through the wrapper, so Hermes is imported only inside the sandbox.
 

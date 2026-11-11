@@ -1,11 +1,11 @@
 # Enforcement parity oracle
 
-This directory is a replayable record of what the reference plugin decides
-today. The redesign replaces that plugin with `petasos.enforce.Enforcer`.
-The replacement is checked by replaying `scenarios.json` through an adapter
-and diffing the result against `outcomes.json`.
+This directory is a replayable record of what the reference plugin decided.
+That plugin is gone, so `outcomes.json` is frozen: nothing in the tree can
+regenerate it. Replaying `scenarios.json` through `enforcer_adapter.py` and
+`hermes_adapter.py` is how the enforcer and the Hermes hooks are checked
+against that record.
 
-`plugin_adapter.py` is the only file here that loads the reference plugin.
 `enforcer_adapter.py` replays through `Enforcer` directly.
 `hermes_adapter.py` replays through `petasos.hermes.plugin.register` and the
 hooks it registers, against a fake Hermes context and a temporary home.
@@ -14,9 +14,9 @@ difference applies to. An unlisted difference fails. A listed difference
 that does not occur for an adapter it names fails too. The corpus and
 `outcomes.json` stay as recorded.
 
-Every scenario starts from a freshly loaded plugin in its own temporary
-home. Nothing in the harness reads or writes a real Hermes home. Scenarios
-do not share state, so they pass in any order and in separate processes.
+Every scenario runs in its own temporary home. Nothing in the harness reads
+or writes a real Hermes home. Scenarios do not share state, so they pass in
+any order and in separate processes.
 
 ## Scenario
 
@@ -58,34 +58,29 @@ become `<home>` or `<config>`. Generated `anon-` and `desktop-` session
 ids, pids and 64-hex digests are rewritten. A long tool result that is the
 original text plus a banner stores the banner and `"body": "input"`.
 
-## Re-record
+## The record is frozen
 
-From the repository root, with the dev environment:
-
-```bash
-.venv/bin/python -m tests.enforce_parity.record
-```
-
-That rewrites `outcomes.json` from `scenarios.json`. Run it twice and the
-file must be byte-identical.
-
-Re-recording is only legitimate for a deliberate, listed behaviour change.
-A diff in `outcomes.json` is a behaviour change, and it has to be named in
-the change that produces it. Do not refresh the file to make a failing
-replay pass.
+`outcomes.json` was written by replaying the reference plugin. That plugin
+has been removed, and `record.py` with it, so the file cannot be regenerated.
+A diff in `outcomes.json` is a behaviour change. Do not edit it to make a
+failing replay pass. A deliberate change has to be named in `differences.json`
+in the same commit, or the record has to be replaced by a new oracle.
 
 ## Adding a scenario
 
 Add one object to the `scenarios` list. Give it a new id, a `categories`
 list, `settings`, `host`, `lifecycle` (`ready`, `starting`, or
 `{"state": "failed", "error": "..."}`), any stub `scanners`, and `steps`.
-Re-record, and keep the new categories named in
-`test_enforce_parity.py` when they cover a situation the list does not
-already pin.
+A new scenario cannot be added to the frozen record. Keep the categories
+named in `test_enforce_parity.py` when they cover a situation the list does
+not already pin, and explain the new outcome in `differences.json` or replace
+the oracle.
 
-## What the adapter reaches into
+## What the plugin adapter reached into
 
-The steps themselves go through the hook callbacks (`_pre_tool_call`,
+This is how the frozen record was produced. The adapter is gone.
+
+The steps themselves went through the hook callbacks (`_pre_tool_call`,
 `_transform_tool_result`, `_post_tool_call`, `_on_session_start`,
 `_subagent_start`, `_subagent_stop`, `_pre_approval_request`,
 `_post_approval_response`, `_on_profile_change`). Setup that the hooks

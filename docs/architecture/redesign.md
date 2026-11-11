@@ -1583,8 +1583,8 @@ new API.
 | C1a | `enforce/` as functions: lift the plugin's decisions, fallback, approvals, messages and event spool into the library unchanged; the plugin calls them |
 | E0 | Enforcement parity oracle: host-neutral scenarios and the reference plugin's recorded outcomes for them, in `tests/enforce_parity/` |
 | C1b | `Enforcer`: the stateful object of section 6, written beside the plugin and accepted when it replays the E0 record. The plugin is not rewired; it is retired in C2 |
-| C2 | `hermes/` and `cli.py`: adapter, manifest, doctor, install, tested against upstream Hermes in a throwaway home; the reference plugin and its tests are retired into it. Needs C1b |
-| C3 | The Petasos tab's API: served by Hermes's dashboard, built on `describe()`, `resolve()`, the registry and the event spool, writing through Hermes's settings writer. The standalone console server is retired |
+| C2 | `hermes/` and `cli.py`: adapter, manifest, doctor, install, tested against upstream Hermes in a throwaway home. **Removal done:** `docs/deployment/reference_plugin/` is gone and the enforcement record in `tests/enforce_parity/` is frozen. Needs C1b |
+| C3 | The Petasos tab's API: served by Hermes's dashboard, built on `describe()`, `resolve()`, the registry and the event spool, writing through Hermes's settings writer. **Removal done:** `petasos/console/`, the `petasos-console` script, and the `console` extra are gone |
 | U | The Petasos tab's front end, on Hermes's plugin kit, built in the judged loop of section 8.4; the plain-language pass over every description |
 | S1 | Guardrail integrity (`guardrail-integrity.md`) |
 | S2 | Deferring to Hermes where it already decides (section 8.5) |

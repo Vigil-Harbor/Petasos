@@ -73,12 +73,6 @@ _DEFINITION_MODULES = frozenset(
 # a scanner. Each row carries its reason:
 #   petasos/pipeline.py :: Pipeline.__init__          - the no-minimal-supplied
 #       fallback; spec Decision 4 keeps it.
-#   reference_plugin/__init__.py :: _get_fallback_scanner - the cold-window
-#       fast-path fallback; spec Decision 7 keeps it bare.
-#   reference_plugin/verify.py :: check_injection_scan - a verification script,
-#       not a bootstrap.
-#   reference_plugin/verify.py :: check_scanner_imports - same script, probes
-#       PromptGuardScanner's availability.
 #   petasos/session/ingest.py :: scan_ingestion_result - PET-178 private sweep
 #       scanner; Decision 12 keeps it off pipeline._minimal_scanner.
 # The function is QUALIFIED (ClassName.method): a bare "__init__" key would exempt
@@ -87,18 +81,14 @@ _DEFINITION_MODULES = frozenset(
 _ALLOWLIST = frozenset(
     {
         ("petasos/pipeline.py", "Pipeline.__init__"),
-        ("docs/deployment/reference_plugin/__init__.py", "_get_fallback_scanner"),
-        ("docs/deployment/reference_plugin/verify.py", "check_injection_scan"),
-        ("docs/deployment/reference_plugin/verify.py", "check_scanner_imports"),
         ("petasos/session/ingest.py", "scan_ingestion_result"),
     }
 )
 
 # (repo-relative POSIX path, bootstrap function) - invariant 1's targets.
-_BOOTSTRAPS = (
-    ("petasos/console/_standalone.py", "build_dashboard_pipeline"),
-    ("docs/deployment/reference_plugin/__init__.py", "_deferred_init"),
-)
+# The console and the reference plugin were the last callers outside the
+# registry. Nothing in the package bootstraps scanners beside compose().
+_BOOTSTRAPS: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -307,9 +297,6 @@ def test_allowlist_is_exactly_the_documented_rows() -> None:
     documented = frozenset(
         {
             ("petasos/pipeline.py", "Pipeline.__init__"),
-            ("docs/deployment/reference_plugin/__init__.py", "_get_fallback_scanner"),
-            ("docs/deployment/reference_plugin/verify.py", "check_injection_scan"),
-            ("docs/deployment/reference_plugin/verify.py", "check_scanner_imports"),
             ("petasos/session/ingest.py", "scan_ingestion_result"),
         }
     )

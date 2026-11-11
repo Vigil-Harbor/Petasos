@@ -1,8 +1,8 @@
-"""The interface both enforcement oracles implement.
+"""The interface the enforcement oracles implement.
 
-``PluginOracle`` replays a scenario through the reference plugin.
-A later ``Enforcer`` adapter implements the same method and leaves the
-corpus, the recorded outcomes and the replay test alone.
+The reference plugin that first filled ``outcomes.json`` is gone. The
+enforcer and Hermes adapters implement this method and leave the corpus
+and the recorded outcomes alone.
 """
 
 from __future__ import annotations

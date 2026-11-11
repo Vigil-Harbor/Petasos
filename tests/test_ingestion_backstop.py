@@ -16,7 +16,6 @@ figure is wrong, and both are load-bearing.
 from __future__ import annotations
 
 import asyncio
-import importlib.util
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -32,8 +31,6 @@ from petasos.session.lineage import LineageRegistry
 from petasos.session.profiles import ProfileResolver
 
 if TYPE_CHECKING:
-    import types
-
     from petasos.session.profiles import ResolvedProfile
 
 _CLOCK = "petasos.session.frequency.time.monotonic"
@@ -73,24 +70,6 @@ _MAX_WINDOW = (_DENSE_LINES + "\n") * (8000 // (len(_DENSE_LINES) + 1) + 1)
 _MAX_WINDOW = _MAX_WINDOW[:8000]
 
 _TIER_RANK = {"none": 0, "tier1": 1, "tier2": 2, "tier3": 3}
-
-_REF_PLUGIN_PATH = (
-    Path(__file__).resolve().parent.parent
-    / "docs"
-    / "deployment"
-    / "reference_plugin"
-    / "__init__.py"
-)
-
-
-def _import_reference_plugin() -> types.ModuleType:
-    spec = importlib.util.spec_from_file_location(
-        "petasos_reference_plugin_pet176", str(_REF_PLUGIN_PATH)
-    )
-    assert spec is not None and spec.loader is not None
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
 
 
 def _resolve(profile: str | dict[str, Any] | None) -> ResolvedProfile | None:
@@ -311,92 +290,6 @@ def test_published_trajectory_table_model(source: str | None, interval: float) -
 
 
 # ---------------------------------------------------------------------------
-# 3b. Done-when 2/5 — the SHIPPED ingestion axis, driven through the block
-# ---------------------------------------------------------------------------
-
-
-def _shipped_ref(
-    monkeypatch: pytest.MonkeyPatch,
-    profile: str | None,
-) -> tuple[types.ModuleType, FrequencyTracker, ToolCallGuard]:
-    """A real stack behind the reference plugin's own hooks, so the tier2 block
-    suppresses ingestion exactly as shipped."""
-    cfg, tracker, pipeline, guard, _reg = _stack(profile=profile)
-    ref = _import_reference_plugin()
-    monkeypatch.setattr(ref, "_initialized", True)
-    monkeypatch.setattr(ref, "_init_error", None)
-    monkeypatch.setattr(ref, "_is_armed", lambda: True)
-    monkeypatch.setattr(ref, "_config", {})
-    monkeypatch.setattr(ref, "_pipeline", pipeline)
-    monkeypatch.setattr(ref, "_guard", guard)
-    monkeypatch.setattr(ref, "_maybe_reconfigure", lambda: None)
-    monkeypatch.setattr(ref, "_run_async", lambda coro, timeout=15: asyncio.run(coro))
-    ref._reset_cold_start_records()
-    return ref, tracker, guard
-
-
-def _drive_shipped_reads(
-    ref: types.ModuleType,
-    tracker: FrequencyTracker,
-    sid: str,
-    *,
-    interval: float,
-    text: str = _POISON,
-    max_calls: int = 40,
-    expect_banner: bool = True,
-) -> tuple[int, bool]:
-    """One agent loop: _pre_tool_call gates, and only a dispatched call produces
-    a result for _transform_tool_result. Returns (reads that landed, terminated).
-
-    ``expect_banner`` is False for sub-HIGH findings (e.g. a MEDIUM encoding
-    rule): the PET-170 banner fires on HIGH/CRITICAL only, while the PET-176
-    frequency write runs on any finding — the two thresholds are independent.
-    """
-    landed = 0
-    t0 = 1000.0
-    for n in range(max_calls):
-        now = t0 + n * interval
-        with patch(_CLOCK, return_value=now):
-            pre = ref._pre_tool_call("read_file", {"path": "notes.txt"}, task_id=sid)
-            if isinstance(pre, dict) and pre.get("action") == "block":
-                break
-            out = ref._transform_tool_result(tool_name="read_file", result=text, task_id=sid)
-            if expect_banner:
-                assert out is not None, "a flagged read must still carry its banner"
-            landed += 1
-    return landed, tracker.is_terminated(sid)
-
-
-@pytest.mark.parametrize(
-    ("profile", "interval", "expected_landed"),
-    [
-        (None, 0.0, 8),
-        (None, 1.0, 9),
-        ("admin", 0.0, 8),
-        ("admin", 1.0, 9),
-        ("research", 0.0, 8),
-        ("research", 1.0, 9),
-    ],
-    ids=lambda v: str(v),
-)
-def test_published_trajectory_table_shipped(
-    monkeypatch: pytest.MonkeyPatch,
-    profile: str | None,
-    interval: float,
-    expected_landed: int,
-) -> None:
-    """The governing figure: consecutive flagged reads that land before the
-    guard's tier2 read stops tool dispatch — and on this axis the termination
-    latch is NEVER reached (the block starves the only writer)."""
-    ref, tracker, _guard = _shipped_ref(monkeypatch, profile)
-    landed, terminated = _drive_shipped_reads(
-        ref, tracker, f"s-ship-{interval}", interval=interval
-    )
-    assert landed == expected_landed
-    assert terminated is False
-
-
-# ---------------------------------------------------------------------------
 # 4. Done-when 2 — K benign reads, in the brief's unit (findings, not silence)
 # ---------------------------------------------------------------------------
 
@@ -434,40 +327,23 @@ def test_benign_reads_do_not_escalate_sub_step_rule() -> None:
     assert len(state.rolling_findings) == 0
 
 
-def test_admin_profile_does_not_lower_the_scan_cap(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_admin_profile_does_not_lower_the_scan_cap() -> None:
     # The guard reads the config tier, so an admin profile does not pull the
     # per-scan step under the 3.0 encoding weight.
-    ref, tracker, guard = _shipped_ref(monkeypatch, "admin")
+    _cfg, tracker, pipeline, guard, _reg = _stack("admin")
     assert guard.scan_weight_cap == pytest.approx(15.0 / 4.0)
-    landed, terminated = _drive_shipped_reads(
-        ref,
-        tracker,
-        "s-b2",
-        interval=1.0,
-        text=_BENIGN_ENC,
-        max_calls=20,
-        expect_banner=False,
-    )
-    assert landed == 20
-    assert terminated is False
+    t0 = 1000.0
+    for n in range(20):
+        with patch(_CLOCK, return_value=t0 + n * 1.0):
+            _ingest(pipeline, guard, _BENIGN_ENC, "s-b2")
+    assert tracker.is_terminated("s-b2") is False
     assert _read_tier(guard, "s-b2") == "none"
 
 
-def test_benign_full_injection_rule_residual_is_pinned(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_benign_full_injection_rule_residual_is_pinned() -> None:
     # (c) the residual D4 states rather than hides: a benign file tripping one
-    # full injection.* rule (raw 10.0) stops dispatch after 9 re-reads at 1 s
-    # on the shipped wiring, and the model axis terminates at 15.
+    # full injection.* rule (raw 10.0). The model axis terminates at 15.
     _probe_weight(_BENIGN_INJ, 10.0)
-    ref, tracker, _guard = _shipped_ref(monkeypatch, None)
-    landed, terminated = _drive_shipped_reads(
-        ref, tracker, "s-b3", interval=1.0, text=_BENIGN_INJ, max_calls=30
-    )
-    assert landed == 9
-    assert terminated is False
 
     # Model axis (no block): termination on read 15 at 1 s.
     _cfg2, tracker2, pipeline2, guard2, _reg2 = _stack()
@@ -511,56 +387,6 @@ def test_weight_cap_contract() -> None:
     with patch(_CLOCK, return_value=t0):
         res = tracker.update("s-n", ["petasos.syntactic.injection.x"], weight_cap=None)
     assert res.current_score == 10.0
-
-
-# ---------------------------------------------------------------------------
-# 7. Done-when 7 — the uncorrelatable shapes provably do not arm
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize("shape", ["uncorrelatable", "no_guard"])
-def test_uncorrelatable_shape_does_not_arm(
-    monkeypatch: pytest.MonkeyPatch,
-    caplog: pytest.LogCaptureFixture,
-    shape: str,
-) -> None:
-    alerts: list[Any] = []
-    cfg, tracker, pipeline, guard, _reg = _stack(on_alert=alerts.append)
-    ref = _import_reference_plugin()
-    monkeypatch.setattr(ref, "_initialized", True)
-    monkeypatch.setattr(ref, "_init_error", None)
-    monkeypatch.setattr(ref, "_is_armed", lambda: True)
-    monkeypatch.setattr(ref, "_config", {})
-    monkeypatch.setattr(ref, "_pipeline", pipeline)
-    monkeypatch.setattr(ref, "_guard", None if shape == "no_guard" else guard)
-    monkeypatch.setattr(ref, "_run_async", lambda coro, timeout=15: asyncio.run(coro))
-    # The latches are process-wide; each parametrization starts clean.
-    ref._reset_cold_start_records()
-
-    task_id = "s-shape" if shape == "no_guard" else ""
-    with caplog.at_level(logging.WARNING, logger="petasos.plugin"):
-        for _ in range(20):
-            out = ref._transform_tool_result(
-                tool_name="read_file", result=_POISON, task_id=task_id
-            )
-            # The PET-170 banner still fires on every scan — this is what would
-            # red the UnboundLocalError latch shape (a swallowed raise returns
-            # None and deletes the banner).
-            assert out is not None and out.endswith(_POISON)
-
-    # No tracker rows: only session_id=None is PET-170-equivalent.
-    assert tracker.size == 0
-    assert tracker.get_state("s-shape") is None
-    # No cross-session burst from 20 poisoned no-arm reads (the anon-uuid spray
-    # this discriminator exists to prevent).
-    assert not [a for a in alerts if a.rule_id == "cross_session_burst"]
-    # Exactly one PETASOS_INGEST_UNCORRELATED per cause.
-    lines = [
-        r.getMessage() for r in caplog.records if "PETASOS_INGEST_UNCORRELATED" in r.getMessage()
-    ]
-    assert len(lines) == 1
-    expected_cause = "no_guard" if shape == "no_guard" else "uncorrelatable"
-    assert f"cause={expected_cause}" in lines[0]
 
 
 # ---------------------------------------------------------------------------
@@ -724,32 +550,6 @@ def test_composed_call_trajectory_model(source: str | None, interval: float) -> 
 
     got = (first_seen["tier1"], first_seen["tier2"], term_at)
     assert got == expected, f"{source}@{interval}s composed: got {got}, published {expected}"
-
-
-@pytest.mark.parametrize(
-    ("profile", "expected_term"),
-    [(None, 10), ("admin", 10), ("research", 10)],
-    ids=lambda v: str(v),
-)
-def test_composed_call_trajectory_shipped(
-    monkeypatch: pytest.MonkeyPatch,
-    profile: str | None,
-    expected_term: int | None,
-) -> None:
-    """(b) shipped: a tier2 read blocks the call, so the result half stops
-    landing; a tier3 read returns before _scan_params, so BOTH writers stop."""
-    ref, tracker, _guard = _shipped_ref(monkeypatch, profile)
-    term_at: int | None = None
-    t0 = 1000.0
-    for n in range(1, 31):
-        with patch(_CLOCK, return_value=t0):  # burst
-            pre = ref._pre_tool_call("read_file", {"text": _POISON}, task_id="s-cs")
-            if not (isinstance(pre, dict) and pre.get("action") == "block"):
-                ref._transform_tool_result(tool_name="read_file", result=_POISON, task_id="s-cs")
-            if tracker.is_terminated("s-cs"):
-                term_at = n
-                break
-    assert term_at == expected_term
 
 
 def test_composed_call_trajectory_selfmod(monkeypatch: pytest.MonkeyPatch) -> None:

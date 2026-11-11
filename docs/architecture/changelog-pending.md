@@ -13,7 +13,7 @@ deleted.
   (`petasos.llmguard.*`, `petasos.llamafirewall.*`) and CodeShield go with
   them. `PromptGuardScanner` is the injection backend. The `code_generation`
   profile still downgrades `petasos.promptguard.injection` to non-blocking.
-  `[all]` is unchanged (`presidio`, `prompt-guard`, `console`). Either id in
+  `[all]` is `presidio` and `prompt-guard`. Either id in
   `disabled_scanners` is now rejected as unknown.
 - **Breaking.** The license machinery. `LicenseClaims`, `LicenseState`,
   `LicenseValidator` and `validate_license` are no longer exported;
@@ -34,6 +34,15 @@ deleted.
   method. No bundled scanner implemented it. A backend that is installed but
   failed to load still reports `error`; `degraded` still covers scan errors
   and timeouts.
+- **Breaking.** The reference plugin, `docs/deployment/reference_plugin/`.
+  Enforcement is `petasos.enforce`. The Hermes adapter is `petasos hermes install`
+  and `petasos doctor`. The enforcement record in
+  `tests/enforce_parity/outcomes.json` is frozen and can no longer be regenerated.
+- **Breaking.** The standalone console, `petasos/console/`, the `petasos-console`
+  script, and the `console` extra. `uvicorn` leaves with the console. FastAPI
+  stays in the `dev` extra because the dashboard tests import it; Hermes supplies
+  it in a real install. The operator surface is the Petasos tab in Hermes's
+  dashboard.
 
 ## Changed
 

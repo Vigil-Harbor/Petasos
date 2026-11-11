@@ -27,75 +27,26 @@ def identity_redactor(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture(autouse=True)
 def _isolate_enforcement_spool(tmp_path_factory: pytest.TempPathFactory) -> Iterator[None]:
-    """PET-131: redirect the cross-process enforcement spool to a throwaway temp path
-    for every test.
+    """Point the module-level spool writer at a throwaway file for every test.
 
-    The dashboard now drains this spool on ``get_scan_history`` and the gateway
-    ``_pre_tool_call`` block branches append to it, so without isolation a test could
-    read the real machine spool (``%LOCALAPPDATA%/hermes/petasos-enforcement.jsonl``)
-    or pollute it. Tests that inspect the spool read ``_events._spool_path()``, which
-    returns this per-test path. A no-op if the console module is unimportable.
+    The console used to install the resolver on import. Tests that still call
+    ``emit_enforcement_event`` without a path must not touch a real Hermes home.
     """
-    try:
-        import importlib
+    import petasos.enforce.events as events
+    import petasos.hermes.home as paths
 
-        importlib.import_module("petasos.console")
-        import petasos.enforce.events as _ev
-        import petasos.hermes.home as _paths
-    except Exception:
-        yield
-        return
-    saved_override = _paths._SPOOL_PATH_OVERRIDE
-    saved_cap = _ev.SPOOL_CAP_BYTES
-    _ev._reset_events_state(str(tmp_path_factory.mktemp("enf_spool") / "enf.jsonl"))
+    def _set_override(path: str | None) -> None:
+        paths._SPOOL_PATH_OVERRIDE = path
+
+    events.install_spool_resolver(paths.spool_path, _set_override)
+    saved_override = paths._SPOOL_PATH_OVERRIDE
+    saved_cap = events.SPOOL_CAP_BYTES
+    events._reset_events_state(str(tmp_path_factory.mktemp("enf_spool") / "enf.jsonl"))
     try:
         yield
     finally:
-        _paths._SPOOL_PATH_OVERRIDE = saved_override
-        _ev.SPOOL_CAP_BYTES = saved_cap
-
-
-@pytest.fixture(autouse=True)
-def _isolate_history_sink(tmp_path_factory: pytest.TempPathFactory) -> Iterator[None]:
-    """PET-148: redirect the persistent scan-history sink to a throwaway temp path for
-    every test (mirrors ``_isolate_enforcement_spool``).
-
-    ``ConsoleHandlers._record_scan`` now appends every recorded scan to this on-disk sink,
-    so without isolation a test would write to the real machine state dir
-    (``%LOCALAPPDATA%/hermes/petasos-scan-history.jsonl``) or read it back. Tests that
-    inspect the sink read ``_history._history_path()``, which returns this per-test path.
-    A no-op if the console module is unimportable.
-    """
-    try:
-        import petasos.console._history as _hist
-    except Exception:
-        yield
-        return
-    saved_override = _hist._HISTORY_PATH_OVERRIDE
-    saved_cap = _hist._HISTORY_CAP_BYTES
-    _hist._reset_history_state(str(tmp_path_factory.mktemp("hist_sink") / "hist.jsonl"))
-    try:
-        yield
-    finally:
-        _hist._HISTORY_PATH_OVERRIDE = saved_override
-        _hist._HISTORY_CAP_BYTES = saved_cap
-
-
-@pytest.fixture(autouse=True)
-def _isolate_reviewed_file(tmp_path_factory: pytest.TempPathFactory) -> Iterator[None]:
-    """PET-223: point the reviewed-id file at a throwaway path for every test."""
-    try:
-        import petasos.console._approvals as _reviewed
-    except Exception:
-        yield
-        return
-    saved = _reviewed._REVIEWED_PATH_OVERRIDE
-    path = tmp_path_factory.mktemp("reviewed") / "petasos-approvals-reviewed.json"
-    _reviewed._REVIEWED_PATH_OVERRIDE = str(path)
-    try:
-        yield
-    finally:
-        _reviewed._REVIEWED_PATH_OVERRIDE = saved
+        paths._SPOOL_PATH_OVERRIDE = saved_override
+        events.SPOOL_CAP_BYTES = saved_cap
 
 
 @pytest.fixture()

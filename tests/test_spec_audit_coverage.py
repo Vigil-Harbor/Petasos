@@ -35,38 +35,6 @@ if TYPE_CHECKING:
 _SECRET = b"k" * 32
 
 
-# ----------------------------- DEF-02: field attribution bug -----------------------------
-def test_extract_field_from_error_prefers_most_specific_key() -> None:
-    """server._extract_field_from_error must attribute a 422 to the *specific* field.
-
-    `presidio_entities` is a substring of `presidio_entities_extra` (both are real
-    PetasosConfig fields). A first-match-wins substring scan mis-tags an error about
-    the longer field to the shorter one. Regression for the longest-match fix.
-    """
-    from petasos.console.server import _extract_field_from_error
-
-    body = {
-        "presidio_entities": ["EMAIL"],
-        "presidio_entities_extra": ["BOGUS"],
-    }
-    msg = "presidio_entities_extra entry must be a non-empty string"
-    assert _extract_field_from_error(msg, body) == "presidio_entities_extra"
-
-
-def test_extract_field_from_error_unknown_when_no_key_matches() -> None:
-    from petasos.console.server import _extract_field_from_error
-
-    assert (
-        _extract_field_from_error(
-            "totally unrelated",
-            {
-                "fail_mode": "x",
-            },
-        )
-        == "unknown"
-    )
-
-
 # --- FREQ-13: HMAC token verification reject ---
 def _secret_tracker() -> FrequencyTracker:
     return FrequencyTracker(PetasosConfig(), secrets=Secrets(session_secret=_SECRET))

@@ -30,7 +30,7 @@ import petasos
 # details — this is the one authoritative regex for the guard.
 _VERSION_LITERAL = re.compile(r"""['\"]\d+\.\d+\.\d+['\"]""")
 
-_SERVER_PY = Path(petasos.__file__).resolve().parent / "console" / "server.py"
+_HERMES = Path(petasos.__file__).resolve().parent / "hermes"
 
 
 def _literal_hits(text: str) -> list[str]:
@@ -46,12 +46,14 @@ def _literal_hits(text: str) -> list[str]:
     return hits
 
 
-def test_no_hardcoded_version_literal_in_console() -> None:
-    # Regression for PET-141: no quoted version literal may re-enter the console
-    # server source; the version must be sourced from ``petasos.__version__``.
-    source = _SERVER_PY.read_text(encoding="utf-8")
-    hits = _literal_hits(source)
-    assert hits == [], f"hardcoded version literal(s) in console/server.py: {hits}"
+def test_no_hardcoded_version_literal_in_the_hermes_adapter() -> None:
+    # Regression for PET-141: the adapter reads ``petasos.__version__``.
+    hits: list[str] = []
+    for path in sorted(_HERMES.rglob("*.py")):
+        hits.extend(
+            f"{path.name}: {line}" for line in _literal_hits(path.read_text(encoding="utf-8"))
+        )
+    assert hits == [], f"hardcoded version literal(s) in petasos/hermes: {hits}"
 
     # Synthetic negative case pinning the dotted-quad exclusion (mirrors the
     # test_ci_extras_lanes.py synthetic suite): the guard must NOT fire on a host

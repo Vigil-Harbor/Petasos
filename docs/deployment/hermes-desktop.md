@@ -69,12 +69,9 @@ degrade gracefully: under `closed` or `degraded` it blocks all content until you
 install it or list it in `disabled_scanners`. See
 [Upgrading to the PromptGuard backend](#upgrading-to-the-promptguard-backend).
 
-**Hermes 0.22 generations have no pip.** There, declare the backends in the plugin's
-`pyproject.toml` instead. `docs/deployment/reference_plugin/pyproject.toml` declares
-`petasos[presidio,prompt-guard]` and the spaCy model, and Hermes installs them at its
-next generation rebuild. That manifest is verified on Windows with Python 3.14. It
-installs the ML packages regardless of `disabled_scanners`. It has not been verified
-on Intel macOS.
+**Hermes generations without pip.** Install the plugin with `petasos hermes install`
+and check it with `petasos doctor`. The Petasos tab in Hermes's dashboard shows
+which scanners loaded.
 
 **macOS:**
 
@@ -212,14 +209,9 @@ hooks:
 ```
 <!-- PET-170-MANIFEST-END -->
 
-This block is documentation parity with the shipped
-`docs/deployment/reference_plugin/plugin.yaml`. This file's `hooks:` list is what
-current Hermes stores as `provides_hooks` when that key is absent. Runtime delivery
-remains `ctx.register_hook` in `register()`. Declaring the names without registering
-them does not deliver callbacks. Registering them without declaring them still
-delivers callbacks and fails the parity test once the runbook and yaml diverge.
-The two lists are pinned equal by
-`tests/test_reference_plugin_block_messages.py`.
+The shipped manifest is `hermes-plugin/petasos/plugin.yaml`. Install it with
+`petasos hermes install` and check it with `petasos doctor`. The Petasos tab
+in Hermes's dashboard is the operator surface.
 
 `pre_approval_request` and `post_approval_response` record Hermes approval prompts
 on the enforcement spool (`event_type` approval). The request row has no choice.
@@ -248,9 +240,9 @@ escalation no-ops and only the fan-out cap runs (logged once at startup).
 
 ### `__init__.py`
 
-The reference implementation is maintained at
-[`docs/deployment/reference_plugin/`](reference_plugin/) in this repo. Key
-behaviors to preserve in any custom integration:
+Install the Hermes plugin with `petasos hermes install` and check it with
+`petasos doctor`. The operator surface is the Petasos tab in Hermes's dashboard.
+Key behaviors to preserve in any custom integration:
 
 - **Lazy init.** Scanners load in a background thread. The plugin registers
   hooks and returns immediately so Hermes Desktop doesn't stall on ML model
@@ -575,40 +567,9 @@ gateway **stopped**. Safe restart procedure:
 Do not rely on the restart API unless you have confirmed the service unit is
 pre-installed.
 
-### Verification script
+### Verification
 
-A standalone verification script (`verify.py` in the reference plugin directory)
-checks all components, including split-brain detection:
-
-**macOS:**
-
-```bash
-~/.hermes/hermes-agent/venv/bin/python plugins/petasos/verify.py
-```
-
-**Windows (PowerShell / cmd):**
-
-```powershell
-%LOCALAPPDATA%\hermes\hermes-agent\venv\Scripts\python.exe plugins/petasos/verify.py
-```
-
-Expected output: rows for scanner imports, plugin files, config validation,
-environment variables, feature activation, arming state, injection
-detection, and config split-brain. The header shows which config file was
-resolved, the winning tier, and which plugin copy the script imported. The
-config validation and feature activation rows are read from that config file
-and built by the plugin's own config builder; the arming state row reads the same
-file through the console's own arming reader. Each detail line names the file. A
-WARN on feature activation lists the session features that config turns off. A
-WARN on arming state means either that `petasos.enabled` is false (Unequipped in
-the console) and nothing is enforced, or that no boolean was there to read (no
-config file, an unreadable section, or a non-boolean value) and the fail-secure
-default armed it. An absent `petasos.enabled` is not a warning: it PASSes with a
-note saying the default armed it. The script reads the config file and executes the
-plugin file it sits beside; it reports what those two files say, so compare its
-resolved path with the `loading config from ...` INFO line in the gateway log
-rather than treating either file as tamper-evident, and restart after a config
-edit before trusting either.
+The reference plugin's `verify.py` is retired. Install with `petasos hermes install`, check with `petasos doctor`, and use the Petasos tab in Hermes's dashboard.
 
 ### Upgrading Hermes orphans plugins
 
@@ -629,16 +590,8 @@ minor update:
 
 1. Check the new `loading config from ...` INFO line; confirm it points to the
    profile config, not the root.
-2. If `check_plugin_files` FAILs in `verify.py`, copy the plugin directory to the
-   profile home:
-
-   ```bash
-   # macOS (profile = gibson)
-   cp -r ~/.hermes/plugins/petasos ~/.hermes/profiles/gibson/plugins/petasos
-
-   # Windows (PowerShell)
-   Copy-Item -Recurse "$env:LOCALAPPDATA\hermes\plugins\petasos" "$env:LOCALAPPDATA\hermes\profiles\gibson\plugins\petasos"
-   ```
+2. Install the plugin into that home with `petasos hermes install` and check it
+   with `petasos doctor`.
 
    The plugin files and the `petasos` library in Hermes's venv must move
    together. The plugin imports `format_result_notice` at module level and
@@ -649,7 +602,7 @@ minor update:
    `Petasos plugin registered` INFO line in the startup log above as the
    reliable signal. An old-library skew therefore does not latch init. A
    library *newer* than a stale plugin copy still can, if a symbol or
-   signature the deferred init uses has moved. Run `verify.py` before
+   signature the deferred init uses has moved. Run `petasos doctor` before
    restarting. Between a sync and its restart the per-profile rows FAIL on the
    gateway's load line, because the running process still holds the old bytes;
    that is expected, and the row says to restart. Sync the library before the
@@ -671,7 +624,7 @@ minor update:
 
 If the plugin files are absent from the resolved home, enforcement is **silently
 off**: no error, no log warning (the plugin simply isn't discovered). The
-`verify.py` script and the `loading config from ...` INFO line are the primary
+`petasos doctor` and the `loading config from ...` INFO line are the primary
 diagnostic tools.
 
 ### One copy per guarded profile
@@ -680,7 +633,7 @@ A multiplexed gateway serves several profiles, and each profile home discovers
 plugins only in its own `plugins/`. The dashboard does fall back to the root, so a
 console can look fine with no hook behind it. Guard a profile by giving that home
 its own copy. A profile with no copy stays unguarded, and that is a supported
-choice: nothing installs itself, and the console and `verify.py` report it as not
+choice: nothing installs itself, and `petasos doctor` reports it as not
 protected, with the next steps and a line saying no action is needed if it is
 intended.
 
@@ -691,126 +644,9 @@ One folder deeper still loads as a second plugin. Keep backups in
 `<home>/petasos-plugin-backups`, beside `plugins/`. Cloning a home copies whatever
 is in `plugins/`, so do not clone a home that holds a backup.
 
-`verify.py` adds one row per served profile:
-
-| Row | Meaning |
-| --- | --- |
-| PASS | A hook can load. The row says whether the gateway's load line agreed, or that load was not checked. |
-| WARN, not protected | No copy, or `petasos` not enabled. Next steps are printed. |
-| WARN, armed if served | Armed with no hook, but no live gateway says this profile is served. |
-| WARN, inconclusive | Files say a hook can load, and no matching load line exists. The row names the causes. |
-| FAIL, armed with no hook | A live gateway serves this armed profile, and no hook can load. |
-| FAIL, wrong folder | Another folder claims the `petasos` name, or the gateway loaded other bytes than the files hold. |
-
-`verify.py` is the authority. The console reads files only, so a plugin that fails
-at load is invisible to it. When a stale copy also serves the dashboard, the console
-can be missing the new field altogether.
-
-## Durable console backend across Hermes updates
-
-The console backend (`config`, `scan`, `armed`, `scan-history`) can be served two
-ways. Only one survives a Hermes host update without a manual re-drop. The in-tab
-`9119` dashboard plugin mounts a backend only when Hermes treats it as a
-**bundled** plugin, and a Hermes update rebuilds the install tree where that copy
-lives, so the in-tab backend silently goes dark on each update. The durable answer
-is to run the console as its own supervised process.
-
-**Mount-verification (in-tab backend).** To confirm whether the in-tab `9119`
-backend is actually mounted, read the `has_api` flag in `/api/dashboard/plugins`,
-or send an **authenticated** health probe. A bare `401` from an unauthenticated
-probe is NOT proof of mount: the dashboard auth middleware returns `401` whether
-or not the route is mounted, so treat only `has_api: true` or an authenticated
-non-`401`/non-`404` as confirmation.
-
-<!-- PET-153-DURABLE-PATH -->
-### Durable: supervised standalone console (recommended)
-
-Run the console as its own OS-supervised process, decoupled from Hermes. Nothing
-it depends on lives in the Hermes install tree, and the Hermes plugin-backend
-mount policy is irrelevant to it, so a Hermes update cannot take it dark. This is
-the shipped, durable path.
-
-Petasos ships the entrypoint; the OS supervisor owns the lifecycle:
-
-- **Entrypoint:** `petasos-console` (installed by the `console` extra) or the
-  equivalent `python -m petasos.console`. It binds uvicorn to `127.0.0.1:8384` and
-  serves a complete, self-contained UI and API on that one port. Open
-  `http://127.0.0.1:8384` directly. The served UI is already a token-aware client
-  (it takes the token in the UI, keeps it in `sessionStorage`, and sends it on
-  every request and SSE call), so no rebuild is needed.
-- **Install the extra** into the same interpreter the agent uses:
-  `pip install "petasos[console]"`.
-- **Supervisor:** register `petasos-console` under Windows Task Scheduler
-  (mirroring the existing `Hermes_Gateway_<profile>` scheduled task) or macOS
-  launchd. The supervisor restarts it on reboot and on crash. Petasos does not
-  daemonize or supervise itself.
-
-**Pin the agent's environment in the supervisor registration.** A Task Scheduler
-or launchd process does not inherit the interactive agent's environment, so
-without explicit pinning the supervised console can resolve a different profile's
-`config.yaml` (and a different enforcement spool) than the agent enforces,
-silently. Pin the same values the agent uses, in the Task Scheduler XML or launchd
-plist:
-
-- `HERMES_HOME` (or the active-profile context and the matching user account), so
-  the console resolves the same config path the agent does.
-- `PETASOS_SESSION_SECRET` and `PETASOS_HASH_KEY`, so the console reads the agent's
-  HMAC-attested enforcement events as attested. Without the secret, session binding
-  silently disables and attested events read as unattested.
-- `PETASOS_CONSOLE_TOKEN` set to a **non-blank** value, so every `/api/*` data
-  route requires `Authorization: Bearer <token>`. A set-but-blank value disables
-  auth with one WARNING; do not register it blank.
-
-**Auth posture.** When `PETASOS_CONSOLE_TOKEN` is a non-blank string, every
-`/api/*` route returns `401` without a valid bearer token. The static page,
-`/static`, and FastAPI's `/docs`, `/redoc`, and `/openapi.json` stay ungated; on a
-localhost-only bind that is acceptable (the OpenAPI surface is a route map, not
-scan data). This does not regress to an unauthenticated `127.0.0.1` surface.
-
-**Startup self-check.** At startup the console logs the config line and one banner
-at INFO immediately before binding:
-
-```text
-INFO petasos.dashboard: loading config from <path> [tier=<tier>]
-INFO petasos.dashboard: petasos console starting: bind=127.0.0.1:8384 auth=on attestation=on
-```
-
-`auth` and `attestation` report **effective** state, not raw env presence:
-`auth=off` means the token was unset or blank, and `attestation=off` means the
-session secret did not decode. Compare the `loading config from` path against the
-agent's own line to confirm both resolve the same profile. If the bind fails (port
-already in use), the console logs an ERROR carrying the token
-`PETASOS_CONSOLE_START_FAILED` and exits non-zero.
-
-**Single-instance replacement.** Lifecycle and single-instance enforcement are the
-supervisor's job. Before registering a new `petasos-console` task, stop and remove
-any existing one; otherwise the stale instance can still hold `127.0.0.1:8384` and
-the new one fails to bind (the same shape as the `Hermes_Gateway_<profile>`
-PID-misidentification footgun). The port-in-use ERROR above makes the collision
-self-diagnosing.
-
-**Single-operator config writes.** With the standalone console running, two
-processes can write `config.yaml` and the armed bit: the agent and the console
-(via `PUT /api/config` and `POST /api/armed`). Each write is an atomic
-read-modify-replace (no torn file), but two independent writers are
-last-writer-wins with a lost-update window. Do not edit config from both the Hermes
-tab and the standalone console at the same time.
-
-<!-- PET-153-D2-FRAGILE: in-tree dashboard copy is wiped every Hermes update; not the durable path -->
-### Interim only: in-tree bundled dashboard copy (fragile)
-
-Before the supervised console is in place, the operator stopgap is a
-dashboard-only bundled copy at `<hermes-agent>/plugins/petasos/dashboard/`, with
-deliberately no root `plugin.yaml` or `__init__.py` so the dashboard discovery
-mounts it as `bundled` (`has_api: true`) while the agent hook loader ignores it
-(no double enforcement).
-
-This works, but it lives inside the Hermes install tree that every Hermes update
-rebuilds, so it is **wiped on each update** and the console silently goes dark
-again. There is no documented durable bundled location and no relocation env, so
-this copy cannot be made update-durable from the Petasos side. Treat it as a
-stopgap that must be re-dropped after every Hermes update, and move to the
-supervised standalone console above as the durable answer.
+The reference plugin's `verify.py` and the standalone console are retired.
+Install with `petasos hermes install`, check with `petasos doctor`, and use the
+Petasos tab in Hermes's dashboard.
 
 ## PromptGuard model prerequisites
 
@@ -926,7 +762,7 @@ Check `agent.log` for `Skipping 'petasos'`:
   `register_memory_provider` strings. Remove them.
 - No mention of petasos at all: `plugin.yaml` is missing or in the wrong
   directory. On v0.16+ check the **profile** plugins directory, not root. Run
-  `verify.py` to confirm the resolved path.
+  `petasos doctor` to confirm the resolved path.
 
 ### Scanner import failures
 
@@ -955,10 +791,10 @@ overwrote the file.
 
 ### Config split-brain
 
-If `verify.py` reports `Config split-brain`, the root and profile `petasos:`
-sections have divergent values. The profile config is the one the running
-processes use: update the root config to match, or remove the root's `petasos:`
-section to eliminate the drift.
+The reference plugin's split-brain check is retired. Check the install with
+`petasos doctor`. The profile config is the one the running processes use:
+update the root config to match, or remove the root's `petasos:` section to
+eliminate the drift.
 
 ### ToolCallGuard constructor error
 
@@ -966,8 +802,8 @@ section to eliminate the drift.
 ERROR petasos.plugin: ToolCallGuard.__init__() missing 2 required positional arguments
 ```
 
-`ToolCallGuard` requires `(pipeline, frequency_tracker, config)`. The reference
-plugin wires this automatically. In a custom integration, construct a
+`ToolCallGuard` requires `(pipeline, frequency_tracker, config)`. The Hermes
+plugin wires this automatically (`petasos hermes install`). In a custom integration, construct a
 `FrequencyTracker(config)` and pass it.
 
 ### Model claims a blocked command ran

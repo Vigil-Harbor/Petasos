@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 from petasos._types import ScanFinding, Severity
+
+if TYPE_CHECKING:
+    import pytest
 from petasos.enforce.decisions import Block
 from petasos.enforce.fallback import (
     FallbackScan,
@@ -195,3 +199,28 @@ def test_tier3_unavailable_block_uses_the_guard_message() -> None:
     )
     assert decision.message == expected
     assert events[0]["event_type"] == "tier3"
+
+
+def test_a_truncated_parameter_is_logged_and_a_raising_scan_is_errored(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from petasos._limits import MAX_PARAM_TEXT_LEN
+
+    logger_name = "petasos.enforce.test.fallback"
+    scanner = _Scanner(_Result())
+    with caplog.at_level(logging.WARNING, logger=logger_name):
+        scanned, _events = _scan(
+            "terminal",
+            {"command": "x" * (MAX_PARAM_TEXT_LEN + 1)},
+            scanner,
+        )
+    assert scanned.outcome == "clean"
+    assert any("PETASOS_PARAM_TRUNCATED" in record.getMessage() for record in caplog.records)
+
+    class _Raising:
+        def scan(self, text: str, direction: str | None = None) -> _Result:
+            raise RuntimeError("scan failed")
+
+    failed, _events = _scan("terminal", {"command": "echo"}, _Raising())  # type: ignore[arg-type]
+    assert failed.outcome == "errored"
+    assert failed.block is None
