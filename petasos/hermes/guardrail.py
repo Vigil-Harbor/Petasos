@@ -26,7 +26,7 @@ _SETTINGS_TAILS = ("plugins.entries.petasos",)
 _UPDATE_READS = ("--check", "--plan", "--list-venv-holders", "--install-id")
 
 
-def hermes_surface(paths: Iterable[str]) -> GuardrailSurface:
+def hermes_surface(paths: Iterable[str], roots: Iterable[str] = ()) -> GuardrailSurface:
     """Label ``paths`` and add the Hermes commands that change a guardrail."""
     labelled: dict[str, set[str]] = {"settings": set(), "plugin": set(), "record": set()}
     for raw in paths:
@@ -141,6 +141,7 @@ def hermes_surface(paths: Iterable[str]) -> GuardrailSurface:
             )
     return GuardrailSurface(
         paths={kind: frozenset(values) for kind, values in labelled.items()},
+        roots=frozenset(str(root) for root in roots),
         commands=tuple(commands),
         flags=(
             FlagRule("plugin", "hermes", "--safe-mode", "hermes --safe-mode"),

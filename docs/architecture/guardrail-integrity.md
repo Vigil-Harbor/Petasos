@@ -169,9 +169,29 @@ it got in.
   program that is not on the small reader list, so some honest reads now ask.
   What a string match still does not catch:
 
-  - Encoded commands (`base64`, `eval`), aliases, and command substitution
-    (`$(...)`, `` `...` ``). Nothing is decoded or executed.
-  - A shell variable that holds the program (`cmd=hermes; $cmd ...`).
+  - Encoded commands (`base64 -d | sh`), text piped into a shell
+    (`echo '...' | sh`), aliases and shell functions, and command
+    substitution inside double quotes (`"$(...)"`). Nothing is decoded or
+    executed. `eval` of a plain string, `sh -c`, and a substitution written
+    outside quotes are read.
+  - A shell variable that holds the program (`cmd=hermes; $cmd ...`), and
+    arguments supplied when the command runs (`... | xargs hermes plugins
+    disable`).
+  - A directory above the Hermes home (`rm -rf ~`, `rm -rf /`). A directory
+    at or inside the home that holds a protected path is a change
+    (`rm -rf ~/.hermes/plugins`), and so is a wildcard there that covers one.
+    Anything further up is left to the destructive-command rules. The same
+    holds for the Python environment Petasos is installed in.
+  - A `cd` in an earlier tool call. A `cd` earlier in the same command is
+    followed. Because the directory a command really runs in is not known, a
+    relative name is also tried against `HERMES_HOME` and `HOME`, so writing
+    a relative `config.yaml` or `.env` asks wherever it is.
+  - Nested braces (`{a,{b,c}}`), and a wildcard after `shopt -s dotglob`.
+  - Anything past the first 64 commands or the first 100,000 characters of
+    one tool call. The rest is not read, so padding hides a change. The
+    limits bound the time a check takes, which is mostly resolving paths.
+  - Package managers other than `pip`, `pipx` and `uv` (`poetry`, `conda`),
+    and an install from a requirements file or from the current directory.
   - A Python path built in a variable and used later
     (`root = os.environ["HERMES_HOME"]` then `open(root + "/config.yaml")`).
     A path written next to `Path.home()`, `expanduser`, or a lookup of
@@ -179,6 +199,9 @@ it got in.
     recognised only when it resolves against the working directory, `HOME`,
     or `HERMES_HOME` the same way a shell word does.
   - The body of a script file the command only names (`python write.py`).
+    Program text on the command line is read: `python -c`, a here-document
+    given to `python`, and the arguments of `node`, `perl`, `ruby`, `php`,
+    `awk` and `sed`.
   - A protected path that is only inside a larger shell argument
     (`echo 'see …/config.yaml'`). The path has to be an argument the program
     acts on, or a redirect target. Option values glued on (`--output=path`,
@@ -200,7 +223,14 @@ it got in.
   Reads that are not on the reader list now ask. That includes `sed` and
   `perl` even without `-i`, `awk`, editors (including a read-only `vim -R`),
   `git` commands that name the file, `strings`, `od`, `hexdump`, `sort`,
-  `tar`, `ack`, and `ag`. `rg` is treated as a grep and does not ask.
+  `tar`, `ack`, and `ag`. `rg` is treated as a grep and does not ask. A
+  read behind a wrapper or a shell keyword (`sudo cat`, `timeout 5 cat`,
+  `if grep -q ...; then`) is still a read.
+
+  `hermes`, `petasos`, `pip` and `uv` take verbs and names, and their forms
+  that change a guardrail are listed as rules. For those four a bare word is
+  not read as a path, so `petasos doctor` does not ask in a directory that
+  happens to hold a `petasos` folder.
 
 ## Behaviour change
 

@@ -3,9 +3,12 @@
 The guard stays host-agnostic. A host supplies the paths and the command
 patterns that belong to it. Petasos's own package files and its own commands
 are recognised here. A shell command that names a protected path is a change
-unless the program is a plain reader and is used as one. A redirect into a
-protected path is always a change. A path that only appears inside text the
-command writes somewhere else is not.
+unless the program is a plain reader and is used as one. So is a command that
+names a directory holding a protected path, or a wildcard that covers one,
+when that directory is inside a root the host names (its home). A directory
+further up, such as ``/``, is left to the destructive-command rules. A
+redirect into a protected path is always a change. A path that only appears
+inside text the command writes somewhere else is not.
 
 Program text (``execute_code``, ``python``, and ``python -c``) is not read as
 a shell line. Embedded commands are judged as shell, and any protected path
@@ -13,16 +16,20 @@ the text names is a change. Python is not treated as read-only.
 
 Recognition is the plain forms and the cheap disguises: quotes joined inside
 a word, a backslash before an ordinary character, an environment-variable
-prefix, ``sh -c``, a relative path, ``~``, ``$HERMES_HOME``, and commands
-chained with ``&&``, ``||``, ``;`` or ``|``. It is not a sandbox. Encoded
-payloads, aliases, command substitution, and a path assembled at runtime
-from separate pieces are not matched.
+prefix, ``sh -c``, ``eval``, a program started by another (``timeout 5 hermes
+...``), a relative path, a ``cd`` earlier in the same command, ``~``,
+``$HERMES_HOME``, a subshell, and commands chained with ``&&``, ``||``, ``;``,
+``&`` or ``|``. It is not a sandbox. Encoded payloads, aliases, command
+substitution inside double quotes, and a path assembled at runtime from
+separate pieces are not matched.
 """
 
 from __future__ import annotations
 
+import fnmatch
 import os
 import re
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -93,9 +100,11 @@ _READERS = frozenset(
         "b2sum",
         "bzgrep",
         "cat",
+        "cd",
         "cksum",
         "cmp",
         "diff",
+        "du",
         "egrep",
         "fgrep",
         "file",
@@ -108,6 +117,8 @@ _READERS = frozenset(
         "md5",
         "md5sum",
         "more",
+        "popd",
+        "pushd",
         "readlink",
         "realpath",
         "rg",
@@ -122,6 +133,7 @@ _READERS = frozenset(
         "sum",
         "tail",
         "test",
+        "tree",
         "wc",
         "xzgrep",
         "yq",
@@ -148,6 +160,30 @@ _FIND_WRITES = frozenset(
 # source with an unprotected destination is a read. ``install`` and ``ln``
 # have that same shape. ``rsync --remove-source-files`` deletes the source.
 _COPIES = frozenset({"cp", "install", "ln", "rsync", "scp"})
+# Their words are verbs and names, and the forms that change a guardrail are
+# listed as rules. Only a word written as a path is read as one.
+_VERB_PROGRAMS = frozenset({"hermes", "petasos", "pip", "uv"})
+# An argument is program text, so a protected path anywhere inside it counts.
+_INTERPRETERS = frozenset(
+    {
+        "awk",
+        "bun",
+        "deno",
+        "gawk",
+        "lua",
+        "mawk",
+        "node",
+        "nodejs",
+        "osascript",
+        "perl",
+        "php",
+        "ruby",
+        "sed",
+    }
+)
+# Tools that remove or move a whole directory, so a directory that holds a
+# protected path counts.
+_TREE_TOOLS = frozenset({"chmod", "delete_file", "move_file"})
 _COPY_DEST_FLAGS = frozenset({"-t", "--target-directory"})
 _CODE_TOOLS = frozenset({"execute_code", "python"})
 # PowerShell read cmdlets. A write cmdlet in the same command is not a read.
@@ -212,11 +248,48 @@ _HELP_FLAGS = frozenset({"-h", "--help"})
 _READ_MODES = frozenset({"r", "rb", "rt"})
 _PATH_READ_METHODS = frozenset({"read_text", "read_bytes", "exists", "is_file", "stat"})
 _SHELLS = frozenset({"ash", "bash", "dash", "ksh", "sh", "zsh"})
-_WRAPPERS = frozenset({"command", "env", "nice", "nohup", "sudo", "time"})
+# Programs and shell keywords that run the command written after them.
+_WRAPPERS = frozenset(
+    {
+        "!",
+        "builtin",
+        "command",
+        "do",
+        "elif",
+        "else",
+        "env",
+        "exec",
+        "if",
+        "nice",
+        "nohup",
+        "setsid",
+        "stdbuf",
+        "sudo",
+        "then",
+        "time",
+        "timeout",
+        "until",
+        "while",
+        "{",
+    }
+)
+# A wrapper option that takes the next word as its value.
+_WRAPPER_VALUES = {
+    "env": frozenset({"-u", "-C"}),
+    "nice": frozenset({"-n"}),
+    "sudo": frozenset({"-u", "-g"}),
+    "timeout": frozenset({"-s", "-k"}),
+}
 _ALL_NAMES = frozenset({"*", "--all", "-a", "all"})
 _TRUTHY = frozenset({"1", "true", "yes", "on"})
 _MAX_CHARS = 100_000
 _MAX_COMMANDS = 64
+_MAX_HEREDOCS = 8
+_MAX_BRACES = 64
+_GLOB = re.compile(r"[*?\[]")
+_BRACES = re.compile(r"\{([^{}]*,[^{}]*)\}")
+_HEREDOC_OPEN = re.compile(r"""<<-?[ \t]*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1""")
+_NAME_END = re.compile(r"[=<>!~\[;@\s]")
 _SYSTEM_CALL = re.compile(
     r"""(?:os\.system|os\.popen|subprocess\.(?:run|call|check_call|check_output|Popen|getoutput|getstatusoutput))\s*\(\s*(['"])(?P<body>(?:\\.|(?!\1).)*)\1""",
     re.DOTALL,
@@ -288,13 +361,16 @@ class EnvRule:
 class GuardrailSurface:
     """What the host adds to the library's own recognition.
 
-    ``paths`` maps a kind to filesystem paths. ``commands``, ``flags`` and
-    ``env`` are the host's own command forms. An empty surface leaves the
-    library's package files and commands in force, and any protected paths the
-    caller passes are still checked.
+    ``paths`` maps a kind to filesystem paths. ``roots`` are the directories
+    the host keeps them in: a command that names a directory at or inside a
+    root is a change when that directory holds a protected path. ``commands``,
+    ``flags`` and ``env`` are the host's own command forms. An empty surface
+    leaves the library's package files and commands in force, and any
+    protected paths the caller passes are still checked.
     """
 
     paths: Mapping[str, frozenset[str]] = field(default_factory=dict)
+    roots: frozenset[str] = frozenset()
     commands: tuple[CommandRule, ...] = ()
     flags: tuple[FlagRule, ...] = ()
     env: tuple[EnvRule, ...] = ()
@@ -307,6 +383,14 @@ class GuardrailHit:
 
     kind: str
     target: str
+
+
+@dataclass(frozen=True, slots=True)
+class _Owned:
+    """Protected paths with their kinds, and the roots they are kept in."""
+
+    paths: Mapping[str, str]
+    roots: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -379,6 +463,14 @@ def library_rules() -> tuple[CommandRule, ...]:
         rules.append(
             CommandRule("package", install, " ".join(install) + " petasos", name="petasos")
         )
+    for verbs in (
+        ("uv", "add"),
+        ("uv", "remove"),
+        ("uv", "tool", "install"),
+        ("uv", "tool", "uninstall"),
+        ("uv", "tool", "upgrade"),
+    ):
+        rules.append(CommandRule("package", verbs, " ".join(verbs) + " petasos", name="petasos"))
     return tuple(rules)
 
 
@@ -436,12 +528,20 @@ def _owned(
     protected: Iterable[str],
     surface: GuardrailSurface,
     package: Iterable[str],
-) -> dict[str, str]:
-    """Normalised path to its kind. A later label does not hide an earlier one."""
+) -> _Owned:
+    """Normalised path to its kind. A later label does not hide an earlier one.
+
+    The environment the package is installed in is a root, so removing that
+    environment is recognised.
+    """
     found: dict[str, str] = {}
+    roots = {normalize_path_text(str(raw)) for raw in surface.roots}
+    environment = normalize_path_text(sys.prefix)
     for raw in package:
         key = normalize_path_text(str(raw))
         found.setdefault(key, "package")
+        if _within(key, (environment,)):
+            roots.add(environment)
     for raw in protected:
         key = normalize_path_text(str(raw))
         found.setdefault(key, _infer_kind(key))
@@ -450,7 +550,16 @@ def _owned(
             continue
         for raw in paths:
             found[normalize_path_text(str(raw))] = kind
-    return found
+    return _Owned(found, tuple(sorted(roots)))
+
+
+def _within(candidate: str, roots: Iterable[str]) -> bool:
+    """True when ``candidate`` is one of ``roots`` or is inside one."""
+    for root in roots:
+        prefix = root if root.endswith(os.sep) else root + os.sep
+        if candidate == root or candidate.startswith(prefix):
+            return True
+    return False
 
 
 def _infer_kind(path: str) -> str:
@@ -468,40 +577,123 @@ def _infer_kind(path: str) -> str:
 def _path_change(
     tool: str,
     params: Mapping[str, object],
-    owned: Mapping[str, str],
+    owned: _Owned,
     env: Mapping[str, str],
     cwd: str,
     command_tools: frozenset[str],
 ) -> GuardrailHit | None:
     if _program(tool) in command_tools or tool in command_tools:
         return None
-    keys = _PATH_KEYS if _program(tool) not in _WRITE_TOOLS else _PATH_KEYS
+    above = _program(tool) in _TREE_TOOLS
     for key, value in params.items():
-        if key not in keys or not isinstance(value, str):
+        if key not in _PATH_KEYS or not isinstance(value, str):
             continue
-        hit = _match_path(value, owned, env, cwd)
+        hit = _match_path(value, owned, env, cwd, above=above)
         if hit is not None:
             return hit
     return None
 
 
 def _match_path(
-    raw: str, owned: Mapping[str, str], env: Mapping[str, str], cwd: str
+    raw: str,
+    owned: _Owned,
+    env: Mapping[str, str],
+    cwd: str,
+    *,
+    above: bool = False,
+    hedge: bool = True,
 ) -> GuardrailHit | None:
-    for candidate in _expand_path(raw, env, cwd):
-        located = _kind_of(candidate, owned)
-        if located is None:
+    """``raw`` as a protected path, or as something inside one.
+
+    A relative name is tried against the working directory, then against
+    ``HERMES_HOME`` and ``HOME``, because the directory the command really
+    runs in is not known. ``hedge=False`` keeps only the working directory.
+    ``above`` also matches a directory inside a root that holds a protected
+    path, and a wildcard there that covers one, against the working
+    directory only.
+    """
+    if not raw.strip():
+        return None
+    for variant in _brace_variants(raw):
+        candidates = _expand_path(variant, env, cwd)
+        for candidate in candidates if hedge else candidates[:1]:
+            located = _kind_of(candidate, owned)
+            if located is not None:
+                return GuardrailHit(*located)
+        if not above:
             continue
-        kind, entry = located
-        return GuardrailHit(kind, entry)
+        kind = _holds(candidates[0], owned)
+        if kind is None and _GLOB.search(variant):
+            kind = _glob_kind(candidates[0], owned)
+        if kind is not None:
+            return GuardrailHit(kind, candidates[0])
     return None
 
 
-def _kind_of(candidate: str, owned: Mapping[str, str]) -> tuple[str, str] | None:
-    direct = owned.get(candidate)
+def _brace_variants(word: str) -> list[str]:
+    """``a/{b,c}`` as ``a/b`` and ``a/c``. A word with no such group is itself."""
+    pending = [word]
+    done: list[str] = []
+    while pending and len(done) + len(pending) <= _MAX_BRACES:
+        item = pending.pop()
+        match = _BRACES.search(item)
+        if match is None:
+            done.append(item)
+            continue
+        for option in match.group(1).split(","):
+            pending.append(item[: match.start()] + option + item[match.end() :])
+    return done + pending
+
+
+def _holds(candidate: str, owned: _Owned) -> str | None:
+    """The kind of a protected path beneath ``candidate``, a directory inside a root."""
+    if not _within(candidate, owned.roots):
+        return None
+    prefix = candidate if candidate.endswith(os.sep) else candidate + os.sep
+    for entry, kind in owned.paths.items():
+        if entry.startswith(prefix):
+            return kind
+    return None
+
+
+def _glob_kind(pattern: str, owned: _Owned) -> str | None:
+    """The kind of a protected path the wildcard covers, holds, or reaches into.
+
+    Compared one path segment at a time. As in a shell, a wildcard does not
+    match a name that starts with a dot unless the pattern writes the dot.
+    The pattern has to reach a root: ``/home/*`` is not read as the home
+    beneath it.
+    """
+    wanted = Path(pattern).parts
+    if not any(_covers(wanted, Path(root).parts, whole=True) for root in owned.roots):
+        return None
+    for entry, kind in owned.paths.items():
+        if _covers(wanted, Path(entry).parts, whole=False):
+            return kind
+    return None
+
+
+def _covers(wanted: tuple[str, ...], have: tuple[str, ...], *, whole: bool) -> bool:
+    """True when the pattern's segments match the path's, as far as both go.
+
+    ``whole`` also needs the pattern to be at least as long as the path.
+    """
+    if whole and len(wanted) < len(have):
+        return False
+    return all(_segment_matches(part, glob) for part, glob in zip(have, wanted, strict=False))
+
+
+def _segment_matches(part: str, glob: str) -> bool:
+    if part.startswith(".") and not glob.startswith("."):
+        return False
+    return fnmatch.fnmatchcase(part, glob)
+
+
+def _kind_of(candidate: str, owned: _Owned) -> tuple[str, str] | None:
+    direct = owned.paths.get(candidate)
     if direct is not None:
         return direct, candidate
-    for entry, kind in owned.items():
+    for entry, kind in owned.paths.items():
         prefix = entry if entry.endswith(os.sep) else entry + os.sep
         if candidate.startswith(prefix):
             return kind, candidate
@@ -553,7 +745,7 @@ def _command_texts(params: Mapping[str, object]) -> list[str]:
 
 def _command_change(
     text: str,
-    owned: Mapping[str, str],
+    owned: _Owned,
     surface: GuardrailSurface,
     env: Mapping[str, str],
     cwd: str,
@@ -561,16 +753,98 @@ def _command_change(
     if len(text) > _MAX_CHARS:
         text = text[:_MAX_CHARS]
     rules = library_rules() + surface.commands
-    for command in _parse(text)[:_MAX_COMMANDS]:
-        hit = _one_command(command, owned, surface, rules, env, cwd, depth=0)
+    hit = _each_command(_parse(text), owned, surface, rules, env, cwd, depth=0)
+    if hit is not None:
+        return hit
+    return _heredoc_hit(text, owned, surface, env, cwd)
+
+
+def _each_command(
+    commands: list[_Simple],
+    owned: _Owned,
+    surface: GuardrailSurface,
+    rules: tuple[CommandRule, ...],
+    env: Mapping[str, str],
+    cwd: str,
+    *,
+    depth: int,
+) -> GuardrailHit | None:
+    """Judge commands in order. A ``cd`` moves the directory the later ones run in."""
+    for command in commands[:_MAX_COMMANDS]:
+        hit = _one_command(command, owned, surface, rules, env, cwd, depth=depth)
+        if hit is not None:
+            return hit
+        cwd = _after_cd(command, env, cwd)
+    return None
+
+
+def _after_cd(command: _Simple, env: Mapping[str, str], cwd: str) -> str:
+    argv, _assignments = _strip_wrappers(command.argv)
+    if not argv or _program(argv[0]) not in {"cd", "pushd"}:
+        return cwd
+    targets = _operands(argv)
+    if not targets:
+        return env.get("HOME") or cwd
+    if len(targets) != 1 or targets[0] == "-":
+        return cwd
+    return _expand_path(targets[0], env, cwd)[0]
+
+
+def _heredoc_hit(
+    text: str,
+    owned: _Owned,
+    surface: GuardrailSurface,
+    env: Mapping[str, str],
+    cwd: str,
+) -> GuardrailHit | None:
+    """Program text handed to an interpreter as a here-document.
+
+    The body's lines were already judged as shell commands, which is what a
+    shell reading the document would run. This adds the reading for Python and
+    the other interpreters, where a line is not a command.
+    """
+    for line, body in _heredocs(text):
+        programs = set()
+        for command in _parse(line):
+            argv, _assignments = _strip_wrappers(command.argv)
+            if argv:
+                programs.add(_program(argv[0]))
+        if "python" in programs:
+            hit = _judge_code(body, owned, surface, env, cwd)
+        elif programs & _INTERPRETERS:
+            hit = _code_names_path(body, owned, env, cwd)
+        else:
+            continue
         if hit is not None:
             return hit
     return None
 
 
+def _heredocs(text: str) -> list[tuple[str, str]]:
+    """The opening line and the body of each here-document, up to a small bound.
+
+    A document with no closing line runs to the end of the text.
+    """
+    lines = text.split("\n")
+    found: list[tuple[str, str]] = []
+    index = 0
+    while index < len(lines) and len(found) < _MAX_HEREDOCS:
+        opened = _HEREDOC_OPEN.search(lines[index])
+        if opened is None:
+            index += 1
+            continue
+        tag = opened.group(2)
+        end = index + 1
+        while end < len(lines) and lines[end].strip() != tag:
+            end += 1
+        found.append((lines[index], "\n".join(lines[index + 1 : end])))
+        index = end + 1
+    return found
+
+
 def _one_command(
     command: _Simple,
-    owned: Mapping[str, str],
+    owned: _Owned,
     surface: GuardrailSurface,
     rules: tuple[CommandRule, ...],
     env: Mapping[str, str],
@@ -580,17 +854,17 @@ def _one_command(
 ) -> GuardrailHit | None:
     prepared, assignments = _strip_wrappers(command.argv)
     program = _program(prepared[0]) if prepared else ""
-    if program in {"hermes", "petasos"} and _HELP_FLAGS.intersection(prepared):
-        return None
-    for name, value in (*command.assignments, *assignments):
-        hit = _env_hit(name, value, surface.env, program=program or None, exporting=False)
-        if hit is not None:
-            return hit
-    if not prepared:
-        return None
-    program = _program(prepared[0])
+    helping = program in {"hermes", "petasos"} and bool(_HELP_FLAGS.intersection(prepared))
+    if not helping:
+        for name, value in (*command.assignments, *assignments):
+            hit = _env_hit(name, value, surface.env, program=program or None, exporting=False)
+            if hit is not None:
+                return hit
+    if helping or not prepared:
+        # Nothing that changes a guardrail runs, but a redirect still writes.
+        return _mutation((), command.redirects, owned, env, cwd)
     for flag in surface.flags:
-        if program == flag.program.casefold() and flag.flag in prepared[1:]:
+        if program == flag.program.casefold() and _carries(prepared, flag.flag):
             return GuardrailHit(flag.kind, flag.label)
     for command_rule in rules:
         if _rule_matches(prepared, command_rule):
@@ -598,50 +872,71 @@ def _one_command(
     exported = _export_hit(prepared, surface)
     if exported is not None:
         return exported
-    hit = _mutation(prepared, command.redirects, owned, env, cwd)
-    if hit is not None:
+    module = program == "python" and len(prepared) >= 3 and prepared[1] == "-m"
+    # The word after ``-m`` is a module name, not a file.
+    acted = (prepared[0], *prepared[3:]) if module else prepared
+    hit = _mutation(acted, command.redirects, owned, env, cwd)
+    if hit is not None or depth >= 3:
         return hit
-    if program == "python" and depth < 3:
+    found: GuardrailHit | None = None
+    if program == "python":
         script = _c_argument(prepared)
         if script is not None:
             found = _judge_code(script, owned, surface, env, cwd)
-            if found is not None:
-                return found
-        if len(prepared) >= 3 and prepared[1] == "-m":
-            rewritten = (prepared[2], *prepared[3:])
-            return _one_command(
-                _Simple(rewritten, command.redirects, ()),
-                owned,
-                surface,
-                rules,
-                env,
-                cwd,
-                depth=depth + 1,
-            )
-        return None
-    if program in _SHELLS and depth < 3:
+        if found is None and module:
+            rewritten = _Simple((prepared[2], *prepared[3:]), (), ())
+            found = _one_command(rewritten, owned, surface, rules, env, cwd, depth=depth + 1)
+    elif program in _SHELLS:
         script = _c_argument(prepared)
         if script is not None:
             found = _nested(script, owned, surface, rules, env, cwd, depth)
-            if found is not None:
-                return found
-    return None
+    elif program == "eval":
+        found = _nested(" ".join(prepared[1:]), owned, surface, rules, env, cwd, depth)
+    if found is not None or program in _TEXT_ONLY or program in _READERS:
+        return found
+    return _started(prepared, owned, surface, rules, env, cwd, depth)
 
 
-def _nested(
-    script: str,
-    owned: Mapping[str, str],
+def _carries(argv: tuple[str, ...], flag: str) -> bool:
+    """True when ``flag`` is a word of its own or is written ``--flag=value``."""
+    glued = flag + "=" if flag.startswith("--") else None
+    return any(word == flag or (glued is not None and word.startswith(glued)) for word in argv[1:])
+
+
+def _started(
+    argv: tuple[str, ...],
+    owned: _Owned,
     surface: GuardrailSurface,
     rules: tuple[CommandRule, ...],
     env: Mapping[str, str],
     cwd: str,
     depth: int,
 ) -> GuardrailHit | None:
-    for nested in _parse(script)[:_MAX_COMMANDS]:
-        found = _one_command(nested, owned, surface, rules, env, cwd, depth=depth + 1)
-        if found is not None:
-            return found
+    """A command that this one starts, such as ``timeout 5 hermes ...``.
+
+    The rest of the line is judged again from the first later word that is a
+    program the rules name, a wrapper, a shell, ``python`` or ``eval``.
+    """
+    starters = {rule.words[0].casefold() for rule in rules}
+    starters.update(flag.program.casefold() for flag in surface.flags)
+    starters.update(_WRAPPERS, _SHELLS, {"python", "eval"})
+    for index in range(1, len(argv)):
+        if _program(argv[index]) in starters:
+            rest = _Simple(argv[index:], (), ())
+            return _one_command(rest, owned, surface, rules, env, cwd, depth=depth + 1)
     return None
+
+
+def _nested(
+    script: str,
+    owned: _Owned,
+    surface: GuardrailSurface,
+    rules: tuple[CommandRule, ...],
+    env: Mapping[str, str],
+    cwd: str,
+    depth: int,
+) -> GuardrailHit | None:
+    return _each_command(_parse(script), owned, surface, rules, env, cwd, depth=depth + 1)
 
 
 def _strip_wrappers(
@@ -660,12 +955,14 @@ def _strip_wrappers(
         if program not in _WRAPPERS:
             break
         words = words[1:]
+        valued = _WRAPPER_VALUES.get(program, frozenset())
         while words and words[0].startswith("-") and words[0] != "-c":
             flag = words.pop(0)
-            if program == "sudo" and flag in {"-u", "-g"} and words:
+            if flag in valued and words:
                 words.pop(0)
-            if program == "nice" and flag == "-n" and words:
-                words.pop(0)
+        if program == "timeout" and words:
+            # The duration.
+            words.pop(0)
     return tuple(words), tuple(assignments)
 
 
@@ -719,24 +1016,36 @@ def _rule_matches(argv: tuple[str, ...], rule: CommandRule) -> bool:
 
 
 def _names_plugin(word: str, name: str) -> bool:
-    """True when ``word`` names the plugin, everything, or a source for it."""
+    """True when ``word`` names the plugin, everything, or a source for it.
+
+    A version, an extra or a reference after the name still names it
+    (``petasos==0.1``, ``petasos[all]``, ``.../petasos.git@main``), and so
+    does a built file for it (``petasos-0.1-py3-none-any.whl``).
+    """
     folded = word.casefold()
     wanted = name.casefold()
-    if folded == wanted or folded in _ALL_NAMES:
+    if folded in _ALL_NAMES:
         return True
     if "#" in word and word.rsplit("#", 1)[-1].strip("/").casefold() == wanted:
         return True
-    return folded.rstrip("/").rsplit("/", 1)[-1] == wanted
+    for piece in (folded, folded.rstrip("/").rsplit("/", 1)[-1]):
+        head = _NAME_END.split(piece, maxsplit=1)[0].removesuffix(".git")
+        if head == wanted or re.match(re.escape(wanted) + r"-\d", head):
+            return True
+    return False
 
 
 def _mutation(
     argv: tuple[str, ...],
     redirects: tuple[str, ...],
-    owned: Mapping[str, str],
+    owned: _Owned,
     env: Mapping[str, str],
     cwd: str,
 ) -> GuardrailHit | None:
-    """A protected path this command acts on, unless the program only reads it."""
+    """A protected path this command acts on, unless the program only reads it.
+
+    The command word itself is never a path the command acts on.
+    """
     for target in redirects:
         hit = _match_path(target, owned, env, cwd)
         if hit is not None:
@@ -748,15 +1057,27 @@ def _mutation(
         return None
     if program == "dd":
         return _dd_hit(argv, owned, env, cwd)
-    if program in _COPIES:
-        return _copy_hit(argv, owned, env, cwd)
+    if program in _COPIES or program == "mv":
+        return _copy_hit(argv, owned, env, cwd, moves=program == "mv")
     if _reads(program, argv):
         return None
-    for word in _operands(argv):
-        hit = _operand_path(word, owned, env, cwd)
+    words = _operands(argv)
+    if program in _VERB_PROGRAMS:
+        words = [word for word in words if _written_as_path(word)]
+    for word in words:
+        hit = _match_path(word, owned, env, cwd, above=True)
         if hit is not None:
             return hit
-    return _match_path(argv[0], owned, env, cwd)
+    if program in _INTERPRETERS:
+        for word in argv[1:]:
+            hit = _code_names_path(word, owned, env, cwd)
+            if hit is not None:
+                return hit
+    return None
+
+
+def _written_as_path(word: str) -> bool:
+    return "/" in word or os.sep in word or word.startswith(("~", ".", "$"))
 
 
 def _powershell_reads(program: str, argv: tuple[str, ...]) -> bool:
@@ -789,7 +1110,7 @@ def _in_place(argv: tuple[str, ...]) -> bool:
 
 def _dd_hit(
     argv: tuple[str, ...],
-    owned: Mapping[str, str],
+    owned: _Owned,
     env: Mapping[str, str],
     cwd: str,
 ) -> GuardrailHit | None:
@@ -804,26 +1125,33 @@ def _dd_hit(
 
 def _copy_hit(
     argv: tuple[str, ...],
-    owned: Mapping[str, str],
+    owned: _Owned,
     env: Mapping[str, str],
     cwd: str,
+    *,
+    moves: bool = False,
 ) -> GuardrailHit | None:
-    """A read only when every protected path is a source and the destination is not."""
+    """A read only when every protected path is a source that stays where it is.
+
+    The destination counts when it is protected, and when a source would land
+    on a protected path inside it (``cp /tmp/config.yaml ~/.hermes/``).
+    """
     destination, sources, removes_source = _copy_ends(argv)
-    if destination:
-        hit = _match_path(destination, owned, env, cwd)
+    if moves or removes_source:
+        for source in sources:
+            hit = _match_path(source, owned, env, cwd, above=True)
+            if hit is not None:
+                return hit
+    if destination is None:
+        return None
+    hit = _match_path(destination, owned, env, cwd)
+    if hit is not None:
+        return hit
+    for source in sources:
+        landed = os.path.join(destination, os.path.basename(source))
+        hit = _match_path(landed, owned, env, cwd, above=True, hedge=False)
         if hit is not None:
             return hit
-    if removes_source:
-        for source in sources:
-            hit = _match_path(source, owned, env, cwd)
-            if hit is not None:
-                return hit
-    if not destination:
-        for source in sources:
-            hit = _match_path(source, owned, env, cwd)
-            if hit is not None:
-                return hit
     return None
 
 
@@ -893,16 +1221,6 @@ def _bound_path(word: str) -> str | None:
     return None
 
 
-def _operand_path(
-    word: str,
-    owned: Mapping[str, str],
-    env: Mapping[str, str],
-    cwd: str,
-) -> GuardrailHit | None:
-    """The word itself when it is a protected path. Text that merely contains one is not."""
-    return _match_path(word, owned, env, cwd)
-
-
 def _env_hit(
     name: str,
     value: str,
@@ -945,7 +1263,7 @@ def _is_code_tool(tool: str) -> bool:
 
 def _judge_code(
     text: str,
-    owned: Mapping[str, str],
+    owned: _Owned,
     surface: GuardrailSurface,
     env: Mapping[str, str],
     cwd: str,
@@ -1038,7 +1356,7 @@ def _string_end(code: str, start: int) -> int:
 
 def _code_names_path(
     code: str,
-    owned: Mapping[str, str],
+    owned: _Owned,
     env: Mapping[str, str],
     cwd: str,
 ) -> GuardrailHit | None:
@@ -1082,7 +1400,7 @@ def _open_tail_is_read(rest: str) -> bool:
 
 def _protected_uses(
     code: str,
-    owned: Mapping[str, str],
+    owned: _Owned,
     env: Mapping[str, str],
     cwd: str,
 ) -> list[tuple[int, int, GuardrailHit]]:
@@ -1108,7 +1426,7 @@ def _protected_uses(
 
 def _expression_uses(
     code: str,
-    owned: Mapping[str, str],
+    owned: _Owned,
     env: Mapping[str, str],
     cwd: str,
 ) -> list[tuple[int, int, GuardrailHit]]:
@@ -1289,7 +1607,7 @@ def _parse(text: str) -> list[_Simple]:
             finish_command()
             index += 2
             continue
-        if char in {";", "|"}:
+        if char in {";", "|", "&", "(", ")", "`"}:
             finish_command()
             index += 1
             continue

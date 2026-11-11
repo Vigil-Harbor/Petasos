@@ -36,7 +36,7 @@ def _home(tmp_path: Path) -> tuple[Path, Path, GuardrailSurface, dict[str, str]]
         home / "active_profile",
         home / "petasos-enforcement.jsonl",
     ]
-    surface = hermes_surface(str(path) for path in paths)
+    surface = hermes_surface((str(path) for path in paths), roots=(str(home),))
     env = {"HERMES_HOME": str(home), "HOME": str(tmp_path)}
     return home, package, surface, env
 
@@ -517,3 +517,173 @@ def test_a_note_that_mentions_the_config_is_not_a_change(tmp_path: Path) -> None
     assert _hit(tmp_path, "terminal", {"command": copied}) is None
     assert _hit(tmp_path, "read_file", {"path": str(home / "config.yaml")}) is None
     assert _hit(tmp_path, "terminal", {"command": f"cat {home / 'config.yaml'}"}) is None
+
+
+def _at(tmp_path: Path, command: str, cwd: Path | None = None) -> GuardrailHit | None:
+    """Judge a terminal command. ``{home}`` and ``{config}`` are filled in."""
+    home, package, surface, env = _home(tmp_path)
+    text = command.replace("{home}", str(home)).replace("{config}", str(home / "config.yaml"))
+    return recognize(
+        "terminal",
+        {"command": text},
+        protected=(str(home / "config.yaml"),),
+        surface=surface,
+        package=(str(package),),
+        environ=env,
+        cwd=str(tmp_path if cwd is None else cwd),
+    )
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "petasos doctor",
+        "petasos --version",
+        "python -m petasos doctor",
+        "hermes petasos doctor",
+        "pip show petasos",
+    ],
+)
+def test_the_command_word_and_a_verb_are_not_paths(tmp_path: Path, command: str) -> None:
+    """In a source checkout the working directory holds a ``petasos`` directory."""
+    checkout = tmp_path / "pkg"
+    assert _at(tmp_path, command, cwd=checkout) is None
+    removed = _at(tmp_path, "rm -rf petasos", cwd=checkout)
+    assert removed is not None and removed.kind == "package"
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "true & hermes plugins disable petasos",
+        "(hermes plugins disable petasos)",
+        "{ hermes plugins disable petasos; }",
+        "if true; then hermes plugins disable petasos; fi",
+        "for i in 1; do hermes plugins disable petasos; done",
+        "! hermes plugins disable petasos",
+        "timeout 5 hermes plugins disable petasos",
+        "timeout -s KILL 5 hermes plugins disable petasos",
+        "exec hermes plugins disable petasos",
+        "env -u FOO hermes plugins disable petasos",
+        'eval "hermes plugins disable petasos"',
+        "echo $(hermes plugins disable petasos)",
+        "echo `hermes plugins disable petasos`",
+        "timeout 5 sh -c 'hermes plugins disable petasos'",
+        "hermes --profile=other chat",
+    ],
+)
+def test_shell_structure_does_not_hide_the_command(tmp_path: Path, command: str) -> None:
+    hit = _at(tmp_path, command)
+    assert hit is not None and hit.kind == "plugin", command
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "> {config}",
+        "hermes --help > {config}",
+        "true &> {config}",
+        "true & rm {config}",
+        "(rm {config})",
+    ],
+)
+def test_a_redirect_or_a_background_command_still_writes(tmp_path: Path, command: str) -> None:
+    hit = _at(tmp_path, command)
+    assert hit is not None and hit.kind == "settings", command
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "rm -rf {home}/plugins",
+        "rm -rf {home}",
+        "mv {home} /tmp/gone",
+        "chmod -R 000 {home}/plugins",
+        "find {home} -name '*.yaml' -delete",
+        "rm -rf {home}/plugins/*",
+        "rm {home}/config.*",
+        "rm {home}/{config.yaml,notes.txt}",
+        "cd {home}/plugins && rm -rf petasos",
+        "cp /tmp/evil/config.yaml {home}/",
+        "mv /tmp/evil/config.yaml {home}",
+        "cp -r /tmp/evil/ {home}/",
+    ],
+)
+def test_a_directory_that_holds_a_protected_path_is_a_change(tmp_path: Path, command: str) -> None:
+    assert _at(tmp_path, command) is not None, command
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "ls {home}",
+        "cd {home} && ls",
+        "cd {home} && hermes plugins list",
+        "du -sh {home}",
+        "cp -r {home} /tmp/backup",
+        "cp notes.txt {home}/",
+        "rm {home}/*.txt",
+        # Above the home. The destructive-command rules own these.
+        "rm -rf /",
+        "rm -rf ~",
+        "git add .",
+        "timeout 5 cat {config}",
+        "if grep -q petasos {config}; then echo yes; fi",
+        "! grep -q petasos {config}",
+        "sudo cat {config}",
+    ],
+)
+def test_reads_and_directories_above_the_home_are_not_changes(
+    tmp_path: Path, command: str
+) -> None:
+    assert _at(tmp_path, command) is None, command
+
+
+def test_a_tool_that_moves_a_directory_is_a_change(tmp_path: Path) -> None:
+    home, _package, _surface, _env = _home(tmp_path)
+    moved = _hit(tmp_path, "move_file", {"source": str(home / "plugins"), "destination": "/tmp/x"})
+    assert moved is not None and moved.kind == "plugin"
+    assert _hit(tmp_path, "write_file", {"path": str(home / "notes.md"), "content": "x"}) is None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "pip install petasos==0.1.0",
+        "pip install -U 'petasos[all]'",
+        "pip install 'petasos<0.5'",
+        "pip install git+https://example.com/x/petasos.git@main",
+        "pip install ./dist/petasos-0.1.0-py3-none-any.whl",
+        "uv pip install petasos==0.1",
+        "uv add petasos==0.1",
+        "uv remove petasos",
+        "uv tool uninstall petasos",
+    ],
+)
+def test_a_version_or_a_source_still_names_the_package(tmp_path: Path, command: str) -> None:
+    hit = _at(tmp_path, command)
+    assert hit is not None and hit.kind == "package", command
+
+
+def test_another_package_is_not_the_package(tmp_path: Path) -> None:
+    for command in ("pip install requests==2.0", "pip install petasosx", "uv add httpx"):
+        assert _at(tmp_path, command) is None, command
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "python3 - <<'EOF'\nopen('{config}', 'w').write('x')\nEOF",
+        "node - <<EOF\nrequire('fs').rmSync('{config}')\nEOF",
+        """node -e "require('fs').writeFileSync('{config}', '')\"""",
+        """perl -e 'unlink "{config}"'""",
+        "sed -n 'w {config}' /tmp/evil.yaml",
+    ],
+)
+def test_program_text_given_to_an_interpreter_is_read(tmp_path: Path, command: str) -> None:
+    hit = _at(tmp_path, command)
+    assert hit is not None and hit.kind == "settings", command
+
+
+def test_a_here_document_that_only_reads_is_not_a_change(tmp_path: Path) -> None:
+    assert _at(tmp_path, "python3 - <<'EOF'\nprint(open('{config}').read())\nEOF") is None
