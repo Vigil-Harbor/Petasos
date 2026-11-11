@@ -300,8 +300,9 @@ def populate(request: dict[str, Any]) -> dict[str, Any]:
         )
 
     # The operator sets never. The next call records the settings change,
-    # then refuses the attempt to edit the config. Approve is restored so
-    # the profile the tab shows is open.
+    # then refuses the attempt to edit the config. Approve is written back
+    # on the same key: Hermes deep-merges a save, so leaving the key out
+    # would keep never, and the tab would say the agent is blocked.
     at(1.2)
     _save(
         True,
@@ -316,12 +317,17 @@ def populate(request: dict[str, Any]) -> dict[str, Any]:
                 "content": "plugins:\n  entries:\n    petasos:\n      settings:\n"
                 "        enabled: false\n",
             },
-            "ops-88d0",
+            # A fresh conversation. The ops session is already stopped, and a
+            # stopped session blocks the write before the never rule can.
+            "maintain-1a20",
             "c10",
         ),
     )
     at(1.05)
-    _save(True, standing)
+    _save(
+        True,
+        {"tools": {"dangerous_posture": "approve", "exempt": [], "self_change": "approve"}},
+    )
     note(
         "settings restored",
         _call("read_file", {"path": "docs/faq.md"}, "ops-88d0", "c11"),
