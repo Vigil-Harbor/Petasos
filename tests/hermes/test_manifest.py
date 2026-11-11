@@ -2,7 +2,16 @@
 
 from __future__ import annotations
 
+import tomllib
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+import yaml
+
+import petasos
+
+if TYPE_CHECKING:
+    import pytest
 
 from petasos.hermes.manifest import render_manifest, render_plugin_project
 
@@ -43,3 +52,13 @@ def test_plugin_directory_is_one_import() -> None:
         assert word not in source
     project = (_PLUGIN / "pyproject.toml").read_text(encoding="utf-8")
     assert project == render_plugin_project()
+
+
+def test_generated_versions_and_wheel_range_follow_the_package(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(petasos, "__version__", "7.8.9")
+    manifest = yaml.safe_load(render_manifest())
+    project = tomllib.loads(render_plugin_project())["project"]
+    assert manifest["version"] == project["version"] == "7.8.9"
+    assert project["dependencies"] == ["petasos>=7.8,<7.9"]
