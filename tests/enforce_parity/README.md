@@ -66,6 +66,11 @@ A diff in `outcomes.json` is a behaviour change. Do not edit it to make a
 failing replay pass. A deliberate change has to be named in `differences.json`
 in the same commit, or the record has to be replaced by a new oracle.
 
+A difference row's `field` may be `logs`, `decision`, or `events`. `logs`
+works as before. Any other field replaces that value when the recorded value
+is `old` and the replay's value is `new`. `events` with `"op": "append"`
+means the replay's event list is the recorded list plus the object in `new`.
+
 ## Adding a scenario
 
 Add one object to the `scenarios` list. Give it a new id, a `categories`

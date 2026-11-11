@@ -20,6 +20,7 @@ from petasos.enforce.approvals import redact_display_text
 from petasos.enforce.book import Book
 from petasos.enforce.engine import Engine, apply_snapshot, build_engine, syntactic_scanner
 from petasos.enforce.events import EventSpool
+from petasos.enforce.guardrail import Grants, record_applied_settings
 from petasos.enforce.runtime import AsyncBridge
 from petasos.enforce.types import (
     Clock,
@@ -89,6 +90,7 @@ class Core:
         self.fault = evaluation if evaluation is not None else EvaluationFault()
         self.runtime = AsyncBridge()
         self.book = Book(self.clock, self.limits.log_every_s, logger)
+        self.grants = Grants()
         self.phase = Phase.STARTING
         self.init_error: str | None = None
         self.engine: Engine | None = None
@@ -299,7 +301,9 @@ class Core:
         if snap.token == self._token:
             return
         try:
+            before = engine.config
             apply_snapshot(engine, snap.config, snap.secrets, logger)
+            record_applied_settings(self, before)
         except Exception as exc:
             self.book.log_reload_failure(f"apply failed: {exc}")
             return
