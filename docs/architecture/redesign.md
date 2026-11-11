@@ -1670,5 +1670,13 @@ auth; classic scripts with no bundler.
   and Petasos's `enabled` pauses it. The tab offers only Pause. `doctor` and
   the tab say which of the two is off.
 
+- **Pinning covers the plugin list as well as Petasos's settings.** Hermes
+  pins a list as one value, so pinning Petasos as enabled fixes which plugins
+  load: none can be turned on or off until the profile is unpinned. Pinning
+  only the settings would leave `hermes plugins disable petasos` working,
+  which is the case pinning exists for. `petasos hermes pin` says what it
+  fixes before anything is written. Design in
+  `docs/architecture/guardrail-integrity.md`.
+
 Left for a later polish pass: the light theme's single blue, and which
 product the owner meant as the visual reference.
