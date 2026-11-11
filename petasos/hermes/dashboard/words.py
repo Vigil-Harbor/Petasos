@@ -339,7 +339,8 @@ CHECKS_NOTE = "Basic checks are built in. Extra checks add a model or a code che
 # again on each tool call.
 PROTECTION_SCOPE = (
     "Every agent Hermes starts from this profile, except in safe mode. "
-    "A saved change applies from the agent's next action."
+    "A saved change applies from the agent's next action, unless Settings says "
+    "it waits for a restart."
 )
 
 # A check's operating state, as a person reads it: whether it is checking
