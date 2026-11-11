@@ -555,8 +555,7 @@ mechanism, which is the same limit the guardrail note already states.
 The table in the conclusions is the recommendation. The specific
 re-implementations, with the file that owns the Hermes behaviour:
 
-- Terminal command patterns. Petasos `petasos/scanners/minimal/scanner.py` lines
-  170–207 (pipe-to-shell, decode-exec, fetch-exec) match a subset of
+- Terminal command patterns. Petasos `petasos/scanners/minimal/command.py` (pipe-to-shell, decode-exec, fetch-exec) match a subset of
   `DANGEROUS_PATTERNS` (approval_detection.py lines 520–550). Hermes also
   covers Windows, git, docker, and the hardline. For a `terminal` call,
   Hermes has already decided before a plugin needs a second opinion.
@@ -568,7 +567,7 @@ re-implementations, with the file that owns the Hermes behaviour:
   around lines 1428 and 2192). Keep that call. Do not grow a second
   pattern list in the console.
 - Path handling. Petasos `ToolCallGuard._classify_selfmod`
-  (`petasos/guard/guard.py` lines 844–907) normalises strings and checks
+  (`petasos/guard/selfmod.py`) normalises strings and checks
   them against an owned set. Hermes `file_safety` resolves real paths,
   refuses NT namespaces, and treats `config.yaml` as approval-gated rather
   than denied. Use Hermes for "may this write proceed" on file tools.

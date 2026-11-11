@@ -29,13 +29,10 @@ published set) and carry ``reaches_hook=False`` so they cannot appear in
 
 from __future__ import annotations
 
-import logging
 from types import MappingProxyType
 from typing import TYPE_CHECKING, NamedTuple
 
 from petasos.normalize import canonicalize_tool_name
-
-_logger = logging.getLogger("petasos.session.guard")
 
 if TYPE_CHECKING:
     from collections.abc import Mapping

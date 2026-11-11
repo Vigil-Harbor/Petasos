@@ -58,7 +58,8 @@ location and restart.
 ```python
 import asyncio
 
-from petasos import Pipeline, SemgrepLifecycleOwner, SemgrepScanner
+from petasos import Pipeline
+from petasos.scanners.semgrep import SemgrepLifecycleOwner, SemgrepScanner
 
 
 async def inspect_code(engine_path: str, trusted_digest: str) -> None:

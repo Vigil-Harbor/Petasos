@@ -307,7 +307,7 @@ one of those. Hermes's description is `pipe decoded content to shell`.
 Petasos fires `decode-exec` and `pipe-to-shell`.
 
 The decode step inside Petasos does not rescan a decoded blob for command
-rules. **Read**, `minimal.py` `_rescan_candidate` lines 1132–1193: the
+rules. **Read**, `petasos/scanners/minimal/decode.py` `_rescan_candidate`: the
 rescan is injection, role-switch, and agent-directive only.
 
 **Observed**, separately from the 175, by encoding each of the 22 positive

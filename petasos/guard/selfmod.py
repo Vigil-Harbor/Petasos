@@ -125,24 +125,6 @@ def _raw_protected_entries(self: ToolCallGuard) -> list[str]:
     return raw_entries
 
 
-def _extract_leaf_strings(value: Any, depth: int = 0) -> list[str]:
-    if depth > 32:
-        return [_EXTRACT_OVERFLOW]
-    if isinstance(value, str):
-        return [value]
-    if isinstance(value, dict):
-        out: list[str] = []
-        for v in value.values():
-            out.extend(_extract_leaf_strings(v, depth + 1))
-        return out
-    if isinstance(value, (list, tuple)):
-        out = []
-        for item in value:
-            out.extend(_extract_leaf_strings(item, depth + 1))
-        return out
-    return []
-
-
 def _classify_selfmod(
     self: ToolCallGuard, canon_pre_alias: str, tool_params: dict[str, Any]
 ) -> _SelfmodMatch | None:
@@ -210,6 +192,3 @@ def _classify_selfmod(
     except Exception:
         _logger.warning("selfmod classifier error for tool=%s", canon_pre_alias, exc_info=True)
         return None
-
-
-_EXTRACT_OVERFLOW = "\x00__PETASOS_DEPTH_OVERFLOW__"

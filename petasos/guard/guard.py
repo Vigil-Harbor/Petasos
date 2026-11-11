@@ -14,14 +14,12 @@ from petasos.guard.params import _scan_params
 from petasos.guard.selfmod import (
     SELFMOD_DEPTH_OVERFLOW_TARGET,
     _classify_selfmod,
-    _extract_leaf_strings,
     _raw_protected_entries,
     _surface,
     selfmod_target_paths,
 )
 from petasos.guard.tools import DEFAULT_TOOL_ALIASES
 from petasos.model import ScanFinding, Severity
-from petasos.normalize import _NAMESPACE_PREFIX_RE as _NAMESPACE_PREFIX_RE
 from petasos.normalize import canonicalize_tool_name
 from petasos.session.escalation import evaluate_tier, max_tier
 
@@ -183,7 +181,23 @@ class ToolCallGuard:
 
     _EXTRACT_OVERFLOW = "\x00__PETASOS_DEPTH_OVERFLOW__"
 
-    _extract_leaf_strings = staticmethod(_extract_leaf_strings)
+    @staticmethod
+    def _extract_leaf_strings(value: Any, depth: int = 0) -> list[str]:
+        if depth > 32:
+            return [ToolCallGuard._EXTRACT_OVERFLOW]
+        if isinstance(value, str):
+            return [value]
+        if isinstance(value, dict):
+            out: list[str] = []
+            for v in value.values():
+                out.extend(ToolCallGuard._extract_leaf_strings(v, depth + 1))
+            return out
+        if isinstance(value, (list, tuple)):
+            out = []
+            for item in value:
+                out.extend(ToolCallGuard._extract_leaf_strings(item, depth + 1))
+            return out
+        return []
 
     _classify_selfmod = _classify_selfmod
 

@@ -11,9 +11,9 @@ from petasos.config.layers import ROLES, resolve
 from petasos.config.schema import ConfigError, evolve, from_mapping
 from petasos.config.secrets import Secrets
 from petasos.config.sections import PetasosConfig
-from petasos.guard.guard import _FEATURE_DISABLED, _NAMESPACE_PREFIX_RE, GuardResult, ToolCallGuard
+from petasos.guard.guard import _FEATURE_DISABLED, GuardResult, ToolCallGuard
 from petasos.model import ScanFinding, Severity
-from petasos.normalize import canonicalize_tool_name
+from petasos.normalize import _NAMESPACE_PREFIX_RE, canonicalize_tool_name
 from petasos.pipeline import Pipeline
 from petasos.session.frequency import FrequencyTracker, SessionState
 from petasos.session.lineage import LineageRegistry

@@ -16,7 +16,7 @@ Node is v22.23.0.
 | `ruff format --check .` | pass, 228 files already formatted |
 | `mypy --strict .` | pass, no issues in 228 source files |
 
-The ruff error is `SIM102` in `petasos/scanners/minimal/scanner.py:856` (nested
+The ruff error is `SIM102` in the structural checker (now `petasos/scanners/minimal/structural.py`) (nested
 `if` inside the JSON-depth walk). Ruff marks the suggested fix unsafe.
 
 ## Tests
@@ -44,6 +44,9 @@ passed, 0 failed, 0 skipped**, 2552 ms.
 1 xfailed, 133.76s). Coverage.py reports statement coverage. A bare
 `pytest --cov` with no source also counts imported test modules, so the
 package total below is from `--cov=petasos`.
+
+Paths below name the current entry modules. These figures measure the
+original unsplit modules at the baseline commit, not the new files alone.
 
 | Module | Statements | Missed | Cover |
 |---|---:|---:|---:|

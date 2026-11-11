@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-import logging
 import threading
 from collections import deque
 from typing import TYPE_CHECKING
-
-_logger = logging.getLogger("petasos.session.guard")
 
 if TYPE_CHECKING:
     from petasos.guard.guard import ToolCallGuard
