@@ -27,7 +27,7 @@ from petasos.hermes.dashboard.status import status
 from petasos.hermes.dashboard.words import CHECK_NOTE
 from petasos.hermes.home import display_path
 from petasos.hermes.host import managed_keys
-from petasos.hermes.settings import write_settings
+from petasos.hermes.settings import pinned_settings, write_settings
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -87,6 +87,14 @@ def _redactor() -> Any:
     return loaded
 
 
+def _managed() -> frozenset[str] | None:
+    """The keys the form shows as locked. A pin locks every Petasos setting."""
+    keys = managed_keys()
+    if keys is not None and pinned_settings() is not None:
+        return keys | {"plugins.entries.petasos.settings"}
+    return keys
+
+
 async def _status(_request: Any) -> dict[str, Any]:
     state = load_home(active_home())
     return status(state, home_label=display_path(state.home))
@@ -96,7 +104,7 @@ async def _read_settings(_request: Any) -> dict[str, Any]:
     state = load_home(active_home())
     if not state.readable:
         raise ApiError("unreadable", "The settings file could not be read.", status=500)
-    return read_settings(state.stored, secrets=state.secrets, managed=managed_keys())
+    return read_settings(state.stored, secrets=state.secrets, managed=_managed())
 
 
 async def _preview(request: Any) -> dict[str, Any]:
@@ -117,7 +125,7 @@ async def _save(request: Any) -> dict[str, Any]:
         plugin_dir=plugin_dir,
         write=_writer,
         secrets=state.secrets,
-        managed=managed_keys(),
+        managed=_managed(),
     )
 
 
@@ -144,7 +152,7 @@ async def _clear(path: str | None) -> dict[str, Any]:
         plugin_dir=plugin_dir,
         write=_writer,
         secrets=state.secrets,
-        managed=managed_keys(),
+        managed=_managed(),
     )
 
 

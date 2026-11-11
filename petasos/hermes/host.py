@@ -386,3 +386,45 @@ def managed_keys() -> frozenset[str] | None:
     if not isinstance(keys, (set, frozenset, list, tuple)):
         return None
     return frozenset(key for key in keys if isinstance(key, str))
+
+
+def managed_overlay(document: dict[str, object]) -> dict[str, object]:
+    """Apply Hermes's managed overlay to a profile read outside PluginContext."""
+    module = load_module("hermes_cli.managed_scope")
+    if module is None:
+        return document
+    apply = getattr(module, "apply_managed_overlay", None)
+    if not callable(apply):
+        raise RuntimeError("Hermes's managed settings reader is unavailable")
+    value = apply(document)
+    if not isinstance(value, dict):
+        raise RuntimeError("Hermes returned unreadable managed settings")
+    return value
+
+
+def managed_document() -> dict[str, object] | None:
+    """Hermes's managed config as Hermes reads it, or None when it cannot be read."""
+    module = load_module("hermes_cli.managed_scope")
+    reader = getattr(module, "load_managed_config", None)
+    if not callable(reader):
+        return None
+    try:
+        document = reader()
+    except Exception:
+        return None
+    return document if isinstance(document, dict) else None
+
+
+def managed_config_path() -> str | None:
+    """The managed file is a guardrail path too, when Hermes names one."""
+    module = load_module("hermes_cli.managed_scope")
+    reader = getattr(module, "get_managed_dir", None)
+    if not callable(reader):
+        return None
+    try:
+        directory = reader()
+    except Exception:
+        return None
+    from pathlib import Path
+
+    return str(directory / "config.yaml") if isinstance(directory, Path) else None

@@ -15,7 +15,13 @@ from petasos.config.layers import resolve
 from petasos.config.migrate import Migration, migrate
 from petasos.config.schema import ConfigError
 from petasos.hermes import semgrep_host
-from petasos.hermes.settings import HASH_ENV, SESSION_ENV, write_settings
+from petasos.hermes.settings import (
+    HASH_ENV,
+    PINNED_REFUSAL,
+    SESSION_ENV,
+    pinned_settings,
+    write_settings,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -276,6 +282,8 @@ def _store(home: Path, result: Migration) -> tuple[bool, str]:
             f"{exc} "
             "This command does not edit the config file itself."
         )
+    if pinned_settings() is not None:
+        return False, PINNED_REFUSAL
     if semgrep_host.save_refusal(None, semgrep_host.semgrep_enabled(resolved.config)):
         return False, semgrep_host.SEMGREP_MIGRATE_REFUSED
     try:

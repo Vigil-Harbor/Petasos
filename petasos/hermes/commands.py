@@ -14,6 +14,7 @@ from petasos.hermes.config_set import set_one
 from petasos.hermes.doctor import examine, render_json, render_text
 from petasos.hermes.install import install_plugin
 from petasos.hermes.migrate_cmd import migrate_profile
+from petasos.hermes.pin_cmd import change_pin
 from petasos.hermes.scanners_cmd import change_scanner
 from petasos.hermes.target import resolve_target
 
@@ -30,6 +31,8 @@ def main(argv: list[str] | None = None) -> int:
     if command == "doctor":
         return _doctor(args)
     if command == "hermes":
+        if getattr(args, "hermes_command", None) in {"pin", "unpin"}:
+            return _pin(args, remove=args.hermes_command == "unpin")
         if getattr(args, "hermes_command", None) != "install":
             print("Choose a hermes command. Try: petasos hermes install --help", file=sys.stderr)
             return 2
@@ -81,6 +84,35 @@ def _install(args: argparse.Namespace) -> int:
     )
     sys.stdout.write(result.text)
     return result.exit_code
+
+
+def _pin(args: argparse.Namespace, *, remove: bool) -> int:
+    try:
+        home, _reason = resolve_target(home=args.home, profile=args.profile)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    text, code = change_pin(
+        home,
+        remove=remove,
+        write=bool(args.write),
+        accept_profile_changes=bool(getattr(args, "accept_profile_changes", False)),
+    )
+    sys.stdout.write(text)
+    return code
+
+
+def _pin_parsers(sub: Any) -> None:
+    for name in ("pin", "unpin"):
+        parser = sub.add_parser(name, help="Fix settings at machine level, or remove that pin.")
+        _target_flags(parser)
+        parser.add_argument("--write", action="store_true", help="Prepare the change shown above.")
+        if name == "unpin":
+            parser.add_argument(
+                "--accept-profile-changes",
+                action="store_true",
+                help="Accept the profile changes that will take effect when the pin is removed.",
+            )
 
 
 def _scanner(args: argparse.Namespace) -> int:
@@ -165,6 +197,7 @@ def _parser() -> argparse.ArgumentParser:
 
     hermes = sub.add_parser("hermes", help="Install Petasos into a Hermes profile.")
     hermes_sub = hermes.add_subparsers(dest="hermes_command")
+    _pin_parsers(hermes_sub)
     install = hermes_sub.add_parser(
         "install",
         help="Put the plugin in place and turn it on. Running it again updates the files.",
@@ -269,6 +302,7 @@ def install_registered_cli(parser: argparse.ArgumentParser) -> None:
     :func:`run_registered`, which Hermes sets as the command function.
     """
     sub = parser.add_subparsers(dest="petasos_command")
+    _pin_parsers(sub)
     doctor = sub.add_parser(
         "doctor",
         help="Say whether Petasos is protecting this profile, and what to do if it is not.",
@@ -337,6 +371,8 @@ def run_registered(args: argparse.Namespace) -> int:
         return _doctor(args)
     if command == "install":
         return _install(args)
+    if command in {"pin", "unpin"}:
+        return _pin(args, remove=command == "unpin")
     if command == "config":
         return _config(args, registered=True)
     if command == "scanner":

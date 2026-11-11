@@ -1,10 +1,10 @@
 # Guardrail integrity
 
-Status: the decision is built (2026-11-10) on branch `redesign/s1a-guardrail-integrity`.
-Pinning is not built. Supersedes the "self-protection" notes in section 7.4 of
-`redesign.md`. Where this file and the implementation brief differ, the brief
-wins: the frozen enforcement record is kept and the new outcomes are named in
-`tests/enforce_parity/differences.json`, and `pin` / `unpin` are not commands yet.
+Status: recognition, approval and refusal are built (S1a, 2026-11-10).
+Managed pin commands and the doctor/Overview states are built (S1b, 2026-11-11).
+Supersedes the self-protection notes in section 7.4 of `redesign.md`.
+The frozen enforcement record is kept; deliberate differences remain in
+`tests/enforce_parity/differences.json`.
 
 ## Principle
 
@@ -20,8 +20,8 @@ settings at all?", and an operator picks one:
 - **Never.** Changes are an operator action, made outside the agent, by
   someone who has proved they are the operator.
 
-Today Petasos does neither. A write to its own config raises an event and the
-session's score, and is allowed while the session is below tier 2.
+Before the redesign, a write to Petasos settings raised an event and the
+session's score, and was allowed while the session was below tier 2.
 
 ## What counts as a guardrail
 
@@ -111,20 +111,123 @@ there, in a file owned by the administrator account:
   which is the "prove you are the operator" step, with no separate Petasos
   password to invent, store or leak.
 
-`petasos hermes pin` writes the current Petasos settings and the plugin's
-enabled state to the machine-level config (it will ask for administrator
-rights), and `petasos hermes unpin` removes them. `doctor` reports which of
-three states a profile is in, in plain words:
+`petasos hermes pin` previews the current values. `--write` either replaces
+an already writable managed file atomically, or prepares the complete merged
+document in a new private directory and prints `mkdir` and `install` commands
+for a person to run with administrator rights. Petasos never invokes a privilege
+helper. The administrator never runs Petasos or Python: those files still
+belong to the agent's account. Run `petasos doctor` afterwards to verify what
+was installed. The JSON document is also valid YAML.
 
-| State | What it means |
+The document holds both complete plugin lists, the effective plugin-check
+timeout, `enabled`, `role`, `level`, and all 77 resolved config fields under
+`overrides`, including default values and empty mappings. Lists are single
+managed values. The whole plugin selection stays fixed: enabling or disabling
+any plugin in a profile has no effect while the lists are pinned. Pin refuses
+when Petasos is absent from the enabled list or present in the disabled list.
+The managed file applies to **every profile using that directory**, rather
+than only the profile the command reads. Unrelated managed keys are retained.
+A small `petasos_managed_pin` record tracks segment paths for removal, including
+rule IDs containing dots. Unpin removes those keys and its record, preserving
+unrelated keys and entries added to formerly empty groups.
+
+`petasos hermes unpin` previews removal. When the profile differs from the
+managed values, it lists the differences and refuses even with `--write`.
+`--accept-profile-changes --write` explicitly accepts the values that will take
+effect. Defaults omitted from a profile do not count as differences. Both
+commands accept `--home` and `--profile`; Hermes also registers `hermes petasos
+pin` and `hermes petasos unpin`.
+
+### Verified limits
+
+Real Hermes v0.23.1 was exercised only in `/tmp/petasos-s1b-sbx`, with a
+per-home managed directory and an inactive machine-location stand-in. No real
+machine file or administrator command was used. Tests are in
+`tests/hermes_host/test_pin.py` and `pin_harness.py`.
+
+- A stored-overrides-only pin leaves a new sibling writable. Resolving the
+  entire tree before pinning closes that gap for ordinary scalar/list leaves.
+  Plugin API writes and the implementation of `hermes config set` were tried
+  against all 80 setting paths (the three switches plus the 77 config fields).
+  The Petasos settings form and `petasos config set` were tried against those
+  paths too. Hand edits were also exercised. Fixed leaves kept the values
+  returned by `ctx.get_config`. The actual `hermes plugins disable petasos`
+  command changed the profile, but a new process still loaded Petasos. Unpin
+  restored unpinned writes and retained an unrelated managed model setting.
+- **Petasos reads a pin whole, because Hermes's merge alone cannot fix this
+  tree.** When the managed file carries the `petasos_managed_pin` record,
+  Petasos takes its four settings from that file and does not use the
+  profile's at all (`petasos.hermes.settings.pinned_settings`, checked before
+  the profile is read, so a missing or damaged profile file does not unpin
+  anything). The settings form locks every field, and the form, `petasos
+  config set` and `petasos config migrate --write` refuse to save, because a
+  save would be stored in the profile and then have no effect. The two gaps
+  below are what Hermes's own overlay leaves open. They still show in
+  `ctx.get_config`, and they still apply to a managed file written by hand
+  without the record, which the doctor reports as partly pinned. They do not
+  reach Petasos under a pin. The sandbox confirmed it: after a hand edit that
+  added entries to all three groups, Hermes's merged view held them and the
+  settings Petasos built did not.
+- In Hermes's overlay, new
+  entries can still be added to `rules.severity_overrides`, `tools.aliases`,
+  and `frequency.weights`. An empty managed mapping is marked managed, but
+  does not erase a profile mapping. Hermes's save APIs strip some of these
+  writes; a hand edit still survives the overlay. A nonempty managed mapping
+  fixes its existing entries, leaving new siblings open.
+- A pinned `null` does not replace a profile mapping. At the current defaults
+  this affects `scanners.presidio.entities`, `scanners.semgrep.engine_path`,
+  `scanners.semgrep.engine_sha256`, and `frequency.weights`. The sandbox
+  confirmed that a hand-written mapping survives in `ctx.get_config`.
+  Invalid values are still rejected by Petasos; this is a limit on the pin,
+  not a recommendation to store invalid values.
+- Environment references are expanded by Hermes before the snapshot. A
+  still-unresolved reference is refused, so a later environment change cannot
+  alter a value the command calls fixed. The sandbox confirmed both a frozen
+  expanded language and refusal of an unresolved reference. Manually installed
+  references are named by the doctor.
+- The hook timeout is pinned at **Hermes's effective value**: default 30
+  seconds, a negative or invalid value uses 30, a value above 600 is clamped,
+  and zero is preserved. Sandbox tests covered zero, negative, and the cap,
+  then a hand edit and a refused `hermes config set`. Zero runs the hook
+  inline; it does not switch the hook off. The command does not silently
+  change the operator's current timeout policy.
+- Changing `HERMES_MANAGED_DIR` bypasses the machine file; the doctor detects
+  an inactive machine pin when it can read that file. Safe mode, changing the
+  plugin's files or Python environment, and changing the event record remain
+  outside the pin. The plugin's files, the Python environment and the event
+  record still belong to this account. A pin fixes settings and the plugin
+  list; it is not a guarantee.
+- Hermes has a POSIX `/etc/hermes` default, including on macOS, and no native
+  Windows location. Petasos offers no default Windows pin location and writes
+  nothing there; an explicit managed-directory override can name an existing
+  provisioned directory. Windows behavior is source-checked and unit-tested,
+  not run on Windows.
+
+### Doctor and Overview
+
+The doctor reads managed scope through Hermes's own readers. Missing or
+raising functions, malformed files, or a backend that ignores a managed file
+produce an unknown result, never a pinned claim. It uses the effective
+settings and plugin lists for its ordinary checks, and separately compares
+the profile's own file. Profile-bound adapter reads apply Hermes's overlay too.
+The status API includes `pin` facts; the Overview displays the same words.
+
+| State | What it says |
 |---|---|
-| open | `approve`, not pinned. The agent can change guardrails with a fresh approval. |
-| blocked | `never`, not pinned. Changes are refused wherever Petasos recognises them. A determined agent with a shell could still find a way round. |
-| pinned | Settings are fixed at machine level. Only an administrator can change them. |
+| open | Open. The agent can change guardrails with a fresh approval. |
+| blocked | Blocked. The agent is not allowed to change guardrails from the conversation. Recognition can still be evaded. |
+| pinned | Pinned. Settings are fixed at machine level. Only an administrator can change them. The file carries the pin's record, both plugin lists and the timeout, and this account cannot write it. |
+| partly pinned | Partly pinned. Some settings are not fixed at machine level. A plugin list or the timeout is missing, or the file was written by hand without the record, in which case the open groups and unset values are named. This is a warning. |
+| writable | Pinned where this account can write. This does not protect settings from this account. The directory and the file are checked. This is the expected sandbox state. |
+| not in force | Pin not in force. Hermes was pointed at a different managed directory. This is a failure. |
+| profile changed | The profile differs from the pin. Something tried to change a guardrail. Pinned values are in force. Differences are named. For a file written by hand, new group entries may already take effect. |
+| off in the pin | The pin leaves Petasos turned off. It is not protecting this agent. This is a failure, including when either plugin list disables it. |
 
-To verify before building: exactly which keys Hermes lets the machine-level
-file pin, whether plugin enablement is among them, and the equivalent
-location and permissions on Windows.
+Every pin state includes the limits on files, Python and the event record.
+An unknown reader says: “This Python cannot tell which settings Hermes fixes
+at machine level.” Non-writable state classification and the administrator
+staging route are unit-tested; actual administrator ownership was deliberately
+not exercised on this machine.
 
 ## Evidence
 
@@ -157,14 +260,14 @@ it got in.
   enforcer applies is a `settings_changed` event: the paths, the new values of
   ordinary settings, and whether any session grant was live. Secret values are
   not written.
-- **Doctor and the Overview.** Open (`approve`) or blocked (`never`), in those
-  words, including the caveat that blocked is not a guarantee against a shell.
-  Pinned is not offered.
+- **Pin commands, doctor and Overview.** Managed settings and plugin lists,
+  safe staging, deliberate unpin, and the states/limits documented above.
 
 ## What is not built
 
-- `petasos hermes pin` and `unpin`.
-- The doctor's third state, pinned.
+- Protection against an account that can redirect the managed scope
+  (`HERMES_MANAGED_DIR`) for a new Hermes process, which bypasses a machine
+  pin. The doctor reports it when it can read the machine file.
 - A complete answer to a disguised shell. Recognition fails closed for a
   program that is not on the small reader list, so some honest reads now ask.
   What a string match still does not catch:

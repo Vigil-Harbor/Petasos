@@ -37,6 +37,7 @@ from petasos.hermes.host import (
     approve_directive_available,
     command_will_be_asked,
     load_redactor,
+    managed_config_path,
     rule_always_approved,
     subagent_hooks_available,
 )
@@ -299,6 +300,9 @@ def protected_paths() -> frozenset[str]:
         root / ".env",
         root / "plugins" / PLUGIN_ID,
     ]
+    managed = managed_config_path()
+    if managed is not None:
+        paths.append(Path(managed))
     profiles = root / "profiles"
     if profiles.is_dir():
         try:

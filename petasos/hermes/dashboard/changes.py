@@ -25,6 +25,7 @@ from petasos.hermes.dashboard.catalog import (
 from petasos.hermes.dashboard.errors import ApiError, envelope
 from petasos.hermes.dashboard.values import copy_tree, has_path, hermes_merge, without_path
 from petasos.hermes.dashboard.words import saved_effect
+from petasos.hermes.settings import PINNED_REFUSAL, pinned_settings
 
 logger = logging.getLogger("petasos.hermes.dashboard")
 
@@ -53,6 +54,7 @@ def save_settings(
     proposed = combine(stored, candidate)
     before = _resolved_or_none(stored_document(stored))
     after = _require_resolved(proposed)
+    _refuse_pinned()
     _refuse_semgrep(before, after)
     current = _overrides(stored_document(stored))
     desired = _overrides(proposed)
@@ -116,6 +118,7 @@ def clear_overrides(
             message="You have no changes of your own to reset.",
             **_view(document, secrets, managed),
         )
+    _refuse_pinned()
     _refuse_semgrep(before, after)
     _write_overrides(current, desired, plugin_dir, write)
     restart, also_live = _effect(before, after)
@@ -165,6 +168,12 @@ def _when_message(lead: str, restart: list[str], *, also_live: bool) -> str:
     labels = {row.path: row.label for row in leaves(PetasosConfig)}
     names = [labels.get(path, path) for path in restart]
     return saved_effect(lead, names, also_live=also_live)
+
+
+def _refuse_pinned() -> None:
+    """A pin is read whole, so a save would be stored and then have no effect."""
+    if pinned_settings() is not None:
+        raise ApiError("pinned", PINNED_REFUSAL)
 
 
 def _refuse_semgrep(before: Any, after: Any) -> None:

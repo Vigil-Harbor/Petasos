@@ -611,3 +611,7 @@ RISK_NOTE = (
     "This is for this input alone. A real conversation's score also depends on what came "
     "before and fades with time. No conversation is read or changed."
 )
+PIN_SCOPE = (
+    "The plugin's files, the Python environment and the event record still belong to "
+    "this account. A pin fixes settings and the plugin list; it is not a guarantee."
+)

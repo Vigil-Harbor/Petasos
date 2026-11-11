@@ -17,7 +17,13 @@ from petasos.hermes import semgrep_host
 from petasos.hermes.dashboard.catalog import combine, stored_document
 from petasos.hermes.dashboard.changes import saved_message
 from petasos.hermes.dashboard.values import copy_tree
-from petasos.hermes.settings import PLUGIN_ID, profile_binding, write_settings
+from petasos.hermes.settings import (
+    PINNED_REFUSAL,
+    PLUGIN_ID,
+    pinned_settings,
+    profile_binding,
+    write_settings,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -35,6 +41,8 @@ def set_one(home: Path, path: str, raw: str) -> tuple[str, int]:
             f"Next: petasos hermes install --home {_quote(home)}\n",
             2,
         )
+    if pinned_settings() is not None:
+        return PINNED_REFUSAL + "\n", 2
     kind, settings = profile_binding(home / "config.yaml")
     if kind == "broken":
         return ("The settings file could not be read, so nothing was changed.\n", 2)

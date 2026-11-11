@@ -1800,7 +1800,7 @@
         rows: [
           ["The agent", who.agent],
           ["You", who.you],
-          ["Administrator", admin],
+          ["Administrator", who.administrator || admin],
           ["Two switches", who.switches],
         ],
       })
