@@ -20,7 +20,7 @@ from petasos.config.sections.tools import EgressConfig, ToolsConfig
 
 @section
 class NormalizationConfig:
-    """Text cleanup applied before the optional scanners see a scan."""
+    """Validate independent text-normalization settings."""
 
     nfkc: bool = setting(
         default=True,
@@ -54,7 +54,7 @@ class NormalizationConfig:
 
 @section
 class AnonymizationConfig:
-    """What happens to personal information after a scanner has reported it."""
+    """Validate personal-information replacement settings."""
 
     enabled: bool = setting(
         default=False,
@@ -87,11 +87,10 @@ class AnonymizationConfig:
 
 @section
 class PetasosConfig:
-    """The whole configuration tree.
+    """Validate and freeze the complete scanner and policy configuration.
 
     Constructing a value, or reading one from a mapping, applies every bound
-    and every floor. ``enabled``, the role, and the level are not fields here.
-    """
+    and every floor. ``enabled``, the role, and the level are not fields here."""
 
     fail_mode: Literal["open", "degraded", "closed"] = setting(
         default="degraded",

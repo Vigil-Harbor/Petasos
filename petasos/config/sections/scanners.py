@@ -29,7 +29,7 @@ def _unknown_entity(name: str) -> str:
 
 @section
 class PromptGuardConfig:
-    """Whether PromptGuard runs, and the score at which it reports injection."""
+    """Validate PromptGuard activation and score thresholds."""
 
     enabled: _ENABLED = setting(
         default="auto",
@@ -61,7 +61,7 @@ class PromptGuardConfig:
 
 @section
 class PresidioConfig:
-    """Whether Presidio runs, which types it looks for, and how sure it must be."""
+    """Validate personal-information scope, confidence and language."""
 
     enabled: _ENABLED = setting(
         default="auto",
@@ -137,7 +137,7 @@ class PresidioConfig:
 
 @section
 class SemgrepConfig:
-    """Whether the isolated Semgrep engine runs, and where that engine lives."""
+    """Validate engine activation, identity and scan resource limits."""
 
     enabled: _ENABLED = setting(
         default="off",
@@ -201,7 +201,7 @@ class SemgrepConfig:
 
 @section
 class ScannersConfig:
-    """How long a scanner may run, plus the settings for each optional scanner."""
+    """Validate optional scanner settings and shared timeout policy."""
 
     timeout_seconds: float = setting(
         default=10.0,

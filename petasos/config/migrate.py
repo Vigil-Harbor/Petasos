@@ -53,12 +53,11 @@ _GENERAL_BLOCK_NOTE = (
 
 @dataclass(frozen=True, slots=True)
 class FieldMove:
-    """One old flat name and where a migration sends it.
+    """Describe how a 0.5 field maps into settings or a dropped-field note.
 
     ``path`` is the new leaf, ``role``, or ``enabled``. It is None when the
     name is dropped. ``kind`` says which of those a caller is looking at.
-    ``note`` is the sentence used when the name is dropped.
-    """
+    ``note`` is the sentence used when the name is dropped."""
 
     old: str
     path: str | None
@@ -182,12 +181,11 @@ _REVERSE: dict[str, str] = {
 
 @dataclass(frozen=True, slots=True)
 class Migration:
-    """The settings a 0.5 ``petasos:`` section becomes, plus what was left out.
+    """Hold converted settings and dropped-field notes without secret values.
 
     ``settings`` is a document ``resolve`` accepts. ``dropped`` names every key
     that was not copied, in the order it appeared. ``notes`` says why, in that
-    same order, and never includes a secret value.
-    """
+    same order, and never includes a secret value."""
 
     settings: Mapping[str, Any]
     dropped: tuple[str, ...]
@@ -255,7 +253,7 @@ def _canon_map(info: FieldInfo, value: object) -> object:
 
 
 def canon(info: FieldInfo, value: object) -> object:
-    """The value ``from_mapping`` would store, or the original when it cannot."""
+    """Return the canonical schema value, retaining the input when invalid."""
     if value is None:
         return None
     if info.type_name == "float" and type(value) is int:

@@ -164,12 +164,11 @@ def _unknown_name(
 
 @dataclass(frozen=True, slots=True)
 class Role:
-    """What the agent does, as a partial document and a suggested level.
+    """Hold immutable role settings and a suggested strictness level.
 
     ``suggests`` is a recommendation for a settings screen. Resolution never
     applies it. ``document`` touches only role-owned fields. ``label`` and
-    ``description`` are what a person reads.
-    """
+    ``description`` are what a person reads."""
 
     name: str
     description: str
@@ -180,7 +179,7 @@ class Role:
 
 @dataclass(frozen=True, slots=True)
 class Level:
-    """How strict the checks are, as a partial document of the level-owned fields."""
+    """Hold immutable strictness settings restricted to level-owned fields."""
 
     name: str
     description: str
@@ -382,11 +381,10 @@ PROFILE_TO_ROLE: Final[Mapping[str, str]] = MappingProxyType(
 
 @dataclass(frozen=True, slots=True)
 class Settings:
-    """What a user writes: the arm switch, a role, a level, and any overrides.
+    """Hold the operator arm switch, role, level and explicit overrides.
 
     ``enabled`` is read live and is not part of ``PetasosConfig``. An empty
-    ``overrides`` mapping means the role and level stand as they are.
-    """
+    ``overrides`` mapping means the role and level stand as they are."""
 
     enabled: bool = True
     role: str = "general"
@@ -435,12 +433,11 @@ SETTING_LABEL: Final[Mapping[str, str]] = MappingProxyType(
 
 @dataclass(frozen=True, slots=True)
 class Resolved:
-    """One settings document resolved to a config, with the source of each value.
+    """Hold resolved configuration with the winning source for each leaf.
 
     ``origin`` maps every leaf path to ``default``, ``role``, ``level``, or
     ``override``. The last layer whose document contains the path wins. A
-    non-empty ``settings.overrides`` is what a screen calls custom.
-    """
+    non-empty ``settings.overrides`` is what a screen calls custom."""
 
     settings: Settings
     config: PetasosConfig
