@@ -437,3 +437,21 @@ imports independent of optional ML libraries. Every inference use of torch stays
 inside score so default-lane tests can exercise admission and lifecycle without
 loading torch. Profile homes in a multiplexed Hermes process share a module-level
 model rather than allocating a model per scanner instance.
+
+## Pipeline ordering and attribution
+
+Suppressed non-floor findings are dropped before overlap resolution. They must
+not evict legitimate overlapping findings, trigger standalone termination or
+contribute risk. Standalone termination checks precede severity overrides; a
+non-floor upgrade to CRITICAL therefore cannot manufacture that standalone exit.
+Structural findings cannot be retargeted and injection floors only permit promotion.
+An anonymization entity filter narrows replacement targets without changing
+detection or the merged findings. Empty entity selection means all personal
+information; nonempty selection is case-insensitive.
+
+Frequency caps are validated before update so malformed caps receive an explicit
+operator diagnostic and remain visible in result errors. Catching ValueError
+around the whole update would misattribute session-token authentication failures
+to caps. A backstop failure on findings is a warning because enforcement lost
+its risk accumulation. Closed-mode early exits still run audit and alert hooks;
+prepared scanner results retain ownership and only unstarted work is skipped.

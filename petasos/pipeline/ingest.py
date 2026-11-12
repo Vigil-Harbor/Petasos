@@ -1,8 +1,7 @@
-"""Layered ingestion-result scan: one short ``inspect()`` head plus a syntactic sweep.
+"""Scan a bounded result with an inspection head and an overlapping syntactic sweep.
 
-Closes the PET-170 mid-window hole below ``_MAX_PARAM_TEXT_LEN``. ``Pipeline.inspect``
-stays one-shot; callers that want full-coverage result scanning go through this helper.
-"""
+Callers needing result-wide syntactic coverage use this helper rather than
+a one-shot Pipeline.inspect call."""
 
 from __future__ import annotations
 

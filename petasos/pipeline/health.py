@@ -88,7 +88,7 @@ def _normalize_gather_result(
 
 
 def scanner_health(self: Pipeline) -> list[dict[str, Any]]:
-    """Return per-scanner health status for the console dashboard."""
+    """Return per-scanner availability and recent failure provenance."""
     import time as _time
 
     result: list[dict[str, Any]] = []
