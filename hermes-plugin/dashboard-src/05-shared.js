@@ -1,7 +1,3 @@
-// ---------------------------------------------------------------------------
-// Shared: staged changes, the list of what a change would do, and grouping
-// of repeated events. Used by more than one view.
-// ---------------------------------------------------------------------------
 
 function clone(value) {
   return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
@@ -93,8 +89,6 @@ function leafCount(tree) {
   return count;
 }
 
-// What a change would do, setting by setting: the label and plain sentence
-// above, the value below at full width, where it would come from beneath.
 function ChangeValues(props) {
   var before = props.before;
   var after = props.after;
@@ -172,8 +166,6 @@ function ChangeList(props) {
   );
 }
 
-// Consecutive events that say the same thing about the same conversation
-// are one row with a count. The group can be opened to show each event.
 function groupEvents(events) {
   var groups = [];
   events.forEach(function (event) {

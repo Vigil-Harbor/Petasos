@@ -12,17 +12,7 @@
   "use strict";
 
   // ===== dashboard-src/00-kit.js =====
-  // ---------------------------------------------------------------------------
-  // Kit: the Hermes SDK, the API client, and small shared pieces.
-  //
-  // Everything visual comes from Hermes: its React, its components (Card,
-  // Button, Badge, Select, Input, Label, ConfirmDialog, Toast), its fonts and
-  // its colour variables. Where the SDK does not export a Hermes control
-  // (Segmented, Switch), the tab draws the same markup with the same tokens.
-  // Everything Petasos knows (roles, levels, settings, labels, rules,
-  // sentences) comes from the plugin's API at /api/plugins/petasos/. This file
-  // holds interface wording only.
-  // ---------------------------------------------------------------------------
+  // See docs/architecture/rationale.md, "Dashboard source packaging".
 
   var SDK = window.__HERMES_PLUGIN_SDK__;
   var PLUGINS = window.__HERMES_PLUGINS__;
@@ -43,8 +33,6 @@
 
   var API = "/api/plugins/petasos";
 
-  // One request to the plugin API. A failure is thrown as an ApiFailure with
-  // the HTTP status and the API's own code and sentence when it sent one.
   function ApiFailure(status, code, message, path) {
     this.status = status;
     this.code = code;
@@ -52,8 +40,7 @@
     this.path = path || null;
   }
 
-  // Hermes's fetchJSON throws an error carrying ``status`` and the raw
-  // ``body``. Older hosts threw Error("<status>: <body>"); both are read.
+  // Hosts report status/body properties or a status-prefixed response body.
   function parseFailure(err) {
     var raw = err && err.message ? String(err.message) : String(err || "");
     var status = 0;
@@ -75,7 +62,6 @@
         return new ApiFailure(status, "http", parsed.detail, null);
       }
     } catch (_e) {
-      // Not JSON. Fall through.
     }
     if (status === 0) {
       return new ApiFailure(0, "unreachable", "The dashboard could not reach Petasos.", null);
@@ -104,17 +90,10 @@
     return parts.length ? "?" + parts.join("&") : "";
   }
 
-  // ---------------------------------------------------------------------------
-  // The tab's own address: #overview, #activity?event=…, #settings?rule=…
-  // The view lives in the hash so a link (and the browser's back button) can
-  // open a view, an event, or the settings for one rule.
-  // ---------------------------------------------------------------------------
 
   var VIEWS = ["overview", "activity", "tryit", "settings"];
 
-  // Hermes adds ?profile=… to the address on arrival and drops the fragment.
-  // Put back the fragment the page was opened with, once, so a pasted link
-  // still opens the view it names.
+  // Hermes profile navigation drops fragments; restore the initial fragment once.
   (function restoreArrivalHash() {
     if (window.location.hash) return;
     var entries = window.performance && window.performance.getEntriesByType
@@ -163,8 +142,7 @@
     return state[0];
   }
 
-  // Run ``load`` now and every ``ms`` while the page is visible. Polling is
-  // the only refresh: the API has no stream. A hidden tab does not poll.
+  // The API has no event stream; only visible tabs poll.
   function usePoll(load, ms, deps) {
     useEffect(function () {
       var stopped = false;
@@ -182,10 +160,6 @@
     }, deps);
   }
 
-  // ---------------------------------------------------------------------------
-  // Names. Every name a person reads comes from the API's labels. These look
-  // them up; a name the API did not label is shown as it was sent.
-  // ---------------------------------------------------------------------------
 
   function roleOf(catalog, name) {
     return ((catalog && catalog.roles) || []).filter(function (role) {
@@ -229,8 +203,6 @@
     return (row && row.label) || (row && row.path) || "";
   }
 
-  // Where a value comes from, in words. The job and strictness are named by
-  // their labels.
   function originText(origin, stored, catalog) {
     if (origin === "role") return "From the job (" + roleLabel(catalog, stored && stored.role) + ")";
     if (origin === "level") return "From strictness (" + levelLabel(catalog, stored && stored.level) + ")";
@@ -239,7 +211,6 @@
     return "Unknown";
   }
 
-  // One value as a person reads it. A choice uses the API's label for it.
   function showValue(value, row) {
     if (value === null || value === undefined) return "not set";
     if (row && row.choice_labels && Object.prototype.hasOwnProperty.call(row.choice_labels, String(value))) {
@@ -269,15 +240,10 @@
     return text ? text.charAt(0).toUpperCase() + text.slice(1).toLowerCase() : "";
   }
 
-  // ---------------------------------------------------------------------------
-  // Time. One convention everywhere: a 24-hour clock in the browser's time
-  // zone, which a list names once at its head. A date from another year
-  // carries the year. Relative age is secondary.
-  // ---------------------------------------------------------------------------
 
   function whenText(seconds) {
     if (typeof seconds !== "number") return "";
-    // Hermes's timeAgo takes unix seconds (its type comment says milliseconds).
+    // Hermes timeAgo accepts Unix seconds despite its milliseconds type annotation.
     return SDK.utils.timeAgo(seconds);
   }
 
@@ -333,11 +299,7 @@
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Small pieces built from Hermes components.
-  // ---------------------------------------------------------------------------
 
-  // A Hermes Card with the title row Hermes uses on its own pages.
   function Panel(props) {
     return h(
       C.Card,
@@ -370,11 +332,6 @@
     );
   }
 
-  // A status that carries a safety meaning (an outcome, the verdict, a check's
-  // state): Hermes's own Badge container (shape, border, tint), with its words
-  // in the body face at the size of the text around them, so they read at a
-  // glance. Hermes's condensed face stays on counts (Tag). Words always say the
-  // same thing as the colour. Severity is not a badge (see Severity).
   var TONES = ["success", "warning", "destructive", "neutral"];
   var BADGE_TONE = { success: "success", warning: "warning", destructive: "destructive", neutral: "secondary" };
 
@@ -392,13 +349,10 @@
     );
   }
 
-  // A count or an incidental label: Hermes's own badge, as Hermes draws it.
   function Tag(props) {
     return h(C.Badge, { tone: props.tone || "secondary", className: cn("petasos-tag", props.className), title: props.title }, props.children);
   }
 
-  // How serious a finding is: a word beside the outcome, in plain text.
-  // Critical is set heavier than High; there is no second coloured shape.
   function Severity(props) {
     var severity = String(props.value || "").toLowerCase();
     var known = { critical: 1, high: 1, medium: 1, low: 1, info: 1 };
@@ -421,9 +375,6 @@
     return "neutral";
   }
 
-  // A notice. The tone is a mark and a word, not a thick edge; only an
-  // exceptional warning (``strong``) keeps the marked edge. Success is a check
-  // mark, so a confirmation never looks like a warning.
   function Notice(props) {
     var tone = props.tone || "info";
     return h(
@@ -451,8 +402,6 @@
     );
   }
 
-  // The empty list, as Hermes's Sessions page draws it: a small icon, a short
-  // title, one line, on the page background.
   function Empty(props) {
     return h(
       "div",
@@ -464,8 +413,6 @@
     );
   }
 
-  // Outline icons drawn inline in the current colour, the style Hermes's
-  // pages use. No image files.
   var ICONS = {
     clock: ["M12 6v6l4 2", "M12 2a10 10 0 1 0 0 20a10 10 0 1 0 0-20"],
     chevron: ["M9 6l6 6l-6 6"],
@@ -498,10 +445,6 @@
     );
   }
 
-  // Hermes's Button. Filled and outlined buttons are form buttons and are set
-  // in upper case, as on Config and Plugins (SAVE, INSTALL); a ghost button is
-  // a quiet page utility (Refresh) and keeps its own case. ``compact`` fits a
-  // quiet button into a line of text.
   function Btn(props) {
     var rest = Object.assign({}, props);
     delete rest.children;
@@ -512,8 +455,6 @@
     return h(C.Button, rest, props.children);
   }
 
-  // Navigation: underlined, and used only for something that takes you
-  // somewhere. An action that changes or runs something is a Btn.
   function LinkButton(props) {
     return h(
       "button",
@@ -529,9 +470,6 @@
     );
   }
 
-  // A disclosure: a quiet toggle with a turning chevron. It is not underlined,
-  // because underlined text only navigates. With ``remember``, the choice to open it is kept in this browser
-  // so a technical reader opens it once.
   function readRemembered(key) {
     try {
       return window.localStorage.getItem("petasos." + key) === "open";
@@ -545,7 +483,7 @@
       if (open) window.localStorage.setItem("petasos." + key, "open");
       else window.localStorage.removeItem("petasos." + key);
     } catch (_e) {
-      // Storage can be refused; the disclosure still works for this visit.
+      // Storage may be refused; disclosure state must still work for this visit.
     }
   }
 
@@ -578,7 +516,6 @@
     );
   }
 
-  // A command a person copies into a terminal: the command itself, and Copy.
   function Command(props) {
     return h(
       "div",
@@ -592,8 +529,6 @@
     return h("code", { className: cn("petasos-mono", props.className), title: props.title }, props.children);
   }
 
-  // A technical identifier that may wrap only after its separators, never
-  // in the middle of a word.
   function Ident(props) {
     var text = String(props.children || "");
     var parts = [];
@@ -637,7 +572,6 @@
     );
   }
 
-  // Hermes's Select with a label above it.
   function Choice(props) {
     return h(
       "div",
@@ -660,7 +594,6 @@
     );
   }
 
-  // Arrow keys move along a row of options, as a native radio group does.
   function arrowKeys(event, values, current, onChange, focusPrefix) {
     var keys = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1, Home: "first", End: "last" };
     var step = keys[event.key];
@@ -676,8 +609,6 @@
     if (target) target.focus();
   }
 
-  // Hermes's Segmented control (Logs, Sessions): joined rectangular buttons,
-  // the chosen one filled. One choice of several, with arrow keys.
   function Segmented(props) {
     var values = props.options.map(function (option) {
       return option.value;
@@ -719,7 +650,6 @@
     );
   }
 
-  // Hermes's Switch: a rectangular track and square thumb at the end of a row.
   function Switch(props) {
     return h(
       "button",
@@ -741,7 +671,6 @@
     );
   }
 
-  // The view tabs, drawn as Hermes's enclosed segmented tabs (Sessions, Logs).
   function ViewTabs(props) {
     var values = props.views.map(function (view) {
       return view.value;
@@ -775,9 +704,6 @@
     );
   }
 
-  // Config's field layout: the label, the setting's key in Hermes's tertiary
-  // text, one plain sentence, then the control across the panel. A switch sits
-  // at the end of the label row instead.
   function Field(props) {
     var labelId = props.id + "-label";
     var helpId = props.id + "-help";
@@ -818,8 +744,7 @@
     );
   }
 
-  // Scroll the nearest scrolling container so ``element`` is in view. Unlike
-  // scrollIntoView, this never moves Hermes's own page frame.
+  // Scrolling the inner container keeps the Hermes page frame stationary.
   function revealInView(element, where) {
     if (!element) return;
     var node = element.parentElement;
@@ -842,7 +767,7 @@
   // the rules itself.
   // ---------------------------------------------------------------------------
 
-  var STYLE = "/*\n * Petasos tab layout. Every colour, font and size is a Hermes variable, so\n * the tab follows whichever Hermes theme is active. Where Hermes's SDK does\n * not export a control (Segmented, Switch), these rules draw it the way\n * Hermes's own source does. No palette, font or icon set of Petasos's own.\n *\n * Text hierarchy uses Hermes's own tokens: primary text is the theme's ink;\n * secondary and tertiary text are the same ink at Hermes's 80% and 65%\n * (text-text-secondary and text-text-tertiary on its Config page). Values a\n * person typed and the current value of a control are primary.\n */\n\n.petasos {\n  --petasos-ink: var(--midground);\n  --petasos-secondary: var(\n    --color-text-secondary,\n    color-mix(in srgb, var(--midground-base, var(--midground)) 80%, transparent)\n  );\n  --petasos-tertiary: var(\n    --text-tertiary,\n    color-mix(in srgb, var(--midground-base, var(--midground)) 65%, transparent)\n  );\n  --petasos-line: color-mix(in srgb, var(--midground-base, var(--midground)) 15%, transparent);\n  --petasos-control-line: color-mix(in srgb, var(--midground-base, var(--midground)) 30%, transparent);\n  display: flex;\n  flex-direction: column;\n  gap: 1rem;\n  width: 100%;\n  min-width: 0;\n  color: var(--petasos-ink);\n  font-size: 0.9375rem;\n  line-height: 1.5;\n}\n\n.petasos code,\n.petasos pre {\n  background: transparent !important;\n  color: inherit;\n}\n\n.petasos p {\n  margin: 0;\n}\n\n.petasos .sr-only {\n  position: absolute;\n  width: 1px;\n  height: 1px;\n  padding: 0;\n  margin: -1px;\n  overflow: hidden;\n  clip: rect(0, 0, 0, 0);\n  white-space: nowrap;\n  border: 0;\n}\n\n/* Keyboard focus is always visible, in the theme's ring colour, on every\n * control the tab draws. Hermes's own controls keep their ring too. */\n.petasos button:focus-visible,\n.petasos a:focus-visible,\n.petasos input:focus-visible,\n.petasos textarea:focus-visible,\n.petasos summary:focus-visible,\n.petasos [tabindex]:focus-visible {\n  outline: 2px solid var(--midground);\n  outline-offset: 2px;\n}\n\n.petasos-detail:focus,\n.petasos-subhead:focus {\n  outline: none;\n}\n\n/* Controls: a typed value and a chosen value are primary text, and the\n * edge of an editable field is clear enough to read as editable. */\n.petasos input,\n.petasos textarea,\n.petasos [aria-haspopup=\"listbox\"] {\n  color: var(--petasos-ink);\n  border-color: var(--petasos-control-line);\n  font-family: var(--theme-font-mono);\n}\n\n.petasos input::placeholder,\n.petasos textarea::placeholder {\n  color: var(--petasos-tertiary);\n}\n\n.petasos [aria-haspopup=\"listbox\"] svg {\n  opacity: 1;\n  color: var(--petasos-ink);\n}\n\n.petasos input:disabled,\n.petasos textarea:disabled,\n.petasos [aria-haspopup=\"listbox\"]:disabled {\n  color: var(--petasos-tertiary);\n}\n\n.petasos-stack {\n  display: flex;\n  flex-direction: column;\n  gap: 1rem;\n  min-width: 0;\n}\n\n.petasos-grid-2 {\n  display: grid;\n  grid-template-columns: repeat(2, minmax(0, 1fr));\n  gap: 1rem;\n  align-items: start;\n}\n\n.petasos-grid-3 {\n  display: grid;\n  grid-template-columns: repeat(3, minmax(0, 1fr));\n  gap: 1rem;\n  align-items: start;\n}\n\n.petasos-help,\n.petasos-secondary {\n  font-size: 0.875rem;\n  line-height: 1.5;\n  color: var(--petasos-secondary);\n}\n\n.petasos-tertiary,\n.petasos-faint {\n  font-size: 0.8125rem;\n  color: var(--petasos-tertiary);\n}\n\n.petasos-dot {\n  color: var(--petasos-tertiary);\n}\n\n.petasos .petasos-faint {\n  color: var(--petasos-tertiary);\n}\n\n/* Form buttons (filled and outlined) in upper case, as Config and Plugins\n * set them. Ghost buttons are page utilities and keep their case. */\n.petasos .petasos-btn-caps {\n  text-transform: uppercase;\n}\n\n/* A quiet button inside a line of text: Undo, Reset, Show every outcome. */\n.petasos .petasos-btn-compact {\n  height: auto;\n  min-height: 0;\n  padding: 0.1rem 0.35rem;\n  vertical-align: baseline;\n}\n\n.petasos-strong,\n.petasos strong {\n  font-weight: 700;\n}\n\n.petasos-block {\n  display: block;\n}\n\n.petasos-gap-above {\n  margin-top: 0.4rem;\n}\n\n.petasos-end {\n  padding: 0.9rem 0 0.4rem;\n  text-align: center;\n}\n\n/* Underlined text navigates, and nothing else is underlined: an action\n * that changes or runs something is one of Hermes's buttons. */\n.petasos-link,\n.petasos a.petasos-link {\n  background: none;\n  border: 0;\n  padding: 0;\n  font: inherit;\n  font-size: inherit;\n  color: inherit;\n  text-decoration: underline;\n  text-decoration-thickness: 1px;\n  text-underline-offset: 3px;\n  cursor: pointer;\n  text-align: left;\n}\n\n.petasos-link:hover {\n  text-decoration-thickness: 2px;\n}\n\n.petasos-link:disabled {\n  cursor: not-allowed;\n  opacity: 0.6;\n}\n\n.petasos-row-actions {\n  display: flex;\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 0.6rem 0.9rem;\n}\n\n.petasos-check-note {\n  flex: 1 1 16rem;\n  margin: 0;\n}\n\n.petasos-count {\n  font-size: 0.875rem;\n  font-weight: 600;\n  color: var(--petasos-ink);\n}\n\n.petasos-mono {\n  font-family: var(--theme-font-mono);\n  font-size: 0.85rem;\n}\n\n/* A technical id wraps only at the <wbr> after its separators. */\n.petasos-ident {\n  overflow-wrap: normal;\n  word-break: normal;\n  white-space: normal;\n  font-size: 0.82rem;\n}\n\n.petasos-idrow {\n  display: inline-flex;\n  flex-wrap: wrap;\n  align-items: baseline;\n  gap: 0.25rem 0.6rem;\n}\n\n.petasos-copy {\n  display: inline-flex;\n  align-items: center;\n  gap: 0.25rem;\n  padding: 0.1rem 0.35rem;\n  border: 1px solid transparent;\n  background: none;\n  color: var(--petasos-secondary);\n  font-size: 0.8rem;\n  cursor: pointer;\n}\n\n.petasos-copy:hover {\n  border-color: var(--petasos-line);\n  color: var(--petasos-ink);\n}\n\n.petasos-icon {\n  display: inline-block;\n  flex-shrink: 0;\n  vertical-align: middle;\n}\n\n/* ---- Disclosure, as Hermes's pages draw one ------------------------- */\n\n.petasos-disclosure {\n  display: flex;\n  flex-direction: column;\n  align-items: flex-start;\n  gap: 0.6rem;\n  min-width: 0;\n  width: 100%;\n}\n\n.petasos-disclosure-toggle {\n  display: inline-flex;\n  align-items: center;\n  gap: 0.3rem;\n  padding: 0;\n  border: 0;\n  background: none;\n  color: var(--petasos-secondary);\n  font: inherit;\n  font-size: 0.875rem;\n  font-weight: 500;\n  cursor: pointer;\n}\n\n.petasos-disclosure-toggle:hover {\n  color: var(--petasos-ink);\n}\n\n.petasos-disclosure-chevron {\n  transition: transform 120ms;\n}\n\n.petasos-disclosure-open > .petasos-disclosure-toggle .petasos-disclosure-chevron,\n.petasos-chevron-open {\n  transform: rotate(90deg);\n}\n\n.petasos-disclosure-body {\n  display: flex;\n  flex-direction: column;\n  gap: 0.6rem;\n  width: 100%;\n  min-width: 0;\n  padding-left: 1.1rem;\n}\n\n/* A command to copy into a terminal. */\n.petasos-command {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 0.75rem;\n  max-width: 40rem;\n  padding: 0.45rem 0.6rem 0.45rem 0.8rem;\n  border: 1px solid var(--petasos-control-line);\n  background: color-mix(in srgb, var(--background) 40%, transparent);\n}\n\n.petasos-command-text {\n  font-family: var(--theme-font-mono);\n  font-size: 0.875rem;\n  overflow-wrap: anywhere;\n}\n\n/* ---- Top bar: Hermes's enclosed tabs ------------------------------- */\n\n.petasos-topbar {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 1rem;\n  flex-wrap: wrap;\n}\n\n.petasos-topbar-main {\n  display: flex;\n  align-items: center;\n  gap: 0.75rem;\n  flex-wrap: wrap;\n}\n\n.petasos-topbar-side {\n  display: flex;\n  align-items: center;\n  gap: 0.75rem;\n}\n\n.petasos-topbar-side .petasos-help {\n  color: var(--petasos-tertiary);\n}\n\n.petasos-unsaved {\n  background: none;\n  border: 0;\n  padding: 0;\n  font-size: 0.875rem;\n  color: inherit;\n  text-decoration: underline;\n  text-underline-offset: 3px;\n  cursor: pointer;\n}\n\n/* Hermes's Segmented: joined rectangular buttons, the chosen one filled\n * with the theme's ink, regular weight, as on Sessions. */\n.petasos-segmented {\n  display: inline-flex;\n  flex-wrap: wrap;\n  border: 1px solid var(--petasos-line);\n  background: color-mix(in srgb, var(--background) 30%, transparent);\n  max-width: 100%;\n}\n\n.petasos-segment {\n  display: inline-flex;\n  align-items: center;\n  gap: 0.35rem;\n  height: 1.875rem;\n  padding: 0 0.75rem;\n  border: 0;\n  border-right: 1px solid var(--petasos-line);\n  background: transparent;\n  color: var(--petasos-secondary);\n  font-family: var(--font-mondwest);\n  font-size: 0.875rem;\n  font-weight: 400;\n  letter-spacing: 0.03em;\n  white-space: nowrap;\n  cursor: pointer;\n  transition: background-color 120ms, color 120ms;\n}\n\n.petasos-segment:last-child {\n  border-right: 0;\n}\n\n.petasos-segment:hover {\n  background: color-mix(in srgb, var(--midground) 10%, transparent);\n  color: var(--midground);\n}\n\n.petasos-segment-on,\n.petasos-segment-on:hover {\n  background: var(--midground);\n  color: var(--background);\n}\n\n.petasos-segment:disabled {\n  cursor: not-allowed;\n  opacity: 0.55;\n}\n\n.petasos-viewtabs .petasos-segment {\n  height: 1.875rem;\n  padding: 0 0.85rem;\n}\n\n/* ---- Hermes's Switch ------------------------------------------------ */\n\n.petasos-switch {\n  position: relative;\n  display: inline-flex;\n  align-items: center;\n  flex-shrink: 0;\n  width: 2.25rem;\n  height: 1.25rem;\n  padding: 0;\n  border: 1px solid color-mix(in srgb, var(--midground) 22%, transparent);\n  background: var(--background);\n  cursor: pointer;\n  transition: background-color 120ms, border-color 120ms;\n}\n\n.petasos-switch-thumb {\n  display: block;\n  width: 0.875rem;\n  height: 0.875rem;\n  margin-left: 0.125rem;\n  background: color-mix(in srgb, var(--midground) 40%, transparent);\n  transition: transform 120ms;\n}\n\n.petasos-switch-on {\n  background: color-mix(in srgb, var(--midground) 15%, transparent);\n  border-color: color-mix(in srgb, var(--midground) 35%, transparent);\n}\n\n.petasos-switch-on .petasos-switch-thumb {\n  transform: translateX(1rem);\n  background: var(--midground);\n}\n\n.petasos-switch:disabled {\n  cursor: not-allowed;\n  opacity: 0.5;\n}\n\n.petasos-inline-switch {\n  display: inline-flex;\n  align-items: center;\n  gap: 0.6rem;\n  font-size: 0.875rem;\n}\n\n/* ---- Panels --------------------------------------------------------- */\n\n.petasos-panel {\n  min-width: 0;\n}\n\n.petasos-panel-head {\n  padding: 0.85rem 1.1rem 0.6rem;\n}\n\n.petasos-panel-headrow {\n  display: flex;\n  align-items: flex-start;\n  justify-content: space-between;\n  gap: 1rem;\n}\n\n.petasos-panel-titles {\n  display: flex;\n  flex-direction: column;\n  gap: 0.25rem;\n  min-width: 0;\n}\n\n/* A panel title with its state badge beside it, as Plugins sets a badge\n * beside a name. */\n.petasos-panel-titlerow {\n  display: flex;\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 0.6rem;\n}\n\n.petasos-panel-desc {\n  font-size: 0.875rem;\n  color: var(--petasos-secondary);\n}\n\n.petasos-panel-actions {\n  display: flex;\n  align-items: center;\n  gap: 0.75rem;\n  flex-shrink: 0;\n}\n\n.petasos-panel-body {\n  display: flex;\n  flex-direction: column;\n  gap: 0.85rem;\n  padding: 0.9rem 1.1rem 1.1rem;\n}\n\n/* Field and filter labels, as Hermes's Label and FilterGroup draw them:\n * Mondwest, upper case, regular weight, spaced; bold is kept for values. */\n.petasos-label,\n.petasos-filter-label,\n.petasos-sections-title {\n  font-family: var(--font-mondwest);\n  font-size: 0.78rem;\n  font-weight: 400;\n  letter-spacing: 0.08em;\n  line-height: 1.3;\n  text-transform: uppercase;\n  color: var(--petasos-secondary);\n}\n\n.petasos-subhead {\n  margin: 0.3rem 0 0;\n  font-family: var(--font-mondwest);\n  font-size: 0.8rem;\n  font-weight: 400;\n  letter-spacing: 0.08em;\n  text-transform: uppercase;\n  color: var(--petasos-secondary);\n}\n\n/* ---- Status: Hermes's Badge, legible -------------------------------- */\n\n/* Hermes's Badge container (shape, border, tint) with the words in the\n * body face, medium weight, at the size of the text around them. Hermes's\n * condensed face stays on counts (.petasos-tag). Light themes darken the\n * ink. */\n.petasos .petasos-status {\n  font-family: var(--theme-font-sans);\n  font-size: 0.875rem;\n  font-weight: 500;\n  letter-spacing: 0.01em;\n  text-transform: none;\n  padding: 0.22rem 0.55rem;\n  line-height: 1.2;\n  white-space: nowrap;\n  vertical-align: middle;\n}\n\n.petasos .petasos-status-large {\n  font-size: 0.9375rem;\n  padding: 0.28rem 0.65rem;\n}\n\n.petasos .petasos-status-success {\n  color: color-mix(in srgb, var(--color-success) 70%, white);\n}\n\n.petasos .petasos-status-warning {\n  color: color-mix(in srgb, var(--color-warning) 75%, white);\n}\n\n.petasos .petasos-status-destructive {\n  color: color-mix(in srgb, var(--color-destructive) 55%, white);\n  border-color: color-mix(in srgb, var(--color-destructive) 55%, transparent);\n}\n\n.petasos-light .petasos-status-success {\n  color: color-mix(in srgb, var(--color-success) 45%, black);\n  border-color: color-mix(in srgb, var(--color-success) 60%, black);\n}\n\n.petasos-light .petasos-status-warning {\n  color: color-mix(in srgb, var(--color-warning) 45%, black);\n  border-color: color-mix(in srgb, var(--color-warning) 60%, black);\n}\n\n.petasos-light .petasos-status-destructive {\n  color: color-mix(in srgb, var(--color-destructive) 70%, black);\n  border-color: color-mix(in srgb, var(--color-destructive) 70%, black);\n}\n\n.petasos-light .petasos-status-neutral {\n  color: var(--midground);\n}\n\n.petasos-tag {\n  white-space: nowrap;\n}\n\n.petasos .petasos-tag {\n  font-size: 0.85rem;\n}\n\n.petasos-none {\n  color: var(--petasos-tertiary);\n}\n\n/* Severity: a word in plain text beside the outcome. Critical is set\n * heavier than High; there is no second coloured shape. */\n.petasos-sev {\n  font-size: 0.875rem;\n  color: var(--petasos-secondary);\n  white-space: nowrap;\n}\n\n.petasos-sev-high {\n  color: var(--petasos-ink);\n  font-weight: 500;\n}\n\n.petasos-sev-critical {\n  color: var(--petasos-ink);\n  font-weight: 700;\n}\n\n/* ---- Notices: a mark and a title; only exceptional warnings keep an edge */\n\n.petasos-notice {\n  display: flex;\n  align-items: flex-start;\n  justify-content: space-between;\n  gap: 1rem;\n  padding: 0.8rem 1rem;\n  border: 1px solid var(--color-border);\n  background: var(--color-card);\n}\n\n.petasos-notice-strong {\n  border-left: 3px solid var(--color-destructive);\n}\n\n.petasos-notice-text {\n  display: flex;\n  flex-direction: column;\n  gap: 0.3rem;\n  min-width: 0;\n}\n\n.petasos-notice-title {\n  display: flex;\n  align-items: center;\n  gap: 0.5rem;\n  font-weight: 700;\n  font-size: 0.9375rem;\n}\n\n.petasos-notice-dot {\n  width: 0.5rem;\n  height: 0.5rem;\n  border-radius: 50%;\n  flex-shrink: 0;\n  background: var(--midground);\n}\n\n.petasos-notice-warning .petasos-notice-dot {\n  background: var(--color-warning);\n}\n\n.petasos-notice-destructive .petasos-notice-dot {\n  background: var(--color-destructive);\n}\n\n.petasos-notice-check {\n  color: var(--color-success);\n}\n\n.petasos-light .petasos-notice-check {\n  color: color-mix(in srgb, var(--color-success) 50%, black);\n}\n\n.petasos-notice-success {\n  border-color: color-mix(in srgb, var(--color-success) 45%, transparent);\n}\n\n.petasos-notice-body {\n  font-size: 0.875rem;\n  line-height: 1.55;\n  padding-left: 1.1rem;\n  color: var(--petasos-secondary);\n}\n\n.petasos-notice-body p + p {\n  margin-top: 0.3rem;\n}\n\n.petasos-notice-action {\n  flex-shrink: 0;\n}\n\n.petasos-steps {\n  margin: 0.4rem 0 0;\n  padding-left: 1.2rem;\n  display: flex;\n  flex-direction: column;\n  gap: 0.25rem;\n}\n\n/* A saved confirmation, and beneath it, separately and more quietly, what\n * waits for a restart. */\n.petasos-saved {\n  display: flex;\n  flex-direction: column;\n  gap: 0.4rem;\n}\n\n.petasos-restart-note {\n  padding: 0 0 0 1.1rem;\n  font-size: 0.875rem;\n  color: var(--petasos-secondary);\n}\n\n/* ---- Empty list, as Sessions draws it ------------------------------- */\n\n.petasos-empty {\n  display: flex;\n  flex-direction: column;\n  align-items: center;\n  gap: 0.3rem;\n  padding: 3rem 1rem;\n  text-align: center;\n}\n\n.petasos-empty-icon {\n  width: 1.75rem;\n  height: 1.75rem;\n  margin-bottom: 0.35rem;\n  color: var(--petasos-tertiary);\n}\n\n.petasos-empty-title {\n  font-size: 0.9375rem;\n  font-weight: 400;\n  color: var(--petasos-secondary);\n}\n\n.petasos-empty-body {\n  max-width: 30rem;\n  font-size: 0.875rem;\n  color: var(--petasos-secondary);\n}\n\n.petasos-empty-action {\n  margin-top: 0.6rem;\n}\n\n/* ---- Key and value lists -------------------------------------------- */\n\n.petasos-kv {\n  display: grid;\n  grid-template-columns: minmax(7rem, max-content) minmax(0, 1fr);\n  gap: 0.45rem 1.25rem;\n  margin: 0;\n  font-size: 0.9rem;\n}\n\n.petasos-kv dt {\n  font-family: var(--font-mondwest);\n  font-size: 0.8rem;\n  font-weight: 400;\n  letter-spacing: 0.08em;\n  text-transform: uppercase;\n  color: var(--petasos-secondary);\n  padding-top: 0.12rem;\n}\n\n.petasos-kv dd {\n  margin: 0;\n  min-width: 0;\n}\n\n.petasos-kv-stacked {\n  grid-template-columns: minmax(0, 1fr);\n  gap: 0.15rem;\n}\n\n.petasos-kv-stacked dd {\n  margin-bottom: 0.6rem;\n}\n\n/* ---- Overview: status, with the two choices inside ------------------ */\n\n/* The status panel's first line: the state, in one sentence. */\n.petasos-verdict-title {\n  margin: 0;\n  font-size: 1rem;\n  font-weight: 600;\n  line-height: 1.4;\n}\n\n.petasos-verdict-reason {\n  max-width: 56rem;\n  font-size: 0.9375rem;\n  color: var(--petasos-secondary);\n}\n\n.petasos-coverage {\n  margin-top: 0.15rem;\n}\n\n.petasos-fixbox {\n  display: flex;\n  flex-direction: column;\n  gap: 0.5rem;\n  padding: 0.75rem 0.9rem;\n  border: 1px solid var(--petasos-line);\n  background: color-mix(in srgb, var(--midground) 4%, transparent);\n  font-size: 0.9rem;\n}\n\n.petasos-setup {\n  display: flex;\n  flex-direction: column;\n  gap: 0.9rem;\n  margin-top: 0.25rem;\n  padding-top: 0.9rem;\n  border-top: 1px solid var(--color-border);\n}\n\n.petasos-setup-grid {\n  display: grid;\n  grid-template-columns: repeat(2, minmax(0, 1fr));\n  gap: 1rem 2rem;\n  align-items: start;\n}\n\n.petasos-choose {\n  display: flex;\n  flex-direction: column;\n  align-items: flex-start;\n  gap: 0.45rem;\n  min-width: 0;\n}\n\n.petasos-choose-desc {\n  font-size: 0.9rem;\n  max-width: 34rem;\n}\n\n.petasos-optlist {\n  list-style: none;\n  margin: 0;\n  padding: 0;\n  display: flex;\n  flex-direction: column;\n  gap: 0.35rem;\n}\n\n.petasos-opt {\n  display: grid;\n  grid-template-columns: 8.5rem minmax(0, 1fr);\n  gap: 0.75rem;\n  font-size: 0.875rem;\n  line-height: 1.45;\n  color: var(--petasos-secondary);\n}\n\n.petasos-opt-name {\n  font-weight: 600;\n}\n\n.petasos-opt-on {\n  color: var(--petasos-ink);\n}\n\n.petasos-opt-on .petasos-opt-name {\n  font-weight: 700;\n}\n\n.petasos-opt-note {\n  color: var(--petasos-tertiary);\n}\n\n/* The pending change: its own inset surface, a clear heading, then Apply. */\n.petasos-preview {\n  display: flex;\n  flex-direction: column;\n  gap: 0.6rem;\n  padding: 0.9rem 1rem 1rem;\n  border: 1px solid var(--petasos-control-line);\n  background: color-mix(in srgb, var(--midground) 7%, var(--color-card));\n}\n\n.petasos-preview-title {\n  margin: 0;\n  font-size: 1rem;\n  font-weight: 700;\n}\n\n.petasos-preview-text {\n  font-size: 0.9rem;\n  max-width: 56rem;\n}\n\n.petasos-when {\n  font-size: 0.9rem;\n  font-weight: 600;\n}\n\n/* A change: label above, the value from and to, where it would come from. */\n.petasos-changes {\n  list-style: none;\n  margin: 0;\n  padding: 0;\n  width: 100%;\n}\n\n.petasos-change {\n  display: flex;\n  flex-direction: column;\n  gap: 0.2rem;\n  padding: 0.6rem 0;\n  border-bottom: 1px solid var(--color-border);\n}\n\n.petasos-change:first-child {\n  border-top: 1px solid var(--color-border);\n}\n\n.petasos-change-name {\n  font-weight: 700;\n  font-size: 0.9rem;\n}\n\n.petasos-change .petasos-help {\n  font-size: 0.85rem;\n}\n\n.petasos-change-values {\n  font-size: 0.9rem;\n}\n\n.petasos-before {\n  text-decoration: line-through;\n  color: var(--petasos-secondary);\n}\n\n.petasos-arrow {\n  color: var(--petasos-tertiary);\n}\n\n.petasos-diff {\n  list-style: none;\n  margin: 0;\n  padding: 0;\n  display: flex;\n  flex-direction: column;\n  gap: 0.15rem;\n  font-size: 0.875rem;\n}\n\n.petasos-diff-sign {\n  display: inline-block;\n  width: 1rem;\n  font-weight: 700;\n}\n\n/* The line under a control: state and source, then Reset or Undo, which\n * stay on the line. */\n.petasos-provenance {\n  display: flex;\n  flex-wrap: wrap;\n  align-items: center;\n  column-gap: 0.3rem;\n  font-size: 0.8125rem;\n  color: var(--petasos-secondary);\n}\n\n.petasos .petasos-provenance .petasos-btn-compact {\n  font-size: 0.75rem;\n}\n\n.petasos-key {\n  font-family: var(--theme-font-mono);\n  font-size: 0.78rem;\n}\n\n/* ---- Overview: last 24 hours, as System lays out its figures -------- */\n\n/* The figures, as System lays out its own: a small label above, the value\n * beneath at a size that reads as the value. Each cell stretches to its\n * row, and the value sits at the cell's foot, so values in a row stay on\n * one line when a label wraps. */\n.petasos-stats {\n  display: grid;\n  grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));\n  gap: 0.9rem 1.5rem;\n  margin: 0;\n}\n\n.petasos-stat {\n  display: flex;\n  flex-direction: column;\n  justify-content: space-between;\n  gap: 0.3rem;\n  min-width: 0;\n}\n\n.petasos-stat dt {\n  font-size: 0.75rem;\n  letter-spacing: 0.06em;\n  line-height: 1.35;\n  text-transform: uppercase;\n  color: var(--petasos-secondary);\n}\n\n.petasos-stat dd {\n  margin: 0;\n}\n\n.petasos-stat-value {\n  background: none;\n  border: 0;\n  padding: 0;\n  color: inherit;\n  font: inherit;\n  font-size: 1.625rem;\n  font-weight: 600;\n  line-height: 1.1;\n  font-variant-numeric: tabular-nums;\n  cursor: pointer;\n  text-decoration: underline;\n  text-decoration-color: var(--petasos-line);\n  text-decoration-thickness: 1px;\n  text-underline-offset: 5px;\n}\n\n.petasos-stat-value:hover {\n  text-decoration-color: currentColor;\n}\n\n.petasos-stat-alarm .petasos-stat-value,\n.petasos-stat-alarm dt {\n  color: color-mix(in srgb, var(--color-destructive) 50%, white);\n}\n\n.petasos-light .petasos-stat-alarm .petasos-stat-value,\n.petasos-light .petasos-stat-alarm dt {\n  color: color-mix(in srgb, var(--color-destructive) 70%, black);\n}\n\n/* Setting changes that were not stopped: what that means, and the route. */\n.petasos-alarm-row {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  flex-wrap: wrap;\n  gap: 0.6rem 1rem;\n  padding: 0.65rem 0 0.1rem;\n  border-top: 1px solid var(--color-border);\n  font-size: 0.9rem;\n}\n\n.petasos-mini-list {\n  list-style: none;\n  margin: 0;\n  padding: 0;\n  border-top: 1px solid var(--color-border);\n}\n\n.petasos-mini-row {\n  display: grid;\n  grid-template-columns: 5rem minmax(0, 1fr) auto 1rem;\n  align-items: center;\n  gap: 0.9rem;\n  width: 100%;\n  padding: 0.55rem 0.15rem;\n  border: 0;\n  border-bottom: 1px solid var(--color-border);\n  background: none;\n  color: inherit;\n  font: inherit;\n  font-size: 0.9rem;\n  text-align: left;\n  cursor: pointer;\n}\n\n.petasos-mini-row:hover {\n  background: color-mix(in srgb, var(--midground) 6%, transparent);\n}\n\n.petasos-mini-when {\n  font-size: 0.8125rem;\n  color: var(--petasos-secondary);\n}\n\n/* A safety sentence wraps; it is never cut short. */\n.petasos-mini-text {\n  min-width: 0;\n  overflow-wrap: anywhere;\n}\n\n.petasos-repeat {\n  font-size: 0.8125rem;\n  font-weight: 700;\n}\n\n.petasos-chevron {\n  color: var(--petasos-tertiary);\n}\n\n/* ---- Overview: checks ------------------------------------------------ */\n\n.petasos-scanners {\n  list-style: none;\n  margin: 0;\n  padding: 0;\n  display: flex;\n  flex-direction: column;\n}\n\n.petasos-scanner {\n  display: flex;\n  flex-direction: column;\n  align-items: flex-start;\n  gap: 0.35rem;\n  padding: 0.7rem 0;\n  border-bottom: 1px solid var(--color-border);\n  font-size: 0.9rem;\n}\n\n.petasos-scanner:first-child {\n  padding-top: 0;\n}\n\n.petasos-scanner:last-child {\n  border-bottom: 0;\n  padding-bottom: 0;\n}\n\n.petasos-scanner-head {\n  display: flex;\n  align-items: center;\n  gap: 0.6rem;\n  width: 100%;\n}\n\n.petasos-scanner-name {\n  display: flex;\n  flex-direction: column;\n  gap: 0.1rem;\n  font-weight: 600;\n  margin-right: auto;\n}\n\n.petasos-scanner-product {\n  font-weight: 400;\n  font-size: 0.8125rem;\n  color: var(--petasos-secondary);\n}\n\n/* ---- Activity -------------------------------------------------------- */\n\n.petasos-filters {\n  display: flex;\n  flex-direction: column;\n  gap: 0.75rem;\n}\n\n.petasos-filter-row {\n  display: flex;\n  flex-wrap: wrap;\n  align-items: flex-end;\n  gap: 0.75rem 1.25rem;\n}\n\n.petasos-filter-row > .petasos-filter-group,\n.petasos-filter-row > .petasos-search {\n  align-self: center;\n}\n\n.petasos-filter-group {\n  display: flex;\n  align-items: center;\n  gap: 0.6rem;\n}\n\n.petasos-filter-label {\n  color: var(--petasos-secondary);\n}\n\n.petasos-search {\n  position: relative;\n  flex: 1 1 18rem;\n  max-width: 28rem;\n}\n\n.petasos-search input {\n  padding-left: 2rem;\n}\n\n.petasos-search-icon {\n  position: absolute;\n  left: 0.6rem;\n  top: 50%;\n  transform: translateY(-50%);\n  color: var(--petasos-tertiary);\n  pointer-events: none;\n}\n\n.petasos-range-row {\n  align-items: flex-start;\n}\n\n.petasos-tz {\n  align-self: center;\n}\n\n.petasos-datetime {\n  width: 15rem;\n}\n\n.petasos-datetime-box {\n  position: relative;\n}\n\n.petasos-datetime-box input {\n  padding-right: 2.2rem;\n}\n\n.petasos-datetime-pick {\n  position: absolute;\n  right: 0.25rem;\n  top: 50%;\n  transform: translateY(-50%);\n  display: inline-flex;\n  align-items: center;\n  justify-content: center;\n  width: 1.75rem;\n  height: 1.75rem;\n  border: 0;\n  background: none;\n  color: var(--petasos-ink);\n  cursor: pointer;\n}\n\n.petasos-datetime-pick:hover {\n  background: color-mix(in srgb, var(--midground) 10%, transparent);\n}\n\n/* The browser's picker, opened from the calendar button. Its own field is\n * not shown, so its date format never is. */\n.petasos-datetime-native {\n  position: absolute;\n  right: 0;\n  bottom: 0;\n  width: 1px;\n  height: 1px;\n  opacity: 0;\n  pointer-events: none;\n  border: 0;\n  padding: 0;\n  color-scheme: dark;\n}\n\n.petasos-light .petasos-datetime-native {\n  color-scheme: light;\n}\n\n.petasos-filter-selects {\n  display: grid;\n  grid-template-columns: repeat(4, minmax(0, 1fr));\n  gap: 0.75rem;\n}\n\n.petasos-choice {\n  display: flex;\n  flex-direction: column;\n  gap: 0.35rem;\n  min-width: 0;\n}\n\n.petasos-listbar {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 1rem;\n  flex-wrap: wrap;\n  padding-top: 0.25rem;\n  border-top: 1px solid var(--color-border);\n}\n\n.petasos-listbar-count {\n  padding-top: 0.6rem;\n}\n\n.petasos-listbar > .petasos-status,\n.petasos-listbar > .petasos-integrity {\n  margin-top: 0.6rem;\n}\n\n.petasos-integrity {\n  display: flex;\n  align-items: center;\n  flex-wrap: wrap;\n  gap: 0.35rem 0.8rem;\n}\n\n.petasos-split {\n  display: grid;\n  grid-template-columns: minmax(0, 1fr);\n  gap: 1rem;\n  align-items: start;\n}\n\n.petasos-split-open {\n  grid-template-columns: minmax(0, 1.3fr) minmax(24rem, 1fr);\n}\n\n/* With an event open, each row folds to two lines so the sentence keeps\n * its width: what happened and the outcome, then when and the severity. */\n.petasos-split-open .petasos-event-header {\n  display: none;\n}\n\n.petasos-split-open .petasos-event {\n  grid-template-columns: minmax(0, 1fr) auto 1rem;\n  row-gap: 0.3rem;\n}\n\n.petasos-split-open .petasos-event-what {\n  grid-column: 1;\n  grid-row: 1;\n}\n\n.petasos-split-open .petasos-event-outcome {\n  grid-column: 2;\n  grid-row: 1;\n  justify-self: end;\n}\n\n.petasos-split-open .petasos-event-when {\n  grid-column: 1;\n  grid-row: 2;\n}\n\n.petasos-split-open .petasos-event-when .petasos-block {\n  display: inline;\n  margin-right: 0.6rem;\n}\n\n.petasos-split-open .petasos-event-severity {\n  grid-column: 2;\n  grid-row: 2;\n  justify-self: end;\n}\n\n.petasos-split-open .petasos-chevron {\n  grid-column: 3;\n  grid-row: 1 / span 2;\n}\n\n.petasos-split-open .petasos-group-bar {\n  padding-left: 0.75rem;\n}\n\n.petasos-split-even {\n  grid-template-columns: repeat(2, minmax(0, 1fr));\n}\n\n/* Try it: the input beside a wider result; the checks run full width\n * beneath, so neither column is left half empty. */\n.petasos-split-try {\n  grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr);\n}\n\n.petasos-trial-grid {\n  display: grid;\n  grid-template-columns: repeat(2, minmax(0, 1fr));\n  gap: 1rem;\n}\n\n.petasos-split-main {\n  min-width: 0;\n}\n\n.petasos-list-card {\n  padding: 0.4rem 1rem 0.6rem;\n}\n\n.petasos-event-header,\n.petasos-event {\n  display: grid;\n  grid-template-columns: 8.5rem minmax(0, 1fr) 7rem 11rem 1rem;\n  align-items: center;\n  gap: 1rem;\n}\n\n.petasos-event-header {\n  padding: 0.6rem 0.75rem;\n  border-bottom: 1px solid var(--color-border);\n  font-family: var(--font-mondwest);\n  font-size: 0.78rem;\n  font-weight: 400;\n  letter-spacing: 0.08em;\n  text-transform: uppercase;\n  color: var(--petasos-secondary);\n}\n\n.petasos-events {\n  list-style: none;\n  margin: 0;\n  padding: 0;\n}\n\n.petasos-event-item {\n  border-bottom: 1px solid var(--color-border);\n}\n\n.petasos-events-nested {\n  border-top: 1px dashed var(--color-border);\n  margin-left: 1.5rem;\n}\n\n.petasos-events-nested .petasos-event-item:last-child {\n  border-bottom: 0;\n}\n\n.petasos-event {\n  position: relative;\n  width: 100%;\n  padding: 0.5rem 0.75rem;\n  border: 0;\n  background: none;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n}\n\n.petasos-event:hover {\n  background: color-mix(in srgb, var(--midground) 6%, transparent);\n}\n\n.petasos-event:hover .petasos-chevron {\n  color: var(--midground);\n}\n\n/* The open event: a tinted row with an edge marker, kept while its detail\n * is open. */\n.petasos-event-selected,\n.petasos-event-selected:hover {\n  background: color-mix(in srgb, var(--midground) 13%, transparent);\n  box-shadow: inset 3px 0 0 var(--midground);\n}\n\n.petasos-event-selected .petasos-chevron {\n  color: var(--midground);\n}\n\n.petasos-event-when {\n  font-size: 0.8125rem;\n  line-height: 1.45;\n  color: var(--petasos-secondary);\n}\n\n.petasos-event-what {\n  display: flex;\n  flex-direction: column;\n  gap: 0.15rem;\n  min-width: 0;\n}\n\n.petasos-event-summary {\n  font-size: 0.9375rem;\n}\n\n.petasos-event-meta {\n  display: flex;\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 0.4rem;\n  font-size: 0.8125rem;\n  color: var(--petasos-secondary);\n}\n\n.petasos-event-meta .petasos-mono {\n  font-size: 0.8125rem;\n  color: var(--petasos-secondary);\n}\n\n.petasos-group-bar {\n  display: flex;\n  align-items: center;\n  gap: 1rem;\n  padding: 0 0.75rem 0.5rem 10.25rem;\n  font-size: 0.8125rem;\n  color: var(--petasos-secondary);\n}\n\n.petasos-more {\n  display: flex;\n  justify-content: center;\n  padding-top: 0.75rem;\n}\n\n.petasos-detail {\n  position: sticky;\n  top: 0.5rem;\n  display: flex;\n  flex-direction: column;\n  gap: 0.75rem;\n  padding: 1rem 1.1rem;\n  border: 1px solid var(--color-border);\n  box-shadow: inset 3px 0 0 var(--midground);\n  background: var(--color-card);\n  min-width: 0;\n}\n\n.petasos-detail-head {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 1rem;\n}\n\n.petasos-detail-which {\n  font-size: 0.875rem;\n  color: var(--petasos-secondary);\n}\n\n.petasos-detail-status {\n  display: flex;\n  align-items: center;\n  gap: 0.9rem;\n}\n\n.petasos-detail-title {\n  margin: 0;\n  font-size: 1.0625rem;\n  font-weight: 700;\n  line-height: 1.4;\n}\n\n.petasos-detail-note {\n  font-size: 0.9rem;\n  font-weight: 600;\n}\n\n/* ---- Try it ---------------------------------------------------------- */\n\n.petasos-try-desc {\n  font-size: 0.9375rem;\n}\n\n.petasos-trial-line {\n  font-size: 0.875rem;\n}\n\n.petasos-textarea {\n  width: 100%;\n  padding: 0.6rem 0.75rem;\n  border: 1px solid var(--petasos-control-line);\n  background: color-mix(in srgb, var(--background) 40%, transparent);\n  color: inherit;\n  font: inherit;\n  font-size: 0.9rem;\n  line-height: 1.5;\n  resize: vertical;\n}\n\n.petasos-mono-area {\n  font-family: var(--theme-font-mono);\n  font-size: 0.85rem;\n}\n\n.petasos-textarea:disabled {\n  opacity: 0.55;\n  cursor: not-allowed;\n}\n\n.petasos-field-error {\n  font-size: 0.875rem;\n  font-weight: 700;\n  color: color-mix(in srgb, var(--color-destructive) 45%, white);\n}\n\n.petasos-light .petasos-field-error {\n  color: color-mix(in srgb, var(--color-destructive) 70%, black);\n}\n\n.petasos-decision {\n  display: flex;\n  flex-direction: column;\n  align-items: flex-start;\n  gap: 0.5rem;\n}\n\n.petasos-decision-text {\n  font-size: 0.9375rem;\n}\n\n.petasos-compare {\n  display: grid;\n  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);\n  grid-template-rows: auto auto auto;\n  column-gap: 1.25rem;\n}\n\n.petasos-compare-cell {\n  display: grid;\n  grid-template-rows: subgrid;\n  grid-row: 1 / -1;\n  align-content: start;\n  row-gap: 0.45rem;\n  min-width: 0;\n}\n\n.petasos-compare-cell + .petasos-compare-cell {\n  padding-left: 1.25rem;\n  border-left: 1px solid var(--color-border);\n}\n\n.petasos-message,\n.petasos-marked {\n  margin: 0;\n  padding: 0.65rem 0.8rem;\n  border: 1px solid var(--color-border);\n  font-family: var(--theme-font-mono);\n  font-size: 0.85rem;\n  line-height: 1.55;\n  white-space: pre-wrap;\n  overflow-wrap: anywhere;\n}\n\n/* The matched text: a tinted, outlined span. Not underlined, because\n * underlined text only navigates. */\n.petasos-mark {\n  background: color-mix(in srgb, var(--color-destructive) 24%, transparent);\n  color: inherit;\n  outline: 1px solid color-mix(in srgb, var(--color-destructive) 65%, transparent);\n  outline-offset: 0;\n}\n\n.petasos-mark-n {\n  font-weight: 700;\n  margin-right: 0.1rem;\n}\n\n.petasos-findings,\n.petasos-tech-findings {\n  list-style: none;\n  margin: 0;\n  padding: 0;\n  display: flex;\n  flex-direction: column;\n}\n\n.petasos-tech-findings li {\n  display: grid;\n  grid-template-columns: 1.6rem minmax(0, 1fr);\n  gap: 0.6rem;\n  padding: 0.25rem 0;\n  font-size: 0.875rem;\n}\n\n.petasos-finding {\n  display: grid;\n  grid-template-columns: 1.6rem minmax(0, 1fr);\n  gap: 0.6rem;\n  padding: 0.6rem 0;\n  border-bottom: 1px solid var(--color-border);\n}\n\n.petasos-finding-n {\n  font-size: 0.85rem;\n  font-weight: 700;\n  text-align: center;\n  padding-top: 0.05rem;\n}\n\n.petasos-finding-body {\n  display: flex;\n  flex-direction: column;\n  gap: 0.35rem;\n  min-width: 0;\n}\n\n.petasos-finding-head {\n  display: flex;\n  align-items: flex-start;\n  justify-content: space-between;\n  gap: 0.75rem;\n}\n\n.petasos-finding-sentence {\n  font-size: 0.9375rem;\n}\n\n.petasos-took-part {\n  list-style: none;\n  margin: 0;\n  padding: 0;\n  display: grid;\n  grid-template-columns: max-content max-content minmax(0, 1fr);\n  gap: 0.45rem 0.85rem;\n  align-items: center;\n}\n\n.petasos-took-part li {\n  display: grid;\n  grid-template-columns: subgrid;\n  grid-column: 1 / -1;\n  align-items: center;\n}\n\n.petasos-took-name {\n  font-weight: 600;\n  font-size: 0.9rem;\n}\n\n.petasos-quieted {\n  list-style: none;\n  margin: 0;\n  padding: 0;\n  display: flex;\n  flex-direction: column;\n  gap: 0.35rem;\n  font-size: 0.875rem;\n}\n\n/* One row per rule: its sentence and id on the left, the action in a fixed\n * column on the right. */\n.petasos-quieted li {\n  display: grid;\n  grid-template-columns: minmax(0, 1fr) auto;\n  gap: 0.25rem 1rem;\n  align-items: center;\n  padding: 0.45rem 0;\n  border-bottom: 1px solid var(--color-border);\n}\n\n.petasos-quieted li:first-child {\n  border-top: 1px solid var(--color-border);\n}\n\n.petasos-quieted-name {\n  display: flex;\n  flex-direction: column;\n  gap: 0.1rem;\n  min-width: 0;\n}\n\n/* ---- Settings: Config's layout -------------------------------------- */\n\n.petasos-settings-toolbar {\n  position: relative;\n  display: flex;\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 0.75rem 1.5rem;\n}\n\n.petasos-settings-toolbar .petasos-search {\n  max-width: 26rem;\n}\n\n.petasos-savebox {\n  display: flex;\n  align-items: center;\n  gap: 0.6rem;\n  margin-left: auto;\n}\n\n/* The count of staged changes opens the list beneath: a disclosure, so it\n * is a quiet toggle with a chevron, not underlined. */\n.petasos-changecount {\n  display: inline-flex;\n  align-items: center;\n  gap: 0.3rem;\n  padding: 0.2rem 0.1rem;\n  border: 0;\n  background: none;\n  color: var(--petasos-ink);\n  font: inherit;\n  font-size: 0.875rem;\n  font-weight: 600;\n  cursor: pointer;\n}\n\n.petasos-changecount-chevron {\n  transform: rotate(90deg);\n  transition: transform 120ms;\n}\n\n.petasos-changecount[aria-expanded=\"true\"] .petasos-changecount-chevron {\n  transform: rotate(-90deg);\n}\n\n.petasos-settings-body {\n  display: grid;\n  grid-template-columns: 13.5rem minmax(0, 1fr);\n  gap: 1rem;\n  align-items: start;\n}\n\n/* The section list, as Config draws it: small rows, a tint on the open\n * one, counts in tertiary text. */\n.petasos-sections {\n  display: flex;\n  flex-direction: column;\n  gap: 1px;\n  padding: 0.5rem;\n  border: 1px solid var(--color-border);\n  background: color-mix(in srgb, var(--color-muted, var(--color-card)) 20%, transparent);\n  position: sticky;\n  top: 0.5rem;\n}\n\n.petasos-sections-title {\n  padding: 0.2rem 0.5rem 0.35rem;\n  font-size: 0.75rem;\n  letter-spacing: 0.12em;\n  color: var(--petasos-tertiary);\n}\n\n.petasos-section {\n  display: flex;\n  align-items: center;\n  gap: 0.4rem;\n  padding: 0.25rem 0.5rem;\n  border: 0;\n  background: none;\n  color: var(--petasos-secondary);\n  font-family: var(--theme-font-mono);\n  font-size: 0.8rem;\n  text-align: left;\n  cursor: pointer;\n}\n\n.petasos-section:hover {\n  background: color-mix(in srgb, var(--midground) 7%, transparent);\n  color: var(--midground);\n}\n\n.petasos-section-on,\n.petasos-section-on:hover {\n  background: color-mix(in srgb, var(--midground) 12%, transparent);\n  color: var(--midground);\n}\n\n.petasos-section-name {\n  margin-right: auto;\n}\n\n.petasos-section-changed {\n  font-size: 0.55rem;\n}\n\n.petasos-section-count {\n  font-size: 0.75rem;\n  color: var(--petasos-tertiary);\n  font-variant-numeric: tabular-nums;\n}\n\n.petasos-section-on .petasos-section-count {\n  color: var(--petasos-secondary);\n}\n\n.petasos-settings-main {\n  min-width: 0;\n}\n\n.petasos-group {\n  display: flex;\n  flex-direction: column;\n}\n\n.petasos-group-head {\n  display: flex;\n  align-items: center;\n  gap: 0.6rem;\n  padding-top: 0.9rem;\n}\n\n.petasos-group-name {\n  font-family: var(--font-mondwest);\n  font-size: 0.75rem;\n  font-weight: 400;\n  letter-spacing: 0.1em;\n  text-transform: uppercase;\n  color: var(--petasos-secondary);\n}\n\n.petasos-group-rule {\n  flex: 1;\n  border-top: 1px solid var(--color-border);\n}\n\n/* One field, as Config draws it: label, key, sentence, control beneath.\n * Tight within a field, a larger gap between fields. */\n.petasos-field {\n  display: flex;\n  flex-direction: column;\n  gap: 0.4rem;\n  padding: 0.85rem 0 0.95rem;\n  scroll-margin: 1rem;\n}\n\n\n.petasos-field-head {\n  display: flex;\n  align-items: flex-start;\n  justify-content: space-between;\n  gap: 1.5rem;\n}\n\n.petasos-field-text {\n  display: flex;\n  flex-direction: column;\n  gap: 0.2rem;\n  min-width: 0;\n}\n\n.petasos .petasos-field-label {\n  font-family: var(--font-mondwest);\n  font-size: 0.875rem;\n  font-weight: 400;\n  letter-spacing: 0.08em;\n  line-height: 1.3;\n  text-transform: uppercase;\n  color: var(--petasos-ink);\n}\n\n.petasos-field-key {\n  font-family: var(--theme-font-mono);\n  font-size: 0.75rem;\n  color: var(--petasos-tertiary);\n}\n\n.petasos-field-help {\n  font-size: 0.8125rem;\n  color: var(--petasos-secondary);\n  max-width: 60rem;\n}\n\n.petasos-field-switch {\n  padding-top: 0.1rem;\n}\n\n.petasos-field-control {\n  min-width: 0;\n}\n\n.petasos-field-staged .petasos-field-label::after {\n  content: \" \u2022\";\n}\n\n.petasos-staged-word {\n  color: var(--petasos-ink);\n}\n\n.petasos-field-invalid input,\n.petasos-field-invalid textarea {\n  border-width: 2px;\n  border-style: solid;\n  border-color: var(--color-destructive) !important;\n}\n\n.petasos-field-invalid input:focus-visible,\n.petasos-field-invalid textarea:focus-visible {\n  outline: 2px solid var(--midground);\n  outline-offset: 2px;\n}\n\n/* Background emphasis only on the field being edited or in error. */\n.petasos-field-staged,\n.petasos-field-invalid {\n  background: color-mix(in srgb, var(--midground) 5%, transparent);\n  margin: 0 -0.6rem;\n  padding-left: 0.6rem;\n  padding-right: 0.6rem;\n}\n\n/* What a Required check that cannot run does, before Save. */\n.petasos-consequence {\n  font-size: 0.875rem;\n  padding-left: 0.6rem;\n  border-left: 2px solid var(--color-warning);\n}\n\n.petasos-maprows {\n  display: flex;\n  flex-direction: column;\n  gap: 0.4rem;\n}\n\n.petasos-maprow {\n  display: grid;\n  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 5.5rem;\n  gap: 0.5rem;\n  align-items: center;\n}\n\n.petasos-rule-helper .petasos-kv {\n  font-size: 0.875rem;\n}\n\n/* ---- Narrow ---------------------------------------------------------- */\n\n@media (max-width: 1100px) {\n  .petasos-split-open,\n  .petasos-split-even,\n  .petasos-split-try,\n  .petasos-grid-3 {\n    grid-template-columns: minmax(0, 1fr);\n  }\n  .petasos-detail {\n    position: static;\n  }\n  .petasos-filter-selects {\n    grid-template-columns: repeat(2, minmax(0, 1fr));\n  }\n  .petasos-stats {\n    grid-template-columns: repeat(3, minmax(0, 1fr));\n  }\n}\n\n@media (max-width: 1000px) {\n  .petasos-grid-2,\n  .petasos-setup-grid,\n  .petasos-settings-body,\n  .petasos-compare {\n    grid-template-columns: minmax(0, 1fr);\n    grid-template-rows: none;\n  }\n  .petasos-compare-cell {\n    display: flex;\n    flex-direction: column;\n    grid-row: auto;\n  }\n  .petasos-compare-cell + .petasos-compare-cell {\n    padding-left: 0;\n    border-left: 0;\n    padding-top: 0.8rem;\n    border-top: 1px solid var(--color-border);\n  }\n  .petasos-sections {\n    position: static;\n    flex-direction: row;\n    flex-wrap: wrap;\n  }\n  .petasos-event-header {\n    display: none;\n  }\n  .petasos-event {\n    grid-template-columns: minmax(0, 1fr) auto 1rem;\n  }\n  .petasos-event-when {\n    grid-column: 1 / -1;\n  }\n  .petasos-event-severity {\n    display: none;\n  }\n  .petasos-group-bar {\n    padding-left: 0.75rem;\n  }\n  .petasos-opt {\n    grid-template-columns: 7rem minmax(0, 1fr);\n  }\n  .petasos-mini-row {\n    grid-template-columns: 3.5rem minmax(0, 1fr) auto 1rem;\n    gap: 0.7rem;\n  }\n}\n";
+  var STYLE = "/* See docs/architecture/rationale.md, \"Dashboard visual constraints\". */\n\n.petasos {\n  --petasos-ink: var(--midground);\n  --petasos-secondary: var(\n    --color-text-secondary,\n    color-mix(in srgb, var(--midground-base, var(--midground)) 80%, transparent)\n  );\n  --petasos-tertiary: var(\n    --text-tertiary,\n    color-mix(in srgb, var(--midground-base, var(--midground)) 65%, transparent)\n  );\n  --petasos-line: color-mix(in srgb, var(--midground-base, var(--midground)) 15%, transparent);\n  --petasos-control-line: color-mix(in srgb, var(--midground-base, var(--midground)) 30%, transparent);\n  display: flex;\n  flex-direction: column;\n  gap: 1rem;\n  width: 100%;\n  min-width: 0;\n  color: var(--petasos-ink);\n  font-size: 0.9375rem;\n  line-height: 1.5;\n}\n\n.petasos code,\n.petasos pre {\n  background: transparent !important;\n  color: inherit;\n}\n\n.petasos p {\n  margin: 0;\n}\n\n.petasos .sr-only {\n  position: absolute;\n  width: 1px;\n  height: 1px;\n  padding: 0;\n  margin: -1px;\n  overflow: hidden;\n  clip: rect(0, 0, 0, 0);\n  white-space: nowrap;\n  border: 0;\n}\n\n/* Keyboard focus must remain visible in every theme. */\n.petasos button:focus-visible,\n.petasos a:focus-visible,\n.petasos input:focus-visible,\n.petasos textarea:focus-visible,\n.petasos summary:focus-visible,\n.petasos [tabindex]:focus-visible {\n  outline: 2px solid var(--midground);\n  outline-offset: 2px;\n}\n\n.petasos-detail:focus,\n.petasos-subhead:focus {\n  outline: none;\n}\n\n\n.petasos input,\n.petasos textarea,\n.petasos [aria-haspopup=\"listbox\"] {\n  color: var(--petasos-ink);\n  border-color: var(--petasos-control-line);\n  font-family: var(--theme-font-mono);\n}\n\n.petasos input::placeholder,\n.petasos textarea::placeholder {\n  color: var(--petasos-tertiary);\n}\n\n.petasos [aria-haspopup=\"listbox\"] svg {\n  opacity: 1;\n  color: var(--petasos-ink);\n}\n\n.petasos input:disabled,\n.petasos textarea:disabled,\n.petasos [aria-haspopup=\"listbox\"]:disabled {\n  color: var(--petasos-tertiary);\n}\n\n.petasos-stack {\n  display: flex;\n  flex-direction: column;\n  gap: 1rem;\n  min-width: 0;\n}\n\n.petasos-grid-2 {\n  display: grid;\n  grid-template-columns: repeat(2, minmax(0, 1fr));\n  gap: 1rem;\n  align-items: start;\n}\n\n.petasos-grid-3 {\n  display: grid;\n  grid-template-columns: repeat(3, minmax(0, 1fr));\n  gap: 1rem;\n  align-items: start;\n}\n\n.petasos-help,\n.petasos-secondary {\n  font-size: 0.875rem;\n  line-height: 1.5;\n  color: var(--petasos-secondary);\n}\n\n.petasos-tertiary,\n.petasos-faint {\n  font-size: 0.8125rem;\n  color: var(--petasos-tertiary);\n}\n\n.petasos-dot {\n  color: var(--petasos-tertiary);\n}\n\n.petasos .petasos-faint {\n  color: var(--petasos-tertiary);\n}\n\n\n.petasos .petasos-btn-caps {\n  text-transform: uppercase;\n}\n\n\n.petasos .petasos-btn-compact {\n  height: auto;\n  min-height: 0;\n  padding: 0.1rem 0.35rem;\n  vertical-align: baseline;\n}\n\n.petasos-strong,\n.petasos strong {\n  font-weight: 700;\n}\n\n.petasos-block {\n  display: block;\n}\n\n.petasos-gap-above {\n  margin-top: 0.4rem;\n}\n\n.petasos-end {\n  padding: 0.9rem 0 0.4rem;\n  text-align: center;\n}\n\n/* Underlining denotes navigation; state-changing actions use buttons. */\n.petasos-link,\n.petasos a.petasos-link {\n  background: none;\n  border: 0;\n  padding: 0;\n  font: inherit;\n  font-size: inherit;\n  color: inherit;\n  text-decoration: underline;\n  text-decoration-thickness: 1px;\n  text-underline-offset: 3px;\n  cursor: pointer;\n  text-align: left;\n}\n\n.petasos-link:hover {\n  text-decoration-thickness: 2px;\n}\n\n.petasos-link:disabled {\n  cursor: not-allowed;\n  opacity: 0.6;\n}\n\n.petasos-row-actions {\n  display: flex;\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 0.6rem 0.9rem;\n}\n\n.petasos-check-note {\n  flex: 1 1 16rem;\n  margin: 0;\n}\n\n.petasos-count {\n  font-size: 0.875rem;\n  font-weight: 600;\n  color: var(--petasos-ink);\n}\n\n.petasos-mono {\n  font-family: var(--theme-font-mono);\n  font-size: 0.85rem;\n}\n\n/* Technical ids wrap only at explicit separator break opportunities. */\n.petasos-ident {\n  overflow-wrap: normal;\n  word-break: normal;\n  white-space: normal;\n  font-size: 0.82rem;\n}\n\n.petasos-idrow {\n  display: inline-flex;\n  flex-wrap: wrap;\n  align-items: baseline;\n  gap: 0.25rem 0.6rem;\n}\n\n.petasos-copy {\n  display: inline-flex;\n  align-items: center;\n  gap: 0.25rem;\n  padding: 0.1rem 0.35rem;\n  border: 1px solid transparent;\n  background: none;\n  color: var(--petasos-secondary);\n  font-size: 0.8rem;\n  cursor: pointer;\n}\n\n.petasos-copy:hover {\n  border-color: var(--petasos-line);\n  color: var(--petasos-ink);\n}\n\n.petasos-icon {\n  display: inline-block;\n  flex-shrink: 0;\n  vertical-align: middle;\n}\n\n\n\n.petasos-disclosure {\n  display: flex;\n  flex-direction: column;\n  align-items: flex-start;\n  gap: 0.6rem;\n  min-width: 0;\n  width: 100%;\n}\n\n.petasos-disclosure-toggle {\n  display: inline-flex;\n  align-items: center;\n  gap: 0.3rem;\n  padding: 0;\n  border: 0;\n  background: none;\n  color: var(--petasos-secondary);\n  font: inherit;\n  font-size: 0.875rem;\n  font-weight: 500;\n  cursor: pointer;\n}\n\n.petasos-disclosure-toggle:hover {\n  color: var(--petasos-ink);\n}\n\n.petasos-disclosure-chevron {\n  transition: transform 120ms;\n}\n\n.petasos-disclosure-open > .petasos-disclosure-toggle .petasos-disclosure-chevron,\n.petasos-chevron-open {\n  transform: rotate(90deg);\n}\n\n.petasos-disclosure-body {\n  display: flex;\n  flex-direction: column;\n  gap: 0.6rem;\n  width: 100%;\n  min-width: 0;\n  padding-left: 1.1rem;\n}\n\n\n.petasos-command {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 0.75rem;\n  max-width: 40rem;\n  padding: 0.45rem 0.6rem 0.45rem 0.8rem;\n  border: 1px solid var(--petasos-control-line);\n  background: color-mix(in srgb, var(--background) 40%, transparent);\n}\n\n.petasos-command-text {\n  font-family: var(--theme-font-mono);\n  font-size: 0.875rem;\n  overflow-wrap: anywhere;\n}\n\n\n\n.petasos-topbar {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 1rem;\n  flex-wrap: wrap;\n}\n\n.petasos-topbar-main {\n  display: flex;\n  align-items: center;\n  gap: 0.75rem;\n  flex-wrap: wrap;\n}\n\n.petasos-topbar-side {\n  display: flex;\n  align-items: center;\n  gap: 0.75rem;\n}\n\n.petasos-topbar-side .petasos-help {\n  color: var(--petasos-tertiary);\n}\n\n.petasos-unsaved {\n  background: none;\n  border: 0;\n  padding: 0;\n  font-size: 0.875rem;\n  color: inherit;\n  text-decoration: underline;\n  text-underline-offset: 3px;\n  cursor: pointer;\n}\n\n\n.petasos-segmented {\n  display: inline-flex;\n  flex-wrap: wrap;\n  border: 1px solid var(--petasos-line);\n  background: color-mix(in srgb, var(--background) 30%, transparent);\n  max-width: 100%;\n}\n\n.petasos-segment {\n  display: inline-flex;\n  align-items: center;\n  gap: 0.35rem;\n  height: 1.875rem;\n  padding: 0 0.75rem;\n  border: 0;\n  border-right: 1px solid var(--petasos-line);\n  background: transparent;\n  color: var(--petasos-secondary);\n  font-family: var(--font-mondwest);\n  font-size: 0.875rem;\n  font-weight: 400;\n  letter-spacing: 0.03em;\n  white-space: nowrap;\n  cursor: pointer;\n  transition: background-color 120ms, color 120ms;\n}\n\n.petasos-segment:last-child {\n  border-right: 0;\n}\n\n.petasos-segment:hover {\n  background: color-mix(in srgb, var(--midground) 10%, transparent);\n  color: var(--midground);\n}\n\n.petasos-segment-on,\n.petasos-segment-on:hover {\n  background: var(--midground);\n  color: var(--background);\n}\n\n.petasos-segment:disabled {\n  cursor: not-allowed;\n  opacity: 0.55;\n}\n\n.petasos-viewtabs .petasos-segment {\n  height: 1.875rem;\n  padding: 0 0.85rem;\n}\n\n\n\n.petasos-switch {\n  position: relative;\n  display: inline-flex;\n  align-items: center;\n  flex-shrink: 0;\n  width: 2.25rem;\n  height: 1.25rem;\n  padding: 0;\n  border: 1px solid color-mix(in srgb, var(--midground) 22%, transparent);\n  background: var(--background);\n  cursor: pointer;\n  transition: background-color 120ms, border-color 120ms;\n}\n\n.petasos-switch-thumb {\n  display: block;\n  width: 0.875rem;\n  height: 0.875rem;\n  margin-left: 0.125rem;\n  background: color-mix(in srgb, var(--midground) 40%, transparent);\n  transition: transform 120ms;\n}\n\n.petasos-switch-on {\n  background: color-mix(in srgb, var(--midground) 15%, transparent);\n  border-color: color-mix(in srgb, var(--midground) 35%, transparent);\n}\n\n.petasos-switch-on .petasos-switch-thumb {\n  transform: translateX(1rem);\n  background: var(--midground);\n}\n\n.petasos-switch:disabled {\n  cursor: not-allowed;\n  opacity: 0.5;\n}\n\n.petasos-inline-switch {\n  display: inline-flex;\n  align-items: center;\n  gap: 0.6rem;\n  font-size: 0.875rem;\n}\n\n\n\n.petasos-panel {\n  min-width: 0;\n}\n\n.petasos-panel-head {\n  padding: 0.85rem 1.1rem 0.6rem;\n}\n\n.petasos-panel-headrow {\n  display: flex;\n  align-items: flex-start;\n  justify-content: space-between;\n  gap: 1rem;\n}\n\n.petasos-panel-titles {\n  display: flex;\n  flex-direction: column;\n  gap: 0.25rem;\n  min-width: 0;\n}\n\n\n.petasos-panel-titlerow {\n  display: flex;\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 0.6rem;\n}\n\n.petasos-panel-desc {\n  font-size: 0.875rem;\n  color: var(--petasos-secondary);\n}\n\n.petasos-panel-actions {\n  display: flex;\n  align-items: center;\n  gap: 0.75rem;\n  flex-shrink: 0;\n}\n\n.petasos-panel-body {\n  display: flex;\n  flex-direction: column;\n  gap: 0.85rem;\n  padding: 0.9rem 1.1rem 1.1rem;\n}\n\n\n.petasos-label,\n.petasos-filter-label,\n.petasos-sections-title {\n  font-family: var(--font-mondwest);\n  font-size: 0.78rem;\n  font-weight: 400;\n  letter-spacing: 0.08em;\n  line-height: 1.3;\n  text-transform: uppercase;\n  color: var(--petasos-secondary);\n}\n\n.petasos-subhead {\n  margin: 0.3rem 0 0;\n  font-family: var(--font-mondwest);\n  font-size: 0.8rem;\n  font-weight: 400;\n  letter-spacing: 0.08em;\n  text-transform: uppercase;\n  color: var(--petasos-secondary);\n}\n\n\n\n\n.petasos .petasos-status {\n  font-family: var(--theme-font-sans);\n  font-size: 0.875rem;\n  font-weight: 500;\n  letter-spacing: 0.01em;\n  text-transform: none;\n  padding: 0.22rem 0.55rem;\n  line-height: 1.2;\n  white-space: nowrap;\n  vertical-align: middle;\n}\n\n.petasos .petasos-status-large {\n  font-size: 0.9375rem;\n  padding: 0.28rem 0.65rem;\n}\n\n.petasos .petasos-status-success {\n  color: color-mix(in srgb, var(--color-success) 70%, white);\n}\n\n.petasos .petasos-status-warning {\n  color: color-mix(in srgb, var(--color-warning) 75%, white);\n}\n\n.petasos .petasos-status-destructive {\n  color: color-mix(in srgb, var(--color-destructive) 55%, white);\n  border-color: color-mix(in srgb, var(--color-destructive) 55%, transparent);\n}\n\n.petasos-light .petasos-status-success {\n  color: color-mix(in srgb, var(--color-success) 45%, black);\n  border-color: color-mix(in srgb, var(--color-success) 60%, black);\n}\n\n.petasos-light .petasos-status-warning {\n  color: color-mix(in srgb, var(--color-warning) 45%, black);\n  border-color: color-mix(in srgb, var(--color-warning) 60%, black);\n}\n\n.petasos-light .petasos-status-destructive {\n  color: color-mix(in srgb, var(--color-destructive) 70%, black);\n  border-color: color-mix(in srgb, var(--color-destructive) 70%, black);\n}\n\n.petasos-light .petasos-status-neutral {\n  color: var(--midground);\n}\n\n.petasos-tag {\n  white-space: nowrap;\n}\n\n.petasos .petasos-tag {\n  font-size: 0.85rem;\n}\n\n.petasos-none {\n  color: var(--petasos-tertiary);\n}\n\n\n.petasos-sev {\n  font-size: 0.875rem;\n  color: var(--petasos-secondary);\n  white-space: nowrap;\n}\n\n.petasos-sev-high {\n  color: var(--petasos-ink);\n  font-weight: 500;\n}\n\n.petasos-sev-critical {\n  color: var(--petasos-ink);\n  font-weight: 700;\n}\n\n\n\n.petasos-notice {\n  display: flex;\n  align-items: flex-start;\n  justify-content: space-between;\n  gap: 1rem;\n  padding: 0.8rem 1rem;\n  border: 1px solid var(--color-border);\n  background: var(--color-card);\n}\n\n.petasos-notice-strong {\n  border-left: 3px solid var(--color-destructive);\n}\n\n.petasos-notice-text {\n  display: flex;\n  flex-direction: column;\n  gap: 0.3rem;\n  min-width: 0;\n}\n\n.petasos-notice-title {\n  display: flex;\n  align-items: center;\n  gap: 0.5rem;\n  font-weight: 700;\n  font-size: 0.9375rem;\n}\n\n.petasos-notice-dot {\n  width: 0.5rem;\n  height: 0.5rem;\n  border-radius: 50%;\n  flex-shrink: 0;\n  background: var(--midground);\n}\n\n.petasos-notice-warning .petasos-notice-dot {\n  background: var(--color-warning);\n}\n\n.petasos-notice-destructive .petasos-notice-dot {\n  background: var(--color-destructive);\n}\n\n.petasos-notice-check {\n  color: var(--color-success);\n}\n\n.petasos-light .petasos-notice-check {\n  color: color-mix(in srgb, var(--color-success) 50%, black);\n}\n\n.petasos-notice-success {\n  border-color: color-mix(in srgb, var(--color-success) 45%, transparent);\n}\n\n.petasos-notice-body {\n  font-size: 0.875rem;\n  line-height: 1.55;\n  padding-left: 1.1rem;\n  color: var(--petasos-secondary);\n}\n\n.petasos-notice-body p + p {\n  margin-top: 0.3rem;\n}\n\n.petasos-notice-action {\n  flex-shrink: 0;\n}\n\n.petasos-steps {\n  margin: 0.4rem 0 0;\n  padding-left: 1.2rem;\n  display: flex;\n  flex-direction: column;\n  gap: 0.25rem;\n}\n\n\n.petasos-saved {\n  display: flex;\n  flex-direction: column;\n  gap: 0.4rem;\n}\n\n.petasos-restart-note {\n  padding: 0 0 0 1.1rem;\n  font-size: 0.875rem;\n  color: var(--petasos-secondary);\n}\n\n\n\n.petasos-empty {\n  display: flex;\n  flex-direction: column;\n  align-items: center;\n  gap: 0.3rem;\n  padding: 3rem 1rem;\n  text-align: center;\n}\n\n.petasos-empty-icon {\n  width: 1.75rem;\n  height: 1.75rem;\n  margin-bottom: 0.35rem;\n  color: var(--petasos-tertiary);\n}\n\n.petasos-empty-title {\n  font-size: 0.9375rem;\n  font-weight: 400;\n  color: var(--petasos-secondary);\n}\n\n.petasos-empty-body {\n  max-width: 30rem;\n  font-size: 0.875rem;\n  color: var(--petasos-secondary);\n}\n\n.petasos-empty-action {\n  margin-top: 0.6rem;\n}\n\n\n\n.petasos-kv {\n  display: grid;\n  grid-template-columns: minmax(7rem, max-content) minmax(0, 1fr);\n  gap: 0.45rem 1.25rem;\n  margin: 0;\n  font-size: 0.9rem;\n}\n\n.petasos-kv dt {\n  font-family: var(--font-mondwest);\n  font-size: 0.8rem;\n  font-weight: 400;\n  letter-spacing: 0.08em;\n  text-transform: uppercase;\n  color: var(--petasos-secondary);\n  padding-top: 0.12rem;\n}\n\n.petasos-kv dd {\n  margin: 0;\n  min-width: 0;\n}\n\n.petasos-kv-stacked {\n  grid-template-columns: minmax(0, 1fr);\n  gap: 0.15rem;\n}\n\n.petasos-kv-stacked dd {\n  margin-bottom: 0.6rem;\n}\n\n\n\n\n.petasos-verdict-title {\n  margin: 0;\n  font-size: 1rem;\n  font-weight: 600;\n  line-height: 1.4;\n}\n\n.petasos-verdict-reason {\n  max-width: 56rem;\n  font-size: 0.9375rem;\n  color: var(--petasos-secondary);\n}\n\n.petasos-coverage {\n  margin-top: 0.15rem;\n}\n\n.petasos-fixbox {\n  display: flex;\n  flex-direction: column;\n  gap: 0.5rem;\n  padding: 0.75rem 0.9rem;\n  border: 1px solid var(--petasos-line);\n  background: color-mix(in srgb, var(--midground) 4%, transparent);\n  font-size: 0.9rem;\n}\n\n.petasos-setup {\n  display: flex;\n  flex-direction: column;\n  gap: 0.9rem;\n  margin-top: 0.25rem;\n  padding-top: 0.9rem;\n  border-top: 1px solid var(--color-border);\n}\n\n.petasos-setup-grid {\n  display: grid;\n  grid-template-columns: repeat(2, minmax(0, 1fr));\n  gap: 1rem 2rem;\n  align-items: start;\n}\n\n.petasos-choose {\n  display: flex;\n  flex-direction: column;\n  align-items: flex-start;\n  gap: 0.45rem;\n  min-width: 0;\n}\n\n.petasos-choose-desc {\n  font-size: 0.9rem;\n  max-width: 34rem;\n}\n\n.petasos-optlist {\n  list-style: none;\n  margin: 0;\n  padding: 0;\n  display: flex;\n  flex-direction: column;\n  gap: 0.35rem;\n}\n\n.petasos-opt {\n  display: grid;\n  grid-template-columns: 8.5rem minmax(0, 1fr);\n  gap: 0.75rem;\n  font-size: 0.875rem;\n  line-height: 1.45;\n  color: var(--petasos-secondary);\n}\n\n.petasos-opt-name {\n  font-weight: 600;\n}\n\n.petasos-opt-on {\n  color: var(--petasos-ink);\n}\n\n.petasos-opt-on .petasos-opt-name {\n  font-weight: 700;\n}\n\n.petasos-opt-note {\n  color: var(--petasos-tertiary);\n}\n\n\n.petasos-preview {\n  display: flex;\n  flex-direction: column;\n  gap: 0.6rem;\n  padding: 0.9rem 1rem 1rem;\n  border: 1px solid var(--petasos-control-line);\n  background: color-mix(in srgb, var(--midground) 7%, var(--color-card));\n}\n\n.petasos-preview-title {\n  margin: 0;\n  font-size: 1rem;\n  font-weight: 700;\n}\n\n.petasos-preview-text {\n  font-size: 0.9rem;\n  max-width: 56rem;\n}\n\n.petasos-when {\n  font-size: 0.9rem;\n  font-weight: 600;\n}\n\n\n.petasos-changes {\n  list-style: none;\n  margin: 0;\n  padding: 0;\n  width: 100%;\n}\n\n.petasos-change {\n  display: flex;\n  flex-direction: column;\n  gap: 0.2rem;\n  padding: 0.6rem 0;\n  border-bottom: 1px solid var(--color-border);\n}\n\n.petasos-change:first-child {\n  border-top: 1px solid var(--color-border);\n}\n\n.petasos-change-name {\n  font-weight: 700;\n  font-size: 0.9rem;\n}\n\n.petasos-change .petasos-help {\n  font-size: 0.85rem;\n}\n\n.petasos-change-values {\n  font-size: 0.9rem;\n}\n\n.petasos-before {\n  text-decoration: line-through;\n  color: var(--petasos-secondary);\n}\n\n.petasos-arrow {\n  color: var(--petasos-tertiary);\n}\n\n.petasos-diff {\n  list-style: none;\n  margin: 0;\n  padding: 0;\n  display: flex;\n  flex-direction: column;\n  gap: 0.15rem;\n  font-size: 0.875rem;\n}\n\n.petasos-diff-sign {\n  display: inline-block;\n  width: 1rem;\n  font-weight: 700;\n}\n\n\n.petasos-provenance {\n  display: flex;\n  flex-wrap: wrap;\n  align-items: center;\n  column-gap: 0.3rem;\n  font-size: 0.8125rem;\n  color: var(--petasos-secondary);\n}\n\n.petasos .petasos-provenance .petasos-btn-compact {\n  font-size: 0.75rem;\n}\n\n.petasos-key {\n  font-family: var(--theme-font-mono);\n  font-size: 0.78rem;\n}\n\n\n\n/* See docs/architecture/rationale.md, \"Dashboard visual constraints\". */\n.petasos-stats {\n  display: grid;\n  grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));\n  gap: 0.9rem 1.5rem;\n  margin: 0;\n}\n\n.petasos-stat {\n  display: flex;\n  flex-direction: column;\n  justify-content: space-between;\n  gap: 0.3rem;\n  min-width: 0;\n}\n\n.petasos-stat dt {\n  font-size: 0.75rem;\n  letter-spacing: 0.06em;\n  line-height: 1.35;\n  text-transform: uppercase;\n  color: var(--petasos-secondary);\n}\n\n.petasos-stat dd {\n  margin: 0;\n}\n\n.petasos-stat-value {\n  background: none;\n  border: 0;\n  padding: 0;\n  color: inherit;\n  font: inherit;\n  font-size: 1.625rem;\n  font-weight: 600;\n  line-height: 1.1;\n  font-variant-numeric: tabular-nums;\n  cursor: pointer;\n  text-decoration: underline;\n  text-decoration-color: var(--petasos-line);\n  text-decoration-thickness: 1px;\n  text-underline-offset: 5px;\n}\n\n.petasos-stat-value:hover {\n  text-decoration-color: currentColor;\n}\n\n.petasos-stat-alarm .petasos-stat-value,\n.petasos-stat-alarm dt {\n  color: color-mix(in srgb, var(--color-destructive) 50%, white);\n}\n\n.petasos-light .petasos-stat-alarm .petasos-stat-value,\n.petasos-light .petasos-stat-alarm dt {\n  color: color-mix(in srgb, var(--color-destructive) 70%, black);\n}\n\n\n.petasos-alarm-row {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  flex-wrap: wrap;\n  gap: 0.6rem 1rem;\n  padding: 0.65rem 0 0.1rem;\n  border-top: 1px solid var(--color-border);\n  font-size: 0.9rem;\n}\n\n.petasos-mini-list {\n  list-style: none;\n  margin: 0;\n  padding: 0;\n  border-top: 1px solid var(--color-border);\n}\n\n.petasos-mini-row {\n  display: grid;\n  grid-template-columns: 5rem minmax(0, 1fr) auto 1rem;\n  align-items: center;\n  gap: 0.9rem;\n  width: 100%;\n  padding: 0.55rem 0.15rem;\n  border: 0;\n  border-bottom: 1px solid var(--color-border);\n  background: none;\n  color: inherit;\n  font: inherit;\n  font-size: 0.9rem;\n  text-align: left;\n  cursor: pointer;\n}\n\n.petasos-mini-row:hover {\n  background: color-mix(in srgb, var(--midground) 6%, transparent);\n}\n\n.petasos-mini-when {\n  font-size: 0.8125rem;\n  color: var(--petasos-secondary);\n}\n\n/* Safety disclosures must wrap without clipping. */\n.petasos-mini-text {\n  min-width: 0;\n  overflow-wrap: anywhere;\n}\n\n.petasos-repeat {\n  font-size: 0.8125rem;\n  font-weight: 700;\n}\n\n.petasos-chevron {\n  color: var(--petasos-tertiary);\n}\n\n\n\n.petasos-scanners {\n  list-style: none;\n  margin: 0;\n  padding: 0;\n  display: flex;\n  flex-direction: column;\n}\n\n.petasos-scanner {\n  display: flex;\n  flex-direction: column;\n  align-items: flex-start;\n  gap: 0.35rem;\n  padding: 0.7rem 0;\n  border-bottom: 1px solid var(--color-border);\n  font-size: 0.9rem;\n}\n\n.petasos-scanner:first-child {\n  padding-top: 0;\n}\n\n.petasos-scanner:last-child {\n  border-bottom: 0;\n  padding-bottom: 0;\n}\n\n.petasos-scanner-head {\n  display: flex;\n  align-items: center;\n  gap: 0.6rem;\n  width: 100%;\n}\n\n.petasos-scanner-name {\n  display: flex;\n  flex-direction: column;\n  gap: 0.1rem;\n  font-weight: 600;\n  margin-right: auto;\n}\n\n.petasos-scanner-product {\n  font-weight: 400;\n  font-size: 0.8125rem;\n  color: var(--petasos-secondary);\n}\n\n\n\n.petasos-filters {\n  display: flex;\n  flex-direction: column;\n  gap: 0.75rem;\n}\n\n.petasos-filter-row {\n  display: flex;\n  flex-wrap: wrap;\n  align-items: flex-end;\n  gap: 0.75rem 1.25rem;\n}\n\n.petasos-filter-row > .petasos-filter-group,\n.petasos-filter-row > .petasos-search {\n  align-self: center;\n}\n\n.petasos-filter-group {\n  display: flex;\n  align-items: center;\n  gap: 0.6rem;\n}\n\n.petasos-filter-label {\n  color: var(--petasos-secondary);\n}\n\n.petasos-search {\n  position: relative;\n  flex: 1 1 18rem;\n  max-width: 28rem;\n}\n\n.petasos-search input {\n  padding-left: 2rem;\n}\n\n.petasos-search-icon {\n  position: absolute;\n  left: 0.6rem;\n  top: 50%;\n  transform: translateY(-50%);\n  color: var(--petasos-tertiary);\n  pointer-events: none;\n}\n\n.petasos-range-row {\n  align-items: flex-start;\n}\n\n.petasos-tz {\n  align-self: center;\n}\n\n.petasos-datetime {\n  width: 15rem;\n}\n\n.petasos-datetime-box {\n  position: relative;\n}\n\n.petasos-datetime-box input {\n  padding-right: 2.2rem;\n}\n\n.petasos-datetime-pick {\n  position: absolute;\n  right: 0.25rem;\n  top: 50%;\n  transform: translateY(-50%);\n  display: inline-flex;\n  align-items: center;\n  justify-content: center;\n  width: 1.75rem;\n  height: 1.75rem;\n  border: 0;\n  background: none;\n  color: var(--petasos-ink);\n  cursor: pointer;\n}\n\n.petasos-datetime-pick:hover {\n  background: color-mix(in srgb, var(--midground) 10%, transparent);\n}\n\n\n.petasos-datetime-native {\n  position: absolute;\n  right: 0;\n  bottom: 0;\n  width: 1px;\n  height: 1px;\n  opacity: 0;\n  pointer-events: none;\n  border: 0;\n  padding: 0;\n  color-scheme: dark;\n}\n\n.petasos-light .petasos-datetime-native {\n  color-scheme: light;\n}\n\n.petasos-filter-selects {\n  display: grid;\n  grid-template-columns: repeat(4, minmax(0, 1fr));\n  gap: 0.75rem;\n}\n\n.petasos-choice {\n  display: flex;\n  flex-direction: column;\n  gap: 0.35rem;\n  min-width: 0;\n}\n\n.petasos-listbar {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 1rem;\n  flex-wrap: wrap;\n  padding-top: 0.25rem;\n  border-top: 1px solid var(--color-border);\n}\n\n.petasos-listbar-count {\n  padding-top: 0.6rem;\n}\n\n.petasos-listbar > .petasos-status,\n.petasos-listbar > .petasos-integrity {\n  margin-top: 0.6rem;\n}\n\n.petasos-integrity {\n  display: flex;\n  align-items: center;\n  flex-wrap: wrap;\n  gap: 0.35rem 0.8rem;\n}\n\n.petasos-split {\n  display: grid;\n  grid-template-columns: minmax(0, 1fr);\n  gap: 1rem;\n  align-items: start;\n}\n\n.petasos-split-open {\n  grid-template-columns: minmax(0, 1.3fr) minmax(24rem, 1fr);\n}\n\n\n.petasos-split-open .petasos-event-header {\n  display: none;\n}\n\n.petasos-split-open .petasos-event {\n  grid-template-columns: minmax(0, 1fr) auto 1rem;\n  row-gap: 0.3rem;\n}\n\n.petasos-split-open .petasos-event-what {\n  grid-column: 1;\n  grid-row: 1;\n}\n\n.petasos-split-open .petasos-event-outcome {\n  grid-column: 2;\n  grid-row: 1;\n  justify-self: end;\n}\n\n.petasos-split-open .petasos-event-when {\n  grid-column: 1;\n  grid-row: 2;\n}\n\n.petasos-split-open .petasos-event-when .petasos-block {\n  display: inline;\n  margin-right: 0.6rem;\n}\n\n.petasos-split-open .petasos-event-severity {\n  grid-column: 2;\n  grid-row: 2;\n  justify-self: end;\n}\n\n.petasos-split-open .petasos-chevron {\n  grid-column: 3;\n  grid-row: 1 / span 2;\n}\n\n.petasos-split-open .petasos-group-bar {\n  padding-left: 0.75rem;\n}\n\n.petasos-split-even {\n  grid-template-columns: repeat(2, minmax(0, 1fr));\n}\n\n\n.petasos-split-try {\n  grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr);\n}\n\n.petasos-trial-grid {\n  display: grid;\n  grid-template-columns: repeat(2, minmax(0, 1fr));\n  gap: 1rem;\n}\n\n.petasos-split-main {\n  min-width: 0;\n}\n\n.petasos-list-card {\n  padding: 0.4rem 1rem 0.6rem;\n}\n\n.petasos-event-header,\n.petasos-event {\n  display: grid;\n  grid-template-columns: 8.5rem minmax(0, 1fr) 7rem 11rem 1rem;\n  align-items: center;\n  gap: 1rem;\n}\n\n.petasos-event-header {\n  padding: 0.6rem 0.75rem;\n  border-bottom: 1px solid var(--color-border);\n  font-family: var(--font-mondwest);\n  font-size: 0.78rem;\n  font-weight: 400;\n  letter-spacing: 0.08em;\n  text-transform: uppercase;\n  color: var(--petasos-secondary);\n}\n\n.petasos-events {\n  list-style: none;\n  margin: 0;\n  padding: 0;\n}\n\n.petasos-event-item {\n  border-bottom: 1px solid var(--color-border);\n}\n\n.petasos-events-nested {\n  border-top: 1px dashed var(--color-border);\n  margin-left: 1.5rem;\n}\n\n.petasos-events-nested .petasos-event-item:last-child {\n  border-bottom: 0;\n}\n\n.petasos-event {\n  position: relative;\n  width: 100%;\n  padding: 0.5rem 0.75rem;\n  border: 0;\n  background: none;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n}\n\n.petasos-event:hover {\n  background: color-mix(in srgb, var(--midground) 6%, transparent);\n}\n\n.petasos-event:hover .petasos-chevron {\n  color: var(--midground);\n}\n\n\n.petasos-event-selected,\n.petasos-event-selected:hover {\n  background: color-mix(in srgb, var(--midground) 13%, transparent);\n  box-shadow: inset 3px 0 0 var(--midground);\n}\n\n.petasos-event-selected .petasos-chevron {\n  color: var(--midground);\n}\n\n.petasos-event-when {\n  font-size: 0.8125rem;\n  line-height: 1.45;\n  color: var(--petasos-secondary);\n}\n\n.petasos-event-what {\n  display: flex;\n  flex-direction: column;\n  gap: 0.15rem;\n  min-width: 0;\n}\n\n.petasos-event-summary {\n  font-size: 0.9375rem;\n}\n\n.petasos-event-meta {\n  display: flex;\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 0.4rem;\n  font-size: 0.8125rem;\n  color: var(--petasos-secondary);\n}\n\n.petasos-event-meta .petasos-mono {\n  font-size: 0.8125rem;\n  color: var(--petasos-secondary);\n}\n\n.petasos-group-bar {\n  display: flex;\n  align-items: center;\n  gap: 1rem;\n  padding: 0 0.75rem 0.5rem 10.25rem;\n  font-size: 0.8125rem;\n  color: var(--petasos-secondary);\n}\n\n.petasos-more {\n  display: flex;\n  justify-content: center;\n  padding-top: 0.75rem;\n}\n\n.petasos-detail {\n  position: sticky;\n  top: 0.5rem;\n  display: flex;\n  flex-direction: column;\n  gap: 0.75rem;\n  padding: 1rem 1.1rem;\n  border: 1px solid var(--color-border);\n  box-shadow: inset 3px 0 0 var(--midground);\n  background: var(--color-card);\n  min-width: 0;\n}\n\n.petasos-detail-head {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 1rem;\n}\n\n.petasos-detail-which {\n  font-size: 0.875rem;\n  color: var(--petasos-secondary);\n}\n\n.petasos-detail-status {\n  display: flex;\n  align-items: center;\n  gap: 0.9rem;\n}\n\n.petasos-detail-title {\n  margin: 0;\n  font-size: 1.0625rem;\n  font-weight: 700;\n  line-height: 1.4;\n}\n\n.petasos-detail-note {\n  font-size: 0.9rem;\n  font-weight: 600;\n}\n\n\n\n.petasos-try-desc {\n  font-size: 0.9375rem;\n}\n\n.petasos-trial-line {\n  font-size: 0.875rem;\n}\n\n.petasos-textarea {\n  width: 100%;\n  padding: 0.6rem 0.75rem;\n  border: 1px solid var(--petasos-control-line);\n  background: color-mix(in srgb, var(--background) 40%, transparent);\n  color: inherit;\n  font: inherit;\n  font-size: 0.9rem;\n  line-height: 1.5;\n  resize: vertical;\n}\n\n.petasos-mono-area {\n  font-family: var(--theme-font-mono);\n  font-size: 0.85rem;\n}\n\n.petasos-textarea:disabled {\n  opacity: 0.55;\n  cursor: not-allowed;\n}\n\n.petasos-field-error {\n  font-size: 0.875rem;\n  font-weight: 700;\n  color: color-mix(in srgb, var(--color-destructive) 45%, white);\n}\n\n.petasos-light .petasos-field-error {\n  color: color-mix(in srgb, var(--color-destructive) 70%, black);\n}\n\n.petasos-decision {\n  display: flex;\n  flex-direction: column;\n  align-items: flex-start;\n  gap: 0.5rem;\n}\n\n.petasos-decision-text {\n  font-size: 0.9375rem;\n}\n\n.petasos-compare {\n  display: grid;\n  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);\n  grid-template-rows: auto auto auto;\n  column-gap: 1.25rem;\n}\n\n.petasos-compare-cell {\n  display: grid;\n  grid-template-rows: subgrid;\n  grid-row: 1 / -1;\n  align-content: start;\n  row-gap: 0.45rem;\n  min-width: 0;\n}\n\n.petasos-compare-cell + .petasos-compare-cell {\n  padding-left: 1.25rem;\n  border-left: 1px solid var(--color-border);\n}\n\n.petasos-message,\n.petasos-marked {\n  margin: 0;\n  padding: 0.65rem 0.8rem;\n  border: 1px solid var(--color-border);\n  font-family: var(--theme-font-mono);\n  font-size: 0.85rem;\n  line-height: 1.55;\n  white-space: pre-wrap;\n  overflow-wrap: anywhere;\n}\n\n/* Matched content is not a navigation link, so it is not underlined. */\n.petasos-mark {\n  background: color-mix(in srgb, var(--color-destructive) 24%, transparent);\n  color: inherit;\n  outline: 1px solid color-mix(in srgb, var(--color-destructive) 65%, transparent);\n  outline-offset: 0;\n}\n\n.petasos-mark-n {\n  font-weight: 700;\n  margin-right: 0.1rem;\n}\n\n.petasos-findings,\n.petasos-tech-findings {\n  list-style: none;\n  margin: 0;\n  padding: 0;\n  display: flex;\n  flex-direction: column;\n}\n\n.petasos-tech-findings li {\n  display: grid;\n  grid-template-columns: 1.6rem minmax(0, 1fr);\n  gap: 0.6rem;\n  padding: 0.25rem 0;\n  font-size: 0.875rem;\n}\n\n.petasos-finding {\n  display: grid;\n  grid-template-columns: 1.6rem minmax(0, 1fr);\n  gap: 0.6rem;\n  padding: 0.6rem 0;\n  border-bottom: 1px solid var(--color-border);\n}\n\n.petasos-finding-n {\n  font-size: 0.85rem;\n  font-weight: 700;\n  text-align: center;\n  padding-top: 0.05rem;\n}\n\n.petasos-finding-body {\n  display: flex;\n  flex-direction: column;\n  gap: 0.35rem;\n  min-width: 0;\n}\n\n.petasos-finding-head {\n  display: flex;\n  align-items: flex-start;\n  justify-content: space-between;\n  gap: 0.75rem;\n}\n\n.petasos-finding-sentence {\n  font-size: 0.9375rem;\n}\n\n.petasos-took-part {\n  list-style: none;\n  margin: 0;\n  padding: 0;\n  display: grid;\n  grid-template-columns: max-content max-content minmax(0, 1fr);\n  gap: 0.45rem 0.85rem;\n  align-items: center;\n}\n\n.petasos-took-part li {\n  display: grid;\n  grid-template-columns: subgrid;\n  grid-column: 1 / -1;\n  align-items: center;\n}\n\n.petasos-took-name {\n  font-weight: 600;\n  font-size: 0.9rem;\n}\n\n.petasos-quieted {\n  list-style: none;\n  margin: 0;\n  padding: 0;\n  display: flex;\n  flex-direction: column;\n  gap: 0.35rem;\n  font-size: 0.875rem;\n}\n\n\n.petasos-quieted li {\n  display: grid;\n  grid-template-columns: minmax(0, 1fr) auto;\n  gap: 0.25rem 1rem;\n  align-items: center;\n  padding: 0.45rem 0;\n  border-bottom: 1px solid var(--color-border);\n}\n\n.petasos-quieted li:first-child {\n  border-top: 1px solid var(--color-border);\n}\n\n.petasos-quieted-name {\n  display: flex;\n  flex-direction: column;\n  gap: 0.1rem;\n  min-width: 0;\n}\n\n\n\n.petasos-settings-toolbar {\n  position: relative;\n  display: flex;\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 0.75rem 1.5rem;\n}\n\n.petasos-settings-toolbar .petasos-search {\n  max-width: 26rem;\n}\n\n.petasos-savebox {\n  display: flex;\n  align-items: center;\n  gap: 0.6rem;\n  margin-left: auto;\n}\n\n\n.petasos-changecount {\n  display: inline-flex;\n  align-items: center;\n  gap: 0.3rem;\n  padding: 0.2rem 0.1rem;\n  border: 0;\n  background: none;\n  color: var(--petasos-ink);\n  font: inherit;\n  font-size: 0.875rem;\n  font-weight: 600;\n  cursor: pointer;\n}\n\n.petasos-changecount-chevron {\n  transform: rotate(90deg);\n  transition: transform 120ms;\n}\n\n.petasos-changecount[aria-expanded=\"true\"] .petasos-changecount-chevron {\n  transform: rotate(-90deg);\n}\n\n.petasos-settings-body {\n  display: grid;\n  grid-template-columns: 13.5rem minmax(0, 1fr);\n  gap: 1rem;\n  align-items: start;\n}\n\n\n.petasos-sections {\n  display: flex;\n  flex-direction: column;\n  gap: 1px;\n  padding: 0.5rem;\n  border: 1px solid var(--color-border);\n  background: color-mix(in srgb, var(--color-muted, var(--color-card)) 20%, transparent);\n  position: sticky;\n  top: 0.5rem;\n}\n\n.petasos-sections-title {\n  padding: 0.2rem 0.5rem 0.35rem;\n  font-size: 0.75rem;\n  letter-spacing: 0.12em;\n  color: var(--petasos-tertiary);\n}\n\n.petasos-section {\n  display: flex;\n  align-items: center;\n  gap: 0.4rem;\n  padding: 0.25rem 0.5rem;\n  border: 0;\n  background: none;\n  color: var(--petasos-secondary);\n  font-family: var(--theme-font-mono);\n  font-size: 0.8rem;\n  text-align: left;\n  cursor: pointer;\n}\n\n.petasos-section:hover {\n  background: color-mix(in srgb, var(--midground) 7%, transparent);\n  color: var(--midground);\n}\n\n.petasos-section-on,\n.petasos-section-on:hover {\n  background: color-mix(in srgb, var(--midground) 12%, transparent);\n  color: var(--midground);\n}\n\n.petasos-section-name {\n  margin-right: auto;\n}\n\n.petasos-section-changed {\n  font-size: 0.55rem;\n}\n\n.petasos-section-count {\n  font-size: 0.75rem;\n  color: var(--petasos-tertiary);\n  font-variant-numeric: tabular-nums;\n}\n\n.petasos-section-on .petasos-section-count {\n  color: var(--petasos-secondary);\n}\n\n.petasos-settings-main {\n  min-width: 0;\n}\n\n.petasos-group {\n  display: flex;\n  flex-direction: column;\n}\n\n.petasos-group-head {\n  display: flex;\n  align-items: center;\n  gap: 0.6rem;\n  padding-top: 0.9rem;\n}\n\n.petasos-group-name {\n  font-family: var(--font-mondwest);\n  font-size: 0.75rem;\n  font-weight: 400;\n  letter-spacing: 0.1em;\n  text-transform: uppercase;\n  color: var(--petasos-secondary);\n}\n\n.petasos-group-rule {\n  flex: 1;\n  border-top: 1px solid var(--color-border);\n}\n\n\n.petasos-field {\n  display: flex;\n  flex-direction: column;\n  gap: 0.4rem;\n  padding: 0.85rem 0 0.95rem;\n  scroll-margin: 1rem;\n}\n\n\n.petasos-field-head {\n  display: flex;\n  align-items: flex-start;\n  justify-content: space-between;\n  gap: 1.5rem;\n}\n\n.petasos-field-text {\n  display: flex;\n  flex-direction: column;\n  gap: 0.2rem;\n  min-width: 0;\n}\n\n.petasos .petasos-field-label {\n  font-family: var(--font-mondwest);\n  font-size: 0.875rem;\n  font-weight: 400;\n  letter-spacing: 0.08em;\n  line-height: 1.3;\n  text-transform: uppercase;\n  color: var(--petasos-ink);\n}\n\n.petasos-field-key {\n  font-family: var(--theme-font-mono);\n  font-size: 0.75rem;\n  color: var(--petasos-tertiary);\n}\n\n.petasos-field-help {\n  font-size: 0.8125rem;\n  color: var(--petasos-secondary);\n  max-width: 60rem;\n}\n\n.petasos-field-switch {\n  padding-top: 0.1rem;\n}\n\n.petasos-field-control {\n  min-width: 0;\n}\n\n.petasos-field-staged .petasos-field-label::after {\n  content: \" \u2022\";\n}\n\n.petasos-staged-word {\n  color: var(--petasos-ink);\n}\n\n.petasos-field-invalid input,\n.petasos-field-invalid textarea {\n  border-width: 2px;\n  border-style: solid;\n  border-color: var(--color-destructive) !important;\n}\n\n.petasos-field-invalid input:focus-visible,\n.petasos-field-invalid textarea:focus-visible {\n  outline: 2px solid var(--midground);\n  outline-offset: 2px;\n}\n\n\n.petasos-field-staged,\n.petasos-field-invalid {\n  background: color-mix(in srgb, var(--midground) 5%, transparent);\n  margin: 0 -0.6rem;\n  padding-left: 0.6rem;\n  padding-right: 0.6rem;\n}\n\n\n.petasos-consequence {\n  font-size: 0.875rem;\n  padding-left: 0.6rem;\n  border-left: 2px solid var(--color-warning);\n}\n\n.petasos-maprows {\n  display: flex;\n  flex-direction: column;\n  gap: 0.4rem;\n}\n\n.petasos-maprow {\n  display: grid;\n  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 5.5rem;\n  gap: 0.5rem;\n  align-items: center;\n}\n\n.petasos-rule-helper .petasos-kv {\n  font-size: 0.875rem;\n}\n\n\n\n@media (max-width: 1100px) {\n  .petasos-split-open,\n  .petasos-split-even,\n  .petasos-split-try,\n  .petasos-grid-3 {\n    grid-template-columns: minmax(0, 1fr);\n  }\n  .petasos-detail {\n    position: static;\n  }\n  .petasos-filter-selects {\n    grid-template-columns: repeat(2, minmax(0, 1fr));\n  }\n  .petasos-stats {\n    grid-template-columns: repeat(3, minmax(0, 1fr));\n  }\n}\n\n@media (max-width: 1000px) {\n  .petasos-grid-2,\n  .petasos-setup-grid,\n  .petasos-settings-body,\n  .petasos-compare {\n    grid-template-columns: minmax(0, 1fr);\n    grid-template-rows: none;\n  }\n  .petasos-compare-cell {\n    display: flex;\n    flex-direction: column;\n    grid-row: auto;\n  }\n  .petasos-compare-cell + .petasos-compare-cell {\n    padding-left: 0;\n    border-left: 0;\n    padding-top: 0.8rem;\n    border-top: 1px solid var(--color-border);\n  }\n  .petasos-sections {\n    position: static;\n    flex-direction: row;\n    flex-wrap: wrap;\n  }\n  .petasos-event-header {\n    display: none;\n  }\n  .petasos-event {\n    grid-template-columns: minmax(0, 1fr) auto 1rem;\n  }\n  .petasos-event-when {\n    grid-column: 1 / -1;\n  }\n  .petasos-event-severity {\n    display: none;\n  }\n  .petasos-group-bar {\n    padding-left: 0.75rem;\n  }\n  .petasos-opt {\n    grid-template-columns: 7rem minmax(0, 1fr);\n  }\n  .petasos-mini-row {\n    grid-template-columns: 3.5rem minmax(0, 1fr) auto 1rem;\n    gap: 0.7rem;\n  }\n}\n";
 
   (function addStyle() {
     if (document.getElementById("petasos-tab-style")) return;
@@ -852,10 +777,6 @@
     document.head.appendChild(element);
   })();
   // ===== dashboard-src/05-shared.js =====
-  // ---------------------------------------------------------------------------
-  // Shared: staged changes, the list of what a change would do, and grouping
-  // of repeated events. Used by more than one view.
-  // ---------------------------------------------------------------------------
 
   function clone(value) {
     return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
@@ -947,8 +868,6 @@
     return count;
   }
 
-  // What a change would do, setting by setting: the label and plain sentence
-  // above, the value below at full width, where it would come from beneath.
   function ChangeValues(props) {
     var before = props.before;
     var after = props.after;
@@ -1026,8 +945,6 @@
     );
   }
 
-  // Consecutive events that say the same thing about the same conversation
-  // are one row with a count. The group can be opened to show each event.
   function groupEvents(events) {
     var groups = [];
     events.forEach(function (event) {
@@ -1048,14 +965,7 @@
     return groups;
   }
   // ===== dashboard-src/10-overview.js =====
-  // ---------------------------------------------------------------------------
-  // Overview: is it working and what it covers, the two choices right beneath
-  // in the same panel, then what happened lately, the checks, and who can
-  // change the settings.
-  // ---------------------------------------------------------------------------
 
-  // A check's state is the API's ``operating`` value: whether it is checking
-  // the agent's actions now. The tone follows the code; the word is the API's.
   var OPERATING_TONE = {
     running: "success",
     checked: "success",
@@ -1078,7 +988,6 @@
     return value ? value.charAt(0).toUpperCase() + value.slice(1) : "";
   }
 
-  // "a, b and c"
   function joinWords(words) {
     var list = words.filter(Boolean);
     if (list.length <= 1) return list.join("");
@@ -1092,8 +1001,6 @@
     });
   }
 
-  // The one verdict a person reads first. Protection is on or off; coverage
-  // says what is running and what is not, so "on" never reads as complete.
   function verdictOf(status) {
     var switches = status.switches || {};
     var doctor = status.doctor || {};
@@ -1151,8 +1058,6 @@
         stepText: failed.next_step,
       };
     }
-    // A required check that cannot run: what that does to tool calls is the
-    // API's sentence, computed from the settings that decide it.
     var held = heldChecks(status);
     if (held.length) {
       var first = held[0];
@@ -1196,8 +1101,6 @@
     };
   }
 
-  // What "on" covers, what runs and what does not, as compact rows. Checks are
-  // named by what they do, with the product after it.
   function CoverageRows(props) {
     var status = props.status;
     var coverage = status.coverage || { running: [], missing: [] };
@@ -1243,8 +1146,6 @@
     return h(KeyValues, { className: "petasos-coverage", rows: rows });
   }
 
-  // How to fix a required check that cannot run: where to run the command,
-  // the command to copy, or turn it off in Settings.
   function HeldFix(props) {
     var row = props.row;
     var coverage = props.status.coverage || {};
@@ -1280,9 +1181,6 @@
     );
   }
 
-  // The status, built like every Hermes panel: its title with the state badge
-  // in the header, the action at the header's end, then compact rows: the
-  // state in one sentence, what "on" covers, what runs, and the two choices.
   function VerdictPanel(props) {
     var status = props.status;
     var verdict = verdictOf(status);
@@ -1334,9 +1232,6 @@
     );
   }
 
-  // One of the two choices, compact: the label, Hermes's segmented control,
-  // the selected option's one-line description, and every option's
-  // description one click away.
   function ChoiceControl(props) {
     var id = "petasos-choose-" + props.name;
     var selected = props.options.filter(function (option) {
@@ -1525,9 +1420,6 @@
     );
   }
 
-  // The pending change, on its own inset surface: when it applies, the usual
-  // pairing stated as a trade, and one button that names both controls as
-  // they stand.
   function ChoicePreview(props) {
     var catalog = props.catalog;
     var pending = props.pending;
@@ -1618,11 +1510,6 @@
     );
   }
 
-  // The figures, as Hermes's System page lays them out: a small label above,
-  // the value beneath at a size that reads as the value. Each figure is a
-  // grid cell whose value sits on the cell's last row, so values stay on one
-  // line when a label wraps. The figures are the API's, and they add up to
-  // the total above them.
   function RecentPanel(props) {
     var summary = props.summary;
     var events = props.events || [];
@@ -1708,8 +1595,6 @@
     );
   }
 
-  // Each check by what it does, its product beneath, and its state now: the
-  // API's operating value, the same one every view draws.
   function ChecksPanel(props) {
     var status = props.status;
     var checks = (status.doctor && status.doctor.checks) || [];
@@ -1877,9 +1762,6 @@
     );
   }
   // ===== dashboard-src/20-activity.js =====
-  // ---------------------------------------------------------------------------
-  // Activity: what Petasos did and why, newest first, from the event record.
-  // ---------------------------------------------------------------------------
 
   var RANGES = [
     { value: "1h", label: "1 hour", seconds: 3600 },
@@ -1889,9 +1771,7 @@
     { value: "custom", label: "Custom", seconds: null },
   ];
 
-  // An outcome count on the overview opens the list filtered to it. These
-  // are the API's outcome codes; the reader filters on them, so paging and
-  // counts agree with the list.
+  // Outcome codes must match server filters so paged counts agree with visible events.
   var OUTCOME_CODES = {
     blocked: ["blocked", "stopped", "attempt_blocked"],
     asked: ["asked", "attempt_asked"],
@@ -1908,8 +1788,7 @@
     not_stopped: "setting changes not stopped",
   };
 
-  // A custom range is kept as YYYY-MM-DDTHH:MM in the browser's time zone and
-  // shown as YYYY-MM-DD HH:MM, which no reader can take for another date.
+  // Custom date ranges use browser-local time with an unambiguous year-month-day form.
   function parseLocal(value) {
     var match = String(value || "").trim().match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})$/);
     if (!match) return null;
@@ -1932,8 +1811,6 @@
     );
   }
 
-  // One end of a custom range: a text field in an unambiguous form, and a
-  // calendar button that opens the browser's own picker.
   function DateTimeField(props) {
     var pickerRef = useRef(null);
     var textState = useState(String(props.value || "").replace("T", " "));
@@ -2280,7 +2157,6 @@
     );
   }
 
-  // Repeats are one row with a count; opening the group lists each event.
   function EventGroup(props) {
     var group = props.group;
     var openState = useState(false);
@@ -2353,7 +2229,6 @@
     );
   }
 
-  // Everything recorded about one event, with the ways to act on it.
   var SHOWN_FIELDS = {
     scan_id: 1, timestamp: 1, event_type: 1, tool: 1, session_id: 1, severity: 1, rule_id: 1, reason: 1,
     summary: 1, outcome: 1, kind_label: 1, rule_sentence: 1, integrity: 1, sig: 1, matched_note: 1,
@@ -2372,7 +2247,6 @@
     var integrity = event.integrity || {};
     var outcome = event.outcome || {};
     var review = event.review_action;
-    // Stopped by the conversation's risk score, which earlier warnings built up.
     var risky = Boolean(event.session_id && event.risk_block);
     useEffect(
       function () {
@@ -2461,8 +2335,6 @@
       h(
         "div",
         { className: "petasos-row-actions" },
-        // A rule that matches text can be tested by pasting the text again. A
-        // settings-change rule matches the file a call targets, not text.
         rule && rule.indexOf("petasos.selfmod.") !== 0
           ? h(
               Btn,
@@ -2579,8 +2451,6 @@
           .catch(function (failure) {
             failureState[1](failure);
           });
-        // The choices in each filter list come from the time range and search
-        // alone; the count above the list uses every filter, as the list does.
         call("/activity/summary" + query({ since: now.since, until: now.until, q: filters.q }))
           .then(optionsState[1])
           .catch(function () {});
@@ -2628,7 +2498,6 @@
     })[0];
     var selectedInList = Boolean(selected);
 
-    // An event linked from elsewhere may sit outside the current page.
     useEffect(
       function () {
         if (!selectedId || selected) return;
@@ -2644,7 +2513,6 @@
     );
     if (!selected && extraEvent[0] && extraEvent[0].scan_id === selectedId) selected = extraEvent[0];
 
-    // Keep the open event's row in view beside its detail.
     useEffect(
       function () {
         if (!selectedId || !selectedInList) return;
@@ -2787,15 +2655,8 @@
     );
   }
   // ===== dashboard-src/30-tryit.js =====
-  // ---------------------------------------------------------------------------
-  // Try it: paste text or describe a tool call, and see what Petasos would do.
-  // Nothing here is saved or recorded. Trial settings are not saved.
-  // ---------------------------------------------------------------------------
 
-  // The sample inputs come from the API (GET /playground/examples). They are
-  // not kept in this script: Hermes scans a plugin's files for dangerous
-  // strings before it loads the plugin, and a sample attack written here reads
-  // to that scan as an attack.
+  // See docs/architecture/rationale.md, "Dashboard source packaging".
   function exampleIn(list, id) {
     return (list || []).filter(function (item) {
       return item.id === id;
@@ -2810,7 +2671,6 @@
     return { mode: "text", text: example.text, direction: example.direction || "inbound" };
   }
 
-  // The checked text with each finding marked, numbered to match the list.
   function Marked(props) {
     var text = props.text || "";
     var spans = (props.findings || [])
@@ -2842,9 +2702,6 @@
     return h("pre", { className: "petasos-marked", "aria-label": props.label }, parts);
   }
 
-  // What matched, in words: the rule's sentence and how serious it is, with the
-  // two things a person may do about it. Rule ids and match strength are
-  // technical detail, listed in TechnicalFindings.
   function FindingList(props) {
     var findings = props.findings || [];
     return h(
@@ -2908,8 +2765,6 @@
     );
   }
 
-  // Each check in this run, named by what it does, with its state from the
-  // API: checked, skipped, or paused while protection is paused.
   function ScannerTakePart(props) {
     return h(
       "ul",
@@ -2936,7 +2791,7 @@
   }
 
   function argumentText(args) {
-    // The API marks findings against the string arguments joined by line breaks.
+    // Finding offsets index string arguments joined by newline.
     return Object.keys(args || {})
       .map(function (key) {
         return typeof args[key] === "string" ? args[key] : null;
@@ -2952,8 +2807,6 @@
     return text.slice(text.lastIndexOf(".") + 1);
   }
 
-  // What a trial changes, by name: the job, the strictness, each rule turned
-  // off, and each other setting by its label.
   function trialNames(candidate, catalog) {
     if (!candidate) return [];
     var byPath = rowsByPath(catalog && catalog.settings);
@@ -2990,8 +2843,6 @@
     );
   }
 
-  // Opened from an event: the rule to test, and the one fact that matters,
-  // that the original text is not kept.
   function RuleFocus(props) {
     return h(
       Notice,
@@ -3039,7 +2890,6 @@
     var failureState = useState(null);
     var inputErrorState = useState("");
     var ranState = useState(null); // what was checked, for marking and staleness
-    // Each rule turned off for a trial, by its sentence; the id is secondary.
     var sentencesState = useState({});
     var focusState = useState(params.rule ? { rule: params.rule, sentence: params.sentence || "" } : null);
     var focus = focusState[0];
@@ -3062,8 +2912,6 @@
       }
     }
 
-    // Load the examples, fill the input with the one the link named (or the
-    // default), and check it, so the first look is a real answer.
     useEffect(function () {
       call("/playground/examples")
         .then(function (body) {
@@ -3071,7 +2919,6 @@
           examplesState[1](list);
           noteState[1](body.check_note || "");
           if (params.rule) {
-            // Opened to test a rule: an empty input to paste into, nothing run.
             modeState[1]("text");
             textState[1]("");
             directionState[1](params.direction === "inbound" ? "inbound" : "outbound");
@@ -3583,12 +3430,6 @@
     );
   }
   // ===== dashboard-src/40-settings.js =====
-  // ---------------------------------------------------------------------------
-  // Settings: every value, laid out as Hermes's Config page lays out its own.
-  // Save sits in the toolbar and saves; the count of staged changes beside it
-  // opens the list of what will change. Rows, labels, help, bounds, choices
-  // and where each value comes from all come from the API.
-  // ---------------------------------------------------------------------------
 
   function topOf(row) {
     return row.path.indexOf(".") < 0 ? "" : row.path.split(".")[0];
@@ -3610,7 +3451,6 @@
     return "petasos-field-" + path.replace(/\./g, "-");
   }
 
-  // The allowed range, in words: "30 or higher", "between 1 and 8".
   function boundsText(row) {
     var b = row.bounds || {};
     var low = b.ge !== null && b.ge !== undefined ? { n: b.ge, open: false } : b.gt !== null && b.gt !== undefined ? { n: b.gt, open: true } : null;
@@ -3631,8 +3471,6 @@
     return false;
   }
 
-  // What to say under a field the API refused. A number outside its range
-  // says the range; anything else is the API's own sentence.
   function fieldProblem(row, text, message) {
     if (isNumber(row) && text !== undefined) {
       var number = Number(String(text).trim());
@@ -3651,13 +3489,10 @@
     return String(value);
   }
 
-  // True when a value is not its default, compared as data.
   function differs(row) {
     return JSON.stringify(row.value === undefined ? null : row.value) !== JSON.stringify(row.default === undefined ? null : row.default);
   }
 
-  // The value's state in words, for the line under a control: On, the
-  // choice's label, a count, or the value itself.
   function stateWords(row, value) {
     if (row.type === "bool") return value === true ? "On" : "Off";
     if (row.choices && row.choices.length) return showValue(value, row);
@@ -3671,9 +3506,7 @@
     return String(value);
   }
 
-  // A mapping, edited as rows: two labelled fields per entry, named by the
-  // schema's entry labels, with Add and Remove. Built from Hermes's inputs and
-  // buttons; Hermes's Config has no editor for adding entries to a mapping.
+  // Hermes Config has no mapping-entry editor; schema labels name both fields.
   function MappingRows(props) {
     var row = props.row;
     var labels = row.entry_labels || ["Name", "Value"];
@@ -3698,8 +3531,7 @@
       });
       return out;
     }
-    // A change from outside (Undo, Discard, a rule lowered elsewhere) resets
-    // the rows; an edit made here produces the same value and keeps them.
+    // Outside changes reset rows; local edits retain their editing state.
     var incoming = JSON.stringify(props.value || {});
     useEffect(
       function () {
@@ -3786,8 +3618,7 @@
     );
   }
 
-  // Turn what a person typed into the value the API expects. A number that
-  // does not parse is sent as text, so the API says what it needs.
+  // Unparsed numbers stay text so the API can return its validation reason.
   function parseFor(row, text) {
     if (isList(row)) {
       return text
@@ -3871,9 +3702,6 @@
     });
   }
 
-  // One field as Config draws it, with one secondary line beneath the control
-  // that states the value and where it comes from together ("On · Default"),
-  // and, where they apply, the allowed range, a restart, and Reset or Undo.
   function FieldRow(props) {
     var row = props.row;
     var saved = props.saved || row;
@@ -3987,8 +3815,6 @@
     );
   }
 
-  // The list of staged changes, opened from the count beside Save: an ordinary
-  // panel under the toolbar that pushes the form down.
   function ChangeSheet(props) {
     var catalog = props.catalog;
     var preview = props.preview;
@@ -4100,7 +3926,6 @@
       [draftKey]
     );
 
-    // A link to one setting opens its section and brings it into view.
     useEffect(
       function () {
         if (params.path) sectionState[1](topOf({ path: params.path }) || "general");
@@ -4254,7 +4079,6 @@
       setTexts(t);
     }
 
-    // Navigation: Basics first, then each top-level section in API order.
     var expert = expertState[0];
     var search = searchState[0].trim().toLowerCase();
     var tops = [""];
@@ -4305,7 +4129,6 @@
               return topOf(row) === activeTop && visible(row);
             });
 
-    // Group the shown rows by their parent section, in the order they come.
     var groups = [];
     shown.forEach(function (row) {
       var last = groups[groups.length - 1];
@@ -4709,10 +4532,6 @@
     );
   }
   // ===== dashboard-src/90-app.js =====
-  // ---------------------------------------------------------------------------
-  // The tab: four views under one row of Hermes's enclosed tabs, and the
-  // states that come before any view (loading, Petasos not answering).
-  // ---------------------------------------------------------------------------
 
   var VIEW_TABS = [
     { value: "overview", label: "Overview" },
@@ -4750,8 +4569,7 @@
     );
   }
 
-  // True when the active Hermes theme has a light background. Hermes rewrites
-  // its colour variables on the root element when the theme changes.
+  // Hermes rewrites root colour variables when the theme changes.
   function useLightTheme() {
     function measure() {
       var raw = window.getComputedStyle(document.documentElement).getPropertyValue("--background-base").trim();
@@ -4788,7 +4606,7 @@
     var refreshState = useState(0);
     var lockedState = useState(null);
     var pauseState = useState(false);
-    // Staged settings live here, so moving between views keeps them.
+    // Staged settings outlive view changes.
     var draftState = useState(EMPTY_DRAFT);
     var draft = draftState[0];
     var toast = SDK.hooks.useToast();
@@ -4815,7 +4633,6 @@
       loadCatalog();
     }, []);
 
-    // Leaving the page with staged settings asks first.
     var dirty = !draftIsEmpty(draft);
     useEffect(
       function () {
@@ -4889,8 +4706,7 @@
         onSave: save,
       };
       if (view === "activity") body = h(Activity, shared);
-      // Try it and Settings start from what the link carried (an example, a
-      // candidate, a rule), so a new link starts them afresh.
+      // Each linked candidate or example requires fresh Try it and Settings state.
       else if (view === "tryit")
         body = h(
           TryIt,

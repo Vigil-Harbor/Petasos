@@ -1,6 +1,3 @@
-// ---------------------------------------------------------------------------
-// Activity: what Petasos did and why, newest first, from the event record.
-// ---------------------------------------------------------------------------
 
 var RANGES = [
   { value: "1h", label: "1 hour", seconds: 3600 },
@@ -10,9 +7,7 @@ var RANGES = [
   { value: "custom", label: "Custom", seconds: null },
 ];
 
-// An outcome count on the overview opens the list filtered to it. These
-// are the API's outcome codes; the reader filters on them, so paging and
-// counts agree with the list.
+// Outcome codes must match server filters so paged counts agree with visible events.
 var OUTCOME_CODES = {
   blocked: ["blocked", "stopped", "attempt_blocked"],
   asked: ["asked", "attempt_asked"],
@@ -29,8 +24,7 @@ var OUTCOME_FILTER_WORDS = {
   not_stopped: "setting changes not stopped",
 };
 
-// A custom range is kept as YYYY-MM-DDTHH:MM in the browser's time zone and
-// shown as YYYY-MM-DD HH:MM, which no reader can take for another date.
+// Custom date ranges use browser-local time with an unambiguous year-month-day form.
 function parseLocal(value) {
   var match = String(value || "").trim().match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})$/);
   if (!match) return null;
@@ -53,8 +47,6 @@ function localStamp(date) {
   );
 }
 
-// One end of a custom range: a text field in an unambiguous form, and a
-// calendar button that opens the browser's own picker.
 function DateTimeField(props) {
   var pickerRef = useRef(null);
   var textState = useState(String(props.value || "").replace("T", " "));
@@ -401,7 +393,6 @@ function EventRow(props) {
   );
 }
 
-// Repeats are one row with a count; opening the group lists each event.
 function EventGroup(props) {
   var group = props.group;
   var openState = useState(false);
@@ -474,7 +465,6 @@ function EventGroup(props) {
   );
 }
 
-// Everything recorded about one event, with the ways to act on it.
 var SHOWN_FIELDS = {
   scan_id: 1, timestamp: 1, event_type: 1, tool: 1, session_id: 1, severity: 1, rule_id: 1, reason: 1,
   summary: 1, outcome: 1, kind_label: 1, rule_sentence: 1, integrity: 1, sig: 1, matched_note: 1,
@@ -493,7 +483,6 @@ function EventDetail(props) {
   var integrity = event.integrity || {};
   var outcome = event.outcome || {};
   var review = event.review_action;
-  // Stopped by the conversation's risk score, which earlier warnings built up.
   var risky = Boolean(event.session_id && event.risk_block);
   useEffect(
     function () {
@@ -582,8 +571,6 @@ function EventDetail(props) {
     h(
       "div",
       { className: "petasos-row-actions" },
-      // A rule that matches text can be tested by pasting the text again. A
-      // settings-change rule matches the file a call targets, not text.
       rule && rule.indexOf("petasos.selfmod.") !== 0
         ? h(
             Btn,
@@ -700,8 +687,6 @@ function Activity(props) {
         .catch(function (failure) {
           failureState[1](failure);
         });
-      // The choices in each filter list come from the time range and search
-      // alone; the count above the list uses every filter, as the list does.
       call("/activity/summary" + query({ since: now.since, until: now.until, q: filters.q }))
         .then(optionsState[1])
         .catch(function () {});
@@ -749,7 +734,6 @@ function Activity(props) {
   })[0];
   var selectedInList = Boolean(selected);
 
-  // An event linked from elsewhere may sit outside the current page.
   useEffect(
     function () {
       if (!selectedId || selected) return;
@@ -765,7 +749,6 @@ function Activity(props) {
   );
   if (!selected && extraEvent[0] && extraEvent[0].scan_id === selectedId) selected = extraEvent[0];
 
-  // Keep the open event's row in view beside its detail.
   useEffect(
     function () {
       if (!selectedId || !selectedInList) return;

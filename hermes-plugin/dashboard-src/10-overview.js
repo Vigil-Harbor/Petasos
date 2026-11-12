@@ -1,11 +1,4 @@
-// ---------------------------------------------------------------------------
-// Overview: is it working and what it covers, the two choices right beneath
-// in the same panel, then what happened lately, the checks, and who can
-// change the settings.
-// ---------------------------------------------------------------------------
 
-// A check's state is the API's ``operating`` value: whether it is checking
-// the agent's actions now. The tone follows the code; the word is the API's.
 var OPERATING_TONE = {
   running: "success",
   checked: "success",
@@ -28,7 +21,6 @@ function sentenceCase(text) {
   return value ? value.charAt(0).toUpperCase() + value.slice(1) : "";
 }
 
-// "a, b and c"
 function joinWords(words) {
   var list = words.filter(Boolean);
   if (list.length <= 1) return list.join("");
@@ -42,8 +34,6 @@ function heldChecks(status) {
   });
 }
 
-// The one verdict a person reads first. Protection is on or off; coverage
-// says what is running and what is not, so "on" never reads as complete.
 function verdictOf(status) {
   var switches = status.switches || {};
   var doctor = status.doctor || {};
@@ -101,8 +91,6 @@ function verdictOf(status) {
       stepText: failed.next_step,
     };
   }
-  // A required check that cannot run: what that does to tool calls is the
-  // API's sentence, computed from the settings that decide it.
   var held = heldChecks(status);
   if (held.length) {
     var first = held[0];
@@ -146,8 +134,6 @@ function verdictOf(status) {
   };
 }
 
-// What "on" covers, what runs and what does not, as compact rows. Checks are
-// named by what they do, with the product after it.
 function CoverageRows(props) {
   var status = props.status;
   var coverage = status.coverage || { running: [], missing: [] };
@@ -193,8 +179,6 @@ function CoverageRows(props) {
   return h(KeyValues, { className: "petasos-coverage", rows: rows });
 }
 
-// How to fix a required check that cannot run: where to run the command,
-// the command to copy, or turn it off in Settings.
 function HeldFix(props) {
   var row = props.row;
   var coverage = props.status.coverage || {};
@@ -230,9 +214,6 @@ function HeldFix(props) {
   );
 }
 
-// The status, built like every Hermes panel: its title with the state badge
-// in the header, the action at the header's end, then compact rows: the
-// state in one sentence, what "on" covers, what runs, and the two choices.
 function VerdictPanel(props) {
   var status = props.status;
   var verdict = verdictOf(status);
@@ -284,9 +265,6 @@ function VerdictPanel(props) {
   );
 }
 
-// One of the two choices, compact: the label, Hermes's segmented control,
-// the selected option's one-line description, and every option's
-// description one click away.
 function ChoiceControl(props) {
   var id = "petasos-choose-" + props.name;
   var selected = props.options.filter(function (option) {
@@ -475,9 +453,6 @@ function SetupControls(props) {
   );
 }
 
-// The pending change, on its own inset surface: when it applies, the usual
-// pairing stated as a trade, and one button that names both controls as
-// they stand.
 function ChoicePreview(props) {
   var catalog = props.catalog;
   var pending = props.pending;
@@ -568,11 +543,6 @@ function ChoicePreview(props) {
   );
 }
 
-// The figures, as Hermes's System page lays them out: a small label above,
-// the value beneath at a size that reads as the value. Each figure is a
-// grid cell whose value sits on the cell's last row, so values stay on one
-// line when a label wraps. The figures are the API's, and they add up to
-// the total above them.
 function RecentPanel(props) {
   var summary = props.summary;
   var events = props.events || [];
@@ -658,8 +628,6 @@ function RecentPanel(props) {
   );
 }
 
-// Each check by what it does, its product beneath, and its state now: the
-// API's operating value, the same one every view draws.
 function ChecksPanel(props) {
   var status = props.status;
   var checks = (status.doctor && status.doctor.checks) || [];

@@ -1,7 +1,3 @@
-// ---------------------------------------------------------------------------
-// The tab: four views under one row of Hermes's enclosed tabs, and the
-// states that come before any view (loading, Petasos not answering).
-// ---------------------------------------------------------------------------
 
 var VIEW_TABS = [
   { value: "overview", label: "Overview" },
@@ -39,8 +35,7 @@ function Unreachable(props) {
   );
 }
 
-// True when the active Hermes theme has a light background. Hermes rewrites
-// its colour variables on the root element when the theme changes.
+// Hermes rewrites root colour variables when the theme changes.
 function useLightTheme() {
   function measure() {
     var raw = window.getComputedStyle(document.documentElement).getPropertyValue("--background-base").trim();
@@ -77,7 +72,7 @@ function PetasosTab() {
   var refreshState = useState(0);
   var lockedState = useState(null);
   var pauseState = useState(false);
-  // Staged settings live here, so moving between views keeps them.
+  // Staged settings outlive view changes.
   var draftState = useState(EMPTY_DRAFT);
   var draft = draftState[0];
   var toast = SDK.hooks.useToast();
@@ -104,7 +99,6 @@ function PetasosTab() {
     loadCatalog();
   }, []);
 
-  // Leaving the page with staged settings asks first.
   var dirty = !draftIsEmpty(draft);
   useEffect(
     function () {
@@ -178,8 +172,7 @@ function PetasosTab() {
       onSave: save,
     };
     if (view === "activity") body = h(Activity, shared);
-    // Try it and Settings start from what the link carried (an example, a
-    // candidate, a rule), so a new link starts them afresh.
+    // Each linked candidate or example requires fresh Try it and Settings state.
     else if (view === "tryit")
       body = h(
         TryIt,

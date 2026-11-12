@@ -1,14 +1,4 @@
-// ---------------------------------------------------------------------------
-// Kit: the Hermes SDK, the API client, and small shared pieces.
-//
-// Everything visual comes from Hermes: its React, its components (Card,
-// Button, Badge, Select, Input, Label, ConfirmDialog, Toast), its fonts and
-// its colour variables. Where the SDK does not export a Hermes control
-// (Segmented, Switch), the tab draws the same markup with the same tokens.
-// Everything Petasos knows (roles, levels, settings, labels, rules,
-// sentences) comes from the plugin's API at /api/plugins/petasos/. This file
-// holds interface wording only.
-// ---------------------------------------------------------------------------
+// See docs/architecture/rationale.md, "Dashboard source packaging".
 
 var SDK = window.__HERMES_PLUGIN_SDK__;
 var PLUGINS = window.__HERMES_PLUGINS__;
@@ -29,8 +19,6 @@ var cn = SDK.utils.cn;
 
 var API = "/api/plugins/petasos";
 
-// One request to the plugin API. A failure is thrown as an ApiFailure with
-// the HTTP status and the API's own code and sentence when it sent one.
 function ApiFailure(status, code, message, path) {
   this.status = status;
   this.code = code;
@@ -38,8 +26,7 @@ function ApiFailure(status, code, message, path) {
   this.path = path || null;
 }
 
-// Hermes's fetchJSON throws an error carrying ``status`` and the raw
-// ``body``. Older hosts threw Error("<status>: <body>"); both are read.
+// Hosts report status/body properties or a status-prefixed response body.
 function parseFailure(err) {
   var raw = err && err.message ? String(err.message) : String(err || "");
   var status = 0;
@@ -61,7 +48,6 @@ function parseFailure(err) {
       return new ApiFailure(status, "http", parsed.detail, null);
     }
   } catch (_e) {
-    // Not JSON. Fall through.
   }
   if (status === 0) {
     return new ApiFailure(0, "unreachable", "The dashboard could not reach Petasos.", null);
@@ -90,17 +76,10 @@ function query(params) {
   return parts.length ? "?" + parts.join("&") : "";
 }
 
-// ---------------------------------------------------------------------------
-// The tab's own address: #overview, #activity?event=…, #settings?rule=…
-// The view lives in the hash so a link (and the browser's back button) can
-// open a view, an event, or the settings for one rule.
-// ---------------------------------------------------------------------------
 
 var VIEWS = ["overview", "activity", "tryit", "settings"];
 
-// Hermes adds ?profile=… to the address on arrival and drops the fragment.
-// Put back the fragment the page was opened with, once, so a pasted link
-// still opens the view it names.
+// Hermes profile navigation drops fragments; restore the initial fragment once.
 (function restoreArrivalHash() {
   if (window.location.hash) return;
   var entries = window.performance && window.performance.getEntriesByType
@@ -149,8 +128,7 @@ function useRoute() {
   return state[0];
 }
 
-// Run ``load`` now and every ``ms`` while the page is visible. Polling is
-// the only refresh: the API has no stream. A hidden tab does not poll.
+// The API has no event stream; only visible tabs poll.
 function usePoll(load, ms, deps) {
   useEffect(function () {
     var stopped = false;
@@ -168,10 +146,6 @@ function usePoll(load, ms, deps) {
   }, deps);
 }
 
-// ---------------------------------------------------------------------------
-// Names. Every name a person reads comes from the API's labels. These look
-// them up; a name the API did not label is shown as it was sent.
-// ---------------------------------------------------------------------------
 
 function roleOf(catalog, name) {
   return ((catalog && catalog.roles) || []).filter(function (role) {
@@ -215,8 +189,6 @@ function rowLabel(row) {
   return (row && row.label) || (row && row.path) || "";
 }
 
-// Where a value comes from, in words. The job and strictness are named by
-// their labels.
 function originText(origin, stored, catalog) {
   if (origin === "role") return "From the job (" + roleLabel(catalog, stored && stored.role) + ")";
   if (origin === "level") return "From strictness (" + levelLabel(catalog, stored && stored.level) + ")";
@@ -225,7 +197,6 @@ function originText(origin, stored, catalog) {
   return "Unknown";
 }
 
-// One value as a person reads it. A choice uses the API's label for it.
 function showValue(value, row) {
   if (value === null || value === undefined) return "not set";
   if (row && row.choice_labels && Object.prototype.hasOwnProperty.call(row.choice_labels, String(value))) {
@@ -255,15 +226,10 @@ function capital(word) {
   return text ? text.charAt(0).toUpperCase() + text.slice(1).toLowerCase() : "";
 }
 
-// ---------------------------------------------------------------------------
-// Time. One convention everywhere: a 24-hour clock in the browser's time
-// zone, which a list names once at its head. A date from another year
-// carries the year. Relative age is secondary.
-// ---------------------------------------------------------------------------
 
 function whenText(seconds) {
   if (typeof seconds !== "number") return "";
-  // Hermes's timeAgo takes unix seconds (its type comment says milliseconds).
+  // Hermes timeAgo accepts Unix seconds despite its milliseconds type annotation.
   return SDK.utils.timeAgo(seconds);
 }
 
@@ -319,11 +285,7 @@ function timeZoneName() {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Small pieces built from Hermes components.
-// ---------------------------------------------------------------------------
 
-// A Hermes Card with the title row Hermes uses on its own pages.
 function Panel(props) {
   return h(
     C.Card,
@@ -356,11 +318,6 @@ function Panel(props) {
   );
 }
 
-// A status that carries a safety meaning (an outcome, the verdict, a check's
-// state): Hermes's own Badge container (shape, border, tint), with its words
-// in the body face at the size of the text around them, so they read at a
-// glance. Hermes's condensed face stays on counts (Tag). Words always say the
-// same thing as the colour. Severity is not a badge (see Severity).
 var TONES = ["success", "warning", "destructive", "neutral"];
 var BADGE_TONE = { success: "success", warning: "warning", destructive: "destructive", neutral: "secondary" };
 
@@ -378,13 +335,10 @@ function Status(props) {
   );
 }
 
-// A count or an incidental label: Hermes's own badge, as Hermes draws it.
 function Tag(props) {
   return h(C.Badge, { tone: props.tone || "secondary", className: cn("petasos-tag", props.className), title: props.title }, props.children);
 }
 
-// How serious a finding is: a word beside the outcome, in plain text.
-// Critical is set heavier than High; there is no second coloured shape.
 function Severity(props) {
   var severity = String(props.value || "").toLowerCase();
   var known = { critical: 1, high: 1, medium: 1, low: 1, info: 1 };
@@ -407,9 +361,6 @@ function outcomeTone(code) {
   return "neutral";
 }
 
-// A notice. The tone is a mark and a word, not a thick edge; only an
-// exceptional warning (``strong``) keeps the marked edge. Success is a check
-// mark, so a confirmation never looks like a warning.
 function Notice(props) {
   var tone = props.tone || "info";
   return h(
@@ -437,8 +388,6 @@ function Notice(props) {
   );
 }
 
-// The empty list, as Hermes's Sessions page draws it: a small icon, a short
-// title, one line, on the page background.
 function Empty(props) {
   return h(
     "div",
@@ -450,8 +399,6 @@ function Empty(props) {
   );
 }
 
-// Outline icons drawn inline in the current colour, the style Hermes's
-// pages use. No image files.
 var ICONS = {
   clock: ["M12 6v6l4 2", "M12 2a10 10 0 1 0 0 20a10 10 0 1 0 0-20"],
   chevron: ["M9 6l6 6l-6 6"],
@@ -484,10 +431,6 @@ function Icon(props) {
   );
 }
 
-// Hermes's Button. Filled and outlined buttons are form buttons and are set
-// in upper case, as on Config and Plugins (SAVE, INSTALL); a ghost button is
-// a quiet page utility (Refresh) and keeps its own case. ``compact`` fits a
-// quiet button into a line of text.
 function Btn(props) {
   var rest = Object.assign({}, props);
   delete rest.children;
@@ -498,8 +441,6 @@ function Btn(props) {
   return h(C.Button, rest, props.children);
 }
 
-// Navigation: underlined, and used only for something that takes you
-// somewhere. An action that changes or runs something is a Btn.
 function LinkButton(props) {
   return h(
     "button",
@@ -515,9 +456,6 @@ function LinkButton(props) {
   );
 }
 
-// A disclosure: a quiet toggle with a turning chevron. It is not underlined,
-// because underlined text only navigates. With ``remember``, the choice to open it is kept in this browser
-// so a technical reader opens it once.
 function readRemembered(key) {
   try {
     return window.localStorage.getItem("petasos." + key) === "open";
@@ -531,7 +469,7 @@ function writeRemembered(key, open) {
     if (open) window.localStorage.setItem("petasos." + key, "open");
     else window.localStorage.removeItem("petasos." + key);
   } catch (_e) {
-    // Storage can be refused; the disclosure still works for this visit.
+    // Storage may be refused; disclosure state must still work for this visit.
   }
 }
 
@@ -564,7 +502,6 @@ function Disclosure(props) {
   );
 }
 
-// A command a person copies into a terminal: the command itself, and Copy.
 function Command(props) {
   return h(
     "div",
@@ -578,8 +515,6 @@ function Mono(props) {
   return h("code", { className: cn("petasos-mono", props.className), title: props.title }, props.children);
 }
 
-// A technical identifier that may wrap only after its separators, never
-// in the middle of a word.
 function Ident(props) {
   var text = String(props.children || "");
   var parts = [];
@@ -623,7 +558,6 @@ function CopyButton(props) {
   );
 }
 
-// Hermes's Select with a label above it.
 function Choice(props) {
   return h(
     "div",
@@ -646,7 +580,6 @@ function Choice(props) {
   );
 }
 
-// Arrow keys move along a row of options, as a native radio group does.
 function arrowKeys(event, values, current, onChange, focusPrefix) {
   var keys = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1, Home: "first", End: "last" };
   var step = keys[event.key];
@@ -662,8 +595,6 @@ function arrowKeys(event, values, current, onChange, focusPrefix) {
   if (target) target.focus();
 }
 
-// Hermes's Segmented control (Logs, Sessions): joined rectangular buttons,
-// the chosen one filled. One choice of several, with arrow keys.
 function Segmented(props) {
   var values = props.options.map(function (option) {
     return option.value;
@@ -705,7 +636,6 @@ function Segmented(props) {
   );
 }
 
-// Hermes's Switch: a rectangular track and square thumb at the end of a row.
 function Switch(props) {
   return h(
     "button",
@@ -727,7 +657,6 @@ function Switch(props) {
   );
 }
 
-// The view tabs, drawn as Hermes's enclosed segmented tabs (Sessions, Logs).
 function ViewTabs(props) {
   var values = props.views.map(function (view) {
     return view.value;
@@ -761,9 +690,6 @@ function ViewTabs(props) {
   );
 }
 
-// Config's field layout: the label, the setting's key in Hermes's tertiary
-// text, one plain sentence, then the control across the panel. A switch sits
-// at the end of the label row instead.
 function Field(props) {
   var labelId = props.id + "-label";
   var helpId = props.id + "-help";
@@ -804,8 +730,7 @@ function KeyValues(props) {
   );
 }
 
-// Scroll the nearest scrolling container so ``element`` is in view. Unlike
-// scrollIntoView, this never moves Hermes's own page frame.
+// Scrolling the inner container keeps the Hermes page frame stationary.
 function revealInView(element, where) {
   if (!element) return;
   var node = element.parentElement;

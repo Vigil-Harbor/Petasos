@@ -1,14 +1,4 @@
-/*
- * Petasos tab layout. Every colour, font and size is a Hermes variable, so
- * the tab follows whichever Hermes theme is active. Where Hermes's SDK does
- * not export a control (Segmented, Switch), these rules draw it the way
- * Hermes's own source does. No palette, font or icon set of Petasos's own.
- *
- * Text hierarchy uses Hermes's own tokens: primary text is the theme's ink;
- * secondary and tertiary text are the same ink at Hermes's 80% and 65%
- * (text-text-secondary and text-text-tertiary on its Config page). Values a
- * person typed and the current value of a control are primary.
- */
+/* See docs/architecture/rationale.md, "Dashboard visual constraints". */
 
 .petasos {
   --petasos-ink: var(--midground);
@@ -54,8 +44,7 @@
   border: 0;
 }
 
-/* Keyboard focus is always visible, in the theme's ring colour, on every
- * control the tab draws. Hermes's own controls keep their ring too. */
+/* Keyboard focus must remain visible in every theme. */
 .petasos button:focus-visible,
 .petasos a:focus-visible,
 .petasos input:focus-visible,
@@ -71,8 +60,7 @@
   outline: none;
 }
 
-/* Controls: a typed value and a chosen value are primary text, and the
- * edge of an editable field is clear enough to read as editable. */
+
 .petasos input,
 .petasos textarea,
 .petasos [aria-haspopup="listbox"] {
@@ -139,13 +127,12 @@
   color: var(--petasos-tertiary);
 }
 
-/* Form buttons (filled and outlined) in upper case, as Config and Plugins
- * set them. Ghost buttons are page utilities and keep their case. */
+
 .petasos .petasos-btn-caps {
   text-transform: uppercase;
 }
 
-/* A quiet button inside a line of text: Undo, Reset, Show every outcome. */
+
 .petasos .petasos-btn-compact {
   height: auto;
   min-height: 0;
@@ -171,8 +158,7 @@
   text-align: center;
 }
 
-/* Underlined text navigates, and nothing else is underlined: an action
- * that changes or runs something is one of Hermes's buttons. */
+/* Underlining denotes navigation; state-changing actions use buttons. */
 .petasos-link,
 .petasos a.petasos-link {
   background: none;
@@ -220,7 +206,7 @@
   font-size: 0.85rem;
 }
 
-/* A technical id wraps only at the <wbr> after its separators. */
+/* Technical ids wrap only at explicit separator break opportunities. */
 .petasos-ident {
   overflow-wrap: normal;
   word-break: normal;
@@ -258,7 +244,7 @@
   vertical-align: middle;
 }
 
-/* ---- Disclosure, as Hermes's pages draw one ------------------------- */
+
 
 .petasos-disclosure {
   display: flex;
@@ -305,7 +291,7 @@
   padding-left: 1.1rem;
 }
 
-/* A command to copy into a terminal. */
+
 .petasos-command {
   display: flex;
   align-items: center;
@@ -323,7 +309,7 @@
   overflow-wrap: anywhere;
 }
 
-/* ---- Top bar: Hermes's enclosed tabs ------------------------------- */
+
 
 .petasos-topbar {
   display: flex;
@@ -361,8 +347,7 @@
   cursor: pointer;
 }
 
-/* Hermes's Segmented: joined rectangular buttons, the chosen one filled
- * with the theme's ink, regular weight, as on Sessions. */
+
 .petasos-segmented {
   display: inline-flex;
   flex-wrap: wrap;
@@ -415,7 +400,7 @@
   padding: 0 0.85rem;
 }
 
-/* ---- Hermes's Switch ------------------------------------------------ */
+
 
 .petasos-switch {
   position: relative;
@@ -462,7 +447,7 @@
   font-size: 0.875rem;
 }
 
-/* ---- Panels --------------------------------------------------------- */
+
 
 .petasos-panel {
   min-width: 0;
@@ -486,8 +471,7 @@
   min-width: 0;
 }
 
-/* A panel title with its state badge beside it, as Plugins sets a badge
- * beside a name. */
+
 .petasos-panel-titlerow {
   display: flex;
   flex-wrap: wrap;
@@ -514,8 +498,7 @@
   padding: 0.9rem 1.1rem 1.1rem;
 }
 
-/* Field and filter labels, as Hermes's Label and FilterGroup draw them:
- * Mondwest, upper case, regular weight, spaced; bold is kept for values. */
+
 .petasos-label,
 .petasos-filter-label,
 .petasos-sections-title {
@@ -538,12 +521,9 @@
   color: var(--petasos-secondary);
 }
 
-/* ---- Status: Hermes's Badge, legible -------------------------------- */
 
-/* Hermes's Badge container (shape, border, tint) with the words in the
- * body face, medium weight, at the size of the text around them. Hermes's
- * condensed face stays on counts (.petasos-tag). Light themes darken the
- * ink. */
+
+
 .petasos .petasos-status {
   font-family: var(--theme-font-sans);
   font-size: 0.875rem;
@@ -605,8 +585,7 @@
   color: var(--petasos-tertiary);
 }
 
-/* Severity: a word in plain text beside the outcome. Critical is set
- * heavier than High; there is no second coloured shape. */
+
 .petasos-sev {
   font-size: 0.875rem;
   color: var(--petasos-secondary);
@@ -623,7 +602,7 @@
   font-weight: 700;
 }
 
-/* ---- Notices: a mark and a title; only exceptional warnings keep an edge */
+
 
 .petasos-notice {
   display: flex;
@@ -705,8 +684,7 @@
   gap: 0.25rem;
 }
 
-/* A saved confirmation, and beneath it, separately and more quietly, what
- * waits for a restart. */
+
 .petasos-saved {
   display: flex;
   flex-direction: column;
@@ -719,7 +697,7 @@
   color: var(--petasos-secondary);
 }
 
-/* ---- Empty list, as Sessions draws it ------------------------------- */
+
 
 .petasos-empty {
   display: flex;
@@ -753,7 +731,7 @@
   margin-top: 0.6rem;
 }
 
-/* ---- Key and value lists -------------------------------------------- */
+
 
 .petasos-kv {
   display: grid;
@@ -787,9 +765,9 @@
   margin-bottom: 0.6rem;
 }
 
-/* ---- Overview: status, with the two choices inside ------------------ */
 
-/* The status panel's first line: the state, in one sentence. */
+
+
 .petasos-verdict-title {
   margin: 0;
   font-size: 1rem;
@@ -880,7 +858,7 @@
   color: var(--petasos-tertiary);
 }
 
-/* The pending change: its own inset surface, a clear heading, then Apply. */
+
 .petasos-preview {
   display: flex;
   flex-direction: column;
@@ -906,7 +884,7 @@
   font-weight: 600;
 }
 
-/* A change: label above, the value from and to, where it would come from. */
+
 .petasos-changes {
   list-style: none;
   margin: 0;
@@ -964,8 +942,7 @@
   font-weight: 700;
 }
 
-/* The line under a control: state and source, then Reset or Undo, which
- * stay on the line. */
+
 .petasos-provenance {
   display: flex;
   flex-wrap: wrap;
@@ -984,12 +961,9 @@
   font-size: 0.78rem;
 }
 
-/* ---- Overview: last 24 hours, as System lays out its figures -------- */
 
-/* The figures, as System lays out its own: a small label above, the value
- * beneath at a size that reads as the value. Each cell stretches to its
- * row, and the value sits at the cell's foot, so values in a row stay on
- * one line when a label wraps. */
+
+/* See docs/architecture/rationale.md, "Dashboard visual constraints". */
 .petasos-stats {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
@@ -1048,7 +1022,7 @@
   color: color-mix(in srgb, var(--color-destructive) 70%, black);
 }
 
-/* Setting changes that were not stopped: what that means, and the route. */
+
 .petasos-alarm-row {
   display: flex;
   align-items: center;
@@ -1093,7 +1067,7 @@
   color: var(--petasos-secondary);
 }
 
-/* A safety sentence wraps; it is never cut short. */
+/* Safety disclosures must wrap without clipping. */
 .petasos-mini-text {
   min-width: 0;
   overflow-wrap: anywhere;
@@ -1108,7 +1082,7 @@
   color: var(--petasos-tertiary);
 }
 
-/* ---- Overview: checks ------------------------------------------------ */
+
 
 .petasos-scanners {
   list-style: none;
@@ -1158,7 +1132,7 @@
   color: var(--petasos-secondary);
 }
 
-/* ---- Activity -------------------------------------------------------- */
+
 
 .petasos-filters {
   display: flex;
@@ -1247,8 +1221,7 @@
   background: color-mix(in srgb, var(--midground) 10%, transparent);
 }
 
-/* The browser's picker, opened from the calendar button. Its own field is
- * not shown, so its date format never is. */
+
 .petasos-datetime-native {
   position: absolute;
   right: 0;
@@ -1316,8 +1289,7 @@
   grid-template-columns: minmax(0, 1.3fr) minmax(24rem, 1fr);
 }
 
-/* With an event open, each row folds to two lines so the sentence keeps
- * its width: what happened and the outcome, then when and the severity. */
+
 .petasos-split-open .petasos-event-header {
   display: none;
 }
@@ -1367,8 +1339,7 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-/* Try it: the input beside a wider result; the checks run full width
- * beneath, so neither column is left half empty. */
+
 .petasos-split-try {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr);
 }
@@ -1445,8 +1416,7 @@
   color: var(--midground);
 }
 
-/* The open event: a tinted row with an edge marker, kept while its detail
- * is open. */
+
 .petasos-event-selected,
 .petasos-event-selected:hover {
   background: color-mix(in srgb, var(--midground) 13%, transparent);
@@ -1546,7 +1516,7 @@
   font-weight: 600;
 }
 
-/* ---- Try it ---------------------------------------------------------- */
+
 
 .petasos-try-desc {
   font-size: 0.9375rem;
@@ -1632,8 +1602,7 @@
   overflow-wrap: anywhere;
 }
 
-/* The matched text: a tinted, outlined span. Not underlined, because
- * underlined text only navigates. */
+/* Matched content is not a navigation link, so it is not underlined. */
 .petasos-mark {
   background: color-mix(in srgb, var(--color-destructive) 24%, transparent);
   color: inherit;
@@ -1728,8 +1697,7 @@
   font-size: 0.875rem;
 }
 
-/* One row per rule: its sentence and id on the left, the action in a fixed
- * column on the right. */
+
 .petasos-quieted li {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -1750,7 +1718,7 @@
   min-width: 0;
 }
 
-/* ---- Settings: Config's layout -------------------------------------- */
+
 
 .petasos-settings-toolbar {
   position: relative;
@@ -1771,8 +1739,7 @@
   margin-left: auto;
 }
 
-/* The count of staged changes opens the list beneath: a disclosure, so it
- * is a quiet toggle with a chevron, not underlined. */
+
 .petasos-changecount {
   display: inline-flex;
   align-items: center;
@@ -1803,8 +1770,7 @@
   align-items: start;
 }
 
-/* The section list, as Config draws it: small rows, a tint on the open
- * one, counts in tertiary text. */
+
 .petasos-sections {
   display: flex;
   flex-direction: column;
@@ -1896,8 +1862,7 @@
   border-top: 1px solid var(--color-border);
 }
 
-/* One field, as Config draws it: label, key, sentence, control beneath.
- * Tight within a field, a larger gap between fields. */
+
 .petasos-field {
   display: flex;
   flex-direction: column;
@@ -1972,7 +1937,7 @@
   outline-offset: 2px;
 }
 
-/* Background emphasis only on the field being edited or in error. */
+
 .petasos-field-staged,
 .petasos-field-invalid {
   background: color-mix(in srgb, var(--midground) 5%, transparent);
@@ -1981,7 +1946,7 @@
   padding-right: 0.6rem;
 }
 
-/* What a Required check that cannot run does, before Save. */
+
 .petasos-consequence {
   font-size: 0.875rem;
   padding-left: 0.6rem;
@@ -2005,7 +1970,7 @@
   font-size: 0.875rem;
 }
 
-/* ---- Narrow ---------------------------------------------------------- */
+
 
 @media (max-width: 1100px) {
   .petasos-split-open,

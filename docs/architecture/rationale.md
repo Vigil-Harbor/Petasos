@@ -500,6 +500,20 @@ has roughly a thousandfold margin over the small normal operation. Capture runs
 after the tool and normalizes many leaves; its looser bound avoids treating a
 contended CI average as a production latency benchmark.
 
+
+Helper work uses one enforcer loop, so direct eight-wide Pipeline.inspect calls
+measure a different concurrency axis from eight serialized helper calls. Component
+measurements do not qualify eighty-wide host concurrency. Session-bearing ingestion
+measurements include risk locking, TTL draining, escalation, session-keyed alerts
+and audit rows; a missing session would bypass those costs.
+
+A syntactic parameter scan has no await point and runs to completion once scheduled.
+The fifteen-second evaluation timeout bounds its caller's wait, not synchronous
+scanner execution. Full-cap fallback measurements use three pedantic rounds because
+normal benchmark calibration can spend minutes on a one-megabyte input. Recorded
+local component medians are about 3.4 ms for digit-dense pruning and 3.1 ms for the
+anchor-dense battery; these measurements are not portable CI timing assertions.
+
 ## Sandbox package indexes
 
 The extra index is searched before PyPI and wins for names it publishes. The
@@ -544,6 +558,10 @@ attacks. The corpus-only syntactic test cannot prove the ML severity policy.
 Inbound injection still retains its floor; coding-role outbound injection-shaped
 data can be suppressed. Structural findings remain unsuppressible and nonretargetable.
 
+The operator fixture contains no live prompt-injection attacks. Canonical attack
+samples therefore independently pin retained detection; the routine corpus alone
+cannot establish that the coding role still catches attacks.
+
 ## Alert and audit test constraints
 
 Cross-session burst accounting uses session-to-last-seen state independently of
@@ -569,24 +587,6 @@ would early-return before reading any flags and make the equality vacuous.
 Cancellation frees the event loop promptly but does not interrupt an already-running
 worker thread; the pipeline must remain usable while that residual work finishes.
 
-The operator fixture contains no live prompt-injection attacks. Canonical attack
-samples therefore independently pin retained detection; the routine corpus alone
-cannot establish that the coding role still catches attacks.
-
-## Benchmark scheduling limits
-
-Helper work uses one enforcer loop, so direct eight-wide Pipeline.inspect calls
-measure a different concurrency axis from eight serialized helper calls. Component
-measurements do not qualify eighty-wide host concurrency. Session-bearing ingestion
-measurements include risk locking, TTL draining, escalation, session-keyed alerts
-and audit rows; a missing session would bypass those costs.
-
-A syntactic parameter scan has no await point and runs to completion once scheduled.
-The fifteen-second evaluation timeout bounds its caller's wait, not synchronous
-scanner execution. Full-cap fallback measurements use three pedantic rounds because
-normal benchmark calibration can spend minutes on a one-megabyte input. Recorded
-local component medians are about 3.4 ms for digit-dense pruning and 3.1 ms for the
-anchor-dense battery; these measurements are not portable CI timing assertions.
 
 ## Test runner fixture binding
 
@@ -597,3 +597,15 @@ selection may omit every coroutine or the unmarked self-witness. Whole-suite and
 whole-file runs retain that self-witness as the positive auto-mode check. CI backend
 arming reads job-level environment values as trimmed strings, accepting YAML integer
 one as the runtime does. Workflow- and step-level environment values do not arm it.
+
+## Dashboard visual constraints
+
+Hermes theme variables supply every colour, font and size. Secondary and tertiary
+text use the host's 80% and 65% ink hierarchy; typed and selected values remain
+primary. Controls missing from the SDK follow host markup and tokens. Status
+badges communicate meaning in words as well as colour; severity stays plain text
+with weight distinguishing Critical. Overview figures align values on the final
+grid row so wrapped labels do not stagger the values. Keyboard focus remains
+visible, safety disclosures wrap without clipping, and technical ids wrap only
+after explicit separators. Underlining is reserved for navigation; matched text
+uses a tinted outline and actions use buttons.
