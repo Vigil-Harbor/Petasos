@@ -38,23 +38,21 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class GuardResult:
+    """Report a tool-call decision and the findings supporting it."""
+
     allowed: bool
     reason: str
     findings: tuple[ScanFinding, ...]
     tier: str
     param_scan_unsafe: bool
-    # PET-112: True iff the param scan flipped unsafe AND a scanner errored, i.e. the
-    # unsafe verdict is degraded-mode driven rather than finding-driven. Lets the plugin
-    # honor the "ML failure blocks content" invariant independently of finding type
-    # (degraded co-occurring with PII still blocks). Last + defaulted so every existing
-    # construction stays valid. fail-mode-correct: gates on `not result.safe`, so
-    # fail_mode="open" (scanner error doesn't flip safe) yields False → no block.
+    # See docs/architecture/rationale.md, "Parameter scan degradation".
     param_scan_degraded: bool = False
     selfmod_target: str | None = None
     selfmod_finding: ScanFinding | None = None
     guardrail_kind: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
+        """Return the decision as JSON-serialisable data."""
         d: dict[str, Any] = {
             "allowed": self.allowed,
             "reason": self.reason,
@@ -81,21 +79,16 @@ _FEATURE_DISABLED = GuardResult(
 )
 
 
-# PET-176 D3/D4: the per-scan weight step is min(tier1_prof, tier1_cfg) / this.
-# 4 is calibrated, not arbitrary: divisor 3 stops tool dispatch after 6
-# consecutive flagged ingestion reads (below the 8-read floor), divisor 5 drops
-# the shipped cap to 3.0, losing sub-step benign immunity for a single
-# 3.0-weight rule. See the PET-176 spec's D4 for the full derivation.
+# See docs/architecture/rationale.md, "Scan contribution calibration".
 _SCAN_WEIGHT_CAP_DIVISOR: float = 4.0
 
-# PET-176 D4 upper band: the raw weight of a maximally-poisoned 8,000-char scan
-# window as measured for the ingestion seam. Once the per-scan step exceeds it,
-# no scan can ever reach one step, every scan quantizes to 0.0, and the session
-# backstop is inert without failing anything -- hence the tripwire.
+# See docs/architecture/rationale.md, "Scan contribution calibration".
 _MAX_POISONED_SCAN_WEIGHT: float = 80.0
 
 
 class ToolCallGuard:
+    """Evaluate tool calls with risk, lineage and guardrail enforcement."""
+
     def __init__(
         self,
         pipeline: Pipeline,
@@ -115,19 +108,13 @@ class ToolCallGuard:
         self._secrets = secrets if secrets is not None else Secrets()
         self._selfmod_home = home
         self._exempt_param_scan = exempt_param_scan
-        # Lineage edge store. None leaves the chain walk and pinning off.
         self._lineage = lineage
-        # When set, self-modification checks this set instead of discovering
-        # a host layout. None keeps the discovery used by existing callers.
+        # Explicit protected paths avoid host-layout discovery for adapter calls.
         self._protected_paths = protected_paths
         self._guardrail_surface = guardrail_surface
 
-        # Delegate tool names are stored raw in config; normalize them once
-        # here through the guard's own normalizer so recognition matches every
-        # other tool name.
         self._delegate_tool_names = self._delegates_from(config)
-        # A delegate must never be exempt — an exempt delegate would skip the
-        # tier ladder, defeating the spray ceiling on the normal path.
+        # Exempt delegates would bypass the tier ladder and fan-out ceiling.
         self._reject_exempt_delegates(self._delegate_tool_names, config)
         if config.tools.fanout.enabled and not self._delegate_tool_names:
             _logger.warning(
@@ -155,11 +142,7 @@ class ToolCallGuard:
             )
         self._selfmod_owned_cache: tuple[float, frozenset[str]] = (0.0, frozenset())
         self._selfmod_empty_warned: bool = False
-        # PET-176 D3/D4: warn-once latch for the scan_weight_cap tripwires
-        # (non-positive tier1 / sub-2.0 tier2:tier1 ratio / sub-3.0 step).
-        # Plain boolean in the _selfmod_empty_warned / _ring_overflow_warned
-        # idiom; reset in apply_config because the warned-about thresholds are
-        # reconfigurable.
+        # Threshold changes rearm the once-only cap diagnostics.
         self._cap_threshold_warned: bool = False
 
     def session_tier(self, session_id: str) -> str:
@@ -211,28 +194,10 @@ class ToolCallGuard:
         self._reject_exempt_delegates(self._delegates_from(new_config), new_config)
 
     def apply_config(self, new_config: PetasosConfig) -> None:
-        """PET-126: live-reconfigure the guard in place (spec D2/D5).
+        """Apply guard settings while preserving risk, spawn history and secret binding.
 
-        Calls ``validate_config`` FIRST, so a D8 violation or a malformed
-        ``frequency_weights`` map aborts before any mutation. Then:
-
-        - merge-preserves ``session_secret`` into the guard's OWN ``_config`` via
-          ``replace(new_config, session_secret=<live>)`` so ``_read_state``'s mint
-          decision stays in lockstep with the immutable tracker secret. A
-          ``None``<->non-None presence flip would otherwise force tier3 fail-secure
-          on every session (FREQ-03, Decision 2);
-        - recomputes ``_delegate_tool_names`` through the guard's own normalizer;
-        - resizes the ``_spawn_budget`` window in place (preserving counters);
-        - delegates to ``_frequency_tracker.apply_config`` (which holds the
-          tracker secret immutable). Since PET-176 D1 the tracker may be the
-          pipeline's own injected instance rather than a guard-private one, in
-          which case a reference-plugin reconfigure applies the same config to
-          it twice; ``apply_config`` is idempotent over an already-validated
-          config, so the second application is a no-op (D7).
-
-        Preserved: ``SpawnBudget._events`` / ``_last_sweep``, the guard tracker's
-        session/tombstone state, and ``_config.session_secret``.
-        """
+        Delegate/exemption validation precedes changes. The shared tracker applies
+        its own staged weight validation without replacing session state."""
         self.validate_config(new_config)
         self._config = new_config
         self._delegate_tool_names = self._delegates_from(new_config)
@@ -244,13 +209,9 @@ class ToolCallGuard:
 
     @property
     def scan_weight_cap(self) -> float:
-        """Per-scan weight STEP for large input (ingestion results, tool parameters).
+        """Return the quantized risk step for ingestion and parameter scans.
 
-        A capped scan contributes exactly this value or exactly 0.0, never
-        anything between (PET-176 D2 quantizes rather than truncates). Sized so
-        no single scan can cross a tier. The step is the config tree's tier 1
-        divided by the cap divisor. A profile's tier thresholds are not read.
-        """
+        See docs/architecture/rationale.md, "Scan contribution calibration"."""
         tier1 = float(self._config.escalation.tier1)
         if tier1 <= 0:
             # A zero tier 1 still validates when the three scores ascend.
@@ -264,15 +225,7 @@ class ToolCallGuard:
                     tier1,
                 )
             return 0.0
-        # D4's operator tripwires, on the GOVERNING axis (the tier2 read is what
-        # stops tool dispatch). Denominator: the same min-of-both tier1 the cap
-        # uses. Numerator: min-of-both tier2, NOT the guard-observed tier2 the
-        # published identity uses -- min <= tier2_guard, so this can only
-        # over-warn, never miss. Deliberate. Sits AFTER the tier1 <= 0 return,
-        # or the division raises ZeroDivisionError out of a property read inside
-        # _scan_params, whose bare `except Exception` would convert it into
-        # "every tool call unsafe". Ratio is checked before either step band
-        # because a sub-ratio configuration is the most urgent of the three.
+        # See docs/architecture/rationale.md, "Scan contribution calibration".
         if not self._cap_threshold_warned:
             tier2 = float(self._config.escalation.tier2)
             cap = tier1 / _SCAN_WEIGHT_CAP_DIVISOR
@@ -312,11 +265,10 @@ class ToolCallGuard:
         tool_params: dict[str, Any],
         session_id: str,
     ) -> GuardResult:
-        # Step 0: Feature gate
+        """Return a tool-call decision with guardrail, tier and parameter findings."""
         if not self._pipeline.is_feature_enabled("tool_guard"):
             return _FEATURE_DISABLED
 
-        # Step 1: Normalize tool name
         canon_pre_alias = canonicalize_tool_name(tool_name)
         normalized_name = self._normalize_tool_name(tool_name)
         if not normalized_name:
@@ -328,7 +280,6 @@ class ToolCallGuard:
                 param_scan_unsafe=False,
             )
 
-        # Step 1.5: Selfmod classification (total; never raises; builds no state)
         selfmod = self._classify_selfmod(canon_pre_alias, tool_params)
         selfmod_finding: ScanFinding | None = None
         if selfmod is not None:
@@ -375,10 +326,8 @@ class ToolCallGuard:
             self._pipeline.record_selfmod(session_id, selfmod_finding)
             return result
 
-        # Step 2: Derive tier
         tier = self._derive_tier(session_id)
 
-        # Step 3: Tier 3 → block
         if tier == "tier3":
             return _finish(
                 GuardResult(
@@ -390,7 +339,6 @@ class ToolCallGuard:
                 )
             )
 
-        # Step 3.5: Delegation fan-out gate (PET-107 C).
         if self._config.tools.fanout.enabled and normalized_name in self._delegate_tool_names:
             cap = self._fanout_cap(tier)
             if not self._spawn_budget.try_consume(session_id, cap, time.monotonic()):
@@ -404,7 +352,6 @@ class ToolCallGuard:
                     )
                 )
 
-        # Step 4: Exempt check
         if normalized_name in self._config.tools.exempt:
             if not self._exempt_param_scan:
                 return _finish(
@@ -430,12 +377,10 @@ class ToolCallGuard:
                 )
             )
 
-        # Step 5: Scan params
         findings, param_scan_unsafe, param_scan_degraded = await self._scan_params(
             tool_params, session_id
         )
 
-        # Step 6: Tier 2 → block
         if tier == "tier2":
             return _finish(
                 GuardResult(
@@ -448,7 +393,6 @@ class ToolCallGuard:
                 )
             )
 
-        # Step 7: Tier 1 with unsafe → warn
         if tier == "tier1":
             return _finish(
                 GuardResult(
@@ -461,7 +405,6 @@ class ToolCallGuard:
                 )
             )
 
-        # Step 8: Clean / no tier → allow
         return _finish(
             GuardResult(
                 allowed=True,
@@ -474,15 +417,9 @@ class ToolCallGuard:
         )
 
     def _record_selfmod_weight(self, session_id: str, finding: ScanFinding) -> None:
-        """Apply the selfmod frequency update to the guard's tracker (Decision 3).
+        """Record unclamped self-change risk in the shared tracker.
 
-        Since PET-176 D1 that tracker is the same one the pipeline's ingestion
-        and parameter scans write, so selfmod weight composes into one
-        per-session score. It stays deliberately UNCLAMPED: a selfmod finding is
-        a single rule id from a parameter-sized scan, bounded at 10.0, and a
-        config-write attempt moving a full tier step immediately is the designed
-        response, not an accident of the PET-176 clamp.
-        """
+        See docs/architecture/rationale.md, "Scan contribution calibration"."""
         try:
             if self._frequency_tracker.requires_token:
                 token = self._frequency_tracker.mint_token(session_id, self._pipeline.host_id)
@@ -495,27 +432,18 @@ class ToolCallGuard:
             )
 
     def _normalize_tool_name(self, tool_name: str) -> str:
-        # PET-118: canonicalize (strip→NFKC→homoglyph→casefold→ns-strip→strip) is the
-        # alias-free shared primitive; alias resolution below layers on top of it. The
-        # plugin's classification reuses canonicalize_tool_name WITHOUT this alias layer,
-        # so the two normalizers never diverge (D-CANON / D-EQUIV).
+        # See docs/architecture/rationale.md, "Tool alias canonicalization".
         name = canonicalize_tool_name(tool_name)
         aliases = dict(self._config.tools.aliases)
         if aliases:
             raw_aliases = {**DEFAULT_TOOL_ALIASES, **aliases}
         else:
             raw_aliases = dict(DEFAULT_TOOL_ALIASES)
-        # PET-121: canonicalize alias-map KEYS into the same space as `name`, so an alias keyed
-        # with a camel / _tool-suffixed form still fires once the shared primitive strips the
-        # suffix or splits the camel (incoming `custom_tool` -> `custom`; without this the raw
-        # `custom_tool` key would silently never match). Default keys are canonical-stable, so
-        # this is a no-op on them; profile keys collapsing to the same canonical form: last wins.
+        # See docs/architecture/rationale.md, "Tool alias canonicalization".
         combined = {canonicalize_tool_name(k): v for k, v in raw_aliases.items()}
         pre_alias = name
         resolved = combined.get(name, name)
-        # GUARD-03: a PROFILE-INTRODUCED alias must not redirect onto an exempt key.
-        # Default aliases (bash->exec) onto an operator-exempted target stay legal (D8).
-        # Compare `name` against the profile's CANONICALIZED keys (PET-121: same space as name).
+        # Configured aliases cannot redirect to exempt targets; built-in aliases may.
         if (
             resolved != pre_alias
             and name in {canonicalize_tool_name(k) for k in aliases}
@@ -537,8 +465,7 @@ class ToolCallGuard:
         return evaluate_tier(state.last_score, self._config)
 
     def _read_state(self, session_id: str) -> SessionState | None:
-        # Mirror the own-session path: with a session_secret set, get_state is
-        # keyed by a per-id minted token, not the raw id (PET-31).
+        # Authenticated trackers require minted tokens for ancestor reads too.
         if self._secrets.session_secret is not None:
             token = self._frequency_tracker.mint_token(session_id, self._pipeline.host_id)
             return self._frequency_tracker.get_state(token)
@@ -550,31 +477,18 @@ class ToolCallGuard:
         return self._state_to_tier(self._read_state(session_id))
 
     def _derive_tier(self, session_id: str) -> str:
-        # The whole derivation is wrapped fail-SECURE: any internal error — the
-        # own-tier read (_read_state → mint_token can raise on a malformed
-        # session_id or unset host_id when session_secret is set), a terminated
-        # ancestor lookup, or a max_tier ValueError on an unexpected tier string
-        # — logs and returns tier3, mirroring evaluate_tier. It must never escape
-        # into the reference plugin's fail-OPEN evaluate catch.
+        # See docs/architecture/rationale.md, "Inherited guard tiers".
         try:
-            # Step 1: own tier (today's logic).
             own = self._derive_own_tier(session_id)
-            # Step 2: no lineage data wired (host sub-agent hooks absent) → own
-            # only. This is the graceful-degradation branch (lineage is None).
+            # No registry means own-tier enforcement only.
             if self._lineage is None:
                 return own
-            # Steps 3-4: a child's tier is max(own, worst ancestor) read LIVE at
-            # evaluation time (D5). subagent_lineage_enabled gates the OPTIONAL
-            # tier-1/2 inheritance, but a terminated ancestor's tier-3 floor (D4)
-            # has NO config override — "Tier 3 escalation cannot be disabled" — so
-            # the chain is still walked for tombstones even when the flag is off.
+            # See docs/architecture/rationale.md, "Inherited guard tiers".
             inherit_full = self._config.tools.lineage.enabled
             anc_tiers: list[str] = []
             for aid in self._lineage.ancestors(session_id):
                 if self._frequency_tracker.is_terminated(aid):
-                    # Tombstone-backed: a terminated ancestor forces tier3 even
-                    # post-eviction (closes orphaned termination) and even when
-                    # full inheritance is config-disabled (D4 floor, no override).
+                    # Ancestor termination survives eviction and cannot be disabled.
                     anc_tiers.append("tier3")
                 elif inherit_full:
                     anc_tiers.append(self._state_to_tier(self._read_state(aid)))

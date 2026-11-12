@@ -226,3 +226,76 @@ The default timeout bounds callers that omit an explicit scan timeout.
 An injected tracker and its pipeline must share the session secret. Otherwise the
 pipeline chooses bare ids or tokens under one binding while the tracker enforces
 another, causing every update to fail and potentially leaving a safe-looking result.
+
+## Spawn budget atomicity
+
+Prune, count, compare and append occur under one lock so two concurrent children
+cannot both consume the last available slot. Expired session deques are removed
+by an amortized global sweep at most once per window, including sessions never
+consumed again; memory follows active windows rather than all historical ids.
+Changing the window retains timestamps and the sweep clock; a shorter window
+expires retained events on the next consume under the same reader lock.
+
+## Parameter scan degradation
+
+Parameter scan degradation means an unsafe result co-occurs with a scanner error.
+The host can therefore block degraded detection even when findings are personal
+information rather than injection. Fail-open scanner errors that leave safe true
+do not set this flag. Guard-internal scan and hook failures explicitly set it
+regardless of scanner fail mode. Tool parameters are outbound agent content, so
+the command family applies to both normal and fallback parameter scans.
+
+## Scan contribution calibration
+
+The contribution divisor is four. A divisor of three blocks dispatch after six
+consecutive flagged ingestion reads, below the intended eight-read floor. A divisor
+of five makes the shipped step 3.0, losing sub-step immunity for a single command
+finding. The step is the config tier-one threshold divided by four; role thresholds
+are not consulted. The measured upper raw-weight band for a maximally poisoned
+8,000-character ingestion window is 80. A step above that band makes every such
+scan quantize to zero and disables the session backstop, so it has a diagnostic.
+
+Nonpositive tier one returns zero before any ratio division. Otherwise a zero
+division could escape into parameter scanning and mark every call unsafe. The
+tier-two/tier-one ratio is checked before step bands because dispatch blocking is
+the urgent threshold. Reconfiguration rearms the once-only diagnostics. Self-change
+weights remain unclamped: a single config-write attempt is bounded at 10 points
+and intentionally contributes a full risk step immediately.
+
+## Tool alias canonicalization
+
+The alias-free canonicalizer is shared by host classification and guard evaluation.
+Alias keys are canonicalized into the same namespace as incoming names, including
+CamelCase and tool suffixes; otherwise those aliases never match. Canonically
+colliding configured keys use last-writer-wins. Configured aliases must not point
+to exempt tools; built-in aliases may point to operator-exempted targets. Delegate
+names are canonicalized too and cannot be exempt, because exemption skips the
+tier ladder and would defeat fan-out enforcement.
+
+## Inherited guard tiers
+
+Child tiers combine their own tier with live ancestor tiers. Optional tier-one/two
+inheritance can be disabled, but ancestor termination tombstones always force
+tier three, including after state eviction. An absent registry uses own-tier only.
+Any failure during token minting, state lookup or tier combination returns tier
+three so it cannot reach a host adapter failure path that would allow the call.
+
+## Guard overflow attribution
+
+Depth overflow means argument traversal is incomplete, not that a specific owned
+path matched. The sentinel target identifies that condition without misattributing
+a path in triage. The guard and adapter share the public constant.
+
+## Hermes tool classification
+
+Unknown tools default to acting and ingesting, failing toward enforcement and
+scrutiny. Argument blocking, result scanning and source-taint egress answer separate
+questions. Result scanning excludes known non-ingesting tools; the named ingesting
+subset contains only table rows that reach the hook. Non-string results remain
+outside that result-text seam: native vision returns multimodal dictionaries.
+
+Single-underscore `mcp_*` table entries do not match Hermes's double-underscore
+server/tool registration after canonicalization. They retain published read-only
+membership but cannot enter the hook-reaching ingestion subset. Evidence rows can
+remain even when all their axes equal defaults. Upstream source citations in the
+table and docs/architecture/hermes-host-facts.md record the host constraints.
