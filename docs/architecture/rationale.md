@@ -364,3 +364,57 @@ docs/architecture/hermes-host-facts.md under "Directory plugin in front of a whe
 A pin with its own record is read whole by Petasos; only keys enforced by Hermes
 itself can be missing. A hand-written managed file remains subject to the host
 overlay, which merges groups and retains a profile group over an unset value.
+
+## Normalization views
+
+Canonical normalized text remains independent of match-only leet, separator and
+composed views: folding common digits into letters in place would corrupt ML,
+personal-information offsets and audit output. Digit 1 is ambiguous between i and l,
+so both length-preserving variants are retained rather than guessed. Separator
+views restore spaces across stripped invisible runs and may change length; composed
+views leet-fold that separator string. Duplicate views are omitted and side views
+do not claim canonical transformations.
+
+Each normalization switch acts independently. RTL detection precedes stripping so
+removed controls remain observable. NFKC can introduce strippable characters and
+is followed by stripping when enabled; combining-mark removal belongs to NFKC.
+Homoglyph mapping precedes tool-name CamelCase splitting, which precedes casefolding:
+a Cyrillic internal capital such as U+0415 must become ASCII E before the split.
+U+0421 maps to C, not S, and a word-initial homoglyph does not test the internal boundary.
+
+Non-Cf invisible characters are enumerated because unicodedata does not expose
+Default_Ignorable_Code_Point and the residue crosses Mn, Lo and So categories.
+The set includes assigned non-Cf default ignorables, non-default-ignorable zero-glyph
+fillers and blank/space renderers. U+180F is stripped even on Unicode versions where
+it is unassigned. U+180E belongs to both category and explicit-range checks; duplicate
+set membership is harmless. Sweep counts vary by Unicode version: 266 on UCD 13,
+267 on UCD 14 and potentially more later, so membership rather than a count floor
+is pinned. Attack source spells unusual characters with chr() where ambiguity matters.
+
+## Hermes tool-name shapes
+
+The library has no host tool registry and must emit a single deterministic canonical
+name. A lowercase/digit-to-uppercase boundary preserves all-caps and snake-case
+names that Hermes's broader camel candidate would mangle; the host can choose among
+candidates using its registry. Normalization strips one leading namespace and up to
+two trailing _tool/-tool suffixes without producing an empty name. Bare tool endings
+are retained because their removal is registry guarded upstream. Fuzzy matching and
+single-underscore namespace guessing have no deterministic library equivalent.
+Homoglyph mapping precedes camel splitting and casefolding. Guard aliases are a
+separate layer; host classification uses the alias-free canonical form.
+
+## Local inference endpoint boundaries
+
+A nonblank base URL is authoritative over provider labels. A malformed URL or absent
+host is not local. Hostnames must equal localhost after removing a single terminal
+dot; localhost.evil.com, 127.0.0.1.evil.com, shorthand 127.1 and zero-padded IPv4
+spellings do not establish loopback. IP literals use ipaddress, never a string prefix.
+IPv4-mapped loopback is checked explicitly because older interpreters lack the
+is_loopback backport associated with CVE-2024-4032. Mapped routable addresses remain
+nonlocal. Provider fallback applies only when no usable base URL is supplied.
+
+Petasos tool hooks cannot intercept the model inference call itself. Sensitive
+content already in context can leave on the next cloud inference request, even
+when tool egress is fenced. Profiles requiring local inference therefore validate
+the endpoint during configuration or CI. The predicate uses only the standard
+library and is importable from petasos.profile_lint without extending root exports.
