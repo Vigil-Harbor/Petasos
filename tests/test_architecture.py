@@ -521,6 +521,20 @@ if TYPE_CHECKING:
 
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 
+
+def test_the_wheel_carries_the_tab_where_install_looks_for_it() -> None:
+    """The build puts the tab's files at the path an installed copy reads them from."""
+    import tomllib
+
+    from petasos.hermes.dashboard import manifest
+
+    document = tomllib.loads((_REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    carried = document["tool"]["hatch"]["build"]["targets"]["wheel"]["force-include"]
+    source = manifest.DASHBOARD_DIR.relative_to(_REPO_ROOT).as_posix()
+    packaged = manifest._PACKAGED_TAB.relative_to(_REPO_ROOT).as_posix()
+    assert carried[source] == packaged
+
+
 _SCANNER_CLASSES = frozenset(
     {
         "MinimalScanner",

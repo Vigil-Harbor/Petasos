@@ -8,15 +8,14 @@ route writes ``config.yaml`` itself.
 
 from __future__ import annotations
 
-import os
 import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import petasos
-from petasos.hermes.dashboard.manifest import DASHBOARD_DIR, render_dashboard_manifest
+from petasos.hermes.dashboard.manifest import render_dashboard_manifest, tab_source
 from petasos.hermes.doctor import Report, examine, render_text
-from petasos.hermes.doctor_support import use_home
+from petasos.hermes.doctor_support import enable_command, use_home
 from petasos.hermes.environment import probe_petasos, republish, runtime_python
 from petasos.hermes.manifest import render_manifest
 from petasos.hermes.settings import PLUGIN_ID
@@ -107,6 +106,15 @@ def _development(
     color: bool,
 ) -> InstallResult:
     target = plugin_dir(home)
+    if tab_source() is None:
+        text = (
+            "Nothing was written. This copy of Petasos does not carry the files for "
+            "the Petasos tab, so it cannot set up a profile.\n"
+            "Next: reinstall Petasos, then run petasos hermes install again.\n\n"
+        )
+        report = examine(home, home_reason=home_reason)
+        text += render_text(report, verbose=False, color=color)
+        return InstallResult(text=text, exit_code=2, report=report)
     owned, why = _owned(target)
     lines = [
         f"Petasos will set up protection for {home} ({home_reason}).",
@@ -175,7 +183,7 @@ def _development(
             "so tool calls are not checked yet. Hermes's own command turns it on "
             "and installs the wheel."
         )
-        lines.append(f"Next: {_enable_command(home)}")
+        lines.append(f"Next: {enable_command(home)}")
     text = "\n".join(lines) + "\n\n"
     report = examine(home, home_reason=home_reason)
     text += render_text(report, verbose=False, color=color)
@@ -278,7 +286,10 @@ def dashboard_texts() -> dict[str, str]:
     it is included without being named here.
     """
     texts: dict[str, str] = {}
-    for path in sorted(DASHBOARD_DIR.iterdir(), key=lambda item: item.name):
+    source = tab_source()
+    if source is None:
+        raise FileNotFoundError("This copy of Petasos does not carry the tab's files.")
+    for path in sorted(source.iterdir(), key=lambda item: item.name):
         if path.is_file() and path.name != "manifest.json":
             texts[path.name] = path.read_text(encoding="utf-8")
     texts["manifest.json"] = render_dashboard_manifest()
@@ -339,13 +350,6 @@ def _owned(target: Path) -> tuple[bool, str]:
         f"{target} already has files, and none of them is a Petasos plugin description. "
         "Nothing was replaced."
     )
-
-
-def _enable_command(home: Path) -> str:
-    """Hermes's own enable for ``home``, as a person would type it."""
-    if os.name == "nt":
-        return f"hermes plugins enable {PLUGIN_ID}, with HERMES_HOME set to {home}"
-    return f"HERMES_HOME={_quote(home)} hermes plugins enable {PLUGIN_ID}"
 
 
 def _quote(path: Path) -> str:

@@ -15,6 +15,18 @@ from petasos.hermes.settings import PLUGIN_ID
 
 DASHBOARD_DIR = Path(__file__).resolve().parents[3] / "hermes-plugin" / "petasos" / "dashboard"
 MANIFEST_PATH = DASHBOARD_DIR / "manifest.json"
+_PACKAGED_TAB = Path(__file__).resolve().parents[1] / "tab_files"
+
+
+def tab_source() -> Path | None:
+    """The directory that holds the built tab, or None when this copy has none.
+
+    A checkout has it in the plugin directory. An installed wheel carries a copy.
+    """
+    for candidate in (DASHBOARD_DIR, _PACKAGED_TAB):
+        if (candidate / "index.js").is_file():
+            return candidate
+    return None
 
 
 def dashboard_manifest() -> dict[str, object]:

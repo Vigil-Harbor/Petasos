@@ -49,6 +49,17 @@ def install_command(home: Path) -> str:
     return f"petasos hermes install --home {quote_path(home)}"
 
 
+def enable_command(home: Path) -> str:
+    """Hermes's own command that turns the plugin on for ``home``.
+
+    It also installs the wheel beside the plugin files, which a Python
+    without Hermes cannot do.
+    """
+    if os.name == "nt":
+        return f"hermes plugins enable petasos, with HERMES_HOME set to {home}"
+    return f"HERMES_HOME={quote_path(home)} hermes plugins enable petasos"
+
+
 def migrate_command(home: Path) -> str:
     """The migrate command for ``home``."""
     return f"petasos config migrate --home {quote_path(home)}"

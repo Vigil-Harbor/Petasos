@@ -36,6 +36,8 @@ def _run(
         timeout=timeout,
         check=False,
         env=sandbox_env(home),
+        # Not the checkout: the installed wheel must be the copy that runs.
+        cwd=str(home),
     )
 
 

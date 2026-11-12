@@ -8,7 +8,12 @@ from typing import TYPE_CHECKING
 
 import petasos
 from petasos.hermes.doctor_model import Check, HermesView
-from petasos.hermes.doctor_support import install_command, plugin_lists, version_ok
+from petasos.hermes.doctor_support import (
+    enable_command,
+    install_command,
+    plugin_lists,
+    version_ok,
+)
 from petasos.hermes.manifest import MIN_HERMES, render_manifest
 from petasos.hermes.settings import PLUGIN_ID
 
@@ -263,8 +268,12 @@ def absent_manifest() -> Check:
     )
 
 
-def enabled_check(document: object, home: Path) -> Check:
-    """Whether Hermes's enabled list includes Petasos."""
+def enabled_check(document: object, home: Path, *, files_in_place: bool) -> Check:
+    """Whether Hermes's enabled list includes Petasos.
+
+    With the files already written, the step left is Hermes's own enable.
+    Without them, the install comes first.
+    """
     enabled, disabled = plugin_lists(document)
     on = PLUGIN_ID in enabled
     off = PLUGIN_ID in disabled
@@ -276,7 +285,7 @@ def enabled_check(document: object, home: Path) -> Check:
             meaning=(
                 "A plugin on that list does not run, even when it is also on the switched-on list."
             ),
-            next_step=f"Run hermes plugins enable {PLUGIN_ID}, then petasos doctor.",
+            next_step=enable_command(home),
         )
     if not on:
         return Check(
@@ -284,7 +293,7 @@ def enabled_check(document: object, home: Path) -> Check:
             status="fail",
             summary="Petasos is not turned on in Hermes.",
             meaning="Hermes skips a plugin that is not on its switched-on list, with no error.",
-            next_step=install_command(home),
+            next_step=enable_command(home) if files_in_place else install_command(home),
         )
     return Check(
         id="plugin_enabled",

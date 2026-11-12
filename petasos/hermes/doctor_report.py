@@ -110,7 +110,8 @@ def _build(
         checks.append(manifest_check(plugin_dir, home))
     else:
         checks.append(absent_manifest())
-    checks.append(enabled_check(document, home))
+    files_in_place = (plugin_dir / "__init__.py").is_file()
+    checks.append(enabled_check(document, home, files_in_place=files_in_place))
     enabled_names, disabled_names = plugin_lists(document)
     plugin_on = PLUGIN_ID in enabled_names and PLUGIN_ID not in disabled_names
     checks.append(environment_check(home, plugin_enabled=plugin_on))

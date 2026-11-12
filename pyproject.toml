@@ -7,6 +7,11 @@ build-backend = "hatchling.build"
 # build time, so petasos/__init__.py is the sole version literal in the repo.
 path = "petasos/__init__.py"
 
+[tool.hatch.build.targets.wheel.force-include]
+# `petasos hermes install` copies the tab into a profile. An installed wheel has
+# no checkout beside it, so the wheel carries the built tab itself.
+"hermes-plugin/petasos/dashboard" = "petasos/hermes/tab_files"
+
 [project]
 name = "petasos"
 # PET-141: version is derived from petasos/__init__.py via Hatch (see

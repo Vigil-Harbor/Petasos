@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from petasos.cli import main
+from petasos.hermes.dashboard import manifest as tab_manifest
 from petasos.hermes.dashboard.manifest import render_dashboard_manifest
 from petasos.hermes.install import RELEASED_COMMAND, dashboard_texts, render_project
 from petasos.hermes.manifest import render_manifest
@@ -127,3 +128,42 @@ def test_install_then_doctor_names_the_missing_switch(
     assert "Not protected." in out
     assert "not turned on in Hermes" in out
     assert code == 2
+
+    _code, report = _run(["doctor", "--home", str(tmp_path)], capsys)
+    assert f"Next: HERMES_HOME={tmp_path} hermes plugins enable petasos" in report
+    assert "Next: petasos hermes install" not in report
+
+
+def test_a_copy_without_a_checkout_installs_the_tab_it_carries(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """An installed wheel has no plugin directory beside it; the tab comes from the wheel."""
+    carried = tmp_path / "carried"
+    carried.mkdir()
+    (carried / "index.js").write_text("// tab\n", encoding="utf-8")
+    (carried / "plugin_api.py").write_text("router = None\n", encoding="utf-8")
+    monkeypatch.setattr(tab_manifest, "DASHBOARD_DIR", tmp_path / "no-checkout")
+    monkeypatch.setattr(tab_manifest, "_PACKAGED_TAB", carried)
+    home = tmp_path / "home"
+
+    _run(["hermes", "install", "--home", str(home)], capsys)
+
+    dashboard = home / "plugins" / "petasos" / "dashboard"
+    assert (dashboard / "index.js").read_text(encoding="utf-8") == "// tab\n"
+    assert (dashboard / "plugin_api.py").read_text(encoding="utf-8") == "router = None\n"
+    assert (dashboard / "manifest.json").read_text(encoding="utf-8") == render_dashboard_manifest()
+
+
+def test_a_copy_with_no_tab_writes_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Without the tab's files the install stops in words and leaves the home alone."""
+    monkeypatch.setattr(tab_manifest, "DASHBOARD_DIR", tmp_path / "no-checkout")
+    monkeypatch.setattr(tab_manifest, "_PACKAGED_TAB", tmp_path / "no-wheel-copy")
+    home = tmp_path / "home"
+
+    code, out = _run(["hermes", "install", "--home", str(home)], capsys)
+
+    assert code == 2
+    assert "Nothing was written" in out
+    assert not (home / "plugins").exists()
