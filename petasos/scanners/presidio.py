@@ -259,11 +259,12 @@ class PresidioScanner:
         session_id: str | None = None,
         extra_entities: Sequence[str] | None = None,
     ) -> ScanResult:
-        """Return personal-information findings or an error result without raising.
+        """Return personal-information findings or backend errors as scan results.
 
         Per-call entity additions preserve the scanner base and concurrent scope.
-        Loading and analysis run off the event loop; cancelled loads do not analyze
-        abandoned text. In-flight analysis threads still run to completion."""
+        Loading and analysis run off the event loop. Cancellation propagates;
+        a cancelled load does not analyze abandoned text, while an in-flight
+        analysis thread runs to completion."""
         start_time = time.perf_counter()
         try:
             await asyncio.to_thread(self._ensure_loaded)

@@ -67,7 +67,7 @@ class MinimalScanner:
         direction: Direction = "inbound",
         session_id: str | None = None,
     ) -> ScanResult:
-        """Return syntactic findings or an error result without raising."""
+        """Return syntactic findings or convert scanner exceptions into an error result."""
         start_time = time.perf_counter()
         try:
             findings = self._scan_impl(text, direction)
