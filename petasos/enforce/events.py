@@ -202,7 +202,7 @@ def emit_enforcement_event(
 
 
 def emit_console_event(event: dict[str, Any], *, key: bytes | None) -> bool:
-    """Append a console event using its explicit key without changing plugin signing."""
+    """Append an audit event using its explicit key without changing plugin signing."""
     try:
         rec = dict(event)
         _append_record(rec, _spool_path(use_override=False), key)
