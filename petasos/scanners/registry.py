@@ -91,6 +91,7 @@ class UnavailableScanner:
         direction: Direction = "inbound",
         session_id: str | None = None,
     ) -> ScanResult:
+        """Return the recorded backend unavailability as a scan error."""
         del text, direction, session_id
         return ScanResult(
             scanner_name=self.name,
@@ -227,10 +228,7 @@ def _after_build(
     enabled: Enabled,
     instance: Scanner,
 ) -> tuple[ScannerStatus, Scanner | None]:
-    # Probed after the instance exists so a probe that raises leaves the
-    # instance registered. An ImportError from the probe is that case, not
-    # "the package is absent": absence is a probe result of cause ``absent``,
-    # or an ImportError from the builder.
+    # See docs/architecture/rationale.md, "Scanner availability failures".
     try:
         ok, reason, cause = _read_probe(instance)
     except Exception as exc:
@@ -332,7 +330,6 @@ def _build_semgrep(section: Any, context: BuildContext) -> Scanner:
         raise
 
 
-# Registration order after the syntactic scanner: Presidio, PromptGuard, Semgrep.
 REGISTRY: tuple[ScannerSpec, ...] = (
     ScannerSpec(
         id="presidio",

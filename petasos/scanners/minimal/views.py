@@ -89,11 +89,7 @@ def _decode_view_shape(
     *,
     extra: bool,
 ) -> tuple[Position | None, str | None]:
-    """Finding shape for a decode match, including PET-201 extra views.
-
-    Blob candidates keep the carrier span even on an extra view. ROT13 extras
-    are non-1:1, so they omit span rather than indexing ``origin_text``.
-    """
+    """Return a carrier span or omit offsets for a non-length-preserving view."""
     if extra and cand.position is None:
         return None, None
     return _resolve_finding_shape(cand, m)

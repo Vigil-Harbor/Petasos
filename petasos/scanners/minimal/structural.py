@@ -16,13 +16,10 @@ from petasos.model import (
     Severity,
 )
 
-# --- Structural checks ---
-
 _BINARY_PATTERN = re.compile(r"[\x00-\x08\x0e-\x1f\x7f]")
 
 
 def _check_structural(self: MinimalScanner, text: str, findings: list[ScanFinding]) -> None:
-    # Oversized payload
     payload_size = len(text.encode("utf-8"))
     if payload_size > self._max_payload_bytes:
         findings.append(
@@ -38,7 +35,6 @@ def _check_structural(self: MinimalScanner, text: str, findings: list[ScanFindin
             )
         )
 
-    # Binary content
     m = _BINARY_PATTERN.search(text)
     if m:
         findings.append(
@@ -54,7 +50,6 @@ def _check_structural(self: MinimalScanner, text: str, findings: list[ScanFindin
             )
         )
 
-    # Excessive JSON depth (iterative bracket counting)
     max_depth = self._check_json_depth(text)
     if max_depth > self._max_json_depth:
         findings.append(

@@ -413,6 +413,8 @@ def _scan_sync(text: str, cancelled: threading.Event) -> float | None:
 
 
 class PromptGuardScanner:
+    """Detect injection with bounded, shared PromptGuard inference."""
+
     def __init__(self, *, threshold: float = _BLOCK_THRESHOLD) -> None:
         """Report injection when the score is at least ``threshold``.
 
@@ -422,6 +424,7 @@ class PromptGuardScanner:
 
     @property
     def name(self) -> str:
+        """Return the stable scanner id."""
         return "prompt_guard"
 
     def availability(self) -> tuple[bool, str | None, AvailabilityCause | None]:

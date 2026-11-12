@@ -20,6 +20,8 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class SyntacticRule:
+    """Describe one syntactic rule with its severity and suppression policy."""
+
     rule_id: str
     category: str
     severity: Severity
@@ -31,7 +33,6 @@ _AGENT_DIRECTIVE_RULE_IDS: frozenset[str] = frozenset(
     {"petasos.syntactic.injection.agent-directed-fetch"}
 )
 
-# --- Rule taxonomy ---
 
 _INJECTION_RULE_IDS = frozenset(
     f"petasos.syntactic.injection.{slug}" for slug, _ in _INJECTION_PATTERNS
@@ -71,19 +72,10 @@ RULE_TAXONOMY: frozenset[str] = (
     | _STRUCTURAL_RULE_IDS
     | _ENCODING_RULE_IDS
     | _COMMAND_RULE_IDS
-    | _AGENT_DIRECTIVE_RULE_IDS  # PET-154
+    | _AGENT_DIRECTIVE_RULE_IDS
 )
 
-_ALL_INJECTION_IDS = (
-    _INJECTION_RULE_IDS | _ROLE_SWITCH_RULE_IDS | _AGENT_DIRECTIVE_RULE_IDS  # PET-154
-)
+_ALL_INJECTION_IDS = _INJECTION_RULE_IDS | _ROLE_SWITCH_RULE_IDS | _AGENT_DIRECTIVE_RULE_IDS
 
-# The command family (_COMMAND_RULE_IDS, PET-94) is deliberately OUTSIDE this set
-# — it is suppressible (Decision 1). The unsuppressible set exists to prevent
-# profile-driven evasion of *injection detection* (SYN-08/PROF-04); command
-# rules detect *content dangerous to execute*, not content that manipulates the
-# model, and legitimate workloads (code generation) routinely emit it, so
-# code_generation suppresses pipe-to-shell only and leaves the other four
-# command rules active (PET-221). A future family-author who
-# wants a non-suppressible command rule must re-decide this consciously.
+# See docs/architecture/rationale.md, "Command detection boundaries".
 _UNSUPPRESSIBLE_RULE_IDS = _STRUCTURAL_RULE_IDS | _ALL_INJECTION_IDS

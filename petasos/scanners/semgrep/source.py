@@ -125,14 +125,19 @@ def _scan_string(text: str, start: int, strict: bool) -> tuple[str, int]:
 
 
 class ProjectionError(ValueError):
+    """Reject an invalid or over-budget source projection."""
+
     pass
 
 
 @dataclass
 class MapBudget:
+    """Bound retained source-offset maps across projections."""
+
     used: int = 0
 
     def charge(self, length: int) -> None:
+        """Charge map bytes and reject allocations beyond the shared budget."""
         self.used += length * 8
         if self.used > 8 * 1024 * 1024:
             raise ProjectionError("projection_limit")
@@ -140,6 +145,8 @@ class MapBudget:
 
 @dataclass
 class Region:
+    """Associate selected text with original-input coordinates."""
+
     text: str
     start: int
     end: int
@@ -151,6 +158,7 @@ class Region:
     clamped: bool = False
 
     def interval(self, start: int, end: int) -> tuple[int, int]:
+        """Project a valid text interval into original-input coordinates."""
         if not 0 <= start <= end <= len(self.text):
             raise ProjectionError("offset_invalid")
         if self.starts is None or self.ends is None:
@@ -161,6 +169,7 @@ class Region:
         return self.starts[start], self.ends[end - 1]
 
     def slice(self, start: int, end: int, budget: MapBudget | None = None) -> Region:
+        """Return a subregion while charging retained offset maps."""
         if self.starts is not None and budget is not None:
             budget.charge(end - start)
         a, b = self.interval(start, end)
@@ -179,6 +188,8 @@ class Region:
 
 @dataclass
 class Target:
+    """Describe one selected source region and its coverage limits."""
+
     region: Region
     language: str | None = None
     asserted: bool = False
@@ -187,6 +198,8 @@ class Target:
 
 @dataclass
 class Selection:
+    """Record selected targets and reasons input remains unexamined."""
+
     targets: list[Target] = field(default_factory=list)
     reasons: set[str] = field(default_factory=set)
     error: str | None = None
@@ -201,6 +214,7 @@ def validate_envelope(
     segments: tuple[tuple[int, int], ...] | None,
     total: int | None,
 ) -> tuple[tuple[tuple[int, int], ...], int]:
+    """Validate source segments and total length or raise ProjectionError."""
     if not isinstance(text, str):
         raise ProjectionError("invalid_envelope")
     total = len(text) if total is None else total
@@ -389,12 +403,7 @@ async def _json_strings(
         f[1] = "done" if kind == "root" else "comma"
         if char in "{[":
             if len(frames) > 128:
-                # Stop retaining stack frames, but examine every remaining
-                # string token (including escaped identifiers) before calling
-                # this a non-code depth limit. No recursive JSON tree.
-                # Do not let malformed strings or quote alignment hide later
-                # escaped code. This is evidence of missing coverage, not a
-                # claim that the remaining document is valid JSON.
+                # See docs/architecture/rationale.md, "JSON projection depth".
                 code = await preflight(text)
                 reasons.add("projection_limit_code" if code else "projection_depth_limit")
                 return leaves, reasons, clamps, i
@@ -580,6 +589,7 @@ async def select_sources(
     total: int | None = None,
     max_bytes: int = 65536,
 ) -> Selection:
+    """Select bounded candidate regions without certifying omitted input."""
     segments, total = validate_envelope(text, segments, total)
     selection = Selection(examined=min(len(text), MAX_PARAM_TEXT_LEN), total=total)
     budget = MapBudget()
