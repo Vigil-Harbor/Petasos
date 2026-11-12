@@ -199,3 +199,30 @@ Malformed, truncated or too-deep JSON becomes one capped leaf rather than raisin
 Oversized leaves are dropped. The minimum normalized span length is read and
 updated under one lock; reconfiguration affects future captures only, preserving
 stored spans and never retroactively admitting rejected spans.
+
+## Finding suppression floors
+
+Structural findings always retain their floor, independently of scan direction or
+injection scope. Prefix recognition supplements the structural-rule vocabulary.
+Injection findings retain their floor inbound; only the exact pair of inbound-only
+scope and outbound direction permits relaxation. Unvalidated values therefore
+fail safe. A profile cannot turn off inbound injection detection.
+
+## Scanner health provenance
+
+Scanner health distinguishes load errors, runtime degradation and absent prerequisites.
+Availability probes are duck typed: two-element results omit cause; malformed or
+throwing probes leave the initial healthy state intact. The value stays Any so
+arity checks remain live rather than becoming statically impossible tuple accesses.
+A load_failed cause uses the probe reason, even if empty, rather than a stale scan error.
+
+Timeouts have a separate error prefix because only consecutive timeouts open the
+breaker. Other outcomes reset the streak. asyncio.TimeoutError also supports hosts
+where it differs from the builtin; cancellation is a BaseException and propagates.
+The default timeout bounds callers that omit an explicit scan timeout.
+
+## Shared tracker token binding
+
+An injected tracker and its pipeline must share the session secret. Otherwise the
+pipeline chooses bare ids or tokens under one binding while the tracker enforces
+another, causing every update to fail and potentially leaving a safe-looking result.

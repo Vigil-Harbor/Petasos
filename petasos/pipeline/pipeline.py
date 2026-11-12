@@ -1,3 +1,5 @@
+"""Inspect text with explicit scanner errors and bounded session risk."""
+
 from __future__ import annotations
 
 import asyncio
@@ -54,6 +56,8 @@ if TYPE_CHECKING:
 
 
 class Pipeline:
+    """Return inspection outcomes while containing scanner and hook failures."""
+
     def __init__(
         self,
         scanners: Sequence[Scanner] = (),
@@ -96,11 +100,7 @@ class Pipeline:
             )
 
         if frequency_tracker is not None:
-            # PET-176 D1: an injected tracker and this pipeline must agree on
-            # session_secret, or _frequency_hook's token/bare-string choice
-            # (pipeline._config) and _resolve_session_id's enforcement
-            # (tracker._session_secret) disagree and EVERY update() raises into
-            # Stage 6's errors[] with a green-looking result.
+            # See docs/architecture/rationale.md, "Shared tracker token binding".
             if frequency_tracker.requires_token != (self._secrets.session_secret is not None):
                 raise ValueError(
                     "frequency_tracker.requires_token must match config.session_secret being set"
@@ -141,9 +141,11 @@ class Pipeline:
 
     @property
     def host_id(self) -> str:
+        """Return the host identity used for session binding and audit."""
         return self._host_id
 
     def is_feature_enabled(self, feature_name: str) -> bool:
+        """Return whether a feature remains enabled in this pipeline."""
         return self._is_enabled(feature_name)
 
     scanner_health = scanner_health
@@ -157,12 +159,9 @@ class Pipeline:
         self._alert_manager.add_listener(callback)
 
     def record_selfmod(self, session_id: str | None, finding: ScanFinding) -> None:
-        """Alert + audit for a selfmod classification (PET-164 Decision 4).
+        """Emit self-modification audit and alert records without raising.
 
-        Sync, never throws. Frequency lives in the guard (Decision 3); this
-        method does NOT touch the tracker. The alert bypasses the ``alerting``
-        feature gate by construction; the audit sink is the sole config gate.
-        """
+        The guard owns the associated risk update."""
         try:
             self._alert_manager.evaluate_selfmod(finding, session_id)
         except Exception:
@@ -352,6 +351,7 @@ class Pipeline:
         session_id: str | None = None,
         weight_cap: float | None = None,
     ) -> PipelineResult:
+        """Return findings, safety and errors without propagating inspection failures."""
         resolved_direction: Direction = (
             direction if direction is not None else self._config.direction
         )
@@ -395,10 +395,7 @@ class Pipeline:
         escalation_tier: str | None = None
         errors: list[str] = []
 
-        # Stage 1: Normalize — each config toggle is honored independently
-        # (PIPE-05). The old all-or-nothing guard skipped *all* normalization if
-        # any single toggle was off; now disabling one stage leaves the rest
-        # running.
+        # Each normalization switch applies independently.
         normalization = self._config.normalization
         norm_result = normalize(
             text,
@@ -408,9 +405,7 @@ class Pipeline:
         )
         normalized_text = norm_result.normalized
 
-        # Stage 1b: the syntactic pre-filter always uses the base minimal
-        # scanner. Profile-driven suppression runs at Stage 4b (PET-109); no
-        # profile-based scanner selection happens here.
+        # Suppression applies after the always-on syntactic pre-filter.
         assert self._minimal_scanner is not None
         effective_scanner = self._minimal_scanner
 

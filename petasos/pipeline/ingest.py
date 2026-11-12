@@ -36,6 +36,8 @@ IngestionRegime = Literal["full", "ceiling"]
 
 @dataclass(frozen=True)
 class IngestionCoverage:
+    """Report bounded ingestion coverage and any incomplete examination."""
+
     regime: IngestionRegime
     scanned_chars: int
     total_chars: int

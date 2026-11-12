@@ -20,24 +20,17 @@ if TYPE_CHECKING:
     from petasos.model import Direction, Scanner
     from petasos.pipeline.pipeline import Pipeline
 
-# PET-103: scanner-health status names as module-level constants (D8) so the
-# pipeline and its tests cannot drift on the spelling. ``error`` (load-time
-# crash) is distinct from ``degraded`` (run-time error) and from ``unavailable``
-# (genuinely not installed / prerequisites missing).
+# See docs/architecture/rationale.md, "Scanner health provenance".
 _HEALTH_STATUS_HEALTHY = "healthy"
 _HEALTH_STATUS_DEGRADED = "degraded"
 _HEALTH_STATUS_CIRCUIT_OPEN = "circuit_open"
 _HEALTH_STATUS_UNAVAILABLE = "unavailable"
 _HEALTH_STATUS_ERROR = "error"
 
-# Default per-scanner timeout (PIPE-03). Lowered from 30s; overridable per
-# Pipeline via PetasosConfig.scanner_timeout_seconds. Kept as the _scan_one
-# default so callers/tests that omit a timeout still get a bounded wait.
+# The default also bounds direct scan_one callers that omit a timeout.
 _SCANNER_TIMEOUT = 10.0
 
-# Error-string prefixes used to classify scanner failures for the circuit
-# breaker (PIPE-03). A timeout increments the per-scanner consecutive-timeout
-# counter; any other error (or success) resets it.
+# Only consecutive timeout errors advance the breaker; other outcomes reset it.
 _BREAKER_OPEN_ERROR_PREFIX = "ScannerCircuitOpen"
 
 
@@ -53,9 +46,7 @@ async def _scan_one(
     sname = getattr(scanner, "name", "unknown")
     t0 = time.perf_counter()
     try:
-        # extra_entities is Presidio-only (PET-119); passed conditionally so the
-        # generic Scanner.scan() call stays protocol-conformant under mypy --strict
-        # (no keyword reaches non-Presidio scanners).
+        # Only Presidio accepts the per-call entity additions keyword.
         scan_kwargs: dict[str, Any] = {"direction": direction, "session_id": session_id}
         if extra_entities is not None:
             scan_kwargs["extra_entities"] = list(extra_entities)
@@ -64,12 +55,7 @@ async def _scan_one(
             timeout=timeout,
         )
     except asyncio.TimeoutError:  # noqa: UP041
-        # Classified separately from other failures so the circuit breaker can
-        # count consecutive timeouts. asyncio.TimeoutError (not the builtin) is
-        # what wait_for raises on Python <3.11; on 3.11+ it is an alias of the
-        # builtin TimeoutError, so this catches both. The UP041 rewrite to the
-        # bare builtin is suppressed because it breaks on 3.10. CancelledError is
-        # a BaseException, not a TimeoutError, so it falls through below (PET-48).
+        # See docs/architecture/rationale.md, "Scanner health provenance".
         elapsed = (time.perf_counter() - t0) * 1000
         return ScanResult(
             scanner_name=sname,
@@ -136,14 +122,7 @@ def scanner_health(self: Pipeline) -> list[dict[str, Any]]:
         probe_reason: str | None = None
         probe_cause: str | None = None
         if probe_fn is not None:
-            # PET-103 D4: arity-tolerant, fail-safe extraction. ``probe_result``
-            # is ``Any`` (``availability()`` is duck-typed) and MUST stay ``Any``
-            # — annotating it as a fixed-arity tuple makes the ``len`` guards
-            # statically dead and ``probe_result[2]`` a mypy error. A legacy 2-tuple
-            # leaves ``probe_cause`` None → the non-``load_failed`` branch →
-            # ``unavailable`` (backward compatible). A short/non-indexable or
-            # throwing return is suppressed, leaving ``probe_ok`` True →
-            # ``healthy`` (pre-existing PET-87 behavior, unchanged here).
+            # See docs/architecture/rationale.md, "Scanner health provenance".
             with contextlib.suppress(Exception):
                 probe_result = probe_fn()
                 probe_ok = bool(probe_result[0])
@@ -155,10 +134,7 @@ def scanner_health(self: Pipeline) -> list[dict[str, Any]]:
                 status = _HEALTH_STATUS_ERROR
             else:
                 status = _HEALTH_STATUS_UNAVAILABLE
-            # Provenance is load-bearing for ``error``: an operator told the
-            # backend crashed on load must see the crash message, not a stale
-            # ``scan_err``. ``is not None`` (not ``or``) preserves an
-            # explicitly-empty crash reason. (PET-103)
+            # See docs/architecture/rationale.md, "Scanner health provenance".
             last_error = probe_reason if probe_reason is not None else scan_err
         elif open_until > _time.monotonic():
             status = _HEALTH_STATUS_CIRCUIT_OPEN

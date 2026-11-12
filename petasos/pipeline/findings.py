@@ -69,21 +69,13 @@ def _is_floor_rule(
     direction: Direction = "inbound",
     scope: FloorScope = "all",
 ) -> bool:
-    # Single chokepoint for both floor checks (PET-162 D1). Structural is ALWAYS
-    # floor — independent of direction/scope (a different threat class than
-    # injection; injection_floor_scope governs the injection family only). The
-    # prefix disjunct is a belt-and-suspenders guard kept aligned by a tripwire
-    # test (_STRUCTURAL_RULE_IDS <= the structural-prefix set).
+    # See docs/architecture/rationale.md, "Finding suppression floors".
     if rule_id in _STRUCTURAL_RULE_IDS or rule_id.startswith(_STRUCTURAL_RULE_PREFIX):
         return True
     if rule_id.startswith(_SELFMOD_RULE_PREFIX):
         return True
     if rule_id in _ALL_INJECTION_IDS:
-        # Injection floor is absolute on inbound for every profile (PET-54/124). A
-        # profile may relax it for the agent's OWN outbound only by opting into
-        # scope="inbound". Every value other than the exact pair
-        # (scope=="inbound" AND direction=="outbound") falls through to floor, so
-        # an unvalidated scope reaching here (direct construction) fails safe.
+        # See docs/architecture/rationale.md, "Finding suppression floors".
         return not (scope == "inbound" and direction == "outbound")
     return False
 
@@ -130,6 +122,7 @@ def _standalone_tier3_check(findings: tuple[ScanFinding, ...]) -> bool:
 
 
 def merge_findings(results: Sequence[ScanResult]) -> tuple[ScanFinding, ...]:
+    """Resolve overlapping findings by severity, then confidence."""
     all_findings: list[ScanFinding] = []
     for r in results:
         all_findings.extend(r.findings)
