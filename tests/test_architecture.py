@@ -990,6 +990,39 @@ def test_the_tab_uses_only_hermes_and_its_own_api() -> None:
     assert 'var API = "/api/plugins/petasos";' in script
 
 
+# Phrases Hermes's install-time scan of a plugin directory refuses. The real
+# scanner is exercised in tests/hermes_host/test_plugin_admission.py, which
+# the default run skips, so this short list is what the default run has.
+_ADMISSION_TRIPS = (
+    "ignore previous instructions",
+    "ignore all previous instructions",
+    "rm -rf",
+    "| bash",
+    "| sh",
+    "~/.ssh",
+    "system override",
+    "developer mode",
+)
+
+
+def test_the_plugin_directory_holds_no_sample_attack() -> None:
+    """Nothing Hermes scans before loading the plugin looks like an attack.
+
+    This reads shipped files, because their text is what Hermes judges: an
+    example attack in the tab would make Hermes refuse to install the plugin.
+    """
+    plugin = _PLUGIN_DASHBOARD.parent
+    found: list[str] = []
+    for path in sorted(plugin.rglob("*")):
+        if not path.is_file() or "__pycache__" in path.parts:
+            continue
+        text = path.read_text(encoding="utf-8", errors="ignore").lower()
+        found.extend(
+            f"{path.relative_to(plugin)}: {trip}" for trip in _ADMISSION_TRIPS if trip in text
+        )
+    assert found == []
+
+
 def test_the_installed_dashboard_folder_holds_only_what_hermes_loads() -> None:
     """The installer copies dashboard/ as it is: the manifest, the API shim, the joined script."""
     shipped = sorted(
