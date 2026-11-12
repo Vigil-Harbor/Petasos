@@ -1,3 +1,5 @@
+"""Format enforcement messages and privacy-bounded ingestion notices."""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Literal
@@ -13,10 +15,7 @@ _PREFIX = "[BLOCKED by Petasos]"
 
 _MAX_MESSAGE_LEN = 200
 
-# PET-77: the reference-plugin content-scan / init-fallback block sites fire after the
-# guard has returned allowed=True (or operate outside GuardResult), so they cannot reuse
-# format_block_message. format_content_block is keyed on the block decision the shim
-# already made (one of these paths) plus the findings that drove it.
+# See docs/architecture/rationale.md, "Model-facing result notices".
 ContentBlockPath = Literal["init", "degraded", "non_pii_param", "pii_egress", "taint_egress"]
 
 _CONTENT_REASON: dict[str, str] = {
@@ -24,18 +23,14 @@ _CONTENT_REASON: dict[str, str] = {
     "degraded": "Parameter scan unavailable (scanner degraded); blocked by fail-mode policy.",
     "non_pii_param": "Unsafe content detected in the tool parameters.",
     "pii_egress": "Sensitive data (PII) was about to leave via this tool; the call was stopped.",
-    # PET-134: the model-facing taint message carries NO source/sink detail (PET-77:
-    # internal provenance reasons never reach the model; that detail goes only to the
-    # operator log + enforcement event).
+    # Source and sink provenance belongs only in operator logs and events.
     "taint_egress": (
         "Content from a restricted source was about to leave via this tool; the call was stopped."
     ),
 }
 
 
-# PET-170: the ingestion-result annotation notice. NOT a block message and deliberately
-# not a ContentBlockPath: format_content_block hardcodes "Tool 'X' was NOT executed", and
-# nothing on this path is blocked — the content is returned whole behind this banner.
+# Returned content is annotated whole, so this path must not claim a tool was blocked.
 ResultNoticePath = Literal["findings", "scan_unavailable", "ceiling"]
 
 _RESULT_NOTICE: dict[str, str] = {
@@ -60,6 +55,7 @@ _RESULT_PREFIX = "[Petasos]"
 
 
 def shorten_rule_id(rule_id: str) -> str:
+    """Remove only the syntactic rule prefix from a rule id."""
     if rule_id.startswith(_STRIP_PREFIX):
         return rule_id[len(_STRIP_PREFIX) :]
     return rule_id
@@ -90,6 +86,7 @@ def _top_finding_clause(findings: tuple[ScanFinding, ...]) -> str:
 
 
 def format_block_message(result: GuardResult, tool_name: str) -> str:
+    """Return the guard decision message, or empty text for an allowed result."""
     if result.tier == "tier3":
         return (
             f"{_PREFIX} Tool '{tool_name}' was NOT executed. "
@@ -134,6 +131,7 @@ def format_block_message(result: GuardResult, tool_name: str) -> str:
 
 
 def format_pipeline_block_message(result: PipelineResult) -> str:
+    """Return a pipeline block message, or empty text for a safe result."""
     if result.safe:
         return ""
 
@@ -149,19 +147,9 @@ def format_content_block(
     tool_name: str,
     findings: tuple[ScanFinding, ...],
 ) -> str:
-    """Format a model-facing block message for a reference-plugin content-scan or
-    init-fallback block.
+    """Return a content-block message with a valid reason for every path.
 
-    Keyed on the block decision the shim already made (``path``) plus the findings
-    that drove it, because these sites fire after the guard has returned
-    ``allowed=True`` (or outside ``GuardResult`` entirely) and so cannot reuse
-    ``format_block_message`` (which returns ``""`` for an allowed result).
-
-    The reason lookup is fail-closed: an out-of-set ``path`` (a wiring typo in a
-    caller that mypy does not type-check at the import boundary) degrades to a valid
-    ``[BLOCKED by Petasos]`` message rather than raising, honoring the
-    pipeline-never-throws invariant.
-    """
+    See docs/architecture/rationale.md, "Model-facing result notices"."""
     reason = _CONTENT_REASON.get(path, "Blocked by a security policy.")
     clause = _top_finding_clause(findings)
     msg = f"{_PREFIX} Tool '{tool_name}' was NOT executed. {reason}"
@@ -179,38 +167,9 @@ def format_result_notice(
     total_chars: int = 0,
     coverage: Literal["full", "ceiling"] | None = None,
 ) -> str:
-    """Format the model-facing banner prefixed to an annotated ingestion-tool result
-    (PET-170 / PET-178). Nothing is withheld: the caller concatenates
-    ``notice + "\\n\\n" + result``.
+    """Return an ingestion banner without quoting matched content or adding a newline.
 
-    Output contract, so no caller has to guess it:
-
-    - The banner carries **no trailing newline**; the two-newline join is the caller's.
-    - Line 2 (``Top finding: ...``) appears only when ``finding is not None``. ``N`` in
-      the ``(+N more)`` suffix is ``finding_count - 1``, matching ``_top_finding_clause``'s
-      ``extra`` convention. Path ``"ceiling"`` has no top-finding line.
-    - ``Coverage: {coverage}.`` appears only when ``coverage`` is passed.
-    - ``Scanned X of Y characters.`` appears on the ``findings`` and ``ceiling`` paths
-      when ``total_chars > scanned_chars``. Never on ``scan_unavailable``, where
-      nothing was scanned and a scanned/total count would contradict the line above it.
-
-    It quotes **none of the matched text**, and that is load-bearing rather than
-    incidental. ``MinimalScanner`` builds several finding messages out of the matched
-    content itself (``minimal.py`` leet-decode and carrier-decode messages), so reusing
-    ``_top_finding_clause`` — which embeds ``message`` up to 200 chars — would re-inject
-    the attacker's decoded payload inside a frame the model reads as trustworthy. The rule
-    id and severity carry the signal; the raw message goes to the operator via the
-    enforcement event.
-
-    ``finding`` is the already-selected worst, passed in by the caller rather than
-    re-derived: the shim's ``_worst`` breaks severity ties toward higher confidence
-    while ``_top_finding_clause`` sorts on severity alone, so re-deriving here would
-    let the banner and the console row name different findings on a tie.
-
-    The reason lookup is fail-closed on an out-of-set ``path``, mirroring
-    ``format_content_block``. Path ``"ceiling"`` must not reuse the findings
-    injection sentence.
-    """
+    See docs/architecture/rationale.md, "Model-facing result notices"."""
     reason = _RESULT_NOTICE.get(path, _RESULT_NOTICE_FALLBACK)
     lines = [f"{_RESULT_PREFIX} Output from tool '{tool_name}'. {reason}"]
     if finding is not None:

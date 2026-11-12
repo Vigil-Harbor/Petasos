@@ -299,3 +299,41 @@ server/tool registration after canonicalization. They retain published read-only
 membership but cannot enter the hook-reaching ingestion subset. Evidence rows can
 remain even when all their axes equal defaults. Upstream source citations in the
 table and docs/architecture/hermes-host-facts.md record the host constraints.
+
+## Enforcement spool integrity
+
+Writers append events without fsync or full-file rewrites: telemetry failure must
+not delay or break tool enforcement. Readers drain forward from a byte offset,
+independent of producer restarts. A trailing partial line waits for completion;
+malformed complete lines advance the offset. Read errors keep the last good cursor.
+Only the dashboard rotates; an existing rotated sibling must never be overwritten.
+
+Event identity uses a full UUID with an e- prefix, distinct from playground ids.
+High-volume blocked sessions generate thousands of events, so short prefixes risk
+collisions in dashboard deduplication. The cap exceeds the observed burst of about
+40 blocks in 2 hours 18 minutes at about 300 bytes per row and a peak tail interval.
+
+Signing uses an HMAC-SHA256 domain-separated session-secret subkey with the
+petasos/enforcement-spool/v1 label, preventing cross-use with session tokens.
+Path-keyed keys take precedence over the fallback key. Resetting path/cap state
+does not reset signing. No key writes unsigned records; verification returns false
+for absent keys or invalid records, while callers distinguish unattested deployments
+from verification failure. A string signature, including empty string, is a mismatch
+after failed verification; non-string or missing signatures are missing.
+Instance spools retain their own path, key and cap independently of module writers.
+
+## Model-facing result notices
+
+Content blocks can occur after the guard allows or outside a GuardResult, so their
+message formatter accepts the decision path directly and supplies a valid fallback
+reason for unknown paths. Source/sink provenance belongs only in operator records.
+
+Ingestion notices annotate content returned whole and must not claim a tool was
+blocked. Their banner has no trailing newline. Finding details use rule id and
+severity only: scanner messages can contain attacker-controlled decoded content,
+and embedding those messages in a trusted banner would reinject the payload.
+The operator receives the raw finding message through its event record. A top-finding
+line appears only with a finding and never for the examination ceiling; the additional
+count excludes the top finding. Coverage appears only when supplied. Scanned/total
+counts appear only for findings and ceiling paths with omitted input, never when
+scanning was unavailable.

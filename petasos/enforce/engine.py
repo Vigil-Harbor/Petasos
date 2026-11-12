@@ -266,5 +266,4 @@ def apply_snapshot(
     return result
 
 
-# Re-exported so a caller can pass the default registry without importing it.
 DEFAULT_REGISTRY = REGISTRY
