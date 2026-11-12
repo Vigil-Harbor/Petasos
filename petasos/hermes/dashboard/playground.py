@@ -392,10 +392,7 @@ async def _text(
         # The pipeline catches cancellation and returns it as an error. That is
         # the time limit firing, not a decision.
         timed_out = True
-    # Text coming in is a tool result: Petasos never withholds it. It puts a
-    # warning above it when a non-personal-detail finding would block, the same
-    # test the result hook uses. Text going out is what the agent writes into a
-    # tool call, and a call carrying it is blocked.
+    # See docs/architecture/rationale.md, "Playground direction semantics".
     flagged = tuple(item for item in blocking if item.finding_type != "pii")
     unsafe = bool(blocking) or (result is not None and not result.safe)
     inbound = way != "outbound"

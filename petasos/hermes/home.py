@@ -23,11 +23,7 @@ Tier = Literal["override", "hermes_home", "profile", "root"]
 
 @dataclass(frozen=True)
 class HermesConfigResolution:
-    """Result of config-path resolution.
-
-    Invariant: ``warning`` is non-None only when ``tier == "root"``
-    (the D2 dangling-pointer case).
-    """
+    """Record a resolved config path with warnings only for root fallback."""
 
     path: Path
     tier: Tier
@@ -35,12 +31,10 @@ class HermesConfigResolution:
 
 
 def hermes_root() -> Path:
-    """v0.15 root: %LOCALAPPDATA%\\hermes (Windows) | ~/.hermes (else).
+    """Return the Hermes platform root, or None when the home cannot be resolved.
 
-    Empty/unset LOCALAPPDATA mirrors Hermes's own fallback —
-    Path.home() / "AppData" / "Local" / "hermes".  An unresolvable
-    home (Path.home() raising) is absorbed per D3.
-    """
+    Windows uses LOCALAPPDATA with the AppData/Local fallback. Other hosts
+    use the account home. This function resolves paths without reading them."""
     if platform.system() == "Windows":
         local = os.environ.get("LOCALAPPDATA", "").strip()
         if local:
@@ -184,15 +178,10 @@ def resolve_hermes_config_path(*, use_override: bool = True) -> HermesConfigReso
 
 
 def _resolved_normcase(path: Path) -> str | None:
-    """``os.path.normcase`` of the ``strict=False`` resolution, or None on OSError.
+    """Return normalized resolved identity, or None when the OS refuses resolution.
 
-    The single normalization primitive for active-vs-target identity (D4):
-    Windows case-fold, trailing-slash, and symlink collapse all happen here so a
-    selected profile is compared to the live binding as the *same file*, never as
-    a raw string or leaf name.  Returns None when the OS cannot resolve the name
-    (a malformed path or an inaccessible reparse point can raise on Windows); the
-    caller treats a None as "not the active path" — the safe persist-only branch.
-    """
+    Windows case, trailing slashes and symlinks collapse before comparison.
+    An unresolved target takes the persist-only branch."""
     try:
         return os.path.normcase(str(path.resolve(strict=False)))
     except OSError:
@@ -200,17 +189,10 @@ def _resolved_normcase(path: Path) -> str | None:
 
 
 def list_hermes_profiles(*, use_override: bool = True) -> list[dict[str, Any]]:
-    """Enumerate ``profiles/*/config.yaml`` under the Hermes root.
+    """Return sorted profile config paths and normalized active-binding identity.
 
-    Returns ``[{name, path, is_active, tier}]`` — one entry per profile dir that
-    holds a ``config.yaml``, sorted by leaf name, each marked ``is_active`` by the
-    normalized-path comparison (D4) against the live binding, never a raw string
-    compare.  Fail-soft: a missing or unreadable ``profiles/`` dir (and any other
-    failure) yields ``[]`` so the caller folds in the active binding as a single
-    entry.  Never raises (D3); stays logging-free to preserve this module's
-    pure-stdlib, no-logging contract — the caller (``server.get_config``) owns the
-    diagnostic WARNING for an unreadable-but-present ``profiles/`` dir.
-    """
+    Unreadable or absent profile directories yield an empty list without
+    logging or raising. The reserved default home is not a profile entry."""
     try:
         base = hermes_root() / "profiles"
         base_resolved = base.resolve(strict=False)
@@ -219,8 +201,7 @@ def list_hermes_profiles(*, use_override: bool = True) -> list[dict[str, Any]]:
         )
         out: list[dict[str, Any]] = []
         for child in sorted(base.iterdir()):
-            # `default` is reserved for the home with no profile (PET-238), so a folder
-            # with that name must not list a file its selector does not resolve to.
+            # The reserved default selector resolves only the unprofiled home.
             if not child.is_dir() or child.name == "default":
                 continue
             cfg = child / "config.yaml"
@@ -261,21 +242,10 @@ def _default_profile_home() -> Path:
 
 
 def resolve_profile_config_path(name: str) -> HermesConfigResolution | None:
-    """Resolve one named profile's config path, traversal-guarded.
+    """Resolve only a listed profile or the reserved default home, without raising.
 
-    ``default`` is Hermes's reserved name for the home with no profile, and its dashboard
-    sends it as a selector (PET-238). It resolves to that home at tier ``root`` and does
-    not join ``list_hermes_profiles``, which enumerates ``profiles/*`` only.
-
-    Returns ``HermesConfigResolution(<root>/profiles/<name>/config.yaml,
-    tier="profile", warning=None)`` when *name* is a current
-    ``list_hermes_profiles()`` member — a full resolution (not a bare ``Path``) so
-    it feeds ``read_petasos_section`` directly.  Returns None when *name* is not a
-    member (unknown or deleted) or escapes the ``profiles/`` base.  The membership
-    gate is the traversal guard: ``list_hermes_profiles`` only ever emits simple
-    leaf names from ``iterdir``, so a ``../`` or absolute *name* is never a member.
-    Never raises (D3).
-    """
+    Membership in simple leaf names prevents traversal and absolute selectors.
+    Unknown or deleted profiles return None. Default resolves at root tier."""
     try:
         if name == "default":
             return HermesConfigResolution(
@@ -299,17 +269,11 @@ def resolve_profile_config_path(name: str) -> HermesConfigResolution | None:
 
 
 def read_petasos_section_checked(res: HermesConfigResolution) -> tuple[dict[str, Any], bool]:
-    """Read the ``petasos:`` section AND report whether the read succeeded.
+    """Read settings and distinguish an empty section from an unreadable one.
 
-    Returns ``(section, ok)``.  ``ok`` is False ONLY when the file exists but is
-    unreadable *as* a petasos section: malformed YAML, a top-level non-dict, or a
-    ``petasos:`` value that is not a dict.  A missing file, an empty file, a
-    missing ``petasos:`` key, or a ``petasos:`` with no value are all ``ok=True``
-    with ``{}`` — legitimately empty, not a failure.  This lets a caller tell
-    "intentionally empty" apart from "broken": warn on GET, reject on PUT so a
-    dirty save can't merge ``{}`` with a patch and silently persist all-defaults
-    over a malformed profile (PET-146 D4 data-loss guard).  Never raises (D3).
-    """
+    Missing or empty files and null sections return ({}, True). Malformed
+    YAML or non-mapping documents/sections return ({}, False), allowing
+    writers to reject a save rather than overwrite a damaged profile."""
     import yaml
 
     if not res.path.is_file():
@@ -334,13 +298,9 @@ def read_petasos_section_checked(res: HermesConfigResolution) -> tuple[dict[str,
 
 
 def read_petasos_section(res: HermesConfigResolution) -> dict[str, Any]:
-    """Read the ``petasos:`` YAML section from the resolved config path.
+    """Return the resolved settings section or an empty mapping without raising.
 
-    Returns ``{}`` on missing file, unreadable file, malformed YAML,
-    YAML parsing to a non-dict, or a ``petasos:`` value that is not a
-    dict.  Never raises (D3).  Use ``read_petasos_section_checked`` when the
-    empty-vs-unreadable distinction matters.
-    """
+    Use read_petasos_section_checked to distinguish empty from unreadable."""
     section, _ = read_petasos_section_checked(res)
     return section
 

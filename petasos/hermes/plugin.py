@@ -62,11 +62,7 @@ HOOKS: tuple[str, ...] = (
 _EMPTY_BLOCK = "Petasos blocked this tool call."
 _INTERNAL_BLOCK = "Petasos could not evaluate this tool call."
 
-# The only module-level mutable state in the adapter.
-# ``_registrations`` has one entry per Hermes home this process has loaded.
-# A repeated ``register`` for that home reuses the enforcer (session scores,
-# tiers, taint, lineage, and the loaded scanners). ``close`` clears the table.
-# ``_registration_lock`` serialises the lookup. Hooks read it at call time.
+# See docs/architecture/rationale.md, "Hermes registration ownership".
 _registrations: dict[str, _Registration] = {}
 _registration_lock = threading.Lock()
 

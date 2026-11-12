@@ -337,3 +337,30 @@ line appears only with a finding and never for the examination ceiling; the addi
 count excludes the top finding. Coverage appears only when supplied. Scanned/total
 counts appear only for findings and ceiling paths with omitted input, never when
 scanning was unavailable.
+
+## Hermes registration ownership
+
+Registrations are keyed by Hermes home and reused under one registration lock.
+Repeated registration preserves session scores, tiers, taint, lineage and loaded
+scanners. Hooks read registrations at call time; close clears the table. The
+adapter keeps this process-local table as its shared registration state.
+
+## Playground direction semantics
+
+Incoming text models a tool result: the adapter returns it whole and prefixes a
+warning when a non-personal-information finding would block outbound use. Outgoing
+text models tool-call arguments, which can block the call. A trial uses the same
+decision condition as result enforcement, with no model or second scan.
+
+## Hermes protection coverage
+
+Hermes loads enabled profile plugins into processes running agents: chat, gateway,
+scheduled jobs and dashboard chat, except safe-mode sessions. Petasos rereads
+settings on each tool call. The host lifecycle facts are recorded in
+docs/architecture/hermes-host-facts.md under "Directory plugin in front of a wheel" and "Settings".
+
+## Managed pin overlays
+
+A pin with its own record is read whole by Petasos; only keys enforced by Hermes
+itself can be missing. A hand-written managed file remains subject to the host
+overlay, which merges groups and retains a profile group over an unset value.
