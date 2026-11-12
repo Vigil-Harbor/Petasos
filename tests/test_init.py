@@ -1,3 +1,5 @@
+"""Pin root exports and imports without optional host or scanner dependencies."""
+
 from __future__ import annotations
 
 import importlib
@@ -22,7 +24,10 @@ def _hermes_deps_available() -> bool:
     reason="Hermes deps (spaCy, transformers) not installed",
 )
 class TestHermesSmoke:
+    """Pin Hermes Smoke."""
+
     async def test_import_coexistence(self) -> None:
+        """Pin import coexistence."""
         import spacy  # noqa: F811
         import transformers  # noqa: F811
 
@@ -33,6 +38,7 @@ class TestHermesSmoke:
         assert transformers is not None
 
     async def test_version_accessible(self) -> None:
+        """Pin version accessible."""
         import petasos
 
         assert hasattr(petasos, "__version__")
@@ -40,17 +46,19 @@ class TestHermesSmoke:
 
 
 class TestImportWithoutHermesDeps:
+    """Pin Import Without Hermes Deps."""
+
     async def test_petasos_imports_standalone(self) -> None:
+        """Pin petasos imports standalone."""
         import petasos
 
         assert petasos.__version__ is not None
 
 
 def test_package_version_single_source() -> None:
-    # Regression for PET-141: build/dist metadata cannot diverge from the single
-    # source ``__version__``. Skips on a source-only checkout where no dist
-    # metadata exists (D7); runs in CI where ``pip install -e .`` provides
-    # editable dist metadata, exactly where the build-derived invariant must hold.
+    # Distribution metadata is absent in source-only checkouts; editable installs can verify
+    # version consistency.
+    """Pin package version single source."""
     try:
         dist_version = importlib.metadata.version("petasos")
     except importlib.metadata.PackageNotFoundError:

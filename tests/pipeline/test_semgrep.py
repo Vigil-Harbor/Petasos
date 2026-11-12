@@ -23,6 +23,7 @@ from tests.scanners.semgrep.helpers import require
 
 
 def test_second_merge_cannot_evict_original_semgrep_finding() -> None:
+    """Pin second merge cannot evict original semgrep finding."""
     code = ScanFinding(
         "petasos.semgrep.python.dynamic_code",
         "unsafe_code",
@@ -55,6 +56,7 @@ def _abstract_ownership_platform(monkeypatch: pytest.MonkeyPatch) -> None:
 async def test_missing_owned_engine_obeys_failure_policy_but_no_code_stays_safe(
     fail_mode: Any, safe: bool
 ) -> None:
+    """Pin missing owned engine obeys failure policy but no code stays safe."""
     async with SemgrepLifecycleOwner() as owner:
         scanner = SemgrepScanner(owner=owner)
         pipeline = Pipeline(
@@ -77,6 +79,7 @@ async def test_missing_owned_engine_obeys_failure_policy_but_no_code_stays_safe(
 async def test_prepared_policy_exactly_once_and_wrong_owner_has_no_side_effects(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Pin prepared policy exactly once and wrong owner has no side effects."""
     async with SemgrepLifecycleOwner() as owner:
         scanner = SemgrepScanner(owner=owner)
         pipeline = Pipeline([scanner])
@@ -89,7 +92,6 @@ async def test_prepared_policy_exactly_once_and_wrong_owner_has_no_side_effects(
         invalid = await other._inspect_with_prepared_semgrep("hello", token)
         assert invalid.errors == ("semgrep.prepared_invalid",)
         assert other_hook.await_count == 0
-        # The failed cross-owner attempt retires the token rather than replaying.
         replay = await pipeline._inspect_with_prepared_semgrep("hello", token)
         assert replay.errors == ("semgrep.prepared_invalid",)
         token = require(await pipeline._prepare_semgrep("hello"))
@@ -100,6 +102,7 @@ async def test_prepared_policy_exactly_once_and_wrong_owner_has_no_side_effects(
 
 
 async def test_policy_reconfigure_preserves_restart_settings_and_live_token() -> None:
+    """Pin policy reconfigure preserves restart settings and live token."""
     async with SemgrepLifecycleOwner() as owner:
         scanner = SemgrepScanner(owner=owner)
         config = from_mapping(
@@ -135,6 +138,7 @@ async def test_policy_reconfigure_preserves_restart_settings_and_live_token() ->
 
 
 async def test_supplied_ingest_token_never_prepares_twice(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pin supplied ingest token never prepares twice."""
     async with SemgrepLifecycleOwner() as owner:
         pipeline = Pipeline([SemgrepScanner(owner=owner)])
         token = require(await pipeline._prepare_semgrep("hello"))
@@ -147,6 +151,7 @@ async def test_supplied_ingest_token_never_prepares_twice(monkeypatch: pytest.Mo
 
 
 async def test_supplied_ingest_token_rejects_changed_tail_with_same_head() -> None:
+    """Pin supplied ingest token rejects changed tail with same head."""
     async with SemgrepLifecycleOwner() as owner:
         pipeline = Pipeline([SemgrepScanner(owner=owner)])
         text = "a" * HEAD_CHARS + "original tail"
@@ -156,11 +161,12 @@ async def test_supplied_ingest_token_rejects_changed_tail_with_same_head() -> No
         )
         assert any("semgrep.prepared_invalid" in error for error in result.errors)
         assert result.head is None
-        assert token._text is None  # unavailable adapters retain only fingerprints
+        assert token._text is None
         assert token.consume(pipeline, text) is not None
 
 
 async def test_missing_engine_no_target_token_cannot_be_reused_for_code() -> None:
+    """Pin missing engine no target token cannot be reused for code."""
     async with SemgrepLifecycleOwner() as owner:
         pipeline = Pipeline([SemgrepScanner(owner=owner)])
         token = require(await pipeline._prepare_semgrep("Hello."))
@@ -170,6 +176,7 @@ async def test_missing_engine_no_target_token_cannot_be_reused_for_code() -> Non
 
 @pytest.fixture
 async def real_pipeline() -> AsyncIterator[Pipeline]:
+    """Provide real pipeline for the test fixture."""
     engine = os.environ.get("SEMGREP_ENGINE_PATH")
     if not engine:
         pytest.skip("isolated engine required")
@@ -197,6 +204,7 @@ async def real_pipeline() -> AsyncIterator[Pipeline]:
 async def test_real_ingest_scans_beyond_head_and_survives_second_merge(
     real_pipeline: Pipeline,
 ) -> None:
+    """Pin real ingest scans beyond head and survives second merge."""
     text = "Ordinary prose. " * 400 + "\n```python\neval(data)\n```"
     assert text.index("eval") > HEAD_CHARS
     result = await scan_ingestion_result(real_pipeline, text)
@@ -210,6 +218,7 @@ async def test_real_ingest_scans_beyond_head_and_survives_second_merge(
 async def test_real_patch_parts_preserve_original_offsets_and_action_independence(
     real_pipeline: Pipeline,
 ) -> None:
+    """Pin real patch parts preserve original offsets and action independence."""
     rendered = render_param_text(
         {
             "path": r"C:\project\app.py",
@@ -254,6 +263,7 @@ async def test_indented_patch_fragments_retain_every_python_family(
     family: str,
     call: str,
 ) -> None:
+    """Pin indented patch fragments retain every python family."""
     rendered = render_param_text(
         {
             "path": r"C:\app\code.py",
@@ -275,6 +285,7 @@ async def test_indented_patch_fragments_retain_every_python_family(
 
 
 async def test_ingestion_coverage_mapping_is_frozen_and_asdict_compatible() -> None:
+    """Pin ingestion coverage mapping is frozen and asdict compatible."""
     from dataclasses import asdict
 
     async with SemgrepLifecycleOwner() as owner:
@@ -283,7 +294,6 @@ async def test_ingestion_coverage_mapping_is_frozen_and_asdict_compatible() -> N
         coverage = require(result.backend_coverage)
         with pytest.raises(TypeError):
             coverage["semgrep"] = coverage["semgrep"]  # type: ignore[index]
-        # The pre-existing head has MappingProxy fields and its own to_dict.
         payload = asdict(replace(result, head=None))
         assert payload["backend_coverage"]["semgrep"]["status"] == "no_targets"
 
@@ -293,7 +303,7 @@ async def test_ingestion_coverage_mapping_is_frozen_and_asdict_compatible() -> N
     [(4096, True), (65536, True), (4095, False), (65537, False), (131072, False)],
 )
 async def test_source_limit_bounds_match_qualified_maximum(limit: int, ok: bool) -> None:
-    # The supported maximum is the measured 64 KiB workload (S7 protocol v3).
+    """Pin source limit bounds match qualified maximum."""
     if ok:
         assert (
             from_mapping(

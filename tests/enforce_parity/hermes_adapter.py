@@ -1,11 +1,6 @@
-"""Replay a scenario through ``petasos.hermes.plugin.register`` and its hooks.
+"""Replay scenarios through isolated Hermes without changing recorded outcomes.
 
-The Hermes context and the host modules are fakes. The enforcer, the settings
-source, and the hook callbacks are the ones the plugin registers. Flat
-scenario settings are presented as the four Hermes settings, with the same
-scanner and anonymization adjustments the enforcer oracle applies, so the
-decision record stays comparable.
-"""
+See docs/architecture/rationale.md, "Test timing and backend qualification"."""
 
 from __future__ import annotations
 
@@ -77,6 +72,7 @@ class _Ctx:
         self.broken = False
 
     def get_config(self, key: str, default: object = None) -> object:
+        """Provide get config for the test fixture."""
         if self.broken:
             raise RuntimeError("malformed settings")
         if key in self.values:
@@ -84,11 +80,13 @@ class _Ctx:
         return default
 
     def register_hook(self, name: str, handler: Any) -> None:
+        """Provide register hook for the test fixture."""
         if not self.subagent and name in ("subagent_start", "subagent_stop"):
             raise RuntimeError(f"hook {name} is not available")
         self.hooks.setdefault(name, []).append(handler)
 
     def call(self, name: str, *args: object, **kwargs: object) -> Any:
+        """Provide call for the test fixture."""
         handlers = self.hooks.get(name, [])
         if not handlers:
             return None

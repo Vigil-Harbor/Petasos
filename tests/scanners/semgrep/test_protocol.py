@@ -1,4 +1,4 @@
-"""Hostile protocol data and lexical-exclusion regressions."""
+"""Pin hostile engine-output rejection and conservative local-binding exclusions."""
 
 import json
 from pathlib import Path
@@ -21,11 +21,13 @@ from petasos.scanners.semgrep.engine import ProtocolError, _local_functions, str
     ],
 )
 def test_malformed_engine_output_is_rejected(payload: bytes) -> None:
+    """Pin malformed engine output is rejected."""
     with pytest.raises(ProtocolError):
         strict_output(payload)
 
 
 def test_raw_core_progress_prefix_is_supported() -> None:
+    """Pin raw core progress prefix is supported."""
     assert (
         strict_output(b".\r\r\n" + json.dumps({"version": "1.183.0", "results": []}).encode())[
             "results"
@@ -35,6 +37,7 @@ def test_raw_core_progress_prefix_is_supported() -> None:
 
 
 def test_explicit_local_function_binding_is_excluded() -> None:
+    """Pin explicit local function binding is excluded."""
     assert _local_functions("def eval(value):\n    return value\neval(data)\n") == {(3, 0)}
 
 
@@ -47,7 +50,6 @@ def test_explicit_local_function_binding_is_excluded() -> None:
         "@decorator\ndef eval(value):\n    return value\neval(data)",
         "def eval(value):\n    return value\n(lambda eval: eval(data))(other)",
         "def eval(value):\n    return value\nexec(rebind)\neval(data)",
-        # Annotations run at definition time on Python 3.11-3.13.
         'def eval(value):\n    return value\ndef other(arg: globals().pop("eval")):\n'
         "    pass\neval(data)",
         "def eval(value):\n    return value\ndef other(*, arg: rebind()):\n    pass\neval(data)",
@@ -59,6 +61,7 @@ def test_explicit_local_function_binding_is_excluded() -> None:
     ],
 )
 def test_uncertain_binding_is_never_excluded(source: str) -> None:
+    """Pin uncertain binding is never excluded."""
     assert _local_functions(source) == set()
 
 
@@ -82,6 +85,7 @@ def _expected(tmp_path: Path, count: int = 1) -> tuple[list[str], dict[str, Any]
 def test_engine_failures_never_leave_targets_complete(
     tmp_path: Path, error: dict[str, Any]
 ) -> None:
+    """Pin engine failures never leave targets complete."""
     from petasos.scanners.semgrep.engine import _findings
 
     error = json.loads(json.dumps(error))
@@ -111,6 +115,7 @@ def test_engine_failures_never_leave_targets_complete(
 def test_malformed_nested_structures_are_protocol_errors(
     tmp_path: Path, mutation: dict[str, Any]
 ) -> None:
+    """Pin malformed nested structures are protocol errors."""
     from petasos.scanners.semgrep.engine import _findings
 
     mutation = json.loads(json.dumps(mutation))
@@ -128,6 +133,7 @@ def test_malformed_nested_structures_are_protocol_errors(
 async def test_protocol_error_keeps_findings_from_earlier_grammars(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Pin protocol error keeps findings from earlier grammars."""
     import threading
     import time
     from concurrent.futures import ThreadPoolExecutor
@@ -177,6 +183,7 @@ async def test_protocol_error_keeps_findings_from_earlier_grammars(
 
 
 async def test_omitted_tail_without_targets_is_partial_coverage() -> None:
+    """Pin omitted tail without targets is partial coverage."""
     from petasos.scanners.semgrep.engine import result_for
     from petasos.scanners.semgrep.source import select_sources
 

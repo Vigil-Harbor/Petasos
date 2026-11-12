@@ -1,3 +1,5 @@
+"""Pin guard decisions against real pipeline findings and session risk."""
+
 from __future__ import annotations
 
 from petasos.config.schema import from_mapping
@@ -14,13 +16,11 @@ def _cfg(partial: dict[str, object] | None = None) -> PetasosConfig:
     return from_mapping(PetasosConfig, partial)
 
 
-# ---------------------------------------------------------------------------
-# Guard + Pipeline integration
-# ---------------------------------------------------------------------------
-
-
 class TestGuardPipelineIntegration:
+    """Pin Guard Pipeline Integration."""
+
     async def test_guard_uses_pipeline_for_param_scan(self) -> None:
+        """Pin guard uses pipeline for param scan."""
         cfg = _cfg(
             {
                 "tools": {
@@ -40,6 +40,7 @@ class TestGuardPipelineIntegration:
         assert result.findings
 
     async def test_guard_with_profile_exempt(self) -> None:
+        """Pin guard with profile exempt."""
         cfg = _cfg(
             {
                 "tools": {

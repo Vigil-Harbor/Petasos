@@ -1,4 +1,4 @@
-"""Tests for PET-48: CancelledError / BaseException handling in Pipeline.inspect()."""
+"""Pin inspection results despite scanner and task cancellation."""
 
 from __future__ import annotations
 
@@ -18,16 +18,13 @@ from petasos.model import (
 from petasos.pipeline import Pipeline
 from petasos.pipeline.health import _scan_one
 
-# ---------------------------------------------------------------------------
-# Stub scanners
-# ---------------------------------------------------------------------------
-
 
 class _CancellingScanner:
     """Scanner whose scan() raises CancelledError."""
 
     @property
     def name(self) -> str:
+        """Return the fixture scanner name."""
         return "cancelling"
 
     async def scan(
@@ -37,6 +34,7 @@ class _CancellingScanner:
         direction: Direction = "inbound",
         session_id: str | None = None,
     ) -> ScanResult:
+        """Supply the configured scanner response for this fixture."""
         raise asyncio.CancelledError()
 
 
@@ -45,6 +43,7 @@ class _KeyboardInterruptScanner:
 
     @property
     def name(self) -> str:
+        """Return the fixture scanner name."""
         return "ki_scanner"
 
     async def scan(
@@ -54,6 +53,7 @@ class _KeyboardInterruptScanner:
         direction: Direction = "inbound",
         session_id: str | None = None,
     ) -> ScanResult:
+        """Supply the configured scanner response for this fixture."""
         raise KeyboardInterrupt("simulated")
 
 
@@ -62,6 +62,7 @@ class _HealthyScanner:
 
     @property
     def name(self) -> str:
+        """Return the fixture scanner name."""
         return "healthy"
 
     async def scan(
@@ -71,6 +72,7 @@ class _HealthyScanner:
         direction: Direction = "inbound",
         session_id: str | None = None,
     ) -> ScanResult:
+        """Supply the configured scanner response for this fixture."""
         return ScanResult(
             scanner_name="healthy",
             findings=(
@@ -96,6 +98,7 @@ class _BlockingScanner:
 
     @property
     def name(self) -> str:
+        """Return the fixture scanner name."""
         return "blocking"
 
     async def scan(
@@ -105,6 +108,7 @@ class _BlockingScanner:
         direction: Direction = "inbound",
         session_id: str | None = None,
     ) -> ScanResult:
+        """Supply the configured scanner response for this fixture."""
         self._started.set()
         await self._proceed.wait()
         return ScanResult(
@@ -114,13 +118,8 @@ class _BlockingScanner:
         )
 
 
-# ---------------------------------------------------------------------------
-# Tests
-# ---------------------------------------------------------------------------
-
-
 async def test_inspect_catches_cancelled_error() -> None:
-    # Regression for PET-48: CancelledError must not escape inspect()
+    """Pin inspect catches cancelled error."""
     pipe = Pipeline(scanners=[_CancellingScanner()])
     result = await pipe.inspect("test input")
     assert isinstance(result, PipelineResult)
@@ -132,7 +131,7 @@ async def test_inspect_catches_cancelled_error() -> None:
 
 
 async def test_scan_one_isolates_cancelled_scanner() -> None:
-    # Regression for PET-48: _scan_one must catch BaseException
+    """Pin scan one isolates cancelled scanner."""
     scanner = _CancellingScanner()
     result = await _scan_one(scanner, "test", direction="inbound", session_id=None)
     assert isinstance(result, ScanResult)
@@ -141,13 +140,11 @@ async def test_scan_one_isolates_cancelled_scanner() -> None:
 
 
 async def test_gather_return_exceptions_isolates_failure() -> None:
-    # Regression for PET-48: one cancelled scanner must not abort others
+    """Pin gather return exceptions isolates failure."""
     pipe = Pipeline(scanners=[_CancellingScanner(), _HealthyScanner()])
     result = await pipe.inspect("test input")
     assert isinstance(result, PipelineResult)
-    # Healthy scanner's findings should be in the merged output
     assert any(f.rule_id == "healthy.rule" for f in result.findings)
-    # Cancelled scanner's error should be recorded in scanner_results
     cancelled_results = [
         sr
         for sr in result.scanner_results
@@ -157,10 +154,8 @@ async def test_gather_return_exceptions_isolates_failure() -> None:
 
 
 async def test_keyboard_interrupt_caught_at_boundary() -> None:
-    # Regression for PET-48: KeyboardInterrupt must not escape inspect()
-    # KI is tested at the inspect() boundary (not through a scanner inside
-    # asyncio.wait_for, because the event loop propagates KI from tasks
-    # before _scan_one's handler can catch it).
+    # The event loop propagates KeyboardInterrupt before a task-level scanner handler can catch it.
+    """Pin keyboard interrupt caught at boundary."""
     pipe = Pipeline(config=PetasosConfig())
     with patch.object(pipe, "_inspect_inner", side_effect=KeyboardInterrupt("simulated")):
         result = await pipe.inspect("test input")
@@ -169,7 +164,7 @@ async def test_keyboard_interrupt_caught_at_boundary() -> None:
 
 
 async def test_cancelled_error_logged() -> None:
-    # Regression for PET-48: non-Exception BaseExceptions are logged at inspect() boundary
+    """Pin cancelled error logged."""
     pipe = Pipeline(config=PetasosConfig())
     with (
         patch.object(pipe, "_inspect_inner", side_effect=asyncio.CancelledError()),
@@ -184,7 +179,7 @@ async def test_cancelled_error_logged() -> None:
 
 
 async def test_mid_gather_cancel_full_pipeline() -> None:
-    # Regression for PET-48: external task cancellation returns PipelineResult
+    """Pin mid gather cancel full pipeline."""
     started = asyncio.Event()
     proceed = asyncio.Event()
     pipe = Pipeline(scanners=[_BlockingScanner(started, proceed)])

@@ -1,4 +1,4 @@
-"""Applicability and original-coordinate regressions, independent of the engine."""
+"""Pin bounded source projection and original-input coordinate coverage."""
 
 import json
 import subprocess
@@ -14,12 +14,14 @@ from tests.scanners.semgrep.helpers import require
 
 @pytest.mark.parametrize("text", ["Hello (world); goodbye.", "ls -la; cd foo", "FOO=1 make"])
 async def test_ordinary_prose_and_shell_are_not_asserted(text: str) -> None:
+    """Pin ordinary prose and shell are not asserted."""
     selected = await select_sources(text)
     assert not any(t.asserted for t in selected.targets)
     assert result_for(selected).error is None
 
 
 async def test_indented_method_maps_back_to_patch_characters() -> None:
+    """Pin indented method maps back to patch characters."""
     method = "    def handle(self, value):\n        return eval(value)\n"
     selected = await select_sources(method)
     (target,) = selected.targets
@@ -33,12 +35,14 @@ async def test_indented_method_maps_back_to_patch_characters() -> None:
 
 
 async def test_asserted_missing_body_follows_failure_policy() -> None:
+    """Pin asserted missing body follows failure policy."""
     selected = await select_sources("def handler(value):\n")
     assert selected.targets[0].asserted
     assert result_for(selected).error == "semgrep.incomplete"
 
 
 async def test_dense_search_fragments_never_assert_and_limit_is_nonerror() -> None:
+    """Pin dense search fragments never assert and limit is nonerror."""
     text = "src/code.py\n" + "".join(f"  {i * 3}: def handler{i}(value):\n" for i in range(1, 21))
     selected = await select_sources(text)
     assert len(selected.targets) == 16
@@ -58,6 +62,7 @@ async def test_dense_search_fragments_never_assert_and_limit_is_nonerror() -> No
     ],
 )
 async def test_paged_delivered_code_is_not_clamped(metadata: dict[str, Any]) -> None:
+    """Pin paged delivered code is not clamped."""
     text = json.dumps({"content": "10|eval(value)\n", **metadata})
     selected = await select_sources(text)
     assert len(selected.targets) == 1
@@ -67,6 +72,7 @@ async def test_paged_delivered_code_is_not_clamped(metadata: dict[str, Any]) -> 
 
 
 async def test_true_line_clamp_on_supported_code_is_incomplete() -> None:
+    """Pin true line clamp on supported code is incomplete."""
     selected = await select_sources(
         json.dumps({"content": "eval(value)", "truncated_lines": True})
     )
@@ -74,6 +80,7 @@ async def test_true_line_clamp_on_supported_code_is_incomplete() -> None:
 
 
 async def test_json_escapes_and_numbered_lines_map_original_intervals() -> None:
+    """Pin json escapes and numbered lines map original intervals."""
     text = json.dumps({"content": '10|# 😀\n11|eval("é")\n'}, ensure_ascii=True)
     selected = await select_sources(text)
     region = selected.targets[0].region
@@ -83,11 +90,13 @@ async def test_json_escapes_and_numbered_lines_map_original_intervals() -> None:
 
 
 async def test_segments_cannot_hide_nonnewline_gaps() -> None:
+    """Pin segments cannot hide nonnewline gaps."""
     with pytest.raises(ProjectionError, match="invalid_envelope"):
         await select_sources("eval(x) HIDDEN eval(y)", segments=((0, 7), (15, 22)))
 
 
 async def test_separate_patch_fragments_keep_offsets() -> None:
+    """Pin separate patch fragments keep offsets."""
     old = "    def f(self):\n        return eval(x)"
     new = "    def f(self):\n        return eval(y)"
     text = old + "\n" + new
@@ -99,6 +108,7 @@ async def test_separate_patch_fragments_keep_offsets() -> None:
 
 
 async def test_deep_noncode_json_does_not_report_engine_failure() -> None:
+    """Pin deep noncode json does not report engine failure."""
     selected = await select_sources("[" * 200 + '"hello"' + "]" * 200)
     result = result_for(selected)
     assert result.error is None
@@ -107,12 +117,14 @@ async def test_deep_noncode_json_does_not_report_engine_failure() -> None:
 
 
 async def test_supported_fences_over_cap_report_incomplete() -> None:
+    """Pin supported fences over cap report incomplete."""
     selected = await select_sources("```python\neval(value)\n```\n" * 17)
     assert len(selected.targets) == 16
     assert result_for(selected, completed=set(range(16))).error == "semgrep.incomplete"
 
 
 async def test_clipped_tentative_rejection_is_partial_not_clear() -> None:
+    """Pin clipped tentative rejection is partial not clear."""
     selected = await select_sources("foo(" + "x" * 100, max_bytes=8)
     result = result_for(selected)
     assert result.error is None
@@ -121,6 +133,7 @@ async def test_clipped_tentative_rejection_is_partial_not_clear() -> None:
 
 
 async def test_json_code_before_depth_exhaustion_is_retained() -> None:
+    """Pin json code before depth exhaustion is retained."""
     text = '{"a":"import os\\nos.system(cmd)","b":' + "[" * 140 + "0" + "]" * 140 + "}"
     selected = await select_sources(text)
     assert len(selected.targets) == 1
@@ -130,12 +143,14 @@ async def test_json_code_before_depth_exhaustion_is_retained() -> None:
 
 
 async def test_code_in_json_keys_is_a_target() -> None:
+    """Pin code in json keys is a target."""
     selected = await select_sources('{"os.system(cmd)": 1}')
     assert len(selected.targets) == 1
     assert selected.targets[0].region.text == "os.system(cmd)"
 
 
 async def test_many_search_hits_report_the_unexamined_tail() -> None:
+    """Pin many search hits report the unexamined tail."""
     selected = await select_sources(
         "app.py\n" + "".join(f"  {i * 3 + 1}: foo(value)\n" for i in range(40))
     )
@@ -146,14 +161,14 @@ async def test_many_search_hits_report_the_unexamined_tail() -> None:
 
 
 async def test_malformed_deep_string_does_not_hide_later_escaped_code() -> None:
+    """Pin malformed deep string does not hide later escaped code."""
     text = "[" * 140 + r'"\x", "os.system\u0028cmd)"' + "]" * 140
     selected = await select_sources(text)
     assert selected.error == "semgrep.projection_limit_code"
 
 
 async def test_truncated_envelope_with_escaped_code_is_recorded_as_unexamined() -> None:
-    # The envelope never parses, and the raw pass cannot see a call whose
-    # parenthesis is a JSON escape. Nothing is selected, so say so.
+    """Pin truncated envelope with escaped code is recorded as unexamined."""
     selected = await select_sources(r'{"a": "os.system\u0028cmd)"')
     assert selected.targets == []
     assert selected.unsupported is True
@@ -162,6 +177,7 @@ async def test_truncated_envelope_with_escaped_code_is_recorded_as_unexamined() 
 
 
 async def test_truncated_envelope_with_plain_code_stays_raw() -> None:
+    """Pin truncated envelope with plain code stays raw."""
     selected = await select_sources('{"a": "os.system(cmd)"')
     assert len(selected.targets) == 1
     assert "os.system(cmd)" in selected.targets[0].region.text
@@ -170,6 +186,7 @@ async def test_truncated_envelope_with_plain_code_stays_raw() -> None:
 
 
 async def test_truncated_envelope_without_code_reads_no_targets() -> None:
+    """Pin truncated envelope without code reads no targets."""
     selected = await select_sources('{"a": "hello world"')
     assert selected.targets == []
     assert selected.unsupported is False
@@ -178,6 +195,7 @@ async def test_truncated_envelope_without_code_reads_no_targets() -> None:
 
 @pytest.mark.parametrize("layers", [1, 2])
 async def test_preflight_decodes_json_candidates_without_maps(layers: int) -> None:
+    """Pin preflight decodes json candidates without maps."""
     from petasos.scanners.semgrep.source import preflight
 
     text = r'"\u0065\u0076\u0061\u006c\u0028payload)"'
@@ -189,6 +207,7 @@ async def test_preflight_decodes_json_candidates_without_maps(layers: int) -> No
 
 @pytest.mark.parametrize("kind", ["raw", "json", "tabs", "mixed", "unicode", "double"])
 async def test_long_whitespace_across_chunk_boundaries_is_selected(kind: str) -> None:
+    """Pin long whitespace across chunk boundaries is selected."""
     from petasos.scanners.semgrep.source import preflight
 
     call = "os.system" if kind == "tabs" else "eval"
@@ -210,6 +229,7 @@ async def test_long_whitespace_across_chunk_boundaries_is_selected(kind: str) ->
 
 
 async def test_escape_and_whitespace_carry_at_every_boundary_alignment() -> None:
+    """Pin escape and whitespace carry at every boundary alignment."""
     from petasos.scanners.semgrep.source import preflight
 
     for offset in range(8155, 8198):
@@ -218,11 +238,11 @@ async def test_escape_and_whitespace_carry_at_every_boundary_alignment() -> None
         assert await preflight(raw)
         assert await preflight(encoded)
         assert await preflight(json.dumps(encoded))
-    # A dotted identifier itself can exceed the carry buffer as well.
     assert await preflight("prefix." + "method" * 1600 + " " * 17000 + "(payload)")
 
 
 async def test_leaf_overflow_recognizes_second_layer_code() -> None:
+    """Pin leaf overflow recognizes second layer code."""
     text = json.dumps(["benign"] * 4096 + [r"eval\u0028payload)"])
     selected = await select_sources(text)
     assert selected.error == "semgrep.projection_limit_code"
@@ -230,6 +250,7 @@ async def test_leaf_overflow_recognizes_second_layer_code() -> None:
 
 @pytest.mark.parametrize("separator", ["\n", "/**/", "\f", "\u00a0", "\ufeff", "// note\n"])
 async def test_sensitive_call_separators_survive_streaming(separator: str) -> None:
+    """Pin sensitive call separators survive streaming."""
     from petasos.scanners.semgrep.source import preflight
 
     for offset in (0, 8188, 8190, 8192):
@@ -256,6 +277,7 @@ async def test_sensitive_call_separators_survive_streaming(separator: str) -> No
     ],
 )
 async def test_prose_separators_do_not_admit_engine_work(body: str) -> None:
+    """Pin prose separators do not admit engine work."""
     from petasos.scanners.semgrep.source import preflight
 
     for text in (body, json.dumps(body), json.dumps({"value": body})):
@@ -265,6 +287,7 @@ async def test_prose_separators_do_not_admit_engine_work(body: str) -> None:
 
 @pytest.mark.parametrize("space", ["\n", "\r\n", "\f", "\u00a0", "\ufeff"])
 async def test_long_unicode_call_gaps_and_declaration_anchors(space: str) -> None:
+    """Pin long unicode call gaps and declaration anchors."""
     from petasos.scanners.semgrep.source import preflight
 
     body = "prefix." + "method" * 1600 + space * 17000 + "(payload)"
@@ -274,6 +297,7 @@ async def test_long_unicode_call_gaps_and_declaration_anchors(space: str) -> Non
 
 
 def test_whitespace_compaction_matches_reference_for_ascii_and_unicode() -> None:
+    """Pin whitespace compaction matches reference for ascii and unicode."""
     import random
     import re
 
@@ -293,6 +317,7 @@ def test_whitespace_compaction_matches_reference_for_ascii_and_unicode() -> None
 
 
 def test_candidate_token_semantics_match_short_reference_inputs() -> None:
+    """Pin candidate token semantics match short reference inputs."""
     import random
     import re
 
@@ -315,6 +340,7 @@ def test_candidate_token_semantics_match_short_reference_inputs() -> None:
 
 
 def test_header_and_fence_classification_matches_short_reference_inputs() -> None:
+    """Pin header and fence classification matches short reference inputs."""
     import random
     import re
 
@@ -347,6 +373,7 @@ def test_header_and_fence_classification_matches_short_reference_inputs() -> Non
 
 
 def test_million_character_header_fence_and_search_attacks_are_bounded() -> None:
+    """Pin million character header fence and search attacks are bounded."""
     script = r"""
 import asyncio, json, sys, time
 sys.path[:] = json.loads(sys.argv[1])
@@ -390,8 +417,9 @@ asyncio.run(run())
 
 
 def test_million_character_dotted_input_has_bounded_candidate_cost() -> None:
-    # A subprocess watchdog is necessary: asyncio timeouts cannot interrupt a
-    # synchronous regex, and the old implementation could hang CI for hours.
+    # A subprocess watchdog bounds synchronous regex work that asyncio cancellation cannot
+    # interrupt.
+    """Pin million character dotted input has bounded candidate cost."""
     script = r"""
 import asyncio, json, sys, time
 sys.path[:] = json.loads(sys.argv[1])
@@ -425,8 +453,7 @@ async def run():
 asyncio.run(run())
 """
     result = subprocess.run(
-        # Keep the parent's installed dependencies while bypassing the Windows
-        # venv redirector, so timeout kills the actual regex worker process.
+        # Bypassing the Windows venv redirector lets the watchdog kill the actual regex worker.
         [str(vars(sys)["_base_executable"]), "-c", script, json.dumps(sys.path)],
         capture_output=True,
         text=True,
@@ -437,11 +464,10 @@ asyncio.run(run())
 
 
 async def test_code_shaped_search_headers_are_not_discarded() -> None:
-    # A valid module whose first and last lines merely resemble path headers.
+    """Pin code shaped search headers are not discarded."""
     text = 'os.system(cmd); """a.py\n  1: safe(1)\n""".strip()\n'
     selected = await select_sources(text)
     assert any("os.system(cmd)" in t.region.text for t in selected.targets)
-    # Genuine search output still selects only the numbered rows.
     rows = await select_sources("src/app.py\n  10: run(x)\n  11: eval(y)\n")
     assert [t.region.text for t in rows.targets] == ["run(x)\neval(y)\n"]
 
@@ -457,13 +483,13 @@ async def test_code_shaped_search_headers_are_not_discarded() -> None:
     ],
 )
 async def test_expression_callees_and_continuations_are_candidates(call: str) -> None:
+    """Pin expression callees and continuations are candidates."""
     from petasos.scanners.semgrep.source import preflight
 
     for text in (call, json.dumps({"content": call})):
         assert await preflight(text), text
         selected = await select_sources(text)
         assert selected.targets, text
-    # Chunk boundaries (8,192 characters) cannot split the call away.
     for shift in range(-12, 13):
         padded = " " * (8192 + shift - call.index("(", 1)) + call
         assert await preflight(padded), shift
@@ -476,6 +502,7 @@ async def test_expression_callees_and_continuations_are_candidates(call: str) ->
 async def test_clipped_json_leaf_records_the_omitted_suffix(
     suffix: str, error: str | None
 ) -> None:
+    """Pin clipped json leaf records the omitted suffix."""
     text = json.dumps(" " * 65536 + suffix)
     selected = await select_sources(text)
     assert selected.tail is not None
@@ -489,6 +516,7 @@ async def test_clipped_json_leaf_records_the_omitted_suffix(
     ["1" * 5000 + "|eval(payload)", "a.py\n  " + "1" * 5000 + ": eval(payload)"],
 )
 async def test_oversized_line_numbers_stay_raw(text: str) -> None:
+    """Pin oversized line numbers stay raw."""
     selected = await select_sources(text)
     assert selected.error is None
     assert any("eval(payload)" in t.region.text for t in selected.targets)

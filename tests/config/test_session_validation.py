@@ -1,3 +1,5 @@
+"""Pin validated session bounds and immutable configuration fields."""
+
 from __future__ import annotations
 
 import pytest
@@ -5,13 +7,12 @@ import pytest
 from petasos.config.schema import from_mapping
 from petasos.config.sections import PetasosConfig
 
-# ---------------------------------------------------------------------------
-# Config validation for session fields
-# ---------------------------------------------------------------------------
-
 
 class TestSessionConfigValidation:
+    """Pin Session Config Validation."""
+
     def test_thresholds_not_ascending_raises(self) -> None:
+        """Pin thresholds not ascending raises."""
         with pytest.raises(ValueError, match="strictly ascending"):
             from_mapping(
                 PetasosConfig,
@@ -25,6 +26,7 @@ class TestSessionConfigValidation:
             )
 
     def test_valid_session_fields_accepted(self) -> None:
+        """Pin valid session fields accepted."""
         cfg = from_mapping(
             PetasosConfig,
             {
@@ -48,6 +50,7 @@ class TestSessionConfigValidation:
         assert cfg.escalation.tier1 == 10.0
 
     def test_negative_half_life_raises(self) -> None:
+        """Pin negative half life raises."""
         with pytest.raises(ValueError, match="frequency.half_life_seconds"):
             from_mapping(
                 PetasosConfig,
@@ -59,6 +62,7 @@ class TestSessionConfigValidation:
             )
 
     def test_negative_weight_raises(self) -> None:
+        """Pin negative weight raises."""
         with pytest.raises(ValueError, match="frequency.weights"):
             from_mapping(
                 PetasosConfig,
@@ -70,6 +74,7 @@ class TestSessionConfigValidation:
             )
 
     def test_infinite_threshold_raises(self) -> None:
+        """Pin infinite threshold raises."""
         with pytest.raises(ValueError):
             from_mapping(
                 PetasosConfig,

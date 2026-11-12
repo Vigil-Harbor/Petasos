@@ -79,7 +79,6 @@ def _open(page: Any, base: str, view: str, params: str = "") -> None:
 
 def _settle(page: Any, ms: int = 700) -> None:
     page.wait_for_load_state("networkidle")
-    # Let Hermes's toast leave before the picture.
     page.locator("[role=status].fixed").wait_for(state="detached", timeout=8000)
     page.mouse.move(2, HEIGHT - 2)
     page.wait_for_timeout(ms)
@@ -306,14 +305,12 @@ def _capture_theme(
     watch = Watch(page)
     _theme(page, demo, label)
 
-    # 01 Overview, protected: status and coverage, the last day, then setup.
     _open(page, demo, "overview")
     page.locator(_PROTECTED).first.wait_for(timeout=20000)
     page.locator(".petasos-stat").first.wait_for()
     _settle(page, 1500)
     _shot(page, out, f"{prefix}-01-overview-protected", shots)
 
-    # 03 A job change being previewed: consequences first, details folded.
     page.locator("#petasos-choose-job-research").click()
     page.locator(".petasos-preview .petasos-when").first.wait_for(timeout=15000)
     _scroll_to(page, ".petasos-topbar")
@@ -322,9 +319,6 @@ def _capture_theme(
     page.locator(".petasos-preview").get_by_role("button", name=_named("Cancel")).click()
     page.wait_for_timeout(300)
 
-    # 02 Paused, through the tab's own pause and its confirmation. The page
-    # is taller than the window, so this one picture is taken at the height
-    # that brings the Checks panel into view, to show its state.
     _scroll_to(page, ".petasos-topbar")
     page.get_by_role("button", name=_named("Pause protection")).click()
     page.get_by_role("alertdialog").get_by_role("button", name=_named("Pause")).click()
@@ -340,7 +334,6 @@ def _capture_theme(
     page.get_by_role("button", name=_named("Resume protection")).click()
     page.locator(_PROTECTED).first.wait_for(timeout=20000)
 
-    # x5 Keyboard focus on a control, reached with Tab.
     _open(page, demo, "overview")
     page.locator(_PROTECTED).first.wait_for(timeout=20000)
     _settle(page, 800)
@@ -349,20 +342,17 @@ def _capture_theme(
         page.wait_for_timeout(300)
         _shot(page, out, f"{prefix}-x5-keyboard-focus", shots)
 
-    # 04 Activity list, everything recorded, repeats grouped.
     _open(page, demo, "activity", "?range=all")
     page.locator(".petasos-event").first.wait_for(timeout=15000)
     _settle(page, 1000)
     _shot(page, out, f"{prefix}-04-activity-list", shots)
 
-    # 05 One event opened: the hidden instruction in a file the agent wrote.
     row = page.locator(".petasos-event").filter(has_text="task-notes-2c91").first
     row.click()
     page.locator(".petasos-detail").wait_for(timeout=10000)
     _settle(page)
     _shot(page, out, f"{prefix}-05-activity-detail", shots)
 
-    # x4 A search and a custom range in use.
     window = page.evaluate(
         """() => {
           const pad = (n) => String(n).padStart(2, '0');
@@ -383,17 +373,13 @@ def _capture_theme(
     _settle(page, 1000)
     _shot(page, out, f"{prefix}-x4-activity-search", shots)
 
-    # 07 Try it: a file write carrying a hidden instruction, blocked.
     _open(page, demo, "tryit", "?example=notes")
     page.locator(".petasos-decision").first.wait_for(timeout=20000)
     _settle(page)
     _shot(page, out, f"{prefix}-07-tryit-blocked", shots)
 
-    # 08 Try it: a download piped into a shell, held for a person by the live
-    # settings, then tried without that rule (not saved) beside the live answer.
     _open(page, demo, "tryit", "?example=download")
     page.locator(".petasos-finding").first.wait_for(timeout=20000)
-    # Lifting one command rule can leave another underneath; lift each in turn.
     for _attempt in range(3):
         page.get_by_role("button", name=_named("Try without this rule")).first.click()
         page.locator(".petasos-compare").wait_for(timeout=20000)
@@ -407,8 +393,6 @@ def _capture_theme(
     _settle(page)
     _shot(page, out, f"{prefix}-08-tryit-allowed", shots)
 
-    # 09 Settings: a value the user set, with where each value comes from, and
-    # one more change (a tool exemption) staged and waiting for review.
     _open(page, demo, "settings", "?path=tools.dangerous_posture")
     page.locator("#petasos-row-tools\\.dangerous_posture").wait_for(timeout=15000)
     page.locator("#petasos-field-tools-exempt").fill("web_search")
@@ -417,7 +401,6 @@ def _capture_theme(
     _settle(page)
     _shot(page, out, f"{prefix}-09-settings-override", shots)
 
-    # x1 The list of staged changes, opened from the count beside Save.
     page.locator(".petasos-changecount").click()
     page.locator(".petasos-sheet").wait_for(timeout=10000)
     _settle(page)
@@ -425,7 +408,6 @@ def _capture_theme(
     page.locator(".petasos-sheet").get_by_role("button", name="Close the list of changes").click()
     page.get_by_role("button", name=re.compile("^Discard all", re.IGNORECASE)).click()
 
-    # 10 Settings: an invalid value explained at the field.
     _open(page, demo, "settings", "?path=escalation.tier3")
     page.locator("#petasos-field-escalation-tier3").fill("20")
     page.locator(".petasos-field-error").first.wait_for(timeout=10000)
@@ -434,7 +416,6 @@ def _capture_theme(
     _shot(page, out, f"{prefix}-10-settings-error", shots)
     page.get_by_role("button", name=re.compile("^Discard all", re.IGNORECASE)).click()
 
-    # x2 A save that needs a restart: PromptGuard switched to always on.
     _open(page, demo, "settings", "?path=scanners.prompt_guard.enabled")
     page.locator("#petasos-field-scanners-prompt_guard-enabled").click()
     page.get_by_role("option", name="Required").click()
@@ -446,14 +427,12 @@ def _capture_theme(
     _settle(page)
     _shot(page, out, f"{prefix}-x2-settings-saved", shots)
 
-    # x3 The verdict while a check that is turned on cannot run.
     _open(page, demo, "overview")
     page.locator(".petasos-verdict").wait_for(timeout=20000)
     page.wait_for_timeout(1500)
     _settle(page, 1200)
     _shot(page, out, f"{prefix}-x3-overview-partial", shots)
 
-    # Put the demo home back: reset that one setting through the tab.
     _open(page, demo, "settings", "?path=scanners.prompt_guard.enabled")
     page.locator("#petasos-row-scanners\\.prompt_guard\\.enabled").get_by_role(
         "button", name=re.compile("^Reset ", re.IGNORECASE)
@@ -461,7 +440,6 @@ def _capture_theme(
     page.get_by_role("alertdialog").get_by_role("button", name=_named("Reset")).click()
     page.get_by_text("Saved at").first.wait_for(timeout=15000)
 
-    # 06 Activity on a home with no record yet.
     empty_page = context.new_page()
     watch_empty = Watch(empty_page)
     _theme(empty_page, empty, label)
@@ -470,7 +448,6 @@ def _capture_theme(
     _settle(empty_page)
     _shot(empty_page, out, f"{prefix}-06-activity-empty", shots)
 
-    # 11 Overview at 900 pixels wide, dark theme only.
     if prefix == "teal":
         page.set_viewport_size({"width": 900, "height": HEIGHT})
         _open(page, demo, "overview")
@@ -498,7 +475,6 @@ def capture(request: dict[str, Any]) -> dict[str, Any]:
             taken, seen = _capture_theme(browser, demo, empty, out, prefix, label)
             shots.extend(taken)
             problems.extend(seen)
-        # Leave the demo home on the default theme for the next run.
         context = browser.new_context(viewport={"width": WIDTH, "height": HEIGHT})
         page = context.new_page()
         _theme(page, demo, "Hermes Teal")
@@ -554,7 +530,6 @@ def followups(request: dict[str, Any]) -> dict[str, Any]:
                     }
                 )
                 if out is not None:
-                    # Fit the complete result while preserving the tested width.
                     bottom = page.locator(".petasos-result").evaluate(
                         "e => e.getBoundingClientRect().bottom"
                     )
@@ -573,6 +548,7 @@ def followups(request: dict[str, Any]) -> dict[str, Any]:
 
 
 def main() -> None:
+    """Run the isolated test harness."""
     request = json.loads(sys.stdin.read() or "{}")
     action = str(request.get("action", ""))
     handlers = {"check": check, "capture": capture, "followups": followups}

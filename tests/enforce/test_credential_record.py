@@ -1,8 +1,6 @@
-"""A secret is masked before the approval line is signed.
+"""Pin approval-secret masking before event signing.
 
-PET-250 drove this through the reference plugin and the console history file.
-The spool line is the part that is still written.
-"""
+See docs/architecture/rationale.md, "Test timing and backend qualification"."""
 
 from __future__ import annotations
 
@@ -17,6 +15,7 @@ if TYPE_CHECKING:
 
 
 def test_the_signed_approval_line_does_not_contain_the_secret(tmp_path: Path) -> None:
+    """Pin the signed approval line does not contain the secret."""
     secret = "synthetic-password-" + "x" * 80
 
     def redact(text: str, **options: bool) -> str:

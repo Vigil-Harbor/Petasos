@@ -24,7 +24,7 @@ OUTCOMES_PATH = HERE / "outcomes.json"
 
 OUTCOME_VERSION = 1
 
-# Stamped by the spool writer from the clock, a random id, or the per-run key.
+# Writer-stamped clock, id and key fields vary per run.
 _VOLATILE_EVENT_FIELDS = frozenset({"scan_id", "timestamp", "sig"})
 
 _ANON_RE = re.compile(r"anon-[0-9a-f]{8}")

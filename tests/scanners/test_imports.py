@@ -16,32 +16,28 @@ if TYPE_CHECKING:
     import types
 
 
-# ---------------------------------------------------------------------------
-# Unit tests for _is_missing_package()
-# ---------------------------------------------------------------------------
-
-
 class TestIsMissingPackage:
+    """Pin Is Missing Package."""
+
     def test_matches_expected_name(self) -> None:
+        """Pin matches expected name."""
         exc = ImportError(name="presidio_analyzer")
         assert _is_missing_package(exc, {"presidio_analyzer"}) is True
 
     def test_rejects_unexpected_name(self) -> None:
+        """Pin rejects unexpected name."""
         exc = ImportError(name="torch")
         assert _is_missing_package(exc, {"presidio_analyzer"}) is False
 
     def test_rejects_none_name(self) -> None:
+        """Pin rejects none name."""
         exc = ImportError("broken")
         assert _is_missing_package(exc, {"presidio_analyzer"}) is False
 
     def test_rejects_submodule(self) -> None:
+        """Pin rejects submodule."""
         exc = ImportError(name="presidio_analyzer.submodule")
         assert _is_missing_package(exc, {"presidio_analyzer"}) is False
-
-
-# ---------------------------------------------------------------------------
-# Integration tests for import-guard behavior
-# ---------------------------------------------------------------------------
 
 
 @pytest.fixture()
@@ -55,13 +51,14 @@ def _reimport_scanners() -> Any:
     finally:
         sys.modules.clear()
         sys.modules.update(saved)
-        # importlib also binds a reimported child onto its parent. Restoring only
-        # sys.modules makes dotted monkeypatch targets resolve to the wrong copy.
+        # Restore parent bindings as well as sys.modules so dotted imports see the same package.
         vars(parent)["scanners"] = scanners
 
 
 @pytest.mark.usefixtures("_reimport_scanners")
 class TestImportGuardIntegration:
+    """Pin Import Guard Integration."""
+
     @staticmethod
     def _reload_scanners() -> types.ModuleType:
         key = "petasos.scanners"
@@ -72,6 +69,7 @@ class TestImportGuardIntegration:
         return importlib.import_module(key)
 
     def test_broken_extra_reraises(self) -> None:
+        """Pin broken extra reraises."""
         original_import = __import__
 
         def selective_import(name: str, *args: Any, **kwargs: Any) -> Any:
@@ -91,6 +89,7 @@ class TestImportGuardIntegration:
         assert getattr(exc_info.value, "name", None) == "not_a_backend_dep"
 
     def test_bare_importerror_reraises(self) -> None:
+        """Pin bare importerror reraises."""
         original_import = __import__
 
         def selective_import(name: str, *args: Any, **kwargs: Any) -> Any:
@@ -110,6 +109,7 @@ class TestImportGuardIntegration:
             importlib.import_module("petasos.scanners")
 
     def test_missing_extra_removes_from_all(self) -> None:
+        """Pin missing extra removes from all."""
         original_import = __import__
 
         def selective_import(name: str, *args: Any, **kwargs: Any) -> Any:
@@ -125,6 +125,7 @@ class TestImportGuardIntegration:
             assert "MinimalScanner" in mod.__all__
 
     def test_missing_extra_logs_debug(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Pin missing extra logs debug."""
         original_import = __import__
 
         def selective_import(name: str, *args: Any, **kwargs: Any) -> Any:
@@ -142,6 +143,7 @@ class TestImportGuardIntegration:
         assert any("PromptGuardScanner not available" in r.message for r in caplog.records)
 
     def test_broken_presidio_reraises(self) -> None:
+        """Pin broken presidio reraises."""
         original_import = __import__
 
         def selective_import(name: str, *args: Any, **kwargs: Any) -> Any:
@@ -159,6 +161,7 @@ class TestImportGuardIntegration:
         assert getattr(exc_info.value, "name", None) == "not_a_backend_dep"
 
     def test_missing_presidio_removes_both_from_all(self) -> None:
+        """Pin missing presidio removes both from all."""
         original_import = __import__
 
         def selective_import(name: str, *args: Any, **kwargs: Any) -> Any:
@@ -175,17 +178,16 @@ class TestImportGuardIntegration:
             assert "MinimalScanner" in mod.__all__
 
     def test_minimal_always_present(self) -> None:
+        """Pin minimal always present."""
         mod = self._reload_scanners()
         assert "MinimalScanner" in mod.__all__
 
 
 def test_prompt_guard_scanner_is_exported_on_a_base_install() -> None:
-    # PET-242: the wrapper imports no backend at module level, so the export holds
-    # with no torch or transformers present.
+    """Pin prompt guard scanner is exported on a base install."""
     import petasos.scanners as scanners_pkg
 
-    # The import-guard cases above must restore the parent binding as well as
-    # sys.modules; dotted patch targets and direct imports must see one package.
+    # Parent bindings and sys.modules must identify the same restored package.
     assert scanners_pkg is sys.modules["petasos.scanners"]
     assert vars(scanners_pkg)["semgrep"] is sys.modules["petasos.scanners.semgrep"]
     assert "PromptGuardScanner" in scanners_pkg.__all__

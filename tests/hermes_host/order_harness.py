@@ -201,6 +201,7 @@ def order_case(request: dict[str, Any]) -> dict[str, Any]:
 
 
 def main() -> None:
+    """Run the isolated test harness."""
     request = json.load(sys.stdin)
     if request.get("action") != "order":
         raise SystemExit(f"unknown action {request.get('action')}")

@@ -35,6 +35,7 @@ class _Store:
         self.calls: list[dict[str, Any]] = []
 
     def write(self, values: Any, plugin_dir: Path) -> None:
+        """Provide write for the test fixture."""
         self.calls.append(dict(values))
         self.settings.update(values)
 
@@ -161,6 +162,7 @@ def test_saving_auto_is_refused_and_nothing_is_written(tmp_path: Path) -> None:
 
 
 def test_changing_something_else_while_auto_is_stored_is_refused(tmp_path: Path) -> None:
+    """Pin changing something else while auto is stored is refused."""
     store = _Store(_AUTO)
     with pytest.raises(ApiError) as caught:
         save_settings(
@@ -268,6 +270,7 @@ def test_doctor_says_auto_does_the_same() -> None:
 
 
 def test_doctor_says_when_a_broken_check_is_let_through() -> None:
+    """Pin doctor says when a broken check is let through."""
     check, _row_ = _doctor({"overrides": {"fail_mode": "open", **_ON["overrides"]}})
 
     assert check.meaning.startswith("It is set to Required. Tool calls still run without it")

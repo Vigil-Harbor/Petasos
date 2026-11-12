@@ -270,7 +270,6 @@ def test_each_event_says_what_was_done_in_words(tmp_path: Path) -> None:
     tier2, paused, answered, asked, blocked = events
     assert blocked["outcome"] == {"code": "blocked", "label": "Blocked"}
     assert blocked["kind_label"] == "Blocked tool call"
-    # The sentence says what the agent tried to do; the tool's id is served beside it.
     assert blocked["summary"] == (
         "Blocked an attempt to write a file that contained hidden instructions."
     )
@@ -471,7 +470,6 @@ def test_a_guardrail_change_says_whether_the_call_was_stopped(tmp_path: Path) ->
     assert hot["target"] == "~/.hermes/config.yaml"
     assert hot["risk_block"] is True
     calm = by_session["calm"]
-    # The next event is for another tool, so it is not this call's outcome.
     assert calm["outcome"] == {"code": "not_stopped", "label": "Not stopped"}
     assert calm["summary"].startswith("Did not stop an attempt to change")
     assert calm["risk_block"] is False
@@ -480,7 +478,6 @@ def test_a_guardrail_change_says_whether_the_call_was_stopped(tmp_path: Path) ->
         "by_outcome"
     ]
     assert counts["not_stopped"] == 1
-    # Two blocks (the quarantine and the tier-2 block); the attempt is not a third.
     assert counts["blocked"] == 2
     assert counts["attempt_blocked"] == 1
 
@@ -591,16 +588,13 @@ def test_the_blocked_count_agrees_with_the_rows_it_sits_above(tmp_path: Path) ->
         assert summary["total"] == len(rows)
         return summary["total"], summary["blocked"], [row["outcome"]["label"] for row in rows]
 
-    # The words of a guardrail attempt match both attempts and neither block.
     total, blocked, labels = counted(ActivityQuery(text="settings"))
     assert total == 2
     assert labels.count("Blocked") == 1
     assert blocked == 1
-    # Everything: the hot call's attempt and its block are one blocked call.
     total, blocked, labels = counted(ActivityQuery())
     assert total == 4
     assert blocked == 2
-    # One conversation, attempt and block together: still one call.
     total, blocked, labels = counted(ActivityQuery(session="hot"))
     assert (total, blocked) == (2, 1)
 

@@ -42,9 +42,7 @@ def _run(
 def _hermes(
     sandbox: Path, home: Path, args: list[str], *, timeout: float = 180
 ) -> subprocess.CompletedProcess[str]:
-    # ``hermes`` activates this home's package-manager environment. Tests that
-    # reach this helper installed through ``petasos hermes install``, which
-    # puts the wheel there.
+    # Hermes activates the home's committed environment, where installation must place the wheel.
     wrapper = sandbox / "bin" / "with-sandbox"
     return subprocess.run(
         [str(wrapper), "hermes", *args],

@@ -156,6 +156,7 @@ def validate(request: dict[str, Any]) -> dict[str, Any]:
 
 
 def parse_kind(request: dict[str, Any]) -> dict[str, Any]:
+    """Provide parse kind for the test fixture."""
     manifest_mod = _import("hermes_cli.plugins_manifest")
     path = Path(request["path"])
     manifest = manifest_mod.parse_manifest_file(path / "plugin.yaml", path, "user", "")
@@ -236,7 +237,7 @@ def _apply_behavior(request: dict[str, Any], hook: str, log: Path) -> None:
 
 
 def dispatch(request: dict[str, Any]) -> dict[str, Any]:
-    """Drive one hook through Hermes's dispatcher and return the host decision plus the kwargs."""
+    """Provide dispatch for the test fixture."""
     hook = str(request["hook"])
     log = _log_path()
     _apply_behavior(request, hook, log)
@@ -354,6 +355,7 @@ def dispatch(request: dict[str, Any]) -> dict[str, Any]:
 
 
 def load_state(_request: dict[str, Any]) -> dict[str, Any]:
+    """Provide load state for the test fixture."""
     manager = _manager()
     plugins: dict[str, Any] = {}
     for key, plugin in manager._plugins.items():
@@ -396,6 +398,7 @@ def timeout_probe(_request: dict[str, Any]) -> dict[str, Any]:
 
 
 def main() -> None:
+    """Run the isolated test harness."""
     _sandbox()
     request = cast("dict[str, Any]", json.load(sys.stdin))
     action = str(request.get("action", ""))

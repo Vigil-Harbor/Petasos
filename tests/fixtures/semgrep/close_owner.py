@@ -10,13 +10,14 @@ from petasos.scanners.semgrep.engine import result_for
 
 
 async def fake_job(runtime: rt.Runtime, job: rt.Job) -> None:
+    """Provide fake job for the test fixture."""
     if job.selection is None:
         result = rt.error_result("unused")
         result = type(result)("semgrep", (), 0)
     else:
         while not job.cancelled.is_set():
             await asyncio.sleep(0.002)
-        await asyncio.sleep(0.15)  # deterministic owned cleanup, no abandoned task
+        await asyncio.sleep(0.15)
         result = result_for(job.selection, error="semgrep.cancelled")
     with runtime.lock:
         runtime.active.discard(job)
@@ -28,6 +29,7 @@ async def fake_job(runtime: rt.Runtime, job: rt.Job) -> None:
 
 
 async def main() -> None:
+    """Run the isolated test harness."""
     with (
         patch("petasos.scanners.semgrep.adapter.supported_platform", return_value=True),
         patch("petasos.scanners.semgrep.adapter.monitor_available", return_value=True),

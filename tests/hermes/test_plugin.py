@@ -42,15 +42,18 @@ class _Ctx:
         self.hooks: dict[str, list[Any]] = {}
 
     def get_config(self, key: str, default: object = None) -> object:
+        """Provide get config for the test fixture."""
         return self.values.get(key, default)
 
     def register_hook(self, name: str, handler: object) -> None:
+        """Provide register hook for the test fixture."""
         if not self.subagent and name in ("subagent_start", "subagent_stop"):
             raise RuntimeError(name)
         store = self._manager._hooks if self._manager is not None else self.hooks
         store.setdefault(name, []).append(handler)
 
     def callbacks(self, name: str) -> list[Any]:
+        """Provide callbacks for the test fixture."""
         store = self._manager._hooks if self._manager is not None else self.hooks
         return list(store.get(name, []))
 

@@ -29,6 +29,7 @@ class _Store:
         self.calls: list[dict[str, Any]] = []
 
     def write(self, values: Any, plugin_dir: Path) -> None:
+        """Provide write for the test fixture."""
         self.calls.append({"values": dict(values), "plugin_dir": plugin_dir})
         for key, value in values.items():
             current = self.settings.get(key)
@@ -135,7 +136,6 @@ def test_a_restart_field_is_named(tmp_path: Path) -> None:
     )
     assert "scanners.prompt_guard.threshold" in body["restart"]
     assert "restart" in body["restart_message"].lower()
-    # The message names the setting the way the screen does, not by its path.
     assert "PromptGuard sensitivity" in body["restart_message"]
     assert "An agent started from now on uses the saved value" in body["restart_message"]
     assert "already running keeps the previous value until it restarts" in body["restart_message"]

@@ -1,4 +1,4 @@
-"""The tool-call decision ladder, with plain inputs and no host."""
+"""Pin host-neutral allow, block and approval decisions."""
 
 from __future__ import annotations
 
@@ -69,6 +69,7 @@ class _Store:
         self.namespace = namespace
 
     def tainted_source(self, session_id: str, args: object) -> str | None:
+        """Provide tainted source for the test fixture."""
         return self.namespace
 
 
@@ -134,6 +135,7 @@ def _decide(
 
 
 def test_blocks_high_and_critical_only() -> None:
+    """Pin blocks high and critical only."""
     assert blocks(Severity.CRITICAL) is True
     assert blocks(Severity.HIGH) is True
     assert blocks(Severity.MEDIUM) is False
@@ -142,6 +144,7 @@ def test_blocks_high_and_critical_only() -> None:
 
 
 def test_worst_breaks_severity_ties_toward_confidence() -> None:
+    """Pin worst breaks severity ties toward confidence."""
     low = _finding("a", confidence=0.2)
     high = _finding("b", confidence=0.8)
     assert worst((low, high)).rule_id == "b"
@@ -150,6 +153,7 @@ def test_worst_breaks_severity_ties_toward_confidence() -> None:
 
 
 def test_tool_classification() -> None:
+    """Pin tool classification."""
     assert is_dangerous("read_file", _READ_ONLY) is False
     assert is_dangerous("terminal", _READ_ONLY) is True
     assert is_dangerous("READ_FILE", _READ_ONLY) is False
@@ -163,6 +167,7 @@ def test_tool_classification() -> None:
 
 
 def test_posture_normalizes_to_approve_or_block() -> None:
+    """Pin posture normalizes to approve or block."""
     assert normalize_posture("approve") == "approve"
     assert normalize_posture("Approve") == "block"
     assert normalize_posture(None) == "block"
@@ -170,6 +175,7 @@ def test_posture_normalizes_to_approve_or_block() -> None:
 
 
 def test_non_pii_blocks_before_an_approve_posture() -> None:
+    """Pin non pii blocks before an approve posture."""
     finding = _finding("petasos.syntactic.injection.ignore")
     decision, logs, events = _decide(
         _guard(finding), posture="approve", approve=True, egress=False
@@ -182,6 +188,7 @@ def test_non_pii_blocks_before_an_approve_posture() -> None:
 
 
 def test_command_rule_approves_only_when_the_directive_is_usable() -> None:
+    """Pin command rule approves only when the directive is usable."""
     finding = _finding("petasos.syntactic.command.fetch-exec", finding_type="command")
     blocked, _, _ = _decide(_guard(finding), posture="approve", approve=False)
     assert isinstance(blocked, Block)
@@ -203,6 +210,7 @@ def test_command_rule_approves_only_when_the_directive_is_usable() -> None:
 
 
 def test_a_command_the_host_will_ask_about_is_recorded_and_not_decided() -> None:
+    """Pin a command the host will ask about is recorded and not decided."""
     finding = _finding("petasos.syntactic.command.fetch-exec", finding_type="command")
     seen: list[str] = []
     decision, logs, events = _decide(
@@ -229,6 +237,7 @@ def test_a_command_the_host_will_ask_about_is_recorded_and_not_decided() -> None
 
 
 def test_each_missing_condition_keeps_petasos_decision() -> None:
+    """Pin each missing condition keeps petasos decision."""
     finding = _finding("petasos.syntactic.command.fetch-exec", finding_type="command")
     injection = _finding("petasos.syntactic.injection.ignore-previous")
     pii = _finding("pii.email", finding_type="pii", severity=Severity.CRITICAL)
@@ -302,6 +311,7 @@ def test_each_missing_condition_keeps_petasos_decision() -> None:
 
 
 def test_degraded_scan_ladder() -> None:
+    """Pin degraded scan ladder."""
     result = _guard(degraded=True)
     blocked, _, events = _decide(result, posture="block", approve=True)
     assert isinstance(blocked, Block)
@@ -324,6 +334,7 @@ def test_degraded_scan_ladder() -> None:
 
 
 def test_taint_blocks_ahead_of_pii_and_pii_blocks_only_on_egress() -> None:
+    """Pin taint blocks ahead of pii and pii blocks only on egress."""
     pii = _finding("pii.email", finding_type="pii", severity=Severity.CRITICAL)
     tainted, _, events = _decide(
         _guard(pii),
@@ -345,6 +356,7 @@ def test_taint_blocks_ahead_of_pii_and_pii_blocks_only_on_egress() -> None:
 
 
 def test_guard_denial_covers_tier3_and_tier2() -> None:
+    """Pin guard denial covers tier3 and tier2."""
     events: list[dict[str, object]] = []
     logger = logging.getLogger("petasos.enforce.test.guard")
     tier3 = _guard(allowed=False, tier="tier3", reason="session terminated (tier3)")
@@ -366,6 +378,7 @@ def _must_not_emit(**_fields: object) -> None:
 
 
 def test_ingestion_annotation_paths() -> None:
+    """Pin ingestion annotation paths."""
     finding = _finding("petasos.syntactic.injection.ignore")
     events: list[dict[str, object]] = []
     logger = logging.getLogger("petasos.enforce.test.ingest")
@@ -433,6 +446,7 @@ def test_ingestion_annotation_paths() -> None:
 
 
 def test_approve_message_names_the_rule() -> None:
+    """Pin approve message names the rule."""
     text = approve_message("terminal", "petasos.syntactic.command.fetch-exec", "echo")
     assert "fetch-exec" in text
     assert "echo" in text

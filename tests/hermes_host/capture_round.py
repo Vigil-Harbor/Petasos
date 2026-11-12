@@ -158,6 +158,7 @@ def run_browser(sandbox: Path, request: dict[str, Any], *, timeout: float = 900)
 
 
 def write_index(out: Path, shots: list[str]) -> Path:
+    """Provide write index for the test fixture."""
     lines = [
         "# Petasos tab screenshots",
         "",
@@ -183,6 +184,7 @@ def write_index(out: Path, shots: list[str]) -> Path:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Run the isolated test harness."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--sandbox", required=True, type=Path)
     parser.add_argument("--out", type=Path, default=ROOT / ".ux-reference/rounds/round-04")

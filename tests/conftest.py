@@ -1,3 +1,5 @@
+"""Provide isolated homes, asyncio execution and backend qualification fixtures."""
+
 from __future__ import annotations
 
 import importlib
@@ -75,13 +77,7 @@ def _isolate_enforcement_spool(tmp_path_factory: pytest.TempPathFactory) -> Iter
 
 @pytest.fixture()
 def anyio_backend() -> str:
-    """PET-149: the single repo-owned async-backend selector under ``anyio_mode =
-    "auto"`` (pyproject ``[tool.pytest.ini_options]``). Overrides anyio's built-in
-    ``anyio_backend`` (module-scoped, parametrized over every available backend) so
-    the suite runs function-scoped on asyncio only: behavior-preserving against the
-    dropped ``asyncio_mode = "auto"``, with no ``[asyncio]`` id suffix and no trio
-    fan-out. It is also the one edit point a future targeted trio parametrization
-    (D-BACKEND) would change."""
+    """Select function-scoped asyncio without backend-id suffixes or trio fan-out."""
     return "asyncio"
 
 
@@ -96,15 +92,7 @@ def _item_class_name(item: pytest.Item) -> str | None:
 
 
 def _would_skip(item: pytest.Item) -> bool:
-    """True if ``item`` carries a decoration-time skip — either a plain
-    ``@pytest.mark.skip`` (unconditional) or a truthy ``@pytest.mark.skipif``.
-
-    A plain ``skip`` is not a ``skipif`` and would otherwise sail past the guard,
-    skipping the target class despite the backend being importable — exactly what
-    a non-skipping lane must catch. Module-level (PET-105 DD) so both lane guards
-    share one definition and cannot drift. A *runtime* ``pytest.skip()`` in a test
-    body is invisible here by design — the target classes must never call it.
-    """
+    """Return whether an item has an unconditional or truthy conditional skip marker."""
     if item.get_closest_marker("skip") is not None:
         return True
     return any(mark.args and bool(mark.args[0]) for mark in item.iter_markers(name="skipif"))
@@ -121,15 +109,7 @@ def _enforce_nonskipping_lane(
 ) -> None:
     """Fail collection loudly if ``lane``'s real-backend class would skip.
 
-    Armed only when ``env_flag`` is ``"1"`` (set in the lane job's ``env`` block);
-    a no-op otherwise, so the default ``ci.yml`` lane and local dev keep their
-    ``@skipif`` self-skip unchanged. When armed: import ``import_target`` (the same
-    symbol the scanner's ``_do_load`` loads — not a top-level ``find_spec``) and
-    assert ``target_class`` is collected unskipped. The three failure shapes
-    (import-failed, target-not-collected, would-skip-despite-importable) mirror the
-    PET-104 guard verbatim, parameterized per lane (PET-105 DD). Each lane is
-    enforced independently — see DD for the both-armed composition.
-    """
+    See docs/architecture/rationale.md, "Async test and CI lane constraints"."""
     if os.environ.get(env_flag) != "1":
         return
 
@@ -162,18 +142,13 @@ def _enforce_nonskipping_lane(
 
 @dataclass(frozen=True)
 class NonSkippingLane:
-    """One scanner backend whose CI lane must run a real-backend class without
-    skipping. PET-106: single source of truth consumed by both the runtime guard
-    below and tests/test_ci_extras_lanes.py. Add a backend = add a row here +
-    add .github/workflows/extras-<extra>.yml (the meta-test enforces the pair).
-    Frozen dataclass per CLAUDE.md § Key Design Invariants 'Frozen exports' and
-    the petasos/model.py idiom (round-1 conventions F-1)."""
+    """Declare one backend whose real tests must run unskipped in its CI lane."""
 
-    extra: str  # pyproject optional-dependency key, e.g. "presidio"
-    env_flag: str  # CI lane env var, e.g. "PETASOS_REQUIRE_PRESIDIO"
-    import_target: str  # symbol the scanner's _do_load imports
-    target_class: str  # test class the lane must collect unskipped
-    lane: str  # workflow basename, e.g. "extras-presidio"
+    extra: str
+    env_flag: str
+    import_target: str
+    target_class: str
+    lane: str
     prerequisite: Callable[[], None] | None = None
 
 
@@ -221,8 +196,8 @@ def _require_semgrep() -> None:
                                 child = failure.child if failure is not None else job.child
                                 cause = failure.__cause__ if failure is not None else None
                                 process = getattr(child, "process", None)
-                                # Read only owned state. Never poll/reap a child,
-                                # stringify exceptions, or include source/argv.
+                                # Observe owned state without reaping children or including source,
+                                # arguments or exception text.
                                 states.append(
                                     {
                                         "native_failure": failure is not None,
@@ -243,8 +218,6 @@ def _require_semgrep() -> None:
 
         asyncio.run(probe())
     except Exception as exc:
-        # Availability errors are fixed diagnostic codes. Do not print arbitrary
-        # exception messages, which can contain local paths or source text.
         import re
 
         code = str(exc)
@@ -280,9 +253,6 @@ NONSKIPPING_LANES: tuple[NonSkippingLane, ...] = (
         if os.name == "nt"
         else ()
     ),
-    # presidio has two must-run live-detection classes in one lane: PET-106's real
-    # PII scan and PET-109's tightened-default regression. Both need the extra +
-    # spaCy model, so both are armed under the same PETASOS_REQUIRE_PRESIDIO flag.
     NonSkippingLane(
         "presidio",
         "PETASOS_REQUIRE_PRESIDIO",
@@ -301,11 +271,10 @@ NONSKIPPING_LANES: tuple[NonSkippingLane, ...] = (
         "presidio",
         "PETASOS_REQUIRE_PRESIDIO",
         "presidio_analyzer",
-        "TestProfilePresidioScoping",  # PET-119 profile→Presidio wiring contract
+        "TestProfilePresidioScoping",
         "extras-presidio",
     ),
-    # PET-242: no HF secret on the lane, so the target is a real torch + transformers
-    # forward pass and tokenizer built from config, with no model download.
+    # The lane builds its tokenizer and model from config without a token or model download.
     NonSkippingLane(
         "prompt-guard",
         "PETASOS_REQUIRE_PROMPT_GUARD",

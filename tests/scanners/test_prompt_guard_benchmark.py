@@ -1,3 +1,5 @@
+"""Measure scanners latency and resource bounds."""
+
 from __future__ import annotations
 
 import asyncio
@@ -13,9 +15,6 @@ pytestmark = pytest.mark.skipif(
     reason="pytest-benchmark not installed — pip install petasos[dev]",
 )
 
-# ---------------------------------------------------------------------------
-# PromptGuard on the full stack. Measure-only. Read at HEAD_CHARS.
-# ---------------------------------------------------------------------------
 
 _NATURAL_SENTENCE = (
     "The quarterly report covers revenue, staffing and the migration schedule. "
@@ -58,6 +57,7 @@ def _prompt_guard_scanner() -> Any:
 
 
 def test_benchmark_single_ml_prompt_guard(benchmark) -> None:  # type: ignore[no-untyped-def]
+    """Measure single ml prompt guard latency."""
     scanner = _prompt_guard_scanner()
     payloads = _prompt_guard_payloads()
     loop = asyncio.new_event_loop()

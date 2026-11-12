@@ -7,6 +7,7 @@ _PINNED_BLOCK = {"tools": {"dangerous_posture": "block"}}
 
 
 def test_a_default_section_keeps_the_old_general_block() -> None:
+    """Pin a default section keeps the old general block."""
     result = migrate({})
 
     assert result.settings["enabled"] is True
@@ -22,12 +23,14 @@ def test_a_default_section_keeps_the_old_general_block() -> None:
 
 
 def test_profile_names_become_roles() -> None:
+    """Pin profile names become roles."""
     assert migrate({"profile_name": "code_generation"}).settings["role"] == "coding"
     assert migrate({"profile_name": "customer_service"}).settings["role"] == "support"
     assert migrate({"profile_name": None}).settings["role"] == "general"
 
 
 def test_exact_level_values_become_that_level() -> None:
+    """Pin exact level values become that level."""
     relaxed = migrate(
         {
             "fail_mode": "degraded",
@@ -56,6 +59,7 @@ def test_exact_level_values_become_that_level() -> None:
 
 
 def test_unmatched_level_fields_become_overrides_on_balanced() -> None:
+    """Pin unmatched level fields become overrides on balanced."""
     result = migrate({"fail_mode": "open", "tier1_threshold": 12})
 
     assert result.settings["level"] == "balanced"
@@ -68,6 +72,7 @@ def test_unmatched_level_fields_become_overrides_on_balanced() -> None:
 
 
 def test_profile_entities_union_with_an_explicit_extra_list() -> None:
+    """Pin profile entities union with an explicit extra list."""
     result = migrate({"profile_name": "customer_service", "presidio_entities_extra": ["url"]})
 
     extra = result.settings["overrides"]["scanners"]["presidio"]["entities_extra"]
@@ -76,6 +81,7 @@ def test_profile_entities_union_with_an_explicit_extra_list() -> None:
 
 
 def test_profile_entities_need_no_override_when_the_flat_list_is_absent() -> None:
+    """Pin profile entities need no override when the flat list is absent."""
     result = migrate({"profile_name": "admin"})
 
     assert result.settings["overrides"] == {}
@@ -89,6 +95,7 @@ def test_profile_entities_need_no_override_when_the_flat_list_is_absent() -> Non
 
 
 def test_research_and_admin_tiers_are_noted_and_not_copied() -> None:
+    """Pin research and admin tiers are noted and not copied."""
     research = migrate({"profile_name": "research"})
     admin = migrate({"profile_name": "admin"})
 
@@ -103,6 +110,7 @@ def test_research_and_admin_tiers_are_noted_and_not_copied() -> None:
 
 
 def test_scanner_switches_and_removed_backends() -> None:
+    """Pin scanner switches and removed backends."""
     result = migrate(
         {
             "disabled_scanners": ["prompt_guard", "llm_guard", "llama_firewall", "nope"],
@@ -121,6 +129,7 @@ def test_scanner_switches_and_removed_backends() -> None:
 
 
 def test_disabled_wins_when_semgrep_is_also_enabled() -> None:
+    """Pin disabled wins when semgrep is also enabled."""
     result = migrate({"disabled_scanners": ["semgrep"], "semgrep_enabled": True})
 
     assert result.settings["overrides"] == _PINNED_BLOCK
@@ -129,6 +138,7 @@ def test_disabled_wins_when_semgrep_is_also_enabled() -> None:
 
 
 def test_secrets_unknown_keys_and_inert_flags_are_not_copied() -> None:
+    """Pin secrets unknown keys and inert flags are not copied."""
     secret = "hash-key-value"
     session = "session-secret-value"
     result = migrate(
@@ -163,6 +173,7 @@ def test_secrets_unknown_keys_and_inert_flags_are_not_copied() -> None:
 
 
 def test_integer_frequency_weights_become_floats() -> None:
+    """Pin integer frequency weights become floats."""
     result = migrate({"frequency_weights": {"petasos.syntactic.command.*": 3}})
 
     weights = result.settings["overrides"]["frequency"]["weights"]
@@ -173,6 +184,7 @@ def test_integer_frequency_weights_become_floats() -> None:
 
 
 def test_disabling_semgrep_matches_the_default() -> None:
+    """Pin disabling semgrep matches the default."""
     result = migrate({"semgrep_enabled": False})
 
     assert result.settings["overrides"] == _PINNED_BLOCK
@@ -181,6 +193,7 @@ def test_disabling_semgrep_matches_the_default() -> None:
 
 
 def test_an_explicit_null_is_carried_into_overrides() -> None:
+    """Pin an explicit null is carried into overrides."""
     result = migrate({"anonymize": None})
 
     assert result.settings["overrides"]["anonymization"]["enabled"] is None
@@ -188,6 +201,7 @@ def test_an_explicit_null_is_carried_into_overrides() -> None:
 
 
 def test_unknown_profile_is_dropped_and_names_the_roles() -> None:
+    """Pin unknown profile is dropped and names the roles."""
     result = migrate({"profile_name": "night_watch"})
 
     assert result.settings["role"] == "general"
@@ -199,6 +213,7 @@ def test_unknown_profile_is_dropped_and_names_the_roles() -> None:
 
 
 def test_an_old_general_profile_is_pinned_to_block_and_says_why() -> None:
+    """Pin an old general profile is pinned to block and says why."""
     result = migrate({"profile_name": "general"})
 
     assert result.settings["role"] == "general"
@@ -209,6 +224,7 @@ def test_an_old_general_profile_is_pinned_to_block_and_says_why() -> None:
 
 
 def test_a_named_posture_is_kept() -> None:
+    """Pin a named posture is kept."""
     blocked = migrate({"profile_name": "general", "dangerous_tool_posture": "block"})
     asked = migrate({"profile_name": "general", "dangerous_tool_posture": "approve"})
     coding = migrate({"profile_name": "code_generation", "dangerous_tool_posture": "block"})

@@ -10,7 +10,6 @@ from tests.hermes_host.marks import requires_hermes_sandbox
 
 pytestmark = requires_hermes_sandbox
 
-# Load the plugin once per process, then save a mode and dispatch one call.
 _HEADER = r"""
 import json
 from pathlib import Path

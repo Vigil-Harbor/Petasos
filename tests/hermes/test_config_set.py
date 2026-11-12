@@ -88,7 +88,6 @@ def test_set_off_is_stored(
     out = capsys.readouterr().out
 
     assert code == 0
-    # Semgrep's setting is read when an agent starts, and the command says so.
     assert out.startswith("Saved. An agent started from now on uses the saved value for ")
     assert "until it restarts" in out
     assert calls[0]["values"]["overrides"]["scanners"]["semgrep"]["enabled"] == "off"

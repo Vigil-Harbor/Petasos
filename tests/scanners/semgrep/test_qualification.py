@@ -1,3 +1,5 @@
+"""Pin fail-safe acceptance of packaged engine qualification evidence."""
+
 import hashlib
 import json
 from pathlib import Path
@@ -9,6 +11,7 @@ from petasos.scanners.semgrep.engine import ENGINE_VERSION
 
 
 async def test_benchmark_error_diagnostics_are_bounded_and_omit_paths() -> None:
+    """Measure error diagnostics are bounded and omit paths latency."""
     import errno
     import importlib.util
 
@@ -48,6 +51,7 @@ async def test_benchmark_error_diagnostics_are_bounded_and_omit_paths() -> None:
 
 
 def test_packaged_empty_manifest_uses_named_unqualified_workload() -> None:
+    """Pin packaged empty manifest uses named unqualified workload."""
     warning = q.qualification_warning(7, "a" * 64)
     assert warning is not None
     assert "eight_outstanding_three_profiles_16k_64k_v3" in warning
@@ -60,6 +64,7 @@ def test_matching_reference_and_mismatched_or_invalid_fallback(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Pin matching reference and mismatched or invalid fallback."""
     path = tmp_path / "qualification.json"
     monkeypatch.setattr(q, "_MANIFEST", path)
     monkeypatch.setattr(q, "platform_key", lambda: "windows_x64")

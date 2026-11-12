@@ -1,4 +1,4 @@
-"""ToolCallGuard evasion (PET-14 GUARD-*)."""
+"""Pin tool-name and argument enforcement against smuggling variants."""
 
 from __future__ import annotations
 
@@ -25,37 +25,37 @@ def _exempt_read() -> PetasosConfig:
 
 
 def test_whitespace_stripped_before_alias_resolves() -> None:
-    """GUARD-02: ' bash ' resolves to exec alias (strip runs before alias lookup)."""
+    """Pin whitespace stripped before alias resolves."""
     guard = _guard()
     assert guard._normalize_tool_name(" bash ") == "exec"
 
 
 def test_cyrillic_a_in_bash_normalizes() -> None:
-    """GUARD-02: Cyrillic а (U+0430) in 'bаsh' maps to 'exec' via homoglyph table."""
+    """Pin cyrillic a in bash normalizes."""
     guard = _guard()
     assert guard._normalize_tool_name("bаsh") == "exec"
 
 
 def test_fullwidth_bash_normalizes() -> None:
-    """GUARD-02: fullwidth 'ｂａｓｈ' normalizes to 'exec' via NFKC + alias."""
+    """Pin fullwidth bash normalizes."""
     guard = _guard()
     assert guard._normalize_tool_name("ｂａｓｈ") == "exec"
 
 
 def test_mixed_script_shell_normalizes() -> None:
-    """GUARD-02: Cyrillic ѕ (U+0455) in 'ѕhell' maps to 'exec' via homoglyph table."""
+    """Pin mixed script shell normalizes."""
     guard = _guard()
     assert guard._normalize_tool_name("ѕhell") == "exec"
 
 
 def test_invisible_chars_not_stripped() -> None:
-    """GUARD-02 boundary: zero-width space is NOT stripped (out of scope)."""
+    """Pin invisible chars not stripped."""
     guard = _guard()
     assert guard._normalize_tool_name("ba​sh") != "exec"
 
 
 def test_profile_alias_maps_exec_to_read_exempt() -> None:
-    """GUARD-03: an alias of exec onto exempt read is refused."""
+    """Pin profile alias maps exec to read exempt."""
     with pytest.raises(ConfigError, match="tools.aliases"):
         from_mapping(
             PetasosConfig,
@@ -64,7 +64,7 @@ def test_profile_alias_maps_exec_to_read_exempt() -> None:
 
 
 def test_alias_onto_exempt_runtime_fallback() -> None:
-    """GUARD-03: the same collision is refused when the document is built directly."""
+    """Pin alias onto exempt runtime fallback."""
     with pytest.raises(ConfigError, match="tools.aliases"):
         from_mapping(
             PetasosConfig,
@@ -73,8 +73,7 @@ def test_alias_onto_exempt_runtime_fallback() -> None:
 
 
 def test_alias_exec_to_read_exempt_blocked() -> None:
-    """GUARD-03 end-to-end: exec->read + exempt read cannot be installed, so exec
-    is never treated as the exempt tool."""
+    """Pin alias exec to read exempt blocked."""
     with pytest.raises(ConfigError, match="tools.aliases"):
         from_mapping(
             PetasosConfig,
@@ -83,7 +82,7 @@ def test_alias_exec_to_read_exempt_blocked() -> None:
 
 
 def test_whitespace_alias_onto_exempt_runtime_fallback() -> None:
-    """GUARD-03: a whitespace-padded alias value ' read ' is still the collision."""
+    """Pin whitespace alias onto exempt runtime fallback."""
     with pytest.raises(ConfigError, match="tools.aliases"):
         from_mapping(
             PetasosConfig,
@@ -91,13 +90,8 @@ def test_whitespace_alias_onto_exempt_runtime_fallback() -> None:
         )
 
 
-# ---------------------------------------------------------------------------
-# GUARD-05: circular / deep / large params (PET-38)
-# ---------------------------------------------------------------------------
-
-
 async def test_circular_dict_no_crash(monkeypatch: pytest.MonkeyPatch) -> None:
-    """GUARD-05: circular dict in tool_params does not crash evaluate()."""
+    """Pin circular dict no crash."""
     cfg = PetasosConfig()
     pipe = Pipeline(config=cfg)
     monkeypatch.setattr(pipe, "is_feature_enabled", lambda _feature: True)
@@ -111,7 +105,7 @@ async def test_circular_dict_no_crash(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 async def test_deeply_nested_dict_no_crash(monkeypatch: pytest.MonkeyPatch) -> None:
-    """GUARD-05: 500-level nested dict does not raise RecursionError."""
+    """Pin deeply nested dict no crash."""
     cfg = PetasosConfig()
     pipe = Pipeline(config=cfg)
     monkeypatch.setattr(pipe, "is_feature_enabled", lambda _feature: True)
@@ -126,7 +120,7 @@ async def test_deeply_nested_dict_no_crash(monkeypatch: pytest.MonkeyPatch) -> N
 
 
 async def test_large_params_truncated(monkeypatch: pytest.MonkeyPatch) -> None:
-    """GUARD-05: 2 MB string param is scanned without timeout/OOM."""
+    """Pin large params truncated."""
     cfg = PetasosConfig()
     pipe = Pipeline(config=cfg)
     monkeypatch.setattr(pipe, "is_feature_enabled", lambda _feature: True)
@@ -136,13 +130,8 @@ async def test_large_params_truncated(monkeypatch: pytest.MonkeyPatch) -> None:
     assert hasattr(result, "allowed")
 
 
-# ---------------------------------------------------------------------------
-# GUARD-04: exempt tool param scan (PET-37)
-# ---------------------------------------------------------------------------
-
-
 async def test_exempt_tool_malicious_params_detected(monkeypatch: pytest.MonkeyPatch) -> None:
-    """GUARD-04: exempt tool with malicious params -> allowed=True, findings populated."""
+    """Pin exempt tool malicious params detected."""
     cfg = _exempt_read()
     pipe = Pipeline(config=cfg)
     monkeypatch.setattr(pipe, "is_feature_enabled", lambda _feature: True)
@@ -154,7 +143,7 @@ async def test_exempt_tool_malicious_params_detected(monkeypatch: pytest.MonkeyP
 
 
 async def test_exempt_param_scan_disabled_skips(monkeypatch: pytest.MonkeyPatch) -> None:
-    """GUARD-04: exempt_param_scan=False preserves old behavior -- no param scan."""
+    """Pin exempt param scan disabled skips."""
     cfg = _exempt_read()
     pipe = Pipeline(config=cfg)
     monkeypatch.setattr(pipe, "is_feature_enabled", lambda _feature: True)
@@ -166,7 +155,7 @@ async def test_exempt_param_scan_disabled_skips(monkeypatch: pytest.MonkeyPatch)
 
 
 async def test_exempt_clean_params_no_findings(monkeypatch: pytest.MonkeyPatch) -> None:
-    """GUARD-04: exempt tool with clean params -> allowed=True, no findings."""
+    """Pin exempt clean params no findings."""
     cfg = _exempt_read()
     pipe = Pipeline(config=cfg)
     monkeypatch.setattr(pipe, "is_feature_enabled", lambda _feature: True)
@@ -177,17 +166,8 @@ async def test_exempt_clean_params_no_findings(monkeypatch: pytest.MonkeyPatch) 
     assert result.findings == ()
 
 
-# ---------------------------------------------------------------------------
-# PET-94: obfuscated/destructive command family on the tool-call param path
-# ---------------------------------------------------------------------------
-
-
 async def test_guard_param_scan_fires_family(monkeypatch: pytest.MonkeyPatch) -> None:
-    """PET-94: ToolCallGuard.evaluate over a default-profile pipeline surfaces a
-    command.fetch-exec finding and flips param_scan_unsafe per existing guard
-    semantics (_scan_params passes direction='outbound', so the family runs)."""
-    # Regression for PET-94: the family lands on the tool-call path with no guard
-    # changes (guard.py:246 already scans params outbound).
+    """Pin guard param scan fires family."""
     cfg = PetasosConfig()
     pipe = Pipeline(config=cfg)
     monkeypatch.setattr(pipe, "is_feature_enabled", lambda _feature: True)
@@ -201,9 +181,7 @@ async def test_guard_param_scan_fires_family(monkeypatch: pytest.MonkeyPatch) ->
 async def test_guard_profile_does_not_suppress_param_scan(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """PET-94 (Decision 4 sharp edge): a guard built on the coding role over a
-    default pipeline still fires the command finding. The guard's rules do not
-    reach the parameter scan, which reads the pipeline's own config."""
+    """Pin guard profile does not suppress param scan."""
     cfg = PetasosConfig()
     pipe = Pipeline(config=cfg)
     monkeypatch.setattr(pipe, "is_feature_enabled", lambda _feature: True)
@@ -217,11 +195,9 @@ async def test_guard_profile_does_not_suppress_param_scan(
 async def test_command_truncation_beyond_cap_missed(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """PET-94 (Design §1 micro-edge 1 / §1a, out-of-scope-by-construction): a
-    >1 MB param prefix pushes the trailing `curl … | sh` past _MAX_PARAM_TEXT_LEN,
-    so _scan_params truncates it before the scanner runs and the family does NOT
-    fire — fail-quiet. The guard's truncation warning is the operator tripwire."""
-    # Regression for PET-94: pins the fail-quiet construction miss + its tripwire.
+    """Pin command truncation beyond cap missed.
+
+    See docs/architecture/rationale.md, "Inherited guard tiers"."""
     from petasos.guard.params import _MAX_PARAM_TEXT_LEN
 
     cfg = PetasosConfig()
@@ -237,7 +213,7 @@ async def test_command_truncation_beyond_cap_missed(
 
 
 async def test_exempt_param_scan_error_marks_unsafe(monkeypatch: pytest.MonkeyPatch) -> None:
-    """GUARD-04: if _scan_params errors during exempt scan, result is still allowed but unsafe."""
+    """Pin exempt param scan error marks unsafe."""
     cfg = _exempt_read()
     pipe = Pipeline(config=cfg)
     monkeypatch.setattr(pipe, "is_feature_enabled", lambda _feature: True)

@@ -66,6 +66,7 @@ def _hit(tmp_path: Path, tool: str, params: dict[str, object]) -> GuardrailHit |
 def test_protected_paths_are_changes(
     tmp_path: Path, tool: str, params: dict[str, str], kind: str
 ) -> None:
+    """Pin protected paths are changes."""
     home, package, surface, env = _home(tmp_path)
     if tool == "write_file" and params["path"] == "plugins/petasos/plugin.yaml":
         params = {"path": str(home / "plugins" / "petasos" / "plugin.yaml")}
@@ -84,6 +85,7 @@ def test_protected_paths_are_changes(
 
 
 def test_package_file_write_is_a_package_change(tmp_path: Path) -> None:
+    """Pin package file write is a package change."""
     _home_path, package, surface, env = _home(tmp_path)
     hit = recognize(
         "write_file",
@@ -98,6 +100,7 @@ def test_package_file_write_is_a_package_change(tmp_path: Path) -> None:
 
 
 def test_reading_a_protected_file_is_not_a_change(tmp_path: Path) -> None:
+    """Pin reading a protected file is not a change."""
     home, *_rest = _home(tmp_path)
     assert _hit(tmp_path, "read_file", {"path": str(home / "config.yaml")}) is None
     assert _hit(tmp_path, "terminal", {"command": f"cat {home / 'config.yaml'}"}) is None
@@ -108,6 +111,7 @@ def test_reading_a_protected_file_is_not_a_change(tmp_path: Path) -> None:
 
 
 def test_words_written_to_another_file_are_not_a_change(tmp_path: Path) -> None:
+    """Pin words written to another file are not a change."""
     notes = tmp_path / "notes.txt"
     hit = _hit(
         tmp_path,
@@ -139,6 +143,7 @@ def test_words_written_to_another_file_are_not_a_change(tmp_path: Path) -> None:
     ],
 )
 def test_plugin_commands_and_cheap_disguises(tmp_path: Path, command: str) -> None:
+    """Pin plugin commands and cheap disguises."""
     hit = _hit(tmp_path, "terminal", {"command": command})
     assert hit is not None
     assert hit.kind == "plugin"
@@ -180,12 +185,14 @@ def test_plugin_commands_and_cheap_disguises(tmp_path: Path, command: str) -> No
     ],
 )
 def test_the_listed_commands(tmp_path: Path, command: str, kind: str) -> None:
+    """Pin the listed commands."""
     tool = "execute_code" if command.startswith("python -c") else "terminal"
     hit = _hit(tmp_path, tool, {"command": command, "code": command})
     assert hit is not None and hit.kind == kind
 
 
 def test_shell_path_disguises(tmp_path: Path) -> None:
+    """Pin shell path disguises."""
     home, package, surface, env = _home(tmp_path)
     config = str(home / "config.yaml")
 
@@ -216,6 +223,7 @@ def test_shell_path_disguises(tmp_path: Path) -> None:
 
 
 def test_a_different_plugin_and_a_mention_do_not_match(tmp_path: Path) -> None:
+    """Pin a different plugin and a mention do not match."""
     assert _hit(tmp_path, "terminal", {"command": "hermes plugins disable other"}) is None
     assert _hit(tmp_path, "terminal", {"command": "echo hermes plugins disable petasos"}) is None
     quiet = "HERMES_SAFE_MODE=0 hermes plugins list"
@@ -231,11 +239,13 @@ def test_a_different_plugin_and_a_mention_do_not_match(tmp_path: Path) -> None:
 
 
 def test_normalize_path_text_matches_the_guard() -> None:
+    """Pin normalize path text matches the guard."""
     text = "C:\\tmp\\petasos\\config.yaml"
     assert normalize_path_text(text) == normalize_path_text(text.replace("\\", "/"))
 
 
 def test_sed_in_place_edits_the_config(tmp_path: Path) -> None:
+    """Pin sed in place edits the config."""
     home, *_rest = _home(tmp_path)
     command = f"sed -i 's/enabled: true/enabled: false/' {home / 'config.yaml'}"
     hit = _hit(tmp_path, "terminal", {"command": command})
@@ -243,6 +253,7 @@ def test_sed_in_place_edits_the_config(tmp_path: Path) -> None:
 
 
 def test_execute_code_open_writes_the_config(tmp_path: Path) -> None:
+    """Pin execute code open writes the config."""
     home, *_rest = _home(tmp_path)
     code = f"open('{home / 'config.yaml'}','w').write('x')"
     hit = _hit(tmp_path, "execute_code", {"code": code})
@@ -250,29 +261,34 @@ def test_execute_code_open_writes_the_config(tmp_path: Path) -> None:
 
 
 def test_execute_code_subprocess_list_disables_the_plugin(tmp_path: Path) -> None:
+    """Pin execute code subprocess list disables the plugin."""
     code = "import subprocess; subprocess.run(['hermes','plugins','disable','petasos'])"
     hit = _hit(tmp_path, "execute_code", {"code": code})
     assert hit is not None and hit.kind == "plugin"
 
 
 def test_execute_code_os_system_disables_the_plugin(tmp_path: Path) -> None:
+    """Pin execute code os system disables the plugin."""
     code = "import os; os.system('hermes plugins disable petasos')"
     hit = _hit(tmp_path, "execute_code", {"code": code})
     assert hit is not None and hit.kind == "plugin"
 
 
 def test_backslash_before_a_letter_still_names_hermes(tmp_path: Path) -> None:
+    """Pin backslash before a letter still names hermes."""
     hit = _hit(tmp_path, "terminal", {"command": r"her\mes plugins disable petasos"})
     assert hit is not None and hit.kind == "plugin"
 
 
 def test_quotes_joined_inside_a_word_still_name_the_command(tmp_path: Path) -> None:
+    """Pin quotes joined inside a word still name the command."""
     for command in ('her""mes plugins disable petasos', "h'e'rmes plu\\gins disable petasos"):
         hit = _hit(tmp_path, "terminal", {"command": command})
         assert hit is not None and hit.kind == "plugin", command
 
 
 def test_plugins_update_and_install_replace_the_plugin(tmp_path: Path) -> None:
+    """Pin plugins update and install replace the plugin."""
     update = _hit(tmp_path, "terminal", {"command": "hermes plugins update petasos"})
     install = _hit(
         tmp_path,
@@ -284,6 +300,7 @@ def test_plugins_update_and_install_replace_the_plugin(tmp_path: Path) -> None:
 
 
 def test_perl_in_place_edits_the_config(tmp_path: Path) -> None:
+    """Pin perl in place edits the config."""
     home, *_rest = _home(tmp_path)
     command = f"perl -i -pe 's/a/b/' {home / 'config.yaml'}"
     hit = _hit(tmp_path, "terminal", {"command": command})
@@ -291,18 +308,21 @@ def test_perl_in_place_edits_the_config(tmp_path: Path) -> None:
 
 
 def test_append_redirect_writes_the_config(tmp_path: Path) -> None:
+    """Pin append redirect writes the config."""
     home, *_rest = _home(tmp_path)
     hit = _hit(tmp_path, "terminal", {"command": f"echo x >> {home / 'config.yaml'}"})
     assert hit is not None and hit.kind == "settings"
 
 
 def test_tee_append_writes_the_config(tmp_path: Path) -> None:
+    """Pin tee append writes the config."""
     home, *_rest = _home(tmp_path)
     hit = _hit(tmp_path, "terminal", {"command": f"echo x | tee -a {home / 'config.yaml'}"})
     assert hit is not None and hit.kind == "settings"
 
 
 def test_install_mode_writes_the_config(tmp_path: Path) -> None:
+    """Pin install mode writes the config."""
     home, *_rest = _home(tmp_path)
     command = f"install -m 644 /tmp/other.yaml {home / 'config.yaml'}"
     hit = _hit(tmp_path, "terminal", {"command": command})
@@ -310,18 +330,21 @@ def test_install_mode_writes_the_config(tmp_path: Path) -> None:
 
 
 def test_symlink_force_replaces_the_config(tmp_path: Path) -> None:
+    """Pin symlink force replaces the config."""
     home, *_rest = _home(tmp_path)
     hit = _hit(tmp_path, "terminal", {"command": f"ln -sf /tmp/other {home / 'config.yaml'}"})
     assert hit is not None and hit.kind == "settings"
 
 
 def test_moving_the_plugin_directory_is_a_change(tmp_path: Path) -> None:
+    """Pin moving the plugin directory is a change."""
     home, *_rest = _home(tmp_path)
     hit = _hit(tmp_path, "terminal", {"command": f"mv {home / 'plugins' / 'petasos'} /tmp/away"})
     assert hit is not None and hit.kind == "plugin"
 
 
 def test_truncate_and_chmod_recursive_change_a_protected_path(tmp_path: Path) -> None:
+    """Pin truncate and chmod recursive change a protected path."""
     home, *_rest = _home(tmp_path)
     truncated = _hit(tmp_path, "terminal", {"command": f"truncate -s 0 {home / 'config.yaml'}"})
     chmod = _hit(tmp_path, "terminal", {"command": f"chmod -R a+r {home / 'plugins' / 'petasos'}"})
@@ -330,6 +353,7 @@ def test_truncate_and_chmod_recursive_change_a_protected_path(tmp_path: Path) ->
 
 
 def test_a_symlink_and_a_parent_directory_still_name_the_config(tmp_path: Path) -> None:
+    """Pin a symlink and a parent directory still name the config."""
     home, package, surface, env = _home(tmp_path)
     config = home / "config.yaml"
     link = tmp_path / "via-link.yaml"
@@ -353,6 +377,7 @@ def test_a_symlink_and_a_parent_directory_still_name_the_config(tmp_path: Path) 
 
 
 def test_code_names_the_config_through_home_and_the_environment(tmp_path: Path) -> None:
+    """Pin code names the config through home and the environment."""
     cases = (
         'open(os.path.expanduser("~/hermes/config.yaml"), "w").write("x")',
         'open(Path.home() / "hermes" / "config.yaml", "w").write("x")',
@@ -365,12 +390,14 @@ def test_code_names_the_config_through_home_and_the_environment(tmp_path: Path) 
 
 
 def test_a_comment_that_names_the_config_is_not_a_change(tmp_path: Path) -> None:
+    """Pin a comment that names the config is not a change."""
     home, *_rest = _home(tmp_path)
     code = f"# see {home / 'config.yaml'}\nprint('ok')\n"
     assert _hit(tmp_path, "execute_code", {"code": code}) is None
 
 
 def test_powershell_get_content_reads_and_set_content_writes(tmp_path: Path) -> None:
+    """Pin powershell get content reads and set content writes."""
     home, *_rest = _home(tmp_path)
     config = home / "config.yaml"
     assert _hit(tmp_path, "terminal", {"command": f"powershell Get-Content {config}"}) is None
@@ -379,6 +406,7 @@ def test_powershell_get_content_reads_and_set_content_writes(tmp_path: Path) -> 
 
 
 def test_echo_and_printf_do_not_act_on_a_path_argument(tmp_path: Path) -> None:
+    """Pin echo and printf do not act on a path argument."""
     home, *_rest = _home(tmp_path)
     config = home / "config.yaml"
     assert _hit(tmp_path, "terminal", {"command": f"echo see {config}"}) is None
@@ -388,12 +416,14 @@ def test_echo_and_printf_do_not_act_on_a_path_argument(tmp_path: Path) -> None:
 
 
 def test_help_on_a_hermes_or_petasos_command_is_not_a_change(tmp_path: Path) -> None:
+    """Pin help on a hermes or petasos command is not a change."""
     assert _hit(tmp_path, "terminal", {"command": "hermes plugins update --help"}) is None
     assert _hit(tmp_path, "terminal", {"command": "hermes plugins update -h"}) is None
     assert _hit(tmp_path, "terminal", {"command": "petasos config set --help"}) is None
 
 
 def test_opening_the_config_to_read_it_is_not_a_change(tmp_path: Path) -> None:
+    """Pin opening the config to read it is not a change."""
     home, *_rest = _home(tmp_path)
     config = home / "config.yaml"
     reads = (
@@ -413,6 +443,7 @@ def test_opening_the_config_to_read_it_is_not_a_change(tmp_path: Path) -> None:
 
 
 def test_other_uses_of_the_config_in_code_are_changes(tmp_path: Path) -> None:
+    """Pin other uses of the config in code are changes."""
     home, *_rest = _home(tmp_path)
     config = home / "config.yaml"
     writes = (
@@ -473,6 +504,7 @@ def test_a_path_assembled_in_a_variable_is_not_seen(tmp_path: Path) -> None:
     ],
 )
 def test_each_enumerated_hermes_command(tmp_path: Path, command: str, kind: str) -> None:
+    """Pin each enumerated hermes command."""
     hit = _hit(tmp_path, "terminal", {"command": command})
     assert hit is not None and hit.kind == kind, command
 
@@ -507,10 +539,12 @@ def test_each_enumerated_hermes_command(tmp_path: Path, command: str, kind: str)
     ],
 )
 def test_reads_and_other_plugins_are_not_changes(tmp_path: Path, command: str) -> None:
+    """Pin reads and other plugins are not changes."""
     assert _hit(tmp_path, "terminal", {"command": command}) is None, command
 
 
 def test_a_note_that_mentions_the_config_is_not_a_change(tmp_path: Path) -> None:
+    """Pin a note that mentions the config is not a change."""
     home, *_rest = _home(tmp_path)
     quoted = f"echo 'see {home / 'config.yaml'}' > /tmp/notes"
     assert _hit(tmp_path, "terminal", {"command": quoted}) is None
@@ -575,6 +609,7 @@ def test_the_command_word_and_a_verb_are_not_paths(tmp_path: Path, command: str)
     ],
 )
 def test_shell_structure_does_not_hide_the_command(tmp_path: Path, command: str) -> None:
+    """Pin shell structure does not hide the command."""
     hit = _at(tmp_path, command)
     assert hit is not None and hit.kind == "plugin", command
 
@@ -590,6 +625,7 @@ def test_shell_structure_does_not_hide_the_command(tmp_path: Path, command: str)
     ],
 )
 def test_a_redirect_or_a_background_command_still_writes(tmp_path: Path, command: str) -> None:
+    """Pin a redirect or a background command still writes."""
     hit = _at(tmp_path, command)
     assert hit is not None and hit.kind == "settings", command
 
@@ -612,6 +648,7 @@ def test_a_redirect_or_a_background_command_still_writes(tmp_path: Path, command
     ],
 )
 def test_a_directory_that_holds_a_protected_path_is_a_change(tmp_path: Path, command: str) -> None:
+    """Pin a directory that holds a protected path is a change."""
     assert _at(tmp_path, command) is not None, command
 
 
@@ -625,7 +662,6 @@ def test_a_directory_that_holds_a_protected_path_is_a_change(tmp_path: Path, com
         "cp -r {home} /tmp/backup",
         "cp notes.txt {home}/",
         "rm {home}/*.txt",
-        # Above the home. The destructive-command rules own these.
         "rm -rf /",
         "rm -rf ~",
         "git add .",
@@ -638,10 +674,12 @@ def test_a_directory_that_holds_a_protected_path_is_a_change(tmp_path: Path, com
 def test_reads_and_directories_above_the_home_are_not_changes(
     tmp_path: Path, command: str
 ) -> None:
+    """Pin reads and directories above the home are not changes."""
     assert _at(tmp_path, command) is None, command
 
 
 def test_a_tool_that_moves_a_directory_is_a_change(tmp_path: Path) -> None:
+    """Pin a tool that moves a directory is a change."""
     home, _package, _surface, _env = _home(tmp_path)
     moved = _hit(tmp_path, "move_file", {"source": str(home / "plugins"), "destination": "/tmp/x"})
     assert moved is not None and moved.kind == "plugin"
@@ -663,11 +701,13 @@ def test_a_tool_that_moves_a_directory_is_a_change(tmp_path: Path) -> None:
     ],
 )
 def test_a_version_or_a_source_still_names_the_package(tmp_path: Path, command: str) -> None:
+    """Pin a version or a source still names the package."""
     hit = _at(tmp_path, command)
     assert hit is not None and hit.kind == "package", command
 
 
 def test_another_package_is_not_the_package(tmp_path: Path) -> None:
+    """Pin another package is not the package."""
     for command in ("pip install requests==2.0", "pip install petasosx", "uv add httpx"):
         assert _at(tmp_path, command) is None, command
 
@@ -683,9 +723,11 @@ def test_another_package_is_not_the_package(tmp_path: Path) -> None:
     ],
 )
 def test_program_text_given_to_an_interpreter_is_read(tmp_path: Path, command: str) -> None:
+    """Pin program text given to an interpreter is read."""
     hit = _at(tmp_path, command)
     assert hit is not None and hit.kind == "settings", command
 
 
 def test_a_here_document_that_only_reads_is_not_a_change(tmp_path: Path) -> None:
+    """Pin a here document that only reads is not a change."""
     assert _at(tmp_path, "python3 - <<'EOF'\nprint(open('{config}').read())\nEOF") is None

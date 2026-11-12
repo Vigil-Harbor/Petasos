@@ -19,6 +19,7 @@ from scripts import semgrep_benchmark_protocol as protocol
 
 
 def passing_records() -> dict[str, Any]:
+    """Provide passing records for the test fixture."""
     records: dict[str, Any] = {"implementation": {"tracked_dirty": False}, "workloads": {}}
     for definition in protocol.case_plan(100):
         case = {**definition, "samples": [], "errors": [], "close": [{"status": "closed"}]}
@@ -47,6 +48,7 @@ def passing_records() -> dict[str, Any]:
 
 
 def expected_result(fixture: dict[str, Any]) -> ScanResult:
+    """Provide expected result for the test fixture."""
     return ScanResult(
         "semgrep",
         tuple(
@@ -74,6 +76,7 @@ def expected_result(fixture: dict[str, Any]) -> ScanResult:
 
 
 def test_pinned_bytes_and_case_plan() -> None:
+    """Pin pinned bytes and case plan."""
     manifest, fixtures = protocol.fixtures()
     assert manifest["workload_id"] == protocol.WORKLOAD
     assert fixtures["sixteen_64k_distinct"]["distinct_fragments"] == 16
@@ -94,14 +97,15 @@ LOADED_NAMES = [
 
 
 def set_seconds(records: dict[str, Any], name: str, seconds: float) -> None:
+    """Provide set seconds for the test fixture."""
     for sample in records["workloads"][name]["samples"]:
         sample["seconds"] = seconds
 
 
 @pytest.mark.parametrize("name", LOADED_NAMES)
 def test_every_loaded_row_has_the_deadline_max(name: str) -> None:
+    """Pin every loaded row has the deadline max."""
     records = passing_records()
-    # One long terminal sample leaves p95 unchanged; only the max gate sees it.
     records["workloads"][name]["samples"][-1]["seconds"] = protocol.LOADED_MAX_SECONDS
     assert protocol.gate_failures(records) == []
     records["workloads"][name]["samples"][-1]["seconds"] = protocol.LOADED_MAX_SECONDS + 0.01
@@ -117,13 +121,13 @@ def test_every_loaded_row_has_the_deadline_max(name: str) -> None:
     ],
 )
 def test_loaded_p95_is_relative_to_the_same_run_serial_mean(name: str, reference: str) -> None:
+    """Pin loaded p95 is relative to the same run serial mean."""
     records = passing_records()
     set_seconds(records, reference, 0.5)
     set_seconds(records, name, protocol.LOADED_RATIO * 0.5)
     assert protocol.gate_failures(records) == []
     set_seconds(records, name, protocol.LOADED_RATIO * 0.5 + 0.01)
     assert any(f.startswith(name + ".p95") for f in protocol.gate_failures(records))
-    # The same absolute latency passes on a host whose serial mean is slower.
     set_seconds(records, reference, 0.51)
     assert protocol.gate_failures(records) == []
 
@@ -131,6 +135,7 @@ def test_loaded_p95_is_relative_to_the_same_run_serial_mean(name: str, reference
 @pytest.mark.parametrize("reference", ["single_16k", "sixteen_64k_distinct"])
 @pytest.mark.parametrize("breakage", ["absent", "no_successes"])
 def test_missing_ratio_reference_fails_closed(reference: str, breakage: str) -> None:
+    """Pin missing ratio reference fails closed."""
     records = passing_records()
     if breakage == "absent":
         del records["workloads"][reference]
@@ -161,6 +166,7 @@ def test_missing_ratio_reference_fails_closed(reference: str, breakage: str) -> 
     ],
 )
 def test_each_absolute_limit_fails(system: str | None, name: str, metric: str) -> None:
+    """Pin each absolute limit fails."""
     records = passing_records()
     if system:
         records["hardware"] = {"system": system}
@@ -173,12 +179,12 @@ def test_each_absolute_limit_fails(system: str | None, name: str, metric: str) -
         if name == "preflight_1m"
         else protocol.SERIAL_64K_LIMITS
     )[metric]
-    # Loaded rows scale with their serial reference, so only this row can fail.
     set_seconds(records, name, limit + 0.01)
     assert any(f.startswith(f"{name}.{metric}") for f in protocol.gate_failures(records))
 
 
 def test_windows_single_16k_limits_apply_only_on_windows() -> None:
+    """Pin windows single 16k limits apply only on windows."""
     assert protocol.SINGLE_16K_LIMITS == {"mean": 1.0, "p95": 1.2, "p99": 1.4}
     assert protocol.SINGLE_16K_LIMITS_WINDOWS == {"mean": 1.2, "p95": 1.4, "p99": 1.6}
     for system, passes in (("Windows", True), ("Darwin", False), ("Linux", False), (None, False)):
@@ -193,6 +199,7 @@ def test_windows_single_16k_limits_apply_only_on_windows() -> None:
     "failure", ["error", "missing", "unfinished", "warmup", "close", "resource", "residue"]
 )
 def test_incomplete_or_error_never_passes(failure: str) -> None:
+    """Pin incomplete or error never passes."""
     records = passing_records()
     case = records["workloads"]["eight_wide_single_16k_shared_owner_3_3_2"]
     if failure == "error":
@@ -217,6 +224,7 @@ def test_incomplete_or_error_never_passes(failure: str) -> None:
 
 
 def test_finding_and_coverage_mismatch_is_not_clean() -> None:
+    """Pin finding and coverage mismatch is not clean."""
     _, sources = protocol.fixtures()
     fixture = sources["single_16k"]
     result = expected_result(fixture)
@@ -230,6 +238,7 @@ def test_finding_and_coverage_mismatch_is_not_clean() -> None:
 
 
 async def test_sibling_errors_and_discard_time_preserved() -> None:
+    """Pin sibling errors and discard time preserved."""
     _, sources = protocol.fixtures()
     fixture = sources["single_16k"]
     result = expected_result(fixture)
@@ -253,7 +262,7 @@ async def test_sibling_errors_and_discard_time_preserved() -> None:
     assert [s["status"] for s in case["samples"]] == ["ok", "error"]
     assert case["samples"][1]["expected_findings"] == 1
     assert case["samples"][1]["observed_findings"] is None
-    # Python < 3.13 on Windows backs monotonic() with a ~15.6 ms tick.
+    # Windows Python before 3.13 uses an approximately 15.6 ms monotonic clock tick.
     tick = time.get_clock_info("monotonic").resolution
     assert case["samples"][0]["seconds"] >= 0.02 - tick
     assert discarded == [True]
@@ -261,6 +270,7 @@ async def test_sibling_errors_and_discard_time_preserved() -> None:
 
 
 async def test_cancellation_records_terminal_and_discards() -> None:
+    """Pin cancellation records terminal and discards."""
     started = asyncio.Event()
     cleaned = asyncio.Event()
 
@@ -285,6 +295,7 @@ async def test_cancellation_records_terminal_and_discards() -> None:
 
 
 async def test_discard_failure_preserves_original_error() -> None:
+    """Pin discard failure preserves original error."""
     _, sources = protocol.fixtures()
 
     async def discard() -> None:
@@ -305,7 +316,7 @@ async def test_discard_failure_preserves_original_error() -> None:
 
 
 def test_stage_timings_instrument_owned_root_removal(tmp_path: Path) -> None:
-    # Regression for PET-255: root_remove_attempt wraps marker-last removal.
+    """Pin stage timings instrument owned root removal."""
     from contextlib import ExitStack
 
     root = tmp_path / "psg-owned00"
@@ -325,6 +336,7 @@ def test_stage_timings_instrument_owned_root_removal(tmp_path: Path) -> None:
 async def test_recorder_checkpoint_includes_cleanup_diagnostics(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Pin recorder checkpoint includes cleanup diagnostics."""
     from collections import deque
 
     from petasos.scanners.semgrep import runtime as runtime
@@ -341,6 +353,7 @@ async def test_recorder_checkpoint_includes_cleanup_diagnostics(
 
 
 def test_checkpoint_atomic_and_lf(tmp_path: Path) -> None:
+    """Pin checkpoint atomic and lf."""
     path = tmp_path / "partial.json"
     protocol.checkpoint(path, json.dumps({"unfinished": 8}, indent=2))
     assert b"\r" not in path.read_bytes()
@@ -352,6 +365,7 @@ async def test_canceled_checkpoint_finishes_before_final_write(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Pin canceled checkpoint finishes before final write."""
     entered = threading.Event()
     release = threading.Event()
     writes: list[int] = []
@@ -380,6 +394,7 @@ async def test_canceled_checkpoint_finishes_before_final_write(
 
 
 def test_monitor_snapshots_source_reference_once() -> None:
+    """Pin monitor snapshots source reference once."""
     pytest.importorskip("psutil")
     from scripts.semgrep_benchmark_resources import Resources
 
@@ -408,6 +423,7 @@ def test_monitor_snapshots_source_reference_once() -> None:
 
 @pytest.mark.parametrize("closed", [True, False])
 def test_monitor_closing_loop_is_not_missing_telemetry(closed: bool) -> None:
+    """Pin monitor closing loop is not missing telemetry."""
     pytest.importorskip("psutil")
     from scripts.semgrep_benchmark_resources import Resources
 
@@ -437,6 +453,7 @@ async def test_case_close_finishes_after_cancellation_and_stops_failed_runtime(
     monkeypatch: pytest.MonkeyPatch,
     cancel_count: int,
 ) -> None:
+    """Pin case close finishes after cancellation and stops failed runtime."""
     from petasos.scanners.semgrep.runtime import SemgrepCloseResult
 
     entered = asyncio.Event()
@@ -495,7 +512,7 @@ async def test_case_close_finishes_after_cancellation_and_stops_failed_runtime(
         with pytest.raises(asyncio.CancelledError):
             await asyncio.wait_for(task, 2)
     else:
-        assert not await asyncio.wait_for(task, 2)  # failed runtime, despite successful close
+        assert not await asyncio.wait_for(task, 2)
     assert events == ["close_started", "closed", "monitor_stopped", "patches_restored"]
     assert case["close"][0]["status"] == "closed"
     assert "runtime_failed" in case["errors"]
@@ -506,6 +523,7 @@ async def test_wall_budget_preserves_partial_failure_and_cleanup(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Pin wall budget preserves partial failure and cleanup."""
     cleaned = asyncio.Event()
 
     async def stalled(runs: int, records: dict[str, Any], recorder: Any) -> None:
@@ -555,6 +573,7 @@ async def test_real_fixture_finding_and_coverage_contract(fixture_name: str) -> 
 async def test_real_loaded_case_records_telemetry_and_closes(
     tmp_path: Path, plan_index: int
 ) -> None:
+    """Pin real loaded case records telemetry and closes."""
     _, sources = protocol.fixtures()
     case = {
         **protocol.case_plan(100)[plan_index],
@@ -572,11 +591,7 @@ async def test_real_loaded_case_records_telemetry_and_closes(
         os.environ["SEMGREP_ENGINE_SHA256"],
         recorder,
     )
-    # This test checks telemetry and teardown, not latency (the benchmark gates
-    # that). On a slow 2-core host, 8 requests through 2 slots can outlast the
-    # 8 s timeout; the runtime's timeout refusals are correct behaviour there.
-    # A refused warmup ends the case before the measured burst, so
-    # "warmup_failed" is accepted only when every failure is such a refusal.
+    # See docs/architecture/rationale.md, "Test timing and backend qualification".
     refusals = {"semgrep.queue_deadline", "semgrep.deadline"}
     failed = [
         (s["warmup"], s["burst"], s.get("status"), s.get("error"))

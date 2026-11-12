@@ -1,10 +1,6 @@
-"""PET-109: Presidio entity scoping — default-set, config round-trip/apply, and
-real-backend regression (benign technical corpus + real-PII preservation).
+"""Pin curated personal-information scope and additive per-call entity selection.
 
-The backend-free rows are module-level functions. The two `@requires_presidio`
-rows live in class ``TestPresidioTightenedDefault`` — the ``target_class`` the
-conftest non-skipping-lane guard pins for ``extras-presidio`` (D4).
-"""
+See docs/architecture/rationale.md, "Test timing and backend qualification"."""
 
 from __future__ import annotations
 
@@ -22,10 +18,6 @@ from petasos.scanners.presidio import (
     PresidioScanner,
     resolve_presidio_entities,
 )
-
-# ---------------------------------------------------------------------------
-# Skip markers for optional-dependency tests (mirrors test_presidio_scanner.py)
-# ---------------------------------------------------------------------------
 
 _presidio_available = True
 
@@ -51,15 +43,6 @@ requires_presidio = pytest.mark.skipif(
     reason="presidio + spaCy model required",
 )
 
-# ---------------------------------------------------------------------------
-# PET-119: profile.pii_entities_extra → per-profile Presidio scoping
-#
-# These pins make the field load-bearing: each fails if a profile-set PII entity
-# silently no-ops again. The scan-level and pipeline-level rows are backend-free
-# (a recording fake stands in for the analyzer); the real-backend contract lives
-# in TestProfilePresidioScoping below.
-# ---------------------------------------------------------------------------
-
 
 class _RecordingAnalyzer:
     """Backend-free stand-in for presidio's AnalyzerEngine. Records the exact
@@ -77,6 +60,7 @@ class _RecordingAnalyzer:
         language: str,
         score_threshold: float,
     ) -> list[Any]:
+        """Provide analyze for the test fixture."""
         self.entities = list(entities)
         return []
 
@@ -89,17 +73,11 @@ def _recording_scanner(**kw: Any) -> tuple[PresidioScanner, _RecordingAnalyzer]:
     return s, rec
 
 
-# ---------------------------------------------------------------------------
-# Backend-free unit tests (run on every lane)
-# ---------------------------------------------------------------------------
-
-
 def test_default_entities_exclude_noisy_set() -> None:
-    assert isinstance(DEFAULT_PRESIDIO_ENTITIES, tuple)  # frozen/immutable (D6)
-    # The five noisy NER/loose-pattern entities are excluded from the default.
+    """Pin default entities exclude noisy set."""
+    assert isinstance(DEFAULT_PRESIDIO_ENTITIES, tuple)
     for noisy in NOISY_OPT_IN_ENTITIES:
         assert noisy not in DEFAULT_PRESIDIO_ENTITIES
-    # The 10-entity CRITICAL/HIGH security band is present.
     expected = {
         "CREDIT_CARD",
         "IBAN_CODE",
@@ -117,37 +95,32 @@ def test_default_entities_exclude_noisy_set() -> None:
 
 
 def test_resolve_entities_default_and_extra() -> None:
+    """Pin resolve entities default and extra."""
     assert resolve_presidio_entities(None) == list(DEFAULT_PRESIDIO_ENTITIES)
-    # extra is additive (opt back in URL)
     assert resolve_presidio_entities(None, ("URL",)) == list(DEFAULT_PRESIDIO_ENTITIES) + ["URL"]
-    # explicit base replaces wholesale
     assert resolve_presidio_entities(("PERSON",)) == ["PERSON"]
     assert resolve_presidio_entities(("PERSON",), ("URL",)) == ["PERSON", "URL"]
-    # order-preserving dedup
     assert resolve_presidio_entities(("EMAIL_ADDRESS", "EMAIL_ADDRESS"), ("EMAIL_ADDRESS",)) == [
         "EMAIL_ADDRESS"
     ]
-    # a degenerate empty base + empty extra violates the non-empty contract
     with pytest.raises(ValueError):
         resolve_presidio_entities((), ())
 
 
 def test_default_scanner_entities_wired() -> None:
+    """Pin default scanner entities wired."""
     assert PresidioScanner()._entities == list(DEFAULT_PRESIDIO_ENTITIES)
-    # contract change (D3): an explicit list is used verbatim
     assert PresidioScanner(entities=["PERSON"])._entities == ["PERSON"]
 
 
 def test_structural_ids_subset_of_unsuppressible() -> None:
-    # Tripwire (D6): the _is_floor_rule structural-prefix disjunct can never diverge
-    # from the set, because every structural ID is already unsuppressible.
+    """Pin structural ids subset of unsuppressible."""
     assert _STRUCTURAL_RULE_IDS <= _UNSUPPRESSIBLE_RULE_IDS
 
 
 @requires_presidio
 def test_presidio_entities_extra_url_fires() -> None:
-    # Integration arm of the config-scoping row: opting URL in via the extra makes
-    # URL fire on a URL string (it does not under the curated default).
+    """Pin presidio entities extra url fires."""
     cfg = from_mapping(
         PetasosConfig,
         {
@@ -169,24 +142,21 @@ def test_presidio_entities_extra_url_fires() -> None:
     assert result.error is None
     assert any("url" in f.rule_id for f in result.findings)
 
-    # control: under the curated default, URL does NOT fire
     default_scanner = PresidioScanner()
     default_result = asyncio.run(default_scanner.scan("Visit https://example.com for the docs"))
     assert default_result.error is None
     assert not any("url" in f.rule_id for f in default_result.findings)
 
 
-# ---------------------------------------------------------------------------
-# Real-backend regression — non-skipping on the extras-presidio lane (D4)
-# ---------------------------------------------------------------------------
-
-
 @requires_presidio
 class TestPresidioTightenedDefault:
+    """Pin Presidio Tightened Default."""
+
     def test_benign_technical_corpus_no_pii_findings(self) -> None:
+        """Pin benign technical corpus no pii findings."""
         import asyncio
 
-        scanner = PresidioScanner()  # curated default
+        scanner = PresidioScanner()
         corpus = "\n".join(
             [
                 "Vigil Harbor Wiki Location",
@@ -202,11 +172,11 @@ class TestPresidioTightenedDefault:
         assert result.findings == (), f"expected zero findings, got {result.findings}"
 
     def test_real_pii_still_detected(self) -> None:
+        """Pin real pii still detected."""
         import asyncio
 
-        scanner = PresidioScanner()  # curated default
-        # Phrasing chosen so each entity scores above the default 0.35 threshold:
-        # the SSN needs its "social security number" context to clear the bar.
+        scanner = PresidioScanner()
+        # The SSN context raises the recognizer score above its 0.35 threshold.
         corpus = (
             "Please update records: social security number 219-09-9999 on file, "
             "card 4111 1111 1111 1111, email john@example.com, call 555-123-4567."
@@ -220,28 +190,26 @@ class TestPresidioTightenedDefault:
         assert any("phone" in r for r in rule_ids), rule_ids
 
 
-# --- scan() additive channel (backend-free) --------------------------------
-
-
 def test_scan_no_extra_uses_base() -> None:
-    # Negative pin: no extras (omitted / None / empty) records exactly the base set.
+    """Pin scan no extra uses base."""
     for extra in (None, ()):
         scanner, rec = _recording_scanner()
         asyncio.run(scanner.scan("text", extra_entities=extra))
         assert rec.entities == list(DEFAULT_PRESIDIO_ENTITIES)
     scanner, rec = _recording_scanner()
-    asyncio.run(scanner.scan("text"))  # keyword omitted entirely
+    asyncio.run(scanner.scan("text"))
     assert rec.entities == list(DEFAULT_PRESIDIO_ENTITIES)
 
 
 def test_scan_extra_entities_additive() -> None:
+    """Pin scan extra entities additive."""
     scanner, rec = _recording_scanner()
     asyncio.run(scanner.scan("text", extra_entities=("PERSON",)))
     assert rec.entities == [*DEFAULT_PRESIDIO_ENTITIES, "PERSON"]
 
 
 def test_scan_extra_entities_dedup() -> None:
-    # EMAIL_ADDRESS is already in the base — the additive union must not duplicate it.
+    """Pin scan extra entities dedup."""
     scanner, rec = _recording_scanner()
     asyncio.run(scanner.scan("text", extra_entities=("EMAIL_ADDRESS",)))
     assert rec.entities == list(DEFAULT_PRESIDIO_ENTITIES)
@@ -249,8 +217,7 @@ def test_scan_extra_entities_dedup() -> None:
 
 
 def test_scan_does_not_mutate_self_entities() -> None:
-    # Decision 6 concurrency invariant: the effective list is a per-call local;
-    # self._entities is read-only after construction.
+    """Pin scan does not mutate self entities."""
     scanner, rec = _recording_scanner()
     asyncio.run(scanner.scan("text", extra_entities=("PERSON",)))
     assert scanner._entities == list(DEFAULT_PRESIDIO_ENTITIES)
@@ -258,8 +225,8 @@ def test_scan_does_not_mutate_self_entities() -> None:
 
 
 def test_scan_unknown_extra_threads_through() -> None:
-    # Presidio is the filter — the wiring must not silently drop unknown names, or a
-    # regression could hide behind a swallowed entity (Design note, edge-cases/F-2).
+    # Unknown entities must reach Presidio rather than vanish silently in wrapper filtering.
+    """Pin scan unknown extra threads through."""
     scanner, rec = _recording_scanner()
     asyncio.run(scanner.scan("text", extra_entities=("NOT_A_REAL_ENTITY",)))
     assert rec.entities == [*DEFAULT_PRESIDIO_ENTITIES, "NOT_A_REAL_ENTITY"]

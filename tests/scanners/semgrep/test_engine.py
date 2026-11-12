@@ -19,13 +19,16 @@ from tests.scanners.semgrep.helpers import require
 
 @pytest.fixture
 def engine_root() -> Iterator[Path]:
-    # OCaml socketpair uses the private temp path: keep it under Windows' limit.
+    # OCaml socketpair paths must fit the Windows private-temp limit.
+    """Provide engine root for the test fixture."""
     with tempfile.TemporaryDirectory(prefix="psg-") as directory:
         yield Path(directory)
 
 
 @pytest.mark.skipif(not os.environ.get("SEMGREP_ENGINE_PATH"), reason="isolated engine required")
 class TestSemgrepRealEngine:
+    """Pin Semgrep Real Engine."""
+
     @pytest.mark.parametrize(
         "source,family",
         [
@@ -46,6 +49,7 @@ class TestSemgrepRealEngine:
         family: str,
         engine_root: Path,
     ) -> None:
+        """Pin false clear."""
         selection = await select_sources(source)
         with ThreadPoolExecutor(max_workers=2) as executor:
             result = await scan_selected(
@@ -73,6 +77,7 @@ class TestSemgrepRealEngine:
     async def test_prose_never_claims_completed_grammar(
         self, source: str, engine_root: Path
     ) -> None:
+        """Pin prose never claims completed grammar."""
         selection = await select_sources(source)
         with ThreadPoolExecutor(max_workers=2) as executor:
             result = await scan_selected(
@@ -92,6 +97,7 @@ class TestSemgrepRealEngine:
         separator: str,
         engine_root: Path,
     ) -> None:
+        """Pin local exclusion preserves real builtin offset."""
         source = (
             "# a"
             + separator
@@ -116,8 +122,8 @@ class TestSemgrepRealEngine:
     async def test_annotation_rebinding_keeps_builtin_eval_finding(
         self, engine_root: Path
     ) -> None:
-        # Annotations execute at definition time on Python 3.11-3.13 and can
-        # remove the local eval, so the last call reaches the builtin.
+        # Python 3.11–3.13 annotations run at definition time and can remove local eval bindings.
+        """Pin annotation rebinding keeps builtin eval finding."""
         source = (
             "def eval(value):\n    return value\n"
             'def other(arg: globals().pop("eval")):\n    pass\n'
@@ -139,6 +145,7 @@ class TestSemgrepRealEngine:
     async def test_dense_python_within_source_limit_is_not_postfilter_error(
         self, engine_root: Path
     ) -> None:
+        """Pin dense python within source limit is not postfilter error."""
         source = "```python\nDATA = [" + "0," * 32000 + "]\n```"
         selection = await select_sources(source)
         with ThreadPoolExecutor(max_workers=2) as executor:
@@ -169,6 +176,7 @@ class TestSemgrepRealEngine:
     async def test_detects_real_rules_and_original_offsets(
         self, source: str, family: str, engine_root: Path
     ) -> None:
+        """Pin detects real rules and original offsets."""
         selection = await select_sources(source)
         with ThreadPoolExecutor(max_workers=2) as executor:
             result = await scan_selected(
@@ -201,6 +209,7 @@ class TestSemgrepRealEngine:
     async def test_parse_classification_and_local_function(
         self, source: str, error: str | None, engine_root: Path
     ) -> None:
+        """Pin parse classification and local function."""
         selection = await select_sources(source)
         with ThreadPoolExecutor(max_workers=2) as executor:
             result = await scan_selected(
@@ -220,6 +229,7 @@ class TestSemgrepRealEngine:
         kind: str,
         engine_root: Path,
     ) -> None:
+        """Pin boundary padded calls keep real findings."""
         from petasos.scanners.semgrep.source import preflight
 
         call = "os.system" if kind == "tabs" else "eval"
@@ -250,6 +260,7 @@ class TestSemgrepRealEngine:
     async def test_unusual_call_separators_keep_real_findings(
         self, separator: str, engine_root: Path
     ) -> None:
+        """Pin unusual call separators keep real findings."""
         from petasos.scanners.semgrep.source import preflight
 
         source = json.dumps("x = eval" + separator + "(payload)")
@@ -274,6 +285,7 @@ class TestSemgrepRealEngine:
         monkeypatch: pytest.MonkeyPatch,
         failed_batch: int,
     ) -> None:
+        """Pin native failure retains prior language findings."""
         from petasos.scanners.semgrep import engine as engine
         from petasos.scanners.semgrep.process import CleanupFailure, run_process
 
@@ -314,6 +326,7 @@ class TestSemgrepRealEngine:
     async def test_postfilter_failure_retains_engine_parse_coverage(
         self, engine_root: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """Pin postfilter failure retains engine parse coverage."""
         from petasos.scanners.semgrep import engine as engine
 
         original = engine.await_cpu
@@ -356,6 +369,7 @@ class TestSemgrepWindowsEngine:
         engine_root: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
+        """Pin real engine has no console descendants."""
         import psutil
 
         from petasos.scanners.semgrep.process import _WindowsChild
@@ -399,12 +413,15 @@ class TestSemgrepWindowsEngine:
 
 @pytest.mark.skipif(not os.environ.get("SEMGREP_ENGINE_PATH"), reason="isolated engine required")
 class TestSemgrepHeldOut:
+    """Pin Semgrep Held Out."""
+
     @pytest.mark.parametrize(
         "case",
         json.loads((Path(__file__).parents[2] / "fixtures/semgrep/held_out.json").read_text()),
         ids=lambda case: case["id"],
     )
     async def test_corpus(self, case: dict[str, Any], engine_root: Path) -> None:
+        """Pin corpus."""
         source = "```" + case["language"] + "\n" + case["source"] + "\n```"
         selection = await select_sources(source)
         with ThreadPoolExecutor(max_workers=2) as executor:

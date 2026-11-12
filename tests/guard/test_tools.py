@@ -1,7 +1,4 @@
-"""PET-179: two-axis tool classification. Both published sets are derived from
-``_TOOL_AXES``; a like-for-like swap that preserves counts still fails the
-membership pin.
-"""
+"""Pin independent argument-action and result-ingestion classifications."""
 
 from __future__ import annotations
 
@@ -79,7 +76,7 @@ _EXPECTED_NON_INGESTING = (
 
 
 def test_browser_navigate_is_scanned_and_still_argument_gated() -> None:
-    """Regression for PET-179: both halves for one tool, which one frozenset cannot satisfy."""
+    """Pin browser navigate is scanned and still argument gated."""
     assert "browser_navigate" in INGESTION_TOOLS
     assert "browser_navigate" not in READ_ONLY_TOOLS
     assert "browser_type" not in READ_ONLY_TOOLS
@@ -89,6 +86,7 @@ def test_browser_navigate_is_scanned_and_still_argument_gated() -> None:
 
 
 def test_derive_is_the_only_source() -> None:
+    """Pin derive is the only source."""
     assert _derive(_TOOL_AXES, acts=False) == READ_ONLY_TOOLS
     assert _derive(_TOOL_AXES, ingests=True, reaches_hook=True) == INGESTION_TOOLS
     assert _derive(_TOOL_AXES, ingests=False) == NON_INGESTING_TOOLS
@@ -108,20 +106,22 @@ def test_derive_is_the_only_source() -> None:
 
 
 def test_unknown_tool_defaults_stated_per_axis() -> None:
-    """Unknown names are gated on arguments and scanned on results (PET-181 invert)."""
+    """Pin unknown tool defaults stated per axis."""
     unknown = "definitely_not_a_registered_tool"
     assert unknown not in READ_ONLY_TOOLS
     assert unknown not in NON_INGESTING_TOOLS
-    assert unknown not in INGESTION_TOOLS  # named-set completeness, not the seam's gate
+    assert unknown not in INGESTION_TOOLS
     assert unknown not in _TOOL_AXES
 
 
 def test_exclusion_members_are_pinned() -> None:
+    """Pin exclusion members are pinned."""
     assert frozenset(_EXPECTED_NON_INGESTING) == NON_INGESTING_TOOLS
     assert "" not in NON_INGESTING_TOOLS
 
 
 def test_execute_code_and_terminal_are_not_excluded() -> None:
+    """Pin execute code and terminal are not excluded."""
     for name in (
         "execute_code",
         "terminal",
@@ -133,11 +133,13 @@ def test_execute_code_and_terminal_are_not_excluded() -> None:
 
 
 def test_every_row_carries_a_structured_evidence_anchor() -> None:
+    """Pin every row carries a structured evidence anchor."""
     for name, axes in _TOOL_AXES.items():
         assert _EVIDENCE_RE.match(axes.evidence), f"{name}: {axes.evidence!r}"
 
 
 def test_hook_bypassing_tools_are_marked() -> None:
+    """Pin hook bypassing tools are marked."""
     for name in _HOOK_BYPASSING:
         assert name in _TOOL_AXES, name
         assert _TOOL_AXES[name].reaches_hook is False, name
@@ -146,12 +148,14 @@ def test_hook_bypassing_tools_are_marked() -> None:
 
 
 def test_argument_axis_does_not_widen() -> None:
+    """Pin argument axis does not widen."""
     assert READ_ONLY_TOOLS.isdisjoint(
         {"todo", "memory", "clarify", "delegate_task", "read_terminal"}
     )
 
 
 def test_phantom_names_are_gone() -> None:
+    """Pin phantom names are gone."""
     assert "search" not in READ_ONLY_TOOLS
     assert "list_directory" not in READ_ONLY_TOOLS
     assert "search_files" in READ_ONLY_TOOLS
@@ -159,6 +163,7 @@ def test_phantom_names_are_gone() -> None:
 
 
 def test_published_counts() -> None:
+    """Pin published counts."""
     mcp_rows = {n for n in _TOOL_AXES if n.startswith("mcp_")}
     browser_rows = {n for n in _TOOL_AXES if n.startswith("browser_")}
     assert len(_TOOL_AXES) == 37
@@ -175,6 +180,7 @@ def test_published_counts() -> None:
 
 
 def test_table_is_immutable_and_has_no_duplicate_keys() -> None:
+    """Pin table is immutable and has no duplicate keys."""
     assert isinstance(_TOOL_AXES, MappingProxyType)
     with pytest.raises((TypeError, AttributeError)):
         _TOOL_AXES["x"] = ToolAxes(True, True, True, "hermes a::b")  # type: ignore[index]
@@ -189,6 +195,7 @@ def test_table_is_immutable_and_has_no_duplicate_keys() -> None:
 
 
 def test_full_membership_is_pinned() -> None:
+    """Pin full membership is pinned."""
     assert tuple(sorted(READ_ONLY_TOOLS)) == _EXPECTED_READ_ONLY
     assert tuple(sorted(INGESTION_TOOLS)) == _EXPECTED_INGESTION
     assert tuple(sorted(NON_INGESTING_TOOLS)) == _EXPECTED_NON_INGESTING

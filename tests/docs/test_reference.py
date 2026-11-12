@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_reference_regenerates_without_a_diff(tmp_path: Path) -> None:
+    """Pin reference regenerates without a diff."""
     output = tmp_path / "reference"
     completed = subprocess.run(
         [sys.executable, "-m", "scripts.generate_reference", "--output", str(output)],

@@ -1,4 +1,4 @@
-"""PET-75 ESC-03: Shared derive_tier() helper and guard integration."""
+"""Pin shared score-to-tier derivation in library and guard decisions."""
 
 from __future__ import annotations
 
@@ -25,7 +25,10 @@ def _cfg(changes: dict[str, Any] | None = None) -> PetasosConfig:
 
 
 class TestDeriveTierBoundaries:
+    """Pin Derive Tier Boundaries."""
+
     def test_derive_tier_boundaries(self) -> None:
+        """Pin derive tier boundaries."""
         t1, t2, t3 = 15.0, 30.0, 50.0
         assert derive_tier(14.9, t1, t2, t3) == "none"
         assert derive_tier(15.0, t1, t2, t3) == "tier1"
@@ -36,13 +39,16 @@ class TestDeriveTierBoundaries:
         assert derive_tier(100.0, t1, t2, t3) == "tier3"
 
     def test_derive_tier_nan_fails_closed(self) -> None:
+        """Pin derive tier nan fails closed."""
         assert derive_tier(float("nan"), 15.0, 30.0, 50.0) == "tier3"
 
     def test_derive_tier_inf_fails_closed(self) -> None:
+        """Pin derive tier inf fails closed."""
         assert derive_tier(float("inf"), 15.0, 30.0, 50.0) == "tier3"
         assert derive_tier(float("-inf"), 15.0, 30.0, 50.0) == "tier3"
 
     def test_evaluate_tier_delegates(self) -> None:
+        """Pin evaluate tier delegates."""
         cfg = _cfg()
         for score in [0.0, 14.9, 15.0, 30.0, 50.0, 100.0]:
             expected = derive_tier(
@@ -52,9 +58,10 @@ class TestDeriveTierBoundaries:
 
 
 class TestGuardDeriveTier:
+    """Pin Guard Derive Tier."""
+
     async def test_guard_ignores_profile_thresholds(self) -> None:
-        # Roles carry no tier thresholds. The verdict uses the thresholds
-        # stated here: 15 / 30 / 50, so a score of 20 is tier 1.
+        """Pin guard ignores profile thresholds."""
         cfg = _cfg({"escalation": {"tier1": 15.0, "tier2": 30.0, "tier3": 50.0}})
         pipe = Pipeline(config=cfg)
         tracker = FrequencyTracker(cfg)
@@ -68,6 +75,7 @@ class TestGuardDeriveTier:
         assert result.tier == "tier1"
 
     async def test_guard_without_profile_falls_back(self) -> None:
+        """Pin guard without profile falls back."""
         cfg = _cfg({"escalation": {"tier1": 15.0, "tier2": 30.0, "tier3": 50.0}})
         pipe = Pipeline(config=cfg)
         tracker = FrequencyTracker(cfg)

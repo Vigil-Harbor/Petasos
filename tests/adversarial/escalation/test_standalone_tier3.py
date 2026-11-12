@@ -31,6 +31,7 @@ def _payload_3_critical() -> str:
 
 
 async def test_tier3_fires_without_frequency() -> None:
+    """Pin tier3 fires without frequency."""
     scanner = MinimalScanner(max_payload_bytes=100, max_json_depth=5)
     cfg = _cfg()
     pipe = Pipeline(scanners=[scanner], config=cfg)
@@ -42,6 +43,7 @@ async def test_tier3_fires_without_frequency() -> None:
 
 
 async def test_below_threshold_no_tier3() -> None:
+    """Pin below threshold no tier3."""
     scanner = MinimalScanner(max_payload_bytes=100, max_json_depth=5)
     cfg = _cfg({"escalation": {"enabled": True}})
     pipe = Pipeline(scanners=[scanner], config=cfg)
@@ -52,6 +54,7 @@ async def test_below_threshold_no_tier3() -> None:
 
 
 async def test_standalone_idempotent_with_frequency() -> None:
+    """Pin standalone idempotent with frequency."""
     scanner = MinimalScanner(max_payload_bytes=100, max_json_depth=5)
     cfg = _cfg({"frequency": {"enabled": True}, "escalation": {"enabled": True, "tier3": 50.0}})
     pipe = Pipeline(scanners=[scanner], config=cfg)
@@ -62,6 +65,7 @@ async def test_standalone_idempotent_with_frequency() -> None:
 
 
 async def test_standalone_survives_severity_override() -> None:
+    """Pin standalone survives severity override."""
     scanner = MinimalScanner(max_payload_bytes=100, max_json_depth=5)
     hostile = {
         "frequency": {"enabled": False},
@@ -76,7 +80,6 @@ async def test_standalone_survives_severity_override() -> None:
     }
     with pytest.raises(ConfigError, match="structural"):
         from_mapping(PetasosConfig, hostile)
-    # The refused overrides never apply. The payload still reaches tier 3.
     pipe = Pipeline(scanners=[scanner], config=_cfg({"escalation": {"enabled": True}}))
     result = await pipe.inspect(_payload_3_critical())
     assert result.escalation_tier == "tier3"

@@ -91,7 +91,6 @@ def _case(name: str, command: str, **setup: object) -> dict[str, Any]:
     _reset()
     interactive = bool(setup.pop("interactive", False))
     yolo = bool(setup.pop("yolo", False))
-    # What the stand-in for Hermes's guardian model answers, when one is used.
     smart = setup.pop("smart", None)
     env = setup.pop("env", {})
     terminal_env = setup.pop("terminal_env", None)
@@ -110,15 +109,13 @@ def _case(name: str, command: str, **setup: object) -> dict[str, Any]:
     guardian = None
     real = None
     if isinstance(smart, str):
-        # The gate calls the name it imported, so that is the one to replace.
-        # The real function would send the command to a model.
+        # Replace the gate's imported name: the real function would call a model.
         guardian = _load("tools.approval")
         real = guardian._smart_verdict
         guardian._smart_verdict = lambda *_args, **_kwargs: smart
     try:
         yolo_token = None
         if yolo:
-            # An empty session key is never yolo. Bind one, then turn it on.
             context = _load("tools.approval_context")
             approval = _load("tools.approval")
             yolo_token = context.set_current_session_key("ask-harness")
@@ -217,6 +214,7 @@ def ask_cases() -> dict[str, Any]:
 
 
 def main() -> None:
+    """Run the isolated test harness."""
     request = json.load(sys.stdin)
     if request.get("action") != "ask":
         raise SystemExit(f"unknown action {request.get('action')}")

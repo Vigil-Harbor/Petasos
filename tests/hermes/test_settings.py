@@ -20,6 +20,7 @@ class _Store:
         self.calls = 0
 
     def get_config(self, key: str, default: object = None) -> object:
+        """Provide get config for the test fixture."""
         self.calls += 1
         if key in self.values:
             return self.values[key]

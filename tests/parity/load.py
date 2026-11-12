@@ -15,11 +15,6 @@ HERE = Path(__file__).resolve().parent
 CORPUS_PATH = HERE / "corpus.json"
 VERDICTS_PATH = HERE / "verdicts.json"
 
-# ``none`` is the unbound profile. The other five are the built-in names.
-# ``plugin:<name>`` binds the pipeline to that profile and builds the guard
-# without one, which is how the reference plugin constructs ``ToolCallGuard``.
-# Only admin and research set tier thresholds, so only those two change a
-# guard verdict relative to passing the profile through.
 PROFILES: tuple[str, ...] = (
     "none",
     "general",

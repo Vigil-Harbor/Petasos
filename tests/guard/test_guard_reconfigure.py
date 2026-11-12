@@ -1,11 +1,6 @@
-"""PET-126: ToolCallGuard / SpawnBudget / LineageRegistry live reconfigure.
+"""Pin guard reload while preserving risk, spawn history and secret binding.
 
-The gateway constructs its OWN tracker, guard, and lineage registry beyond the
-pipeline (Decision 4), so a live reload must reconfigure all of them. These tests
-pin: delegate-set recognition, fan-out window resize (counters preserved), tracker
-propagation, the two-phase D8 validation gate, the immutable session_secret, and
-lineage-bound rebinding with edge preservation.
-"""
+See docs/architecture/rationale.md, "Inherited guard tiers"."""
 
 from __future__ import annotations
 
@@ -39,9 +34,7 @@ def _guard(
 
 
 async def test_guard_apply_config_updates_delegate_set() -> None:
-    # Regression for PET-126: the gateway guard caches the normalized delegate set
-    # at construction; a reload must recompute it so the fan-out gate tracks the
-    # new tool name and releases the old one.
+    """Pin guard apply config updates delegate set."""
     guard = _guard(
         config=_cfg(
             {
@@ -69,11 +62,9 @@ async def test_guard_apply_config_updates_delegate_set() -> None:
         )
     )
 
-    # The old delegate is no longer gated: repeated calls stay allowed.
     assert (await guard.evaluate("delegate_task", {}, "s1")).allowed
     assert (await guard.evaluate("delegate_task", {}, "s1")).allowed
 
-    # The new delegate is gated: the 2nd call exceeds the budget of 1.
     assert (await guard.evaluate("spawn_agent", {}, "s2")).allowed
     blocked = await guard.evaluate("spawn_agent", {}, "s2")
     assert not blocked.allowed
@@ -81,6 +72,7 @@ async def test_guard_apply_config_updates_delegate_set() -> None:
 
 
 def test_guard_apply_config_resizes_fanout_window_preserving_counters() -> None:
+    """Pin guard apply config resizes fanout window preserving counters."""
     guard = _guard(
         config=_cfg(
             {
@@ -109,31 +101,24 @@ def test_guard_apply_config_resizes_fanout_window_preserving_counters() -> None:
         )
     )
 
-    # set_window rebinds _window only; counters/sweep state are preserved.
     assert budget._window == 10.0
     assert "sess" in budget._events
     assert budget._last_sweep == 100.0
 
-    # An event from t=100 is in-window under the old 60s window but expires under
-    # the shrunk 10s window: at t=111 it is evicted, so a cap-1 consume succeeds.
     assert budget.try_consume("sess", cap=1, now=111.0) is True
 
 
 def test_guard_set_window_evicts_under_shrunk_window_directly() -> None:
-    # Focused SpawnBudget unit: a timestamp inside the old window is evicted once
-    # the window shrinks below its age (post-resize eviction).
+    """Pin guard set window evicts under shrunk window directly."""
     budget = SpawnBudget(60.0)
     assert budget.try_consume("s", cap=1, now=100.0) is True
-    # Under the 60s window, t=130 still sees the t=100 event -> cap-1 blocks.
     assert budget.try_consume("s", cap=1, now=130.0) is False
     budget.set_window(10.0)
-    # Under the 10s window, the t=100 event is 30s stale at t=130 -> evicted.
     assert budget.try_consume("s", cap=1, now=130.0) is True
 
 
 def test_guard_apply_config_propagates_to_its_tracker() -> None:
-    # Decision 4: the guard owns a SEPARATE tracker; apply_config must reconfigure
-    # it (a frequency_weights change must change the guard tracker's scoring).
+    """Pin guard apply config propagates to its tracker."""
     guard = _guard(
         config=_cfg(
             {
@@ -157,14 +142,13 @@ def test_guard_apply_config_propagates_to_its_tracker() -> None:
         )
     )
 
-    assert tracker._config is guard._config  # tracker rebound to the guard's config
+    assert tracker._config is guard._config
     r2 = tracker.update("s1", ["x"])
-    assert r2.current_score > r1.current_score + 20  # ~5 (decayed) + 25 new weight
+    assert r2.current_score > r1.current_score + 20
 
 
 def test_guard_validate_config_d8_violation_is_atomic() -> None:
-    # A delegate that is also profile-exempt would skip the tier ladder (D8).
-    # validate_config raises; apply_config (which calls it first) mutates nothing.
+    """Pin guard validate config violation is atomic."""
     guard = _guard(
         config=_cfg(
             {
@@ -198,9 +182,8 @@ def test_guard_validate_config_d8_violation_is_atomic() -> None:
 
 
 def test_guard_apply_config_preserves_session_secret() -> None:
-    # A reload cfg carrying a differing/None session_secret must NOT rebind the
-    # guard tracker's _session_secret (FREQ-03, Decision 2): live tokens still
-    # verify and sessions do not flip to tier3.
+    # Session secrets stay fixed so existing tokens remain valid after reconfiguration.
+    """Pin guard apply config preserves session secret."""
     secret = b"k" * 32
     secrets = Secrets(session_secret=secret)
     cfg = _cfg()
@@ -210,9 +193,8 @@ def test_guard_apply_config_preserves_session_secret() -> None:
 
     token = tracker.mint_token("sess", "host-1")
     tracker.update(token, [])
-    assert guard._read_state("sess") is not None  # mint path works
+    assert guard._read_state("sess") is not None
 
-    # A tree has no secret, so a live reload cannot replace or clear it.
     guard.apply_config(_cfg({"frequency": {"half_life_seconds": 30.0}}))
     assert tracker._session_secret == secret
     assert guard._secrets.session_secret == secret

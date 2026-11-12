@@ -21,7 +21,6 @@ def _prose(text: str) -> str:
 
 
 def _destinations(text: str) -> Iterator[str]:
-    # Include inline links/images, reference definitions and HTML links/images.
     prose = _prose(text)
     for match in re.finditer(r"!?\[[^\]\n]*\]\(<?([^\s)>]+)>?(?:\s+\"[^\"]*\")?\)", prose):
         yield match[1]
@@ -46,6 +45,7 @@ def _anchors(path: Path) -> set[str]:
 
 @pytest.mark.parametrize("page", PAGES, ids=lambda path: str(path.relative_to(ROOT)))
 def test_relative_links_resolve(page: Path) -> None:
+    """Pin relative links resolve."""
     for destination in _destinations(page.read_text(encoding="utf-8")):
         url = urlsplit(destination)
         if url.scheme or url.netloc:

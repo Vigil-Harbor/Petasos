@@ -26,6 +26,7 @@ _ROOT = Path(__file__).resolve().parents[2]
 
 @pytest.fixture(scope="session")
 def hermes_sandbox() -> Path:
+    """Provide hermes sandbox for the test fixture."""
     path = sandbox_path()
     if not (path / "bin" / "with-sandbox").is_file():
         pytest.fail(f"PETASOS_HERMES_SANDBOX={path} has no bin/with-sandbox")

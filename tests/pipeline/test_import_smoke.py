@@ -1,3 +1,5 @@
+"""Pin imports and the CLI without optional Hermes dependencies."""
+
 from __future__ import annotations
 
 import importlib
@@ -23,18 +25,25 @@ def _hermes_deps_available() -> bool:
     reason="Hermes deps (spaCy, transformers) not installed",
 )
 class TestHermesSmoke:
+    """Pin Hermes Smoke."""
+
     async def test_pipeline_construction(self) -> None:
+        """Pin pipeline construction."""
         pipe = Pipeline(config=PetasosConfig())
         assert pipe is not None
 
     async def test_basic_scan(self) -> None:
+        """Pin basic scan."""
         pipe = Pipeline(config=PetasosConfig())
         result = await pipe.inspect("test message", session_id="smoke")
         assert isinstance(result, PipelineResult)
 
 
 class TestImportWithoutHermesDeps:
+    """Pin Import Without Hermes Deps."""
+
     async def test_pipeline_works_without_hermes_deps(self) -> None:
+        """Pin pipeline works without hermes deps."""
         pipe = Pipeline(config=PetasosConfig())
         result = await pipe.inspect("hello", session_id="standalone")
         assert isinstance(result, PipelineResult)

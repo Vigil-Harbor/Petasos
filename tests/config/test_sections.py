@@ -36,7 +36,6 @@ _RESTART_ROOTS = (
     "scanners.semgrep.",
 )
 
-# A scan reads this list itself, so a role change applies without a restart.
 _LIVE = frozenset({"scanners.presidio.entities_extra"})
 
 
@@ -72,12 +71,14 @@ def _declared_specs() -> list[tuple[str, FieldSpec]]:
 
 
 def test_mapping_round_trip_keeps_a_fresh_config() -> None:
+    """Pin mapping round trip keeps a fresh config."""
     fresh = PetasosConfig()
 
     assert from_mapping(PetasosConfig, to_mapping(fresh)) == fresh
 
 
 def test_mapping_round_trip_keeps_a_changed_config() -> None:
+    """Pin mapping round trip keeps a changed config."""
     changed = from_mapping(
         PetasosConfig,
         {
@@ -95,6 +96,7 @@ def test_mapping_round_trip_keeps_a_changed_config() -> None:
 
 
 def test_replace_revalidates() -> None:
+    """Pin replace revalidates."""
     replaced = replace(PetasosConfig(), fail_mode="open")
 
     assert replaced.fail_mode == "open"
@@ -103,6 +105,7 @@ def test_replace_revalidates() -> None:
 
 
 def test_describe_covers_every_leaf() -> None:
+    """Pin describe covers every leaf."""
     rows = leaves(PetasosConfig)
 
     assert rows
@@ -116,6 +119,7 @@ def test_describe_covers_every_leaf() -> None:
 
 
 def test_evolve_applies_a_partial_mapping_and_revalidates() -> None:
+    """Pin evolve applies a partial mapping and revalidates."""
     evolved = evolve(
         PetasosConfig(),
         {"fail_mode": "open", "escalation": {"tier1": 12}},
@@ -129,6 +133,7 @@ def test_evolve_applies_a_partial_mapping_and_revalidates() -> None:
 
 
 def test_apply_live_leaves_restart_settings() -> None:
+    """Pin apply live leaves restart settings."""
     current = PetasosConfig()
     proposed = evolve(
         current,
@@ -148,6 +153,7 @@ def test_apply_live_leaves_restart_settings() -> None:
 
 
 def test_expert_fields_are_the_internals() -> None:
+    """Pin expert fields are the internals."""
     expert = {row.path for row in leaves(PetasosConfig) if row.audience == "expert"}
 
     assert expert == {
@@ -178,6 +184,7 @@ def test_expert_fields_are_the_internals() -> None:
 
 
 def test_scanner_defaults_match_the_stated_constants() -> None:
+    """Pin scanner defaults match the stated constants."""
     fresh = PetasosConfig()
 
     assert fresh.scanners.prompt_guard.enabled == "auto"
@@ -190,6 +197,7 @@ def test_scanner_defaults_match_the_stated_constants() -> None:
 
 
 def test_non_positive_tier1_is_accepted_when_the_tiers_still_ascend() -> None:
+    """Pin non positive tier1 is accepted when the tiers still ascend."""
     config = from_mapping(PetasosConfig, {"escalation": {"tier1": 0, "tier2": 1, "tier3": 30}})
 
     assert config.escalation.tier1 == 0.0
@@ -281,10 +289,12 @@ def test_non_positive_tier1_is_accepted_when_the_tiers_still_ascend() -> None:
     ],
 )
 def test_invalid_document_names_the_path(document: dict[str, object], path: str) -> None:
+    """Pin invalid document names the path."""
     assert _has(_errors(document), path)
 
 
 def test_injection_rules_can_be_suppressed_when_the_floor_is_inbound() -> None:
+    """Pin injection rules can be suppressed when the floor is inbound."""
     config = from_mapping(
         PetasosConfig,
         {
@@ -299,6 +309,7 @@ def test_injection_rules_can_be_suppressed_when_the_floor_is_inbound() -> None:
 
 
 def test_selfmod_severity_may_rise_and_may_stay() -> None:
+    """Pin selfmod severity may rise and may stay."""
     raised = from_mapping(
         PetasosConfig,
         {"rules": {"severity_overrides": {"petasos.selfmod.config_ref": "critical"}}},
@@ -313,12 +324,14 @@ def test_selfmod_severity_may_rise_and_may_stay() -> None:
 
 
 def test_alias_values_are_stripped() -> None:
+    """Pin alias values are stripped."""
     config = from_mapping(PetasosConfig, {"tools": {"aliases": {"shell": " exec "}}})
 
     assert config.tools.aliases["shell"] == "exec"
 
 
 def test_hash_mode_without_a_key_is_not_a_config_error() -> None:
+    """Pin hash mode without a key is not a config error."""
     config = from_mapping(PetasosConfig, {"anonymization": {"enabled": True, "mode": "hash"}})
 
     assert config.anonymization.mode == "hash"
@@ -326,6 +339,7 @@ def test_hash_mode_without_a_key_is_not_a_config_error() -> None:
 
 
 def test_leaves_are_the_field_rows_of_describe() -> None:
+    """Pin leaves are the field rows of describe."""
     from petasos.config.schema import FieldInfo, describe
 
     rows = describe(PetasosConfig)

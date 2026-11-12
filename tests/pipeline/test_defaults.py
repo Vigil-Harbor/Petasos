@@ -1,8 +1,6 @@
-"""PET-11 iterator deliverables: Hermes Desktop integration surface tests.
+"""Pin usable library defaults at host-facing enforcement boundaries.
 
-Tests the critical integration gaps between Petasos library defaults and a
-production Hermes Desktop deployment, per the PET-11 integration brief.
-"""
+See docs/architecture/rationale.md, "Test timing and backend qualification"."""
 
 from __future__ import annotations
 
@@ -22,10 +20,6 @@ from petasos.pipeline import Pipeline
 
 _SECRETS = Secrets(hash_key="test-hmac-key-for-anonymization")
 
-# ---------------------------------------------------------------------------
-# Shared mock scanner
-# ---------------------------------------------------------------------------
-
 
 class _MockScanner:
     def __init__(
@@ -41,6 +35,7 @@ class _MockScanner:
 
     @property
     def name(self) -> str:
+        """Return the fixture scanner name."""
         return self._name
 
     async def scan(
@@ -50,6 +45,7 @@ class _MockScanner:
         direction: Direction = "inbound",
         session_id: str | None = None,
     ) -> ScanResult:
+        """Supply the configured scanner response for this fixture."""
         if self._error:
             raise self._error
         return ScanResult(scanner_name=self.name, findings=self._findings, duration_ms=1.0)
@@ -99,11 +95,6 @@ def hermes_pipeline(
     return pipe
 
 
-# ---------------------------------------------------------------------------
-# Task 2: Hermes integration fixture — production pipeline validation
-# ---------------------------------------------------------------------------
-
-
 class TestHermesProductionPipeline:
     """Validates that the production pipeline fixture represents a properly
     configured Hermes Desktop deployment."""
@@ -120,6 +111,7 @@ class TestHermesProductionPipeline:
         self,
         hermes_production_config: PetasosConfig,
     ) -> None:
+        """Pin production pipeline fail mode closed."""
         assert hermes_production_config.fail_mode == "closed"
 
     async def test_production_pipeline_scan_with_callbacks(
@@ -150,6 +142,7 @@ class TestHermesProductionPipeline:
         self,
         hermes_production_config: PetasosConfig,
     ) -> None:
+        """Pin production pipeline anonymization active."""
         assert hermes_production_config.anonymization.enabled is True
         assert "PERSON" in hermes_production_config.anonymization.entities
         assert hermes_production_config.anonymization.mode == "hash"

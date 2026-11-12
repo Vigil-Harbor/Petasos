@@ -95,8 +95,6 @@ def test_lower_layers_do_not_import_enforce() -> None:
     assert offenders == []
 
 
-# The legacy spool writer still keeps process-global path and key state.
-# New enforce modules, and any new name in events.py, may not.
 _LEGACY_EVENT_STATE = frozenset(
     {
         "SPOOL_CAP_BYTES",
@@ -215,7 +213,6 @@ def test_enforce_has_no_module_state_beyond_the_legacy_spool() -> None:
     assert offenders == []
 
 
-# The guard's legacy path discovery still imports the resolver.
 _HERMES_IMPORT_OK = {
     Path("petasos/guard/guard.py"),
     Path("petasos/guard/selfmod.py"),
@@ -240,8 +237,7 @@ def test_only_the_adapter_imports_hermes() -> None:
     assert offenders == []
 
 
-# plugin.py may mutate only the home-to-enforcer table. The lock beside it
-# is the one lock that serialises that table.
+# Only the home-to-enforcer table and its serializing lock are adapter shared state.
 _ADAPTER_TABLE = "_registrations"
 _ADAPTER_LOCK = "_registration_lock"
 
@@ -354,7 +350,6 @@ def test_dashboard_responses_do_not_import_a_web_framework() -> None:
     assert offenders == []
 
 
-# Modules on the same level may share implementation helpers.
 _LAYER = {
     "model": 0,
     "coverage": 0,
@@ -563,6 +558,8 @@ _BOOTSTRAPS: tuple[tuple[str, str], ...] = ()
 
 @dataclass(frozen=True)
 class Construction:
+    """Provide Construction test data."""
+
     path: str
     function: str
     class_name: str
@@ -612,13 +609,10 @@ def _constructions_in(node: ast.AST, path: str, scope: str = _MODULE_SCOPE) -> l
     for child, child_scope in _scoped_nodes(node, scope, ""):
         if isinstance(child, ast.Call):
             func = child.func
-            # (a) direct name call - PresidioScanner()
             if isinstance(func, ast.Name) and func.id in _SCANNER_CLASSES:
                 found.append(Construction(path, child_scope, func.id, child.lineno))
-            # (b) attribute call - petasos.scanners.PresidioScanner()
             elif isinstance(func, ast.Attribute) and func.attr in _SCANNER_CLASSES:
                 found.append(Construction(path, child_scope, func.attr, child.lineno))
-            # (d) split-literal dispatch - getattr(m, "PresidioScanner")()
             dispatch = (
                 func.id
                 if isinstance(func, ast.Name)
@@ -634,12 +628,10 @@ def _constructions_in(node: ast.AST, path: str, scope: str = _MODULE_SCOPE) -> l
                         and arg.value in _SCANNER_CLASSES
                     ):
                         found.append(Construction(path, child_scope, arg.value, arg.lineno))
-        # (c) dotted dispatch constant - "petasos.scanners.PresidioScanner"
         elif isinstance(child, ast.Constant) and isinstance(child.value, str):
             cls = _dotted_class(child.value)
             if cls is not None:
                 found.append(Construction(path, child_scope, cls, child.lineno))
-    # Shapes can overlap (a dotted constant handed to import_module); report once.
     return sorted(set(found), key=lambda c: (c.lineno, c.class_name))
 
 
@@ -726,8 +718,7 @@ def test_split_literal_getattr_is_flagged() -> None:
 
 
 def test_all_bookkeeping_is_not_flagged() -> None:
-    """Negative row: naming a class in ``__all__`` constructs nothing. Pins the
-    dotted-only narrowing of shape (c)."""
+    """Pin that __all__ references do not count as constructor calls."""
     source = '__all__ += ["PresidioScanner"]\n'
     assert _constructions_in(ast.parse(source), "x.py") == []
 
@@ -766,7 +757,7 @@ def test_definition_modules_are_excluded() -> None:
 
 if sys.version_info >= (3, 11):  # noqa: UP036 - load-bearing: the local 3.10 dev box runs the else branch
     import tomllib
-else:  # local 3.10 dev interpreter only
+else:
     try:
         import tomli as tomllib
     except ModuleNotFoundError as exc:  # pragma: no cover - exercised only on 3.10
@@ -782,31 +773,16 @@ _PYPROJECT = _REPO_ROOT / "pyproject.toml"
 
 
 async def test_anyio_runner_self_witness() -> None:
-    """PET-149 canary - intentionally carries NO inline marker. It runs only if
-    ``anyio_mode = "auto"`` bound it to the anyio runner; the ``await`` below
-    executes only under a real event loop. Two jobs: (1) guarantee this module
-    always collects >=1 async item, so ``test_no_async_test_is_unrun`` is never a
-    vacuous pass even run in isolation; (2) prove auto-mode actually fired (if it
-    did not, this coroutine is never awaited and surfaces as an offender below).
-    This is the single sanctioned exception to the implicit "async tests rely on
-    anyio auto-mode" rule - do NOT add ``@pytest.mark.anyio`` (that binds the test
-    regardless and defeats job (2)) and do NOT replicate the no-marker pattern in
-    behavioral tests.
-    """
+    """Pin automatic async-test execution without an explicit runner marker.
+
+    See docs/architecture/rationale.md, "Async test and CI lane constraints"."""
     await asyncio.sleep(0)
 
 
 def test_no_async_test_is_unrun(request: pytest.FixtureRequest) -> None:
-    """Load-bearing guard: every collected ``async def test_*`` must be bound to
-    the anyio runner. Membership is keyed on ``anyio_backend in fixturenames`` -
-    anyio's auto-mode injects that fixture into every coroutine test's closure, and
-    ``anyio_backend in fixturenames`` *is* anyio's own execution key
-    (``pytest_pyfunc_call`` drives the coroutine only when ``anyio_backend`` is a
-    funcarg). Asserts only ``not unrun`` (no positive-count floor), so ``-k`` /
-    ``--deselect`` / ``--last-failed`` selections that drop the self-witness do not
-    false-red; the unmarked self-witness above supplies the positive "auto-mode
-    fired" proof on any whole-file or whole-suite run.
-    """
+    """Pin that every collected async test binds to the anyio runner.
+
+    See docs/architecture/rationale.md, "Test runner fixture binding"."""
     unrun = sorted(
         item.nodeid
         for item in request.session.items
@@ -822,12 +798,9 @@ def test_no_async_test_is_unrun(request: pytest.FixtureRequest) -> None:
 
 
 def test_no_asyncio_marker_remains() -> None:
-    """Static scan: no file under ``tests/`` carries a ``pytest.mark.asyncio``
-    marker (anyio is the sole async convention, PET-149). Excludes this module,
-    which names the forbidden marker in its own regex; the human-readable failure
-    message builds the literal from concatenated parts so the scanner stays
-    self-safe.
-    """
+    """Pin no asyncio marker remains.
+
+    See docs/architecture/rationale.md, "Async test and CI lane constraints"."""
     pattern = re.compile(r"pytest\.mark\.asyncio")
     this_file = pathlib.Path(__file__).resolve()
     offenders: list[str] = []
@@ -888,6 +861,7 @@ _CONFIG_ROOT = Path("petasos/config")
 
 
 def test_config_modules_import_nothing_above_the_config_layer() -> None:
+    """Pin config modules import nothing above the config layer."""
     offenders: list[str] = []
     for path in sorted(_CONFIG_ROOT.rglob("*.py")):
         if path.name == "__init__.py" and path.parent == _CONFIG_ROOT:
@@ -914,7 +888,10 @@ def test_config_modules_import_nothing_above_the_config_layer() -> None:
 
 
 class TestIsolation:
+    """Pin Isolation."""
+
     def test_schema_imports_nothing_else_from_petasos(self) -> None:
+        """Pin schema imports nothing else from petasos."""
         root = Path(__file__).resolve().parents[1]
         script = """
 import importlib.util
@@ -985,14 +962,12 @@ def test_the_tab_uses_only_hermes_and_its_own_api() -> None:
     assert "@import" not in css
     assert "url(" not in css
     assert "@font-face" not in css
-    # Colours come from Hermes's variables. A literal hex colour is a palette of our own.
+    # Literal palette colours would bypass Hermes theme variables.
     assert re.search(r"#[0-9a-fA-F]{3,8}\b", css) is None
     assert 'var API = "/api/plugins/petasos";' in script
 
 
-# Phrases Hermes's install-time scan of a plugin directory refuses. The real
-# scanner is exercised in tests/hermes_host/test_plugin_admission.py, which
-# the default run skips, so this short list is what the default run has.
+# The default lane checks admission phrases because the upstream scanner runs only in the sandbox.
 _ADMISSION_TRIPS = (
     "ignore previous instructions",
     "ignore all previous instructions",

@@ -1,8 +1,6 @@
-"""Per-finding audit lines, from the handler the enforcer installs.
+"""Pin privacy-safe per-finding audit records from enforcer handlers.
 
-PET-136 pinned these through the reference plugin's ``_handle_audit``. The
-handler now lives in ``petasos.enforce.engine``.
-"""
+See docs/architecture/rationale.md, "Alert and audit test constraints"."""
 
 from __future__ import annotations
 
@@ -45,6 +43,7 @@ def _lines(caplog: pytest.LogCaptureFixture) -> list[str]:
 
 
 def test_emit_findings_writes_one_line_per_finding(caplog: pytest.LogCaptureFixture) -> None:
+    """Pin emit findings writes one line per finding."""
     config = from_mapping(PetasosConfig, {"audit": {"emit_findings": True}})
     emitter = AuditEmitter(config, on_audit=_audit(logging.getLogger(_LOGGER)))
     blocking = _finding("minimal.injection.override", Severity.HIGH)
@@ -71,6 +70,7 @@ def test_emit_findings_writes_one_line_per_finding(caplog: pytest.LogCaptureFixt
 def test_a_safe_result_is_still_recorded_when_the_toggle_is_on(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
+    """Pin a safe result is still recorded when the toggle is on."""
     config = from_mapping(PetasosConfig, {"audit": {"emit_findings": True}})
     emitter = AuditEmitter(config, on_audit=_audit(logging.getLogger(_LOGGER)))
     with caplog.at_level(logging.INFO, logger=_LOGGER):
@@ -88,6 +88,7 @@ def test_a_safe_result_is_still_recorded_when_the_toggle_is_on(
 
 
 def test_findings_are_not_logged_unless_the_toggle_is_on(caplog: pytest.LogCaptureFixture) -> None:
+    """Pin findings are not logged unless the toggle is on."""
     emitter = AuditEmitter(PetasosConfig(), on_audit=_audit(logging.getLogger(_LOGGER)))
     with caplog.at_level(logging.INFO, logger=_LOGGER):
         emitter.emit(

@@ -23,6 +23,7 @@ def _call(box: Sandbox, action: str, **values: Any) -> dict[str, Any]:
 def test_partial_pin_leaves_siblings_and_empty_mapping_entries_writable(
     installed: Sandbox,
 ) -> None:
+    """Pin partial pin leaves siblings and empty mapping entries writable."""
     result = _call(installed, "partial")
     assert result == {
         "sibling": False,
@@ -34,6 +35,7 @@ def test_partial_pin_leaves_siblings_and_empty_mapping_entries_writable(
 
 @pytest.mark.parametrize("method", ["api", "hermes_config", "petasos_config", "form"])
 def test_writes_do_not_change_fixed_leaves(installed: Sandbox, method: str) -> None:
+    """Pin writes do not change fixed leaves."""
     pinned = _call(installed, "pin")
     assert pinned["code"] == 0
     assert pinned["document"]["model"] == {"default": "sandbox-only"}
@@ -83,6 +85,7 @@ def test_hermes_merges_new_entries_into_pinned_groups_and_petasos_does_not_use_t
 def test_disable_does_not_unload_petasos_and_unpin_restores_profile_writes(
     installed: Sandbox,
 ) -> None:
+    """Pin disable does not unload petasos and unpin restores profile writes."""
     pinned = _call(installed, "pin")
     result = _call(installed, "disable")
     assert result["code"] == 0, result
@@ -98,6 +101,7 @@ def test_disable_does_not_unload_petasos_and_unpin_restores_profile_writes(
 
 
 def test_pinned_unset_values_do_not_replace_profile_groups(installed: Sandbox) -> None:
+    """Pin pinned unset values do not replace profile groups."""
     _call(installed, "pin")
     result = _call(installed, "nullable")
     before = result["before"]["overrides"]
@@ -114,12 +118,14 @@ def test_pinned_unset_values_do_not_replace_profile_groups(installed: Sandbox) -
 def test_hook_timeout_is_pinned_at_hermes_effective_value(
     installed: Sandbox, raw: int, expected: float
 ) -> None:
+    """Pin hook timeout is pinned at hermes effective value."""
     result = _call(installed, "timeout", raw=raw)
     assert result["code"] == 0 and result["refused"] is True
     assert result["effective"] == expected
 
 
 def test_redirected_machine_pin_is_a_failure(installed: Sandbox) -> None:
+    """Pin redirected machine pin is a failure."""
     _call(installed, "pin")
     result = _call(installed, "redirect")
     assert result["pin"]["state"] == "not_in_force"
@@ -130,6 +136,7 @@ def test_redirected_machine_pin_is_a_failure(installed: Sandbox) -> None:
 def test_pin_freezes_expanded_values_and_refuses_unresolved_references(
     installed: Sandbox, defined: bool
 ) -> None:
+    """Pin pin freezes expanded values and refuses unresolved references."""
     result = _call(installed, "references", defined=defined)
     if defined:
         assert result["code"] == 0 and result["language"] == "fr"

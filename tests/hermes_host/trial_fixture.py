@@ -15,14 +15,18 @@ from petasos.scanners.registry import ScannerSpec
 
 
 class PersonalInformation:
+    """Provide Personal Information test data."""
+
     name = "presidio"
 
     def availability(self) -> tuple[bool, str | None, str | None]:
+        """Provide availability for the test fixture."""
         return True, None, None
 
     async def scan(
         self, text: str, *, direction: Direction = "inbound", session_id: str | None = None
     ) -> ScanResult:
+        """Supply the configured scanner response for this fixture."""
         address = "someone@example.org"
         start = text.find(address)
         findings: tuple[ScanFinding, ...] = ()
@@ -42,6 +46,7 @@ class PersonalInformation:
 
 
 def activate() -> None:
+    """Provide activate for the test fixture."""
     root = Path(os.environ["PETASOS_SANDBOX_ROOT"]).resolve()
     home = Path(os.environ["HERMES_HOME"]).resolve()
     if root not in home.parents or root not in Path(__file__).resolve().parents:

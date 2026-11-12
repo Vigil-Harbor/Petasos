@@ -36,6 +36,7 @@ pytestmark = pytest.mark.skipif(
 
 @pytest.fixture(scope="module")
 def real_scanners() -> list[Scanner]:
+    """Provide real scanners for the test fixture."""
     assert importlib.util.find_spec("en_core_web_lg") is not None, "install the spaCy model first"
     assert pg._snapshot_complete(), "pinned PromptGuard weights must already be cached"
     config = PetasosConfig()
@@ -51,7 +52,7 @@ def real_scanners() -> list[Scanner]:
             result = await asyncio.wait_for(scanner.scan("What is the capital of France?"), 90)
             assert result.error is None, result.error
 
-    # Only pre-installed assets are allowed; this gate must not download weights.
+    # Only preinstalled assets are allowed; this gate must not download weights.
     with pytest.MonkeyPatch.context() as patch:
         patch.setenv("HF_HUB_OFFLINE", "1")
         patch.setenv("TRANSFORMERS_OFFLINE", "1")
@@ -64,6 +65,7 @@ class _Events:
         self.rows: list[dict[str, object]] = []
 
     def emit(self, event: Mapping[str, object]) -> bool:
+        """Provide emit for the test fixture."""
         self.rows.append(dict(event))
         return True
 

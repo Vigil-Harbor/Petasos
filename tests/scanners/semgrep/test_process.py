@@ -24,6 +24,7 @@ pytestmark = pytest.mark.skipif(
 def test_posix_signal_denial_requires_exited_leader_and_absent_group(
     monkeypatch: pytest.MonkeyPatch, leader_exited: bool, group_state: str
 ) -> None:
+    """Pin posix signal denial requires exited leader and absent group."""
     import errno
     import signal
     from types import SimpleNamespace
@@ -69,13 +70,14 @@ def test_posix_signal_denial_requires_exited_leader_and_absent_group(
         assert child._reaped
         assert events == ["signal", "reap", "check"]
         child.terminate(force=True)
-        assert events == ["signal", "reap", "check"]  # No signals after PID release.
+        assert events == ["signal", "reap", "check"]
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="native POSIX zombie/group semantics")
 async def test_exited_posix_leader_is_reaped_before_group_absence_check(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, record_property: Any
 ) -> None:
+    """Pin exited posix leader is reaped before group absence check."""
     import errno
     import json
 
@@ -144,6 +146,7 @@ def _stub_posix_child(monkeypatch: pytest.MonkeyPatch, poll: Any, events: list[s
 def test_sigterm_denial_after_exit_does_not_complete_final_signal(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Pin sigterm denial after exit does not complete final signal."""
     import errno
 
     events: list[str] = []
@@ -157,12 +160,15 @@ def test_sigterm_denial_after_exit_does_not_complete_final_signal(
     child.terminate()
     assert not child._group_signal_complete
     assert not child.cleaned()
-    assert events == ["signal:15"]  # Never reap before the final-signal phase.
+    assert events == [
+        "signal:15"
+    ]  # Reaping before the last signal would release the process-group ownership proof.
 
 
 def test_absent_group_signal_still_requires_post_reap_absence(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Pin absent group signal still requires post reap absence."""
     events: list[str] = []
     child = _stub_posix_child(monkeypatch, lambda self: 0, events)
     present = True
@@ -176,7 +182,7 @@ def test_absent_group_signal_still_requires_post_reap_absence(
     child.terminate(force=True)
     assert child._group_signal_complete
     assert not child.cleaned()
-    child.terminate(force=True)  # No new signal after the PID has been released.
+    child.terminate(force=True)
     assert not child.cleaned()
     present = False
     assert child.cleaned()
@@ -186,6 +192,7 @@ def test_absent_group_signal_still_requires_post_reap_absence(
 def test_external_reap_during_signal_denial_retains_cleanup_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Pin external reap during signal denial retains cleanup failure."""
     from petasos.scanners.semgrep import process as process
 
     events: list[str] = []
@@ -209,6 +216,7 @@ def test_external_reap_during_signal_denial_retains_cleanup_failure(
 
 
 def test_unexpected_group_signal_error_propagates(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pin unexpected group signal error propagates."""
     import errno
 
     events: list[str] = []
@@ -227,6 +235,7 @@ def test_unexpected_group_signal_error_propagates(monkeypatch: pytest.MonkeyPatc
 def test_child_environment_does_not_forward_credentials_or_pythonpath(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Pin child environment does not forward credentials or pythonpath."""
     monkeypatch.setenv("API_KEY", "synthetic-credential")
     monkeypatch.setenv("HTTPS_PROXY", "https://invalid.example")
     monkeypatch.setenv("PYTHONPATH", "untrusted")
@@ -236,6 +245,7 @@ def test_child_environment_does_not_forward_credentials_or_pythonpath(
 
 
 async def test_pipe_output_and_unicode_path(tmp_path: Path) -> None:
+    """Pin pipe output and unicode path."""
     root = tmp_path / "space é"
     root.mkdir()
     result = await run_process(
@@ -253,6 +263,7 @@ async def test_pipe_output_and_unicode_path(tmp_path: Path) -> None:
 async def test_stream_overflow_is_terminal_and_owned(
     tmp_path: Path, stream: str, count: int
 ) -> None:
+    """Pin stream overflow is terminal and owned."""
     result = await run_process(
         [
             str(vars(sys)["_base_executable"]),
@@ -270,6 +281,7 @@ async def test_stream_overflow_is_terminal_and_owned(
 async def test_cancellation_reaps_descendant_holding_inherited_pipes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Pin cancellation reaps descendant holding inherited pipes."""
     import psutil
 
     from petasos.scanners.semgrep import process as process_module
@@ -288,7 +300,6 @@ async def test_cancellation_reaps_descendant_holding_inherited_pipes(
     monkeypatch.setattr(child_type, "terminate", record_terminate)
     cancelled = threading.Event()
     pid_file = tmp_path / "child.pid"
-    # Parent intentionally exits first; descendant keeps both output handles.
     helper = (
         "import subprocess,sys,pathlib; "
         "p=subprocess.Popen([sys.executable,'-c','import time;time.sleep(30)'],"
@@ -312,8 +323,7 @@ async def test_cancellation_reaps_descendant_holding_inherited_pipes(
         pytest.fail(f"descendant cleanup exceeded its bound: {exc.state!r}")
     assert result.error is None
     pid = int(pid_file.read_text())
-    # Windows can keep an exited PID in the system snapshot briefly. A signaled
-    # process handle proves termination; pid_exists alone does not.
+    # A signalled Windows process handle proves exit; a PID snapshot may retain an exited process.
     with contextlib.suppress(psutil.NoSuchProcess):
         psutil.Process(pid).wait(timeout=0.2)
     assert terminated
@@ -321,6 +331,7 @@ async def test_cancellation_reaps_descendant_holding_inherited_pipes(
 
 
 async def test_cancel_long_running_child(tmp_path: Path) -> None:
+    """Pin cancel long running child."""
     cancelled = threading.Event()
     task = asyncio.create_task(
         run_process(
@@ -342,6 +353,7 @@ async def test_cleanup_os_error_retains_child_ownership(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Pin cleanup os error retains child ownership."""
     from petasos.scanners.semgrep import process as process_module
 
     class Child:
@@ -373,6 +385,7 @@ async def test_cleanup_os_error_retains_child_ownership(
 def test_posix_leader_is_reaped_only_after_last_group_signal(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Pin posix leader is reaped only after last group signal."""
     import os
     import signal
     from types import SimpleNamespace
@@ -416,6 +429,7 @@ async def test_slow_native_spawn_does_not_block_control_loop(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Pin slow native spawn does not block control loop."""
     from concurrent.futures import ThreadPoolExecutor
 
     from petasos.scanners.semgrep import process as process
@@ -449,8 +463,7 @@ async def test_slow_native_spawn_does_not_block_control_loop(
             while not entered.is_set() and time.monotonic() < until:
                 await asyncio.sleep(0.005)
             assert entered.is_set()
-            # This coroutine can cancel and release a constructor which is
-            # blocked on a worker. Inline spawning cannot reach this point.
+            # Inline construction would prevent this coroutine from cancelling the blocked worker.
             cancelled.set()
         finally:
             release.set()
@@ -460,6 +473,7 @@ async def test_slow_native_spawn_does_not_block_control_loop(
 
 @pytest.mark.skipif(sys.platform != "win32", reason="native Windows job membership")
 async def test_detached_child_has_no_console_host(tmp_path: Path) -> None:
+    """Pin detached child has no console host."""
     from petasos.scanners.semgrep.process import _WindowsChild
 
     child = _WindowsChild(
@@ -473,8 +487,6 @@ async def test_detached_child_has_no_console_host(tmp_path: Path) -> None:
             child.image_names()[child.pid].lower()
             == Path(vars(sys)["_base_executable"]).name.lower()
         )
-        # No helper descendants are created, so any member other than the
-        # leader would be an unexpected runtime/console process.
         assert not child._descendants
     finally:
         child.terminate(force=True)
@@ -488,6 +500,7 @@ async def test_detached_child_has_no_console_host(tmp_path: Path) -> None:
 def test_root_recovery_skips_out_of_range_pids_and_continues(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Pin root recovery skips out of range pids and continues."""
     import json
     import subprocess
     import tempfile
@@ -534,14 +547,13 @@ def _stale_root(tmp_path: Path, name: str) -> Path:
 def test_root_recovery_leaves_another_users_roots_alone(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Pin root recovery leaves another users roots alone."""
     import tempfile
 
     from petasos.scanners.semgrep.roots import recover_roots
 
     stale = _stale_root(tmp_path, "psg-foreign0")
     monkeypatch.setattr(tempfile, "gettempdir", lambda: str(tmp_path))
-    # A shared temp directory can hold roots created by other accounts. Pretend
-    # the current user is someone else; the recorded owner no longer matches.
     monkeypatch.setattr(os, "getuid", lambda: 1 << 20, raising=False)
 
     assert recover_roots() == 0
@@ -551,14 +563,14 @@ def test_root_recovery_leaves_another_users_roots_alone(
 def test_root_recovery_does_not_block_on_a_fifo_marker(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Pin root recovery does not block on a fifo marker."""
     import tempfile
 
     from petasos.scanners.semgrep.roots import recover_roots
 
     if sys.platform == "win32":
         pytest.skip("FIFO markers need POSIX")
-    # A FIFO passes an is_symlink/stat-size check and its open blocks until a
-    # writer appears. Recovery must skip it and still remove the stale root.
+    # FIFO open can block despite symlink and size checks; recovery must refuse nonregular markers.
     trap = tmp_path / "psg-fifotrap"
     trap.mkdir()
     os.mkfifo(trap / "petasos-owner.json")
@@ -578,11 +590,11 @@ def test_root_recovery_does_not_block_on_a_fifo_marker(
 async def test_descendant_memory_counts_against_the_budget(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Pin descendant memory counts against the budget."""
     from petasos.scanners.semgrep import process as process
 
     monkeypatch.setattr(process, "RSS_LIMIT", 96 * 1024 * 1024)
     python = str(vars(sys)["_base_executable"])
-    # A small leader waits on a child that holds well over the (lowered) budget.
     helper = "import time;b=bytearray(192*1024*1024);time.sleep(30)"
     leader = f"import subprocess,sys;subprocess.run([sys.executable,'-c',{helper!r}])"
     start = time.monotonic()
@@ -597,6 +609,7 @@ class _Clock:
         self.value = 0.0
 
     def monotonic(self) -> float:
+        """Provide monotonic for the test fixture."""
         self.value += 0.75
         return self.value
 
@@ -619,7 +632,7 @@ def _install(monkeypatch: pytest.MonkeyPatch, child: type[Any]) -> None:
 async def test_overrun_confirmed_in_finally_returns_the_interrupt(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # Regression for PET-255: the 2s overrun is not itself a failed cleanup.
+    """Pin overrun confirmed in finally returns the interrupt."""
     seen: list[Any] = []
 
     class Child:
@@ -655,8 +668,7 @@ async def test_overrun_confirmed_in_finally_returns_the_interrupt(
 async def test_post_loop_check_confirms_cleanup_after_the_end(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # Regression for PET-255 review: the end passes after a dirty poll; the one
-    # post-loop cleaned() check still decides, as the base implementation did.
+    """Pin post loop check confirms cleanup after the end."""
     seen: list[Any] = []
 
     class Child:
@@ -678,7 +690,7 @@ async def test_post_loop_check_confirms_cleanup_after_the_end(
         def cleaned(self) -> bool:
             self.calls += 1
             self._last_cleanup_state = {"leader_signalled": self.calls > 1}
-            return self.calls > 1  # only the check after the loop sees a clean tree
+            return self.calls > 1
 
         def close(self) -> None:
             self.closed = True
@@ -695,6 +707,7 @@ async def test_post_loop_check_confirms_cleanup_after_the_end(
 async def test_overrun_that_stays_dirty_does_not_close_the_child(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Pin overrun that stays dirty does not close the child."""
     from petasos.scanners.semgrep import process as process
 
     class Child:
@@ -742,7 +755,7 @@ async def test_overrun_that_stays_dirty_does_not_close_the_child(
 async def test_capture_failure_keeps_the_cancel_when_finally_is_clean(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # Regression for PET-255: a terminate CleanupFailure does not replace semgrep.cancelled.
+    """Pin capture failure keeps the cancel when finally is clean."""
     from petasos.scanners.semgrep import process as process
 
     class Child:
@@ -775,6 +788,7 @@ async def test_capture_failure_keeps_the_cancel_when_finally_is_clean(
 async def test_capture_failure_stays_open_when_cleanup_does_not_confirm(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Pin capture failure stays open when cleanup does not confirm."""
     from petasos.scanners.semgrep import process as process
 
     class Child:
@@ -809,7 +823,7 @@ async def test_capture_failure_stays_open_when_cleanup_does_not_confirm(
 async def test_poll_failure_during_a_normal_run_becomes_engine_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # Regression for PET-255: a child-method raise with no interrupt becomes engine_error.
+    """Pin poll failure during a normal run becomes engine error."""
     from petasos.scanners.semgrep import process as process
 
     class Child:
@@ -844,6 +858,7 @@ async def test_poll_failure_during_a_normal_run_becomes_engine_error(
 async def test_spawn_cleanup_failure_carries_an_empty_tracked_snapshot(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Pin spawn cleanup failure carries an empty tracked snapshot."""
     from petasos.scanners.semgrep import process as process
 
     class Child:
@@ -857,6 +872,7 @@ async def test_spawn_cleanup_failure_carries_an_empty_tracked_snapshot(
 
 
 def test_posix_cleaned_records_each_early_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pin posix cleaned records each early path."""
     from types import SimpleNamespace
 
     from petasos.scanners.semgrep import process as process
@@ -890,6 +906,7 @@ def test_posix_cleaned_records_each_early_path(monkeypatch: pytest.MonkeyPatch) 
 async def test_poll_cleanup_failure_keeps_tracked_descendant_keys(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Pin poll cleanup failure keeps tracked descendant keys."""
     from types import SimpleNamespace
 
     import psutil

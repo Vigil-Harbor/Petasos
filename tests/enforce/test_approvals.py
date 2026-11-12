@@ -41,6 +41,7 @@ def _result(finding_type: str | None = None) -> object:
 
 
 def test_excerpt_redacts_and_withholds() -> None:
+    """Pin excerpt redacts and withholds."""
     shown = command_excerpt(
         {"command": "echo secret-value"},
         _result(),
@@ -66,6 +67,7 @@ def test_excerpt_redacts_and_withholds() -> None:
 
 
 def test_excerpt_drops_invisible_characters() -> None:
+    """Pin excerpt drops invisible characters."""
     shown = command_excerpt(
         {"command": "echo\u2066"},
         _result(),
@@ -76,6 +78,7 @@ def test_excerpt_drops_invisible_characters() -> None:
 
 
 def test_display_redaction_and_reason() -> None:
+    """Pin display redaction and reason."""
     text, status = redact_display_text("secret-value", 200, redact=_redact)
     assert text == "[MASKED]"
     assert status == "redacted"
@@ -90,6 +93,7 @@ def test_display_redaction_and_reason() -> None:
 
 
 def test_approval_fields_and_event() -> None:
+    """Pin approval fields and event."""
     assert approval_text("x" * 10, limit=4) == "xxxx"
     assert approval_text(3) == ""
     assert approval_pattern_keys(["a", 1, "b"] + ["c"] * 20) == ["a", "b", *["c"] * 6]
@@ -124,6 +128,7 @@ def test_approval_fields_and_event() -> None:
 
 
 def test_degraded_pending_key() -> None:
+    """Pin degraded pending key."""
     assert degraded_pending_key("s", "t", "c") == ("s", "t", "c")
     assert degraded_pending_key("", "t", "c") is None
     assert degraded_pending_key("s", None, "c") is None
@@ -135,6 +140,7 @@ def test_degraded_pending_key() -> None:
 
 
 def test_excerpt_withholds_what_it_cannot_bound() -> None:
+    """Pin excerpt withholds what it cannot bound."""
     from petasos.limits import MAX_PARAM_TEXT_LEN
 
     assert (

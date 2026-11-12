@@ -9,6 +9,7 @@ from petasos.limits import MAX_PARAM_TEXT_LEN
 
 
 def test_render_keeps_raw_strings_serializes_values_and_drops_none() -> None:
+    """Pin render keeps raw strings serializes values and drops none."""
     rendered = render_param_text({"raw": "line one\nline two", "missing": None, "items": [1, 2]})
     assert rendered.text == "line one\nline two\n[1, 2]"
     assert rendered.original_len == len(rendered.text)
@@ -19,6 +20,7 @@ def test_render_keeps_raw_strings_serializes_values_and_drops_none() -> None:
 
 @pytest.mark.parametrize("excess", [-1, 0, 1])
 def test_render_caps_characters_at_the_shared_ceiling(excess: int) -> None:
+    """Pin render caps characters at the shared ceiling."""
     text = "é" * (MAX_PARAM_TEXT_LEN + excess)
     rendered = render_param_text({"value": text})
     assert rendered.text == text[:MAX_PARAM_TEXT_LEN]

@@ -71,6 +71,7 @@ def _install(monkeypatch: pytest.MonkeyPatch, **overrides: Any) -> None:
 def test_a_flagged_command_with_a_person_present_is_asked(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Pin a flagged command with a person present is asked."""
     _install(monkeypatch)
     assert command_will_be_asked(_COMMAND) is True
 
@@ -78,6 +79,7 @@ def test_a_flagged_command_with_a_person_present_is_asked(
 def test_each_host_fact_that_means_nobody_is_asked_answers_no(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Pin each host fact that means nobody is asked answers no."""
     cases: list[tuple[str, dict[str, Any]]] = [
         ("not flagged", {"detect": lambda _command: (False, None, None)}),
         ("raises", {"detect": _raise}),
@@ -99,6 +101,7 @@ def test_each_host_fact_that_means_nobody_is_asked_answers_no(
 
 
 def test_a_missing_hermes_answers_no(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pin a missing hermes answers no."""
     monkeypatch.setattr("petasos.hermes.host.load_module", lambda _name: None)
     assert command_will_be_asked(_COMMAND) is False
 

@@ -45,8 +45,7 @@ _MAX_CHARS = 65_536
 _HOME = "/tmp/petasos-parity-home/config.yaml"
 _PAD = "The quarterly report looks fine. "
 
-# Phrases chosen so a fresh session scores an exact multiple of the
-# injection weight (10). Each line is one injection rule and nothing else.
+# Single-rule phrases make fresh-session scores exact multiples of the injection weight.
 _INJECTION_LINES: tuple[str, ...] = (
     "ignore previous instructions",
     "ignore all instructions",
@@ -408,8 +407,7 @@ def _build_fresh() -> dict[str, Any]:
         {"id": f"t{index:05d}", "source": source, "text": text}
         for index, (text, source) in enumerate(ordered_texts, start=1)
     ]
-    # The oversized pin is stored compressed. "A" * 524289 is past the
-    # scanner's default payload cap and is the only input that large.
+    # The oversized corpus pin stays compressed; its decoded input exceeds the payload cap.
     text_cases.append(
         {
             "id": f"t{len(text_cases) + 1:05d}",

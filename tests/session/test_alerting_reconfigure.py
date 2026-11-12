@@ -1,11 +1,6 @@
-"""Regression coverage for behavioral-spec features that the audit (features-tracker.xlsx)
-flagged as untested ("NONE FOUND" / COVERAGE GAP), plus one field-attribution bug (DEF-02).
+"""Pin alert settings reload without resetting counters or cooldowns.
 
-These lock load-bearing behaviors that previously had no direct test:
-security-relevant reject branches (HMAC token verification, fail-secure escalation),
-the PET-126 hot-reload `apply_config` surfaces, listener fan-out, and serialization
-contracts. Every test here exercises a real code path (no mocks of the unit under test).
-"""
+See docs/architecture/rationale.md, "Alert and audit test constraints"."""
 
 from __future__ import annotations
 
@@ -14,14 +9,15 @@ from petasos.config.sections import PetasosConfig
 from petasos.session.alerting import AlertManager
 
 
-# --- ALRT-13/14: AlertManager listeners + ring rebuild ---
 def test_alert_add_listener_registers() -> None:
+    """Pin alert add listener registers."""
     mgr = AlertManager(PetasosConfig())
     mgr.add_listener(lambda a: None)
     assert len(mgr._listeners) == 1
 
 
 def test_alert_apply_config_rebuilds_pii_ring_on_shrink() -> None:
+    """Pin alert apply config rebuilds pii ring on shrink."""
     mgr = AlertManager(
         from_mapping(
             PetasosConfig,
@@ -49,5 +45,4 @@ def test_alert_apply_config_rebuilds_pii_ring_on_shrink() -> None:
         )
     )
     assert mgr._pii_ring_buffer.maxlen == 5
-    # recency preserved: keeps the newest 5 entries (ts 5..9)
     assert [ts for ts, _ in mgr._pii_ring_buffer] == [5.0, 6.0, 7.0, 8.0, 9.0]

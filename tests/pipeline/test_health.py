@@ -1,8 +1,4 @@
-"""Health, flat reconfigure, and the reads the console was the only caller of.
-
-These assertions lived in the console handler tests and the reference plugin.
-They call the library directly.
-"""
+"""Pin pipeline health and live reconfiguration through the library API."""
 
 from __future__ import annotations
 
@@ -26,6 +22,7 @@ class _StubScanner:
 
     @property
     def name(self) -> str:
+        """Return the fixture scanner name."""
         return self._name
 
     async def scan(
@@ -35,6 +32,7 @@ class _StubScanner:
         direction: str = "inbound",
         session_id: str | None = None,
     ) -> ScanResult:
+        """Supply the configured scanner response for this fixture."""
         return ScanResult(
             scanner_name=self._name,
             findings=(),
@@ -45,11 +43,13 @@ class _StubScanner:
 
 class _UnavailableScanner(_StubScanner):
     def availability(self) -> tuple[bool, str | None]:
+        """Provide availability for the test fixture."""
         return (False, "test backend missing")
 
 
 class _AvailableScanner(_StubScanner):
     def availability(self) -> tuple[bool, str | None]:
+        """Provide availability for the test fixture."""
         return (True, None)
 
 
@@ -59,11 +59,13 @@ class _LoadFailedScanner(_StubScanner):
         self._reason = reason
 
     def availability(self) -> tuple[bool, str | None, str | None]:
+        """Provide availability for the test fixture."""
         return (False, self._reason, "load_failed")
 
 
 class _AbsentScanner(_StubScanner):
     def availability(self) -> tuple[bool, str | None, str | None]:
+        """Provide availability for the test fixture."""
         return (False, "backend not installed", "absent")
 
 
@@ -72,6 +74,7 @@ def _row(health: list[dict[str, Any]], name: str) -> dict[str, Any]:
 
 
 def test_scanner_health_reports_each_status() -> None:
+    """Pin scanner health reports each status."""
     pipe = Pipeline(scanners=[MinimalScanner()], config=PetasosConfig(fail_mode="open"))
     health = pipe.scanner_health()
     minimal = _row(health, "minimal")
@@ -124,6 +127,7 @@ def test_scanner_health_reports_each_status() -> None:
 
 
 def test_semgrep_health_carries_its_qualification_warning() -> None:
+    """Pin semgrep health carries its qualification warning."""
     scanner = object.__new__(SemgrepScanner)
     scanner.qualification_warning = "engine is not qualified"
 
@@ -146,6 +150,8 @@ def test_semgrep_health_carries_its_qualification_warning() -> None:
 
 
 async def test_ingestion_failures_are_recorded_and_do_not_raise() -> None:
+    """Pin ingestion failures are recorded and do not raise."""
+
     class _Bare:
         pass
 

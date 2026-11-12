@@ -23,7 +23,6 @@ def _setup() -> tuple[Path, Any]:
     sandbox_root()
     managed = require_inside_sandbox(hermes_home() / "managed", label="managed config")
     managed.mkdir(exist_ok=True)
-    # The wrapper drops inherited HERMES_*; set the override inside this process.
     os.environ["HERMES_MANAGED_DIR"] = str(managed)
     module = _import("hermes_cli.managed_scope")
     module._DEFAULT_MANAGED_DIR = hermes_home() / "machine-standin"
@@ -44,6 +43,7 @@ def _four(ctx: Any) -> dict[str, Any]:
 
 
 def pin(_request: dict[str, Any]) -> dict[str, Any]:
+    """Provide pin for the test fixture."""
     managed, module = _setup()
     (managed / "config.yaml").write_text(json.dumps({"model": {"default": "sandbox-only"}}))
     result = _cli("hermes", "pin", "--write")
@@ -62,6 +62,7 @@ def pin(_request: dict[str, Any]) -> dict[str, Any]:
 
 
 def partial(_request: dict[str, Any]) -> dict[str, Any]:
+    """Provide partial for the test fixture."""
     managed, _ = _setup()
     document = {
         "plugins": {
@@ -92,6 +93,7 @@ def partial(_request: dict[str, Any]) -> dict[str, Any]:
 
 
 def writes(request: dict[str, Any]) -> dict[str, Any]:
+    """Provide writes for the test fixture."""
     _setup()
     from petasos.config.schema import leaves
     from petasos.config.sections import PetasosConfig
@@ -108,7 +110,7 @@ def writes(request: dict[str, Any]) -> dict[str, Any]:
     attempts = []
     rows = leaves(PetasosConfig)
     for key in ["enabled", "role", "level", *("overrides." + row.path for row in rows)]:
-        # Exercise a mapping over null too: Hermes ignores null over a mapping.
+        # Hermes ignores null over a mapping, so the fixture must exercise that overlay.
         value: Any = {"pin_probe": "terminal"} if ctx.get_config(key) is None else "changed"
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             try:
@@ -184,6 +186,7 @@ def _nest(path: str, value: object) -> dict[str, Any]:
 
 
 def hand_edit(_request: dict[str, Any]) -> dict[str, Any]:
+    """Provide hand edit for the test fixture."""
     _setup()
     from petasos.hermes.settings import HermesSettings
 
@@ -192,7 +195,6 @@ def hand_edit(_request: dict[str, Any]) -> dict[str, Any]:
     profile = copy.deepcopy(before)
     profile.update(enabled=False, role="research", level="relaxed")
     profile["overrides"] = {key: "changed" for key in before["overrides"]}
-    # Add keys in the two empty maps and the nullable map: these are the open edges.
     profile["overrides"]["rules"] = {"severity_overrides": {"probe": "low"}}
     profile["overrides"]["tools"] = {"aliases": {"probe": "terminal"}}
     profile["overrides"]["frequency"] = {"weights": {"probe": 0.0}}
@@ -212,8 +214,6 @@ def hand_edit(_request: dict[str, Any]) -> dict[str, Any]:
     source = HermesSettings(ctx)
     source.bind_profile(hermes_home())
     snapshot = source()
-    # What Petasos itself uses, read through Hermes's context and with no
-    # profile bound. Hermes's merged view above is not it.
     unbound = HermesSettings(ctx)()
     used = [
         {
@@ -258,18 +258,21 @@ def _command(arguments: list[str]) -> subprocess.CompletedProcess[str]:
 
 
 def disable(_request: dict[str, Any]) -> dict[str, Any]:
+    """Provide disable for the test fixture."""
     _setup()
     result = _command(["hermes", "plugins", "disable", "petasos"])
     return {"code": result.returncode, "out": result.stdout, "err": result.stderr}
 
 
 def loaded(_request: dict[str, Any]) -> dict[str, Any]:
+    """Provide loaded for the test fixture."""
     _setup()
     ctx = _context()
     return {"loaded": ctx is not None, "values": _four(ctx)}
 
 
 def unpin(request: dict[str, Any]) -> dict[str, Any]:
+    """Provide unpin for the test fixture."""
     _setup()
     args = ["hermes", "unpin", "--write"]
     if request.get("accept"):
@@ -278,8 +281,8 @@ def unpin(request: dict[str, Any]) -> dict[str, Any]:
 
 
 def unpinned(_request: dict[str, Any]) -> dict[str, Any]:
+    """Provide unpinned for the test fixture."""
     _, module = _setup()
-    # Restore profile enablement after testing the disabled profile list.
     path = hermes_home() / "config.yaml"
     document = _import("hermes_cli.config").read_user_config_raw()
     document["plugins"]["enabled"] = ["petasos"]
@@ -298,6 +301,7 @@ def unpinned(_request: dict[str, Any]) -> dict[str, Any]:
 
 
 def nullable(_request: dict[str, Any]) -> dict[str, Any]:
+    """Provide nullable for the test fixture."""
     _setup()
     ctx = _context()
     from petasos.hermes.dashboard.values import hermes_merge
@@ -318,6 +322,7 @@ def nullable(_request: dict[str, Any]) -> dict[str, Any]:
 
 
 def timeout(request: dict[str, Any]) -> dict[str, Any]:
+    """Provide timeout for the test fixture."""
     _setup()
     config = _import("hermes_cli.config")
     raw = config.read_user_config_raw()
@@ -340,6 +345,7 @@ def timeout(request: dict[str, Any]) -> dict[str, Any]:
 
 
 def redirect(_request: dict[str, Any]) -> dict[str, Any]:
+    """Provide redirect for the test fixture."""
     managed, module = _setup()
     machine = module._DEFAULT_MANAGED_DIR
     machine.mkdir()
@@ -357,6 +363,7 @@ def redirect(_request: dict[str, Any]) -> dict[str, Any]:
 
 
 def references(request: dict[str, Any]) -> dict[str, Any]:
+    """Provide references for the test fixture."""
     managed, _ = _setup()
     config = _import("hermes_cli.config")
     raw = config.read_user_config_raw()
@@ -380,6 +387,7 @@ def references(request: dict[str, Any]) -> dict[str, Any]:
 
 
 def main() -> None:
+    """Run the isolated test harness."""
     request = json.loads(sys.stdin.read())
     actions = {
         "pin": pin,

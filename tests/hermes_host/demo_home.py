@@ -80,8 +80,7 @@ def prepare_trial(sandbox: Path) -> Path:
         + api.read_text(encoding="utf-8"),
         encoding="utf-8",
     )
-    # A saved setting keeps the view compact; the pipeline's own replace mode
-    # works without Presidio's optional anonymizer engine.
+    # Replace mode runs without Presidio's optional anonymizer engine.
     import yaml
 
     config = home / "config.yaml"
@@ -94,6 +93,7 @@ def prepare_trial(sandbox: Path) -> Path:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Run the isolated test harness."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--sandbox", required=True, type=Path)
     parser.add_argument("--label", default="demo")

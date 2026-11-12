@@ -1,10 +1,6 @@
-"""PET-109: Presidio entity scoping — default-set, config round-trip/apply, and
-real-backend regression (benign technical corpus + real-PII preservation).
+"""Pin curated personal-information scope and additive per-call entity selection.
 
-The backend-free rows are module-level functions. The two `@requires_presidio`
-rows live in class ``TestPresidioTightenedDefault`` — the ``target_class`` the
-conftest non-skipping-lane guard pins for ``extras-presidio`` (D4).
-"""
+See docs/architecture/rationale.md, "Test timing and backend qualification"."""
 
 from __future__ import annotations
 
@@ -23,10 +19,6 @@ from petasos.scanners.presidio import (
     PresidioScanner,
     resolve_presidio_entities,
 )
-
-# ---------------------------------------------------------------------------
-# Skip markers for optional-dependency tests (mirrors test_presidio_scanner.py)
-# ---------------------------------------------------------------------------
 
 _presidio_available = True
 
@@ -52,15 +44,6 @@ requires_presidio = pytest.mark.skipif(
     reason="presidio + spaCy model required",
 )
 
-# ---------------------------------------------------------------------------
-# PET-119: profile.pii_entities_extra → per-profile Presidio scoping
-#
-# These pins make the field load-bearing: each fails if a profile-set PII entity
-# silently no-ops again. The scan-level and pipeline-level rows are backend-free
-# (a recording fake stands in for the analyzer); the real-backend contract lives
-# in TestProfilePresidioScoping below.
-# ---------------------------------------------------------------------------
-
 
 class _RecordingAnalyzer:
     """Backend-free stand-in for presidio's AnalyzerEngine. Records the exact
@@ -78,6 +61,7 @@ class _RecordingAnalyzer:
         language: str,
         score_threshold: float,
     ) -> list[Any]:
+        """Provide analyze for the test fixture."""
         self.entities = list(entities)
         return []
 
@@ -95,7 +79,7 @@ class _RecordingPresidio(PresidioScanner):
 
 
 def test_config_scopes_presidio_entities_and_threshold() -> None:
-    # A scanner built the way plugin_api builds it yields the expected wiring.
+    """Pin config scopes presidio entities and threshold."""
     cfg = from_mapping(
         PetasosConfig,
         {
@@ -117,25 +101,19 @@ def test_config_scopes_presidio_entities_and_threshold() -> None:
     assert scanner._score_threshold == 0.4
 
 
-# --- pipeline threading (backend-free) -------------------------------------
-
-
 def test_pipeline_passes_profile_extras_to_presidio() -> None:
+    """Pin pipeline passes profile extras to presidio."""
     rec_presidio = _RecordingPresidio()
     pipeline = Pipeline(
         [MinimalScanner(), rec_presidio],
         config=resolve({"role": "support"}).config,
     )
     asyncio.run(pipeline.inspect("benign text"))
-    # customer_service extras = [PERSON, EMAIL_ADDRESS, PHONE_NUMBER]; EMAIL_ADDRESS
-    # and PHONE_NUMBER are already in the base, so the order-preserving union adds
-    # only PERSON.
     assert rec_presidio._rec.entities == [*DEFAULT_PRESIDIO_ENTITIES, "PERSON"]
 
 
 def test_pipeline_no_profile_uses_base() -> None:
-    # Negative pin at the pipeline layer: no active profile -> keyword omitted ->
-    # base set; no profile leakage.
+    """Pin pipeline no profile uses base."""
     rec_presidio = _RecordingPresidio()
     pipeline = Pipeline([MinimalScanner(), rec_presidio])
     asyncio.run(pipeline.inspect("benign text"))
@@ -143,10 +121,7 @@ def test_pipeline_no_profile_uses_base() -> None:
 
 
 def test_pipeline_general_profile_empty_extras_uses_base() -> None:
-    # Empty-extras pin (edge-cases/F-1): general's pii_entities_extra == [] makes the
-    # keyword present-but-empty, which must collapse to the base — structurally
-    # distinct from the no-profile branch (keyword omitted) and the most common live
-    # path whenever general is active.
+    """Pin pipeline general profile empty extras uses base."""
     rec_presidio = _RecordingPresidio()
     pipeline = Pipeline(
         [MinimalScanner(), rec_presidio],
@@ -156,22 +131,13 @@ def test_pipeline_general_profile_empty_extras_uses_base() -> None:
     assert rec_presidio._rec.entities == list(DEFAULT_PRESIDIO_ENTITIES)
 
 
-# ---------------------------------------------------------------------------
-# Real-backend contract — non-skipping on the extras-presidio lane (PET-119)
-# ---------------------------------------------------------------------------
-
-
 @requires_presidio
 class TestProfilePresidioScoping:
-    """The load-bearing contract: a profile opt-in (PERSON) that is NOT in the config
-    default fires under that profile and not under one without it. This is the exact
-    assertion PET-117 declined to add (it would false-green while the field was inert);
-    it fails if the profile→Presidio wiring ever regresses."""
+    """Pin Profile Presidio Scoping.
 
-    # NER-friendly corpus: a full name with a title + a "Customer name:" cue scores
-    # PERSON comfortably above the 0.35 default threshold on en_core_web_lg. Phrasing
-    # is pinned, not deferred — PERSON is spaCy-NER, not a deterministic pattern
-    # recognizer, so a bare "John Smith" can fall below threshold and flake.
+    See docs/architecture/rationale.md, "Test timing and backend qualification"."""
+
+    # See docs/architecture/rationale.md, "Test timing and backend qualification".
     _CORPUS = "Customer name: Dr. Margaret Thompson called about her account."
 
     def _pipeline(self, role: str) -> Pipeline:
@@ -181,12 +147,12 @@ class TestProfilePresidioScoping:
         )
 
     def test_person_fires_under_customer_service_not_general(self) -> None:
+        """Pin person fires under customer service not general."""
         cs = asyncio.run(self._pipeline("support").inspect(self._CORPUS))
         assert cs.errors == ()
         person = [f for f in cs.findings if f.rule_id == "petasos.presidio.person"]
         assert person, f"expected a PERSON finding under customer_service, got {cs.findings}"
-        # Buffer above the 0.35 threshold so a marginal future model regression fails
-        # loudly rather than flaking.
+        # A margin above 0.35 avoids flaky marginal model detections.
         assert max(f.confidence for f in person) > 0.45
 
         general = asyncio.run(self._pipeline("general").inspect(self._CORPUS))
@@ -196,6 +162,7 @@ class TestProfilePresidioScoping:
         )
 
     def test_admin_person_fires(self) -> None:
+        """Pin admin person fires."""
         admin = asyncio.run(self._pipeline("admin").inspect(self._CORPUS))
         assert admin.errors == ()
         assert any(f.rule_id == "petasos.presidio.person" for f in admin.findings), (

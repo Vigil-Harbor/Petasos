@@ -455,3 +455,145 @@ around the whole update would misattribute session-token authentication failures
 to caps. A backstop failure on findings is a warning because enforcement lost
 its risk accumulation. Closed-mode early exits still run audit and alert hooks;
 prepared scanner results retain ownership and only unstarted work is skipped.
+
+## Async test and CI lane constraints
+
+The repo-owned anyio backend fixture selects function-scoped asyncio, preserving
+plain test ids and avoiding an unintended trio fan-out. The unmarked async runner
+witness must stay unmarked: an explicit anyio marker would make it run even when
+auto mode failed, defeating the witness. Decoration-time skips are inspected by
+non-skipping lanes; runtime skips are outside that check. Each lane imports the
+same backend symbol the scanner loads and requires every declared real-backend
+class to collect unskipped. Unknown extras require a paired lane until explicitly
+classified as tooling or an aggregate.
+
+YAML 1.1 parses the Actions on key as boolean True, so workflow mappings have
+mixed key types; lane checks read jobs and env. Extras must be complete tokens
+inside an install bracket. Word boundaries alone accept presidio within
+presidio-helper; extra-name boundaries include letters, digits, underscores,
+dots and hyphens. Installation brackets stay on one line. A pytest dependency
+installation is insufficient: the lane must execute pytest or python -m pytest
+at the beginning of a command line, followed by whitespace or end of line.
+
+## Test timing and backend qualification
+
+Shared CI runners make strict benchmark wall-clock assertions noisy. Benchmark
+measurements are separate from deterministic input-bound and pruning checks.
+The head ingestion target is 12 ms scanning at 8,000 characters, about 15 ms end
+to end. Digit-dense tests force both ambiguous leet variants; anchor-dense tests
+exercise the full pattern battery; decode tests exhaust bounded carrier slots.
+
+On a slow two-core host, eight requests over two Semgrep slots can exceed the
+eight-second request deadline. Telemetry tests accept warmup_failed only when
+every failure is the corresponding timeout refusal. They still require complete
+owned teardown. Windows clock granularity before Python 3.13 is about 15.6 ms.
+
+Real Presidio PERSON detection needs an explicit opt-in and sufficient context:
+a title and Customer name cue clear the default 0.35 score more reliably than a
+bare John Smith. SSNs likewise need descriptive context. Model tests retain a
+margin over thresholds. Local lanes use preinstalled assets and never download
+weights. PromptGuard's isolated forward lane constructs a tokenizer/model from
+config without a model token or network download.
+
+Source-taint checking is on the pre-call path; its loose five-millisecond bound
+has roughly a thousandfold margin over the small normal operation. Capture runs
+after the tool and normalizes many leaves; its looser bound avoids treating a
+contended CI average as a production latency benchmark.
+
+## Sandbox package indexes
+
+The extra index is searched before PyPI and wins for names it publishes. The
+sandbox serves stand-ins only for the heavy scanner packages at versions accepted
+by the lock. huggingface-hub and sentencepiece remain on PyPI because Hermes pins
+them exactly and uv does not look past the first index publishing a name. PyPI
+remains the default for Hermes's other dependencies. A home's committed environment,
+not merely the sandbox virtualenv, must contain the Petasos wheel used by Hermes.
+
+## Risk trajectory precision
+
+Simulated trajectories pin a finite horizon; a missing crossing in that horizon
+alone does not prove a limit over all time. Two sixty-second default/admin cases
+approach a tie: the boundary is asserted only through forty updates, below the
+float64 ulp-equality region around updates 53–54. The uncapped self-change increment
+composes with capped ingestion into the same tracker. A dropped finding contributes
+neither risk nor a rolling entry; a retained LOW finding can still promote the
+nonblocking warning tier through the count window.
+
+## Syntactic fixture precision
+
+The benign corpus is a fixed precision record. Findings must match its pinned
+per-snippet dispositions; rule ids must belong to their family, and capability
+grant attribution must match a sanctioned pattern. An accepted agent-directive
+false-positive allowance must not silently grow: a separate cardinality check
+limits that escape hatch even when disjointness accepts every recorded pin.
+The real-estate Agent/archive phrase is an explicitly recorded false positive.
+Anchor equivalence checks compare gated detection to the ungated battery so
+pruning cannot silently remove detections. Regex sibling disjointness prevents
+one trigger clause multiplying into multiple rule findings.
+
+## Coding-role detector calibration
+
+Calibration evidence covers 2,460 unique operator calls; the checked-in redacted
+fixture retains 22 routine cases and remains byte-preserved. Syntactic results are
+clean under the coding role. PromptGuard
+flags about six percent of routine coding calls at confidence 0.5–1.0; five of
+six examined positives score at least 0.7, so a 0.6 floor cannot remove them.
+The role lowers only that ML injection rule to LOW. Deterministic tests use a
+stub for this policy decision and separately pin syntactic floors and genuine
+attacks. The corpus-only syntactic test cannot prove the ML severity policy.
+Inbound injection still retains its floor; coding-role outbound injection-shaped
+data can be suppressed. Structural findings remain unsuppressible and nonretargetable.
+
+## Alert and audit test constraints
+
+Cross-session burst accounting uses session-to-last-seen state independently of
+the bounded event ring. Repeated padding sessions must not evict evidence of other
+live sessions or truncate the distinct-session count. The tracker itself remains
+LRU-bounded. Alert and audit callbacks isolate BaseException, report delivery
+failures through their error surfaces and clear those errors on a successful next
+call. Audit sequence numbers are global to the emitter, so session expiry and
+reuse cannot restart the sequence or duplicate cross-session numbers.
+
+## Outcome-control fixtures
+
+An inert configuration control is established by equal observable outcomes rather
+than code-path inspection. Each arm needs a positive control: positioned personal
+information from a stub plus extras-free anonymization proves that the stage is
+reached. The syntactic scanner emits no personal-information findings and cannot
+supply that control. Comparisons serialize PipelineResult and omit only timing;
+fresh pipelines without a shared session isolate unrelated risk state. Built-in
+syntactic scanning normalizes raw text using its own defaults, while pipeline
+normalization switches affect the text consumed by optional scanners and anonymization.
+The normalization control payload must itself trigger under both arms; empty text
+would early-return before reading any flags and make the equality vacuous.
+Cancellation frees the event loop promptly but does not interrupt an already-running
+worker thread; the pipeline must remain usable while that residual work finishes.
+
+The operator fixture contains no live prompt-injection attacks. Canonical attack
+samples therefore independently pin retained detection; the routine corpus alone
+cannot establish that the coding role still catches attacks.
+
+## Benchmark scheduling limits
+
+Helper work uses one enforcer loop, so direct eight-wide Pipeline.inspect calls
+measure a different concurrency axis from eight serialized helper calls. Component
+measurements do not qualify eighty-wide host concurrency. Session-bearing ingestion
+measurements include risk locking, TTL draining, escalation, session-keyed alerts
+and audit rows; a missing session would bypass those costs.
+
+A syntactic parameter scan has no await point and runs to completion once scheduled.
+The fifteen-second evaluation timeout bounds its caller's wait, not synchronous
+scanner execution. Full-cap fallback measurements use three pedantic rounds because
+normal benchmark calibration can spend minutes on a one-megabyte input. Recorded
+local component medians are about 3.4 ms for digit-dense pruning and 3.1 ms for the
+anchor-dense battery; these measurements are not portable CI timing assertions.
+
+## Test runner fixture binding
+
+Anyio executes a coroutine only when anyio_backend is among its function arguments.
+Auto mode injects that fixture into coroutine test closures, so fixture membership
+is the runner-binding witness. The collection guard requires no positive item count: test
+selection may omit every coroutine or the unmarked self-witness. Whole-suite and
+whole-file runs retain that self-witness as the positive auto-mode check. CI backend
+arming reads job-level environment values as trimmed strings, accepting YAML integer
+one as the runtime does. Workflow- and step-level environment values do not arm it.

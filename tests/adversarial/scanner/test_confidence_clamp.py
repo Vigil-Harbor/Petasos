@@ -1,10 +1,6 @@
-"""PET-60 backfill: SCAN-02 confidence clamp + severity-first overlap.
+"""Pin finite confidence bounds and severity-first overlap resolution.
 
-White-box tests that drive each scanner's clamp via its ``_scan_sync`` with
-stub backends — no ML extras required. The NaN cases pin the fail-safe
-*direction*: a non-finite confidence must map to 0.0 (no signal), not the 1.0 a
-bare ``max(0.0, min(1.0, raw))`` clamp would produce in CPython.
-"""
+See docs/architecture/rationale.md, "Test timing and backend qualification"."""
 
 from __future__ import annotations
 
@@ -13,8 +9,6 @@ from typing import Any
 from petasos.model import Position, ScanFinding, ScanResult, Severity
 from petasos.pipeline.findings import merge_findings
 from petasos.scanners.presidio import PresidioScanner
-
-# --- presidio ---------------------------------------------------------------
 
 
 class _FakePresidioResult:
@@ -30,10 +24,12 @@ class _FakeAnalyzer:
         self._score = score
 
     def analyze(self, **kwargs: Any) -> list[_FakePresidioResult]:
+        """Provide analyze for the test fixture."""
         return [_FakePresidioResult(self._score)]
 
 
 def test_presidio_confidence_clamped() -> None:
+    """Pin presidio confidence clamped."""
     high = PresidioScanner()
     high._analyzer = _FakeAnalyzer(99.0)
     high._loaded = True
@@ -42,17 +38,12 @@ def test_presidio_confidence_clamped() -> None:
     nan = PresidioScanner()
     nan._analyzer = _FakeAnalyzer(float("nan"))
     nan._loaded = True
-    # same CPython max/min NaN trap — the isfinite guard maps to 0.0, not 1.0
+    # CPython max/min does not reliably clamp NaN; the finite guard must map it to zero.
     assert nan._scan_sync("abc")[0].confidence == 0.0
 
 
-# --- overlap resolution -----------------------------------------------------
-
-
 def test_overlap_resolve_severity_first() -> None:
-    # PET-60 decision: overlapping findings resolve severity-first, NOT
-    # highest-confidence. A more-severe finding wins over an overlapping
-    # higher-confidence weaker one.
+    """Pin overlap resolve severity first."""
     high_sev_low_conf = ScanFinding(
         rule_id="a",
         finding_type="injection",
@@ -75,4 +66,4 @@ def test_overlap_resolve_severity_first() -> None:
         [ScanResult(scanner_name="s", findings=(high_sev_low_conf, low_sev_high_conf))]
     )
     assert len(merged) == 1
-    assert merged[0].severity == Severity.CRITICAL  # severity beats confidence
+    assert merged[0].severity == Severity.CRITICAL

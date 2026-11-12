@@ -1,4 +1,4 @@
-"""Adversarial suppression bypass tests for selfmod (PET-164 Decision 3/4/5/6)."""
+"""Pin self-change enforcement against suppression and downgrade attempts."""
 
 from __future__ import annotations
 
@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 
 @pytest.fixture()
 def owned_path(tmp_path: Path) -> str:
+    """Provide owned path for the test fixture."""
     p = tmp_path / "profiles" / "gibson" / "config.yaml"
     p.parent.mkdir(parents=True, exist_ok=True)
     p.touch()
@@ -44,6 +45,7 @@ class TestFrequencyWeightFloors:
 
     @pytest.mark.anyio
     async def test_exact_zero_weight_floors_hold(self, owned_path: str) -> None:
+        """Pin exact zero weight floors hold."""
         config = from_mapping(
             PetasosConfig,
             {
@@ -65,6 +67,7 @@ class TestFrequencyWeightFloors:
 
     @pytest.mark.anyio
     async def test_glob_zero_weight_floors_hold(self, owned_path: str) -> None:
+        """Pin glob zero weight floors hold."""
         config = from_mapping(
             PetasosConfig,
             {"frequency": {"weights": {"petasos.selfmod.*": 0.0}}},
@@ -82,6 +85,7 @@ class TestAlertBypasses:
 
     @pytest.mark.anyio
     async def test_alert_enabled_false_still_delivers(self, owned_path: str) -> None:
+        """Pin alert enabled false still delivers."""
         alerts = []
         config = from_mapping(PetasosConfig, {"alerting": {"enabled": False}})
         pipeline, guard, tracker = _make_guard(config, owned_path=owned_path)
@@ -91,6 +95,7 @@ class TestAlertBypasses:
 
     @pytest.mark.anyio
     async def test_frequency_enabled_false_still_records(self, owned_path: str) -> None:
+        """Pin frequency enabled false still records."""
         config = from_mapping(PetasosConfig, {"frequency": {"enabled": False}})
         _, guard, tracker = _make_guard(config, owned_path=owned_path)
         await guard.evaluate("write_file", {"path": owned_path}, "s1")
@@ -104,6 +109,7 @@ class TestInflatedThresholds:
 
     @pytest.mark.anyio
     async def test_inflated_thresholds_alert_fires(self, owned_path: str) -> None:
+        """Pin inflated thresholds alert fires."""
         alerts = []
         config = from_mapping(
             PetasosConfig,
@@ -113,13 +119,14 @@ class TestInflatedThresholds:
         pipeline.add_alert_listener(lambda a: alerts.append(a))
         await guard.evaluate("write_file", {"path": owned_path}, "s1")
         assert any(a.rule_id == "selfmod_attempt" for a in alerts)
-        assert guard._selfmod_owned_cache[1]  # owned set not empty
+        assert guard._selfmod_owned_cache[1]
 
 
 class TestProfileSuppression:
     """Profile suppress_rules with selfmod ids -> stripped at parse."""
 
     def test_suppress_rules_strips_selfmod(self) -> None:
+        """Pin suppress rules strips selfmod."""
         with pytest.raises(ConfigError) as caught:
             from_mapping(
                 PetasosConfig,
@@ -141,6 +148,7 @@ class TestSeverityOverrideRefused:
     """severity_overrides downgrade attempt -> refused (floor rule)."""
 
     def test_selfmod_is_floor_rule(self) -> None:
+        """Pin selfmod is floor rule."""
         from petasos.pipeline.findings import _is_floor_rule
 
         assert _is_floor_rule("petasos.selfmod.config_write") is True
@@ -157,6 +165,7 @@ class TestBuiltInProfilesDetectionSurvives:
         ["general", "customer_service", "code_generation", "research", "admin"],
     )
     async def test_builtin_profile_detection(self, owned_path: str, profile_name: str) -> None:
+        """Pin builtin profile detection."""
         role = {
             "general": "general",
             "customer_service": "support",

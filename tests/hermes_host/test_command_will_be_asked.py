@@ -21,6 +21,7 @@ _HARNESS = Path(__file__).resolve().parent / "ask_harness.py"
 
 @pytest.fixture(scope="module")
 def rows(petasos_wheel: Path) -> dict[str, dict[str, Any]]:
+    """Provide rows for the test fixture."""
     home = fresh_home(petasos_wheel, "command-will-be-asked")
     result = call(
         Sandbox(petasos_wheel, home),
@@ -34,6 +35,7 @@ def rows(petasos_wheel: Path) -> dict[str, dict[str, Any]]:
 
 
 def test_where_the_gate_prompts_the_predicate_is_true(rows: dict[str, dict[str, Any]]) -> None:
+    """Pin where the gate prompts the predicate is true."""
     for name in ("interactive", "docker_host"):
         row = rows[name]
         assert row["prompted"] is True, name
@@ -44,6 +46,7 @@ def test_where_the_gate_prompts_the_predicate_is_true(rows: dict[str, dict[str, 
 def test_where_the_gate_approves_without_asking_the_predicate_is_false(
     rows: dict[str, dict[str, Any]],
 ) -> None:
+    """Pin where the gate approves without asking the predicate is false."""
     for name in (
         "benign",
         "petasos_only",
@@ -74,6 +77,7 @@ def test_smart_mode_is_not_an_ask(rows: dict[str, dict[str, Any]]) -> None:
 
 
 def test_a_hardline_refusal_is_not_an_ask(rows: dict[str, dict[str, Any]]) -> None:
+    """Pin a hardline refusal is not an ask."""
     row = rows["hardline"]
     assert row["approved"] is False
     assert row["prompted"] is False
@@ -85,6 +89,7 @@ def test_a_hardline_refusal_is_not_an_ask(rows: dict[str, dict[str, Any]]) -> No
 
 
 def test_a_missing_or_raising_detector_answers_no(rows: dict[str, dict[str, Any]]) -> None:
+    """Pin a missing or raising detector answers no."""
     for name in ("raises", "missing"):
         row = rows[name]
         assert row["prompted"] is True, name

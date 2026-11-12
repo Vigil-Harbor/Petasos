@@ -1,10 +1,6 @@
-"""SCAN-03 (PET-61): cancellation frees the event loop; worker-thread residual.
+"""Pin prompt cancellation while acknowledging residual worker-thread execution.
 
-Distinct from PET-48 (test_cancel_mid_gather): this pins the *observable
-contract* — cancelling an in-flight inspect() resolves promptly (well before the
-worker thread would finish) and the pipeline stays usable — and documents that
-the to_thread worker keeps running after cancellation.
-"""
+See docs/architecture/rationale.md, "Test timing and backend qualification"."""
 
 from __future__ import annotations
 
@@ -29,6 +25,7 @@ class _ToThreadScanner:
 
     @property
     def name(self) -> str:
+        """Return the fixture scanner name."""
         return "to_thread"
 
     def _blocking(self) -> None:
@@ -42,15 +39,17 @@ class _ToThreadScanner:
         direction: Direction = "inbound",
         session_id: str | None = None,
     ) -> ScanResult:
+        """Supply the configured scanner response for this fixture."""
         self._started.set()
         await asyncio.to_thread(self._blocking)
         return ScanResult(scanner_name="to_thread", findings=())
 
 
 async def test_cancel_frees_loop_and_pipeline_reusable() -> None:
+    """Pin cancel frees loop and pipeline reusable."""
     started = asyncio.Event()
     scanner = _ToThreadScanner(started)
-    # generous timeout so the PIPE-03 timeout path doesn't fire — testing cancel
+    # The generous timeout isolates cancellation from deadline expiry.
     pipe = Pipeline(
         [MinimalScanner(), scanner],
         config=from_mapping(PetasosConfig, {"scanners": {"timeout_seconds": 30.0}}),
@@ -61,18 +60,13 @@ async def test_cancel_frees_loop_and_pipeline_reusable() -> None:
 
     t0 = time.perf_counter()
     task.cancel()
-    # inspect() catches BaseException (PET-48) and must return a PipelineResult,
-    # not propagate CancelledError.
     first = await task
     assert isinstance(first, PipelineResult)
     elapsed = time.perf_counter() - t0
 
-    # The event loop was freed without waiting the full worker sleep.
     assert elapsed < 0.5
-    # Residual: the worker thread is still running (frees loop, not the thread).
     assert scanner.thread_finished is False
 
-    # The pipeline remains usable for a subsequent inspect().
     started.clear()
     second = await pipe.inspect("hello world")
     assert isinstance(second, PipelineResult)

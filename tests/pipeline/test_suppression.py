@@ -1,11 +1,6 @@
-"""PET-109: cross-scanner suppression (pre-merge), PII severity downgrade, and the
-config.pii_entities anonymize-stage filter (D5/D6/D7/D8).
+"""Pin pre-merge suppression and protected severity floors across scanners.
 
-These pipeline tests use a small in-test stub Scanner emitting fixed
-``petasos.presidio.*`` findings, so they need no real Presidio and run on every
-lane — except the single hash-mode D7 row, which exercises the anonymizer engine
-path and is gated on the presidio libraries.
-"""
+See docs/architecture/rationale.md, "Finding suppression floors"."""
 
 from __future__ import annotations
 
@@ -20,7 +15,7 @@ from petasos.model import Direction, Position, ScanFinding, ScanResult, Severity
 from petasos.pipeline import Pipeline
 from petasos.pipeline.findings import _is_floor_rule, _suppress_scanner_findings
 
-_INJECTION_ID = "petasos.syntactic.injection.role-switch-capability"  # a floor rule
+_INJECTION_ID = "petasos.syntactic.injection.role-switch-capability"
 
 _presidio_libs = True
 try:
@@ -77,20 +72,18 @@ class _StubScanner:
 
     @property
     def name(self) -> str:
+        """Return the fixture scanner name."""
         return self._name
 
     async def scan(
         self, text: str, *, direction: Direction = "inbound", session_id: str | None = None
     ) -> ScanResult:
+        """Supply the configured scanner response for this fixture."""
         return ScanResult(scanner_name=self._name, findings=self._findings, duration_ms=0.0)
 
 
-# ---------------------------------------------------------------------------
-# Cross-scanner suppression + downgrade
-# ---------------------------------------------------------------------------
-
-
 def test_profile_suppresses_presidio_finding_end_to_end() -> None:
+    """Pin profile suppresses presidio finding end to end."""
     findings = (_pii("petasos.presidio.location", start=0, end=5),)
     suppressed = Pipeline(
         scanners=[_StubScanner(findings)],
@@ -101,21 +94,18 @@ def test_profile_suppresses_presidio_finding_end_to_end() -> None:
     )
     result = asyncio.run(suppressed.inspect("hello world"))
     assert not any(f.rule_id == "petasos.presidio.location" for f in result.findings)
-    # control: without suppression the finding is present
     plain = asyncio.run(Pipeline(scanners=[_StubScanner(findings)]).inspect("hello world"))
     assert any(f.rule_id == "petasos.presidio.location" for f in plain.findings)
 
 
 def test_suppress_cannot_silence_injection_or_structural() -> None:
-    # A suppress list that names an injection rule is refused. The old profile
-    # parser stripped that id and let the finding through.
+    """Pin suppress cannot silence injection or structural."""
     with pytest.raises(ConfigError, match="rules.suppress"):
         from_mapping(PetasosConfig, {"rules": {"suppress": [_INJECTION_ID]}})
 
 
 def test_suppress_helper_honors_floor_directly() -> None:
-    # Defense-in-depth (D6): even a suppress set that contains a floor rule (which
-    # the profile layer would normally strip) cannot drop it at the pipeline stage.
+    """Pin suppress helper honors floor directly."""
     results = [ScanResult(scanner_name="stub", findings=(_injection(),), duration_ms=0.0)]
     out = _suppress_scanner_findings(results, frozenset({_INJECTION_ID}))
     assert _is_floor_rule(_INJECTION_ID) is True
@@ -124,6 +114,7 @@ def test_suppress_helper_honors_floor_directly() -> None:
 
 
 def test_severity_override_can_downgrade_pii() -> None:
+    """Pin severity override can downgrade pii."""
     stub = _StubScanner(
         (
             _pii("petasos.presidio.person", start=0, end=5, severity=Severity.MEDIUM),
@@ -138,7 +129,7 @@ def test_severity_override_can_downgrade_pii() -> None:
                 "rules": {
                     "severity_overrides": {
                         "petasos.presidio.person": "info",
-                        _INJECTION_ID: "info",  # injection downgrade must be refused
+                        _INJECTION_ID: "info",
                     }
                 }
             },
@@ -146,13 +137,12 @@ def test_severity_override_can_downgrade_pii() -> None:
     )
     result = asyncio.run(p.inspect("name here payload here"))
     by_rule = {f.rule_id: f for f in result.findings}
-    assert by_rule["petasos.presidio.person"].severity == Severity.INFO  # downgraded
-    assert by_rule[_INJECTION_ID].severity == Severity.HIGH  # refused downgrade
+    assert by_rule["petasos.presidio.person"].severity == Severity.INFO
+    assert by_rule[_INJECTION_ID].severity == Severity.HIGH
 
 
 def test_suppressed_finding_does_not_escalate() -> None:
-    # Three CRITICAL findings would trip the standalone tier-3 net (>=3 CRITICAL);
-    # suppressing them pre-merge removes that contribution (D5 ordering guard).
+    """Pin suppressed finding does not escalate."""
     crits = tuple(
         _pii("petasos.presidio.location", start=i, end=i + 3, severity=Severity.CRITICAL)
         for i in (0, 4, 8)
@@ -160,7 +150,7 @@ def test_suppressed_finding_does_not_escalate() -> None:
     control = asyncio.run(
         Pipeline(scanners=[_StubScanner(crits)]).inspect("abcdefghijkl", session_id="s1")
     )
-    assert control.escalation_tier == "tier3"  # the findings WOULD escalate
+    assert control.escalation_tier == "tier3"
     assert control.safe is False
 
     suppressed = asyncio.run(
@@ -177,9 +167,7 @@ def test_suppressed_finding_does_not_escalate() -> None:
 
 
 def test_suppressed_overlap_does_not_evict_legitimate() -> None:
-    # A suppressed HIGH finding overlapping a legitimate LOW finding at the same
-    # span: pre-merge suppression keeps the legitimate one alive (the post-merge
-    # hazard D5 guards against — HIGH would win the overlap then be dropped).
+    """Pin suppressed overlap does not evict legitimate."""
     stub = _StubScanner(
         (
             _pii("petasos.presidio.location", start=0, end=5, severity=Severity.HIGH),
@@ -195,16 +183,10 @@ def test_suppressed_overlap_does_not_evict_legitimate() -> None:
     )
     result = asyncio.run(p.inspect("hello"))
     rule_ids = {f.rule_id for f in result.findings}
-    assert "petasos.presidio.email_address" in rule_ids  # legitimate survives
-    assert "petasos.presidio.location" not in rule_ids  # suppressed
+    assert "petasos.presidio.email_address" in rule_ids
+    assert "petasos.presidio.location" not in rule_ids
 
 
-# ---------------------------------------------------------------------------
-# D7 — config.pii_entities anonymize-stage filter
-# ---------------------------------------------------------------------------
-
-# text:  "email a@b.co ssn 111-22-3333"
-#         0123456789...                 email span [6,12], ssn span [17,28]
 _D7_TEXT = "email a@b.co ssn 111-22-3333"
 
 
@@ -228,6 +210,7 @@ def _email_and_ssn() -> tuple[ScanFinding, ...]:
 
 
 def test_pii_entities_filters_anonymize_set() -> None:
+    """Pin pii entities filters anonymize set."""
     cfg = from_mapping(
         PetasosConfig,
         {
@@ -241,11 +224,12 @@ def test_pii_entities_filters_anonymize_set() -> None:
     p = Pipeline(scanners=[_StubScanner(_email_and_ssn())], config=cfg)
     result = asyncio.run(p.inspect(_D7_TEXT))
     assert result.sanitized_content is not None
-    assert "a@b.co" not in result.sanitized_content  # email anonymized
-    assert "111-22-3333" in result.sanitized_content  # SSN left unredacted (coverage cut)
+    assert "a@b.co" not in result.sanitized_content
+    assert "111-22-3333" in result.sanitized_content
 
 
 def test_pii_entities_empty_anonymizes_all() -> None:
+    """Pin pii entities empty anonymizes all."""
     cfg = from_mapping(
         PetasosConfig,
         {
@@ -260,10 +244,11 @@ def test_pii_entities_empty_anonymizes_all() -> None:
     result = asyncio.run(p.inspect(_D7_TEXT))
     assert result.sanitized_content is not None
     assert "a@b.co" not in result.sanitized_content
-    assert "111-22-3333" not in result.sanitized_content  # back-compat: anonymize all
+    assert "111-22-3333" not in result.sanitized_content
 
 
 def test_pii_entities_excludes_all_skips_anonymize() -> None:
+    """Pin pii entities excludes all skips anonymize."""
     cfg = from_mapping(
         PetasosConfig,
         {
@@ -276,12 +261,12 @@ def test_pii_entities_excludes_all_skips_anonymize() -> None:
     )
     p = Pipeline(scanners=[_StubScanner(_email_and_ssn())], config=cfg)
     result = asyncio.run(p.inspect(_D7_TEXT))
-    # no finding matches the filter -> anonymize skipped -> sanitized stays None
     assert result.sanitized_content is None
 
 
 @requires_presidio_libs
 def test_pii_entities_filter_hash_mode() -> None:
+    """Pin pii entities filter hash mode."""
     cfg = from_mapping(
         PetasosConfig,
         {
@@ -299,6 +284,5 @@ def test_pii_entities_filter_hash_mode() -> None:
     )
     result = asyncio.run(p.inspect(_D7_TEXT))
     assert result.sanitized_content is not None
-    assert "a@b.co" not in result.sanitized_content  # email hashed (engine path)
-    # non-vacuous: the SSN appears in cleartext (Stage 9 ran, but filtered it out)
+    assert "a@b.co" not in result.sanitized_content
     assert "111-22-3333" in result.sanitized_content
