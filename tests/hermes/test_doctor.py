@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
+import sys
 from typing import TYPE_CHECKING, Any
 
 from petasos.cli import main
@@ -72,7 +73,7 @@ def test_fresh_home_is_not_protected(
     assert code == 2
     assert "Not protected. Petasos is not checking tool calls" in out
     assert "Hermes is not installed in this Python" in out
-    assert "same Python Hermes uses" in out
+    assert "hermes petasos doctor" in out
     assert "plugin is not installed" in out
     assert f"petasos hermes install --home {tmp_path}" in out
     assert "not turned on in Hermes" in out
@@ -364,7 +365,8 @@ def test_missing_hermes_names_this_python(tmp_path: Path) -> None:
     report = examine(tmp_path, home_reason="the home you named with --home")
     text = render_text(report, verbose=False, color=False)
     assert "not installed in this Python" in text
-    assert "Install Petasos into the same Python Hermes uses" in text
+    assert "hermes petasos doctor" in text
+    assert sys.executable in text
 
 
 def test_old_hermes_fails_the_version_check(
@@ -445,7 +447,7 @@ def test_yaml_reader_missing_is_explained(
 
     assert code == 2
     assert "cannot read Hermes's config file" in out
-    assert "same Python Hermes uses" in out
+    assert "hermes petasos doctor" in out
 
 
 def test_json_and_verbose_carry_the_detail(

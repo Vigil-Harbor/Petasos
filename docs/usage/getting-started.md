@@ -4,7 +4,7 @@ Petasos checks an agent's tool calls and the text tools return. Install it in ea
 
 ## Install and check
 
-For a published release, use the one-command install in the [README](../../README.md). For a development checkout installed in your Python environment, run `petasos hermes install`. This packages that build as a wheel in the plugin directory and asks Hermes to install it into the environment new Hermes processes use. Running the command again refreshes the plugin files and wheel.
+For a published release, use the one-command install in the [README](../../README.md). For a development checkout installed in your Python environment, run `petasos hermes install`. This packages that build as a wheel in the plugin directory and asks Hermes to install it into the environment new Hermes processes use. Running the command again refreshes the plugin files and wheel. When that Python has no Hermes in it, the command writes the files and prints the Hermes command that turns the plugin on.
 
 Use `petasos hermes install --dry-run` to preview the development install. Add `--home /tmp/petasos-docs-home` when you want a throwaway target rather than the home Hermes selects. `--profile` selects a named profile under the target home; see the [command reference](../reference/commands.md).
 

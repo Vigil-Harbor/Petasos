@@ -101,7 +101,7 @@ def republish(*, repair: bool = False) -> tuple[bool, str]:
     if command is None:
         return False, (
             "Hermes is not available in this Python, so its environment was not rebuilt. "
-            "Run this command with the same Python Hermes uses."
+            "Run the same command as hermes petasos ..., which uses Hermes's own Python."
         )
     admit = getattr(command, "_admit_and_save_plugin_sets", None)
     enabled_set = getattr(command, "_get_enabled_set", None)
@@ -175,9 +175,24 @@ def _from_hermes() -> Runtime | None:
     return Runtime(python=python)
 
 
+def _installs(home: Path) -> Path | None:
+    """Where Hermes records environments for ``home``.
+
+    Every profile under a root shares the root's record, so a profile home
+    has none of its own.
+    """
+    candidates = [home / "installs"]
+    if home.parent.name == "profiles":
+        candidates.insert(0, home.parent.parent / "installs")
+    for candidate in candidates:
+        if candidate.is_dir():
+            return candidate
+    return None
+
+
 def _from_facts(home: Path) -> Runtime | None:
-    installs = home / "installs"
-    if not installs.is_dir():
+    installs = _installs(home)
+    if installs is None:
         return None
     try:
         facts = [path for path in installs.glob("*/facts.json") if path.is_file()]

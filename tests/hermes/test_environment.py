@@ -63,6 +63,21 @@ def test_no_committed_environment_is_reported(
     assert "has not committed an environment" in check.summary
 
 
+def test_a_profile_reads_the_environment_its_root_recorded(tmp_path: Path) -> None:
+    """Profiles under one root share the root's environment record."""
+    home = tmp_path / "profiles" / "ops"
+    _enabled(home)
+    script = _python(
+        tmp_path / "answer.sh",
+        'printf \'{"ok": false, "error": "No module named petasos"}\\n\'\n',
+    )
+    _facts(tmp_path, script)
+    report = examine(home, home_reason="test")
+    check = next(item for item in report.checks if item.id == "hermes_environment")
+    assert check.status == "fail"
+    assert "not in the environment" in check.summary
+
+
 def test_a_missing_import_is_not_protected(tmp_path: Path) -> None:
     """A committed environment that cannot import Petasos is not protection."""
     _enabled(tmp_path)

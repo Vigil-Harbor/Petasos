@@ -173,7 +173,7 @@ def _absent_text(home: Path, home_reason: str, kind: str) -> str:
     if kind == "no-reader":
         return (
             f"The config at {path} could not be read. This Python has no YAML reader.\n"
-            "Run petasos config migrate with the same Python Hermes uses.\n"
+            "Run hermes petasos config migrate, which uses Hermes's own Python.\n"
         )
     return (
         f"The config file at {path} is damaged, so the old section could not be read.\n"

@@ -46,6 +46,7 @@ def test_install_is_idempotent(tmp_path: Path, capsys: pytest.CaptureFixture[str
     first, out = _run(["hermes", "install", "--home", str(tmp_path)], capsys)
     assert "Wrote the plugin files." in out
     assert "does not edit Hermes's config file" in out or "not turned on" in out
+    assert f"Next: HERMES_HOME={tmp_path} hermes plugins enable petasos" in out
     written = _files(tmp_path)
     assert written["plugin.yaml"] == render_manifest()
     assert written["__init__.py"] == "from petasos.hermes.plugin import register\n"

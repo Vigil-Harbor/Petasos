@@ -59,7 +59,7 @@ def read_managed() -> Managed:
     except Exception as exc:
         raise ValueError(
             "This Python cannot tell which settings Hermes fixes at machine level. "
-            "Run petasos doctor with the same Python Hermes uses."
+            "Run hermes petasos doctor, which uses Hermes's own Python."
         ) from exc
     return Managed(target, machine, document, machine_document, keys, active == target)
 

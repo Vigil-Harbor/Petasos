@@ -1051,6 +1051,39 @@ request does not take that path. `request_tool_approval` calls
 always reaches a person. Where `detect_dangerous_command` is missing or raises, it is
 false while the gate, which bound the function at import, can still prompt.
 
+## 16. Named profiles under one root share an environment
+
+Checked 2026-11-11 in sandbox `/tmp/petasos-u3-sbx`, home
+`homes/soak-rehearsal`, with two profiles made by `hermes profile create`
+(`ops` and `worker`).
+
+- **One environment for the root.** `hermes plugins enable petasos` run
+  for `ops` (`HERMES_HOME=<root>/profiles/ops`, with or without
+  `--profile ops`) committed its environment under `<root>/installs/`.
+  `<root>/profiles/ops/installs` was not created. Source:
+  `pm/environments.py` `dependency_home_root`, and `pm/plugins_state.py`,
+  whose first line is "Read every profile's enabled plugins in config
+  order for the shared union".
+- **The plugin stays per profile.** After the enable, `plugins.enabled`
+  changed only in the `ops` config. In `worker`, `hermes plugins list` did
+  not list Petasos and `hermes petasos` was not a command. The `petasos`
+  package is importable from every profile's new processes, because the
+  environment is shared, and is loaded only where the plugin is enabled.
+- **Consequence.** Turning Petasos on for one profile rebuilds the Python
+  environment every profile under that root starts with next.
+- **A Python without Hermes can do half the install.** `petasos hermes
+  install --home <root> --profile ops`, run from a Python that cannot
+  import Hermes, wrote the plugin files and the wheel and did not turn the
+  plugin on. `HERMES_HOME=<root>/profiles/ops hermes plugins enable
+  petasos` then built the environment with that wheel, and `hermes petasos
+  doctor` reported Protected. A Hermes started by its own launcher runs a
+  store Python with `-I`, so there is no "same Python" for a person to
+  install Petasos into; this two-step route is the development install
+  there.
+- **Rollback.** `hermes plugins disable petasos` moved the id to
+  `plugins.disabled`, rebuilt the environment, and removed the `hermes
+  petasos` command. The `plugins.entries.petasos` settings stayed.
+
 ## What was not run
 
 - No Hermes gateway, no messaging platform, no model provider, and no

@@ -174,7 +174,7 @@ def approval_check(resolved: Resolved | None, *, hermes_available: bool) -> Chec
                 "This Python cannot see Hermes, so it cannot tell whether Hermes "
                 "would ask, refuse, or allow the call without asking."
             ),
-            next_step="Run petasos doctor with the same Python Hermes uses.",
+            next_step="Run hermes petasos doctor, which uses Hermes's own Python.",
         )
     from petasos.hermes.host import approval_grant
 

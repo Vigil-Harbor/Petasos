@@ -85,7 +85,7 @@ def settings_check(
                     "This Python cannot read Hermes's config file. "
                     "Hermes's own Python can. Settings were not checked."
                 ),
-                next_step="Run petasos doctor with the same Python Hermes uses.",
+                next_step="Run hermes petasos doctor, which uses Hermes's own Python.",
             ),
             False,
             facts,

@@ -41,8 +41,9 @@ def hermes_view() -> HermesView:
                 "before a dangerous tool call, were not checked."
             ),
             next_step=(
-                "Install Petasos into the same Python Hermes uses, then run "
-                f"petasos doctor with that Python. This one is {sys.executable}."
+                "Run hermes petasos doctor, which uses Hermes's own Python. Hermes "
+                "offers that command once the plugin is turned on. "
+                f"This Python is {sys.executable}."
             ),
         )
     version = _hermes_version(manifest)
@@ -80,9 +81,7 @@ def plugin_load_view(plugin_dir: Path) -> Check:
             status="warn",
             summary="The plugin was not loaded, because Hermes is not in this Python.",
             meaning="The files were checked on disk. Hermes itself did not load them.",
-            next_step=(
-                "Run petasos doctor with the same Python Hermes uses to confirm the plugin loads."
-            ),
+            next_step="Run hermes petasos doctor to confirm the plugin loads.",
         )
     try:
         report = validate(plugin_dir)

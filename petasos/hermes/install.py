@@ -8,6 +8,7 @@ route writes ``config.yaml`` itself.
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -171,8 +172,10 @@ def _development(
     if not enabled:
         lines.append(
             "The files are in place. Hermes did not turn the plugin on, "
-            "so tool calls are not checked yet."
+            "so tool calls are not checked yet. Hermes's own command turns it on "
+            "and installs the wheel."
         )
+        lines.append(f"Next: {_enable_command(home)}")
     text = "\n".join(lines) + "\n\n"
     report = examine(home, home_reason=home_reason)
     text += render_text(report, verbose=False, color=color)
@@ -229,7 +232,6 @@ def enable_plugin() -> tuple[bool, str]:
     if not callable(enable):
         return False, (
             "Hermes is not available in this Python, so the plugin was not turned on. "
-            "Install Petasos into Hermes's Python and run petasos hermes install there. "
             "This command does not edit Hermes's config file itself."
         )
     try:
@@ -255,7 +257,7 @@ def run_released_install() -> tuple[bool, str]:
     if not callable(command):
         return False, (
             "Hermes is not available in this Python, so the installer was not run. "
-            f"Run this with Hermes's Python: {RELEASED_COMMAND}"
+            f"Run this in your terminal: {RELEASED_COMMAND}"
         )
     try:
         command(RELEASED_SPEC, enable=True, yes_deps=True)
@@ -337,6 +339,13 @@ def _owned(target: Path) -> tuple[bool, str]:
         f"{target} already has files, and none of them is a Petasos plugin description. "
         "Nothing was replaced."
     )
+
+
+def _enable_command(home: Path) -> str:
+    """Hermes's own enable for ``home``, as a person would type it."""
+    if os.name == "nt":
+        return f"hermes plugins enable {PLUGIN_ID}, with HERMES_HOME set to {home}"
+    return f"HERMES_HOME={_quote(home)} hermes plugins enable {PLUGIN_ID}"
 
 
 def _quote(path: Path) -> str:
