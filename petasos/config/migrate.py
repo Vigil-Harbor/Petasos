@@ -23,8 +23,7 @@ from petasos.config.sections import PetasosConfig
 
 _Kind = Literal["leaf", "role", "arm", "scanners", "drop"]
 
-# Old scanner ids that are no longer backends. Any other unknown id is reported
-# as unknown rather than rejected: a migration lists what it could not carry.
+# Migration reports unavailable backends without rejecting the remaining settings.
 _REMOVED_SCANNERS: dict[str, str] = {
     "llm_guard": "llm_guard was removed and was not copied.",
     "llama_firewall": "llama_firewall was removed and was not copied.",
@@ -37,16 +36,13 @@ _SCANNER_ENABLED: dict[str, str] = {
 _ENTITY_EXTRA = "scanners.presidio.entities_extra"
 _UPPER_PATHS = frozenset({"scanners.presidio.entities", _ENTITY_EXTRA})
 
-# Tier numbers stored on the research and admin profiles. The Hermes plugin
-# built the guard without a profile, and escalation reads the config tiers, so
-# these numbers never took effect there. The roles do not carry them.
+# Profile tier values are migration diagnostics; escalation uses config thresholds.
 _PROFILE_TIERS: dict[str, tuple[str, str, str]] = {
     "research": ("25, 45, 70", "relaxed", "25, 45, 65"),
     "admin": ("10, 20, 35", "strict", "10, 22, 40"),
 }
 _POSTURE = "tools.dangerous_posture"
-# The general role now asks. A converted general profile keeps the old block,
-# and the note says so. The phrase is what migrate_cmd treats as intentional.
+# migrate_cmd recognises this note as an intentional blocking override.
 _GENERAL_BLOCK_NOTE = (
     "The general role now asks a person before a risky tool call. "
     "This configuration was converted as general, whose old profile blocked "
@@ -79,7 +75,6 @@ def _move(
     return FieldMove(old=old, path=path, kind=kind, note=note)
 
 
-# Every old PetasosConfig field, plus the two section keys that were never fields.
 MOVES: tuple[FieldMove, ...] = (
     _move("normalize_nfkc", "normalization.nfkc"),
     _move("strip_zero_width", "normalization.zero_width"),

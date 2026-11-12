@@ -53,6 +53,7 @@ class FrequencyConfig:
     )
 
     def check(self) -> None:
+        """Reject wildcard weight keys unless the wildcard is a final dot-star."""
         if self.weights is None:
             return
         problems: list[tuple[str, str]] = []
@@ -107,6 +108,7 @@ class EscalationConfig:
     )
 
     def check(self) -> None:
+        """Require strictly increasing escalation thresholds."""
         if not self.tier1 < self.tier2 < self.tier3:
             raise ConfigError("must be strictly ascending: tier 1, then tier 2, then tier 3")
 
@@ -266,6 +268,7 @@ class AlertingConfig:
     )
 
     def check(self) -> None:
+        """Reject alert limits that cannot fit their configured buffers."""
         problems: list[tuple[str, str]] = []
         if self.rapid_fire_count > self.ring_buffer_capacity:
             problems.append(

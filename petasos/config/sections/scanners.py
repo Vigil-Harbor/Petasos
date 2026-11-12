@@ -113,6 +113,7 @@ class PresidioConfig:
     )
 
     def check(self) -> None:
+        """Reject empty languages and unknown or empty explicit entity selections."""
         problems: list[tuple[str, str]] = []
         if self.language.strip() == "":
             problems.append(("language", "must name a language, such as en"))
@@ -186,6 +187,7 @@ class SemgrepConfig:
     )
 
     def check(self) -> None:
+        """Reject nonabsolute engine paths and malformed SHA-256 digests."""
         problems: list[tuple[str, str]] = []
         if self.engine_path is not None and not os.path.isabs(self.engine_path):
             problems.append(("engine_path", "must be an absolute path"))

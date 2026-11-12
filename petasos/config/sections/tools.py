@@ -170,6 +170,7 @@ class ToolsConfig:
     )
 
     def check(self) -> None:
+        """Trim alias targets and reject empty or exempt targets."""
         problems: list[tuple[str, str]] = []
         cleaned: dict[str, str] = {}
         for key, value in self.aliases.items():

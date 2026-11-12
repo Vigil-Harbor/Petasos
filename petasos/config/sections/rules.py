@@ -81,6 +81,7 @@ class RulesConfig:
     )
 
     def check(self) -> None:
+        """Reject suppressions and severity overrides that violate rule floors."""
         problems: list[tuple[str, str]] = []
         seen: set[str] = set()
         for index, rule_id in enumerate(self.suppress):

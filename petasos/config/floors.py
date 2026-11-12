@@ -11,7 +11,6 @@ from typing import Final
 
 from petasos.model import Severity
 
-# Hard minimum for the tier that terminates a session.
 TIER3_FLOOR: Final[float] = 30.0
 
 # PromptGuard 2 blocks at this score. The scanner reads the same cut.
@@ -21,12 +20,11 @@ PROMPT_GUARD_THRESHOLD: Final[float] = 0.9
 PRESIDIO_SCORE_THRESHOLD: Final[float] = 0.35
 PRESIDIO_LANGUAGE: Final[str] = "en"
 
-# Rule-id prefixes. A test shows each one selects exactly the scanner's set.
 STRUCTURAL_PREFIX: Final[str] = "petasos.syntactic.structural."
 INJECTION_PREFIX: Final[str] = "petasos.syntactic.injection."
 SELFMOD_PREFIX: Final[str] = "petasos.selfmod."
 
-# Base severity of each self-modification rule the guard or the console emits.
+# Self-modification rules have a minimum severity enforced by the guard and schema.
 # An override below this rank is a downgrade and is rejected. An id that is
 # not listed has no recorded base, so it cannot be retargeted at all.
 SELFMOD_BASE_SEVERITY: Final[MappingProxyType[str, str]] = MappingProxyType(

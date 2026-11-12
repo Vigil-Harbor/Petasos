@@ -569,7 +569,6 @@ def _convert_int(
 def _convert_float(
     item: _Field, value: object, path: str
 ) -> tuple[object, tuple[tuple[str, str], ...]]:
-    # A whole number is accepted where a float is declared and stored as a float.
     if type(value) is int:
         number = float(value)
     elif type(value) is float:
@@ -622,8 +621,6 @@ def _convert_map(
     errors: list[tuple[str, str]] = []
     cleaned: dict[str, object] = {}
     seen: set[str] = set()
-    # Value checks reuse the number or text rules. Bounds on the mapping apply
-    # to each number.
     value_field = _Field(item.name, "float", False, (), item.spec, None, 0.0)
     for raw_key, raw_value in value.items():
         if type(raw_key) is not str:
@@ -672,7 +669,6 @@ def _convert_section(
     try:
         built = cast("Callable[..., object]", section_cls)(**clean)
     except ConfigError as exc:
-        # The nested section reported paths relative to itself.
         errors.extend((_join(path, child), message) for child, message in exc.errors)
         return None, tuple(errors)
     if errors:
@@ -862,7 +858,7 @@ def describe(cls: type[object]) -> tuple[FieldInfo | SectionInfo, ...]:
 
 
 def leaves(cls: type[object]) -> tuple[FieldInfo, ...]:
-    """Every leaf setting of a section tree, in declaration order, without group rows."""
+    """Return only leaf settings in declaration order."""
     return tuple(row for row in describe(cls) if isinstance(row, FieldInfo))
 
 
