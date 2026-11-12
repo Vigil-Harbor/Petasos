@@ -1,9 +1,7 @@
-"""Hermes home, profile, and config-path resolution.
+"""Resolve Hermes homes, profile selectors and config paths without raising.
 
-Resolves the effective config.yaml path across the v0.15 root layout and
-the per-profile home. Stdlib only, plus PyYAML when a config file is read.
-No logging. The resolver never raises.
-"""
+Path resolution uses the standard library without logging. Config-file
+reads additionally use PyYAML when it is available."""
 
 from __future__ import annotations
 

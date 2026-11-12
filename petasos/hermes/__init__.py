@@ -1,8 +1,4 @@
-"""Hermes host adapter.
-
-The console and the guard still import ``petasos.hermes.home`` for path
-resolution. Hook registration is ``petasos.hermes.plugin.register``.
-"""
+"""Bind library enforcement to Hermes hooks, settings and home resolution."""
 
 from petasos.hermes.manifest import (
     plugin_requirement,
