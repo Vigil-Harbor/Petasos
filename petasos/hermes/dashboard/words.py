@@ -430,10 +430,7 @@ BASIC_CHECKS_COVER = "Hidden instructions, dangerous commands and disguised text
 # What the checks list is, without a claim about whether they run now.
 CHECKS_NOTE = "Basic checks are built in. Extra checks add a model or a code checker."
 
-# What "on" covers. Hermes loads an enabled plugin into every process that
-# runs an agent for the profile (chat, gateway, scheduled jobs, the
-# dashboard's chat), except a safe-mode session; Petasos reads its settings
-# again on each tool call.
+# See docs/architecture/rationale.md, "Hermes protection coverage".
 PROTECTION_SCOPE = (
     "Every agent Hermes starts from this profile, except in safe mode. "
     "A saved change applies from the agent's next action, unless Settings says "

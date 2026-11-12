@@ -1,4 +1,4 @@
-"""PET-53: Callback isolation — adversarial tests for AUD-02, ALRT-04, PIPE-06, ALRT-03, AUD-01."""
+"""Pin callback containment, distinct-session burst accounting and audit sequence continuity."""
 
 from __future__ import annotations
 
@@ -81,11 +81,6 @@ def _session_pipeline(
     )
 
 
-# ---------------------------------------------------------------------------
-# AUD-02: on_audit callback isolation
-# ---------------------------------------------------------------------------
-
-
 class TestAuditCallbackIsolation:
     def test_audit_callback_runtime_error_swallowed(self) -> None:
         def bad_cb(e: AuditEvent) -> None:
@@ -118,11 +113,6 @@ class TestAuditCallbackIsolation:
             mock_logger.error.assert_called_once()
             call_kwargs = mock_logger.error.call_args
             assert call_kwargs[1].get("exc_info") is True
-
-
-# ---------------------------------------------------------------------------
-# ALRT-04: on_alert callback isolation
-# ---------------------------------------------------------------------------
 
 
 class TestAlertCallbackIsolation:
@@ -160,11 +150,6 @@ class TestAlertCallbackIsolation:
             mock_logger.exception.assert_called()
 
 
-# ---------------------------------------------------------------------------
-# PIPE-06: Pipeline-level callback error propagation
-# ---------------------------------------------------------------------------
-
-
 class TestPipelineCallbackPropagation:
     async def test_audit_error_reaches_pipeline_result(self) -> None:
         def bad_audit(e: AuditEvent) -> None:
@@ -196,11 +181,6 @@ class TestPipelineCallbackPropagation:
         alert_errors = [e for e in result.errors if "on_alert" in e]
         assert len(audit_errors) >= 1
         assert len(alert_errors) >= 1
-
-
-# ---------------------------------------------------------------------------
-# ALRT-03: Cross-session burst tracker accuracy
-# ---------------------------------------------------------------------------
 
 
 class TestCrossSessionBurstTracker:
@@ -276,11 +256,6 @@ class TestCrossSessionBurstTracker:
         for i in range(200):
             mgr.evaluate(r, f"s{i}", None)
         assert len(mgr._cross_session_tracker) <= 100
-
-
-# ---------------------------------------------------------------------------
-# AUD-01: Global monotonic sequence
-# ---------------------------------------------------------------------------
 
 
 class TestGlobalMonotonicSequence:

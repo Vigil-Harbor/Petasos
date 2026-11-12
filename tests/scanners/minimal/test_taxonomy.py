@@ -1,3 +1,5 @@
+"""Pin immutable syntactic rule metadata and suppression floors."""
+
 from __future__ import annotations
 
 from petasos.scanners.minimal.taxonomy import RULE_TAXONOMY

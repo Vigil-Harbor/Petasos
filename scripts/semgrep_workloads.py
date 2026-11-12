@@ -1,4 +1,4 @@
-"""Reference fixture generator for the S7 protocol v3; not a gate."""
+"""Generate deterministic source fixtures and their content digests."""
 
 import hashlib
 import json
@@ -6,6 +6,7 @@ import sys
 
 
 def fragment(size: int, seed: int = 0) -> str:
+    """Return a deterministic source fragment at the requested size."""
     tail = "\neval(payload)\n"
     lines = ["import json\n"]
     used = len(lines[0])
@@ -23,6 +24,7 @@ def fragment(size: int, seed: int = 0) -> str:
 
 
 def workload(parts: list[str]) -> dict[str, object]:
+    """Return source segments with expected findings and content digests."""
     text = "\n".join(parts)
     segments = []
     expected = []

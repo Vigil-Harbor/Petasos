@@ -16,11 +16,6 @@ if TYPE_CHECKING:
     import types
 
 
-# ---------------------------------------------------------------------------
-# Unit tests for _is_missing_package()
-# ---------------------------------------------------------------------------
-
-
 class TestIsMissingPackage:
     def test_matches_expected_name(self) -> None:
         exc = ImportError(name="presidio_analyzer")
@@ -39,11 +34,6 @@ class TestIsMissingPackage:
         assert _is_missing_package(exc, {"presidio_analyzer"}) is False
 
 
-# ---------------------------------------------------------------------------
-# Integration tests for import-guard behavior
-# ---------------------------------------------------------------------------
-
-
 @pytest.fixture()
 def _reimport_scanners() -> Any:
     """Restore both module cache and parent binding after a clean reimport."""
@@ -55,8 +45,7 @@ def _reimport_scanners() -> Any:
     finally:
         sys.modules.clear()
         sys.modules.update(saved)
-        # importlib also binds a reimported child onto its parent. Restoring only
-        # sys.modules makes dotted monkeypatch targets resolve to the wrong copy.
+        # Restore parent bindings as well as sys.modules so dotted imports see the same package.
         vars(parent)["scanners"] = scanners
 
 
@@ -180,12 +169,9 @@ class TestImportGuardIntegration:
 
 
 def test_prompt_guard_scanner_is_exported_on_a_base_install() -> None:
-    # PET-242: the wrapper imports no backend at module level, so the export holds
-    # with no torch or transformers present.
     import petasos.scanners as scanners_pkg
 
-    # The import-guard cases above must restore the parent binding as well as
-    # sys.modules; dotted patch targets and direct imports must see one package.
+    # Parent bindings and sys.modules must identify the same restored package.
     assert scanners_pkg is sys.modules["petasos.scanners"]
     assert vars(scanners_pkg)["semgrep"] is sys.modules["petasos.scanners.semgrep"]
     assert "PromptGuardScanner" in scanners_pkg.__all__

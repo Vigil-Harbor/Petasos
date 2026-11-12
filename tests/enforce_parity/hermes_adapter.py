@@ -1,11 +1,6 @@
-"""Replay a scenario through ``petasos.hermes.plugin.register`` and its hooks.
+"""Replay scenarios through isolated Hermes without changing recorded outcomes.
 
-The Hermes context and the host modules are fakes. The enforcer, the settings
-source, and the hook callbacks are the ones the plugin registers. Flat
-scenario settings are presented as the four Hermes settings, with the same
-scanner and anonymization adjustments the enforcer oracle applies, so the
-decision record stays comparable.
-"""
+See docs/architecture/rationale.md, "Test timing and backend qualification"."""
 
 from __future__ import annotations
 

@@ -11,6 +11,7 @@ from pathlib import Path
 
 
 def main() -> None:
+    """Install the pinned engine into the requested isolated interpreter environment."""
     expected = sys.argv[1]
     actual = platform.machine().lower()
     if actual not in ({"amd64", "x86_64"} if expected == "x64" else {"arm64"}):

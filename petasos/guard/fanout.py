@@ -11,19 +11,9 @@ if TYPE_CHECKING:
 
 
 class SpawnBudget:
-    """Per-session rolling-window spawn counter for the delegation fan-out gate.
+    """Consume per-session spawn capacity atomically within a rolling window.
 
-    PET-107 Option C. ``try_consume`` prunes the session's window, compares the
-    live count to the (tier-adjusted) cap, and on pass appends the timestamp —
-    all in one critical section so the read-check-append is atomic (closes the
-    concurrent-spawn TOCTOU two children racing against a budget of 1).
-
-    The consumed session's deque is dropped once its window empties; an amortized
-    global sweep (at most once per ``window_seconds``) drops the deques of
-    sessions that delegated once and were never touched again. Together these
-    bound memory by the count of sessions that spawned within roughly the last
-    window, not by every distinct session ever seen.
-    """
+    See docs/architecture/rationale.md, "Spawn budget atomicity"."""
 
     def __init__(self, window_seconds: float) -> None:
         self._window = window_seconds
@@ -32,25 +22,15 @@ class SpawnBudget:
         self._last_sweep = 0.0
 
     def set_window(self, seconds: float) -> None:
-        """PET-126: rebind the rolling-window length in place.
-
-        Rebinds ``_window`` only: never resets ``_last_sweep`` or ``_events``, so
-        buffered spawn timestamps survive a reconfigure. A *shrink* simply
-        re-interprets them against the smaller cutoff on the next ``try_consume``
-        (older events expire sooner). Taken under ``_lock`` because ``try_consume``
-        reads ``_window`` under the same lock.
-        """
+        """Change the window under lock while preserving buffered timestamps."""
         with self._lock:
             self._window = seconds
 
     def try_consume(self, session_id: str, cap: int, now: float) -> bool:
+        """Atomically consume one spawn slot if the live count is below the cap."""
         with self._lock:
             cutoff = now - self._window
-            # Amortized global sweep (<= once per window): drop any session whose
-            # entire window has expired. The per-session prune below only fires
-            # when THAT session is consumed again, so without this a one-shot
-            # delegate would leave a stale deque in _events forever and the map
-            # would grow with distinct session IDs instead of active windows.
+            # See docs/architecture/rationale.md, "Spawn budget atomicity".
             if now - self._last_sweep >= self._window:
                 stale = [sid for sid, ev in self._events.items() if not ev or ev[-1] <= cutoff]
                 for sid in stale:
@@ -74,12 +54,10 @@ class SpawnBudget:
 
 
 def _fanout_cap(self: ToolCallGuard, tier: str) -> int:
-    """Tier-adjusted fan-out cap. tier3 is already blocked at Step 3, so it
-    never reaches here; tier2 is tightest (1) and is also blocked at Step 6,
-    so Step 3.5 only accounts the attempt for a tier-2 delegate."""
+    """Return the tier-adjusted fan-out cap; tier-two attempts use a cap of one."""
     base = self._config.tools.fanout.max_per_window
     if tier == "tier1":
         return max(1, base // 2)
     if tier == "tier2":
         return 1
-    return base  # none / below-threshold
+    return base

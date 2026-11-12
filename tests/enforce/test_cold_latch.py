@@ -1,8 +1,4 @@
-"""One enforcer's cold-start markers are issued once and given back on a failed write.
-
-The reference plugin kept these flags on the module. They now live on the
-enforcer's book, so two enforcers do not share a marker.
-"""
+"""Pin per-enforcer cold-start markers and retry after failed writes."""
 
 from __future__ import annotations
 

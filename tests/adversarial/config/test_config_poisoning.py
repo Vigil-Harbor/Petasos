@@ -1,4 +1,4 @@
-"""Config poisoning (PET-14 CFG-*)."""
+"""Pin safe configuration behavior against hostile values and mutable inputs."""
 
 from __future__ import annotations
 
@@ -18,8 +18,7 @@ from petasos.session.escalation import evaluate_tier
 
 
 def test_frozen_config_bypass_via_setattr() -> None:
-    """CFG-01: slots=True eliminates __dict__; object.__setattr__ on defined
-    fields is an accepted Python-level residual (documented in D1)."""
+    """Pin frozen config bypass via setattr."""
     cfg = PetasosConfig()
     with pytest.raises(AttributeError):
         cfg.__dict__  # noqa: B018
@@ -38,12 +37,9 @@ def _owned_escalation(tier3: float) -> PetasosConfig:
 
 
 def test_tier3_floor_module_global_mutable(monkeypatch: pytest.MonkeyPatch) -> None:
-    """CFG-04: rebinding the tier-3 floor constant does not open a hole.
+    """Pin tier3 floor module global mutable.
 
-    The bound is fixed when the section is declared, so a document under the
-    floor is refused. Tampering a built value still fail-secures in
-    evaluate_tier.
-    """
+    See docs/architecture/rationale.md, "Test timing and backend qualification"."""
     monkeypatch.setattr(floors, "TIER3_FLOOR", 5.0)
     with pytest.raises(ConfigError, match="escalation.tier3"):
         from_mapping(
@@ -54,29 +50,27 @@ def test_tier3_floor_module_global_mutable(monkeypatch: pytest.MonkeyPatch) -> N
 
 
 def test_slots_no_dict() -> None:
-    """CFG-01: PetasosConfig has no __dict__ with slots=True."""
+    """Pin slots no dict."""
     cfg = PetasosConfig()
     assert not hasattr(cfg, "__dict__")
 
 
 def test_slots_no_new_attr() -> None:
-    """CFG-01: object.__setattr__ on undefined attributes raises AttributeError."""
+    """Pin slots no new attr."""
     cfg = PetasosConfig()
     with pytest.raises(AttributeError):
         object.__setattr__(cfg, "evil", True)
 
 
 def test_object_setattr_on_defined_field_residual() -> None:
-    """CFG-01: object.__setattr__ on defined slot fields still works —
-    accepted Python limitation, documented as residual in D1."""
+    """Pin object setattr on defined field residual."""
     cfg = PetasosConfig()
     object.__setattr__(cfg, "fail_mode", "open")
     assert cfg.fail_mode == "open"
 
 
 def test_evaluate_tier_failsecure_on_low_tier3() -> None:
-    """CFG-04: evaluate_tier returns 'tier3' fail-secure when tier 3
-    is tampered below 30.0."""
+    """Pin evaluate tier failsecure on low tier3."""
     assert evaluate_tier(0.0, _owned_escalation(5.0)) == "tier3"
 
 
@@ -114,7 +108,7 @@ def test_default_configs_share_no_nested_section() -> None:
 
 
 def test_pipeline_replace_preserves_session_secret() -> None:
-    """CFG-05: reconfiguring the tree keeps the secret passed beside it."""
+    """Pin pipeline replace preserves session secret."""
     secret = b"key"
     pipeline = Pipeline(
         config=PetasosConfig(), secrets=Secrets(session_secret=secret), host_id="h1"
@@ -128,8 +122,7 @@ def test_pipeline_replace_preserves_session_secret() -> None:
 
 
 def test_compute_safe_fallback_on_invalid_fail_mode() -> None:
-    """CFG-05: _compute_safe falls back to 'degraded' on invalid fail_mode,
-    treating ML scanner errors as unsafe."""
+    """Pin compute safe fallback on invalid fail mode."""
     errored_ml = ScanResult(scanner_name="ml1", findings=(), duration_ms=0, error="fail")
     result = _compute_safe((), [errored_ml], "evil")
     assert result is False

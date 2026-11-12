@@ -51,7 +51,7 @@ def real_scanners() -> list[Scanner]:
             result = await asyncio.wait_for(scanner.scan("What is the capital of France?"), 90)
             assert result.error is None, result.error
 
-    # Only pre-installed assets are allowed; this gate must not download weights.
+    # Only preinstalled assets are allowed; this gate must not download weights.
     with pytest.MonkeyPatch.context() as patch:
         patch.setenv("HF_HUB_OFFLINE", "1")
         patch.setenv("TRANSFORMERS_OFFLINE", "1")

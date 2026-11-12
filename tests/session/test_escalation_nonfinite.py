@@ -1,11 +1,6 @@
-"""Regression coverage for behavioral-spec features that the audit (features-tracker.xlsx)
-flagged as untested ("NONE FOUND" / COVERAGE GAP), plus one field-attribution bug (DEF-02).
+"""Pin fail-secure handling of nonfinite risk thresholds.
 
-These lock load-bearing behaviors that previously had no direct test:
-security-relevant reject branches (HMAC token verification, fail-secure escalation),
-the PET-126 hot-reload `apply_config` surfaces, listener fan-out, and serialization
-contracts. Every test here exercises a real code path (no mocks of the unit under test).
-"""
+See docs/architecture/rationale.md, "Test timing and backend qualification"."""
 
 from __future__ import annotations
 
@@ -15,7 +10,6 @@ from petasos.config.sections import PetasosConfig
 from petasos.session.escalation import derive_tier, evaluate_tier
 
 
-# ----------------------------- ESC-03: fail-secure escalation -----------------------------
 @pytest.mark.parametrize("bad", [float("inf"), float("nan")])
 def test_non_finite_score_derives_tier3(bad: float) -> None:
     cfg = PetasosConfig()

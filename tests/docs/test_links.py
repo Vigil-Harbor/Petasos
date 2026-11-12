@@ -21,7 +21,6 @@ def _prose(text: str) -> str:
 
 
 def _destinations(text: str) -> Iterator[str]:
-    # Include inline links/images, reference definitions and HTML links/images.
     prose = _prose(text)
     for match in re.finditer(r"!?\[[^\]\n]*\]\(<?([^\s)>]+)>?(?:\s+\"[^\"]*\")?\)", prose):
         yield match[1]

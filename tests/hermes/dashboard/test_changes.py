@@ -135,7 +135,6 @@ def test_a_restart_field_is_named(tmp_path: Path) -> None:
     )
     assert "scanners.prompt_guard.threshold" in body["restart"]
     assert "restart" in body["restart_message"].lower()
-    # The message names the setting the way the screen does, not by its path.
     assert "PromptGuard sensitivity" in body["restart_message"]
     assert "An agent started from now on uses the saved value" in body["restart_message"]
     assert "already running keeps the previous value until it restarts" in body["restart_message"]

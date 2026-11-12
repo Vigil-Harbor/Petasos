@@ -1,8 +1,4 @@
-"""Health, flat reconfigure, and the reads the console was the only caller of.
-
-These assertions lived in the console handler tests and the reference plugin.
-They call the library directly.
-"""
+"""Pin pipeline health and live reconfiguration through the library API."""
 
 from __future__ import annotations
 

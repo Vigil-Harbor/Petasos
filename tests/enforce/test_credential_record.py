@@ -1,8 +1,6 @@
-"""A secret is masked before the approval line is signed.
+"""Pin approval-secret masking before event signing.
 
-PET-250 drove this through the reference plugin and the console history file.
-The spool line is the part that is still written.
-"""
+See docs/architecture/rationale.md, "Test timing and backend qualification"."""
 
 from __future__ import annotations
 

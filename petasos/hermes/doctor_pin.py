@@ -75,10 +75,7 @@ def pin_report(profile: object) -> tuple[tuple[Check, ...], dict[str, Any], obje
             {"state": "unknown", "known": False},
             profile,
         )
-    # A pin that carries its record is read whole by Petasos, so only the keys
-    # Hermes itself enforces can be missing. A managed file written by hand is
-    # left to Hermes's overlay, which merges groups and keeps a profile's
-    # group over an unset value.
+    # See docs/architecture/rationale.md, "Managed pin overlays".
     whole = _read_whole(scope)
     if whole:
         missing = sorted(key for key in (*LISTS, TIMEOUT) if key not in scope.keys)

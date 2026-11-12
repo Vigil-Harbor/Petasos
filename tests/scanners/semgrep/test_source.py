@@ -1,4 +1,4 @@
-"""Applicability and original-coordinate regressions, independent of the engine."""
+"""Pin bounded source projection and original-input coordinate coverage."""
 
 import json
 import subprocess
@@ -152,8 +152,6 @@ async def test_malformed_deep_string_does_not_hide_later_escaped_code() -> None:
 
 
 async def test_truncated_envelope_with_escaped_code_is_recorded_as_unexamined() -> None:
-    # The envelope never parses, and the raw pass cannot see a call whose
-    # parenthesis is a JSON escape. Nothing is selected, so say so.
     selected = await select_sources(r'{"a": "os.system\u0028cmd)"')
     assert selected.targets == []
     assert selected.unsupported is True
@@ -218,7 +216,6 @@ async def test_escape_and_whitespace_carry_at_every_boundary_alignment() -> None
         assert await preflight(raw)
         assert await preflight(encoded)
         assert await preflight(json.dumps(encoded))
-    # A dotted identifier itself can exceed the carry buffer as well.
     assert await preflight("prefix." + "method" * 1600 + " " * 17000 + "(payload)")
 
 
@@ -390,8 +387,8 @@ asyncio.run(run())
 
 
 def test_million_character_dotted_input_has_bounded_candidate_cost() -> None:
-    # A subprocess watchdog is necessary: asyncio timeouts cannot interrupt a
-    # synchronous regex, and the old implementation could hang CI for hours.
+    # A subprocess watchdog bounds synchronous regex work that asyncio cancellation cannot
+    # interrupt.
     script = r"""
 import asyncio, json, sys, time
 sys.path[:] = json.loads(sys.argv[1])
@@ -425,8 +422,7 @@ async def run():
 asyncio.run(run())
 """
     result = subprocess.run(
-        # Keep the parent's installed dependencies while bypassing the Windows
-        # venv redirector, so timeout kills the actual regex worker process.
+        # Bypassing the Windows venv redirector lets the watchdog kill the actual regex worker.
         [str(vars(sys)["_base_executable"]), "-c", script, json.dumps(sys.path)],
         capture_output=True,
         text=True,
@@ -437,11 +433,9 @@ asyncio.run(run())
 
 
 async def test_code_shaped_search_headers_are_not_discarded() -> None:
-    # A valid module whose first and last lines merely resemble path headers.
     text = 'os.system(cmd); """a.py\n  1: safe(1)\n""".strip()\n'
     selected = await select_sources(text)
     assert any("os.system(cmd)" in t.region.text for t in selected.targets)
-    # Genuine search output still selects only the numbered rows.
     rows = await select_sources("src/app.py\n  10: run(x)\n  11: eval(y)\n")
     assert [t.region.text for t in rows.targets] == ["run(x)\neval(y)\n"]
 
@@ -463,7 +457,6 @@ async def test_expression_callees_and_continuations_are_candidates(call: str) ->
         assert await preflight(text), text
         selected = await select_sources(text)
         assert selected.targets, text
-    # Chunk boundaries (8,192 characters) cannot split the call away.
     for shift in range(-12, 13):
         padded = " " * (8192 + shift - call.index("(", 1)) + call
         assert await preflight(padded), shift

@@ -18,15 +18,14 @@ if TYPE_CHECKING:
     from petasos.model import Direction, ScanFinding
 
 
-# PET-190: the one direction both parameter scans use. Tool parameters are agent
-# output (PET-94 Decision 2), so the outbound-only command family runs on them.
+# Both parameter paths scan outbound content so command detection applies.
 _MAX_PARAM_TEXT_LEN = MAX_PARAM_TEXT_LEN
 PARAM_SCAN_DIRECTION: Final[Direction] = "outbound"
 
 
 @dataclass(frozen=True)
 class RenderedParams:
-    """PET-190: scan text plus the length it had before the cap was applied."""
+    """Retain capped scan text and its original length."""
 
     text: str
     original_len: int
@@ -34,23 +33,15 @@ class RenderedParams:
 
     @property
     def truncated(self) -> bool:
+        """Return whether parameter text exceeds the retained scan prefix."""
         return self.original_len > len(self.text)
 
 
 def render_param_text(tool_params: Mapping[str, Any]) -> RenderedParams:
-    """PET-190: the single derivation of scan text from a tool call's parameters.
+    """Render a bounded parameter prefix shared by normal and fallback scans.
 
-    Both ``ToolCallGuard._scan_params`` and the reference plugin's
-    ``_fallback_pre_tool_call`` call this, so cap and serialization cannot drift
-    between the healthy and degraded paths. Falsy input renders empty. ``None``
-    values are dropped, string values pass through raw (no JSON escaping between
-    the scanner and the bytes the agent emitted), everything else goes through
-    ``safe_json_dumps``, and the parts are newline-joined. Text over
-    ``_MAX_PARAM_TEXT_LEN`` is cut there; the caller reads ``truncated`` and logs
-    in its own vocabulary (PET-174 shape: the helper returns data, never logs).
-    Never raises on a mapping; a non-mapping raises ``AttributeError`` into the
-    caller's existing fail-secure handler.
-    """
+    Falsy input is empty; None values are omitted and strings stay unescaped.
+    Other values use safe JSON. Non-mappings raise into the caller guard."""
     if not tool_params:
         return RenderedParams("", 0, ())
     parts: list[str] = []
@@ -80,12 +71,7 @@ async def _scan_params(
     tool_params: dict[str, Any],
     session_id: str,
 ) -> tuple[tuple[ScanFinding, ...], bool, bool]:
-    # PET-112: returns (findings, param_scan_unsafe, param_scan_degraded). The third
-    # element is True only when the unsafe verdict co-occurs with a scanner error
-    # (degraded-mode), so the plugin can block on degradation regardless of finding
-    # type. The two error early-returns force degraded=True regardless of fail_mode —
-    # a deliberate fail-safe on guard-internal/hook failure; the fail-mode-correct
-    # `not result.safe` gate applies to the normal finding-driven path only.
+    # See docs/architecture/rationale.md, "Parameter scan degradation".
     try:
         if not tool_params:
             return (), False, False

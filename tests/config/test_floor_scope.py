@@ -1,20 +1,6 @@
-"""PET-162 Part 2 regression suite: the direction-scoped injection floor.
+"""Pin inbound injection floors and direction-independent structural floors.
 
-Part 2 adds one built-in-profile field, ``injection_floor_scope`` (``"all"``
-default, or ``"inbound"``), that keeps the syntactic injection floor absolute on
-agent-inbound content while letting a profile relax it for the agent's OWN
-outbound tool calls. ``code_generation`` opts into ``"inbound"`` so a coding
-agent's outbound tool calls may carry injection-shaped text as data (writing a
-test fixture that contains "ignore previous instructions", grepping the repo for
-an injection opener) without being blocked by the otherwise-unsuppressible
-syntactic injection floor. Inbound injection still blocks at full strength for
-every profile (the PET-54/124 anti-self-disarm guarantee, preserved exactly
-where it matters), and every other profile resolves the default ``"all"`` and is
-byte-identical to before.
-
-All deterministic: MinimalScanner only, no ML backend. Async tests need no marker
-under ``anyio_mode = "auto"`` (PET-149).
-"""
+See docs/architecture/rationale.md, "Finding suppression floors"."""
 
 from __future__ import annotations
 

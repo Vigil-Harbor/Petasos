@@ -1,3 +1,5 @@
+"""Pin session risk, audit and alert hooks in complete pipeline inspections."""
+
 from __future__ import annotations
 
 import asyncio
@@ -29,18 +31,10 @@ def _cfg(partial: dict[str, object] | None = None) -> PetasosConfig:
     return from_mapping(PetasosConfig, partial)
 
 
-# ---------------------------------------------------------------------------
-# Profile integration with Pipeline
-# ---------------------------------------------------------------------------
-
-
 class _RecordingMinimalScanner(MinimalScanner):
-    """Capture the raw Stage-1b ScanResult so the PET-140 pin can inspect it.
+    """Support Recording Minimal Scanner.
 
-    Subclassing keeps the object a MinimalScanner, so assigning it to
-    ``pipe._minimal_scanner`` stays mypy --strict-clean (no mock library,
-    consistent with the repo's no-mock-for-scanners convention).
-    """
+    See docs/architecture/rationale.md, "Test timing and backend qualification"."""
 
     def __init__(self) -> None:
         super().__init__()
@@ -52,11 +46,6 @@ class _RecordingMinimalScanner(MinimalScanner):
         result = await super().scan(text, direction=direction, session_id=session_id)
         self.captured.append(result)
         return result
-
-
-# ---------------------------------------------------------------------------
-# Pipeline hooks
-# ---------------------------------------------------------------------------
 
 
 class TestPipelineHooks:
@@ -103,11 +92,6 @@ class TestPipelineHooks:
         assert result.session_score is None
 
 
-# ---------------------------------------------------------------------------
-# PipelineResult fields
-# ---------------------------------------------------------------------------
-
-
 class TestPipelineResultFields:
     async def test_feature_status_enabled_by_config_defaults(self) -> None:
         cfg = _cfg()
@@ -151,20 +135,10 @@ class TestPipelineResultFields:
         assert benign_result.safe is True
 
 
-# ---------------------------------------------------------------------------
-# Config validation for session fields
-# ---------------------------------------------------------------------------
-
-
 class TestSessionConfigValidation:
     def test_pipeline_rejects_secret_without_host_id(self) -> None:
         with pytest.raises(ValueError, match="host_id is required"):
             Pipeline(config=PetasosConfig(), secrets=Secrets(session_secret=b"key"))
-
-
-# ---------------------------------------------------------------------------
-# Outer exception handler (site 1)
-# ---------------------------------------------------------------------------
 
 
 class TestOuterExceptionHandler:
@@ -235,33 +209,26 @@ class TestProfilePipelineIntegration:
         ) >= len(active_rules)
 
     async def test_prefilter_uses_base_minimal_scanner_regardless_of_profile(self) -> None:
-        # Regression for PET-140: Stage 1b always uses the base minimal scanner;
-        # profile-driven suppression is observed only downstream at Stage 4b.
         rule = "petasos.syntactic.encoding.invisible-chars"
-        text = "​ hello"  # triggers the invisible-chars rule
+        text = "​ hello"
 
-        # no-profile run
         pipe_np = Pipeline(config=_cfg())
         rec_np = _RecordingMinimalScanner()
         pipe_np._minimal_scanner = rec_np
         res_np = await pipe_np.inspect(text, session_id="s1")
 
-        # active-profile run — code_generation suppresses the invisible-chars rule
         pipe_cg = Pipeline(config=resolve({"role": "coding"}).config)
         rec_cg = _RecordingMinimalScanner()
         pipe_cg._minimal_scanner = rec_cg
         res_cg = await pipe_cg.inspect(text, session_id="s1")
 
-        # (a) Stage 1b invoked the base scanner exactly once on each path...
         assert len(rec_np.captured) == 1
         assert len(rec_cg.captured) == 1
-        # ...and the profile did NOT pre-filter Stage 1b: raw findings identical.
         stage1b_np = {f.rule_id for f in rec_np.captured[0].findings}
         stage1b_cg = {f.rule_id for f in rec_cg.captured[0].findings}
         assert rule in stage1b_np
         assert stage1b_np == stage1b_cg
 
-        # (b) suppression manifests only AFTER Stage 1b (at Stage 4b):
         assert rule in {f.rule_id for f in res_np.findings}
         assert rule not in {f.rule_id for f in res_cg.findings}
 
@@ -327,11 +294,6 @@ class TestProfilePipelineIntegration:
         result = await pipe.inspect("hello", session_id="s1")
         assert result.feature_status is not None
         assert result.feature_status["tool_guard"] == "disabled"
-
-
-# ---------------------------------------------------------------------------
-# Audit + Alerting integration
-# ---------------------------------------------------------------------------
 
 
 class TestAuditAlertingIntegration:
@@ -508,11 +470,6 @@ class TestAuditAlertingIntegration:
         tier_alerts = [a for a in fired if a.rule_id == "tier_escalation"]
         critical = [a for a in tier_alerts if a.severity == "critical"]
         assert len(critical) >= 1
-
-
-# ---------------------------------------------------------------------------
-# PET-78 — Free keyless core
-# ---------------------------------------------------------------------------
 
 
 class TestFreeKeylessCore:

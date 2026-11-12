@@ -44,6 +44,8 @@ RULE_MESSAGES = {"petasos.semgrep." + key: message for key, message in _MESSAGES
 
 
 class ProtocolError(ValueError):
+    """Reject engine output that violates the scan protocol."""
+
     pass
 
 
@@ -61,6 +63,8 @@ _T = TypeVar("_T")
 
 @dataclass(frozen=True)
 class CpuResult(Generic[_T]):
+    """Record a bounded CPU worker value or error."""
+
     value: _T | None
     error: str | None
 
@@ -373,6 +377,7 @@ def result_for(
     error: str | None = None,
     duration_ms: float = 0,
 ) -> ScanResult:
+    """Return findings with explicit completion and unexamined-input coverage."""
     completed = completed or set()
     error = error or selection.error
     spans = []
@@ -445,6 +450,7 @@ async def scan_selected(
     cancelled: threading.Event,
     executor: ThreadPoolExecutor,
 ) -> ScanResult:
+    """Scan selected targets within the request and cleanup deadlines."""
     start = time.monotonic()
     all_findings: dict[int, list[tuple[bool, ScanFinding]]] = {}
     completed: set[int] = set()

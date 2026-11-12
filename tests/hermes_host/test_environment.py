@@ -176,7 +176,6 @@ def test_a_rebuilt_environment_keeps_the_development_wheel(
         "dependencies = []\n",
         encoding="utf-8",
     )
-    # An empty dependency list does not rebuild. A real requirement does.
     wheel = _stub_wheel(petasos_wheel / "tmp" / "probe-pkg", "probe-pkg", "probe_pkg", "0.0.1")
     (other / "pyproject.toml").write_text(
         "[project]\n"
@@ -231,10 +230,7 @@ def test_scanner_add_and_remove_change_the_next_process(
         "print(json.dumps({'torch': ok}))\n",
     )
     assert before["torch"] is False
-    # Stand in for the two heavy packages, at versions the rest of the
-    # lock already accepts. huggingface-hub and sentencepiece stay on PyPI:
-    # Hermes pins those exactly, and uv will not look past the first index
-    # that publishes the name.
+    # See docs/architecture/rationale.md, "Sandbox package indexes".
     index, server = _index(
         petasos_wheel / "tmp" / f"scanner-index-{home.name}",
         [
@@ -242,9 +238,7 @@ def test_scanner_add_and_remove_change_the_next_process(
             ("transformers", "transformers", "5.20.2"),
         ],
     )
-    # An extra index is searched before the default index. PyPI stays the
-    # default so Hermes's own packages still resolve; a stand-in wins when
-    # it is the first index that publishes that name.
+    # An extra index wins for names it publishes; PyPI resolves other Hermes dependencies.
     env = {
         "UV_EXTRA_INDEX_URL": index,
         "UV_INDEX_STRATEGY": "first-index",
@@ -322,8 +316,7 @@ def test_released_install_uses_a_private_index(
     wheel = _project_wheel(petasos_wheel)
     index_root = petasos_wheel / "tmp" / f"released-index-{home.name}"
     url, server = _serve_wheel(index_root, "petasos", wheel)
-    # Same index order as the scanner test: this wheel is on the extra index,
-    # so it wins over the petasos 0.4.0 already published on PyPI.
+    # The extra index supplies the fixture wheel ahead of the published Petasos package.
     env = {"UV_EXTRA_INDEX_URL": url, "UV_INDEX_STRATEGY": "first-index"}
     try:
         installed = _hermes(

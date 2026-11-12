@@ -80,8 +80,7 @@ def prepare_trial(sandbox: Path) -> Path:
         + api.read_text(encoding="utf-8"),
         encoding="utf-8",
     )
-    # A saved setting keeps the view compact; the pipeline's own replace mode
-    # works without Presidio's optional anonymizer engine.
+    # Replace mode runs without Presidio's optional anonymizer engine.
     import yaml
 
     config = home / "config.yaml"

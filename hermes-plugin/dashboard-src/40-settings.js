@@ -1,9 +1,3 @@
-// ---------------------------------------------------------------------------
-// Settings: every value, laid out as Hermes's Config page lays out its own.
-// Save sits in the toolbar and saves; the count of staged changes beside it
-// opens the list of what will change. Rows, labels, help, bounds, choices
-// and where each value comes from all come from the API.
-// ---------------------------------------------------------------------------
 
 function topOf(row) {
   return row.path.indexOf(".") < 0 ? "" : row.path.split(".")[0];
@@ -25,7 +19,6 @@ function fieldId(path) {
   return "petasos-field-" + path.replace(/\./g, "-");
 }
 
-// The allowed range, in words: "30 or higher", "between 1 and 8".
 function boundsText(row) {
   var b = row.bounds || {};
   var low = b.ge !== null && b.ge !== undefined ? { n: b.ge, open: false } : b.gt !== null && b.gt !== undefined ? { n: b.gt, open: true } : null;
@@ -46,8 +39,6 @@ function outOfBounds(row, number) {
   return false;
 }
 
-// What to say under a field the API refused. A number outside its range
-// says the range; anything else is the API's own sentence.
 function fieldProblem(row, text, message) {
   if (isNumber(row) && text !== undefined) {
     var number = Number(String(text).trim());
@@ -66,13 +57,10 @@ function textFor(row, value) {
   return String(value);
 }
 
-// True when a value is not its default, compared as data.
 function differs(row) {
   return JSON.stringify(row.value === undefined ? null : row.value) !== JSON.stringify(row.default === undefined ? null : row.default);
 }
 
-// The value's state in words, for the line under a control: On, the
-// choice's label, a count, or the value itself.
 function stateWords(row, value) {
   if (row.type === "bool") return value === true ? "On" : "Off";
   if (row.choices && row.choices.length) return showValue(value, row);
@@ -86,9 +74,7 @@ function stateWords(row, value) {
   return String(value);
 }
 
-// A mapping, edited as rows: two labelled fields per entry, named by the
-// schema's entry labels, with Add and Remove. Built from Hermes's inputs and
-// buttons; Hermes's Config has no editor for adding entries to a mapping.
+// Hermes Config has no mapping-entry editor; schema labels name both fields.
 function MappingRows(props) {
   var row = props.row;
   var labels = row.entry_labels || ["Name", "Value"];
@@ -113,8 +99,7 @@ function MappingRows(props) {
     });
     return out;
   }
-  // A change from outside (Undo, Discard, a rule lowered elsewhere) resets
-  // the rows; an edit made here produces the same value and keeps them.
+  // Outside changes reset rows; local edits retain their editing state.
   var incoming = JSON.stringify(props.value || {});
   useEffect(
     function () {
@@ -201,8 +186,7 @@ function MappingRows(props) {
   );
 }
 
-// Turn what a person typed into the value the API expects. A number that
-// does not parse is sent as text, so the API says what it needs.
+// Unparsed numbers stay text so the API can return its validation reason.
 function parseFor(row, text) {
   if (isList(row)) {
     return text
@@ -286,9 +270,6 @@ function FieldControl(props) {
   });
 }
 
-// One field as Config draws it, with one secondary line beneath the control
-// that states the value and where it comes from together ("On · Default"),
-// and, where they apply, the allowed range, a restart, and Reset or Undo.
 function FieldRow(props) {
   var row = props.row;
   var saved = props.saved || row;
@@ -402,8 +383,6 @@ function RuleHelper(props) {
   );
 }
 
-// The list of staged changes, opened from the count beside Save: an ordinary
-// panel under the toolbar that pushes the form down.
 function ChangeSheet(props) {
   var catalog = props.catalog;
   var preview = props.preview;
@@ -515,7 +494,6 @@ function Settings(props) {
     [draftKey]
   );
 
-  // A link to one setting opens its section and brings it into view.
   useEffect(
     function () {
       if (params.path) sectionState[1](topOf({ path: params.path }) || "general");
@@ -669,7 +647,6 @@ function Settings(props) {
     setTexts(t);
   }
 
-  // Navigation: Basics first, then each top-level section in API order.
   var expert = expertState[0];
   var search = searchState[0].trim().toLowerCase();
   var tops = [""];
@@ -720,7 +697,6 @@ function Settings(props) {
             return topOf(row) === activeTop && visible(row);
           });
 
-  // Group the shown rows by their parent section, in the order they come.
   var groups = [];
   shown.forEach(function (row) {
     var last = groups[groups.length - 1];

@@ -1,8 +1,6 @@
-"""PET-11 iterator deliverables: Hermes Desktop integration surface tests.
+"""Pin usable library defaults at host-facing enforcement boundaries.
 
-Tests the critical integration gaps between Petasos library defaults and a
-production Hermes Desktop deployment, per the PET-11 integration brief.
-"""
+See docs/architecture/rationale.md, "Test timing and backend qualification"."""
 
 from __future__ import annotations
 
@@ -21,10 +19,6 @@ from petasos.model import (
 from petasos.pipeline import Pipeline
 
 _SECRETS = Secrets(hash_key="test-hmac-key-for-anonymization")
-
-# ---------------------------------------------------------------------------
-# Shared mock scanner
-# ---------------------------------------------------------------------------
 
 
 class _MockScanner:
@@ -97,11 +91,6 @@ def hermes_pipeline(
         host_id="hermes-test-01",
     )
     return pipe
-
-
-# ---------------------------------------------------------------------------
-# Task 2: Hermes integration fixture — production pipeline validation
-# ---------------------------------------------------------------------------
 
 
 class TestHermesProductionPipeline:

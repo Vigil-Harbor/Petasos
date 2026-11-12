@@ -23,8 +23,7 @@ from petasos.config.sections import PetasosConfig
 
 _Kind = Literal["leaf", "role", "arm", "scanners", "drop"]
 
-# Old scanner ids that are no longer backends. Any other unknown id is reported
-# as unknown rather than rejected: a migration lists what it could not carry.
+# Migration reports unavailable backends without rejecting the remaining settings.
 _REMOVED_SCANNERS: dict[str, str] = {
     "llm_guard": "llm_guard was removed and was not copied.",
     "llama_firewall": "llama_firewall was removed and was not copied.",
@@ -37,16 +36,13 @@ _SCANNER_ENABLED: dict[str, str] = {
 _ENTITY_EXTRA = "scanners.presidio.entities_extra"
 _UPPER_PATHS = frozenset({"scanners.presidio.entities", _ENTITY_EXTRA})
 
-# Tier numbers stored on the research and admin profiles. The Hermes plugin
-# built the guard without a profile, and escalation reads the config tiers, so
-# these numbers never took effect there. The roles do not carry them.
+# Profile tier values are migration diagnostics; escalation uses config thresholds.
 _PROFILE_TIERS: dict[str, tuple[str, str, str]] = {
     "research": ("25, 45, 70", "relaxed", "25, 45, 65"),
     "admin": ("10, 20, 35", "strict", "10, 22, 40"),
 }
 _POSTURE = "tools.dangerous_posture"
-# The general role now asks. A converted general profile keeps the old block,
-# and the note says so. The phrase is what migrate_cmd treats as intentional.
+# migrate_cmd recognises this note as an intentional blocking override.
 _GENERAL_BLOCK_NOTE = (
     "The general role now asks a person before a risky tool call. "
     "This configuration was converted as general, whose old profile blocked "
@@ -57,12 +53,11 @@ _GENERAL_BLOCK_NOTE = (
 
 @dataclass(frozen=True, slots=True)
 class FieldMove:
-    """One old flat name and where a migration sends it.
+    """Describe how a 0.5 field maps into settings or a dropped-field note.
 
     ``path`` is the new leaf, ``role``, or ``enabled``. It is None when the
     name is dropped. ``kind`` says which of those a caller is looking at.
-    ``note`` is the sentence used when the name is dropped.
-    """
+    ``note`` is the sentence used when the name is dropped."""
 
     old: str
     path: str | None
@@ -79,7 +74,6 @@ def _move(
     return FieldMove(old=old, path=path, kind=kind, note=note)
 
 
-# Every old PetasosConfig field, plus the two section keys that were never fields.
 MOVES: tuple[FieldMove, ...] = (
     _move("normalize_nfkc", "normalization.nfkc"),
     _move("strip_zero_width", "normalization.zero_width"),
@@ -187,12 +181,11 @@ _REVERSE: dict[str, str] = {
 
 @dataclass(frozen=True, slots=True)
 class Migration:
-    """The settings a 0.5 ``petasos:`` section becomes, plus what was left out.
+    """Hold converted settings and dropped-field notes without secret values.
 
     ``settings`` is a document ``resolve`` accepts. ``dropped`` names every key
     that was not copied, in the order it appeared. ``notes`` says why, in that
-    same order, and never includes a secret value.
-    """
+    same order, and never includes a secret value."""
 
     settings: Mapping[str, Any]
     dropped: tuple[str, ...]
@@ -260,7 +253,7 @@ def _canon_map(info: FieldInfo, value: object) -> object:
 
 
 def canon(info: FieldInfo, value: object) -> object:
-    """The value ``from_mapping`` would store, or the original when it cannot."""
+    """Return the canonical schema value, retaining the input when invalid."""
     if value is None:
         return None
     if info.type_name == "float" and type(value) is int:

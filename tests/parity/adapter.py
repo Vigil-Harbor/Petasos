@@ -36,8 +36,6 @@ if TYPE_CHECKING:
     from petasos.config.sections import PetasosConfig
     from petasos.model import Direction, PipelineResult
 
-# Absolute, and long enough for the self-modification owned-path check.
-# The corpus uses this same path. It does not need to exist on disk.
 PARITY_HOME = HermesConfigResolution(
     path=Path("/tmp/petasos-parity-home/config.yaml"),
     tier="root",
@@ -221,8 +219,7 @@ async def _evaluate_tool_call(
 async def _run_session(
     steps: list[dict[str, Any]], *, profile: str | None
 ) -> list[dict[str, Any]]:
-    # A new engine, not the batch cache: the sequence is one session, and
-    # it must not see single-shot state or another sequence's state.
+    # Each sequence needs a fresh engine to isolate it from single-shot and other sequence state.
     engine = _Engine.from_label(_label(profile))
     session_id = "parity-session"
     out: list[dict[str, Any]] = []
@@ -299,8 +296,6 @@ async def _replay_corpus(corpus: dict[str, Any]) -> dict[str, Any]:
     try:
         for label in ALL_PROFILES:
             name, use_guard = _arrangement(label)
-            # Text never reaches the guard. A plugin label's pipeline profile
-            # was already scanned under the bare name, which is built first.
             if not use_guard and name is not None:
                 copied = text_out.get(name)
                 if copied is None:

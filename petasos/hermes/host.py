@@ -199,7 +199,7 @@ def approval_grant() -> ApprovalGrant:
 def command_will_be_asked(command: str) -> bool:
     """True when Hermes will put this terminal command to a person.
 
-    False when ``detect_dangerous_command`` cannot be imported, has moved, or
+    False when ``detect_dangerous_command`` is unavailable or
     raises, when it does not flag the command, and when Hermes would approve
     or refuse the command without asking. A hardline command is a refusal.
 

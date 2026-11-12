@@ -100,8 +100,7 @@ def test_command_example_help(command: str, tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("args", [["doctor", "--json"], ["hermes", "install", "--dry-run"]])
 def test_read_only_commands_on_empty_home(args: list[str], tmp_path: Path) -> None:
-    # No ambient Hermes reader may inspect a machine-level location or launch
-    # a plugin. This is the missing-host path, not a substitute host validator.
+    # Ambient Hermes readers must not inspect machine locations or launch plugins.
     completed = _run(
         "import sys\n"
         "sys.modules['hermes_cli'] = None\n"
@@ -146,8 +145,7 @@ def test_setting_example_runs_through_validation(
         assert plugin_dir == plugin
         saved.append(values)
 
-    # Only the host boundary is replaced. The documented command, argument
-    # coercion, config resolution and change reporting all execute normally.
+    # Only the host boundary is replaced; command parsing and configuration execute normally.
     monkeypatch.setattr("petasos.hermes.config_set.pinned_settings", lambda: None)
     monkeypatch.setattr("petasos.hermes.config_set.write_settings", remember)
     assert main([*shlex.split(command)[1:], "--home", str(tmp_path)]) == 0

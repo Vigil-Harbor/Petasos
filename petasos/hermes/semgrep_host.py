@@ -1,12 +1,7 @@
-"""Whether Hermes can run Semgrep, and the sentences a person reads about that.
+"""Refuse Semgrep activation in Hermes without owned engine lifecycle support.
 
-False until a later package runs the engine. Callers in the adapter read
-:func:`semgrep_can_run` and do not decide on their own. Until then the only
-value that works inside Hermes is ``off``: ``on`` and ``auto`` both ask for a
-check that cannot start, and under the usual fail mode that blocks tool calls
-that change things. The library still accepts all three. A hand-written
-``on`` or ``auto`` is left as it is and keeps failing closed.
-"""
+Stored on/auto requests remain visible and unavailable; off is the only
+working host setting. The library accepts its full scanner vocabulary."""
 
 from __future__ import annotations
 
@@ -14,7 +9,7 @@ SEMGREP_ENABLED = "scanners.semgrep.enabled"
 
 SEMGREP_CANNOT_RUN = "Semgrep cannot run inside Hermes yet."
 
-# A stored value the form no longer offers is still shown, with this after it.
+# Unsupported stored values remain visible with this explanation.
 SEMGREP_CANNOT_RUN_SUFFIX = " (cannot run yet)"
 
 SEMGREP_OFF_COMMAND = "petasos config set scanners.semgrep.enabled off"

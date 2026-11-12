@@ -21,8 +21,6 @@ def _facts(home: Path, python: Path) -> None:
     key = home / "installs" / "abc"
     key.mkdir(parents=True)
     environment.mkdir(parents=True, exist_ok=True)
-    # The interpreter has to live inside the recorded environment, which itself
-    # lives under the home. Point the record at that tree.
     recorded = key / "environments" / "one" / "venv"
     recorded.mkdir(parents=True)
     (recorded / "pyvenv.cfg").write_text("home = x\n", encoding="utf-8")

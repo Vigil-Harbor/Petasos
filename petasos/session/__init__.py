@@ -1,3 +1,5 @@
+"""Expose bounded session risk, audit, alert and lineage helpers."""
+
 from petasos.model import Alert, AuditEvent
 from petasos.session.alerting import AlertManager
 from petasos.session.audit import AuditEmitter

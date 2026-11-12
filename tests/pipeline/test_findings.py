@@ -1,3 +1,5 @@
+"""Pin overlap resolution without discarding unpositioned findings."""
+
 from __future__ import annotations
 
 from petasos.model import Position, ScanFinding, ScanResult, Severity

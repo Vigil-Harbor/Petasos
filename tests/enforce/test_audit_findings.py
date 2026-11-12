@@ -1,8 +1,6 @@
-"""Per-finding audit lines, from the handler the enforcer installs.
+"""Pin privacy-safe per-finding audit records from enforcer handlers.
 
-PET-136 pinned these through the reference plugin's ``_handle_audit``. The
-handler now lives in ``petasos.enforce.engine``.
-"""
+See docs/architecture/rationale.md, "Alert and audit test constraints"."""
 
 from __future__ import annotations
 

@@ -1,7 +1,4 @@
-"""PET-179: two-axis tool classification. Both published sets are derived from
-``_TOOL_AXES``; a like-for-like swap that preserves counts still fails the
-membership pin.
-"""
+"""Pin independent argument-action and result-ingestion classifications."""
 
 from __future__ import annotations
 
@@ -79,7 +76,7 @@ _EXPECTED_NON_INGESTING = (
 
 
 def test_browser_navigate_is_scanned_and_still_argument_gated() -> None:
-    """Regression for PET-179: both halves for one tool, which one frozenset cannot satisfy."""
+    """Pin browser navigate is scanned and still argument gated."""
     assert "browser_navigate" in INGESTION_TOOLS
     assert "browser_navigate" not in READ_ONLY_TOOLS
     assert "browser_type" not in READ_ONLY_TOOLS
@@ -108,11 +105,11 @@ def test_derive_is_the_only_source() -> None:
 
 
 def test_unknown_tool_defaults_stated_per_axis() -> None:
-    """Unknown names are gated on arguments and scanned on results (PET-181 invert)."""
+    """Pin unknown tool defaults stated per axis."""
     unknown = "definitely_not_a_registered_tool"
     assert unknown not in READ_ONLY_TOOLS
     assert unknown not in NON_INGESTING_TOOLS
-    assert unknown not in INGESTION_TOOLS  # named-set completeness, not the seam's gate
+    assert unknown not in INGESTION_TOOLS
     assert unknown not in _TOOL_AXES
 
 

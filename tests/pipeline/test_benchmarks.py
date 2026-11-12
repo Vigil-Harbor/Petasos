@@ -1,3 +1,5 @@
+"""Measure pipeline latency and resource bounds."""
+
 from __future__ import annotations
 
 import asyncio
@@ -18,9 +20,6 @@ pytestmark = pytest.mark.skipif(
     reason="pytest-benchmark not installed — pip install petasos[dev]",
 )
 
-# ---------------------------------------------------------------------------
-# PromptGuard on the full stack. Measure-only. Read at HEAD_CHARS.
-# ---------------------------------------------------------------------------
 
 _NATURAL_SENTENCE = (
     "The quarterly report covers revenue, staffing and the migration schedule. "
@@ -124,7 +123,7 @@ def test_benchmark_full_pipeline_migrated(benchmark) -> None:  # type: ignore[no
         loop.run_until_complete(pipe.inspect(text))
         assert not pipe._last_scan_errors, pipe._last_scan_errors
 
-    clean(_SHORT)  # first Presidio load
+    clean(_SHORT)
 
     def timed(text: str) -> float:
         samples = []
@@ -142,6 +141,7 @@ def test_benchmark_full_pipeline_migrated(benchmark) -> None:  # type: ignore[no
 
 
 def test_benchmark_full_pipeline(benchmark) -> None:  # type: ignore[no-untyped-def]
+    """Measure full pipeline latency."""
     config = from_mapping(
         PetasosConfig,
         {

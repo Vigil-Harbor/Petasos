@@ -1,3 +1,5 @@
+"""Pin sequenced audit payloads, privacy and callback isolation."""
+
 from __future__ import annotations
 
 import uuid
@@ -16,10 +18,7 @@ from petasos.session.frequency import FrequencyUpdateResult
 class _AuditCallbackKill(BaseException):
     """A BaseException (not an Exception) raised by a callback.
 
-    Used to prove emit() isolates BaseException subclasses, not just Exception —
-    the pre-fix code caught only ``Exception`` and re-raised, so this would have
-    propagated straight through inspect().
-    """
+    See docs/architecture/rationale.md, "Alert and audit test constraints"."""
 
 
 def _cfg(partial: dict[str, object] | None = None) -> PetasosConfig:
@@ -70,11 +69,6 @@ def _freq_result(
     )
 
 
-# ---------------------------------------------------------------------------
-# AuditEvent construction
-# ---------------------------------------------------------------------------
-
-
 class TestAuditEventConstruction:
     def test_all_fields_populated(self) -> None:
         emitter = AuditEmitter(_cfg())
@@ -91,11 +85,6 @@ class TestAuditEventConstruction:
         event = emitter.emit(_result(), "s1", None)
         parsed = uuid.UUID(event.event_id)
         assert parsed.version == 4
-
-
-# ---------------------------------------------------------------------------
-# Verbosity levels
-# ---------------------------------------------------------------------------
 
 
 class TestVerbosityLevels:
@@ -192,8 +181,6 @@ class TestVerbosityLevels:
         assert findings_list[0]["rule_id"] == "test.injection"
         assert findings_list[0]["severity"] == "high"
         assert findings_list[0]["confidence"] == 0.85
-        # PET-136: emit() called without a direction argument and _cfg() does not
-        # override direction, so it resolves to the PetasosConfig.direction default.
         assert findings_list[0]["direction"] == "inbound"
 
     def test_verbose_scanner_results_content(self) -> None:
@@ -227,11 +214,6 @@ class TestVerbosityLevels:
         event = emitter.emit(_result(), "s1", _freq_result())
         assert isinstance(event.payload["config_snapshot"], dict)
         assert event.payload["config_snapshot"]["audit"]["verbosity"] == "verbose"
-
-
-# ---------------------------------------------------------------------------
-# Sequence numbers
-# ---------------------------------------------------------------------------
 
 
 class TestSequenceNumbers:
@@ -269,11 +251,6 @@ class TestSequenceNumbers:
         assert [e.sequence_number for e in events] == list(range(100))
 
 
-# ---------------------------------------------------------------------------
-# Callback behavior
-# ---------------------------------------------------------------------------
-
-
 class TestCallbackBehavior:
     def test_no_callback_completes_without_error(self) -> None:
         emitter = AuditEmitter(_cfg(), on_audit=None)
@@ -309,21 +286,11 @@ class TestCallbackBehavior:
         assert "generic" in emitter.last_callback_error
 
 
-# ---------------------------------------------------------------------------
-# Event types
-# ---------------------------------------------------------------------------
-
-
 class TestEventTypes:
     def test_event_type_is_scan_complete(self) -> None:
         emitter = AuditEmitter(_cfg())
         event = emitter.emit(_result(), "s1", None)
         assert event.event_type == "scan_complete"
-
-
-# ---------------------------------------------------------------------------
-# Edge cases
-# ---------------------------------------------------------------------------
 
 
 class TestEdgeCases:
@@ -380,7 +347,7 @@ class TestEdgeCases:
             event.payload["injected"] = True  # type: ignore[index]
 
     def test_verbose_payload_redacts_hash_key(self) -> None:
-        # The hash key is a secret, not a setting, so the verbose snapshot has no place to put it.
+        # The hash key is not a setting and must not enter a verbose configuration snapshot.
         cfg = _cfg(
             {
                 "audit": {"verbosity": "verbose"},
@@ -416,15 +383,7 @@ class TestEdgeCases:
         assert emitter._global_sequence == 3
 
 
-# ---------------------------------------------------------------------------
-# AUD-01 (PET-20) — sequence chain survives session churn / TTL prune
-#
-# Regression for: "Reuse session_id after TTL prune -> sequence_number resets
-# to 0". The pre-fix emitter kept a per-session counter pruned on TTL, so a
-# reconnecting session restarted at 0 and the cross-session sequence had
-# duplicate values. The global monotonic counter is immune. Each test below
-# FAILS against the pre-fix per-session implementation and PASSES post-fix.
-# ---------------------------------------------------------------------------
+# See docs/architecture/rationale.md, "Alert and audit test constraints".
 
 
 class TestSequenceAdversarial:
@@ -436,7 +395,6 @@ class TestSequenceAdversarial:
         again = emitter.emit(_result(), "agent-A", None)
 
         assert first.sequence_number == 0
-        # Pre-fix (per-session counter) would give agent-A its own seq == 1 here.
         assert again.sequence_number == 51
         assert again.sequence_number > first.sequence_number
 
@@ -447,14 +405,11 @@ class TestSequenceAdversarial:
             for sid in ("a", "b", "c"):
                 seqs.append(emitter.emit(_result(), sid, None).sequence_number)
 
-        # Pre-fix per-session counters produce duplicates ([0,0,0,1,1,1,...]).
         assert len(set(seqs)) == len(seqs)
         assert seqs == sorted(seqs)
         assert seqs == list(range(12))
 
     def test_sequence_does_not_reset_after_ttl_prune(self) -> None:
-        # Literal AUD-01 attack: let a session's TTL elapse (which pre-fix would
-        # prune), churn other sessions, then reconnect the original session_id.
         emitter = AuditEmitter(
             _cfg(
                 {
@@ -470,29 +425,18 @@ class TestSequenceAdversarial:
             mock_time.monotonic.return_value = 1000.0
             first = emitter.emit(_result(), "agent-A", None)
 
-            # Advance well past the TTL while other sessions emit.
             mock_time.monotonic.return_value = 1000.0 + 100.0
             for i in range(5):
                 emitter.emit(_result(), f"churn-{i}", None)
 
-            # agent-A reconnects after its counter would have been pruned.
             again = emitter.emit(_result(), "agent-A", None)
 
         assert first.sequence_number == 0
-        # Pre-fix: pruned counter -> reconnect restarts at 0.
         assert again.sequence_number == 6
         assert again.sequence_number > first.sequence_number
 
 
-# ---------------------------------------------------------------------------
-# AUD-02 (PET-21) — on_audit callback failures never reach the pipeline
-#
-# Regression for: "on_audit raises RuntimeError -> propagates to pipeline,
-# breaking the never-throws invariant". The pre-fix emit() re-raised as
-# RuntimeError (and caught only Exception, so BaseException escaped entirely).
-# Post-fix swallows BaseException, logs with exc_info, and records the error
-# in last_callback_error for the pipeline hook to fold into PipelineResult.errors.
-# ---------------------------------------------------------------------------
+# See docs/architecture/rationale.md, "Alert and audit test constraints".
 
 
 class TestCallbackIsolationAdversarial:
@@ -501,8 +445,6 @@ class TestCallbackIsolationAdversarial:
             raise RuntimeError("on_audit boom")
 
         emitter = AuditEmitter(_cfg(), on_audit=bad_cb)
-        # Pre-fix this call raised RuntimeError; the assertions below were never
-        # reached. Post-fix it returns normally.
         event = emitter.emit(_result(), "s1", None)
         assert event is not None
         assert emitter.last_callback_error is not None
@@ -514,7 +456,6 @@ class TestCallbackIsolationAdversarial:
             raise _AuditCallbackKill("base-level kill")
 
         emitter = AuditEmitter(_cfg(), on_audit=bad_cb)
-        # Pre-fix caught only Exception, so this BaseException propagated.
         event = emitter.emit(_result(), "s1", None)
         assert event is not None
         assert emitter.last_callback_error is not None
@@ -533,7 +474,6 @@ class TestCallbackIsolationAdversarial:
 
         state["fail"] = False
         emitter.emit(_result(), "s1", None)
-        # A clean emit must not carry the prior error into PipelineResult.errors.
         assert emitter.last_callback_error is None
 
     def test_sequence_advances_despite_callback_failure(self) -> None:
@@ -543,7 +483,5 @@ class TestCallbackIsolationAdversarial:
         emitter = AuditEmitter(_cfg(), on_audit=bad_cb)
         e1 = emitter.emit(_result(), "s1", None)
         e2 = emitter.emit(_result(), "s1", None)
-        # The event is still fully formed and the chain advances even though the
-        # callback failed on every emit.
         assert e1.sequence_number == 0
         assert e2.sequence_number == 1

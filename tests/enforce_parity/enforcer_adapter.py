@@ -524,8 +524,6 @@ class _Runner:
         if not isinstance(section, dict):
             raise TypeError("profile settings must be an object")
         if isinstance(given, str):
-            # A caller-supplied home is accepted only when it exists. The
-            # settings, if any, were already written by the scenario.
             pass
         else:
             home.mkdir(parents=True, exist_ok=True)

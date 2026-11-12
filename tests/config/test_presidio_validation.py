@@ -1,10 +1,6 @@
-"""PET-109: Presidio entity scoping — default-set, config round-trip/apply, and
-real-backend regression (benign technical corpus + real-PII preservation).
+"""Pin nonempty curated entity selections and valid Presidio thresholds.
 
-The backend-free rows are module-level functions. The two `@requires_presidio`
-rows live in class ``TestPresidioTightenedDefault`` — the ``target_class`` the
-conftest non-skipping-lane guard pins for ``extras-presidio`` (D4).
-"""
+See docs/architecture/rationale.md, "Test timing and backend qualification"."""
 
 from __future__ import annotations
 
@@ -34,13 +30,11 @@ def test_config_round_trips_presidio_fields() -> None:
     assert rt.scanners.presidio.entities_extra == ("URL",)
     assert rt.scanners.presidio.score_threshold == 0.5
 
-    # None -> to_dict -> from_dict -> None (no existing precedent; assert explicitly)
     base = PetasosConfig()
     assert base.scanners.presidio.entities is None
     rt_none = from_mapping(PetasosConfig, to_mapping(base))
     assert rt_none.scanners.presidio.entities is None
 
-    # invalid threshold
     with pytest.raises(ValueError):
         from_mapping(
             PetasosConfig,
@@ -63,7 +57,6 @@ def test_config_round_trips_presidio_fields() -> None:
                 },
             },
         )
-    # empty explicit presidio_entities is meaningless
     with pytest.raises(ValueError):
         from_mapping(
             PetasosConfig,
@@ -75,7 +68,6 @@ def test_config_round_trips_presidio_fields() -> None:
                 },
             },
         )
-    # bare-string / empty-string entries
     with pytest.raises(ValueError):
         from_mapping(
             PetasosConfig,
@@ -112,8 +104,7 @@ def test_config_round_trips_presidio_fields() -> None:
 
 
 def test_presidio_entities_casing_normalized() -> None:
-    # case-folded AND surrounding whitespace trimmed (a " URL " entry would otherwise
-    # be a silent no-op — it matches no recognizer in analyzer.analyze).
+    # Recognizer names are trimmed and case-normalized to prevent silent scope mismatches.
     cfg = from_mapping(
         PetasosConfig,
         {
@@ -130,14 +121,11 @@ def test_presidio_entities_casing_normalized() -> None:
     )
     assert cfg.scanners.presidio.entities == ("PERSON", "URL")
     assert cfg.scanners.presidio.entities_extra == ("IP_ADDRESS",)
-    assert cfg.anonymization.entities == (
-        "EMAIL_ADDRESS",
-    )  # trimmed (D7 filter uppercases at read)
+    assert cfg.anonymization.entities == ("EMAIL_ADDRESS",)
 
 
 def test_whitespace_only_entity_entries_rejected() -> None:
-    # whitespace-only entries are non-empty but normalize to nothing — reject them
-    # rather than let them silently disable a security-sensitive detector/filter.
+    # Whitespace-only entity names would silently disable detection without validation.
     with pytest.raises(ValueError):
         from_mapping(
             PetasosConfig,

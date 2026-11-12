@@ -36,7 +36,6 @@ _RESTART_ROOTS = (
     "scanners.semgrep.",
 )
 
-# A scan reads this list itself, so a role change applies without a restart.
 _LIVE = frozenset({"scanners.presidio.entities_extra"})
 
 

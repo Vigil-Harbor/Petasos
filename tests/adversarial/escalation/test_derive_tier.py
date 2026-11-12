@@ -1,4 +1,4 @@
-"""PET-75 ESC-03: Shared derive_tier() helper and guard integration."""
+"""Pin shared score-to-tier derivation in library and guard decisions."""
 
 from __future__ import annotations
 
@@ -53,8 +53,6 @@ class TestDeriveTierBoundaries:
 
 class TestGuardDeriveTier:
     async def test_guard_ignores_profile_thresholds(self) -> None:
-        # Roles carry no tier thresholds. The verdict uses the thresholds
-        # stated here: 15 / 30 / 50, so a score of 20 is tier 1.
         cfg = _cfg({"escalation": {"tier1": 15.0, "tier2": 30.0, "tier3": 50.0}})
         pipe = Pipeline(config=cfg)
         tracker = FrequencyTracker(cfg)

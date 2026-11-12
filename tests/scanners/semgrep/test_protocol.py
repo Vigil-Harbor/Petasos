@@ -1,4 +1,4 @@
-"""Hostile protocol data and lexical-exclusion regressions."""
+"""Pin hostile engine-output rejection and conservative local-binding exclusions."""
 
 import json
 from pathlib import Path
@@ -47,7 +47,6 @@ def test_explicit_local_function_binding_is_excluded() -> None:
         "@decorator\ndef eval(value):\n    return value\neval(data)",
         "def eval(value):\n    return value\n(lambda eval: eval(data))(other)",
         "def eval(value):\n    return value\nexec(rebind)\neval(data)",
-        # Annotations run at definition time on Python 3.11-3.13.
         'def eval(value):\n    return value\ndef other(arg: globals().pop("eval")):\n'
         "    pass\neval(data)",
         "def eval(value):\n    return value\ndef other(*, arg: rebind()):\n    pass\neval(data)",

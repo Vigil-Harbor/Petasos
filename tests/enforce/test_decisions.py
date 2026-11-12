@@ -1,4 +1,4 @@
-"""The tool-call decision ladder, with plain inputs and no host."""
+"""Pin host-neutral allow, block and approval decisions."""
 
 from __future__ import annotations
 

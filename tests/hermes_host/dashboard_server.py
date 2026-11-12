@@ -34,7 +34,6 @@ from tests.hermes_host.client import remember_pid, sandbox_env
 
 TOKEN = "petasos-dashboard-demo"
 
-# Processes this module started, so ``stop`` can reap them.
 _STARTED: dict[int, subprocess.Popen[bytes]] = {}
 
 

@@ -1,14 +1,6 @@
-"""Direct PromptGuard 2 scanner on torch and transformers (PET-242).
+"""Share bounded PromptGuard inference across scanner copies without eager ML imports.
 
-Module-level imports are stdlib plus ``petasos.model``. torch and transformers
-import locally inside ``_load`` and ``_score``, so ``import petasos.scanners``
-stays ML-free. ``_score`` holds every torch use in the inference path, which lets
-the default test lane replace it and test the rest of the scanner without torch.
-
-The loaded model is module state, not instance state. One multiplexed Hermes
-gateway builds a scanner list per guarded profile home, and every copy imports
-this one module, so N copies share one model in memory.
-"""
+See docs/architecture/rationale.md, "PromptGuard loading and sharing"."""
 
 from __future__ import annotations
 
@@ -413,6 +405,8 @@ def _scan_sync(text: str, cancelled: threading.Event) -> float | None:
 
 
 class PromptGuardScanner:
+    """Detect injection with bounded, shared PromptGuard inference."""
+
     def __init__(self, *, threshold: float = _BLOCK_THRESHOLD) -> None:
         """Report injection when the score is at least ``threshold``.
 
@@ -422,6 +416,7 @@ class PromptGuardScanner:
 
     @property
     def name(self) -> str:
+        """Return the stable scanner id."""
         return "prompt_guard"
 
     def availability(self) -> tuple[bool, str | None, AvailabilityCause | None]:

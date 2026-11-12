@@ -29,7 +29,7 @@ def _unknown_entity(name: str) -> str:
 
 @section
 class PromptGuardConfig:
-    """Whether PromptGuard runs, and the score at which it reports injection."""
+    """Validate PromptGuard activation and score thresholds."""
 
     enabled: _ENABLED = setting(
         default="auto",
@@ -61,7 +61,7 @@ class PromptGuardConfig:
 
 @section
 class PresidioConfig:
-    """Whether Presidio runs, which types it looks for, and how sure it must be."""
+    """Validate personal-information scope, confidence and language."""
 
     enabled: _ENABLED = setting(
         default="auto",
@@ -113,6 +113,7 @@ class PresidioConfig:
     )
 
     def check(self) -> None:
+        """Reject empty languages and unknown or empty explicit entity selections."""
         problems: list[tuple[str, str]] = []
         if self.language.strip() == "":
             problems.append(("language", "must name a language, such as en"))
@@ -136,7 +137,7 @@ class PresidioConfig:
 
 @section
 class SemgrepConfig:
-    """Whether the isolated Semgrep engine runs, and where that engine lives."""
+    """Validate engine activation, identity and scan resource limits."""
 
     enabled: _ENABLED = setting(
         default="off",
@@ -186,6 +187,7 @@ class SemgrepConfig:
     )
 
     def check(self) -> None:
+        """Reject nonabsolute engine paths and malformed SHA-256 digests."""
         problems: list[tuple[str, str]] = []
         if self.engine_path is not None and not os.path.isabs(self.engine_path):
             problems.append(("engine_path", "must be an absolute path"))
@@ -199,7 +201,7 @@ class SemgrepConfig:
 
 @section
 class ScannersConfig:
-    """How long a scanner may run, plus the settings for each optional scanner."""
+    """Validate optional scanner settings and shared timeout policy."""
 
     timeout_seconds: float = setting(
         default=10.0,

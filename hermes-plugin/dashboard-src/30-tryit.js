@@ -1,12 +1,5 @@
-// ---------------------------------------------------------------------------
-// Try it: paste text or describe a tool call, and see what Petasos would do.
-// Nothing here is saved or recorded. Trial settings are not saved.
-// ---------------------------------------------------------------------------
 
-// The sample inputs come from the API (GET /playground/examples). They are
-// not kept in this script: Hermes scans a plugin's files for dangerous
-// strings before it loads the plugin, and a sample attack written here reads
-// to that scan as an attack.
+// See docs/architecture/rationale.md, "Dashboard source packaging".
 function exampleIn(list, id) {
   return (list || []).filter(function (item) {
     return item.id === id;
@@ -21,7 +14,6 @@ function inputOf(example) {
   return { mode: "text", text: example.text, direction: example.direction || "inbound" };
 }
 
-// The checked text with each finding marked, numbered to match the list.
 function Marked(props) {
   var text = props.text || "";
   var spans = (props.findings || [])
@@ -53,9 +45,6 @@ function Marked(props) {
   return h("pre", { className: "petasos-marked", "aria-label": props.label }, parts);
 }
 
-// What matched, in words: the rule's sentence and how serious it is, with the
-// two things a person may do about it. Rule ids and match strength are
-// technical detail, listed in TechnicalFindings.
 function FindingList(props) {
   var findings = props.findings || [];
   return h(
@@ -119,8 +108,6 @@ function TechnicalFindings(props) {
   );
 }
 
-// Each check in this run, named by what it does, with its state from the
-// API: checked, skipped, or paused while protection is paused.
 function ScannerTakePart(props) {
   return h(
     "ul",
@@ -147,7 +134,7 @@ function ScannerTakePart(props) {
 }
 
 function argumentText(args) {
-  // The API marks findings against the string arguments joined by line breaks.
+  // Finding offsets index string arguments joined by newline.
   return Object.keys(args || {})
     .map(function (key) {
       return typeof args[key] === "string" ? args[key] : null;
@@ -163,8 +150,6 @@ function lastPart(rule) {
   return text.slice(text.lastIndexOf(".") + 1);
 }
 
-// What a trial changes, by name: the job, the strictness, each rule turned
-// off, and each other setting by its label.
 function trialNames(candidate, catalog) {
   if (!candidate) return [];
   var byPath = rowsByPath(catalog && catalog.settings);
@@ -201,8 +186,6 @@ function OutcomeHead(props) {
   );
 }
 
-// Opened from an event: the rule to test, and the one fact that matters,
-// that the original text is not kept.
 function RuleFocus(props) {
   return h(
     Notice,
@@ -250,7 +233,6 @@ function TryIt(props) {
   var failureState = useState(null);
   var inputErrorState = useState("");
   var ranState = useState(null); // what was checked, for marking and staleness
-  // Each rule turned off for a trial, by its sentence; the id is secondary.
   var sentencesState = useState({});
   var focusState = useState(params.rule ? { rule: params.rule, sentence: params.sentence || "" } : null);
   var focus = focusState[0];
@@ -273,8 +255,6 @@ function TryIt(props) {
     }
   }
 
-  // Load the examples, fill the input with the one the link named (or the
-  // default), and check it, so the first look is a real answer.
   useEffect(function () {
     call("/playground/examples")
       .then(function (body) {
@@ -282,7 +262,6 @@ function TryIt(props) {
         examplesState[1](list);
         noteState[1](body.check_note || "");
         if (params.rule) {
-          // Opened to test a rule: an empty input to paste into, nothing run.
           modeState[1]("text");
           textState[1]("");
           directionState[1](params.direction === "inbound" ? "inbound" : "outbound");

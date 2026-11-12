@@ -1,4 +1,4 @@
-"""Session-ID spoofing / score inflation attacks (PET-31 FREQ-03)."""
+"""Pin authenticated session updates against spoofing and score inflation."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ def _mint(tracker: FrequencyTracker, session_id: str = "s1") -> SessionToken:
 
 
 def test_spoofed_session_id_rejected() -> None:
-    """FREQ-03: update() with invalid HMAC raises ValueError."""
+    """Pin spoofed session id rejected."""
     tracker = _tracker()
     forged = SessionToken(session_id="s1", host_id=_HOST, hmac_digest="bad-digest")
     with pytest.raises(ValueError, match="HMAC verification failed"):
@@ -29,7 +29,7 @@ def test_spoofed_session_id_rejected() -> None:
 
 
 def test_inflated_score_blocked() -> None:
-    """FREQ-03: attacker cannot inflate victim score with forged token."""
+    """Pin inflated score blocked."""
     tracker = _tracker()
     victim_token = _mint(tracker, "victim")
     tracker.update(victim_token, [])
@@ -46,7 +46,7 @@ def test_inflated_score_blocked() -> None:
 
 
 def test_reset_requires_valid_token() -> None:
-    """FREQ-03: reset() with wrong host_id HMAC is rejected."""
+    """Pin reset requires valid token."""
     tracker = _tracker()
     valid = _mint(tracker, "s1")
     tracker.update(valid, ["petasos.syntactic.injection.ignore-previous"])
@@ -61,7 +61,7 @@ def test_reset_requires_valid_token() -> None:
 
 
 def test_terminate_requires_valid_token() -> None:
-    """FREQ-03: terminate_session() with spoofed token is rejected."""
+    """Pin terminate requires valid token."""
     tracker = _tracker()
     valid = _mint(tracker, "s1")
     tracker.update(valid, [])
@@ -76,7 +76,7 @@ def test_terminate_requires_valid_token() -> None:
 
 
 def test_eviction_flood_with_tokens() -> None:
-    """FREQ-03: attacker cannot flood sessions with spoofed IDs."""
+    """Pin eviction flood with tokens."""
     tracker = _tracker()
     legit = _mint(tracker, "legit")
     tracker.update(legit, [])

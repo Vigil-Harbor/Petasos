@@ -1,3 +1,5 @@
+"""Pin fail-safe acceptance of packaged engine qualification evidence."""
+
 import hashlib
 import json
 from pathlib import Path
@@ -9,6 +11,7 @@ from petasos.scanners.semgrep.engine import ENGINE_VERSION
 
 
 async def test_benchmark_error_diagnostics_are_bounded_and_omit_paths() -> None:
+    """Measure error diagnostics are bounded and omit paths latency."""
     import errno
     import importlib.util
 

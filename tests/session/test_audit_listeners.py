@@ -1,11 +1,6 @@
-"""Regression coverage for behavioral-spec features that the audit (features-tracker.xlsx)
-flagged as untested ("NONE FOUND" / COVERAGE GAP), plus one field-attribution bug (DEF-02).
+"""Pin audit listener delivery without leaking callback failures.
 
-These lock load-bearing behaviors that previously had no direct test:
-security-relevant reject branches (HMAC token verification, fail-secure escalation),
-the PET-126 hot-reload `apply_config` surfaces, listener fan-out, and serialization
-contracts. Every test here exercises a real code path (no mocks of the unit under test).
-"""
+See docs/architecture/rationale.md, "Alert and audit test constraints"."""
 
 from __future__ import annotations
 
@@ -15,7 +10,6 @@ from petasos.model import PipelineResult
 from petasos.session.audit import AuditEmitter
 
 
-# --- AUD-07/08: AuditEmitter listeners + apply_config ---
 def _result() -> PipelineResult:
     return PipelineResult(safe=True, findings=(), scanner_results=(), errors=())
 
@@ -42,7 +36,7 @@ def test_audit_add_listener_fires_and_isolates() -> None:
     em.add_listener(bad)
     em.add_listener(good)
     em.emit(_result(), "s", None)
-    assert len(seen) == 1  # good still fired despite bad raising
+    assert len(seen) == 1
     assert em.last_callback_error is not None and "listener boom" in em.last_callback_error
 
 
@@ -58,8 +52,6 @@ def test_audit_apply_config_swaps_verbosity_live() -> None:
         )
     )
     ev1 = em.emit(_result(), "s", None)
-    # Minimal-verbosity base payload: PET-136 added the always-present
-    # ``emit_findings`` flag (the per-finding list itself stays gated off here).
     assert set(ev1.payload.keys()) == {"safe", "finding_count", "emit_findings"}
     em.apply_config(
         from_mapping(
@@ -72,5 +64,5 @@ def test_audit_apply_config_swaps_verbosity_live() -> None:
         )
     )
     ev2 = em.emit(_result(), "s", None)
-    assert "scanner_results" in ev2.payload  # verbose keys now present
-    assert em._global_sequence == 2  # sequence preserved across apply_config
+    assert "scanner_results" in ev2.payload
+    assert em._global_sequence == 2

@@ -101,7 +101,6 @@ def set_seconds(records: dict[str, Any], name: str, seconds: float) -> None:
 @pytest.mark.parametrize("name", LOADED_NAMES)
 def test_every_loaded_row_has_the_deadline_max(name: str) -> None:
     records = passing_records()
-    # One long terminal sample leaves p95 unchanged; only the max gate sees it.
     records["workloads"][name]["samples"][-1]["seconds"] = protocol.LOADED_MAX_SECONDS
     assert protocol.gate_failures(records) == []
     records["workloads"][name]["samples"][-1]["seconds"] = protocol.LOADED_MAX_SECONDS + 0.01
@@ -123,7 +122,6 @@ def test_loaded_p95_is_relative_to_the_same_run_serial_mean(name: str, reference
     assert protocol.gate_failures(records) == []
     set_seconds(records, name, protocol.LOADED_RATIO * 0.5 + 0.01)
     assert any(f.startswith(name + ".p95") for f in protocol.gate_failures(records))
-    # The same absolute latency passes on a host whose serial mean is slower.
     set_seconds(records, reference, 0.51)
     assert protocol.gate_failures(records) == []
 
@@ -173,7 +171,6 @@ def test_each_absolute_limit_fails(system: str | None, name: str, metric: str) -
         if name == "preflight_1m"
         else protocol.SERIAL_64K_LIMITS
     )[metric]
-    # Loaded rows scale with their serial reference, so only this row can fail.
     set_seconds(records, name, limit + 0.01)
     assert any(f.startswith(f"{name}.{metric}") for f in protocol.gate_failures(records))
 
@@ -253,7 +250,7 @@ async def test_sibling_errors_and_discard_time_preserved() -> None:
     assert [s["status"] for s in case["samples"]] == ["ok", "error"]
     assert case["samples"][1]["expected_findings"] == 1
     assert case["samples"][1]["observed_findings"] is None
-    # Python < 3.13 on Windows backs monotonic() with a ~15.6 ms tick.
+    # Windows Python before 3.13 uses an approximately 15.6 ms monotonic clock tick.
     tick = time.get_clock_info("monotonic").resolution
     assert case["samples"][0]["seconds"] >= 0.02 - tick
     assert discarded == [True]
@@ -305,7 +302,6 @@ async def test_discard_failure_preserves_original_error() -> None:
 
 
 def test_stage_timings_instrument_owned_root_removal(tmp_path: Path) -> None:
-    # Regression for PET-255: root_remove_attempt wraps marker-last removal.
     from contextlib import ExitStack
 
     root = tmp_path / "psg-owned00"
@@ -495,7 +491,7 @@ async def test_case_close_finishes_after_cancellation_and_stops_failed_runtime(
         with pytest.raises(asyncio.CancelledError):
             await asyncio.wait_for(task, 2)
     else:
-        assert not await asyncio.wait_for(task, 2)  # failed runtime, despite successful close
+        assert not await asyncio.wait_for(task, 2)
     assert events == ["close_started", "closed", "monitor_stopped", "patches_restored"]
     assert case["close"][0]["status"] == "closed"
     assert "runtime_failed" in case["errors"]
@@ -572,11 +568,7 @@ async def test_real_loaded_case_records_telemetry_and_closes(
         os.environ["SEMGREP_ENGINE_SHA256"],
         recorder,
     )
-    # This test checks telemetry and teardown, not latency (the benchmark gates
-    # that). On a slow 2-core host, 8 requests through 2 slots can outlast the
-    # 8 s timeout; the runtime's timeout refusals are correct behaviour there.
-    # A refused warmup ends the case before the measured burst, so
-    # "warmup_failed" is accepted only when every failure is such a refusal.
+    # See docs/architecture/rationale.md, "Test timing and backend qualification".
     refusals = {"semgrep.queue_deadline", "semgrep.deadline"}
     failed = [
         (s["warmup"], s["burst"], s.get("status"), s.get("error"))

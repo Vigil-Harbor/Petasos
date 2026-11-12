@@ -20,8 +20,7 @@ from tests.scanners.semgrep.helpers import require
 
 
 async def _bounded_result(task: asyncio.Task[Any]) -> Any:
-    # wait_for cancels its target and can itself hang on cancellation-resistant
-    # ownership code. Inspect completion without cancelling the target instead.
+    # wait_for can hang on cancellation-resistant ownership; completion polling must not cancel it.
     done, _ = await asyncio.wait({task}, timeout=1)
     assert task in done, "controlled-clock regression did not terminate"
     return task.result()
@@ -300,7 +299,6 @@ def test_stale_roots_are_removed_only_with_dead_verified_owners(
     os.utime(empty_new, (now - 300, now - 300))
     os.utime(nonempty, (now - 660, now - 660))
     os.utime(future, (now + 600, now + 600))
-    # Regression for PET-255: empty marker-less roots older than ten minutes are removed.
     assert recover_roots() == 2
     assert not (tmp_path / "psg-dead0000").exists()
     assert not empty_old.exists()
@@ -410,7 +408,7 @@ async def test_projection_only_starts_in_two_admitted_active_slots(
                 assert result.error is None
                 assert require(result.coverage).status == "no_targets"
             escaped = await scanners[0].scan('"\\u0065\\u0076\\u0061\\u006c\\u0028x)"')
-            assert escaped.error == "semgrep.queue_full"  # Code still needs admission.
+            assert escaped.error == "semgrep.queue_full"
         finally:
             with runtime.lock:
                 for job in [
@@ -511,12 +509,11 @@ async def test_native_cleanup_uses_worker_deadline_without_reset(
         )
     )
     await asyncio.sleep(0.02)
-    # Constructor finishes after cancellation. Native cleanup starts at .5,
-    # has exactly two seconds, and reports the same absolute end to both sides.
+    # Native cleanup owns two seconds from its reported start, even after cancellation.
     reported[0] = 2.5
     clock[0] = 2.1
     await asyncio.sleep(0.02)
-    assert not task.done()  # The supervisor's independent 2.0 deadline is gone.
+    assert not task.done()
     worker.set_result(42)
     result = await _bounded_result(task)
     assert result.error == "semgrep.cancelled"
@@ -525,7 +522,6 @@ async def test_native_cleanup_uses_worker_deadline_without_reset(
 async def test_native_cleanup_waits_for_worker_verdict_until_total_end(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # Regression for PET-255: a reported native end does not cut the wait short of total_end.
     import threading
     from types import SimpleNamespace
 
@@ -620,7 +616,7 @@ async def test_scan_cancellation_observes_constructor_and_cleanup_caps(
         with pytest.raises(asyncio.CancelledError):
             await _bounded_result(caller)
         assert require(job.cpu_failure).future is worker
-        assert not worker.done()  # Terminal error does not release native ownership.
+        assert not worker.done()
         assert clock[0] <= 4
     finally:
         worker.set_result(42)
@@ -671,8 +667,6 @@ async def test_repeated_close_never_schedules_onto_a_closed_loop(
         lease = require(scanner._lease)
         runtime = lease.runtime
     assert runtime.loop.is_closed()
-    # A second close racing teardown: the manager thread still looks alive,
-    # but its loop has already closed.
     real = runtime.thread
     first = iter([True])
     stub = SimpleNamespace(is_alive=lambda: next(first, real.is_alive()), join=real.join)
@@ -704,8 +698,8 @@ class _RuntimeHandle:
     """One runtime whose probe and engine calls stay inside the test."""
 
     def __init__(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-        # The real _execute path writes the owner marker with psutil; without
-        # the extra the runtime reports the engine unavailable (base CI lane).
+        # The execution path needs psutil to write ownership evidence; base installs refuse
+        # admission.
         pytest.importorskip("psutil", reason="process monitor extra required")
         self.monkeypatch = monkeypatch
         self.tmp_path = tmp_path
@@ -714,7 +708,7 @@ class _RuntimeHandle:
         self.lease: rt.Lease | None = None
         import tempfile
 
-        # Windows refuses a source root whose path is longer than 80 bytes.
+        # Windows source roots cannot exceed 80 bytes.
         self.short = Path(tempfile.mkdtemp(prefix="p255"))
 
     def start(self, scan: Any) -> rt.Runtime:
@@ -798,7 +792,7 @@ class _RuntimeHandle:
 
 
 async def _wait_for(predicate: Any, timeout: float = 3) -> None:
-    # perf_counter, not monotonic: recovery tests replace the runtime clock.
+    # Recovery replaces the runtime clock, so elapsed measurement uses perf_counter.
     end = time.perf_counter() + timeout
     while time.perf_counter() < end:
         if predicate():
@@ -850,7 +844,6 @@ class _CleanChild:
 async def test_worker_finishing_just_after_reported_end_is_success(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # Regression for PET-255: success at E + 0.05 is not CpuCleanupFailure.
     import threading
     from types import SimpleNamespace
 
@@ -880,7 +873,6 @@ async def test_worker_finishing_just_after_reported_end_is_success(
 
 
 def test_removal_deadline_keeps_a_minimum_attempt() -> None:
-    # Regression for PET-255: removal has its own budget, floored at 0.25s.
     runtime = rt.Runtime(rt.Settings("engine", "a" * 64))
     try:
         job = rt.Job(None, object(), None, 200.0, 8.0)
@@ -908,7 +900,6 @@ def test_removal_deadline_keeps_a_minimum_attempt() -> None:
 async def test_post_exit_removal_is_not_bound_by_the_native_end(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    # Regression for PET-255: a stall past the reported native end still removes the root.
     import shutil
 
     from petasos.scanners.semgrep.process import CLEANUP_DEADLINE_OBSERVER
@@ -948,7 +939,6 @@ async def test_post_exit_removal_is_not_bound_by_the_native_end(
 async def test_retained_cleanup_failure_recovers_and_enqueues_probe(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    # Regression for PET-255: a retained native failure can return the runtime to service.
     from petasos.scanners.semgrep.process import CleanupFailure
 
     child = _CleanChild(delay=0.3)
@@ -1004,8 +994,8 @@ async def test_recovery_waits_for_retained_worker_then_child(
         worker.set_exception(late)
         await _wait_for(lambda: not runtime.failed and child.closes == 1)
         assert "semgrep.probe_pending" in handle.enqueued
-        # Regression for PET-255 review: the late native failure's own evidence
-        # reaches the snapshot, not only the initial "unfinished" line.
+        # Late native-failure evidence must reach the snapshot alongside the initial retention
+        # reason.
         assert "kind=native leader_signalled=0.500" in runtime._diagnostic_snapshot()
     finally:
         handle.stop()
@@ -1014,8 +1004,6 @@ async def test_recovery_waits_for_retained_worker_then_child(
 async def test_recovery_is_running_when_the_failure_is_published(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    # Regression for PET-255 review: the recovery window starts before the
-    # caller can observe cleanup_failed, not after the result is published.
     import threading
 
     from petasos.scanners.semgrep.engine import CpuCleanupFailure
@@ -1033,7 +1021,6 @@ async def test_recovery_is_running_when_the_failure_is_published(
         runtime = handle.start(scan)
         job = handle.submit()
         seen: list[bool] = []
-        # Runs synchronously inside set_result, on the runtime thread.
         job.future.add_done_callback(lambda _done: seen.append(runtime.recovery is not None))
         gate.set()
         await _job_result(job)
@@ -1046,8 +1033,8 @@ async def test_recovery_is_running_when_the_failure_is_published(
 async def test_recovery_reads_the_removal_wrapper_not_the_executor_future(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    # Regression for PET-255 review: the executor future can be done while its
-    # asyncio wrapper is not; reading the wrapper then must not end recovery.
+    # Executor completion can precede its asyncio wrapper; only wrapper completion permits reading
+    # it.
     from petasos.scanners.semgrep.process import CleanupFailure
 
     child = _CleanChild(delay=0.3)
@@ -1069,8 +1056,6 @@ async def test_recovery_reads_the_removal_wrapper_not_the_executor_future(
             on_runtime = threading.current_thread() is runtime.thread
             if on_runtime and job.removal is not None and not stalled:
                 stalled.append(1)
-                # Simulate the timeout landing just as the executor finishes:
-                # the executor future is done, the wrapper not yet updated.
                 end = time.perf_counter() + 2
                 while job.removal is not None and not job.removal.done():
                     if time.perf_counter() > end:
@@ -1270,7 +1255,7 @@ async def test_finished_removal_error_recovers_without_a_child_check(
         assert child.closes == 0
         assert not any("check_error" in line for line in runtime.cleanup_diagnostics)
         lines = list(runtime.cleanup_diagnostics)
-        # OSError only takes the winerror argument on Windows.
+        # OSError accepts winerror only on Windows.
         winerror = "32" if sys.platform == "win32" else "none"
         expected = f"kind=root_removal type=PermissionError errno=13 winerror={winerror}"
         assert expected in lines, lines
@@ -1504,7 +1489,6 @@ def _marker(root: Path, text: bytes | None = None) -> Path:
 def test_remove_owned_root_keeps_or_restores_the_marker(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # Regression for PET-255: a failed removal does not drop the owner marker.
     from petasos.scanners.semgrep.roots import remove_owned_root
 
     denied = tmp_path / "denied"
@@ -1619,8 +1603,7 @@ def test_marker_guards_refuse_without_reading_or_unlinking(
         os.symlink(target, marker)
     except OSError:
         pytest.skip("symlink not permitted")
-    # Spy only across the call under test: the fixture's own write/read of the
-    # target also go through Path.open and must not count as a removal read.
+    # Fixture setup also uses Path.open, so observe only the removal call.
     monkeypatch.setattr(Path, "open", spy)
     with pytest.raises(OSError, match="marker_refused"):
         remove_owned_root(root)
@@ -1680,8 +1663,7 @@ def test_reparse_point_marker_is_not_unlinked(tmp_path: Path) -> None:
 
 
 def test_linked_root_is_refused_without_touching_its_target(tmp_path: Path) -> None:
-    # Regression for PET-255 review: scandir follows a root replaced by a link;
-    # shutil.rmtree refused one, so remove_owned_root must refuse it too.
+    # scandir follows linked roots; removal must refuse them to preserve the ownership boundary.
     import subprocess
 
     from petasos.scanners.semgrep.roots import remove_owned_root
@@ -1722,7 +1704,6 @@ def test_oversized_marker_is_not_unlinked(tmp_path: Path) -> None:
 async def test_paused_creator_fails_closed_without_retention(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    # Regression for PET-255: a root removed before its marker write is not retained.
     from petasos.scanners.semgrep.roots import recover_roots
     from petasos.scanners.semgrep.source import Selection
 
@@ -1752,8 +1733,6 @@ async def test_paused_creator_fails_closed_without_retention(
     scans: list[int] = []
 
     async def scan(*args: Any, **kwargs: Any) -> Any:
-        # Recorded outside the runtime: _execute would turn a raise here into
-        # the same engine_unavailable result this test expects.
         scans.append(1)
         return _finding()
 
@@ -1766,8 +1745,6 @@ async def test_paused_creator_fails_closed_without_retention(
         )
         result = await _job_result(job)
         assert result.error == "semgrep.engine_unavailable"
-        # Marker-less recovery removed the live root, so the marker write failed
-        # and the request never reached the engine.
         assert removed == [1]
         assert len(write_errors) == 1 and isinstance(write_errors[0], FileNotFoundError)
         assert scans == []
@@ -1781,7 +1758,6 @@ async def test_paused_creator_fails_closed_without_retention(
 async def test_cleanup_diagnostics_are_bounded_and_lock_the_close_copy(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    # Regression for PET-255: diagnostic lines stay source-free and the deque holds eight.
     import threading
 
     from petasos.scanners.semgrep.process import CleanupFailure

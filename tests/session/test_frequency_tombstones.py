@@ -1,4 +1,4 @@
-"""PET-30: FrequencyTracker tombstone set unit tests."""
+"""Pin termination persistence across state eviction and reset."""
 
 from __future__ import annotations
 
@@ -16,11 +16,6 @@ def _cfg(partial: dict[str, object] | None = None) -> PetasosConfig:
     return from_mapping(PetasosConfig, partial)
 
 
-# ---------------------------------------------------------------------------
-# Test 8: terminate_session sets tombstone
-# ---------------------------------------------------------------------------
-
-
 class TestTerminateSessionSetsTombstone:
     def test_terminate_session_sets_tombstone(self) -> None:
         cfg = _cfg()
@@ -34,25 +29,14 @@ class TestTerminateSessionSetsTombstone:
         assert tracker.is_terminated("s1") is True
 
 
-# ---------------------------------------------------------------------------
-# Test 9: terminate_session tombstone when state missing
-# ---------------------------------------------------------------------------
-
-
 class TestTerminateSessionTombstoneWhenStateMissing:
     def test_terminate_session_tombstone_when_state_missing(self) -> None:
         cfg = _cfg()
         tracker = FrequencyTracker(cfg)
 
-        # Session never existed in _sessions
         tracker.terminate_session("phantom")
         assert tracker.is_terminated("phantom") is True
         assert tracker.get_state("phantom") is None
-
-
-# ---------------------------------------------------------------------------
-# Test 10: tier3 update sets tombstone
-# ---------------------------------------------------------------------------
 
 
 class TestTier3UpdateSetsTombstone:
@@ -76,11 +60,6 @@ class TestTier3UpdateSetsTombstone:
         assert tracker.tombstone_count == 1
 
 
-# ---------------------------------------------------------------------------
-# Test 11: reset preserves tombstone
-# ---------------------------------------------------------------------------
-
-
 class TestResetPreservesTombstone:
     def test_reset_preserves_tombstone(self) -> None:
         cfg = _cfg()
@@ -95,11 +74,6 @@ class TestResetPreservesTombstone:
 
         assert tracker.get_state("s1") is None
         assert tracker.is_terminated("s1") is True
-
-
-# ---------------------------------------------------------------------------
-# Test 12: force_reset clears tombstone
-# ---------------------------------------------------------------------------
 
 
 class TestForceResetClearsTombstone:
@@ -119,11 +93,6 @@ class TestForceResetClearsTombstone:
         assert tracker.get_state("s1") is None
 
 
-# ---------------------------------------------------------------------------
-# Test 13: tombstone bounded FIFO
-# ---------------------------------------------------------------------------
-
-
 class TestTombstoneBoundedFifo:
     def test_tombstone_bounded_fifo(self) -> None:
         cfg = _cfg(
@@ -141,16 +110,10 @@ class TestTombstoneBoundedFifo:
         tracker.terminate_session("s4")
 
         assert tracker.tombstone_count == 3
-        # s1 evicted (oldest), s2/s3/s4 remain
         assert tracker.is_terminated("s1") is False
         assert tracker.is_terminated("s2") is True
         assert tracker.is_terminated("s3") is True
         assert tracker.is_terminated("s4") is True
-
-
-# ---------------------------------------------------------------------------
-# Test 14: tombstone cap at one
-# ---------------------------------------------------------------------------
 
 
 class TestTombstoneCapAtOne:
@@ -172,11 +135,6 @@ class TestTombstoneCapAtOne:
         assert tracker.is_terminated("s2") is True
 
 
-# ---------------------------------------------------------------------------
-# Test 15: clear clears tombstones
-# ---------------------------------------------------------------------------
-
-
 class TestClearClearsTombstones:
     def test_clear_clears_tombstones(self) -> None:
         cfg = _cfg()
@@ -192,22 +150,12 @@ class TestClearClearsTombstones:
         assert tracker.tombstone_count == 0
 
 
-# ---------------------------------------------------------------------------
-# Test 16: is_terminated false for unknown
-# ---------------------------------------------------------------------------
-
-
 class TestIsTerminatedFalseForUnknown:
     def test_is_terminated_false_for_unknown(self) -> None:
         cfg = _cfg()
         tracker = FrequencyTracker(cfg)
 
         assert tracker.is_terminated("never_seen") is False
-
-
-# ---------------------------------------------------------------------------
-# Test 17: is_terminated true for live terminated
-# ---------------------------------------------------------------------------
 
 
 class TestIsTerminatedTrueForLiveTerminated:
@@ -221,15 +169,8 @@ class TestIsTerminatedTrueForLiveTerminated:
 
         tracker.terminate_session("s1")
 
-        # State still in _sessions
         assert tracker.get_state("s1") is not None
-        # is_terminated checks live state first
         assert tracker.is_terminated("s1") is True
-
-
-# ---------------------------------------------------------------------------
-# Test 18: tombstone_count property
-# ---------------------------------------------------------------------------
 
 
 class TestTombstoneCountProperty:
@@ -246,11 +187,6 @@ class TestTombstoneCountProperty:
         assert tracker.tombstone_count == 1
 
 
-# ---------------------------------------------------------------------------
-# Test 19: double termination idempotent
-# ---------------------------------------------------------------------------
-
-
 class TestDoubleTerminationIdempotent:
     def test_double_termination_idempotent(self) -> None:
         cfg = _cfg(
@@ -264,12 +200,10 @@ class TestDoubleTerminationIdempotent:
 
         tracker.terminate_session("s1")
         tracker.terminate_session("s2")
-        # Re-terminate s1
         tracker.terminate_session("s1")
 
         assert tracker.is_terminated("s1") is True
         assert tracker.tombstone_count == 2
 
-        # s1 should now be at the end (FIFO position refreshed)
         keys = list(tracker._terminated_ids.keys())
         assert keys[-1] == "s1"

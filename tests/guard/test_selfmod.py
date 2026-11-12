@@ -1,10 +1,6 @@
-"""Behavioral tests for the selfmod detection system (PET-164).
+"""Pin self-change recognition, read-only exclusions and fail-secure overflow.
 
-Covers: config_write classification, config_ref classification, read-only
-exclusion, hostile alias-map bypass resistance, adversarial arg shapes,
-side-effect-free verdict, record_selfmod fault tolerance, nested arg
-detection, and GuardResult serialization of selfmod fields.
-"""
+See docs/architecture/rationale.md, "Guard overflow attribution"."""
 
 from __future__ import annotations
 
@@ -29,19 +25,9 @@ if TYPE_CHECKING:
 _GuardPair = tuple[Pipeline, ToolCallGuard, FrequencyTracker, str]
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
 def _cfg() -> PetasosConfig:
     """A default tree. Frequency, escalation, and the tool guard are on."""
     return PetasosConfig()
-
-
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
 
 
 @pytest.fixture()
@@ -60,14 +46,8 @@ def guard_pair(owned_path: str) -> _GuardPair:
     pipeline = Pipeline(config=config)
     tracker = FrequencyTracker(config)
     guard = ToolCallGuard(pipeline, tracker, config)
-    # Patch the owned-set cache to return our known path
     guard._selfmod_owned_cache = (time.monotonic() + 9999, frozenset({owned_path}))
     return pipeline, guard, tracker, owned_path
-
-
-# ---------------------------------------------------------------------------
-# config_write classification
-# ---------------------------------------------------------------------------
 
 
 class TestConfigWriteClassification:
@@ -80,7 +60,6 @@ class TestConfigWriteClassification:
         assert result.selfmod_finding.rule_id == "petasos.selfmod.config_write"
         assert result.selfmod_finding.severity == Severity.CRITICAL
         assert result.selfmod_target == owned
-        # Finding NOT in the main findings tuple
         assert result.selfmod_finding not in result.findings
 
     async def test_file_write_alias_also_classifies(self, guard_pair: _GuardPair) -> None:
@@ -89,11 +68,6 @@ class TestConfigWriteClassification:
         result = await guard.evaluate("file_write", {"path": owned, "content": "evil"}, "s1")
         assert result.selfmod_finding is not None
         assert result.selfmod_finding.rule_id == "petasos.selfmod.config_write"
-
-
-# ---------------------------------------------------------------------------
-# config_ref classification
-# ---------------------------------------------------------------------------
 
 
 class TestConfigRefClassification:
@@ -143,11 +117,6 @@ class TestConfigRefClassification:
         assert result.selfmod_finding.rule_id == "petasos.selfmod.config_ref"
 
 
-# ---------------------------------------------------------------------------
-# Read-only exclusion (pre-alias space pin)
-# ---------------------------------------------------------------------------
-
-
 class TestReadOnlyExclusion:
     """read_file + owned path -> no finding."""
 
@@ -158,11 +127,9 @@ class TestReadOnlyExclusion:
         assert result.selfmod_target is None
 
     async def test_search_files_no_classification(self, guard_pair: _GuardPair) -> None:
-        """search_files is acts=False (PET-179 Decision 3). The config_ref
-        silence is an accepted cost: the tool only reads, and the ingestion
-        scan is the compensating control. Path-blocklisting was rejected at
-        PET-125.
-        """
+        """Pin read-only search exclusion from self-change classification.
+
+        Returned-content scanning supplies the corresponding content scrutiny."""
         pipeline, guard, tracker, owned = guard_pair
         result = await guard.evaluate("search_files", {"query": "secret", "path": owned}, "s1")
         assert result.selfmod_finding is None
@@ -180,11 +147,6 @@ class TestReadOnlyExclusion:
         pipeline, guard, tracker, owned = guard_pair
         result = await guard.evaluate("web_search", {"query": owned}, "s1")
         assert result.selfmod_finding is None
-
-
-# ---------------------------------------------------------------------------
-# Hostile alias map resistance
-# ---------------------------------------------------------------------------
 
 
 class TestHostileAliasMap:
@@ -207,11 +169,6 @@ class TestHostileAliasMap:
         result = await guard.evaluate("write_file", {"path": owned_path}, "s1")
         assert result.selfmod_finding is not None
         assert result.selfmod_finding.rule_id == "petasos.selfmod.config_write"
-
-
-# ---------------------------------------------------------------------------
-# Adversarial arg shapes
-# ---------------------------------------------------------------------------
 
 
 class TestAdversarialArgShapes:
@@ -259,13 +216,7 @@ class TestAdversarialArgShapes:
     async def test_none_values_no_exception(self, guard_pair: _GuardPair) -> None:
         pipeline, guard, tracker, owned = guard_pair
         result = await guard.evaluate("write_file", {"path": None, "content": None}, "s1")
-        # Should not raise; selfmod_finding should be None (no path-like values)
         assert result.selfmod_finding is None
-
-
-# ---------------------------------------------------------------------------
-# Side-effect-free on current call
-# ---------------------------------------------------------------------------
 
 
 class TestSideEffectFree:
@@ -275,18 +226,11 @@ class TestSideEffectFree:
         self, guard_pair: _GuardPair
     ) -> None:
         pipeline, guard, tracker, owned = guard_pair
-        # Evaluate without the owned path -> baseline
         baseline = await guard.evaluate("write_file", {"path": "safe.txt", "content": "ok"}, "s1")
-        # Evaluate with the owned path -> selfmod classified but same verdict
         result = await guard.evaluate("write_file", {"path": owned, "content": "ok"}, "s2")
         assert result.allowed == baseline.allowed
         assert result.reason == baseline.reason
         assert result.tier == baseline.tier
-
-
-# ---------------------------------------------------------------------------
-# record_selfmod never throws
-# ---------------------------------------------------------------------------
 
 
 class TestRecordSelfmodFaultTolerance:
@@ -302,9 +246,7 @@ class TestRecordSelfmodFaultTolerance:
             message="test",
             scanner_name="tool_guard",
         )
-        # Break the audit emitter
         pipeline._audit_emitter = None  # type: ignore[assignment]
-        # Should not raise
         pipeline.record_selfmod("s1", finding)
 
     async def test_record_selfmod_with_broken_alert_manager(self, guard_pair: _GuardPair) -> None:
@@ -317,9 +259,7 @@ class TestRecordSelfmodFaultTolerance:
             message="test",
             scanner_name="tool_guard",
         )
-        # Break the alert manager
         pipeline._alert_manager = None  # type: ignore[assignment]
-        # Should not raise
         pipeline.record_selfmod("s1", finding)
 
     async def test_record_selfmod_with_none_session_id(self, guard_pair: _GuardPair) -> None:
@@ -332,18 +272,11 @@ class TestRecordSelfmodFaultTolerance:
             message="test",
             scanner_name="tool_guard",
         )
-        # None session_id should not raise
         pipeline.record_selfmod(None, finding)
 
 
-# ---------------------------------------------------------------------------
-# Depth-overflow fail-secure marker
-# ---------------------------------------------------------------------------
-
-
 class TestDepthOverflowMarker:
-    """Over-cap nesting flags fail-secure with the sentinel target, never a
-    fabricated owned path (the overflow means nothing was actually matched)."""
+    """Pin depth overflow to a fail-secure sentinel without fabricating an owned path."""
 
     async def test_overflow_records_sentinel_not_owned_path(self, guard_pair: _GuardPair) -> None:
         pipeline, guard, tracker, owned = guard_pair
@@ -373,11 +306,6 @@ class TestDepthOverflowMarker:
         assert result.selfmod_finding is not None
         assert owned in result.selfmod_finding.message
         assert SELFMOD_DEPTH_OVERFLOW_TARGET not in result.selfmod_finding.message
-
-
-# ---------------------------------------------------------------------------
-# GuardResult serialization
-# ---------------------------------------------------------------------------
 
 
 class TestGuardResultSerialization:

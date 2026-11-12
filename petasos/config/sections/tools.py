@@ -20,7 +20,7 @@ _EGRESS_TOOLS = (
 
 @section
 class LineageConfig:
-    """Whether a child sub-agent inherits its parent's restriction."""
+    """Validate bounded helper ancestry and restriction inheritance."""
 
     enabled: bool = setting(
         default=True,
@@ -55,7 +55,7 @@ class LineageConfig:
 
 @section
 class FanoutConfig:
-    """How fast one conversation may launch helper sub-agents."""
+    """Validate helper launch limits within a rolling window."""
 
     enabled: bool = setting(
         default=True,
@@ -78,10 +78,9 @@ class FanoutConfig:
 
 @section
 class ToolsConfig:
-    """The tool-call guard: what it blocks, what it skips, and which names launch helpers.
+    """Validate tool policy and prevent aliases targeting exempt tools.
 
-    An alias must name a real tool, and it must not point at a tool that is exempt.
-    """
+    An alias must name a real tool, and it must not point at a tool that is exempt."""
 
     enabled: bool = setting(
         default=True,
@@ -170,6 +169,7 @@ class ToolsConfig:
     )
 
     def check(self) -> None:
+        """Trim alias targets and reject empty or exempt targets."""
         problems: list[tuple[str, str]] = []
         cleaned: dict[str, str] = {}
         for key, value in self.aliases.items():
@@ -190,7 +190,7 @@ class ToolsConfig:
 
 @section
 class EgressConfig:
-    """Which tools send data out, and which returned text must not leave."""
+    """Validate egress sinks, source namespaces and retained-span limits."""
 
     sink_tools: tuple[str, ...] = setting(
         default=_EGRESS_TOOLS,

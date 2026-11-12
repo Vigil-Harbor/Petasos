@@ -1,3 +1,5 @@
+"""Pin bounded JSON serialization of cyclic and hostile values."""
+
 from __future__ import annotations
 
 import json
@@ -36,7 +38,6 @@ class TestSafeJsonDumps:
         assert "[Depth limit]" in result
 
     def test_unserializable_type(self) -> None:
-        # Regression for PET-197: placeholder only when __str__ raises.
         class RaisingStr:
             def __str__(self) -> str:
                 raise RuntimeError("boom")
@@ -45,7 +46,6 @@ class TestSafeJsonDumps:
         assert "[Unserializable: RaisingStr]" in result
 
     def test_bytes_contributes_text(self) -> None:
-        # Regression for PET-197: bytes leaves contribute str() text, not a type placeholder.
         phrase = "ignore all previous instructions"
         payload = phrase.encode("ascii")
         top = safe_json_dumps(payload)
@@ -56,21 +56,18 @@ class TestSafeJsonDumps:
         assert "[Unserializable" not in nested
 
     def test_path_contributes_text(self) -> None:
-        # Regression for PET-197: Path leaves contribute str() text.
         path = Path("secret-dir") / "payload.txt"
         result = safe_json_dumps(path)
         assert "payload.txt" in result
         assert "[Unserializable" not in result
 
     def test_datetime_contributes_text(self) -> None:
-        # Regression for PET-197: datetime leaves contribute str() text.
         result = safe_json_dumps(datetime(2026, 9, 15, 12, 0, 0))
         assert "2026" in result
         assert "15" in result
         assert "[Unserializable" not in result
 
     def test_huge_str_hits_max_size(self) -> None:
-        # Regression for PET-197: a huge __str__ is still sliced by max_size.
         class HugeStr:
             def __str__(self) -> str:
                 return "x" * 2_000_000

@@ -20,8 +20,6 @@ from tests.parity.load import (
 )
 from tests.parity.record import replay
 
-# Every syntactic rule, plus the two self-modification rules the guard emits.
-# The record has to contain each of these at least once.
 _PINNED_RULES: frozenset[str] = frozenset(
     {
         "petasos.selfmod.config_ref",
@@ -255,5 +253,4 @@ def test_compact_round_trip() -> None:
     compact = compact_verdicts(expanded)
     assert "differs" in compact["tool"]["g"]
     assert expand_verdicts(compact) == expanded
-    # expand_value is part of the corpus contract; a plain value survives it.
     assert expand_value("notes") == "notes"

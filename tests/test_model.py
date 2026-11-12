@@ -1,3 +1,5 @@
+"""Pin validated immutable result types and structural scanner contracts."""
+
 from __future__ import annotations
 
 import dataclasses
@@ -138,7 +140,6 @@ class TestScanResult:
 
 class TestPipelineResult:
     def test_field_types_resolve_at_runtime(self) -> None:
-        # Serializers and frameworks resolve dataclass hints at runtime.
         import typing
 
         for cls in (PipelineResult, ScanResult, ScanFinding):

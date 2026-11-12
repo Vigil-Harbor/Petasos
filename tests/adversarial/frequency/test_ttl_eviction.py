@@ -1,4 +1,4 @@
-"""PET-75 FREQ-05: O(k) TTL eviction via sorted deque with compaction."""
+"""Pin expiry-ordered session eviction and bounded deque compaction."""
 
 from __future__ import annotations
 

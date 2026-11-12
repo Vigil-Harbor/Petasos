@@ -54,6 +54,8 @@ class StageTimings:
         self.lock = threading.Lock()
 
     def wrap(self, name: str, function: Callable[..., Any]) -> Callable[..., Any]:
+        """Wrap a benchmark stage with bounded timings and source-free error accounting."""
+
         def record_error(exc: Exception) -> None:
             # Never retain messages, filenames, arguments or submitted text.
             # Keep the earliest failures before retry/close errors obscure them.
@@ -104,6 +106,7 @@ class StageTimings:
         return synchronous
 
     def install(self, stack: ExitStack) -> None:
+        """Install benchmark timing wrappers for the supplied patch stack."""
         from petasos.scanners.semgrep import engine as engine
         from petasos.scanners.semgrep import process as process
         from petasos.scanners.semgrep import roots as roots
@@ -133,6 +136,7 @@ class StageTimings:
 
 
 def revision() -> dict[str, Any]:
+    """Return the checkout revision and runner identity."""
     root = Path(__file__).resolve().parents[1]
 
     def git(*args: str) -> str:
@@ -159,6 +163,8 @@ def _cleanup_diagnostics() -> list[str]:
 
 
 class Recorder:
+    """Serialize benchmark checkpoints through one cancellation-safe writer."""
+
     def __init__(self, output: Path, records: dict[str, Any], stages: StageTimings) -> None:
         self.output = output
         self.records = records
@@ -166,6 +172,7 @@ class Recorder:
         self.lock = asyncio.Lock()
 
     async def save(self) -> None:
+        """Save a complete checkpoint without detaching an in-flight writer."""
         async with self.lock:
             for case in self.records.get("workloads", {}).values():
                 finish_case(case)
@@ -187,12 +194,14 @@ class Recorder:
                 raise
 
     async def periodic(self) -> None:
+        """Save checkpoints every thirty seconds until cancelled."""
         while True:
             await asyncio.sleep(30)
             await self.save()
 
 
 async def scan_sample(scanner: Any, fixture: dict[str, Any], row: dict[str, Any]) -> None:
+    """Record one scan sample with its coverage and errors."""
     started = time.monotonic()
     row.update(
         expected_findings=len(fixture["expected_findings"]),
@@ -237,6 +246,7 @@ async def run_burst(
     burst: int,
     warmup: bool,
 ) -> None:
+    """Measure a concurrent burst while preserving cleanup ownership."""
     samples = []
     distribution = case.get("distribution", (1, 0, 0))
     for index, count in enumerate(distribution):
@@ -258,6 +268,7 @@ async def replacements(
     burst: int,
     warmup: bool,
 ) -> None:
+    """Measure scanner replacement and account for every close result."""
     scanner = scanners[0]
     lease = scanner._lease
     assert lease is not None
@@ -333,6 +344,7 @@ async def run_case(
     digest: str,
     recorder: Recorder,
 ) -> bool:
+    """Measure one planned workload case with owned teardown."""
     owners: list[SemgrepLifecycleOwner] = []
     monitor = None
     stack = ExitStack()
@@ -429,6 +441,7 @@ async def run_case(
 
 
 async def measure(runs: int, records: dict[str, Any], recorder: Recorder) -> None:
+    """Collect benchmark measurements with resource and lifecycle evidence."""
     import psutil
 
     manifest, sources = fixtures()
@@ -485,6 +498,7 @@ async def measure(runs: int, records: dict[str, Any], recorder: Recorder) -> Non
 
 
 async def run_measurement(runs: int, output: Path, stages: StageTimings) -> dict[str, Any]:
+    """Bound the measurement run without abandoning owned teardown."""
     records: dict[str, Any] = {"workloads": {}, "gate_failures": ["measurement incomplete"]}
     recorder = Recorder(output, records, stages)
     periodic = asyncio.create_task(recorder.periodic())
@@ -517,6 +531,7 @@ async def run_measurement(runs: int, output: Path, stages: StageTimings) -> dict
 
 
 def main() -> None:
+    """Run the benchmark command and persist its measurement report."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--runs", type=int, default=100)
     parser.add_argument("--output", type=Path, required=True)

@@ -1,4 +1,4 @@
-"""PET-30: FrequencyTracker tombstone set unit tests."""
+"""Pin positive, bounded termination-tombstone configuration."""
 
 from __future__ import annotations
 
@@ -6,10 +6,6 @@ import pytest
 
 from petasos.config.schema import from_mapping
 from petasos.config.sections import PetasosConfig
-
-# ---------------------------------------------------------------------------
-# Test 20: config validation
-# ---------------------------------------------------------------------------
 
 
 class TestConfigMaxTerminatedTombstonesValidation:

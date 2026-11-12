@@ -1,3 +1,5 @@
+"""Inspect text with explicit scanner errors and bounded session risk."""
+
 from __future__ import annotations
 
 import asyncio
@@ -54,6 +56,8 @@ if TYPE_CHECKING:
 
 
 class Pipeline:
+    """Return inspection outcomes while containing scanner and hook failures."""
+
     def __init__(
         self,
         scanners: Sequence[Scanner] = (),
@@ -96,11 +100,7 @@ class Pipeline:
             )
 
         if frequency_tracker is not None:
-            # PET-176 D1: an injected tracker and this pipeline must agree on
-            # session_secret, or _frequency_hook's token/bare-string choice
-            # (pipeline._config) and _resolve_session_id's enforcement
-            # (tracker._session_secret) disagree and EVERY update() raises into
-            # Stage 6's errors[] with a green-looking result.
+            # See docs/architecture/rationale.md, "Shared tracker token binding".
             if frequency_tracker.requires_token != (self._secrets.session_secret is not None):
                 raise ValueError(
                     "frequency_tracker.requires_token must match config.session_secret being set"
@@ -141,9 +141,11 @@ class Pipeline:
 
     @property
     def host_id(self) -> str:
+        """Return the host identity used for session binding and audit."""
         return self._host_id
 
     def is_feature_enabled(self, feature_name: str) -> bool:
+        """Return whether a feature remains enabled in this pipeline."""
         return self._is_enabled(feature_name)
 
     scanner_health = scanner_health
@@ -157,12 +159,9 @@ class Pipeline:
         self._alert_manager.add_listener(callback)
 
     def record_selfmod(self, session_id: str | None, finding: ScanFinding) -> None:
-        """Alert + audit for a selfmod classification (PET-164 Decision 4).
+        """Emit self-modification audit and alert records without raising.
 
-        Sync, never throws. Frequency lives in the guard (Decision 3); this
-        method does NOT touch the tracker. The alert bypasses the ``alerting``
-        feature gate by construction; the audit sink is the sole config gate.
-        """
+        The guard owns the associated risk update."""
         try:
             self._alert_manager.evaluate_selfmod(finding, session_id)
         except Exception:
@@ -352,6 +351,7 @@ class Pipeline:
         session_id: str | None = None,
         weight_cap: float | None = None,
     ) -> PipelineResult:
+        """Return findings, safety and errors without propagating inspection failures."""
         resolved_direction: Direction = (
             direction if direction is not None else self._config.direction
         )
@@ -395,10 +395,7 @@ class Pipeline:
         escalation_tier: str | None = None
         errors: list[str] = []
 
-        # Stage 1: Normalize — each config toggle is honored independently
-        # (PIPE-05). The old all-or-nothing guard skipped *all* normalization if
-        # any single toggle was off; now disabling one stage leaves the rest
-        # running.
+        # Each normalization switch applies independently.
         normalization = self._config.normalization
         norm_result = normalize(
             text,
@@ -408,13 +405,10 @@ class Pipeline:
         )
         normalized_text = norm_result.normalized
 
-        # Stage 1b: the syntactic pre-filter always uses the base minimal
-        # scanner. Profile-driven suppression runs at Stage 4b (PET-109); no
-        # profile-based scanner selection happens here.
+        # Suppression applies after the always-on syntactic pre-filter.
         assert self._minimal_scanner is not None
         effective_scanner = self._minimal_scanner
 
-        # Stage 2: Syntactic pre-filter (raw text)
         _t0 = time.monotonic()
         minimal_result = await effective_scanner.scan(
             text, direction=direction, session_id=session_id
@@ -425,16 +419,14 @@ class Pipeline:
         else:
             self._last_scan_errors.pop("minimal", None)
 
-        # Stage 3: Early exit (closed mode) — skip ML fan-out but still
-        # run session hooks so audit/alerting sees critical findings.
+        # Critical early exits still need audit and alert hooks.
         early_exit = False
         if self._config.fail_mode == "closed":
             has_critical = any(f.severity == Severity.CRITICAL for f in minimal_result.findings)
             if has_critical:
                 early_exit = True
 
-        # Stage 4: Fan-out scan. A prepared result survives the head early exit;
-        # only unstarted scanner work is skipped.
+        # Prepared results retain ownership; only unstarted work is skipped.
         fanout_scanners = [
             s
             for s in self._ml_scanners
@@ -451,12 +443,7 @@ class Pipeline:
                     normalized_text,
                     direction=direction,
                     session_id=session_id,
-                    # PET-119: per-profile additive PII opt-ins, Presidio-only. A
-                    # per-call concrete-type check (not a one-time partition like
-                    # the minimal scanner): the extras are profile-dependent and
-                    # recomputed each inspect(), and only PresidioScanner.scan
-                    # accepts the keyword. None on the no-profile/non-Presidio path
-                    # keeps today's exact behavior.
+                    # Presidio alone accepts per-call entity extras so scope can change live.
                     extra_entities=(
                         entities_extra
                         if entities_extra and isinstance(s, PresidioScanner)
@@ -477,11 +464,7 @@ class Pipeline:
             ml_results.append(prepared_semgrep)
         all_results = [minimal_result] + ml_results
 
-        # Stage 4b: Cross-scanner suppression (pre-merge; PET-109 D5). Drops
-        # suppressed non-floor findings before overlap resolution so a suppressed
-        # finding can neither evict a legitimate overlapping finding nor drive the
-        # tier-3 net / frequency / escalation. Downstream consumers all read the
-        # post-suppression set automatically — no per-consumer change.
+        # See docs/architecture/rationale.md, "Pipeline ordering and attribution".
         if rules.suppress:
             all_results = _suppress_scanner_findings(
                 all_results,
@@ -490,41 +473,33 @@ class Pipeline:
                 rules.injection_floor_scope,
             )
 
-        # Stage 5: Merge findings
         merged = merge_findings(all_results)
 
-        # Stage 5a: Standalone tier-3 safety net (ESC-01)
         standalone_tier3 = _standalone_tier3_check(merged)
 
-        # Stage 5b: Confidence floor filtering
         if rules.confidence_floor > 0.0:
             merged = tuple(f for f in merged if f.confidence >= rules.confidence_floor)
 
-        # Stage 5c: Severity overrides (PIPE-07 guards; PET-109 D6/D8 downgrade).
         if rules.severity_overrides:
             overridden: list[ScanFinding] = []
             for f in merged:
                 override = rules.severity_overrides.get(f.rule_id)
                 if override is None:
-                    # A structural rule cannot be retargeted, so it lands here.
-                    # The floor branch below is reached only by injection rules.
+                    # Structural findings bypass retargeting; the floor branch handles injection.
                     overridden.append(f)
                     continue
                 if _is_floor_rule(f.rule_id, direction, rules.injection_floor_scope):
-                    # Floor rules (injection): escalate-only. Refuse a downgrade or
-                    # no-op (keep original) — PET-54's threat, still covered.
+                    # Injection floor overrides can only promote severity.
                     try:
                         override_sev = Severity(override)
                     except ValueError:
                         overridden.append(f)
                         continue
                     if severity_rank(override_sev) > severity_rank(f.severity):
-                        overridden.append(replace(f, severity=override_sev))  # escalate only
+                        overridden.append(replace(f, severity=override_sev))
                     else:
-                        overridden.append(f)  # refuse downgrade/equal
+                        overridden.append(f)
                 else:
-                    # Non-floor (e.g. petasos.presidio.*): any valid severity,
-                    # including downgrade (PET-109 D8 narrows PET-54 to floor rules).
                     try:
                         override_sev = Severity(override)
                     except ValueError:
@@ -533,36 +508,28 @@ class Pipeline:
                     overridden.append(replace(f, severity=override_sev))
             merged = tuple(overridden)
 
-        # Stage 6: Frequency hook
         try:
             freq_result = await self._frequency_hook(merged, session_id, weight_cap=weight_cap)
         except Exception as exc:
             errors.append(f"frequency hook: {exc}")
 
-        # Stage 7: Escalation hook
         try:
             escalation_tier = await self._escalation_hook(freq_result, session_id)
         except Exception as exc:
             errors.append(f"escalation hook: {exc}")
 
-        # Stage 8: Fail-mode enforcement
         safe = False if early_exit else _compute_safe(merged, all_results, self._config.fail_mode)
 
-        # Stage 8b: Apply standalone tier-3 if triggered
         if standalone_tier3:
             safe = False
             if escalation_tier != "tier3":
                 escalation_tier = "tier3"
 
-        # Stage 9: Anonymize
         sanitized_content: str | None = None
         anonymization = self._config.anonymization
         if anonymization.enabled:
             pii_findings = [f for f in merged if f.finding_type == "pii"]
-            # When entities is non-empty, anonymize only findings whose recovered
-            # entity type is in the set (case-insensitive); empty () preserves
-            # the "anonymize all" default. Narrowing only — detection and
-            # `merged` are untouched.
+            # See docs/architecture/rationale.md, "Pipeline ordering and attribution".
             if anonymization.entities:
                 from petasos.scanners.presidio import _recover_entity_type
 
@@ -598,7 +565,6 @@ class Pipeline:
             escalation_tier=escalation_tier,
         )
 
-        # Stage 10: Audit hook
         try:
             audit_cb_error = await self._audit_hook(result, session_id, freq_result, direction)
             if audit_cb_error is not None:
@@ -606,14 +572,12 @@ class Pipeline:
         except Exception as exc:
             errors.append(f"audit hook: {exc}")
 
-        # Stage 11: Alert hook
         try:
             alert_cb_errors = await self._alert_hook(result, session_id, freq_result)
             errors.extend(alert_cb_errors)
         except Exception as exc:
             errors.append(f"alert hook: {exc}")
 
-        # Stage 12: Return (rebuild if post-construction hooks added errors)
         if len(errors) > pre_hook_error_count:
             result = self._build_result(
                 safe=safe,
@@ -639,15 +603,7 @@ class Pipeline:
             return None
         if session_id is None:
             return None
-        # PET-176 D2: validate the cap HERE, ahead of update(), then re-raise so
-        # Stage 6 still records an errors[] entry. A malformed cap would
-        # otherwise vanish into a green-looking PipelineResult (Stage 6 catches
-        # into errors[], _compute_safe never reads errors). Validating ahead of
-        # the call — rather than catching ValueError around it — keeps the
-        # message honest: a bare `except ValueError` would also swallow
-        # _resolve_session_id's HMAC / bare-string failures and blame a cap for
-        # a token problem. update()'s own unconditional check remains the
-        # contract; this hook only makes a *reachable* violation debuggable.
+        # See docs/architecture/rationale.md, "Pipeline ordering and attribution".
         if weight_cap is not None and (weight_cap < 0 or not math.isfinite(weight_cap)):
             sid_fp = hashlib.sha256(session_id.encode()).hexdigest()[:8]
             _logger.warning(
@@ -666,8 +622,7 @@ class Pipeline:
         if result.rate_limited:
             sid_fp = hashlib.sha256(session_id.encode()).hexdigest()[:8]
             if rule_ids:
-                # PET-176 D2: the backstop failing open on a scan that carried
-                # findings is a WARNING, not an INFO curiosity.
+                # A failed backstop on findings is a warning because risk accumulation is lost.
                 _logger.warning(
                     "session %s... rate-limited (frequency cap reached) on a scan "
                     "WITH findings; the session backstop is failing open",
@@ -697,7 +652,6 @@ class Pipeline:
     ) -> str | None:
         if not self._is_enabled("audit"):
             return None
-        # PET-136: thread the scan-level resolved direction into the audit payload.
         self._audit_emitter.emit(result, session_id, freq_result, direction=direction)
         return self._audit_emitter.last_callback_error
 

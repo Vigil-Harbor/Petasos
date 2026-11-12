@@ -109,7 +109,7 @@ def is_ingestion(tool_name: str, non_ingesting: frozenset[str]) -> bool:
     """True when a non-empty canonical name is not excluded from result scanning."""
     canon = canonicalize_tool_name(tool_name)
     if not canon:
-        return False  # named-tool floor; blank/missing/whitespace-only
+        return False
     return canon not in non_ingesting
 
 

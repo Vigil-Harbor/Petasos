@@ -23,8 +23,6 @@ _RECONFIGURED = "PETASOS_RECONFIGURED: live config.yaml change applied to the ru
 
 _MAX_DIFFS = 8
 
-# Every situation the corpus claims to pin. A new scenario should add to this
-# only when it covers a behaviour the list does not already name.
 _REQUIRED = frozenset(
     {
         "always-approved",
@@ -205,8 +203,6 @@ def _apply_log(expected: dict[str, Any], actual: dict[str, Any], row: dict[str, 
     if isinstance(old, str) and new is None:
         if old not in expected_logs or old in actual_logs:
             return False
-        # The empty-cache line is the first log of the steps it explains.
-        # A later line with the same text is a real change and stays pinned.
         if row.get("scenario") == "*" and expected_logs[0] != old:
             return False
         expected_logs.remove(old)
@@ -225,7 +221,7 @@ def _apply_log(expected: dict[str, Any], actual: dict[str, Any], row: dict[str, 
 
 
 def _apply_value(expected: dict[str, Any], actual: dict[str, Any], row: dict[str, Any]) -> bool:
-    """Apply one decision or appended-event difference. True when this step showed it."""
+    """Support apply value."""
     field = row.get("field")
     if not isinstance(field, str) or field == "logs":
         return False
@@ -280,8 +276,8 @@ def _apply_differences(
             continue
         if not _matches(scenario, scenario_id) or not _matches(step, step_id):
             continue
-        # A row that names no scenario explains one step per scenario at most.
-        # Without this limit it could hide the same line going missing later.
+        # An unnamed-scenario exception covers at most one step per scenario to expose later
+        # missing events.
         if scenario == "*" and index in used:
             continue
         if row.get("field") == "logs" and _apply_log(expected, actual, row):

@@ -236,7 +236,7 @@ def _apply_behavior(request: dict[str, Any], hook: str, log: Path) -> None:
 
 
 def dispatch(request: dict[str, Any]) -> dict[str, Any]:
-    """Drive one hook through Hermes's dispatcher and return the host decision plus the kwargs."""
+    """Provide dispatch for the test fixture."""
     hook = str(request["hook"])
     log = _log_path()
     _apply_behavior(request, hook, log)

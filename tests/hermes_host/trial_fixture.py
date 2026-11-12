@@ -15,6 +15,8 @@ from petasos.scanners.registry import ScannerSpec
 
 
 class PersonalInformation:
+    """Provide Personal Information test data."""
+
     name = "presidio"
 
     def availability(self) -> tuple[bool, str | None, str | None]:

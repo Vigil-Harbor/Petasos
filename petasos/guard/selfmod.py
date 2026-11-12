@@ -26,11 +26,7 @@ class _SelfmodMatch(NamedTuple):
     kind: str | None = None
 
 
-# Recorded as the selfmod target when the fail-secure depth-overflow branch fires.
-# Deliberately NOT an owned path: the overflow flag means the args could not be
-# fully traversed, so no specific path was matched and naming one would mislead
-# triage. Public-ish (no underscore) so the reference plugin and tests can
-# recognize the sentinel without string-copying it.
+# See docs/architecture/rationale.md, "Guard overflow attribution".
 SELFMOD_DEPTH_OVERFLOW_TARGET = "<argument-depth-overflow>"
 
 

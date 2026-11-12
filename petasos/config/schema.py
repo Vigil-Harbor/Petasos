@@ -43,7 +43,7 @@ _MISSING = object()
 
 
 class ConfigError(ValueError):
-    """Every problem found while reading one config document."""
+    """Report every configuration problem with its relative or absolute path."""
 
     errors: tuple[tuple[str, str], ...]
 
@@ -79,14 +79,13 @@ def _format(errors: Sequence[tuple[str, str]]) -> str:
 
 @dataclass(frozen=True, slots=True)
 class FieldSpec:
-    """The constraints declared for one setting.
+    """Declare immutable constraints and display metadata for one setting.
 
     Stored on the dataclass field under the ``FieldSpec`` metadata key.
     Bounds on a mapping apply to each value. ``normalize`` runs on each item
     of a text list after the item is trimmed. ``label`` is the short name a
     person reads; ``choice_labels`` names each choice in plain words;
-    ``entry_labels`` names the two halves of one entry of a mapping.
-    """
+    ``entry_labels`` names the two halves of one entry of a mapping."""
 
     help: str
     ge: float | None = None
@@ -103,7 +102,7 @@ class FieldSpec:
 
 @dataclass(frozen=True, slots=True)
 class FieldInfo:
-    """One leaf setting, enough to render a form and a reference row.
+    """Describe one leaf setting with JSON-serialisable defaults and constraints.
 
     ``type_name`` is ``bool``, ``int``, ``float``, ``str``, ``choice``,
     ``tuple[str, ...]``, ``mapping[str, float]``, or ``mapping[str, str]``.
@@ -113,8 +112,7 @@ class FieldInfo:
     field name in words when none was declared. ``choice_labels`` maps each
     choice to plain words when the declaration gave them, and is otherwise
     None. ``entry_labels`` names what one entry of a mapping holds, key then
-    value, when the declaration gave them.
-    """
+    value, when the declaration gave them."""
 
     path: str
     type_name: str
@@ -135,14 +133,13 @@ class FieldInfo:
 
 @dataclass(frozen=True, slots=True)
 class SectionInfo:
-    """One nested section, emitted immediately before that section's own rows.
+    """Describe a nested section before its child rows.
 
     ``path`` is the dotted path of the section field. ``help`` is the text
     declared with ``setting`` on that field. A direct child is a row whose
     path is ``path`` plus one dotted name, so the flat result is enough to
     rebuild the tree in declaration order. ``audience``, ``restart``,
-    ``nullable`` and ``label`` come from that same field.
-    """
+    ``nullable`` and ``label`` come from that same field."""
 
     path: str
     help: str
@@ -569,7 +566,6 @@ def _convert_int(
 def _convert_float(
     item: _Field, value: object, path: str
 ) -> tuple[object, tuple[tuple[str, str], ...]]:
-    # A whole number is accepted where a float is declared and stored as a float.
     if type(value) is int:
         number = float(value)
     elif type(value) is float:
@@ -622,8 +618,6 @@ def _convert_map(
     errors: list[tuple[str, str]] = []
     cleaned: dict[str, object] = {}
     seen: set[str] = set()
-    # Value checks reuse the number or text rules. Bounds on the mapping apply
-    # to each number.
     value_field = _Field(item.name, "float", False, (), item.spec, None, 0.0)
     for raw_key, raw_value in value.items():
         if type(raw_key) is not str:
@@ -672,7 +666,6 @@ def _convert_section(
     try:
         built = cast("Callable[..., object]", section_cls)(**clean)
     except ConfigError as exc:
-        # The nested section reported paths relative to itself.
         errors.extend((_join(path, child), message) for child, message in exc.errors)
         return None, tuple(errors)
     if errors:
@@ -862,7 +855,7 @@ def describe(cls: type[object]) -> tuple[FieldInfo | SectionInfo, ...]:
 
 
 def leaves(cls: type[object]) -> tuple[FieldInfo, ...]:
-    """Every leaf setting of a section tree, in declaration order, without group rows."""
+    """Return only leaf settings in declaration order."""
     return tuple(row for row in describe(cls) if isinstance(row, FieldInfo))
 
 
@@ -969,11 +962,10 @@ def _copy_json(value: object) -> Any:
 
 @dataclass(frozen=True, slots=True)
 class ReconfigureResult:
-    """Which changed settings took effect, and which need a process restart.
+    """Report applied leaf changes separately from restart-bound changes.
 
     Paths are dotted leaf paths, in declaration order. A setting marked
-    ``restart`` is listed and left unchanged.
-    """
+    ``restart`` is listed and left unchanged."""
 
     applied: tuple[str, ...]
     restart_required: tuple[str, ...]

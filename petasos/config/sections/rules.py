@@ -31,13 +31,12 @@ def _family(rule_id: str) -> str | None:
 
 @section
 class RulesConfig:
-    """Which findings are dropped, retargeted, or ignored for being too weak.
+    """Validate rule controls without weakening structural or self-change floors.
 
     A structural or self-modification rule cannot be suppressed. An injection
     rule can be suppressed only when the floor is limited to inbound text.
     A structural rule cannot be retargeted. A self-modification rule cannot
-    be set below the severity the guard gives it.
-    """
+    be set below the severity the guard gives it."""
 
     suppress: tuple[str, ...] = setting(
         default=(),
@@ -81,6 +80,7 @@ class RulesConfig:
     )
 
     def check(self) -> None:
+        """Reject suppressions and severity overrides that violate rule floors."""
         problems: list[tuple[str, str]] = []
         seen: set[str] = set()
         for index, rule_id in enumerate(self.suppress):

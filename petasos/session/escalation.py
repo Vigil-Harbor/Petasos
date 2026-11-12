@@ -1,3 +1,5 @@
+"""Derive escalation tiers with an independent termination floor."""
+
 from __future__ import annotations
 
 import logging
@@ -16,22 +18,11 @@ _TIER_ACTIONS: dict[str, str] = {
     "tier3": "terminate",
 }
 
-# PET-107: single ordering source for tier comparison across the codebase.
 _TIER_RANK: dict[str, int] = {"none": 0, "tier1": 1, "tier2": 2, "tier3": 3}
 
 
 def max_tier(*tiers: str) -> str:
-    """Return the highest-ranked tier among the inputs (``"none"`` if none given).
-
-    The single ordering source for combining already-derived tier strings
-    (e.g. an own tier with a parent-chain of ancestor tiers, PET-107 Option A).
-    It is a *combinator*, not a re-derivation: it never re-evaluates a score and
-    never re-applies the tier-3 floor (that stays inline in ``derive_tier``).
-
-    Raises ``ValueError`` on any string not in ``_TIER_RANK``. The inputs are
-    produced internally, so an unknown value is a bug — ranking it silently as
-    ``"none"`` would be a fail-open in a security max, which is never acceptable.
-    """
+    """Return the most restrictive tier, rejecting unknown tier values."""
     best = "none"
     best_rank = 0
     for tier in tiers:
@@ -46,17 +37,18 @@ def max_tier(*tiers: str) -> str:
 
 @dataclass(frozen=True)
 class EscalationResult:
+    """Record a tier, its action and the threshold crossed."""
+
     tier: str
     action: str
     threshold_crossed: float | None
 
 
 def derive_tier(score: float, tier1: float, tier2: float, tier3: float) -> str:
+    """Return the score-derived tier while enforcing the literal termination floor."""
     if not math.isfinite(score):
         return "tier3"
-    # PET-23: the floor is an inline literal, NOT the imported TIER3_FLOOR name.
-    # Rebinding escalation.TIER3_FLOOR (in-process) must not lower the enforced
-    # floor; the named constant is retained only for config-validation messaging.
+    # An inline floor resists rebinding the exported validation constant.
     if score >= max(tier3, 30.0):
         return "tier3"
     if score >= tier2:

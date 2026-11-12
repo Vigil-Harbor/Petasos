@@ -16,8 +16,6 @@ from petasos.model import (
     Severity,
 )
 
-# --- Encoding detection ---
-
 _BASE64_PATTERN = re.compile(r"[A-Za-z0-9+/]{40,}={0,2}")
 
 
@@ -31,7 +29,6 @@ def _check_encoding(
 
     assert isinstance(normalized, _NT)
 
-    # Invisible chars
     invis_rule = "petasos.syntactic.encoding.invisible-chars"
     if invis_rule not in self._suppress_rules and normalized.invisible_chars_stripped > 0:
         findings.append(
@@ -45,7 +42,6 @@ def _check_encoding(
             )
         )
 
-    # Base64 — uses raw input
     b64_rule = "petasos.syntactic.encoding.base64-in-text"
     if b64_rule not in self._suppress_rules:
         m = _BASE64_PATTERN.search(raw_text)
@@ -63,7 +59,7 @@ def _check_encoding(
                 )
             )
 
-    # Homoglyph substitution (unconditional per D6 — fires without injection)
+    # Homoglyph findings do not require a co-occurring injection.
     homo_rule = "petasos.syntactic.encoding.homoglyph-substitution"
     if (
         homo_rule not in self._suppress_rules
@@ -80,7 +76,6 @@ def _check_encoding(
             )
         )
 
-    # RTL override
     rtl_rule = "petasos.syntactic.encoding.rtl-override"
     if rtl_rule not in self._suppress_rules and normalized.rtl_overrides_detected:
         findings.append(

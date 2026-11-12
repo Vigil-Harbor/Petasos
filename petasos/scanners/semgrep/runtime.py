@@ -48,6 +48,8 @@ _RECOVERIES_LOCK = threading.Lock()
 
 @dataclass(frozen=True)
 class SemgrepCloseResult:
+    """Report closure status and every remaining owned resource."""
+
     status: Literal["closed", "failed", "timed_out"]
     cleanup_seconds: float = 0
     join_seconds: float = 0
@@ -62,6 +64,8 @@ class SemgrepCloseResult:
 
 
 class SemgrepCleanupError(RuntimeError):
+    """Carry an incomplete Semgrep closure result."""
+
     def __init__(self, result: SemgrepCloseResult) -> None:
         super().__init__("Semgrep owned cleanup did not complete")
         self.result = result
@@ -69,6 +73,8 @@ class SemgrepCleanupError(RuntimeError):
 
 @dataclass(frozen=True)
 class Settings:
+    """Hold engine identity and per-request resource limits."""
+
     engine: str
     digest: str
     timeout: float = 8.0
@@ -76,10 +82,12 @@ class Settings:
 
     @property
     def identity(self) -> tuple[str, str]:
+        """Return the normalized engine path and digest used for runtime sharing."""
         return os.path.normcase(os.path.abspath(self.engine)), self.digest.lower()
 
 
 def error_result(code: str, total: int = 0) -> ScanResult:
+    """Return a Semgrep error with explicit error coverage."""
     return ScanResult("semgrep", (), 0, code, ScanCoverage("error", total, 0, 0, 0))
 
 
@@ -180,6 +188,8 @@ async def remove_root(
 
 @dataclass(eq=False)
 class Lease:
+    """Bind one scanner owner to its runtime jobs and preparation tokens."""
+
     runtime: Runtime
     settings: Settings
     key: object
@@ -191,6 +201,8 @@ class Lease:
 
 @dataclass(eq=False)
 class Job:
+    """Retain request state and cleanup ownership until completion."""
+
     lease: Lease | None
     key: object
     selection: Selection | None
@@ -217,6 +229,8 @@ class Job:
 
 
 class Runtime:
+    """Own admission, execution and cleanup on one manager loop."""
+
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self.lock = threading.RLock()
@@ -261,6 +275,7 @@ class Runtime:
     def register(
         self, settings: Settings, key: object, scheduling_identity: object | None = None
     ) -> Lease | str:
+        """Register a lease while runtime admission remains open."""
         with self.lock:
             if self.stopping or self.failed:
                 return "semgrep.engine_unavailable"
@@ -335,6 +350,7 @@ class Runtime:
         source: tuple[str, tuple[tuple[int, int], ...] | None, int | None] | None = None,
         refusal: str | None = None,
     ) -> Job:
+        """Submit a request or return a terminal admission error."""
         job = Job(
             lease,
             lease.key,
@@ -363,6 +379,7 @@ class Runtime:
         return job
 
     def cancel(self, job: Job) -> None:
+        """Request cancellation without detaching cleanup ownership."""
         with self.lock:
             if not job.cancelled.is_set():
                 job.cancelled_at = time.monotonic()
@@ -664,7 +681,7 @@ class Runtime:
         exc = future.exception()
         if isinstance(exc, CleanupFailure):
             job.failure = exc
-            # The retention line said "unfinished"; record what the worker found.
+            # Retained-cleanup diagnostics include the worker verdict.
             self._append_diagnostic(_native_line(exc))
             return True
         if exc is None or isinstance(exc, OSError):
@@ -807,6 +824,7 @@ class Runtime:
                 self._enqueue_probe()
 
     def close_leases(self, leases: set[Lease]) -> None:
+        """Close the supplied leases within an absolute deadline."""
         with self.lock:
             for lease in leases:
                 lease.closed = True
@@ -834,6 +852,7 @@ class Runtime:
             self.loop.stop()
 
     def residuals(self, leases: set[Lease] | None = None) -> dict[str, int]:
+        """Report resources still owned by the selected leases."""
         with self.lock:
             jobs = [*self.active, *(j for q in self.pending.values() for j in q)]
             if leases is not None:
@@ -860,6 +879,7 @@ _SEALED = False
 def acquire(
     settings: Settings, key: object, *, scheduling_identity: object | None = None
 ) -> Lease | str:
+    """Acquire a scanner lease from the process-local runtime."""
     global _RUNTIME
     with _GLOBAL_LOCK:
         if _SEALED:
@@ -872,6 +892,7 @@ def acquire(
 
 
 async def await_job(job: Job) -> ScanResult:
+    """Await a job without letting caller cancellation detach owned cleanup."""
     future = asyncio.wrap_future(job.future)
     try:
         return await asyncio.shield(future)
@@ -889,6 +910,7 @@ async def await_job(job: Job) -> ScanResult:
 
 
 async def close_leases(leases: set[Lease], deadline: float) -> SemgrepCloseResult:
+    """Close leases and report cleanup completion by the deadline."""
     start = time.monotonic()
     if not math.isfinite(deadline):
         raise ValueError("Semgrep close deadline must be finite")
@@ -931,7 +953,7 @@ async def close_leases(leases: set[Lease], deadline: float) -> SemgrepCloseResul
         try:
             await asyncio.sleep(min(0.01, max(0, deadline - time.monotonic())))
         except asyncio.CancelledError:
-            # Closure was already initiated; finish its bounded observation.
+            # An initiated closure still requires bounded observation.
             continue
     residual = {
         name: sum(r.residuals(leases)[name] for r in runtimes)
@@ -947,6 +969,7 @@ async def close_leases(leases: set[Lease], deadline: float) -> SemgrepCloseResul
 
 
 def close_semgrep_runtime(*, deadline: float) -> SemgrepCloseResult:
+    """Close process-local Semgrep resources within the requested deadline."""
     global _SEALED
     start = time.monotonic()
     if not math.isfinite(deadline):

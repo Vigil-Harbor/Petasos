@@ -1,3 +1,5 @@
+"""Pin personal-information findings, anonymization and optional-backend errors."""
+
 from __future__ import annotations
 
 import asyncio
@@ -19,10 +21,6 @@ from petasos.scanners.presidio import (
     _recover_entity_type,
     anonymize,
 )
-
-# ---------------------------------------------------------------------------
-# Skip markers for optional-dependency tests
-# ---------------------------------------------------------------------------
 
 _presidio_available = True
 try:
@@ -57,13 +55,8 @@ _BLOCKED_PRESIDIO_MODULES: dict[str, None] = {
 }
 
 
-# ---------------------------------------------------------------------------
-# Unit tests — no Presidio dependency required
-# ---------------------------------------------------------------------------
-
-
 class TestAvailabilityProbe:
-    """PET-87: availability() backend-presence probe."""
+    """Pin Availability Probe."""
 
     def test_unavailable_when_blocked(self) -> None:
         scanner = PresidioScanner()
@@ -165,11 +158,6 @@ class TestScannerProtocol:
         assert scanner.name == "presidio"
 
 
-# ---------------------------------------------------------------------------
-# Error-path tests (mocked)
-# ---------------------------------------------------------------------------
-
-
 class TestLazyLoadFailure:
     async def test_import_error_returns_errored_result(self) -> None:
         scanner = PresidioScanner()
@@ -206,11 +194,6 @@ class TestLazyLoadFailure:
         result = await scanner.scan("test")
         assert result.error is not None
         assert result.findings == ()
-
-
-# ---------------------------------------------------------------------------
-# Anonymization unit tests (no real Presidio scanning needed)
-# ---------------------------------------------------------------------------
 
 
 def _make_finding(
@@ -425,11 +408,6 @@ class TestAnonymizeMixedPositioned:
         assert "john@test.com" in result
 
 
-# ---------------------------------------------------------------------------
-# Integration tests — require presidio-analyzer + presidio-anonymizer + spaCy
-# ---------------------------------------------------------------------------
-
-
 @requires_presidio
 class TestPresidioScannerIntegration:
     @pytest.fixture
@@ -453,8 +431,6 @@ class TestPresidioScannerIntegration:
         assert len(phone_findings) > 0
 
     def test_detect_person(self) -> None:
-        # PET-109 D3: PERSON is opt-in under the tightened default, so this test
-        # (intent: "PERSON detection works") builds a PERSON-scoped scanner.
         scanner = PresidioScanner(entities=["PERSON"])
         result = asyncio.run(scanner.scan("My name is John Smith and I live in New York"))
         assert result.error is None
@@ -495,8 +471,7 @@ class TestPresidioScannerIntegration:
         assert result.duration_ms > 0
 
     def test_score_threshold_filtering(self) -> None:
-        # PET-109 D3: scope PERSON in explicitly so the threshold assertion is
-        # non-vacuous (PERSON is opt-in under the tightened default).
+        # PERSON is opt-in, so explicit scope makes the threshold assertion nonvacuous.
         scanner = PresidioScanner(entities=["PERSON"], score_threshold=0.9)
         result = asyncio.run(scanner.scan("Maybe John from somewhere"))
         assert result.error is None
@@ -516,9 +491,6 @@ class TestPresidioScannerIntegration:
         )
         assert result.error is None
         assert len(result.findings) >= 2
-        # PET-109: PERSON no longer fires under the tightened default, so the >= 2
-        # now rests on exactly email+phone — pin those entity types so a future
-        # tightening of either yields a clear failure, not a confusing count miss.
         rule_ids = {f.rule_id for f in result.findings}
         assert any("email" in r for r in rule_ids)
         assert any("phone" in r for r in rule_ids)
@@ -538,9 +510,6 @@ class TestAnonymizeIntegration:
         hash_key: str | None = None,
         entities: list[str] | None = None,
     ) -> str:
-        # PET-109: entities=None keeps the curated default (preserves the email/SSN
-        # siblings); test_replace_with_counters passes entities=["PERSON"] because
-        # PERSON is opt-in under the tightened default.
         scanner = PresidioScanner(entities=entities)
         result = asyncio.run(scanner.scan(text))
         return anonymize(

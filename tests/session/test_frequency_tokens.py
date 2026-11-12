@@ -1,11 +1,6 @@
-"""Regression coverage for behavioral-spec features that the audit (features-tracker.xlsx)
-flagged as untested ("NONE FOUND" / COVERAGE GAP), plus one field-attribution bug (DEF-02).
+"""Pin session-token binding across live risk reconfiguration.
 
-These lock load-bearing behaviors that previously had no direct test:
-security-relevant reject branches (HMAC token verification, fail-secure escalation),
-the PET-126 hot-reload `apply_config` surfaces, listener fan-out, and serialization
-contracts. Every test here exercises a real code path (no mocks of the unit under test).
-"""
+See docs/architecture/rationale.md, "Quantized scan contributions"."""
 
 from __future__ import annotations
 
@@ -21,7 +16,6 @@ from petasos.session.frequency import FrequencyTracker
 _SECRET = b"k" * 32
 
 
-# --- FREQ-13: HMAC token verification reject ---
 def _secret_tracker() -> FrequencyTracker:
     return FrequencyTracker(PetasosConfig(), secrets=Secrets(session_secret=_SECRET))
 
@@ -43,7 +37,7 @@ def test_tampered_token_digest_rejected() -> None:
 def test_wrong_host_token_rejected() -> None:
     tr = _secret_tracker()
     tok = tr.mint_token("sess-1", "host-1")
-    wrong_host = dataclasses.replace(tok, host_id="host-2")  # digest no longer matches
+    wrong_host = dataclasses.replace(tok, host_id="host-2")
     with pytest.raises(ValueError, match="HMAC verification failed"):
         tr.update(wrong_host, ["petasos.syntactic.injection.ignore-previous"])
 
@@ -55,7 +49,6 @@ def test_valid_token_accepted_after_reject_paths() -> None:
     assert res.current_score > 0
 
 
-# --- FREQ-14: tracker.apply_config atomic-on-raise ---
 def test_frequency_apply_config_atomic_on_bad_weights() -> None:
     tr = FrequencyTracker(
         from_mapping(
@@ -70,7 +63,6 @@ def test_frequency_apply_config_atomic_on_bad_weights() -> None:
     tr.update("s", ["petasos.syntactic.injection.ignore-previous"])
     before = tr.get_state("s")
     assert before is not None
-    # A malformed weight map is refused when the tree is built, so it never reaches apply_config.
     with pytest.raises(ValueError, match="frequency.weights"):
         from_mapping(
             PetasosConfig,
@@ -80,7 +72,6 @@ def test_frequency_apply_config_atomic_on_bad_weights() -> None:
                 },
             },
         )
-    # Live state preserved; old half-life unchanged (no partial apply).
     assert tr.get_state("s") is not None
     assert tr._half_life == 60.0
 

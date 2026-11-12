@@ -1,11 +1,6 @@
-"""Tests for the direct PromptGuard 2 scanner (PET-242).
+"""Pin shared PromptGuard loading, admission limits and inference error handling.
 
-Everything except ``TestPromptGuardRealLibraries`` and ``TestPromptGuardLiveModel``
-runs on the ML-free default lane, by replacing ``_score`` or ``_load``. The real
-libraries class self-skips without torch and transformers and is armed by
-``extras-prompt-guard``. The live class self-skips without the gated weights and is
-run by the Windows proof gate.
-"""
+See docs/architecture/rationale.md, "Inherited guard tiers"."""
 
 from __future__ import annotations
 
@@ -185,7 +180,6 @@ class TestPromptGuardMapping:
         blank = await pg.PromptGuardScanner().scan(text)
         assert blank.error is None
         assert blank.findings == ()
-        # The same unavailable backend still errors for text it would have scored.
         scored = await pg.PromptGuardScanner().scan(_BENIGN)
         assert scored.error == pg._INSTALL_HINT
         assert scored.findings == ()
@@ -207,7 +201,6 @@ class TestPromptGuardMapping:
         reached: list[int] = []
 
         def score(text: str) -> float:
-            # Preprocessing's input and its raw-text fallback are both this length.
             reached.append(len(pg._preprocess(text, _FailingTokenizer())))
             return 0.1
 
@@ -427,8 +420,6 @@ class TestPromptGuardFailModes:
     async def test_wedged_inference_opens_the_breaker(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        # Regression for PET-242: a plain lock-miss error would clear the streak,
-        # and a wedged forward would cost every call the full wait forever.
         _stub_score(monkeypatch)
         monkeypatch.setattr(pg, "_INFER_WAIT_SECONDS", 0.01)
         pipe = Pipeline(scanners=[pg.PromptGuardScanner()], config=PetasosConfig())
@@ -450,8 +441,6 @@ class TestPromptGuardFailModes:
     async def test_scanner_error_follows_fail_mode(
         self, monkeypatch: pytest.MonkeyPatch, fail_mode: Any, safe: bool
     ) -> None:
-        # Regression for PET-242: a backend that loads but never blocks must fail
-        # this suite. An unusable backend blocks under closed and degraded.
         _stub_score(monkeypatch, math.nan)
         pipe = Pipeline(
             scanners=[pg.PromptGuardScanner()],
@@ -527,8 +516,7 @@ class TestPromptGuardSharing:
             task.cancel()
             with pytest.raises(asyncio.CancelledError):
                 await task
-            # A cancelled waiter must free its executor thread even when the
-            # active inference is wedged and never releases the shared lock.
+            # A cancelled waiter must release its executor thread despite wedged active inference.
             assert await asyncio.to_thread(finished.wait, 1)
             assert seen == []
         finally:
@@ -668,7 +656,6 @@ class TestPromptGuardSharing:
         assert (await pg.PromptGuardScanner().scan(_BENIGN)).error is not None
         assert pg._LOAD_ERROR is not None
         _expire_cooldown(monkeypatch)
-        # Another copy's scan: one copy's failure does not poison a later load.
         assert (await pg.PromptGuardScanner().scan(_BENIGN)).error is None
         assert calls == [True, True]
         assert pg._LOAD_ERROR is None
@@ -692,7 +679,6 @@ class TestPromptGuardSharing:
     async def test_any_failure_of_a_network_load_retries(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        # huggingface_hub raises httpx errors that are not OSError on a dropped link.
         _fake_packages(monkeypatch)
         monkeypatch.setenv("HF_TOKEN", "hf_x")
         calls = _counting_load(monkeypatch, ValueError("connection dropped"), "loaded")
@@ -754,7 +740,7 @@ class TestPromptGuardSharing:
 
 
 class _SlotsOnlyWriter:
-    """The gateway's stream shape: no ``__weakref__`` (PET-92)."""
+    """The gateway's stream shape: no ``__weakref__``."""
 
     __slots__ = ("_stream",)
 
@@ -793,8 +779,7 @@ class TestPromptGuardRealLibraries:
         for char in "abcdefghijklmnopqrstuvwxyz":
             vocab[char] = len(vocab)
         backend = Tokenizer(models.WordLevel(vocab, unk_token="[UNK]"))
-        # Per-character, so a token always round-trips and preprocessing's index
-        # search succeeds on whitespace-free text.
+        # Per-character tokenization guarantees whitespace-free round trips.
         backend.pre_tokenizer = pre_tokenizers.Split(Regex("."), behavior="isolated")
         tokenizer = PreTrainedTokenizerFast(
             tokenizer_object=backend, unk_token="[UNK]", pad_token="[PAD]"
@@ -828,7 +813,7 @@ class TestPromptGuardRealLibraries:
     async def test_whole_path_after_a_round_trip_under_slots_only_streams(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
-        # The gateway's stream shape is slots-only and has no __weakref__.
+        # Hermes gateway streams can be slots-only with no weak-reference support.
         from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
         model, tokenizer = self._build()

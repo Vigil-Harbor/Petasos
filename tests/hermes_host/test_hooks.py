@@ -108,5 +108,4 @@ def test_transform_tool_result(standin: Sandbox) -> None:
             },
         },
     )
-    # Alphabetical registration: standin-b runs first, and the first string wins.
     assert both["host"]["result"] == "from-b"

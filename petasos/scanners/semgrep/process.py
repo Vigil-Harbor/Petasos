@@ -38,6 +38,8 @@ CLEANUP_DEADLINE_OBSERVER: contextvars.ContextVar[Any] = contextvars.ContextVar(
 
 @dataclass(frozen=True)
 class ProcessResult:
+    """Record child exit, captured stdout, error and peak memory."""
+
     returncode: int | None
     stdout: bytes
     error: str | None
@@ -133,7 +135,6 @@ class _PosixChild:
     def cleaned(self) -> bool:
         leader_signalled = self.poll() is not None
         if sys.platform == "win32":
-            # This implementation is used only on POSIX.
             self._last_cleanup_state = {
                 "leader_signalled": leader_signalled,
                 "group_signalled": False,
@@ -158,7 +159,6 @@ class _PosixChild:
                         clean = False  # A surviving/inaccessible group is never clean.
                     else:
                         clean = False
-        # Every return records conditions already established. Ones not reached stay false.
         self._last_cleanup_state = {
             "leader_signalled": leader_signalled,
             "group_signalled": group_signalled,
@@ -331,7 +331,7 @@ class _WindowsChild:
                 )
             )
             sa = Security(ctypes.sizeof(Security), None, True)
-            # Separate stdin pipe, closed by the parent after spawn => EOF.
+            # The closed parent write end supplies EOF to the child.
             for index in range(3):
                 read, write = w.HANDLE(), w.HANDLE()
                 self._check(
@@ -671,7 +671,6 @@ async def run_process(
                     child.terminate(force=True)
                 code = child.poll()
                 if code is not None:
-                    # Drain buffered output, bounded by the same byte cap.
                     while chunk := child.read(0):
                         if len(stdout) + len(chunk) > STDOUT_LIMIT:
                             error = "semgrep.output_limit"
@@ -701,7 +700,6 @@ async def run_process(
             if cleanup_observer is not None:
                 cleanup_observer(end)
             try:
-                # Capture already killed the job. The checks below decide.
                 with contextlib.suppress(CleanupFailure):
                     child.terminate(force=True)
                 for (_pid, born), descendant in tracked.items():
@@ -718,8 +716,7 @@ async def run_process(
                         break
                     await asyncio.sleep(0.005)
                 if not clean:
-                    # One more confirmation after the end, as before: a tree that
-                    # exited between the last poll and the clock check is clean.
+                    # A tree exiting between the final poll and deadline check is clean.
                     clean = child.cleaned()
                     _note_cleanup(child, origin, timings)
                 if not clean:

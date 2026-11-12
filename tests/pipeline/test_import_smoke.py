@@ -1,3 +1,5 @@
+"""Pin imports and the CLI without optional Hermes dependencies."""
+
 from __future__ import annotations
 
 import importlib

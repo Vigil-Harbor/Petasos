@@ -17,6 +17,7 @@ _WORKLOAD = "eight_outstanding_three_profiles_16k_64k_v3"
 
 
 def platform_key() -> str:
+    """Return the qualification key for the current operating system and machine."""
     machine = platform.machine().lower()
     if sys.platform == "win32" and machine in ("amd64", "x86_64"):
         return "windows_x64"

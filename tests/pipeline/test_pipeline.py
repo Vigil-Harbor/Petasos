@@ -1,3 +1,5 @@
+"""Pin normalization, scanner fan-out, policy floors and error-bearing inspection results."""
+
 from __future__ import annotations
 
 import asyncio
@@ -21,12 +23,10 @@ from petasos.model import (
 from petasos.pipeline import Pipeline
 from petasos.session.frequency import FrequencyTracker
 
-# ---------------------------------------------------------------------------
-# Mock scanners
-# ---------------------------------------------------------------------------
-
 
 class MockScanner:
+    """Provide Mock Scanner test data."""
+
     def __init__(
         self,
         name: str = "mock-ml",
@@ -93,11 +93,6 @@ def _injection_finding(
     )
 
 
-# ===================================================================
-# Construction (5 tests)
-# ===================================================================
-
-
 class TestPipelineConstruction:
     def test_no_scanners_uses_minimal_only(self) -> None:
         p = Pipeline()
@@ -137,17 +132,10 @@ class TestPipelineConstruction:
             p.config.fail_mode = "closed"  # type: ignore[misc]
 
 
-# ===================================================================
-# Normalization stage (6 tests)
-# ===================================================================
-
-
 async def _capture_ml_text(config: PetasosConfig, payload: str) -> str:
     """Run ``payload`` through a pipeline whose lone ML scanner records the text it
-    receives, and return that captured (post-normalization) text. Mirrors the
-    CapturingScanner pattern below; used by the PET-151 ML-arm load-bearing proofs
-    that nfkc / strip / homoglyph genuinely control the normalized text the ML
-    scanners and PII anonymization consume."""
+
+    See docs/architecture/rationale.md, "Test timing and backend qualification"."""
     received: list[str] = []
 
     class CapturingScanner:
@@ -183,8 +171,7 @@ class TestNormalization:
                 return ScanResult(scanner_name="capturing", findings=())
 
         p = Pipeline(scanners=[CapturingScanner()])
-        # Cyrillic 'а' → ASCII 'a' after homoglyph mapping
-        await p.inspect("hеllo")  # 'е' is Cyrillic
+        await p.inspect("hеllo")
         assert len(received_text) == 1
         assert received_text[0] == "hello"
 
@@ -202,9 +189,6 @@ class TestNormalization:
                 received.append(text)
                 return ScanResult(scanner_name="capturing", findings=())
 
-        # PIPE-05: with all normalization stages disabled, the ML path gets raw
-        # text. (Disabling only normalize_nfkc would still map the homoglyph,
-        # since stages are now independent.)
         cfg = from_mapping(
             PetasosConfig,
             {
@@ -216,7 +200,7 @@ class TestNormalization:
             },
         )
         p = Pipeline(scanners=[CapturingScanner()], config=cfg)
-        raw = "hеllo"  # Cyrillic е
+        raw = "hеllo"
         await p.inspect(raw)
         assert received[0] == raw
 
@@ -227,12 +211,8 @@ class TestNormalization:
         assert result.safe is True
 
     async def test_normalize_nfkc_is_an_ml_control(self) -> None:
-        # PET-151 ML-arm: normalize_nfkc is a genuine control for the
-        # normalized-text consumer (ML scanners / PII anonymization). Fullwidth
-        # 'Ａ' (U+FF21) folds to 'A' only when the toggle is on; the captured ML
-        # text shows the exact substitution, so a cross-transform payload cannot
-        # mis-attribute the diff.
-        payload = "ＡBC"  # 'ＡBC' -> 'ABC' under NFKC only
+        # Fullwidth A isolates NFKC from stripping and homoglyph mapping.
+        payload = "ＡBC"
         on = await _capture_ml_text(
             from_mapping(
                 PetasosConfig,
@@ -259,9 +239,8 @@ class TestNormalization:
         assert off == "ＡBC"
 
     async def test_strip_zero_width_is_an_ml_control(self) -> None:
-        # PET-151 ML-arm: U+200B ZERO WIDTH SPACE is Cf (strippable) and
-        # NFKC-stable, so only stripping touches it (no cross-transform overlap).
-        payload = "a​b"  # -> 'ab' only when stripping is on
+        # U+200B is strippable and NFKC-stable, isolating the stripping control.
+        payload = "a​b"
         on = await _capture_ml_text(
             from_mapping(
                 PetasosConfig,
@@ -288,9 +267,8 @@ class TestNormalization:
         assert off == "a​b"
 
     async def test_map_homoglyphs_is_an_ml_control(self) -> None:
-        # PET-151 ML-arm: Cyrillic 'о' (U+043E) is NFKC-stable and not strippable,
-        # so only homoglyph mapping touches it.
-        payload = "hellо"  # 'hellо' -> 'hello' only when mapping is on
+        # Cyrillic o is NFKC-stable and not strippable, isolating homoglyph mapping.
+        payload = "hellо"
         on = await _capture_ml_text(
             from_mapping(
                 PetasosConfig,
@@ -317,11 +295,6 @@ class TestNormalization:
         assert off == "hellо"
 
 
-# ===================================================================
-# Syntactic pre-filter (3 tests)
-# ===================================================================
-
-
 class TestSyntacticPreFilter:
     async def test_minimal_always_runs(self) -> None:
         p = Pipeline()
@@ -337,15 +310,8 @@ class TestSyntacticPreFilter:
 
     async def test_minimal_error_recorded(self) -> None:
         p = Pipeline()
-        # MinimalScanner is resilient, but we can test pipeline continues
-        # by verifying it returns a valid result for benign input
         result = await p.inspect("hello world")
         assert isinstance(result, PipelineResult)
-
-
-# ===================================================================
-# Fan-out scan (6 tests)
-# ===================================================================
 
 
 class TestFanOutScan:
@@ -365,7 +331,7 @@ class TestFanOutScan:
         await p.inspect("test")
         elapsed = time.perf_counter() - t0
 
-        assert elapsed < 0.19  # Parallel: < sum(0.1 + 0.1)
+        assert elapsed < 0.19
 
     async def test_scanner_exception_isolated(self) -> None:
         good = MockScanner("good", findings=(_injection_finding(start=100, end=110),))
@@ -381,9 +347,6 @@ class TestFanOutScan:
         assert len(good_results[0].findings) == 1
 
     async def test_scanner_timeout(self) -> None:
-        # PIPE-03: the per-scanner timeout is config-driven (scanner_timeout_seconds),
-        # not the module global. A scanner that hangs past it returns a counted
-        # error ScanResult rather than blocking inspect().
         slow = MockScanner("slow", delay=1.0)
         p = Pipeline(
             scanners=[slow],
@@ -414,11 +377,6 @@ class TestFanOutScan:
         p = Pipeline(scanners=[s1, s2])
         result = await p.inspect("harmless input")
         assert result.safe is True
-
-
-# ===================================================================
-# Finding merge (3 tests) — pipeline-level integration
-# ===================================================================
 
 
 class TestFindingMergeIntegration:
@@ -468,11 +426,6 @@ class TestFindingMergeIntegration:
         p = Pipeline(scanners=[ml])
         result = await p.inspect("benign")
         assert result.safe is False
-
-
-# ===================================================================
-# Fail-mode: degraded (5 tests)
-# ===================================================================
 
 
 class TestFailModeDegraded:
@@ -557,11 +510,6 @@ class TestFailModeDegraded:
         assert result.safe is False
 
 
-# ===================================================================
-# Fail-mode: open (3 tests)
-# ===================================================================
-
-
 class TestFailModeOpen:
     async def test_partial_ml_failure_safe(self) -> None:
         good = MockScanner("good")
@@ -606,11 +554,6 @@ class TestFailModeOpen:
         )
         result = await p.inspect("clean")
         assert result.safe is False
-
-
-# ===================================================================
-# Fail-mode: closed (4 tests)
-# ===================================================================
 
 
 class TestFailModeClosed:
@@ -667,10 +610,9 @@ class TestFailModeClosed:
                 },
             ),
         )
-        # Binary content triggers CRITICAL from MinimalScanner
         result = await p.inspect("hello\x01world")
         assert result.safe is False
-        assert not called  # ML scanner should not have been called
+        assert not called
 
     async def test_early_exit_still_runs_session_hooks(self) -> None:
         hook_calls: list[str] = []
@@ -735,11 +677,6 @@ class TestFailModeClosed:
         assert result.safe is True
 
 
-# ===================================================================
-# Anonymization (5 tests)
-# ===================================================================
-
-
 class TestAnonymization:
     async def test_pii_findings_anonymize_true(self) -> None:
         pii = _pii_finding()
@@ -755,7 +692,6 @@ class TestAnonymization:
         )
         p = Pipeline(scanners=[ml], config=cfg)
         result = await p.inspect("Alice says hello")
-        # replace mode doesn't need Presidio imports
         assert result.sanitized_content is not None
         assert "Alice" not in result.sanitized_content
 
@@ -844,11 +780,6 @@ class TestAnonymization:
         assert r1.sanitized_content == r2.sanitized_content
 
 
-# ===================================================================
-# Pipeline never throws (4 tests)
-# ===================================================================
-
-
 class TestPipelineNeverThrows:
     async def test_broken_scanner_returns_result(self) -> None:
         bad = MockScanner("broken", error=RuntimeError("total failure"))
@@ -865,7 +796,6 @@ class TestPipelineNeverThrows:
 
     async def test_internal_error_returns_result(self) -> None:
         p = Pipeline()
-        # Force an internal error by corrupting the minimal scanner
         p._minimal_scanner = None
         result = await p.inspect("test")
         assert isinstance(result, PipelineResult)
@@ -873,7 +803,6 @@ class TestPipelineNeverThrows:
         assert len(result.errors) > 0
 
     async def test_base_exception_caught_at_boundary(self) -> None:
-        # PET-48: BaseException (including SystemExit) is now caught by inspect()
         p = Pipeline()
 
         async def _raise_system_exit(
@@ -895,11 +824,6 @@ class TestPipelineNeverThrows:
         assert any("SystemExit" in e for e in result.errors)
 
 
-# ===================================================================
-# Session hooks (2 tests)
-# ===================================================================
-
-
 class TestSessionHooks:
     async def test_hooks_callable(self) -> None:
         p = Pipeline()
@@ -914,11 +838,6 @@ class TestSessionHooks:
         result = await p.inspect("hello")
         assert result.safe is True
         assert result.errors == ()
-
-
-# ===================================================================
-# Direction parameter (2 tests)
-# ===================================================================
 
 
 class TestDirection:
@@ -975,11 +894,6 @@ class TestDirection:
         assert received_dir[-1] == "outbound"
 
 
-# ===================================================================
-# Profile parameter in inspect() and __init__() (PET-8)
-# ===================================================================
-
-
 class TestPipelineProfile:
     async def test_init_with_profile_string(self) -> None:
         p = Pipeline(config=resolve({"role": "admin"}).config)
@@ -1017,10 +931,9 @@ class TestPipelineProfile:
 
 
 class TestMinimalScannerError:
-    """PET-70 / SYN-07: MinimalScanner error propagation in _compute_safe."""
+    """Pin Minimal Scanner Error."""
 
     async def test_minimal_error_degraded_unsafe(self) -> None:
-        # Regression for PET-70: MinimalScanner error in degraded -> safe=False
         from petasos.scanners.minimal import MinimalScanner
 
         scanner = MinimalScanner()
@@ -1084,35 +997,6 @@ class TestMinimalScannerError:
         assert result.safe is False
 
 
-# ===================================================================
-# PET-169 test-8 load-bearing arms (6 tests)
-#
-# Every key the config-surface honesty audit newly classified `live-partial`
-# gets an arm proving the caveat's claim is true for the consumer that caveat
-# names. The `live-partial` verdict itself says the key is inert on a base
-# install (MinimalScanner only); these arms are the other half, and without them
-# a caveat ships on the strength of a read trace alone, which is the exact
-# substitution PET-143 D-A and PET-151 forbid.
-#
-# The three PET-151 normalization toggles are exempt (transcribed, pins already
-# shipped as test_normalize_nfkc_is_an_ml_control and its two siblings above).
-# `hash_key` is exempt with its rationale recorded: it is consumed only under
-# mode == "hash", an engine-path mode, and the pipeline rejects that mode when
-# Secrets has no hash key, so no extras-free configuration exists in which
-# flipping it changes a scan. Its caveat rests on the redaction_mode arm plus
-# the read trace.
-#
-# No arm here requires a scanner extra: the PII positive control is a stub
-# Scanner emitting positioned finding_type="pii" findings, necessary because
-# MinimalScanner emits only injection/command/encoding/structural, so the
-# pii_findings filter in Stage 9 is always empty on a base install and an
-# unaided diff would compare two identical results with nothing exercised. The
-# anonymization arms set redaction_mode explicitly to "replace" or "mask": the
-# default is "redact", which routes to the engine path, and an arm written at
-# defaults would pin the ImportError handler rather than anonymization.
-# ===================================================================
-
-
 _PII_TEXT = "Alice met alice@example.com today"
 
 
@@ -1144,8 +1028,6 @@ def _pii_stub_pipeline(partial: dict[str, object] | None = None) -> Pipeline:
 
 class TestConfigSurfaceLoadBearingArms:
     async def test_anonymize_is_a_control_with_a_pii_scanner(self) -> None:
-        # Regression for PET-169: `anonymize` is live once a PII-detecting
-        # scanner is registered, which is what its help_plain caveat claims.
         on = await _pii_stub_pipeline(
             {
                 "anonymization": {
@@ -1166,13 +1048,9 @@ class TestConfigSurfaceLoadBearingArms:
         assert on.sanitized_content is not None
         assert "Alice" not in on.sanitized_content
         assert "<PERSON_1>" in on.sanitized_content
-        # No ImportError arm was taken: the manual replace/mask path is pure
-        # Python, so a missing presidio backend cannot explain this diff.
         assert not any("presidio not installed" in e for e in on.errors)
 
     async def test_pii_entities_is_a_control_with_a_pii_scanner(self) -> None:
-        # Regression for PET-169: narrowing pii_entities changes which spans the
-        # anonymize step hides, once something is being hidden at all.
         wide = await _pii_stub_pipeline(
             {
                 "anonymization": {
@@ -1197,8 +1075,6 @@ class TestConfigSurfaceLoadBearingArms:
         assert "Alice" not in narrowed.sanitized_content
 
     async def test_redaction_mode_is_a_control_with_a_pii_scanner(self) -> None:
-        # Regression for PET-169: "replace" and "mask" both route through the
-        # extras-free manual path and produce different output.
         replaced = await _pii_stub_pipeline(
             {
                 "anonymization": {
@@ -1222,10 +1098,6 @@ class TestConfigSurfaceLoadBearingArms:
         assert "*" in masked.sanitized_content
 
     async def test_scanner_timeout_seconds_is_a_control_with_an_ml_scanner(self) -> None:
-        # Regression for PET-169: the per-scanner deadline is read only inside
-        # _scan_with_breaker, which runs only when an ML scanner is registered.
-        # With one registered the toggle moves `safe`: a timeout counts as a
-        # scanner failure and degraded mode blocks.
         slow = MockScanner("slow-ml", delay=0.2)
         tight = Pipeline(
             [slow],
@@ -1253,9 +1125,6 @@ class TestConfigSurfaceLoadBearingArms:
         assert (await loose.inspect("hello world")).safe is True
 
     async def test_circuit_breaker_threshold_is_a_control_with_an_ml_scanner(self) -> None:
-        # Regression for PET-169: at threshold 1 the second scan is
-        # short-circuited by the open breaker; at threshold 3 the scanner is
-        # re-awaited and times out again. Distinct error classes, same input.
         from petasos.model import _TIMEOUT_ERROR_PREFIX
         from petasos.pipeline.health import _BREAKER_OPEN_ERROR_PREFIX
 
@@ -1284,9 +1153,6 @@ class TestConfigSurfaceLoadBearingArms:
         assert (await _second_scan_error(3)).startswith(_TIMEOUT_ERROR_PREFIX)
 
     async def test_circuit_breaker_cooldown_is_a_control_with_an_ml_scanner(self) -> None:
-        # Regression for PET-169: with the breaker already open, a cooldown that
-        # has elapsed lets the scanner be re-awaited (timeout error); one that
-        # has not keeps it short-circuited (breaker-open error).
         from petasos.model import _TIMEOUT_ERROR_PREFIX
         from petasos.pipeline.health import _BREAKER_OPEN_ERROR_PREFIX
 
@@ -1304,7 +1170,7 @@ class TestConfigSurfaceLoadBearingArms:
                     },
                 ),
             )
-            await pipe.inspect("hello world")  # opens the breaker
+            await pipe.inspect("hello world")
             await asyncio.sleep(0.05)
             after = await pipe.inspect("hello world")
             errors = [r.error for r in after.scanner_results if r.scanner_name == "slow-ml"]
@@ -1313,11 +1179,6 @@ class TestConfigSurfaceLoadBearingArms:
 
         assert (await _error_after_cooldown(0.01)).startswith(_TIMEOUT_ERROR_PREFIX)
         assert (await _error_after_cooldown(30.0)).startswith(_BREAKER_OPEN_ERROR_PREFIX)
-
-
-# ---------------------------------------------------------------------------
-# PET-176 D1: the injected FrequencyTracker
-# ---------------------------------------------------------------------------
 
 
 class TestInjectedTracker:
@@ -1342,18 +1203,12 @@ class TestInjectedTracker:
         assert isinstance(p._frequency_tracker, FrequencyTracker)
 
     def test_requires_token_mismatch_raises_at_construction(self) -> None:
-        # A tracker minted against a secret-bearing config injected into a
-        # secretless pipeline: _frequency_hook would choose a bare string while
-        # _resolve_session_id enforces tokens, silently killing every update()
-        # into Stage-6 errors[]. D1 converts that into a boot failure.
         secret_cfg = PetasosConfig()
         tracker = FrequencyTracker(secret_cfg, secrets=Secrets(session_secret=b"0" * 32))
         with pytest.raises(ValueError, match="requires_token"):
             Pipeline(config=PetasosConfig(), frequency_tracker=tracker)
 
     async def test_inspect_weight_cap_reaches_update(self) -> None:
-        # Through the public seam: inspect() -> _inspect_inner -> _frequency_hook
-        # -> update(weight_cap=...). Raw 10.0 quantizes to exactly the cap.
         cfg = PetasosConfig()
         tracker = FrequencyTracker(cfg)
         p = Pipeline(config=cfg, frequency_tracker=tracker)
@@ -1381,7 +1236,7 @@ class TestInjectedTracker:
 
 
 class TestBackendCoverage:
-    """PET-254 piece 1: per-backend coverage on PipelineResult."""
+    """Pin Backend Coverage."""
 
     async def test_distinct_names_each_keep_their_coverage(self) -> None:
         complete = ScanCoverage("complete", 5, 5, 1, 1)
@@ -1405,9 +1260,8 @@ class TestBackendCoverage:
 
     @pytest.mark.parametrize("partial_first", [True, False])
     async def test_duplicate_names_keep_the_smaller_claim(self, partial_first: bool) -> None:
-        # Pipeline does not require unique scanner names. When two same-named
-        # scanners disagree, the merged map must not claim more than the one that
-        # examined least, whichever order they finished in.
+        # Same-named scanner coverage retains the least examination claim, independent of
+        # completion order.
         complete = ScanCoverage("complete", 5, 5, 1, 1)
         partial = ScanCoverage("partial", 5, 2, 2, 1)
         first, second = (partial, complete) if partial_first else (complete, partial)
@@ -1421,6 +1275,5 @@ class TestBackendCoverage:
         result = await pipeline.inspect("hello")
         assert result.backend_coverage is not None
         assert result.backend_coverage["twin"] == partial
-        # Both individual claims remain visible on the per-scanner results.
         twins = [r for r in result.scanner_results if r.scanner_name == "twin"]
         assert sorted(r.coverage.status for r in twins if r.coverage) == ["complete", "partial"]

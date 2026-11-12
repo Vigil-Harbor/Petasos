@@ -1,15 +1,6 @@
-"""code_generation demotes PromptGuard's injection verdict to a non-blocking LOW.
+"""Pin coding-role ML severity policy without weakening syntactic floors.
 
-PromptGuard emits ``petasos.promptguard.injection`` (finding_type ``injection``,
-HIGH). ``severity_overrides`` remaps that rule to LOW under ``code_generation``,
-which keeps the finding visible for audit while it no longer blocks. Profiles
-that do not override it, including ``general`` and ``customer_service``, still
-block.
-
-These tests pin both sides with a deterministic stub. The injection-floor
-scoping that relaxes outbound syntactic injection is a separate behavior and is
-not what these tests isolate.
-"""
+See docs/architecture/rationale.md, "Inherited guard tiers"."""
 
 from __future__ import annotations
 
@@ -18,7 +9,6 @@ from petasos.model import Direction, ScanFinding, ScanResult, Severity
 from petasos.pipeline import Pipeline
 from petasos.scanners.prompt_guard import _RULE_ID
 
-# The rule_id the code_generation severity_override targets.
 _PROMPT_GUARD_RULE = _RULE_ID
 _BLOCKING_SEVERITIES = {Severity.CRITICAL, Severity.HIGH}
 
@@ -63,9 +53,8 @@ class TestPromptGuardDowngradedUnderCodegen:
             config=resolve({"role": "coding"}).config,
             scanners=[_StubPromptGuardScanner()],
         )
-        # Benign input on purpose: the Pipeline always runs MinimalScanner, so a
-        # literal syntactic injection phrase would trip the syntactic floor and
-        # block regardless of this override.
+        # A syntactic injection would trigger the always-on floor and mask the ML policy under
+        # test.
         res = await pipe.inspect("git status && ls -la ~", direction="outbound")
         hit = [f for f in res.findings if f.rule_id == _PROMPT_GUARD_RULE]
         assert hit, "expected the prompt-guard finding to be retained for audit"

@@ -1,4 +1,4 @@
-"""PIPE-03 (PET-50): scanner timeout + consecutive-timeout circuit breaker."""
+"""Pin bounded scan waits and consecutive-timeout circuit breaking."""
 
 from __future__ import annotations
 
@@ -61,9 +61,6 @@ class _FlakyThenHealthyScanner:
         return ScanResult(scanner_name="flaky", findings=())
 
 
-# --- config validation -----------------------------------------------------
-
-
 @pytest.mark.parametrize("bad", [0.0, -1.0, float("inf"), float("nan"), 60.001, 100.0])
 def test_scanner_timeout_seconds_rejects_invalid(bad: float) -> None:
     with pytest.raises(ConfigError, match="scanners.timeout_seconds"):
@@ -89,9 +86,6 @@ def test_circuit_breaker_cooldown_rejects_invalid(bad: float) -> None:
         from_mapping(PetasosConfig, {"scanners": {"breaker_cooldown_seconds": bad}})
 
 
-# --- timeout behavior -------------------------------------------------------
-
-
 async def test_hanging_scanner_times_out_not_hangs() -> None:
     cfg = from_mapping(
         PetasosConfig,
@@ -107,15 +101,11 @@ async def test_hanging_scanner_times_out_not_hangs() -> None:
     result = await pipe.inspect("benign text")
     elapsed = time.perf_counter() - t0
 
-    assert elapsed < 2.0  # did not wait the full 5s hang
+    assert elapsed < 2.0
     sr = next(s for s in result.scanner_results if s.scanner_name == "hanging")
     assert sr.error is not None
     assert sr.error.startswith("ScannerTimeout")
-    # degraded mode: an ML scanner error blocks content
     assert result.safe is False
-
-
-# --- circuit breaker --------------------------------------------------------
 
 
 async def test_circuit_breaker_trips_after_threshold() -> None:
@@ -133,14 +123,13 @@ async def test_circuit_breaker_trips_after_threshold() -> None:
     scanner = _HangingScanner(delay=5.0)
     pipe = Pipeline([MinimalScanner(), scanner], config=cfg)
 
-    await pipe.inspect("x")  # timeout 1
-    await pipe.inspect("x")  # timeout 2 -> breaker opens
-    result = await pipe.inspect("x")  # short-circuited
+    await pipe.inspect("x")
+    await pipe.inspect("x")
+    result = await pipe.inspect("x")
 
     sr = next(s for s in result.scanner_results if s.scanner_name == "hanging")
     assert sr.error is not None
     assert sr.error.startswith("ScannerCircuitOpen")
-    # the third scan() was short-circuited — the scanner was never invoked again
     assert scanner.calls == 2
 
 
@@ -165,33 +154,25 @@ async def test_circuit_breaker_streak_clears_after_cooldown() -> None:
     scanner = _HangingScanner(delay=5.0)
     pipe = Pipeline([MinimalScanner(), scanner], config=cfg)
 
-    await pipe.inspect("x")  # timeout 1 (count=1)
-    await pipe.inspect("x")  # timeout 2 → breaker opens (count=2)
+    await pipe.inspect("x")
+    await pipe.inspect("x")
 
-    # Wait for the cooldown to expire.
     await asyncio.sleep(0.1)
 
     calls_before = scanner.calls
-    result = await pipe.inspect("x")  # cooldown expired → scanner re-invoked (streak=1)
+    result = await pipe.inspect("x")
 
-    # The scanner must have been called again (not short-circuited).
     assert scanner.calls > calls_before
 
-    # The error is a fresh timeout, not a circuit-open error, because the
-    # streak was cleared — the single timeout post-cooldown did not re-trip.
+    # A cooldown resets the streak; one subsequent timeout cannot reopen a threshold-two breaker.
     sr = next(s for s in result.scanner_results if s.scanner_name == "hanging")
     assert sr.error is not None
     assert sr.error.startswith("ScannerTimeout"), (
         f"Expected fresh ScannerTimeout after cooldown reset, got: {sr.error!r}"
     )
 
-    # Second immediate post-cooldown call: streak=1 < threshold=2, so the
-    # breaker is still closed and the scanner must be invoked again. If the
-    # old stale-streak bug were present the breaker would already be open and
-    # this call would be short-circuited (ScannerCircuitOpen), failing both
-    # assertions below.
     calls_before2 = scanner.calls
-    result2 = await pipe.inspect("x")  # streak hits threshold on this call, breaker re-opens
+    result2 = await pipe.inspect("x")
     assert scanner.calls > calls_before2, "scanner was not invoked on second post-cooldown call"
     sr2 = next(s for s in result2.scanner_results if s.scanner_name == "hanging")
     assert sr2.error is not None
@@ -211,9 +192,9 @@ async def test_circuit_breaker_resets_on_success() -> None:
     scanner = _FlakyThenHealthyScanner()
     pipe = Pipeline([MinimalScanner(), scanner], config=cfg)
 
-    await pipe.inspect("x")  # timeout (count=1, below threshold 2)
-    result = await pipe.inspect("x")  # success -> resets streak
+    await pipe.inspect("x")
+    result = await pipe.inspect("x")
 
     sr = next(s for s in result.scanner_results if s.scanner_name == "flaky")
-    assert sr.error is None  # healthy; breaker never opened
+    assert sr.error is None
     assert scanner.calls == 2

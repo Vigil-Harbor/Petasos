@@ -16,7 +16,7 @@ async def fake_job(runtime: rt.Runtime, job: rt.Job) -> None:
     else:
         while not job.cancelled.is_set():
             await asyncio.sleep(0.002)
-        await asyncio.sleep(0.15)  # deterministic owned cleanup, no abandoned task
+        await asyncio.sleep(0.15)
         result = result_for(job.selection, error="semgrep.cancelled")
     with runtime.lock:
         runtime.active.discard(job)

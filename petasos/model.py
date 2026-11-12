@@ -1,3 +1,5 @@
+"""Expose immutable findings and results with validated scanner contracts."""
+
 from __future__ import annotations
 
 import enum
@@ -12,21 +14,10 @@ from petasos.coverage import ScanCoverage as ScanCoverage
 
 Direction = Literal["inbound", "outbound"]
 
-# PET-162 Part 2: a built-in-profile field domain governing how far the syntactic
-# injection floor reaches. "all" (default) keeps injection an absolute floor on
-# every direction (today's behavior); "inbound" relaxes it for the agent's OWN
-# outbound tool calls while keeping it hard floor on agent-inbound content. The
-# two-value-domain idiom mirrors ``Direction`` and gives mypy --strict literal
-# coverage at the floor-check sites.
+# See docs/architecture/rationale.md, "Finding suppression floors".
 FloorScope = Literal["all", "inbound"]
 
-# PET-103: cause discriminator carried as the 3rd element of the duck-typed
-# ``availability()`` return. Distinguishes a backend that is genuinely absent
-# ("absent") from one that is installed but crashed on load ("load_failed").
-# Single source of truth for the two spellings, consumed by the three ML
-# scanners' ``availability()`` and by ``Pipeline.scanner_health()`` — so the
-# scanners and the pipeline cannot drift on the spelling. Not on the Scanner
-# Protocol; ``availability()`` stays duck-typed.
+# Availability causes distinguish missing prerequisites from terminal load failure.
 AvailabilityCause = Literal["absent", "load_failed"]
 AVAILABILITY_CAUSE_ABSENT: AvailabilityCause = "absent"
 AVAILABILITY_CAUSE_LOAD_FAILED: AvailabilityCause = "load_failed"
@@ -104,6 +95,8 @@ def at_least(severity: object, threshold: Severity) -> bool:
 
 @dataclass(frozen=True)
 class Position:
+    """Hold a nonnegative, end-exclusive interval with end at least start."""
+
     start: int
     end: int
 
@@ -116,6 +109,8 @@ class Position:
 
 @dataclass(frozen=True)
 class ScanFinding:
+    """Hold immutable finding fields with validated confidence and position basis."""
+
     rule_id: str
     finding_type: str
     severity: Severity
@@ -135,6 +130,7 @@ class ScanFinding:
             )
 
     def to_dict(self) -> dict[str, Any]:
+        """Return the finding as JSON-serialisable data."""
         d: dict[str, Any] = {
             "rule_id": self.rule_id,
             "finding_type": self.finding_type,
@@ -154,6 +150,7 @@ class ScanFinding:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ScanFinding:
+        """Construct and validate a finding from serialized data."""
         pos = data.get("position")
         position = Position(**pos) if pos is not None else None
         return cls(
@@ -171,6 +168,8 @@ class ScanFinding:
 
 @dataclass(frozen=True)
 class ScanResult:
+    """Hold one scanner outcome with immutable findings and optional coverage."""
+
     scanner_name: str
     findings: tuple[ScanFinding, ...]
     duration_ms: float = 0.0
@@ -182,6 +181,7 @@ class ScanResult:
             raise ValueError("coverage must be ScanCoverage")
 
     def to_dict(self) -> dict[str, Any]:
+        """Return the scanner outcome as JSON-serialisable data."""
         result: dict[str, Any] = {
             "scanner_name": self.scanner_name,
             "findings": [f.to_dict() for f in self.findings],
@@ -195,6 +195,7 @@ class ScanResult:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ScanResult:
+        """Construct and validate a scanner outcome from serialized data."""
         return cls(
             scanner_name=data["scanner_name"],
             findings=tuple(ScanFinding.from_dict(f) for f in data["findings"]),
@@ -210,8 +211,12 @@ class ScanResult:
 
 @runtime_checkable
 class Scanner(Protocol):
+    """Require a stable name and an asynchronous scan result."""
+
     @property
-    def name(self) -> str: ...
+    def name(self) -> str:
+        """Return the stable scanner name used in results and health reports."""
+        ...
 
     async def scan(
         self,
@@ -219,7 +224,9 @@ class Scanner(Protocol):
         *,
         direction: Direction = "inbound",
         session_id: str | None = None,
-    ) -> ScanResult: ...
+    ) -> ScanResult:
+        """Inspect text asynchronously and return a scanner result."""
+        ...
 
 
 def _validate_scanner(obj: Any) -> None:
@@ -265,29 +272,26 @@ def _validate_scanner(obj: Any) -> None:
 
 @dataclass(frozen=True)
 class NormalizedText:
+    """Retain original and canonical text plus independent match-only views."""
+
     original: str
     normalized: str
     transformations_applied: tuple[str, ...]
     invisible_chars_stripped: int = 0
     confusables_normalized: bool = False
     rtl_overrides_detected: bool = False
-    # Match-only leet-decoded candidate views (PET-97): length-preserving
-    # folds of `normalized`, consumed by the injection pass only. Empty when
-    # no foldable character is present or fold_leet=False.
+    # Leet match views preserve canonical offsets and never alter canonical text.
     leet_views: tuple[str, ...] = ()
-    # Match-only separator-restored candidate views (PET-198): not
-    # length-preserving. Empty when nothing was stripped, stripping is off,
-    # or the finished view equals `normalized`.
+    # Separator views can change length and therefore cannot supply canonical offsets.
     separator_views: tuple[str, ...] = ()
-    # Match-only composed candidate views (PET-201): leet fold of the one
-    # separator view. Not length-preserving. Empty when fold_leet is off,
-    # there is no separator view, or the leet fold of that view equals an
-    # already-emitted string.
+    # See docs/architecture/rationale.md, "Normalization views".
     composed_views: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
 class AuditEvent:
+    """Hold a sequenced audit record with immutable payload data."""
+
     event_id: str
     timestamp: float
     session_id: str | None
@@ -296,6 +300,7 @@ class AuditEvent:
     sequence_number: int
 
     def to_dict(self) -> dict[str, Any]:
+        """Return the audit record as JSON-serialisable data."""
         return {
             "event_id": self.event_id,
             "timestamp": self.timestamp,
@@ -308,6 +313,8 @@ class AuditEvent:
 
 @dataclass(frozen=True)
 class Alert:
+    """Hold an alert with immutable context data."""
+
     alert_id: str
     timestamp: float
     rule_id: str
@@ -317,6 +324,7 @@ class Alert:
     context: MappingProxyType[str, Any]
 
     def to_dict(self) -> dict[str, Any]:
+        """Return the alert as JSON-serialisable data."""
         return {
             "alert_id": self.alert_id,
             "timestamp": self.timestamp,
@@ -357,6 +365,7 @@ class PipelineResult:
             object.__setattr__(self, "feature_status", MappingProxyType(dict(pf)))
 
     def to_dict(self) -> dict[str, Any]:
+        """Return the inspection result as JSON-serialisable data."""
         result: dict[str, Any] = {
             "safe": self.safe,
             "findings": [f.to_dict() for f in self.findings],

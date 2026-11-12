@@ -1,3 +1,5 @@
+"""Pin constructor validation, scanner structure and immutable result data."""
+
 from __future__ import annotations
 
 from types import MappingProxyType
@@ -27,11 +29,6 @@ def _make_finding(*, confidence: float = 0.9) -> ScanFinding:
     )
 
 
-# ---------------------------------------------------------------------------
-# TYP-02: PipelineResult immutability enforcement
-# ---------------------------------------------------------------------------
-
-
 class TestPipelineResultImmutability:
     def test_pipeline_result_dict_wrapped_as_proxy(self) -> None:
         r = PipelineResult(
@@ -59,11 +56,6 @@ class TestPipelineResultImmutability:
         proxy = MappingProxyType({"frequency": "available"})
         r = PipelineResult(safe=True, findings=(), feature_status=proxy)
         assert r.feature_status is proxy
-
-
-# ---------------------------------------------------------------------------
-# TYP-03: Position + confidence validation
-# ---------------------------------------------------------------------------
 
 
 class TestPositionValidation:
@@ -97,11 +89,6 @@ class TestConfidenceValidation:
     def test_confidence_inf_raises(self) -> None:
         with pytest.raises(ValueError, match=r"must be in \[0\.0, 1\.0\]"):
             _make_finding(confidence=float("inf"))
-
-
-# ---------------------------------------------------------------------------
-# TYP-04: Scanner validation
-# ---------------------------------------------------------------------------
 
 
 class TestValidateScanner:
@@ -178,11 +165,6 @@ class TestValidateScanner:
 
         with pytest.raises(TypeError):
             Pipeline(scanners=[BadObj()])  # type: ignore[list-item]
-
-
-# ---------------------------------------------------------------------------
-# Cross-cutting
-# ---------------------------------------------------------------------------
 
 
 class TestRoundtripValidation:

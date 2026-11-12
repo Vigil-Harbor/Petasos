@@ -13,7 +13,7 @@ _SEVERITY = Literal["critical", "high", "medium", "low", "info"]
 
 @section
 class FrequencyConfig:
-    """The running risk score for one conversation, and how fast it fades."""
+    """Validate session risk decay and finding weights."""
 
     enabled: bool = setting(
         default=True,
@@ -53,6 +53,7 @@ class FrequencyConfig:
     )
 
     def check(self) -> None:
+        """Reject wildcard weight keys unless the wildcard is a final dot-star."""
         if self.weights is None:
             return
         problems: list[tuple[str, str]] = []
@@ -72,10 +73,9 @@ class FrequencyConfig:
 
 @section
 class EscalationConfig:
-    """The risk scores at which a conversation is watched, blocked, and then ended.
+    """Validate ascending thresholds with an enforced termination floor.
 
-    The three scores must rise, and the last one cannot go below the tier-3 floor.
-    """
+    The three scores must rise, and the last one cannot go below the tier-3 floor."""
 
     enabled: bool = setting(
         default=True,
@@ -107,13 +107,14 @@ class EscalationConfig:
     )
 
     def check(self) -> None:
+        """Require strictly increasing escalation thresholds."""
         if not self.tier1 < self.tier2 < self.tier3:
             raise ConfigError("must be strictly ascending: tier 1, then tier 2, then tier 3")
 
 
 @section
 class AuditConfig:
-    """The record written for each scan."""
+    """Validate audit activation, verbosity and finding emission."""
 
     enabled: bool = setting(
         default=True,
@@ -142,12 +143,11 @@ class AuditConfig:
 
 @section
 class AlertingConfig:
-    """Warnings for bursts, spikes, and repeated findings.
+    """Validate alert windows, rate caps and buffer capacities.
 
     The caps and windows are expert settings. One session cannot spend the
     whole per-minute allowance, and a burst count cannot exceed the memory
-    that holds recent events.
-    """
+    that holds recent events."""
 
     enabled: bool = setting(
         default=True,
@@ -266,6 +266,7 @@ class AlertingConfig:
     )
 
     def check(self) -> None:
+        """Reject alert limits that cannot fit their configured buffers."""
         problems: list[tuple[str, str]] = []
         if self.rapid_fire_count > self.ring_buffer_capacity:
             problems.append(
@@ -285,7 +286,7 @@ class AlertingConfig:
 
 @section
 class SessionsConfig:
-    """How many conversations are remembered, and for how long."""
+    """Validate retained-session bounds and expiry."""
 
     max: int = setting(
         default=10_000,
@@ -322,7 +323,7 @@ class SessionsConfig:
 
 @section
 class StartupConfig:
-    """How long a tool call waits while scanners are still starting."""
+    """Validate how long tool calls wait for scanner startup."""
 
     wait_seconds: float = setting(
         default=2.0,

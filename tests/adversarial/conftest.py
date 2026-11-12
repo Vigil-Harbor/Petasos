@@ -1,4 +1,4 @@
-"""Shared fixtures for PET-14 adversarial corpus (Bucket B)."""
+"""Provide syntactic and degraded pipelines for adversarial tests."""
 
 from __future__ import annotations
 

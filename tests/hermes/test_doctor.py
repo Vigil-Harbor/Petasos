@@ -315,7 +315,6 @@ def test_unavailable_scanner_is_named(
 
     assert code == 1
     assert "Semgrep cannot run inside Hermes yet." in out
-    # The general job asks, so a check that cannot run makes those calls wait.
     assert "It is set to Required, so tool calls that change things wait for a person." in out
     assert "petasos config set scanners.semgrep.enabled off" in out
     assert "semgrep.host_lifecycle_unavailable" not in out

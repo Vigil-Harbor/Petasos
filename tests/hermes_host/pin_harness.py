@@ -23,7 +23,6 @@ def _setup() -> tuple[Path, Any]:
     sandbox_root()
     managed = require_inside_sandbox(hermes_home() / "managed", label="managed config")
     managed.mkdir(exist_ok=True)
-    # The wrapper drops inherited HERMES_*; set the override inside this process.
     os.environ["HERMES_MANAGED_DIR"] = str(managed)
     module = _import("hermes_cli.managed_scope")
     module._DEFAULT_MANAGED_DIR = hermes_home() / "machine-standin"
@@ -108,7 +107,7 @@ def writes(request: dict[str, Any]) -> dict[str, Any]:
     attempts = []
     rows = leaves(PetasosConfig)
     for key in ["enabled", "role", "level", *("overrides." + row.path for row in rows)]:
-        # Exercise a mapping over null too: Hermes ignores null over a mapping.
+        # Hermes ignores null over a mapping, so the fixture must exercise that overlay.
         value: Any = {"pin_probe": "terminal"} if ctx.get_config(key) is None else "changed"
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             try:
@@ -192,7 +191,6 @@ def hand_edit(_request: dict[str, Any]) -> dict[str, Any]:
     profile = copy.deepcopy(before)
     profile.update(enabled=False, role="research", level="relaxed")
     profile["overrides"] = {key: "changed" for key in before["overrides"]}
-    # Add keys in the two empty maps and the nullable map: these are the open edges.
     profile["overrides"]["rules"] = {"severity_overrides": {"probe": "low"}}
     profile["overrides"]["tools"] = {"aliases": {"probe": "terminal"}}
     profile["overrides"]["frequency"] = {"weights": {"probe": 0.0}}
@@ -212,8 +210,6 @@ def hand_edit(_request: dict[str, Any]) -> dict[str, Any]:
     source = HermesSettings(ctx)
     source.bind_profile(hermes_home())
     snapshot = source()
-    # What Petasos itself uses, read through Hermes's context and with no
-    # profile bound. Hermes's merged view above is not it.
     unbound = HermesSettings(ctx)()
     used = [
         {
@@ -279,7 +275,6 @@ def unpin(request: dict[str, Any]) -> dict[str, Any]:
 
 def unpinned(_request: dict[str, Any]) -> dict[str, Any]:
     _, module = _setup()
-    # Restore profile enablement after testing the disabled profile list.
     path = hermes_home() / "config.yaml"
     document = _import("hermes_cli.config").read_user_config_raw()
     document["plugins"]["enabled"] = ["petasos"]

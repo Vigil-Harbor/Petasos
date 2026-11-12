@@ -43,7 +43,7 @@ LEVEL_FIELDS: Final[frozenset[str]] = frozenset(
     }
 )
 
-# Old profile names a settings screen might still send.
+# Settings screens may send 0.5 profile names as role aliases.
 _ROLE_ALIASES: Final[dict[str, str]] = {
     "code_generation": "coding",
     "customer_service": "support",
@@ -85,12 +85,9 @@ def _document(raw: Mapping[str, Any]) -> Mapping[str, Any]:
 
 
 def document_fields(doc: Mapping[str, Any]) -> frozenset[str]:
-    """The leaf paths a partial document sets.
+    """Return the leaf paths set by a partial document.
 
-    A mapping that is itself a leaf, such as severity overrides, is not walked
-    into. A path that is neither a known leaf nor a parent of one is returned
-    as itself so a test can see it.
-    """
+    A mapping-valued leaf is not traversed. Unknown paths are returned intact."""
     known = ROLE_FIELDS | LEVEL_FIELDS
     found: set[str] = set()
 
@@ -114,7 +111,7 @@ def document_fields(doc: Mapping[str, Any]) -> frozenset[str]:
 
 
 def contains(doc: Mapping[str, Any], path: str) -> bool:
-    """True when ``path`` is present, including when its value is nothing."""
+    """Return whether a path is present, including an explicit null value."""
     node: object = doc
     parts = path.split(".")
     for index, part in enumerate(parts):
@@ -167,12 +164,11 @@ def _unknown_name(
 
 @dataclass(frozen=True, slots=True)
 class Role:
-    """What the agent does, as a partial document and a suggested level.
+    """Hold immutable role settings and a suggested strictness level.
 
     ``suggests`` is a recommendation for a settings screen. Resolution never
     applies it. ``document`` touches only role-owned fields. ``label`` and
-    ``description`` are what a person reads.
-    """
+    ``description`` are what a person reads."""
 
     name: str
     description: str
@@ -183,7 +179,7 @@ class Role:
 
 @dataclass(frozen=True, slots=True)
 class Level:
-    """How strict the checks are, as a partial document of the level-owned fields."""
+    """Hold immutable strictness settings restricted to level-owned fields."""
 
     name: str
     description: str
@@ -211,7 +207,7 @@ def _level(name: str, label: str, description: str, document: dict[str, Any]) ->
     return Level(name=name, description=description, document=_document(document), label=label)
 
 
-# Order is the order a settings screen should offer.
+# Settings screens use declaration order.
 ROLES: Final[Mapping[str, Role]] = MappingProxyType(
     {
         role.name: role
@@ -372,7 +368,6 @@ LEVELS: Final[Mapping[str, Level]] = MappingProxyType(
 ROLE_NAMES: Final[tuple[str, ...]] = tuple(ROLES)
 LEVEL_NAMES: Final[tuple[str, ...]] = tuple(LEVELS)
 
-# profile_name in a 0.5 section, renamed to a role.
 PROFILE_TO_ROLE: Final[Mapping[str, str]] = MappingProxyType(
     {
         "general": "general",
@@ -386,11 +381,10 @@ PROFILE_TO_ROLE: Final[Mapping[str, str]] = MappingProxyType(
 
 @dataclass(frozen=True, slots=True)
 class Settings:
-    """What a user writes: the arm switch, a role, a level, and any overrides.
+    """Hold the operator arm switch, role, level and explicit overrides.
 
     ``enabled`` is read live and is not part of ``PetasosConfig``. An empty
-    ``overrides`` mapping means the role and level stand as they are.
-    """
+    ``overrides`` mapping means the role and level stand as they are."""
 
     enabled: bool = True
     role: str = "general"
@@ -412,7 +406,6 @@ class Settings:
         object.__setattr__(self, "overrides", _copy_tree(self.overrides, prefix="overrides"))
 
 
-# The four settings a host stores. The manifest and the docs read this map.
 SETTING_HELP: Final[Mapping[str, str]] = MappingProxyType(
     {
         "enabled": (
@@ -428,8 +421,6 @@ SETTING_HELP: Final[Mapping[str, str]] = MappingProxyType(
     }
 )
 
-# The short name a person reads for each of the four. A settings screen shows
-# the label as the heading and the help beneath it.
 SETTING_LABEL: Final[Mapping[str, str]] = MappingProxyType(
     {
         "enabled": "Protection",
@@ -442,12 +433,11 @@ SETTING_LABEL: Final[Mapping[str, str]] = MappingProxyType(
 
 @dataclass(frozen=True, slots=True)
 class Resolved:
-    """One settings document resolved to a config, with the source of each value.
+    """Hold resolved configuration with the winning source for each leaf.
 
     ``origin`` maps every leaf path to ``default``, ``role``, ``level``, or
     ``override``. The last layer whose document contains the path wins. A
-    non-empty ``settings.overrides`` is what a screen calls custom.
-    """
+    non-empty ``settings.overrides`` is what a screen calls custom."""
 
     settings: Settings
     config: PetasosConfig

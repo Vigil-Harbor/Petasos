@@ -1,11 +1,6 @@
-"""Regression coverage for behavioral-spec features that the audit (features-tracker.xlsx)
-flagged as untested ("NONE FOUND" / COVERAGE GAP), plus one field-attribution bug (DEF-02).
+"""Pin listener isolation, risk binding and result serialization.
 
-These lock load-bearing behaviors that previously had no direct test:
-security-relevant reject branches (HMAC token verification, fail-secure escalation),
-the PET-126 hot-reload `apply_config` surfaces, listener fan-out, and serialization
-contracts. Every test here exercises a real code path (no mocks of the unit under test).
-"""
+See docs/architecture/rationale.md, "Alert and audit test constraints"."""
 
 from __future__ import annotations
 
@@ -17,7 +12,6 @@ from petasos.pipeline import Pipeline
 from petasos.scanners.minimal import MinimalScanner
 
 
-# --- PIPE-34/37: pipeline listener delegation + feature_status ---
 async def test_pipeline_add_audit_listener_fires_on_inspect() -> None:
     seen: list[object] = []
     pipe = Pipeline([MinimalScanner()])

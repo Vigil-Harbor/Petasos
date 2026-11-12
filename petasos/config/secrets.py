@@ -29,13 +29,12 @@ def require_hash_key(config: PetasosConfig, secrets: Secrets) -> None:
 
 @dataclass(frozen=True, slots=True)
 class Secrets:
-    """Session-binding and hash secrets supplied beside a config.
+    """Keep session and hash secrets outside settings and omit values from repr.
 
     ``session_secret`` binds session tokens. ``hash_key`` is required, by the
     pipeline that applies the config, when anonymization mode is ``hash``.
     Either value may be absent. ``repr`` names which ones are present and
-    never prints a value.
-    """
+    never prints a value."""
 
     session_secret: bytes | None = None
     hash_key: str | None = None

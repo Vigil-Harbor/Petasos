@@ -1,13 +1,11 @@
+"""Pin validated session bounds and immutable configuration fields."""
+
 from __future__ import annotations
 
 import pytest
 
 from petasos.config.schema import from_mapping
 from petasos.config.sections import PetasosConfig
-
-# ---------------------------------------------------------------------------
-# Config validation for session fields
-# ---------------------------------------------------------------------------
 
 
 class TestSessionConfigValidation:

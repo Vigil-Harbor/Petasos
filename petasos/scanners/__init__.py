@@ -1,3 +1,5 @@
+"""Expose syntactic scanners and load optional scanners on demand."""
+
 from __future__ import annotations
 
 import logging

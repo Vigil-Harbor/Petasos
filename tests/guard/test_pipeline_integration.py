@@ -1,3 +1,5 @@
+"""Pin guard decisions against real pipeline findings and session risk."""
+
 from __future__ import annotations
 
 from petasos.config.schema import from_mapping
@@ -12,11 +14,6 @@ def _cfg(partial: dict[str, object] | None = None) -> PetasosConfig:
     if not partial:
         return PetasosConfig()
     return from_mapping(PetasosConfig, partial)
-
-
-# ---------------------------------------------------------------------------
-# Guard + Pipeline integration
-# ---------------------------------------------------------------------------
 
 
 class TestGuardPipelineIntegration:

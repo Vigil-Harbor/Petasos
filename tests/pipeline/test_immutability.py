@@ -1,3 +1,5 @@
+"""Pin defensive copies and immutable exported state."""
+
 from __future__ import annotations
 
 from types import MappingProxyType

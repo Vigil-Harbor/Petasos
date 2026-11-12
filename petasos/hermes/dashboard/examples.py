@@ -1,11 +1,6 @@
-"""Sample inputs for Try it, served by the API.
+"""Serve scanner trial inputs from the API without embedding attacks in plugin assets.
 
-They live here, in the wheel, and not in the plugin directory's script:
-Hermes scans a plugin directory for dangerous strings before it loads the
-plugin (``tools/plugin_guard.py``), and a sample attack written in the
-script reads to that scan as an attack. These are inputs to try, not rules:
-the decision and every finding come from the scan.
-"""
+See docs/architecture/rationale.md, "Dashboard source packaging"."""
 
 from __future__ import annotations
 

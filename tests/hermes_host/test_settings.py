@@ -22,8 +22,7 @@ def test_set_config_round_trip_and_unset_default(standin: Sandbox) -> None:
 
 
 def test_dict_field_and_form_choice(standin: Sandbox) -> None:
-    # ``save_plugin_setting`` deep-merges into the mapping already on disk, so a
-    # later write of ``overrides`` keeps keys that were stored earlier.
+    # Hermes deep-merges overrides, retaining keys omitted from a later write.
     written = call(
         standin, {"action": "settings", "op": "set", "key": "overrides.probe", "value": 7}
     )

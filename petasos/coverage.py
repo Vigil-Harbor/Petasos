@@ -42,6 +42,7 @@ class CoverageSpan:
             raise ValueError("unknown coverage status or projection")
 
     def to_dict(self) -> dict[str, Any]:
+        """Return this source-free interval as JSON-serialisable metadata."""
         return {
             "start": self.start,
             "end": self.end,
@@ -83,6 +84,7 @@ class ScanCoverage:
         object.__setattr__(self, "reasons", reasons)
 
     def to_dict(self) -> dict[str, Any]:
+        """Return bounded coverage metadata as JSON-serialisable data."""
         return {
             "status": self.status,
             "total_chars": self.total_chars,
@@ -95,6 +97,7 @@ class ScanCoverage:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ScanCoverage:
+        """Construct and validate bounded coverage metadata from serialized data."""
         return cls(
             status=data["status"],
             total_chars=data["total_chars"],

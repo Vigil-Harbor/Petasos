@@ -1,4 +1,4 @@
-"""Adversarial suppression bypass tests for selfmod (PET-164 Decision 3/4/5/6)."""
+"""Pin self-change enforcement against suppression and downgrade attempts."""
 
 from __future__ import annotations
 
@@ -113,7 +113,7 @@ class TestInflatedThresholds:
         pipeline.add_alert_listener(lambda a: alerts.append(a))
         await guard.evaluate("write_file", {"path": owned_path}, "s1")
         assert any(a.rule_id == "selfmod_attempt" for a in alerts)
-        assert guard._selfmod_owned_cache[1]  # owned set not empty
+        assert guard._selfmod_owned_cache[1]
 
 
 class TestProfileSuppression:

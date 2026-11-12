@@ -1,3 +1,5 @@
+"""Pin root exports and imports without optional host or scanner dependencies."""
+
 from __future__ import annotations
 
 import importlib
@@ -47,10 +49,8 @@ class TestImportWithoutHermesDeps:
 
 
 def test_package_version_single_source() -> None:
-    # Regression for PET-141: build/dist metadata cannot diverge from the single
-    # source ``__version__``. Skips on a source-only checkout where no dist
-    # metadata exists (D7); runs in CI where ``pip install -e .`` provides
-    # editable dist metadata, exactly where the build-derived invariant must hold.
+    # Distribution metadata is absent in source-only checkouts; editable installs can verify
+    # version consistency.
     try:
         dist_version = importlib.metadata.version("petasos")
     except importlib.metadata.PackageNotFoundError:

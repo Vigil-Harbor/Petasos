@@ -134,6 +134,7 @@ async def _iterate(owner: Any, iterations: int, counts: dict[str, int]) -> None:
 
 
 def main() -> None:
+    """Run owned cleanup stress cases and report their closure evidence."""
     args = _parse()
     if "HERMES_HOME" not in os.environ:
         os.environ["HERMES_HOME"] = tempfile.mkdtemp(prefix="pet255-hermes-")

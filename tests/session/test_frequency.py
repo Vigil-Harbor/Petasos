@@ -1,3 +1,5 @@
+"""Pin bounded decaying risk, rolling windows and token-authenticated session updates."""
+
 from __future__ import annotations
 
 import logging
@@ -23,11 +25,6 @@ def _cfg(partial: dict[str, object] | None = None) -> PetasosConfig:
     if not partial:
         return PetasosConfig()
     return from_mapping(PetasosConfig, partial)
-
-
-# ---------------------------------------------------------------------------
-# Decay math
-# ---------------------------------------------------------------------------
 
 
 class TestDecayMath:
@@ -132,11 +129,6 @@ class TestDecayMath:
         assert abs(r3.current_score - 7.5) < 1e-9
 
 
-# ---------------------------------------------------------------------------
-# Weight matching
-# ---------------------------------------------------------------------------
-
-
 class TestWeightMatching:
     def test_exact_match_takes_priority_over_glob(self) -> None:
         cfg = _cfg(
@@ -233,11 +225,6 @@ class TestWeightMatching:
         assert abs(result.current_score - 5.0) < 1e-9
 
 
-# ---------------------------------------------------------------------------
-# Rolling window
-# ---------------------------------------------------------------------------
-
-
 class TestRollingWindow:
     def test_findings_within_window_counted(self) -> None:
         cfg = _cfg(
@@ -332,11 +319,6 @@ class TestRollingWindow:
         assert len(state.rolling_findings) == 0
 
 
-# ---------------------------------------------------------------------------
-# Session eviction
-# ---------------------------------------------------------------------------
-
-
 class TestSessionEviction:
     def test_ttl_eviction_removes_stale_sessions(self) -> None:
         cfg = _cfg(
@@ -390,7 +372,6 @@ class TestSessionEviction:
         with patch("petasos.session.frequency.time.monotonic", return_value=t0 + 2):
             tracker.update("s3", ["r"])
 
-        # s1 (terminated) should have been evicted when s4 joins
         with patch("petasos.session.frequency.time.monotonic", return_value=t0 + 3):
             tracker.update("s4", ["r"])
 
@@ -442,11 +423,6 @@ class TestSessionEviction:
                 tracker.update(f"s{i}", ["r"])
 
         assert tracker.size <= 1200
-
-
-# ---------------------------------------------------------------------------
-# Rate limiting
-# ---------------------------------------------------------------------------
 
 
 class TestRateLimiting:
@@ -514,15 +490,9 @@ class TestRateLimiting:
             rate_limited = tracker.update("s3", ["r"])
         assert rate_limited is RATE_LIMITED_RESULT
 
-        # After 61 seconds the creation timestamps have expired
         with patch("petasos.session.frequency.time.monotonic", return_value=t0 + 61):
             result = tracker.update("s3", ["r"])
         assert result is not RATE_LIMITED_RESULT
-
-
-# ---------------------------------------------------------------------------
-# Edge cases
-# ---------------------------------------------------------------------------
 
 
 class TestEdgeCases:
@@ -595,11 +565,6 @@ class TestEdgeCases:
         assert len(tracker._creation_timestamps) == 0
 
 
-# ---------------------------------------------------------------------------
-# Static results
-# ---------------------------------------------------------------------------
-
-
 class TestStaticResults:
     def test_disabled_result_is_frozen(self) -> None:
         assert DISABLED_RESULT.current_score == 0.0
@@ -612,11 +577,6 @@ class TestStaticResults:
         assert RATE_LIMITED_RESULT.tier == "none"
         assert RATE_LIMITED_RESULT.terminated is False
         assert RATE_LIMITED_RESULT.rate_limited is True
-
-
-# ---------------------------------------------------------------------------
-# Weight validation
-# ---------------------------------------------------------------------------
 
 
 class TestWeightValidation:
@@ -649,10 +609,7 @@ class TestWeightValidation:
         assert len(tracker._glob_weights) == len(DEFAULT_FREQUENCY_WEIGHTS) - len(expected_exact)
 
     def test_command_family_default_weight(self) -> None:
-        # Regression for PET-94 (Decision 3.2): the command family carries the
-        # default frequency weight 3.0 (encoding parity). _match_weight binds
-        # weights at construction, so build over the defaults (frequency_weights=
-        # None) — the existing weight tests never exercise the defaults.
+        # Build from default weights because construction caches the weight map.
         tracker = FrequencyTracker(
             _cfg(
                 {
@@ -664,10 +621,6 @@ class TestWeightValidation:
         )
         assert tracker._match_weight("petasos.syntactic.command.fetch-exec") == 3.0
 
-
-# ---------------------------------------------------------------------------
-# Session token (FREQ-03)
-# ---------------------------------------------------------------------------
 
 _SECRET = b"test-secret-key-32-bytes-long!!!"
 
@@ -711,11 +664,6 @@ class TestSessionToken:
             tracker.mint_token("s1", "host\x00evil")
 
 
-# ---------------------------------------------------------------------------
-# PET-107 D6: lineage pinning, hard ceiling, termination unpin
-# ---------------------------------------------------------------------------
-
-
 def _pinned_tracker(cfg: PetasosConfig) -> tuple[FrequencyTracker, LineageRegistry]:
     registry = LineageRegistry(cfg)
     tracker = FrequencyTracker(cfg, is_pinned=registry.is_pinned, on_terminate=registry.unregister)
@@ -724,8 +672,6 @@ def _pinned_tracker(cfg: PetasosConfig) -> tuple[FrequencyTracker, LineageRegist
 
 class TestLineagePinning:
     def test_terminated_child_unpins_parent(self) -> None:
-        # D6: tombstoning a child fires on_terminate → its edge drops → the
-        # parent is no longer pinned.
         tracker, registry = _pinned_tracker(_cfg())
         registry.register("child", "parent")
         assert registry.is_pinned("parent") is True
@@ -733,8 +679,6 @@ class TestLineagePinning:
         assert registry.is_pinned("parent") is False
 
     def test_passive_eviction_retries_after_unpin(self) -> None:
-        # D6: a pinned session is skipped (and re-appended, no spin) by passive
-        # TTL eviction, then reaped once it unpins on a later update().
         cfg = _cfg(
             {
                 "sessions": {
@@ -749,19 +693,17 @@ class TestLineagePinning:
             return clock["t"]
 
         with patch("petasos.session.frequency.time.monotonic", _now):
-            tracker.update("parent", [])  # created at t=0
-            registry.register("child", "parent")  # parent pinned
-            clock["t"] = 100.0  # past session_ttl
-            tracker.update("trigger", [])  # step-1: parent expired but pinned → skip
-            assert tracker.get_state("parent") is not None  # retained, no spin
-            registry.unregister("child")  # unpin
+            tracker.update("parent", [])
+            registry.register("child", "parent")
+            clock["t"] = 100.0
+            tracker.update("trigger", [])
+            assert tracker.get_state("parent") is not None
+            registry.unregister("child")
             clock["t"] = 200.0
-            tracker.update("trigger2", [])  # step-1: parent now reaped
+            tracker.update("trigger2", [])
             assert tracker.get_state("parent") is None
 
     def test_terminated_parent_ttl_evicted_unpins(self) -> None:
-        # D6 (4th tombstone path): a terminated session reaped on the step-1 TTL
-        # path fires on_terminate → drops its outgoing edge → unpins its parent.
         cfg = _cfg(
             {
                 "sessions": {
@@ -776,24 +718,19 @@ class TestLineagePinning:
             return clock["t"]
 
         with patch("petasos.session.frequency.time.monotonic", _now):
-            # Directly mark terminated to bypass the on_terminate-firing paths,
-            # isolating the TTL reap path with a still-live outgoing edge.
             tracker._sessions["parent"] = SessionState(
                 last_score=0.0, last_update=0.0, terminated=True
             )
             tracker._ttl_deque.append((10.0, "parent"))
-            registry.register("parent", "grandparent")  # grandparent pinned
+            registry.register("parent", "grandparent")
             assert registry.is_pinned("grandparent") is True
             clock["t"] = 100.0
-            tracker.update("trigger", [])  # step-1 reaps the terminated parent
+            tracker.update("trigger", [])
             assert tracker.get_state("parent") is None
-            assert registry.is_pinned("grandparent") is False  # edge dropped on reap
+            assert registry.is_pinned("grandparent") is False
 
     def test_pinning_hard_ceiling(self, caplog: pytest.LogCaptureFixture) -> None:
-        # D6: under an all-pinned spray, _sessions never exceeds 2×max_sessions;
-        # the smallest-last_update pinned session is force-evicted (logged, no
-        # raise) and degrades to OWN-tier (non-tombstoned), while a *terminated*
-        # ancestor's tombstone still survives (tier-3 floor unaffected, D4).
+        # See docs/architecture/rationale.md, "Lineage lock order".
         cfg = _cfg(
             {
                 "sessions": {
@@ -805,25 +742,19 @@ class TestLineagePinning:
         parents = [f"p{i}" for i in range(5)]
         with caplog.at_level(logging.WARNING):
             for p in parents:
-                registry.register(f"c_{p}", p)  # pin p (child edge)
+                registry.register(f"c_{p}", p)
                 tracker.update(p, [])
-                assert tracker.size <= 2 * cfg.sessions.max  # bounded, never exceeds 4
+                assert tracker.size <= 2 * cfg.sessions.max
 
-        # p0 (smallest last_update) was force-evicted and is NOT tombstoned →
-        # its sub-tree reads own-tier, not tier3.
         assert tracker.get_state("p0") is None
         assert tracker.is_terminated("p0") is False
         assert any("hard ceiling" in r.getMessage().lower() for r in caplog.records)
 
-        # Contrast: the tier-3 floor is unaffected — a terminated session's
-        # tombstone survives removal from _sessions.
         tracker.terminate_session("survivor")
-        tracker.reset("survivor")  # drop the live state; tombstone must remain
+        tracker.reset("survivor")
         assert tracker.is_terminated("survivor") is True
 
     def test_feature_off_eviction_is_unchanged(self) -> None:
-        # is_pinned=None / on_terminate=None → eviction is byte-for-byte today's:
-        # an over-cap insert evicts the oldest, no pinning consulted.
         cfg = _cfg(
             {
                 "sessions": {
@@ -831,17 +762,12 @@ class TestLineagePinning:
                 },
             }
         )
-        tracker = FrequencyTracker(cfg)  # no callbacks
+        tracker = FrequencyTracker(cfg)
         tracker.update("a", [])
-        tracker.update("b", [])  # over cap → 'a' evicted (no pin protection)
+        tracker.update("b", [])
         assert tracker.size == 1
         assert tracker.get_state("a") is None
         assert tracker.get_state("b") is not None
-
-
-# ---------------------------------------------------------------------------
-# PET-176 D2: the quantized per-scan clamp, in isolation
-# ---------------------------------------------------------------------------
 
 
 class TestWeightCapQuantization:
@@ -859,10 +785,8 @@ class TestWeightCapQuantization:
         tracker = FrequencyTracker(_cfg())
         t0 = 1000.0
         with patch("petasos.session.frequency.time.monotonic", return_value=t0):
-            # Raw 10.0 against cap 3.75: exactly one step, never anything between.
             res = tracker.update("s1", ["petasos.syntactic.injection.x"], weight_cap=3.75)
             assert res.current_score == 3.75
-            # Raw == cap is a full step too (>=, not >).
             res = tracker.update("s2", ["petasos.syntactic.injection.x"], weight_cap=10.0)
             assert res.current_score == 10.0
 
@@ -878,10 +802,7 @@ class TestWeightCapQuantization:
         assert a.current_score == 13.0
 
     def test_step8_suppressed_when_capped_contribution_is_zero(self) -> None:
-        # Both zero-contribution shapes: a sub-step mapped id, and an UNMAPPED
-        # id resolving to 0.0 (the extras-scanner shape, e.g.
-        # petasos.promptguard.injection) — neither may arm the count-based
-        # rolling-window promotion channel the clamp cannot bound.
+        # Zero-weight capped scans must not arm count-based rolling promotion.
         tracker = FrequencyTracker(
             _cfg(
                 {
@@ -908,8 +829,7 @@ class TestWeightCapQuantization:
             assert len(state.rolling_findings) == 0
 
     def test_step8_unchanged_for_uncapped_callers(self) -> None:
-        # Pre-PET-176 behaviour pinned: an UNCAPPED zero-weight finding still
-        # appends (rule_ids non-empty), so the rolling promotion still fires.
+        # Uncapped zero-weight findings still enter the count window.
         tracker = FrequencyTracker(
             _cfg(
                 {

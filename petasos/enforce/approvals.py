@@ -153,7 +153,7 @@ def _excerpt_redact_arguments(
 
 
 def _excerpt_drop_invisible(text: str) -> tuple[str, bool]:
-    """Drop non-whitespace characters the console's invisible-character predicate strips."""
+    """Drop invisible non-whitespace characters from approval excerpts."""
     dropped = False
     kept: list[str] = []
     for ch in text:

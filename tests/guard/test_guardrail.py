@@ -625,7 +625,6 @@ def test_a_directory_that_holds_a_protected_path_is_a_change(tmp_path: Path, com
         "cp -r {home} /tmp/backup",
         "cp notes.txt {home}/",
         "rm {home}/*.txt",
-        # Above the home. The destructive-command rules own these.
         "rm -rf /",
         "rm -rf ~",
         "git add .",

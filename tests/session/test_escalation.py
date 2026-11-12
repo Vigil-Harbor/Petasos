@@ -1,3 +1,5 @@
+"""Pin score-derived tiers and the independent termination floor."""
+
 from __future__ import annotations
 
 import pytest
@@ -18,11 +20,6 @@ def _cfg(partial: dict[str, object] | None = None) -> PetasosConfig:
     if not partial:
         return PetasosConfig()
     return from_mapping(PetasosConfig, partial)
-
-
-# ---------------------------------------------------------------------------
-# Tier evaluation
-# ---------------------------------------------------------------------------
 
 
 class TestEvaluateTier:
@@ -56,11 +53,6 @@ class TestEvaluateTier:
         assert evaluate_tier(999.0, cfg) == "tier3"
 
 
-# ---------------------------------------------------------------------------
-# Tier 3 floor
-# ---------------------------------------------------------------------------
-
-
 class TestTier3Floor:
     def test_tier3_below_floor_raises(self) -> None:
         with pytest.raises(ValueError, match="escalation.tier3"):
@@ -91,27 +83,16 @@ class TestTier3Floor:
     def test_hostile_config_cannot_lower_tier3_floor(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        # PET-125 invariant pin: the Tier-3 floor survives a hostile *config*. A
-        # relaxed-but-valid (or in-memory-tampered) tier3 threshold cannot lower
-        # the enforced 30.0 floor, and the floor is moot only post-disarm (which
-        # short-circuits enforcement before any scan — documented, not tested here).
+        # The literal floor survives both hostile thresholds and constant rebinding.
 
-        # (1) Finite sub-floor threshold + rebinding the named constant. derive_tier
-        # uses the inline literal max(tier3, 30.0) (escalation.py:63), NOT the
-        # imported TIER3_FLOOR name, so neither a sub-floor threshold passed directly
-        # nor rebinding escalation.TIER3_FLOOR can drop the floor.
         monkeypatch.setattr(escalation, "TIER3_FLOOR", 0.0)
-        assert derive_tier(30.0, 10.0, 20.0, 10.0) == "tier3"  # floored up to 30.0
-        assert derive_tier(29.999, 10.0, 20.0, 10.0) != "tier3"  # below the floor
+        assert derive_tier(30.0, 10.0, 20.0, 10.0) == "tier3"
+        assert derive_tier(29.999, 10.0, 20.0, 10.0) != "tier3"
 
-        # (2) Exact boundary: 30.0 is tier3 (>=), just below is not.
         assert derive_tier(30.0, 15.0, 25.0, 30.0) == "tier3"
         assert derive_tier(29.999, 15.0, 25.0, 30.0) != "tier3"
 
-        # (3) Non-finite threshold fail-secure, via the config-facing evaluate_tier
-        # (PET-23 isfinite guard, escalation.py:73). A real PetasosConfig rejects a
-        # non-finite threshold at construction and is frozen+slots, so tamper an
-        # otherwise-valid frozen instance through its existing slot.
+        # Tamper the frozen slot because validated construction rejects nonfinite thresholds.
         cfg = _cfg(
             {
                 "escalation": {
@@ -124,7 +105,6 @@ class TestTier3Floor:
         object.__setattr__(cfg.escalation, "tier3", float("nan"))
         assert evaluate_tier(50.0, cfg) == "tier3"
 
-        # And the config layer rejects it first.
         with pytest.raises(ValueError):
             _cfg(
                 {
@@ -134,14 +114,9 @@ class TestTier3Floor:
                 }
             )
 
-        # derive_tier guards a NaN *score* (escalation.py:58-59) but NOT a NaN
-        # *threshold* (that guard lives in evaluate_tier); pin only the score guard.
+        # derive_tier checks nonfinite scores; evaluate_tier separately checks nonfinite
+        # thresholds.
         assert derive_tier(float("nan"), 15.0, 25.0, 30.0) == "tier3"
-
-
-# ---------------------------------------------------------------------------
-# Escalation result
-# ---------------------------------------------------------------------------
 
 
 class TestEvaluateEscalation:

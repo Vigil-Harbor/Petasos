@@ -1,3 +1,5 @@
+"""Pin alert rules, fair rate limits and callback isolation."""
+
 from __future__ import annotations
 
 import time
@@ -16,10 +18,7 @@ from petasos.session.frequency import FrequencyUpdateResult
 class _AlertCallbackKill(BaseException):
     """A BaseException (not an Exception) raised by an on_alert callback.
 
-    Proves evaluate() isolates BaseException subclasses, not just Exception —
-    the pre-fix code caught only ``Exception`` and re-raised, so this would have
-    propagated straight through inspect().
-    """
+    See docs/architecture/rationale.md, "Alert and audit test constraints"."""
 
 
 def _cfg(partial: dict[str, object] | None = None) -> PetasosConfig:
@@ -66,11 +65,6 @@ def _freq(
     )
 
 
-# ---------------------------------------------------------------------------
-# Alert construction
-# ---------------------------------------------------------------------------
-
-
 class TestAlertConstruction:
     def test_all_fields_populated(self) -> None:
         mgr = AlertManager(_cfg())
@@ -84,11 +78,6 @@ class TestAlertConstruction:
         assert a.severity
         assert a.message
         assert isinstance(a.context, MappingProxyType)
-
-
-# ---------------------------------------------------------------------------
-# Rule: tier_escalation
-# ---------------------------------------------------------------------------
 
 
 class TestTierEscalation:
@@ -153,11 +142,6 @@ class TestTierEscalation:
         assert len(tier_alerts) == 0
 
 
-# ---------------------------------------------------------------------------
-# Rule: high_severity_finding
-# ---------------------------------------------------------------------------
-
-
 class TestHighSeverityFinding:
     def test_high_finding_fires(self) -> None:
         mgr = AlertManager(_cfg())
@@ -196,15 +180,7 @@ class TestHighSeverityFinding:
         assert len(hsf) == 1
 
 
-# ---------------------------------------------------------------------------
-# Rule: rapid_fire
-# ---------------------------------------------------------------------------
-
-
 class TestRapidFire:
-    # PET-176 D8: the rule counts findings-or-unsafe scans, not all scans, so
-    # the firing cases below drive findings-carrying results.
-
     def test_below_threshold_does_not_fire(self) -> None:
         mgr = AlertManager(
             _cfg(
@@ -239,9 +215,6 @@ class TestRapidFire:
         assert len(rf) == 1
 
     def test_clean_and_safe_scans_are_not_counted(self) -> None:
-        # PET-176 D8: with the ingestion correlator live, an ordinary agent
-        # loop would keep the all-scans count permanently true. 20 clean-and-
-        # safe scans inside the window must not fire.
         mgr = AlertManager(
             _cfg(
                 {
@@ -258,12 +231,7 @@ class TestRapidFire:
         assert not [a for a in all_alerts if a.rule_id == "rapid_fire"]
 
     def test_finding_free_unsafe_scans_still_count(self) -> None:
-        # The downed-scanner-stack shape under the `degraded`/`closed` fail
-        # modes: safe=False with findings == () and errors == (). `errors`
-        # NEVER carries scanner failures (they live in ScanResult.error and
-        # _build_result froze the tuple before the alert hook), which is the
-        # whole point of the `result.safe` term in the gate — detection
-        # failure must not silence the one rate-based rule.
+        # See docs/architecture/rationale.md, "Alert scan counting".
         mgr = AlertManager(
             _cfg(
                 {
@@ -354,11 +322,6 @@ class TestRapidFire:
         assert len(rf) == 0
 
 
-# ---------------------------------------------------------------------------
-# Rule: cross_session_burst
-# ---------------------------------------------------------------------------
-
-
 class TestCrossSessionBurst:
     def test_below_threshold_does_not_fire(self) -> None:
         mgr = AlertManager(
@@ -430,11 +393,6 @@ class TestCrossSessionBurst:
         assert len(csb) == 0
 
 
-# ---------------------------------------------------------------------------
-# Rule: pii_volume_spike
-# ---------------------------------------------------------------------------
-
-
 class TestPiiVolumeSpike:
     def test_below_threshold_does_not_fire(self) -> None:
         mgr = AlertManager(
@@ -495,11 +453,6 @@ class TestPiiVolumeSpike:
 
         pvs = [a for a in alerts if a.rule_id == "pii_volume_spike"]
         assert len(pvs) == 0
-
-
-# ---------------------------------------------------------------------------
-# Rate limiting
-# ---------------------------------------------------------------------------
 
 
 class TestRateLimiting:
@@ -595,11 +548,6 @@ class TestRateLimiting:
         assert mgr.suppressed_count >= 1
 
 
-# ---------------------------------------------------------------------------
-# Critical exemption
-# ---------------------------------------------------------------------------
-
-
 class TestCriticalExemption:
     def test_tier3_bypasses_cooldown(self) -> None:
         mgr = AlertManager(
@@ -676,11 +624,6 @@ class TestCriticalExemption:
         hsf2 = [a for a in alerts2 if a.rule_id == "high_severity_finding"]
         assert len(hsf1) == 1
         assert len(hsf2) == 0
-
-
-# ---------------------------------------------------------------------------
-# Critical cap (PET-16)
-# ---------------------------------------------------------------------------
 
 
 class TestCriticalCap:
@@ -815,11 +758,6 @@ class TestCriticalCap:
         assert len(critical_callbacks) <= 10
 
 
-# ---------------------------------------------------------------------------
-# Ring buffer
-# ---------------------------------------------------------------------------
-
-
 class TestRingBuffer:
     def test_buffer_respects_maxlen(self) -> None:
         mgr = AlertManager(
@@ -847,11 +785,6 @@ class TestRingBuffer:
         ts, sid = buf[0]
         assert isinstance(ts, float)
         assert sid == "s1"
-
-
-# ---------------------------------------------------------------------------
-# Callback behavior
-# ---------------------------------------------------------------------------
 
 
 class TestAlertCallbackBehavior:
@@ -887,11 +820,6 @@ class TestAlertCallbackBehavior:
         assert len(mgr.callback_errors) >= 1
         assert "ValueError" in mgr.callback_errors[0]
         assert "boom" in caplog.text
-
-
-# ---------------------------------------------------------------------------
-# Stats
-# ---------------------------------------------------------------------------
 
 
 class TestAlertStats:
@@ -942,11 +870,6 @@ class TestAlertStats:
         mgr.evaluate(r, "s2", None)
         mgr.evaluate(r, "s3", None)
         assert mgr.rate_limited_count >= 2
-
-
-# ---------------------------------------------------------------------------
-# Session contribution cap (PET-17)
-# ---------------------------------------------------------------------------
 
 
 class TestSessionContributionCap:
@@ -1264,26 +1187,11 @@ class TestSessionContributionCap:
             assert len(hsf) == 1
 
 
-# ---------------------------------------------------------------------------
-# ALRT-03 (PET-18) — cross_session_burst counts distinct sessions accurately
-# even when the ring buffer evicts entries under flood.
-#
-# The pre-fix detector counted distinct sessions from the maxlen ring buffer
-# (`recent_sessions = {sid for ts, sid in buf ...}`), so padding the buffer with
-# duplicate sessions evicted the distinct ones and the count fell below the
-# threshold (or reported a truncated count). The fix tracks session -> last_seen
-# in a separate LRU-capped dict. Each test FAILS pre-fix / PASSES post-fix.
-#
-# Note: config enforces alert_cross_session_burst_count <= alert_ring_buffer_capacity,
-# so these tests stay within that invariant and exploit eviction directly.
-# ---------------------------------------------------------------------------
+# See docs/architecture/rationale.md, "Alert and audit test constraints".
 
 
 class TestCrossSessionBurstAdversarial:
     def test_burst_survives_ring_eviction_padding(self) -> None:
-        # ring capacity == threshold == 3. Interleave a repeated padding session
-        # so that no single evaluate ever holds 3 distinct sessions in the ring,
-        # yet 4 distinct sessions (s1, pad, s2, s3) appear within the window.
         mgr = AlertManager(
             _cfg(
                 {
@@ -1307,13 +1215,10 @@ class TestCrossSessionBurstAdversarial:
             alerts = mgr.evaluate(r, sid, None)
             fired.extend(a for a in alerts if a.rule_id == "cross_session_burst")
 
-        # Pre-fix: ring-only count never reaches 3 -> no burst -> fired == [].
         assert len(fired) >= 1
         assert fired[0].context["distinct_sessions"] >= 3
 
     def test_burst_reports_accurate_count_under_flood(self) -> None:
-        # 100 distinct sessions, ring capacity 60 (< 100). Pre-fix would report
-        # at most 60 distinct (ring maxlen); the fix reports the true 100.
         mgr = AlertManager(
             _cfg(
                 {
@@ -1338,12 +1243,9 @@ class TestCrossSessionBurstAdversarial:
                     last_burst = a
 
         assert last_burst is not None
-        # Pre-fix ring-only count is capped at maxlen (60); fix reports 100.
         assert last_burst.context["distinct_sessions"] == 100
 
     def test_cross_session_tracker_lru_capped(self) -> None:
-        # Flood far more distinct sessions than the tracker bound; the dict must
-        # stay capped at max(2 * ring_capacity, burst_count) and not grow O(n).
         cap = 60
         mgr = AlertManager(
             _cfg(
@@ -1364,20 +1266,11 @@ class TestCrossSessionBurstAdversarial:
         for i in range(1000):
             mgr.evaluate(r, f"flood-{i}", None)
 
-        # Pre-fix: no _cross_session_tracker attribute (AttributeError).
         expected_cap = max(2 * cap, 50)
         assert len(mgr._cross_session_tracker) <= expected_cap
 
 
-# ---------------------------------------------------------------------------
-# ALRT-04 (PET-19) — on_alert callback failures never reach the pipeline,
-# including under a critical-tier flood.
-#
-# The pre-fix evaluate() re-raised callback failures as RuntimeError (and caught
-# only Exception, so BaseException escaped). Post-fix swallows BaseException,
-# logs with exc_info, and accumulates the error in callback_errors for the
-# pipeline hook to fold into PipelineResult.errors. Each test FAILS pre-fix.
-# ---------------------------------------------------------------------------
+# See docs/architecture/rationale.md, "Alert and audit test constraints".
 
 
 class TestAlertCallbackIsolationAdversarial:
@@ -1387,7 +1280,6 @@ class TestAlertCallbackIsolationAdversarial:
 
         mgr = AlertManager(_cfg(), on_alert=bad_cb)
         r = _result(findings=(_finding(severity=Severity.HIGH),))
-        # Pre-fix caught only Exception, so this BaseException propagated.
         alerts = mgr.evaluate(r, "s1", None)
         assert len(alerts) >= 1
         assert len(mgr.callback_errors) >= 1
@@ -1414,8 +1306,6 @@ class TestAlertCallbackIsolationAdversarial:
         fr = _freq(previous_score=35.0, current_score=55.0, tier="tier3")
         total_errors = 0
         for i in range(50):
-            # Pre-fix: the first surviving critical alert re-raises and this
-            # loop blows up. Post-fix: every callback failure is contained.
             alerts = mgr.evaluate(_result(), f"s{i}", fr)
             total_errors += len(mgr.callback_errors)
             assert all(a.rule_id == "tier_escalation" for a in alerts)
@@ -1445,7 +1335,6 @@ class TestAlertCallbackIsolationAdversarial:
 
         state["fail"] = False
         mgr.evaluate(r, "s2", None)
-        # A clean evaluate must not carry the prior call's errors forward.
         assert mgr.callback_errors == ()
 
     def test_surviving_alerts_unaffected_by_callback_failure(self) -> None:
@@ -1459,6 +1348,5 @@ class TestAlertCallbackIsolationAdversarial:
 
         good_alerts = good.evaluate(r, "s1", None)
         bad_alerts = bad.evaluate(r, "s1", None)
-        # The returned alert set is identical whether or not the callback raised.
         assert [a.rule_id for a in bad_alerts] == [a.rule_id for a in good_alerts]
         assert len(bad.callback_errors) == len(good_alerts)

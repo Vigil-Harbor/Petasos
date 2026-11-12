@@ -1,8 +1,6 @@
-"""PET-178: library helper unit tests for ``scan_ingestion_result``.
+"""Pin bounded ingestion coverage, cancellation and syntactic tail scanning.
 
-Async tests bind to the anyio runner via ``anyio_mode = "auto"`` (no inline
-marker, PET-149).
-"""
+See docs/architecture/rationale.md, "Quantized scan contributions"."""
 
 from __future__ import annotations
 
@@ -95,7 +93,6 @@ async def test_midpoint_payload_maps_to_original_coordinates() -> None:
 async def test_payload_straddling_every_origin_in_a_three_chunk_fixture_is_found() -> None:
     pipeline = _RecordingPipeline()
     origins = (0, _STRIDE, 2 * _STRIDE)
-    # Three chunks: plant the phrase on each origin.
     length = 2 * _STRIDE + CHUNK_CHARS
     buf = ["z"] * length
     for origin in origins:

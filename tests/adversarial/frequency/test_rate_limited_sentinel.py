@@ -1,4 +1,4 @@
-"""PET-75 FREQ-04: RATE_LIMITED_RESULT distinguishable from DISABLED_RESULT."""
+"""Pin a rate-limited update result distinct from disabled tracking."""
 
 from __future__ import annotations
 

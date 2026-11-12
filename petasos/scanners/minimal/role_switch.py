@@ -23,16 +23,12 @@ from petasos.model import (
     Severity,
 )
 
-# --- Role-switch detection ---
-
 _ROLE_TRIGGERS: list[re.Pattern[str]] = [
     re.compile(r"you\s+are\s+a", re.IGNORECASE),
     re.compile(r"act\s+as", re.IGNORECASE),
     re.compile(r"pretend\s+you\s+are", re.IGNORECASE),
     re.compile(r"roleplay\s+as", re.IGNORECASE),
-    # PET-93 additions: contraction and from-now-on forms. The [,;]? admits
-    # the canonical comma form ("From now on, you will be DAN"); other
-    # punctuation separators are documented INTENTIONAL.
+    # Optional punctuation accepts the comma in "From now on, you will be DAN".
     re.compile(r"pretend\s+to\s+be", re.IGNORECASE),
     re.compile(r"you['’ʼ]re\s+an?\b", re.IGNORECASE),
     re.compile(r"from\s+now\s+on[,;]?\s+you(?:['’ʼ]re|\s+(?:are|will\s+be))", re.IGNORECASE),
@@ -44,8 +40,6 @@ _ROLE_GRANTS: list[re.Pattern[str]] = [
     re.compile(r"without\s+filters", re.IGNORECASE),
     re.compile(r"DAN\s+mode", re.IGNORECASE),
     re.compile(r"developer\s+mode", re.IGNORECASE),
-    # PET-93 additions (mirrored in benign_corpus.SANCTIONED_NEW_GRANTS for
-    # the MIGRATED attribution check).
     re.compile(r"without\s+(?:restrictions|limits)", re.IGNORECASE),
     re.compile(r"no\s+filters", re.IGNORECASE),
     re.compile(r"jailbreak\s+mode", re.IGNORECASE),
@@ -98,12 +92,7 @@ def _check_role_switch(
     cap_rule_id = "petasos.syntactic.injection.role-switch-capability"
     only_rule_id = "petasos.syntactic.injection.role-switch-only"
 
-    # Same-view walk (PET-211/212): emit capability HIGH from the first
-    # view that contains both a trigger and a grant. If no view contains
-    # both, emit role-switch-only LOW from the first trigger-only view.
-    # Never pair a trigger on one view with a grant on another. A
-    # suppressed capability does not fall through to LOW. Span is the
-    # canonical trigger only when index 0 itself is the winner.
+    # See docs/architecture/rationale.md, "Decoded coordinate spaces".
     hit = _same_view_role_switch(_family_search_views(normalized))
     if hit is None:
         return
@@ -151,10 +140,7 @@ def _rescan_role_switch(
     seen_rule_ids: set[str],
     extra_views: tuple[str, ...] = (),
 ) -> bool:
-    # Same-view walk as _check_role_switch: capability HIGH from the first
-    # view that holds both halves, else role-switch-only LOW from the first
-    # trigger-only view. Extras are separator-only. Span follows the
-    # winning view via _decode_view_shape (blob keeps the carrier span).
+    # See docs/architecture/rationale.md, "Decoded coordinate spaces".
     hit = _same_view_role_switch((cand.scan_text, *extra_views))
     if hit is None:
         return False
@@ -168,14 +154,7 @@ def _rescan_role_switch(
         rule_id = "petasos.syntactic.injection.role-switch-only"
         severity = Severity.LOW
         message = f"Role-switch trigger detected without capability grant ({cand.carrier}-decoded)"
-    # PET-160 (D1/D3): one role-switch finding per rule_id per scan. Same
-    # 10.0-weight / Tier-3-floor safety argument as the injection battery above —
-    # N repeated carriers of one role-switch payload would otherwise stack to
-    # terminate the session. Return True BEFORE the dedup so decoded_matched stays
-    # set for the escalation co-occurrence flag even when the finding itself is
-    # suppressed as a duplicate of one already emitted (plain-path or an earlier
-    # candidate). Pinned by
-    # test_decoded_duplicate_suppressed_still_escalates_cooccurrence.
+    # See docs/architecture/rationale.md, "Decoded finding budgets".
     if rule_id in seen_rule_ids:
         return True
     seen_rule_ids.add(rule_id)

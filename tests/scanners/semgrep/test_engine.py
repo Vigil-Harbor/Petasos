@@ -19,7 +19,7 @@ from tests.scanners.semgrep.helpers import require
 
 @pytest.fixture
 def engine_root() -> Iterator[Path]:
-    # OCaml socketpair uses the private temp path: keep it under Windows' limit.
+    # OCaml socketpair paths must fit the Windows private-temp limit.
     with tempfile.TemporaryDirectory(prefix="psg-") as directory:
         yield Path(directory)
 
@@ -116,8 +116,7 @@ class TestSemgrepRealEngine:
     async def test_annotation_rebinding_keeps_builtin_eval_finding(
         self, engine_root: Path
     ) -> None:
-        # Annotations execute at definition time on Python 3.11-3.13 and can
-        # remove the local eval, so the last call reaches the builtin.
+        # Python 3.11–3.13 annotations run at definition time and can remove local eval bindings.
         source = (
             "def eval(value):\n    return value\n"
             'def other(arg: globals().pop("eval")):\n    pass\n'

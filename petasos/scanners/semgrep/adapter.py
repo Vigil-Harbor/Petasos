@@ -54,6 +54,7 @@ __all__ = [
 
 
 def supported_platform() -> bool:
+    """Return whether this host has a supported engine platform."""
     machine = platform.machine().lower()
     return (sys.platform == "win32" and machine in ("amd64", "x86_64")) or (
         sys.platform == "darwin" and machine == "arm64"
@@ -61,6 +62,7 @@ def supported_platform() -> bool:
 
 
 def monitor_available() -> bool:
+    """Return whether the process-monitor dependency is importable."""
     return importlib.util.find_spec("psutil") is not None
 
 
@@ -102,6 +104,7 @@ class SemgrepLifecycleOwner:
                 exc.add_note("Semgrep cleanup incomplete; see owner.close_result")
 
     async def aclose(self, *, deadline: float | None = None) -> SemgrepCloseResult:
+        """Close only this owner's leases and report incomplete cleanup."""
         with self._lock:
             self._state = "closed"
             leases = set(self._leases)
@@ -152,6 +155,7 @@ class PreparedSemgrepScan:
         return len(text), digest.digest()
 
     def matches_input(self, binding: object, text: str) -> bool:
+        """Check binding identity and bounded input evidence under the lease lock."""
         with self._lock:
             return binding is self._binding and (
                 self._input_evidence is None or self._evidence(text) == self._input_evidence
@@ -159,6 +163,7 @@ class PreparedSemgrepScan:
 
     @property
     def outcome(self) -> ScanResult:
+        """Return the current result under the lease lock."""
         with self._lock:
             return self._result
 
@@ -192,6 +197,7 @@ class PreparedSemgrepScan:
             self._release()
 
     async def discard(self) -> ScanResult:
+        """Retire the preparation and await any cleanup it still owns."""
         self._retire()
         # Terminal access after runtime join requires no new loop work.
         if self._job is not None and not self._job.future.done():
@@ -200,6 +206,7 @@ class PreparedSemgrepScan:
         return self.outcome
 
     def consume(self, binding: object, text: str) -> ScanResult | None:
+        """Return a matching one-shot result, or None for an invalid preparation."""
         with self._lock:
             valid = self._state == "prepared" and binding is self._binding
             valid &= not self._scanner._is_closed()
@@ -216,6 +223,8 @@ class PreparedSemgrepScan:
 
 
 class SemgrepScanner:
+    """Scan selected source with explicit lifecycle ownership and coverage."""
+
     name = "semgrep"
 
     def __init__(
@@ -283,6 +292,7 @@ class SemgrepScanner:
         )
 
     def availability(self) -> tuple[bool, str | None]:
+        """Report whether this scanner can admit work."""
         if self._is_closed():
             return False, "semgrep.lease_closed"
         if self._error:
@@ -293,6 +303,7 @@ class SemgrepScanner:
             return error is None, error
 
     async def aclose(self, *, deadline: float | None = None) -> SemgrepCloseResult:
+        """Close the scanner lease and report remaining owned resources."""
         self._closed = True
         result = await close_leases(
             {self._lease} if self._lease else set(),
@@ -313,6 +324,7 @@ class SemgrepScanner:
         _refusal: str | None = None,
         _on_complete: Callable[[ScanResult], None] | None = None,
     ) -> PreparedSemgrepScan:
+        """Prepare a bounded scan bound to the supplied pipeline identity."""
         start = time.monotonic()
 
         def refused(code: str) -> PreparedSemgrepScan:
@@ -395,6 +407,7 @@ class SemgrepScanner:
     async def scan(
         self, text: str, *, direction: Direction = "inbound", session_id: str | None = None
     ) -> ScanResult:
+        """Return source findings and coverage within the owned runtime."""
         token = await self.prepare(text, binding=self)
         try:
             return token.consume(self, text) or token.outcome

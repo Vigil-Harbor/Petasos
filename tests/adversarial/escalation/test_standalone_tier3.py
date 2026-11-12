@@ -76,7 +76,6 @@ async def test_standalone_survives_severity_override() -> None:
     }
     with pytest.raises(ConfigError, match="structural"):
         from_mapping(PetasosConfig, hostile)
-    # The refused overrides never apply. The payload still reaches tier 3.
     pipe = Pipeline(scanners=[scanner], config=_cfg({"escalation": {"enabled": True}}))
     result = await pipe.inspect(_payload_3_critical())
     assert result.escalation_tier == "tier3"

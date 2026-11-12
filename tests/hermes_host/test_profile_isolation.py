@@ -1,8 +1,4 @@
-"""Two Hermes profiles in one process keep their own records.
-
-The old multi-profile harness checked this against the deleted plugin.
-These tests use a fresh sandbox home and the base install.
-"""
+"""Pin independent records for two Hermes profiles in one sandboxed process."""
 
 from __future__ import annotations
 

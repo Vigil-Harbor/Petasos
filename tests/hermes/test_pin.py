@@ -218,8 +218,6 @@ def test_pinned_and_partly_pinned_and_writable_states(
     assert "does not protect settings" in checks[0].summary
     monkeypatch.setattr("petasos.hermes.doctor_pin.writable", lambda path: False)
     monkeypatch.setattr("petasos.hermes.doctor_pin._file_writable", lambda scope: False)
-    # Petasos reads a pin with its record whole, so the groups Hermes would
-    # merge and the values it would leave open are not gaps.
     checks, facts, _ = pin_report(scope.profile)
     assert facts["state"] == "pinned" and "Only an administrator" in checks[0].summary
     assert facts["open_groups"] == [] and facts["unset_values"] == []
@@ -264,7 +262,6 @@ def test_a_pin_is_read_whole_and_a_profile_cannot_add_to_it(scope: SimpleNamespa
 
     class Store:
         def get_config(self, key: str, default: object = None) -> object:
-            # What Hermes's own overlay would hand back: the profile's entries merged in.
             merged = hermes_merge(scope.profile, scope.read())
             return merged["plugins"]["entries"]["petasos"]["settings"].get(key, default)
 
@@ -282,7 +279,6 @@ def test_a_pin_is_read_whole_and_a_profile_cannot_add_to_it(scope: SimpleNamespa
     kind, settings = profile_binding(scope.home / "config.yaml")
     assert kind == "settings" and settings is not None
     assert settings["role"] == "coding" and settings["level"] == "strict"
-    # A profile file that is gone does not unpin anything either.
     bound = HermesSettings(Store())
     bound.bind_profile(scope.home / "missing")
     assert bound().config == snapshot.config

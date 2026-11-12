@@ -59,8 +59,6 @@ def problems(fn: Callable[[], object]) -> tuple[tuple[str, str], ...]:
     return caught.value.errors
 
 
-# Executed sections are real module globals, which is all annotation
-# resolution can see. Names used in an annotation have to be placed here.
 _DEFINITIONS = types.ModuleType("tests.config._schema_definitions")
 sys.modules[_DEFINITIONS.__name__] = _DEFINITIONS
 _DEFINITIONS.__dict__.update(

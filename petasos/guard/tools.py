@@ -1,31 +1,6 @@
-"""Tool-call guard: argument blocking, result scanning, and session escalation.
+"""Classify argument actions and result ingestion independently.
 
-Two classification axes live on one table (``_TOOL_AXES``) and never share a
-vocabulary with PET-134's ``source_taint_namespaces``:
-
-- ``acts`` governs argument-side content blocking. Unknown names default to
-  acting (fail-secure). ``READ_ONLY_TOOLS`` is the ``acts=False`` derivation.
-- ``ingests`` governs result-side scanning of what a tool returns. Unknown
-  names default to ingesting (fail toward scrutiny; PET-181 closed the
-  fail-open). ``INGESTION_TOOLS`` is the named ``ingests=True AND
-  reaches_hook=True`` subset the ``transform_tool_result`` seam *used to*
-  select; the seam now gates on ``NON_INGESTING_TOOLS``. Gate 2 still drops
-  a non-string result, so of the four tools scanned before PET-179 only
-  three (``read_file``, ``web_extract``, ``web_search``) are reliably
-  string-shaped; ``vision_analyze`` (and ``browser_vision``) return a
-  multimodal dict on the default native-vision path. Widening gate 2 is
-  a residual (not PET-178).
-- ``source_taint_namespaces`` governs whether already-scanned content may
-  leave via an egress sink. No tool is classified twice for the same question.
-
-Vintage of the per-row evidence anchors: ``_TOOL_AXES_VERIFIED_AGAINST``.
-All ten ``mcp_*`` rows are known-dead on both axes (shape-mismatch): Hermes
-registers ``mcp__<server>__<tool>``, which canonicalizes to the bare tool
-name, while each row is a single-underscore literal that canonicalizes to
-itself. They keep their ``READ_ONLY_TOOLS`` seats (no silent drop of a
-published set) and carry ``reaches_hook=False`` so they cannot appear in
-``INGESTION_TOOLS``. Canonicalization work is PET-118 / PET-121.
-"""
+See docs/architecture/rationale.md, "Hermes tool classification"."""
 
 from __future__ import annotations
 
@@ -39,10 +14,7 @@ if TYPE_CHECKING:
 
 
 class ToolAxes(NamedTuple):
-    """Per-tool classification. A row exists where a tool **deviates** from the
-    defaults (``acts=True``, ``ingests=True``, ``reaches_hook=True``) **or**
-    already carries a per-row evidence pin (the PET-179 browser family, which
-    now matches the default and must not be dropped)."""
+    """Record action, ingestion and hook reachability with upstream evidence."""
 
     acts: bool
     ingests: bool
@@ -417,12 +389,9 @@ _TOOL_AXES_ROWS: tuple[tuple[str, ToolAxes], ...] = (
 _TOOL_AXES: MappingProxyType[str, ToolAxes] = _build_axes(_TOOL_AXES_ROWS)
 _TOOL_AXES_VERIFIED_AGAINST = "hermes-agent b415029b6 (2026-08-06)"
 
-# Argument-axis exemption set (published name; membership means the tool cannot
-# act, so its arguments skip content blocking). Unknown names are gated.
+# Unknown tools act by default; only explicit read-only membership skips argument blocking.
 READ_ONLY_TOOLS: frozenset[str] = _derive(_TOOL_AXES, acts=False)
-# Named hook-reaching ingesting subset. The seam gates on NON_INGESTING_TOOLS;
-# this set cannot name tools that are not in the table, which is the point of
-# invert, so it is no longer the membership test.
+# Result scanning excludes NON_INGESTING_TOOLS; this set enumerates known ingesting tools.
 INGESTION_TOOLS: frozenset[str] = _derive(_TOOL_AXES, ingests=True, reaches_hook=True)
 NON_INGESTING_TOOLS: frozenset[str] = _derive(_TOOL_AXES, ingests=False)
 

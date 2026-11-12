@@ -44,7 +44,7 @@ def real_scanners() -> list[Scanner]:
             result = await asyncio.wait_for(scanner.scan("What is the capital of France?"), 90)
             assert result.error is None, result.error
 
-    # Only pre-installed assets are allowed; this gate must not download weights.
+    # Only preinstalled assets are allowed; this gate must not download weights.
     with pytest.MonkeyPatch.context() as patch:
         patch.setenv("HF_HUB_OFFLINE", "1")
         patch.setenv("TRANSFORMERS_OFFLINE", "1")
@@ -86,7 +86,7 @@ async def test_semgrep_composes_with_real_presidio_and_prompt_guard(
     from petasos.pipeline.ingest import scan_ingestion_result
     from petasos.scanners.semgrep import SemgrepLifecycleOwner, SemgrepScanner
 
-    engine = os.environ["SEMGREP_ENGINE_PATH"]  # required, never skip a requested gate
+    engine = os.environ["SEMGREP_ENGINE_PATH"]
     with open(engine, "rb") as stream:
         digest = hashlib.file_digest(stream, "sha256").hexdigest()
     async with SemgrepLifecycleOwner() as owner:

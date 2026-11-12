@@ -89,7 +89,6 @@ async def test_prepared_policy_exactly_once_and_wrong_owner_has_no_side_effects(
         invalid = await other._inspect_with_prepared_semgrep("hello", token)
         assert invalid.errors == ("semgrep.prepared_invalid",)
         assert other_hook.await_count == 0
-        # The failed cross-owner attempt retires the token rather than replaying.
         replay = await pipeline._inspect_with_prepared_semgrep("hello", token)
         assert replay.errors == ("semgrep.prepared_invalid",)
         token = require(await pipeline._prepare_semgrep("hello"))
@@ -156,7 +155,7 @@ async def test_supplied_ingest_token_rejects_changed_tail_with_same_head() -> No
         )
         assert any("semgrep.prepared_invalid" in error for error in result.errors)
         assert result.head is None
-        assert token._text is None  # unavailable adapters retain only fingerprints
+        assert token._text is None
         assert token.consume(pipeline, text) is not None
 
 
@@ -283,7 +282,6 @@ async def test_ingestion_coverage_mapping_is_frozen_and_asdict_compatible() -> N
         coverage = require(result.backend_coverage)
         with pytest.raises(TypeError):
             coverage["semgrep"] = coverage["semgrep"]  # type: ignore[index]
-        # The pre-existing head has MappingProxy fields and its own to_dict.
         payload = asdict(replace(result, head=None))
         assert payload["backend_coverage"]["semgrep"]["status"] == "no_targets"
 
@@ -293,7 +291,6 @@ async def test_ingestion_coverage_mapping_is_frozen_and_asdict_compatible() -> N
     [(4096, True), (65536, True), (4095, False), (65537, False), (131072, False)],
 )
 async def test_source_limit_bounds_match_qualified_maximum(limit: int, ok: bool) -> None:
-    # The supported maximum is the measured 64 KiB workload (S7 protocol v3).
     if ok:
         assert (
             from_mapping(

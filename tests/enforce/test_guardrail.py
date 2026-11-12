@@ -219,7 +219,6 @@ def test_an_always_entry_for_the_old_key_does_not_auto_approve(tmp_path: Path) -
 def test_a_stopped_conversation_stays_blocked(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # The third score must reach exactly 30, without real-time decay between calls.
     monkeypatch.setattr(
         "petasos.session.frequency.time", SimpleNamespace(monotonic=lambda: 1000.0)
     )
