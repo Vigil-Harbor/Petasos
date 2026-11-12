@@ -26,21 +26,9 @@ _MAX_TAINT_DEPTH = 64
 
 
 def _iter_leaf_strings(obj: object, _depth: int = 0) -> Iterator[str]:
-    """Yield the leaf string candidates of an arbitrary JSON-ish value.
+    """Yield JSON-leaf strings with bounded depth and JSON-wire scalar forms.
 
-    Recurses ``Mapping`` values and ``list``/``tuple`` items. ``str`` leaves are
-    yielded as-is; non-string scalar leaves (``int`` / ``float`` / ``bool``) are
-    stringified via ``json.dumps(v, default=str)`` — the JSON-wire form a relayed
-    value carries (``json.dumps(True)`` -> ``"true"``, not ``str(True)``'s
-    ``"True"``) — so capture and check see one canonical leaf shape. ``None`` is
-    skipped. ``default=str`` matches the house never-raise idiom (``_events.py``
-    / the plugin's ``json.dumps(..., default=str)``).
-
-    Recursion is bounded by ``_MAX_TAINT_DEPTH``: a hostile deeply-nested payload
-    (in a tool result or in outbound args) is a documented walk-miss past the cap,
-    never a ``RecursionError`` — preserving the never-raise invariant on both the
-    post-call capture and the pre-call enforcement path.
-    """
+    See docs/architecture/rationale.md, "Source taint bounds"."""
     if _depth > _MAX_TAINT_DEPTH:
         return
     if obj is None:
