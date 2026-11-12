@@ -1,21 +1,6 @@
-"""Join the dashboard tab's sources into the one script Hermes loads.
+"""Build the single dashboard script from ordered JavaScript and CSS sources.
 
-Petasos ships no JavaScript toolchain. The tab is written as plain script
-files in ``hermes-plugin/dashboard-src/``; this joins them, in name order,
-inside one function, and embeds ``style.css`` as text the script adds to
-the page. The result is ``hermes-plugin/petasos/dashboard/index.js``.
-
-The sources sit outside the plugin directory on purpose. Everything under
-``hermes-plugin/petasos/`` is installed into a person's Hermes home and
-scanned by Hermes before it loads the plugin; the sources are neither
-loaded nor needed there.
-
-    python scripts/build_dashboard.py          # write index.js
-    python scripts/build_dashboard.py --check  # exit 1 when index.js is stale
-
-``tests/hermes/dashboard/test_bundle.py`` fails when the committed file is
-not what this produces.
-"""
+See docs/architecture/rationale.md, "Dashboard source packaging"."""
 
 from __future__ import annotations
 
@@ -67,7 +52,7 @@ def _indent(text: str) -> str:
 
 
 def render_index(sources: Path = SOURCES) -> str:
-    """The text of index.js for the sources in ``sources``."""
+    """Return the complete dashboard script for the supplied source directory."""
     scripts = sorted(sources.glob("*.js"))
     if not scripts:
         raise FileNotFoundError(f"no dashboard sources in {sources}")
@@ -84,6 +69,7 @@ def render_index(sources: Path = SOURCES) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Build the dashboard bundle or report whether the committed bundle is current."""
     parser = argparse.ArgumentParser(description="Join the dashboard tab sources.")
     parser.add_argument("--check", action="store_true", help="exit 1 when index.js is stale")
     args = parser.parse_args(argv)

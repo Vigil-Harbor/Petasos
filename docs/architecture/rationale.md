@@ -418,3 +418,14 @@ content already in context can leave on the next cloud inference request, even
 when tool egress is fenced. Profiles requiring local inference therefore validate
 the endpoint during configuration or CI. The predicate uses only the standard
 library and is importable from petasos.profile_lint without extending root exports.
+
+## Dashboard source packaging
+
+Hermes installs and scans files under the plugin directory before loading them.
+Editable dashboard sources live outside that directory because they are not runtime
+assets. The builder joins scripts in filename order inside one function and embeds
+CSS in the script, since the installer copies that script. The tab uses host React,
+SDK controls, fonts and theme variables without a separate JavaScript toolchain.
+Examples of attack text come from the API rather than literal plugin assets because
+the host admission scan would treat those strings as attacks. Bundle freshness is
+checked against committed sources.
