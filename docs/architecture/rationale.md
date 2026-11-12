@@ -136,3 +136,66 @@ A projection-depth limit stops retaining stack frames but still examines remaini
 string tokens, including escaped identifiers. Malformed strings and quote alignment
 must not hide later escaped code. The result records missing coverage rather than
 certifying the remaining document as valid JSON.
+
+## Alert scan counting
+
+Rate-based alert rules count scans with findings or an unsafe result. Counting all
+ingestion scans would keep a normal agent loop permanently over threshold. Empty
+findings can mean clean content or detector failure, so only clean and safe scans
+are skipped. The safe flag carries degraded/closed scanner failure; PipelineResult
+errors are frozen before the alert hook and scanner errors live in ScanResult.error.
+
+## Audit finding privacy
+
+Finding rows are included when explicitly requested or at standard/verbose verbosity;
+a minimal capture window can therefore still record findings. Raw content and
+matched text are excluded. Direction is the resolved scan direction, uniform
+across finding rows, rather than a claim of individual finding provenance.
+
+## Quantized scan contributions
+
+Uncapped command scoring permits at most five rules at weight 3.0: 15 points,
+below session termination and equal to the default warning threshold. Capped
+ingestion and parameter scans instead contribute exactly one configured step when
+raw weight reaches it, or zero below it. A 3.0 command finding contributes zero
+under the shipped 3.75 cap. This bounds both poisoning and benign reread trajectories.
+
+A zero-contribution capped scan must not append a rolling-window entry: that
+independent count-based promotion path could otherwise promote a session at score
+zero. A cap of zero means no contribution of any kind; a tiny positive cap can
+still count. Uncapped callers retain raw scoring and count findings scans.
+
+Reconfiguration parses weights before changing any live state, then commits scalar
+bounds, weights and tombstone trimming under the tracker lock. Session secrets
+remain immutable so tokens minted before reconfiguration remain valid.
+
+## Lineage lock order
+
+The host supplies child-to-parent edges; child tool content cannot choose a parent.
+Tracker callbacks run inside the tracker lock, touch only registry state, are O(1)
+and nonblocking, and never call the tracker. The only nested lock order is tracker
+then registry. Both stores use the monotonic clock for expiry. Registry reconfiguration
+preserves edges and updates cached bounds under the same lock as readers.
+
+Pinned sessions retain tiers needed by live children. TTL passes inspect a snapshot
+of the expiry deque so requeued pinned entries are not revisited in the same call.
+Every removed session drops its outgoing edge, even without a tombstone. When all
+candidates are pinned, the hard twice-max-sessions ceiling bounds memory by sacrificing
+the least-recently-updated session; descendants then use their own tier. Terminated
+ancestor tombstones survive, preserving tier-three inheritance. Existing tombstones
+keep their FIFO position during eviction rather than being refreshed as new entries.
+
+## Source taint bounds
+
+Source-taint matching blocks relay of source-namespace content even when it is not
+personal information, such as balances, amounts and merchants. A session-keyed
+store prevents cross-session matching. Per-session oldest-span eviction and global
+least-recently-active-session eviction bound retained content by sessions times spans
+per session times maximum span length, without relying on a session-end hook.
+
+Capture and argument checks use JSON-wire scalar forms, not Python repr, and bound
+text, leaves and recursion depth. Content beyond those bounds is unexamined.
+Malformed, truncated or too-deep JSON becomes one capped leaf rather than raising.
+Oversized leaves are dropped. The minimum normalized span length is read and
+updated under one lock; reconfiguration affects future captures only, preserving
+stored spans and never retroactively admitting rejected spans.

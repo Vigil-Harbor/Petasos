@@ -1,3 +1,5 @@
+"""Deliver bounded alerts without propagating callback failures."""
+
 from __future__ import annotations
 
 import logging
@@ -21,6 +23,8 @@ if TYPE_CHECKING:
 
 
 class AlertManager:
+    """Track alert limits and isolate delivery callback failures."""
+
     def __init__(
         self,
         config: PetasosConfig,
@@ -52,18 +56,10 @@ class AlertManager:
         return self._config
 
     def apply_config(self, new_config: PetasosConfig) -> None:
-        """PET-126: rebind ``_config``; rebuild ``_pii_ring_buffer`` only when
-        ``alert_ring_buffer_capacity`` changed.
+        """Apply alert settings while preserving counters and cooldowns.
 
-        On a capacity *shrink*, ``deque(old, maxlen=new)`` keeps the most-recent
-        ``new`` items (oldest dropped): ring-buffer recency semantics. All
-        counters, cooldowns, per-rule/per-session deques, ``_ring_buffers``, and
-        ``_cross_session_tracker`` are preserved. The capacity is pre-validated as
-        a positive int in ``__post_init__``, so the rebuild cannot raise. Existing
-        per-rule ``_ring_buffers`` entries keep their construction-time ``maxlen``
-        (harmless: ``__post_init__`` bounds ``alert_rapid_fire_count <= capacity``);
-        newly-created entries pick up the new capacity.
-        """
+        PII buffer resizing retains the newest entries. Existing per-rule buffers
+        keep their original capacity; new buffers use the updated capacity."""
         old_capacity = self._config.alerting.ring_buffer_capacity
         self._config = new_config
         new_capacity = self._config.alerting.ring_buffer_capacity
@@ -72,22 +68,27 @@ class AlertManager:
 
     @property
     def callback_errors(self) -> tuple[str, ...]:
+        """Return callback failures from the most recent evaluation."""
         return tuple(self._callback_errors)
 
     @property
     def alert_count(self) -> int:
+        """Return the number of delivered alerts."""
         return self._alert_count
 
     @property
     def suppressed_count(self) -> int:
+        """Return the number of cooldown-suppressed alerts."""
         return self._suppressed_count
 
     @property
     def rate_limited_count(self) -> int:
+        """Return the number of alerts rejected by global rate limits."""
         return self._rate_limited_count
 
     @property
     def session_rate_limited_count(self) -> int:
+        """Return the number of alerts rejected by per-session limits."""
         return self._session_rate_limited_count
 
     def add_listener(self, callback: Callable[[Alert], None]) -> None:
@@ -100,6 +101,7 @@ class AlertManager:
         session_id: str | None,
         freq_result: FrequencyUpdateResult | None,
     ) -> list[Alert]:
+        """Return eligible alerts and isolate listener failures."""
         now = time.monotonic()
         self._prune_stale(now)
         self._callback_errors = []
@@ -219,11 +221,7 @@ class AlertManager:
                 )
 
     def evaluate_selfmod(self, finding: ScanFinding, session_id: str | None) -> Alert | None:
-        """Dedicated selfmod alert delivery (PET-164 Decision 7).
-
-        Cooldown-exempt, per-rule_id critical cap only. Never touches the five
-        existing checks or their counters.
-        """
+        """Deliver a self-modification alert subject only to its critical rate cap."""
         now = time.monotonic()
         self._callback_errors = []
 
@@ -339,16 +337,7 @@ class AlertManager:
     ) -> Alert | None:
         if session_id is None:
             return None
-        # PET-176 D8: count findings-or-unsafe scans, not all scans. With the
-        # ingestion correlator live (D6), an ordinary agent loop would keep the
-        # all-scans count permanently over threshold. Empty findings means
-        # EITHER clean content OR detection failure; skip only the
-        # clean-AND-safe case, so a scan that produced nothing because the
-        # scanners are down still counts toward the one rate-based rule.
-        # `result.safe` is the surface that carries scanner failure under the
-        # `degraded`/`closed` fail modes; `result.errors` never does (scanner
-        # errors live in ScanResult.error, and _build_result froze `errors`
-        # before the alert hook runs).
+        # See docs/architecture/rationale.md, "Alert scan counting".
         if not result.findings and not result.errors and result.safe:
             return None
 

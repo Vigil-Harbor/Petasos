@@ -1,3 +1,5 @@
+"""Emit privacy-bounded audit records while isolating callback failures."""
+
 from __future__ import annotations
 
 import logging
@@ -20,6 +22,8 @@ if TYPE_CHECKING:
 
 
 class AuditEmitter:
+    """Sequence audit records and contain callback failures."""
+
     def __init__(
         self,
         config: PetasosConfig,
@@ -38,17 +42,12 @@ class AuditEmitter:
         return self._config
 
     def apply_config(self, new_config: PetasosConfig) -> None:
-        """PET-126: rebind ``_config`` in place.
-
-        ``audit_verbosity`` is read live off ``_config`` in ``_build_payload``, so
-        a swap takes effect on the next emitted event. Preserves
-        ``_global_sequence`` (the audit sequence is not reset), ``_listeners``, and
-        ``_last_callback_error``.
-        """
+        """Apply audit settings without resetting sequence state."""
         self._config = new_config
 
     @property
     def last_callback_error(self) -> str | None:
+        """Return the last callback failure, or None after successful delivery."""
         return self._last_callback_error
 
     def emit(
@@ -59,12 +58,11 @@ class AuditEmitter:
         *,
         direction: Direction | None = None,
     ) -> AuditEvent:
+        """Emit a sequenced audit event without including raw scanned content."""
         self._last_callback_error = None
         seq = self._global_sequence
 
-        # PET-136: `direction` is the scan-level resolved value threaded down from
-        # the pipeline. Existing callers that omit it fall back to the configured
-        # direction, so no caller breaks (additive change).
+        # Omitted scan directions use the configured direction.
         resolved_direction = direction if direction is not None else self._config.direction
         payload = self._build_payload(result, freq_result, resolved_direction)
 
@@ -121,12 +119,7 @@ class AuditEmitter:
             "emit_findings": emit_findings,
         }
 
-        # PET-136: the per-finding list is included when the dedicated toggle is on
-        # OR at standard/verbose verbosity, so a minimal-verbosity capture window
-        # still emits findings. `matched_text` and raw content are never copied in
-        # (D3, redaction-safe by construction). `direction` is the scan-level
-        # resolved value, uniform across the list until D-DIRECTION-ON-FINDING
-        # lands; it is not per-finding provenance.
+        # See docs/architecture/rationale.md, "Audit finding privacy".
         if emit_findings or verbosity in ("standard", "verbose"):
             data["findings"] = [
                 {
