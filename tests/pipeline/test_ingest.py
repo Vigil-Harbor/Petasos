@@ -40,7 +40,6 @@ class _RecordingPipeline:
         session_id: str | None = None,
         weight_cap: float | None = None,
     ) -> PipelineResult:
-        """Provide inspect for the test fixture."""
         self.calls.append(
             {
                 "text": text,
@@ -61,7 +60,6 @@ class _RecordingPipeline:
     [0, HEAD_CHARS, CHUNK_CHARS, CHUNK_CHARS + 1, 1_000_000, 1_000_001],
 )
 def test_chunk_origins_cover_the_prefix(length: int) -> None:
-    """Pin chunk origins cover the prefix."""
     origins = _chunk_origins(length)
     assert origins[0] == 0
     covered = min(length, _MAX_PARAM_TEXT_LEN)
@@ -77,7 +75,6 @@ def test_chunk_origins_cover_the_prefix(length: int) -> None:
 
 
 async def test_midpoint_payload_maps_to_original_coordinates() -> None:
-    """Pin midpoint payload maps to original coordinates."""
     pipeline = _RecordingPipeline()
     length = 100_000
     mid = length // 2
@@ -94,7 +91,6 @@ async def test_midpoint_payload_maps_to_original_coordinates() -> None:
 
 
 async def test_payload_straddling_every_origin_in_a_three_chunk_fixture_is_found() -> None:
-    """Pin payload straddling every origin in a three chunk fixture is found."""
     pipeline = _RecordingPipeline()
     origins = (0, _STRIDE, 2 * _STRIDE)
     length = 2 * _STRIDE + CHUNK_CHARS
@@ -112,7 +108,6 @@ async def test_payload_straddling_every_origin_in_a_three_chunk_fixture_is_found
 
 
 async def test_inspect_is_called_once_on_the_head_prefix_with_weight_cap() -> None:
-    """Pin inspect is called once on the head prefix with weight cap."""
     pipeline = _RecordingPipeline()
     text = "a" * 50_000
     await scan_ingestion_result(
@@ -128,7 +123,6 @@ async def test_inspect_is_called_once_on_the_head_prefix_with_weight_cap() -> No
 
 
 async def test_ceiling_slice_excludes_the_character_past_one_million() -> None:
-    """Pin ceiling slice excludes the character past one million."""
     pipeline = _RecordingPipeline()
     text = ("a" * 1_000_000) + "Z"
     result = await scan_ingestion_result(pipeline, text)  # type: ignore[arg-type]
@@ -141,8 +135,6 @@ async def test_ceiling_slice_excludes_the_character_past_one_million() -> None:
 
 
 async def test_helper_never_raises_on_a_raising_inspect() -> None:
-    """Pin helper never raises on a raising inspect."""
-
     class _Boom(_RecordingPipeline):
         async def inspect(self, text: str, **kwargs: Any) -> PipelineResult:
             raise RuntimeError("inspect exploded")
@@ -156,7 +148,6 @@ async def test_helper_never_raises_on_a_raising_inspect() -> None:
 async def test_failed_chunk_scan_is_recorded_and_does_not_raise(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Pin failed chunk scan is recorded and does not raise."""
     pipeline = _RecordingPipeline()
 
     def _boom(self: MinimalScanner, text: str, direction: str) -> list[ScanFinding]:
@@ -171,7 +162,6 @@ async def test_failed_chunk_scan_is_recorded_and_does_not_raise(
 
 
 async def test_inspect_lock_poll_releases_on_success_and_does_not_steal_on_cancel() -> None:
-    """Pin inspect lock poll releases on success and does not steal on cancel."""
     pipeline = _RecordingPipeline()
     lock = threading.Lock()
 
@@ -193,8 +183,6 @@ async def test_inspect_lock_poll_releases_on_success_and_does_not_steal_on_cance
 
 
 async def test_head_floor_error_is_recorded_even_when_sweep_finds_injection() -> None:
-    """Pin head floor error is recorded even when sweep finds injection."""
-
     class _FailedFloor(_RecordingPipeline):
         async def inspect(self, text: str, **kwargs: Any) -> PipelineResult:
             return PipelineResult(
@@ -213,7 +201,6 @@ async def test_head_floor_error_is_recorded_even_when_sweep_finds_injection() ->
 
 
 async def test_private_scanner_is_not_pipeline_minimal_scanner() -> None:
-    """Pin private scanner is not pipeline minimal scanner."""
     pipeline = _RecordingPipeline()
 
     class _Sentinel:
@@ -271,8 +258,6 @@ async def test_cancelled_real_inspect_never_starts_sweep(
 async def test_reported_cancellation_never_starts_sweep(
     monkeypatch: pytest.MonkeyPatch, error: str
 ) -> None:
-    """Pin reported cancellation never starts sweep."""
-
     class _Cancelled(_RecordingPipeline):
         async def inspect(self, text: str, **kwargs: Any) -> PipelineResult:
             return PipelineResult(safe=False, findings=(), errors=(error,))

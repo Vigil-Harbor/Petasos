@@ -614,7 +614,6 @@ def test_colour_is_not_the_only_mark(tmp_path: Path, monkeypatch: pytest.MonkeyP
 
 
 def test_a_required_scanner_that_is_not_installed_says_so_and_how_to_add_it() -> None:
-    """Pin a required scanner that is not installed says so and how to add it."""
     from petasos.config.layers import resolve
     from petasos.hermes.doctor_advice import scanner_report
 
@@ -633,7 +632,6 @@ def test_a_required_scanner_that_is_not_installed_says_so_and_how_to_add_it() ->
 
 
 def test_a_scanner_whose_model_is_missing_keeps_its_own_reason() -> None:
-    """Pin a scanner whose model is missing keeps its own reason."""
     from petasos.hermes.doctor_advice import _scanner_row
     from petasos.scanners.registry import ScannerStatus
 

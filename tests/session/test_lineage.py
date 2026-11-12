@@ -28,21 +28,16 @@ def _registry(partial: dict[str, object] | None = None) -> LineageRegistry:
 
 
 class TestMaxTier:
-    """Pin Max Tier."""
-
     def test_returns_highest_rank(self) -> None:
-        """Pin returns highest rank."""
         assert max_tier("none", "tier2", "tier1") == "tier2"
         assert max_tier("tier3", "none") == "tier3"
         assert max_tier("tier1", "tier1") == "tier1"
 
     def test_no_args_is_none(self) -> None:
-        """Pin no args is none."""
         assert max_tier() == "none"
         assert max_tier("none") == "none"
 
     def test_raises_on_unknown(self) -> None:
-        """Pin raises on unknown."""
         with pytest.raises(ValueError, match="unknown tier"):
             max_tier("bogus")
         with pytest.raises(ValueError, match="unknown tier"):
@@ -50,16 +45,12 @@ class TestMaxTier:
 
 
 class TestRegisterUnregister:
-    """Pin Register Unregister."""
-
     def test_basic_edge_and_ancestors(self) -> None:
-        """Pin basic edge and ancestors."""
         reg = _registry()
         reg.register("child", "parent")
         assert reg.ancestors("child") == ["parent"]
 
     def test_unregister_drops_edge_and_is_idempotent(self) -> None:
-        """Pin unregister drops edge and is idempotent."""
         reg = _registry()
         reg.register("child", "parent")
         reg.unregister("child")
@@ -68,13 +59,11 @@ class TestRegisterUnregister:
         reg.unregister("never-seen")
 
     def test_self_edge_rejected(self) -> None:
-        """Pin self edge rejected."""
         reg = _registry()
         reg.register("x", "x")
         assert reg.ancestors("x") == []
 
     def test_empty_ids_rejected(self) -> None:
-        """Pin empty ids rejected."""
         reg = _registry()
         reg.register("", "parent")
         reg.register("child", "")
@@ -82,7 +71,6 @@ class TestRegisterUnregister:
         assert reg.ancestors("") == []
 
     def test_register_is_idempotent_same_parent(self) -> None:
-        """Pin register is idempotent same parent."""
         reg = _registry()
         reg.register("c", "p")
         reg.register("c", "p")
@@ -90,17 +78,13 @@ class TestRegisterUnregister:
 
 
 class TestReparent:
-    """Pin Reparent."""
-
     def test_last_writer_wins(self) -> None:
-        """Pin last writer wins."""
         reg = _registry()
         reg.register("c", "stale_parent")
         reg.register("c", "fresh_parent")
         assert reg.ancestors("c") == ["fresh_parent"]
 
     def test_reparent_in_place_does_not_evict_unrelated_edge_at_cap(self) -> None:
-        """Pin reparent in place does not evict unrelated edge at cap."""
         reg = _registry(
             {
                 "tools": {
@@ -122,10 +106,7 @@ class TestReparent:
 
 
 class TestAncestorsWalk:
-    """Pin Ancestors Walk."""
-
     def test_multi_hop_nearest_first(self) -> None:
-        """Pin multi hop nearest first."""
         reg = _registry()
         reg.register("c", "p")
         reg.register("p", "g")
@@ -133,7 +114,6 @@ class TestAncestorsWalk:
         assert reg.ancestors("c") == ["p", "g", "gg"]
 
     def test_bounded_by_max_depth(self) -> None:
-        """Pin bounded by max depth."""
         reg = _registry(
             {
                 "tools": {
@@ -149,7 +129,6 @@ class TestAncestorsWalk:
         assert reg.ancestors("c") == ["p", "g"]
 
     def test_cycle_is_safe(self) -> None:
-        """Pin cycle is safe."""
         reg = _registry()
         reg.register("a", "b")
         reg.register("b", "a")
@@ -157,16 +136,12 @@ class TestAncestorsWalk:
         assert reg.ancestors("b") == ["a"]
 
     def test_no_edge_returns_empty(self) -> None:
-        """Pin no edge returns empty."""
         reg = _registry()
         assert reg.ancestors("orphan") == []
 
 
 class TestTtlAndCap:
-    """Pin Ttl And Cap."""
-
     def test_expired_edge_skipped_in_walk(self) -> None:
-        """Pin expired edge skipped in walk."""
         reg = _registry(
             {
                 "tools": {
@@ -184,7 +159,6 @@ class TestTtlAndCap:
             assert reg.ancestors("c") == []
 
     def test_max_edges_evicts_oldest(self) -> None:
-        """Pin max edges evicts oldest."""
         reg = _registry(
             {
                 "tools": {
@@ -207,24 +181,19 @@ class TestTtlAndCap:
 
 
 class TestIsPinned:
-    """Pin Is Pinned."""
-
     def test_parent_of_live_edge_is_pinned(self) -> None:
-        """Pin parent of live edge is pinned."""
         reg = _registry()
         reg.register("c", "p")
         assert reg.is_pinned("p") is True
         assert reg.is_pinned("c") is False
 
     def test_unregister_unpins_parent(self) -> None:
-        """Pin unregister unpins parent."""
         reg = _registry()
         reg.register("c", "p")
         reg.unregister("c")
         assert reg.is_pinned("p") is False
 
     def test_expired_edge_does_not_pin(self) -> None:
-        """Pin expired edge does not pin."""
         reg = _registry(
             {
                 "tools": {

@@ -70,10 +70,7 @@ def _freq_result(
 
 
 class TestAuditEventConstruction:
-    """Pin Audit Event Construction."""
-
     def test_all_fields_populated(self) -> None:
-        """Pin all fields populated."""
         emitter = AuditEmitter(_cfg())
         event = emitter.emit(_result(), "s1", None)
         assert event.event_id
@@ -84,7 +81,6 @@ class TestAuditEventConstruction:
         assert event.sequence_number == 0
 
     def test_event_id_is_valid_uuid4_hex(self) -> None:
-        """Pin event id is valid uuid4 hex."""
         emitter = AuditEmitter(_cfg())
         event = emitter.emit(_result(), "s1", None)
         parsed = uuid.UUID(event.event_id)
@@ -92,10 +88,7 @@ class TestAuditEventConstruction:
 
 
 class TestVerbosityLevels:
-    """Pin Verbosity Levels."""
-
     def test_minimal_payload_keys(self) -> None:
-        """Pin minimal payload keys."""
         emitter = AuditEmitter(
             _cfg(
                 {
@@ -109,7 +102,6 @@ class TestVerbosityLevels:
         assert set(event.payload.keys()) == {"safe", "finding_count", "emit_findings"}
 
     def test_standard_payload_keys(self) -> None:
-        """Pin standard payload keys."""
         emitter = AuditEmitter(
             _cfg(
                 {
@@ -132,7 +124,6 @@ class TestVerbosityLevels:
         assert set(event.payload.keys()) == expected
 
     def test_verbose_payload_keys(self) -> None:
-        """Pin verbose payload keys."""
         emitter = AuditEmitter(
             _cfg(
                 {
@@ -159,7 +150,6 @@ class TestVerbosityLevels:
         assert set(event.payload.keys()) == expected
 
     def test_minimal_no_extra_keys(self) -> None:
-        """Pin minimal no extra keys."""
         emitter = AuditEmitter(
             _cfg(
                 {
@@ -175,7 +165,6 @@ class TestVerbosityLevels:
         assert "scanner_results" not in event.payload
 
     def test_standard_findings_content(self) -> None:
-        """Pin standard findings content."""
         f = _finding(rule_id="test.injection", severity=Severity.HIGH, confidence=0.85)
         emitter = AuditEmitter(
             _cfg(
@@ -195,7 +184,6 @@ class TestVerbosityLevels:
         assert findings_list[0]["direction"] == "inbound"
 
     def test_verbose_scanner_results_content(self) -> None:
-        """Pin verbose scanner results content."""
         sr = ScanResult(scanner_name="test_scanner", findings=(), duration_ms=5.5, error="oops")
         emitter = AuditEmitter(
             _cfg(
@@ -214,7 +202,6 @@ class TestVerbosityLevels:
         assert srs[0]["error"] == "oops"
 
     def test_verbose_config_snapshot_is_dict(self) -> None:
-        """Pin verbose config snapshot is dict."""
         emitter = AuditEmitter(
             _cfg(
                 {
@@ -230,22 +217,17 @@ class TestVerbosityLevels:
 
 
 class TestSequenceNumbers:
-    """Pin Sequence Numbers."""
-
     def test_first_emit_sequence_zero(self) -> None:
-        """Pin first emit sequence zero."""
         emitter = AuditEmitter(_cfg())
         event = emitter.emit(_result(), "s1", None)
         assert event.sequence_number == 0
 
     def test_sequential_emits_monotonic(self) -> None:
-        """Pin sequential emits monotonic."""
         emitter = AuditEmitter(_cfg())
         events = [emitter.emit(_result(), "s1", None) for _ in range(5)]
         assert [e.sequence_number for e in events] == [0, 1, 2, 3, 4]
 
     def test_different_sessions_global_sequence(self) -> None:
-        """Pin different sessions global sequence."""
         emitter = AuditEmitter(_cfg())
         e1 = emitter.emit(_result(), "s1", None)
         e2 = emitter.emit(_result(), "s2", None)
@@ -255,7 +237,6 @@ class TestSequenceNumbers:
         assert e3.sequence_number == 2
 
     def test_none_session_shares_global_counter(self) -> None:
-        """Pin none session shares global counter."""
         emitter = AuditEmitter(_cfg())
         e1 = emitter.emit(_result(), None, None)
         e2 = emitter.emit(_result(), "s1", None)
@@ -265,23 +246,18 @@ class TestSequenceNumbers:
         assert e3.sequence_number == 2
 
     def test_no_gaps_across_100_emits(self) -> None:
-        """Pin no gaps across 100 emits."""
         emitter = AuditEmitter(_cfg())
         events = [emitter.emit(_result(), "s1", None) for _ in range(100)]
         assert [e.sequence_number for e in events] == list(range(100))
 
 
 class TestCallbackBehavior:
-    """Pin Callback Behavior."""
-
     def test_no_callback_completes_without_error(self) -> None:
-        """Pin no callback completes without error."""
         emitter = AuditEmitter(_cfg(), on_audit=None)
         event = emitter.emit(_result(), "s1", None)
         assert event is not None
 
     def test_callback_receives_exact_event(self) -> None:
-        """Pin callback receives exact event."""
         received: list[AuditEvent] = []
         emitter = AuditEmitter(_cfg(), on_audit=received.append)
         event = emitter.emit(_result(), "s1", None)
@@ -289,8 +265,6 @@ class TestCallbackBehavior:
         assert received[0] is event
 
     def test_callback_raises_valueerror_swallowed(self) -> None:
-        """Pin callback raises valueerror swallowed."""
-
         def bad_cb(e: AuditEvent) -> None:
             raise ValueError("bad")
 
@@ -302,8 +276,6 @@ class TestCallbackBehavior:
         assert "bad" in emitter.last_callback_error
 
     def test_callback_raises_generic_exception_swallowed(self) -> None:
-        """Pin callback raises generic exception swallowed."""
-
         def bad_cb(e: AuditEvent) -> None:
             raise Exception("generic")
 
@@ -315,20 +287,14 @@ class TestCallbackBehavior:
 
 
 class TestEventTypes:
-    """Pin Event Types."""
-
     def test_event_type_is_scan_complete(self) -> None:
-        """Pin event type is scan complete."""
         emitter = AuditEmitter(_cfg())
         event = emitter.emit(_result(), "s1", None)
         assert event.event_type == "scan_complete"
 
 
 class TestEdgeCases:
-    """Pin Edge Cases."""
-
     def test_empty_findings_zero_count(self) -> None:
-        """Pin empty findings zero count."""
         emitter = AuditEmitter(
             _cfg(
                 {
@@ -342,7 +308,6 @@ class TestEdgeCases:
         assert event.payload["finding_count"] == 0
 
     def test_freq_result_none_standard_payload(self) -> None:
-        """Pin freq result none standard payload."""
         emitter = AuditEmitter(
             _cfg(
                 {
@@ -357,7 +322,6 @@ class TestEdgeCases:
         assert event.payload["escalation_tier"] is None
 
     def test_multiple_sessions_interleaved_global(self) -> None:
-        """Pin multiple sessions interleaved global."""
         emitter = AuditEmitter(_cfg())
         seq: dict[str, list[int]] = {"s1": [], "s2": [], "s3": []}
         for _ in range(3):
@@ -369,7 +333,6 @@ class TestEdgeCases:
         assert seq["s3"] == [2, 5, 8]
 
     def test_payload_is_immutable(self) -> None:
-        """Pin payload is immutable."""
         emitter = AuditEmitter(
             _cfg(
                 {
@@ -385,7 +348,6 @@ class TestEdgeCases:
 
     def test_verbose_payload_redacts_hash_key(self) -> None:
         # The hash key is not a setting and must not enter a verbose configuration snapshot.
-        """Pin verbose payload redacts hash key."""
         cfg = _cfg(
             {
                 "audit": {"verbosity": "verbose"},
@@ -399,7 +361,6 @@ class TestEdgeCases:
         assert snapshot["anonymization"]["mode"] == "hash"
 
     def test_verbose_payload_no_raw_secret_in_str(self) -> None:
-        """Pin verbose payload no raw secret in str."""
         raw_key = "super-secret-hmac-key-for-test"
         cfg = _cfg(
             {
@@ -412,7 +373,6 @@ class TestEdgeCases:
         assert raw_key not in str(event.payload)
 
     def test_global_sequence_continues_across_sessions(self) -> None:
-        """Pin global sequence continues across sessions."""
         emitter = AuditEmitter(_cfg())
         e1 = emitter.emit(_result(), "s1", None)
         e2 = emitter.emit(_result(), "s2", None)
@@ -427,10 +387,7 @@ class TestEdgeCases:
 
 
 class TestSequenceAdversarial:
-    """Pin Sequence Adversarial."""
-
     def test_reconnect_after_session_churn_no_reset(self) -> None:
-        """Pin reconnect after session churn no reset."""
         emitter = AuditEmitter(_cfg())
         first = emitter.emit(_result(), "agent-A", None)
         for i in range(50):
@@ -442,7 +399,6 @@ class TestSequenceAdversarial:
         assert again.sequence_number > first.sequence_number
 
     def test_sequence_globally_unique_under_session_reuse(self) -> None:
-        """Pin sequence globally unique under session reuse."""
         emitter = AuditEmitter(_cfg())
         seqs: list[int] = []
         for _ in range(4):
@@ -454,7 +410,6 @@ class TestSequenceAdversarial:
         assert seqs == list(range(12))
 
     def test_sequence_does_not_reset_after_ttl_prune(self) -> None:
-        """Pin sequence does not reset after ttl prune."""
         emitter = AuditEmitter(
             _cfg(
                 {
@@ -485,11 +440,7 @@ class TestSequenceAdversarial:
 
 
 class TestCallbackIsolationAdversarial:
-    """Pin Callback Isolation Adversarial."""
-
     def test_emit_does_not_raise_on_runtimeerror_callback(self) -> None:
-        """Pin emit does not raise on runtimeerror callback."""
-
         def bad_cb(_: AuditEvent) -> None:
             raise RuntimeError("on_audit boom")
 
@@ -501,8 +452,6 @@ class TestCallbackIsolationAdversarial:
         assert "on_audit boom" in emitter.last_callback_error
 
     def test_emit_swallows_baseexception_subclass(self) -> None:
-        """Pin emit swallows baseexception subclass."""
-
         def bad_cb(_: AuditEvent) -> None:
             raise _AuditCallbackKill("base-level kill")
 
@@ -513,7 +462,6 @@ class TestCallbackIsolationAdversarial:
         assert "_AuditCallbackKill" in emitter.last_callback_error
 
     def test_callback_error_cleared_on_next_success(self) -> None:
-        """Pin callback error cleared on next success."""
         state = {"fail": True}
 
         def cb(_: AuditEvent) -> None:
@@ -529,8 +477,6 @@ class TestCallbackIsolationAdversarial:
         assert emitter.last_callback_error is None
 
     def test_sequence_advances_despite_callback_failure(self) -> None:
-        """Pin sequence advances despite callback failure."""
-
         def bad_cb(_: AuditEvent) -> None:
             raise RuntimeError("always boom")
 

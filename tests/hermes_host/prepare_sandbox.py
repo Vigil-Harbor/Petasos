@@ -103,7 +103,6 @@ def _run(cmd: list[str], *, cwd: Path | None = None, env: dict[str, str] | None 
 
 
 def prepare(dest: Path, tag: str) -> None:
-    """Provide prepare for the test fixture."""
     banned = _forbidden(dest)
     if banned:
         raise SystemExit(f"refusing to build a sandbox under {banned}")
@@ -139,7 +138,6 @@ def prepare(dest: Path, tag: str) -> None:
 
 
 def shutil_which(name: str) -> str:
-    """Provide shutil which for the test fixture."""
     found = shutil.which(name)
     if not found:
         raise SystemExit(f"{name} is not on PATH")
@@ -147,7 +145,6 @@ def shutil_which(name: str) -> str:
 
 
 def main() -> None:
-    """Run the isolated test harness."""
     parser = argparse.ArgumentParser(description="Build a Hermes sandbox for tests/hermes_host")
     parser.add_argument(
         "--dest",

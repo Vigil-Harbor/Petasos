@@ -56,7 +56,6 @@ def _profile() -> dict[str, Any]:
 
 @pytest.fixture
 def scope(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
-    """Provide scope for the test fixture."""
     directory = tmp_path / "managed"
     directory.mkdir()
     home = tmp_path / "profile"
@@ -90,7 +89,6 @@ def scope(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
 
 
 def test_every_resolved_leaf_and_both_lists() -> None:
-    """Pin every resolved leaf and both lists."""
     profile = _profile()
     values = pin_values(profile, timeout=42.0)
     settings = values["plugins"]["entries"]["petasos"]["settings"]
@@ -108,13 +106,11 @@ def test_every_resolved_leaf_and_both_lists() -> None:
 
 @pytest.mark.parametrize("enabled,disabled", [([], []), (["petasos"], ["petasos"])])
 def test_refuse_when_hermes_does_not_load_petasos(enabled: list[str], disabled: list[str]) -> None:
-    """Pin refuse when hermes does not load petasos."""
     with pytest.raises(ValueError, match="must be on"):
         pin_values({"plugins": {"enabled": enabled, "disabled": disabled}}, timeout=30)
 
 
 def test_merge_and_remove_keep_unrelated_keys_and_dotted_rule_names() -> None:
-    """Pin merge and remove keep unrelated keys and dotted rule names."""
     original = {
         "model": {"default": "example"},
         "plugins": {"entries": {"other": {"settings": {"a": 1}}}},
@@ -136,7 +132,6 @@ def test_merge_and_remove_keep_unrelated_keys_and_dotted_rule_names() -> None:
 
 
 def test_preview_has_no_write_and_discloses_scope(scope: SimpleNamespace) -> None:
-    """Pin preview has no write and discloses scope."""
     text, code = change_pin(scope.home)
     assert code == 0
     assert not (scope.directory / "config.yaml").exists()
@@ -155,7 +150,6 @@ def test_preview_has_no_write_and_discloses_scope(scope: SimpleNamespace) -> Non
 def test_direct_write_is_atomic_and_discloses_before_writing(
     scope: SimpleNamespace, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Pin direct write is atomic and discloses before writing."""
     replace = os.replace
     seen = []
 
@@ -176,7 +170,6 @@ def test_direct_write_is_atomic_and_discloses_before_writing(
 def test_administrator_route_only_prepares_system_commands(
     scope: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Pin administrator route only prepares system commands."""
     monkeypatch.setattr("petasos.hermes.pin_cmd.writable", lambda path: False)
     text, code = change_pin(scope.home, write=True)
     assert code == 0
@@ -193,7 +186,6 @@ def test_administrator_route_only_prepares_system_commands(
 
 
 def test_unpin_refuses_profile_changes_until_explicitly_accepted(scope: SimpleNamespace) -> None:
-    """Pin unpin refuses profile changes until explicitly accepted."""
     change_pin(scope.home, write=True)
     scope.profile["plugins"]["enabled"] = ["other"]
     (scope.home / "config.yaml").write_text(json.dumps(scope.profile))
@@ -208,7 +200,6 @@ def test_unpin_refuses_profile_changes_until_explicitly_accepted(scope: SimpleNa
 def test_unpin_identical_profile_and_administrator_route(
     scope: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Pin unpin identical profile and administrator route."""
     change_pin(scope.home, write=True)
     assert differences(scope.profile, scope.read()) == ()
     monkeypatch.setattr("petasos.hermes.pin_cmd.writable", lambda path: False)
@@ -221,7 +212,6 @@ def test_unpin_identical_profile_and_administrator_route(
 def test_pinned_and_partly_pinned_and_writable_states(
     scope: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Pin pinned and partly pinned and writable states."""
     change_pin(scope.home, write=True)
     checks, facts, _ = pin_report(scope.profile)
     assert facts["state"] == "writable"
@@ -325,7 +315,6 @@ def test_saves_are_refused_while_pinned(
 def test_pin_not_in_force_uses_machine_standin(
     scope: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Pin pin not in force uses machine standin."""
     change_pin(scope.home, write=True)
     other = scope.home / "other-managed"
     other.mkdir()
@@ -340,7 +329,6 @@ def test_pin_not_in_force_uses_machine_standin(
 
 @pytest.mark.parametrize("change", ["enabled", "list", "disabled"])
 def test_disabled_pin_is_loud(scope: SimpleNamespace, change: str) -> None:
-    """Pin disabled pin is loud."""
     change_pin(scope.home, write=True)
     document = scope.read()
     if change == "enabled":
@@ -355,7 +343,6 @@ def test_disabled_pin_is_loud(scope: SimpleNamespace, change: str) -> None:
 
 
 def test_profile_differences_and_nullable_leaf_are_named(scope: SimpleNamespace) -> None:
-    """Pin profile differences and nullable leaf are named."""
     change_pin(scope.home, write=True)
     scope.profile["plugins"]["entries"]["petasos"]["settings"].update(
         {"level": "relaxed", "overrides": {"scanners": {"semgrep": {"engine_path": "/changed"}}}}
@@ -371,7 +358,6 @@ def test_profile_differences_and_nullable_leaf_are_named(scope: SimpleNamespace)
     "name", ["get_managed_dir", "load_managed_config", "managed_config_keys", "_cached_read"]
 )
 def test_missing_or_raising_reader_never_reports_pinned(scope: SimpleNamespace, name: str) -> None:
-    """Pin missing or raising reader never reports pinned."""
     change_pin(scope.home, write=True)
     setattr(scope.module, name, None)
     checks, facts, _ = pin_report(scope.profile)
@@ -380,8 +366,6 @@ def test_missing_or_raising_reader_never_reports_pinned(scope: SimpleNamespace, 
 
 
 def test_raising_reader_fails_safe(scope: SimpleNamespace) -> None:
-    """Pin raising reader fails safe."""
-
     def broken() -> None:
         raise RuntimeError("unavailable")
 
@@ -391,7 +375,6 @@ def test_raising_reader_fails_safe(scope: SimpleNamespace) -> None:
 
 
 def test_cli_flags(scope: SimpleNamespace, capsys: pytest.CaptureFixture[str]) -> None:
-    """Pin cli flags."""
     assert main(["hermes", "pin", "--home", str(scope.home)]) == 0
     assert "Nothing was written" in capsys.readouterr().out
     assert main(["hermes", "pin", "--home", str(scope.home), "--write"]) == 0
@@ -402,7 +385,6 @@ def test_cli_flags(scope: SimpleNamespace, capsys: pytest.CaptureFixture[str]) -
 
 
 def test_unpin_keeps_entries_added_to_a_formerly_empty_map() -> None:
-    """Pin unpin keeps entries added to a formerly empty map."""
     pinned = merge_pin({}, pin_values(_profile(), timeout=30))
     pinned["plugins"]["entries"]["petasos"]["settings"]["overrides"]["tools"]["aliases"]["new"] = (
         "terminal"
@@ -419,7 +401,6 @@ def test_unpin_keeps_entries_added_to_a_formerly_empty_map() -> None:
 def test_unsupported_platform_writes_nothing(
     scope: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Pin unsupported platform writes nothing."""
     monkeypatch.setattr("petasos.hermes.managed.os", SimpleNamespace(name="nt", environ={}))
     text, code = change_pin(scope.home, write=True)
     assert code == 2 and text == "Machine-level pinning is not available on this platform.\n"
@@ -429,7 +410,6 @@ def test_unsupported_platform_writes_nothing(
 def test_failed_atomic_write_leaves_existing_document(
     scope: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Pin failed atomic write leaves existing document."""
     original = {"model": {"default": "keep"}}
     (scope.directory / "config.yaml").write_text(json.dumps(original))
 
@@ -444,7 +424,6 @@ def test_failed_atomic_write_leaves_existing_document(
 
 
 def test_bad_ownership_never_removes_unrelated_keys(scope: SimpleNamespace) -> None:
-    """Pin bad ownership never removes unrelated keys."""
     document = merge_pin({}, pin_values(_profile(), timeout=30))
     document[OWNER]["paths"].append(["model", "default"])
     with pytest.raises(ValueError, match="unrelated"):
@@ -452,7 +431,6 @@ def test_bad_ownership_never_removes_unrelated_keys(scope: SimpleNamespace) -> N
 
 
 def test_status_exposes_pin_and_uses_effective_switches(scope: SimpleNamespace) -> None:
-    """Pin status exposes pin and uses effective switches."""
     from petasos.hermes.dashboard.scope import load_home
     from petasos.hermes.dashboard.status import status
 
@@ -468,7 +446,6 @@ def test_status_exposes_pin_and_uses_effective_switches(scope: SimpleNamespace) 
 
 @pytest.mark.parametrize("reference", ["${S1B_LANGUAGE}", "${env:S1B_LANGUAGE}"])
 def test_unresolved_environment_reference_is_not_pinned(reference: str) -> None:
-    """Pin unresolved environment reference is not pinned."""
     profile = _profile()
     profile["plugins"]["entries"]["petasos"]["settings"]["overrides"] = {
         "scanners": {"presidio": {"language": reference}}
@@ -478,7 +455,6 @@ def test_unresolved_environment_reference_is_not_pinned(reference: str) -> None:
 
 
 def test_doctor_names_environment_dependent_pin_values(scope: SimpleNamespace) -> None:
-    """Pin doctor names environment dependent pin values."""
     change_pin(scope.home, write=True)
     document = scope.read()
     document["plugins"]["entries"]["petasos"]["settings"]["overrides"]["scanners"]["presidio"][
@@ -493,7 +469,6 @@ def test_doctor_names_environment_dependent_pin_values(scope: SimpleNamespace) -
 def test_bypassed_machine_pin_still_reports_the_active_overlay(
     scope: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Pin bypassed machine pin still reports the active overlay."""
     change_pin(scope.home, write=True)
     other = scope.home / "other-managed"
     other.mkdir()

@@ -24,7 +24,6 @@ class _HangingScanner:
 
     @property
     def name(self) -> str:
-        """Return the fixture scanner name."""
         return self._name
 
     async def scan(
@@ -34,7 +33,6 @@ class _HangingScanner:
         direction: Direction = "inbound",
         session_id: str | None = None,
     ) -> ScanResult:
-        """Supply the configured scanner response for this fixture."""
         self.calls += 1
         await asyncio.sleep(self._delay)
         return ScanResult(scanner_name=self._name, findings=())
@@ -48,7 +46,6 @@ class _FlakyThenHealthyScanner:
 
     @property
     def name(self) -> str:
-        """Return the fixture scanner name."""
         return "flaky"
 
     async def scan(
@@ -58,7 +55,6 @@ class _FlakyThenHealthyScanner:
         direction: Direction = "inbound",
         session_id: str | None = None,
     ) -> ScanResult:
-        """Supply the configured scanner response for this fixture."""
         self.calls += 1
         if self.calls == 1:
             await asyncio.sleep(5.0)
@@ -67,13 +63,11 @@ class _FlakyThenHealthyScanner:
 
 @pytest.mark.parametrize("bad", [0.0, -1.0, float("inf"), float("nan"), 60.001, 100.0])
 def test_scanner_timeout_seconds_rejects_invalid(bad: float) -> None:
-    """Pin scanner timeout seconds rejects invalid."""
     with pytest.raises(ConfigError, match="scanners.timeout_seconds"):
         from_mapping(PetasosConfig, {"scanners": {"timeout_seconds": bad}})
 
 
 def test_scanner_timeout_seconds_accepts_boundary() -> None:
-    """Pin scanner timeout seconds accepts boundary."""
     at_cap = from_mapping(PetasosConfig, {"scanners": {"timeout_seconds": 60.0}})
     near_zero = from_mapping(PetasosConfig, {"scanners": {"timeout_seconds": 0.01}})
     assert at_cap.scanners.timeout_seconds == 60.0
@@ -82,20 +76,17 @@ def test_scanner_timeout_seconds_accepts_boundary() -> None:
 
 @pytest.mark.parametrize("bad", [0, -1, True])
 def test_circuit_breaker_threshold_rejects_invalid(bad: object) -> None:
-    """Pin circuit breaker threshold rejects invalid."""
     with pytest.raises(ConfigError, match="scanners.breaker_threshold"):
         from_mapping(PetasosConfig, {"scanners": {"breaker_threshold": bad}})
 
 
 @pytest.mark.parametrize("bad", [0.0, -1.0, float("inf"), float("nan")])
 def test_circuit_breaker_cooldown_rejects_invalid(bad: float) -> None:
-    """Pin circuit breaker cooldown rejects invalid."""
     with pytest.raises(ConfigError, match="scanners.breaker_cooldown_seconds"):
         from_mapping(PetasosConfig, {"scanners": {"breaker_cooldown_seconds": bad}})
 
 
 async def test_hanging_scanner_times_out_not_hangs() -> None:
-    """Pin hanging scanner times out not hangs."""
     cfg = from_mapping(
         PetasosConfig,
         {
@@ -118,7 +109,6 @@ async def test_hanging_scanner_times_out_not_hangs() -> None:
 
 
 async def test_circuit_breaker_trips_after_threshold() -> None:
-    """Pin circuit breaker trips after threshold."""
     cfg = from_mapping(
         PetasosConfig,
         {
@@ -192,7 +182,6 @@ async def test_circuit_breaker_streak_clears_after_cooldown() -> None:
 
 
 async def test_circuit_breaker_resets_on_success() -> None:
-    """Pin circuit breaker resets on success."""
     cfg = from_mapping(
         PetasosConfig,
         {

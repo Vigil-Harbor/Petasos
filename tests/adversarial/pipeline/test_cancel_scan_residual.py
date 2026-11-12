@@ -25,7 +25,6 @@ class _ToThreadScanner:
 
     @property
     def name(self) -> str:
-        """Return the fixture scanner name."""
         return "to_thread"
 
     def _blocking(self) -> None:
@@ -39,14 +38,12 @@ class _ToThreadScanner:
         direction: Direction = "inbound",
         session_id: str | None = None,
     ) -> ScanResult:
-        """Supply the configured scanner response for this fixture."""
         self._started.set()
         await asyncio.to_thread(self._blocking)
         return ScanResult(scanner_name="to_thread", findings=())
 
 
 async def test_cancel_frees_loop_and_pipeline_reusable() -> None:
-    """Pin cancel frees loop and pipeline reusable."""
     started = asyncio.Event()
     scanner = _ToThreadScanner(started)
     # The generous timeout isolates cancellation from deadline expiry.

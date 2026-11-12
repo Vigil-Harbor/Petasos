@@ -60,7 +60,6 @@ class _RecordingAnalyzer:
         language: str,
         score_threshold: float,
     ) -> list[Any]:
-        """Provide analyze for the test fixture."""
         self.entities = list(entities)
         return []
 
@@ -74,7 +73,6 @@ def _recording_scanner(**kw: Any) -> tuple[PresidioScanner, _RecordingAnalyzer]:
 
 
 def test_default_entities_exclude_noisy_set() -> None:
-    """Pin default entities exclude noisy set."""
     assert isinstance(DEFAULT_PRESIDIO_ENTITIES, tuple)
     for noisy in NOISY_OPT_IN_ENTITIES:
         assert noisy not in DEFAULT_PRESIDIO_ENTITIES
@@ -95,7 +93,6 @@ def test_default_entities_exclude_noisy_set() -> None:
 
 
 def test_resolve_entities_default_and_extra() -> None:
-    """Pin resolve entities default and extra."""
     assert resolve_presidio_entities(None) == list(DEFAULT_PRESIDIO_ENTITIES)
     assert resolve_presidio_entities(None, ("URL",)) == list(DEFAULT_PRESIDIO_ENTITIES) + ["URL"]
     assert resolve_presidio_entities(("PERSON",)) == ["PERSON"]
@@ -108,19 +105,16 @@ def test_resolve_entities_default_and_extra() -> None:
 
 
 def test_default_scanner_entities_wired() -> None:
-    """Pin default scanner entities wired."""
     assert PresidioScanner()._entities == list(DEFAULT_PRESIDIO_ENTITIES)
     assert PresidioScanner(entities=["PERSON"])._entities == ["PERSON"]
 
 
 def test_structural_ids_subset_of_unsuppressible() -> None:
-    """Pin structural ids subset of unsuppressible."""
     assert _STRUCTURAL_RULE_IDS <= _UNSUPPRESSIBLE_RULE_IDS
 
 
 @requires_presidio
 def test_presidio_entities_extra_url_fires() -> None:
-    """Pin presidio entities extra url fires."""
     cfg = from_mapping(
         PetasosConfig,
         {
@@ -150,10 +144,7 @@ def test_presidio_entities_extra_url_fires() -> None:
 
 @requires_presidio
 class TestPresidioTightenedDefault:
-    """Pin Presidio Tightened Default."""
-
     def test_benign_technical_corpus_no_pii_findings(self) -> None:
-        """Pin benign technical corpus no pii findings."""
         import asyncio
 
         scanner = PresidioScanner()
@@ -172,7 +163,6 @@ class TestPresidioTightenedDefault:
         assert result.findings == (), f"expected zero findings, got {result.findings}"
 
     def test_real_pii_still_detected(self) -> None:
-        """Pin real pii still detected."""
         import asyncio
 
         scanner = PresidioScanner()
@@ -191,7 +181,6 @@ class TestPresidioTightenedDefault:
 
 
 def test_scan_no_extra_uses_base() -> None:
-    """Pin scan no extra uses base."""
     for extra in (None, ()):
         scanner, rec = _recording_scanner()
         asyncio.run(scanner.scan("text", extra_entities=extra))
@@ -202,14 +191,12 @@ def test_scan_no_extra_uses_base() -> None:
 
 
 def test_scan_extra_entities_additive() -> None:
-    """Pin scan extra entities additive."""
     scanner, rec = _recording_scanner()
     asyncio.run(scanner.scan("text", extra_entities=("PERSON",)))
     assert rec.entities == [*DEFAULT_PRESIDIO_ENTITIES, "PERSON"]
 
 
 def test_scan_extra_entities_dedup() -> None:
-    """Pin scan extra entities dedup."""
     scanner, rec = _recording_scanner()
     asyncio.run(scanner.scan("text", extra_entities=("EMAIL_ADDRESS",)))
     assert rec.entities == list(DEFAULT_PRESIDIO_ENTITIES)
@@ -217,7 +204,6 @@ def test_scan_extra_entities_dedup() -> None:
 
 
 def test_scan_does_not_mutate_self_entities() -> None:
-    """Pin scan does not mutate self entities."""
     scanner, rec = _recording_scanner()
     asyncio.run(scanner.scan("text", extra_entities=("PERSON",)))
     assert scanner._entities == list(DEFAULT_PRESIDIO_ENTITIES)
@@ -226,7 +212,6 @@ def test_scan_does_not_mutate_self_entities() -> None:
 
 def test_scan_unknown_extra_threads_through() -> None:
     # Unknown entities must reach Presidio rather than vanish silently in wrapper filtering.
-    """Pin scan unknown extra threads through."""
     scanner, rec = _recording_scanner()
     asyncio.run(scanner.scan("text", extra_entities=("NOT_A_REAL_ENTITY",)))
     assert rec.entities == [*DEFAULT_PRESIDIO_ENTITIES, "NOT_A_REAL_ENTITY"]

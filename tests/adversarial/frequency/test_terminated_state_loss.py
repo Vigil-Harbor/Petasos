@@ -25,10 +25,7 @@ def _cfg(changes: dict[str, Any] | None = None) -> PetasosConfig:
 
 
 class TestTerminatedSurvivesTtlEviction:
-    """Pin Terminated Survives Ttl Eviction."""
-
     def test_terminated_survives_ttl_eviction(self) -> None:
-        """Pin terminated survives ttl eviction."""
         cfg = _cfg({"sessions": {"ttl_seconds": 100.0}, "escalation": {"tier3": 50.0}})
         tracker = FrequencyTracker(cfg)
 
@@ -49,10 +46,7 @@ class TestTerminatedSurvivesTtlEviction:
 
 
 class TestTerminatedSurvivesLruEviction:
-    """Pin Terminated Survives Lru Eviction."""
-
     def test_terminated_survives_lru_eviction(self) -> None:
-        """Pin terminated survives lru eviction."""
         cfg = _cfg({"sessions": {"max": 3, "ttl_seconds": 9999.0}, "escalation": {"tier3": 50.0}})
         tracker = FrequencyTracker(cfg)
 
@@ -74,10 +68,7 @@ class TestTerminatedSurvivesLruEviction:
 
 
 class TestGuardBlocksAfterTtlEviction:
-    """Pin Guard Blocks After Ttl Eviction."""
-
     async def test_guard_blocks_after_ttl_eviction(self) -> None:
-        """Pin guard blocks after ttl eviction."""
         cfg = _cfg({"sessions": {"ttl_seconds": 100.0}, "escalation": {"tier3": 50.0}})
         pipe = Pipeline(config=cfg)
         tracker = FrequencyTracker(cfg)
@@ -98,10 +89,7 @@ class TestGuardBlocksAfterTtlEviction:
 
 
 class TestGuardBlocksAfterLruEviction:
-    """Pin Guard Blocks After Lru Eviction."""
-
     async def test_guard_blocks_after_lru_eviction(self) -> None:
-        """Pin guard blocks after lru eviction."""
         cfg = _cfg({"sessions": {"max": 3, "ttl_seconds": 9999.0}, "escalation": {"tier3": 50.0}})
         pipe = Pipeline(config=cfg)
         tracker = FrequencyTracker(cfg)
@@ -126,10 +114,7 @@ class TestGuardBlocksAfterLruEviction:
 
 
 class TestResetDoesNotResurrect:
-    """Pin Reset Does Not Resurrect."""
-
     async def test_reset_does_not_resurrect_terminated(self) -> None:
-        """Pin reset does not resurrect terminated."""
         cfg = _cfg({"escalation": {"tier3": 50.0}})
         pipe = Pipeline(config=cfg)
         tracker = FrequencyTracker(cfg)
@@ -149,10 +134,7 @@ class TestResetDoesNotResurrect:
 
 
 class TestUpdateReturnsTier3ForTombstoned:
-    """Pin Update Returns Tier3 For Tombstoned."""
-
     def test_update_returns_tier3_for_tombstoned_session(self) -> None:
-        """Pin update returns tier3 for tombstoned session."""
         cfg = _cfg({"sessions": {"ttl_seconds": 100.0}, "escalation": {"tier3": 50.0}})
         tracker = FrequencyTracker(cfg)
 
@@ -175,10 +157,7 @@ class TestUpdateReturnsTier3ForTombstoned:
 
 
 class TestTombstonedUpdateNoSpuriousAlert:
-    """Pin Tombstoned Update No Spurious Alert."""
-
     def test_tombstoned_update_no_spurious_alert(self) -> None:
-        """Pin tombstoned update no spurious alert."""
         cfg = _cfg({"sessions": {"ttl_seconds": 100.0}, "escalation": {"tier3": 50.0}})
         tracker = FrequencyTracker(cfg)
 
@@ -204,8 +183,6 @@ class TestTombstonedUpdateNoSpuriousAlert:
 
 
 class TestTtlEvictionDefensiveTombstone:
-    """Pin Ttl Eviction Defensive Tombstone."""
-
     def test_ttl_eviction_defensive_tombstone(self) -> None:
         """Pin ttl eviction defensive tombstone."""
         cfg = _cfg(
@@ -238,10 +215,7 @@ class TestTtlEvictionDefensiveTombstone:
 
 
 class TestEvictOneDefensiveTombstone:
-    """Pin Evict One Defensive Tombstone."""
-
     def test_evict_one_defensive_tombstone_write(self) -> None:
-        """Pin evict one defensive tombstone write."""
         cfg = _cfg({"sessions": {"max": 2, "ttl_seconds": 9999.0}, "escalation": {"tier3": 50.0}})
         tracker = FrequencyTracker(cfg)
 

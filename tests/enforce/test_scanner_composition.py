@@ -36,7 +36,6 @@ pytestmark = pytest.mark.skipif(
 
 @pytest.fixture(scope="module")
 def real_scanners() -> list[Scanner]:
-    """Provide real scanners for the test fixture."""
     assert importlib.util.find_spec("en_core_web_lg") is not None, "install the spaCy model first"
     assert pg._snapshot_complete(), "pinned PromptGuard weights must already be cached"
     config = PetasosConfig()
@@ -65,7 +64,6 @@ class _Events:
         self.rows: list[dict[str, object]] = []
 
     def emit(self, event: Mapping[str, object]) -> bool:
-        """Provide emit for the test fixture."""
         self.rows.append(dict(event))
         return True
 

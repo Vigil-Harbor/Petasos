@@ -13,7 +13,6 @@ from petasos.config.sections import PetasosConfig
 
 
 def test_config_round_trips_presidio_fields() -> None:
-    """Pin config round trips presidio fields."""
     cfg = from_mapping(
         PetasosConfig,
         {
@@ -106,7 +105,6 @@ def test_config_round_trips_presidio_fields() -> None:
 
 def test_presidio_entities_casing_normalized() -> None:
     # Recognizer names are trimmed and case-normalized to prevent silent scope mismatches.
-    """Pin presidio entities casing normalized."""
     cfg = from_mapping(
         PetasosConfig,
         {
@@ -128,7 +126,6 @@ def test_presidio_entities_casing_normalized() -> None:
 
 def test_whitespace_only_entity_entries_rejected() -> None:
     # Whitespace-only entity names would silently disable detection without validation.
-    """Pin whitespace only entity entries rejected."""
     with pytest.raises(ValueError):
         from_mapping(
             PetasosConfig,

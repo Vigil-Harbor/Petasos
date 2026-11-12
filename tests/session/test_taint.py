@@ -41,7 +41,6 @@ def _store(min_span_length: int = 12) -> SessionTaintStore:
 
 def test_taint_minlength_floor_no_false_positive() -> None:
     # The minimum span length prevents short, low-entropy values poisoning unrelated arguments.
-    """Pin taint minlength floor no false positive."""
     store = _store()
     store.capture("s1", "$5.00", "ns")
     store.capture("s1", "2026", "ns")
@@ -50,7 +49,6 @@ def test_taint_minlength_floor_no_false_positive() -> None:
 
 def test_taint_floor_measured_on_normalized_codepoints() -> None:
     # The floor counts normalized codepoints.
-    """Pin taint floor measured on normalized codepoints."""
     store = _store(12)
     sharp_s = "ß" * 11
     store.capture("s1", sharp_s, "ns")
@@ -62,7 +60,6 @@ def test_taint_floor_measured_on_normalized_codepoints() -> None:
 
 def test_taint_per_session_isolation() -> None:
     # Session-keyed isolation does not depend on a session-end hook.
-    """Pin taint per session isolation."""
     store = _store()
     store.capture("A", "sensitive-balance-12345", "ns")
     assert store.tainted_source("A", {"v": "sensitive-balance-12345"}) == "ns"
@@ -70,7 +67,6 @@ def test_taint_per_session_isolation() -> None:
 
 
 def test_taint_set_bounded_per_session() -> None:
-    """Pin taint set bounded per session."""
     store = _store()
     total = _TAINT_MAX_SPANS_PER_SESSION + 50
     for i in range(total):
@@ -82,7 +78,6 @@ def test_taint_set_bounded_per_session() -> None:
 
 
 def test_taint_set_bounded_sessions_lru() -> None:
-    """Pin taint set bounded sessions lru."""
     store = _store()
     span = "shared-sensitive-value-xyz"
     store.capture("first", span, "ns")
@@ -95,7 +90,6 @@ def test_taint_set_bounded_sessions_lru() -> None:
 
 
 def test_taint_json_leaf_granularity() -> None:
-    """Pin taint json leaf granularity."""
     store = _store(12)
     result = json.dumps(
         {
@@ -120,7 +114,6 @@ def test_taint_json_leaf_granularity() -> None:
 
 
 def test_taint_capture_non_str_and_oversize() -> None:
-    """Pin taint capture non str and oversize."""
     store = _store(12)
     store.capture("s1", None, "ns")
     store.capture("s1", 4000.0, "ns")
@@ -144,7 +137,6 @@ def test_taint_capture_non_str_and_oversize() -> None:
 
 def test_taint_span_multi_namespace_collision() -> None:
     # First-source attribution stays stable for deterministic operator records.
-    """Pin taint span multi namespace collision."""
     store = _store()
     span_text = "shared-collision-value-001"
     store.capture("s1", span_text, "mcp_bank_")
@@ -154,7 +146,6 @@ def test_taint_span_multi_namespace_collision() -> None:
 
 def test_taint_common_phrase_blocks() -> None:
     # The length floor is not an entropy floor; common long phrases can still block.
-    """Pin taint common phrase blocks."""
     store = _store()
     store.capture("s1", "Amazon Web Services", "ns")
     assert store.tainted_source("s1", {"v": "invoice from Amazon Web Services"}) == "ns"
@@ -162,7 +153,6 @@ def test_taint_common_phrase_blocks() -> None:
 
 def test_taint_normalized_match() -> None:
     # Normalization catches homoglyph and invisible-character variants, but not base64 re-encoding.
-    """Pin taint normalized match."""
     store = _store()
     store.capture("s1", "Sensitive Account Holder", "ns")
     homoglyph = "sensitive acc" + _CYRILLIC_O + "unt holder"
@@ -174,7 +164,6 @@ def test_taint_normalized_match() -> None:
 
 
 def test_taint_apply_config_updates_floor() -> None:
-    """Pin taint apply config updates floor."""
     store = _store(20)
     store.capture("s1", "fifteen-chars12", "ns")
     assert store.tainted_source("s1", {"v": "fifteen-chars12"}) is None
@@ -193,7 +182,6 @@ def test_taint_apply_config_updates_floor() -> None:
 
 
 def test_taint_apply_config_floor_not_retroactive() -> None:
-    """Pin taint apply config floor not retroactive."""
     store = _store(10)
     store.capture("s1", "twelve-chars1", "ns")
     store.apply_config(
@@ -224,7 +212,6 @@ def test_taint_apply_config_floor_not_retroactive() -> None:
 
 
 def test_taint_block_off_hot_path_cost() -> None:
-    """Pin taint block off hot path cost."""
     store = _store()
     for i in range(_TAINT_MAX_SPANS_PER_SESSION):
         store.capture("s1", f"sensitive-span-value-{i:05d}", "ns")
@@ -247,7 +234,6 @@ def test_taint_block_off_hot_path_cost() -> None:
 
 
 def test_taint_deeply_nested_no_recursion_error() -> None:
-    """Pin taint deeply nested no recursion error."""
     store = _store(12)
     deep: Any = "sensitive-deep-leaf-value-xyz"
     for _ in range(_MAX_TAINT_DEPTH + 50):

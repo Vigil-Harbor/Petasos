@@ -10,7 +10,6 @@ from petasos.session.taint import SessionTaintStore
 
 
 def test_taint_clear_session_drops_spans() -> None:
-    """Pin taint clear session drops spans."""
     store = SessionTaintStore(
         from_mapping(
             PetasosConfig,

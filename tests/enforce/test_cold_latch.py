@@ -13,7 +13,6 @@ def _book() -> Book:
 
 
 def test_a_session_gets_one_marker_until_it_is_released() -> None:
-    """Pin a session gets one marker until it is released."""
     book = _book()
     assert book.claim_cold("s", "cold_degraded") is True
     assert book.claim_cold("s", "cold_degraded") is False
@@ -23,7 +22,6 @@ def test_a_session_gets_one_marker_until_it_is_released() -> None:
 
 
 def test_an_anonymous_marker_is_once_per_book() -> None:
-    """Pin an anonymous marker is once per book."""
     book = _book()
     assert book.claim_cold(None, "cold_degraded") is True
     assert book.claim_cold(None, "cold_degraded") is False
@@ -35,7 +33,6 @@ def test_an_anonymous_marker_is_once_per_book() -> None:
 
 
 def test_the_marker_table_is_capped() -> None:
-    """Pin the marker table is capped."""
     book = _book()
     assert book.claim_cold("s-0", "cold_degraded") is True
     for index in range(1, _MAX_COLD_KEYS + 1):

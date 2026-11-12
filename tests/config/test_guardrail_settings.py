@@ -11,7 +11,6 @@ from petasos.config.sections import PetasosConfig
 
 
 def test_self_change_is_a_role_field_and_minutes_are_not() -> None:
-    """Pin self change is a role field and minutes are not."""
     paths = {row.path for row in leaves(PetasosConfig)}
 
     assert "tools.self_change" in paths
@@ -21,7 +20,6 @@ def test_self_change_is_a_role_field_and_minutes_are_not() -> None:
 
 
 def test_defaults_ask_for_thirty_minutes() -> None:
-    """Pin defaults ask for thirty minutes."""
     tools = PetasosConfig().tools
     row = {item.path: item for item in leaves(PetasosConfig)}
 
@@ -35,7 +33,6 @@ def test_defaults_ask_for_thirty_minutes() -> None:
 
 
 def test_support_refuses_guardrail_changes_and_other_roles_ask() -> None:
-    """Pin support refuses guardrail changes and other roles ask."""
     support = resolve({"role": "support"})
 
     assert support.config.tools.self_change == "never"
@@ -48,7 +45,6 @@ def test_support_refuses_guardrail_changes_and_other_roles_ask() -> None:
 
 
 def test_minutes_are_whole_and_bounded() -> None:
-    """Pin minutes are whole and bounded."""
     one = resolve({"overrides": {"tools": {"self_change_minutes": 1}}})
     longest = resolve({"overrides": {"tools": {"self_change_minutes": 1440}}})
 

@@ -365,7 +365,6 @@ def _matrix(lane: str) -> dict[str, Any]:
 
 
 def test_prompt_guard_lane_has_every_cell() -> None:
-    """Pin prompt guard lane has every cell."""
     cells = {(c["os"], c["python-version"]) for c in _matrix("extras-prompt-guard.yml")["include"]}
     assert cells == {
         ("ubuntu-latest", "3.11"),
@@ -375,5 +374,4 @@ def test_prompt_guard_lane_has_every_cell() -> None:
 
 
 def test_presidio_lane_has_both_python_versions() -> None:
-    """Pin presidio lane has both python versions."""
     assert _matrix("extras-presidio.yml")["python-version"] == ["3.11", "3.14"]

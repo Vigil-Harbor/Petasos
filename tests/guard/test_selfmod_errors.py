@@ -13,12 +13,10 @@ from petasos.scanners.minimal import MinimalScanner
 
 class _BoomParams:
     def values(self) -> Any:
-        """Provide values for the test fixture."""
         raise RuntimeError("classifier broke")
 
 
 def test_a_classifier_error_does_not_raise() -> None:
-    """Pin a classifier error does not raise."""
     pipe = Pipeline(scanners=[MinimalScanner()], config=PetasosConfig())
     guard = ToolCallGuard(
         pipe,

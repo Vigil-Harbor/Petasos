@@ -13,7 +13,6 @@ STANDIN = Path(__file__).resolve().parent / "standin" / "plugin"
 
 
 def test_validate_fails_until_the_wheel_imports(standin: Sandbox, tmp_path: Path) -> None:
-    """Pin validate fails until the wheel imports."""
     plugin = tmp_path / "missing-wheel"
     plugin.mkdir()
     (plugin / "plugin.yaml").write_text(
@@ -37,7 +36,6 @@ def test_validate_fails_until_the_wheel_imports(standin: Sandbox, tmp_path: Path
 
 
 def test_directory_plugin_validates_and_loads(standin: Sandbox) -> None:
-    """Pin directory plugin validates and loads."""
     report = call(standin, {"action": "validate", "path": str(STANDIN)})
     assert report["ok"] is True, report
     kind = call(standin, {"action": "parse_kind", "path": str(STANDIN)})
@@ -52,7 +50,6 @@ def test_directory_plugin_validates_and_loads(standin: Sandbox) -> None:
 
 
 def test_memory_provider_marker_in_init_changes_kind(standin: Sandbox, tmp_path: Path) -> None:
-    """Pin memory provider marker in init changes kind."""
     plugin = tmp_path / "kind-bait"
     plugin.mkdir()
     (plugin / "plugin.yaml").write_text(

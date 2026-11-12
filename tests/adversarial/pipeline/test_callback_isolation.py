@@ -82,11 +82,7 @@ def _session_pipeline(
 
 
 class TestAuditCallbackIsolation:
-    """Pin Audit Callback Isolation."""
-
     def test_audit_callback_runtime_error_swallowed(self) -> None:
-        """Pin audit callback runtime error swallowed."""
-
         def bad_cb(e: AuditEvent) -> None:
             raise RuntimeError("boom")
 
@@ -98,8 +94,6 @@ class TestAuditCallbackIsolation:
         assert "boom" in emitter.last_callback_error
 
     def test_audit_callback_base_exception_swallowed(self) -> None:
-        """Pin audit callback base exception swallowed."""
-
         def bad_cb(e: AuditEvent) -> None:
             raise KeyboardInterrupt("simulated")
 
@@ -110,8 +104,6 @@ class TestAuditCallbackIsolation:
         assert "KeyboardInterrupt" in emitter.last_callback_error
 
     def test_audit_callback_error_logged(self) -> None:
-        """Pin audit callback error logged."""
-
         def bad_cb(e: AuditEvent) -> None:
             raise ValueError("bad")
 
@@ -124,11 +116,7 @@ class TestAuditCallbackIsolation:
 
 
 class TestAlertCallbackIsolation:
-    """Pin Alert Callback Isolation."""
-
     def test_alert_callback_runtime_error_in_errors(self) -> None:
-        """Pin alert callback runtime error in errors."""
-
         def bad_cb(a: Alert) -> None:
             raise RuntimeError("alert-boom")
 
@@ -141,8 +129,6 @@ class TestAlertCallbackIsolation:
         assert "alert-boom" in mgr.callback_errors[0]
 
     def test_alert_callback_base_exception_swallowed(self) -> None:
-        """Pin alert callback base exception swallowed."""
-
         def bad_cb(a: Alert) -> None:
             raise KeyboardInterrupt("simulated")
 
@@ -154,8 +140,6 @@ class TestAlertCallbackIsolation:
         assert "KeyboardInterrupt" in mgr.callback_errors[0]
 
     def test_alert_callback_error_logged(self) -> None:
-        """Pin alert callback error logged."""
-
         def bad_cb(a: Alert) -> None:
             raise ValueError("bad-alert")
 
@@ -167,11 +151,7 @@ class TestAlertCallbackIsolation:
 
 
 class TestPipelineCallbackPropagation:
-    """Pin Pipeline Callback Propagation."""
-
     async def test_audit_error_reaches_pipeline_result(self) -> None:
-        """Pin audit error reaches pipeline result."""
-
         def bad_audit(e: AuditEvent) -> None:
             raise RuntimeError("audit-fail")
 
@@ -180,8 +160,6 @@ class TestPipelineCallbackPropagation:
         assert any("on_audit callback" in e for e in result.errors)
 
     async def test_alert_error_reaches_pipeline_result(self) -> None:
-        """Pin alert error reaches pipeline result."""
-
         def bad_alert(a: Alert) -> None:
             raise RuntimeError("alert-fail")
 
@@ -191,8 +169,6 @@ class TestPipelineCallbackPropagation:
         assert len(alert_errors) >= 1
 
     async def test_both_callbacks_fail_both_errors_in_result(self) -> None:
-        """Pin both callbacks fail both errors in result."""
-
         def bad_audit(e: AuditEvent) -> None:
             raise RuntimeError("audit-fail")
 
@@ -208,10 +184,7 @@ class TestPipelineCallbackPropagation:
 
 
 class TestCrossSessionBurstTracker:
-    """Pin Cross Session Burst Tracker."""
-
     def test_cross_session_burst_accurate_under_eviction(self) -> None:
-        """Pin cross session burst accurate under eviction."""
         mgr = AlertManager(
             _cfg(
                 {
@@ -241,7 +214,6 @@ class TestCrossSessionBurstTracker:
         assert len(csb) >= 1
 
     def test_cross_session_tracker_time_window_eviction(self) -> None:
-        """Pin cross session tracker time window eviction."""
         base_time = 1000.0
         mgr = AlertManager(
             _cfg(
@@ -269,7 +241,6 @@ class TestCrossSessionBurstTracker:
         assert len(csb) == 0
 
     def test_cross_session_tracker_cap_bounds_memory(self) -> None:
-        """Pin cross session tracker cap bounds memory."""
         mgr = AlertManager(
             _cfg(
                 {
@@ -288,10 +259,7 @@ class TestCrossSessionBurstTracker:
 
 
 class TestGlobalMonotonicSequence:
-    """Pin Global Monotonic Sequence."""
-
     def test_sequence_continues_after_ttl_prune_boundary(self) -> None:
-        """Pin sequence continues after ttl prune boundary."""
         emitter = AuditEmitter(_cfg())
         emitter.emit(_pipeline_result(), "s1", None)
         e2 = emitter.emit(_pipeline_result(), "s1", None)
@@ -300,7 +268,6 @@ class TestGlobalMonotonicSequence:
         assert e3.sequence_number > last_seq
 
     def test_sequence_global_monotonic_across_sessions(self) -> None:
-        """Pin sequence global monotonic across sessions."""
         emitter = AuditEmitter(_cfg())
         all_seqs: list[int] = []
         for _ in range(5):
@@ -310,7 +277,6 @@ class TestGlobalMonotonicSequence:
         assert all_seqs == list(range(15))
 
     def test_sequence_never_zero_after_first_emit(self) -> None:
-        """Pin sequence never zero after first emit."""
         emitter = AuditEmitter(_cfg())
         e1 = emitter.emit(_pipeline_result(), "s1", None)
         assert e1.sequence_number == 0

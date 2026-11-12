@@ -34,7 +34,6 @@ def _guard(
 
 
 async def test_guard_apply_config_updates_delegate_set() -> None:
-    """Pin guard apply config updates delegate set."""
     guard = _guard(
         config=_cfg(
             {
@@ -72,7 +71,6 @@ async def test_guard_apply_config_updates_delegate_set() -> None:
 
 
 def test_guard_apply_config_resizes_fanout_window_preserving_counters() -> None:
-    """Pin guard apply config resizes fanout window preserving counters."""
     guard = _guard(
         config=_cfg(
             {
@@ -109,7 +107,6 @@ def test_guard_apply_config_resizes_fanout_window_preserving_counters() -> None:
 
 
 def test_guard_set_window_evicts_under_shrunk_window_directly() -> None:
-    """Pin guard set window evicts under shrunk window directly."""
     budget = SpawnBudget(60.0)
     assert budget.try_consume("s", cap=1, now=100.0) is True
     assert budget.try_consume("s", cap=1, now=130.0) is False
@@ -118,7 +115,6 @@ def test_guard_set_window_evicts_under_shrunk_window_directly() -> None:
 
 
 def test_guard_apply_config_propagates_to_its_tracker() -> None:
-    """Pin guard apply config propagates to its tracker."""
     guard = _guard(
         config=_cfg(
             {
@@ -148,7 +144,6 @@ def test_guard_apply_config_propagates_to_its_tracker() -> None:
 
 
 def test_guard_validate_config_d8_violation_is_atomic() -> None:
-    """Pin guard validate config violation is atomic."""
     guard = _guard(
         config=_cfg(
             {
@@ -183,7 +178,6 @@ def test_guard_validate_config_d8_violation_is_atomic() -> None:
 
 def test_guard_apply_config_preserves_session_secret() -> None:
     # Session secrets stay fixed so existing tokens remain valid after reconfiguration.
-    """Pin guard apply config preserves session secret."""
     secret = b"k" * 32
     secrets = Secrets(session_secret=secret)
     cfg = _cfg()

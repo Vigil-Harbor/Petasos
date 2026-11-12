@@ -43,7 +43,6 @@ class TestSuppressionSetIsExactlyDecided:
     the frozen-profile invariant in CLAUDE.md), and pin the shipped description."""
 
     def test_codegen_suppression_set_is_exactly_what_we_decided(self) -> None:
-        """Pin codegen suppression set is exactly what we decided."""
         config = _role("code_generation")
         assert set(config.rules.suppress) == _EXPECTED_SUPPRESS, (
             f"suppress_rules drifted: {sorted(config.rules.suppress)}"

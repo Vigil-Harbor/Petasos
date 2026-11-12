@@ -13,7 +13,6 @@ _HASH_KEY_MESSAGE = (
 
 
 def test_repr_names_presence_and_hides_values() -> None:
-    """Pin repr names presence and hides values."""
     secret = b"session-secret-value"
     key = "hash-key-value"
     hidden = Secrets(session_secret=secret, hash_key=key)
@@ -27,13 +26,11 @@ def test_repr_names_presence_and_hides_values() -> None:
 
 
 def test_secrets_have_no_mapping_export() -> None:
-    """Pin secrets have no mapping export."""
     assert not hasattr(Secrets, "to_mapping")
     assert "to_mapping" not in dir(Secrets(session_secret=b"x"))
 
 
 def test_hash_mode_without_a_key_is_rejected_where_config_meets_secrets() -> None:
-    """Pin hash mode without a key is rejected where config meets secrets."""
     config = from_mapping(PetasosConfig, {"anonymization": {"enabled": True, "mode": "hash"}})
 
     with pytest.raises(ValueError, match=_HASH_KEY_MESSAGE):

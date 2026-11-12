@@ -66,10 +66,7 @@ def _freq(
 
 
 class TestAlertConstruction:
-    """Pin Alert Construction."""
-
     def test_all_fields_populated(self) -> None:
-        """Pin all fields populated."""
         mgr = AlertManager(_cfg())
         fr = _freq(previous_score=0.0, current_score=20.0, tier="tier1")
         alerts = mgr.evaluate(_result(), "s1", fr)
@@ -84,10 +81,7 @@ class TestAlertConstruction:
 
 
 class TestTierEscalation:
-    """Pin Tier Escalation."""
-
     def test_none_to_tier1_fires_warning(self) -> None:
-        """Pin none to tier1 fires warning."""
         mgr = AlertManager(_cfg())
         fr = _freq(previous_score=0.0, current_score=20.0, tier="tier1")
         alerts = mgr.evaluate(_result(), "s1", fr)
@@ -96,7 +90,6 @@ class TestTierEscalation:
         assert tier_alerts[0].severity == "warning"
 
     def test_tier1_to_tier2_fires_high(self) -> None:
-        """Pin tier1 to tier2 fires high."""
         mgr = AlertManager(_cfg())
         fr = _freq(previous_score=20.0, current_score=35.0, tier="tier2")
         alerts = mgr.evaluate(_result(), "s1", fr)
@@ -105,7 +98,6 @@ class TestTierEscalation:
         assert tier_alerts[0].severity == "high"
 
     def test_tier2_to_tier3_fires_critical(self) -> None:
-        """Pin tier2 to tier3 fires critical."""
         mgr = AlertManager(_cfg())
         fr = _freq(previous_score=35.0, current_score=55.0, tier="tier3")
         alerts = mgr.evaluate(_result(), "s1", fr)
@@ -114,7 +106,6 @@ class TestTierEscalation:
         assert tier_alerts[0].severity == "critical"
 
     def test_same_tier_does_not_fire(self) -> None:
-        """Pin same tier does not fire."""
         mgr = AlertManager(_cfg())
         fr = _freq(previous_score=20.0, current_score=22.0, tier="tier1")
         alerts = mgr.evaluate(_result(), "s1", fr)
@@ -122,14 +113,12 @@ class TestTierEscalation:
         assert len(tier_alerts) == 0
 
     def test_freq_result_none_does_not_fire(self) -> None:
-        """Pin freq result none does not fire."""
         mgr = AlertManager(_cfg())
         alerts = mgr.evaluate(_result(), "s1", None)
         tier_alerts = [a for a in alerts if a.rule_id == "tier_escalation"]
         assert len(tier_alerts) == 0
 
     def test_decay_re_entry_fires(self) -> None:
-        """Pin decay re entry fires."""
         mgr = AlertManager(
             _cfg(
                 {
@@ -146,7 +135,6 @@ class TestTierEscalation:
         assert tier_alerts[0].severity == "warning"
 
     def test_stable_tier1_no_decay_does_not_fire(self) -> None:
-        """Pin stable tier1 no decay does not fire."""
         mgr = AlertManager(_cfg())
         fr = _freq(previous_score=16.0, current_score=18.0, tier="tier1")
         alerts = mgr.evaluate(_result(), "s1", fr)
@@ -155,10 +143,7 @@ class TestTierEscalation:
 
 
 class TestHighSeverityFinding:
-    """Pin High Severity Finding."""
-
     def test_high_finding_fires(self) -> None:
-        """Pin high finding fires."""
         mgr = AlertManager(_cfg())
         r = _result(findings=(_finding(severity=Severity.HIGH),))
         alerts = mgr.evaluate(r, "s1", None)
@@ -166,7 +151,6 @@ class TestHighSeverityFinding:
         assert len(hsf) == 1
 
     def test_medium_finding_does_not_fire_default(self) -> None:
-        """Pin medium finding does not fire default."""
         mgr = AlertManager(_cfg())
         r = _result(findings=(_finding(severity=Severity.MEDIUM),))
         alerts = mgr.evaluate(r, "s1", None)
@@ -174,7 +158,6 @@ class TestHighSeverityFinding:
         assert len(hsf) == 0
 
     def test_critical_finding_fires(self) -> None:
-        """Pin critical finding fires."""
         mgr = AlertManager(_cfg())
         r = _result(findings=(_finding(severity=Severity.CRITICAL),))
         alerts = mgr.evaluate(r, "s1", None)
@@ -182,7 +165,6 @@ class TestHighSeverityFinding:
         assert len(hsf) == 1
 
     def test_configurable_threshold_medium(self) -> None:
-        """Pin configurable threshold medium."""
         mgr = AlertManager(
             _cfg(
                 {
@@ -199,10 +181,7 @@ class TestHighSeverityFinding:
 
 
 class TestRapidFire:
-    """Pin Rapid Fire."""
-
     def test_below_threshold_does_not_fire(self) -> None:
-        """Pin below threshold does not fire."""
         mgr = AlertManager(
             _cfg(
                 {
@@ -218,7 +197,6 @@ class TestRapidFire:
         assert len(rf) == 0
 
     def test_at_threshold_fires(self) -> None:
-        """Pin at threshold fires."""
         mgr = AlertManager(
             _cfg(
                 {
@@ -237,7 +215,6 @@ class TestRapidFire:
         assert len(rf) == 1
 
     def test_clean_and_safe_scans_are_not_counted(self) -> None:
-        """Pin clean and safe scans are not counted."""
         mgr = AlertManager(
             _cfg(
                 {
@@ -255,7 +232,6 @@ class TestRapidFire:
 
     def test_finding_free_unsafe_scans_still_count(self) -> None:
         # See docs/architecture/rationale.md, "Alert scan counting".
-        """Pin finding free unsafe scans still count."""
         mgr = AlertManager(
             _cfg(
                 {
@@ -275,7 +251,6 @@ class TestRapidFire:
         assert len(rf) == 1
 
     def test_message_names_the_counted_unit(self) -> None:
-        """Pin message names the counted unit."""
         mgr = AlertManager(
             _cfg(
                 {
@@ -294,7 +269,6 @@ class TestRapidFire:
         assert "findings-or-unsafe" in rf[0].message
 
     def test_session_scoped_no_cross_contamination(self) -> None:
-        """Pin session scoped no cross contamination."""
         mgr = AlertManager(
             _cfg(
                 {
@@ -314,7 +288,6 @@ class TestRapidFire:
         assert len(rf) == 1
 
     def test_skipped_when_session_none(self) -> None:
-        """Pin skipped when session none."""
         mgr = AlertManager(
             _cfg(
                 {
@@ -329,7 +302,6 @@ class TestRapidFire:
         assert len(rf) == 0
 
     def test_outside_window_does_not_fire(self) -> None:
-        """Pin outside window does not fire."""
         mgr = AlertManager(
             _cfg(
                 {
@@ -351,10 +323,7 @@ class TestRapidFire:
 
 
 class TestCrossSessionBurst:
-    """Pin Cross Session Burst."""
-
     def test_below_threshold_does_not_fire(self) -> None:
-        """Pin below threshold does not fire."""
         mgr = AlertManager(
             _cfg(
                 {
@@ -371,7 +340,6 @@ class TestCrossSessionBurst:
         assert len(csb) == 0
 
     def test_at_threshold_fires(self) -> None:
-        """Pin at threshold fires."""
         mgr = AlertManager(
             _cfg(
                 {
@@ -391,7 +359,6 @@ class TestCrossSessionBurst:
         assert csb[0].severity == "high"
 
     def test_duplicate_sessions_count_as_one(self) -> None:
-        """Pin duplicate sessions count as one."""
         mgr = AlertManager(
             _cfg(
                 {
@@ -409,7 +376,6 @@ class TestCrossSessionBurst:
         assert len(csb) == 0
 
     def test_none_session_excluded(self) -> None:
-        """Pin none session excluded."""
         mgr = AlertManager(
             _cfg(
                 {
@@ -428,10 +394,7 @@ class TestCrossSessionBurst:
 
 
 class TestPiiVolumeSpike:
-    """Pin Pii Volume Spike."""
-
     def test_below_threshold_does_not_fire(self) -> None:
-        """Pin below threshold does not fire."""
         mgr = AlertManager(
             _cfg(
                 {
@@ -448,7 +411,6 @@ class TestPiiVolumeSpike:
         assert len(pvs) == 0
 
     def test_at_threshold_fires(self) -> None:
-        """Pin at threshold fires."""
         mgr = AlertManager(
             _cfg(
                 {
@@ -467,7 +429,6 @@ class TestPiiVolumeSpike:
         assert pvs[0].severity == "warning"
 
     def test_window_expiry(self) -> None:
-        """Pin window expiry."""
         mgr = AlertManager(
             _cfg(
                 {
@@ -495,10 +456,7 @@ class TestPiiVolumeSpike:
 
 
 class TestRateLimiting:
-    """Pin Rate Limiting."""
-
     def test_cooldown_suppresses_same_key(self) -> None:
-        """Pin cooldown suppresses same key."""
         mgr = AlertManager(
             _cfg(
                 {
@@ -518,7 +476,6 @@ class TestRateLimiting:
         assert mgr.suppressed_count >= 1
 
     def test_per_minute_cap(self) -> None:
-        """Pin per minute cap."""
         mgr = AlertManager(
             _cfg(
                 {
@@ -538,7 +495,6 @@ class TestRateLimiting:
         assert mgr.rate_limited_count >= 3
 
     def test_per_hour_cap(self) -> None:
-        """Pin per hour cap."""
         mgr = AlertManager(
             _cfg(
                 {
@@ -559,7 +515,6 @@ class TestRateLimiting:
         assert mgr.rate_limited_count >= 3
 
     def test_100_rapid_triggers_bounded(self) -> None:
-        """Pin 100 rapid triggers bounded."""
         mgr = AlertManager(
             _cfg(
                 {
@@ -578,7 +533,6 @@ class TestRateLimiting:
         assert total_fired <= 5
 
     def test_suppressed_and_rate_limited_counts(self) -> None:
-        """Pin suppressed and rate limited counts."""
         mgr = AlertManager(
             _cfg(
                 {
@@ -595,10 +549,7 @@ class TestRateLimiting:
 
 
 class TestCriticalExemption:
-    """Pin Critical Exemption."""
-
     def test_tier3_bypasses_cooldown(self) -> None:
-        """Pin tier3 bypasses cooldown."""
         mgr = AlertManager(
             _cfg(
                 {
@@ -617,7 +568,6 @@ class TestCriticalExemption:
         assert len(t2) == 1
 
     def test_tier3_bypasses_per_minute_cap(self) -> None:
-        """Pin tier3 bypasses per minute cap."""
         mgr = AlertManager(
             _cfg(
                 {
@@ -638,7 +588,6 @@ class TestCriticalExemption:
         assert len(all_critical) == 5
 
     def test_tier3_bypasses_per_hour_cap(self) -> None:
-        """Pin tier3 bypasses per hour cap."""
         mgr = AlertManager(
             _cfg(
                 {
@@ -658,7 +607,6 @@ class TestCriticalExemption:
         assert len(all_critical) == 3
 
     def test_non_critical_still_rate_limited(self) -> None:
-        """Pin non critical still rate limited."""
         mgr = AlertManager(
             _cfg(
                 {
@@ -679,10 +627,7 @@ class TestCriticalExemption:
 
 
 class TestCriticalCap:
-    """Pin Critical Cap."""
-
     def test_critical_cap_bounds_fanout(self) -> None:
-        """Pin critical cap bounds fanout."""
         mgr = AlertManager(
             _cfg(
                 {
@@ -702,7 +647,6 @@ class TestCriticalCap:
         assert len(all_critical) <= 5
 
     def test_critical_cap_default_allows_legitimate_burst(self) -> None:
-        """Pin critical cap default allows legitimate burst."""
         mgr = AlertManager(_cfg())
         fr = _freq(previous_score=35.0, current_score=55.0, tier="tier3")
         all_critical: list[Alert] = []
@@ -714,7 +658,6 @@ class TestCriticalCap:
         assert len(all_critical) == 10
 
     def test_critical_cap_per_rule_id_isolation(self) -> None:
-        """Pin critical cap per rule id isolation."""
         mgr = AlertManager(
             _cfg(
                 {
@@ -735,7 +678,6 @@ class TestCriticalCap:
         assert mgr._critical_per_minute_timestamps.get("other_rule") is None
 
     def test_critical_cap_resets_after_window(self) -> None:
-        """Pin critical cap resets after window."""
         base = time.monotonic()
         mgr = AlertManager(
             _cfg(
@@ -774,7 +716,6 @@ class TestCriticalCap:
             assert len(after) == 1
 
     def test_tier3_bypasses_noncritical_caps(self) -> None:
-        """Pin tier3 bypasses noncritical caps."""
         mgr = AlertManager(
             _cfg(
                 {
@@ -797,7 +738,6 @@ class TestCriticalCap:
         assert len(all_critical) == 3
 
     def test_critical_fanout_callback_bounded(self) -> None:
-        """Pin critical fanout callback bounded."""
         received: list[Alert] = []
         mgr = AlertManager(
             _cfg(
@@ -819,10 +759,7 @@ class TestCriticalCap:
 
 
 class TestRingBuffer:
-    """Pin Ring Buffer."""
-
     def test_buffer_respects_maxlen(self) -> None:
-        """Pin buffer respects maxlen."""
         mgr = AlertManager(
             _cfg(
                 {
@@ -840,7 +777,6 @@ class TestRingBuffer:
         assert len(buf) == 5
 
     def test_buffer_entries_correct_shape(self) -> None:
-        """Pin buffer entries correct shape."""
         mgr = AlertManager(_cfg())
         r = _result(findings=(_finding(),))
         mgr.evaluate(r, "s1", None)
@@ -852,17 +788,13 @@ class TestRingBuffer:
 
 
 class TestAlertCallbackBehavior:
-    """Pin Alert Callback Behavior."""
-
     def test_no_callback_returns_alerts(self) -> None:
-        """Pin no callback returns alerts."""
         mgr = AlertManager(_cfg(), on_alert=None)
         r = _result(findings=(_finding(severity=Severity.HIGH),))
         alerts = mgr.evaluate(r, "s1", None)
         assert len(alerts) >= 1
 
     def test_callback_receives_each_alert(self) -> None:
-        """Pin callback receives each alert."""
         received: list[Alert] = []
         mgr = AlertManager(_cfg(), on_alert=received.append)
         r = _result(findings=(_finding(severity=Severity.HIGH),))
@@ -870,7 +802,6 @@ class TestAlertCallbackBehavior:
         assert len(received) == len(alerts)
 
     def test_callback_exception_logs_and_continues(self, caplog: pytest.LogCaptureFixture) -> None:
-        """Pin callback exception logs and continues."""
         call_count = 0
 
         def bad_cb(a: Alert) -> None:
@@ -892,10 +823,7 @@ class TestAlertCallbackBehavior:
 
 
 class TestAlertStats:
-    """Pin Alert Stats."""
-
     def test_alert_count_reflects_fired(self) -> None:
-        """Pin alert count reflects fired."""
         mgr = AlertManager(
             _cfg(
                 {
@@ -911,7 +839,6 @@ class TestAlertStats:
         assert mgr.alert_count >= 2
 
     def test_suppressed_count_reflects_dedup(self) -> None:
-        """Pin suppressed count reflects dedup."""
         mgr = AlertManager(
             _cfg(
                 {
@@ -927,7 +854,6 @@ class TestAlertStats:
         assert mgr.suppressed_count >= 1
 
     def test_rate_limited_count_reflects_caps(self) -> None:
-        """Pin rate limited count reflects caps."""
         mgr = AlertManager(
             _cfg(
                 {
@@ -947,10 +873,7 @@ class TestAlertStats:
 
 
 class TestSessionContributionCap:
-    """Pin Session Contribution Cap."""
-
     def test_session_contribution_cap_limits_single_session(self) -> None:
-        """Pin session contribution cap limits single session."""
         base = time.monotonic()
         with patch("petasos.session.alerting.time") as mock_time:
             mock_time.time.return_value = 1000.0
@@ -975,7 +898,6 @@ class TestSessionContributionCap:
             assert mgr.session_rate_limited_count >= 1
 
     def test_throwaway_sessions_cannot_exhaust_rule_cap(self) -> None:
-        """Pin throwaway sessions cannot exhaust rule cap."""
         base = time.monotonic()
         with patch("petasos.session.alerting.time") as mock_time:
             mock_time.time.return_value = 1000.0
@@ -1002,7 +924,6 @@ class TestSessionContributionCap:
             assert len(hsf) == 1
 
     def test_session_contribution_independent_across_rules(self) -> None:
-        """Pin session contribution independent across rules."""
         base = time.monotonic()
         with patch("petasos.session.alerting.time") as mock_time:
             mock_time.time.return_value = 1000.0
@@ -1034,7 +955,6 @@ class TestSessionContributionCap:
             assert len(rf) == 1
 
     def test_session_contribution_window_resets(self) -> None:
-        """Pin session contribution window resets."""
         base = time.monotonic()
         with patch("petasos.session.alerting.time") as mock_time:
             mock_time.time.return_value = 1000.0
@@ -1064,7 +984,6 @@ class TestSessionContributionCap:
             assert len(hsf_after) == 1
 
     def test_session_none_uses_none_key(self) -> None:
-        """Pin session none uses none key."""
         base = time.monotonic()
         with patch("petasos.session.alerting.time") as mock_time:
             mock_time.time.return_value = 1000.0
@@ -1089,7 +1008,6 @@ class TestSessionContributionCap:
             assert mgr.session_rate_limited_count >= 1
 
     def test_per_session_deque_pruned(self) -> None:
-        """Pin per session deque pruned."""
         base = time.monotonic()
         with patch("petasos.session.alerting.time") as mock_time:
             mock_time.time.return_value = 1000.0
@@ -1115,7 +1033,6 @@ class TestSessionContributionCap:
             assert ("high_severity_finding", "s1") not in mgr._per_session_minute_timestamps
 
     def test_memory_bound_rejects_new_sessions(self) -> None:
-        """Pin memory bound rejects new sessions."""
         mgr = AlertManager(
             _cfg(
                 {
@@ -1137,7 +1054,6 @@ class TestSessionContributionCap:
         assert mgr.session_rate_limited_count >= 1
 
     def test_cap_1_suppresses_reentry(self) -> None:
-        """Pin cap 1 suppresses reentry."""
         base = time.monotonic()
         with patch("petasos.session.alerting.time") as mock_time:
             mock_time.time.return_value = 1000.0
@@ -1164,7 +1080,6 @@ class TestSessionContributionCap:
             assert mgr.session_rate_limited_count >= 1
 
     def test_three_gate_composition(self) -> None:
-        """Pin three gate composition."""
         base = time.monotonic()
         with patch("petasos.session.alerting.time") as mock_time:
             mock_time.time.return_value = 1000.0
@@ -1201,7 +1116,6 @@ class TestSessionContributionCap:
             assert mgr.session_rate_limited_count >= 1
 
     def test_session_rate_limited_count_separate(self) -> None:
-        """Pin session rate limited count separate."""
         base = time.monotonic()
         with patch("petasos.session.alerting.time") as mock_time:
             mock_time.time.return_value = 1000.0
@@ -1225,7 +1139,6 @@ class TestSessionContributionCap:
             assert mgr.rate_limited_count == 0
 
     def test_cross_field_validation_cap_gt_per_minute(self) -> None:
-        """Pin cross field validation cap gt per minute."""
         with pytest.raises(ValueError, match="alerting.per_session_contribution_cap"):
             _cfg(
                 {
@@ -1245,7 +1158,6 @@ class TestSessionContributionCap:
         )
 
     def test_memory_bound_recovery_after_expiry(self) -> None:
-        """Pin memory bound recovery after expiry."""
         base = time.monotonic()
         with patch("petasos.session.alerting.time") as mock_time:
             mock_time.time.return_value = 1000.0
@@ -1279,10 +1191,7 @@ class TestSessionContributionCap:
 
 
 class TestCrossSessionBurstAdversarial:
-    """Pin Cross Session Burst Adversarial."""
-
     def test_burst_survives_ring_eviction_padding(self) -> None:
-        """Pin burst survives ring eviction padding."""
         mgr = AlertManager(
             _cfg(
                 {
@@ -1310,7 +1219,6 @@ class TestCrossSessionBurstAdversarial:
         assert fired[0].context["distinct_sessions"] >= 3
 
     def test_burst_reports_accurate_count_under_flood(self) -> None:
-        """Pin burst reports accurate count under flood."""
         mgr = AlertManager(
             _cfg(
                 {
@@ -1338,7 +1246,6 @@ class TestCrossSessionBurstAdversarial:
         assert last_burst.context["distinct_sessions"] == 100
 
     def test_cross_session_tracker_lru_capped(self) -> None:
-        """Pin cross session tracker lru capped."""
         cap = 60
         mgr = AlertManager(
             _cfg(
@@ -1367,11 +1274,7 @@ class TestCrossSessionBurstAdversarial:
 
 
 class TestAlertCallbackIsolationAdversarial:
-    """Pin Alert Callback Isolation Adversarial."""
-
     def test_evaluate_swallows_baseexception_subclass(self) -> None:
-        """Pin evaluate swallows baseexception subclass."""
-
         def bad_cb(_: Alert) -> None:
             raise _AlertCallbackKill("base-level kill")
 
@@ -1383,7 +1286,6 @@ class TestAlertCallbackIsolationAdversarial:
         assert "_AlertCallbackKill" in mgr.callback_errors[0]
 
     def test_evaluate_never_raises_under_critical_flood(self) -> None:
-        """Pin evaluate never raises under critical flood."""
         call_count = 0
 
         def bad_cb(_: Alert) -> None:
@@ -1411,7 +1313,6 @@ class TestAlertCallbackIsolationAdversarial:
         assert total_errors > 0
 
     def test_callback_errors_reset_per_evaluate(self) -> None:
-        """Pin callback errors reset per evaluate."""
         state = {"fail": True}
 
         def cb(_: Alert) -> None:
@@ -1437,8 +1338,6 @@ class TestAlertCallbackIsolationAdversarial:
         assert mgr.callback_errors == ()
 
     def test_surviving_alerts_unaffected_by_callback_failure(self) -> None:
-        """Pin surviving alerts unaffected by callback failure."""
-
         def raising_cb(_: Alert) -> None:
             raise RuntimeError("on_alert always fails")
 

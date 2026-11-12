@@ -339,5 +339,4 @@ class _Lines(logging.Handler):
         self.lines: list[str] = []
 
     def emit(self, record: logging.LogRecord) -> None:
-        """Provide emit for the test fixture."""
         self.lines.append(record.getMessage())

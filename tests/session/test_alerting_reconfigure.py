@@ -10,14 +10,12 @@ from petasos.session.alerting import AlertManager
 
 
 def test_alert_add_listener_registers() -> None:
-    """Pin alert add listener registers."""
     mgr = AlertManager(PetasosConfig())
     mgr.add_listener(lambda a: None)
     assert len(mgr._listeners) == 1
 
 
 def test_alert_apply_config_rebuilds_pii_ring_on_shrink() -> None:
-    """Pin alert apply config rebuilds pii ring on shrink."""
     mgr = AlertManager(
         from_mapping(
             PetasosConfig,

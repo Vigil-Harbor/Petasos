@@ -12,10 +12,7 @@ from petasos.pipeline import Pipeline
 
 
 class TestDefensiveCopies:
-    """Pin Defensive Copies."""
-
     def test_pipeline_config_is_copy(self) -> None:
-        """Pin pipeline config is copy."""
         cfg = PetasosConfig()
         p = Pipeline(config=cfg)
         assert p.config == cfg
@@ -23,7 +20,6 @@ class TestDefensiveCopies:
             p.config.fail_mode = "open"  # type: ignore[misc]
 
     def test_feature_status_is_mapping_proxy(self) -> None:
-        """Pin feature status is mapping proxy."""
         p = Pipeline(
             config=from_mapping(
                 PetasosConfig,

@@ -15,7 +15,6 @@ def _result() -> PipelineResult:
 
 
 def test_audit_add_listener_fires_and_isolates() -> None:
-    """Pin audit add listener fires and isolates."""
     seen: list[object] = []
 
     def good(ev: object) -> None:
@@ -42,7 +41,6 @@ def test_audit_add_listener_fires_and_isolates() -> None:
 
 
 def test_audit_apply_config_swaps_verbosity_live() -> None:
-    """Pin audit apply config swaps verbosity live."""
     em = AuditEmitter(
         from_mapping(
             PetasosConfig,

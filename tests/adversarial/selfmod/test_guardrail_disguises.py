@@ -18,7 +18,6 @@ def _command(text: str) -> GuardrailHit | None:
 
 
 def test_cheap_disguises_still_name_the_plugin() -> None:
-    """Pin cheap disguises still name the plugin."""
     for command in (
         "hermes plugins disable petasos",
         "sh -c 'hermes plugins disable petasos'",
@@ -31,7 +30,6 @@ def test_cheap_disguises_still_name_the_plugin() -> None:
 
 
 def test_mentions_and_reads_are_not_changes() -> None:
-    """Pin mentions and reads are not changes."""
     for command in (
         "hermes plugins list",
         "hermes config get plugins.enabled",
@@ -43,7 +41,6 @@ def test_mentions_and_reads_are_not_changes() -> None:
 
 
 def test_a_backslash_and_joined_quotes_still_name_the_command() -> None:
-    """Pin a backslash and joined quotes still name the command."""
     for command in (
         r"her\mes plugins disable petasos",
         'her""mes plugins disable petasos',

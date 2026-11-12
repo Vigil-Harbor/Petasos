@@ -51,7 +51,6 @@ _CASES: list[tuple[str | None, str | None, bool]] = [
 def test_is_local_inference_endpoint(
     provider: str | None, base_url: str | None, expected: bool
 ) -> None:
-    """Pin is local inference endpoint."""
     assert is_local_inference_endpoint(provider, base_url) is expected
 
 
@@ -77,7 +76,6 @@ def _gavin_profile() -> dict[str, Any]:
 
 
 def test_gavin_profile_is_local_inference() -> None:
-    """Pin gavin profile is local inference."""
     profile = _gavin_profile()
 
     model = profile["model"]

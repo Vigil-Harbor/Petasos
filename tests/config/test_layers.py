@@ -19,7 +19,6 @@ from petasos.config.sections import PetasosConfig
 
 
 def test_axes_are_disjoint_and_name_real_leaves() -> None:
-    """Pin axes are disjoint and name real leaves."""
     paths = {row.path for row in leaves(PetasosConfig)}
 
     assert ROLE_FIELDS.isdisjoint(LEVEL_FIELDS)
@@ -28,7 +27,6 @@ def test_axes_are_disjoint_and_name_real_leaves() -> None:
 
 
 def test_every_builtin_stays_inside_its_axis() -> None:
-    """Pin every builtin stays inside its axis."""
     for role in ROLES.values():
         assert document_fields(role.document) <= ROLE_FIELDS
         assert role.suggests in LEVEL_NAMES
@@ -37,7 +35,6 @@ def test_every_builtin_stays_inside_its_axis() -> None:
 
 
 def test_general_plus_balanced_asks_and_otherwise_matches_the_defaults() -> None:
-    """Pin general plus balanced asks and otherwise matches the defaults."""
     resolved = resolve({"role": "general", "level": "balanced"})
     got = to_mapping(resolved.config)
     stock = to_mapping(PetasosConfig())
@@ -51,7 +48,6 @@ def test_general_plus_balanced_asks_and_otherwise_matches_the_defaults() -> None
 
 
 def test_origin_names_the_layer_that_supplied_each_leaf() -> None:
-    """Pin origin names the layer that supplied each leaf."""
     resolved = resolve(
         {
             "role": "coding",
@@ -73,7 +69,6 @@ def test_origin_names_the_layer_that_supplied_each_leaf() -> None:
 
 
 def test_balanced_origin_is_level_for_the_level_fields() -> None:
-    """Pin balanced origin is level for the level fields."""
     resolved = resolve({})
     general_fields = document_fields(ROLES["general"].document)
 
@@ -88,7 +83,6 @@ def test_balanced_origin_is_level_for_the_level_fields() -> None:
 
 
 def test_unknown_role_and_level_name_the_valid_choices() -> None:
-    """Pin unknown role and level name the valid choices."""
     with pytest.raises(ConfigError) as caught:
         resolve({"role": "code_generation", "level": "iron"})
 
@@ -101,7 +95,6 @@ def test_unknown_role_and_level_name_the_valid_choices() -> None:
 
 
 def test_retired_levels_say_what_to_do_instead() -> None:
-    """Pin retired levels say what to do instead."""
     with pytest.raises(ConfigError) as caught:
         resolve({"level": "tin"})
 
@@ -114,7 +107,6 @@ def test_retired_levels_say_what_to_do_instead() -> None:
 
 
 def test_bad_override_is_reported_under_overrides() -> None:
-    """Pin bad override is reported under overrides."""
     with pytest.raises(ConfigError) as caught:
         resolve({"overrides": {"escalation": {"tier1": "high"}}})
 
@@ -122,7 +114,6 @@ def test_bad_override_is_reported_under_overrides() -> None:
 
 
 def test_unknown_settings_key_suggests_a_neighbor() -> None:
-    """Pin unknown settings key suggests a neighbor."""
     with pytest.raises(ConfigError) as caught:
         resolve({"roles": "coding"})
 
@@ -133,7 +124,6 @@ def test_unknown_settings_key_suggests_a_neighbor() -> None:
 @pytest.mark.parametrize("role", ROLE_NAMES)
 @pytest.mark.parametrize("level", LEVEL_NAMES)
 def test_floors_hold_against_every_layer(role: str, level: str) -> None:
-    """Pin floors hold against every layer."""
     with pytest.raises(ConfigError) as tier:
         resolve({"role": role, "level": level, "overrides": {"escalation": {"tier3": 10}}})
     with pytest.raises(ConfigError) as structural:
@@ -152,7 +142,6 @@ def test_floors_hold_against_every_layer(role: str, level: str) -> None:
 
 
 def test_coding_cannot_keep_injection_suppressions_when_the_floor_widens() -> None:
-    """Pin coding cannot keep injection suppressions when the floor widens."""
     with pytest.raises(ConfigError) as caught:
         resolve({"role": "coding", "overrides": {"rules": {"injection_floor_scope": "all"}}})
 
@@ -160,7 +149,6 @@ def test_coding_cannot_keep_injection_suppressions_when_the_floor_widens() -> No
 
 
 def test_enabled_is_not_part_of_the_config() -> None:
-    """Pin enabled is not part of the config."""
     resolved = resolve({"enabled": False})
 
     assert resolved.settings.enabled is False
@@ -169,7 +157,6 @@ def test_enabled_is_not_part_of_the_config() -> None:
 
 
 def test_a_live_role_switch_clears_what_the_old_role_set() -> None:
-    """Pin a live role switch clears what the old role set."""
     coding = resolve({"role": "coding"}).config
     general = resolve({"role": "general"}).config
 

@@ -61,7 +61,6 @@ class _StubInjectionScanner:
     async def scan(
         self, text: str, *, direction: Direction = "inbound", session_id: str | None = None
     ) -> ScanResult:
-        """Supply the configured scanner response for this fixture."""
         return ScanResult(
             scanner_name=self.name,
             findings=(
@@ -85,7 +84,6 @@ class TestRoutineCorpusIsClean:
     noisy MinimalScanner rule on this profile."""
 
     async def test_codegen_profile_routine_corpus_is_clean(self) -> None:
-        """Pin codegen profile routine corpus is clean."""
         pipe = Pipeline(config=_role("code_generation"))
         corpus = _load_corpus()
         assert corpus, "fixture corpus is empty"
@@ -105,7 +103,6 @@ class TestMlInjectionDowngraded:
     deterministic and needs no ML backend installed."""
 
     async def test_ml_injection_is_nonblocking_under_codegen(self) -> None:
-        """Pin ml injection is nonblocking under codegen."""
         pipe = Pipeline(
             config=_role("code_generation"),
             scanners=[_StubInjectionScanner()],
@@ -117,7 +114,6 @@ class TestMlInjectionDowngraded:
         assert not _blocking(res.findings), "downgraded finding must not block"
 
     async def test_ml_injection_still_blocks_under_general(self) -> None:
-        """Pin ml injection still blocks under general."""
         pipe = Pipeline(
             config=_role("general"),
             scanners=[_StubInjectionScanner()],
@@ -139,7 +135,6 @@ class TestDowngradedInjectionEscalationBound:
     carries 0.0 frequency weight, so current_score stays 0)."""
 
     async def test_codegen_downgraded_injection_does_not_escalate_to_blocking_tier(self) -> None:
-        """Pin codegen downgraded injection does not escalate to blocking tier."""
         config = _role("code_generation")
         # Enabled hooks make the escalation bound nonvacuous.
         assert config.frequency.enabled is True
@@ -178,7 +173,6 @@ class TestKeepsRealCatches:
 
     @pytest.mark.parametrize("payload,_kind", REAL_INJECTION_CATCHES)
     async def test_codegen_keeps_injection_catches(self, payload: str, _kind: str) -> None:
-        """Pin codegen keeps injection catches."""
         pipe = Pipeline(config=_role("code_generation"))
 
         inbound = await pipe.inspect(payload, direction="inbound")
@@ -205,7 +199,6 @@ class TestKeepsRealCatches:
         )
 
     async def test_codegen_keeps_structural_catch(self) -> None:
-        """Pin codegen keeps structural catch."""
         deep = "[" * 32 + "]" * 32
         pipe = Pipeline(config=_role("code_generation"))
         res = await pipe.inspect(deep, direction="outbound")
@@ -223,7 +216,6 @@ class TestCorpusIntegrity:
     """Pin the recorded corpus count and redaction sanity."""
 
     def test_codegen_corpus_integrity(self) -> None:
-        """Pin codegen corpus integrity."""
         data: dict[str, Any] = json.loads(_FIXTURE.read_text(encoding="utf-8"))
         corpus: list[dict[str, str]] = data["routine_fp_corpus"]
         assert len(corpus) == _EXPECTED_CORPUS_SIZE, (
@@ -242,7 +234,6 @@ class TestReplayDeterminism:
     """Pin repeatable findings for identical corpus input."""
 
     async def test_replay_determinism(self) -> None:
-        """Pin replay determinism."""
         corpus = _load_corpus()
         pipe = Pipeline(config=_role("code_generation"))
         sample = corpus[0]["param_text"]

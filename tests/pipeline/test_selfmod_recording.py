@@ -14,7 +14,6 @@ from petasos.pipeline import Pipeline
 def test_selfmod_alerts_with_other_features_off_and_audit_follows_its_switch(
     audit_enabled: bool,
 ) -> None:
-    """Pin selfmod alerts with other features off and audit follows its switch."""
     config = from_mapping(
         PetasosConfig,
         {

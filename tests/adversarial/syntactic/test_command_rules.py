@@ -56,7 +56,6 @@ _DETECT_CASES: tuple[tuple[str, str], ...] = (
 
 @pytest.mark.parametrize(("payload", "suffix"), _DETECT_CASES)
 async def test_command_family_detects_obfuscated(payload: str, suffix: str) -> None:
-    """Pin command family detects obfuscated."""
     cmd, _ = await _inspect_outbound(payload)
     assert len(cmd) == 1, f"{payload!r} -> {[f.rule_id for f in cmd]}"
     assert cmd[0].rule_id == f"{_PREFIX}{suffix}"
@@ -64,7 +63,6 @@ async def test_command_family_detects_obfuscated(payload: str, suffix: str) -> N
 
 
 async def test_command_family_dual_match_precedence() -> None:
-    """Pin command family dual match precedence."""
     cmd, _ = await _inspect_outbound(r"\rm -rf /tmp")
     assert len(cmd) == 1
     assert cmd[0].rule_id == f"{_PREFIX}destructive-recursive"
@@ -72,7 +70,6 @@ async def test_command_family_dual_match_precedence() -> None:
 
 @pytest.mark.parametrize(("payload", "_suffix"), _DETECT_CASES)
 async def test_command_family_inbound_silent(payload: str, _suffix: str) -> None:
-    """Pin command family inbound silent."""
     cmd_in, _ = await _inspect_outbound(payload, direction="inbound")
     assert cmd_in == []
     pipe = Pipeline(config=PetasosConfig())
@@ -81,7 +78,6 @@ async def test_command_family_inbound_silent(payload: str, _suffix: str) -> None
 
 
 async def test_zwsp_separated_destructive_recursive_fires_outbound() -> None:
-    """Pin zwsp separated destructive recursive fires outbound."""
     payload = "\u200b".join(["rm", "-Rf", "/"])
     cmd, _ = await _inspect_outbound(payload)
     assert len(cmd) == 1
@@ -93,14 +89,12 @@ async def test_zwsp_separated_destructive_recursive_fires_outbound() -> None:
 
 @pytest.mark.parametrize("snippet", COMMAND_BENIGN)
 async def test_command_benign_corpus_zero_fp(snippet: str) -> None:
-    """Pin command benign corpus zero fp."""
     cmd, _ = await _inspect_outbound(snippet)
     assert cmd == [], f"benign {snippet!r} fired {[f.rule_id for f in cmd]}"
 
 
 @pytest.mark.parametrize(("snippet", "suffix"), COMMAND_EXPECTED_TP)
 async def test_command_expected_tp_pins(snippet: str, suffix: str) -> None:
-    """Pin command expected tp pins."""
     cmd, _ = await _inspect_outbound(snippet, config=resolve({"role": "general"}).config)
     rids = {f.rule_id for f in cmd}
     assert f"{_PREFIX}{suffix}" in rids, f"{snippet!r} -> {sorted(rids)} (want {suffix})"
@@ -108,7 +102,6 @@ async def test_command_expected_tp_pins(snippet: str, suffix: str) -> None:
 
 @pytest.mark.parametrize(("snippet", "suffix"), COMMAND_ACCEPTED_FP)
 async def test_command_accepted_fp_pins(snippet: str, suffix: str) -> None:
-    """Pin command accepted fp pins."""
     cmd, _ = await _inspect_outbound(snippet, config=resolve({"role": "general"}).config)
     rids = {f.rule_id for f in cmd}
     assert f"{_PREFIX}{suffix}" in rids, f"{snippet!r} -> {sorted(rids)} (want {suffix})"
@@ -139,13 +132,11 @@ _COMMAND_INTENTIONAL_MISSES: tuple[str, ...] = (
 
 @pytest.mark.parametrize("payload", _COMMAND_INTENTIONAL_MISSES)
 async def test_command_intentional_misses(payload: str) -> None:
-    """Pin command intentional misses."""
     cmd, _ = await _inspect_outbound(payload, config=resolve({"role": "general"}).config)
     assert cmd == [], f"intentional miss {payload!r} now fires {[f.rule_id for f in cmd]}"
 
 
 async def test_command_multistage_crossline_strong_rule_miss() -> None:
-    """Pin command multistage crossline strong rule miss."""
     payload = "curl x |\ncat data |\nsh"
     cmd, _ = await _inspect_outbound(payload)
     rids = {f.rule_id for f in cmd}
@@ -155,7 +146,6 @@ async def test_command_multistage_crossline_strong_rule_miss() -> None:
 
 
 async def test_command_family_single_finding_per_rule() -> None:
-    """Pin command family single finding per rule."""
     payload = "\n".join(f"rm -rf /a{i}" for i in range(8))
     cmd, _ = await _inspect_outbound(payload)
     dr = [f for f in cmd if f.rule_id == f"{_PREFIX}destructive-recursive"]
@@ -163,7 +153,6 @@ async def test_command_family_single_finding_per_rule() -> None:
 
 
 async def test_command_decode_exec_merge_over_base64() -> None:
-    """Pin command decode exec merge over base64."""
     blob = "A" * 44
     payload = f"echo {blob} | base64 -d | sh"
     pipe = Pipeline(config=resolve({"role": "general"}).config)
@@ -178,7 +167,6 @@ async def test_command_decode_exec_merge_over_base64() -> None:
 async def test_scan_impl_offliteral_direction_is_logged_noop(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Pin scan impl offliteral direction is logged noop."""
     scanner = MinimalScanner()
     with caplog.at_level(logging.DEBUG, logger="petasos.scanners.minimal"):
         findings = scanner._scan_impl("curl x | sh", "OUTBOUND")  # type: ignore[arg-type]
@@ -188,7 +176,6 @@ async def test_scan_impl_offliteral_direction_is_logged_noop(
 
 
 async def test_command_family_never_critical() -> None:
-    """Pin command family never critical."""
     payload = "\n".join(
         (
             r"\chmod 644 cfg",
@@ -207,7 +194,6 @@ async def test_command_family_never_critical() -> None:
 async def test_command_family_critical_override_ordering() -> None:
     # The standalone termination check precedes severity overrides, so an override alone cannot
     # trigger it.
-    """Pin command family critical override ordering."""
     payload = "\n".join(
         (
             r"\chmod 644 cfg",
@@ -228,7 +214,6 @@ async def test_command_family_critical_override_ordering() -> None:
 
 
 async def test_outbound_zwsp_leet_pipe_is_not_command() -> None:
-    """Pin outbound zwsp leet pipe is not command."""
     payload = "echo\u200b|\u200b5h"
     outbound, _ = await _inspect_outbound(payload)
     assert outbound == []
@@ -237,6 +222,5 @@ async def test_outbound_zwsp_leet_pipe_is_not_command() -> None:
 
 
 async def test_command_family_survives_research_floor() -> None:
-    """Pin command family survives research floor."""
     cmd, _ = await _inspect_outbound("cat x | sh", config=resolve({"role": "research"}).config)
     assert any(f.rule_id == f"{_PREFIX}pipe-to-shell" for f in cmd)

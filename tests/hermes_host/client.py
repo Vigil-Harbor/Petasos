@@ -27,7 +27,6 @@ class Sandbox:
 
 
 def sandbox_path() -> Path:
-    """Provide sandbox path for the test fixture."""
     raw = os.environ.get("PETASOS_HERMES_SANDBOX", "")
     if not raw:
         raise RuntimeError("PETASOS_HERMES_SANDBOX is not set")

@@ -10,7 +10,6 @@ from petasos.session.lineage import LineageRegistry
 
 
 def test_lineage_apply_config_rebinds_depth_preserves_edges() -> None:
-    """Pin lineage apply config rebinds depth preserves edges."""
     reg = LineageRegistry(PetasosConfig())
     reg.register("a", "b")
     reg.register("b", "c")

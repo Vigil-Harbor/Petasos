@@ -21,10 +21,7 @@ def _cfg(changes: dict[str, Any] | None = None) -> PetasosConfig:
 
 
 class TestTtlEviction:
-    """Pin Ttl Eviction."""
-
     def test_ttl_eviction_uses_deque(self) -> None:
-        """Pin ttl eviction uses deque."""
         cfg = _cfg({"sessions": {"ttl_seconds": 100.0, "max": 200}})
         tracker = FrequencyTracker(cfg)
         t0 = 1000.0
@@ -44,7 +41,6 @@ class TestTtlEviction:
             assert tracker.get_state(f"s{i}") is None
 
     def test_refreshed_session_survives_stale_deque_entry(self) -> None:
-        """Pin refreshed session survives stale deque entry."""
         cfg = _cfg({"sessions": {"ttl_seconds": 100.0}})
         tracker = FrequencyTracker(cfg)
         t0 = 1000.0
@@ -61,7 +57,6 @@ class TestTtlEviction:
         assert tracker.get_state("s1") is not None
 
     def test_compaction_triggers_at_threshold(self) -> None:
-        """Pin compaction triggers at threshold."""
         cfg = _cfg({"sessions": {"ttl_seconds": 1000.0, "max": 3}})
         tracker = FrequencyTracker(cfg)
         t0 = 1000.0
@@ -86,7 +81,6 @@ class TestTtlEviction:
         assert expiries == sorted(expiries)
 
     def test_clear_resets_deque(self) -> None:
-        """Pin clear resets deque."""
         cfg = _cfg({"sessions": {"ttl_seconds": 100.0}})
         tracker = FrequencyTracker(cfg)
         t0 = 1000.0

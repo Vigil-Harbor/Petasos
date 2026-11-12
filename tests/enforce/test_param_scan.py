@@ -26,7 +26,6 @@ class _WarmRecorder:
     async def scan(
         self, text: str, *, direction: str = "inbound", session_id: str | None = None
     ) -> ScanResult:
-        """Supply the configured scanner response for this fixture."""
         self.calls.append((text, direction))
         return ScanResult(self.name, ())
 
@@ -36,11 +35,9 @@ class _FallbackRecorder:
         self.calls: list[tuple[str, str]] = []
 
     def scanner(self) -> _FallbackRecorder:
-        """Provide scanner for the test fixture."""
         return self
 
     def scan(self, text: str, *, direction: str) -> ScanResult:
-        """Supply the configured scanner response for this fixture."""
         self.calls.append((text, direction))
         return ScanResult("recorder", ())
 
@@ -51,7 +48,6 @@ def _ignore_event(**fields: object) -> None:
 
 @pytest.mark.parametrize("capped", [False, True])
 async def test_warm_and_fallback_scan_identical_text_outbound(capped: bool) -> None:
-    """Pin warm and fallback scan identical text outbound."""
     args: dict[str, Any]
     if capped:
         args = {"value": "z" * (MAX_PARAM_TEXT_LEN + 1)}

@@ -16,7 +16,6 @@ class _ErrorScanner:
     name = "mock_ml_fail"
 
     async def scan(self, text: str, **kwargs: object) -> ScanResult:
-        """Supply the configured scanner response for this fixture."""
         return ScanResult(scanner_name=self.name, findings=(), error="down")
 
 
@@ -24,7 +23,6 @@ class _CleanScanner:
     name = "mock_ml_ok"
 
     async def scan(self, text: str, **kwargs: object) -> ScanResult:
-        """Supply the configured scanner response for this fixture."""
         return ScanResult(scanner_name=self.name, findings=())
 
 
@@ -32,7 +30,6 @@ class _HighFindingScanner:
     name = "mock_ml_high"
 
     async def scan(self, text: str, **kwargs: object) -> ScanResult:
-        """Supply the configured scanner response for this fixture."""
         return ScanResult(
             scanner_name=self.name,
             findings=(
@@ -354,7 +351,6 @@ class _CapturingScanner:
         self.seen: str | None = None
 
     async def scan(self, text: str, **kwargs: object) -> ScanResult:
-        """Supply the configured scanner response for this fixture."""
         self.seen = text
         return ScanResult(scanner_name=self.name, findings=(), duration_ms=0.1)
 
@@ -399,7 +395,6 @@ class _FindingScanner:
         self._severity = severity
 
     async def scan(self, text: str, **kwargs: object) -> ScanResult:
-        """Supply the configured scanner response for this fixture."""
         finding = ScanFinding(
             rule_id=self._rule_id,
             finding_type="test",

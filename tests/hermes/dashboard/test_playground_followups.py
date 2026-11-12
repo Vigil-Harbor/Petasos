@@ -19,13 +19,11 @@ class _PersonalInformation:
     name = "presidio"
 
     def availability(self) -> tuple[bool, str | None, str | None]:
-        """Provide availability for the test fixture."""
         return True, None, None
 
     async def scan(
         self, text: str, *, direction: Direction = "inbound", session_id: str | None = None
     ) -> ScanResult:
-        """Supply the configured scanner response for this fixture."""
         address = "someone@example.org"
         start = text.find(address)
         findings = (
@@ -72,7 +70,6 @@ def _run(**kwargs: Any) -> dict[str, Any]:
 
 
 def test_hidden_text_uses_the_pipeline_and_redactor() -> None:
-    """Pin hidden text uses the pipeline and redactor."""
     body = _run()
     assert body["anonymization"] == {
         "code": "hidden",
@@ -84,7 +81,6 @@ def test_hidden_text_uses_the_pipeline_and_redactor() -> None:
 
 
 def test_tool_hidden_text_is_the_same_scan_not_a_second_scan() -> None:
-    """Pin tool hidden text is the same scan not a second scan."""
     calls: list[str] = []
 
     class _Counted(_PersonalInformation):
@@ -127,7 +123,6 @@ def test_tool_hidden_text_is_the_same_scan_not_a_second_scan() -> None:
     ],
 )
 def test_no_empty_hidden_text_box(candidate: Any, text: str, code: str, sentence: str) -> None:
-    """Pin no empty hidden text box."""
     body = _run(candidate=candidate, text=text)
     assert body["anonymized"] is None
     assert body["anonymization"] == {"code": code, "sentence": sentence}
@@ -135,8 +130,6 @@ def test_no_empty_hidden_text_box(candidate: Any, text: str, code: str, sentence
 
 @pytest.mark.parametrize("failure", ["missing", "unusable", "runtime", "slow"])
 def test_an_unavailable_check_never_claims_clean_text(failure: str) -> None:
-    """Pin an unavailable check never claims clean text."""
-
     class _Fails(_PersonalInformation):
         def availability(self) -> tuple[bool, str | None, str | None]:
             if failure == "unusable":
@@ -173,8 +166,6 @@ def test_an_unavailable_check_never_claims_clean_text(failure: str) -> None:
 
 
 def test_a_failed_anonymizer_does_not_echo_the_input(monkeypatch: Any) -> None:
-    """Pin a failed anonymizer does not echo the input."""
-
     def fail(*args: Any, **kwargs: Any) -> str:
         raise ValueError("marker-secret")
 
@@ -190,7 +181,6 @@ def test_a_failed_anonymizer_does_not_echo_the_input(monkeypatch: Any) -> None:
 
 @pytest.mark.parametrize("redactor", [None, lambda *_a, **_k: (_ for _ in ()).throw(ValueError())])
 def test_hidden_text_fails_closed_without_redaction(redactor: Any) -> None:
-    """Pin hidden text fails closed without redaction."""
     body = _run(redactor=redactor)
     assert "marker-secret" not in json.dumps(body)
     assert "someone@example.org" not in json.dumps(body)
@@ -198,7 +188,6 @@ def test_hidden_text_fails_closed_without_redaction(redactor: Any) -> None:
 
 
 def test_input_risk_uses_library_weights_thresholds_and_a_fresh_tracker() -> None:
-    """Pin input risk uses library weights thresholds and a fresh tracker."""
     candidate = {
         "level": "strict",
         "overrides": {
@@ -233,7 +222,6 @@ def test_input_risk_uses_library_weights_thresholds_and_a_fresh_tracker() -> Non
 
 
 def test_scoring_can_be_off() -> None:
-    """Pin scoring can be off."""
     body = _run(candidate={"overrides": {"frequency": {"enabled": False}}})
     assert body["risk"]["score"] is None
     assert body["risk"]["tier"] is None
@@ -243,7 +231,6 @@ def test_scoring_can_be_off() -> None:
 def test_a_trial_never_uses_a_live_tracker_or_leaves_state_on_disk(
     tmp_path: Any, monkeypatch: Any
 ) -> None:
-    """Pin a trial never uses a live tracker or leaves state on disk."""
     monkeypatch.chdir(tmp_path)
     live = FrequencyTracker(resolve({}).config)
     before = live.update("live", ["petasos.syntactic.injection.ignore-previous"])
@@ -255,7 +242,6 @@ def test_a_trial_never_uses_a_live_tracker_or_leaves_state_on_disk(
 
 
 def test_a_disabled_personal_information_check_is_named() -> None:
-    """Pin a disabled personal information check is named."""
     body = _run(
         candidate={
             "overrides": {
@@ -271,7 +257,6 @@ def test_a_disabled_personal_information_check_is_named() -> None:
 
 
 def test_a_tool_without_text_did_not_run_the_personal_information_check() -> None:
-    """Pin a tool without text did not run the personal information check."""
     body = _run(tool="read_file", arguments={})
     assert body["anonymized"] is None
     assert body["anonymization"]["sentence"] == (
@@ -280,7 +265,6 @@ def test_a_tool_without_text_did_not_run_the_personal_information_check() -> Non
 
 
 def test_the_score_reaches_a_named_stage_using_the_librarys_weights() -> None:
-    """Pin the score reaches a named stage using the librarys weights."""
     body = _run(
         tool="write_file",
         arguments={"path": "/tmp/guarded/settings.json", "content": "hi"},
@@ -297,7 +281,6 @@ def test_the_score_reaches_a_named_stage_using_the_librarys_weights() -> None:
 
 
 def test_guard_only_settings_cannot_discard_a_text_result() -> None:
-    """Pin guard only settings cannot discard a text result."""
     body = _run(text="hello", candidate={"overrides": {"tools": {"exempt": ["delegate_task"]}}})
     assert body["decision"] == "allow"
     assert body["outcome"]["label"] == "Allowed"
@@ -309,7 +292,6 @@ def test_guard_only_settings_cannot_discard_a_text_result() -> None:
 
 
 def test_hiding_the_entire_input_explains_the_empty_preview(monkeypatch: Any) -> None:
-    """Pin hiding the entire input explains the empty preview."""
     monkeypatch.setattr("petasos.scanners.presidio.anonymize", lambda *_a, **_kw: "")
     body = _run(text="someone@example.org")
     assert body["anonymized"] == ""

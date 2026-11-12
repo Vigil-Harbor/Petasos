@@ -49,12 +49,10 @@ class Dashboard:
 
     @property
     def url(self) -> str:
-        """Provide url for the test fixture."""
         return f"http://127.0.0.1:{self.port}"
 
 
 def free_port() -> int:
-    """Provide free port for the test fixture."""
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         return int(sock.getsockname()[1])
@@ -140,7 +138,6 @@ def stop(pid: int, *, wait: float = 10) -> bool:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Run the isolated test harness."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="action", required=True)
     up = sub.add_parser("start")

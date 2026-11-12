@@ -63,11 +63,9 @@ class _Stub:
 
     @property
     def name(self) -> str:
-        """Return the fixture scanner name."""
         return self._name
 
     def availability(self) -> tuple[object, ...]:
-        """Provide availability for the test fixture."""
         return self._probe
 
     async def scan(
@@ -77,7 +75,6 @@ class _Stub:
         direction: Direction = "inbound",
         session_id: str | None = None,
     ) -> ScanResult:
-        """Supply the configured scanner response for this fixture."""
         del text, direction, session_id
         return ScanResult(scanner_name=self._name, findings=(), error="stub")
 
@@ -90,7 +87,6 @@ class _Silent:
 
     @property
     def name(self) -> str:
-        """Return the fixture scanner name."""
         return self._name
 
     async def scan(
@@ -100,7 +96,6 @@ class _Silent:
         direction: Direction = "inbound",
         session_id: str | None = None,
     ) -> ScanResult:
-        """Supply the configured scanner response for this fixture."""
         del text, direction, session_id
         return ScanResult(scanner_name=self._name, findings=())
 
@@ -133,7 +128,6 @@ def _by_id(composition: Composition) -> dict[str, ScannerStatus]:
 
 
 def test_registry_declares_the_three_backends() -> None:
-    """Pin registry declares the three backends."""
     assert [spec.id for spec in REGISTRY] == ["presidio", "prompt_guard", "semgrep"]
     assert [spec.section for spec in REGISTRY] == ["presidio", "prompt_guard", "semgrep"]
     assert [spec.default_enabled for spec in REGISTRY] == ["auto", "auto", "off"]
@@ -148,7 +142,6 @@ def test_registry_declares_the_three_backends() -> None:
 
 
 def test_is_registered_is_only_the_state() -> None:
-    """Pin is registered is only the state."""
     assert is_registered("active") is True
     assert is_registered("unavailable") is True
     assert is_registered("not_installed") is False
@@ -156,7 +149,6 @@ def test_is_registered_is_only_the_state() -> None:
 
 
 def test_base_install_leaves_auto_scanners_out() -> None:
-    """Pin base install leaves auto scanners out."""
     composition = compose(PetasosConfig(), BuildContext())
     assert _names(composition) == ["minimal"]
     statuses = _by_id(composition)
@@ -172,7 +164,6 @@ def test_base_install_leaves_auto_scanners_out() -> None:
 
 
 def test_decode_payloads_reaches_the_syntactic_scanner() -> None:
-    """Pin decode payloads reaches the syntactic scanner."""
     base = PetasosConfig()
     config = replace(base, normalization=replace(base.normalization, decode_payloads=False))
     composition = compose(config, BuildContext())
@@ -182,8 +173,6 @@ def test_decode_payloads_reaches_the_syntactic_scanner() -> None:
 
 
 def test_syntactic_constructor_failure_is_not_caught(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Pin syntactic constructor failure is not caught."""
-
     class Boom:
         def __init__(self, **kwargs: object) -> None:
             del kwargs
@@ -195,7 +184,6 @@ def test_syntactic_constructor_failure_is_not_caught(monkeypatch: pytest.MonkeyP
 
 
 def test_empty_registry_is_only_the_syntactic_scanner() -> None:
-    """Pin empty registry is only the syntactic scanner."""
     composition = compose(PetasosConfig(), BuildContext(), registry=())
     assert _names(composition) == ["minimal"]
     assert composition.statuses == ()
@@ -222,7 +210,6 @@ async def test_enablement_table(
     registered: bool,
     stand_in: bool,
 ) -> None:
-    """Pin enablement table."""
     built: list[_Stub] = []
     calls: list[str] = []
 
@@ -268,7 +255,6 @@ async def test_enablement_table(
 
 @pytest.mark.parametrize("enabled", ["auto", "on"])
 async def test_probe_that_raises_stays_registered(enabled: Enabled) -> None:
-    """Pin probe that raises stays registered."""
     built: list[_Stub] = []
 
     class _Raising(_Stub):
@@ -295,8 +281,6 @@ async def test_probe_that_raises_stays_registered(enabled: Enabled) -> None:
 
 @pytest.mark.parametrize("enabled", ["auto", "on"])
 def test_probe_runtime_error_stays_registered(enabled: Enabled) -> None:
-    """Pin probe runtime error stays registered."""
-
     class _Raising(_Stub):
         def availability(self) -> tuple[object, ...]:
             raise RuntimeError("probe crashed")
@@ -340,8 +324,6 @@ def test_probe_causes(
     state: ScannerState,
     reason: str | None,
 ) -> None:
-    """Pin probe causes."""
-
     def build(section: Any, context: BuildContext) -> _Stub:
         del section, context
         return _Stub("prompt_guard", probe)
@@ -358,8 +340,6 @@ def test_probe_causes(
 
 
 def test_probe_without_availability_is_active() -> None:
-    """Pin probe without availability is active."""
-
     def build(section: Any, context: BuildContext) -> _Silent:
         del section, context
         return _Silent("prompt_guard")
@@ -374,8 +354,6 @@ def test_probe_without_availability_is_active() -> None:
 
 
 def test_unexpected_probe_result_is_unavailable() -> None:
-    """Pin unexpected probe result is unavailable."""
-
     class _Odd(_Silent):
         def availability(self) -> str:
             return "nope"
@@ -404,8 +382,6 @@ async def test_builder_import_error(
     state: ScannerState,
     registered: bool,
 ) -> None:
-    """Pin builder import error."""
-
     def build(section: Any, context: BuildContext) -> _Stub:
         del section, context
         raise ImportError("No module named 'torch'")
@@ -429,8 +405,6 @@ async def test_builder_import_error(
 
 @pytest.mark.parametrize("enabled", ["auto", "on"])
 async def test_builder_that_raises_registers_a_stand_in(enabled: Enabled) -> None:
-    """Pin builder that raises registers a stand in."""
-
     def build(section: Any, context: BuildContext) -> _Stub:
         del section, context
         raise RuntimeError("disk full")
@@ -449,8 +423,6 @@ async def test_builder_that_raises_registers_a_stand_in(enabled: Enabled) -> Non
 
 
 def test_off_does_not_call_a_builder_that_would_raise() -> None:
-    """Pin off does not call a builder that would raise."""
-
     def build(section: Any, context: BuildContext) -> _Stub:
         del section, context
         raise AssertionError("builder was called")
@@ -465,8 +437,6 @@ def test_off_does_not_call_a_builder_that_would_raise() -> None:
 
 
 def test_order_follows_the_registry_after_the_syntactic_scanner() -> None:
-    """Pin order follows the registry after the syntactic scanner."""
-
     def ready(scanner_id: str) -> ScannerSpec:
         def build(section: Any, context: BuildContext) -> _Stub:
             del section, context
@@ -490,8 +460,6 @@ def test_order_follows_the_registry_after_the_syntactic_scanner() -> None:
 
 
 def test_one_composition_covers_registered_and_quiet_states() -> None:
-    """Pin one composition covers registered and quiet states."""
-
     def probe_of(scanner_id: str, probe: tuple[object, ...]) -> ScannerSpec:
         def build(section: Any, context: BuildContext) -> _Stub:
             del section, context
@@ -525,7 +493,6 @@ def test_one_composition_covers_registered_and_quiet_states() -> None:
 
 
 def test_presidio_section_reaches_the_scanner_except_entities_extra() -> None:
-    """Pin presidio section reaches the scanner except entities extra."""
     section = replace(
         PresidioConfig(),
         entities=("EMAIL_ADDRESS",),
@@ -545,7 +512,6 @@ def test_presidio_section_reaches_the_scanner_except_entities_extra() -> None:
 
 
 def test_prompt_guard_threshold_reaches_the_scanner() -> None:
-    """Pin prompt guard threshold reaches the scanner."""
     scanner = build_prompt_guard(replace(PromptGuardConfig(), threshold=0.42), BuildContext())
     assert isinstance(scanner, PromptGuardScanner)
     assert scanner._threshold == 0.42
@@ -556,7 +522,6 @@ def test_prompt_guard_threshold_reaches_the_scanner() -> None:
 async def test_prompt_guard_threshold_changes_which_scores_report(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Pin prompt guard threshold changes which scores report."""
     monkeypatch.setattr(
         "petasos.scanners.prompt_guard._scan_sync",
         lambda text, cancelled: 0.5,
@@ -569,7 +534,6 @@ async def test_prompt_guard_threshold_changes_which_scores_report(
 
 
 async def test_turned_on_but_missing_registers_the_stand_in() -> None:
-    """Pin turned on but missing registers the stand in."""
     composition = compose(
         _config(prompt_guard="on", presidio="on", semgrep="off"),
         BuildContext(),
@@ -586,8 +550,6 @@ async def test_turned_on_but_missing_registers_the_stand_in() -> None:
 
 
 def test_semgrep_off_does_not_construct(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Pin semgrep off does not construct."""
-
     def forbidden(*args: object, **kwargs: object) -> None:
         del args, kwargs
         raise AssertionError("SemgrepScanner was constructed")
@@ -601,8 +563,6 @@ def test_semgrep_off_does_not_construct(monkeypatch: pytest.MonkeyPatch) -> None
 async def test_semgrep_without_owner_is_unavailable_and_not_constructed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Pin semgrep without owner is unavailable and not constructed."""
-
     def forbidden(*args: object, **kwargs: object) -> None:
         del args, kwargs
         raise AssertionError("SemgrepScanner was constructed")
@@ -621,8 +581,6 @@ async def test_semgrep_without_owner_is_unavailable_and_not_constructed(
 async def test_semgrep_rejects_a_lifecycle_that_is_the_wrong_type(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Pin semgrep rejects a lifecycle that is the wrong type."""
-
     def forbidden(*args: object, **kwargs: object) -> None:
         del args, kwargs
         raise AssertionError("SemgrepScanner was constructed")
@@ -644,7 +602,6 @@ async def test_semgrep_rejects_a_lifecycle_that_is_the_wrong_type(
 async def test_semgrep_with_owner_and_no_engine_stays_the_real_scanner(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Pin semgrep with owner and no engine stays the real scanner."""
     from petasos.scanners.semgrep import SemgrepLifecycleOwner, SemgrepScanner
 
     key = object()
@@ -687,7 +644,6 @@ async def test_semgrep_constructor_errors_keep_today_reason_strings(
     message: str,
     reason: str,
 ) -> None:
-    """Pin semgrep constructor errors keep today reason strings."""
     from petasos.scanners.semgrep import SemgrepLifecycleOwner, SemgrepScanner
 
     def boom(self: SemgrepScanner, **kwargs: object) -> None:
@@ -709,7 +665,6 @@ async def test_semgrep_constructor_errors_keep_today_reason_strings(
 
 
 def test_recommendations_name_the_missing_capability_and_the_broken_scanner() -> None:
-    """Pin recommendations name the missing capability and the broken scanner."""
     composition = Composition(
         scanners=(MinimalScanner(),),
         statuses=(
@@ -755,7 +710,6 @@ def test_recommendations_name_the_missing_capability_and_the_broken_scanner() ->
 
 
 def test_recommendations_stay_quiet_when_the_capability_is_active() -> None:
-    """Pin recommendations stay quiet when the capability is active."""
     composition = Composition(
         scanners=(),
         statuses=(
@@ -781,7 +735,6 @@ def test_recommendations_stay_quiet_when_the_capability_is_active() -> None:
 
 
 def test_base_install_recommendations_suggest_prompt_guard() -> None:
-    """Pin base install recommendations suggest prompt guard."""
     composition = compose(PetasosConfig(), BuildContext())
     assert recommendations(composition) == (
         "No injection scanner is active. "
@@ -794,7 +747,6 @@ def test_base_install_recommendations_suggest_prompt_guard() -> None:
 
 
 def test_importing_the_registry_and_composing_loads_no_ml_package() -> None:
-    """Pin importing the registry and composing loads no ml package."""
     script = (
         "import petasos.scanners.registry as registry\n"
         "from petasos.config.sections import PetasosConfig\n"
@@ -815,7 +767,6 @@ def test_importing_the_registry_and_composing_loads_no_ml_package() -> None:
 
 
 def test_a_required_scanner_that_is_not_installed_is_marked_missing() -> None:
-    """Pin a required scanner that is not installed is marked missing."""
     from petasos.config.layers import resolve
 
     config = resolve({"overrides": {"scanners": {"prompt_guard": {"enabled": "on"}}}}).config

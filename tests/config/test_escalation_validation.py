@@ -11,7 +11,6 @@ from petasos.config.sections import PetasosConfig
 
 
 def test_non_ascending_tiers_rejected_at_construction() -> None:
-    """Pin non ascending tiers rejected at construction."""
     with pytest.raises(ValueError):
         from_mapping(
             PetasosConfig,
@@ -26,7 +25,6 @@ def test_non_ascending_tiers_rejected_at_construction() -> None:
 
 
 def test_non_finite_tier_rejected_at_construction() -> None:
-    """Pin non finite tier rejected at construction."""
     with pytest.raises(ValueError):
         from_mapping(
             PetasosConfig,

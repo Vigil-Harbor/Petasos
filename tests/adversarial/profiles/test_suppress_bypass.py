@@ -11,7 +11,6 @@ from petasos.scanners.minimal.taxonomy import _COMMAND_RULE_IDS, RULE_TAXONOMY
 
 
 async def test_suppress_all_rules_adversarial() -> None:
-    """Pin suppress all rules adversarial."""
     with pytest.raises(ConfigError, match="rules.suppress"):
         from_mapping(PetasosConfig, {"rules": {"suppress": sorted(RULE_TAXONOMY)}})
 
@@ -27,7 +26,6 @@ async def test_suppress_all_rules_adversarial() -> None:
 
 
 async def test_family_is_suppressible() -> None:
-    """Pin family is suppressible."""
     inj_id = "petasos.syntactic.injection.ignore-previous"
     with pytest.raises(ConfigError, match=inj_id):
         from_mapping(

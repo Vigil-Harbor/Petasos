@@ -48,7 +48,6 @@ def _config(fail_mode: str, posture: str) -> PetasosConfig:
 def test_the_stated_consequence_is_what_the_enforcer_does(
     tmp_path: Path, fail_mode: str, posture: str
 ) -> None:
-    """Pin the stated consequence is what the enforcer does."""
     config = _config(fail_mode, posture)
     states = {row.id: row.state for row in compose(config, BuildContext()).statuses}
     if states["prompt_guard"] != "unavailable":

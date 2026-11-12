@@ -18,19 +18,16 @@ class TestRoleFloorScope:
     """The coding role keeps the injection floor on inbound text only."""
 
     def test_codegen_suppresses_the_full_injection_family(self) -> None:
-        """Pin codegen suppresses the full injection family."""
         suppress = set(resolve({"role": "coding"}).config.rules.suppress)
         assert {rule for rule in suppress if rule in _ALL_INJECTION_IDS} == _ALL_INJECTION_IDS
 
     def test_other_roles_keep_the_floor_on_every_direction(self) -> None:
-        """Pin other roles keep the floor on every direction."""
         for name in ("general", "support", "research", "admin"):
             scope = resolve({"role": name}).config.rules.injection_floor_scope
             assert scope == "all", name
         assert resolve({"role": "coding"}).config.rules.injection_floor_scope == "inbound"
 
     def test_inbound_scope_can_name_the_injection_family(self) -> None:
-        """Pin inbound scope can name the injection family."""
         config = from_mapping(
             PetasosConfig,
             {
@@ -44,7 +41,6 @@ class TestRoleFloorScope:
 
     @pytest.mark.parametrize("bad", ["outbound", "", "All", "Inbound"])
     def test_invalid_scope_is_refused(self, bad: str) -> None:
-        """Pin invalid scope is refused."""
         with pytest.raises(ConfigError, match="rules.injection_floor_scope"):
             from_mapping(PetasosConfig, {"rules": {"injection_floor_scope": bad}})
 
@@ -53,11 +49,9 @@ class TestDangerousToolPosture:
     """General and coding ask. Research, support and admin block. A typo is refused."""
 
     def test_default_posture_is_block(self) -> None:
-        """Pin default posture is block."""
         assert PetasosConfig().tools.dangerous_posture == "block"
 
     def test_builtins(self) -> None:
-        """Pin builtins."""
         for name in ("general", "coding"):
             posture = resolve({"role": name}).config.tools.dangerous_posture
             assert posture == "approve", name
@@ -66,12 +60,10 @@ class TestDangerousToolPosture:
             assert posture == "block", name
 
     def test_unknown_value_is_refused(self) -> None:
-        """Pin unknown value is refused."""
         with pytest.raises(ConfigError, match="tools.dangerous_posture"):
             from_mapping(PetasosConfig, {"tools": {"dangerous_posture": "Approve"}})
 
     def test_a_rule_change_keeps_the_coding_posture(self) -> None:
-        """Pin a rule change keeps the coding posture."""
         merged = evolve(
             resolve({"role": "coding"}).config,
             {"rules": {"confidence_floor": 0.5}},

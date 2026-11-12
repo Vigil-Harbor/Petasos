@@ -30,7 +30,6 @@ class _PiiStubScanner:
 
     @property
     def name(self) -> str:
-        """Return the fixture scanner name."""
         return "pii-stub"
 
     async def scan(
@@ -40,7 +39,6 @@ class _PiiStubScanner:
         direction: Direction = "inbound",
         session_id: str | None = None,
     ) -> ScanResult:
-        """Supply the configured scanner response for this fixture."""
         findings = tuple(
             ScanFinding(
                 rule_id=f"petasos.presidio.{entity.lower()}",

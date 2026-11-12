@@ -214,7 +214,6 @@ def ask_cases() -> dict[str, Any]:
 
 
 def main() -> None:
-    """Run the isolated test harness."""
     request = json.load(sys.stdin)
     if request.get("action") != "ask":
         raise SystemExit(f"unknown action {request.get('action')}")

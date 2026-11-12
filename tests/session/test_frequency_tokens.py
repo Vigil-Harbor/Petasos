@@ -21,14 +21,12 @@ def _secret_tracker() -> FrequencyTracker:
 
 
 def test_bare_string_rejected_when_secret_configured() -> None:
-    """Pin bare string rejected when secret configured."""
     tr = _secret_tracker()
     with pytest.raises(ValueError, match="pass a SessionToken"):
         tr.update("plain-session", ["petasos.syntactic.injection.ignore-previous"])
 
 
 def test_tampered_token_digest_rejected() -> None:
-    """Pin tampered token digest rejected."""
     tr = _secret_tracker()
     tok = tr.mint_token("sess-1", "host-1")
     tampered = dataclasses.replace(tok, hmac_digest="00" * 32)
@@ -37,7 +35,6 @@ def test_tampered_token_digest_rejected() -> None:
 
 
 def test_wrong_host_token_rejected() -> None:
-    """Pin wrong host token rejected."""
     tr = _secret_tracker()
     tok = tr.mint_token("sess-1", "host-1")
     wrong_host = dataclasses.replace(tok, host_id="host-2")
@@ -46,7 +43,6 @@ def test_wrong_host_token_rejected() -> None:
 
 
 def test_valid_token_accepted_after_reject_paths() -> None:
-    """Pin valid token accepted after reject paths."""
     tr = _secret_tracker()
     tok = tr.mint_token("sess-1", "host-1")
     res = tr.update(tok, ["petasos.syntactic.injection.ignore-previous"])
@@ -54,7 +50,6 @@ def test_valid_token_accepted_after_reject_paths() -> None:
 
 
 def test_frequency_apply_config_atomic_on_bad_weights() -> None:
-    """Pin frequency apply config atomic on bad weights."""
     tr = FrequencyTracker(
         from_mapping(
             PetasosConfig,
@@ -82,7 +77,6 @@ def test_frequency_apply_config_atomic_on_bad_weights() -> None:
 
 
 def test_frequency_apply_config_rebinds_scalars() -> None:
-    """Pin frequency apply config rebinds scalars."""
     tr = FrequencyTracker(
         from_mapping(
             PetasosConfig,

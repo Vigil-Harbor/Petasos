@@ -32,30 +32,22 @@ def _result(findings: list[ScanFinding], scanner_name: str = "scanner-a") -> Sca
 
 
 class TestMergeFindingsEmpty:
-    """Pin Merge Findings Empty."""
-
     def test_no_findings(self) -> None:
-        """Pin no findings."""
         assert merge_findings([]) == ()
 
     def test_empty_results(self) -> None:
-        """Pin empty results."""
         r = _result([])
         assert merge_findings([r]) == ()
 
 
 class TestMergeFindingsNonOverlapping:
-    """Pin Merge Findings Non Overlapping."""
-
     def test_single_finding(self) -> None:
-        """Pin single finding."""
         f = _finding(start=0, end=5)
         merged = merge_findings([_result([f])])
         assert len(merged) == 1
         assert merged[0] is f
 
     def test_non_overlapping_preserved_in_order(self) -> None:
-        """Pin non overlapping preserved in order."""
         f1 = _finding(start=0, end=5)
         f2 = _finding(start=10, end=15)
         f3 = _finding(start=20, end=25)
@@ -66,7 +58,6 @@ class TestMergeFindingsNonOverlapping:
         assert merged[2] is f3
 
     def test_many_from_multiple_scanners(self) -> None:
-        """Pin many from multiple scanners."""
         f1 = _finding(start=0, end=5, scanner_name="a")
         f2 = _finding(start=10, end=15, scanner_name="b")
         merged = merge_findings([_result([f1], "a"), _result([f2], "b")])
@@ -74,10 +65,7 @@ class TestMergeFindingsNonOverlapping:
 
 
 class TestMergeFindingsOverlapping:
-    """Pin Merge Findings Overlapping."""
-
     def test_higher_confidence_wins(self) -> None:
-        """Pin higher confidence wins."""
         f_low = _finding(start=0, end=10, confidence=0.7, scanner_name="a")
         f_high = _finding(start=5, end=15, confidence=0.9, scanner_name="b")
         merged = merge_findings([_result([f_low], "a"), _result([f_high], "b")])
@@ -85,7 +73,6 @@ class TestMergeFindingsOverlapping:
         assert merged[0] is f_high
 
     def test_equal_confidence_higher_severity_wins(self) -> None:
-        """Pin equal confidence higher severity wins."""
         f_med = _finding(start=0, end=10, confidence=0.9, severity=Severity.MEDIUM)
         f_high = _finding(start=5, end=15, confidence=0.9, severity=Severity.HIGH)
         merged = merge_findings([_result([f_med]), _result([f_high])])
@@ -93,14 +80,12 @@ class TestMergeFindingsOverlapping:
         assert merged[0] is f_high
 
     def test_double_tie_both_kept(self) -> None:
-        """Pin double tie both kept."""
         f1 = _finding(start=0, end=10, confidence=0.9, severity=Severity.HIGH, scanner_name="a")
         f2 = _finding(start=5, end=15, confidence=0.9, severity=Severity.HIGH, scanner_name="b")
         merged = merge_findings([_result([f1], "a"), _result([f2], "b")])
         assert len(merged) == 2
 
     def test_same_position_different_scanners(self) -> None:
-        """Pin same position different scanners."""
         f1 = _finding(start=0, end=10, confidence=0.8, scanner_name="a")
         f2 = _finding(start=0, end=10, confidence=0.95, scanner_name="b")
         merged = merge_findings([_result([f1], "a"), _result([f2], "b")])
@@ -109,10 +94,7 @@ class TestMergeFindingsOverlapping:
 
 
 class TestMergeFindingsUnpositioned:
-    """Pin Merge Findings Unpositioned."""
-
     def test_unpositioned_always_kept(self) -> None:
-        """Pin unpositioned always kept."""
         f_pos = _finding(start=0, end=10)
         f_unpos = _finding()
         merged = merge_findings([_result([f_pos, f_unpos])])
@@ -120,14 +102,12 @@ class TestMergeFindingsUnpositioned:
         assert f_unpos in merged
 
     def test_only_unpositioned(self) -> None:
-        """Pin only unpositioned."""
         f1 = _finding()
         f2 = _finding(scanner_name="b")
         merged = merge_findings([_result([f1]), _result([f2], "b")])
         assert len(merged) == 2
 
     def test_mixed_positioned_and_unpositioned(self) -> None:
-        """Pin mixed positioned and unpositioned."""
         f_pos1 = _finding(start=0, end=5)
         f_unpos = _finding()
         f_pos2 = _finding(start=10, end=15)

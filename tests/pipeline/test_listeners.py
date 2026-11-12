@@ -13,7 +13,6 @@ from petasos.scanners.minimal import MinimalScanner
 
 
 async def test_pipeline_add_audit_listener_fires_on_inspect() -> None:
-    """Pin pipeline add audit listener fires on inspect."""
     seen: list[object] = []
     pipe = Pipeline([MinimalScanner()])
     pipe.add_audit_listener(lambda ev: seen.append(ev))
@@ -22,7 +21,6 @@ async def test_pipeline_add_audit_listener_fires_on_inspect() -> None:
 
 
 async def test_pipeline_feature_status_is_immutable_snapshot() -> None:
-    """Pin pipeline feature status is immutable snapshot."""
     pipe = Pipeline([MinimalScanner()])
     result = await pipe.inspect("hello")
     fs = result.feature_status

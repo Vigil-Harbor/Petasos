@@ -50,7 +50,6 @@ def _block(**over: object) -> dict[str, object]:
 
 
 def test_a_keyed_write_stamps_a_signature_and_an_unkeyed_write_does_not(tmp_path: Path) -> None:
-    """Pin a keyed write stamps a signature and an unkeyed write does not."""
     signed = tmp_path / "signed.jsonl"
     events.set_spool_key(_SECRET, path=str(signed))
     assert events.emit_enforcement_event(_block(scan_id="e-signed"), path=str(signed)) is True
@@ -65,7 +64,6 @@ def test_a_keyed_write_stamps_a_signature_and_an_unkeyed_write_does_not(tmp_path
 
 
 def test_the_signature_is_the_only_field_signing_adds(tmp_path: Path) -> None:
-    """Pin the signature is the only field signing adds."""
     path = tmp_path / "both.jsonl"
     payload = _block(scan_id="e-fixed", timestamp=1.0)
     assert events.emit_enforcement_event(dict(payload), path=str(path)) is True
@@ -76,7 +74,6 @@ def test_the_signature_is_the_only_field_signing_adds(tmp_path: Path) -> None:
 
 
 def test_verify_event_never_raises() -> None:
-    """Pin verify event never raises."""
     key = events._derive_spool_key(_SECRET)
     assert events.verify_event({"sig": 123}, key) is False
     assert events.verify_event({"event_type": "block"}, key) is False
@@ -86,7 +83,6 @@ def test_verify_event_never_raises() -> None:
 
 
 def test_a_signing_failure_writes_nothing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Pin a signing failure writes nothing."""
     path = tmp_path / "spool.jsonl"
     monkeypatch.setattr(events, "_SPOOL_KEY", 12345)
     assert events.emit_enforcement_event(_block(), path=str(path)) is False
@@ -94,7 +90,6 @@ def test_a_signing_failure_writes_nothing(tmp_path: Path, monkeypatch: pytest.Mo
 
 
 def test_the_spool_key_is_domain_separated() -> None:
-    """Pin the spool key is domain separated."""
     secret = b"some-session-secret"
     derived = events._derive_spool_key(secret)
     assert derived == events._derive_spool_key(secret)
@@ -104,7 +99,6 @@ def test_the_spool_key_is_domain_separated() -> None:
 
 
 def test_a_path_keeps_its_own_key(tmp_path: Path) -> None:
-    """Pin a path keeps its own key."""
     first = tmp_path / "a.jsonl"
     second = tmp_path / "b.jsonl"
     events.set_spool_key(b"key-a", path=str(first))
@@ -117,7 +111,6 @@ def test_a_path_keeps_its_own_key(tmp_path: Path) -> None:
 
 
 def test_rotation_refuses_to_overwrite_a_leftover(tmp_path: Path) -> None:
-    """Pin rotation refuses to overwrite a leftover."""
     live = tmp_path / "spool.jsonl"
     rotated = tmp_path / "spool.jsonl.rot"
     live.write_text('{"event_type":"block"}\n', encoding="utf-8")
@@ -130,7 +123,6 @@ def test_rotation_refuses_to_overwrite_a_leftover(tmp_path: Path) -> None:
 
 
 def test_a_drain_reads_each_complete_line_once(tmp_path: Path) -> None:
-    """Pin a drain reads each complete line once."""
     path = tmp_path / "spool.jsonl"
     path.write_text('{"n":1}\n{"n":2}\n{"n":', encoding="utf-8")
     got, offset = events.drain_enforcement_events(str(path), 0)
@@ -145,7 +137,6 @@ def test_a_drain_reads_each_complete_line_once(tmp_path: Path) -> None:
 
 
 def test_module_key_sig_class_and_console_row(tmp_path: Path) -> None:
-    """Pin module key sig class and console row."""
     events.set_spool_key(b"secret")
     assert events._SPOOL_KEY is not None
     slot = tmp_path / "one.jsonl"

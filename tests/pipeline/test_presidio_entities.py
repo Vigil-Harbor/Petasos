@@ -61,7 +61,6 @@ class _RecordingAnalyzer:
         language: str,
         score_threshold: float,
     ) -> list[Any]:
-        """Provide analyze for the test fixture."""
         self.entities = list(entities)
         return []
 
@@ -79,7 +78,6 @@ class _RecordingPresidio(PresidioScanner):
 
 
 def test_config_scopes_presidio_entities_and_threshold() -> None:
-    """Pin config scopes presidio entities and threshold."""
     cfg = from_mapping(
         PetasosConfig,
         {
@@ -102,7 +100,6 @@ def test_config_scopes_presidio_entities_and_threshold() -> None:
 
 
 def test_pipeline_passes_profile_extras_to_presidio() -> None:
-    """Pin pipeline passes profile extras to presidio."""
     rec_presidio = _RecordingPresidio()
     pipeline = Pipeline(
         [MinimalScanner(), rec_presidio],
@@ -113,7 +110,6 @@ def test_pipeline_passes_profile_extras_to_presidio() -> None:
 
 
 def test_pipeline_no_profile_uses_base() -> None:
-    """Pin pipeline no profile uses base."""
     rec_presidio = _RecordingPresidio()
     pipeline = Pipeline([MinimalScanner(), rec_presidio])
     asyncio.run(pipeline.inspect("benign text"))
@@ -121,7 +117,6 @@ def test_pipeline_no_profile_uses_base() -> None:
 
 
 def test_pipeline_general_profile_empty_extras_uses_base() -> None:
-    """Pin pipeline general profile empty extras uses base."""
     rec_presidio = _RecordingPresidio()
     pipeline = Pipeline(
         [MinimalScanner(), rec_presidio],
@@ -147,7 +142,6 @@ class TestProfilePresidioScoping:
         )
 
     def test_person_fires_under_customer_service_not_general(self) -> None:
-        """Pin person fires under customer service not general."""
         cs = asyncio.run(self._pipeline("support").inspect(self._CORPUS))
         assert cs.errors == ()
         person = [f for f in cs.findings if f.rule_id == "petasos.presidio.person"]
@@ -162,7 +156,6 @@ class TestProfilePresidioScoping:
         )
 
     def test_admin_person_fires(self) -> None:
-        """Pin admin person fires."""
         admin = asyncio.run(self._pipeline("admin").inspect(self._CORPUS))
         assert admin.errors == ()
         assert any(f.rule_id == "petasos.presidio.person" for f in admin.findings), (

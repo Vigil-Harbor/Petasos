@@ -29,7 +29,6 @@ pytestmark = pytest.mark.skipif(
 
 @pytest.fixture(scope="module")
 def real_scanners() -> list[Scanner]:
-    """Provide real scanners for the test fixture."""
     assert importlib.util.find_spec("en_core_web_lg") is not None, "install the spaCy model first"
     assert pg._snapshot_complete(), "pinned PromptGuard weights must already be cached"
     config = PetasosConfig()
@@ -54,7 +53,6 @@ def real_scanners() -> list[Scanner]:
 
 
 async def test_real_scanners_eight_concurrent_calls(real_scanners: list[Scanner]) -> None:
-    """Pin real scanners eight concurrent calls."""
     config = PetasosConfig()
     pipeline = Pipeline(config=config, scanners=real_scanners)
     payload = ("What is the capital of France? " * 70)[:2048]
@@ -82,7 +80,6 @@ async def test_semgrep_composes_with_real_presidio_and_prompt_guard(
     real_scanners: list[Scanner],
     profile_name: str,
 ) -> None:
-    """Pin semgrep composes with real presidio and prompt guard."""
     import hashlib
 
     from petasos.limits import HEAD_CHARS

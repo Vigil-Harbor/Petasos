@@ -10,7 +10,6 @@ from petasos.scanners.semgrep.engine import result_for
 
 
 async def fake_job(runtime: rt.Runtime, job: rt.Job) -> None:
-    """Provide fake job for the test fixture."""
     if job.selection is None:
         result = rt.error_result("unused")
         result = type(result)("semgrep", (), 0)
@@ -29,7 +28,6 @@ async def fake_job(runtime: rt.Runtime, job: rt.Job) -> None:
 
 
 async def main() -> None:
-    """Run the isolated test harness."""
     with (
         patch("petasos.scanners.semgrep.adapter.supported_platform", return_value=True),
         patch("petasos.scanners.semgrep.adapter.monitor_available", return_value=True),

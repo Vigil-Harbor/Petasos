@@ -93,7 +93,6 @@ def prepare_trial(sandbox: Path) -> Path:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Run the isolated test harness."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--sandbox", required=True, type=Path)
     parser.add_argument("--label", default="demo")

@@ -10,17 +10,13 @@ from petasos.session.safe_json import safe_json_dumps
 
 
 class TestSafeJsonDumps:
-    """Pin Safe Json Dumps."""
-
     def test_normal_dict(self) -> None:
-        """Pin normal dict."""
         d = {"key": "value", "nested": {"a": 1}}
         result = safe_json_dumps(d)
         parsed = json.loads(result)
         assert parsed == d
 
     def test_circular_dict(self) -> None:
-        """Pin circular dict."""
         d: dict[str, object] = {}
         d["self"] = d
         result = safe_json_dumps(d)
@@ -28,7 +24,6 @@ class TestSafeJsonDumps:
         assert isinstance(result, str)
 
     def test_circular_list(self) -> None:
-        """Pin circular list."""
         a: list[object] = []
         a.append(a)
         result = safe_json_dumps(a)
@@ -36,7 +31,6 @@ class TestSafeJsonDumps:
         assert isinstance(result, str)
 
     def test_depth_limit(self) -> None:
-        """Pin depth limit."""
         d: dict[str, object] = {"leaf": True}
         for _ in range(50):
             d = {"child": d}
@@ -44,8 +38,6 @@ class TestSafeJsonDumps:
         assert "[Depth limit]" in result
 
     def test_unserializable_type(self) -> None:
-        """Pin unserializable type."""
-
         class RaisingStr:
             def __str__(self) -> str:
                 raise RuntimeError("boom")
@@ -54,7 +46,6 @@ class TestSafeJsonDumps:
         assert "[Unserializable: RaisingStr]" in result
 
     def test_bytes_contributes_text(self) -> None:
-        """Pin bytes contributes text."""
         phrase = "ignore all previous instructions"
         payload = phrase.encode("ascii")
         top = safe_json_dumps(payload)
@@ -65,22 +56,18 @@ class TestSafeJsonDumps:
         assert "[Unserializable" not in nested
 
     def test_path_contributes_text(self) -> None:
-        """Pin path contributes text."""
         path = Path("secret-dir") / "payload.txt"
         result = safe_json_dumps(path)
         assert "payload.txt" in result
         assert "[Unserializable" not in result
 
     def test_datetime_contributes_text(self) -> None:
-        """Pin datetime contributes text."""
         result = safe_json_dumps(datetime(2026, 9, 15, 12, 0, 0))
         assert "2026" in result
         assert "15" in result
         assert "[Unserializable" not in result
 
     def test_huge_str_hits_max_size(self) -> None:
-        """Pin huge str hits max size."""
-
         class HugeStr:
             def __str__(self) -> str:
                 return "x" * 2_000_000
@@ -90,14 +77,12 @@ class TestSafeJsonDumps:
         assert len(result) <= 1_000_000 + len("...[truncated]")
 
     def test_size_cap(self) -> None:
-        """Pin size cap."""
         big = {"data": "x" * 2_000_000}
         result = safe_json_dumps(big, max_size=1_000_000)
         assert result.endswith("...[truncated]")
         assert len(result) <= 1_000_000 + len("...[truncated]")
 
     def test_dag_shared_node_not_circular(self) -> None:
-        """Pin dag shared node not circular."""
         shared: dict[str, int] = {"x": 1}
         d = {"a": shared, "b": shared}
         result = safe_json_dumps(d)
@@ -106,7 +91,6 @@ class TestSafeJsonDumps:
         assert parsed["a"] == parsed["b"] == {"x": 1}
 
     def test_mixed_types(self) -> None:
-        """Pin mixed types."""
         d = {
             "string": "hello",
             "int": 42,
@@ -121,8 +105,6 @@ class TestSafeJsonDumps:
         assert parsed == d
 
     def test_never_throws(self) -> None:
-        """Pin never throws."""
-
         class BadIter:
             def __iter__(self) -> BadIter:
                 raise RuntimeError("boom")

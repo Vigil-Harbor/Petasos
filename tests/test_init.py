@@ -24,10 +24,7 @@ def _hermes_deps_available() -> bool:
     reason="Hermes deps (spaCy, transformers) not installed",
 )
 class TestHermesSmoke:
-    """Pin Hermes Smoke."""
-
     async def test_import_coexistence(self) -> None:
-        """Pin import coexistence."""
         import spacy  # noqa: F811
         import transformers  # noqa: F811
 
@@ -38,7 +35,6 @@ class TestHermesSmoke:
         assert transformers is not None
 
     async def test_version_accessible(self) -> None:
-        """Pin version accessible."""
         import petasos
 
         assert hasattr(petasos, "__version__")
@@ -46,10 +42,7 @@ class TestHermesSmoke:
 
 
 class TestImportWithoutHermesDeps:
-    """Pin Import Without Hermes Deps."""
-
     async def test_petasos_imports_standalone(self) -> None:
-        """Pin petasos imports standalone."""
         import petasos
 
         assert petasos.__version__ is not None
@@ -58,7 +51,6 @@ class TestImportWithoutHermesDeps:
 def test_package_version_single_source() -> None:
     # Distribution metadata is absent in source-only checkouts; editable installs can verify
     # version consistency.
-    """Pin package version single source."""
     try:
         dist_version = importlib.metadata.version("petasos")
     except importlib.metadata.PackageNotFoundError:

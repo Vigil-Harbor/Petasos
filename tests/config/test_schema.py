@@ -29,17 +29,14 @@ _TIER3_FLOOR = 30.0
 
 
 def construct(cls: Callable[..., _S], /, **kwargs: Any) -> _S:
-    """Provide construct for the test fixture."""
     return cls(**kwargs)
 
 
 def construct_positional(cls: Callable[..., _S], /, *args: Any) -> _S:
-    """Provide construct positional for the test fixture."""
     return cls(*args)
 
 
 def leaves(cls: type[object]) -> dict[str, FieldInfo]:
-    """Provide leaves for the test fixture."""
     return {row.path: row for row in describe(cls) if isinstance(row, FieldInfo)}
 
 
@@ -57,7 +54,6 @@ def direct_children(rows: tuple[FieldInfo | SectionInfo, ...], parent: str) -> l
 
 
 def problems(fn: Callable[[], object]) -> tuple[tuple[str, str], ...]:
-    """Provide problems for the test fixture."""
     with pytest.raises(ConfigError) as caught:
         fn()
     return caught.value.errors
@@ -77,7 +73,6 @@ _DEFINITIONS.__dict__.update(
 
 
 def define(source: str) -> None:
-    """Provide define for the test fixture."""
     exec(source, _DEFINITIONS.__dict__)
 
 
@@ -94,7 +89,6 @@ class EscalationLevels:
     )
 
     def check(self) -> None:
-        """Validate the fixture section constraints."""
         if not self.tier1 < self.tier2 < self.tier3:
             raise ConfigError("tiers must be strictly ascending")
 
@@ -107,7 +101,6 @@ class AlertLimits:
     ring_capacity: int = setting(default=1000, gt=0, help="How many recent events are kept.")
 
     def check(self) -> None:
-        """Validate the fixture section constraints."""
         if self.rapid_fire_count > self.ring_capacity:
             raise ConfigError.at(
                 "rapid_fire_count",
@@ -132,7 +125,6 @@ class NameLists:
     )
 
     def check(self) -> None:
-        """Validate the fixture section constraints."""
         if self.extra_entities is not None and len(self.extra_entities) == 0:
             raise ConfigError.at(
                 "extra_entities",
@@ -192,10 +184,7 @@ def _typed_sample() -> SamplePolicy:
 
 
 class TestConstruction:
-    """Pin Construction."""
-
     def test_typed_constructor_and_equality(self) -> None:
-        """Pin typed constructor and equality."""
         made = _typed_sample()
         assert made == from_mapping(SamplePolicy, to_mapping(made))
         assert made.escalation.tier1 == 12.0
@@ -205,12 +194,10 @@ class TestConstruction:
         assert made.frequency.weights == {"critical": 1.0}
 
     def test_positional_construction_is_rejected(self) -> None:
-        """Pin positional construction is rejected."""
         with pytest.raises(TypeError, match=r"keyword arguments only \(tier1, tier2, tier3\)"):
             construct_positional(EscalationLevels, 12.0, 24.0, 40.0)
 
     def test_both_routes_report_the_same_problems(self) -> None:
-        """Pin both routes report the same problems."""
         payload = {"tier1": True, "tier3": 10}
         direct = problems(lambda: construct(EscalationLevels, **payload))
         mapped = problems(lambda: from_mapping(EscalationLevels, payload))
@@ -221,7 +208,6 @@ class TestConstruction:
         )
 
     def test_bool_rejects_other_types(self) -> None:
-        """Pin bool rejects other types."""
         assert problems(lambda: construct(SamplePolicy, enabled=1)) == (
             ("enabled", "must be true or false, got 1"),
         )
@@ -230,7 +216,6 @@ class TestConstruction:
         )
 
     def test_int_rejects_bool_and_fraction_and_enforces_bounds(self) -> None:
-        """Pin int rejects bool and fraction and enforces bounds."""
         assert problems(lambda: construct(SamplePolicy, limit=True)) == (
             (
                 "limit",
@@ -246,7 +231,6 @@ class TestConstruction:
         assert AlertLimits(rapid_fire_count=1).rapid_fire_count == 1
 
     def test_float_accepts_int_stores_float_and_rejects_non_finite(self) -> None:
-        """Pin float accepts int stores float and rejects non finite."""
         made = EscalationLevels(tier1=12, tier2=24, tier3=40)
         assert made.tier1 == 12.0
         assert type(made.tier1) is float
@@ -268,14 +252,12 @@ class TestConstruction:
         )
 
     def test_choice_rejects_a_different_case(self) -> None:
-        """Pin choice rejects a different case."""
         assert problems(lambda: construct(SamplePolicy, mode="Open")) == (
             ("mode", 'must be exactly one of "open", "closed", or "degraded", got "Open"'),
         )
         assert from_mapping(SamplePolicy, {"mode": "closed"}).mode == "closed"
 
     def test_optional_text_accepts_nothing(self) -> None:
-        """Pin optional text accepts nothing."""
         assert SamplePolicy().label is None
         assert SamplePolicy(label="lab").label == "lab"
         assert problems(lambda: construct(SamplePolicy, label=1)) == (
@@ -283,7 +265,6 @@ class TestConstruction:
         )
 
     def test_string_list_rejects_a_bare_string_and_trims(self) -> None:
-        """Pin string list rejects a bare string and trims."""
         assert problems(lambda: construct(NameLists, scanners="semgrep")) == (
             ("scanners", 'must be a list of text values, not a single text value, got "semgrep"'),
         )
@@ -301,12 +282,10 @@ class TestConstruction:
         )
 
     def test_normaliser_runs_per_item_after_trimming(self) -> None:
-        """Pin normaliser runs per item after trimming."""
         made = from_mapping(NameLists, {"entities": [" url ", "Email"]})
         assert made.entities == ("URL", "EMAIL")
 
     def test_optional_list_must_be_non_empty_when_present(self) -> None:
-        """Pin optional list must be non empty when present."""
         assert NameLists().extra_entities is None
         assert construct(NameLists, extra_entities=["email"]).extra_entities == ("EMAIL",)
         assert problems(lambda: NameLists(extra_entities=())) == (
@@ -317,7 +296,6 @@ class TestConstruction:
         )
 
     def test_weight_mapping_rules(self) -> None:
-        """Pin weight mapping rules."""
         made = FrequencyWeights(weights={" critical ": 1, "high": 0})
         assert made.weights == {"critical": 1.0, "high": 0.0}
         assert type(made.weights["critical"]) is float
@@ -348,7 +326,6 @@ class TestConstruction:
         )
 
     def test_ascending_tiers_and_floor(self) -> None:
-        """Pin ascending tiers and floor."""
         assert problems(lambda: EscalationLevels(tier1=40, tier2=30, tier3=50)) == (
             ("", "tiers must be strictly ascending"),
         )
@@ -357,7 +334,6 @@ class TestConstruction:
         )
 
     def test_one_field_must_not_exceed_another(self) -> None:
-        """Pin one field must not exceed another."""
         assert problems(lambda: AlertLimits(rapid_fire_count=5, ring_capacity=4)) == (
             ("rapid_fire_count", "must not be higher than the ring capacity"),
         )
@@ -365,10 +341,7 @@ class TestConstruction:
 
 
 class TestAggregation:
-    """Pin Aggregation."""
-
     def test_every_problem_is_reported_with_its_path(self) -> None:
-        """Pin every problem is reported with its path."""
         document = {
             "enabled": 1,
             "mode": "Open",
@@ -389,7 +362,6 @@ class TestAggregation:
         assert "strictly ascending" not in str(found)
 
     def test_direct_nested_mapping_uses_the_same_paths(self) -> None:
-        """Pin direct nested mapping uses the same paths."""
         found = problems(
             lambda: construct(
                 SamplePolicy,
@@ -400,14 +372,11 @@ class TestAggregation:
         assert ("escalation.tier1", 'must be a finite number greater than 0, got "bad"') in found
 
     def test_a_failed_field_skips_that_sections_check(self) -> None:
-        """Pin a failed field skips that sections check."""
         found = problems(lambda: construct(EscalationLevels, tier1="no", tier2=40, tier3=50))
         assert found == (("tier1", 'must be a finite number greater than 0, got "no"'),)
         assert "ascending" not in found[0][1]
 
     def test_a_nested_check_is_prefixed_and_blocks_the_parent_check(self) -> None:
-        """Pin a nested check is prefixed and blocks the parent check."""
-
         @section
         class Parent:
             alerts: AlertLimits = setting(default=AlertLimits(), help="Alert limits.")
@@ -433,7 +402,6 @@ class TestAggregation:
         assert parent_only == (("", "parent hook"),)
 
     def test_unknown_key_without_a_close_name(self) -> None:
-        """Pin unknown key without a close name."""
         found = problems(lambda: from_mapping(EscalationLevels, {"xyzzy": 1}))
         assert found == (
             ("xyzzy", 'unknown setting "xyzzy". Expected one of tier1, tier2, tier3.'),
@@ -441,26 +409,22 @@ class TestAggregation:
         assert "Did you mean" not in found[0][1]
 
     def test_suggestion_ignores_case(self) -> None:
-        """Pin suggestion ignores case."""
         found = problems(lambda: from_mapping(SamplePolicy, {"Enabled": False}))
         assert found[0] == ("Enabled", 'unknown setting "Enabled". Did you mean "enabled"?')
 
     def test_a_document_must_be_a_mapping(self) -> None:
-        """Pin a document must be a mapping."""
         document: Any = ["no"]
         assert problems(lambda: from_mapping(SamplePolicy, document)) == (
             ("", "settings must be a group of named values, got a list"),
         )
 
     def test_a_setting_name_must_be_text(self) -> None:
-        """Pin a setting name must be text."""
         document: Any = {1: True}
         assert problems(lambda: from_mapping(SamplePolicy, document)) == (
             ("", "a setting name must be text, got 1"),
         )
 
     def test_error_text_includes_the_path(self) -> None:
-        """Pin error text includes the path."""
         error = ConfigError.at("tier3", "must be at least 30")
         assert error.errors == (("tier3", "must be at least 30"),)
         assert str(error) == "tier3: must be at least 30"
@@ -470,10 +434,7 @@ class TestAggregation:
 
 
 class TestDescribeAndRoundTrip:
-    """Pin Describe And Round Trip."""
-
     def test_describe_lists_sections_and_leaves_in_order(self) -> None:
-        """Pin describe lists sections and leaves in order."""
         rows = describe(SamplePolicy)
         by_path = leaves(SamplePolicy)
         assert [row.path for row in rows][:4] == ["enabled", "mode", "limit", "timeout"]
@@ -532,8 +493,6 @@ class TestDescribeAndRoundTrip:
                     json.dumps(list(row.choices))
 
     def test_describe_uses_an_overridden_nested_default(self) -> None:
-        """Pin describe uses an overridden nested default."""
-
         @section
         class Parent:
             escalation: EscalationLevels = setting(
@@ -555,8 +514,6 @@ class TestDescribeAndRoundTrip:
         assert Parent().escalation.tier1 == 12.0
 
     def test_describe_nests_a_section_under_its_parent(self) -> None:
-        """Pin describe nests a section under its parent."""
-
         @section
         class Holder:
             policy: SamplePolicy | None = setting(default=None, help="The whole policy.")
@@ -580,7 +537,6 @@ class TestDescribeAndRoundTrip:
         assert leaves(Holder)["policy.escalation.tier1"].default == 15.0
 
     def test_round_trip_is_json_and_equal(self) -> None:
-        """Pin round trip is json and equal."""
         original = _typed_sample()
         plain = to_mapping(original)
         assert plain["names"]["scanners"] == ["semgrep"]
@@ -591,7 +547,6 @@ class TestDescribeAndRoundTrip:
         assert restored == original
 
     def test_field_spec_is_on_the_dataclass_field(self) -> None:
-        """Pin field spec is on the dataclass field."""
         spec = fields(EscalationLevels)[2].metadata[FieldSpec]
         assert isinstance(spec, FieldSpec)
         assert spec.ge == 30.0
@@ -599,17 +554,13 @@ class TestDescribeAndRoundTrip:
 
 
 class TestMerge:
-    """Pin Merge."""
-
     def test_mappings_merge_and_other_values_replace(self) -> None:
-        """Pin mappings merge and other values replace."""
         assert merge(
             {"escalation": {"tier1": 15, "tier2": 30}, "names": ["a", "b"]},
             {"escalation": {"tier2": 40}, "names": ["c"]},
         ) == {"escalation": {"tier1": 15, "tier2": 40}, "names": ["c"]}
 
     def test_explicit_none_replaces_and_a_missing_key_does_not(self) -> None:
-        """Pin explicit none replaces and a missing key does not."""
         assert merge({"label": "x", "mode": "open"}, {"mode": "closed"}) == {
             "label": "x",
             "mode": "closed",
@@ -618,12 +569,10 @@ class TestMerge:
         assert merge({"weights": {"a": 1}}, {"weights": None}) == {"weights": None}
 
     def test_an_empty_mapping_changes_nothing(self) -> None:
-        """Pin an empty mapping changes nothing."""
         assert merge({"weights": {"a": 1}}, {"weights": {}}) == {"weights": {"a": 1}}
         assert merge({"weights": {"a": 1}}, {}) == {"weights": {"a": 1}}
 
     def test_result_does_not_share_containers(self) -> None:
-        """Pin result does not share containers."""
         base = {"names": ["a"], "group": {"k": 1}}
         result = merge(base, {})
         result["names"].append("b")
@@ -632,10 +581,7 @@ class TestMerge:
 
 
 class TestImmutability:
-    """Pin Immutability."""
-
     def test_instances_are_frozen_slotted_dataclasses(self) -> None:
-        """Pin instances are frozen slotted dataclasses."""
         made = SamplePolicy()
         assert is_dataclass(made)
         assert not hasattr(made, "__dict__")
@@ -644,7 +590,6 @@ class TestImmutability:
         assert [item.name for item in fields(EscalationLevels)] == ["tier1", "tier2", "tier3"]
 
     def test_replace_revalidates(self) -> None:
-        """Pin replace revalidates."""
         original = EscalationLevels()
         updated = replace(original, tier1=16.0)
         assert updated.tier1 == 16.0
@@ -654,7 +599,6 @@ class TestImmutability:
         )
 
     def test_lists_and_mappings_are_copied(self) -> None:
-        """Pin lists and mappings are copied."""
         raw_names = [" semgrep ", "presidio"]
         made = construct(NameLists, scanners=raw_names)
         raw_names.append("extra")
@@ -671,7 +615,6 @@ class TestImmutability:
             _assign_key(weighted.weights, "critical", 2.0)
 
     def test_a_dict_default_is_not_shared_with_the_caller(self) -> None:
-        """Pin a dict default is not shared with the caller."""
         raw = {"critical": 1.0}
 
         @section
@@ -684,16 +627,12 @@ class TestImmutability:
             _assign_key(Box().weights, "critical", 2.0)
 
     def test_a_list_default_is_rejected(self) -> None:
-        """Pin a list default is rejected."""
         with pytest.raises(TypeError, match="immutable"):
             setting(default=[], help="Names.")
 
 
 class TestDefinition:
-    """Pin Definition."""
-
     def test_unsupported_annotations_fail_at_definition(self) -> None:
-        """Pin unsupported annotations fail at definition."""
         cases = {
             "raw: bytes = setting(default=b'abc', help='Raw.')": "bytes",
             "names: list[str] = setting(default=(), help='Names.')": "tuple\\[str, \\.\\.\\.\\]",
@@ -707,7 +646,6 @@ class TestDefinition:
                 define(f"@section\nclass Bad:\n    {body}\n")
 
     def test_a_plain_class_is_not_a_section(self) -> None:
-        """Pin a plain class is not a section."""
         with pytest.raises(TypeError, match="Nested groups"):
             define(
                 """
@@ -721,7 +659,6 @@ class Bad:
             )
 
     def test_bounds_and_normaliser_must_match_the_type(self) -> None:
-        """Pin bounds and normaliser must match the type."""
         with pytest.raises(TypeError, match="bounds"):
             define(
                 "@section\nclass Bad:\n"
@@ -734,7 +671,6 @@ class Bad:
             )
 
     def test_impossible_bounds_and_invalid_defaults(self) -> None:
-        """Pin impossible bounds and invalid defaults."""
         with pytest.raises(TypeError, match="no valid number"):
             setting(default=1, ge=5, le=4, help="Count.")
         with pytest.raises(TypeError, match="default is not valid"):
@@ -755,7 +691,6 @@ class Bad:
             )
 
     def test_hand_written_post_init_is_rejected(self) -> None:
-        """Pin hand written post init is rejected."""
         with pytest.raises(TypeError, match="__post_init__"):
             define(
                 """
@@ -768,14 +703,12 @@ class Bad:
             )
 
     def test_help_must_not_be_empty(self) -> None:
-        """Pin help must not be empty."""
         with pytest.raises(TypeError, match="help"):
             setting(default=True, help="")
         with pytest.raises(TypeError, match="help"):
             setting(default=True, help="   ")
 
     def test_an_undefined_annotation_says_to_import_it_at_runtime(self) -> None:
-        """Pin an undefined annotation says to import it at runtime."""
         with pytest.raises(TypeError, match="Import the name at runtime") as caught:
             define(
                 """
@@ -791,8 +724,6 @@ class Bad:
         assert "not defined" in message
 
     def test_a_normaliser_must_return_text(self) -> None:
-        """Pin a normaliser must return text."""
-
         def bad(text: str) -> Any:
             return len(text)
 
@@ -818,11 +749,7 @@ def _assign_key(value: Any, key: str, item: object) -> None:
 
 
 class TestLabels:
-    """Pin Labels."""
-
     def test_label_and_choice_labels_reach_describe(self) -> None:
-        """Pin label and choice labels reach describe."""
-
         @section
         class Labelled:
             mode: Literal["a", "b"] = setting(
@@ -840,7 +767,6 @@ class TestLabels:
         assert rows["plain_name"].choice_labels is None
 
     def test_choice_labels_must_cover_every_choice(self) -> None:
-        """Pin choice labels must cover every choice."""
         with pytest.raises(TypeError, match="every choice"):
 
             @section
@@ -850,7 +776,6 @@ class TestLabels:
                 )
 
     def test_choice_labels_apply_only_to_a_choice(self) -> None:
-        """Pin choice labels apply only to a choice."""
         with pytest.raises(TypeError, match="only to a choice"):
 
             @section
@@ -858,6 +783,5 @@ class TestLabels:
                 count: int = setting(default=1, help="A number.", choice_labels={"1": "One"})
 
     def test_an_empty_label_is_refused(self) -> None:
-        """Pin an empty label is refused."""
         with pytest.raises(TypeError, match="label"):
             setting(default=1, help="A number.", label=" ")

@@ -29,7 +29,6 @@ class _Store:
         self.calls: list[dict[str, Any]] = []
 
     def write(self, values: Any, plugin_dir: Path) -> None:
-        """Provide write for the test fixture."""
         self.calls.append({"values": dict(values), "plugin_dir": plugin_dir})
         for key, value in values.items():
             current = self.settings.get(key)

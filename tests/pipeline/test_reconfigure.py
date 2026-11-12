@@ -33,7 +33,6 @@ def _pii_finding() -> ScanFinding:
 
 
 def test_reconfigure_frequency_takes_effect_same_instance() -> None:
-    """Pin reconfigure frequency takes effect same instance."""
     pipe = _pipe(
         from_mapping(
             PetasosConfig,
@@ -66,7 +65,6 @@ def test_reconfigure_frequency_takes_effect_same_instance() -> None:
 
 
 def test_reconfigure_audit_verbosity_takes_effect() -> None:
-    """Pin reconfigure audit verbosity takes effect."""
     pipe = _pipe(
         from_mapping(
             PetasosConfig,
@@ -98,7 +96,6 @@ def test_reconfigure_audit_verbosity_takes_effect() -> None:
 
 
 def test_reconfigure_alert_threshold_takes_effect() -> None:
-    """Pin reconfigure alert threshold takes effect."""
     pipe = _pipe(
         from_mapping(
             PetasosConfig,
@@ -131,7 +128,6 @@ def test_reconfigure_alert_threshold_takes_effect() -> None:
 
 
 def test_reconfigure_alert_ring_buffer_capacity_rebuilds_keeping_newest() -> None:
-    """Pin reconfigure alert ring buffer capacity rebuilds keeping newest."""
     pipe = _pipe(
         from_mapping(
             PetasosConfig,
@@ -164,7 +160,6 @@ def test_reconfigure_alert_ring_buffer_capacity_rebuilds_keeping_newest() -> Non
 
 
 def test_reconfigure_decode_payloads_changes_minimal_scanner() -> None:
-    """Pin reconfigure decode payloads changes minimal scanner."""
     scanner = MinimalScanner(
         max_payload_bytes=12_345,
         suppress_rules=frozenset({"petasos.syntactic.encoding.base64"}),
@@ -202,7 +197,6 @@ def test_reconfigure_decode_payloads_changes_minimal_scanner() -> None:
 
 
 def test_reconfigure_preserves_session_state() -> None:
-    """Pin reconfigure preserves session state."""
     pipe = _pipe(
         from_mapping(
             PetasosConfig,
@@ -238,7 +232,6 @@ def test_reconfigure_preserves_session_state() -> None:
 
 
 def test_reconfigure_session_secret_noop_with_warning(caplog: pytest.LogCaptureFixture) -> None:
-    """Pin reconfigure session secret noop with warning."""
     secret = b"s" * 32
     pipe = Pipeline(
         scanners=[MinimalScanner()],
@@ -268,7 +261,6 @@ def test_reconfigure_session_secret_noop_with_warning(caplog: pytest.LogCaptureF
 
 
 def test_reconfigure_tombstone_cap_shrink_trims_immediately() -> None:
-    """Pin reconfigure tombstone cap shrink trims immediately."""
     pipe = _pipe(
         from_mapping(
             PetasosConfig,
@@ -307,7 +299,6 @@ def test_reconfigure_tombstone_cap_shrink_trims_immediately() -> None:
     ],
 )
 def test_reconfigure_atomic_on_invalid_weights(bad_weights: dict[str, float]) -> None:
-    """Pin reconfigure atomic on invalid weights."""
     pipe = _pipe(
         from_mapping(
             PetasosConfig,
@@ -345,7 +336,6 @@ def test_reconfigure_atomic_on_invalid_weights(bad_weights: dict[str, float]) ->
 
 
 def test_reconfigure_profile_switch_takes_effect() -> None:
-    """Pin reconfigure profile switch takes effect."""
     pipe = _pipe(resolve({"role": "general"}).config)
     assert pipe.config.rules.suppress == ()
 
@@ -356,7 +346,6 @@ def test_reconfigure_profile_switch_takes_effect() -> None:
 
 
 def test_reconfigure_keeps_constructor_pinned_profile() -> None:
-    """Pin reconfigure keeps constructor pinned profile."""
     pipe = Pipeline(
         scanners=[MinimalScanner()],
         config=resolve({"role": "general"}).config,
@@ -369,7 +358,6 @@ def test_reconfigure_keeps_constructor_pinned_profile() -> None:
 
 
 def test_reconfigure_rejects_subfloor_or_unordered_tiers() -> None:
-    """Pin reconfigure rejects subfloor or unordered tiers."""
     pipe = _pipe(PetasosConfig())
     before = pipe.config
 
@@ -382,7 +370,6 @@ def test_reconfigure_rejects_subfloor_or_unordered_tiers() -> None:
 
 
 def test_shared_tracker_double_apply_is_idempotent_and_preserves_scores() -> None:
-    """Pin shared tracker double apply is idempotent and preserves scores."""
     from petasos.guard.guard import ToolCallGuard
     from petasos.session.frequency import FrequencyTracker
 

@@ -14,7 +14,6 @@ from petasos.session.frequency import FrequencyTracker
     [("petasos.selfmod.config_write", 10.0), ("petasos.selfmod.config_ref", 3.0)],
 )
 def test_selfmod_weight_floors_override_zero_weights(rule: str, floor: float) -> None:
-    """Pin selfmod weight floors override zero weights."""
     config = from_mapping(PetasosConfig, {"frequency": {"weights": {rule: 0.0}}})
     tracker = FrequencyTracker(config)
     result = tracker.update("session", [rule])

@@ -10,7 +10,6 @@ from petasos.session.lineage import LineageRegistry
 
 
 def test_lineage_registry_apply_config_updates_bounds() -> None:
-    """Pin lineage registry apply config updates bounds."""
     reg = LineageRegistry(
         from_mapping(
             PetasosConfig,

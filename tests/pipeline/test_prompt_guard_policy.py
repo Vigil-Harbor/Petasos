@@ -28,7 +28,6 @@ class _StubPromptGuardScanner:
     async def scan(
         self, text: str, *, direction: Direction = "inbound", session_id: str | None = None
     ) -> ScanResult:
-        """Supply the configured scanner response for this fixture."""
         return ScanResult(
             scanner_name=self.name,
             findings=(
@@ -50,7 +49,6 @@ class TestPromptGuardDowngradedUnderCodegen:
     code_generation, and kept for audit."""
 
     async def test_prompt_guard_is_nonblocking_under_codegen(self) -> None:
-        """Pin prompt guard is nonblocking under codegen."""
         pipe = Pipeline(
             config=resolve({"role": "coding"}).config,
             scanners=[_StubPromptGuardScanner()],
@@ -69,7 +67,6 @@ class TestPromptGuardStillBlocksElsewhere:
     """Profiles that do not override prompt-guard keep it blocking."""
 
     async def test_prompt_guard_still_blocks_under_general(self) -> None:
-        """Pin prompt guard still blocks under general."""
         pipe = Pipeline(
             config=resolve({"role": "general"}).config,
             scanners=[_StubPromptGuardScanner()],
@@ -82,7 +79,6 @@ class TestPromptGuardStillBlocksElsewhere:
         assert res.safe is False
 
     async def test_prompt_guard_still_blocks_under_customer_service_inbound(self) -> None:
-        """Pin prompt guard still blocks under customer service inbound."""
         pipe = Pipeline(
             config=resolve({"role": "support"}).config,
             scanners=[_StubPromptGuardScanner()],

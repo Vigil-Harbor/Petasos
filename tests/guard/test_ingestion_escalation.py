@@ -203,7 +203,6 @@ _COMPOSED_HORIZON = 40
 
 
 def test_unified_tracker_escalates_through_guard() -> None:
-    """Pin unified tracker escalates through guard."""
     _probe_weight(_POISON, 10.0)
     _cfg, tracker, pipeline, guard, _reg = _stack(lineage=True)
 
@@ -224,7 +223,6 @@ def test_unified_tracker_escalates_through_guard() -> None:
 
 @pytest.mark.parametrize("source", _SINGLE_SCAN_SOURCES, ids=lambda s: str(s)[:16])
 def test_no_single_scan_crosses_a_tier_or_terminates(source: str | None) -> None:
-    """Pin no single scan crosses a tier or terminates."""
     _cfg, tracker, pipeline, guard, _reg = _stack()
     guard = ToolCallGuard(
         pipeline,
@@ -245,7 +243,6 @@ def test_no_single_scan_crosses_a_tier_or_terminates(source: str | None) -> None
 
 @pytest.mark.parametrize("source", _SINGLE_SCAN_SOURCES, ids=lambda s: str(s)[:16])
 def test_no_single_param_scan_crosses_a_tier_or_terminates(source: str | None) -> None:
-    """Pin no single param scan crosses a tier or terminates."""
     _cfg, tracker, pipeline, guard, _reg = _stack()
     guard = ToolCallGuard(
         pipeline,
@@ -293,7 +290,6 @@ def test_published_trajectory_table_model(source: str | None, interval: float) -
 
 
 def test_benign_reads_do_not_escalate_finding_free() -> None:
-    """Pin benign reads do not escalate finding free."""
     _cfg, tracker, pipeline, guard, _reg = _stack()
     t0 = 1000.0
     for n in range(200):
@@ -305,7 +301,6 @@ def test_benign_reads_do_not_escalate_finding_free() -> None:
 
 
 def test_benign_reads_do_not_escalate_sub_step_rule() -> None:
-    """Pin benign reads do not escalate sub step rule."""
     _probe_weight(_BENIGN_ENC, 3.0)
     _cfg, tracker, pipeline, guard, _reg = _stack()
     t0 = 1000.0
@@ -323,7 +318,6 @@ def test_benign_reads_do_not_escalate_sub_step_rule() -> None:
 
 
 def test_admin_profile_does_not_lower_the_scan_cap() -> None:
-    """Pin admin profile does not lower the scan cap."""
     _cfg, tracker, pipeline, guard, _reg = _stack("admin")
     assert guard.scan_weight_cap == pytest.approx(15.0 / 4.0)
     t0 = 1000.0
@@ -335,7 +329,6 @@ def test_admin_profile_does_not_lower_the_scan_cap() -> None:
 
 
 def test_benign_full_injection_rule_residual_is_pinned() -> None:
-    """Pin benign full injection rule residual is pinned."""
     _probe_weight(_BENIGN_INJ, 10.0)
 
     _cfg2, tracker2, pipeline2, guard2, _reg2 = _stack()
@@ -351,7 +344,6 @@ def test_benign_full_injection_rule_residual_is_pinned() -> None:
 
 
 def test_weight_cap_contract() -> None:
-    """Pin weight cap contract."""
     tracker = FrequencyTracker(PetasosConfig())
     for bad in (-1.0, float("nan"), float("inf")):
         with pytest.raises(ValueError, match="weight_cap must be non-negative and finite"):
@@ -374,7 +366,6 @@ def test_weight_cap_contract() -> None:
 
 
 def test_lineage_pinning_survives_unification() -> None:
-    """Pin lineage pinning survives unification."""
     cfg = from_mapping(PetasosConfig, {"sessions": {"ttl_seconds": 10.0}})
     _cfg, tracker, pipeline, guard, registry = _stack(config=cfg, lineage=True)
     assert registry is not None
@@ -395,7 +386,6 @@ def test_lineage_pinning_survives_unification() -> None:
 
 
 def test_rate_limited_scan_with_findings_warns(caplog: pytest.LogCaptureFixture) -> None:
-    """Pin rate limited scan with findings warns."""
     cfg = from_mapping(PetasosConfig, {"sessions": {"max": 1, "max_new_per_minute": 1}})
     _cfg, tracker, pipeline, guard, _reg = _stack(config=cfg)
     with patch(_CLOCK, return_value=1000.0):

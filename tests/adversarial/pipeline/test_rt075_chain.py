@@ -25,7 +25,6 @@ class _FlakyMLScanner:
         direction: Direction = "inbound",
         session_id: str | None = None,
     ) -> ScanResult:
-        """Supply the configured scanner response for this fixture."""
         raise RuntimeError("ML backend unavailable")
 
 
@@ -39,7 +38,6 @@ class _CleanMLScanner:
         direction: Direction = "inbound",
         session_id: str | None = None,
     ) -> ScanResult:
-        """Supply the configured scanner response for this fixture."""
         return ScanResult(scanner_name=self.name, findings=())
 
 

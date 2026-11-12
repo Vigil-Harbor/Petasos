@@ -7,7 +7,6 @@ from petasos.config.sections import PetasosConfig
 
 
 def test_schema_exposes_no_selfmod_disable_control() -> None:
-    """Pin schema exposes no selfmod disable control."""
     rows = describe(PetasosConfig)
     assert rows
     assert all("selfmod" not in row.path.lower() for row in rows)

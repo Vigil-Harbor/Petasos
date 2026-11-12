@@ -72,18 +72,15 @@ class _StubScanner:
 
     @property
     def name(self) -> str:
-        """Return the fixture scanner name."""
         return self._name
 
     async def scan(
         self, text: str, *, direction: Direction = "inbound", session_id: str | None = None
     ) -> ScanResult:
-        """Supply the configured scanner response for this fixture."""
         return ScanResult(scanner_name=self._name, findings=self._findings, duration_ms=0.0)
 
 
 def test_profile_suppresses_presidio_finding_end_to_end() -> None:
-    """Pin profile suppresses presidio finding end to end."""
     findings = (_pii("petasos.presidio.location", start=0, end=5),)
     suppressed = Pipeline(
         scanners=[_StubScanner(findings)],
@@ -99,13 +96,11 @@ def test_profile_suppresses_presidio_finding_end_to_end() -> None:
 
 
 def test_suppress_cannot_silence_injection_or_structural() -> None:
-    """Pin suppress cannot silence injection or structural."""
     with pytest.raises(ConfigError, match="rules.suppress"):
         from_mapping(PetasosConfig, {"rules": {"suppress": [_INJECTION_ID]}})
 
 
 def test_suppress_helper_honors_floor_directly() -> None:
-    """Pin suppress helper honors floor directly."""
     results = [ScanResult(scanner_name="stub", findings=(_injection(),), duration_ms=0.0)]
     out = _suppress_scanner_findings(results, frozenset({_INJECTION_ID}))
     assert _is_floor_rule(_INJECTION_ID) is True
@@ -114,7 +109,6 @@ def test_suppress_helper_honors_floor_directly() -> None:
 
 
 def test_severity_override_can_downgrade_pii() -> None:
-    """Pin severity override can downgrade pii."""
     stub = _StubScanner(
         (
             _pii("petasos.presidio.person", start=0, end=5, severity=Severity.MEDIUM),
@@ -142,7 +136,6 @@ def test_severity_override_can_downgrade_pii() -> None:
 
 
 def test_suppressed_finding_does_not_escalate() -> None:
-    """Pin suppressed finding does not escalate."""
     crits = tuple(
         _pii("petasos.presidio.location", start=i, end=i + 3, severity=Severity.CRITICAL)
         for i in (0, 4, 8)
@@ -167,7 +160,6 @@ def test_suppressed_finding_does_not_escalate() -> None:
 
 
 def test_suppressed_overlap_does_not_evict_legitimate() -> None:
-    """Pin suppressed overlap does not evict legitimate."""
     stub = _StubScanner(
         (
             _pii("petasos.presidio.location", start=0, end=5, severity=Severity.HIGH),
@@ -210,7 +202,6 @@ def _email_and_ssn() -> tuple[ScanFinding, ...]:
 
 
 def test_pii_entities_filters_anonymize_set() -> None:
-    """Pin pii entities filters anonymize set."""
     cfg = from_mapping(
         PetasosConfig,
         {
@@ -229,7 +220,6 @@ def test_pii_entities_filters_anonymize_set() -> None:
 
 
 def test_pii_entities_empty_anonymizes_all() -> None:
-    """Pin pii entities empty anonymizes all."""
     cfg = from_mapping(
         PetasosConfig,
         {
@@ -248,7 +238,6 @@ def test_pii_entities_empty_anonymizes_all() -> None:
 
 
 def test_pii_entities_excludes_all_skips_anonymize() -> None:
-    """Pin pii entities excludes all skips anonymize."""
     cfg = from_mapping(
         PetasosConfig,
         {
@@ -266,7 +255,6 @@ def test_pii_entities_excludes_all_skips_anonymize() -> None:
 
 @requires_presidio_libs
 def test_pii_entities_filter_hash_mode() -> None:
-    """Pin pii entities filter hash mode."""
     cfg = from_mapping(
         PetasosConfig,
         {

@@ -43,7 +43,6 @@ def _four(ctx: Any) -> dict[str, Any]:
 
 
 def pin(_request: dict[str, Any]) -> dict[str, Any]:
-    """Provide pin for the test fixture."""
     managed, module = _setup()
     (managed / "config.yaml").write_text(json.dumps({"model": {"default": "sandbox-only"}}))
     result = _cli("hermes", "pin", "--write")
@@ -62,7 +61,6 @@ def pin(_request: dict[str, Any]) -> dict[str, Any]:
 
 
 def partial(_request: dict[str, Any]) -> dict[str, Any]:
-    """Provide partial for the test fixture."""
     managed, _ = _setup()
     document = {
         "plugins": {
@@ -93,7 +91,6 @@ def partial(_request: dict[str, Any]) -> dict[str, Any]:
 
 
 def writes(request: dict[str, Any]) -> dict[str, Any]:
-    """Provide writes for the test fixture."""
     _setup()
     from petasos.config.schema import leaves
     from petasos.config.sections import PetasosConfig
@@ -186,7 +183,6 @@ def _nest(path: str, value: object) -> dict[str, Any]:
 
 
 def hand_edit(_request: dict[str, Any]) -> dict[str, Any]:
-    """Provide hand edit for the test fixture."""
     _setup()
     from petasos.hermes.settings import HermesSettings
 
@@ -258,21 +254,18 @@ def _command(arguments: list[str]) -> subprocess.CompletedProcess[str]:
 
 
 def disable(_request: dict[str, Any]) -> dict[str, Any]:
-    """Provide disable for the test fixture."""
     _setup()
     result = _command(["hermes", "plugins", "disable", "petasos"])
     return {"code": result.returncode, "out": result.stdout, "err": result.stderr}
 
 
 def loaded(_request: dict[str, Any]) -> dict[str, Any]:
-    """Provide loaded for the test fixture."""
     _setup()
     ctx = _context()
     return {"loaded": ctx is not None, "values": _four(ctx)}
 
 
 def unpin(request: dict[str, Any]) -> dict[str, Any]:
-    """Provide unpin for the test fixture."""
     _setup()
     args = ["hermes", "unpin", "--write"]
     if request.get("accept"):
@@ -281,7 +274,6 @@ def unpin(request: dict[str, Any]) -> dict[str, Any]:
 
 
 def unpinned(_request: dict[str, Any]) -> dict[str, Any]:
-    """Provide unpinned for the test fixture."""
     _, module = _setup()
     path = hermes_home() / "config.yaml"
     document = _import("hermes_cli.config").read_user_config_raw()
@@ -301,7 +293,6 @@ def unpinned(_request: dict[str, Any]) -> dict[str, Any]:
 
 
 def nullable(_request: dict[str, Any]) -> dict[str, Any]:
-    """Provide nullable for the test fixture."""
     _setup()
     ctx = _context()
     from petasos.hermes.dashboard.values import hermes_merge
@@ -322,7 +313,6 @@ def nullable(_request: dict[str, Any]) -> dict[str, Any]:
 
 
 def timeout(request: dict[str, Any]) -> dict[str, Any]:
-    """Provide timeout for the test fixture."""
     _setup()
     config = _import("hermes_cli.config")
     raw = config.read_user_config_raw()
@@ -345,7 +335,6 @@ def timeout(request: dict[str, Any]) -> dict[str, Any]:
 
 
 def redirect(_request: dict[str, Any]) -> dict[str, Any]:
-    """Provide redirect for the test fixture."""
     managed, module = _setup()
     machine = module._DEFAULT_MANAGED_DIR
     machine.mkdir()
@@ -363,7 +352,6 @@ def redirect(_request: dict[str, Any]) -> dict[str, Any]:
 
 
 def references(request: dict[str, Any]) -> dict[str, Any]:
-    """Provide references for the test fixture."""
     managed, _ = _setup()
     config = _import("hermes_cli.config")
     raw = config.read_user_config_raw()
@@ -387,7 +375,6 @@ def references(request: dict[str, Any]) -> dict[str, Any]:
 
 
 def main() -> None:
-    """Run the isolated test harness."""
     request = json.loads(sys.stdin.read())
     actions = {
         "pin": pin,

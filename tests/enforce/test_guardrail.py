@@ -40,7 +40,6 @@ class _Sink:
         self.events: list[dict[str, object]] = []
 
     def emit(self, event: object) -> bool:
-        """Provide emit for the test fixture."""
         if isinstance(event, dict):
             self.events.append(dict(event))
         return True
@@ -116,7 +115,6 @@ def _score(enforcer: Enforcer, session: str = "s1") -> float:
 
 
 def test_never_blocks_and_the_score_rises(tmp_path: Path) -> None:
-    """Pin never blocks and the score rises."""
     sink = _Sink()
     enforcer, _source, path = _enforcer(tmp_path, sink, mode="never", directive=True)
     decision = enforcer.tool_call(_write(path))
@@ -133,7 +131,6 @@ def test_never_blocks_and_the_score_rises(tmp_path: Path) -> None:
 
 
 def test_approve_asks_when_a_person_can_answer(tmp_path: Path) -> None:
-    """Pin approve asks when a person can answer."""
     sink = _Sink()
     enforcer, _source, path = _enforcer(tmp_path, sink)
     decision = enforcer.tool_call(_write(path))
@@ -153,7 +150,6 @@ def test_approve_asks_when_a_person_can_answer(tmp_path: Path) -> None:
     [ApprovalGrant(mode_off=True), ApprovalGrant(yolo=True), ApprovalGrant(context=True)],
 )
 def test_an_auto_grant_blocks(tmp_path: Path, grant: ApprovalGrant) -> None:
-    """Pin an auto grant blocks."""
     sink = _Sink()
     enforcer, _source, path = _enforcer(tmp_path, sink, grant=grant)
     decision = enforcer.tool_call(_write(path))
@@ -164,7 +160,6 @@ def test_an_auto_grant_blocks(tmp_path: Path, grant: ApprovalGrant) -> None:
 
 
 def test_no_approve_directive_blocks(tmp_path: Path) -> None:
-    """Pin no approve directive blocks."""
     sink = _Sink()
     enforcer, _source, path = _enforcer(tmp_path, sink, directive=False)
     decision = enforcer.tool_call(_write(path))
@@ -174,7 +169,6 @@ def test_no_approve_directive_blocks(tmp_path: Path) -> None:
 
 
 def test_a_live_session_grant_covers_the_same_session_until_it_expires(tmp_path: Path) -> None:
-    """Pin a live session grant covers the same session until it expires."""
     sink = _Sink()
     clock = ManualClock(monotonic=1_000.0, wall=1_700_000_000.0)
     enforcer, _source, path = _enforcer(tmp_path, sink, clock=clock)
@@ -201,7 +195,6 @@ def test_a_live_session_grant_covers_the_same_session_until_it_expires(tmp_path:
 
 
 def test_another_session_is_not_covered(tmp_path: Path) -> None:
-    """Pin another session is not covered."""
     sink = _Sink()
     enforcer, _source, path = _enforcer(tmp_path, sink)
     first = enforcer.tool_call(_write(path))
@@ -214,7 +207,6 @@ def test_another_session_is_not_covered(tmp_path: Path) -> None:
 
 
 def test_an_always_entry_for_the_old_key_does_not_auto_approve(tmp_path: Path) -> None:
-    """Pin an always entry for the old key does not auto approve."""
     sink = _Sink()
     always = {"petasos.guardrail.1.s1"}
     enforcer, _source, path = _enforcer(tmp_path, sink, always=always)
@@ -227,7 +219,6 @@ def test_an_always_entry_for_the_old_key_does_not_auto_approve(tmp_path: Path) -
 def test_a_stopped_conversation_stays_blocked(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Pin a stopped conversation stays blocked."""
     monkeypatch.setattr(
         "petasos.session.frequency.time", SimpleNamespace(monotonic=lambda: 1000.0)
     )
@@ -246,7 +237,6 @@ def test_a_stopped_conversation_stays_blocked(
 
 
 def test_a_denied_answer_is_recorded_and_the_next_call_asks_again(tmp_path: Path) -> None:
-    """Pin a denied answer is recorded and the next call asks again."""
     sink = _Sink()
     enforcer, _source, path = _enforcer(tmp_path, sink)
     first = enforcer.tool_call(_write(path))
@@ -258,7 +248,6 @@ def test_a_denied_answer_is_recorded_and_the_next_call_asks_again(tmp_path: Path
 
 
 def test_an_applied_settings_change_is_recorded(tmp_path: Path) -> None:
-    """Pin an applied settings change is recorded."""
     sink = _Sink()
     enforcer, source, path = _enforcer(tmp_path, sink)
     source.snapshot = SettingsSnapshot(

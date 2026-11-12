@@ -24,12 +24,10 @@ class _FakeAnalyzer:
         self._score = score
 
     def analyze(self, **kwargs: Any) -> list[_FakePresidioResult]:
-        """Provide analyze for the test fixture."""
         return [_FakePresidioResult(self._score)]
 
 
 def test_presidio_confidence_clamped() -> None:
-    """Pin presidio confidence clamped."""
     high = PresidioScanner()
     high._analyzer = _FakeAnalyzer(99.0)
     high._loaded = True
@@ -43,7 +41,6 @@ def test_presidio_confidence_clamped() -> None:
 
 
 def test_overlap_resolve_severity_first() -> None:
-    """Pin overlap resolve severity first."""
     high_sev_low_conf = ScanFinding(
         rule_id="a",
         finding_type="injection",

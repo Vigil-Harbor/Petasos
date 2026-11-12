@@ -15,7 +15,6 @@ from petasos.session.alerting import AlertManager
     [("petasos.selfmod.config_write", "critical"), ("petasos.selfmod.config_ref", "high")],
 )
 def test_selfmod_alerts_keep_severity_and_bypass_cooldown(rule: str, severity: str) -> None:
-    """Pin selfmod alerts keep severity and bypass cooldown."""
     delivered: list[object] = []
     config = from_mapping(PetasosConfig, {"alerting": {"enabled": False}})
     manager = AlertManager(config)

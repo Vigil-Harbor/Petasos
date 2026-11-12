@@ -17,10 +17,7 @@ def _cfg(partial: dict[str, object] | None = None) -> PetasosConfig:
 
 
 class TestGuardPipelineIntegration:
-    """Pin Guard Pipeline Integration."""
-
     async def test_guard_uses_pipeline_for_param_scan(self) -> None:
-        """Pin guard uses pipeline for param scan."""
         cfg = _cfg(
             {
                 "tools": {
@@ -40,7 +37,6 @@ class TestGuardPipelineIntegration:
         assert result.findings
 
     async def test_guard_with_profile_exempt(self) -> None:
-        """Pin guard with profile exempt."""
         cfg = _cfg(
             {
                 "tools": {

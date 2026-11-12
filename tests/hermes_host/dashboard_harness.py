@@ -117,7 +117,6 @@ def compare(_request: dict[str, Any]) -> dict[str, Any]:
 
 
 def main() -> None:
-    """Run the isolated test harness."""
     _sandbox_root()
     request = json.loads(sys.stdin.read() or "{}")
     action = str(request.get("action", ""))

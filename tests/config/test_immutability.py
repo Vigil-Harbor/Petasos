@@ -10,15 +10,11 @@ from petasos.config.sections import PetasosConfig
 
 
 class TestImmutableExports:
-    """Pin Immutable Exports."""
-
     def test_builtin_profiles_immutable(self) -> None:
-        """Pin builtin profiles immutable."""
         for role in ROLES.values():
             assert isinstance(role.document, MappingProxyType)
 
     def test_config_copy_preserves_frequency_weights(self) -> None:
-        """Pin config copy preserves frequency weights."""
         cfg = from_mapping(
             PetasosConfig,
             {

@@ -9,7 +9,6 @@ pytestmark = requires_hermes_sandbox
 
 
 def test_set_config_round_trip_and_unset_default(standin: Sandbox) -> None:
-    """Pin set config round trip and unset default."""
     written = call(standin, {"action": "settings", "op": "set", "key": "level", "value": "strict"})
     assert written["value"] == "strict"
     assert "level: strict" in written["yaml"]
@@ -24,7 +23,6 @@ def test_set_config_round_trip_and_unset_default(standin: Sandbox) -> None:
 
 def test_dict_field_and_form_choice(standin: Sandbox) -> None:
     # Hermes deep-merges overrides, retaining keys omitted from a later write.
-    """Pin dict field and form choice."""
     written = call(
         standin, {"action": "settings", "op": "set", "key": "overrides.probe", "value": 7}
     )
@@ -39,7 +37,6 @@ def test_dict_field_and_form_choice(standin: Sandbox) -> None:
 
 
 def test_env_expansion_is_reread(standin: Sandbox) -> None:
-    """Pin env expansion is reread."""
     call(
         standin,
         {

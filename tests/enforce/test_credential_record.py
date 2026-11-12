@@ -15,7 +15,6 @@ if TYPE_CHECKING:
 
 
 def test_the_signed_approval_line_does_not_contain_the_secret(tmp_path: Path) -> None:
-    """Pin the signed approval line does not contain the secret."""
     secret = "synthetic-password-" + "x" * 80
 
     def redact(text: str, **options: bool) -> str:

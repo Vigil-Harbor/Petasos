@@ -77,7 +77,6 @@ def _ingest(pipeline: Pipeline, guard: ToolCallGuard, text: str, sid: str) -> An
 
 
 def test_ingestion_audit_carries_session() -> None:
-    """Pin ingestion audit carries session."""
     audits: list[Any] = []
     alerts: list[Any] = []
     cfg = from_mapping(PetasosConfig, {"audit": {"verbosity": "verbose"}})

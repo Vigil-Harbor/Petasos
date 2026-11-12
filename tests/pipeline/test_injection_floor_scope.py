@@ -41,7 +41,6 @@ def _blocking(findings: tuple[ScanFinding, ...]) -> list[ScanFinding]:
 
 
 def test_samples_are_real() -> None:
-    """Pin samples are real."""
     for rid in _INJECTION_SAMPLES:
         assert rid in _ALL_INJECTION_IDS, rid
     assert _STRUCTURAL_SAMPLE in _STRUCTURAL_RULE_IDS
@@ -53,26 +52,22 @@ class TestFloorRuleDirectionScope:
 
     @pytest.mark.parametrize("rid", [*_INJECTION_SAMPLES, _STRUCTURAL_SAMPLE])
     def test_default_scope_is_floor_every_direction(self, rid: str) -> None:
-        """Pin default scope is floor every direction."""
         assert _is_floor_rule(rid) is True
         assert _is_floor_rule(rid, "inbound", "all") is True
         assert _is_floor_rule(rid, "outbound", "all") is True
 
     def test_command_rule_is_never_floor(self) -> None:
-        """Pin command rule is never floor."""
         assert _is_floor_rule(_COMMAND_SAMPLE) is False
         assert _is_floor_rule(_COMMAND_SAMPLE, "outbound", "all") is False
         assert _is_floor_rule(_COMMAND_SAMPLE, "inbound", "inbound") is False
 
     @pytest.mark.parametrize("rid", _INJECTION_SAMPLES)
     def test_injection_relaxed_only_on_outbound_under_inbound_scope(self, rid: str) -> None:
-        """Pin injection relaxed only on outbound under inbound scope."""
         assert _is_floor_rule(rid, "outbound", "inbound") is False
         assert _is_floor_rule(rid, "inbound", "inbound") is True
         assert _is_floor_rule(rid, "outbound", "all") is True
 
     def test_structural_absolute_under_inbound_scope_outbound(self) -> None:
-        """Pin structural absolute under inbound scope outbound."""
         assert _is_floor_rule(_STRUCTURAL_SAMPLE, "outbound", "inbound") is True
 
 
@@ -81,7 +76,6 @@ class TestCodegenDirectionScopedInjection:
 
     @pytest.mark.parametrize("param_text", _OUTBOUND_INJECTION_AS_DATA)
     async def test_outbound_injection_as_data_passes(self, param_text: str) -> None:
-        """Pin outbound injection as data passes."""
         pipe = Pipeline(config=resolve({"role": "coding"}).config)
         inbound = await pipe.inspect(param_text, direction="inbound")
         assert any(f.rule_id in _ALL_INJECTION_IDS for f in _blocking(inbound.findings)), (
@@ -96,14 +90,12 @@ class TestCodegenDirectionScopedInjection:
 
     @pytest.mark.parametrize("param_text", _OUTBOUND_INJECTION_AS_DATA)
     async def test_inbound_injection_still_blocks(self, param_text: str) -> None:
-        """Pin inbound injection still blocks."""
         pipe = Pipeline(config=resolve({"role": "coding"}).config)
         res = await pipe.inspect(param_text, direction="inbound")
         assert res.safe is False
         assert any(f.rule_id in _ALL_INJECTION_IDS for f in _blocking(res.findings))
 
     async def test_structural_blocks_on_outbound(self) -> None:
-        """Pin structural blocks on outbound."""
         deep = "[" * 32 + "]" * 32
         pipe = Pipeline(config=resolve({"role": "coding"}).config)
         res = await pipe.inspect(deep, direction="outbound")
@@ -125,7 +117,6 @@ class TestCustomerServiceInboundUnchanged:
 
     @pytest.mark.parametrize("payload", _INBOUND_ATTACKS)
     async def test_customer_service_blocks_inbound_at_critical(self, payload: str) -> None:
-        """Pin customer service blocks inbound at critical."""
         pipe = Pipeline(config=resolve({"role": "support"}).config)
         res = await pipe.inspect(payload, direction="inbound")
         assert res.safe is False
@@ -141,7 +132,6 @@ class TestEscalationSafety:
     See docs/architecture/rationale.md, "Finding suppression floors"."""
 
     async def test_suppressed_outbound_injection_does_not_escalate(self) -> None:
-        """Pin suppressed outbound injection does not escalate."""
         config = resolve({"role": "coding"}).config
         assert config.frequency.enabled is True
         assert config.escalation.enabled is True
@@ -184,7 +174,6 @@ class TestOverrideLoopDirectionScoping:
         )
 
     async def test_override_applies_on_outbound(self) -> None:
-        """Pin override applies on outbound."""
         res = await self._pipe().inspect(self._PAYLOAD, direction="outbound")
         hit = [f for f in res.findings if f.rule_id == self._RULE]
         assert hit, f"expected {self._RULE} finding; got {[f.rule_id for f in res.findings]}"
@@ -192,7 +181,6 @@ class TestOverrideLoopDirectionScoping:
         assert res.safe is True
 
     async def test_override_refused_on_inbound(self) -> None:
-        """Pin override refused on inbound."""
         res = await self._pipe().inspect(self._PAYLOAD, direction="inbound")
         hit = [f for f in res.findings if f.rule_id == self._RULE]
         assert hit, f"expected {self._RULE} finding; got {[f.rule_id for f in res.findings]}"

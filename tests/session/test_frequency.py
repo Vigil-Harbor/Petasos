@@ -28,10 +28,7 @@ def _cfg(partial: dict[str, object] | None = None) -> PetasosConfig:
 
 
 class TestDecayMath:
-    """Pin Decay Math."""
-
     def test_score_halves_after_one_half_life(self) -> None:
-        """Pin score halves after one half life."""
         cfg = _cfg(
             {
                 "frequency": {
@@ -51,7 +48,6 @@ class TestDecayMath:
         assert abs(result.previous_score - 5.0) < 1e-9
 
     def test_score_decays_to_near_zero_after_many_half_lives(self) -> None:
-        """Pin score decays to near zero after many half lives."""
         cfg = _cfg(
             {
                 "frequency": {
@@ -71,7 +67,6 @@ class TestDecayMath:
         assert result.current_score < 1e-6
 
     def test_zero_elapsed_no_decay(self) -> None:
-        """Pin zero elapsed no decay."""
         cfg = _cfg(
             {
                 "frequency": {
@@ -91,7 +86,6 @@ class TestDecayMath:
         assert r2.previous_score == r1.current_score
 
     def test_decay_with_zero_initial_score(self) -> None:
-        """Pin decay with zero initial score."""
         cfg = _cfg(
             {
                 "frequency": {
@@ -111,7 +105,6 @@ class TestDecayMath:
         assert result.current_score == 0.0
 
     def test_multiple_updates_produce_reference_sequence(self) -> None:
-        """Pin multiple updates produce reference sequence."""
         cfg = _cfg(
             {
                 "frequency": {
@@ -137,10 +130,7 @@ class TestDecayMath:
 
 
 class TestWeightMatching:
-    """Pin Weight Matching."""
-
     def test_exact_match_takes_priority_over_glob(self) -> None:
-        """Pin exact match takes priority over glob."""
         cfg = _cfg(
             {
                 "frequency": {
@@ -159,7 +149,6 @@ class TestWeightMatching:
         assert result.current_score == 20.0
 
     def test_glob_match_longest_prefix_wins(self) -> None:
-        """Pin glob match longest prefix wins."""
         cfg = _cfg(
             {
                 "frequency": {
@@ -178,7 +167,6 @@ class TestWeightMatching:
         assert result.current_score == 10.0
 
     def test_no_match_returns_zero(self) -> None:
-        """Pin no match returns zero."""
         cfg = _cfg(
             {
                 "frequency": {
@@ -194,7 +182,6 @@ class TestWeightMatching:
         assert result.current_score == 0.0
 
     def test_multiple_rule_ids_weights_summed(self) -> None:
-        """Pin multiple rule ids weights summed."""
         cfg = _cfg(
             {
                 "frequency": {
@@ -219,7 +206,6 @@ class TestWeightMatching:
         assert result.current_score == 15.0
 
     def test_empty_rule_ids_only_decays(self) -> None:
-        """Pin empty rule ids only decays."""
         cfg = _cfg(
             {
                 "frequency": {
@@ -240,10 +226,7 @@ class TestWeightMatching:
 
 
 class TestRollingWindow:
-    """Pin Rolling Window."""
-
     def test_findings_within_window_counted(self) -> None:
-        """Pin findings within window counted."""
         cfg = _cfg(
             {
                 "frequency": {
@@ -265,7 +248,6 @@ class TestRollingWindow:
         assert len(state.rolling_findings) == 3
 
     def test_findings_outside_window_pruned(self) -> None:
-        """Pin findings outside window pruned."""
         cfg = _cfg(
             {
                 "frequency": {
@@ -289,7 +271,6 @@ class TestRollingWindow:
         assert len(state.rolling_findings) == 1
 
     def test_rolling_threshold_promotes_to_tier1(self) -> None:
-        """Pin rolling threshold promotes to tier1."""
         cfg = _cfg(
             {
                 "frequency": {
@@ -315,7 +296,6 @@ class TestRollingWindow:
         assert result.current_score < cfg.escalation.tier1
 
     def test_empty_rolling_window_after_expiry(self) -> None:
-        """Pin empty rolling window after expiry."""
         cfg = _cfg(
             {
                 "frequency": {
@@ -340,10 +320,7 @@ class TestRollingWindow:
 
 
 class TestSessionEviction:
-    """Pin Session Eviction."""
-
     def test_ttl_eviction_removes_stale_sessions(self) -> None:
-        """Pin ttl eviction removes stale sessions."""
         cfg = _cfg(
             {
                 "sessions": {
@@ -368,7 +345,6 @@ class TestSessionEviction:
         assert tracker.get_state("fresh") is not None
 
     def test_max_sessions_evicts_oldest_prefers_terminated(self) -> None:
-        """Pin max sessions evicts oldest prefers terminated."""
         cfg = _cfg(
             {
                 "sessions": {
@@ -403,7 +379,6 @@ class TestSessionEviction:
         assert tracker.size == 3
 
     def test_eviction_never_removes_current_session(self) -> None:
-        """Pin eviction never removes current session."""
         cfg = _cfg(
             {
                 "sessions": {
@@ -429,7 +404,6 @@ class TestSessionEviction:
         assert tracker.size == 2
 
     def test_over_1000_sessions_no_crash(self) -> None:
-        """Pin over 1000 sessions no crash."""
         cfg = _cfg(
             {
                 "sessions": {
@@ -452,10 +426,7 @@ class TestSessionEviction:
 
 
 class TestRateLimiting:
-    """Pin Rate Limiting."""
-
     def test_new_session_rejected_at_capacity(self) -> None:
-        """Pin new session rejected at capacity."""
         cfg = _cfg(
             {
                 "sessions": {
@@ -478,7 +449,6 @@ class TestRateLimiting:
         assert result is RATE_LIMITED_RESULT
 
     def test_new_session_accepted_under_capacity(self) -> None:
-        """Pin new session accepted under capacity."""
         cfg = _cfg(
             {
                 "sessions": {
@@ -500,7 +470,6 @@ class TestRateLimiting:
         assert result.current_score == 1.0
 
     def test_rate_limit_window_rolls_forward(self) -> None:
-        """Pin rate limit window rolls forward."""
         cfg = _cfg(
             {
                 "sessions": {
@@ -527,10 +496,7 @@ class TestRateLimiting:
 
 
 class TestEdgeCases:
-    """Pin Edge Cases."""
-
     def test_terminated_session_returns_immediately(self) -> None:
-        """Pin terminated session returns immediately."""
         cfg = _cfg(
             {
                 "frequency": {
@@ -556,13 +522,11 @@ class TestEdgeCases:
         assert r2.current_score == r1.current_score
 
     def test_get_state_unknown_session_returns_none(self) -> None:
-        """Pin get state unknown session returns none."""
         cfg = _cfg()
         tracker = FrequencyTracker(cfg)
         assert tracker.get_state("nonexistent") is None
 
     def test_reset_removes_session(self) -> None:
-        """Pin reset removes session."""
         cfg = _cfg(
             {
                 "frequency": {
@@ -581,7 +545,6 @@ class TestEdgeCases:
         assert tracker.get_state("s1") is None
 
     def test_clear_removes_all_sessions_and_timestamps(self) -> None:
-        """Pin clear removes all sessions and timestamps."""
         cfg = _cfg(
             {
                 "frequency": {
@@ -603,17 +566,13 @@ class TestEdgeCases:
 
 
 class TestStaticResults:
-    """Pin Static Results."""
-
     def test_disabled_result_is_frozen(self) -> None:
-        """Pin disabled result is frozen."""
         assert DISABLED_RESULT.current_score == 0.0
         assert DISABLED_RESULT.tier == "none"
         assert DISABLED_RESULT.terminated is False
         assert DISABLED_RESULT.rate_limited is False
 
     def test_rate_limited_result_is_frozen(self) -> None:
-        """Pin rate limited result is frozen."""
         assert RATE_LIMITED_RESULT.current_score == 0.0
         assert RATE_LIMITED_RESULT.tier == "none"
         assert RATE_LIMITED_RESULT.terminated is False
@@ -621,10 +580,7 @@ class TestStaticResults:
 
 
 class TestWeightValidation:
-    """Pin Weight Validation."""
-
     def test_glob_key_with_non_terminal_star_raises(self) -> None:
-        """Pin glob key with non terminal star raises."""
         with pytest.raises(ValueError, match="frequency.weights"):
             FrequencyTracker(
                 _cfg(
@@ -637,7 +593,6 @@ class TestWeightValidation:
             )
 
     def test_default_weights_used_when_none(self) -> None:
-        """Pin default weights used when none."""
         cfg = _cfg(
             {
                 "frequency": {
@@ -655,7 +610,6 @@ class TestWeightValidation:
 
     def test_command_family_default_weight(self) -> None:
         # Build from default weights because construction caches the weight map.
-        """Pin command family default weight."""
         tracker = FrequencyTracker(
             _cfg(
                 {
@@ -672,10 +626,7 @@ _SECRET = b"test-secret-key-32-bytes-long!!!"
 
 
 class TestSessionToken:
-    """Pin Session Token."""
-
     def test_backward_compat_no_secret(self) -> None:
-        """Pin backward compat no secret."""
         cfg = _cfg()
         tracker = FrequencyTracker(cfg)
         with patch("petasos.session.frequency.time.monotonic", return_value=1000.0):
@@ -688,7 +639,6 @@ class TestSessionToken:
         assert tracker.get_state("s1") is None
 
     def test_valid_token_accepted(self) -> None:
-        """Pin valid token accepted."""
         cfg = _cfg()
         tracker = FrequencyTracker(cfg, secrets=Secrets(session_secret=_SECRET))
         token = tracker.mint_token("s1", "host-a")
@@ -700,14 +650,12 @@ class TestSessionToken:
         assert state.last_score == result.current_score
 
     def test_mint_token_without_secret_raises(self) -> None:
-        """Pin mint token without secret raises."""
         cfg = _cfg()
         tracker = FrequencyTracker(cfg)
         with pytest.raises(ValueError, match="no session_secret configured"):
             tracker.mint_token("s1", "host")
 
     def test_mint_token_rejects_null_bytes(self) -> None:
-        """Pin mint token rejects null bytes."""
         cfg = _cfg()
         tracker = FrequencyTracker(cfg, secrets=Secrets(session_secret=_SECRET))
         with pytest.raises(ValueError, match="null bytes"):
@@ -723,10 +671,7 @@ def _pinned_tracker(cfg: PetasosConfig) -> tuple[FrequencyTracker, LineageRegist
 
 
 class TestLineagePinning:
-    """Pin Lineage Pinning."""
-
     def test_terminated_child_unpins_parent(self) -> None:
-        """Pin terminated child unpins parent."""
         tracker, registry = _pinned_tracker(_cfg())
         registry.register("child", "parent")
         assert registry.is_pinned("parent") is True
@@ -734,7 +679,6 @@ class TestLineagePinning:
         assert registry.is_pinned("parent") is False
 
     def test_passive_eviction_retries_after_unpin(self) -> None:
-        """Pin passive eviction retries after unpin."""
         cfg = _cfg(
             {
                 "sessions": {
@@ -760,7 +704,6 @@ class TestLineagePinning:
             assert tracker.get_state("parent") is None
 
     def test_terminated_parent_ttl_evicted_unpins(self) -> None:
-        """Pin terminated parent ttl evicted unpins."""
         cfg = _cfg(
             {
                 "sessions": {
@@ -788,7 +731,6 @@ class TestLineagePinning:
 
     def test_pinning_hard_ceiling(self, caplog: pytest.LogCaptureFixture) -> None:
         # See docs/architecture/rationale.md, "Lineage lock order".
-        """Pin pinning hard ceiling."""
         cfg = _cfg(
             {
                 "sessions": {
@@ -813,7 +755,6 @@ class TestLineagePinning:
         assert tracker.is_terminated("survivor") is True
 
     def test_feature_off_eviction_is_unchanged(self) -> None:
-        """Pin feature off eviction is unchanged."""
         cfg = _cfg(
             {
                 "sessions": {
@@ -830,10 +771,7 @@ class TestLineagePinning:
 
 
 class TestWeightCapQuantization:
-    """Pin Weight Cap Quantization."""
-
     def test_raw_below_cap_contributes_nothing(self) -> None:
-        """Pin raw below cap contributes nothing."""
         tracker = FrequencyTracker(_cfg())
         t0 = 1000.0
         with patch("petasos.session.frequency.time.monotonic", return_value=t0):
@@ -844,7 +782,6 @@ class TestWeightCapQuantization:
         assert state.last_score == 0.0
 
     def test_raw_at_or_above_cap_contributes_exactly_the_cap(self) -> None:
-        """Pin raw at or above cap contributes exactly the cap."""
         tracker = FrequencyTracker(_cfg())
         t0 = 1000.0
         with patch("petasos.session.frequency.time.monotonic", return_value=t0):
@@ -854,7 +791,6 @@ class TestWeightCapQuantization:
             assert res.current_score == 10.0
 
     def test_omitting_the_keyword_is_byte_identical(self) -> None:
-        """Pin omitting the keyword is byte identical."""
         capped = FrequencyTracker(_cfg())
         plain = FrequencyTracker(_cfg())
         rids = ["petasos.syntactic.injection.x", "petasos.syntactic.encoding.y"]
@@ -867,7 +803,6 @@ class TestWeightCapQuantization:
 
     def test_step8_suppressed_when_capped_contribution_is_zero(self) -> None:
         # Zero-weight capped scans must not arm count-based rolling promotion.
-        """Pin step8 suppressed when capped contribution is zero."""
         tracker = FrequencyTracker(
             _cfg(
                 {
@@ -895,7 +830,6 @@ class TestWeightCapQuantization:
 
     def test_step8_unchanged_for_uncapped_callers(self) -> None:
         # Uncapped zero-weight findings still enter the count window.
-        """Pin step8 unchanged for uncapped callers."""
         tracker = FrequencyTracker(
             _cfg(
                 {

@@ -40,7 +40,6 @@ class _Clock:
         return getattr(time, name)
 
     def time(self) -> float:
-        """Provide time for the test fixture."""
         return self.now
 
 
@@ -354,7 +353,6 @@ def populate(request: dict[str, Any]) -> dict[str, Any]:
 
 
 def main() -> None:
-    """Run the isolated test harness."""
     sandbox_root()
     request = json.loads(sys.stdin.read() or "{}")
     action = str(request.get("action", ""))

@@ -17,10 +17,7 @@ def _cfg(partial: dict[str, object] | None = None) -> PetasosConfig:
 
 
 class TestTerminateSessionSetsTombstone:
-    """Pin Terminate Session Sets Tombstone."""
-
     def test_terminate_session_sets_tombstone(self) -> None:
-        """Pin terminate session sets tombstone."""
         cfg = _cfg()
         tracker = FrequencyTracker(cfg)
 
@@ -33,10 +30,7 @@ class TestTerminateSessionSetsTombstone:
 
 
 class TestTerminateSessionTombstoneWhenStateMissing:
-    """Pin Terminate Session Tombstone When State Missing."""
-
     def test_terminate_session_tombstone_when_state_missing(self) -> None:
-        """Pin terminate session tombstone when state missing."""
         cfg = _cfg()
         tracker = FrequencyTracker(cfg)
 
@@ -46,10 +40,7 @@ class TestTerminateSessionTombstoneWhenStateMissing:
 
 
 class TestTier3UpdateSetsTombstone:
-    """Pin Tier3 Update Sets Tombstone."""
-
     def test_tier3_update_sets_tombstone(self) -> None:
-        """Pin tier3 update sets tombstone."""
         cfg = _cfg(
             {
                 "escalation": {
@@ -70,10 +61,7 @@ class TestTier3UpdateSetsTombstone:
 
 
 class TestResetPreservesTombstone:
-    """Pin Reset Preserves Tombstone."""
-
     def test_reset_preserves_tombstone(self) -> None:
-        """Pin reset preserves tombstone."""
         cfg = _cfg()
         tracker = FrequencyTracker(cfg)
 
@@ -89,10 +77,7 @@ class TestResetPreservesTombstone:
 
 
 class TestForceResetClearsTombstone:
-    """Pin Force Reset Clears Tombstone."""
-
     def test_force_reset_clears_tombstone(self) -> None:
-        """Pin force reset clears tombstone."""
         cfg = _cfg()
         tracker = FrequencyTracker(cfg)
 
@@ -109,10 +94,7 @@ class TestForceResetClearsTombstone:
 
 
 class TestTombstoneBoundedFifo:
-    """Pin Tombstone Bounded Fifo."""
-
     def test_tombstone_bounded_fifo(self) -> None:
-        """Pin tombstone bounded fifo."""
         cfg = _cfg(
             {
                 "sessions": {
@@ -135,10 +117,7 @@ class TestTombstoneBoundedFifo:
 
 
 class TestTombstoneCapAtOne:
-    """Pin Tombstone Cap At One."""
-
     def test_tombstone_cap_at_one(self) -> None:
-        """Pin tombstone cap at one."""
         cfg = _cfg(
             {
                 "sessions": {
@@ -157,10 +136,7 @@ class TestTombstoneCapAtOne:
 
 
 class TestClearClearsTombstones:
-    """Pin Clear Clears Tombstones."""
-
     def test_clear_clears_tombstones(self) -> None:
-        """Pin clear clears tombstones."""
         cfg = _cfg()
         tracker = FrequencyTracker(cfg)
 
@@ -175,10 +151,7 @@ class TestClearClearsTombstones:
 
 
 class TestIsTerminatedFalseForUnknown:
-    """Pin Is Terminated False For Unknown."""
-
     def test_is_terminated_false_for_unknown(self) -> None:
-        """Pin is terminated false for unknown."""
         cfg = _cfg()
         tracker = FrequencyTracker(cfg)
 
@@ -186,10 +159,7 @@ class TestIsTerminatedFalseForUnknown:
 
 
 class TestIsTerminatedTrueForLiveTerminated:
-    """Pin Is Terminated True For Live Terminated."""
-
     def test_is_terminated_true_for_live_terminated(self) -> None:
-        """Pin is terminated true for live terminated."""
         cfg = _cfg()
         tracker = FrequencyTracker(cfg)
 
@@ -204,10 +174,7 @@ class TestIsTerminatedTrueForLiveTerminated:
 
 
 class TestTombstoneCountProperty:
-    """Pin Tombstone Count Property."""
-
     def test_tombstone_count_property(self) -> None:
-        """Pin tombstone count property."""
         cfg = _cfg()
         tracker = FrequencyTracker(cfg)
 
@@ -221,10 +188,7 @@ class TestTombstoneCountProperty:
 
 
 class TestDoubleTerminationIdempotent:
-    """Pin Double Termination Idempotent."""
-
     def test_double_termination_idempotent(self) -> None:
-        """Pin double termination idempotent."""
         cfg = _cfg(
             {
                 "sessions": {

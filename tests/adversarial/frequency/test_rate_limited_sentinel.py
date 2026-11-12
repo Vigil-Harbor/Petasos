@@ -25,16 +25,12 @@ def _cfg(changes: dict[str, Any] | None = None) -> PetasosConfig:
 
 
 class TestRateLimitedSentinel:
-    """Pin Rate Limited Sentinel."""
-
     def test_rate_limited_distinct_from_disabled(self) -> None:
-        """Pin rate limited distinct from disabled."""
         assert RATE_LIMITED_RESULT.rate_limited is True
         assert DISABLED_RESULT.rate_limited is False
         assert RATE_LIMITED_RESULT.tier == DISABLED_RESULT.tier == "none"
 
     def test_rate_limited_result_fields(self) -> None:
-        """Pin rate limited result fields."""
         assert RATE_LIMITED_RESULT.tier == "none"
         assert RATE_LIMITED_RESULT.rate_limited is True
         assert RATE_LIMITED_RESULT.terminated is False
@@ -42,7 +38,6 @@ class TestRateLimitedSentinel:
         assert RATE_LIMITED_RESULT.previous_score == 0.0
 
     def test_disabled_result_fields(self) -> None:
-        """Pin disabled result fields."""
         assert DISABLED_RESULT.tier == "none"
         assert DISABLED_RESULT.rate_limited is False
         assert DISABLED_RESULT.terminated is False
@@ -50,7 +45,6 @@ class TestRateLimitedSentinel:
         assert DISABLED_RESULT.previous_score == 0.0
 
     def test_update_returns_rate_limited_at_cap(self) -> None:
-        """Pin update returns rate limited at cap."""
         cfg = _cfg({"sessions": {"max": 2, "max_new_per_minute": 2}})
         tracker = FrequencyTracker(cfg)
         t0 = 1000.0

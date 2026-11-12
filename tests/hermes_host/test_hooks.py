@@ -30,7 +30,6 @@ def _pre(box: Sandbox, behavior: dict[str, Any], **extra: Any) -> dict[str, Any]
 
 
 def test_pre_tool_call_block_none_and_unknown(standin: Sandbox) -> None:
-    """Pin pre tool call block none and unknown."""
     blocked = _pre(standin, {"return": {"action": "block", "message": "stopped"}})
     assert blocked["host"]["block"] == "stopped"
     assert set(blocked["keys"]) >= PRE_KEYS
@@ -50,7 +49,6 @@ def test_pre_tool_call_block_none_and_unknown(standin: Sandbox) -> None:
 
 
 def test_pre_tool_call_raise_and_timeout(standin: Sandbox) -> None:
-    """Pin pre tool call raise and timeout."""
     raised = _pre(standin, {"raise": "boom"}, tool_call_id="call-raise")
     message = raised["host"]["block"]
     assert isinstance(message, str)
@@ -65,7 +63,6 @@ def test_pre_tool_call_raise_and_timeout(standin: Sandbox) -> None:
 
 
 def test_transform_tool_result(standin: Sandbox) -> None:
-    """Pin transform tool result."""
     replaced = call(
         standin,
         {

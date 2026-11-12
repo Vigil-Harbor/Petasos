@@ -33,7 +33,6 @@ class _Scanner:
         self.direction: str | None = None
 
     def scan(self, text: str, direction: str | None = None) -> _Result:
-        """Supply the configured scanner response for this fixture."""
         self.direction = direction
         return self.result
 
@@ -78,7 +77,6 @@ def _scan(
 
 
 def test_read_only_is_skipped_and_a_finding_blocks() -> None:
-    """Pin read only is skipped and a finding blocks."""
     scanner = _Scanner(_Result((_finding(),)))
     skipped, events = _scan("read_file", {"path": "a"}, scanner, dangerous=False)
     assert skipped.outcome == "skipped"
@@ -96,7 +94,6 @@ def test_read_only_is_skipped_and_a_finding_blocks() -> None:
 
 
 def test_scan_error_and_exception_are_errored_without_a_block() -> None:
-    """Pin scan error and exception are errored without a block."""
     scanner = _Scanner(_Result(error="boom"))
     errored, _events = _scan("terminal", {"command": "echo hi"}, scanner)
     assert errored.outcome == "errored"
@@ -126,7 +123,6 @@ def test_scan_error_and_exception_are_errored_without_a_block() -> None:
 
 
 def test_fail_mode_allows_only_a_clean_open_scan() -> None:
-    """Pin fail mode allows only a clean open scan."""
     events: list[dict[str, object]] = []
 
     def decide(outcome: str | None, fail_mode: object, *, dangerous: bool = True) -> Block | None:
@@ -158,7 +154,6 @@ def _raise_type_error(_name: str) -> bool:
 
 
 def test_unclassifiable_name_fails_secure() -> None:
-    """Pin unclassifiable name fails secure."""
     decision = fallback_decision(
         "terminal",
         "errored",
@@ -186,7 +181,6 @@ def test_unclassifiable_name_fails_secure() -> None:
 
 
 def test_tier3_unavailable_block_uses_the_guard_message() -> None:
-    """Pin tier3 unavailable block uses the guard message."""
     events: list[dict[str, object]] = []
     decision = tier3_unavailable_block(
         "read_file",
@@ -211,7 +205,6 @@ def test_tier3_unavailable_block_uses_the_guard_message() -> None:
 def test_a_truncated_parameter_is_logged_and_a_raising_scan_is_errored(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Pin a truncated parameter is logged and a raising scan is errored."""
     from petasos.limits import MAX_PARAM_TEXT_LEN
 
     logger_name = "petasos.enforce.test.fallback"

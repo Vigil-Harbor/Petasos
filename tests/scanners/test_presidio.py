@@ -59,7 +59,6 @@ class TestAvailabilityProbe:
     """Pin Availability Probe."""
 
     def test_unavailable_when_blocked(self) -> None:
-        """Pin unavailable when blocked."""
         scanner = PresidioScanner()
         with patch.dict("sys.modules", _BLOCKED_PRESIDIO_MODULES):
             avail, reason, _cause = scanner.availability()
@@ -68,7 +67,6 @@ class TestAvailabilityProbe:
         assert "pip install" in reason
 
     def test_terminal_error_returns_unavailable(self) -> None:
-        """Pin terminal error returns unavailable."""
         scanner = PresidioScanner()
         scanner._load_error = RuntimeError("broken")
         scanner._load_error_retryable = False
@@ -81,7 +79,6 @@ class TestAvailabilityProbe:
 async def test_cold_load_does_not_block_timeout_or_analyze_cancelled_text(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Pin cold load does not block timeout or analyze cancelled text."""
     scanner = PresidioScanner()
     entered = threading.Event()
     release = threading.Event()
@@ -112,15 +109,11 @@ async def test_cold_load_does_not_block_timeout_or_analyze_cancelled_text(
 
 
 class TestSeverityMapping:
-    """Pin Severity Mapping."""
-
     def test_critical_entities(self) -> None:
-        """Pin critical entities."""
         for et in ("CREDIT_CARD", "IBAN_CODE", "US_SSN", "US_BANK_NUMBER", "CRYPTO"):
             assert _SEVERITY_MAP[et] == Severity.CRITICAL
 
     def test_high_entities(self) -> None:
-        """Pin high entities."""
         for et in (
             "EMAIL_ADDRESS",
             "PHONE_NUMBER",
@@ -131,57 +124,42 @@ class TestSeverityMapping:
             assert _SEVERITY_MAP[et] == Severity.HIGH
 
     def test_medium_entities(self) -> None:
-        """Pin medium entities."""
         for et in ("PERSON", "LOCATION", "DATE_TIME", "NRP"):
             assert _SEVERITY_MAP[et] == Severity.MEDIUM
 
     def test_unknown_defaults_to_low(self) -> None:
-        """Pin unknown defaults to low."""
         assert _SEVERITY_MAP.get("SOME_UNKNOWN_TYPE", Severity.LOW) == Severity.LOW
 
 
 class TestEntityTypeRecovery:
-    """Pin Entity Type Recovery."""
-
     def test_presidio_prefix(self) -> None:
-        """Pin presidio prefix."""
         assert _recover_entity_type("petasos.presidio.person") == "PERSON"
 
     def test_presidio_prefix_with_hyphen(self) -> None:
-        """Pin presidio prefix with hyphen."""
         assert _recover_entity_type("petasos.presidio.us-ssn") == "US_SSN"
 
     def test_non_presidio_rule(self) -> None:
-        """Pin non presidio rule."""
         assert (
             _recover_entity_type("petasos.syntactic.injection.role-switch-capability")
             == "ROLE_SWITCH_CAPABILITY"
         )
 
     def test_simple_dotted(self) -> None:
-        """Pin simple dotted."""
         assert _recover_entity_type("scanner.email_address") == "EMAIL_ADDRESS"
 
 
 class TestScannerProtocol:
-    """Pin Scanner Protocol."""
-
     def test_satisfies_protocol(self) -> None:
-        """Pin satisfies protocol."""
         scanner = PresidioScanner()
         assert isinstance(scanner, Scanner)
 
     def test_name_property(self) -> None:
-        """Pin name property."""
         scanner = PresidioScanner()
         assert scanner.name == "presidio"
 
 
 class TestLazyLoadFailure:
-    """Pin Lazy Load Failure."""
-
     async def test_import_error_returns_errored_result(self) -> None:
-        """Pin import error returns errored result."""
         scanner = PresidioScanner()
         with patch.dict("sys.modules", {"presidio_analyzer": None}):
             scanner._loaded = False
@@ -194,7 +172,6 @@ class TestLazyLoadFailure:
             assert result.findings == ()
 
     async def test_spacy_model_missing(self) -> None:
-        """Pin spacy model missing."""
         scanner = PresidioScanner()
 
         scanner._load_error = None
@@ -207,7 +184,6 @@ class TestLazyLoadFailure:
             assert result.findings == ()
 
     async def test_backend_exception_during_analyze(self) -> None:
-        """Pin backend exception during analyze."""
         scanner = PresidioScanner()
         scanner._loaded = True
         scanner._analyzer = type(
@@ -240,18 +216,13 @@ def _make_finding(
 
 
 class TestAnonymizeEmptyInputs:
-    """Pin Anonymize Empty Inputs."""
-
     def test_empty_findings_returns_original(self) -> None:
-        """Pin empty findings returns original."""
         assert anonymize("Hello world", []) == "Hello world"
 
     def test_empty_text_returns_empty(self) -> None:
-        """Pin empty text returns empty."""
         assert anonymize("", []) == ""
 
     def test_all_unpositioned_findings_returns_original(self) -> None:
-        """Pin all unpositioned findings returns original."""
         finding = ScanFinding(
             rule_id="petasos.presidio.person",
             finding_type="pii",
@@ -267,10 +238,7 @@ class TestAnonymizeEmptyInputs:
 
 @requires_presidio_libs
 class TestAnonymizeRedact:
-    """Pin Anonymize Redact."""
-
     def test_single_entity_redacted(self) -> None:
-        """Pin single entity redacted."""
         text = "Call John Smith please"
         finding = _make_finding("petasos.presidio.person", 5, 15, matched_text="John Smith")
         result = anonymize(text, [finding], mode="redact")
@@ -278,7 +246,6 @@ class TestAnonymizeRedact:
         assert "John Smith" not in result
 
     def test_multiple_entity_types(self) -> None:
-        """Pin multiple entity types."""
         text = "Email john@example.com or call 555-1234"
         f1 = _make_finding(
             "petasos.presidio.email_address", 6, 22, matched_text="john@example.com"
@@ -290,10 +257,7 @@ class TestAnonymizeRedact:
 
 
 class TestAnonymizeReplace:
-    """Pin Anonymize Replace."""
-
     def test_counter_based_labels(self) -> None:
-        """Pin counter based labels."""
         text = "John and Jane are friends"
         f1 = _make_finding("petasos.presidio.person", 0, 4, matched_text="John")
         f2 = _make_finding("petasos.presidio.person", 9, 13, matched_text="Jane")
@@ -304,7 +268,6 @@ class TestAnonymizeReplace:
         assert "Jane" not in result
 
     def test_counter_resets_across_calls(self) -> None:
-        """Pin counter resets across calls."""
         text = "John is here"
         finding = _make_finding("petasos.presidio.person", 0, 4, matched_text="John")
         r1 = anonymize(text, [finding], mode="replace")
@@ -314,10 +277,7 @@ class TestAnonymizeReplace:
 
 @requires_presidio_libs
 class TestAnonymizeHash:
-    """Pin Anonymize Hash."""
-
     def test_hmac_deterministic(self) -> None:
-        """Pin hmac deterministic."""
         text = "John Smith lives here"
         finding = _make_finding("petasos.presidio.person", 0, 10, matched_text="John Smith")
         r1 = anonymize(text, [finding], mode="hash", hash_key="secret")
@@ -326,7 +286,6 @@ class TestAnonymizeHash:
         assert "John Smith" not in r1
 
     def test_different_keys_produce_different_hashes(self) -> None:
-        """Pin different keys produce different hashes."""
         text = "John Smith lives here"
         finding = _make_finding("petasos.presidio.person", 0, 10, matched_text="John Smith")
         r1 = anonymize(text, [finding], mode="hash", hash_key="key1")
@@ -334,42 +293,36 @@ class TestAnonymizeHash:
         assert r1 != r2
 
     def test_hash_without_key_raises(self) -> None:
-        """Pin hash without key raises."""
         text = "John Smith lives here"
         finding = _make_finding("petasos.presidio.person", 0, 10, matched_text="John Smith")
         with pytest.raises(ValueError, match="hash_key"):
             anonymize(text, [finding], mode="hash")
 
     def test_hash_mode_rejects_empty_key(self) -> None:
-        """Pin hash mode rejects empty key."""
         text = "John Smith lives here"
         finding = _make_finding("petasos.presidio.person", 0, 10, matched_text="John Smith")
         with pytest.raises(ValueError, match="hash_key"):
             anonymize(text, [finding], mode="hash", hash_key="")
 
     def test_hash_mode_with_valid_key_works(self) -> None:
-        """Pin hash mode with valid key works."""
         text = "John Smith lives here"
         finding = _make_finding("petasos.presidio.person", 0, 10, matched_text="John Smith")
         result = anonymize(text, [finding], mode="hash", hash_key="secret")
         assert "John Smith" not in result
 
     def test_hmac_operator_rejects_empty_key(self) -> None:
-        """Pin hmac operator rejects empty key."""
         cls = _make_hmac_operator_class()
         op = cls()
         with pytest.raises(ValueError, match="non-empty"):
             op.validate({"hmac_key": ""})
 
     def test_hmac_operator_rejects_missing_key(self) -> None:
-        """Pin hmac operator rejects missing key."""
         cls = _make_hmac_operator_class()
         op = cls()
         with pytest.raises(ValueError):
             op.validate({})
 
     def test_redact_mode_ignores_hash_key(self) -> None:
-        """Pin redact mode ignores hash key."""
         text = "John Smith lives here"
         finding = _make_finding("petasos.presidio.person", 0, 10, matched_text="John Smith")
         result = anonymize(text, [finding], mode="redact", hash_key=None)
@@ -378,10 +331,7 @@ class TestAnonymizeHash:
 
 
 class TestAnonymizeMask:
-    """Pin Anonymize Mask."""
-
     def test_mask_hides_leading(self) -> None:
-        """Pin mask hides leading."""
         text = "SSN 123-45-6789"
         finding = _make_finding("petasos.presidio.us_ssn", 4, 15, matched_text="123-45-6789")
         result = anonymize(text, [finding], mode="mask")
@@ -390,14 +340,12 @@ class TestAnonymizeMask:
         assert "*" in result
 
     def test_mask_short_value_fully_masked(self) -> None:
-        """Pin mask short value fully masked."""
         text = "Age 25 here"
         finding = _make_finding("petasos.presidio.date_time", 4, 6, matched_text="25")
         result = anonymize(text, [finding], mode="mask")
         assert result == "Age ** here"
 
     def test_mask_matched_text_none_fallback(self) -> None:
-        """Pin mask matched text none fallback."""
         text = "SSN 123-45-6789"
         finding = _make_finding("petasos.presidio.us_ssn", 4, 15, matched_text=None)
         result = anonymize(text, [finding], mode="mask")
@@ -406,10 +354,7 @@ class TestAnonymizeMask:
 
 
 class TestAnonymizeOverlap:
-    """Pin Anonymize Overlap."""
-
     def test_overlapping_manual_path_deduplicates(self) -> None:
-        """Pin overlapping manual path deduplicates."""
         text = "John Smith Jr is here"
         f1 = _make_finding(
             "petasos.presidio.person", 0, 10, confidence=0.9, matched_text="John Smith"
@@ -421,7 +366,6 @@ class TestAnonymizeOverlap:
         assert result.count("<PERSON_") == 1
 
     def test_overlapping_higher_confidence_wins(self) -> None:
-        """Pin overlapping higher confidence wins."""
         text = "John Smith Jr is here"
         f1 = _make_finding(
             "petasos.presidio.person", 0, 10, confidence=0.7, matched_text="John Smith"
@@ -435,10 +379,7 @@ class TestAnonymizeOverlap:
 
 
 class TestAnonymizeUnsortedFindings:
-    """Pin Anonymize Unsorted Findings."""
-
     def test_reverse_order_input_handled(self) -> None:
-        """Pin reverse order input handled."""
         text = "John and Jane"
         f1 = _make_finding("petasos.presidio.person", 9, 13, matched_text="Jane")
         f2 = _make_finding("petasos.presidio.person", 0, 4, matched_text="John")
@@ -449,10 +390,7 @@ class TestAnonymizeUnsortedFindings:
 
 @requires_presidio_libs
 class TestAnonymizeMixedPositioned:
-    """Pin Anonymize Mixed Positioned."""
-
     def test_unpositioned_findings_skipped(self) -> None:
-        """Pin unpositioned findings skipped."""
         text = "John is at john@test.com"
         positioned = _make_finding("petasos.presidio.person", 0, 4, matched_text="John")
         unpositioned = ScanFinding(
@@ -472,15 +410,11 @@ class TestAnonymizeMixedPositioned:
 
 @requires_presidio
 class TestPresidioScannerIntegration:
-    """Pin Presidio Scanner Integration."""
-
     @pytest.fixture
     def scanner(self) -> PresidioScanner:
-        """Provide scanner for the test fixture."""
         return PresidioScanner()
 
     def test_detect_email(self, scanner: PresidioScanner) -> None:
-        """Pin detect email."""
         result = asyncio.run(scanner.scan("Contact us at john@example.com for details"))
         assert result.error is None
         assert len(result.findings) > 0
@@ -491,14 +425,12 @@ class TestPresidioScannerIntegration:
         assert f.matched_text == "john@example.com"
 
     def test_detect_phone(self, scanner: PresidioScanner) -> None:
-        """Pin detect phone."""
         result = asyncio.run(scanner.scan("Call me at 555-123-4567"))
         assert result.error is None
         phone_findings = [f for f in result.findings if "phone" in f.rule_id]
         assert len(phone_findings) > 0
 
     def test_detect_person(self) -> None:
-        """Pin detect person."""
         scanner = PresidioScanner(entities=["PERSON"])
         result = asyncio.run(scanner.scan("My name is John Smith and I live in New York"))
         assert result.error is None
@@ -506,7 +438,6 @@ class TestPresidioScannerIntegration:
         assert len(persons) > 0
 
     def test_detect_credit_card(self, scanner: PresidioScanner) -> None:
-        """Pin detect credit card."""
         result = asyncio.run(scanner.scan("My credit card is 4111-1111-1111-1111"))
         assert result.error is None
         cc = [f for f in result.findings if "credit_card" in f.rule_id]
@@ -514,19 +445,16 @@ class TestPresidioScannerIntegration:
         assert cc[0].severity == Severity.CRITICAL
 
     def test_no_pii_clean(self, scanner: PresidioScanner) -> None:
-        """Pin no pii clean."""
         result = asyncio.run(scanner.scan("The weather is nice today"))
         assert result.error is None
         assert len(result.findings) == 0
 
     def test_empty_text(self, scanner: PresidioScanner) -> None:
-        """Pin empty text."""
         result = asyncio.run(scanner.scan(""))
         assert result.error is None
         assert len(result.findings) == 0
 
     def test_position_accuracy(self, scanner: PresidioScanner) -> None:
-        """Pin position accuracy."""
         text = "Email john@example.com now"
         result = asyncio.run(scanner.scan(text))
         for f in result.findings:
@@ -534,19 +462,16 @@ class TestPresidioScannerIntegration:
                 assert text[f.position.start : f.position.end] == f.matched_text
 
     def test_confidence_range(self, scanner: PresidioScanner) -> None:
-        """Pin confidence range."""
         result = asyncio.run(scanner.scan("john@example.com, 555-1234, John Smith"))
         for f in result.findings:
             assert 0.0 < f.confidence <= 1.0
 
     def test_duration_tracked(self, scanner: PresidioScanner) -> None:
-        """Pin duration tracked."""
         result = asyncio.run(scanner.scan("john@example.com"))
         assert result.duration_ms > 0
 
     def test_score_threshold_filtering(self) -> None:
         # PERSON is opt-in, so explicit scope makes the threshold assertion nonvacuous.
-        """Pin score threshold filtering."""
         scanner = PresidioScanner(entities=["PERSON"], score_threshold=0.9)
         result = asyncio.run(scanner.scan("Maybe John from somewhere"))
         assert result.error is None
@@ -554,7 +479,6 @@ class TestPresidioScannerIntegration:
             assert f.confidence >= 0.9
 
     def test_custom_entities_filter(self) -> None:
-        """Pin custom entities filter."""
         scanner = PresidioScanner(entities=["EMAIL_ADDRESS"])
         result = asyncio.run(scanner.scan("John at john@example.com"))
         assert result.error is None
@@ -562,7 +486,6 @@ class TestPresidioScannerIntegration:
             assert "email" in f.rule_id
 
     def test_multi_finding_message(self, scanner: PresidioScanner) -> None:
-        """Pin multi finding message."""
         result = asyncio.run(
             scanner.scan("Contact John Smith at john@example.com or 555-123-4567")
         )
@@ -573,7 +496,6 @@ class TestPresidioScannerIntegration:
         assert any("phone" in r for r in rule_ids)
 
     def test_scanner_name_in_findings(self, scanner: PresidioScanner) -> None:
-        """Pin scanner name in findings."""
         result = asyncio.run(scanner.scan("john@example.com"))
         for f in result.findings:
             assert f.scanner_name == "presidio"
@@ -581,8 +503,6 @@ class TestPresidioScannerIntegration:
 
 @requires_presidio
 class TestAnonymizeIntegration:
-    """Pin Anonymize Integration."""
-
     def _scan_and_anonymize(
         self,
         text: str,
@@ -600,20 +520,17 @@ class TestAnonymizeIntegration:
         )
 
     def test_redact_removes_pii(self) -> None:
-        """Pin redact removes pii."""
         text = "Email john@example.com please"
         result = self._scan_and_anonymize(text, mode="redact")
         assert "john@example.com" not in result
         assert "<" in result
 
     def test_replace_with_counters(self) -> None:
-        """Pin replace with counters."""
         text = "Contact John Smith or Jane Doe"
         result = self._scan_and_anonymize(text, mode="replace", entities=["PERSON"])
         assert "John Smith" not in result or "Jane Doe" not in result
 
     def test_hash_with_key_deterministic(self) -> None:
-        """Pin hash with key deterministic."""
         text = "Email john@example.com please"
         r1 = self._scan_and_anonymize(text, mode="hash", hash_key="test-key")
         r2 = self._scan_and_anonymize(text, mode="hash", hash_key="test-key")
@@ -621,7 +538,6 @@ class TestAnonymizeIntegration:
         assert "john@example.com" not in r1
 
     def test_mask_shows_trailing(self) -> None:
-        """Pin mask shows trailing."""
         text = "SSN is 123-45-6789"
         scanner = PresidioScanner()
         result = asyncio.run(scanner.scan(text))
@@ -634,7 +550,6 @@ class TestAnonymizeIntegration:
 def test_availability_names_a_crash_a_missing_package_and_a_present_one(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Pin availability names a crash a missing package and a present one."""
     import importlib.util
     import sys
     import types
@@ -672,7 +587,6 @@ def test_availability_names_a_crash_a_missing_package_and_a_present_one(
 def test_a_retryable_load_is_retried_and_a_crash_is_raised(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Pin a retryable load is retried and a crash is raised."""
     scanner = PresidioScanner()
     scanner._load_error = ImportError("temporary", name="presidio_analyzer")
     scanner._load_error_retryable = True

@@ -548,7 +548,6 @@ def followups(request: dict[str, Any]) -> dict[str, Any]:
 
 
 def main() -> None:
-    """Run the isolated test harness."""
     request = json.loads(sys.stdin.read() or "{}")
     action = str(request.get("action", ""))
     handlers = {"check": check, "capture": capture, "followups": followups}

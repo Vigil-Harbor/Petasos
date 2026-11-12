@@ -28,7 +28,6 @@ class _Store:
         }
 
     def write(self, values: Any, _plugin_dir: Path) -> None:
-        """Provide write for the test fixture."""
         for key, value in values.items():
             current = self.settings.get(key)
             if isinstance(current, dict) and isinstance(value, dict):

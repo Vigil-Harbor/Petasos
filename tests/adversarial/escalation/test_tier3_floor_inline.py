@@ -12,13 +12,11 @@ if TYPE_CHECKING:
 
 
 def test_tier3_floor_resists_module_rebind(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Pin tier3 floor resists module rebind."""
     monkeypatch.setattr(escalation, "TIER3_FLOOR", 5.0)
     assert derive_tier(29.0, 15.0, 20.0, 5.0) != "tier3"
     assert derive_tier(30.0, 15.0, 20.0, 5.0) == "tier3"
 
 
 def test_tier3_floor_default_behavior() -> None:
-    """Pin tier3 floor default behavior."""
     assert derive_tier(29.9, 15.0, 20.0, 25.0) != "tier3"
     assert derive_tier(30.0, 15.0, 20.0, 25.0) == "tier3"

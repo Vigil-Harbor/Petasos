@@ -861,7 +861,6 @@ _CONFIG_ROOT = Path("petasos/config")
 
 
 def test_config_modules_import_nothing_above_the_config_layer() -> None:
-    """Pin config modules import nothing above the config layer."""
     offenders: list[str] = []
     for path in sorted(_CONFIG_ROOT.rglob("*.py")):
         if path.name == "__init__.py" and path.parent == _CONFIG_ROOT:
@@ -888,10 +887,7 @@ def test_config_modules_import_nothing_above_the_config_layer() -> None:
 
 
 class TestIsolation:
-    """Pin Isolation."""
-
     def test_schema_imports_nothing_else_from_petasos(self) -> None:
-        """Pin schema imports nothing else from petasos."""
         root = Path(__file__).resolve().parents[1]
         script = """
 import importlib.util

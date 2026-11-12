@@ -12,7 +12,6 @@ from petasos.session.escalation import derive_tier, evaluate_tier
 
 @pytest.mark.parametrize("bad", [float("inf"), float("nan")])
 def test_non_finite_score_derives_tier3(bad: float) -> None:
-    """Pin non finite score derives tier3."""
     cfg = PetasosConfig()
     assert (
         derive_tier(bad, cfg.escalation.tier1, cfg.escalation.tier2, cfg.escalation.tier3)

@@ -53,7 +53,6 @@ def _write_profile(
 def test_list_hermes_profiles_enumerates_and_marks_active(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Pin list hermes profiles enumerates and marks active."""
     root = _point_root_at(tmp_path, monkeypatch)
     _write_profile(root, "alpha", {"fail_mode": "open"}, active=True)
     _write_profile(root, "beta", {"fail_mode": "closed"})
@@ -71,7 +70,6 @@ def test_list_hermes_profiles_enumerates_and_marks_active(
 def test_list_hermes_profiles_failsoft_missing_dir(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Pin list hermes profiles failsoft missing dir."""
     monkeypatch.delenv("HERMES_HOME", raising=False)
     if platform.system() == "Windows":
         monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "empty"))
@@ -83,7 +81,6 @@ def test_list_hermes_profiles_failsoft_missing_dir(
 def test_resolve_profile_config_path_member_and_traversal(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Pin resolve profile config path member and traversal."""
     root = _point_root_at(tmp_path, monkeypatch)
     _write_profile(root, "alpha", {"fail_mode": "open"}, active=True)
 
@@ -101,7 +98,6 @@ def test_resolve_profile_config_path_member_and_traversal(
 def test_regression_pet238_default_resolves_to_the_root_and_stays_off_the_list(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Pin default resolves to the root and stays off the list."""
     root = _point_root_at(tmp_path, monkeypatch)
     _write_profile(root, "alpha", {"fail_mode": "open"}, active=True)
 
@@ -115,7 +111,6 @@ def test_regression_pet238_default_resolves_to_the_root_and_stays_off_the_list(
 def test_a_profiles_default_folder_is_not_listed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Pin a profiles default folder is not listed."""
     root = _point_root_at(tmp_path, monkeypatch)
     _write_profile(root, "alpha", {"fail_mode": "open"}, active=True)
     _write_profile(root, "default", {"fail_mode": "closed"}, active=False)
@@ -127,7 +122,6 @@ def test_a_profiles_default_folder_is_not_listed(
 
 
 def test_default_under_hermes_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Pin default under hermes home."""
     _point_root_at(tmp_path / "unused", monkeypatch)
     custom = tmp_path / "custom"
     monkeypatch.setenv("HERMES_HOME", str(custom))
@@ -271,7 +265,6 @@ def test_use_override_false_ignores_override(
 def test_windows_root_uses_localappdata_and_absorbs_a_missing_home(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Pin windows root uses localappdata and absorbs a missing home."""
     monkeypatch.setattr(platform, "system", lambda: "Windows")
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
     assert hermes_root() == tmp_path / "hermes"
@@ -288,7 +281,6 @@ def test_windows_root_uses_localappdata_and_absorbs_a_missing_home(
 def test_a_bad_profile_pointer_falls_back_to_root(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Pin a bad profile pointer falls back to root."""
     root = _point_root_at(tmp_path, monkeypatch)
     (root / "active_profile").write_text("default", encoding="utf-8")
     from petasos.hermes.home import read_active_profile, resolve_active_profile_dir
@@ -315,7 +307,6 @@ def test_a_bad_profile_pointer_falls_back_to_root(
 def test_petasos_section_read_distinguishes_empty_from_broken(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Pin petasos section read distinguishes empty from broken."""
     from petasos.hermes.home import (
         display_path,
         read_petasos_section,
@@ -351,7 +342,6 @@ if TYPE_CHECKING:
 
 
 def test_active_profile_traversal_is_rejected(tmp_path: pathlib.Path) -> None:
-    """Pin active profile traversal is rejected."""
     from petasos.hermes.home import resolve_active_profile_dir
 
     (tmp_path / "profiles").mkdir()

@@ -35,7 +35,6 @@ def test_committed_project_matches_the_generator() -> None:
 def test_generated_versions_and_wheel_range_follow_the_package(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Pin generated versions and wheel range follow the package."""
     monkeypatch.setattr(petasos, "__version__", "7.8.9")
     manifest = yaml.safe_load(render_manifest())
     project = tomllib.loads(render_plugin_project())["project"]

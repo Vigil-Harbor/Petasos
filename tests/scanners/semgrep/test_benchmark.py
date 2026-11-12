@@ -19,7 +19,6 @@ from scripts import semgrep_benchmark_protocol as protocol
 
 
 def passing_records() -> dict[str, Any]:
-    """Provide passing records for the test fixture."""
     records: dict[str, Any] = {"implementation": {"tracked_dirty": False}, "workloads": {}}
     for definition in protocol.case_plan(100):
         case = {**definition, "samples": [], "errors": [], "close": [{"status": "closed"}]}
@@ -48,7 +47,6 @@ def passing_records() -> dict[str, Any]:
 
 
 def expected_result(fixture: dict[str, Any]) -> ScanResult:
-    """Provide expected result for the test fixture."""
     return ScanResult(
         "semgrep",
         tuple(
@@ -76,7 +74,6 @@ def expected_result(fixture: dict[str, Any]) -> ScanResult:
 
 
 def test_pinned_bytes_and_case_plan() -> None:
-    """Pin pinned bytes and case plan."""
     manifest, fixtures = protocol.fixtures()
     assert manifest["workload_id"] == protocol.WORKLOAD
     assert fixtures["sixteen_64k_distinct"]["distinct_fragments"] == 16
@@ -97,14 +94,12 @@ LOADED_NAMES = [
 
 
 def set_seconds(records: dict[str, Any], name: str, seconds: float) -> None:
-    """Provide set seconds for the test fixture."""
     for sample in records["workloads"][name]["samples"]:
         sample["seconds"] = seconds
 
 
 @pytest.mark.parametrize("name", LOADED_NAMES)
 def test_every_loaded_row_has_the_deadline_max(name: str) -> None:
-    """Pin every loaded row has the deadline max."""
     records = passing_records()
     records["workloads"][name]["samples"][-1]["seconds"] = protocol.LOADED_MAX_SECONDS
     assert protocol.gate_failures(records) == []
@@ -121,7 +116,6 @@ def test_every_loaded_row_has_the_deadline_max(name: str) -> None:
     ],
 )
 def test_loaded_p95_is_relative_to_the_same_run_serial_mean(name: str, reference: str) -> None:
-    """Pin loaded p95 is relative to the same run serial mean."""
     records = passing_records()
     set_seconds(records, reference, 0.5)
     set_seconds(records, name, protocol.LOADED_RATIO * 0.5)
@@ -135,7 +129,6 @@ def test_loaded_p95_is_relative_to_the_same_run_serial_mean(name: str, reference
 @pytest.mark.parametrize("reference", ["single_16k", "sixteen_64k_distinct"])
 @pytest.mark.parametrize("breakage", ["absent", "no_successes"])
 def test_missing_ratio_reference_fails_closed(reference: str, breakage: str) -> None:
-    """Pin missing ratio reference fails closed."""
     records = passing_records()
     if breakage == "absent":
         del records["workloads"][reference]
@@ -166,7 +159,6 @@ def test_missing_ratio_reference_fails_closed(reference: str, breakage: str) -> 
     ],
 )
 def test_each_absolute_limit_fails(system: str | None, name: str, metric: str) -> None:
-    """Pin each absolute limit fails."""
     records = passing_records()
     if system:
         records["hardware"] = {"system": system}
@@ -184,7 +176,6 @@ def test_each_absolute_limit_fails(system: str | None, name: str, metric: str) -
 
 
 def test_windows_single_16k_limits_apply_only_on_windows() -> None:
-    """Pin windows single 16k limits apply only on windows."""
     assert protocol.SINGLE_16K_LIMITS == {"mean": 1.0, "p95": 1.2, "p99": 1.4}
     assert protocol.SINGLE_16K_LIMITS_WINDOWS == {"mean": 1.2, "p95": 1.4, "p99": 1.6}
     for system, passes in (("Windows", True), ("Darwin", False), ("Linux", False), (None, False)):
@@ -199,7 +190,6 @@ def test_windows_single_16k_limits_apply_only_on_windows() -> None:
     "failure", ["error", "missing", "unfinished", "warmup", "close", "resource", "residue"]
 )
 def test_incomplete_or_error_never_passes(failure: str) -> None:
-    """Pin incomplete or error never passes."""
     records = passing_records()
     case = records["workloads"]["eight_wide_single_16k_shared_owner_3_3_2"]
     if failure == "error":
@@ -224,7 +214,6 @@ def test_incomplete_or_error_never_passes(failure: str) -> None:
 
 
 def test_finding_and_coverage_mismatch_is_not_clean() -> None:
-    """Pin finding and coverage mismatch is not clean."""
     _, sources = protocol.fixtures()
     fixture = sources["single_16k"]
     result = expected_result(fixture)
@@ -238,7 +227,6 @@ def test_finding_and_coverage_mismatch_is_not_clean() -> None:
 
 
 async def test_sibling_errors_and_discard_time_preserved() -> None:
-    """Pin sibling errors and discard time preserved."""
     _, sources = protocol.fixtures()
     fixture = sources["single_16k"]
     result = expected_result(fixture)
@@ -270,7 +258,6 @@ async def test_sibling_errors_and_discard_time_preserved() -> None:
 
 
 async def test_cancellation_records_terminal_and_discards() -> None:
-    """Pin cancellation records terminal and discards."""
     started = asyncio.Event()
     cleaned = asyncio.Event()
 
@@ -295,7 +282,6 @@ async def test_cancellation_records_terminal_and_discards() -> None:
 
 
 async def test_discard_failure_preserves_original_error() -> None:
-    """Pin discard failure preserves original error."""
     _, sources = protocol.fixtures()
 
     async def discard() -> None:
@@ -316,7 +302,6 @@ async def test_discard_failure_preserves_original_error() -> None:
 
 
 def test_stage_timings_instrument_owned_root_removal(tmp_path: Path) -> None:
-    """Pin stage timings instrument owned root removal."""
     from contextlib import ExitStack
 
     root = tmp_path / "psg-owned00"
@@ -336,7 +321,6 @@ def test_stage_timings_instrument_owned_root_removal(tmp_path: Path) -> None:
 async def test_recorder_checkpoint_includes_cleanup_diagnostics(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Pin recorder checkpoint includes cleanup diagnostics."""
     from collections import deque
 
     from petasos.scanners.semgrep import runtime as runtime
@@ -353,7 +337,6 @@ async def test_recorder_checkpoint_includes_cleanup_diagnostics(
 
 
 def test_checkpoint_atomic_and_lf(tmp_path: Path) -> None:
-    """Pin checkpoint atomic and lf."""
     path = tmp_path / "partial.json"
     protocol.checkpoint(path, json.dumps({"unfinished": 8}, indent=2))
     assert b"\r" not in path.read_bytes()
@@ -365,7 +348,6 @@ async def test_canceled_checkpoint_finishes_before_final_write(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Pin canceled checkpoint finishes before final write."""
     entered = threading.Event()
     release = threading.Event()
     writes: list[int] = []
@@ -394,7 +376,6 @@ async def test_canceled_checkpoint_finishes_before_final_write(
 
 
 def test_monitor_snapshots_source_reference_once() -> None:
-    """Pin monitor snapshots source reference once."""
     pytest.importorskip("psutil")
     from scripts.semgrep_benchmark_resources import Resources
 
@@ -423,7 +404,6 @@ def test_monitor_snapshots_source_reference_once() -> None:
 
 @pytest.mark.parametrize("closed", [True, False])
 def test_monitor_closing_loop_is_not_missing_telemetry(closed: bool) -> None:
-    """Pin monitor closing loop is not missing telemetry."""
     pytest.importorskip("psutil")
     from scripts.semgrep_benchmark_resources import Resources
 
@@ -453,7 +433,6 @@ async def test_case_close_finishes_after_cancellation_and_stops_failed_runtime(
     monkeypatch: pytest.MonkeyPatch,
     cancel_count: int,
 ) -> None:
-    """Pin case close finishes after cancellation and stops failed runtime."""
     from petasos.scanners.semgrep.runtime import SemgrepCloseResult
 
     entered = asyncio.Event()
@@ -523,7 +502,6 @@ async def test_wall_budget_preserves_partial_failure_and_cleanup(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Pin wall budget preserves partial failure and cleanup."""
     cleaned = asyncio.Event()
 
     async def stalled(runs: int, records: dict[str, Any], recorder: Any) -> None:
@@ -573,7 +551,6 @@ async def test_real_fixture_finding_and_coverage_contract(fixture_name: str) -> 
 async def test_real_loaded_case_records_telemetry_and_closes(
     tmp_path: Path, plan_index: int
 ) -> None:
-    """Pin real loaded case records telemetry and closes."""
     _, sources = protocol.fixtures()
     case = {
         **protocol.case_plan(100)[plan_index],

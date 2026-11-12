@@ -81,14 +81,12 @@ def _run(code: str, tmp_path: Path) -> subprocess.CompletedProcess[str]:
 
 @pytest.mark.parametrize(("path", "index", "body"), PYTHON)
 def test_python_example(path: Path, index: int, body: str, tmp_path: Path) -> None:
-    """Pin python example."""
     completed = _run(body, tmp_path)
     assert completed.returncode == 0, f"{path}:{index}\n{completed.stdout}\n{completed.stderr}"
 
 
 @pytest.mark.parametrize("command", COMMANDS)
 def test_command_example_help(command: str, tmp_path: Path) -> None:
-    """Pin command example help."""
     args = shlex.split(command)[1:]
     if "--help" not in args:
         args.append("--help")
@@ -103,7 +101,6 @@ def test_command_example_help(command: str, tmp_path: Path) -> None:
 @pytest.mark.parametrize("args", [["doctor", "--json"], ["hermes", "install", "--dry-run"]])
 def test_read_only_commands_on_empty_home(args: list[str], tmp_path: Path) -> None:
     # Ambient Hermes readers must not inspect machine locations or launch plugins.
-    """Pin read only commands on empty home."""
     completed = _run(
         "import sys\n"
         "sys.modules['hermes_cli'] = None\n"
@@ -136,7 +133,6 @@ def test_read_only_commands_on_empty_home(args: list[str], tmp_path: Path) -> No
 def test_setting_example_runs_through_validation(
     command: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Pin setting example runs through validation."""
     from petasos import resolve
     from petasos.hermes.commands import main
 

@@ -21,7 +21,6 @@ if TYPE_CHECKING:
 async def test_selfmod_updates_a_tracker_without_the_frequency_feature(
     tmp_path: Path, secret: bytes | None
 ) -> None:
-    """Pin selfmod updates a tracker without the frequency feature."""
     config = from_mapping(PetasosConfig, {"frequency": {"enabled": False}})
     secrets = Secrets(session_secret=secret)
     pipeline = Pipeline(config=config, secrets=secrets, host_id="test-host")
