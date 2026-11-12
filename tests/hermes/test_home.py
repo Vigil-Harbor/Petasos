@@ -354,3 +354,17 @@ def test_petasos_section_read_distinguishes_empty_from_broken(
     shown = display_path(home + os.sep + "petasos-check")
     assert shown == "~" + os.sep + "petasos-check"
     assert root.is_dir()
+
+
+if TYPE_CHECKING:
+    import pathlib
+
+
+def test_active_profile_traversal_is_rejected(tmp_path: pathlib.Path) -> None:
+    from petasos.hermes.home import resolve_active_profile_dir
+
+    (tmp_path / "profiles").mkdir()
+    (tmp_path / "active_profile").write_text("../../evil")
+    resolved, warning = resolve_active_profile_dir(tmp_path)
+    assert resolved is None
+    assert warning is not None and "escapes" in warning

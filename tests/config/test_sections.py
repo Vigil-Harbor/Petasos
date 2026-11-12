@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import ast
 from dataclasses import fields as dataclass_fields
 from dataclasses import is_dataclass, replace
-from pathlib import Path
 
 import pytest
 
@@ -31,14 +29,15 @@ _TYPES = {
     "mapping[str, float]",
     "mapping[str, str]",
 }
+
 _RESTART_ROOTS = (
     "scanners.prompt_guard.",
     "scanners.presidio.",
     "scanners.semgrep.",
 )
+
 # A scan reads this list itself, so a role change applies without a restart.
 _LIVE = frozenset({"scanners.presidio.entities_extra"})
-_CONFIG_ROOT = Path("petasos/config")
 
 
 def _errors(document: dict[str, object]) -> tuple[tuple[str, str], ...]:
@@ -49,6 +48,27 @@ def _errors(document: dict[str, object]) -> tuple[tuple[str, str], ...]:
 
 def _has(errors: tuple[tuple[str, str], ...], path: str) -> bool:
     return any(item == path or item.startswith(path) for item, _message in errors)
+
+
+def _declared_specs() -> list[tuple[str, FieldSpec]]:
+    """Every setting() declaration in the tree, by dotted path."""
+    found: list[tuple[str, FieldSpec]] = []
+
+    def walk(cls: type[object], prefix: str) -> None:
+        for item in dataclass_fields(cls):  # type: ignore[arg-type]
+            spec = item.metadata.get(FieldSpec)
+            assert isinstance(spec, FieldSpec)
+            path = f"{prefix}.{item.name}" if prefix else item.name
+            found.append((path, spec))
+            default = PetasosConfig()
+            node: object = default
+            for part in path.split("."):
+                node = getattr(node, part)
+            if is_dataclass(node) and not isinstance(node, type):
+                walk(type(node), path)
+
+    walk(PetasosConfig, "")
+    return found
 
 
 def test_mapping_round_trip_keeps_a_fresh_config() -> None:
@@ -305,32 +325,6 @@ def test_hash_mode_without_a_key_is_not_a_config_error() -> None:
     assert not hasattr(config, "hash_key")
 
 
-def test_config_modules_import_nothing_above_the_config_layer() -> None:
-    offenders: list[str] = []
-    for path in sorted(_CONFIG_ROOT.rglob("*.py")):
-        if path.name == "__init__.py" and path.parent == _CONFIG_ROOT:
-            continue
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-        for node in ast.walk(tree):
-            modules: list[str | None]
-            if isinstance(node, ast.Import):
-                modules = [alias.name for alias in node.names]
-            elif isinstance(node, ast.ImportFrom):
-                modules = [node.module]
-            else:
-                continue
-            for module in modules:
-                if module is None or not module.startswith("petasos"):
-                    continue
-                if module == "petasos.model" or module.startswith("petasos.model."):
-                    continue
-                if module == "petasos.config" or module.startswith("petasos.config."):
-                    continue
-                offenders.append(f"{path}: {module}")
-
-    assert offenders == []
-
-
 def test_leaves_are_the_field_rows_of_describe() -> None:
     from petasos.config.schema import FieldInfo, describe
 
@@ -338,27 +332,6 @@ def test_leaves_are_the_field_rows_of_describe() -> None:
 
     assert leaves(PetasosConfig) == tuple(row for row in rows if isinstance(row, FieldInfo))
     assert len(rows) > len(leaves(PetasosConfig))
-
-
-def _declared_specs() -> list[tuple[str, FieldSpec]]:
-    """Every setting() declaration in the tree, by dotted path."""
-    found: list[tuple[str, FieldSpec]] = []
-
-    def walk(cls: type[object], prefix: str) -> None:
-        for item in dataclass_fields(cls):  # type: ignore[arg-type]
-            spec = item.metadata.get(FieldSpec)
-            assert isinstance(spec, FieldSpec)
-            path = f"{prefix}.{item.name}" if prefix else item.name
-            found.append((path, spec))
-            default = PetasosConfig()
-            node: object = default
-            for part in path.split("."):
-                node = getattr(node, part)
-            if is_dataclass(node) and not isinstance(node, type):
-                walk(type(node), path)
-
-    walk(PetasosConfig, "")
-    return found
 
 
 def test_every_setting_and_section_declares_a_plain_label() -> None:

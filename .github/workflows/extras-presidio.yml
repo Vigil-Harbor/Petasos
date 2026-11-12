@@ -10,10 +10,14 @@ on:
     paths:
       - "petasos/scanners/presidio.py"
       - "petasos/pipeline/**" # PET-119: profile→Presidio extras wiring
-      - "petasos/session/profiles/__init__.py" # PET-119: pii_entities_extra source
-      - "petasos/config.py"
-      - "tests/test_presidio_scanner.py"
-      - "tests/test_presidio_entity_scoping.py"
+      - "petasos/config/layers.py" # PET-119: pii_entities_extra source
+      - "petasos/config/**"
+      - "tests/scanners/test_presidio.py"
+      - "tests/scanners/test_presidio_entities.py"
+      - "tests/config/test_presidio_validation.py"
+      - "tests/pipeline/test_presidio_entities.py"
+      - "pyproject.toml"
+      - ".github/workflows/extras-presidio.yml"
       - "tests/conftest.py" # home of the fail-loud collection guard this lane arms
   schedule:
     - cron: "13 4 * * 1" # Mondays 04:13 UTC — off-peak, off-minute, distinct from the other extras lanes
@@ -39,4 +43,4 @@ jobs:
       # so `spacy download` doesn't fail with ModuleNotFoundError: No module named 'click'.
       - run: python -m pip install click
       - run: python -m spacy download en_core_web_lg
-      - run: pytest tests/test_presidio_entity_scoping.py tests/test_presidio_scanner.py -v --tb=short
+      - run: pytest tests/scanners/test_presidio_entities.py tests/scanners/test_presidio.py tests/config/test_presidio_validation.py tests/pipeline/test_presidio_entities.py -v --tb=short
