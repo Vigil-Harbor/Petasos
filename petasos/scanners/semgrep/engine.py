@@ -63,7 +63,7 @@ _T = TypeVar("_T")
 
 @dataclass(frozen=True)
 class CpuResult(Generic[_T]):
-    """Record CPU inspection output and cleanup evidence."""
+    """Record a bounded CPU worker value or error."""
 
     value: _T | None
     error: str | None

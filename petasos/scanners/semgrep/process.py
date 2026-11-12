@@ -38,7 +38,7 @@ CLEANUP_DEADLINE_OBSERVER: contextvars.ContextVar[Any] = contextvars.ContextVar(
 
 @dataclass(frozen=True)
 class ProcessResult:
-    """Record captured process output and bounded cleanup evidence."""
+    """Record child exit, captured stdout, error and peak memory."""
 
     returncode: int | None
     stdout: bytes

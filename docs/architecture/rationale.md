@@ -429,3 +429,11 @@ SDK controls, fonts and theme variables without a separate JavaScript toolchain.
 Examples of attack text come from the API rather than literal plugin assets because
 the host admission scan would treat those strings as attacks. Bundle freshness is
 checked against committed sources.
+
+## PromptGuard loading and sharing
+
+Torch and transformers are imported inside load and score, keeping scanner-package
+imports independent of optional ML libraries. Every inference use of torch stays
+inside score so default-lane tests can exercise admission and lifecycle without
+loading torch. Profile homes in a multiplexed Hermes process share a module-level
+model rather than allocating a model per scanner instance.
