@@ -1084,6 +1084,43 @@ Checked 2026-11-11 in sandbox `/tmp/petasos-u3-sbx`, home
   `plugins.disabled`, rebuilt the environment, and removed the `hermes
   petasos` command. The `plugins.entries.petasos` settings stayed.
 
+## 17. Seen on a live install, 2026-11-12 and 2026-11-13
+
+These come from installing Petasos into one profile of a real Hermes
+`v0.23.1`, started by launchd from a source checkout through Hermes's own
+launcher. Each was reproduced or read back afterwards.
+
+- **A `manifest.json` beside the checkout stops every environment rebuild.**
+  `pm/runtime.py` `_resident_runtime` reads a `manifest.json` in the
+  checkout's parent directory as the mark of a packaged install and then
+  wants a `pm-runtime` there. `hermes plugins enable petasos` failed with
+  `AdmissionRefused: pm-runtime: packaged PM runtime is missing or invalid —
+  reinstall this application`. Nothing was changed by the attempt. An
+  unrelated file of that name had been left there. Reproduced in the
+  sandbox: with the file, the same refusal; without it, the enable works.
+  Ordinary launches were not affected.
+- **`hermes gateway restart` rewrites the launchd service definition.** Its
+  first output line was "Updated gateway launchd service definition". The
+  file it wrote replaced the operator's program arguments with Hermes's
+  supervised form (`gateway run --external-supervisor` under an `osascript`
+  wrapper), replaced `PATH` with the calling shell's, and dropped the
+  operator's lock and state directory settings, although both
+  were set in the environment of the command. The restarted gateway then
+  kept its locks in Hermes's default lock directory, not the one the
+  operator had set. Putting the operator's file back
+  and reloading the service with `launchctl bootout` and `launchctl
+  bootstrap` restored the earlier behaviour. A clean stop removed the
+  gateway's token lock from that directory and left its
+  `host-gateway.json` and `host-gateway.lock` there.
+- **The command to restart after an enable is Hermes's advice, not ours.**
+  `hermes plugins enable` prints `hermes gateway restart`. Petasos does not
+  print it. An operator who manages the service definition themselves
+  should reload the service their own way.
+- **A plugin loaded in the gateway after a service reload.** With the
+  operator's definition restored (`gateway run --replace`), the gateway
+  started from the new environment and logged Petasos's start-up warning.
+  `hermes petasos doctor` reported Protected before and after.
+
 ## What was not run
 
 - No Hermes gateway, no messaging platform, no model provider, and no
