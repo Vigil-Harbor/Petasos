@@ -340,3 +340,60 @@ class _Lines(logging.Handler):
 
     def emit(self, record: logging.LogRecord) -> None:
         self.lines.append(record.getMessage())
+
+
+def test_checker_probe_and_unattended_grants_are_read_for_each_call(tmp_path: Path) -> None:
+    """No settings reload is needed when checker presence or approval context changes."""
+    import json
+
+    from petasos.enforce.types import ApprovalGrant
+
+    snapshot = _snapshot(prompt="off")
+    assert snapshot.config is not None
+    config = replace(
+        snapshot.config,
+        tools=replace(snapshot.config.tools, dangerous_posture="approve"),
+    )
+    source = _Source(replace(snapshot, config=config))
+    checker: str | None = "Shell checker"
+    grant = ApprovalGrant()
+    enforcer = _enforcer(
+        tmp_path,
+        source,
+        host=HostInfo(
+            approve_directive=True,
+            command_checker=lambda: checker,
+            approval_grant=lambda: grant,
+            subagent_hooks=False,
+        ),
+    )
+    call = ToolCall(tool="terminal", args={"command": "cat config.sh | sh"}, session="commands")
+    enforcer.start()
+    assert enforcer.settle(10)
+    try:
+        assert isinstance(enforcer.tool_call(call), Allow)
+        checker = None
+        assert isinstance(enforcer.tool_call(call), Approve)
+        checker = "Shell checker"
+        for context_grant in (
+            ApprovalGrant(mode_off=True),
+            ApprovalGrant(yolo=True),
+            ApprovalGrant(context=True),
+        ):
+            grant = context_grant
+            assert isinstance(enforcer.tool_call(call), Block)
+        grant = ApprovalGrant()
+        assert isinstance(enforcer.tool_call(call), Allow)
+        events = [
+            json.loads(line) for line in (tmp_path / "events.jsonl").read_text().splitlines()
+        ]
+        deferred = [event for event in events if event["event_type"] == "deferred"]
+        assert len(deferred) == 2
+        assert all(event["deferred_to"] == "Shell checker" for event in deferred)
+        engine = enforcer._core.engine
+        assert engine is not None
+        state = engine.tracker.get_state("commands")
+        assert state is not None
+        assert state.last_score == 0.0
+    finally:
+        enforcer.close()

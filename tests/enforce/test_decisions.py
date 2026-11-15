@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 
+import pytest
+
 from petasos.enforce.decisions import (
     Approve,
     Block,
@@ -89,6 +91,8 @@ def _decide(
     asks: bool | None = None,
     ask_raises: bool = False,
     seen: list[str] | None = None,
+    checker: str | None = None,
+    checker_raises: bool = False,
 ) -> tuple[Block | Approve | None, list[str], list[dict[str, object]]]:
     logs: list[str] = []
     events: list[dict[str, object]] = []
@@ -104,6 +108,11 @@ def _decide(
         if ask_raises:
             raise RuntimeError("detector moved")
         return bool(asks)
+
+    def command_checker() -> str | None:
+        if checker_raises:
+            raise RuntimeError("checker unavailable")
+        return checker
 
     handler = _Handler()
     logger.addHandler(handler)
@@ -127,6 +136,8 @@ def _decide(
             logger=logger,
             emit=lambda **fields: events.append(fields),
             command_will_be_asked=predicate,
+            command_checker=command_checker,
+            command_prompt_name="Host prompt",
         )
     finally:
         logger.removeHandler(handler)
@@ -219,6 +230,7 @@ def test_a_command_the_host_will_ask_about_is_recorded_and_not_decided() -> None
             "session_id": "sess",
             "tool": "terminal",
             "event_type": "deferred",
+            "deferred_to": "Host prompt",
             "severity": "HIGH",
             "rule_id": finding.rule_id,
             "reason": finding.message,
@@ -438,3 +450,98 @@ def test_approve_message_names_the_rule() -> None:
     assert "echo" in text
     degraded = approve_message("terminal", "petasos.degraded", "echo")
     assert "unreliable" in degraded
+
+
+@pytest.mark.parametrize("slug", ["pipe-to-shell", "decode-exec", "fetch-exec"])
+def test_loaded_checker_owns_execution_rules(slug: str) -> None:
+    finding = _finding(COMMAND + slug, finding_type="command")
+    chosen, _, events = _decide(
+        _guard(finding), posture="approve", approve=True, checker="Shell checker"
+    )
+    assert chosen is None
+    assert events[0]["event_type"] == "deferred"
+    assert events[0]["deferred_to"] == "Shell checker"
+
+
+COMMAND = "petasos.syntactic.command."
+
+
+@pytest.mark.parametrize("slug", ["alias-escape", "destructive-recursive"])
+@pytest.mark.parametrize("asks", [False, True])
+def test_checker_does_not_take_other_command_rules(slug: str, asks: bool) -> None:
+    finding = _finding(COMMAND + slug, finding_type="command")
+    original = _decide(_guard(finding), posture="approve", approve=True, asks=asks)
+    beside = _decide(
+        _guard(finding), posture="approve", approve=True, asks=asks, checker="Shell checker"
+    )
+    assert beside == original
+
+
+@pytest.mark.parametrize("asks", [False, True])
+def test_mixed_command_rules_need_an_owner_for_every_rule(asks: bool) -> None:
+    findings = [_finding(COMMAND + slug) for slug in ("fetch-exec", "alias-escape")]
+    chosen, _, events = _decide(
+        _guard(*findings), posture="approve", approve=True, asks=asks, checker="Shell checker"
+    )
+    if asks:
+        assert chosen is None
+        assert events[0]["deferred_to"] == "Shell checker and Host prompt"
+    else:
+        assert isinstance(chosen, Approve)
+        assert not events
+    waived, _, waived_events = _decide(
+        _guard(*findings),
+        posture="approve",
+        approve=True,
+        checker="Shell checker",
+        always={COMMAND + "alias-escape"},
+    )
+    assert waived is None
+    assert waived_events[0]["deferred_to"] == "Shell checker"
+
+
+@pytest.mark.parametrize(
+    "options,expected",
+    [
+        ({"posture": "block"}, Block),
+        ({"yolo": True}, Block),
+        ({"checker": None}, Approve),
+        ({"checker_raises": True}, Approve),
+        ({"tool": "process_manage"}, Approve),
+        ({"tool": "execute_code"}, Approve),
+        ({"args": {}}, Approve),
+    ],
+)
+def test_checker_keeps_each_missing_condition(
+    options: dict[str, object], expected: type[Block] | type[Approve]
+) -> None:
+    settings: dict[str, object] = {"posture": "approve", "approve": True, "checker": "Checker"}
+    settings.update(options)
+    chosen, _, events = _decide(_guard(_finding(COMMAND + "fetch-exec")), **settings)  # type: ignore[arg-type]
+    assert isinstance(chosen, expected)
+    assert all(event["event_type"] != "deferred" for event in events)
+
+
+@pytest.mark.parametrize(
+    "case", ["taint", "other", "pii", "degraded", "degraded_recorded", "hardline"]
+)
+def test_checker_does_not_bypass_other_protection(case: str) -> None:
+    findings = [_finding(COMMAND + "fetch-exec")]
+    if case == "other":
+        findings.append(_finding("petasos.syntactic.injection.ignore-previous"))
+    if case == "pii":
+        findings.append(_finding("pii.email", finding_type="pii"))
+    if case == "hardline":
+        findings.append(_finding(COMMAND + "destructive-recursive"))
+    chosen, _, events = _decide(
+        _guard(*findings, degraded=case.startswith("degraded")),
+        posture="approve",
+        approve=True,
+        checker="Checker",
+        egress=True,
+        namespaces=_NAMESPACES,
+        store=_Store("mcp_bank_" if case == "taint" else None),
+        recorded=case == "degraded_recorded",
+    )
+    assert isinstance(chosen, (Approve, Block))
+    assert not any(event["event_type"] == "deferred" for event in events)

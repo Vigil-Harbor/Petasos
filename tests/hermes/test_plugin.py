@@ -388,3 +388,41 @@ def test_register_logs_the_home_it_bound(
         close()
     expected = f"PETASOS_ARMED_RESOLUTION tier=hermes_home path={tmp_path / 'config.yaml'}"
     assert expected in caplog.text
+
+
+def test_command_checker_probe_is_live_and_follows_replacement_context(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from petasos.hermes.home import resolve_hermes_config_path
+
+    home = resolve_hermes_config_path().path.parent
+    manager = _Manager(home)
+    ctx = _Ctx(manager=manager)
+    loaded = False
+
+    def has_plugin(name: str) -> bool:
+        assert name == "tirith"
+        return loaded
+
+    ctx.has_plugin = has_plugin  # type: ignore[attr-defined]
+    close()
+    try:
+        register(ctx)
+        info = host_info()
+        assert info.command_checker() is None
+        loaded = True
+        assert info.command_checker() == "Tirith"
+        loaded = False
+        assert info.command_checker() is None
+        loaded = True
+        replacement = _Ctx(manager=manager)
+        register(replacement)
+        assert info.command_checker() is None
+
+        def raises(_name: str) -> bool:
+            raise RuntimeError("probe unavailable")
+
+        replacement.has_plugin = raises  # type: ignore[attr-defined]
+        assert info.command_checker() is None
+    finally:
+        close()

@@ -411,6 +411,8 @@ def _dangerous_or_allow(core: Core, call: ToolCall, session_id: str, result: obj
         logger=logger,
         emit=core.emit,
         command_will_be_asked=core.host.command_will_be_asked,
+        command_checker=core.host.command_checker,
+        command_prompt_name=core.host.command_prompt_name,
     )
     if isinstance(decision, Approve) and decision.rule_key == "petasos.degraded":
         core.book.note_degraded_pending(
