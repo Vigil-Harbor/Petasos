@@ -624,9 +624,9 @@ personal data leaving through an egress sink and a degraded parameter scan
 are never handed over. Neither `process_manage` nor `execute_code` gains
 this exception.
 
-A blocking role still blocks. Keeping the block in blocking roles is the
-designer's default, and the owner has been asked whether to keep it. This
-build keeps that default.
+A blocking role still blocks. The owner chose that on 2026-11-15: "I lean on
+keeping the Petasos block." In an unattended run where Hermes grants every
+ask, it is the only stop for these commands.
 
 The host supplies a callable fact and a display name; enforcement has no
 knowledge of Hermes or Tirith. The Hermes adapter calls the public

@@ -150,6 +150,11 @@ def _build(
                     "Petasos leaves pipes to a shell, decoded commands and downloaded scripts "
                     "to Tirith. Choose your role in Settings. A blocking role still blocks."
                 ),
+                meaning=(
+                    "Hermes keeps one note on a command's result. When Petasos and Tirith "
+                    "both have one, Petasos's is kept and Tirith's warning is left out. "
+                    "Both checks still ran."
+                ),
             )
         )
     paths = current_paths()
