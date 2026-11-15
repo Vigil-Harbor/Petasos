@@ -80,7 +80,7 @@ _KIND_LABELS = MappingProxyType(
         "block": "Blocked: conversation too risky",
         "tier3": "Conversation stopped",
         "approval": "Asked a person",
-        "deferred": "Left for Hermes to ask",
+        "deferred": "Left for another check",
         "bypassed_disarmed": "Let through while paused",
         "selfmod_attempt": "Attempt to change the guardrails",
         "guardrail": "Guardrail change",
@@ -110,8 +110,11 @@ def rule_family(rule_id: str) -> str:
     return ""
 
 
-def kind_label(kind: str) -> str:
+def kind_label(kind: str, event: Mapping[str, object] | None = None) -> str:
     """A plain name for one event type. Unknown types are returned as they are."""
+    if kind == "deferred" and event is not None:
+        owner = _text(event.get("deferred_to"))
+        return f"Left for {owner}" if owner else "Left for Hermes to ask"
     return _KIND_LABELS.get(kind, kind)
 
 
@@ -171,7 +174,9 @@ def outcome(
             return {"code": "approved", "label": "Person said yes"}
         return {"code": "answered", "label": "Answered"}
     if kind == "deferred":
-        return {"code": "deferred", "label": "Hermes will ask"}
+        owner = _text(event.get("deferred_to"))
+        label = f"Left for {owner}" if owner else "Hermes will ask"
+        return {"code": "deferred", "label": label}
     if kind == "bypassed_disarmed":
         return {"code": "allowed", "label": "Let through"}
     if kind == "ingest_flagged":
@@ -290,7 +295,8 @@ def describe_event(
         return "Could not check a tool result, and passed it on unmarked."
     if kind == "deferred":
         return (
-            "Recorded a dangerous command and left it for Hermes to ask a person about. "
+            f"Recorded a dangerous command and left it for "
+            f"{_text(event.get('deferred_to')) or 'Hermes to ask a person about'}. "
             "The conversation's risk score is unchanged."
         )
     if kind == "approval":

@@ -32,7 +32,8 @@ from petasos.enforce.messages import format_content_block, format_result_notice
 from petasos.hermes.dashboard.catalog import combine
 from petasos.hermes.dashboard.errors import ApiError, envelope
 from petasos.hermes.dashboard.words import CHECK_NOTE, RISK_NOTE, RISK_TIERS, looks_for
-from petasos.hermes.host import command_will_be_asked
+from petasos.hermes.host import approval_grant, command_will_be_asked
+from petasos.hermes.plugin import command_checker
 from petasos.model import Direction, PipelineResult, ScanFinding, Severity
 from petasos.normalize import canonicalize_tool_name, normalize
 from petasos.pipeline import Pipeline
@@ -488,6 +489,7 @@ async def _tool(
         evaluated = None
         logger.warning("playground tool check exceeded %ss", time_budget)
     findings: tuple[ScanFinding, ...] = ()
+    deferred_to: str | None = None
     decision = "allow"
     message = ""
     if timed_out:
@@ -512,7 +514,7 @@ async def _tool(
                 is_egress_sink(tool, sinks),
                 config.tools.dangerous_posture,
                 True,
-                False,
+                approval_grant().unattended,
                 namespaces=namespaces,
                 taint_store=SessionTaintStore(config),
                 always_approved=lambda _rule: False,
@@ -521,18 +523,21 @@ async def _tool(
                 logger=logger,
                 emit=lambda **fields: events.append(fields),
                 command_will_be_asked=command_will_be_asked,
+                command_checker=command_checker,
+                command_prompt_name="Hermes",
             )
-            deferred = any(event.get("event_type") == "deferred" for event in events)
+            deferred = next(
+                (event for event in events if event.get("event_type") == "deferred"), None
+            )
             if isinstance(chosen, Block):
                 decision = "block"
                 message = chosen.message
-            elif isinstance(chosen, Approve) or deferred:
+            elif deferred is not None:
+                decision = "allow"
+                deferred_to = str(deferred["deferred_to"])
+            elif isinstance(chosen, Approve):
                 decision = "approve"
-                message = (
-                    chosen.message
-                    if isinstance(chosen, Approve)
-                    else _OUTCOMES["approve"]["sentence"]
-                )
+                message = chosen.message
             elif chosen is None or isinstance(chosen, Allow):
                 decision = "allow"
     rendered = _argument_text(arguments)
@@ -546,6 +551,15 @@ async def _tool(
         timed_out,
         redactor,
     )
+    if deferred_to is not None:
+        body["outcome"] = {
+            "code": "allow",
+            "label": f"Left for {deferred_to}",
+            "sentence": (
+                f"Petasos would leave shell command checks to {deferred_to}. "
+                "The command still has to pass those checks."
+            ),
+        }
     body.update(_hidden_text(config, pipeline.result, statuses, timed_out, redactor))
     body["risk"] = _risk(config, tracker, timed_out)
     return body
