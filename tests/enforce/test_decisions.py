@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import TypedDict
 
 import pytest
 
@@ -500,6 +501,16 @@ def test_mixed_command_rules_need_an_owner_for_every_rule(asks: bool) -> None:
     assert waived_events[0]["deferred_to"] == "Shell checker"
 
 
+class _CheckerOptions(TypedDict, total=False):
+    posture: str
+    approve: bool
+    checker: str | None
+    checker_raises: bool
+    yolo: bool
+    tool: str
+    args: dict[str, object] | None
+
+
 @pytest.mark.parametrize(
     "options,expected",
     [
@@ -513,11 +524,11 @@ def test_mixed_command_rules_need_an_owner_for_every_rule(asks: bool) -> None:
     ],
 )
 def test_checker_keeps_each_missing_condition(
-    options: dict[str, object], expected: type[Block] | type[Approve]
+    options: _CheckerOptions, expected: type[Block] | type[Approve]
 ) -> None:
-    settings: dict[str, object] = {"posture": "approve", "approve": True, "checker": "Checker"}
+    settings: _CheckerOptions = {"posture": "approve", "approve": True, "checker": "Checker"}
     settings.update(options)
-    chosen, _, events = _decide(_guard(_finding(COMMAND + "fetch-exec")), **settings)  # type: ignore[arg-type]
+    chosen, _, events = _decide(_guard(_finding(COMMAND + "fetch-exec")), **settings)
     assert isinstance(chosen, expected)
     assert all(event["event_type"] != "deferred" for event in events)
 

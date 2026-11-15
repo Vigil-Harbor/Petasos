@@ -397,32 +397,34 @@ def test_command_checker_probe_is_live_and_follows_replacement_context(
 
     home = resolve_hermes_config_path().path.parent
     manager = _Manager(home)
-    ctx = _Ctx(manager=manager)
-    loaded = False
 
-    def has_plugin(name: str) -> bool:
-        assert name == "tirith"
-        return loaded
+    class _CheckerCtx(_Ctx):
+        loaded = False
+        broken = False
 
-    ctx.has_plugin = has_plugin  # type: ignore[attr-defined]
+        def has_plugin(self, name: str) -> bool:
+            assert name == "tirith"
+            if self.broken:
+                raise RuntimeError("probe unavailable")
+            return self.loaded
+
+    ctx = _CheckerCtx(manager=manager)
     close()
     try:
         register(ctx)
         info = host_info()
         assert info.command_checker() is None
-        loaded = True
+        ctx.loaded = True
         assert info.command_checker() == "Tirith"
-        loaded = False
+        ctx.loaded = False
         assert info.command_checker() is None
-        loaded = True
+        ctx.loaded = True
         replacement = _Ctx(manager=manager)
         register(replacement)
         assert info.command_checker() is None
-
-        def raises(_name: str) -> bool:
-            raise RuntimeError("probe unavailable")
-
-        replacement.has_plugin = raises  # type: ignore[attr-defined]
+        broken = _CheckerCtx(manager=manager)
+        broken.broken = True
+        register(broken)
         assert info.command_checker() is None
     finally:
         close()
