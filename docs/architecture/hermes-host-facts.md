@@ -1084,7 +1084,7 @@ Checked 2026-11-11 in sandbox `/tmp/petasos-u3-sbx`, home
   `plugins.disabled`, rebuilt the environment, and removed the `hermes
   petasos` command. The `plugins.entries.petasos` settings stayed.
 
-## 17. Seen on a live install, 2026-11-12 and 2026-11-13
+## 17. Seen on a live install, 2026-11-12 to 2026-11-14
 
 These come from installing Petasos into one profile of a real Hermes
 `v0.23.1`, started by launchd from a source checkout through Hermes's own
@@ -1120,6 +1120,16 @@ launcher. Each was reproduced or read back afterwards.
   operator's definition restored (`gateway run --replace`), the gateway
   started from the new environment and logged Petasos's start-up warning.
   `hermes petasos doctor` reported Protected before and after.
+- **A tool result reaches a plugin as JSON text.** `tools/file_tools.py`
+  returns `json.dumps(result_dict, ensure_ascii=False)` for a file read, and
+  `transform_tool_result` passes that string on unchanged. A line break in
+  the file is the two characters backslash and `n` in what the plugin sees.
+  Seen in the first full day's record, 2026-11-14: five results of about
+  100,000 characters were flagged by a rule that needs its parts on one
+  line. With the pages wrapped the way the file read wraps them, 45 of 1,919
+  matched; as plain text, 2 did. Petasos now reads each written line break in
+  a JSON result as a line break, and 3 match: those 2, and one page longer
+  than the scan reads, which a file read returns in parts.
 
 ## What was not run
 

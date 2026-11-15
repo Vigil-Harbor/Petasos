@@ -123,6 +123,12 @@ deleted.
 - `Severity.rank` is the one severity scale: info is 0, critical is 4, higher
   is more severe. Six hand-written copies of the ordering are gone. Finding
   comparisons behave as before.
+- A tool result handed over as a JSON document is read line by line. Hermes
+  returns most results as JSON text, where a line break inside a string is
+  written as backslash and `n`, so a whole file read counted as one line. A
+  rule that asks whether things share a line then flagged ordinary pages, and
+  a phrase broken over two lines was missed. Each written line break is now
+  read as one. Plain text results are scanned as before.
 
 ## Import paths
 

@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+import json
 import logging
+import re
 from typing import TYPE_CHECKING, Any
 
 from petasos.enforce.core import Core, Phase
@@ -20,6 +22,7 @@ from petasos.enforce.decisions import (
     match_source_namespace,
 )
 from petasos.guard.tools import NON_INGESTING_TOOLS
+from petasos.limits import MAX_PARAM_TEXT_LEN
 from petasos.normalize import canonicalize_tool_name
 from petasos.pipeline.ingest import scan_ingestion_result
 
@@ -32,6 +35,35 @@ _NON_INGESTING = frozenset(
     canon for canon in (canonicalize_tool_name(name) for name in NON_INGESTING_TOOLS) if canon
 )
 _DEFAULT_TIMEOUT = 10.0
+_JSON_START = re.compile(r'\s*[{\["]')
+_ESCAPE = re.compile(r"\\(.)", re.DOTALL)
+_LINE_BREAKS = {"n": " \n", "r": " \r"}
+
+
+def _line_break(escape: re.Match[str]) -> str:
+    return _LINE_BREAKS.get(escape.group(1), escape.group(0))
+
+
+def _with_line_breaks(result: str) -> str:
+    """The text to scan for ``result``, with a JSON document's line breaks made real.
+
+    A host may hand a result over as a JSON document. A line break inside one
+    of its strings is then the two characters backslash and ``n``, and a rule
+    that asks whether things share a line sees the whole result as one line.
+    Each such escape becomes a space and the line break, so the length and
+    every other character stay as they were. Text that is not a JSON document
+    comes back unchanged, because there a backslash is only a backslash. So
+    does a result longer than the scan reads.
+    """
+    if len(result) > MAX_PARAM_TEXT_LEN or "\\" not in result:
+        return result
+    if _JSON_START.match(result) is None:
+        return result
+    try:
+        json.loads(result)
+    except (ValueError, RecursionError):
+        return result
+    return _ESCAPE.sub(_line_break, result)
 
 
 def _ingestion(tool_name: str) -> bool:
@@ -134,7 +166,7 @@ def transform(core: Core, call: ToolCall, result: object) -> str | None:
         )
     try:
         scan = core.runtime.run_ingest(
-            _ingest(core, pipeline, result, session_id, armed, guard, budget)
+            _ingest(core, pipeline, _with_line_breaks(result), session_id, armed, guard, budget)
         )
     except (TimeoutError, concurrent.futures.TimeoutError):
         cause = "timeout"
