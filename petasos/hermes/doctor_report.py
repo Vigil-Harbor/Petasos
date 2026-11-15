@@ -138,6 +138,20 @@ def _build(
     hermes_available = hermes.version is not None or hermes.status == "ok"
     checks.append(approval_check(resolved, hermes_available=hermes_available))
     checks.append(rewriter_check(document))
+    from petasos.hermes.plugin import command_checker
+
+    if command_checker() == "Tirith":
+        checks.append(
+            Check(
+                id="command_checker",
+                status="info",
+                summary=(
+                    "Tirith checks shell commands. When your role asks for approval, "
+                    "Petasos leaves pipes to a shell, decoded commands and downloaded scripts "
+                    "to Tirith. Choose your role in Settings. A blocking role still blocks."
+                ),
+            )
+        )
     paths = current_paths()
     if resolved is None:
         mode, minutes = "approve", 30

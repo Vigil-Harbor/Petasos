@@ -650,3 +650,21 @@ def test_a_scanner_whose_model_is_missing_keeps_its_own_reason() -> None:
     row = _scanner_row(status, {"holds": True, "title": "t", "sentence": "s"})
 
     assert row["reason"] == status.reason
+
+
+def test_doctor_explains_loaded_tirith(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from petasos.hermes import plugin
+
+    home = healthy_home(tmp_path, monkeypatch)
+    monkeypatch.setattr(plugin, "command_checker", lambda: "Tirith")
+    _, out = _run(monkeypatch, ["doctor", "--home", str(home)], capsys)
+    assert "Tirith checks shell commands" in out
+    assert "pipes to a shell" in out
+    assert "decoded commands" in out
+    assert "downloaded scripts" in out
+    assert "blocking role still blocks" in out
+    monkeypatch.setattr(plugin, "command_checker", lambda: None)
+    _, out = _run(monkeypatch, ["doctor", "--home", str(home)], capsys)
+    assert "Tirith" not in out

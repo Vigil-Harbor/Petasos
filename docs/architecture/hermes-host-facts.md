@@ -1131,6 +1131,122 @@ launcher. Each was reproduced or read back afterwards.
   a JSON result as a line break, and 3 match: those 2, and one page longer
   than the scan reads, which a file read returns in parts.
 
+## 18. Beside Tirith, 2026-11-15
+
+Hermes source: tag `v0.23.1`, commit
+`3b421578588243f920886e6fe79a6faa87ea026e`. Tirith plugin source: catalog pin
+`42862b4e49cc5a46985973d982e2bf3969ad724f`, read from a clone under
+`/tmp/petasos-tirith-sbx/src/hermes-plugin-tirith`. That source was never
+imported, installed or executed. No Tirith binary was installed or run.
+All observations below use the copy `/tmp/petasos-tirith-sbx` through
+`bin/with-sandbox`, with both homes inside it. Tests are
+`tests/hermes_host/test_tirith.py` lines 22–60; the runner is
+`tests/hermes_host/tirith_harness.py` lines 83–137. Only `echo ok` executes,
+behind `order_harness.py`'s tripwire; the fixture changes its returned output to test notes. Other commands are
+data passed to hooks or gates. The copy is deleted after verification.
+
+### The loaded checker
+
+- **Read.** Tirith is no longer bundled with Hermes. The migration removes
+  `security.tirith_*` and enables nothing in its place
+  (`hermes_cli/config_migrations.py` lines 709–726;
+  `website/docs/user-guide/security.md` lines 892–893). The catalog says
+  0.21.5 still had the built-in check and 0.21.6 and later do not
+  (`plugin-catalog/tirith.yaml` lines 27–31). That catalog pins the repository,
+  commit above and `tirith` subdirectory (lines 1–4).
+- **Read.** The plugin registers `pre_tool_call`, `post_tool_call` and
+  `transform_tool_result` (`tirith/__init__.py` lines 73–76). It checks
+  terminal text and completed background-terminal input, not just foreground
+  commands (`tirith/README.md` lines 54–65; `tirith/__init__.py` lines
+  419–455). Its declared domain includes lookalike URLs, execution pipes,
+  obfuscation, exfiltration, packages and terminal injection (Hermes
+  `plugin-catalog/tirith.yaml` lines 7–13). We assign neither Petasos's alias
+  rule nor destructive-command rule to it. Binary coverage was not tested.
+- **Read.** A block normally asks, a critical block normally refuses, and a
+  warning normally runs with context appended. These are defaults, not
+  unconditional promises: `block_action`, `critical_action` and `warn_action`
+  are configurable (`tirith/plugin.yaml` lines 44–59;
+  `tirith/README.md` lines 59–65 and 144–149). Unattended runs follow Hermes's
+  approval modes; yolo and approval mode off approve asks, never refusals
+  (`tirith/README.md` lines 161–165). A pending warning is appended with
+  `return result + context` (`tirith/__init__.py` lines 563–584).
+- **Read.** `ctx.has_plugin(id)` publicly answers whether a plugin is loaded
+  and enabled, matching registry key or manifest name
+  (`hermes_cli/plugins_context.py` lines 57–63). Independent plugins load
+  alphabetically; a missing `requires_plugins` dependency warns instead of
+  preventing loading (`hermes_cli/plugins_manifest.py` lines 238–286).
+  Checking at Petasos registration would be too early to see Tirith.
+- **Observed.** With the harmless directory stand-in named `tirith`, Petasos
+  loads before Tirith, its host callback subsequently returns `Tirith`, and an asking
+  role records a `deferred` event naming Tirith for a fetch-exec terminal
+  command. The stand-in receives that same command after Petasos. Hermes's
+  command prompt then denies it; the command never executes. Doctor reports
+  Tirith's job and the retained block for blocking roles. The callback is
+  read at each decision, not cached in settings. Default tests also exercise
+  enable/disable and context replacement with no settings token change
+  (`tests/hermes/test_plugin.py`, `tests/enforce/test_enforcer.py`).
+
+### The two result hooks
+
+- **Read.** `transform_tool_result` is a final-result replacement hook, after
+  `post_tool_call`. Each callback receives the original result; Hermes picks
+  the first string returned. It does not pass a replacement through the next
+  plugin (`model_tools.py` lines 873–890). Petasos precedes Tirith when no
+  dependency changes that order.
+- **Observed.** For a terminal result containing the fixture injection,
+  Petasos returns its real note and the stand-in returns the original result
+  plus its warning. Hermes selects Petasos's string; the stand-in warning is
+  absent. For clean output Petasos returns none and the stand-in's string is
+  selected. The stand-in sees no Petasos note in either hook input.
+- **Read.** `transform_terminal_output` is an earlier output replacement
+  seam. Its explicit arguments are `command`, `output`, `returncode`,
+  `task_id`, `env_type` and the current `tool_call_id`. Foreground finalization
+  passes the effective terminal environment key as `task_id`, which can
+  collapse to `default` (`tools/terminal_tool.py` lines 517–562;
+  `tools/terminal_tool_result.py` line 230). The helper converts a missing
+  task id to an empty string.
+  Hermes also adds `telemetry_schema_version` for callbacks accepting extra
+  arguments (`tools/terminal_tool_result.py` lines 136–148;
+  `hermes_cli/plugins_dispatch.py` lines 275–293). It too keeps only the first
+  string. It receives no session id, conversation id, turn id, tool name,
+  tool argument mapping or complete result envelope.
+- **Read.** This hook does **not** run for every terminal result. Foreground
+  finalization applies it before truncation, ANSI stripping, secret redaction
+  and JSON wrapping (`tools/terminal_tool_result.py` lines 207–278).
+  Rejected calls, connection errors, execution errors and a result yielded
+  into the background bypass that finalizer (`tools/terminal_tool.py` lines
+  1380–1410 and 1587–1598). Background spawn takes a separate return at
+  lines 1571–1587. The background registry reuses the helper for process
+  output: `returncode` can be none and `env_type` is empty. Poll/log/wait/kill
+  results and notifications can use this path; result output fields are
+  transformed only when they contain nonempty strings
+  (`tools/process_registry.py` lines 2622–2655).
+- **Observed.** Both completed `echo ok` calls reach the earlier hook with
+  the arguments above; the denied fetch command does not. Its task id is the
+  terminal's effective `default`, despite an outer `order-task` id, so it is
+  not a substitute for the missing session id. A second stand-in
+  also returns an output replacement, but its string loses to the first.
+  Calling the real background helper on fixture output shows the same
+  first-string selection without starting a background process.
+- **Observed.** The `a-output` stand-in adds the earlier note; the separate
+  `tirith` stand-in appends the later warning. The earlier note survives JSON
+  wrapping into the final
+  `transform_tool_result` input. On clean output, the stand-in appends its
+  warning and both notes reach the final result. On flagged output, the
+  earlier note also survives Petasos's final-result annotation, while the
+  later stand-in warning loses as described above.
+
+**Recommendation.** Petasos could put a terminal note on
+`transform_terminal_output` and, when the later plugin preserves its input
+as Tirith does, both notes would survive. That would be a partial solution:
+it loses session identity and the complete tool-call/result context, misses
+some terminal returns and every non-terminal tool, is subject to truncation
+and redaction, and still competes with other early output replacements.
+Prefer a composable final-result hook in Hermes. Keep Petasos's current
+annotation path until that exists or a separate terminal supplement is
+explicitly designed; do not move session scanning and its record to this
+narrower hook. This task changes no result-annotation hook.
+
 ## What was not run
 
 - No Hermes gateway, no messaging platform, no model provider, and no

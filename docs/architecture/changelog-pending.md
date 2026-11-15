@@ -8,6 +8,12 @@ deleted.
 
 ## Added
 
+- Beside a loaded Tirith plugin, asking roles leave terminal pipes to a shell,
+  decoded execution and fetched execution to Tirith. Petasos still blocks in
+  blocking roles and when approvals would run unattended, and retains all
+  other protection. Mixed findings need an owner for each rule. Activity,
+  Try it and doctor explain who checks the command; result notes are unchanged.
+
 - Reference pages generated from the settings schema, layer tables, scanner registry and command parsers; rewritten Hermes and library guides with executable examples and relative-link checks.
 
 - Try it shows the pipeline's text with selected personal information hidden, a redacted preview, and this input's conversation risk with the tried thresholds; each trial stays private and disposable. The Petasos tab shows its version beside Checked and Refresh.

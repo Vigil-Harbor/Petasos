@@ -394,7 +394,7 @@ def test_a_deferred_command_says_hermes_will_ask(tmp_path: Path) -> None:
     assert summary["blocked"] == 0
     assert summary["by_outcome"] == {"deferred": 1}
     figure = next(row for row in summary["figures"] if row["code"] == "deferred")
-    assert figure["label"] == "Hermes will ask"
+    assert figure["label"] == "Left for another check"
     assert figure["count"] == 1
 
 
@@ -638,3 +638,13 @@ def test_a_tool_petasos_cannot_name_keeps_its_id_in_the_sentence() -> None:
         }
     )
     assert flagged == "Warned the agent that a web page it read contained hidden instructions."
+
+
+def test_deferred_activity_names_the_checker(tmp_path: Path) -> None:
+    live = tmp_path / "events.jsonl"
+    _emit(live, [{"event_type": "deferred", "tool": "terminal", "deferred_to": "Tirith"}])
+    event = _page(live)["events"][0]
+    assert "Tirith" in event["summary"]
+    assert event["outcome"] == {"code": "deferred", "label": "Left for Tirith"}
+    assert event["kind_label"] == "Left for Tirith"
+    assert "risk score is unchanged" in event["summary"]

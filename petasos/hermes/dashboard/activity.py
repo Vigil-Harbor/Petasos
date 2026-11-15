@@ -57,7 +57,7 @@ _FIGURES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("allowed", "Let through while paused", ("allowed",)),
     ("declined", "Person said no", ("declined",)),
     ("approved", "Person said yes", ("approved",)),
-    ("deferred", "Hermes will ask", ("deferred",)),
+    ("deferred", "Left for another check", ("deferred",)),
     ("answered", "Answered", ("answered",)),
     ("unchecked", "Not checked", ("unchecked",)),
     ("degraded", "Basic checks only", ("degraded",)),
@@ -509,7 +509,7 @@ def _event(
     kind = record.get("event_type")
     if shown["outcome"]["code"] == "not_stopped" or kind == "settings_changed":
         shown["review_action"] = REVIEW_CURRENT_SETTINGS
-    shown["kind_label"] = kind_label(kind) if isinstance(kind, str) else ""
+    shown["kind_label"] = kind_label(kind, record) if isinstance(kind, str) else ""
     rule = record.get("rule_id")
     shown["rule_sentence"] = rule_sentence(rule) if isinstance(rule, str) else ""
     shown["matched_note"] = MATCHED_TEXT_NOTE if isinstance(rule, str) and rule else ""

@@ -708,7 +708,9 @@ flags are the combination that would grant an approve with nobody attached
 (any one of them means the enforcer does not hand the host an approve it would
 allow); `rule_always_approved(rule_key)`; `command_will_be_asked(command)`,
 true only when the host will put that command string to a person, and false
-by default; `subagent_hooks`; an optional `redactor` (`None` means redaction
+by default; `command_checker()`, the loaded owner of terminal pipe, decode and
+fetch execution or none, and `command_prompt_name`, the host prompt's display
+name; `subagent_hooks`; an optional `redactor` (`None` means redaction
 is unavailable); `display_path`; `protected_paths()`, the filesystem paths the
 agent must not modify; and `guardrail_surface()`, the host's labelled paths and command
 patterns. The guard uses the path set when it is supplied. Callers that supply
@@ -1148,8 +1150,13 @@ result, Hermes keeps the first in load order, and its bundled
 are enabled.
 
 The order has been run and the overlap measured in
-`docs/architecture/hermes-command-overlap.md`. The decision at the end of
-that document is what the code does.
+`docs/architecture/hermes-command-overlap.md`. The decisions dated November
+10 and November 15 in that document are what the code does. With Tirith
+loaded, asking roles leave its three terminal execution rules to it; blocking
+roles keep blocking.
+Activity records the owner and doctor explains the split. Result annotations
+are unchanged; host facts section 18 records their collision and the limits
+of the earlier terminal-output hook.
 
 ### 8.6 The dashboard API
 

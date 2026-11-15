@@ -25,6 +25,9 @@ if TYPE_CHECKING:
     from petasos.guard.guard import GuardResult
 
 COMMAND_RULE_PREFIX = "petasos.syntactic.command."
+CHECKER_COMMAND_RULES = frozenset(
+    COMMAND_RULE_PREFIX + slug for slug in ("pipe-to-shell", "decode-exec", "fetch-exec")
+)
 RESULT_SCAN_ERROR_REASON = "result scan unavailable"
 
 _Emit = Callable[..., object]
@@ -37,6 +40,18 @@ _Regime = Literal["full", "ceiling"]
 
 def _not_asked(_command: str) -> bool:
     return False
+
+
+def _no_checker() -> str | None:
+    return None
+
+
+def _checker_name(checker: Callable[[], str | None]) -> str | None:
+    try:
+        name = checker()
+        return name if isinstance(name, str) and name.strip() else None
+    except Exception:
+        return None
 
 
 def _command_text(args: Any) -> str:
@@ -179,6 +194,8 @@ def dangerous_tool_decision(
     logger: logging.Logger,
     emit: _Emit,
     command_will_be_asked: _Asks = _not_asked,
+    command_checker: Callable[[], str | None] = _no_checker,
+    command_prompt_name: str = "the host",
 ) -> Block | Approve | None:
     """Decide a dangerous tool call after the guard has allowed it.
 
@@ -191,7 +208,9 @@ def dangerous_tool_decision(
     A terminal command-rule finding is recorded and not decided here when the
     posture is ``approve``, the host would not grant that approval with nobody
     attached, and ``command_will_be_asked`` says the host will ask a person
-    about that command. Anything else is decided as before.
+    about that command. A loaded ``command_checker`` owns the three execution
+    rules in ``CHECKER_COMMAND_RULES``. Every remaining command finding must
+    have an owner before standing aside. Anything else is decided as before.
     """
     approve_effective = posture == "approve" and approve_available and not yolo
     blocking = [f for f in result.findings if blocks(f.severity)]
@@ -284,22 +303,38 @@ def dangerous_tool_decision(
     if remaining:
         top = worst(remaining)
         command_text = _command_text(args)
+        owners: list[str] = []
         if (
             posture == "approve"
             and not yolo
+            and not result.param_scan_degraded
             and canonicalize_tool_name(tool_name) == "terminal"
-            and _host_will_ask(command_text, command_will_be_asked)
+            and command_text
         ):
+            checker = _checker_name(command_checker)
+            unowned = remaining
+            if checker is not None:
+                unowned = [f for f in remaining if f.rule_id not in CHECKER_COMMAND_RULES]
+                if len(unowned) < len(remaining):
+                    owners.append(checker)
+            if unowned:
+                if _host_will_ask(command_text, command_will_be_asked):
+                    owners.append(command_prompt_name)
+                else:
+                    owners.clear()
+        if owners:
             logger.info(
-                "PETASOS_DEFER tool=%s session=%s rule_id=%s",
+                "PETASOS_DEFER tool=%s session=%s rule_id=%s deferred_to=%s",
                 tool_name,
                 session_id,
                 top.rule_id,
+                " and ".join(owners),
             )
             emit(
                 session_id=session_id,
                 tool=tool_name,
                 event_type="deferred",
+                deferred_to=" and ".join(owners),
                 severity=top.severity.name,
                 rule_id=top.rule_id,
                 reason=top.message,

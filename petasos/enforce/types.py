@@ -143,6 +143,10 @@ def _command_not_asked(_command: str) -> bool:
     return False
 
 
+def _no_command_checker() -> str | None:
+    return None
+
+
 def _identity_text(text: str, **_options: object) -> str:
     return text
 
@@ -166,7 +170,10 @@ class HostInfo:
     Callables are read on each decision, so a live host change is visible
     without a settings token change. ``command_will_be_asked`` is true only
     when the host will put that command string to a person. The default
-    answers no. ``redactor`` of ``None`` means the host has no redactor.
+    answers no. ``command_checker`` names a loaded checker that owns pipe,
+    decode and fetch execution in terminal command text. It defaults to none.
+    ``command_prompt_name`` names the host approval prompt for display.
+    ``redactor`` of ``None`` means the host has no redactor.
     ``protected_paths`` is the set of filesystem paths the agent must not
     modify.
     """
@@ -176,6 +183,8 @@ class HostInfo:
     approval_grant: Callable[[], ApprovalGrant] = _no_grant
     rule_always_approved: Callable[[str], bool] = _never_approved
     command_will_be_asked: Callable[[str], bool] = _command_not_asked
+    command_checker: Callable[[], str | None] = _no_command_checker
+    command_prompt_name: str = "the host"
     subagent_hooks: bool = True
     redactor: Callable[..., str] | None = _identity_text
     display_path: Callable[[str], str] = _identity_path

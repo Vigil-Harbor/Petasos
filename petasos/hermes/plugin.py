@@ -125,10 +125,13 @@ class _Registration:
     a second copy of the hooks on a manager that still has these methods.
     """
 
-    def __init__(self, home_key: str, enforcer: Enforcer, source: HermesSettings) -> None:
+    def __init__(
+        self, home_key: str, enforcer: Enforcer, source: HermesSettings, ctx: PluginContext
+    ) -> None:
         self.home_key = home_key
         self.enforcer = enforcer
         self.source = source
+        self.context = ctx
 
     def live(self) -> _Registration | None:
         """The registration serving this home now, if ``close`` has not dropped it."""
@@ -326,6 +329,23 @@ def guardrail_roots() -> frozenset[str]:
     return frozenset({str(home), str(root)})
 
 
+def command_checker() -> str | None:
+    """Read the active home's current context, after all plugins have loaded.
+
+    No cached plugin status: a reload replaces the context on the registration.
+    Older hosts and missing or raising runtime probes answer no.
+    """
+    try:
+        key = str(resolve_hermes_config_path().path.parent.resolve())
+        reg = _registrations.get(key)
+        if reg is None:
+            return None
+        probe = getattr(reg.context, "has_plugin", None)
+        return "Tirith" if callable(probe) and probe("tirith") else None
+    except Exception:
+        return None
+
+
 def host_info() -> HostInfo:
     """What this Hermes process can answer. Callables are read on each decision.
 
@@ -340,6 +360,8 @@ def host_info() -> HostInfo:
         approval_grant=approval_grant,
         rule_always_approved=rule_always_approved,
         command_will_be_asked=command_will_be_asked,
+        command_checker=command_checker,
+        command_prompt_name="Hermes",
         subagent_hooks=subagent_hooks_available(),
         redactor=redactor if callable(redactor) else None,
         display_path=display_path,
@@ -443,9 +465,10 @@ def register(ctx: PluginContext) -> None:
         if reg is None:
             source = HermesSettings(ctx)
             enforcer = Enforcer(source, host=host_info(), spool_path=spool_path())
-            reg = _Registration(key, enforcer, source)
+            reg = _Registration(key, enforcer, source, ctx)
             _registrations[key] = reg
             created = True
+        reg.context = ctx
         if not _already_bound(ctx):
             reg.attach(ctx)
             attached = True

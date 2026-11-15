@@ -602,6 +602,48 @@ An upgrade does not loosen anyone's settings without their choosing it.
 `petasos config migrate` writes `tools.dangerous_posture: block` for a
 configuration converted from the old `general` profile, and says so.
 
+## Decision, 2026-11-15: beside Tirith
+
+The owner's principle is: "I would ideally not overlap jobs and allow Tirith
+to take the lead for its domain."
+
+Tirith now leads on shell command text when its plugin is loaded beside
+Petasos. In an asking role, Petasos leaves `pipe-to-shell`, `decode-exec`
+and `fetch-exec` to Tirith, only for `terminal`. This requires no yolo and
+no host setting that would grant an approval with nobody attached. A denied
+unattended approval is still a decision by the host; an unattended approval
+that would run the command is not protection to stand aside for.
+
+`alias-escape` and `destructive-recursive` keep the November 10 decision.
+For mixed command findings, every remaining finding must have an owner:
+Tirith for the three execution rules, or Hermes's own prompt under the
+existing predicate for the rest. Otherwise Petasos makes its usual decision.
+A standing Petasos rule approval removes that finding before this check.
+Hardline commands keep Hermes's refusal. Taint, non-command findings,
+personal data leaving through an egress sink and a degraded parameter scan
+are never handed over. Neither `process_manage` nor `execute_code` gains
+this exception.
+
+A blocking role still blocks. Keeping the block in blocking roles is the
+designer's default, and the owner has been asked whether to keep it. This
+build keeps that default.
+
+The host supplies a callable fact and a display name; enforcement has no
+knowledge of Hermes or Tirith. The Hermes adapter calls the public
+`ctx.has_plugin("tirith")` at decision time, after plugin loading. Reading it
+in `register` would miss Tirith, because Petasos loads first. A missing or
+raising probe answers no. The current context is replaced on re-registration,
+so a reload does not retain the previous manager's plugin status. No Tirith
+module or private state is read. No `requires_plugins` dependency is added:
+Hermes warns when that optional plugin is absent. See host facts section 18
+for the upstream source and sandbox evidence.
+
+Activity names who received the finding. Try it shows that Petasos lets the
+call proceed to that checker; it cannot predict the checker's verdict.
+Doctor adds a plain explanation when the current Hermes has both plugins
+loaded. Result annotation stays as it is; the collision and the earlier
+terminal-output hook are investigated in host facts section 18.
+
 ## Built
 
 This is what the code does.
@@ -641,3 +683,29 @@ answers no as well, so Petasos's decision is what stands in front of it.
 Taint, a non-command finding, PII leaving through an egress sink, and a
 degraded parameter scan are not stood aside from. A block posture stays a
 block.
+
+
+Beside Tirith, `HostInfo.command_checker` is a callable returning the loaded
+checker's name or none (`petasos/enforce/types.py` lines 167–187).
+`petasos/hermes/plugin.py` lines 332–346 implement the runtime probe;
+`host_info` supplies it and names Hermes's prompt at lines 357–364. The
+registration updates its context on every `register` call.
+`petasos/enforce/calls.py` lines 397–415 pass those facts and the same
+unattended-grant condition as before. `decisions.py` lines 302–342 require
+an owner for every remaining command finding and emit `deferred_to`.
+No scoring code changes: the parameter scan still runs and contributes as
+before; the decision adds no score and removes no score.
+
+`petasos/hermes/dashboard/words.py` renders the recorded owner; Activity's
+aggregate uses "Left for another check" because several owners can occur.
+Old records without an owner retain their Hermes wording. The playground
+uses the live checker and unattended-grant facts
+(`petasos/hermes/dashboard/playground.py` lines 508–540). Doctor's extra
+line is in `petasos/hermes/doctor_report.py` lines 143–154.
+
+The behavior tests are in `tests/enforce/test_decisions.py`,
+`tests/enforce/test_enforcer.py`, `tests/hermes/test_plugin.py`, and the
+Activity, playground and doctor tests. `tests/hermes_host/test_tirith.py`
+loads only a stand-in named `tirith`: the fetch-exec call passes Petasos,
+writes a named deferred event, then Hermes denies execution. Only `echo ok`
+is ever executed by that harness.
