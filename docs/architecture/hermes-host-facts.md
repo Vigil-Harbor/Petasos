@@ -1084,7 +1084,7 @@ Checked 2026-11-11 in sandbox `/tmp/petasos-u3-sbx`, home
   `plugins.disabled`, rebuilt the environment, and removed the `hermes
   petasos` command. The `plugins.entries.petasos` settings stayed.
 
-## 17. Seen on a live install, 2026-11-12 to 2026-11-14
+## 17. Seen on a live install, 2026-11-12 to 2026-11-16
 
 These come from installing Petasos into one profile of a real Hermes
 `v0.23.1`, started by launchd from a source checkout through Hermes's own
@@ -1130,6 +1130,26 @@ launcher. Each was reproduced or read back afterwards.
   matched; as plain text, 2 did. Petasos now reads each written line break in
   a JSON result as a line break, and 3 match: those 2, and one page longer
   than the scan reads, which a file read returns in parts.
+- **A newer development wheel with the same version is not picked up.**
+  Seen first in a sandbox on 2026-11-16, then on the live install. With
+  Petasos 0.4.0 enabled, `petasos hermes install` from a newer checkout
+  writes a new `wheels/petasos-0.4.0-py3-none-any.whl`. A new Hermes process
+  still imports the old code. `hermes plugins enable petasos` answers
+  "already enabled" and changes nothing. Asking Hermes to admit the same
+  plugins again fails in `uv sync` with a checksum mismatch for the wheel.
+  Hermes's repair (`sync_venv(explicit=True, repair=True)`) succeeds and
+  puts the old wheel back. `hermes plugins disable petasos` followed by
+  `hermes plugins enable petasos` resolves again and installs the new
+  wheel; `plugins.entries.petasos.settings` is kept. Between the two
+  commands a new process has no Petasos.
+- **`hermes plugins disable` and `enable` reach a running gateway.** On the
+  live install the disable printed "The running gateway reloaded its
+  plugins and unloaded petasos; platform hooks it already wired up stay
+  until a gateway restart", and the enable printed "Gateway reloaded
+  plugins — active in the running gateway now: gateway_transforms, hooks."
+  The two commands were 12 seconds apart. The service was then reloaded
+  with `launchctl bootout` and `launchctl bootstrap`; the new process had
+  the new environment's files open and logged Petasos's start-up.
 
 ## 18. Beside Tirith, 2026-11-15
 
