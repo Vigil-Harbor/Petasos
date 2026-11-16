@@ -70,7 +70,41 @@ fix.
 
 **Cause two, 1 of the 17: a very long paragraph.** Two pages each hold one
 paragraph of 1,900 to 2,900 characters on a single line, and the three parts
-fall somewhere in it. This is still open. See "Before release".
+fall somewhere in it. Fixed after the soak in `108ae7f`: the three parts must
+sit within 300 characters of each other.
+
+## Five months of stored work
+
+Three mornings are a small sample. The profile's own session store holds
+every tool call and result from 2026-06-23 to 2026-11-16: 41,443 calls and
+41,428 results. On 2026-11-16 they were replayed through Petasos offline, in
+their original order and on their original clock, with the same job and
+strictness. Nothing was executed and the live install was not touched. The
+work is assumed to be benign, so every flag and block below is a false
+positive unless it says otherwise.
+
+| | As installed (`d519061`) | With both fixes (`108ae7f`) |
+|---|---|---|
+| Results flagged | 236 | 0 |
+| Tool calls blocked | 9 | 6 |
+| Conversations whose risk tier rose | 0 | 0 |
+
+- **Flags.** All 236 were `agent-directed-fetch`: 189 on file reads, 38 on
+  terminal output, the rest on code output, web pages and one card. Reading
+  a JSON result line by line leaves 18. The 300-character reach leaves none.
+- **Blocks removed by the fixes, 3.** The agent wrote one of the long
+  paragraphs back into the wiki, twice in October, and the write was
+  blocked as an instruction to an agent. On a live install that fails a
+  card.
+- **Blocks that remain, 6 of 41,443 calls.** Four are `rm -rf` of the
+  agent's own directory under `/tmp`. The `research` job blocks recursive
+  deletes, so the rule did what it is set to do, on a harmless command. Two
+  are the nesting-depth check reading code as JSON, which is a false
+  positive. None is later than 2026-08-29.
+- **Milder findings.** Of the 30,676 results Petasos scans the text of, up
+  to one in five carries a low or medium finding that raises no flag: a look-alike character, a long hash that
+  resembles encoded text, a phrase such as "act as". They did not move any
+  conversation's tier in five months.
 
 ## Found while installing
 
@@ -118,10 +152,12 @@ that begin as copies of the gateway process with Petasos already loaded.
 
 ## Before release
 
-1. **Limit how far apart the rule's parts may be.** The same-line test of
-   `agent-directed-fetch` is too loose for a paragraph thousands of
-   characters long. It should need its parts within a set distance of each
-   other. This is the one false positive the soak found that is not fixed.
+1. **The nesting-depth check counts brackets in code.** It is meant for
+   JSON, and it reads any text. A Python script and a shell loop written by
+   the agent each counted as JSON nested deeper than the limit, which is a
+   critical finding and a block. See "Five months of stored work" below.
+   The check is part of the frozen behaviour records, so changing when it
+   applies is a decision for the owner.
 2. **Stop `relaxed` warning about itself.** At every session start Petasos
    logs that its two risk thresholds are closer than it recommends. The
    values come from Petasos's own `relaxed` strictness. Change the values
