@@ -19,6 +19,15 @@ Offsets include the consumed newline. Canonical and separator views are searched
 composed leet views belong to the injection battery. Extra views omit positions.
 The rule is unsuppressible, direction independent and HIGH, never CRITICAL.
 
+The three parts must also fit inside 300 characters of that line. A directive
+is a sentence; a paragraph of thousands of characters that happens to hold
+"to the agent", "run" and a link is prose. Measured on 41,428 stored tool
+results from five months of a research agent's work (2026-06-23 to
+2026-11-16): without the reach, 18 results matched, all benign, and the
+tightest fit among them was 471 characters; with it, none match. The designed
+true positives fit in about 110. Padding a directive past the reach evades
+the rule, as a line break between its parts already does.
+
 ## Syntactic anchor soundness
 
 Each cheap anchor is a necessary condition and must remain a substring superset

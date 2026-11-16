@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 
 
 import re
+from bisect import bisect_right
 
 from petasos.model import (
     NormalizedText,
@@ -74,6 +75,10 @@ _AGENT_DIRECTIVE_ANCHOR = re.compile(
 )
 
 
+# See docs/architecture/rationale.md, "Agent directive boundaries".
+_AGENT_DIRECTIVE_REACH = 300
+
+
 def _first_match(patterns: list[re.Pattern[str]], text: str) -> re.Match[str] | None:
     for pat in patterns:
         m = pat.search(text)
@@ -82,21 +87,59 @@ def _first_match(patterns: list[re.Pattern[str]], text: str) -> re.Match[str] | 
     return None
 
 
+def _spans(patterns: list[re.Pattern[str]], text: str) -> list[tuple[int, int]]:
+    return sorted(m.span() for pat in patterns for m in pat.finditer(text))
+
+
+def _nearest(spans: list[tuple[int, int]], anchor: tuple[int, int]) -> list[tuple[int, int]]:
+    """The span starting at or before ``anchor`` and the one starting after it."""
+    at = bisect_right(spans, anchor)
+    return spans[max(at - 1, 0) : at + 1]
+
+
+def _together(
+    anchors: list[tuple[int, int]],
+    actions: list[tuple[int, int]],
+    resources: list[tuple[int, int]],
+) -> tuple[int, int] | None:
+    """The first anchor with an action and a resource within reach of it.
+
+    The three must fit inside ``_AGENT_DIRECTIVE_REACH`` characters. Only the
+    neighbours on each side of an anchor can give the tightest fit.
+    """
+    for anchor in anchors:
+        for action in _nearest(actions, anchor):
+            for resource in _nearest(resources, anchor):
+                low = min(anchor[0], action[0], resource[0])
+                high = max(anchor[1], action[1], resource[1])
+                if high - low <= _AGENT_DIRECTIVE_REACH:
+                    return anchor
+    return None
+
+
 def _agent_directive_line_hit(text: str) -> tuple[int, int] | None:
-    """Return the first same-line marker, action and resource conjunction."""
+    """Return the first marker with an action and a resource close by on its line."""
     if not _AGENT_DIRECTIVE_ANCHOR.search(text):
         return None
     # See docs/architecture/rationale.md, "Agent directive boundaries".
     offset = 0
     for line in text.split("\n"):
         if _first_match(_AGENT_DIRECTIVE_ACTIONS, line) is not None:
-            strong = _first_match(_AGENT_DIRECTIVE_MARKERS, line)
-            if strong is not None and _first_match(_AGENT_DIRECTIVE_RESOURCES, line) is not None:
-                return offset + strong.start(), offset + strong.end()
+            actions = _spans(_AGENT_DIRECTIVE_ACTIONS, line)
+            if _first_match(_AGENT_DIRECTIVE_MARKERS, line) is not None:
+                hit = _together(
+                    _spans(_AGENT_DIRECTIVE_MARKERS, line),
+                    actions,
+                    _spans(_AGENT_DIRECTIVE_RESOURCES, line),
+                )
+                if hit is not None:
+                    return offset + hit[0], offset + hit[1]
             # Transcript speaker tags require an executable or archive resource.
             tag = _first_match(_AGENT_DIRECTIVE_SPEAKER_TAG, line)
-            if tag is not None and _AGENT_DIRECTIVE_ARCHIVE.search(line) is not None:
-                return offset + tag.start(), offset + tag.end()
+            if tag is not None:
+                hit = _together([tag.span()], actions, _spans([_AGENT_DIRECTIVE_ARCHIVE], line))
+                if hit is not None:
+                    return offset + hit[0], offset + hit[1]
         offset += len(line) + 1
     return None
 

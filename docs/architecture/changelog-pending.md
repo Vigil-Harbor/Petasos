@@ -135,6 +135,10 @@ deleted.
   rule that asks whether things share a line then flagged ordinary pages, and
   a phrase broken over two lines was missed. Each written line break is now
   read as one. Plain text results are scanned as before.
+- The rule for text that tells an agent to fetch or install something now
+  needs its three parts within 300 characters of each other on the line. A
+  long paragraph that mentions an agent, a command word and a link somewhere
+  is no longer flagged. A directive padded past that distance is not caught.
 
 ## Import paths
 
