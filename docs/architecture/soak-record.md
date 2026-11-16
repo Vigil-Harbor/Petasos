@@ -100,7 +100,9 @@ positive unless it says otherwise.
   agent's own directory under `/tmp`. The `research` job blocks recursive
   deletes, so the rule did what it is set to do, on a harmless command. Two
   are the nesting-depth check reading code as JSON, which is a false
-  positive. None is later than 2026-08-29.
+  positive. None is later than 2026-08-29. The depth check was changed
+  afterwards to count only unbroken JSON structure, with the owner's
+  agreement, which leaves the four deletes and nothing else.
 - **Milder findings.** Of the 30,676 results Petasos scans the text of, up
   to one in five carries a low or medium finding that raises no flag: a look-alike character, a long hash that
   resembles encoded text, a phrase such as "act as". They did not move any
@@ -152,12 +154,14 @@ that begin as copies of the gateway process with Petasos already loaded.
 
 ## Before release
 
-1. **The nesting-depth check counts brackets in code.** It is meant for
-   JSON, and it reads any text. A Python script and a shell loop written by
-   the agent each counted as JSON nested deeper than the limit, which is a
-   critical finding and a block. See "Five months of stored work" below.
-   The check is part of the frozen behaviour records, so changing when it
-   applies is a decision for the owner.
+1. **Updating a development install does not refresh the code.** Found on
+   2026-11-16 while rehearsing the update in a sandbox. Running `petasos
+   hermes install` again writes the new wheel, but Hermes keeps the old code
+   because the version number is the same, and a later environment rebuild
+   fails on the wheel's changed checksum. Hermes's repair puts the old wheel
+   back. What works is `hermes plugins disable petasos` then `hermes plugins
+   enable petasos`, which keeps the settings. Install should do the refresh
+   itself, or give a development wheel a version that changes.
 2. **Stop `relaxed` warning about itself.** At every session start Petasos
    logs that its two risk thresholds are closer than it recommends. The
    values come from Petasos's own `relaxed` strictness. Change the values

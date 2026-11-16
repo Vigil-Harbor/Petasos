@@ -17,6 +17,8 @@ from petasos.model import (
 )
 
 _BINARY_PATTERN = re.compile(r"[\x00-\x08\x0e-\x1f\x7f]")
+# Whitespace, separators, numbers and the letters of true, false and null.
+_JSON_BETWEEN = frozenset(" \t\r\n,:0123456789+-.eEtrufalsn")
 
 
 def _check_structural(self: MinimalScanner, text: str, findings: list[ScanFinding]) -> None:
@@ -65,6 +67,13 @@ def _check_structural(self: MinimalScanner, text: str, findings: list[ScanFindin
 
 
 def _check_json_depth(self: MinimalScanner, text: str) -> int:
+    """The deepest nesting of JSON structure anywhere in ``text``.
+
+    Brackets count only while the text between them could be JSON. A character
+    that cannot stand outside a string in JSON ends the run and the count
+    starts again, so the brackets of program code and shell commands are not
+    nesting. A run does not have to be closed or to start the text.
+    """
     depth = 0
     max_depth = 0
     has_brackets = False
@@ -85,8 +94,11 @@ def _check_json_depth(self: MinimalScanner, text: str) -> int:
             depth += 1
             if depth > max_depth:
                 max_depth = depth
-        elif ch in ("}", "]") and depth > 0:
-            depth -= 1
+        elif ch in ("}", "]"):
+            if depth > 0:
+                depth -= 1
+        elif ch not in _JSON_BETWEEN:
+            depth = 0
     if not has_brackets:
         return 0
     return max_depth

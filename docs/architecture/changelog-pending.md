@@ -139,6 +139,11 @@ deleted.
   needs its three parts within 300 characters of each other on the line. A
   long paragraph that mentions an agent, a command word and a link somewhere
   is no longer flagged. A directive padded past that distance is not caught.
+- The nesting-depth check counts brackets only across unbroken JSON
+  structure. A character that cannot appear in JSON outside a string ends
+  the run, so the brackets of program code and shell commands are no longer
+  read as deeply nested JSON. Deep JSON is still found anywhere in the text,
+  closed or not.
 
 ## Import paths
 

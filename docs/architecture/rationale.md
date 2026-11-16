@@ -2,6 +2,20 @@
 
 Constraints that explain the current implementation.
 
+## JSON nesting depth
+
+The structural depth check is for JSON. It used to count every bracket
+outside a double-quoted string, in any text, so a Python script or a shell
+loop could count as JSON nested past the limit, which is a critical finding
+and a block. Brackets now count only while the text between them could be
+JSON: whitespace, `,`, `:`, numbers and the letters of `true`, `false` and
+`null`. Any other character outside a string ends the run and the count
+starts again. A run need not start the text or be closed, so a deep
+structure after a prefix, or cut off, is still counted. Text a JSON parser
+would not nest is not nesting. On 41,443 stored tool calls from five months
+of a research agent's work this removed both depth blocks, each on code the
+agent wrote, and the frozen behaviour records did not change.
+
 ## Agent directive boundaries
 
 A directive requires an agent-address marker, a fetch/install/execute action,
