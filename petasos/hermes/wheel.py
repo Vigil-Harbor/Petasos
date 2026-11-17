@@ -35,38 +35,63 @@ def place_wheel(directory: Path) -> tuple[Path | None, str]:
     is created when a wheel is written. An existing file with the same bytes is
     left in place.
     """
-    directory.mkdir(parents=True, exist_ok=True)
-    target = directory / wheel_filename()
     source = _existing_wheel()
     if source is not None:
-        return _copy(source, target), ""
+        return _copy(source, directory), ""
     root = _source_root()
     if root is not None:
         built, problem = _build(root)
         if built is not None:
-            placed = _copy(built, target)
+            placed = _copy(built, directory)
             shutil.rmtree(built.parent, ignore_errors=True)
             return placed, ""
         return None, problem
-    packed = _pack_installed(target)
-    if packed:
-        return target, ""
+    with tempfile.TemporaryDirectory(prefix="petasos-wheel-") as staging:
+        packed = Path(staging) / wheel_filename()
+        if _pack_installed(packed):
+            return _copy(packed, directory), ""
     return None, (
         "This command could not find a wheel of this Petasos to give to Hermes. "
         "Install Petasos from a checkout, then run it again."
     )
 
 
-def _copy(source: Path, target: Path) -> Path:
+def _copy(source: Path, directory: Path) -> Path:
     data = source.read_bytes()
+    target = directory / hashlib.sha256(data).hexdigest()[:16] / wheel_filename()
     if target.is_file():
         try:
             if target.read_bytes() == data:
                 return target
         except OSError:
             pass
+    target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(data)
     return target
+
+
+def wheel_source(project: Path) -> Path | None:
+    """The local Petasos wheel named by a plugin's uv source, when present."""
+    try:
+        document = tomllib.loads(project.read_text(encoding="utf-8"))
+        source = document["tool"]["uv"]["sources"]["petasos"]["path"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    if not isinstance(source, str) or not source.endswith(".whl"):
+        return None
+    return project.parent / source
+
+
+def prune_wheels(current: Path) -> None:
+    """Remove older Petasos wheels only after Hermes accepted the current build."""
+    directory = current.parent.parent
+    for old in directory.glob("*/petasos-*.whl"):
+        if old != current:
+            old.unlink()
+            if not any(old.parent.iterdir()):
+                old.parent.rmdir()
+    for old in directory.glob("petasos-*.whl"):
+        old.unlink()
 
 
 def _existing_wheel() -> Path | None:
@@ -193,6 +218,6 @@ def _pack_installed(target: Path) -> bool:
     target.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(target, "w") as archive:
         for name, data in payload:
-            archive.writestr(name, data)
-        archive.writestr(record_name, record)
+            archive.writestr(zipfile.ZipInfo(name), data)
+        archive.writestr(zipfile.ZipInfo(record_name), record)
     return True

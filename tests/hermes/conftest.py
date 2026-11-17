@@ -26,7 +26,9 @@ def write_plugin(home: Path) -> Path:
         "from petasos.hermes.plugin import register\n",
         encoding="utf-8",
     )
-    (target / "pyproject.toml").write_text(render_project(), encoding="utf-8")
+    (target / "pyproject.toml").write_text(
+        render_project("petasos-0.4.0-py3-none-any.whl"), encoding="utf-8"
+    )
     dashboard = target / "dashboard"
     dashboard.mkdir(parents=True, exist_ok=True)
     for name, text in dashboard_texts().items():

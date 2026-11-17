@@ -12,10 +12,9 @@ import textwrap
 import time
 import urllib.request
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-if TYPE_CHECKING:
-    import pytest
+import pytest
 
 from tests.hermes_host.client import fresh_home, sandbox_env
 from tests.hermes_host.marks import requires_hermes_sandbox
@@ -129,6 +128,129 @@ def test_development_install_enforces_in_a_new_process(
     assert "site-packages" in state["file"]
     assert isinstance(state["block"], str) and state["block"].strip()
     assert state["clean"] is None
+
+
+@pytest.mark.parametrize("legacy_source", [False, True])
+def test_same_version_refresh_changes_the_build_a_new_hermes_process_imports(
+    petasos_wheel: Path, request: pytest.FixtureRequest, legacy_source: bool
+) -> None:
+    """A changed wheel source re-resolves without disabling Petasos (PET-265)."""
+    home = fresh_home(petasos_wheel, request.node.name)
+    installed = _petasos(petasos_wheel, home, ["hermes", "install"])
+    assert installed.returncode == 0, installed.stdout[-2000:] + installed.stderr[-2000:]
+    before = _enforcing(petasos_wheel, home)
+    directory = home / "plugins" / "petasos" / "wheels"
+    old = next(directory.glob("*/*.whl"))
+    legacy = directory / old.name
+    shutil.copyfile(old, legacy)
+    if legacy_source:
+        # Recreate the source declaration an existing flat-wheel install has.
+        admitted = _process(
+            petasos_wheel,
+            home,
+            "import json, hermes_cli.main\n"
+            "from pathlib import Path\n"
+            "from petasos.hermes.install import render_project\n"
+            "from petasos.hermes.environment import republish\n"
+            f"Path({str(directory.parent / 'pyproject.toml')!r}).write_text("
+            f"render_project({legacy.name!r}), encoding='utf-8')\n"
+            "ok, message = republish()\n"
+            "print(json.dumps({'ok': ok, 'message': message}))\n",
+        )
+        assert admitted["ok"], admitted
+    source = home / "second-source"
+    source.mkdir()
+    for name in ("petasos", "hermes-plugin"):
+        shutil.copytree(
+            _ROOT / name,
+            source / name,
+            ignore=shutil.ignore_patterns("__pycache__", "node_modules"),
+        )
+    for name in ("pyproject.toml", "README.md", "LICENSE"):
+        shutil.copyfile(_ROOT / name, source / name)
+    with (source / "petasos" / "__init__.py").open("a", encoding="utf-8") as stream:
+        stream.write('\nPET265_BUILD = "second"\n')
+    built = _run(
+        petasos_wheel,
+        home,
+        ["uv", "build", "--wheel", "--out-dir", str(home / "second-dist"), str(source)],
+    )
+    assert built.returncode == 0, built.stderr
+    second = next((home / "second-dist").glob("*.whl"))
+    python = str(petasos_wheel / "venv" / "bin" / "python")
+    original = petasos_wheel / "dist" / "petasos" / old.name
+    try:
+        updated = _run(
+            petasos_wheel,
+            home,
+            ["uv", "pip", "install", "--python", python, "--reinstall", str(second)],
+        )
+        assert updated.returncode == 0, updated.stderr
+        if legacy_source:
+            # Stop after writing the new source, before Hermes accepts it. The
+            # old environment must keep protecting, doctor must warn, and an
+            # ordinary retry must resolve the pending source rather than repair.
+            failed = _run(
+                petasos_wheel,
+                home,
+                [
+                    python,
+                    "-c",
+                    "from petasos.cli import main\n"
+                    "import petasos.hermes.install as installer\n"
+                    "installer.republish = lambda **kwargs: (False, 'test admission failure')\n"
+                    "raise SystemExit(main(['hermes', 'install']))\n",
+                ],
+            )
+            assert failed.returncode != 0
+            assert old.exists() and legacy.exists()
+            doctor = _petasos(petasos_wheel, home, ["doctor", "--json"])
+            assert doctor.returncode == 1, doctor.stdout + doctor.stderr
+            report = json.loads(doctor.stdout)
+            check = next(row for row in report["checks"] if row["id"] == "hermes_environment")
+            assert check["status"] == "warn"
+            assert "petasos hermes install" in check["next_step"]
+            previous = _enforcing(petasos_wheel, home)
+            assert previous["error"] is None and previous["block"]
+        refreshed = _petasos(petasos_wheel, home, ["hermes", "install"])
+        assert refreshed.returncode == 0, refreshed.stdout[-3000:] + refreshed.stderr[-3000:]
+        after = _process(
+            petasos_wheel,
+            home,
+            "import json, hermes_cli.main, petasos\n"
+            "print(json.dumps({'build': getattr(petasos, 'PET265_BUILD', None), "
+            "'version': petasos.__version__}))\n",
+        )
+        assert after == {"build": "second", "version": before["version"]}
+        state = _enforcing(petasos_wheel, home)
+        assert state["error"] is None and state["block"] and state["clean"] is None
+        assert not old.exists() and not legacy.exists()
+        assert len(list(directory.rglob("*.whl"))) == 1
+        # Cleanup changed the member stamp. A later normal admission must still
+        # resolve successfully using only the retained wheel.
+        rebuilt = _process(
+            petasos_wheel,
+            home,
+            "import json, hermes_cli.main\n"
+            "from petasos.hermes.environment import republish\n"
+            "ok, message = republish()\n"
+            "print(json.dumps({'ok': ok, 'message': message}))\n",
+        )
+        assert rebuilt["ok"], rebuilt
+        again = _process(
+            petasos_wheel,
+            home,
+            "import json, hermes_cli.main, petasos\n"
+            "print(json.dumps({'build': petasos.PET265_BUILD}))\n",
+        )
+        assert again["build"] == "second"
+    finally:
+        restored = _run(
+            petasos_wheel,
+            home,
+            ["uv", "pip", "install", "--python", python, "--reinstall", str(original)],
+        )
+        assert restored.returncode == 0, restored.stderr
 
 
 def test_doctor_catches_a_stale_environment_and_names_the_fix(

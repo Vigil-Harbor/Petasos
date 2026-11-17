@@ -8,6 +8,12 @@ deleted.
 
 ## Added
 
+- PET-265: development installs keep each wheel under its content digest, so a
+  newer build with the same version reaches new Hermes processes through normal
+  admission. Old wheels remain until Hermes accepts the new build, then are
+  removed. Doctor warns when the committed environment still runs an older
+  build and gives the install command for that home.
+
 - Beside a loaded Tirith plugin, asking roles leave terminal pipes to a shell,
   decoded execution and fetched execution to Tirith. Petasos still blocks in
   blocking roles and when approvals would run unattended, and retains all

@@ -4,16 +4,19 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import pytest
+
 from petasos.cli import main
+from petasos.hermes import install
+from petasos.hermes import wheel as wheel_module
 from petasos.hermes.dashboard import manifest as tab_manifest
 from petasos.hermes.dashboard.manifest import render_dashboard_manifest
 from petasos.hermes.install import RELEASED_COMMAND, dashboard_texts, render_project
 from petasos.hermes.manifest import render_manifest
+from petasos.hermes.wheel import wheel_source
 
 if TYPE_CHECKING:
     from pathlib import Path
-
-    import pytest
 
 
 def _run(argv: list[str], capsys: pytest.CaptureFixture[str]) -> tuple[int, str]:
@@ -51,7 +54,12 @@ def test_install_is_idempotent(tmp_path: Path, capsys: pytest.CaptureFixture[str
     written = _files(tmp_path)
     assert written["plugin.yaml"] == render_manifest()
     assert written["__init__.py"] == "from petasos.hermes.plugin import register\n"
-    assert written["pyproject.toml"] == render_project()
+    target = tmp_path / "plugins" / "petasos"
+    wheel = wheel_source(target / "pyproject.toml")
+    assert wheel is not None and wheel.is_file()
+    assert written["pyproject.toml"] == render_project(
+        wheel.relative_to(target / "wheels").as_posix()
+    )
     assert "MemoryProvider" not in written["__init__.py"]
     dashboard = tmp_path / "plugins" / "petasos" / "dashboard"
     shipped = dashboard_texts()
@@ -59,6 +67,7 @@ def test_install_is_idempotent(tmp_path: Path, capsys: pytest.CaptureFixture[str
         assert (dashboard / name).read_text(encoding="utf-8") == text
     assert (dashboard / "manifest.json").read_text(encoding="utf-8") == render_dashboard_manifest()
     watched = {
+        "wheel": wheel,
         **{name: tmp_path / "plugins" / "petasos" / name for name in written},
         **{f"dashboard/{name}": dashboard / name for name in shipped},
     }
@@ -167,3 +176,106 @@ def test_a_copy_with_no_tab_writes_nothing(
     assert code == 2
     assert "Nothing was written" in out
     assert not (home / "plugins").exists()
+
+
+@pytest.mark.parametrize("success", [False, True])
+def test_refresh_keeps_old_wheels_until_admission_succeeds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, success: bool
+) -> None:
+    """Admission sees both immutable builds; cleanup follows only success."""
+    source = tmp_path / "build.whl"
+    source.write_bytes(b"old")
+    monkeypatch.setattr(wheel_module, "_existing_wheel", lambda: source)
+    monkeypatch.setattr(install, "enable_plugin", lambda: (True, "Hermes turned the plugin on."))
+    home = tmp_path / "home"
+    _install(home)
+    directory = home / "plugins" / "petasos" / "wheels"
+    old = next(directory.glob("*/*.whl"))
+    legacy = directory / old.name
+    legacy.write_bytes(b"legacy")
+    source.write_bytes(b"new")
+    monkeypatch.setattr(
+        install, "enable_plugin", lambda: (True, "Hermes already had the plugin turned on.")
+    )
+    calls: list[bool] = []
+
+    def rebuild(*, repair: bool = False) -> tuple[bool, str]:
+        calls.append(repair)
+        assert old.read_bytes() == b"old"
+        assert legacy.read_bytes() == b"legacy"
+        assert len(list(directory.glob("*/*.whl"))) == 2
+        return success, "admission result"
+
+    monkeypatch.setattr(install, "republish", rebuild)
+    result = _install(home)
+    assert calls == [False]
+    assert old.exists() is not success
+    assert legacy.exists() is not success
+    current = wheel_source(directory.parent / "pyproject.toml")
+    assert current is not None and current.read_bytes() == b"new"
+    if not success:
+        assert result.exit_code != 0
+        assert "petasos hermes install --home" in result.text
+
+
+def test_unchanged_build_does_not_rebuild(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from petasos.hermes.environment import Probe, Runtime
+
+    source = tmp_path / "build.whl"
+    source.write_bytes(b"same")
+    monkeypatch.setattr(wheel_module, "_existing_wheel", lambda: source)
+    monkeypatch.setattr(install, "enable_plugin", lambda: (True, "Hermes turned the plugin on."))
+    _install(tmp_path / "home")
+    monkeypatch.setattr(
+        install, "enable_plugin", lambda: (True, "Hermes already had the plugin turned on.")
+    )
+    monkeypatch.setattr(install, "runtime_python", lambda home: Runtime(source))
+    monkeypatch.setattr(install, "probe_petasos", lambda python: Probe(ok=True, version="0.4.0"))
+
+    def unexpected(*, repair: bool = False) -> tuple[bool, str]:
+        pytest.fail("An unchanged, working install must not rebuild")
+
+    monkeypatch.setattr(install, "republish", unexpected)
+    _install(tmp_path / "home")
+
+
+@pytest.mark.parametrize("normal_fixes_import", [False, True])
+def test_a_broken_import_tries_pending_sources_before_repair(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, normal_fixes_import: bool
+) -> None:
+    """An unchanged file may still be pending after a failed admission."""
+    from petasos.hermes.environment import Probe, Runtime
+
+    source = tmp_path / "build.whl"
+    source.write_bytes(b"pending")
+    monkeypatch.setattr(wheel_module, "_existing_wheel", lambda: source)
+    monkeypatch.setattr(install, "enable_plugin", lambda: (False, "admission failed"))
+    home = tmp_path / "home"
+    _install(home)
+    monkeypatch.setattr(
+        install, "enable_plugin", lambda: (True, "Hermes already had the plugin turned on.")
+    )
+    monkeypatch.setattr(install, "runtime_python", lambda home: Runtime(source))
+    probes = iter([Probe(ok=False), Probe(ok=normal_fixes_import)])
+    monkeypatch.setattr(install, "probe_petasos", lambda python: next(probes))
+    calls: list[bool] = []
+
+    def rebuild(*, repair: bool = False) -> tuple[bool, str]:
+        calls.append(repair)
+        return True, "rebuilt"
+
+    monkeypatch.setattr(install, "republish", rebuild)
+    _install(home)
+    assert calls == ([False] if normal_fixes_import else [False, True])
+
+
+def _install(home: Path) -> install.InstallResult:
+    return install.install_plugin(
+        home,
+        home_reason="test",
+        dry_run=False,
+        force=False,
+        released=False,
+        run=False,
+        color=False,
+    )
