@@ -17,8 +17,11 @@ start, stop, or signal any of them.
   `~/model-lab`, `~/work`, or `~/notes`.
 - Do not reuse an existing Hermes checkout or virtualenv. Clone upstream
   into the sandbox.
-- Put the sandbox in a new directory under the system temp area. One
-  directory holds the clone, the virtualenv, `HOME`, and `HERMES_HOME`.
+- Put the sandbox in a new dedicated directory, by default
+  `~/.cache/petasos/hermes-sandbox/<name>`. One directory holds the clone,
+  the virtualenv, `HOME`, and `HERMES_HOME`. A sandbox under any account
+  Hermes directory listed above is refused, including the real account's
+  `.hermes` even when `HOME` has been overridden.
 - Run every Hermes command through `<sandbox>/bin/with-sandbox`. That
   wrapper sets `HOME` and `HERMES_HOME` to directories inside the sandbox
   and drops inherited `HERMES_*` variables. Hermes's account-default home
@@ -37,28 +40,53 @@ CPython 3.14, which is the version its dependency pins target. `uv` must
 be on `PATH`. The tag defaults to `v0.23.1`.
 
 ```bash
-python tests/hermes_host/prepare_sandbox.py --dest /tmp/petasos-hermes-sandbox --tag v0.23.1
+.venv/bin/python tests/hermes_host/prepare_sandbox.py --name lane-1
 ```
 
-The script clones `https://github.com/NousResearch/hermes-agent.git` at
-that tag, creates `<dest>/venv` with `uv`, syncs the frozen lock with
-`--no-dev`, and writes `<dest>/bin/with-sandbox`. It then asks Hermes for
-its home and refuses to finish if that path is outside `<dest>`.
+This prepares `~/.cache/petasos/hermes-sandbox/lane-1` (`--name` defaults to
+`default`). Use `--dest <path>` to override the location. `/tmp` still works,
+but macOS can clean its contents after about three days, including Node and
+the web bundle. Use the durable default for work spanning multiple days.
 
-The dashboard tests also need Hermes's web bundle at
-`<dest>/src/hermes-agent/hermes_cli/web_dist/index.html`. This tag has no
-bundle in the checkout and refuses Node 22 (`package.json` engines,
-`pnpm` 12.15.0 from `pm/lock.json`). Install Node 26 under the sandbox
-(the prepare script does not download it), put `node` and that `pnpm` on
-the wrapper's `PATH` (the sandbox `venv/bin` is on that path), and build
-through the wrapper:
+One command clones `https://github.com/NousResearch/hermes-agent.git` at the
+pinned tag, installs a sandbox-local managed CPython 3.14 and virtualenv with
+`uv sync --frozen --no-dev`, installs Node 26.13.1 and pnpm 12.15.0 under
+`<sandbox>/opt`, and builds the web bundle through `bin/with-sandbox`.
+No system Node, sudo or Homebrew installation is needed. The sandbox's
+`venv/bin/{node,npm,npx,pnpm}` links point inside it. The command also installs
+a local Python 3.11 browser environment in `shot` with Playwright 1.56.0 and
+Chromium headless shell under `opt/ms-playwright`, for the dashboard tab tests.
+All Hermes imports and build commands run through the wrapper.
+
+Rerun the same prepare command to resume or rebuild a partly cleaned sandbox.
+It restores the pinned tracked checkout, syncs missing Python packages,
+reinstalls Node and pnpm and rebuilds the bundle. Homes are preserved.
+A nonempty unrecognized destination or a changed Hermes tag/commit is refused;
+use a new directory for a different tag. Do not prepare while tests use that
+sandbox. Preparation needs network access.
+
+`<sandbox>/sandbox-manifest.json` records the Hermes commit, tool versions,
+Node download URL and verified SHA-256, pnpm artifact URLs and verified
+SHA-256s from Hermes's pinned `pm/lock.json`, and hashes of the frozen Python
+and JavaScript dependency locks (which contain package download checksums). It
+also records SHA-256s of the installed Python and browser executables.
+Downloaded tool archives are retained in `<sandbox>/downloads`.
+
+## Copy for a parallel lane
+
+Stop processes in the source sandbox before copying it:
 
 ```bash
-<path-to-node-26>/bin/npm install -g pnpm@12.15.0 --prefix <dest>/opt/pnpm
-ln -sfn <path-to-node-26>/bin/node <dest>/venv/bin/node
-ln -sfn <dest>/opt/pnpm/bin/pnpm <dest>/venv/bin/pnpm
-<dest>/bin/with-sandbox bash -lc 'cd <dest>/src/hermes-agent && pnpm install --frozen-lockfile && pnpm --dir web run build'
+.venv/bin/python tests/hermes_host/prepare_sandbox.py \
+  --copy-from ~/.cache/petasos/hermes-sandbox/lane-1 --name lane-2
 ```
+
+The destination must be new and outside the source. The copy has independent
+files and homes. The command rewrites editable-install metadata, environment
+launchers and internal absolute links, including the Python interpreter and
+Node/npm/npx/pnpm links. It confirms that Hermes imports from the copy and
+that the toolchain runs. The original can then be renamed or removed without
+breaking the copy. A raw filesystem copy does not perform these repairs.
 
 ## Homes
 
@@ -114,11 +142,19 @@ still come from PyPI.
 ## Run
 
 ```bash
-PETASOS_HERMES_SANDBOX=/tmp/petasos-hermes-sandbox pytest tests/hermes_host -q
+export PETASOS_HERMES_SANDBOX="$HOME/.cache/petasos/hermes-sandbox/lane-1"
+.venv/bin/python -m pytest tests/hermes_host -q \
+  --ignore=tests/hermes_host/test_environment.py \
+  --ignore=tests/hermes_host/test_dashboard.py \
+  --ignore=tests/hermes_host/test_dashboard_tab.py
+.venv/bin/python -m pytest tests/hermes_host/test_environment.py -q
+.venv/bin/python -m pytest tests/hermes_host/test_dashboard.py \
+  tests/hermes_host/test_dashboard_tab.py -q
 ```
 
 Use the repo's Python 3.11 environment (`uv pip install -e ".[dev]"`).
-The tests stay on that interpreter. Each one calls the sandbox's Python
+Run these groups separately: the full real-Hermes suite takes over ten
+minutes. The tests stay on that interpreter. Each one calls the sandbox's Python
 through the wrapper, so Hermes is imported only inside the sandbox.
 
 ## A new test
@@ -159,7 +195,7 @@ and risk calculation all run normally. No optional model or API is needed.
 Capture the same states with the existing capture driver:
 
 ```bash
-python tests/hermes_host/capture_round.py --sandbox /tmp/petasos-t1-sbx \
+python tests/hermes_host/capture_round.py --sandbox ~/.cache/petasos/hermes-sandbox/lane-1 \
   --out .ux-reference/t1 --tryit-followups
 ```
 

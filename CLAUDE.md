@@ -47,7 +47,7 @@ The public root API is pinned to [the redesign contract](docs/architecture/redes
 
 ## Real-Hermes tests and safety
 
-The default suite skips real-Hermes tests. Read [the harness instructions](tests/hermes_host/README.md) before enabling them. Prepare a new upstream clone and virtual environment under a temporary sandbox; invoke Hermes only through its `bin/with-sandbox` wrapper. Each test gets a fresh home inside that sandbox. The wrapper and in-process guard reject account Hermes homes.
+The default suite skips real-Hermes tests. Read [the harness instructions](tests/hermes_host/README.md) before enabling them. Prepare a new upstream clone and virtual environment in a dedicated sandbox directory (default `~/.cache/petasos/hermes-sandbox/<name>`); invoke Hermes only through its `bin/with-sandbox` wrapper. Each test gets a fresh home inside that sandbox. The wrapper and in-process guard reject account Hermes homes.
 
 Never read, write, start, stop or signal a live Hermes installation on the machine. The harness instructions list the directories that are off limits. Do not touch machine-level Hermes configuration (`/etc/hermes`), use administrator rights, start a gateway, configure messaging or make model API calls. A task may prohibit the sandbox entirely. Check command help or use throwaway homes for ordinary CLI work.
 
