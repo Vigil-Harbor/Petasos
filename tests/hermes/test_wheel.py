@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import hashlib
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from petasos.hermes import wheel
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     import pytest
 
 
@@ -42,3 +41,24 @@ def test_repacked_wheel_is_repeatable(tmp_path: Path, monkeypatch: pytest.Monkey
     again, problem = wheel.place_wheel(tmp_path)
     assert again == first and not problem
     assert first.stat().st_mtime_ns == stamp
+
+
+def test_pruning_skips_a_wheel_it_cannot_remove(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    current = tmp_path / "wheels" / "aaaa" / "petasos-0.4.0-py3-none-any.whl"
+    old = tmp_path / "wheels" / "bbbb" / "petasos-0.4.0-py3-none-any.whl"
+    for path in (current, old):
+        path.parent.mkdir(parents=True)
+        path.write_bytes(path.parent.name.encode())
+    real_unlink = Path.unlink
+
+    def refuse(self: Path, missing_ok: bool = False) -> None:
+        if self == old:
+            raise PermissionError(self)
+        real_unlink(self, missing_ok=missing_ok)
+
+    monkeypatch.setattr(Path, "unlink", refuse)
+    wheel.prune_wheels(current)
+    assert current.is_file()
+    assert old.is_file()

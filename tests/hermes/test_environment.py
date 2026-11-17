@@ -169,9 +169,9 @@ def test_doctor_compares_the_committed_build_to_the_plugin_source(
     (target / "pyproject.toml").write_text(
         render_project(source.relative_to(target / "wheels").as_posix()), encoding="utf-8"
     )
-    direct: dict[str, object] = {
-        "url": (source.with_name("old.whl") if stale else source).as_uri()
-    }
+    older = source.with_name("old.whl")
+    older.write_bytes(b"old")
+    direct: dict[str, object] = {"url": (older if stale else source).as_uri()}
     if use_hash:
         # Hermes's generation URL differs even when the installed bytes match.
         direct = {
@@ -206,3 +206,11 @@ def test_snapshot_wheel_without_archive_hash(tmp_path: Path, stale: bool) -> Non
     snapshot.write_bytes(b"old" if stale else b"new")
     direct = json.dumps({"url": snapshot.as_uri(), "archive_info": {}})
     assert Probe(ok=True, direct_url=direct).matches_wheel(source) is not stale
+
+
+def test_a_recorded_wheel_that_is_gone_is_unknown(tmp_path: Path) -> None:
+    source = tmp_path / "source.whl"
+    source.write_bytes(b"new")
+    gone = tmp_path / "generation" / "petasos.whl"
+    direct = json.dumps({"url": gone.as_uri(), "archive_info": {}})
+    assert Probe(ok=True, direct_url=direct).matches_wheel(source) is None

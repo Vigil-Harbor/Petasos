@@ -72,11 +72,7 @@ class Probe:
                 if installed.resolve() == source.resolve():
                     return True
                 if installed.is_file():
-                    return (
-                        hashlib.sha256(installed.read_bytes()).digest()
-                        == hashlib.sha256(source.read_bytes()).digest()
-                    )
-                return False
+                    return installed.read_bytes() == source.read_bytes()
         except (OSError, ValueError, AttributeError, TypeError):
             pass
         return None

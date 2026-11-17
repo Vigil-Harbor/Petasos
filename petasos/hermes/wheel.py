@@ -7,6 +7,7 @@ look up.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import importlib.metadata
 import json
@@ -87,11 +88,13 @@ def prune_wheels(current: Path) -> None:
     directory = current.parent.parent
     for old in directory.glob("*/petasos-*.whl"):
         if old != current:
-            old.unlink()
-            if not any(old.parent.iterdir()):
-                old.parent.rmdir()
+            with contextlib.suppress(OSError):
+                old.unlink()
+                if not any(old.parent.iterdir()):
+                    old.parent.rmdir()
     for old in directory.glob("petasos-*.whl"):
-        old.unlink()
+        with contextlib.suppress(OSError):
+            old.unlink()
 
 
 def _existing_wheel() -> Path | None:
