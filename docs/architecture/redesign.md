@@ -1718,6 +1718,19 @@ authenticates; the standalone console and its optional auth are retired
    live-appliable cheaply, or stay `restart`.
 3. Whether the console keeps a settings editor once the host renders one, or
    becomes activity and diagnostics only. Decide after the researcher soak.
+   Answered below, 2026-11-17.
+
+### Settled after the soak, 2026-11-17
+
+- **The tab keeps its settings editor.** Hermes already renders a form for
+  Petasos, but only in Desktop: it draws `config_schema` from `plugin.yaml`
+  as a flat form, with `overrides` as a raw JSON field. The web dashboard
+  renders no `config_schema` at all ([native fit](hermes-native-fit.md),
+  section 4). A dashboard user would have no other place to change a
+  setting, and nobody can read the override tree from a JSON field. Both
+  forms write through Hermes's one settings writer, so they cannot drift.
+  Revisit if the dashboard gains a `config_schema` renderer: the tab's
+  Settings page would then keep only what a flat form cannot show.
 
 ### Settled by the owner, 2026-11-11
 
