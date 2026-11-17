@@ -108,6 +108,44 @@ positive unless it says otherwise.
   resembles encoded text, a phrase such as "act as". They did not move any
   conversation's tier in five months.
 
+### How to measure false positives
+
+From a checkout with Python 3.11 or newer and Petasos installed, point the
+offline replay script at a copy of the profile's `state.db`, or a store you
+own:
+
+```bash
+python -m scripts.replay_history /path/to/state.db --job research --strictness relaxed
+```
+
+`--job` accepts `general`, `coding`, `research`, `support` or `admin`;
+`--strictness` accepts `relaxed`, `balanced` or `strict`. The defaults are
+`research` and `relaxed`, matching this record. Both resolve through the normal
+configuration tree, with optional scanners explicitly off. Nothing is executed,
+no Hermes settings or secrets are loaded, and SQLite opens only with
+`file:...?mode=ro`; writable modes and URI inputs are refused.
+
+The report counts flags by their leading rule and tool, lists each block and
+ask with its rule and tool, and lists every conversation that rose above its
+normal risk tier with the highest tier reached. A denial caused by policy
+rather than a scanner rule has a `petasos.policy.*` identifier. Findings show
+only metadata: message and session ids, tool, rule, severity, sizes in
+characters, and the basename of a path argument when present. Argument and
+result text are never printed. Add `--all` to include low, medium and info
+findings as well as high and critical; add `--json` for a machine-readable
+report. Result findings are listed once per rule and severity per message,
+including findings beyond the scan head.
+
+Replay uses every stored row, including archived and rewound rows, in message
+`id` order. It does not deduplicate compaction copies or join session ancestry.
+Conversations use the stored `session_id`; results match calls by that session
+and `tool_call_id`. The risk clock follows stored epoch timestamps, clamping
+regressions to the preceding reading and reporting their count. Coverage
+counters show scanned/skipped and unmatched results, and scan failures. This
+is a measurement of stored records under the chosen settings, not a recreation
+of historical host approvals or profile settings. Treat flags and blocks as
+false-positive candidates until the underlying work has been judged benign.
+
 ## Found while installing
 
 Each was found on 2026-11-11 to 2026-11-13 and fixed on the branch.
