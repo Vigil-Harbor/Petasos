@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import sys
+from contextlib import closing
 from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from petasos.config.layers import resolve
+from petasos.config.layers import LEVELS, ROLES, resolve
 from petasos.hermes.settings import HermesSettings, profile_binding, write_settings
 
 if TYPE_CHECKING:
@@ -142,3 +143,45 @@ def test_writer_reports_a_missing_hermes(tmp_path: Path, monkeypatch: pytest.Mon
     _drop_hermes(monkeypatch)
     with pytest.raises(RuntimeError, match="not available"):
         write_settings({"enabled": False}, plugin_dir=tmp_path)
+
+
+@pytest.mark.parametrize("role", tuple(ROLES))
+@pytest.mark.parametrize("level", tuple(LEVELS))
+def test_built_in_thresholds_do_not_warn(
+    role: str, level: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    from petasos.enforce import Enforcer, ToolCall
+
+    with closing(
+        Enforcer(HermesSettings(_Store({"role": role, "level": level})), registry=())
+    ) as enforcer:
+        enforcer.start()
+        assert enforcer.settle()
+        caplog.clear()
+        with caplog.at_level("WARNING", logger="petasos.session.guard"):
+            enforcer.tool_result(ToolCall(tool="read_file", args={}, session="s"), "hello")
+        assert not [record for record in caplog.records if record.name == "petasos.session.guard"]
+
+
+def test_explicit_thresholds_warn_even_when_they_match_a_level(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from petasos.enforce import Enforcer, ToolCall
+
+    store = _Store({"level": "relaxed"})
+    with closing(Enforcer(HermesSettings(store), registry=())) as enforcer:
+        enforcer.start()
+        assert enforcer.settle()
+        call = ToolCall(tool="read_file", args={}, session="s")
+        enforcer.tool_result(call, "hello")
+        store.values["overrides"] = {"escalation": {"tier1": 25.0}}
+        enforcer.refresh()
+        caplog.clear()
+        with caplog.at_level("WARNING", logger="petasos.session.guard"):
+            enforcer.tool_result(call, "hello")
+        assert [record for record in caplog.records if record.name == "petasos.session.guard"]
+        store.values["overrides"] = {}
+        enforcer.refresh()
+        caplog.clear()
+        enforcer.tool_result(call, "hello")
+        assert not [record for record in caplog.records if record.name == "petasos.session.guard"]

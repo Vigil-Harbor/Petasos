@@ -93,6 +93,8 @@ class SettingsSnapshot:
     ``token`` is compared with ``==``. A different token is a change.
     ``error`` set means this observation is not usable: ``config`` is ignored
     and the previous good tree stays. ``armed`` is the operator switch.
+    ``origin`` carries winning leaf sources from configuration resolution.
+    Without provenance, thresholds are treated as hand-written settings.
     """
 
     armed: bool
@@ -101,6 +103,7 @@ class SettingsSnapshot:
     token: object
     error: str | None = None
     secret_invalid: bool = False
+    origin: Mapping[str, str] | None = None
 
 
 class SettingsSource(Protocol):

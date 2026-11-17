@@ -24,9 +24,11 @@ from petasos.normalize import canonicalize_tool_name
 from petasos.session.escalation import evaluate_tier, max_tier
 
 _logger = logging.getLogger("petasos.session.guard")
+# Resolution sources that are Petasos's own calibrated values, not hand-written.
+_BUILT_IN_SOURCES = frozenset({"default", "role", "level"})
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable
+    from collections.abc import Callable, Iterable, Mapping
 
     from petasos.config.sections import PetasosConfig
     from petasos.guard.surface import GuardrailSurface
@@ -95,6 +97,7 @@ class ToolCallGuard:
         frequency_tracker: FrequencyTracker,
         config: PetasosConfig,
         *,
+        origin: Mapping[str, str] | None = None,
         exempt_param_scan: bool = True,
         lineage: LineageRegistry | None = None,
         home: HermesConfigResolution | None = None,
@@ -105,6 +108,7 @@ class ToolCallGuard:
         self._pipeline = pipeline
         self._frequency_tracker = frequency_tracker
         self._config = config
+        self._origin = dict(origin) if origin is not None else {}
         self._secrets = secrets if secrets is not None else Secrets()
         self._selfmod_home = home
         self._exempt_param_scan = exempt_param_scan
@@ -193,13 +197,16 @@ class ToolCallGuard:
         """
         self._reject_exempt_delegates(self._delegates_from(new_config), new_config)
 
-    def apply_config(self, new_config: PetasosConfig) -> None:
+    def apply_config(
+        self, new_config: PetasosConfig, *, origin: Mapping[str, str] | None = None
+    ) -> None:
         """Apply guard settings while preserving risk, spawn history and secret binding.
 
         Delegate/exemption validation precedes changes. The shared tracker applies
         its own staged weight validation without replacing session state."""
         self.validate_config(new_config)
         self._config = new_config
+        self._origin = dict(origin) if origin is not None else {}
         self._delegate_tool_names = self._delegates_from(new_config)
         self._spawn_budget.set_window(new_config.tools.fanout.window_seconds)
         # Thresholds are reconfigurable, so the warned-about condition can
@@ -225,6 +232,12 @@ class ToolCallGuard:
                     tier1,
                 )
             return 0.0
+        # Built-in layers are calibrated as a whole; diagnose custom thresholds.
+        if all(
+            self._origin.get(f"escalation.{tier}") in _BUILT_IN_SOURCES
+            for tier in ("tier1", "tier2")
+        ):
+            return tier1 / _SCAN_WEIGHT_CAP_DIVISOR
         # See docs/architecture/rationale.md, "Scan contribution calibration".
         if not self._cap_threshold_warned:
             tier2 = float(self._config.escalation.tier2)

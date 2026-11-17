@@ -196,3 +196,7 @@ deleted.
 The shared timeout-error prefix moves from `petasos.pipeline._TIMEOUT_ERROR_PREFIX`
 to `petasos.model._TIMEOUT_ERROR_PREFIX`. The ingestion head length moves from
 `petasos.session.ingest.HEAD_CHARS` to `petasos.limits.HEAD_CHARS`.
+
+- PET-266: built-in strictness levels no longer warn about their own risk
+  thresholds. Custom thresholds still receive scan-step diagnostics; relaxed
+  keeps its calibrated 25/45/65 values.
