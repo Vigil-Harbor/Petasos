@@ -637,8 +637,9 @@ uses a tinted outline and actions use buttons.
 
 Keep relaxed at 25/45/65: changing those thresholds would change the
 false-positive calibration and could move frozen behaviour records. Built-in
-levels are calibrated as a whole, so scan-step diagnostics apply only when
-either threshold involved comes from outside the built-in level. Resolution
+layers (schema defaults, jobs and strictness levels) are calibrated as a
+whole, so scan-step diagnostics apply only when either threshold involved
+comes from an override. Resolution
 provenance, carried through initialisation and live changes, decides this;
 matching a built-in number is not evidence of a built-in source. Direct
 library configurations without provenance still receive diagnostics.

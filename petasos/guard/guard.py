@@ -24,6 +24,8 @@ from petasos.normalize import canonicalize_tool_name
 from petasos.session.escalation import evaluate_tier, max_tier
 
 _logger = logging.getLogger("petasos.session.guard")
+# Resolution sources that are Petasos's own calibrated values, not hand-written.
+_BUILT_IN_SOURCES = frozenset({"default", "role", "level"})
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping
@@ -230,8 +232,11 @@ class ToolCallGuard:
                     tier1,
                 )
             return 0.0
-        # Built-in levels are calibrated as a whole; diagnose custom thresholds.
-        if all(self._origin.get(f"escalation.{tier}") == "level" for tier in ("tier1", "tier2")):
+        # Built-in layers are calibrated as a whole; diagnose custom thresholds.
+        if all(
+            self._origin.get(f"escalation.{tier}") in _BUILT_IN_SOURCES
+            for tier in ("tier1", "tier2")
+        ):
             return tier1 / _SCAN_WEIGHT_CAP_DIVISOR
         # See docs/architecture/rationale.md, "Scan contribution calibration".
         if not self._cap_threshold_warned:
