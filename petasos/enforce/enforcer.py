@@ -211,7 +211,7 @@ class Enforcer:
             from petasos.enforce.guardrail import record_applied_settings
 
             before = engine.config
-            apply_snapshot(engine, snap.config, snap.secrets, logger)
+            apply_snapshot(engine, snap.config, snap.secrets, logger, origin=snap.origin)
             record_applied_settings(self._core, before)
             self._core._token = snap.token
             self._core.fail_mode = engine.fail_mode()

@@ -271,6 +271,7 @@ class Core:
                 registry=self.registry,
                 logger=logger,
                 secret_invalid=self._secret_invalid,
+                origin=snap.origin if snap is not None and snap.error is None else None,
             )
             self._install_secret(secrets)
             self.engine = engine
@@ -304,7 +305,7 @@ class Core:
             return
         try:
             before = engine.config
-            apply_snapshot(engine, snap.config, snap.secrets, logger)
+            apply_snapshot(engine, snap.config, snap.secrets, logger, origin=snap.origin)
             record_applied_settings(self, before)
         except Exception as exc:
             self.book.log_reload_failure(f"apply failed: {exc}")

@@ -247,6 +247,7 @@ def _snapshot(
     return SettingsSnapshot(
         armed=resolved.settings.enabled,
         config=resolved.config,
+        origin=resolved.origin,
         secrets=secrets,
         token=token,
         secret_invalid=invalid,

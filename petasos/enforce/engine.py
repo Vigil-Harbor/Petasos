@@ -22,7 +22,7 @@ from petasos.session.taint import SessionTaintStore
 
 if TYPE_CHECKING:
     import logging
-    from collections.abc import Callable, Sequence
+    from collections.abc import Callable, Mapping, Sequence
 
     from petasos.config.schema import ReconfigureResult
     from petasos.config.secrets import Secrets
@@ -147,6 +147,7 @@ def build_engine(
     registry: tuple[ScannerSpec, ...],
     logger: logging.Logger,
     secret_invalid: bool,
+    origin: Mapping[str, str] | None = None,
 ) -> Engine:
     """Compose scanners and construct the pipeline, guard, and stores.
 
@@ -194,6 +195,7 @@ def build_engine(
         tracker,
         config,
         secrets=secrets,
+        origin=origin,
         lineage=lineage,
         protected_paths=host.protected_paths,
         guardrail_surface=host.guardrail_surface,
@@ -237,6 +239,8 @@ def apply_snapshot(
     proposed: PetasosConfig,
     secrets: Secrets,
     logger: logging.Logger,
+    *,
+    origin: Mapping[str, str] | None = None,
 ) -> ReconfigureResult:
     """Apply one snapshot. Restart fields and secrets stay as they are.
 
@@ -255,7 +259,7 @@ def apply_snapshot(
         logger.warning("restart required: %s", ", ".join(others))
     live = engine.pipeline.config
     engine.guard.validate_config(live)
-    engine.guard.apply_config(live)
+    engine.guard.apply_config(live, origin=origin)
     if engine.lineage is not None:
         engine.lineage.apply_config(live)
     engine.taint.apply_config(live)
