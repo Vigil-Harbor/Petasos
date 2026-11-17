@@ -152,6 +152,6 @@ def test_install_output_names_the_development_route(
     code, out = _run(["hermes", "install", "--home", str(tmp_path), "--dry-run"], capsys)
     assert code == 0
     assert "development install" in out
-    assert "wheels/petasos-0.4.0-py3-none-any.whl" in out
+    assert "petasos-0.4.0-py3-none-any.whl" in out
     assert "released" in out
     assert "Dry run" in out

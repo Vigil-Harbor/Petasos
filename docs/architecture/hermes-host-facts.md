@@ -1151,6 +1151,40 @@ launcher. Each was reproduced or read back afterwards.
   with `launchctl bootout` and `launchctl bootstrap`; the new process had
   the new environment's files open and logged Petasos's start-up.
 
+### Development wheel admission, 2026-11-17 (PET-265)
+
+**Read** in the sandbox `/tmp/petasos-n1-sbx`, Hermes v0.23.1 commit
+`3b421578588243f920886e6fe79a6faa87ea026e`: `_admit_and_save_plugin_sets`
+in `hermes_cli/plugins_cmd.py` delegates to `admit_plugin_set_change` in
+`hermes_cli/plugins_admission.py`, which calls `sync_venv(explicit=True,
+plugins=Selection(...))` even when the proposed enabled and disabled sets
+are unchanged. `pm/packages.py`'s `Venv.expected_stamp` includes
+`pm/workspace.py`'s `members_stamp`. That hashes the declaration files and,
+for a plugin with `pyproject.toml`, its nonignored tree, including the wheel
+source path in that file. `pm/install.py` compares that stamp before
+applying the candidate environment. Changing only the uv source path is
+therefore enough to trigger normal resolution; disable/enable is unnecessary.
+Repair instead replays the recorded graph and is unsuitable for changing builds.
+
+**Observed** in a fresh sandbox home: uv's installed `direct_url.json`
+names the wheel copied into the committed generation's
+`workspace/plugin-sources/` tree, with an empty `archive_info` mapping.
+Doctor must compare that wheel's bytes to the plugin source when an archive
+hash is absent; different absolute paths alone do not mean a stale build.
+
+**Observed** through `bin/with-sandbox` in
+`tests/hermes_host/test_environment.py`: two wheels with the same version
+and a sentinel source change produce different imports in new Hermes
+processes after normal admission, from both a digest path and an existing
+flat-wheel declaration. Simulating a rebuild failure leaves both builds in
+place, the older environment still blocks an injection, and doctor reports
+a warning with the install command for that home. Retrying install resolves
+the pending build without disabling Petasos. After success, the old digest
+wheel and flat wheel are gone, and another normal admission still succeeds
+and retains the sentinel. Git downloads for the group run used the sandbox's
+cached `psutil` repository as a mirror of the same pinned commit after a
+network fetch timed out; Hermes's source and dependency pins were unchanged.
+
 ## 18. Beside Tirith, 2026-11-15
 
 Hermes source: tag `v0.23.1`, commit

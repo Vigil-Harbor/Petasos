@@ -19,7 +19,7 @@ from petasos.hermes.doctor_support import enable_command, use_home
 from petasos.hermes.environment import probe_petasos, republish, runtime_python
 from petasos.hermes.manifest import render_manifest
 from petasos.hermes.settings import PLUGIN_ID
-from petasos.hermes.wheel import place_wheel, wheel_filename
+from petasos.hermes.wheel import place_wheel, prune_wheels, wheel_filename, wheel_source
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -66,7 +66,7 @@ def install_plugin(
     )
 
 
-def render_project(wheel_name: str | None = None) -> str:
+def render_project(wheel_name: str) -> str:
     """The plugin ``pyproject.toml`` for a copy this Petasos wrote.
 
     The dependency is this version, taken from the wheel file next to the
@@ -74,7 +74,6 @@ def render_project(wheel_name: str | None = None) -> str:
     name would let a package index supply a different build of the same
     version.
     """
-    name = wheel_filename() if wheel_name is None else wheel_name
     version = petasos.__version__
     return (
         "[project]\n"
@@ -88,7 +87,7 @@ def render_project(wheel_name: str | None = None) -> str:
         "package = false\n"
         "\n"
         "[tool.uv.sources]\n"
-        f'petasos = {{ path = "wheels/{name}" }}\n'
+        f'petasos = {{ path = "wheels/{wheel_name}" }}\n'
     )
 
 
@@ -128,7 +127,7 @@ def _development(
         f"  {target / 'plugin.yaml'}",
         f"  {target / '__init__.py'}",
         f"  {target / 'pyproject.toml'}",
-        f"  {target / 'wheels' / wheel_filename()}",
+        f"  {target / 'wheels' / '<digest>' / wheel_filename()}",
         *[f"  {target / 'dashboard' / name}" for name in dashboard_texts()],
         "It will turn the plugin on through Hermes.",
         "Running this again refreshes those files to this version of Petasos.",
@@ -162,21 +161,50 @@ def _development(
         report = examine(home, home_reason=home_reason)
         text += render_text(report, verbose=False, color=color)
         return InstallResult(text=text, exit_code=2, report=report)
-    written = _write_tree(target, wheel_name=wheel.name)
+    previous = wheel_source(target / "pyproject.toml")
+    written = _write_tree(target, wheel_name=wheel.relative_to(target / "wheels").as_posix())
     if written:
         lines.append("")
         lines.append("Wrote the plugin files.")
     else:
         lines.append("")
         lines.append("The plugin files already match this version of Petasos.")
+    refreshed = False
+    refresh_failed = False
     with use_home(home):
         enabled, enable_message = enable_plugin()
         lines.append(enable_message)
         if enabled and "already" in enable_message:
             runtime = runtime_python(home)
-            broken = runtime is None or not probe_petasos(runtime.python).ok
-            _ok, refresh = republish(repair=broken)
-            lines.append(refresh)
+            probe = probe_petasos(runtime.python) if runtime is not None else None
+            broken = probe is None or not probe.ok
+            stale = probe is not None and probe.matches_wheel(wheel) is False
+            if written or previous != wheel or broken or stale:
+                # Repair replays the old graph. A changed source must be admitted
+                # normally, including retries after a failed refresh.
+                refreshed, refresh = republish()
+                lines.append(refresh)
+                if refreshed and broken and not written and previous == wheel:
+                    # Normal admission first: a previous failed install may
+                    # already have written a source the recorded graph lacks.
+                    # Only repair if admission still left an import broken.
+                    runtime = runtime_python(home)
+                    if runtime is None or not probe_petasos(runtime.python).ok:
+                        refreshed, refresh = republish(repair=True)
+                        lines.append(refresh)
+                refresh_failed = not refreshed
+        elif enabled:
+            refreshed = True
+    if refreshed:
+        prune_wheels(wheel)
+    if refresh_failed:
+        lines.extend(
+            [
+                "The new build was saved, but Hermes did not switch to it. "
+                "All wheel files were kept so the previous environment can still be rebuilt.",
+                f"Next: petasos hermes install --home {_quote(home)}",
+            ]
+        )
     if not enabled:
         lines.append(
             "The files are in place. Hermes did not turn the plugin on, "
@@ -187,7 +215,9 @@ def _development(
     text = "\n".join(lines) + "\n\n"
     report = examine(home, home_reason=home_reason)
     text += render_text(report, verbose=False, color=color)
-    return InstallResult(text=text, exit_code=report.exit_code, report=report)
+    return InstallResult(
+        text=text, exit_code=max(report.exit_code, int(refresh_failed)), report=report
+    )
 
 
 def _released(

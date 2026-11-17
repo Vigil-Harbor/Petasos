@@ -1025,6 +1025,9 @@ old environment until it starts again.
   goes through Hermes, which installs the file into the committed
   environment. Running it again refreshes the wheel and, when the plugin is
   already on, asks Hermes to rebuild.
+  Development wheels live at `wheels/<digest>/petasos-<version>-py3-none-any.whl`,
+  with the first 16 hex characters of the wheel's SHA-256 as `<digest>`, so a
+  changed build changes the source path while identical bytes keep it.
 
 `petasos doctor` asks the committed environment's own Python whether it can
 import a compatible Petasos. It does not trust the interpreter that launched

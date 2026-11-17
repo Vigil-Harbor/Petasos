@@ -7,18 +7,22 @@ happens to be running this command is not the answer.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import unquote, urlparse
 
 _PROBE = (
-    "import json\n"
+    "import json, importlib.metadata\n"
     "try:\n"
     "    import petasos\n"
     "    import petasos.hermes.plugin\n"
-    "    print(json.dumps({'ok': True, 'version': str(petasos.__version__)}))\n"
+    "    direct = importlib.metadata.distribution('petasos').read_text('direct_url.json')\n"
+    "    print(json.dumps({'ok': True, 'version': str(petasos.__version__),\n"
+    "                      'direct_url': direct}))\n"
     "except Exception as exc:\n"
     "    print(json.dumps({'ok': False, 'error': type(exc).__name__ + ': ' + str(exc)}))\n"
 )
@@ -46,6 +50,32 @@ class Probe:
     ok: bool
     version: str = ""
     error: str = ""
+    direct_url: str = ""
+
+    def matches_wheel(self, source: Path) -> bool | None:
+        """Compare installed provenance to a local wheel; None means unknown.
+
+        Hermes copies plugin inputs into a generation, so the recorded URL may
+        name that snapshot. Its archive hash identifies the bytes across copies.
+        """
+        try:
+            direct = json.loads(self.direct_url)
+            archive = direct.get("archive_info", {})
+            digest = archive.get("hashes", {}).get("sha256")
+            if not digest and archive.get("hash", "").startswith("sha256="):
+                digest = archive["hash"].removeprefix("sha256=")
+            if isinstance(digest, str) and digest:
+                return hashlib.sha256(source.read_bytes()).hexdigest() == digest
+            parsed = urlparse(direct.get("url", ""))
+            if parsed.scheme == "file":
+                installed = Path(unquote(parsed.path))
+                if installed.resolve() == source.resolve():
+                    return True
+                if installed.is_file():
+                    return installed.read_bytes() == source.read_bytes()
+        except (OSError, ValueError, AttributeError, TypeError):
+            pass
+        return None
 
 
 def runtime_python(home: Path) -> Runtime | None:
@@ -82,7 +112,12 @@ def probe_petasos(python: Path) -> Probe:
     if not isinstance(payload, dict):
         return Probe(ok=False, error="The environment did not answer.")
     if payload.get("ok") is True and isinstance(payload.get("version"), str):
-        return Probe(ok=True, version=payload["version"])
+        direct = payload.get("direct_url")
+        return Probe(
+            ok=True,
+            version=payload["version"],
+            direct_url=direct if isinstance(direct, str) else "",
+        )
     error = payload.get("error")
     return Probe(ok=False, error=error if isinstance(error, str) and error else "import failed")
 
