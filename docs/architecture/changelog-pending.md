@@ -225,3 +225,7 @@ to `petasos.model._TIMEOUT_ERROR_PREFIX`. The ingestion head length moves from
 
 - Guardrail recognition now covers changes to Hermes’s permanent approval list,
   including indexed config writes and applying approval-history proposals.
+
+- A guardrail approval no longer replaces a content or session block. Combined
+  asks name both reasons and use a fresh guardrail key; blocked guardrail
+  attempts remain visible in events.

@@ -43,7 +43,7 @@ _MAX_ASKED = 16
 class Ruling:
     """What to do with one guardrail change.
 
-    ``decision`` set means return it. ``None`` means a live session grant
+    ``decision`` is the guardrail floor. ``None`` means a live session grant
     covers the change and the rest of the ladder still runs. ``until`` is the
     wall-clock second the grant lasts until.
     """
@@ -141,8 +141,7 @@ def ruling_for(
 ) -> Ruling:
     """Decide one recognised change. Emits the decision event except a covered one.
 
-    A covered change is emitted by the caller only when the rest of the ladder
-    allows the call, so a stricter block stays the event written next.
+    A covered change is emitted by the caller after combining both policies.
     """
     shown = _shown(core, target)
     mode = _mode(core)
@@ -188,7 +187,7 @@ def ruling_for(
 
 
 def note_covered(core: Core, call: ToolCall, session_id: str, ruling: Ruling) -> None:
-    """Record that a live session grant covered a change the ladder then allowed."""
+    """Record that a live session grant covered the guardrail part of a call."""
     _emit(
         core,
         call,
@@ -205,6 +204,11 @@ def note_covered(core: Core, call: ToolCall, session_id: str, ruling: Ruling) ->
         session_id,
         "" if ruling.until is None else ruling.until,
     )
+
+
+def note_blocked(core: Core, call: ToolCall, session_id: str, *, kind: str, target: str) -> None:
+    """Record an attempt stopped by the content or session ladder."""
+    _emit(core, call, session_id, name="blocked", kind=kind, target=_shown(core, target))
 
 
 def note_answer(core: Core, notice: ApprovalNotice) -> None:
@@ -427,12 +431,14 @@ def _emit(
 
 
 def _severity(name: str) -> str | None:
-    if name in {"refused", "unattended", "held", "covered"}:
+    if name in {"refused", "unattended", "held", "covered", "blocked"}:
         return "critical"
     return None
 
 
 def _reason(name: str, kind: str, target: str, until: float | None, scope: str | None) -> str:
+    if name == "blocked":
+        return f"guardrail change stopped by content or session policy ({kind}): {target}".strip()
     if name == "refused":
         return f"guardrail refused ({kind}): {target}".strip()
     if name == "unattended":
