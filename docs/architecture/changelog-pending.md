@@ -225,3 +225,7 @@ to `petasos.model._TIMEOUT_ERROR_PREFIX`. The ingestion head length moves from
 
 - Config set, migration writes and released installs select the home named by
   `--home` or `--profile`, even when another Hermes profile is active.
+
+- Pinning again keeps the settings already in force under a whole Petasos pin;
+  profile-only mapping entries cannot spread to other profiles. Pin previews
+  and writes disclose the complete settings being captured.

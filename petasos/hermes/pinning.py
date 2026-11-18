@@ -23,9 +23,14 @@ LIMITS = (
 MAP_FIELDS = tuple(row for row in leaves(PetasosConfig) if row.type_name.startswith("mapping["))
 
 
-def pin_values(document: Mapping[str, Any], *, timeout: float) -> dict[str, Any]:
+def pin_values(
+    document: Mapping[str, Any],
+    *,
+    timeout: float,
+    settings: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
     """Every resolved setting, both plugin lists, and the effective hook timeout."""
-    resolved = resolve(settings_mapping(document, "petasos"))
+    resolved = resolve(settings if settings is not None else settings_mapping(document, "petasos"))
     enabled, disabled = plugin_lists(document)
     if "petasos" not in enabled or "petasos" in disabled:
         raise ValueError("Petasos must be on in Hermes's plugin list before it can be pinned.")
