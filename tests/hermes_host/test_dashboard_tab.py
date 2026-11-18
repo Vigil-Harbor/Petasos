@@ -7,12 +7,14 @@ Without it the test is skipped with that reason.
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pytest
 
 from tests.hermes_host.capture_round import run_browser
+from tests.hermes_host.client import sandbox_env
 from tests.hermes_host.dashboard_server import start, stop
 from tests.hermes_host.demo_home import prepare, prepare_trial
 from tests.hermes_host.marks import requires_hermes_sandbox
@@ -156,3 +158,52 @@ def test_try_it_hidden_text_risk_and_version(petasos_wheel: Path) -> None:
         assert state["focus"]["entered"] is True
         assert state["focus"]["left"] is True
         assert state["focus"]["invisible"] == []
+
+
+def test_readme_loop_records_real_results_without_adding_activity(
+    petasos_wheel: Path, tmp_path: Path
+) -> None:
+    """The capture raises input risk, preserves the spool, and encodes a readable loop."""
+    pillow = subprocess.run(
+        [
+            str(petasos_wheel / "bin" / "with-sandbox"),
+            str(petasos_wheel / "shot" / "bin" / "python"),
+            "-c",
+            "import PIL.Image",
+        ],
+        env=sandbox_env(None),
+        capture_output=True,
+        check=False,
+    )
+    if pillow.returncode:
+        pytest.skip("README loop needs Pillow in sandbox/shot; see the harness README")
+    home = Path(prepare(petasos_wheel, "readme-loop-test")["home"])
+    spool = home / "petasos-enforcement.jsonl"
+    before = spool.read_bytes()
+    board = start(petasos_wheel, home)
+    try:
+        report = run_browser(
+            petasos_wheel,
+            {
+                "action": "loop",
+                "url": board.url,
+                "out": str(tmp_path / "frames"),
+                "asset": str(tmp_path / "loop.webp"),
+            },
+            timeout=300,
+        )
+    finally:
+        assert stop(board.pid)
+    assert report["errors"] == []
+    assert report["failed"] == []
+    assert report["overflow"] is False
+    assert report["states"][0]["findings"] == []
+    assert report["states"][1]["findings"]
+    assert report["states"][1]["risk"]["score"] > report["states"][0]["risk"]["score"]
+    assert report["activity_events"] > 0
+    assert spool.read_bytes() == before
+    assert (report["width"], report["height"]) == (900, 720)
+    assert report["frames"] > 50
+    assert 10_000 <= report["duration_ms"] <= 20_000
+    assert report["loop"] == 0
+    assert report["bytes"] < 4_000_000

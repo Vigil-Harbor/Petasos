@@ -201,3 +201,31 @@ python tests/hermes_host/capture_round.py --sandbox ~/.cache/petasos/hermes-sand
 
 The driver stops its dashboard, and reports script/API failures and horizontal
 overflow. Inspect the four images before using them as evidence.
+
+## README animation
+
+The loop action uses the unmodified tab in the default Hermes Teal theme at
+900 by 720. It checks a clean tool result, pastes a harmless instruction override,
+shows its highlighted match and higher input risk, then visits recorded Activity.
+Try it adds no events; Activity comes from `demo_harness.py`'s real hooks.
+Each input starts a fresh risk calculation, so the preview does not simulate a
+cumulative conversation score or a climb through tiers.
+
+Install Pillow only in the sandbox's browser environment, then regenerate from
+the worktree (choose a scratch output directory outside the repository):
+
+```bash
+uv pip install --python ~/.cache/petasos/hermes-sandbox/pet-277-278-impl/shot/bin/python Pillow==12.2.0
+.venv/bin/python tests/hermes_host/capture_round.py \
+  --sandbox ~/.cache/petasos/hermes-sandbox/pet-277-278-impl \
+  --out ~/.cache/petasos/hermes-sandbox/pet-277-278-impl/tmp/readme-loop \
+  --readme-loop assets/petasos-demo-loop.webp
+```
+
+The driver builds this checkout's wheel, creates a throwaway populated home,
+starts its dashboard through `bin/with-sandbox` on `127.0.0.1`, and stops it in
+`finally`. `--out` receives the PNG sequence, six named review frames, and
+`frames.json` with millisecond durations. The JSON report includes the actual
+encoded dimensions, frame count, duration, size, risk and browser errors.
+The dashboard test group also exercises recording and encoding when Pillow is
+installed in `shot`.
