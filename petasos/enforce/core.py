@@ -349,11 +349,12 @@ class Core:
             or snap.token == self._token
         ):
             return
-        acquired = False
+        if not self.runtime.inspect.acquire(timeout=self.limits.eval_timeout_s):
+            # A scan was still running. The settings are valid and stay pending,
+            # so the next call applies them. Only a failed apply is a rejection.
+            self.book.log_reload_failure("apply delayed: a scan was still running")
+            return
         try:
-            acquired = self.runtime.inspect.acquire(timeout=self.limits.eval_timeout_s)
-            if not acquired:
-                raise TimeoutError("settings reload waiting for inspection")
             before = engine.config
             apply_snapshot(engine, snap.config, snap.secrets, logger, origin=snap.origin)
             self.armed = snap.armed
@@ -370,8 +371,7 @@ class Core:
             self.book.log_reload_failure(f"apply failed: {exc}")
             return
         finally:
-            if acquired:
-                self.runtime.inspect.release()
+            self.runtime.inspect.release()
         if announce:
             self.book.log_reconfigured()
 

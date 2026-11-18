@@ -36,7 +36,10 @@ def test_different_agent_lifetimes_never_reuse_a_session() -> None:
         del agent
     assert len(sessions) == 200
     gc.collect()
-    assert not book._agents
+    # Entries for dead agents go on the next lookup, so only the live one is kept.
+    survivor = _Agent()
+    book.session_id("", survivor)
+    assert len(book._agents) == 1
 
 
 def test_equal_unhashable_live_agents_have_distinct_stable_sessions() -> None:
@@ -67,3 +70,25 @@ def test_identity_formats_and_opaque_agent_warning(caplog: pytest.LogCaptureFixt
     assert len(caplog.records) == 1
     assert "risk" in caplog.records[0].message
     assert "agent" in caplog.records[0].message
+
+
+def test_an_agent_dying_while_the_book_is_locked_does_not_deadlock() -> None:
+    """The collector can run a weak-reference callback on a thread that holds the lock."""
+    import threading
+
+    book = _book()
+    holder: list[_Agent] = [_Agent()]
+    first = book.session_id("", holder[0])
+
+    def die_under_the_lock() -> None:
+        with book._lock:
+            holder.clear()
+            gc.collect()
+
+    worker = threading.Thread(target=die_under_the_lock, daemon=True)
+    worker.start()
+    worker.join(timeout=5)
+    assert not worker.is_alive()
+    replacement = _Agent()
+    assert book.session_id("", replacement) != first
+    assert len(book._agents) == 1

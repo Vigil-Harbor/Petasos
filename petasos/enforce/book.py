@@ -7,6 +7,7 @@ The clocks come from the enforcer, so a test opens a window by advancing time.
 
 from __future__ import annotations
 
+import collections
 import threading
 import uuid
 import weakref
@@ -84,6 +85,12 @@ class Book:
         self.ingest_unscanned = KeyCadence(clock, interval, _MAX_SESSIONS)
         self._bypass: dict[str, int] = {}
         self._agents: dict[int, tuple[weakref.ReferenceType[object], str]] = {}
+        # Filled by weak-reference callbacks, which can run on any thread at any
+        # allocation, including one that already holds ``_lock``. They only
+        # append here; the entries are removed under the lock on the next lookup.
+        self._dead: collections.deque[tuple[int, weakref.ReferenceType[object]]] = (
+            collections.deque()
+        )
         self._cold: dict[tuple[str, str], None] = {}
         self._cold_anon_degraded = False
         self._cold_anon_failed = False
@@ -107,18 +114,14 @@ class Book:
         if agent is not None:
             key = id(agent)
             with self._lock:
+                self._drop_dead_agents()
                 found = self._agents.get(key)
                 if found is not None and found[0]() is agent:
                     return found[1]
-                owner = weakref.ref(self)
+                dead = self._dead
 
                 def forget(reference: weakref.ReferenceType[object]) -> None:
-                    book = owner()
-                    if book is not None:
-                        with book._lock:
-                            current = book._agents.get(key)
-                            if current is not None and current[0] is reference:
-                                del book._agents[key]
+                    dead.append((key, reference))
 
                 try:
                     reference = weakref.ref(agent, forget)
@@ -136,6 +139,17 @@ class Book:
                     "-- session risk cannot be accumulated for this agent"
                 )
         return f"anon-{uuid.uuid4().hex[:8]}"
+
+    def _drop_dead_agents(self) -> None:
+        """Remove entries whose agent has gone. The caller holds ``_lock``."""
+        while True:
+            try:
+                key, reference = self._dead.popleft()
+            except IndexError:
+                return
+            current = self._agents.get(key)
+            if current is not None and current[0] is reference:
+                del self._agents[key]
 
     def bump_bypass(self, session_id: str) -> int:
         """Count one disarmed call and return the session total."""

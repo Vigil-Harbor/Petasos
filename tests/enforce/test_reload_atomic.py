@@ -101,3 +101,35 @@ def test_rejected_reload_preserves_all_state_and_can_recover(
         assert enforcer.tool_call(ToolCall("read_file", session="child")) is not None
     finally:
         enforcer.close()
+
+
+def test_a_reload_that_finds_the_pipeline_busy_is_applied_on_the_next_call() -> None:
+    from petasos.enforce.types import Limits
+
+    config = PetasosConfig()
+    current = [SettingsSnapshot(armed=True, config=config, secrets=Secrets(), token=1)]
+    enforcer = Enforcer(
+        lambda: current[0],
+        host=HostInfo(),
+        registry=(),
+        limits=Limits(eval_timeout_s=0.05),
+    )
+    enforcer.start()
+    assert enforcer.settle(10)
+    engine = enforcer._core.engine
+    assert engine is not None
+    changed = replace(
+        config, normalization=replace(config.normalization, nfkc=not config.normalization.nfkc)
+    )
+    current[0] = SettingsSnapshot(armed=True, config=changed, secrets=Secrets(), token=2)
+    call = ToolCall(tool="read_file", args={"path": "notes.md"}, session="s")
+    assert enforcer._core.runtime.inspect.acquire(timeout=1)
+    try:
+        enforcer.tool_call(call)
+        assert engine.pipeline.config.normalization.nfkc == config.normalization.nfkc
+    finally:
+        enforcer._core.runtime.inspect.release()
+    enforcer.tool_call(call)
+    assert engine.pipeline.config.normalization.nfkc == changed.normalization.nfkc
+    assert engine.config.normalization.nfkc == changed.normalization.nfkc
+    enforcer.close()
