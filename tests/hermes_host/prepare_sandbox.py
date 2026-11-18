@@ -21,6 +21,11 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+try:
+    from tests.hermes_host.sandbox_guard import protected_directory
+except ModuleNotFoundError:  # run as a script: the module sits beside this file
+    from sandbox_guard import protected_directory  # type: ignore[import-not-found,no-redef]
+
 HERMES_REPO = "https://github.com/NousResearch/hermes-agent.git"
 DEFAULT_TAG = "v0.23.1"
 NODE_VERSION = "26.13.1"
@@ -42,15 +47,33 @@ import os, pwd, sys
 root = os.path.realpath(sys.argv[1])
 home = os.path.realpath(sys.argv[2])
 account = os.path.realpath(pwd.getpwuid(os.getuid()).pw_dir)
-banned_names = (
-    ".hermes", ".hermes-second", "hermes-services", "model-lab", "work", "notes",
-)
 def under(path, parent):
     return path == parent or path.startswith(parent + os.sep)
 if home == root or not under(home, root):
     sys.stderr.write("refusing Hermes home outside the sandbox: %s\\n" % home)
     raise SystemExit(2)
-for name in banned_names:
+# Protected: every Hermes home in the account directory, and each directory
+# in the list kept on this machine (one per line, absolute or relative to the account).
+names = [".hermes"] + sorted(n for n in os.listdir(account) if n.startswith(".hermes-"))
+listing = os.path.join(account, ".config", "petasos", "protected-dirs")
+if os.path.exists(listing):
+    try:
+        with open(listing, encoding="utf-8") as stream:
+            lines = stream.read().splitlines()
+    except (OSError, UnicodeError) as exc:
+        sys.stderr.write("refusing to run: cannot read %s: %s\\n" % (listing, exc))
+        raise SystemExit(2)
+    for line in lines:
+        entry = line.split("#", 1)[0].strip()
+        if entry:
+            names.append(entry[2:] if entry.startswith("~/") else entry)
+for path in (home, root):
+    if under(path, account) and path != account:
+        first = os.path.relpath(path, account).split(os.sep)[0]
+        if first == ".hermes" or first.startswith(".hermes-"):
+            sys.stderr.write("refusing Hermes home under %s\\n" % os.path.join(account, first))
+            raise SystemExit(2)
+for name in names:
     banned = os.path.realpath(os.path.join(account, name))
     if under(home, banned) or under(root, banned):
         sys.stderr.write("refusing Hermes home under %s\\n" % banned)
@@ -91,17 +114,8 @@ def _forbidden(dest: Path) -> str:
     homes = {Path.home().resolve(), Path(pwd.getpwuid(os.getuid()).pw_dir).resolve()}
     resolved = dest.resolve()
     for home in homes:
-        for name in (
-            ".hermes",
-            ".hermes-second",
-            "hermes-services",
-            "model-lab",
-            "work",
-            "notes",
-        ):
-            banned = (home / name).resolve()
-            if resolved == banned or banned in resolved.parents:
-                return str(banned)
+        if banned := protected_directory(resolved, home):
+            return str(banned)
     return ""
 
 

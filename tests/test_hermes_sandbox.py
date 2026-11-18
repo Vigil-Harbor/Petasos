@@ -22,15 +22,56 @@ def test_account_destinations_are_refused_even_with_a_replaced_home(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     account = tmp_path / "account"
+    elsewhere = tmp_path / "elsewhere"
+    listing = account / guard.PROTECTED_LIST
+    listing.parent.mkdir(parents=True)
+    listing.write_text(f"# this machine's own list\nservices\n~/lab  # relative\n{elsewhere}\n")
+    (account / ".hermes-second").mkdir()
     monkeypatch.setattr(pwd, "getpwuid", lambda _uid: SimpleNamespace(pw_dir=str(account)))
-    for name in guard._BANNED:
-        dest = account / name / "nested" / "sandbox"
+    protected = [
+        account / ".hermes",
+        account / ".hermes-second",
+        account / ".hermes-not-made-yet",
+        account / "services",
+        account / "lab",
+        elsewhere,
+    ]
+    for directory in protected:
+        dest = directory / "nested" / "sandbox"
         with pytest.raises(SystemExit, match="refusing"):
             prep.prepare(dest, prep.DEFAULT_TAG)
         assert not dest.exists()
         monkeypatch.setenv("PETASOS_SANDBOX_ROOT", str(dest))
         with pytest.raises(SystemExit, match="refusing"):
             guard.sandbox_root()
+        with pytest.raises(SystemExit) as refused:
+            _wrapper_check(monkeypatch, root=dest, home=dest / "homes" / "one")
+        assert refused.value.code == 2
+    assert guard.protected_directory(account / "projects" / "sandbox", account) is None
+
+
+def test_an_unreadable_machine_list_stops_the_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    account = tmp_path / "account"
+    listing = account / guard.PROTECTED_LIST
+    listing.parent.mkdir(parents=True)
+    listing.write_bytes(b"\xff\xfe not text")
+    monkeypatch.setattr(pwd, "getpwuid", lambda _uid: SimpleNamespace(pw_dir=str(account)))
+    dest = tmp_path / "ordinary" / "sandbox"
+    with pytest.raises(SystemExit, match="cannot read"):
+        prep.prepare(dest, prep.DEFAULT_TAG)
+    assert not dest.exists()
+    with pytest.raises(SystemExit) as refused:
+        _wrapper_check(monkeypatch, root=dest, home=dest / "homes" / "one")
+    assert refused.value.code == 2
+
+
+def _wrapper_check(monkeypatch: pytest.MonkeyPatch, *, root: Path, home: Path) -> None:
+    """Run the wrapper's own home check in this process, where ``pwd`` is replaced."""
+    source = prep.WRAPPER.split("/usr/bin/python3 -c '", 1)[1].split('\n\' "$ROOT"', 1)[0]
+    monkeypatch.setattr(sys, "argv", ["-c", str(root), str(home)])
+    exec(compile(source, "with-sandbox", "exec"), {"__name__": "wrapper"})
 
 
 def test_guard_resolves_an_alias_into_an_account_directory(

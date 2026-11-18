@@ -13,8 +13,11 @@ The facts these tests pin are written up in
 There are live Hermes installations on this machine. Do not read, write,
 start, stop, or signal any of them.
 
-- Do not touch `~/.hermes`, `~/.hermes-second`, `~/hermes-services`,
-  `~/model-lab`, `~/work`, or `~/notes`.
+- Do not touch `~/.hermes`, any `~/.hermes-*` directory, or any directory
+  this machine lists in `~/.config/petasos/protected-dirs` (one directory per
+  line, absolute or relative to the home directory, `#` for comments). Put
+  every other place a live installation keeps code or data in that list. The
+  file is local to the machine and is not part of the repository.
 - Do not reuse an existing Hermes checkout or virtualenv. Clone upstream
   into the sandbox.
 - Put the sandbox in a new dedicated directory, by default
@@ -98,8 +101,8 @@ set of those environments too. Nothing in one home is visible to another.
 `bin/with-sandbox` is what selects the home. It reads
 `PETASOS_HERMES_HOME`, resolves it, and refuses to run when that path is
 not strictly inside the sandbox or when it sits under an account Hermes
-directory (`~/.hermes`, `~/.hermes-second`, `~/hermes-services`,
-`~/model-lab`, `~/work`, `~/notes`). Inherited `HERMES_*`
+directory (`~/.hermes`, any `~/.hermes-*`, or a directory in
+`~/.config/petasos/protected-dirs`). Inherited `HERMES_*`
 variables are dropped. The default, when the variable is unset, is
 `<sandbox>/hermes_home`. The in-process harnesses check the same boundary
 before they import Hermes (`sandbox_guard.py`).
