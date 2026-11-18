@@ -236,3 +236,7 @@ to `petasos.model._TIMEOUT_ERROR_PREFIX`. The ingestion head length moves from
 - Refresh removes old wheels only from the plugin's own `wheels/` directory.
   A declared wheel in a shared directory cannot cause other builds there to
   be deleted, and cleanup does not follow symlinks outside the plugin.
+
+- Try it refuses guardrail changes under `tools.self_change: never` and asks
+  for approval under `approve`; unattended approval is refused. Trials do not
+  record guardrail attempts or change a live conversation's score.
