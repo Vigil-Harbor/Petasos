@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import difflib
 import json
+from pathlib import Path
 from typing import Any
 
 from tests.parity.load import (
@@ -51,6 +52,42 @@ _PINNED_RULES: frozenset[str] = frozenset(
 )
 
 _MAX_DIFFS = 12
+
+# Thirteen tool cases name the parity config file in free text as this path.
+# The record was made where ``/tmp`` is a link to ``/private/tmp``. There the
+# guard owns the resolved path, the text is not that path, and nothing is
+# reported. Where ``/tmp`` is a real directory the text is the owned path and
+# the reference is reported. Measured on Linux: these 13 cases in all 8
+# profiles, and no other verdict of the 17,568, differ from the record.
+_HOME_TEXT = "/tmp/petasos-parity-home/config.yaml"
+_HOME_TEXT_CASES = (
+    "g0011",
+    "g0047",
+    "g0052",
+    "g0059",
+    "g0060",
+    "g0064",
+    "g0074",
+    "g0099",
+    "g0100",
+    "g0104",
+    "g0105",
+    "g0160",
+    "g0186",
+)
+_HOME_TEXT_SELFMOD = ["petasos.selfmod.config_ref", "high"]
+
+
+def _expected_on_this_platform(expected: dict[str, Any]) -> dict[str, Any]:
+    """The record, with the free-text cases set for a platform that does not link ``/tmp``."""
+    if Path(_HOME_TEXT).resolve().as_posix() != _HOME_TEXT:
+        return expected
+    for cases in expected["tool"].values():
+        for case_id in _HOME_TEXT_CASES:
+            recorded = cases[case_id]
+            assert recorded["selfmod"] is None, f"{case_id} is no longer recorded as unreported"
+            cases[case_id] = {**recorded, "selfmod": list(_HOME_TEXT_SELFMOD)}
+    return expected
 
 
 def _walk_rules(node: object, found: set[str]) -> None:
@@ -112,7 +149,7 @@ def test_verdicts_match_record() -> None:
     corpus = load_json(CORPUS_PATH)
     recorded = load_json(VERDICTS_PATH)
     assert recorded.get("profiles") == list(ALL_PROFILES)
-    expected = expand_verdicts(recorded)
+    expected = _expected_on_this_platform(expand_verdicts(recorded))
     actual = replay(corpus)
     diffs = _collect_diffs(expected, actual)
     if diffs:

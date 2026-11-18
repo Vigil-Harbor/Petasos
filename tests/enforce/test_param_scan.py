@@ -14,6 +14,7 @@ from petasos.limits import MAX_PARAM_TEXT_LEN
 from petasos.model import ScanResult
 from petasos.pipeline import Pipeline
 from petasos.scanners.semgrep import SemgrepLifecycleOwner, SemgrepScanner
+from petasos.scanners.semgrep.adapter import supported_platform
 from petasos.session.frequency import FrequencyTracker
 
 
@@ -55,8 +56,10 @@ async def test_warm_and_fallback_scan_identical_text_outbound(capped: bool) -> N
     else:
         args = {"raw": "line one\nline two", "missing": None, "items": [1, 2]}
         expected = "line one\nline two\n[1, 2]"
+    # The Semgrep engine exists for two platforms; elsewhere only the plain pipeline runs.
+    arrangements = (False, True) if supported_platform() else (False,)
     async with SemgrepLifecycleOwner() as owner:
-        for prepared in (False, True):
+        for prepared in arrangements:
             config = PetasosConfig()
             warm = _WarmRecorder()
             pipeline = Pipeline(

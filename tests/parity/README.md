@@ -26,6 +26,18 @@ shared by the most profiles. `base` names a profile that has it. `differs`
 holds only the profiles that do not. A diff of the file is one case, and the
 profile names in that line are the ones whose verdict changed.
 
+## Platforms
+
+The record was made on macOS, where `/tmp` is a link to `/private/tmp`.
+Thirteen tool cases name the parity config file in free text as
+`/tmp/petasos-parity-home/config.yaml`. On macOS the guard owns the resolved
+path, so that text is not recognised and the record says nothing was
+reported. Where `/tmp` is a real directory, as on Linux, the same text is the
+owned path and a `petasos.selfmod.config_ref` finding is reported.
+`test_parity.py` names those thirteen cases and expects that finding on such
+a platform. Every other verdict is compared as recorded on every platform.
+`verdicts.json` is not changed for this.
+
 ## Re-record
 
 From the repository root, with the dev environment:

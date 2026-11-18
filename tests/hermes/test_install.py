@@ -21,6 +21,16 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
+@pytest.fixture(autouse=True)
+def _wheel_already_built(
+    tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Give install a wheel file to place, so no test here needs the uv build tool."""
+    source = tmp_path_factory.mktemp("built") / wheel_module.wheel_filename()
+    source.write_bytes(b"stand-in wheel")
+    monkeypatch.setattr(wheel_module, "_existing_wheel", lambda: source)
+
+
 def _run(argv: list[str], capsys: pytest.CaptureFixture[str]) -> tuple[int, str]:
     code = main(argv)
     return code, capsys.readouterr().out
