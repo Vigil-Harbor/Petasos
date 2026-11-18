@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 from petasos.config.secrets import Secrets
 from petasos.guard.fanout import SpawnBudget, _fanout_cap
+from petasos.guard.guardrail import CheckFailure, CheckFailures
 from petasos.guard.params import _scan_params
 from petasos.guard.selfmod import (
     SELFMOD_DEPTH_OVERFLOW_TARGET,
@@ -52,6 +53,7 @@ class GuardResult:
     selfmod_target: str | None = None
     selfmod_finding: ScanFinding | None = None
     guardrail_kind: str | None = None
+    guardrail_check_failed: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         """Return the decision as JSON-serialisable data."""
@@ -69,6 +71,8 @@ class GuardResult:
             d["selfmod_finding"] = self.selfmod_finding.to_dict()
         else:
             d["selfmod_finding"] = None
+        if self.guardrail_check_failed:
+            d["guardrail_check_failed"] = True
         return d
 
 
@@ -104,6 +108,7 @@ class ToolCallGuard:
         secrets: Secrets | None = None,
         protected_paths: Callable[[], Iterable[str]] | None = None,
         guardrail_surface: Callable[[], GuardrailSurface] | None = None,
+        check_failures: CheckFailures | None = None,
     ) -> None:
         self._pipeline = pipeline
         self._frequency_tracker = frequency_tracker
@@ -116,6 +121,7 @@ class ToolCallGuard:
         # Explicit protected paths avoid host-layout discovery for adapter calls.
         self._protected_paths = protected_paths
         self._guardrail_surface = guardrail_surface
+        self._check_failures = check_failures if check_failures is not None else CheckFailures()
 
         self._delegate_tool_names = self._delegates_from(config)
         # Exempt delegates would bypass the tier ladder and fan-out ceiling.
@@ -295,6 +301,10 @@ class ToolCallGuard:
             )
 
         selfmod = self._classify_selfmod(canon_pre_alias, tool_params)
+        check_failed = isinstance(selfmod, CheckFailure)
+        if isinstance(selfmod, CheckFailure):
+            self._check_failures.note(session_id, selfmod)
+            selfmod = None
         selfmod_finding: ScanFinding | None = None
         if selfmod is not None:
             sev = (
@@ -327,6 +337,10 @@ class ToolCallGuard:
             A tier3 exit skips the frequency-weight update (the session is already
             terminated); the alert/audit channel still records the attempt.
             """
+            if check_failed:
+                result = replace(result, guardrail_check_failed=True)
+                if result.allowed and self._config.fail_mode != "open":
+                    result = replace(result, allowed=False, reason="guardrail check could not run")
             if selfmod is None or selfmod_finding is None:
                 return result
             result = replace(

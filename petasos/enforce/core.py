@@ -33,6 +33,7 @@ from petasos.enforce.types import (
     Status,
     SystemClock,
 )
+from petasos.guard.guardrail import CheckFailures
 from petasos.limits import MAX_PARAM_TEXT_LEN
 from petasos.scanners.registry import REGISTRY, ScannerSpec
 
@@ -91,6 +92,7 @@ class Core:
         self.runtime = AsyncBridge()
         self.book = Book(self.clock, self.limits.log_every_s, logger)
         self.grants = Grants()
+        self.check_failures = CheckFailures()
         self.phase = Phase.STARTING
         self.init_error: str | None = None
         self.engine: Engine | None = None
@@ -276,6 +278,7 @@ class Core:
                 logger=logger,
                 secret_invalid=self._secret_invalid,
                 origin=snap.origin if snap is not None and snap.error is None else None,
+                check_failures=self.check_failures,
             )
             self._install_secret(secrets)
             self.engine = engine

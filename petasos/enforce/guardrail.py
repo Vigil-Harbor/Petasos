@@ -18,8 +18,10 @@ from typing import TYPE_CHECKING, Any
 from petasos.config.schema import to_mapping
 from petasos.enforce.approvals import redact_display_text
 from petasos.enforce.decisions import Approve, Block, Decision
-from petasos.guard.guardrail import recognize
+from petasos.guard.guardrail import CheckFailure, recognize
 from petasos.guard.surface import GuardrailHit, GuardrailSurface
+from petasos.guard.tools import _READ_ONLY_CANON
+from petasos.normalize import canonicalize_tool_name
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -250,28 +252,25 @@ def note_answer(core: Core, notice: ApprovalNotice) -> None:
         _emit(core, None, session_id, name="denied", kind="", target="", scope=choice, tool="")
 
 
-def hit_for(core: Core, call: ToolCall) -> GuardrailHit | None:
+def hit_for(core: Core, call: ToolCall, session_id: str) -> GuardrailHit | CheckFailure | None:
     """Recognise a change when the guard did not run. Never raises."""
+    if canonicalize_tool_name(call.tool) in _READ_ONLY_CANON:
+        return None
     try:
         surface = core.host.guardrail_surface()
-    except Exception:
-        surface = GuardrailSurface()
-    if not isinstance(surface, GuardrailSurface):
-        surface = GuardrailSurface()
-    try:
+        if not isinstance(surface, GuardrailSurface):
+            raise TypeError("guardrail surface is not a GuardrailSurface")
         protected = core.host.protected_paths()
-    except Exception:
-        protected = frozenset()
-    try:
         return recognize(
             call.tool if isinstance(call.tool, str) else "",
             call.args,
             protected=protected,
             surface=surface,
         )
-    except Exception:
-        logger.debug("guardrail recognition failed", exc_info=True)
-        return None
+    except Exception as exc:
+        failure = CheckFailure(f"{type(exc).__name__}: {exc}")
+        core.check_failures.note(session_id, failure)
+        return failure
 
 
 def record_applied_settings(core: Core, before: PetasosConfig) -> None:

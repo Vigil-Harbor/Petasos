@@ -233,3 +233,8 @@ to `petasos.model._TIMEOUT_ERROR_PREFIX`. The ingestion head length moves from
 - Hermes command deferral now asks the tracker’s score and rolling-finding tier.
   Repeated low-weight findings require a person once the rolling threshold is
   reached. The general guard ladder retains its recorded score-only behaviour.
+
+- Failed Hermes approval probes now prevent unattended guardrail changes.
+  Failed guardrail recognition refuses write-capable calls under closed or
+  degraded failure policy and logs the cause once per retained session. Open
+  failure policy and read-only tools keep their existing content checks.

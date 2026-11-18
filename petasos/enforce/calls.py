@@ -30,6 +30,7 @@ from petasos.enforce.decisions import (
 )
 from petasos.enforce.fallback import fallback_decision, scan_fallback, tier3_unavailable_block
 from petasos.enforce.guardrail import hit_for, note_blocked, note_covered, ruling_for
+from petasos.guard.guardrail import CheckFailure, unavailable_message
 from petasos.guard.tools import READ_ONLY_TOOLS
 from petasos.normalize import canonicalize_tool_name
 from petasos.pipeline.ingest import _acquire_inspect_lock
@@ -452,7 +453,11 @@ def _guardrail_or_fallback(
     fallback: Block | None,
 ) -> Decision:
     """A fallback block wins. A recognised change is still not allowed through."""
-    hit = hit_for(core, call)
+    hit = hit_for(core, call, session_id)
+    if isinstance(hit, CheckFailure):
+        if core.fail_mode != "open":
+            return Block(unavailable_message(call.tool))
+        return fallback or Allow()
     if hit is None:
         return fallback or Allow()
     with contextlib.suppress(Exception):

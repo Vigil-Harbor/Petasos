@@ -30,8 +30,6 @@ class _Plugins(Protocol):
 class _Approval(Protocol):
     def is_approved(self, command: str, pattern: str) -> bool: ...
 
-    def _get_approval_mode(self) -> str: ...
-
     def _yolo_active(self) -> bool: ...
 
 
@@ -129,12 +127,9 @@ def _approvals() -> dict[str, object]:
     module = _config()
     if module is None:
         return {}
-    try:
-        document = module.load_config()
-    except Exception:
-        return {}
+    document = module.load_config()
     if not isinstance(document, dict):
-        return {}
+        raise RuntimeError("Hermes approval config is not a mapping")
     block = document.get("approvals")
     if not isinstance(block, dict):
         return {}
@@ -143,17 +138,18 @@ def _approvals() -> dict[str, object]:
 
 def approval_mode() -> str:
     """Hermes's approval mode: ``off``, ``smart``, or ``manual``."""
-    return _approval_mode()
+    try:
+        return _approval_mode()
+    except Exception:
+        return "manual"
 
 
 def _approval_mode() -> str:
     """The normalised mode: ``off``, ``smart``, or ``manual``."""
-    module = _approval()
-    if module is not None:
-        try:
-            raw = module._get_approval_mode()
-        except Exception:
-            raw = None
+    context = load_module("tools.approval_context")
+    mode = getattr(context, "_get_approval_mode", None)
+    if callable(mode):
+        raw = mode()
         if raw in _MODES:
             return str(raw)
     configured = _approvals().get("mode", "smart")
@@ -166,10 +162,7 @@ def _yolo() -> bool:
     """True when Hermes would grant a tool call without asking."""
     module = _approval()
     if module is not None:
-        try:
-            return bool(module._yolo_active())
-        except Exception:
-            return False
+        return bool(module._yolo_active())
     return os.environ.get("HERMES_YOLO_MODE", "").strip().lower() in _TRUTHY
 
 
