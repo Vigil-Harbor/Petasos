@@ -243,3 +243,7 @@ to `petasos.model._TIMEOUT_ERROR_PREFIX`. The ingestion head length moves from
 
 - Overview uses doctor's session-secret validation before saying new records
   are signed. A malformed key leaves signing off and shows the setup steps.
+
+- Numbers too large for float settings now produce a validation error naming
+  the setting. Very large integers cannot break validation error formatting;
+  invalid declaration bounds report a schema error instead of overflowing.
