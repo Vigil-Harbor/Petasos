@@ -22,6 +22,7 @@ from petasos.hermes.dashboard.words import (
     SIGNATURE_LIMIT_LABEL,
     SIGNATURE_MEANING,
     describe_event,
+    flag_risk_sentence,
     kind_label,
     outcome,
     rule_sentence,
@@ -77,6 +78,7 @@ _KEEP = frozenset(
         "param_scan_degraded",
         "phase",
         "rule_id",
+        "score",
         "scan_id",
         "session_id",
         "session_key",
@@ -504,6 +506,8 @@ def _event(
 ) -> dict[str, Any]:
     shown = _redact_record(record, redactor)
     shown["summary"] = describe_event(record, follower)
+    if record.get("event_type") == "ingest_flagged":
+        shown["risk_sentence"] = flag_risk_sentence(record)
     shown["outcome"] = outcome(record, follower)
     shown["severity_label"] = severity_label(record)
     kind = record.get("event_type")

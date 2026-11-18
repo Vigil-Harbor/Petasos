@@ -344,6 +344,9 @@ for absent keys or invalid records, while callers distinguish unattested deploym
 from verification failure. A string signature, including empty string, is a mismatch
 after failed verification; non-string or missing signatures are missing.
 Instance spools retain their own path, key and cap independently of module writers.
+Signing covers every stored field other than `sig`, including a flag's numeric
+`score` and its score-derived `tier`. Verification uses exactly the fields
+present, so old flags without a score still verify without migration.
 
 ## Model-facing result notices
 

@@ -412,6 +412,8 @@ def annotate_ingestion(
     scanned_chars: int,
     total_chars: int,
     session_id: str,
+    score: float,
+    tier: str,
     logger: logging.Logger,
     emit: _Emit,
 ) -> str | None:
@@ -439,6 +441,8 @@ def annotate_ingestion(
             session_id=session_id,
             tool=tool_name,
             event_type="ingest_flagged",
+            score=score,
+            tier=tier,
             severity=top.severity.name,
             rule_id=top.rule_id,
             reason=(

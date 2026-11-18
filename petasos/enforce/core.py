@@ -213,6 +213,8 @@ class Core:
                 "tier": kwargs.get("tier"),
                 "tool": kwargs.get("tool", ""),
             }
+            if kwargs.get("event_type") == "ingest_flagged":
+                event["score"] = kwargs["score"]
             if kwargs.get("event_type") == "deferred" and "deferred_to" in kwargs:
                 event["deferred_to"] = kwargs["deferred_to"]
             sink = self._sink
