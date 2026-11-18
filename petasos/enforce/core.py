@@ -90,6 +90,7 @@ class Core:
         self.host = host
         self.clock = clock if clock is not None else SystemClock()
         self.limits = limits if limits is not None else Limits()
+        self._init_wait_override = limits.init_wait_s if limits is not None else None
         self.scanners = tuple(scanners)
         self.registry = registry if registry is not None else REGISTRY
         self.gate = init
@@ -249,7 +250,14 @@ class Core:
         return self.runtime.run(coro, limit)
 
     def _budget(self) -> float:
-        value = self.limits.init_wait_s
+        value = self._init_wait_override
+        if value is None:
+            snap = self._pending
+            value = (
+                snap.config.startup.wait_seconds
+                if snap is not None and snap.error is None and snap.config is not None
+                else 2.0
+            )
         if value <= 0:
             return 2.0
         return min(60.0, max(0.05, value))

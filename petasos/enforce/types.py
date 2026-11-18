@@ -75,7 +75,7 @@ class ManualClock:
 class Limits:
     """The enforcer's own deadlines, all below the host's hook timeout.
 
-    ``init_wait_s`` is how long one cold start waits for scanners.
+    Explicit ``init_wait_s`` overrides the configured cold-start wait for scanners.
     ``eval_timeout_s`` bounds one guard evaluation. ``result_margin_s`` is
     added to the configured scanner timeout for a tool-result scan.
     ``log_every_s`` is the operator-log cadence.
