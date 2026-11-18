@@ -26,6 +26,7 @@ from petasos.hermes.doctor import examine, report_payload
 
 if TYPE_CHECKING:
     from petasos.hermes.dashboard.scope import HomeState
+    from petasos.hermes.doctor import Check
     from petasos.scanners.registry import ScannerSpec
 
 STATUS_VERSION = 2
@@ -96,7 +97,11 @@ def status(
         coverage=coverage(scanners, list(report.suggestions), registry=registry),
         who_can_change=_who(report),
         pin=detail.get("pin", {"state": "unknown", "known": False}),
-        record_signing=record_signing(secrets, home_label),
+        record_signing=record_signing(
+            secrets,
+            home_label,
+            session_check=next(check for check in report.checks if check.id == "session_secret"),
+        ),
         recommendations=list(report.suggestions),
         role=role if isinstance(role, str) else None,
         level=level if isinstance(level, str) else None,
@@ -167,12 +172,15 @@ def operating(row: dict[str, Any], *, loaded: bool, paused: bool) -> dict[str, s
     return {"code": code, "label": OPERATING_WORDS[code]}
 
 
-def record_signing(secrets: dict[str, Any], home_label: str) -> dict[str, Any]:
+def record_signing(
+    secrets: dict[str, Any], home_label: str, *, session_check: Check
+) -> dict[str, Any]:
     """Whether activity records are signed, and how to start signing them.
 
     The steps name the profile's env file. No secret value is read or shown.
     """
-    signed = secrets.get("session_secret") == "set"
+    # secret_checks owns validation; presence alone cannot mean usable signing.
+    signed = secrets.get("session_secret") == "set" and session_check.status == "ok"
     env_file = (home_label.rstrip("/") + "/.env") if home_label else ".env in the profile"
     return {
         "signed": signed,

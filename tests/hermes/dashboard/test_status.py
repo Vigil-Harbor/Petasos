@@ -328,3 +328,23 @@ def test_checks_are_named_by_what_they_do_first() -> None:
     found = coverage(rows, [])
     assert found["running"][0]["name"] == "Basic checks"
     assert found["missing"][0]["name"] == "Personal details check (Presidio)"
+
+
+@pytest.mark.parametrize(
+    "secret,signed,check_status",
+    [("%%%broken-secret%%%", False, "warn"), ("", False, "ok"), ("c2FuZGJveC1rZXk=", True, "ok")],
+)
+def test_record_signing_uses_the_doctors_secret_verdict(
+    tmp_path: Path, secret: str, signed: bool, check_status: str
+) -> None:
+    import json
+
+    home = _home(tmp_path, _RESEARCH)
+    (home / ".env").write_text(f"PETASOS_SESSION_SECRET={secret}\n")
+    body = status(load_home(home))
+    session = next(row for row in body["doctor"]["checks"] if row["id"] == "session_secret")
+    assert session["status"] == check_status
+    assert body["record_signing"]["signed"] is signed
+    assert bool(body["record_signing"]["steps"]) is not signed
+    if secret:
+        assert secret not in json.dumps(body)

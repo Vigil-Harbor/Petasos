@@ -240,3 +240,6 @@ to `petasos.model._TIMEOUT_ERROR_PREFIX`. The ingestion head length moves from
 - Try it refuses guardrail changes under `tools.self_change: never` and asks
   for approval under `approve`; unattended approval is refused. Trials do not
   record guardrail attempts or change a live conversation's score.
+
+- Overview uses doctor's session-secret validation before saying new records
+  are signed. A malformed key leaves signing off and shows the setup steps.
