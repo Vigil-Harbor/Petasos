@@ -180,30 +180,39 @@ def _development(
     with use_home(home):
         enabled, enable_message = enable_plugin()
         lines.append(enable_message)
+        changed = written or previous != wheel
         if enabled:
-            refreshed, messages = _refresh_build(
-                home, wheel, source_changed=written or previous != wheel
-            )
+            # Turning the plugin on admitted the files just written. Only a
+            # plugin that was already on has an environment that predates them.
+            was_on = "already" in enable_message
+            refreshed, messages = _refresh_build(home, wheel, source_changed=changed and was_on)
             lines.extend(messages)
             pending = not refreshed
         else:
             document, _problem = read_config(home / "config.yaml")
             on, off = plugin_lists(document)
             if PLUGIN_ID in on and PLUGIN_ID not in off:
-                pending = True
                 runtime = runtime_python(home)
                 probe = probe_petasos(runtime.python) if runtime is not None else None
-                if probe is not None and probe.ok and probe.matches_wheel(wheel) is False:
+                matches = probe.matches_wheel(wheel) if probe is not None and probe.ok else None
+                if matches is True and not changed:
                     lines.append(
-                        "The new build is saved. Hermes still runs the earlier build. "
-                        "The earlier build is still checking tool calls."
+                        "The plugin is already turned on, and the environment a new "
+                        "Hermes process runs already holds this build."
                     )
                 else:
-                    lines.append(
-                        "The new build is saved and the plugin is already turned on. "
-                        "This command could not confirm that Hermes runs the new build."
-                    )
-                lines.append(f"Next: {refresh_command(home)}")
+                    pending = True
+                    if matches is False:
+                        lines.append(
+                            "The new build is saved. Hermes still runs the earlier build. "
+                            "The earlier build is still checking tool calls."
+                        )
+                    else:
+                        lines.append(
+                            "The new files are saved and the plugin is already turned on. "
+                            "This command could not confirm that Hermes runs them."
+                        )
+                    lines.append(f"Next: {refresh_command(home)}")
             else:
                 lines.append(
                     "The files are in place. Hermes did not turn the plugin on, "
@@ -252,8 +261,15 @@ def _refresh_build(
             prune_wheels(wheel)
             messages.append("Hermes loads the new build the next time it starts.")
             return True, messages
-        if ok:
-            messages.append("The environment check could not confirm the saved wheel.")
+        if ok and not (probe is not None and probe.ok and probe.matches_wheel(wheel) is False):
+            messages.extend(
+                [
+                    "Hermes rebuilt its environment, but the check afterwards could not "
+                    "confirm that it holds the saved build. All wheel files were kept.",
+                    f"Next: {refresh_command(home)}",
+                ]
+            )
+            return False, messages
     messages.extend(
         [
             "Hermes did not switch to the saved build. The earlier build is still the one "

@@ -330,6 +330,15 @@ def test_refresh_after_install_without_hermes_keeps_the_plugin_enabled(
     assert again.returncode == 0, again.stdout[-2000:] + again.stderr[-2000:]
     assert "already" in again.stdout
     assert (home / "config.yaml").read_bytes() == before_config
+    # The outside installer now finds its build running and has nothing to offer.
+    settled = _run(
+        sandbox, home, [python, "-m", "petasos", "hermes", "install", "--home", str(home)]
+    )
+    # Doctor still warns from a Python that cannot see Hermes, so the code is not 0.
+    assert settled.returncode != 2, settled.stdout[-3000:] + settled.stderr[-2000:]
+    assert "hermes petasos refresh" not in settled.stdout
+    assert "not checked yet" not in settled.stdout
+    assert (home / "config.yaml").read_bytes() == before_config
 
 
 def test_doctor_catches_a_stale_environment_and_names_the_fix(

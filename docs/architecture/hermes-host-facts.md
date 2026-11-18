@@ -1247,7 +1247,12 @@ and still blocks the injection. The home's config is byte-identical before
 the update, after saving it and after refresh. Refresh leaves the plugin
 files unchanged, removes the old wheel, and succeeds again without another
 update. This test's installer, source copies and second wheel stay under
-its sandbox home.
+its sandbox home. Run once more after the refresh, the outside installer
+finds its build in the committed environment, says so and offers nothing.
+Its exit code is still 1 there, because doctor run from a Python that
+cannot see Hermes always warns. From such a Python, exit 1 therefore does
+not tell "saved but not yet running" from "nothing left to do"; the printed
+next step does.
 
 **One-time transition.** The directory's `__init__.py` imports `register`
 from the wheel Hermes has loaded. That wheel also supplies the command

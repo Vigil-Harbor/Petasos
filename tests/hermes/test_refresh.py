@@ -139,7 +139,9 @@ def test_refresh_verifies_before_pruning(
         assert calls == [False]
     else:
         assert result.exit_code != 0
-        assert "earlier build" in result.text and "hermes petasos refresh" in result.text
+        assert "hermes petasos refresh" in result.text
+        # Only a build known to differ is reported as the earlier one.
+        assert ("earlier build" in result.text) == (outcome != "unknown")
         assert _snapshot(tmp_path) == before
 
 
@@ -221,3 +223,43 @@ def test_install_reports_the_profile_state_and_whether_hermes_was_asked(
         assert result.exit_code == 2
         assert "tool calls are not checked yet" in result.text
         assert f"HERMES_HOME='{home}' hermes plugins enable petasos" in result.text
+
+
+def test_install_without_hermes_stops_offering_refresh_once_the_build_runs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home = tmp_path / "home"
+    wheel = _saved(home, monkeypatch)
+    monkeypatch.setattr("petasos.hermes.wheel._existing_wheel", lambda: wheel)
+    original = host.load_module
+    monkeypatch.setattr(
+        host,
+        "load_module",
+        lambda name: None if name == "hermes_cli.plugins_cmd" else original(name),
+    )
+    # The environment already holds these bytes, as it does after a refresh.
+    monkeypatch.setattr(install, "probe_petasos", lambda python: _probe(wheel))
+    saved = _install(home)
+    assert saved.exit_code == 1
+    assert "hermes petasos refresh" in saved.text
+    again = _install(home)
+    assert again.exit_code == 0
+    assert "hermes petasos refresh" not in again.text
+    assert "not checked" not in again.text
+
+
+def test_a_plugin_install_just_turned_on_is_not_rebuilt_again(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home = tmp_path / "home"
+    wheel = _saved(home, monkeypatch)
+    monkeypatch.setattr("petasos.hermes.wheel._existing_wheel", lambda: wheel)
+    monkeypatch.setattr(install, "enable_plugin", lambda: (True, "Hermes turned the plugin on."))
+    monkeypatch.setattr(install, "probe_petasos", lambda python: _probe(wheel))
+
+    def unexpected(*, repair: bool = False) -> tuple[bool, str]:
+        pytest.fail("Turning the plugin on already admitted these files")
+
+    monkeypatch.setattr(install, "republish", unexpected)
+    result = _install(home)
+    assert result.exit_code == 0
