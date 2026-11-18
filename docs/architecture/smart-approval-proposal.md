@@ -1,9 +1,10 @@
 # Proposal: stand aside for Hermes's smart approval
 
-Status: proposal, 2026-11-17. Not built. The owner agreed to the direction
-("stand aside for the configured guardian, if any, until something sketchy
-happens, then escalate") and asked for it to stay separate from the redesign
-for now.
+Status: proposal, 2026-11-17. The owner agreed to the direction ("stand aside
+for the configured guardian, if any, until something sketchy happens, then
+escalate"), asked for it to stay separate from the redesign, and later the
+same day asked for it to be built. Build state is recorded in
+[command overlap](hermes-command-overlap.md).
 
 ## Problem
 
@@ -117,9 +118,17 @@ event keeps the rule and the conversation's score at the time (PET-267).
 - Measure on the stored history with `scripts/replay_history.py` before and
   after. The replay has no approvals, so expect no change in flags or blocks.
 
-## Open
+## Settled, 2026-11-17
 
-- Whether a flag below `tier1`, such as one earlier injection finding, should
-  count as sketchy on its own.
-- Whether the same tier rule should apply when standing aside for Tirith, which
-  asks a person and so does not have the guardian's blindness.
+The owner asked for this to be built. The two questions left open in the
+draft are answered as follows.
+
+- **One earlier flag below `tier1` does not count as sketchy.** The tier is
+  the only test. A flag already raises the conversation's score, so repeated or
+  serious findings reach `tier1` by themselves. A separate "any flag" test
+  would bring both prompts back after a single false flag, and false flags are
+  what the soak found.
+- **The tier rule does not apply to Tirith.** Tirith's ask goes to a person,
+  who can see the conversation. Standing aside for it stays as built.
+- **An unreadable tier counts as trouble.** If the conversation's tier cannot
+  be read when Petasos decides, Petasos asks the person itself.
