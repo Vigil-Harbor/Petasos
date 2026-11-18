@@ -189,6 +189,34 @@ def _resolved_normcase(path: Path) -> str | None:
         return None
 
 
+def profile_directories(root: Path) -> list[Path]:
+    """Directories under ``root/profiles`` that Hermes could load as a named profile.
+
+    Hermes's own rule without the identity marker: a valid lowercase id, not
+    ``default``, and no ``.deleted/<name>`` tombstone. A directory that passes
+    can become a profile by gaining a marker, so its settings files are
+    protected before it does. Never raises.
+    """
+    base = root / "profiles"
+    try:
+        children = sorted(base.iterdir())
+    except OSError:
+        return []
+    out: list[Path] = []
+    for child in children:
+        try:
+            if (
+                child.is_dir()
+                and child.name != "default"
+                and _PROFILE_ID.match(child.name)
+                and not (base / ".deleted" / child.name).exists()
+            ):
+                out.append(child)
+        except OSError:
+            continue
+    return out
+
+
 def list_hermes_profiles(
     *, use_override: bool = True, root: Path | None = None
 ) -> list[dict[str, Any]]:
@@ -204,14 +232,7 @@ def list_hermes_profiles(
             resolve_hermes_config_path(use_override=use_override).path
         )
         out: list[dict[str, Any]] = []
-        for child in sorted(base.iterdir()):
-            if (
-                not child.is_dir()
-                or child.name == "default"
-                or not _PROFILE_ID.match(child.name)
-                or (base / ".deleted" / child.name).exists()
-            ):
-                continue
+        for child in profile_directories(base.parent):
             if not any(
                 (child / marker).is_file() or (child / marker).is_symlink()
                 for marker in _PROFILE_MARKERS

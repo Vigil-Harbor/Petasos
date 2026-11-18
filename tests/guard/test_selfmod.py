@@ -412,11 +412,30 @@ async def test_guard_watches_a_profile_before_it_has_identity(
     config = _cfg()
     guard = ToolCallGuard(Pipeline(config=config), FrequencyTracker(config), config)
     parent = tmp_path / "profiles"
-    assert os.path.normcase(str(parent.resolve())) in guard.selfmod_target_paths()
-    target = parent / "future" / "SOUL.md"
+    (parent / "future").mkdir(parents=True)
+    target = parent / "future" / "config.yaml"
     result = await guard.evaluate("write_file", {"path": str(target), "content": "x"}, "s1")
     assert result.selfmod_finding is not None
     assert result.selfmod_finding.rule_id == "petasos.selfmod.config_write"
+
+
+async def test_an_agent_writing_inside_its_own_profile_home_is_not_a_settings_change(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("petasos.hermes.home.hermes_root", lambda: tmp_path)
+    home = tmp_path / "profiles" / "ops"
+    home.mkdir(parents=True)
+    (home / "config.yaml").touch()
+    config = _cfg()
+    guard = ToolCallGuard(Pipeline(config=config), FrequencyTracker(config), config)
+    for tail in ("memories/MEMORY.md", "skills/notes/SKILL.md", "cron/output.md"):
+        target = home / tail
+        result = await guard.evaluate("write_file", {"path": str(target), "content": "x"}, "s1")
+        assert result.selfmod_finding is None, tail
+    settings = await guard.evaluate(
+        "write_file", {"path": str(home / "config.yaml"), "content": "x"}, "s1"
+    )
+    assert settings.selfmod_finding is not None
 
 
 async def test_selfmod_base_severities_match_the_guard(tmp_path: Path) -> None:

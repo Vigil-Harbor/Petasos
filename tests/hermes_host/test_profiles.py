@@ -29,9 +29,12 @@ def test_only_live_profiles_are_named_and_every_loaded_profile_is_watched(
     assert result["petasos"] == ["alpha", "beta"]
     assert all(result["watched"].values())
     assert result["first_write"] is True
-    assert str(profiles) in result["paths"]
-    for name in (".deleted", ".git.retired-x", "gone", "empty", "default", "Upper"):
+    assert result["own_home_free"] is True
+    assert str(profiles) not in result["paths"]
+    for name in (".deleted", ".git.retired-x", "gone", "default", "Upper"):
         assert str(profiles / name) not in result["verbose"]
+    # A folder that can still become a profile keeps its settings files protected.
+    assert str(profiles / "empty" / "config.yaml") in result["paths"]
 
 
 def test_all_hermes_identity_markers_and_linked_profiles_stay_watched(

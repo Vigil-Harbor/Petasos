@@ -38,8 +38,13 @@ def main() -> None:
             for tail in ("config.yaml", ".env", "petasos-enforcement.jsonl")
         )
     first_write = recognize(
-        "write_file", {"path": str(root / "profiles" / "empty" / "SOUL.md")}, protected=paths
+        "write_file", {"path": str(root / "profiles" / "empty" / "config.yaml")}, protected=paths
     )
+    own_home = [
+        recognize("write_file", {"path": str(root / "profiles" / "alpha" / tail)}, protected=paths)
+        is None
+        for tail in ("memories/MEMORY.md", "skills/notes/SKILL.md")
+    ]
     report = examine(root, home_reason="sandbox", probe_plugin=False)
     json.dump(
         {
@@ -47,6 +52,7 @@ def main() -> None:
             "petasos": [p["name"] for p in list_hermes_profiles(root=root)],
             "watched": watched,
             "first_write": first_write is not None,
+            "own_home_free": all(own_home),
             "paths": sorted(paths),
             "verbose": render_text(report, verbose=True, color=False),
         },

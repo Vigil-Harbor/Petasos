@@ -94,7 +94,7 @@ def _raw_protected_entries(self: ToolCallGuard) -> list[str]:
     from petasos.hermes.home import (
         HermesConfigResolution,
         hermes_root,
-        list_hermes_profiles,
+        profile_directories,
         resolve_hermes_config_path,
         spool_path,
         spool_rot_path,
@@ -103,17 +103,19 @@ def _raw_protected_entries(self: ToolCallGuard) -> list[str]:
     def _beside(res: HermesConfigResolution) -> list[str]:
         return [str(res.path), spool_path(res), spool_rot_path(res)]
 
-    # Protect first writes before an identity marker makes a folder a profile.
-    raw_entries: list[str] = [str(hermes_root() / "profiles")]
+    raw_entries: list[str] = []
     if self._selfmod_home is not None:
         raw_entries.extend(_beside(self._selfmod_home))
     raw_entries.extend(_beside(resolve_hermes_config_path(use_override=False)))
     raw_entries.extend(
         _beside(HermesConfigResolution(path=hermes_root() / "config.yaml", tier="root"))
     )
-    for prof in list_hermes_profiles():
+    # Exact files, never the profiles directory: the agent's own home can sit
+    # under it. A directory without an identity marker can become a profile,
+    # so its settings files are protected before it does.
+    for child in profile_directories(hermes_root()):
         raw_entries.extend(
-            _beside(HermesConfigResolution(path=Path(prof["path"]), tier="profile"))
+            _beside(HermesConfigResolution(path=child / "config.yaml", tier="profile"))
         )
     if self._selfmod_home is None:
         raw_entries.append(str(resolve_hermes_config_path().path))
