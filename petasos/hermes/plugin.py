@@ -34,6 +34,7 @@ from petasos.hermes.home import (
     spool_rot_path,
 )
 from petasos.hermes.host import (
+    GUARDIAN_NAME,
     approval_grant,
     approve_directive_available,
     command_judge,
@@ -359,7 +360,7 @@ def host_info() -> HostInfo:
         command_judge=command_judge,
         command_checker=command_checker,
         command_prompt_name="Hermes",
-        command_guardian_name="Hermes's smart approval",
+        command_guardian_name=GUARDIAN_NAME,
         subagent_hooks=subagent_hooks_available(),
         redactor=redactor if callable(redactor) else None,
         display_path=display_path,

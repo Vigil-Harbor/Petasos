@@ -14,6 +14,9 @@ from petasos.enforce.types import ApprovalGrant, CommandJudge
 
 _TRUTHY = frozenset({"1", "true", "yes", "on"})
 _MODES = frozenset({"off", "smart", "manual"})
+
+#: How Hermes's guardian model is named to an operator.
+GUARDIAN_NAME = "Hermes's smart approval"
 # Platforms Hermes treats as an unattended session. Checked against v0.23.1.
 _UNATTENDED_PLATFORMS = frozenset({"api_server", "webhook"})
 
@@ -136,6 +139,11 @@ def _approvals() -> dict[str, object]:
     if not isinstance(block, dict):
         return {}
     return {str(key): value for key, value in block.items()}
+
+
+def approval_mode() -> str:
+    """Hermes's approval mode: ``off``, ``smart``, or ``manual``."""
+    return _approval_mode()
 
 
 def _approval_mode() -> str:

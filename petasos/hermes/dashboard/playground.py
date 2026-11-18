@@ -32,7 +32,7 @@ from petasos.enforce.messages import format_content_block, format_result_notice
 from petasos.hermes.dashboard.catalog import combine
 from petasos.hermes.dashboard.errors import ApiError, envelope
 from petasos.hermes.dashboard.words import CHECK_NOTE, RISK_NOTE, RISK_TIERS, looks_for
-from petasos.hermes.host import approval_grant, command_judge
+from petasos.hermes.host import GUARDIAN_NAME, approval_grant, command_judge
 from petasos.hermes.plugin import command_checker
 from petasos.model import Direction, PipelineResult, ScanFinding, Severity
 from petasos.normalize import canonicalize_tool_name, normalize
@@ -529,7 +529,7 @@ async def _tool(
                 tier=guard.session_tier(_SESSION),
                 command_checker=command_checker,
                 command_prompt_name="Hermes",
-                command_guardian_name="Hermes's smart approval",
+                command_guardian_name=GUARDIAN_NAME,
             )
             deferred = next(
                 (event for event in events if event.get("event_type") == "deferred"), None

@@ -10,6 +10,8 @@ import time
 from types import MappingProxyType
 from typing import TYPE_CHECKING
 
+from petasos.hermes.host import GUARDIAN_NAME
+
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
@@ -295,8 +297,8 @@ def describe_event(
         return "Could not check a tool result, and passed it on unmarked."
     if kind == "deferred":
         owner = _text(event.get("deferred_to"))
-        if owner == "Hermes's smart approval":
-            return "Hermes's smart approval will judge this. Petasos recorded the command finding."
+        if owner == GUARDIAN_NAME:
+            return f"{GUARDIAN_NAME} will judge this. Petasos recorded the command finding."
         return (
             f"Recorded a dangerous command and left it for "
             f"{_text(event.get('deferred_to')) or 'Hermes to ask a person about'}. "

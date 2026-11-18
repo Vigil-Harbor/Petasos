@@ -52,7 +52,7 @@ def test_healthy_install_is_protected(
     assert "built-in text checks are running" in out
     assert "not installed" in out
     assert "turned off" in out
-    assert "Hermes would ask a person" in out
+    assert "Hermes's smart approval judges a risky command first" in out
     assert "Open. The agent can change guardrails with a fresh approval." in out
     assert "30 minutes" in out
     assert "places an agent could change" in out
@@ -349,10 +349,31 @@ def test_approve_asks_when_hermes_would_ask(
         "petasos.hermes.host.approval_grant",
         lambda: ApprovalGrant(),
     )
+    monkeypatch.setattr("petasos.hermes.host.approval_mode", lambda: "manual")
     code, out = _run(monkeypatch, ["doctor", "--home", str(home)], capsys)
 
     assert code == 0
     assert "would ask a person" in out
+    assert "smart approval" not in out
+    assert "refuses the call" in out
+
+
+def test_approve_names_the_guardian_under_smart_approval(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Under smart approval the report names the guardian and when Petasos asks."""
+    home = healthy_home(tmp_path, monkeypatch)
+    write_config(home, enabled_config(role="coding"))
+    monkeypatch.setattr(
+        "petasos.hermes.host.approval_grant",
+        lambda: ApprovalGrant(),
+    )
+    monkeypatch.setattr("petasos.hermes.host.approval_mode", lambda: "smart")
+    code, out = _run(monkeypatch, ["doctor", "--home", str(home)], capsys)
+
+    assert code == 0
+    assert "smart approval judges a risky command first" in out
+    assert "Petasos asks a person itself" in out
     assert "refuses the call" in out
 
 

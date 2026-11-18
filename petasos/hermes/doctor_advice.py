@@ -176,7 +176,7 @@ def approval_check(resolved: Resolved | None, *, hermes_available: bool) -> Chec
             ),
             next_step="Run hermes petasos doctor, which uses Hermes's own Python.",
         )
-    from petasos.hermes.host import approval_grant
+    from petasos.hermes.host import GUARDIAN_NAME, approval_grant, approval_mode
 
     grant = approval_grant()
     reasons: list[str] = []
@@ -201,16 +201,22 @@ def approval_check(resolved: Resolved | None, *, hermes_available: bool) -> Chec
                 "or change the job so dangerous tool calls are blocked."
             ),
         )
+    if approval_mode() == "smart":
+        return Check(
+            id="approval",
+            status="ok",
+            summary=(
+                f"Dangerous tool calls are handed to Hermes. {GUARDIAN_NAME} judges a risky "
+                "command first. Once a conversation looks risky, Petasos asks a person itself. "
+                "If nobody is there to answer, Hermes refuses the call."
+            ),
+        )
     return Check(
         id="approval",
         status="ok",
         summary=(
             "Dangerous tool calls are handed to Hermes. "
-            "In smart mode, Hermes's guardian judges flagged terminal commands while the "
-            "conversation is below tier 1. From tier 1 on, Petasos asks a person itself. "
-            "In manual mode, Hermes would ask a person once for commands it flags. "
-            "Other dangerous calls keep Petasos's ask. "
-            "If nobody can answer, Hermes refuses the call."
+            "Hermes would ask a person. If nobody is there to answer, Hermes refuses the call."
         ),
     )
 
