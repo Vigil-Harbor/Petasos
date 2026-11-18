@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 from petasos.config.secrets import Secrets
 from petasos.guard.fanout import SpawnBudget, _fanout_cap
+from petasos.guard.guardrail import CheckFailure, CheckFailures
 from petasos.guard.params import _scan_params
 from petasos.guard.selfmod import (
     SELFMOD_DEPTH_OVERFLOW_TARGET,
@@ -52,6 +53,7 @@ class GuardResult:
     selfmod_target: str | None = None
     selfmod_finding: ScanFinding | None = None
     guardrail_kind: str | None = None
+    guardrail_check_failed: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         """Return the decision as JSON-serialisable data."""
@@ -69,6 +71,8 @@ class GuardResult:
             d["selfmod_finding"] = self.selfmod_finding.to_dict()
         else:
             d["selfmod_finding"] = None
+        if self.guardrail_check_failed:
+            d["guardrail_check_failed"] = True
         return d
 
 
@@ -104,6 +108,7 @@ class ToolCallGuard:
         secrets: Secrets | None = None,
         protected_paths: Callable[[], Iterable[str]] | None = None,
         guardrail_surface: Callable[[], GuardrailSurface] | None = None,
+        check_failures: CheckFailures | None = None,
     ) -> None:
         self._pipeline = pipeline
         self._frequency_tracker = frequency_tracker
@@ -116,6 +121,7 @@ class ToolCallGuard:
         # Explicit protected paths avoid host-layout discovery for adapter calls.
         self._protected_paths = protected_paths
         self._guardrail_surface = guardrail_surface
+        self._check_failures = check_failures if check_failures is not None else CheckFailures()
 
         self._delegate_tool_names = self._delegates_from(config)
         # Exempt delegates would bypass the tier ladder and fan-out ceiling.
@@ -149,12 +155,13 @@ class ToolCallGuard:
         # Threshold changes rearm the once-only cap diagnostics.
         self._cap_threshold_warned: bool = False
 
-    def session_tier(self, session_id: str) -> str:
+    def session_tier(self, session_id: str, *, include_rolling: bool = False) -> str:
         """The tier enforcement uses for ``session_id``, including an inherited one.
 
-        The same derivation ``evaluate`` reads. An internal failure is tier 3.
+        Command deferral includes rolling-count promotion. The general guard
+        ladder retains its recorded score-only behaviour. Failures are tier 3.
         """
-        return self._derive_tier(session_id)
+        return self._derive_tier(session_id, include_rolling=include_rolling)
 
     def forget_protected_paths(self) -> None:
         """Drop the cached owned-path set so the next check reads it again."""
@@ -294,6 +301,10 @@ class ToolCallGuard:
             )
 
         selfmod = self._classify_selfmod(canon_pre_alias, tool_params)
+        check_failed = isinstance(selfmod, CheckFailure)
+        if isinstance(selfmod, CheckFailure):
+            self._check_failures.note(session_id, selfmod)
+            selfmod = None
         selfmod_finding: ScanFinding | None = None
         if selfmod is not None:
             sev = (
@@ -326,6 +337,10 @@ class ToolCallGuard:
             A tier3 exit skips the frequency-weight update (the session is already
             terminated); the alert/audit channel still records the attempt.
             """
+            if check_failed:
+                result = replace(result, guardrail_check_failed=True)
+                if result.allowed and self._config.fail_mode != "open":
+                    result = replace(result, allowed=False, reason="guardrail check could not run")
             if selfmod is None or selfmod_finding is None:
                 return result
             result = replace(
@@ -472,7 +487,9 @@ class ToolCallGuard:
 
     _fanout_cap = _fanout_cap
 
-    def _state_to_tier(self, state: SessionState | None) -> str:
+    def _state_to_tier(self, state: SessionState | None, *, include_rolling: bool = False) -> str:
+        if include_rolling:
+            return self._frequency_tracker.tier_for_state(state)
         if state is None:
             return "none"
         return evaluate_tier(state.last_score, self._config)
@@ -484,15 +501,15 @@ class ToolCallGuard:
             return self._frequency_tracker.get_state(token)
         return self._frequency_tracker.get_state(session_id)
 
-    def _derive_own_tier(self, session_id: str) -> str:
+    def _derive_own_tier(self, session_id: str, *, include_rolling: bool = False) -> str:
         if self._frequency_tracker.is_terminated(session_id):
             return "tier3"
-        return self._state_to_tier(self._read_state(session_id))
+        return self._state_to_tier(self._read_state(session_id), include_rolling=include_rolling)
 
-    def _derive_tier(self, session_id: str) -> str:
+    def _derive_tier(self, session_id: str, *, include_rolling: bool = False) -> str:
         # See docs/architecture/rationale.md, "Inherited guard tiers".
         try:
-            own = self._derive_own_tier(session_id)
+            own = self._derive_own_tier(session_id, include_rolling=include_rolling)
             # No registry means own-tier enforcement only.
             if self._lineage is None:
                 return own
@@ -504,7 +521,9 @@ class ToolCallGuard:
                     # Ancestor termination survives eviction and cannot be disabled.
                     anc_tiers.append("tier3")
                 elif inherit_full:
-                    anc_tiers.append(self._state_to_tier(self._read_state(aid)))
+                    anc_tiers.append(
+                        self._state_to_tier(self._read_state(aid), include_rolling=include_rolling)
+                    )
             return max_tier(own, *anc_tiers)
         except Exception:
             _logger.exception(

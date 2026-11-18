@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Literal
 
+from petasos.guard.guardrail import unavailable_message
 from petasos.model import PipelineResult, ScanFinding, severity_rank
 
 if TYPE_CHECKING:
@@ -103,6 +104,9 @@ def format_block_message(result: GuardResult, tool_name: str) -> str:
         if clause:
             msg += " " + clause
         return msg
+
+    if not result.allowed and result.guardrail_check_failed:
+        return unavailable_message(tool_name)
 
     if not result.allowed and "invalid tool name" in result.reason:
         return (

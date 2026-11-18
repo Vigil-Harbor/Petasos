@@ -25,7 +25,10 @@ separate pieces are not matched."""
 
 from __future__ import annotations
 
+import logging
 import os
+import threading
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from petasos.guard.paths import _match_path, _Owned, _owned
@@ -85,6 +88,41 @@ _WRITE_TOOLS = frozenset(
 # Tools that remove or move a whole directory, so a directory that holds a
 # protected path counts.
 _TREE_TOOLS = frozenset({"chmod", "delete_file", "move_file"})
+
+
+@dataclass(frozen=True)
+class CheckFailure:
+    """Recognition could not run; this is distinct from a clean no-hit."""
+
+    cause: str
+
+
+class CheckFailures:
+    """Log a recognition failure once per retained session, across all paths."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._seen: dict[str, None] = {}
+
+    def note(self, session_id: str, failure: CheckFailure) -> None:
+        with self._lock:
+            if session_id in self._seen:
+                return
+            self._seen[session_id] = None
+            if len(self._seen) > 10_000:
+                del self._seen[next(iter(self._seen))]
+        logging.getLogger("petasos.session.guard").error(
+            "PETASOS_GUARDRAIL_CHECK_FAILED session=%s: %s", session_id, failure.cause
+        )
+
+
+def unavailable_message(tool: str) -> str:
+    """The refusal when a guardrail check could not run."""
+    return (
+        f"[BLOCKED by Petasos] Tool '{tool}' was NOT executed. "
+        "The guardrail check could not run. The change was refused. "
+        "Ask the operator to check the Petasos error log and retry after the check is restored."
+    )
 
 
 def recognize(

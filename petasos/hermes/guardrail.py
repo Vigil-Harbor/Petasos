@@ -20,7 +20,7 @@ _PLUGIN_TAILS = (
     "plugins.hook_callback_timeout",
     "plugins.auto_apply",
 )
-_SETTINGS_TAILS = ("plugins.entries.petasos",)
+_SETTINGS_TAILS = ("plugins.entries.petasos", "command_allowlist")
 # ``hermes update`` restarts the processes that run agents unless the flag
 # makes the invocation read-only. See hermes-host-facts.md.
 _UPDATE_READS = ("--check", "--plan", "--list-venv-holders", "--install-id")
@@ -108,18 +108,46 @@ def hermes_surface(paths: Iterable[str], roots: Iterable[str] = ()) -> Guardrail
         commands.append(
             CommandRule("plugin", ("hermes", "profile", verb), f"hermes profile {verb}")
         )
-    commands.append(
-        CommandRule(
-            "settings",
-            ("hermes", "profile", "update"),
-            "hermes profile update --force-config",
-            requires_flag="--force-config",
+    for length in range(3, len("--force-config") + 1):
+        commands.append(
+            CommandRule(
+                "settings",
+                ("hermes", "profile", "update"),
+                "hermes profile update --force-config",
+                requires_flag="--force-config"[:length],
+            )
         )
-    )
     commands.append(CommandRule("settings", ("hermes", "config", "edit"), "hermes config edit"))
+    commands.append(CommandRule("settings", ("hermes", "import"), "hermes import"))
+    for flag in ("--res", "--rese", "--reset"):
+        commands.append(
+            CommandRule(
+                "settings", ("hermes", "setup"), "hermes setup --reset", requires_flag=flag
+            )
+        )
+    for flag in ("--f", "--fo", "--for", "--forc", "--force"):
+        commands.append(
+            CommandRule(
+                "settings",
+                ("hermes", "profile", "install"),
+                "hermes profile install --force",
+                requires_flag=flag,
+            )
+        )
     commands.append(
         CommandRule("settings", ("hermes", "config", "migrate"), "hermes config migrate")
     )
+    # argparse accepts every unambiguous abbreviation, with a separate or
+    # equals-joined value. Without --apply this command only proposes entries.
+    for flag in ("--a", "--ap", "--app", "--appl", "--apply"):
+        commands.append(
+            CommandRule(
+                "settings",
+                ("hermes", "approvals", "suggest"),
+                "hermes approvals suggest --apply",
+                requires_flag=flag,
+            )
+        )
     for verb in ("set", "unset"):
         for tail in _PLUGIN_TAILS:
             commands.append(

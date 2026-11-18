@@ -964,3 +964,44 @@ class TestScanWeightCap:
         g._record_selfmod_weight("s-sm", finding)
         result = await g.evaluate("read_file", {}, "s-sm")
         assert result.tier == "tier1"
+
+
+@pytest.mark.parametrize("secret", [None, b"r" * 32])
+async def test_rolling_promotion_is_the_tier_used_after_update(secret: bytes | None) -> None:
+    cfg = _cfg({"frequency": {"rolling_threshold": 3, "weights": {"r": 0.01}}})
+    secrets = Secrets(session_secret=secret)
+    guard = _guard(config=cfg, secrets=secrets)
+    tracker = guard._frequency_tracker
+    session = tracker.mint_token("repeat", "test-host") if secret is not None else "repeat"
+    for _ in range(3):
+        update = tracker.update(session, ["r"])
+    assert update.current_score < cfg.escalation.tier1
+    assert update.tier == guard.session_tier("repeat", include_rolling=True) == "tier1"
+    result = await guard.evaluate("terminal", {"command": "echo ok"}, "repeat")
+    assert result.allowed
+    assert result.tier == "none"
+
+
+async def test_rolling_promotion_is_inherited_and_clears_with_the_window() -> None:
+    from dataclasses import replace
+
+    cfg = _cfg({"frequency": {"rolling_threshold": 3, "weights": {"r": 0.01}}})
+    guard = _guard(config=cfg)
+    tracker = guard._frequency_tracker
+    lineage = LineageRegistry(cfg)
+    guard._lineage = lineage
+    lineage.register("child", "parent")
+    with patch("petasos.session.frequency.time.monotonic", return_value=1000.0):
+        for _ in range(3):
+            tracker.update("parent", ["r"])
+    assert guard.session_tier("child", include_rolling=True) == "tier1"
+    tracker.apply_config(replace(cfg, frequency=replace(cfg.frequency, rolling_threshold=4)))
+    assert guard.session_tier("child", include_rolling=True) == "none"
+    tracker.apply_config(cfg)
+    assert guard.session_tier("child", include_rolling=True) == "tier1"
+    with patch(
+        "petasos.session.frequency.time.monotonic",
+        return_value=1001.0 + cfg.frequency.rolling_window_seconds,
+    ):
+        result = tracker.update("parent", [])
+    assert result.tier == guard.session_tier("child", include_rolling=True) == "none"

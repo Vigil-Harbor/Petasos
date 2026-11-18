@@ -328,12 +328,9 @@ class FrequencyTracker:
             if rule_ids and (weight_cap is None or total_weight > 0.0):
                 state.rolling_findings.append(now)
 
-            tier = evaluate_tier(current_score, self._config)
-            if tier == "none" and len(state.rolling_findings) >= self._rolling_threshold:
-                tier = "tier1"
-
             state.last_score = current_score
             state.last_update = now
+            tier = self.tier_for_state(state)
             self._ttl_deque.append((now + self._session_ttl, session_id))
             if tier == "tier3":
                 state.terminated = True
@@ -346,6 +343,22 @@ class FrequencyTracker:
                 tier=tier,
                 terminated=state.terminated,
             )
+
+    def tier_for_state(self, state: SessionState | None) -> str:
+        """The tier of a retained snapshot, including its rolling-count promotion.
+
+        Scores and rolling windows advance together on update. Every consumer
+        reads that same snapshot until the next update or reconfiguration.
+        """
+        with self._lock:
+            if state is None:
+                return "none"
+            if state.terminated:
+                return "tier3"
+            tier = evaluate_tier(state.last_score, self._config)
+            if tier == "none" and len(state.rolling_findings) >= self._rolling_threshold:
+                return "tier1"
+            return tier
 
     def get_state(self, session: str | SessionToken) -> SessionState | None:
         """Return live session state, or None when it is not retained."""

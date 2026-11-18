@@ -18,8 +18,10 @@ from typing import TYPE_CHECKING, Any
 from petasos.config.schema import to_mapping
 from petasos.enforce.approvals import redact_display_text
 from petasos.enforce.decisions import Approve, Block, Decision
-from petasos.guard.guardrail import recognize
+from petasos.guard.guardrail import CheckFailure, recognize
 from petasos.guard.surface import GuardrailHit, GuardrailSurface
+from petasos.guard.tools import _READ_ONLY_CANON
+from petasos.normalize import canonicalize_tool_name
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -43,7 +45,7 @@ _MAX_ASKED = 16
 class Ruling:
     """What to do with one guardrail change.
 
-    ``decision`` set means return it. ``None`` means a live session grant
+    ``decision`` is the guardrail floor. ``None`` means a live session grant
     covers the change and the rest of the ladder still runs. ``until`` is the
     wall-clock second the grant lasts until.
     """
@@ -141,8 +143,7 @@ def ruling_for(
 ) -> Ruling:
     """Decide one recognised change. Emits the decision event except a covered one.
 
-    A covered change is emitted by the caller only when the rest of the ladder
-    allows the call, so a stricter block stays the event written next.
+    A covered change is emitted by the caller after combining both policies.
     """
     shown = _shown(core, target)
     mode = _mode(core)
@@ -188,7 +189,7 @@ def ruling_for(
 
 
 def note_covered(core: Core, call: ToolCall, session_id: str, ruling: Ruling) -> None:
-    """Record that a live session grant covered a change the ladder then allowed."""
+    """Record that a live session grant covered the guardrail part of a call."""
     _emit(
         core,
         call,
@@ -205,6 +206,11 @@ def note_covered(core: Core, call: ToolCall, session_id: str, ruling: Ruling) ->
         session_id,
         "" if ruling.until is None else ruling.until,
     )
+
+
+def note_blocked(core: Core, call: ToolCall, session_id: str, *, kind: str, target: str) -> None:
+    """Record an attempt stopped by the content or session ladder."""
+    _emit(core, call, session_id, name="blocked", kind=kind, target=_shown(core, target))
 
 
 def note_answer(core: Core, notice: ApprovalNotice) -> None:
@@ -246,28 +252,25 @@ def note_answer(core: Core, notice: ApprovalNotice) -> None:
         _emit(core, None, session_id, name="denied", kind="", target="", scope=choice, tool="")
 
 
-def hit_for(core: Core, call: ToolCall) -> GuardrailHit | None:
+def hit_for(core: Core, call: ToolCall, session_id: str) -> GuardrailHit | CheckFailure | None:
     """Recognise a change when the guard did not run. Never raises."""
+    if canonicalize_tool_name(call.tool) in _READ_ONLY_CANON:
+        return None
     try:
         surface = core.host.guardrail_surface()
-    except Exception:
-        surface = GuardrailSurface()
-    if not isinstance(surface, GuardrailSurface):
-        surface = GuardrailSurface()
-    try:
+        if not isinstance(surface, GuardrailSurface):
+            raise TypeError("guardrail surface is not a GuardrailSurface")
         protected = core.host.protected_paths()
-    except Exception:
-        protected = frozenset()
-    try:
         return recognize(
             call.tool if isinstance(call.tool, str) else "",
             call.args,
             protected=protected,
             surface=surface,
         )
-    except Exception:
-        logger.debug("guardrail recognition failed", exc_info=True)
-        return None
+    except Exception as exc:
+        failure = CheckFailure(f"{type(exc).__name__}: {exc}")
+        core.check_failures.note(session_id, failure)
+        return failure
 
 
 def record_applied_settings(
@@ -431,12 +434,14 @@ def _emit(
 
 
 def _severity(name: str) -> str | None:
-    if name in {"refused", "unattended", "held", "covered"}:
+    if name in {"refused", "unattended", "held", "covered", "blocked"}:
         return "critical"
     return None
 
 
 def _reason(name: str, kind: str, target: str, until: float | None, scope: str | None) -> str:
+    if name == "blocked":
+        return f"guardrail change stopped by content or session policy ({kind}): {target}".strip()
     if name == "refused":
         return f"guardrail refused ({kind}): {target}".strip()
     if name == "unattended":

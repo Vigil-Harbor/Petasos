@@ -280,3 +280,19 @@ to `petasos.model._TIMEOUT_ERROR_PREFIX`. The ingestion head length moves from
 - Tool calls that reach a closed enforcer are refused, including Hermes hooks
   already in flight during shutdown and calls whose evaluation overlaps
   closure.
+
+- Guardrail recognition now covers changes to Hermes’s permanent approval list,
+  including indexed config writes and applying approval-history proposals.
+
+- A guardrail approval no longer replaces a content or session block. Combined
+  asks name both reasons and use a fresh guardrail key; blocked guardrail
+  attempts remain visible in events.
+
+- Hermes command deferral now asks the tracker’s score and rolling-finding tier.
+  Repeated low-weight findings require a person once the rolling threshold is
+  reached. The general guard ladder retains its recorded score-only behaviour.
+
+- Failed Hermes approval probes now prevent unattended guardrail changes.
+  Failed guardrail recognition refuses write-capable calls under closed or
+  degraded failure policy and logs the cause once per retained session. Open
+  failure policy and read-only tools keep their existing content checks.

@@ -29,7 +29,8 @@ from petasos.enforce.decisions import (
     is_egress_sink,
 )
 from petasos.enforce.fallback import fallback_decision, scan_fallback, tier3_unavailable_block
-from petasos.enforce.guardrail import hit_for, note_covered, ruling_for
+from petasos.enforce.guardrail import hit_for, note_blocked, note_covered, ruling_for
+from petasos.guard.guardrail import CheckFailure, unavailable_message
 from petasos.guard.tools import READ_ONLY_TOOLS
 from petasos.normalize import canonicalize_tool_name
 from petasos.pipeline.ingest import _acquire_inspect_lock
@@ -277,13 +278,12 @@ def decide(core: Core, call: ToolCall) -> Decision:
                 reason=_FAILED_PREFIX + detail,
             )
             block, outcome = _scan(core, call)
-            if block is not None:
-                return block
             return _guardrail_or_fallback(
                 core,
                 call,
                 session_id,
-                _fallback(
+                block
+                or _fallback(
                     core,
                     call,
                     outcome,
@@ -303,14 +303,13 @@ def decide(core: Core, call: ToolCall) -> Decision:
                 reason=reason,
             )
         block, outcome = _scan(core, call)
-        if block is not None:
-            return block
-        if outcome != "clean" or core.phase is not Phase.READY:
+        if block is not None or outcome != "clean" or core.phase is not Phase.READY:
             return _guardrail_or_fallback(
                 core,
                 call,
                 session_id,
-                _fallback(
+                block
+                or _fallback(
                     core,
                     call,
                     outcome,
@@ -366,26 +365,29 @@ def decide(core: Core, call: ToolCall) -> Decision:
             pass
 
     denied = guard_denial(call.tool, session_id, result, logger=logger, emit=core.emit)
+    decision = denied or _dangerous_or_allow(core, call, session_id, result)
     kind = getattr(result, "guardrail_kind", None)
     if isinstance(kind, str) and kind:
-        if denied is not None:
-            return denied
+        target = str(getattr(result, "selfmod_target", "") or "")
+        if isinstance(decision, Block):
+            note_blocked(core, call, session_id, kind=kind, target=target)
+            return decision
         ruling = ruling_for(
             core,
             call,
             session_id,
             kind=kind,
-            target=str(getattr(result, "selfmod_target", "") or ""),
+            target=target,
         )
+        if isinstance(ruling.decision, Approve) and isinstance(decision, Approve):
+            return Approve(
+                ruling.decision.message + "\n" + decision.message, ruling.decision.rule_key
+            )
         if ruling.decision is not None:
             return ruling.decision
-        decision = _dangerous_or_allow(core, call, session_id, result)
-        if isinstance(decision, Allow):
-            note_covered(core, call, session_id, ruling)
+        note_covered(core, call, session_id, ruling)
         return decision
-    if denied is not None:
-        return denied
-    return _dangerous_or_allow(core, call, session_id, result)
+    return decision
 
 
 def _dangerous_or_allow(core: Core, call: ToolCall, session_id: str, result: object) -> Decision:
@@ -408,7 +410,7 @@ def _dangerous_or_allow(core: Core, call: ToolCall, session_id: str, result: obj
             exact = state.last_score if state is not None else 0.0
             if math.isfinite(exact):
                 score = round(exact, 1)
-                tier = engine.guard.session_tier(session_id)
+                tier = engine.guard.session_tier(session_id, include_rolling=True)
         except Exception:
             logger.exception("Could not read conversation risk for command judgment")
     decision = dangerous_tool_decision(
@@ -451,11 +453,13 @@ def _guardrail_or_fallback(
     fallback: Block | None,
 ) -> Decision:
     """A fallback block wins. A recognised change is still not allowed through."""
-    if fallback is not None:
-        return fallback
-    hit = hit_for(core, call)
+    hit = hit_for(core, call, session_id)
+    if isinstance(hit, CheckFailure):
+        if core.fail_mode != "open":
+            return Block(unavailable_message(call.tool))
+        return fallback or Allow()
     if hit is None:
-        return Allow()
+        return fallback or Allow()
     with contextlib.suppress(Exception):
         core.emit(
             session_id=session_id,
@@ -465,6 +469,9 @@ def _guardrail_or_fallback(
             severity="critical",
             reason=f"selfmod target: {core.host.display_path(hit.target)}",
         )
+    if fallback is not None:
+        note_blocked(core, call, session_id, kind=hit.kind, target=hit.target)
+        return fallback
     ruling = ruling_for(core, call, session_id, kind=hit.kind, target=hit.target)
     if ruling.decision is not None:
         return ruling.decision

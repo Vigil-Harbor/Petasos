@@ -1018,6 +1018,53 @@ are a change. `get_managed_dir` (`hermes_cli/managed_scope.py` 45–59) uses
 `HERMES_MANAGED_DIR` when it is set. Assigning `HERMES_HOME` on a command
 that is not `hermes`, and is not an export, is not.
 
+### Permanent approval list, source read 2026-11-18
+
+Read in the assigned sandbox `~/.cache/petasos/hermes-sandbox/pet-277-278-copy`,
+Hermes v0.23.1. `hermes config set command_allowlist` replaces the whole list;
+`unset` removes it (`hermes_cli/config.py` lines 3310–3389 and 3501–3544).
+Numeric dotted segments index existing list slots, so `command_allowlist.0`
+can be set or unset (`_set_nested`, lines 704–753; `_locate_nested` and
+`_unset_nested`, lines 794–860). Brackets are literal key text, not list-index
+syntax (`_split_key_path`, lines 646–675). Petasos recognises set and unset on
+the whole key and its suffixes, including numeric dotted slots, regardless
+of the supplied value or whether it names Petasos. `--force` before the key
+is also covered. Config edit, migrate and profile force-config update are
+already recognised as whole-file changes; direct writes use path recognition.
+
+The other dedicated CLI writer found is `hermes approvals suggest --apply`
+(`hermes_cli/subcommands/approvals.py` lines 22–32). It merges selected history
+proposals through `apply_proposals` (`hermes_cli/approvals_suggest.py` lines
+281–289 and 334–340). Without the flag it only proposes entries. Recognition
+covers separate and equals-joined flag values and argparse's unambiguous
+abbreviations `--a`, `--ap`, `--app`, `--appl`. `approvals test` only reads
+(`hermes_cli/subcommands/approvals.py` lines 44–73). Searching `hermes_cli/`
+for the key and callers of `save_permanent_allowlist` found no other dedicated
+list-editing command.
+
+Whole-config replacement routes also change the list: `hermes setup --reset`
+(`hermes_cli/subcommands/setup.py` lines 22–23; `setup.py` lines 681–686),
+`hermes import` (`hermes_cli/subcommands/import_cmd.py` lines 10–17;
+`backup.py` lines 737–815), and `hermes profile install --force`
+(`hermes_cli/subcommands/profile.py` lines 130–145; `profile_distribution.py`
+lines 614–632). These are now covered too, including accepted flag
+abbreviations. Existing profile update recognition also covers abbreviations
+of `--force-config`. Ordinary profile install refuses an existing profile;
+profile import also refuses an existing destination (`profiles.py` lines
+2152–2178). Backup creation and approval testing only read the list. Other
+config-saving CLI flows load and preserve the existing list rather than
+exposing a list editor; the reset and archive replacement paths above do not.
+No setup wizard or archive restore was executed during this investigation.
+
+A person's `always` answer is a separate writer: `_persist_choice` calls
+`save_permanent_allowlist` (`tools/approval.py` lines 474–487), which reconciles
+and saves the profile list (lines 543–574). That prompt path remains intact,
+and Petasos still honours permanent content-rule approvals. Guardrail asks
+continue to use fresh nonreusable keys. The real-hook test
+`test_permanent_list_commands_are_stopped_before_they_write` checks all four
+set/unset routes, suggest/apply and whole-config replacements under `never`, verifies unchanged config
+bytes and list, and checks that no degraded-rule approval was introduced.
+
 ## 15. What counts as yolo, and what the ask predicate reads
 
 Read from the Hermes `v0.23.1` tree in the sandbox copy, and pinned by
@@ -1049,6 +1096,26 @@ request does not take that path. `request_tool_approval` calls
 `_run_approval_gate`, which calls `_human_decision` without `smart`, so it
 reaches a person. A missing or raising helper answers nobody, while the gate,
 which binds detector names at import, can still prompt.
+
+### Command deferral tier check, 2026-11-18
+
+Local replay before and after a shared score-and-rolling tier derivation passed
+all 125 tests in `tests/parity` and `tests/enforce_parity` without changing their
+records. Broader guard tests exposed six published trajectory differences:
+`test_published_trajectory_table_model` for default (`None`), admin and research
+at 30-second intervals first reached tier1 at update 10, where the pins expect
+no tier crossing within the horizon. `test_composed_call_trajectory_model` for
+the same three configurations at 60-second intervals first reached tier1 at
+call 5, again where the pins expect none. Tier2 and termination were unchanged.
+
+The narrower implementation retains the general guard ladder's score-only
+read. Command deferral opts into `FrequencyTracker.tier_for_state`, which is
+also used by the tracker's update answer and includes rolling-count promotion.
+It includes ancestor tiers and authenticated tracker reads. The two parity
+suites, the published trajectory tests and focused guard/enforcer tests then
+passed together (309 tests). No record or published expectation was edited.
+Applying rolling-count promotion to the whole guard ladder remains an owner
+decision because of those six pins.
 
 ## 16. Named profiles under one root share an environment
 

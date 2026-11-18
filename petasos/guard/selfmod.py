@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NamedTuple
 
-from petasos.guard.guardrail import recognize
+from petasos.guard.guardrail import CheckFailure, recognize
 from petasos.guard.paths import normalize_path_text
 from petasos.guard.surface import GuardrailSurface
 from petasos.guard.tools import _READ_ONLY_CANON
@@ -52,14 +52,10 @@ def _surface(self: ToolCallGuard) -> GuardrailSurface:
     supplier = self._guardrail_surface
     if supplier is None:
         return GuardrailSurface()
-    try:
-        value = supplier()
-    except Exception:
-        _logger.debug("guardrail surface failed", exc_info=True)
-        return GuardrailSurface()
+    value = supplier()
     if isinstance(value, GuardrailSurface):
         return value
-    return GuardrailSurface()
+    raise TypeError("guardrail surface is not a GuardrailSurface")
 
 
 def selfmod_target_paths(self: ToolCallGuard) -> frozenset[str]:
@@ -73,18 +69,14 @@ def selfmod_target_paths(self: ToolCallGuard) -> frozenset[str]:
     ts, cached = self._selfmod_owned_cache
     if now - ts < 1.0 and cached:
         return cached
-    try:
-        owned = _owned_paths(self._raw_protected_entries())
-        if not owned and not self._selfmod_empty_warned:
-            _logger.warning("selfmod_target_paths: owned set is empty after hygiene")
-            self._selfmod_empty_warned = True
-        if owned:
-            self._selfmod_empty_warned = False
-        self._selfmod_owned_cache = (now, owned)
-        return owned
-    except Exception:
-        _logger.debug("selfmod_target_paths: failed to build owned set", exc_info=True)
-        return cached or frozenset()
+    owned = _owned_paths(self._raw_protected_entries())
+    if not owned and not self._selfmod_empty_warned:
+        _logger.warning("selfmod_target_paths: owned set is empty after hygiene")
+        self._selfmod_empty_warned = True
+    if owned:
+        self._selfmod_empty_warned = False
+    self._selfmod_owned_cache = (now, owned)
+    return owned
 
 
 def _raw_protected_entries(self: ToolCallGuard) -> list[str]:
@@ -126,8 +118,8 @@ def _raw_protected_entries(self: ToolCallGuard) -> list[str]:
 
 def _classify_selfmod(
     self: ToolCallGuard, canon_pre_alias: str, tool_params: dict[str, Any]
-) -> _SelfmodMatch | None:
-    """Total: never raises. Returns the match or None."""
+) -> _SelfmodMatch | CheckFailure | None:
+    """Total: return a match, a failed check, or a clean no-hit."""
     try:
         if canon_pre_alias in _READ_ONLY_CANON:
             return None
@@ -188,6 +180,5 @@ def _classify_selfmod(
                     return _SelfmodMatch(rule_id="petasos.selfmod.config_ref", target=entry)
 
         return None
-    except Exception:
-        _logger.warning("selfmod classifier error for tool=%s", canon_pre_alias, exc_info=True)
-        return None
+    except Exception as exc:
+        return CheckFailure(f"{type(exc).__name__}: {exc}")

@@ -29,6 +29,7 @@ if TYPE_CHECKING:
     from petasos.config.schema import ReconfigureResult
     from petasos.config.secrets import Secrets
     from petasos.enforce.types import HostInfo
+    from petasos.guard.guardrail import CheckFailures
     from petasos.model import Scanner
 
 _SEMGREP_PREFIX = "scanners.semgrep."
@@ -150,6 +151,7 @@ def build_engine(
     logger: logging.Logger,
     secret_invalid: bool,
     origin: Mapping[str, str] | None = None,
+    check_failures: CheckFailures | None = None,
 ) -> Engine:
     """Compose scanners and construct the pipeline, guard, and stores.
 
@@ -201,6 +203,7 @@ def build_engine(
         lineage=lineage,
         protected_paths=host.protected_paths,
         guardrail_surface=host.guardrail_surface,
+        check_failures=check_failures,
     )
     egress = _names(config.egress.sink_tools)
     namespaces = _names(config.egress.taint_namespaces)
