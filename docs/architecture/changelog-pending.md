@@ -224,3 +224,4 @@ to `petasos.model._TIMEOUT_ERROR_PREFIX`. The ingestion head length moves from
   is added; manual approval and Tirith ownership keep their behavior.
 
 Rejected settings reloads preserve the complete running enforcement state, including the pipeline and session stores; a later valid reload can still apply.
+Desktop conversation identities now expire with their agent objects, so a recycled Python address cannot inherit another conversation's enforcement session. Agents without weak-reference support receive uncorrelated identities.
