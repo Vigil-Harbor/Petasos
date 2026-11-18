@@ -10,6 +10,7 @@ from __future__ import annotations
 import threading
 import time
 from dataclasses import dataclass, field
+from enum import StrEnum
 from typing import TYPE_CHECKING, Literal, Protocol
 
 from petasos.guard.surface import GuardrailSurface
@@ -142,8 +143,16 @@ def _never_approved(_rule_key: str) -> bool:
     return False
 
 
-def _command_not_asked(_command: str) -> bool:
-    return False
+class CommandJudge(StrEnum):
+    """Who will judge a flagged command before the host runs it."""
+
+    NOBODY = "nobody"
+    PERSON = "person"
+    GUARDIAN = "guardian_then_person"
+
+
+def _no_command_judge(_command: str) -> CommandJudge:
+    return CommandJudge.NOBODY
 
 
 def _no_command_checker() -> str | None:
@@ -171,11 +180,12 @@ class HostInfo:
     """What the host can do, and how the enforcer should ask it.
 
     Callables are read on each decision, so a live host change is visible
-    without a settings token change. ``command_will_be_asked`` is true only
-    when the host will put that command string to a person. The default
-    answers no. ``command_checker`` names a loaded checker that owns pipe,
+    without a settings token change. ``command_judge`` names a person, a
+    guardian followed by a person if needed, or nobody. The default answers
+    nobody. ``command_checker`` names a loaded checker that owns pipe,
     decode and fetch execution in terminal command text. It defaults to none.
-    ``command_prompt_name`` names the host approval prompt for display.
+    ``command_prompt_name`` and ``command_guardian_name`` name the host
+    approval prompt and guardian for display.
     ``redactor`` of ``None`` means the host has no redactor.
     ``protected_paths`` is the set of filesystem paths the agent must not
     modify.
@@ -185,9 +195,10 @@ class HostInfo:
     approve_directive: bool = False
     approval_grant: Callable[[], ApprovalGrant] = _no_grant
     rule_always_approved: Callable[[str], bool] = _never_approved
-    command_will_be_asked: Callable[[str], bool] = _command_not_asked
+    command_judge: Callable[[str], CommandJudge] = _no_command_judge
     command_checker: Callable[[], str | None] = _no_command_checker
     command_prompt_name: str = "the host"
+    command_guardian_name: str = "the host guardian"
     subagent_hooks: bool = True
     redactor: Callable[..., str] | None = _identity_text
     display_path: Callable[[str], str] = _identity_path

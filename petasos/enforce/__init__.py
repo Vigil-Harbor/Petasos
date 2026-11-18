@@ -55,6 +55,7 @@ from petasos.enforce.messages import (
 from petasos.enforce.types import (
     ApprovalGrant,
     ApprovalNotice,
+    CommandJudge,
     EvaluationFault,
     HostInfo,
     InitGate,
@@ -72,6 +73,7 @@ __all__ = [
     "ApprovalNotice",
     "Approve",
     "Block",
+    "CommandJudge",
     "Enforcer",
     "EvaluationFault",
     "EventSpool",

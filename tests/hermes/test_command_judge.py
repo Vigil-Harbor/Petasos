@@ -1,19 +1,19 @@
 """The Hermes predicate, with the host modules stood in.
 
 Each test turns one condition off. The live gate is pinned in
-``tests/hermes_host/test_command_will_be_asked.py``.
+``tests/hermes_host/test_command_judge.py``.
 """
 
 from __future__ import annotations
 
 import sys
 import types
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-from petasos.hermes.host import command_will_be_asked
+import pytest
 
-if TYPE_CHECKING:
-    import pytest
+from petasos.enforce import CommandJudge
+from petasos.hermes.host import command_judge
 
 _COMMAND = "rm -rf /tmp/petasos-not-real"
 
@@ -68,15 +68,27 @@ def _install(monkeypatch: pytest.MonkeyPatch, **overrides: Any) -> None:
         monkeypatch.setitem(sys.modules, name, module)
 
 
-def test_a_flagged_command_with_a_person_present_is_asked(
+@pytest.mark.parametrize(
+    ("mode", "expected"),
+    [
+        ("manual", CommandJudge.PERSON),
+        ("smart", CommandJudge.GUARDIAN),
+        ("off", CommandJudge.NOBODY),
+    ],
+)
+def test_a_flagged_command_with_a_person_present_has_a_judge(
     monkeypatch: pytest.MonkeyPatch,
+    mode: str,
+    expected: CommandJudge,
 ) -> None:
-    _install(monkeypatch)
-    assert command_will_be_asked(_COMMAND) is True
+    _install(monkeypatch, mode=lambda: mode)
+    assert command_judge(_COMMAND) is expected
 
 
+@pytest.mark.parametrize("mode", ["manual", "smart"])
 def test_each_host_fact_that_means_nobody_is_asked_answers_no(
     monkeypatch: pytest.MonkeyPatch,
+    mode: str,
 ) -> None:
     cases: list[tuple[str, dict[str, Any]]] = [
         ("not flagged", {"detect": lambda _command: (False, None, None)}),
@@ -85,7 +97,6 @@ def test_each_host_fact_that_means_nobody_is_asked_answers_no(
         ("container", {"skip": lambda _env, has_host_access=False: True}),
         ("hardline", {"floor": lambda _command, sudo_guard=False: {"approved": False}}),
         ("mode off", {"mode": lambda: "off"}),
-        ("smart mode", {"mode": lambda: "smart"}),
         ("unknown mode", {"mode": lambda: "approve"}),
         ("yolo", {"yolo": lambda: True}),
         ("allowlist", {"allow": lambda _command: True}),
@@ -94,13 +105,13 @@ def test_each_host_fact_that_means_nobody_is_asked_answers_no(
         ("backend moved", {"config": _raise}),
     ]
     for name, overrides in cases:
-        _install(monkeypatch, **overrides)
-        assert command_will_be_asked(_COMMAND) is False, name
+        _install(monkeypatch, **({"mode": lambda: mode} | overrides))
+        assert command_judge(_COMMAND) is CommandJudge.NOBODY, name
 
 
 def test_a_missing_hermes_answers_no(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("petasos.hermes.host.load_module", lambda _name: None)
-    assert command_will_be_asked(_COMMAND) is False
+    assert command_judge(_COMMAND) is CommandJudge.NOBODY
 
 
 def _raise(*_args: object, **_kwargs: object) -> Any:

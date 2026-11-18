@@ -256,7 +256,7 @@ def test_host_info_reads_the_faked_modules(
     assert info.approval_grant().mode_off is False
     assert info.rule_always_approved("kept") is True
     assert info.rule_always_approved("other") is False
-    assert info.command_will_be_asked("rm -rf /tmp/petasos-not-real") is False
+    assert info.command_judge("rm -rf /tmp/petasos-not-real").value == "nobody"
     assert info.redactor is not None
 
 

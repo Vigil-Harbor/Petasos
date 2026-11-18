@@ -7,6 +7,7 @@ from typing import TypedDict
 
 import pytest
 
+from petasos.enforce import CommandJudge
 from petasos.enforce.decisions import (
     Approve,
     Block,
@@ -90,6 +91,9 @@ def _decide(
     namespaces: frozenset[str] = frozenset(),
     store: object | None = None,
     asks: bool | None = None,
+    judge: CommandJudge | None = None,
+    tier: str | None = "none",
+    score: float | None = 0.0,
     ask_raises: bool = False,
     seen: list[str] | None = None,
     checker: str | None = None,
@@ -103,12 +107,12 @@ def _decide(
         def emit(self, record: logging.LogRecord) -> None:
             logs.append(record.getMessage())
 
-    def predicate(command: str) -> bool:
+    def predicate(command: str) -> CommandJudge:
         if seen is not None:
             seen.append(command)
         if ask_raises:
             raise RuntimeError("detector moved")
-        return bool(asks)
+        return judge or (CommandJudge.PERSON if asks else CommandJudge.NOBODY)
 
     def command_checker() -> str | None:
         if checker_raises:
@@ -136,9 +140,12 @@ def _decide(
             excerpt_for=lambda: "echo hi",
             logger=logger,
             emit=lambda **fields: events.append(fields),
-            command_will_be_asked=predicate,
+            command_judge=predicate,
             command_checker=command_checker,
             command_prompt_name="Host prompt",
+            command_guardian_name="Host guardian",
+            score=score,
+            tier=tier,
         )
     finally:
         logger.removeHandler(handler)
@@ -232,6 +239,8 @@ def test_a_command_the_host_will_ask_about_is_recorded_and_not_decided() -> None
             "tool": "terminal",
             "event_type": "deferred",
             "deferred_to": "Host prompt",
+            "score": 0.0,
+            "tier": "none",
             "severity": "HIGH",
             "rule_id": finding.rule_id,
             "reason": finding.message,
@@ -241,7 +250,8 @@ def test_a_command_the_host_will_ask_about_is_recorded_and_not_decided() -> None
     assert not any("PETASOS_APPROVE" in line or "PETASOS_QUARANTINE" in line for line in logs)
 
 
-def test_each_missing_condition_keeps_petasos_decision() -> None:
+@pytest.mark.parametrize("judge", [CommandJudge.PERSON, CommandJudge.GUARDIAN])
+def test_each_missing_condition_keeps_petasos_decision(judge: CommandJudge) -> None:
     finding = _finding("petasos.syntactic.command.fetch-exec", finding_type="command")
     injection = _finding("petasos.syntactic.injection.ignore-previous")
     pii = _finding("pii.email", finding_type="pii", severity=Severity.CRITICAL)
@@ -255,28 +265,30 @@ def test_each_missing_condition_keeps_petasos_decision() -> None:
     assert isinstance(raised, Approve)
 
     other_tool, _, _ = _decide(
-        guard, tool="execute_code", posture="approve", approve=True, asks=True
+        guard, tool="execute_code", posture="approve", approve=True, judge=judge
     )
     assert isinstance(other_tool, Approve)
 
-    blocked, _, blocked_events = _decide(guard, posture="block", approve=True, asks=True)
+    blocked, _, blocked_events = _decide(guard, posture="block", approve=True, judge=judge)
     assert isinstance(blocked, Block)
     assert blocked_events[0]["event_type"] == "quarantine"
 
-    unattended, _, _ = _decide(guard, posture="approve", approve=True, yolo=True, asks=True)
+    unattended, _, _ = _decide(guard, posture="approve", approve=True, yolo=True, judge=judge)
     assert isinstance(unattended, Block)
 
-    no_directive, _, no_events = _decide(guard, posture="approve", approve=False, asks=True)
+    no_directive, _, no_events = _decide(guard, posture="approve", approve=False, judge=judge)
     assert no_directive is None
     assert no_events[0]["event_type"] == "deferred"
 
-    blank, _, _ = _decide(guard, posture="approve", approve=True, asks=True, args={"command": ""})
+    blank, _, _ = _decide(
+        guard, posture="approve", approve=True, judge=judge, args={"command": ""}
+    )
     assert isinstance(blank, Approve)
-    missing, _, _ = _decide(guard, posture="approve", approve=True, asks=True, args={})
+    missing, _, _ = _decide(guard, posture="approve", approve=True, judge=judge, args={})
     assert isinstance(missing, Approve)
 
     earlier, _, earlier_events = _decide(
-        _guard(injection, finding), posture="approve", approve=True, asks=True
+        _guard(injection, finding), posture="approve", approve=True, judge=judge
     )
     assert isinstance(earlier, Block)
     assert earlier_events[0]["rule_id"] == injection.rule_id
@@ -287,7 +299,7 @@ def test_each_missing_condition_keeps_petasos_decision() -> None:
         egress=True,
         posture="approve",
         approve=True,
-        asks=True,
+        judge=judge,
         namespaces=_NAMESPACES,
         store=_Store("mcp_bank_"),
     )
@@ -301,13 +313,13 @@ def test_each_missing_condition_keeps_petasos_decision() -> None:
         egress=True,
         posture="approve",
         approve=True,
-        asks=True,
+        judge=judge,
     )
     assert isinstance(leaked, Block)
     assert "Sensitive data" in leaked.message
 
     degraded, _, degraded_events = _decide(
-        _guard(finding, degraded=True), posture="approve", approve=True, asks=True
+        _guard(finding, degraded=True), posture="approve", approve=True, judge=judge
     )
     assert isinstance(degraded, Approve)
     assert degraded.rule_key == "petasos.degraded"
@@ -566,3 +578,61 @@ def test_checker_does_not_bypass_other_protection(case: str) -> None:
     )
     assert isinstance(chosen, (Approve, Block))
     assert not any(event["event_type"] == "deferred" for event in events)
+
+
+@pytest.mark.parametrize("tier", ["none", "tier1", "tier2", "tier3", None, "unknown"])
+@pytest.mark.parametrize("judge", [CommandJudge.PERSON, CommandJudge.GUARDIAN])
+def test_guardian_ownership_requires_a_readable_tier_below_tier1(
+    tier: str | None, judge: CommandJudge
+) -> None:
+    finding = _finding("petasos.syntactic.command.fetch-exec", finding_type="command")
+    decision, _, events = _decide(
+        _guard(finding), posture="approve", approve=True, judge=judge, tier=tier, score=7.5
+    )
+    if judge is CommandJudge.PERSON or tier == "none":
+        assert decision is None
+        assert events[0]["deferred_to"] == (
+            "Host prompt" if judge is CommandJudge.PERSON else "Host guardian"
+        )
+        assert events[0]["score"] == 7.5
+        assert events[0]["tier"] == tier
+    else:
+        assert isinstance(decision, Approve)
+        assert events == []
+
+
+@pytest.mark.parametrize("tier", ["none", "tier1", "tier2", "tier3", None])
+@pytest.mark.parametrize("slug", ["pipe-to-shell", "decode-exec", "fetch-exec"])
+def test_loaded_checker_keeps_its_three_rules_at_every_tier(tier: str | None, slug: str) -> None:
+    finding = _finding(f"petasos.syntactic.command.{slug}", finding_type="command")
+    decision, _, events = _decide(
+        _guard(finding),
+        posture="approve",
+        approve=True,
+        judge=CommandJudge.GUARDIAN,
+        checker="Tirith",
+        tier=tier,
+    )
+    assert decision is None
+    assert events[0]["deferred_to"] == "Tirith"
+    assert events[0]["tier"] == tier
+
+
+@pytest.mark.parametrize("tier", ["none", "tier1", None])
+def test_mixed_checker_and_guardian_findings_need_both_owners(tier: str | None) -> None:
+    fetch = _finding("petasos.syntactic.command.fetch-exec", finding_type="command")
+    delete = _finding("petasos.syntactic.command.destructive-recursive", finding_type="command")
+    decision, _, events = _decide(
+        _guard(fetch, delete),
+        posture="approve",
+        approve=True,
+        judge=CommandJudge.GUARDIAN,
+        checker="Tirith",
+        tier=tier,
+    )
+    if tier == "none":
+        assert decision is None
+        assert events[0]["deferred_to"] == "Tirith and Host guardian"
+    else:
+        assert isinstance(decision, Approve)
+        assert events == []

@@ -2232,7 +2232,7 @@
   var SHOWN_FIELDS = {
     scan_id: 1, timestamp: 1, event_type: 1, tool: 1, session_id: 1, severity: 1, rule_id: 1, reason: 1,
     summary: 1, outcome: 1, kind_label: 1, rule_sentence: 1, integrity: 1, sig: 1, matched_note: 1,
-    target: 1, outcome_note: 1, risk_block: 1, review_action: 1, risk_sentence: 1,
+    deferred_to: 1, score: 1, tier: 1, target: 1, outcome_note: 1, risk_block: 1, review_action: 1, risk_sentence: 1,
   };
 
   function EventDetail(props) {
@@ -2312,6 +2312,9 @@
           ["Kind", event.kind_label || event.event_type],
           ["Tool", event.tool ? h(Mono, null, event.tool) : null],
           ["Conversation", event.session_id ? h(Mono, null, event.session_id) : null],
+          ["Left for", event.deferred_to || null],
+          ["Conversation risk", typeof event.score === "number" ? String(event.score) + " points" : null],
+          ["Risk tier", event.tier || null],
         ],
       }),
       h(KeyValues, {

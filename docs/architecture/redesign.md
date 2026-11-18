@@ -706,12 +706,12 @@ Arming is the snapshot's switch, checked on every call.
 `approval_grant()`, an `ApprovalGrant` whose `mode_off`, `yolo`, and `context`
 flags are the combination that would grant an approve with nobody attached
 (any one of them means the enforcer does not hand the host an approve it would
-allow); `rule_always_approved(rule_key)`; `command_will_be_asked(command)`,
-true only when the host will put that command string to a person, and false
-by default; `command_checker()`, the loaded owner of terminal pipe, decode and
-fetch execution or none, and `command_prompt_name`, the host prompt's display
-name; `subagent_hooks`; an optional `redactor` (`None` means redaction
-is unavailable); `display_path`; `protected_paths()`, the filesystem paths the
+allow); `rule_always_approved(rule_key)`; `command_judge(command)`, a
+`CommandJudge` naming a person, the guardian then a person if needed, or
+nobody (the default); `command_checker()`, the loaded owner of terminal pipe,
+decode and fetch execution or none; `command_prompt_name` and
+`command_guardian_name`, the host prompt and guardian display names;
+`subagent_hooks`; an optional `redactor` (`None` means redaction is unavailable); `display_path`; `protected_paths()`, the filesystem paths the
 agent must not modify; and `guardrail_surface()`, the host's labelled paths and command
 patterns. The guard uses the path set when it is supplied. Callers that supply
 nothing keep the previous discovery. A recognised guardrail change is decided
@@ -1722,6 +1722,8 @@ authenticates; the standalone console and its optional auth are retired
 (`console-retirement.md`).
 
 ## 14. Open questions
+
+- 2026-11-17: The command host fact now names its judge; guardian deferral requires a tier below tier1. See [smart approval](smart-approval-proposal.md).
 
 1. Everything listed in section 7.6.
 2. Whether `scanners.presidio.score_threshold` and the entity lists can become

@@ -13,6 +13,7 @@ import asyncio
 import concurrent.futures
 import contextlib
 import logging
+import math
 from typing import TYPE_CHECKING, Any, cast
 
 from petasos.enforce.approvals import command_excerpt, degraded_pending_key
@@ -394,6 +395,22 @@ def _dangerous_or_allow(core: Core, call: ToolCall, session_id: str, result: obj
     namespaces = engine.namespaces if engine is not None else frozenset()
     taint = engine.taint if engine is not None else None
     sink = False if engine is None else is_egress_sink(call.tool, engine.egress)
+    score: float | None = None
+    tier: str | None = None
+    if engine is not None:
+        try:
+            session = (
+                engine.tracker.mint_token(session_id, engine.pipeline.host_id)
+                if engine.secrets.session_secret is not None
+                else session_id
+            )
+            state = engine.tracker.get_state(session)
+            exact = state.last_score if state is not None else 0.0
+            if math.isfinite(exact):
+                score = round(exact, 1)
+                tier = engine.guard.session_tier(session_id)
+        except Exception:
+            logger.exception("Could not read conversation risk for command judgment")
     decision = dangerous_tool_decision(
         call.tool,
         dict(call.args),
@@ -410,9 +427,12 @@ def _dangerous_or_allow(core: Core, call: ToolCall, session_id: str, result: obj
         excerpt_for=lambda: _approve_excerpt(core, call, result),
         logger=logger,
         emit=core.emit,
-        command_will_be_asked=core.host.command_will_be_asked,
+        command_judge=core.host.command_judge,
         command_checker=core.host.command_checker,
         command_prompt_name=core.host.command_prompt_name,
+        command_guardian_name=core.host.command_guardian_name,
+        score=score,
+        tier=tier,
     )
     if isinstance(decision, Approve) and decision.rule_key == "petasos.degraded":
         core.book.note_degraded_pending(
