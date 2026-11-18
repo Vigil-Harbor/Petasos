@@ -44,17 +44,19 @@ options:
 Install Petasos into a Hermes profile.
 
 ```text
-usage: petasos hermes [-h] {pin,unpin,install} ...
+usage: petasos hermes [-h] {pin,unpin,refresh,install} ...
 
 positional arguments:
-  {pin,unpin,install}
-    pin                Fix settings at machine level, or remove that pin.
-    unpin              Fix settings at machine level, or remove that pin.
-    install            Put the plugin in place and turn it on. Running it again updates
-                       the files.
+  {pin,unpin,refresh,install}
+    pin                 Fix settings at machine level, or remove that pin.
+    unpin               Fix settings at machine level, or remove that pin.
+    refresh             Ask Hermes to load the development wheel already saved in the
+                        plugin directory.
+    install             Put the plugin in place and turn it on. Running it again updates
+                        the files.
 
 options:
-  -h, --help           show this help message and exit
+  -h, --help            show this help message and exit
 ```
 
 ## `petasos hermes pin`
@@ -89,6 +91,20 @@ options:
   --accept-profile-changes
                         Accept the profile changes that will take effect when the pin is
                         removed.
+```
+
+## `petasos hermes refresh`
+
+Ask Hermes to load the development wheel already saved in the plugin directory.
+
+```text
+usage: petasos hermes refresh [-h] [--home HOME] [--profile PROFILE]
+
+options:
+  -h, --help         show this help message and exit
+  --home HOME        Hermes home to use. The default is the one the plugin would use.
+  --profile PROFILE  Profile name under that home. 'default' is the home with no
+                     profile.
 ```
 
 ## `petasos hermes install`
@@ -220,12 +236,14 @@ options:
 ## `hermes petasos`
 
 ```text
-usage: hermes petasos [-h] {pin,unpin,doctor,install,config,scanner} ...
+usage: hermes petasos [-h] {pin,unpin,refresh,doctor,install,config,scanner} ...
 
 positional arguments:
-  {pin,unpin,doctor,install,config,scanner}
+  {pin,unpin,refresh,doctor,install,config,scanner}
     pin                 Fix settings at machine level, or remove that pin.
     unpin               Fix settings at machine level, or remove that pin.
+    refresh             Ask Hermes to load the development wheel already saved in the
+                        plugin directory.
     doctor              Say whether Petasos is protecting this profile, and what to do
                         if it is not.
     install             Refresh the plugin files for this profile and turn the plugin
@@ -270,6 +288,20 @@ options:
   --accept-profile-changes
                         Accept the profile changes that will take effect when the pin is
                         removed.
+```
+
+## `hermes petasos refresh`
+
+Ask Hermes to load the development wheel already saved in the plugin directory.
+
+```text
+usage: hermes petasos refresh [-h] [--home HOME] [--profile PROFILE]
+
+options:
+  -h, --help         show this help message and exit
+  --home HOME        Hermes home to use. The default is the one the plugin would use.
+  --profile PROFILE  Profile name under that home. 'default' is the home with no
+                     profile.
 ```
 
 ## `hermes petasos doctor`

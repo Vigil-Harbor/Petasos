@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 
 from petasos.hermes.dependencies import petasos_requirement
 from petasos.hermes.doctor_model import Check
-from petasos.hermes.doctor_support import install_command
+from petasos.hermes.doctor_support import install_command, refresh_command
 from petasos.hermes.environment import probe_petasos, runtime_python
 from petasos.hermes.settings import PLUGIN_ID
 from petasos.hermes.wheel import wheel_source
@@ -86,7 +86,7 @@ def environment_check(home: Path, *, plugin_enabled: bool) -> Check:
                 "than the plugin directory holds."
             ),
             meaning=_meaning("The older build still protects tool calls.", runtime.note),
-            next_step=install_command(home),
+            next_step=refresh_command(home),
         )
     meaning = runtime.note
     return Check(

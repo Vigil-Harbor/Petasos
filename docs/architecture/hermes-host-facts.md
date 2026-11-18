@@ -1212,6 +1212,52 @@ the git checkout, plus 101 MB of Python and uv under the home's `tools/`.
 The environment tests give each test a new home, so their duration follows
 the network, not the sandbox's age. Network traffic was not measured.
 
+**Read on 2026-11-18** in the prepared sandbox
+`~/.cache/petasos/hermes-sandbox/pet-277-278-copy`: `hermes --help`,
+`hermes plugins --help`, and the callers of
+`_admit_and_save_plugin_sets` in `hermes_cli/` offer no native command that
+rebuilds an unchanged plugin selection. The callers are the toggle, the
+interactive picker, install and the catalog. Petasos therefore adds
+`hermes petasos refresh`. It uses the operator's Hermes launcher and Python,
+asks Hermes to admit the files already in the plugin directory, and probes
+the committed environment before removing older wheels. It never enables
+the plugin or rewrites its files. Normal admission comes before repair;
+repair is only used when an unchanged source still fails to import.
+
+The standalone parser also offers `petasos hermes refresh`, following the
+other commands. Without Hermes in that Python it changes nothing and points
+to `HERMES_HOME=<home> hermes petasos refresh`. Install from that Python
+checks the profile config: if the plugin is on and an earlier build still
+imports, it says that build still checks tool calls. It offers refresh and
+exits 1 because the update is saved but not yet running. A plugin that is off
+still needs `hermes plugins enable petasos`. A stale-build doctor warning
+now names refresh; other doctor fixes are unchanged. Refresh prints when
+Hermes will load the build and leaves the choice of restart to the operator.
+
+**Observed on 2026-11-18** through `bin/with-sandbox` in
+`test_refresh_after_install_without_hermes_keeps_the_plugin_enabled`: a
+separate Python inside the test home cannot import `hermes_cli`. Installing
+from it saves a second wheel of the same version and exits 1 with refresh
+as the next step. A new Hermes process still imports the earlier build and
+still blocks the test injection. With the new directory files in place,
+Hermes loads registration and refresh from that earlier wheel, which in
+this test already contains the refresh command. `hermes petasos refresh`
+runs successfully. A new process then imports the second build's sentinel
+and still blocks the injection. The home's config is byte-identical before
+the update, after saving it and after refresh. Refresh leaves the plugin
+files unchanged, removes the old wheel, and succeeds again without another
+update. This test's installer, source copies and second wheel stay under
+its sandbox home.
+
+**One-time transition.** The directory's `__init__.py` imports `register`
+from the wheel Hermes has loaded. That wheel also supplies the command
+parser. Updating the directory cannot add refresh to a loaded build that
+predates this command. Those profiles need `hermes plugins disable petasos`
+then `hermes plugins enable petasos` one last time, when the operator chooses
+to make that transition. There is no protection between those commands.
+After a build containing refresh is loaded, later updates use refresh
+without turning the plugin off.
+
 ## 18. Beside Tirith, 2026-11-15
 
 Hermes source: tag `v0.23.1`, commit

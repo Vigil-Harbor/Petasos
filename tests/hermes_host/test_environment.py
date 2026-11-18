@@ -180,25 +180,7 @@ def test_same_version_refresh_changes_the_build_a_new_hermes_process_imports(
             "print(json.dumps({'ok': ok, 'message': message}))\n",
         )
         assert admitted["ok"], admitted
-    source = home / "second-source"
-    source.mkdir()
-    for name in ("petasos", "hermes-plugin"):
-        shutil.copytree(
-            _ROOT / name,
-            source / name,
-            ignore=shutil.ignore_patterns("__pycache__", "node_modules"),
-        )
-    for name in ("pyproject.toml", "README.md", "LICENSE"):
-        shutil.copyfile(_ROOT / name, source / name)
-    with (source / "petasos" / "__init__.py").open("a", encoding="utf-8") as stream:
-        stream.write('\nPET265_BUILD = "second"\n')
-    built = _run(
-        petasos_wheel,
-        home,
-        ["uv", "build", "--wheel", "--out-dir", str(home / "second-dist"), str(source)],
-    )
-    assert built.returncode == 0, built.stderr
-    second = next((home / "second-dist").glob("*.whl"))
+    second = _second_wheel(petasos_wheel, home)
     python = str(petasos_wheel / "venv" / "bin" / "python")
     original = petasos_wheel / "dist" / "petasos" / old.name
     try:
@@ -231,7 +213,7 @@ def test_same_version_refresh_changes_the_build_a_new_hermes_process_imports(
             report = json.loads(doctor.stdout)
             check = next(row for row in report["checks"] if row["id"] == "hermes_environment")
             assert check["status"] == "warn"
-            assert "petasos hermes install" in check["next_step"]
+            assert "hermes petasos refresh" in check["next_step"]
             previous = _enforcing(petasos_wheel, home)
             assert previous["error"] is None and previous["block"]
         refreshed = _petasos(petasos_wheel, home, ["hermes", "install"])
@@ -273,6 +255,81 @@ def test_same_version_refresh_changes_the_build_a_new_hermes_process_imports(
             ["uv", "pip", "install", "--python", python, "--reinstall", str(original)],
         )
         assert restored.returncode == 0, restored.stderr
+
+
+def test_refresh_after_install_without_hermes_keeps_the_plugin_enabled(
+    petasos_wheel: Path, request: pytest.FixtureRequest
+) -> None:
+    """A Python outside Hermes saves the update; Hermes admits it without a toggle.
+
+    Both builds contain refresh. A build predating that command needs the
+    one-time disable/enable transition described in the host facts.
+    """
+    sandbox = petasos_wheel
+    home = fresh_home(sandbox, request.node.name)
+    installed = _petasos(sandbox, home, ["hermes", "install"])
+    assert installed.returncode == 0, installed.stdout[-2000:] + installed.stderr[-2000:]
+    before_config = (home / "config.yaml").read_bytes()
+    before = _enforcing(sandbox, home)
+    assert before["error"] is None and before["block"]
+    second = _second_wheel(sandbox, home)
+    # This installer has Petasos and a config reader, but cannot import Hermes.
+    # Its environment and wheel builds stay inside this test's home.
+    venv = home / "installer"
+    created = _run(
+        sandbox, home, ["uv", "venv", "--python", str(_ROOT / ".venv/bin/python"), str(venv)]
+    )
+    assert created.returncode == 0, created.stderr
+    python = str(venv / "bin" / "python")
+    prepared = _run(
+        sandbox, home, ["uv", "pip", "install", "--python", python, str(second), "pyyaml"]
+    )
+    assert prepared.returncode == 0, prepared.stderr
+    absent = _run(
+        sandbox,
+        home,
+        [
+            python,
+            "-c",
+            "import importlib.util; assert importlib.util.find_spec('hermes_cli') is None",
+        ],
+    )
+    assert absent.returncode == 0, absent.stderr
+    saved = _run(
+        sandbox, home, [python, "-m", "petasos", "hermes", "install", "--home", str(home)]
+    )
+    assert saved.returncode == 1, saved.stdout[-3000:] + saved.stderr[-2000:]
+    assert "not importable" in saved.stdout
+    assert "still checking tool calls" in saved.stdout
+    assert f"HERMES_HOME={home} hermes petasos refresh" in saved.stdout
+    assert (home / "config.yaml").read_bytes() == before_config
+    build_code = (
+        "import json, hermes_cli.main, petasos\n"
+        "print(json.dumps({'build': getattr(petasos, 'PET265_BUILD', None)}))\n"
+    )
+    assert _process(sandbox, home, build_code) == {"build": None}
+    previous = _enforcing(sandbox, home)
+    assert previous["error"] is None and previous["block"]
+    directory = home / "plugins" / "petasos"
+    files = {
+        path: path.read_bytes()
+        for path in directory.rglob("*")
+        if path.is_file() and "wheels" not in path.parts and "__pycache__" not in path.parts
+    }
+    # The new directory still imports register and the CLI from the earlier wheel.
+    refreshed = _hermes(sandbox, home, ["petasos", "refresh"])
+    assert refreshed.returncode == 0, refreshed.stdout[-3000:] + refreshed.stderr[-2000:]
+    assert "next time it starts" in refreshed.stdout
+    assert (home / "config.yaml").read_bytes() == before_config
+    assert all(path.read_bytes() == data for path, data in files.items())
+    assert _process(sandbox, home, build_code) == {"build": "second"}
+    after = _enforcing(sandbox, home)
+    assert after["error"] is None and after["block"] and after["clean"] is None
+    assert len(list((directory / "wheels").rglob("*.whl"))) == 1
+    again = _hermes(sandbox, home, ["petasos", "refresh"])
+    assert again.returncode == 0, again.stdout[-2000:] + again.stderr[-2000:]
+    assert "already" in again.stdout
+    assert (home / "config.yaml").read_bytes() == before_config
 
 
 def test_doctor_catches_a_stale_environment_and_names_the_fix(
@@ -592,3 +649,25 @@ def _stub_wheel(root: Path, project: str, module: str, version: str) -> Path:
     if not wheels:
         raise AssertionError("stub wheel was not built")
     return wheels[-1]
+
+
+def _second_wheel(sandbox: Path, home: Path) -> Path:
+    source = home / "second-source"
+    source.mkdir()
+    for name in ("petasos", "hermes-plugin"):
+        shutil.copytree(
+            _ROOT / name,
+            source / name,
+            ignore=shutil.ignore_patterns("__pycache__", "node_modules"),
+        )
+    for name in ("pyproject.toml", "README.md", "LICENSE"):
+        shutil.copyfile(_ROOT / name, source / name)
+    with (source / "petasos" / "__init__.py").open("a", encoding="utf-8") as stream:
+        stream.write('\nPET265_BUILD = "second"\n')
+    built = _run(
+        sandbox,
+        home,
+        ["uv", "build", "--wheel", "--out-dir", str(home / "second-dist"), str(source)],
+    )
+    assert built.returncode == 0, built.stderr
+    return next((home / "second-dist").glob("*.whl"))

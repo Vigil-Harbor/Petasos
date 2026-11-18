@@ -60,6 +60,13 @@ def enable_command(home: Path) -> str:
     return f"HERMES_HOME={quote_path(home)} hermes plugins enable petasos"
 
 
+def refresh_command(home: Path) -> str:
+    """The command that admits a saved development wheel through Hermes."""
+    if os.name == "nt":
+        return f"hermes petasos refresh, with HERMES_HOME set to {home}"
+    return f"HERMES_HOME={quote_path(home)} hermes petasos refresh"
+
+
 def migrate_command(home: Path) -> str:
     """The migrate command for ``home``."""
     return f"petasos config migrate --home {quote_path(home)}"

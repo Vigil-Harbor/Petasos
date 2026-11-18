@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING
 
 import pytest
@@ -11,6 +12,7 @@ from petasos.hermes import install
 from petasos.hermes import wheel as wheel_module
 from petasos.hermes.dashboard import manifest as tab_manifest
 from petasos.hermes.dashboard.manifest import render_dashboard_manifest
+from petasos.hermes.environment import Probe, Runtime
 from petasos.hermes.install import RELEASED_COMMAND, dashboard_texts, render_project
 from petasos.hermes.manifest import render_manifest
 from petasos.hermes.wheel import wheel_source
@@ -206,6 +208,9 @@ def test_refresh_keeps_old_wheels_until_admission_succeeds(
         assert len(list(directory.glob("*/*.whl"))) == 2
         return success, "admission result"
 
+    monkeypatch.setattr(install, "runtime_python", lambda home: Runtime(source))
+    probes = iter([_probe(old), _probe(source)])
+    monkeypatch.setattr(install, "probe_petasos", lambda python: next(probes))
     monkeypatch.setattr(install, "republish", rebuild)
     result = _install(home)
     assert calls == [False]
@@ -215,12 +220,10 @@ def test_refresh_keeps_old_wheels_until_admission_succeeds(
     assert current is not None and current.read_bytes() == b"new"
     if not success:
         assert result.exit_code != 0
-        assert "petasos hermes install --home" in result.text
+        assert "hermes petasos refresh" in result.text
 
 
 def test_unchanged_build_does_not_rebuild(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from petasos.hermes.environment import Probe, Runtime
-
     source = tmp_path / "build.whl"
     source.write_bytes(b"same")
     monkeypatch.setattr(wheel_module, "_existing_wheel", lambda: source)
@@ -230,7 +233,7 @@ def test_unchanged_build_does_not_rebuild(tmp_path: Path, monkeypatch: pytest.Mo
         install, "enable_plugin", lambda: (True, "Hermes already had the plugin turned on.")
     )
     monkeypatch.setattr(install, "runtime_python", lambda home: Runtime(source))
-    monkeypatch.setattr(install, "probe_petasos", lambda python: Probe(ok=True, version="0.4.0"))
+    monkeypatch.setattr(install, "probe_petasos", lambda python: _probe(source))
 
     def unexpected(*, repair: bool = False) -> tuple[bool, str]:
         pytest.fail("An unchanged, working install must not rebuild")
@@ -244,8 +247,6 @@ def test_a_broken_import_tries_pending_sources_before_repair(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, normal_fixes_import: bool
 ) -> None:
     """An unchanged file may still be pending after a failed admission."""
-    from petasos.hermes.environment import Probe, Runtime
-
     source = tmp_path / "build.whl"
     source.write_bytes(b"pending")
     monkeypatch.setattr(wheel_module, "_existing_wheel", lambda: source)
@@ -256,7 +257,13 @@ def test_a_broken_import_tries_pending_sources_before_repair(
         install, "enable_plugin", lambda: (True, "Hermes already had the plugin turned on.")
     )
     monkeypatch.setattr(install, "runtime_python", lambda home: Runtime(source))
-    probes = iter([Probe(ok=False), Probe(ok=normal_fixes_import)])
+    probes = iter(
+        [
+            Probe(ok=False),
+            _probe(source) if normal_fixes_import else Probe(ok=False),
+            _probe(source),
+        ]
+    )
     monkeypatch.setattr(install, "probe_petasos", lambda python: next(probes))
     calls: list[bool] = []
 
@@ -279,3 +286,7 @@ def _install(home: Path) -> install.InstallResult:
         run=False,
         color=False,
     )
+
+
+def _probe(source: Path) -> Probe:
+    return Probe(ok=True, version="0.4.0", direct_url=json.dumps({"url": source.as_uri()}))
