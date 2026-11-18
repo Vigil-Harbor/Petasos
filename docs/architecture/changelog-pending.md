@@ -222,3 +222,6 @@ to `petasos.model._TIMEOUT_ERROR_PREFIX`. The ingestion head length moves from
   or above, or with an unreadable tier, Petasos asks the person itself. Deferred
   events name the judge and record the conversation score and tier. No setting
   is added; manual approval and Tirith ownership keep their behavior.
+
+- Guardrail recognition now covers changes to Hermes’s permanent approval list,
+  including indexed config writes and applying approval-history proposals.

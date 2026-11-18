@@ -258,3 +258,61 @@ def _words(raw: object, lead: str) -> dict[str, object]:
     for word in ("pinned", "pinning", "unpin"):
         assert word not in folded
     return raw
+
+
+def test_permanent_list_commands_are_stopped_before_they_write(installed: Sandbox) -> None:
+    result = _run(
+        installed,
+        r"""
+import os
+import shlex
+import subprocess
+from hermes_cli.config import load_config, save_config
+from tools.approval import is_approved
+
+save("never")
+document = load_config()
+document["command_allowlist"] = ["echo harmless"]
+save_config(document)
+before = config.read_bytes()
+commands = [
+    "hermes config set command_allowlist '[plugin_rule:petasos.injection.ignore-instructions]'",
+    "hermes config unset command_allowlist",
+    "hermes config set command_allowlist.0 plugin_rule:petasos.degraded",
+    "hermes config unset command_allowlist.0",
+    "hermes approvals suggest --apply=1",
+    "hermes setup --reset --non-interactive",
+    "hermes import /tmp/backup.zip --force",
+    "hermes profile install /tmp/profile --force",
+]
+blocks = []
+for index, command in enumerate(commands):
+    block = dispatch("terminal", {"command": command}, f"list-{index}", f"list-session-{index}")
+    blocks.append(block)
+    if block is None and command.startswith(("hermes config set ", "hermes config unset ")):
+        # Only list edits may execute if the hook regresses. Whole-config
+        # routes stay hook arguments; no setup wizard or restore can run.
+        # The same command would run only after the hook allows it. Keep the
+        # launcher and home inside this test's assigned sandbox.
+        root = home.parent.parent
+        subprocess.run(
+            [
+                str(root / "bin/with-sandbox"), str(root / "venv/bin/hermes"),
+                *shlex.split(command)[1:],
+            ],
+            env={**os.environ, "PETASOS_HERMES_HOME": str(home)},
+            capture_output=True, check=False, timeout=60,
+        )
+print(json.dumps({
+    "blocks": blocks,
+    "unchanged": config.read_bytes() == before,
+    "list": load_config()["command_allowlist"],
+    "approved": is_approved("", "plugin_rule:petasos.degraded"),
+}))
+""",
+    )
+    blocks = result["blocks"]
+    assert isinstance(blocks, list) and all(isinstance(block, str) and block for block in blocks)
+    assert result["unchanged"] is True
+    assert result["list"] == ["echo harmless"]
+    assert result["approved"] is False

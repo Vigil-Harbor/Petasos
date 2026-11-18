@@ -260,16 +260,18 @@ def _rule_matches(argv: tuple[str, ...], rule: CommandRule) -> bool:
         actual = _program(argv[index]) if index == 0 else argv[index].casefold()
         if actual != expected.casefold():
             return False
-    if rule.requires_flag is not None and rule.requires_flag not in argv:
+    if rule.requires_flag is not None and not any(
+        word == rule.requires_flag or word.startswith(rule.requires_flag + "=") for word in argv
+    ):
         return False
     if rule.unless_flags and any(flag in argv for flag in rule.unless_flags):
         return False
     rest = argv[len(rule.words) :]
+    positionals = [word for word in rest if not word.startswith("-")]
     if rule.tail is not None and (
-        not rest or not rest[0].casefold().startswith(rule.tail.casefold())
+        not positionals or not positionals[0].casefold().startswith(rule.tail.casefold())
     ):
         return False
-    positionals = [word for word in rest if not word.startswith("-")]
     if rule.one_of:
         allowed = {item.casefold() for item in rule.one_of}
         if not positionals or positionals[0].casefold() not in allowed:

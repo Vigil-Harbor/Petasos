@@ -22,6 +22,8 @@ from petasos.enforce import (
 )
 from petasos.enforce.decisions import Approve
 from petasos.enforce.types import ApprovalGrant
+from petasos.guard.surface import GuardrailSurface
+from petasos.hermes.guardrail import hermes_surface
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -66,6 +68,7 @@ def _enforcer(
     always: set[str] | None = None,
     clock: ManualClock | None = None,
     tiers: tuple[float, float, float] | None = None,
+    surface: GuardrailSurface | None = None,
 ) -> tuple[Enforcer, _Source, str]:
     path = _path(tmp_path)
     config = _config(self_change=mode)
@@ -82,6 +85,7 @@ def _enforcer(
         rule_always_approved=lambda rule: rule in (always or set()),
         subagent_hooks=False,
         protected_paths=lambda: frozenset({path}),
+        guardrail_surface=lambda: surface if surface is not None else GuardrailSurface(),
     )
     enforcer = Enforcer(
         source,
@@ -298,3 +302,28 @@ def test_an_answer_counts_once(tmp_path: Path) -> None:
     after = enforcer.tool_call(_write(path))
     assert isinstance(after, Approve)
     assert len([event for event in sink.events if event.get("decision") == "session"]) == 1
+
+
+@pytest.mark.parametrize("mode", ["never", "approve"])
+@pytest.mark.parametrize(
+    "command",
+    [
+        "hermes config set command_allowlist '[ordinary]'",
+        "hermes config unset command_allowlist",
+        "hermes config set command_allowlist.0 ordinary",
+        "hermes config unset command_allowlist.0",
+        "hermes approvals suggest --apply=1",
+        "hermes setup --reset --non-interactive",
+        "hermes import /tmp/backup.zip --force",
+        "hermes profile install /tmp/profile --force",
+    ],
+)
+def test_list_changes_follow_self_change_policy(tmp_path: Path, mode: str, command: str) -> None:
+    sink = _Sink()
+    enforcer, _source, _path = _enforcer(tmp_path, sink, mode=mode, surface=hermes_surface(()))
+    decision = enforcer.tool_call(
+        ToolCall(tool="terminal", args={"command": command}, session="s1")
+    )
+    assert isinstance(decision, Block if mode == "never" else Approve)
+    assert _score(enforcer) > 0
+    assert any(event.get("event_type") == "guardrail" for event in sink.events)

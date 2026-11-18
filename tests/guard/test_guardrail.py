@@ -688,3 +688,46 @@ def test_program_text_given_to_an_interpreter_is_read(tmp_path: Path, command: s
 
 def test_a_here_document_that_only_reads_is_not_a_change(tmp_path: Path) -> None:
     assert _at(tmp_path, "python3 - <<'EOF'\nprint(open('{config}').read())\nEOF") is None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "hermes config set command_allowlist '[]'",
+        "hermes config unset command_allowlist",
+        "hermes config set command_allowlist.0 replacement",
+        "hermes config unset command_allowlist.0",
+        "hermes config set --force command_allowlist '[ordinary]'",
+        'hermes config set command_allowlist "$(printf hidden)"',
+        "hermes approvals suggest --apply 1,2",
+        "hermes approvals suggest --apply=1",
+        "hermes approvals suggest --ap=1",
+        "hermes approvals suggest --a 1",
+        "hermes setup --reset --non-interactive",
+        "hermes setup --res",
+        "hermes import /tmp/backup.zip --force",
+        "hermes profile install /tmp/profile --force",
+        "hermes profile install /tmp/profile --f",
+        "hermes profile update demo --for",
+    ],
+)
+def test_permanent_approval_list_changes(tmp_path: Path, command: str) -> None:
+    hit = _hit(tmp_path, "terminal", {"command": command})
+    assert hit is not None
+    assert hit.kind == "settings"
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "hermes config get command_allowlist",
+        "hermes approvals suggest",
+        "hermes approvals suggest --json --days 1",
+        "hermes approvals test -- echo ok",
+        "hermes backup --quick",
+        "hermes setup model",
+        "hermes profile install /tmp/profile",
+    ],
+)
+def test_permanent_approval_list_reads(tmp_path: Path, command: str) -> None:
+    assert _hit(tmp_path, "terminal", {"command": command}) is None
