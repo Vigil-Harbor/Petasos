@@ -229,3 +229,6 @@ to `petasos.model._TIMEOUT_ERROR_PREFIX`. The ingestion head length moves from
 - Pinning again keeps the settings already in force under a whole Petasos pin;
   profile-only mapping entries cannot spread to other profiles. Pin previews
   and writes disclose the complete settings being captured.
+
+- Development reinstalls retain scanner extras from the plugin dependency
+  list. A removed scanner stays removed on the next reinstall.

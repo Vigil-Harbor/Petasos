@@ -300,3 +300,29 @@ def _install(home: Path) -> install.InstallResult:
 
 def _probe(source: Path) -> Probe:
     return Probe(ok=True, version="0.4.0", direct_url=json.dumps({"url": source.as_uri()}))
+
+
+def test_reinstall_keeps_added_scanners_and_removal_still_works(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from petasos.hermes.dependencies import petasos_requirement
+    from petasos.hermes.scanners_cmd import change_scanner
+
+    source = tmp_path / "build.whl"
+    source.write_bytes(b"same")
+    monkeypatch.setattr(wheel_module, "_existing_wheel", lambda: source)
+    monkeypatch.setattr("petasos.hermes.scanners_cmd.republish", lambda: (True, "Rebuilt."))
+    home = tmp_path / "profile"
+    _install(home)
+    project = home / "plugins" / "petasos" / "pyproject.toml"
+    for name in ("presidio", "prompt_guard"):
+        assert change_scanner(home, name, present=True)[1] == 0
+    _install(home)
+    requirement = petasos_requirement(project)
+    assert requirement is not None
+    assert set(requirement[0]) == {"presidio", "prompt-guard"}
+    assert change_scanner(home, "presidio", present=False)[1] == 0
+    _install(home)
+    requirement = petasos_requirement(project)
+    assert requirement is not None
+    assert requirement[0] == ("prompt-guard",)
