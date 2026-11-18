@@ -709,3 +709,45 @@ Activity, playground and doctor tests. `tests/hermes_host/test_tirith.py`
 loads only a stand-in named `tirith`: the fetch-exec call passes Petasos,
 writes a named deferred event, then Hermes denies execution. Only `echo ok`
 is ever executed by that harness.
+
+## Smart approval, read 2026-11-17
+
+Read from Hermes `v0.23.1` source (the sandbox checkout of that tag) and its
+documentation. Nothing was executed and no model was called. Line numbers
+are from that checkout.
+
+- **What reaches the guardian.** Only `check_all_command_guards`
+  (`tools/approval.py:1322`) and `check_execute_code_guard` (`:1413`) pass
+  `smart=True`. The plugin approval gate, file-write guards and computer use
+  never reach it. The floors, yolo, the allowlist, presence and remembered
+  approvals are checked first (`:1282-1316`). Cron, single-query and
+  unattended platforms are settled by their `*_mode` before it (`:1303-1308`).
+- **What it sees.** A fixed system prompt plus the operator's
+  `approvals.smart_policy`, then "The following command was flagged as:
+  {description}" and the command with comments stripped
+  (`tools/approval_smart.py:103-122`). No conversation, tool name, history or
+  plugin reason. The description is Hermes's own pattern findings
+  (`approval.py:731-749`), including content rules ported from Tirith
+  (`tools/approval_detection.py:721`).
+- **Verdicts** (`approval.py:882-911`). APPROVE lets that command through.
+  DENY blocks; with a person present the owner may override once. ESCALATE,
+  an unknown answer or an error falls through to the person's prompt.
+- **"Classifier"** in Hermes means this auxiliary `approval` task
+  (`hermes_cli/config_defaults.py:751`). There is no classifier registry. A
+  plugin cannot register the `approval` task (`plugins_aux_tasks.py:28-30`).
+- **A plugin's approve request** goes to a person, never to the guardian, and
+  does not use the selected approval transport (`approval.py:864-867`,
+  `plugins.py:1214`). Without `rule_key` the remembered answer covers the
+  whole tool; Petasos always sends one (`petasos/hermes/plugin.py`).
+- **Conventions.** Hermes documents no plugin approval policy or auto-allow
+  callback (`website/docs/user-guide/features/plugins.md:339-345`). Catalog
+  rule 12: "A plugin never routes around Hermes's approval system: no
+  auto-approving" (`plugin-catalog/README.md:108-113`). Plugins that veto or
+  escalate a command do it from `pre_tool_call` (`approval.py:1279-1280`).
+- **Tirith** is no longer bundled; its catalog entry sends its asks to
+  Hermes's approval prompt (`plugin-catalog/tirith.yaml:10-12`). Nothing ties
+  it to smart mode. The real plugin's source was not read.
+
+Open: a real guardian's behaviour, especially on `execute_code`; whether a
+plugin's ask and Hermes's later prompt for the same command are always two
+prompts (inferred from their different approval keys).
