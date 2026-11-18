@@ -64,3 +64,45 @@ async def test_a_failing_classifier_refuses_writes_and_logs_once(
     read = await guard.evaluate("read_file", {"nested": ["hi"]}, "s")
     assert read.allowed
     assert not read.guardrail_check_failed
+
+
+async def test_a_failed_read_of_the_protected_paths_keeps_the_last_set(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A read that fails after a good one still protects the same file."""
+    owned = tmp_path / "config.yaml"
+    owned.write_text("enabled: true\n")
+    config = PetasosConfig()
+    pipe = Pipeline(scanners=[MinimalScanner()], config=config)
+    state = {"fail": False}
+
+    def paths() -> list[str]:
+        if state["fail"]:
+            raise OSError("the profile could not be read")
+        return [str(owned)]
+
+    guard = ToolCallGuard(pipe, pipe._frequency_tracker, config, protected_paths=paths)
+    first = await guard.evaluate("write_file", {"path": str(owned), "content": "x"}, "s1")
+    assert first.selfmod_target is not None
+    state["fail"] = True
+    guard._selfmod_owned_cache = (0.0, guard._selfmod_owned_cache[1])
+    again = await guard.evaluate("write_file", {"path": str(owned), "content": "x"}, "s1")
+    assert again.selfmod_target is not None
+    assert again.guardrail_check_failed is False
+    other = await guard.evaluate(
+        "write_file", {"path": str(tmp_path / "notes.md"), "content": "x"}, "s2"
+    )
+    assert other.allowed and other.guardrail_check_failed is False
+
+
+async def test_a_failed_first_read_of_the_protected_paths_is_a_failed_check() -> None:
+    config = PetasosConfig()
+    pipe = Pipeline(scanners=[MinimalScanner()], config=config)
+
+    def paths() -> list[str]:
+        raise OSError("the profile could not be read")
+
+    guard = ToolCallGuard(pipe, pipe._frequency_tracker, config, protected_paths=paths)
+    result = await guard.evaluate("write_file", {"path": "/tmp/notes.md", "content": "x"}, "s1")
+    assert result.guardrail_check_failed is True
+    assert result.allowed is False

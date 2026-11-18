@@ -69,7 +69,15 @@ def selfmod_target_paths(self: ToolCallGuard) -> frozenset[str]:
     ts, cached = self._selfmod_owned_cache
     if now - ts < 1.0 and cached:
         return cached
-    owned = _owned_paths(self._raw_protected_entries())
+    try:
+        owned = _owned_paths(self._raw_protected_entries())
+    except Exception:
+        # The last good set still names the same files. Keep protecting them
+        # rather than refuse every write; with no earlier set the check fails.
+        if not cached:
+            raise
+        _logger.warning("selfmod_target_paths: read failed, keeping the last set", exc_info=True)
+        return cached
     if not owned and not self._selfmod_empty_warned:
         _logger.warning("selfmod_target_paths: owned set is empty after hygiene")
         self._selfmod_empty_warned = True
