@@ -146,6 +146,18 @@ is a measurement of stored records under the chosen settings, not a recreation
 of historical host approvals or profile settings. Treat flags and blocks as
 false-positive candidates until the underlying work has been judged benign.
 
+Reproduced with this script on 2026-11-17, against the researcher's store
+opened read-only (41,619 calls and 41,619 results by then, 176 more than
+above), job `research`, strictness `relaxed`:
+
+| Code | Flags | Blocks | Tier rises |
+|---|---|---|---|
+| `d519061`, as installed for the soak | 239, all `agent-directed-fetch` | 9 | none |
+| `arch/redesign` at `7f23437` | 0 | 4, all `destructive-recursive` | none |
+
+The 3 extra flags at `d519061` come from the rows added since the first
+replay. The blocks match it exactly.
+
 ## Found while installing
 
 Each was found on 2026-11-11 to 2026-11-13 and fixed on the branch.
