@@ -168,7 +168,8 @@ def transform(core: Core, call: ToolCall, result: object) -> str | None:
         )
     try:
         scan = core.runtime.run_ingest(
-            _ingest(core, pipeline, _with_line_breaks(result), session_id, armed, guard, budget)
+            _ingest(core, pipeline, _with_line_breaks(result), session_id, armed, guard, budget),
+            timeout=budget,
         )
     except (TimeoutError, concurrent.futures.TimeoutError):
         cause = "timeout"

@@ -228,3 +228,4 @@ Desktop conversation identities now expire with their agent objects, so a recycl
 Turning protection off or on now records the enabled setting and whether a session approval was live. The initial snapshot does not count as a change.
 The configured startup wait now sets the cold-start scanner deadline. An explicit library Limits value still overrides it, with the existing bounds.
 Under degraded or closed failure policy, an unsafe tool result whose registered scanner failed or timed out carries the existing unverified-content note. Findings keep their warning, and scanner failures are named in the rate-limited event record. Open policy is unchanged.
+Closing enforcement during an in-flight result scan now releases the waiting hook within its scan deadline and marks the incomplete result through the existing failure path.
