@@ -22,6 +22,7 @@ class Check:
     ``status`` is ``ok``, ``warn``, ``fail``, or ``info``. ``info`` does not
     change the verdict. ``meaning`` says what the line implies. ``next_step``
     is the command or action that addresses it, and is empty when none is due.
+    ``detail`` holds explanations for verbose output and JSON only.
     """
 
     id: str
@@ -29,6 +30,7 @@ class Check:
     summary: str
     meaning: str = ""
     next_step: str = ""
+    detail: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
