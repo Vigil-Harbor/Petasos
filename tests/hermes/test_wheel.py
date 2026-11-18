@@ -59,7 +59,7 @@ def test_pruning_skips_a_wheel_it_cannot_remove(
         real_unlink(self, missing_ok=missing_ok)
 
     monkeypatch.setattr(Path, "unlink", refuse)
-    wheel.prune_wheels(current)
+    wheel.prune_wheels(current, plugin_dir=tmp_path)
     assert current.is_file()
     assert old.is_file()
 
@@ -72,6 +72,27 @@ def test_pruning_keeps_the_declared_flat_wheel(tmp_path: Path) -> None:
     old = directory / "old" / wheel.wheel_filename()
     old.parent.mkdir()
     old.write_bytes(b"old")
-    wheel.prune_wheels(current)
+    wheel.prune_wheels(current, plugin_dir=tmp_path)
     assert current.read_bytes() == b"current"
     assert not old.exists()
+
+
+def test_pruning_does_not_follow_symlinks_outside_the_plugin(tmp_path: Path) -> None:
+    directory = tmp_path / "plugin" / "wheels"
+    current = directory / "current" / wheel.wheel_filename()
+    current.parent.mkdir(parents=True)
+    current.write_bytes(b"current")
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    other = shared / wheel.wheel_filename()
+    other.write_bytes(b"other")
+    (directory / "linked").symlink_to(shared, target_is_directory=True)
+    wheel.prune_wheels(current, plugin_dir=directory.parent)
+    assert other.read_bytes() == b"other"
+    assert current.read_bytes() == b"current"
+    # The wheel directory itself may also have been redirected.
+    external_plugin = tmp_path / "external-plugin"
+    external_plugin.mkdir()
+    (external_plugin / "wheels").symlink_to(directory, target_is_directory=True)
+    wheel.prune_wheels(current, plugin_dir=external_plugin)
+    assert other.read_bytes() == b"other"

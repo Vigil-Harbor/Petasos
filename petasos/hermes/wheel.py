@@ -83,20 +83,23 @@ def wheel_source(project: Path) -> Path | None:
     return project.parent / source
 
 
-def prune_wheels(current: Path) -> None:
-    """Remove older Petasos wheels only after Hermes accepted the current build."""
-    directory = current.parent if current.parent.name == "wheels" else current.parent.parent
-    for old in directory.glob("*/petasos-*.whl"):
-        if old != current:
-            with contextlib.suppress(OSError):
-                old.unlink()
-                if not any(old.parent.iterdir()):
-                    old.parent.rmdir()
-    for old in directory.glob("petasos-*.whl"):
-        if old == current:
+def prune_wheels(current: Path, *, plugin_dir: Path) -> None:
+    """Remove older builds only inside this plugin's own wheel directory.
+
+    An externally declared wheel cannot authorize cleanup, including through
+    a symlink. Such a source says nothing about who owns its siblings.
+    """
+    directory = plugin_dir / "wheels"
+    root = directory.resolve()
+    if directory.is_symlink() or not current.resolve().is_relative_to(root):
+        return
+    for old in (*directory.glob("*/petasos-*.whl"), *directory.glob("petasos-*.whl")):
+        if old.resolve() == current.resolve() or not old.resolve().is_relative_to(root):
             continue
         with contextlib.suppress(OSError):
             old.unlink()
+            if old.parent != directory and not any(old.parent.iterdir()):
+                old.parent.rmdir()
 
 
 def _existing_wheel() -> Path | None:

@@ -263,3 +263,26 @@ def test_a_plugin_install_just_turned_on_is_not_rebuilt_again(
     monkeypatch.setattr(install, "republish", unexpected)
     result = _install(home)
     assert result.exit_code == 0
+
+
+def test_refresh_does_not_prune_a_shared_wheel_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home = tmp_path / "home"
+    saved = _saved(home, monkeypatch)
+    shared = tmp_path / "shared" / "wheels"
+    current = shared / "current" / saved.name
+    other = shared / "other" / saved.name
+    for path in (current, other):
+        path.parent.mkdir(parents=True)
+        path.write_bytes(b"shared")
+    project = home / "plugins" / "petasos" / "pyproject.toml"
+    project.write_text(
+        install.render_project(f"new/{saved.name}").replace(
+            f"wheels/new/{saved.name}", str(current)
+        )
+    )
+    monkeypatch.setattr(install, "probe_petasos", lambda python: _probe(current))
+    before = _snapshot(tmp_path)
+    assert _run(home).exit_code == 0
+    assert _snapshot(tmp_path) == before

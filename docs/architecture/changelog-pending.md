@@ -232,3 +232,7 @@ to `petasos.model._TIMEOUT_ERROR_PREFIX`. The ingestion head length moves from
 
 - Development reinstalls retain scanner extras from the plugin dependency
   list. A removed scanner stays removed on the next reinstall.
+
+- Refresh removes old wheels only from the plugin's own `wheels/` directory.
+  A declared wheel in a shared directory cannot cause other builds there to
+  be deleted, and cleanup does not follow symlinks outside the plugin.

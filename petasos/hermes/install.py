@@ -245,7 +245,7 @@ def _refresh_build(
         and probe.ok
         and probe.matches_wheel(wheel) is True
     ):
-        prune_wheels(wheel)
+        prune_wheels(wheel, plugin_dir=plugin_dir(home))
         return True, ["Hermes already runs the build declared by the plugin directory."]
     broken = probe is None or not probe.ok
     ok, message = republish()
@@ -260,7 +260,7 @@ def _refresh_build(
                 runtime = runtime_python(home)
                 probe = probe_petasos(runtime.python) if runtime is not None else None
         if ok and probe is not None and probe.ok and probe.matches_wheel(wheel) is True:
-            prune_wheels(wheel)
+            prune_wheels(wheel, plugin_dir=plugin_dir(home))
             messages.append("Hermes loads the new build the next time it starts.")
             return True, messages
         if ok and not (probe is not None and probe.ok and probe.matches_wheel(wheel) is False):
