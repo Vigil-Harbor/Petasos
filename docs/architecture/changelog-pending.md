@@ -222,3 +222,6 @@ to `petasos.model._TIMEOUT_ERROR_PREFIX`. The ingestion head length moves from
   or above, or with an unreadable tier, Petasos asks the person itself. Deferred
   events name the judge and record the conversation score and tier. No setting
   is added; manual approval and Tirith ownership keep their behavior.
+
+- Config set, migration writes and released installs select the home named by
+  `--home` or `--profile`, even when another Hermes profile is active.

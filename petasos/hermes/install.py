@@ -347,7 +347,8 @@ def _released(
         )
         text = "\n".join(lines) + "\n"
         return InstallResult(text=text, exit_code=0, report=None)
-    ok, message = run_released_install()
+    with use_home(home):
+        ok, message = run_released_install()
     lines.extend(["", message])
     text = "\n".join(lines) + "\n\n"
     report = examine(home, home_reason=home_reason)

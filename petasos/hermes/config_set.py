@@ -17,6 +17,7 @@ from petasos.hermes import semgrep_host
 from petasos.hermes.dashboard.catalog import combine, stored_document
 from petasos.hermes.dashboard.changes import saved_message
 from petasos.hermes.dashboard.values import copy_tree
+from petasos.hermes.doctor_support import use_home
 from petasos.hermes.settings import (
     PINNED_REFUSAL,
     PLUGIN_ID,
@@ -70,7 +71,8 @@ def set_one(home: Path, path: str, raw: str) -> tuple[str, int]:
         "overrides": proposed["overrides"] if isinstance(proposed["overrides"], dict) else {},
     }
     try:
-        write_settings(payload, plugin_dir=plugin)
+        with use_home(home):
+            write_settings(payload, plugin_dir=plugin)
     except Exception as exc:
         return (
             "Hermes did not store the settings. "

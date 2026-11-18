@@ -15,6 +15,7 @@ from petasos.config.layers import resolve
 from petasos.config.migrate import Migration, migrate
 from petasos.config.schema import ConfigError
 from petasos.hermes import semgrep_host
+from petasos.hermes.doctor_support import use_home
 from petasos.hermes.settings import (
     HASH_ENV,
     PINNED_REFUSAL,
@@ -287,7 +288,8 @@ def _store(home: Path, result: Migration) -> tuple[bool, str]:
     if semgrep_host.save_refusal(None, semgrep_host.semgrep_enabled(resolved.config)):
         return False, semgrep_host.SEMGREP_MIGRATE_REFUSED
     try:
-        write_settings(dict(result.settings), plugin_dir=plugin)
+        with use_home(home):
+            write_settings(dict(result.settings), plugin_dir=plugin)
     except Exception as exc:
         return False, (
             "Hermes did not store the settings. "
