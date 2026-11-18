@@ -149,12 +149,13 @@ class ToolCallGuard:
         # Threshold changes rearm the once-only cap diagnostics.
         self._cap_threshold_warned: bool = False
 
-    def session_tier(self, session_id: str) -> str:
+    def session_tier(self, session_id: str, *, include_rolling: bool = False) -> str:
         """The tier enforcement uses for ``session_id``, including an inherited one.
 
-        The same derivation ``evaluate`` reads. An internal failure is tier 3.
+        Command deferral includes rolling-count promotion. The general guard
+        ladder retains its recorded score-only behaviour. Failures are tier 3.
         """
-        return self._derive_tier(session_id)
+        return self._derive_tier(session_id, include_rolling=include_rolling)
 
     def forget_protected_paths(self) -> None:
         """Drop the cached owned-path set so the next check reads it again."""
@@ -472,7 +473,9 @@ class ToolCallGuard:
 
     _fanout_cap = _fanout_cap
 
-    def _state_to_tier(self, state: SessionState | None) -> str:
+    def _state_to_tier(self, state: SessionState | None, *, include_rolling: bool = False) -> str:
+        if include_rolling:
+            return self._frequency_tracker.tier_for_state(state)
         if state is None:
             return "none"
         return evaluate_tier(state.last_score, self._config)
@@ -484,15 +487,15 @@ class ToolCallGuard:
             return self._frequency_tracker.get_state(token)
         return self._frequency_tracker.get_state(session_id)
 
-    def _derive_own_tier(self, session_id: str) -> str:
+    def _derive_own_tier(self, session_id: str, *, include_rolling: bool = False) -> str:
         if self._frequency_tracker.is_terminated(session_id):
             return "tier3"
-        return self._state_to_tier(self._read_state(session_id))
+        return self._state_to_tier(self._read_state(session_id), include_rolling=include_rolling)
 
-    def _derive_tier(self, session_id: str) -> str:
+    def _derive_tier(self, session_id: str, *, include_rolling: bool = False) -> str:
         # See docs/architecture/rationale.md, "Inherited guard tiers".
         try:
-            own = self._derive_own_tier(session_id)
+            own = self._derive_own_tier(session_id, include_rolling=include_rolling)
             # No registry means own-tier enforcement only.
             if self._lineage is None:
                 return own
@@ -504,7 +507,9 @@ class ToolCallGuard:
                     # Ancestor termination survives eviction and cannot be disabled.
                     anc_tiers.append("tier3")
                 elif inherit_full:
-                    anc_tiers.append(self._state_to_tier(self._read_state(aid)))
+                    anc_tiers.append(
+                        self._state_to_tier(self._read_state(aid), include_rolling=include_rolling)
+                    )
             return max_tier(own, *anc_tiers)
         except Exception:
             _logger.exception(

@@ -409,7 +409,7 @@ def _dangerous_or_allow(core: Core, call: ToolCall, session_id: str, result: obj
             exact = state.last_score if state is not None else 0.0
             if math.isfinite(exact):
                 score = round(exact, 1)
-                tier = engine.guard.session_tier(session_id)
+                tier = engine.guard.session_tier(session_id, include_rolling=True)
         except Exception:
             logger.exception("Could not read conversation risk for command judgment")
     decision = dangerous_tool_decision(

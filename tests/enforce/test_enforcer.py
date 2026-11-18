@@ -534,3 +534,40 @@ def test_inherited_tier1_keeps_petasos_ask(tmp_path: Path) -> None:
         assert isinstance(enforcer.tool_call(command), Approve)
     finally:
         enforcer.close()
+
+
+@pytest.mark.parametrize("secret", [None, b"r" * 32])
+def test_smart_approval_asks_after_rolling_count_promotion(
+    tmp_path: Path, secret: bytes | None
+) -> None:
+    from petasos.enforce import CommandJudge
+
+    snapshot = _snapshot(prompt="off")
+    assert snapshot.config is not None
+    config = replace(
+        snapshot.config,
+        tools=replace(snapshot.config.tools, dangerous_posture="approve"),
+        frequency=replace(snapshot.config.frequency, rolling_threshold=3, weights={"r": 0.01}),
+    )
+    enforcer = _enforcer(
+        tmp_path,
+        _Source(replace(snapshot, config=config, secrets=Secrets(session_secret=secret))),
+        host=HostInfo(approve_directive=True, command_judge=lambda _cmd: CommandJudge.GUARDIAN),
+    )
+    enforcer.start()
+    assert enforcer.settle(10)
+    try:
+        engine = enforcer._core.engine
+        assert engine is not None
+        session = engine.tracker.mint_token("s", engine.pipeline.host_id) if secret else "s"
+        for _ in range(3):
+            update = engine.tracker.update(session, ["r"])
+        assert update.current_score < config.escalation.tier1
+        assert update.tier == engine.guard.session_tier("s", include_rolling=True) == "tier1"
+        decision = enforcer.tool_call(
+            ToolCall(tool="terminal", args={"command": "rm -rf /var"}, session="s")
+        )
+        assert isinstance(decision, Approve)
+        assert "destructive-recursive" in decision.message
+    finally:
+        enforcer.close()

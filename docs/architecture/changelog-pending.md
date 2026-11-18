@@ -229,3 +229,7 @@ to `petasos.model._TIMEOUT_ERROR_PREFIX`. The ingestion head length moves from
 - A guardrail approval no longer replaces a content or session block. Combined
   asks name both reasons and use a fresh guardrail key; blocked guardrail
   attempts remain visible in events.
+
+- Hermes command deferral now asks the tracker’s score and rolling-finding tier.
+  Repeated low-weight findings require a person once the rolling threshold is
+  reached. The general guard ladder retains its recorded score-only behaviour.

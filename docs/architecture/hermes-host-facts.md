@@ -1097,6 +1097,26 @@ request does not take that path. `request_tool_approval` calls
 reaches a person. A missing or raising helper answers nobody, while the gate,
 which binds detector names at import, can still prompt.
 
+### Command deferral tier check, 2026-11-18
+
+Local replay before and after a shared score-and-rolling tier derivation passed
+all 125 tests in `tests/parity` and `tests/enforce_parity` without changing their
+records. Broader guard tests exposed six published trajectory differences:
+`test_published_trajectory_table_model` for default (`None`), admin and research
+at 30-second intervals first reached tier1 at update 10, where the pins expect
+no tier crossing within the horizon. `test_composed_call_trajectory_model` for
+the same three configurations at 60-second intervals first reached tier1 at
+call 5, again where the pins expect none. Tier2 and termination were unchanged.
+
+The narrower implementation retains the general guard ladder's score-only
+read. Command deferral opts into `FrequencyTracker.tier_for_state`, which is
+also used by the tracker's update answer and includes rolling-count promotion.
+It includes ancestor tiers and authenticated tracker reads. The two parity
+suites, the published trajectory tests and focused guard/enforcer tests then
+passed together (309 tests). No record or published expectation was edited.
+Applying rolling-count promotion to the whole guard ladder remains an owner
+decision because of those six pins.
+
 ## 16. Named profiles under one root share an environment
 
 Checked 2026-11-11 in sandbox `/tmp/petasos-u3-sbx`, home
