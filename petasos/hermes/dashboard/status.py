@@ -100,7 +100,9 @@ def status(
         record_signing=record_signing(
             secrets,
             home_label,
-            session_check=next(check for check in report.checks if check.id == "session_secret"),
+            session_check=next(
+                (check for check in report.checks if check.id == "session_secret"), None
+            ),
         ),
         recommendations=list(report.suggestions),
         role=role if isinstance(role, str) else None,
@@ -173,14 +175,19 @@ def operating(row: dict[str, Any], *, loaded: bool, paused: bool) -> dict[str, s
 
 
 def record_signing(
-    secrets: dict[str, Any], home_label: str, *, session_check: Check
+    secrets: dict[str, Any], home_label: str, *, session_check: Check | None
 ) -> dict[str, Any]:
     """Whether activity records are signed, and how to start signing them.
 
     The steps name the profile's env file. No secret value is read or shown.
     """
     # secret_checks owns validation; presence alone cannot mean usable signing.
-    signed = secrets.get("session_secret") == "set" and session_check.status == "ok"
+    # A report without that check cannot vouch for the key, so it is not called signed.
+    signed = (
+        secrets.get("session_secret") == "set"
+        and session_check is not None
+        and session_check.status == "ok"
+    )
     env_file = (home_label.rstrip("/") + "/.env") if home_label else ".env in the profile"
     return {
         "signed": signed,
