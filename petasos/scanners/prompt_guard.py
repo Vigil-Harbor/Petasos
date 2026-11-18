@@ -288,7 +288,9 @@ def _availability() -> tuple[bool, str | None, AvailabilityCause | None]:
     if failure is not None and (failure.retry_at is None or time.monotonic() < failure.retry_at):
         return (False, failure.message, AVAILABILITY_CAUSE_LOAD_FAILED)
     if not _snapshot_complete() and (_offline() or not _has_token()):
-        return (False, _prerequisite_message(), AVAILABILITY_CAUSE_ABSENT)
+        # Installed but unusable, not absent: the registry keeps the scanner
+        # registered, so its failure reaches the fail mode instead of vanishing.
+        return (False, _prerequisite_message(), None)
     return (True, None, None)
 
 

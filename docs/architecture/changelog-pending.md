@@ -92,6 +92,11 @@ deleted.
 
 ## Changed
 
+- PromptGuard with its packages installed but its model not cached, and no way
+  to download it, is reported as installed but unusable. Under `auto` it stays
+  registered, so the fail mode applies, as the availability table in the
+  redesign says. It was treated as not installed and dropped out silently.
+
 - PET-269: doctor's default job row gives the job, strictness and one short
   explanation. Per-setting explanations remain available in verbose output
   and JSON.
@@ -222,3 +227,4 @@ to `petasos.model._TIMEOUT_ERROR_PREFIX`. The ingestion head length moves from
   or above, or with an unreadable tier, Petasos asks the person itself. Deferred
   events name the judge and record the conversation score and tier. No setting
   is added; manual approval and Tirith ownership keep their behavior.
+

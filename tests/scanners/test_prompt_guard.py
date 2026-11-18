@@ -297,9 +297,22 @@ class TestPromptGuardAvailability:
         _fake_packages(monkeypatch)
         ok, reason, cause = pg.PromptGuardScanner().availability()
         assert ok is False
-        assert cause == AVAILABILITY_CAUSE_ABSENT
+        assert cause is None
         assert pg._MODEL_REVISION in (reason or "")
         assert f"hf download {pg._MODEL_ID} --revision {pg._MODEL_REVISION}" in (reason or "")
+
+    def test_installed_without_weights_stays_registered_under_auto(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Packages without usable weights are a broken scanner, not a missing one."""
+        from petasos.scanners.registry import BuildContext, compose
+
+        _fake_packages(monkeypatch)
+        composition = compose(resolve({}).config, BuildContext())
+        status = next(item for item in composition.statuses if item.id == "prompt_guard")
+        assert status.state == "unavailable"
+        assert status.missing is False
+        assert any(scanner.name == "prompt_guard" for scanner in composition.scanners)
 
     def test_incomplete_snapshot_with_a_token(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _fake_packages(monkeypatch)
@@ -348,7 +361,7 @@ class TestPromptGuardAvailability:
         _write_snapshot(tmp_path / "hf" / "hub", files=("config.json", "tokenizer.json"))
         ok, reason, cause = pg.PromptGuardScanner().availability()
         assert ok is False
-        assert cause == AVAILABILITY_CAUSE_ABSENT
+        assert cause is None
         assert pg._MODEL_REVISION in (reason or "")
 
     def test_hf_hub_cache_wins_over_hf_home(
@@ -362,7 +375,7 @@ class TestPromptGuardAvailability:
 
     @pytest.mark.parametrize("flag", ["HF_HUB_OFFLINE", "TRANSFORMERS_OFFLINE"])
     @pytest.mark.parametrize("value", ["1", "true", "YES", "on"])
-    def test_offline_flag_with_a_token_and_no_cache_is_absent(
+    def test_offline_flag_with_a_token_and_no_cache_is_unusable(
         self, monkeypatch: pytest.MonkeyPatch, flag: str, value: str
     ) -> None:
         _fake_packages(monkeypatch)
@@ -370,7 +383,7 @@ class TestPromptGuardAvailability:
         monkeypatch.setenv(flag, value)
         ok, _reason, cause = pg.PromptGuardScanner().availability()
         assert ok is False
-        assert cause == AVAILABILITY_CAUSE_ABSENT
+        assert cause is None
 
     def test_offline_zero_is_not_offline(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _fake_packages(monkeypatch)
