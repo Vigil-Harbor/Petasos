@@ -222,3 +222,5 @@ to `petasos.model._TIMEOUT_ERROR_PREFIX`. The ingestion head length moves from
   or above, or with an unreadable tier, Petasos asks the person itself. Deferred
   events name the judge and record the conversation score and tier. No setting
   is added; manual approval and Tirith ownership keep their behavior.
+
+Rejected settings reloads preserve the complete running enforcement state, including the pipeline and session stores; a later valid reload can still apply.

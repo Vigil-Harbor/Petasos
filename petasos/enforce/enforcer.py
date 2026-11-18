@@ -200,22 +200,9 @@ class Enforcer:
         if self._core._closed:
             return
         try:
-            self._core.observe(announce=False)
-            snap = self._core._pending
-            engine = self._core.engine
-            if snap is None or snap.config is None or snap.error or engine is None:
-                return
-            if snap.token == self._core._token:
-                return
-            from petasos.enforce.engine import apply_snapshot
-            from petasos.enforce.guardrail import record_applied_settings
-
-            before = engine.config
-            apply_snapshot(engine, snap.config, snap.secrets, logger, origin=snap.origin)
-            record_applied_settings(self._core, before)
-            self._core._token = snap.token
-            self._core.fail_mode = engine.fail_mode()
-            self._core._install_secret(engine.secrets)
+            with self._core._settings_lock:
+                self._core.observe(announce=False)
+                self._core.apply_pending(announce=False)
         except Exception as exc:
             self._core.book.log_reload_failure(f"apply failed: {exc}")
 

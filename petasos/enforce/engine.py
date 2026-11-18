@@ -11,6 +11,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from petasos.config.schema import apply_live
+from petasos.config.secrets import require_hash_key
 from petasos.config.sections import PetasosConfig
 from petasos.guard.guard import ToolCallGuard
 from petasos.normalize import canonicalize_tool_name
@@ -234,6 +236,16 @@ def build_engine(
     )
 
 
+def validate_snapshot(engine: Engine, proposed: PetasosConfig) -> None:
+    """Check a candidate without mutating any live enforcement state."""
+    live, _result = apply_live(engine.config, proposed)
+    engine.guard.validate_config(live)
+    require_hash_key(live, engine.secrets)
+    # Use the tracker's own parser without touching live sessions or tombstones.
+    staged_tracker = FrequencyTracker(engine.config, secrets=engine.secrets)
+    staged_tracker.apply_config(live)
+
+
 def apply_snapshot(
     engine: Engine,
     proposed: PetasosConfig,
@@ -244,10 +256,51 @@ def apply_snapshot(
 ) -> ReconfigureResult:
     """Apply one snapshot. Restart fields and secrets stay as they are.
 
-    The pipeline's own reconfigure preserves restart fields. The guard then
-    reads that preserved tree, not the proposed one.
+    Validate the restart-preserving tree before mutation. The caller serialises
+    this transaction with pipeline inspection.
     """
-    result = engine.pipeline.reconfigure(proposed)
+    validate_snapshot(engine, proposed)
+    live, result = apply_live(engine.config, proposed)
+    egress = _names(live.egress.sink_tools)
+    namespaces = _names(live.egress.taint_namespaces)
+
+    # Reconfigure mostly replaces cached fields. Retain those fields, plus the
+    # one collection it trims in place, so even a failure after validation can
+    # restore the exact state (including alert buffers and guard tripwires).
+    # The caller holds the inspect lock; the tracker lock also protects against
+    # concurrent session bookkeeping while its tombstone cap changes.
+    with engine.tracker._lock:
+        owners: list[object] = [
+            engine.pipeline,
+            engine.pipeline._audit_emitter,
+            engine.pipeline._alert_manager,
+            engine.guard,
+            engine.guard._spawn_budget,
+            engine.tracker,
+            engine.taint,
+        ]
+        if engine.pipeline._minimal_scanner is not None:
+            owners.append(engine.pipeline._minimal_scanner)
+        if engine.lineage is not None:
+            owners.append(engine.lineage)
+        saved = [(owner, vars(owner).copy()) for owner in owners]
+        tombstones = engine.tracker._terminated_ids.copy()
+        try:
+            engine.pipeline.reconfigure(proposed)
+            engine.guard.apply_config(live, origin=origin)
+            if engine.lineage is not None:
+                engine.lineage.apply_config(live)
+            engine.taint.apply_config(live)
+            engine.guard.forget_protected_paths()
+        except Exception:
+            for owner, state in saved:
+                vars(owner).update(state)
+            engine.tracker._terminated_ids.clear()
+            engine.tracker._terminated_ids.update(tombstones)
+            raise
+    engine.egress = egress
+    engine.namespaces = namespaces
+    engine.config = live
     semgrep = [path for path in result.restart_required if path.startswith(_SEMGREP_PREFIX)]
     others = [path for path in result.restart_required if not path.startswith(_SEMGREP_PREFIX)]
     if semgrep and not engine.semgrep_warned:
@@ -257,16 +310,6 @@ def apply_snapshot(
         logger.warning(_SECRET_KEPT)
     if others:
         logger.warning("restart required: %s", ", ".join(others))
-    live = engine.pipeline.config
-    engine.guard.validate_config(live)
-    engine.guard.apply_config(live, origin=origin)
-    if engine.lineage is not None:
-        engine.lineage.apply_config(live)
-    engine.taint.apply_config(live)
-    engine.egress = _names(live.egress.sink_tools)
-    engine.namespaces = _names(live.egress.taint_namespaces)
-    engine.config = live
-    engine.guard.forget_protected_paths()
     return result
 
 
