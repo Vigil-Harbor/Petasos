@@ -1185,6 +1185,34 @@ and retains the sentinel. Git downloads for the group run used the sandbox's
 cached `psutil` repository as a mirror of the same pinned commit after a
 network fetch timed out; Hermes's source and dependency pins were unchanged.
 
+**Observed** on 2026-11-17, first in a sandbox home prepared like the live
+install (an older build enabled from a flat wheel) and then on the live
+install: the refresh above needs Hermes in the Python that runs `petasos
+hermes install`. Run from a checkout's own environment, where Hermes is not
+importable, the command writes the new plugin files and the digest wheel and
+stops there. A new Hermes process still imports the older build. The command
+prints that Hermes did not turn the plugin on and that tool calls are not
+checked, which is untrue for a plugin that is already on, and its next step,
+`hermes plugins enable petasos`, answers "already enabled" and changes
+nothing. `hermes plugins disable petasos` followed by `hermes plugins enable
+petasos` admitted the digest wheel in both places. On the live install the
+enable took 40 seconds, the profile configs and the service definition were
+byte-identical afterwards, and the service was reloaded with `launchctl
+bootout` and `launchctl bootstrap`. The new process had the new
+environment's files open and logged Petasos's start-up. The older flat wheel
+stays in `wheels/` after this route, because only a refresh made by install
+removes it.
+
+**Read** from the same sandbox checkout: the package cache belongs to the
+Hermes root (`pm/packages.py` `uv_cache_path`), and `pm/environment.py` passes
+that directory to uv whatever `UV_CACHE_DIR` says. A new home therefore
+starts with an empty cache and fetches its packages and the pinned `psutil`
+git repository again. **Observed:** a warm sandbox built a new home's
+environment in 41 seconds and left 254 MB in that home's cache, 46 MB of it
+the git checkout, plus 101 MB of Python and uv under the home's `tools/`.
+The environment tests give each test a new home, so their duration follows
+the network, not the sandbox's age. Network traffic was not measured.
+
 ## 18. Beside Tirith, 2026-11-15
 
 Hermes source: tag `v0.23.1`, commit

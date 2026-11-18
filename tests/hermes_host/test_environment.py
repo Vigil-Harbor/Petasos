@@ -30,22 +30,44 @@ def _run(
     home: Path,
     args: list[str],
     *,
-    timeout: float = 300,
+    timeout: float = 900,
     extra_env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
+    """Run one wrapper command in ``home``.
+
+    Hermes keeps its package cache under the home, so a command that builds an
+    environment in a fresh home downloads Python, the packages and a git
+    dependency again. That usually takes under a minute; the limit allows for
+    a slow network, and a timeout says so with whatever was printed.
+    """
     env = sandbox_env(home)
     if extra_env:
         env.update(extra_env)
-    return subprocess.run(
-        [str(sandbox / "bin" / "with-sandbox"), *args],
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        check=False,
-        env=env,
-        # Not the checkout: the installed wheel must be the copy that runs.
-        cwd=str(home),
-    )
+    try:
+        return subprocess.run(
+            [str(sandbox / "bin" / "with-sandbox"), *args],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+            env=env,
+            # Not the checkout: the installed wheel must be the copy that runs.
+            cwd=str(home),
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise AssertionError(
+            f"{' '.join(args[:4])} did not finish in {timeout:.0f} seconds in {home}. "
+            "A fresh home downloads its packages from the network, so check the "
+            "connection before suspecting the code.\n"
+            f"stdout:\n{_tail(exc.stdout)}\nstderr:\n{_tail(exc.stderr)}"
+        ) from exc
+
+
+def _tail(output: str | bytes | None) -> str:
+    if output is None:
+        return ""
+    text = output.decode("utf-8", "replace") if isinstance(output, bytes) else output
+    return text[-2000:]
 
 
 def _petasos(
