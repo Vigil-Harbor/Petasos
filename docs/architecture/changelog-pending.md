@@ -227,3 +227,4 @@ Rejected settings reloads preserve the complete running enforcement state, inclu
 Desktop conversation identities now expire with their agent objects, so a recycled Python address cannot inherit another conversation's enforcement session. Agents without weak-reference support receive uncorrelated identities.
 Turning protection off or on now records the enabled setting and whether a session approval was live. The initial snapshot does not count as a change.
 The configured startup wait now sets the cold-start scanner deadline. An explicit library Limits value still overrides it, with the existing bounds.
+Under degraded or closed failure policy, an unsafe tool result whose registered scanner failed or timed out carries the existing unverified-content note. Findings keep their warning, and scanner failures are named in the rate-limited event record. Open policy is unchanged.

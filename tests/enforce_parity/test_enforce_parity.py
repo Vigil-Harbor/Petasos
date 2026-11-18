@@ -200,6 +200,11 @@ def _apply_log(expected: dict[str, Any], actual: dict[str, Any], row: dict[str, 
     actual_logs = actual.get("logs")
     if not isinstance(expected_logs, list) or not isinstance(actual_logs, list):
         return False
+    if isinstance(old, list) and isinstance(new, list):
+        if expected_logs != old or actual_logs != new:
+            return False
+        expected["logs"] = list(new)
+        return True
     if isinstance(old, str) and new is None:
         if old not in expected_logs or old in actual_logs:
             return False
@@ -388,3 +393,13 @@ def test_record_drops_volatile_event_fields() -> None:
     found: set[str] = set()
     _walk(load_json(OUTCOMES_PATH), found)
     assert not found, "volatile event fields in the record: " + ", ".join(sorted(found))
+
+
+def test_whole_log_value_difference_requires_exact_lists() -> None:
+    row = {"old": ["existing"], "new": ["existing", "additional"]}
+    expected: dict[str, Any] = {"logs": ["existing"]}
+    actual: dict[str, Any] = {"logs": ["existing", "additional"]}
+    assert _apply_log(expected, actual, row)
+    assert expected == actual
+    assert not _apply_log({"logs": []}, actual, row)
+    assert not _apply_log({"logs": ["existing"]}, {"logs": ["additional"]}, row)

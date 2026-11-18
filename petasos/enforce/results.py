@@ -1,7 +1,7 @@
 """Tool results and the bookkeeping after a call finishes.
 
-A result scan never withholds the text. A failure returns ``None``, which tells
-the host to keep the original string. Taint is recorded only for a finished
+A result scan never withholds the text. An incomplete scan adds an unverified
+notice under the live failure policy. Taint is recorded only for a finished
 call that has a stable session.
 """
 
@@ -18,6 +18,7 @@ from petasos.enforce.core import Core, Phase
 from petasos.enforce.decisions import (
     RESULT_SCAN_ERROR_REASON,
     annotate_ingestion,
+    blocks,
     is_ingestion,
     match_source_namespace,
 )
@@ -189,24 +190,37 @@ def transform(core: Core, call: ToolCall, result: object) -> str | None:
             cause = "boundary"
         elif floor.error is not None:
             cause = "floor_error"
+        elif (
+            not head.safe
+            and engine.fail_mode() != "open"
+            and any(item.error is not None for item in head.scanner_results)
+        ):
+            cause = "scanner_error"
         elif scan.errors:
             cause = "sweep_error"
 
     if cause is not None:
+        failed = (
+            sorted({item.scanner_name for item in head.scanner_results if item.error is not None})
+            if cause == "scanner_error" and head is not None
+            else []
+        )
+        detail = f" scanners={','.join(failed)}" if failed else ""
         try:
             if core.book.ingest_unscanned.due(_cadence_key(call, session_id)):
                 logger.warning(
-                    "PETASOS_INGEST_UNSCANNED tool=%s session=%s cause=%s len=%d",
+                    "PETASOS_INGEST_UNSCANNED tool=%s session=%s cause=%s%s len=%d",
                     call.tool,
                     session_id,
                     cause,
+                    detail,
                     len(result),
                 )
                 core.emit(
                     session_id=session_id,
                     tool=call.tool,
                     event_type="ingest_unscanned",
-                    reason=f"{RESULT_SCAN_ERROR_REASON} cause={cause} len={len(result)}",
+                    reason=f"{RESULT_SCAN_ERROR_REASON} cause={cause}{detail} len={len(result)}",
                 )
         except Exception:
             logger.warning(
@@ -214,20 +228,25 @@ def transform(core: Core, call: ToolCall, result: object) -> str | None:
                 call.tool,
                 cause,
             )
-        return annotate_ingestion(
-            call.tool,
-            result,
-            findings,
-            cause=cause,
-            regime=None,
-            scanned_chars=0,
-            total_chars=0,
-            session_id=session_id,
-            score=0.0,
-            tier="none",
-            logger=logger,
-            emit=core.emit,
-        )
+        # An optional failure is recorded even when a finding already supplies
+        # the more useful warning. Preserve that finding's existing annotation.
+        if cause != "scanner_error" or not any(
+            blocks(item.severity) and item.finding_type != "pii" for item in findings
+        ):
+            return annotate_ingestion(
+                call.tool,
+                result,
+                findings,
+                cause=cause,
+                regime=None,
+                scanned_chars=0,
+                total_chars=0,
+                session_id=session_id,
+                score=0.0,
+                tier="none",
+                logger=logger,
+                emit=core.emit,
+            )
 
     if scan is None:
         return None
