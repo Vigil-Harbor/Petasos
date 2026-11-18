@@ -12,7 +12,7 @@ from typing import Any
 
 from petasos.hermes.config_set import set_one
 from petasos.hermes.doctor import examine, render_json, render_text
-from petasos.hermes.install import install_plugin
+from petasos.hermes.install import install_plugin, refresh_plugin
 from petasos.hermes.migrate_cmd import migrate_profile
 from petasos.hermes.pin_cmd import change_pin
 from petasos.hermes.scanners_cmd import change_scanner
@@ -31,6 +31,8 @@ def main(argv: list[str] | None = None) -> int:
     if command == "doctor":
         return _doctor(args)
     if command == "hermes":
+        if getattr(args, "hermes_command", None) == "refresh":
+            return _refresh(args)
         if getattr(args, "hermes_command", None) in {"pin", "unpin"}:
             return _pin(args, remove=args.hermes_command == "unpin")
         if getattr(args, "hermes_command", None) != "install":
@@ -84,6 +86,25 @@ def _install(args: argparse.Namespace) -> int:
     )
     sys.stdout.write(result.text)
     return result.exit_code
+
+
+def _refresh(args: argparse.Namespace) -> int:
+    try:
+        home, reason = resolve_target(home=args.home, profile=args.profile)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    result = refresh_plugin(home, home_reason=reason, color=_color(False))
+    sys.stdout.write(result.text)
+    return result.exit_code
+
+
+def _refresh_parser(sub: Any) -> None:
+    parser = sub.add_parser(
+        "refresh",
+        help="Ask Hermes to load the development wheel already saved in the plugin directory.",
+    )
+    _target_flags(parser)
 
 
 def _pin(args: argparse.Namespace, *, remove: bool) -> int:
@@ -198,6 +219,7 @@ def _parser() -> argparse.ArgumentParser:
     hermes = sub.add_parser("hermes", help="Install Petasos into a Hermes profile.")
     hermes_sub = hermes.add_subparsers(dest="hermes_command")
     _pin_parsers(hermes_sub)
+    _refresh_parser(hermes_sub)
     install = hermes_sub.add_parser(
         "install",
         help="Put the plugin in place and turn it on. Running it again updates the files.",
@@ -303,6 +325,7 @@ def install_registered_cli(parser: argparse.ArgumentParser) -> None:
     """
     sub = parser.add_subparsers(dest="petasos_command")
     _pin_parsers(sub)
+    _refresh_parser(sub)
     doctor = sub.add_parser(
         "doctor",
         help="Say whether Petasos is protecting this profile, and what to do if it is not.",
@@ -371,13 +394,17 @@ def run_registered(args: argparse.Namespace) -> int:
         return _doctor(args)
     if command == "install":
         return _install(args)
+    if command == "refresh":
+        return _refresh(args)
     if command in {"pin", "unpin"}:
         return _pin(args, remove=command == "unpin")
     if command == "config":
         return _config(args, registered=True)
     if command == "scanner":
         return _scanner(args)
-    print("Choose a command: doctor, install, scanner, or config migrate.", file=sys.stderr)
+    print(
+        "Choose a command: doctor, install, refresh, scanner, or config migrate.", file=sys.stderr
+    )
     return 2
 
 

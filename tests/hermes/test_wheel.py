@@ -62,3 +62,16 @@ def test_pruning_skips_a_wheel_it_cannot_remove(
     wheel.prune_wheels(current)
     assert current.is_file()
     assert old.is_file()
+
+
+def test_pruning_keeps_the_declared_flat_wheel(tmp_path: Path) -> None:
+    directory = tmp_path / "wheels"
+    directory.mkdir()
+    current = directory / wheel.wheel_filename()
+    current.write_bytes(b"current")
+    old = directory / "old" / wheel.wheel_filename()
+    old.parent.mkdir()
+    old.write_bytes(b"old")
+    wheel.prune_wheels(current)
+    assert current.read_bytes() == b"current"
+    assert not old.exists()

@@ -15,7 +15,13 @@ from typing import TYPE_CHECKING
 import petasos
 from petasos.hermes.dashboard.manifest import render_dashboard_manifest, tab_source
 from petasos.hermes.doctor import Report, examine, render_text
-from petasos.hermes.doctor_support import enable_command, use_home
+from petasos.hermes.doctor_support import (
+    enable_command,
+    plugin_lists,
+    read_config,
+    refresh_command,
+    use_home,
+)
 from petasos.hermes.environment import probe_petasos, republish, runtime_python
 from petasos.hermes.manifest import render_manifest
 from petasos.hermes.settings import PLUGIN_ID
@@ -36,7 +42,8 @@ class InstallResult:
 
     ``exit_code`` is 0 when a dry run finished or the doctor verdict is
     protected. A refusal to overwrite, or a doctor verdict that is not
-    protected, is 2. Warnings from the doctor are 1.
+    protected, is 2. Warnings from the doctor and a saved build still waiting
+    for Hermes are 1. A verified refresh is 0.
     """
 
     text: str
@@ -169,55 +176,132 @@ def _development(
     else:
         lines.append("")
         lines.append("The plugin files already match this version of Petasos.")
-    refreshed = False
-    refresh_failed = False
+    pending = False
     with use_home(home):
         enabled, enable_message = enable_plugin()
         lines.append(enable_message)
-        if enabled and "already" in enable_message:
-            runtime = runtime_python(home)
-            probe = probe_petasos(runtime.python) if runtime is not None else None
-            broken = probe is None or not probe.ok
-            stale = probe is not None and probe.matches_wheel(wheel) is False
-            if written or previous != wheel or broken or stale:
-                # Repair replays the old graph. A changed source must be admitted
-                # normally, including retries after a failed refresh.
-                refreshed, refresh = republish()
-                lines.append(refresh)
-                if refreshed and broken and not written and previous == wheel:
-                    # Normal admission first: a previous failed install may
-                    # already have written a source the recorded graph lacks.
-                    # Only repair if admission still left an import broken.
-                    runtime = runtime_python(home)
-                    if runtime is None or not probe_petasos(runtime.python).ok:
-                        refreshed, refresh = republish(repair=True)
-                        lines.append(refresh)
-                refresh_failed = not refreshed
-        elif enabled:
-            refreshed = True
-    if refreshed:
-        prune_wheels(wheel)
-    if refresh_failed:
-        lines.extend(
-            [
-                "The new build was saved, but Hermes did not switch to it. "
-                "All wheel files were kept so the previous environment can still be rebuilt.",
-                f"Next: petasos hermes install --home {_quote(home)}",
-            ]
-        )
-    if not enabled:
-        lines.append(
-            "The files are in place. Hermes did not turn the plugin on, "
-            "so tool calls are not checked yet. Hermes's own command turns it on "
-            "and installs the wheel."
-        )
-        lines.append(f"Next: {enable_command(home)}")
+        if enabled:
+            refreshed, messages = _refresh_build(
+                home, wheel, source_changed=written or previous != wheel
+            )
+            lines.extend(messages)
+            pending = not refreshed
+        else:
+            document, _problem = read_config(home / "config.yaml")
+            on, off = plugin_lists(document)
+            if PLUGIN_ID in on and PLUGIN_ID not in off:
+                pending = True
+                runtime = runtime_python(home)
+                probe = probe_petasos(runtime.python) if runtime is not None else None
+                if probe is not None and probe.ok and probe.matches_wheel(wheel) is False:
+                    lines.append(
+                        "The new build is saved. Hermes still runs the earlier build. "
+                        "The earlier build is still checking tool calls."
+                    )
+                else:
+                    lines.append(
+                        "The new build is saved and the plugin is already turned on. "
+                        "This command could not confirm that Hermes runs the new build."
+                    )
+                lines.append(f"Next: {refresh_command(home)}")
+            else:
+                lines.append(
+                    "The files are in place. Hermes did not turn the plugin on, "
+                    "so tool calls are not checked yet. Hermes's own command turns it on "
+                    "and installs the wheel."
+                )
+                lines.append(f"Next: {enable_command(home)}")
     text = "\n".join(lines) + "\n\n"
     report = examine(home, home_reason=home_reason)
     text += render_text(report, verbose=False, color=color)
-    return InstallResult(
-        text=text, exit_code=max(report.exit_code, int(refresh_failed)), report=report
+    return InstallResult(text=text, exit_code=max(report.exit_code, int(pending)), report=report)
+
+
+def _refresh_build(
+    home: Path, wheel: Path, *, source_changed: bool = False
+) -> tuple[bool, list[str]]:
+    """Admit the saved wheel, verify the next process, then remove older wheels.
+
+    Normal admission must see pending sources before repair can replay the
+    recorded graph. Repair is only safe for an unchanged source whose import
+    was broken and remains broken after normal admission.
+    """
+    runtime = runtime_python(home)
+    probe = probe_petasos(runtime.python) if runtime is not None else None
+    if (
+        not source_changed
+        and probe is not None
+        and probe.ok
+        and probe.matches_wheel(wheel) is True
+    ):
+        prune_wheels(wheel)
+        return True, ["Hermes already runs the build declared by the plugin directory."]
+    broken = probe is None or not probe.ok
+    ok, message = republish()
+    messages = [message]
+    if ok:
+        runtime = runtime_python(home)
+        probe = probe_petasos(runtime.python) if runtime is not None else None
+        if broken and not source_changed and (probe is None or not probe.ok):
+            ok, message = republish(repair=True)
+            messages.append(message)
+            if ok:
+                runtime = runtime_python(home)
+                probe = probe_petasos(runtime.python) if runtime is not None else None
+        if ok and probe is not None and probe.ok and probe.matches_wheel(wheel) is True:
+            prune_wheels(wheel)
+            messages.append("Hermes loads the new build the next time it starts.")
+            return True, messages
+        if ok:
+            messages.append("The environment check could not confirm the saved wheel.")
+    messages.extend(
+        [
+            "Hermes did not switch to the saved build. The earlier build is still the one "
+            "running. All wheel files were kept.",
+            f"Next: {refresh_command(home)}",
+        ]
     )
+    return False, messages
+
+
+def refresh_plugin(home: Path, *, home_reason: str, color: bool) -> InstallResult:
+    """Rebuild from the installed plugin files without turning the plugin on."""
+    from petasos.hermes.host import load_module
+
+    target = plugin_dir(home)
+    wheel = wheel_source(target / "pyproject.toml")
+    if not target.is_dir() or wheel is None:
+        return InstallResult(
+            "Nothing was changed. Refresh is for a development plugin directory that "
+            "declares a local Petasos wheel. Put it in place with petasos hermes install.\n",
+            2,
+        )
+    document, problem = read_config(home / "config.yaml")
+    if problem is not None:
+        return InstallResult("Nothing was changed. The profile config could not be read.\n", 2)
+    on, off = plugin_lists(document)
+    if PLUGIN_ID not in on or PLUGIN_ID in off:
+        return InstallResult(
+            "Nothing was changed. Petasos is not turned on in this profile.\n"
+            f"Next: {enable_command(home)}\n",
+            2,
+        )
+    if not wheel.is_file():
+        return InstallResult(
+            f"Nothing was changed. The plugin's declared wheel is missing: {wheel}.\n", 2
+        )
+    with use_home(home):
+        if load_module("hermes_cli.plugins_cmd") is None:
+            return InstallResult(
+                "Nothing was changed. Hermes is not importable in this Python.\n"
+                f"Next: {refresh_command(home)}\n",
+                2,
+            )
+        ok, lines = _refresh_build(home, wheel)
+    text = "\n".join(lines) + "\n\n"
+    report = examine(home, home_reason=home_reason)
+    text += render_text(report, verbose=False, color=color)
+    return InstallResult(text, 0 if ok else max(1, report.exit_code), report)
 
 
 def _released(
@@ -269,7 +353,7 @@ def enable_plugin() -> tuple[bool, str]:
         enable = getattr(module, "dashboard_set_agent_plugin_enabled", None)
     if not callable(enable):
         return False, (
-            "Hermes is not available in this Python, so the plugin was not turned on. "
+            "Hermes is not importable in this Python, so it was not asked to turn the plugin on. "
             "This command does not edit Hermes's config file itself."
         )
     try:

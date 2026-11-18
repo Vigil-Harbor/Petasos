@@ -15,7 +15,12 @@ deleted.
   newer build with the same version reaches new Hermes processes through normal
   admission. Old wheels remain until Hermes accepts the new build, then are
   removed. Doctor warns when the committed environment still runs an older
-  build and gives the install command for that home.
+  build and gives `hermes petasos refresh` for that home. Refresh rebuilds
+  Hermes's environment from the saved wheel without turning the plugin off
+  or rewriting its files. Install now says when the earlier build still checks
+  tool calls and exits 1 when the new build is saved but not yet running.
+  Builds predating refresh need disable-then-enable one last time to make the
+  command available; the operator decides when to do that transition.
 
 - Beside a loaded Tirith plugin, asking roles leave terminal pipes to a shell,
   decoded execution and fetched execution to Tirith. Petasos still blocks in

@@ -190,7 +190,7 @@ def test_doctor_compares_the_committed_build_to_the_plugin_source(
     assert check.status == ("warn" if stale else "ok")
     assert report.verdict != "not_protected"
     if stale:
-        assert str(home) in check.next_step and "petasos hermes install" in check.next_step
+        assert str(home) in check.next_step and "hermes petasos refresh" in check.next_step
 
 
 @pytest.mark.parametrize("direct", ["", "null", "[]", "invalid", '{"archive_info": null}'])

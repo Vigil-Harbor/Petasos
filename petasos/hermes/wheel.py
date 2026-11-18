@@ -85,7 +85,7 @@ def wheel_source(project: Path) -> Path | None:
 
 def prune_wheels(current: Path) -> None:
     """Remove older Petasos wheels only after Hermes accepted the current build."""
-    directory = current.parent.parent
+    directory = current.parent if current.parent.name == "wheels" else current.parent.parent
     for old in directory.glob("*/petasos-*.whl"):
         if old != current:
             with contextlib.suppress(OSError):
@@ -93,6 +93,8 @@ def prune_wheels(current: Path) -> None:
                 if not any(old.parent.iterdir()):
                     old.parent.rmdir()
     for old in directory.glob("petasos-*.whl"):
+        if old == current:
+            continue
         with contextlib.suppress(OSError):
             old.unlink()
 
