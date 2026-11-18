@@ -42,7 +42,7 @@ def normalize_path_text(text: str) -> str:
         path = Path(cleaned)
         if path.is_absolute():
             cleaned = os.path.normcase(str(path.resolve(strict=False)))
-    except (OSError, ValueError):
+    except (OSError, ValueError, RuntimeError):
         pass
     return cleaned
 

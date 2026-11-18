@@ -39,7 +39,7 @@ def _owned_paths(raw_entries: list[str]) -> frozenset[str]:
             continue
         try:
             resolved = str(path.resolve(strict=False))
-        except OSError:
+        except (OSError, RuntimeError):
             continue
         if len(Path(resolved).parts) < 3:
             continue
@@ -103,7 +103,8 @@ def _raw_protected_entries(self: ToolCallGuard) -> list[str]:
     def _beside(res: HermesConfigResolution) -> list[str]:
         return [str(res.path), spool_path(res), spool_rot_path(res)]
 
-    raw_entries: list[str] = []
+    # Protect first writes before an identity marker makes a folder a profile.
+    raw_entries: list[str] = [str(hermes_root() / "profiles")]
     if self._selfmod_home is not None:
         raw_entries.extend(_beside(self._selfmod_home))
     raw_entries.extend(_beside(resolve_hermes_config_path(use_override=False)))

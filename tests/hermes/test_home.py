@@ -9,6 +9,7 @@ import platform
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import pytest
 import yaml
 
 from petasos.hermes.home import (
@@ -17,9 +18,6 @@ from petasos.hermes.home import (
     resolve_hermes_config_path,
     resolve_profile_config_path,
 )
-
-if TYPE_CHECKING:
-    import pytest
 
 
 def _point_root_at(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
@@ -76,6 +74,59 @@ def test_list_hermes_profiles_failsoft_missing_dir(
     else:
         monkeypatch.setenv("HOME", str(tmp_path / "empty"))
     assert list_hermes_profiles() == []
+
+
+def test_only_live_named_profiles_are_listed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _point_root_at(tmp_path, monkeypatch)
+    for name in (".deleted", ".git.retired-x", "gone", "default", "Upper", "alpha"):
+        _write_profile(root, name)
+    (root / "profiles" / "empty").mkdir()
+    (root / "profiles" / ".deleted" / "gone").touch()
+    beta = root / "profiles" / "beta"
+    beta.mkdir()
+    (beta / "SOUL.md").touch()
+
+    assert [p["name"] for p in list_hermes_profiles()] == ["alpha", "beta"]
+    assert resolve_profile_config_path("gone") is None
+    assert resolve_profile_config_path("empty") is None
+    selected = resolve_profile_config_path("beta")
+    assert selected is not None and selected.path == beta / "config.yaml"
+
+
+@pytest.mark.parametrize(
+    "marker", ["config.yaml", ".env", "SOUL.md", "profile.yaml", "auth.json", "state.db"]
+)
+@pytest.mark.parametrize("kind", ["file", "symlink", "dangling", "cycle", "directory"])
+def test_profile_identity_markers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, marker: str, kind: str
+) -> None:
+    root = _point_root_at(tmp_path, monkeypatch)
+    profile = root / "profiles" / "alpha"
+    profile.mkdir()
+    target = tmp_path / "identity"
+    if kind == "file":
+        (profile / marker).touch()
+    elif kind == "directory":
+        (profile / marker).mkdir()
+    else:
+        if kind == "symlink":
+            target.touch()
+        elif kind == "cycle":
+            target = profile / marker
+        (profile / marker).symlink_to(target)
+    assert [p["name"] for p in list_hermes_profiles()] == (
+        [] if kind == "directory" else ["alpha"]
+    )
+
+
+@pytest.mark.parametrize("name", ["a", "0", "a_b-9", "a" * 64, "a" * 65, "Upper", "-bad"])
+def test_profile_id_grammar(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str) -> None:
+    root = _point_root_at(tmp_path, monkeypatch)
+    _write_profile(root, name)
+    expected = [name] if name in {"a", "0", "a_b-9", "a" * 64} else []
+    assert [p["name"] for p in list_hermes_profiles()] == expected
 
 
 def test_resolve_profile_config_path_member_and_traversal(

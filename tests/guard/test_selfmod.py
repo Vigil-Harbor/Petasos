@@ -405,6 +405,20 @@ async def test_guard_without_home_resolves_ambiently(
     assert os.path.normcase(str(cfg.resolve())) in owned
 
 
+async def test_guard_watches_a_profile_before_it_has_identity(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("petasos.hermes.home.hermes_root", lambda: tmp_path)
+    config = _cfg()
+    guard = ToolCallGuard(Pipeline(config=config), FrequencyTracker(config), config)
+    parent = tmp_path / "profiles"
+    assert os.path.normcase(str(parent.resolve())) in guard.selfmod_target_paths()
+    target = parent / "future" / "SOUL.md"
+    result = await guard.evaluate("write_file", {"path": str(target), "content": "x"}, "s1")
+    assert result.selfmod_finding is not None
+    assert result.selfmod_finding.rule_id == "petasos.selfmod.config_write"
+
+
 async def test_selfmod_base_severities_match_the_guard(tmp_path: Path) -> None:
     """A config write stays critical and a config mention stays high."""
     owned = tmp_path / "profiles" / "gibson" / "config.yaml"

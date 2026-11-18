@@ -28,6 +28,7 @@ from petasos.enforce.types import ApprovalNotice, HostInfo, ToolCall
 from petasos.hermes.guardrail import hermes_surface
 from petasos.hermes.home import (
     display_path,
+    list_hermes_profiles,
     resolve_hermes_config_path,
     spool_path,
     spool_rot_path,
@@ -281,8 +282,8 @@ def protected_paths() -> frozenset[str]:
     """Paths the agent must not modify, under the resolved Hermes home.
 
     The set is the profile config and env file, the plugin directory, the
-    event spool and its rotation, and the profile pointer. Resolution follows
-    ``HERMES_HOME`` when it is set, so a caller that has not pointed the
+    event spool and its rotation, the profile pointer and profiles directory.
+    Resolution follows ``HERMES_HOME`` when it is set, so a caller that has not pointed the
     process at a home is the one that falls through to the account default.
     """
     res = resolve_hermes_config_path()
@@ -302,23 +303,18 @@ def protected_paths() -> frozenset[str]:
     managed = managed_config_path()
     if managed is not None:
         paths.append(Path(managed))
-    profiles = root / "profiles"
-    if profiles.is_dir():
-        try:
-            children = list(profiles.iterdir())
-        except OSError:
-            children = []
-        for child in children:
-            if not child.is_dir() or child.name == "default":
-                continue
-            paths.extend(
-                (
-                    child / "config.yaml",
-                    child / ".env",
-                    child / "petasos-enforcement.jsonl",
-                    child / "petasos-enforcement.jsonl.rot",
-                )
+    # A marker-less directory can become a profile; protect its first write too.
+    paths.append(root / "profiles")
+    for profile in list_hermes_profiles(root=root):
+        child = Path(profile["path"]).parent
+        paths.extend(
+            (
+                child / "config.yaml",
+                child / ".env",
+                child / "petasos-enforcement.jsonl",
+                child / "petasos-enforcement.jsonl.rot",
             )
+        )
     return frozenset(str(path) for path in paths)
 
 
