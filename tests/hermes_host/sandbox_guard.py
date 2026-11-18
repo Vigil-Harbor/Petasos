@@ -49,13 +49,13 @@ def sandbox_root() -> Path:
     if not raw:
         raise SystemExit("PETASOS_SANDBOX_ROOT is not set; run through bin/with-sandbox")
     root = Path(raw).resolve()
-    if not (root / "bin" / "with-sandbox").is_file():
-        raise SystemExit(f"PETASOS_SANDBOX_ROOT is not a sandbox: {root}")
     account = _account_home()
     for name in _BANNED:
         banned = (account / name).resolve()
         if _inside(root, banned):
             raise SystemExit(f"refusing to run a sandbox under {banned}")
+    if not (root / "bin" / "with-sandbox").is_file():
+        raise SystemExit(f"PETASOS_SANDBOX_ROOT is not a sandbox: {root}")
     user_home = Path.home().resolve()
     if "HERMES_HOME" not in os.environ:
         raise SystemExit("HERMES_HOME is not set; run through bin/with-sandbox")
