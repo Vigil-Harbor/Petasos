@@ -269,6 +269,135 @@
       },
       "reason": "Swapping to the coding role applies that role's rule and posture fields. The enforcer records the paths and the new values. No self-change approval was live. The step still has no tool-call decision.",
       "adapters": ["enforcer", "hermes"]
+    },
+    {
+      "scenario": "tool-results",
+      "step": "finding",
+      "field": "events",
+      "old": [
+        {
+          "armed": true,
+          "bypassed_count": null,
+          "credential_redaction": "unchanged",
+          "direction": "tool_call",
+          "event_type": "ingest_flagged",
+          "param_scan_degraded": false,
+          "reason": "Injection pattern matched: ignore-previous (tool result len=32, coverage=full, scanned=32)",
+          "rule_id": "petasos.syntactic.injection.ignore-previous",
+          "session_id": "s1",
+          "severity": "HIGH",
+          "tier": null,
+          "tool": "read_file"
+        }
+      ],
+      "new": [
+        {
+          "armed": true,
+          "bypassed_count": null,
+          "credential_redaction": "unchanged",
+          "direction": "tool_call",
+          "event_type": "ingest_flagged",
+          "param_scan_degraded": false,
+          "reason": "Injection pattern matched: ignore-previous (tool result len=32, coverage=full, scanned=32)",
+          "rule_id": "petasos.syntactic.injection.ignore-previous",
+          "score": 3.8,
+          "session_id": "s1",
+          "severity": "HIGH",
+          "tier": "none",
+          "tool": "read_file"
+        }
+      ],
+      "reason": "PET-267: a flag records the conversation's risk score after the scan, rounded to one decimal, and the tier that score maps to. The decision, message and logs are unchanged.",
+      "adapters": [
+        "enforcer",
+        "hermes"
+      ]
+    },
+    {
+      "scenario": "tool-results",
+      "step": "credential",
+      "field": "events",
+      "old": [
+        {
+          "armed": true,
+          "bypassed_count": null,
+          "credential_redaction": "unchanged",
+          "direction": "tool_call",
+          "event_type": "ingest_flagged",
+          "param_scan_degraded": false,
+          "reason": "aws access key (tool result len=36, coverage=full, scanned=36)",
+          "rule_id": "petasos.credential.aws_access_key",
+          "session_id": "s1",
+          "severity": "HIGH",
+          "tier": null,
+          "tool": "web_extract"
+        }
+      ],
+      "new": [
+        {
+          "armed": true,
+          "bypassed_count": null,
+          "credential_redaction": "unchanged",
+          "direction": "tool_call",
+          "event_type": "ingest_flagged",
+          "param_scan_degraded": false,
+          "reason": "aws access key (tool result len=36, coverage=full, scanned=36)",
+          "rule_id": "petasos.credential.aws_access_key",
+          "score": 3.7,
+          "session_id": "s1",
+          "severity": "HIGH",
+          "tier": "none",
+          "tool": "web_extract"
+        }
+      ],
+      "reason": "PET-267: a flag records the conversation's risk score after the scan, rounded to one decimal, and the tier that score maps to. The decision, message and logs are unchanged.",
+      "adapters": [
+        "enforcer",
+        "hermes"
+      ]
+    },
+    {
+      "scenario": "tool-results",
+      "step": "unmatched",
+      "field": "events",
+      "old": [
+        {
+          "armed": true,
+          "bypassed_count": null,
+          "credential_redaction": "unchanged",
+          "direction": "tool_call",
+          "event_type": "ingest_flagged",
+          "param_scan_degraded": false,
+          "reason": "Injection pattern matched: ignore-previous (tool result len=32, coverage=full, scanned=32)",
+          "rule_id": "petasos.syntactic.injection.ignore-previous",
+          "session_id": "s-other",
+          "severity": "HIGH",
+          "tier": null,
+          "tool": "read_file"
+        }
+      ],
+      "new": [
+        {
+          "armed": true,
+          "bypassed_count": null,
+          "credential_redaction": "unchanged",
+          "direction": "tool_call",
+          "event_type": "ingest_flagged",
+          "param_scan_degraded": false,
+          "reason": "Injection pattern matched: ignore-previous (tool result len=32, coverage=full, scanned=32)",
+          "rule_id": "petasos.syntactic.injection.ignore-previous",
+          "score": 3.8,
+          "session_id": "s-other",
+          "severity": "HIGH",
+          "tier": "none",
+          "tool": "read_file"
+        }
+      ],
+      "reason": "PET-267: a flag records the conversation's risk score after the scan, rounded to one decimal, and the tier that score maps to. The decision, message and logs are unchanged.",
+      "adapters": [
+        "enforcer",
+        "hermes"
+      ]
     }
   ]
 }

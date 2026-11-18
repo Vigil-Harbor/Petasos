@@ -610,6 +610,19 @@ RISK_TIERS = MappingProxyType(
         "tier3": "Conversation stopped",
     }
 )
+
+
+def flag_risk_sentence(event: Mapping[str, object]) -> str:
+    """Describe the recorded conversation risk, leaving older flags unlabelled."""
+    score = event.get("score")
+    tier = event.get("tier")
+    if isinstance(score, bool) or not isinstance(score, (int, float)):
+        return ""
+    if not isinstance(tier, str) or tier not in RISK_TIERS:
+        return ""
+    return f"Conversation risk after this flag: {score:g} points. {RISK_TIERS[tier]}."
+
+
 RISK_NOTE = (
     "This is for this input alone. A real conversation's score also depends on what came "
     "before and fades with time. No conversation is read or changed."

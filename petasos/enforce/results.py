@@ -25,6 +25,7 @@ from petasos.guard.tools import NON_INGESTING_TOOLS
 from petasos.limits import MAX_PARAM_TEXT_LEN
 from petasos.normalize import canonicalize_tool_name
 from petasos.pipeline.ingest import scan_ingestion_result
+from petasos.session.escalation import evaluate_tier
 
 if TYPE_CHECKING:
     from petasos.enforce.types import ToolCall
@@ -222,6 +223,8 @@ def transform(core: Core, call: ToolCall, result: object) -> str | None:
             scanned_chars=0,
             total_chars=0,
             session_id=session_id,
+            score=0.0,
+            tier="none",
             logger=logger,
             emit=core.emit,
         )
@@ -229,6 +232,8 @@ def transform(core: Core, call: ToolCall, result: object) -> str | None:
     if scan is None:
         return None
     coverage = scan.coverage
+    raw = head.session_score if head is not None else None
+    exact = float(raw) if raw is not None else 0.0
     return annotate_ingestion(
         call.tool,
         result,
@@ -238,6 +243,10 @@ def transform(core: Core, call: ToolCall, result: object) -> str | None:
         scanned_chars=coverage.scanned_chars,
         total_chars=coverage.total_chars,
         session_id=session_id,
+        # The score decays with the clock; one decimal is what a reader needs
+        # and keeps the recorded value stable between nearby readings.
+        score=round(exact, 1),
+        tier=evaluate_tier(exact, engine.config),
         logger=logger,
         emit=core.emit,
     )

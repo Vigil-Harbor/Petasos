@@ -8,6 +8,9 @@ deleted.
 
 ## Added
 
+- PET-267: flagged tool results record the conversation risk score and its tier;
+  Activity shows both. Signed older records remain readable and verifiable.
+
 - PET-265: development installs keep each wheel under its content digest, so a
   newer build with the same version reaches new Hermes processes through normal
   admission. Old wheels remain until Hermes accepts the new build, then are

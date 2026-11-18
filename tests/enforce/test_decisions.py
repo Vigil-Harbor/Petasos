@@ -391,6 +391,8 @@ def test_ingestion_annotation_paths() -> None:
         scanned_chars=7,
         total_chars=7,
         session_id="sess",
+        score=18.5,
+        tier="tier1",
         logger=logger,
         emit=lambda **fields: events.append(fields),
     )
@@ -398,6 +400,8 @@ def test_ingestion_annotation_paths() -> None:
     assert flagged.startswith("[Petasos]")
     assert flagged.endswith("payload")
     assert events[0]["event_type"] == "ingest_flagged"
+    assert events[0]["score"] == 18.5
+    assert events[0]["tier"] == "tier1"
 
     pii = _finding("pii.email", finding_type="pii")
     assert (
@@ -410,6 +414,8 @@ def test_ingestion_annotation_paths() -> None:
             scanned_chars=7,
             total_chars=7,
             session_id="sess",
+            score=18.5,
+            tier="tier1",
             logger=logger,
             emit=lambda **_fields: None,
         )
@@ -424,6 +430,8 @@ def test_ingestion_annotation_paths() -> None:
         scanned_chars=0,
         total_chars=0,
         session_id="sess",
+        score=18.5,
+        tier="tier1",
         logger=logger,
         emit=_must_not_emit,
     )
@@ -438,6 +446,8 @@ def test_ingestion_annotation_paths() -> None:
         scanned_chars=10,
         total_chars=20,
         session_id="sess",
+        score=18.5,
+        tier="tier1",
         logger=logger,
         emit=lambda **_fields: None,
     )

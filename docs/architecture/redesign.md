@@ -1486,6 +1486,13 @@ rule, kind and reason.
 }
 ```
 
+New `ingest_flagged` records include numeric `score`, the conversation risk score
+after the scan, and `tier`, the tier that score maps to under the active
+thresholds (`none`, `tier1`, `tier2` or `tier3`). When scoring cannot
+accumulate (disabled or no correlated session), the score is zero. Activity
+shows both in the flag details. Older records can omit `score` and retain a
+null `tier`; readers do not backfill those values.
+
 Events are newest first. Each event is the stored record (content fields
 redacted; ids are not) plus `summary`, `outcome`, `matched_note` (the
 matched text is not kept, and why) and `integrity`, which carries
