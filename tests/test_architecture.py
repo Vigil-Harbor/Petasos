@@ -501,6 +501,27 @@ def test_removed_implementation_modules_cannot_be_imported() -> None:
         raise AssertionError(f"{name} still imports")
 
 
+def test_line_ending_rules_name_files_that_exist() -> None:
+    """A rule left behind by a move stops protecting the digest-pinned files it named."""
+    root = Path(__file__).resolve().parent.parent
+    attributes = root / ".gitattributes"
+    if not attributes.is_file():
+        pytest.skip("not a checkout")
+    for line in attributes.read_text(encoding="utf-8").splitlines():
+        pattern = line.split("#", 1)[0].split()
+        if pattern:
+            assert list(root.glob(pattern[0])), f"{pattern[0]} matches no file"
+    manifest = root / "petasos" / "scanners" / "semgrep" / "rules" / "manifest.json"
+    pinned = [path.relative_to(root).as_posix() for path in manifest.parent.glob("*.json")]
+    covered = [
+        line.split()[0]
+        for line in attributes.read_text(encoding="utf-8").splitlines()
+        if "eol=lf" in line.split("#", 1)[0]
+    ]
+    for name in pinned:
+        assert any(Path(name).match(pattern) for pattern in covered), f"{name} has no eol=lf rule"
+
+
 def test_the_suite_does_not_look_at_the_accounts_hermes_home() -> None:
     """Every test gets a throwaway home, so no test finds a real Hermes installation."""
     import os
