@@ -10,7 +10,7 @@ import importlib
 import os
 from typing import Protocol, cast
 
-from petasos.enforce.types import ApprovalGrant
+from petasos.enforce.types import ApprovalGrant, CommandJudge
 
 _TRUTHY = frozenset({"1", "true", "yes", "on"})
 _MODES = frozenset({"off", "smart", "manual"})
@@ -196,64 +196,63 @@ def approval_grant() -> ApprovalGrant:
         return ApprovalGrant(yolo=True)
 
 
-def command_will_be_asked(command: str) -> bool:
-    """True when Hermes will put this terminal command to a person.
+def command_judge(command: str) -> CommandJudge:
+    """Who Hermes will put this terminal command to before it runs.
 
-    False when ``detect_dangerous_command`` is unavailable or
-    raises, when it does not flag the command, and when Hermes would approve
-    or refuse the command without asking. A hardline command is a refusal.
-
-    Only ``approvals.mode: manual`` is an ask. In ``smart`` mode, which is
-    Hermes's default, a model looks at the command first and can approve it
-    with nobody asked, and which way it will go is not known here.
+    Manual mode uses a person; smart uses the guardian then a person if
+    needed. A missing or raising helper, a command Hermes does not flag, or
+    a gate that would settle without a person available answers nobody.
     """
     if not isinstance(command, str) or command == "":
-        return False
+        return CommandJudge.NOBODY
     try:
-        return _command_will_be_asked(command)
+        return _command_judge(command)
     except Exception:
-        return False
+        return CommandJudge.NOBODY
 
 
-def _command_will_be_asked(command: str) -> bool:
+def _command_judge(command: str) -> CommandJudge:
     detection = load_module("tools.approval_detection")
     approval = load_module("tools.approval")
     if detection is None or approval is None:
-        return False
+        return CommandJudge.NOBODY
     detect = getattr(detection, "detect_dangerous_command", None)
     if not callable(detect):
-        return False
+        return CommandJudge.NOBODY
     flagged = detect(command)
     if not (isinstance(flagged, tuple) and flagged and flagged[0] is True):
-        return False
+        return CommandJudge.NOBODY
     env_type, host_access = _terminal_backend()
     skip = getattr(approval, "_should_skip_container_guards", None)
     if not callable(skip) or skip(env_type, has_host_access=host_access):
-        return False
+        return CommandJudge.NOBODY
     floor = getattr(approval, "_floor_block", None)
     if not callable(floor) or floor(command, sudo_guard=True) is not None:
-        return False
+        return CommandJudge.NOBODY
     context = load_module("tools.approval_context")
     mode = getattr(context, "_get_approval_mode", None) if context is not None else None
     if not callable(mode):
-        return False
-    if mode() != "manual":
-        return False
+        return CommandJudge.NOBODY
+    approval_mode = mode()
+    if approval_mode not in ("manual", "smart"):
+        return CommandJudge.NOBODY
     yolo = getattr(approval, "_yolo_active", None)
     if not callable(yolo) or yolo():
-        return False
+        return CommandJudge.NOBODY
     allowlisted = getattr(approval, "_command_matches_permanent_allowlist", None)
     if not callable(allowlisted) or allowlisted(command):
-        return False
+        return CommandJudge.NOBODY
     presence = getattr(approval, "_presence", None)
     if not callable(presence):
-        return False
+        return CommandJudge.NOBODY
     present = presence(None)
     if not isinstance(present, tuple) or len(present) < 4:
-        return False
+        return CommandJudge.NOBODY
     if not (present[1] or present[2] or present[3]):
-        return False
-    return not _already_covered(approval, command)
+        return CommandJudge.NOBODY
+    if _already_covered(approval, command):
+        return CommandJudge.NOBODY
+    return CommandJudge.PERSON if approval_mode == "manual" else CommandJudge.GUARDIAN
 
 
 def _terminal_backend() -> tuple[str, bool]:

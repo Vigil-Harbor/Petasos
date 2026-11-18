@@ -120,8 +120,8 @@ deleted.
   Hermes does not flag, or would approve or refuse without asking, stays
   Petasos's own decision. If Hermes's detector cannot be imported, has moved,
   or raises, Petasos decides as it does today. This applies under
-  `approvals.mode: manual`. Under `smart`, Hermes's default, a model can
-  approve the command with nobody asked, so Petasos still asks.
+  `approvals.mode: manual`. Smart-mode ownership is now tier-dependent, as
+  recorded in the smart-approval note below.
 
 - **Breaking.** A tool call that changes a Petasos or Hermes guardrail is no
   longer allowed just because the conversation is below tier 2. `tools.self_change`
@@ -211,3 +211,9 @@ to `petasos.model._TIMEOUT_ERROR_PREFIX`. The ingestion head length moves from
 - PET-266: built-in strictness levels no longer warn about their own risk
   thresholds. Custom thresholds still receive scan-step diagnostics; relaxed
   keeps its calibrated 25/45/65 values.
+
+- Under Hermes smart approval, plain terminal command findings in an asking role
+  are left to Hermes's guardian while the conversation is below tier1. At tier1
+  or above, or with an unreadable tier, Petasos asks the person itself. Deferred
+  events name the judge and record the conversation score and tier. No setting
+  is added; manual approval and Tirith ownership keep their behavior.

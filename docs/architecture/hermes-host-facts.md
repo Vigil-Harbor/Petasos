@@ -1021,7 +1021,7 @@ that is not `hermes`, and is not an export, is not.
 ## 15. What counts as yolo, and what the ask predicate reads
 
 Read from the Hermes `v0.23.1` tree in the sandbox copy, and pinned by
-`tests/hermes_host/test_command_will_be_asked.py`. Nothing in that test is
+`tests/hermes_host/test_command_judge.py`. Nothing in that test is
 executed. The command strings are arguments.
 
 `_yolo_active` (`tools/approval.py`) is true when `HERMES_YOLO_MODE` was set
@@ -1036,20 +1036,19 @@ session flag. This is the extra source. The session flag is checked against
 `_get_approval_mode` lives on `tools.approval_context`, not on
 `tools.approval`. The gate calls it as `approval_context._get_approval_mode`.
 
-The predicate Petasos calls is `command_will_be_asked` in
-`petasos/hermes/host.py`. It calls `detect_dangerous_command` and then the
-gate's own helpers for the container skip, the hardline floor, the approval
-mode, yolo, the permanent allowlist, `_presence`, and an earlier session
-answer. A hardline match is a refusal, not a prompt, so the predicate is
-false there even when the detector also flags the command. Where the live
-gate prompts in `manual` mode, the predicate is true. Where the gate
-approves without asking, it is false. In `smart` mode it is always false:
-`_human_decision` calls `_smart_gate` first, and an `approve` verdict from
-the guardian model returns approved with no prompt. A plugin's approve
+The fact Petasos calls is `command_judge` in `petasos/hermes/host.py`.
+It calls `detect_dangerous_command` and then the gate's own helpers for the
+container skip, the hardline floor, the approval mode, yolo, the permanent
+allowlist, `_presence`, and an earlier session answer. A hardline match is a
+refusal, so the fact answers nobody even when the detector flags it.
+Manual mode names a person. Smart mode names the guardian then a person if
+needed: `_human_decision` calls `_smart_gate` first, and an approve verdict
+returns with no prompt. Petasos defers to that guardian only below `tier1`;
+see [command overlap](hermes-command-overlap.md#built). A plugin's approve
 request does not take that path. `request_tool_approval` calls
 `_run_approval_gate`, which calls `_human_decision` without `smart`, so it
-always reaches a person. Where `detect_dangerous_command` is missing or raises, it is
-false while the gate, which bound the function at import, can still prompt.
+reaches a person. A missing or raising helper answers nobody, while the gate,
+which binds detector names at import, can still prompt.
 
 ## 16. Named profiles under one root share an environment
 

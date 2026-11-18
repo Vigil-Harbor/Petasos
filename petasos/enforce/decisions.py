@@ -16,6 +16,7 @@ from petasos.enforce.messages import (
     format_content_block,
     format_result_notice,
 )
+from petasos.enforce.types import CommandJudge
 from petasos.model import ScanFinding, Severity, at_least, severity_rank
 from petasos.normalize import canonicalize_tool_name
 
@@ -34,12 +35,12 @@ _Emit = Callable[..., object]
 _Always = Callable[[str], bool]
 _Recorded = Callable[[str], bool]
 _Excerpt = Callable[[], str]
-_Asks = Callable[[str], bool]
+_Judge = Callable[[str], CommandJudge]
 _Regime = Literal["full", "ceiling"]
 
 
-def _not_asked(_command: str) -> bool:
-    return False
+def _no_judge(_command: str) -> CommandJudge:
+    return CommandJudge.NOBODY
 
 
 def _no_checker() -> str | None:
@@ -62,14 +63,12 @@ def _command_text(args: Any) -> str:
     return ""
 
 
-def _host_will_ask(command: str, asks: _Asks) -> bool:
-    """True when the host will put ``command`` to a person. A failure answers no."""
-    if not command:
-        return False
+def _host_judge(command: str, judge: _Judge) -> CommandJudge:
+    """Who judges ``command``. A failed probe answers nobody."""
     try:
-        return bool(asks(command))
+        return judge(command) if command else CommandJudge.NOBODY
     except Exception:
-        return False
+        return CommandJudge.NOBODY
 
 
 @dataclass(frozen=True, slots=True)
@@ -193,9 +192,12 @@ def dangerous_tool_decision(
     excerpt_for: _Excerpt,
     logger: logging.Logger,
     emit: _Emit,
-    command_will_be_asked: _Asks = _not_asked,
+    command_judge: _Judge = _no_judge,
     command_checker: Callable[[], str | None] = _no_checker,
     command_prompt_name: str = "the host",
+    command_guardian_name: str = "the host guardian",
+    score: float | None = None,
+    tier: str | None = None,
 ) -> Block | Approve | None:
     """Decide a dangerous tool call after the guard has allowed it.
 
@@ -207,8 +209,9 @@ def dangerous_tool_decision(
 
     A terminal command-rule finding is recorded and not decided here when the
     posture is ``approve``, the host would not grant that approval with nobody
-    attached, and ``command_will_be_asked`` says the host will ask a person
-    about that command. A loaded ``command_checker`` owns the three execution
+    attached, and ``command_judge`` names a person, or a guardian while
+    ``tier`` is below tier1. An unreadable tier keeps the decision here.
+    A loaded ``command_checker`` owns the three execution
     rules in ``CHECKER_COMMAND_RULES``. Every remaining command finding must
     have an owner before standing aside. Anything else is decided as before.
     """
@@ -318,8 +321,11 @@ def dangerous_tool_decision(
                 if len(unowned) < len(remaining):
                     owners.append(checker)
             if unowned:
-                if _host_will_ask(command_text, command_will_be_asked):
+                judge = _host_judge(command_text, command_judge)
+                if judge is CommandJudge.PERSON:
                     owners.append(command_prompt_name)
+                elif judge is CommandJudge.GUARDIAN and tier == "none":
+                    owners.append(command_guardian_name)
                 else:
                     owners.clear()
         if owners:
@@ -335,6 +341,8 @@ def dangerous_tool_decision(
                 tool=tool_name,
                 event_type="deferred",
                 deferred_to=" and ".join(owners),
+                score=score,
+                tier=tier,
                 severity=top.severity.name,
                 rule_id=top.rule_id,
                 reason=top.message,

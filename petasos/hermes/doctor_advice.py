@@ -206,7 +206,11 @@ def approval_check(resolved: Resolved | None, *, hermes_available: bool) -> Chec
         status="ok",
         summary=(
             "Dangerous tool calls are handed to Hermes. "
-            "Hermes would ask a person. If nobody is there to answer, Hermes refuses the call."
+            "In smart mode, Hermes's guardian judges flagged terminal commands while the "
+            "conversation is below tier 1. From tier 1 on, Petasos asks a person itself. "
+            "In manual mode, Hermes would ask a person once for commands it flags. "
+            "Other dangerous calls keep Petasos's ask. "
+            "If nobody can answer, Hermes refuses the call."
         ),
     )
 

@@ -68,9 +68,9 @@ def _gate(command: str) -> dict[str, Any]:
     config = terminal._get_env_config()
     env_type = config["env_type"] if isinstance(config.get("env_type"), str) else "local"
     host_access = bool(terminal._docker_has_host_access(config))
-    from petasos.hermes.host import command_will_be_asked
+    from petasos.hermes.host import command_judge
 
-    asked = command_will_be_asked(command)
+    judge = command_judge(command)
     verdict = approval.check_all_command_guards(
         command,
         env_type,
@@ -79,7 +79,7 @@ def _gate(command: str) -> dict[str, Any]:
     )
     approved = bool(verdict.get("approved")) if isinstance(verdict, dict) else False
     return {
-        "asked": asked,
+        "judge": judge,
         "approved": approved,
         "prompted": bool(PROMPTS),
         "env_type": env_type,

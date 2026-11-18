@@ -32,7 +32,7 @@ from petasos.enforce.messages import format_content_block, format_result_notice
 from petasos.hermes.dashboard.catalog import combine
 from petasos.hermes.dashboard.errors import ApiError, envelope
 from petasos.hermes.dashboard.words import CHECK_NOTE, RISK_NOTE, RISK_TIERS, looks_for
-from petasos.hermes.host import approval_grant, command_will_be_asked
+from petasos.hermes.host import approval_grant, command_judge
 from petasos.hermes.plugin import command_checker
 from petasos.model import Direction, PipelineResult, ScanFinding, Severity
 from petasos.normalize import canonicalize_tool_name, normalize
@@ -506,6 +506,8 @@ async def _tool(
             sinks = _names(config.egress.sink_tools)
             namespaces = _names(config.egress.taint_namespaces)
             events: list[dict[str, object]] = []
+            state = tracker.get_state(_SESSION)
+            score = round(state.last_score, 1) if state is not None else 0.0
             chosen = dangerous_tool_decision(
                 tool,
                 dict(arguments),
@@ -522,9 +524,12 @@ async def _tool(
                 excerpt_for=lambda: "",
                 logger=logger,
                 emit=lambda **fields: events.append(fields),
-                command_will_be_asked=command_will_be_asked,
+                command_judge=command_judge,
+                score=score,
+                tier=guard.session_tier(_SESSION),
                 command_checker=command_checker,
                 command_prompt_name="Hermes",
+                command_guardian_name="Hermes's smart approval",
             )
             deferred = next(
                 (event for event in events if event.get("event_type") == "deferred"), None

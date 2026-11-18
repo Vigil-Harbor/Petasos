@@ -654,26 +654,29 @@ on a configuration converted as `general`, and the note says the old profile
 blocked and the conversion does not start asking. A section that already
 names `dangerous_tool_posture` keeps that value.
 
-`HostInfo.command_will_be_asked(command)` answers whether the host will put
-that command to a person. The default answers no. The Hermes adapter calls
-`detect_dangerous_command` and reads the same mode, yolo, presence, allowlist,
-session-approval, and container facts section 2 lists. It does not copy the
-pattern list. A missing, moved, or raising detector answers no.
+`HostInfo.command_judge(command)` returns `CommandJudge.PERSON`,
+`GUARDIAN` (guardian then a person if needed), or `NOBODY` (the default).
+The Hermes adapter calls `detect_dangerous_command` and reads the same mode,
+yolo, presence, allowlist, session-approval, and container facts section 2
+lists. It does not copy the pattern list. A missing, moved, or raising helper
+answers nobody. After hosted-room overrides, `manual` names the person and
+`smart` names the guardian; other modes name nobody.
 
-Only `approvals.mode: manual` counts as asking. `smart` is Hermes's default,
-and there a guardian model looks at the command first and can approve it
-with nobody asked. Which way it will go is not known when Petasos decides,
-and a model's approval is not a person's. So under `smart` Petasos asks, as
-a plugin's approve request always reaches a person, and Hermes's guardian
-then runs as usual. That can be two prompts for one command. One prompt
-needs `approvals.mode: manual`.
+**Smart approval, built 2026-11-17.** Petasos stands aside only for a
+`terminal` command-rule finding under posture `approve`, when the host would
+not grant an approval with nobody attached. A person-owned command keeps the
+manual behavior. A guardian-owned command is left to Hermes only while the
+guard's conversation tier, read at decision time, is below `tier1`. At
+`tier1` or above, or if the tier cannot be read, Petasos asks the person
+itself. Hermes's later guardian or prompt may still follow in that case.
+One earlier flag below `tier1` does not change this rule. Tirith's ownership
+of its three command rules is independent of tier.
 
-Petasos stands aside only for a `terminal` call whose posture is `approve`,
-whose decision would have been a command-rule finding, when that predicate
-is true, and when the host would not grant the approval with nobody
-attached. It writes a `deferred` event, which Activity reads as "Hermes will
-ask", and leaves the session score alone. The call then proceeds so Hermes's
-prompt is the one a person sees.
+The `deferred` event names its owner and carries the conversation's score
+and tier. Activity says "Hermes's smart approval will judge this" for the
+guardian. The scan still scores as before; deferral adds and removes no score.
+The call proceeds to Hermes's gate, with no approval verdict made by Petasos.
+See the [settled proposal](smart-approval-proposal.md).
 
 Hardline commands are not that case. Hermes refuses them without asking, so
 the predicate answers no and Petasos decides as it does today. The command
@@ -705,7 +708,10 @@ line is in `petasos/hermes/doctor_report.py` lines 143–154.
 
 The behavior tests are in `tests/enforce/test_decisions.py`,
 `tests/enforce/test_enforcer.py`, `tests/hermes/test_plugin.py`, and the
-Activity, playground and doctor tests. `tests/hermes_host/test_tirith.py`
+Activity, playground and doctor tests.
+`tests/hermes_host/test_smart_approval.py` exercises guardian approve, deny and
+escalate stand-ins, manual mode, cron and single-query modes, and tier1.
+No model is called. `tests/hermes_host/test_tirith.py`
 loads only a stand-in named `tirith`: the fetch-exec call passes Petasos,
 writes a named deferred event, then Hermes denies execution. Only `echo ok`
 is ever executed by that harness.
