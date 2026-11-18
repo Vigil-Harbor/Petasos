@@ -488,3 +488,34 @@ def test_bypassed_machine_pin_still_reports_the_active_overlay(
     assert facts["state"] == "not_in_force" and checks[0].status == "fail"
     assert isinstance(effective, dict) and effective["plugins"]["enabled"] == []
     assert effective["plugins"]["entries"]["petasos"]["settings"]["enabled"] is False
+
+
+def test_repin_captures_the_whole_pin_and_discloses_written_settings(
+    scope: SimpleNamespace, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A profile-only alias must not enter the pin shared with every other profile."""
+    change_pin(scope.home, write=True)
+    original = scope.read()["plugins"]["entries"]["petasos"]["settings"]
+    scope.profile["plugins"]["entries"]["petasos"]["settings"] = {
+        "role": "general",
+        "overrides": {"tools": {"aliases": {"terminal": "read_file"}}},
+    }
+    (scope.home / "config.yaml").write_text(json.dumps(scope.profile))
+    monkeypatch.setattr(
+        "petasos.hermes.pin_cmd.effective_config",
+        lambda: hermes_merge(scope.profile, scope.read()),
+    )
+    capsys.readouterr()
+    preview, code = change_pin(scope.home)
+    assert code == 0
+    _text, code = change_pin(scope.home, write=True)
+    assert code == 0
+    disclosure = capsys.readouterr().out
+    actual = scope.read()["plugins"]["entries"]["petasos"]["settings"]
+    assert actual == original
+    # The disclosure carries a JSON value, so the complete saved settings can be inspected.
+    decoder = json.JSONDecoder()
+    shown, _ = decoder.raw_decode(disclosure[disclosure.index("{") :])
+    assert shown == actual
+    shown_preview, _ = decoder.raw_decode(preview[preview.index("{") :])
+    assert shown_preview == actual

@@ -247,7 +247,10 @@ def _bound(name: str, value: object) -> float | None:
         return None
     # bool is an int, and it is not a numeric bound.
     if type(value) is int:
-        return float(value)
+        try:
+            return float(value)
+        except OverflowError:
+            raise TypeError(f"setting() {name} must be a finite number") from None
     if type(value) is float and math.isfinite(value):
         return value
     raise TypeError(f"setting() {name} must be a finite number")
@@ -567,7 +570,10 @@ def _convert_float(
     item: _Field, value: object, path: str
 ) -> tuple[object, tuple[tuple[str, str], ...]]:
     if type(value) is int:
-        number = float(value)
+        try:
+            number = float(value)
+        except OverflowError:
+            return _bad(path, _must(item, value))
     elif type(value) is float:
         number = value
     else:
@@ -745,7 +751,10 @@ def _got(value: object) -> str:
         shown = value if len(value) <= 40 else value[:37] + "..."
         return f'"{shown}"'
     if type(value) is int:
-        return str(value)
+        try:
+            return str(value)
+        except ValueError:
+            return "a whole number too large to display"
     if type(value) is float:
         if math.isnan(value):
             return "a value that is not a number"

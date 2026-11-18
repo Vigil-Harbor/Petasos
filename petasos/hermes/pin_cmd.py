@@ -19,6 +19,7 @@ from petasos.hermes.pinning import (
     pin_values,
     remove_pin,
 )
+from petasos.hermes.settings import pinned_settings
 
 
 def change_pin(
@@ -48,7 +49,9 @@ def change_pin(
                             "--accept-profile-changes to accept them when removing the pin.\n"
                         ), 2
             else:
-                values = pin_values(effective_config(), timeout=hook_timeout())
+                values = pin_values(
+                    effective_config(), timeout=hook_timeout(), settings=pinned_settings()
+                )
                 proposed = merge_pin(scope.document, values)
                 summary = describe_pin(home, values)
             if not write:
@@ -82,6 +85,9 @@ def describe_pin(home: Path, values: dict[str, Any]) -> str:
         "This managed file applies to every profile using this managed directory.\n"
         "An account that can redirect Hermes to another managed directory can bypass the pin.\n"
         f"{LIMITS}\n"
+        "Petasos settings to store:\n"
+        + json.dumps(settings, indent=2, ensure_ascii=False, allow_nan=False)
+        + "\n"
     )
 
 

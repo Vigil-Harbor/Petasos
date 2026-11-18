@@ -785,3 +785,44 @@ class TestLabels:
     def test_an_empty_label_is_refused(self) -> None:
         with pytest.raises(TypeError, match="label"):
             setting(default=1, help="A number.", label=" ")
+
+
+@pytest.mark.parametrize("power", [400, 5000])
+@pytest.mark.parametrize("negative", [False, True])
+@pytest.mark.parametrize("mapped", [False, True])
+def test_oversized_float_values_report_the_setting(
+    power: int, negative: bool, mapped: bool
+) -> None:
+    value = -(10**power) if negative else 10**power
+    document = {"frequency": {"weights": {"low": value}}} if mapped else {"timeout": value}
+    with pytest.raises(ConfigError) as caught:
+        from_mapping(SamplePolicy, document)
+    assert caught.value.errors[0][0] == ("frequency.weights.low" if mapped else "timeout")
+
+
+@pytest.mark.parametrize(
+    "document,path",
+    [
+        ({"enabled": 10**5000}, "enabled"),
+        ({"timeout": 10**5000}, "timeout"),
+        ({"label": 10**5000}, "label"),
+        ({"mode": 10**5000}, "mode"),
+        ({"names": {"scanners": [10**5000]}}, "names.scanners[0]"),
+        ({"aliases": {"terminal": 10**5000}}, "aliases.terminal"),
+        ({"aliases": {10**5000: "terminal"}}, "aliases"),
+        ({"escalation": 10**5000}, "escalation"),
+        ({"alerts": {"rapid_fire_count": -(10**5000)}}, "alerts.rapid_fire_count"),
+    ],
+    ids=["bool", "float", "str", "choice", "strings", "map-value", "map-key", "section", "int"],
+)
+def test_oversized_integers_cannot_break_error_formatting(
+    document: dict[str, Any], path: str
+) -> None:
+    with pytest.raises(ConfigError) as caught:
+        from_mapping(SamplePolicy, document)
+    assert caught.value.errors[0][0] == path
+
+
+def test_oversized_declaration_bound_raises_a_schema_error() -> None:
+    with pytest.raises(TypeError):
+        setting(default=1, ge=10**400, help="Count.")

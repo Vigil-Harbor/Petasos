@@ -228,3 +228,27 @@ to `petasos.model._TIMEOUT_ERROR_PREFIX`. The ingestion head length moves from
   events name the judge and record the conversation score and tier. No setting
   is added; manual approval and Tirith ownership keep their behavior.
 
+- Config set, migration writes and released installs select the home named by
+  `--home` or `--profile`, even when another Hermes profile is active.
+
+- Pinning again keeps the settings already in force under a whole Petasos pin;
+  profile-only mapping entries cannot spread to other profiles. Pin previews
+  and writes disclose the complete settings being captured.
+
+- Development reinstalls retain scanner extras from the plugin dependency
+  list. A removed scanner stays removed on the next reinstall.
+
+- Refresh removes old wheels only from the plugin's own `wheels/` directory.
+  A declared wheel in a shared directory cannot cause other builds there to
+  be deleted, and cleanup does not follow symlinks outside the plugin.
+
+- Try it refuses guardrail changes under `tools.self_change: never` and asks
+  for approval under `approve`; unattended approval is refused. Trials do not
+  record guardrail attempts or change a live conversation's score.
+
+- Overview uses doctor's session-secret validation before saying new records
+  are signed. A malformed key leaves signing off and shows the setup steps.
+
+- Numbers too large for float settings now produce a validation error naming
+  the setting. Very large integers cannot break validation error formatting;
+  invalid declaration bounds report a schema error instead of overflowing.

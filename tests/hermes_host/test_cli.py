@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
 import pytest
 
-from tests.hermes_host.client import fresh_home, invoke, sandbox_env
+from tests.hermes_host.client import Sandbox, fresh_home, invoke, sandbox_env
 from tests.hermes_host.marks import requires_hermes_sandbox
 
 pytestmark = requires_hermes_sandbox
@@ -200,3 +200,26 @@ def test_migrate_write_is_what_hermes_reads(cli_sandbox: Path, profile: Path) ->
     assert read["role"] == "coding"
     assert read["enabled"] is True
     assert "session_secret: hidden-secret" in config.read_text(encoding="utf-8")
+
+
+def test_config_set_writes_named_home_with_another_active(installed: Sandbox) -> None:
+    """The real Hermes writer follows --home instead of the wrapper's active home."""
+    named = installed.home / "profiles" / "named"
+    shutil.copytree(installed.home / "plugins", named / "plugins")
+    original = (installed.home / "config.yaml").read_bytes()
+    (named / "config.yaml").write_bytes(original)
+    result = _run(
+        installed.root,
+        installed.home,
+        ["config", "set", "role", "research", "--home", str(named)],
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert (installed.home / "config.yaml").read_bytes() == original
+    read = _python(
+        installed.root,
+        named,
+        "import json\n"
+        "from hermes_cli.config import load_config_readonly\n"
+        "print(json.dumps(load_config_readonly()))\n",
+    )
+    assert read["plugins"]["entries"]["petasos"]["settings"]["role"] == "research"

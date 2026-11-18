@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 
 import petasos
 from petasos.hermes.dashboard.manifest import render_dashboard_manifest, tab_source
+from petasos.hermes.dependencies import petasos_requirement
 from petasos.hermes.doctor import Report, examine, render_text
 from petasos.hermes.doctor_support import (
     enable_command,
@@ -73,7 +74,7 @@ def install_plugin(
     )
 
 
-def render_project(wheel_name: str) -> str:
+def render_project(wheel_name: str, *, extras: tuple[str, ...] = ()) -> str:
     """The plugin ``pyproject.toml`` for a copy this Petasos wrote.
 
     The dependency is this version, taken from the wheel file next to the
@@ -82,13 +83,14 @@ def render_project(wheel_name: str) -> str:
     version.
     """
     version = petasos.__version__
+    bracket = "[" + ",".join(extras) + "]" if extras else ""
     return (
         "[project]\n"
         'name = "petasos-hermes-plugin"\n'
         f'version = "{version}"\n'
         'description = "Hermes directory plugin. Behaviour lives in the petasos wheel."\n'
         'requires-python = ">=3.11"\n'
-        f'dependencies = ["petasos=={version}"]\n'
+        f'dependencies = ["petasos{bracket}=={version}"]\n'
         "\n"
         "[tool.uv]\n"
         "package = false\n"
@@ -243,7 +245,7 @@ def _refresh_build(
         and probe.ok
         and probe.matches_wheel(wheel) is True
     ):
-        prune_wheels(wheel)
+        prune_wheels(wheel, plugin_dir=plugin_dir(home))
         return True, ["Hermes already runs the build declared by the plugin directory."]
     broken = probe is None or not probe.ok
     ok, message = republish()
@@ -258,7 +260,7 @@ def _refresh_build(
                 runtime = runtime_python(home)
                 probe = probe_petasos(runtime.python) if runtime is not None else None
         if ok and probe is not None and probe.ok and probe.matches_wheel(wheel) is True:
-            prune_wheels(wheel)
+            prune_wheels(wheel, plugin_dir=plugin_dir(home))
             messages.append("Hermes loads the new build the next time it starts.")
             return True, messages
         if ok and not (probe is not None and probe.ok and probe.matches_wheel(wheel) is False):
@@ -347,7 +349,8 @@ def _released(
         )
         text = "\n".join(lines) + "\n"
         return InstallResult(text=text, exit_code=0, report=None)
-    ok, message = run_released_install()
+    with use_home(home):
+        ok, message = run_released_install()
     lines.extend(["", message])
     text = "\n".join(lines) + "\n\n"
     report = examine(home, home_reason=home_reason)
@@ -431,7 +434,10 @@ def _write_tree(target: Path, *, wheel_name: str) -> bool:
     target.mkdir(parents=True, exist_ok=True)
     changed = _write_if_changed(target / "plugin.yaml", render_manifest())
     changed = _write_if_changed(target / "__init__.py", _INIT_SOURCE) or changed
-    changed = _write_if_changed(target / "pyproject.toml", render_project(wheel_name)) or changed
+    project = target / "pyproject.toml"
+    requirement = petasos_requirement(project)
+    extras = requirement[0] if requirement is not None else ()
+    changed = _write_if_changed(project, render_project(wheel_name, extras=extras)) or changed
     changed = _copy_dashboard(target / "dashboard") or changed
     return changed
 

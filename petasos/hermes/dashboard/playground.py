@@ -1,3 +1,4 @@
+# One disposable scan supplies the preview verdict, hidden text, findings and risk together.
 """What Petasos would do with one input, without touching a live session.
 
 The dashboard is a different process from the gateway. Each call builds a
@@ -103,6 +104,10 @@ class _TrialPipeline(Pipeline):
     # The tool guard consumes a result but returns only its decision and findings.
     # Keep the same scan's hidden text; never run the scanners a second time.
     result: PipelineResult | None = None
+
+    def record_selfmod(self, session_id: str | None, finding: ScanFinding) -> None:
+        # A preview is not an attempt to change the running agent.
+        return None
 
     async def inspect(
         self,
@@ -500,6 +505,22 @@ async def _tool(
         if isinstance(denied, Block):
             decision = "block"
             message = denied.message
+        elif evaluated.guardrail_kind:
+            if config.tools.self_change == "never":
+                decision = "block"
+                message = (
+                    "The agent cannot change guardrails under these settings. "
+                    "The operator makes those changes from outside the agent."
+                )
+            elif approval_grant().unattended:
+                decision = "block"
+                message = (
+                    "Changing guardrails needs a person to approve it, "
+                    "and nobody can be asked. The change would be refused."
+                )
+            else:
+                decision = "approve"
+                message = "A person must approve this guardrail change before it runs."
         elif not is_dangerous(tool, read_only):
             decision = "allow"
         else:
