@@ -319,9 +319,12 @@ class Core:
                 return
         # Preserve the switch observation used by the disarmed/cold paths.
         # The config tree is only applied by the announcing call or refresh.
+        before_armed = self.armed
         self.armed = snap.armed
         self.fail_mode = snap.config.fail_mode
         self._pending = snap
+        if engine is not None and self.phase is Phase.READY:
+            record_applied_settings(self, engine.config, before_armed=before_armed)
         if announce:
             self.apply_pending(announce=True)
 

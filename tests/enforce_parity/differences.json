@@ -398,6 +398,254 @@
         "enforcer",
         "hermes"
       ]
+    },
+    {
+      "scenario": "arm-mid-session",
+      "step": "passed",
+      "field": "events",
+      "old": [
+        {
+          "armed": false,
+          "bypassed_count": 1,
+          "credential_redaction": "unchanged",
+          "direction": "tool_call",
+          "event_type": "bypassed_disarmed",
+          "param_scan_degraded": false,
+          "reason": "",
+          "rule_id": null,
+          "session_id": "s1",
+          "severity": null,
+          "tier": null,
+          "tool": "terminal"
+        }
+      ],
+      "new": [
+        {
+          "approval_live": false,
+          "armed": false,
+          "bypassed_count": null,
+          "credential_redaction": "unchanged",
+          "direction": "tool_call",
+          "event_type": "settings_changed",
+          "param_scan_degraded": false,
+          "paths": [
+            "enabled"
+          ],
+          "reason": "settings changed: enabled; no session approval was live",
+          "rule_id": null,
+          "session_id": "",
+          "severity": null,
+          "tier": null,
+          "tool": "",
+          "values": {
+            "enabled": false
+          }
+        },
+        {
+          "armed": false,
+          "bypassed_count": 1,
+          "credential_redaction": "unchanged",
+          "direction": "tool_call",
+          "event_type": "bypassed_disarmed",
+          "param_scan_degraded": false,
+          "reason": "",
+          "rule_id": null,
+          "session_id": "s1",
+          "severity": null,
+          "tier": null,
+          "tool": "terminal"
+        }
+      ],
+      "reason": "Turning protection off or on is now recorded as a settings change.",
+      "adapters": [
+        "enforcer"
+      ]
+    },
+    {
+      "scenario": "arm-mid-session",
+      "step": "blocked-again",
+      "field": "events",
+      "old": [
+        {
+          "armed": true,
+          "bypassed_count": null,
+          "credential_redaction": "unchanged",
+          "direction": "tool_call",
+          "event_type": "quarantine",
+          "param_scan_degraded": false,
+          "reason": "Obfuscated/destructive command pattern matched: destructive-recursive",
+          "rule_id": "petasos.syntactic.command.destructive-recursive",
+          "session_id": "s1",
+          "severity": "HIGH",
+          "tier": null,
+          "tool": "terminal"
+        }
+      ],
+      "new": [
+        {
+          "approval_live": false,
+          "armed": true,
+          "bypassed_count": null,
+          "credential_redaction": "unchanged",
+          "direction": "tool_call",
+          "event_type": "settings_changed",
+          "param_scan_degraded": false,
+          "paths": [
+            "enabled"
+          ],
+          "reason": "settings changed: enabled; no session approval was live",
+          "rule_id": null,
+          "session_id": "",
+          "severity": null,
+          "tier": null,
+          "tool": "",
+          "values": {
+            "enabled": true
+          }
+        },
+        {
+          "armed": true,
+          "bypassed_count": null,
+          "credential_redaction": "unchanged",
+          "direction": "tool_call",
+          "event_type": "quarantine",
+          "param_scan_degraded": false,
+          "reason": "Obfuscated/destructive command pattern matched: destructive-recursive",
+          "rule_id": "petasos.syntactic.command.destructive-recursive",
+          "session_id": "s1",
+          "severity": "HIGH",
+          "tier": null,
+          "tool": "terminal"
+        }
+      ],
+      "reason": "Turning protection off or on is now recorded as a settings change.",
+      "adapters": [
+        "enforcer"
+      ]
+    },
+    {
+      "scenario": "arm-mid-session",
+      "step": "passed",
+      "field": "events",
+      "old": [
+        {
+          "armed": false,
+          "bypassed_count": 1,
+          "credential_redaction": "unchanged",
+          "direction": "tool_call",
+          "event_type": "bypassed_disarmed",
+          "param_scan_degraded": false,
+          "reason": "",
+          "rule_id": null,
+          "session_id": "s1",
+          "severity": null,
+          "tier": null,
+          "tool": "terminal"
+        }
+      ],
+      "new": [
+        {
+          "approval_live": false,
+          "armed": false,
+          "bypassed_count": null,
+          "credential_redaction": "unchanged",
+          "direction": "tool_call",
+          "event_type": "settings_changed",
+          "param_scan_degraded": false,
+          "paths": [
+            "enabled"
+          ],
+          "reason": "settings changed: enabled; no session approval was live",
+          "rule_id": null,
+          "session_id": "",
+          "severity": null,
+          "tier": null,
+          "tool": "",
+          "values": {
+            "enabled": false
+          }
+        },
+        {
+          "armed": false,
+          "bypassed_count": 1,
+          "credential_redaction": "unchanged",
+          "direction": "tool_call",
+          "event_type": "bypassed_disarmed",
+          "param_scan_degraded": false,
+          "reason": "",
+          "rule_id": null,
+          "session_id": "s1",
+          "severity": null,
+          "tier": null,
+          "tool": "terminal"
+        }
+      ],
+      "reason": "Turning protection off or on is now recorded as a settings change.",
+      "adapters": [
+        "hermes"
+      ]
+    },
+    {
+      "scenario": "arm-mid-session",
+      "step": "blocked-again",
+      "field": "events",
+      "old": [
+        {
+          "armed": true,
+          "bypassed_count": null,
+          "credential_redaction": "unchanged",
+          "direction": "tool_call",
+          "event_type": "quarantine",
+          "param_scan_degraded": false,
+          "reason": "Obfuscated/destructive command pattern matched: destructive-recursive",
+          "rule_id": "petasos.syntactic.command.destructive-recursive",
+          "session_id": "s1",
+          "severity": "HIGH",
+          "tier": null,
+          "tool": "terminal"
+        }
+      ],
+      "new": [
+        {
+          "approval_live": false,
+          "armed": true,
+          "bypassed_count": null,
+          "credential_redaction": "unchanged",
+          "direction": "tool_call",
+          "event_type": "settings_changed",
+          "param_scan_degraded": false,
+          "paths": [
+            "enabled"
+          ],
+          "reason": "settings changed: enabled; no session approval was live",
+          "rule_id": null,
+          "session_id": "",
+          "severity": null,
+          "tier": null,
+          "tool": "",
+          "values": {
+            "enabled": true
+          }
+        },
+        {
+          "armed": true,
+          "bypassed_count": null,
+          "credential_redaction": "unchanged",
+          "direction": "tool_call",
+          "event_type": "quarantine",
+          "param_scan_degraded": false,
+          "reason": "Obfuscated/destructive command pattern matched: destructive-recursive",
+          "rule_id": "petasos.syntactic.command.destructive-recursive",
+          "session_id": "s1",
+          "severity": "HIGH",
+          "tier": null,
+          "tool": "terminal"
+        }
+      ],
+      "reason": "Turning protection off or on is now recorded as a settings change.",
+      "adapters": [
+        "hermes"
+      ]
     }
   ]
 }

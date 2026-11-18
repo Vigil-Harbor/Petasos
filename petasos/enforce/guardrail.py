@@ -270,13 +270,17 @@ def hit_for(core: Core, call: ToolCall) -> GuardrailHit | None:
         return None
 
 
-def record_applied_settings(core: Core, before: PetasosConfig) -> None:
+def record_applied_settings(
+    core: Core, before: PetasosConfig, *, before_armed: bool | None = None
+) -> None:
     """Record the settings the enforcer just applied. Secret values are not included."""
     engine = core.engine
     if engine is None:
         return
     try:
         changed = _changed(to_mapping(before), to_mapping(engine.config))
+        if before_armed is not None and before_armed != core.armed:
+            changed["enabled"] = core.armed
     except Exception:
         logger.debug("settings-change diff failed", exc_info=True)
         return
