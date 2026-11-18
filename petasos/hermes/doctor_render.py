@@ -30,6 +30,7 @@ def report_payload(report: Report) -> dict[str, object]:
                 "summary": check.summary,
                 "meaning": check.meaning,
                 "next_step": check.next_step,
+                "detail": list(check.detail),
             }
             for check in report.checks
         ],
@@ -56,6 +57,9 @@ def render_text(report: Report, *, verbose: bool, color: bool) -> str:
         lines.append(f"{_paint(_MARK[check.status], check.status, color=color)}  {check.summary}")
         if check.meaning:
             for extra in check.meaning.splitlines():
+                lines.append(f"      {extra}")
+        if verbose:
+            for extra in check.detail:
                 lines.append(f"      {extra}")
         if verbose and check.id == "guardrail":
             if report.protected_paths:

@@ -39,7 +39,7 @@ def _owned_paths(raw_entries: list[str]) -> frozenset[str]:
             continue
         try:
             resolved = str(path.resolve(strict=False))
-        except OSError:
+        except (OSError, RuntimeError):
             continue
         if len(Path(resolved).parts) < 3:
             continue
@@ -94,7 +94,7 @@ def _raw_protected_entries(self: ToolCallGuard) -> list[str]:
     from petasos.hermes.home import (
         HermesConfigResolution,
         hermes_root,
-        list_hermes_profiles,
+        profile_directories,
         resolve_hermes_config_path,
         spool_path,
         spool_rot_path,
@@ -110,9 +110,12 @@ def _raw_protected_entries(self: ToolCallGuard) -> list[str]:
     raw_entries.extend(
         _beside(HermesConfigResolution(path=hermes_root() / "config.yaml", tier="root"))
     )
-    for prof in list_hermes_profiles():
+    # Exact files, never the profiles directory: the agent's own home can sit
+    # under it. A directory without an identity marker can become a profile,
+    # so its settings files are protected before it does.
+    for child in profile_directories(hermes_root()):
         raw_entries.extend(
-            _beside(HermesConfigResolution(path=Path(prof["path"]), tier="profile"))
+            _beside(HermesConfigResolution(path=child / "config.yaml", tier="profile"))
         )
     if self._selfmod_home is None:
         raw_entries.append(str(resolve_hermes_config_path().path))

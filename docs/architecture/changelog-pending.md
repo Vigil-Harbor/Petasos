@@ -87,6 +87,14 @@ deleted.
 
 ## Changed
 
+- PET-269: doctor's default job row gives the job, strictness and one short
+  explanation. Per-setting explanations remain available in verbose output
+  and JSON.
+
+- PET-268: doctor lists only live Hermes profiles, including profiles identified
+  by markers other than config.yaml. Guardrails keep the parent profiles
+  directory protected so first writes and newly created profiles are noticed.
+
 - `petasos hermes pin` and `unpin` preview and optionally prepare managed
   settings and plugin-list changes without invoking administrator rights.
   A pin holds both plugin lists, the plugin-check time limit and every

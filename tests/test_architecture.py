@@ -409,7 +409,7 @@ def test_imports_follow_the_package_layers() -> None:
                 "petasos.hermes.home",
                 "petasos.hermes.home.HermesConfigResolution",
                 "petasos.hermes.home.hermes_root",
-                "petasos.hermes.home.list_hermes_profiles",
+                "petasos.hermes.home.profile_directories",
                 "petasos.hermes.home.resolve_hermes_config_path",
                 "petasos.hermes.home.spool_path",
                 "petasos.hermes.home.spool_rot_path",

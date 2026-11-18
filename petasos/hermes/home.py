@@ -7,12 +7,15 @@ from __future__ import annotations
 
 import os
 import platform
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
 _SPOOL_FILENAME = "petasos-enforcement.jsonl"
 _ROT_SUFFIX = ".rot"
+_PROFILE_ID = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+_PROFILE_MARKERS = ("config.yaml", ".env", "SOUL.md", "profile.yaml", "auth.json", "state.db")
 
 _SPOOL_PATH_OVERRIDE: str | None = None
 
@@ -182,35 +185,60 @@ def _resolved_normcase(path: Path) -> str | None:
     An unresolved target takes the persist-only branch."""
     try:
         return os.path.normcase(str(path.resolve(strict=False)))
-    except OSError:
+    except (OSError, RuntimeError):
         return None
 
 
-def list_hermes_profiles(*, use_override: bool = True) -> list[dict[str, Any]]:
+def profile_directories(root: Path) -> list[Path]:
+    """Directories under ``root/profiles`` that Hermes could load as a named profile.
+
+    Hermes's own rule without the identity marker: a valid lowercase id, not
+    ``default``, and no ``.deleted/<name>`` tombstone. A directory that passes
+    can become a profile by gaining a marker, so its settings files are
+    protected before it does. Never raises.
+    """
+    base = root / "profiles"
+    try:
+        children = sorted(base.iterdir())
+    except OSError:
+        return []
+    out: list[Path] = []
+    for child in children:
+        try:
+            if (
+                child.is_dir()
+                and child.name != "default"
+                and _PROFILE_ID.match(child.name)
+                and not (base / ".deleted" / child.name).exists()
+            ):
+                out.append(child)
+        except OSError:
+            continue
+    return out
+
+
+def list_hermes_profiles(
+    *, use_override: bool = True, root: Path | None = None
+) -> list[dict[str, Any]]:
     """Return sorted profile config paths and normalized active-binding identity.
 
     Unreadable or absent profile directories yield an empty list without
-    logging or raising. The reserved default home is not a profile entry."""
+    logging or raising. Match Hermes's live named-profile rule: valid id,
+    identity marker (including symlinks), and no tombstone. ``root`` selects
+    an explicit installation; otherwise use the platform root."""
     try:
-        base = hermes_root() / "profiles"
-        base_resolved = base.resolve(strict=False)
+        base = (hermes_root() if root is None else root) / "profiles"
         active_norm = _resolved_normcase(
             resolve_hermes_config_path(use_override=use_override).path
         )
         out: list[dict[str, Any]] = []
-        for child in sorted(base.iterdir()):
-            # The reserved default selector resolves only the unprofiled home.
-            if not child.is_dir() or child.name == "default":
+        for child in profile_directories(base.parent):
+            if not any(
+                (child / marker).is_file() or (child / marker).is_symlink()
+                for marker in _PROFILE_MARKERS
+            ):
                 continue
             cfg = child / "config.yaml"
-            if not cfg.is_file():
-                continue
-            try:
-                child_resolved = child.resolve(strict=False)
-            except OSError:
-                continue
-            if not child_resolved.is_relative_to(base_resolved):
-                continue
             cfg_norm = _resolved_normcase(cfg)
             out.append(
                 {

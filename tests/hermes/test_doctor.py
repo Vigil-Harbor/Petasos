@@ -7,15 +7,16 @@ import json
 import sys
 from typing import TYPE_CHECKING, Any
 
+import pytest
+
 from petasos.cli import main
+from petasos.config.layers import LEVELS, ROLES
 from petasos.enforce.types import ApprovalGrant
 from petasos.hermes.doctor import examine, hermes_view, render_json, render_text
 from tests.hermes.conftest import enabled_config, healthy_home, write_config, write_plugin
 
 if TYPE_CHECKING:
     from pathlib import Path
-
-    import pytest
 
 
 def _run(
@@ -52,8 +53,6 @@ def test_healthy_install_is_protected(
     assert "not installed" in out
     assert "turned off" in out
     assert "Hermes would ask a person" in out
-    assert "Dangerous tool calls wait for a person to confirm them." in out
-    assert "the general job" in out
     assert "Open. The agent can change guardrails with a fresh approval." in out
     assert "30 minutes" in out
     assert "places an agent could change" in out
@@ -551,22 +550,53 @@ def test_a_redundant_override_is_not_called_custom(
     assert origins["fail_mode"] == "override"
 
 
-def test_a_real_override_is_a_sentence(
+@pytest.mark.parametrize("role", ROLES)
+@pytest.mark.parametrize("level", LEVELS)
+def test_job_explanation_is_short_and_setting_detail_is_verbose(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, role: str, level: str
+) -> None:
+    home = healthy_home(tmp_path, monkeypatch)
+    write_config(home, enabled_config(role=role, level=level))
+    report = examine(home, home_reason="test")
+    settings = next(check for check in report.checks if check.id == "settings")
+    plain = render_text(report, verbose=False, color=False)
+    verbose = render_text(report, verbose=True, color=False)
+    payload = json.loads(render_json(report))
+    json_settings = next(check for check in payload["checks"] if check["id"] == "settings")
+
+    assert role in settings.summary and level in settings.summary
+    assert len(settings.meaning.splitlines()) == 1
+    assert 5 <= len(settings.meaning.split()) <= 25
+    assert settings.meaning in plain and settings.meaning in verbose
+    assert settings.detail
+    assert json_settings["detail"] == list(settings.detail)
+    for explanation in settings.detail:
+        assert explanation not in plain
+        assert explanation in verbose
+
+
+def test_a_real_override_is_explained_in_verbose_output(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A value the role would not have chosen is named, and the line starts with a capital."""
+    """Custom values stay in JSON and verbose output without lengthening the job row."""
     home = healthy_home(tmp_path, monkeypatch)
-    write_config(home, enabled_config(role="coding"))
-    monkeypatch.setattr(
-        "petasos.hermes.host.approval_grant",
-        lambda: ApprovalGrant(),
+    write_config(
+        home,
+        enabled_config(role="coding").replace(
+            "overrides: {}", "overrides:\n          fail_mode: closed"
+        ),
     )
-    code, out = _run(monkeypatch, ["doctor", "--home", str(home)], capsys)
+    report = examine(home, home_reason="test")
+    payload = json.loads(render_json(report))
+    row = next(row for row in payload["detail"]["resolved"] if row["path"] == "fail_mode")
+    assert row["value"] == "closed" and row["origin"] == "override"
+    settings = next(check for check in report.checks if check.id == "settings")
+    assert len(settings.meaning.splitlines()) == 1
 
-    assert code == 0
-    assert "Dangerous tool calls wait for a person to confirm them." in out
-    assert "\ndangerous tool calls" not in out
-    assert "the coding job" in out
+    code, out = _run(monkeypatch, ["doctor", "--verbose", "--home", str(home)], capsys)
+    assert code == report.exit_code
+    for explanation in settings.detail:
+        assert explanation in out
 
 
 def test_two_result_rewriters_are_named(

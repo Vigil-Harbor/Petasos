@@ -24,6 +24,11 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 _LEVEL_PLAIN = {
+    "relaxed": "fewer interruptions and less protection",
+    "balanced": "the usual protection",
+    "strict": "stricter checks and earlier blocking",
+}
+_LEVEL_DETAIL = {
     "relaxed": (
         "Checks are looser than usual. If an extra check breaks, "
         "that text is blocked and Petasos keeps going."
@@ -147,16 +152,18 @@ def settings_check(
     facts["level"] = resolved.settings.level
     facts["petasos_enabled"] = resolved.settings.enabled
     lines: list[str] = []
+    detail: list[str] = []
     actions: list[str] = []
     status: Status = "ok"
     if resolved.settings.enabled:
         role = ROLES[resolved.settings.role]
-        level = _LEVEL_PLAIN.get(
+        level = _LEVEL_DETAIL.get(
             resolved.settings.level,
             LEVELS[resolved.settings.level].description,
         )
-        lines.append(role.description)
-        lines.append(level)
+        purpose = role.description.partition(".")[0]
+        lines.append(f"{purpose}, with {_LEVEL_PLAIN[resolved.settings.level]}.")
+        detail.extend((role.description, level, *extra_lines(resolved)))
     if not resolved.settings.enabled:
         status = "fail"
         lines.append("Tool calls are not checked until protection is turned on.")
@@ -180,8 +187,6 @@ def settings_check(
             "value when it reads the file. Petasos settings should be plain text."
         )
         actions.append("Replace the ${...} text with the value you actually want.")
-    if resolved.settings.enabled:
-        lines.extend(extra_lines(resolved))
     return (
         resolved,
         Check(
@@ -190,6 +195,7 @@ def settings_check(
             summary=settings_summary(resolved),
             meaning="\n".join(lines),
             next_step=" Then ".join(actions),
+            detail=tuple(detail),
         ),
         legacy,
         facts,
