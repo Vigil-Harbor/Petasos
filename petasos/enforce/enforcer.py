@@ -56,6 +56,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("petasos.enforce")
 
+_CLOSED_CALL = Block("Petasos could not evaluate this tool call.")
+
 
 class Enforcer:
     """Stateful enforcement for one host process.
@@ -121,12 +123,13 @@ class Enforcer:
     def tool_call(self, call: ToolCall) -> Decision:
         """Decide a tool call that is about to run. Never raises."""
         if self._core._closed:
-            return Allow()
+            return _CLOSED_CALL
         try:
-            return decide(self._core, call)
+            decision = decide(self._core, call)
         except Exception as exc:
             logger.error("Petasos tool_call failed: %s", exc, exc_info=True)
-            return self._failed_call(call)
+            decision = self._failed_call(call)
+        return _CLOSED_CALL if self._core._closed else decision
 
     def tool_result(self, call: ToolCall, result: object) -> str | None:
         """Annotate a tool result, or return ``None`` to leave it unchanged.

@@ -103,7 +103,7 @@ def test_ready_call_allows_clean_text_and_close_is_idempotent(tmp_path: Path) ->
     assert isinstance(enforcer.tool_call(_call()), Allow)
     enforcer.close()
     enforcer.close()
-    assert isinstance(enforcer.tool_call(_call()), Allow)
+    assert isinstance(enforcer.tool_call(_call()), Block)
 
 
 def test_disarmed_bypass_is_rate_limited_by_the_clock(tmp_path: Path) -> None:
