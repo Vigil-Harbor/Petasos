@@ -188,11 +188,37 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", type=Path, default=ROOT / ".ux-reference/rounds/round-04")
     parser.add_argument("--skip-wheel", action="store_true")
     parser.add_argument("--tryit-followups", action="store_true")
+    parser.add_argument("--readme-loop", type=Path, metavar="WEBP", help="record the README loop")
     args = parser.parse_args(argv)
     sandbox = args.sandbox.resolve()
     os.environ["PETASOS_HERMES_SANDBOX"] = str(sandbox)
     if not args.skip_wheel:
         build_wheel(sandbox)
+    if args.readme_loop:
+        home = Path(prepare(sandbox, "readme-loop")["home"])
+        board = start(sandbox, home)
+        try:
+            result = run_browser(
+                sandbox,
+                {
+                    "action": "loop",
+                    "url": board.url,
+                    "out": str(args.out.resolve()),
+                    "asset": str(args.readme_loop.resolve()),
+                },
+            )
+        finally:
+            stopped_loop = stop(board.pid)
+        result["dashboard_stopped"] = stopped_loop
+        print(json.dumps(result, indent=2))
+        return (
+            0
+            if stopped_loop
+            and not result["errors"]
+            and not result["failed"]
+            and not result["overflow"]
+            else 1
+        )
     if args.tryit_followups:
         home = prepare_trial(sandbox)
         board = start(sandbox, home)

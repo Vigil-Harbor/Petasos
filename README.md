@@ -2,6 +2,10 @@
 
 Petasos is a security layer for Hermes Agent. It checks tool calls before they run and scans tool results for hidden instructions, with optional checks for reworded attacks and personal information. The Petasos tab in Hermes's dashboard shows protection status, settings and recorded activity, and lets you try an input without running a tool.
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/Vigil-Harbor/Petasos/master/assets/petasos-demo-loop.webp" alt="Petasos in Hermes: scan a tool result, reveal a hidden instruction and its risk, then review recorded activity" width="900"/>
+</p>
+
 ## Install into Hermes
 
 For a published release, run this in your terminal:

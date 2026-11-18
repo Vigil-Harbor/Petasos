@@ -2,11 +2,12 @@
 
 Run only through the sandbox wrapper, with a Python that has Playwright
 (``<sandbox>/shot/bin/python``; see ``capture_round.py``). One JSON object on
-stdin, one on stdout. Two actions:
+stdin, one on stdout. Actions:
 
 - ``check``: open each view and report script errors, failed API calls, and
   views that render nothing. The real-Hermes test reads this.
 - ``capture``: take the fixed screenshot set for one design round.
+- ``loop``: record and encode the README preview (requires Pillow in ``shot``).
 
 It does not import Hermes. It talks to dashboards already started on
 127.0.0.1 by the caller.
@@ -20,6 +21,9 @@ import re
 import sys
 from pathlib import Path
 from typing import Any
+
+if __name__ == "__main__" and __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 VIEWS = ("overview", "activity", "tryit", "settings")
 THEMES = (("teal", "Hermes Teal"), ("nous-blue", "Nous Blue"))
@@ -548,9 +552,11 @@ def followups(request: dict[str, Any]) -> dict[str, Any]:
 
 
 def main() -> None:
+    from tests.hermes_host.capture_loop import record
+
     request = json.loads(sys.stdin.read() or "{}")
     action = str(request.get("action", ""))
-    handlers = {"check": check, "capture": capture, "followups": followups}
+    handlers = {"check": check, "capture": capture, "followups": followups, "loop": record}
     handler = handlers.get(action)
     if handler is None:
         raise SystemExit(f"unknown action {action}")
