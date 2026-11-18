@@ -17,7 +17,13 @@ from typing import TYPE_CHECKING, Any
 from petasos.config.sections import PetasosConfig
 from petasos.enforce.approvals import redact_display_text
 from petasos.enforce.book import Book
-from petasos.enforce.engine import Engine, apply_snapshot, build_engine, syntactic_scanner
+from petasos.enforce.engine import (
+    Engine,
+    apply_snapshot,
+    build_engine,
+    syntactic_scanner,
+    validate_snapshot,
+)
 from petasos.enforce.events import EventSpool
 from petasos.enforce.guardrail import Grants, record_applied_settings
 from petasos.enforce.runtime import AsyncBridge
@@ -84,6 +90,7 @@ class Core:
         self.host = host
         self.clock = clock if clock is not None else SystemClock()
         self.limits = limits if limits is not None else Limits()
+        self._init_wait_override = limits.init_wait_s if limits is not None else None
         self.scanners = tuple(scanners)
         self.registry = registry if registry is not None else REGISTRY
         self.gate = init
@@ -95,8 +102,10 @@ class Core:
         self.init_error: str | None = None
         self.engine: Engine | None = None
         self.armed = True
+        self._applied_armed = True
         self.fail_mode = _DEFAULT_FAIL
         self._token: object = _UNSET
+        self._rejected_token: object = _UNSET
         self._pending: SettingsSnapshot | None = None
         self._secret_invalid = False
         self._init_done = threading.Event()
@@ -109,6 +118,7 @@ class Core:
         self._thread: threading.Thread | None = None
         self._fallback: Scanner | None = None
         self._fallback_lock = threading.Lock()
+        self._settings_lock = threading.RLock()
         self._sink = events
         self._spool: EventSpool | None = None
         self._spool_path = spool_path
@@ -149,7 +159,7 @@ class Core:
 
     def status(self) -> Status:
         """The lifecycle a caller should display."""
-        self._observe(announce=False)
+        self.observe(announce=False)
         if self._closed:
             return Status("failed", self.armed, "closed")
         if not self.armed:
@@ -188,7 +198,8 @@ class Core:
 
     def observe(self, *, announce: bool) -> None:
         """Re-read settings. ``announce`` logs a live change after the pipeline exists."""
-        self._observe(announce=announce)
+        with self._settings_lock:
+            self._observe(announce=announce)
 
     def emit(self, **kwargs: Any) -> bool:
         """Write one enforcement event. Never raises."""
@@ -239,7 +250,14 @@ class Core:
         return self.runtime.run(coro, limit)
 
     def _budget(self) -> float:
-        value = self.limits.init_wait_s
+        value = self._init_wait_override
+        if value is None:
+            snap = self._pending
+            value = (
+                snap.config.startup.wait_seconds
+                if snap is not None and snap.error is None and snap.config is not None
+                else 2.0
+            )
         if value <= 0:
             return 2.0
         return min(60.0, max(0.05, value))
@@ -267,6 +285,7 @@ class Core:
             if snap is not None and snap.error is None:
                 self._token = snap.token
                 self.armed = snap.armed
+                self._applied_armed = snap.armed
             engine = build_engine(
                 config,
                 secrets,
@@ -294,29 +313,65 @@ class Core:
         snap = self._read()
         if snap is None:
             return
-        self.armed = snap.armed
+        if snap.token == self._rejected_token:
+            return
         if snap.error or snap.config is None:
             self.book.log_reload_failure(snap.error or "build failed")
             return
+        engine = self.engine
+        if engine is not None and self.phase is Phase.READY:
+            try:
+                validate_snapshot(engine, snap.config)
+            except Exception as exc:
+                self.book.log_reload_failure(f"apply failed: {exc}")
+                return
+        # Preserve the switch observation used by the disarmed/cold paths.
+        # The config tree is only applied by the announcing call or refresh.
+        before_armed = self.armed
+        self.armed = snap.armed
         self.fail_mode = snap.config.fail_mode
         self._pending = snap
-        if not announce:
-            return
+        if engine is not None and self.phase is Phase.READY:
+            record_applied_settings(self, engine.config, before_armed=before_armed)
+        if announce:
+            self.apply_pending(announce=True)
+
+    def apply_pending(self, *, announce: bool) -> None:
+        """Apply the observed tree at the existing live-call or refresh boundary."""
+        snap = self._pending
         engine = self.engine
-        if engine is None or self.phase is not Phase.READY:
+        if (
+            snap is None
+            or snap.config is None
+            or snap.error
+            or engine is None
+            or self.phase is not Phase.READY
+            or snap.token == self._token
+        ):
             return
-        if snap.token == self._token:
-            return
+        acquired = False
         try:
+            acquired = self.runtime.inspect.acquire(timeout=self.limits.eval_timeout_s)
+            if not acquired:
+                raise TimeoutError("settings reload waiting for inspection")
             before = engine.config
             apply_snapshot(engine, snap.config, snap.secrets, logger, origin=snap.origin)
+            self.armed = snap.armed
+            self._pending = snap
+            self._token = snap.token
+            self._applied_armed = snap.armed
+            self.fail_mode = engine.fail_mode()
             record_applied_settings(self, before)
+            self._install_secret(engine.secrets)
         except Exception as exc:
+            self._rejected_token = snap.token
+            self.armed = self._applied_armed
+            self.fail_mode = engine.fail_mode()
             self.book.log_reload_failure(f"apply failed: {exc}")
             return
-        self._token = snap.token
-        self.fail_mode = engine.fail_mode()
-        self._install_secret(engine.secrets)
+        finally:
+            if acquired:
+                self.runtime.inspect.release()
         if announce:
             self.book.log_reconfigured()
 

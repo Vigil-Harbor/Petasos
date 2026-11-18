@@ -298,3 +298,53 @@ def test_an_answer_counts_once(tmp_path: Path) -> None:
     after = enforcer.tool_call(_write(path))
     assert isinstance(after, Approve)
     assert len([event for event in sink.events if event.get("decision") == "session"]) == 1
+
+
+@pytest.mark.parametrize("path", ["refresh", "call", "result", "status"])
+@pytest.mark.parametrize("live", [False, True])
+def test_switch_changes_are_recorded_on_every_observation_path(
+    tmp_path: Path, path: str, live: bool
+) -> None:
+    sink = _Sink()
+    enforcer, source, _target = _enforcer(tmp_path, sink)
+    if live:
+        clock = enforcer._core.clock
+        enforcer._core.grants.accept("s1", clock.monotonic() + 60, clock.time() + 60)
+    try:
+        for token, armed in [(2, False), (3, True)]:
+            sink.events.clear()
+            source.snapshot = replace(source.snapshot, armed=armed, token=token)
+            if path == "refresh":
+                enforcer.refresh()
+            elif path == "call":
+                enforcer.tool_call(ToolCall("read_file", session="s1"))
+            elif path == "result":
+                enforcer.tool_result(ToolCall("read_file", session="s1"), "clean text")
+            else:
+                enforcer.status()
+            changed = [
+                event for event in sink.events if event.get("event_type") == "settings_changed"
+            ]
+            assert len(changed) == 1
+            assert changed[0]["paths"] == ["enabled"]
+            assert changed[0]["values"] == {"enabled": armed}
+            assert changed[0]["approval_live"] is live
+    finally:
+        enforcer.close()
+
+
+@pytest.mark.parametrize("armed", [False, True])
+def test_initial_snapshot_is_not_a_settings_change(armed: bool) -> None:
+    sink = _Sink()
+    snapshot = SettingsSnapshot(armed=armed, config=PetasosConfig(), secrets=Secrets(), token=1)
+    enforcer = Enforcer(lambda: snapshot, registry=(), events=sink)
+    enforcer.start()
+    try:
+        assert enforcer.settle(10)
+        assert enforcer.status().armed is armed
+        enforcer.refresh()
+        enforcer.tool_call(ToolCall("read_file", session="s1"))
+        enforcer.tool_result(ToolCall("read_file", session="s1"), "clean text")
+        assert not [row for row in sink.events if row.get("event_type") == "settings_changed"]
+    finally:
+        enforcer.close()

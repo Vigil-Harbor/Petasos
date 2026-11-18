@@ -12,6 +12,7 @@ from petasos.hermes import plugin as plugin_mod
 from petasos.hermes.plugin import close, directive, host_info, register
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
     from pathlib import Path
 
     import pytest
@@ -427,4 +428,52 @@ def test_command_checker_probe_is_live_and_follows_replacement_context(
         register(broken)
         assert info.command_checker() is None
     finally:
+        close()
+
+
+def test_hook_that_passed_registration_check_is_refused_after_close(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import threading
+
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    ctx = _Ctx()
+    register(ctx)
+    enforcer = plugin_mod._registrations[""].enforcer
+    assert enforcer.settle(10)
+    checked = threading.Event()
+    proceed = threading.Event()
+    original = plugin_mod._tool_call
+
+    def pause_after_registration(
+        tool: object, args: object, task: object, kwargs: Mapping[str, object]
+    ) -> ToolCall:
+        checked.set()
+        assert proceed.wait(2.0)
+        return original(tool, args, task, kwargs)
+
+    monkeypatch.setattr(plugin_mod, "_tool_call", pause_after_registration)
+    returned: list[object] = []
+    hook = ctx.hooks["pre_tool_call"][0]
+    worker = threading.Thread(
+        target=lambda: returned.append(hook(tool_name="read_file", args={}, task_id="s")),
+        daemon=True,
+    )
+    worker.start()
+    try:
+        assert checked.wait(1.0)
+        close()
+        proceed.set()
+        worker.join(timeout=1.0)
+        assert not worker.is_alive()
+        assert len(returned) == 1
+        decision = returned[0]
+        assert isinstance(decision, dict) and decision.get("action") == "block"
+        assert decision.get("message")
+        # A later hook takes the missing-registration branch; both refuse.
+        later = hook(tool_name="read_file", args={}, task_id="s")
+        assert isinstance(later, dict) and later["action"] == "block"
+    finally:
+        proceed.set()
+        worker.join(timeout=1.0)
         close()

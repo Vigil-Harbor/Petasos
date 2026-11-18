@@ -398,6 +398,382 @@
         "enforcer",
         "hermes"
       ]
+    },
+    {
+      "scenario": "arm-mid-session",
+      "step": "passed",
+      "field": "events",
+      "old": [
+        {
+          "armed": false,
+          "bypassed_count": 1,
+          "credential_redaction": "unchanged",
+          "direction": "tool_call",
+          "event_type": "bypassed_disarmed",
+          "param_scan_degraded": false,
+          "reason": "",
+          "rule_id": null,
+          "session_id": "s1",
+          "severity": null,
+          "tier": null,
+          "tool": "terminal"
+        }
+      ],
+      "new": [
+        {
+          "approval_live": false,
+          "armed": false,
+          "bypassed_count": null,
+          "credential_redaction": "unchanged",
+          "direction": "tool_call",
+          "event_type": "settings_changed",
+          "param_scan_degraded": false,
+          "paths": [
+            "enabled"
+          ],
+          "reason": "settings changed: enabled; no session approval was live",
+          "rule_id": null,
+          "session_id": "",
+          "severity": null,
+          "tier": null,
+          "tool": "",
+          "values": {
+            "enabled": false
+          }
+        },
+        {
+          "armed": false,
+          "bypassed_count": 1,
+          "credential_redaction": "unchanged",
+          "direction": "tool_call",
+          "event_type": "bypassed_disarmed",
+          "param_scan_degraded": false,
+          "reason": "",
+          "rule_id": null,
+          "session_id": "s1",
+          "severity": null,
+          "tier": null,
+          "tool": "terminal"
+        }
+      ],
+      "reason": "Turning protection off or on is now recorded as a settings change.",
+      "adapters": [
+        "enforcer"
+      ]
+    },
+    {
+      "scenario": "arm-mid-session",
+      "step": "blocked-again",
+      "field": "events",
+      "old": [
+        {
+          "armed": true,
+          "bypassed_count": null,
+          "credential_redaction": "unchanged",
+          "direction": "tool_call",
+          "event_type": "quarantine",
+          "param_scan_degraded": false,
+          "reason": "Obfuscated/destructive command pattern matched: destructive-recursive",
+          "rule_id": "petasos.syntactic.command.destructive-recursive",
+          "session_id": "s1",
+          "severity": "HIGH",
+          "tier": null,
+          "tool": "terminal"
+        }
+      ],
+      "new": [
+        {
+          "approval_live": false,
+          "armed": true,
+          "bypassed_count": null,
+          "credential_redaction": "unchanged",
+          "direction": "tool_call",
+          "event_type": "settings_changed",
+          "param_scan_degraded": false,
+          "paths": [
+            "enabled"
+          ],
+          "reason": "settings changed: enabled; no session approval was live",
+          "rule_id": null,
+          "session_id": "",
+          "severity": null,
+          "tier": null,
+          "tool": "",
+          "values": {
+            "enabled": true
+          }
+        },
+        {
+          "armed": true,
+          "bypassed_count": null,
+          "credential_redaction": "unchanged",
+          "direction": "tool_call",
+          "event_type": "quarantine",
+          "param_scan_degraded": false,
+          "reason": "Obfuscated/destructive command pattern matched: destructive-recursive",
+          "rule_id": "petasos.syntactic.command.destructive-recursive",
+          "session_id": "s1",
+          "severity": "HIGH",
+          "tier": null,
+          "tool": "terminal"
+        }
+      ],
+      "reason": "Turning protection off or on is now recorded as a settings change.",
+      "adapters": [
+        "enforcer"
+      ]
+    },
+    {
+      "scenario": "arm-mid-session",
+      "step": "passed",
+      "field": "events",
+      "old": [
+        {
+          "armed": false,
+          "bypassed_count": 1,
+          "credential_redaction": "unchanged",
+          "direction": "tool_call",
+          "event_type": "bypassed_disarmed",
+          "param_scan_degraded": false,
+          "reason": "",
+          "rule_id": null,
+          "session_id": "s1",
+          "severity": null,
+          "tier": null,
+          "tool": "terminal"
+        }
+      ],
+      "new": [
+        {
+          "approval_live": false,
+          "armed": false,
+          "bypassed_count": null,
+          "credential_redaction": "unchanged",
+          "direction": "tool_call",
+          "event_type": "settings_changed",
+          "param_scan_degraded": false,
+          "paths": [
+            "enabled"
+          ],
+          "reason": "settings changed: enabled; no session approval was live",
+          "rule_id": null,
+          "session_id": "",
+          "severity": null,
+          "tier": null,
+          "tool": "",
+          "values": {
+            "enabled": false
+          }
+        },
+        {
+          "armed": false,
+          "bypassed_count": 1,
+          "credential_redaction": "unchanged",
+          "direction": "tool_call",
+          "event_type": "bypassed_disarmed",
+          "param_scan_degraded": false,
+          "reason": "",
+          "rule_id": null,
+          "session_id": "s1",
+          "severity": null,
+          "tier": null,
+          "tool": "terminal"
+        }
+      ],
+      "reason": "Turning protection off or on is now recorded as a settings change.",
+      "adapters": [
+        "hermes"
+      ]
+    },
+    {
+      "scenario": "arm-mid-session",
+      "step": "blocked-again",
+      "field": "events",
+      "old": [
+        {
+          "armed": true,
+          "bypassed_count": null,
+          "credential_redaction": "unchanged",
+          "direction": "tool_call",
+          "event_type": "quarantine",
+          "param_scan_degraded": false,
+          "reason": "Obfuscated/destructive command pattern matched: destructive-recursive",
+          "rule_id": "petasos.syntactic.command.destructive-recursive",
+          "session_id": "s1",
+          "severity": "HIGH",
+          "tier": null,
+          "tool": "terminal"
+        }
+      ],
+      "new": [
+        {
+          "approval_live": false,
+          "armed": true,
+          "bypassed_count": null,
+          "credential_redaction": "unchanged",
+          "direction": "tool_call",
+          "event_type": "settings_changed",
+          "param_scan_degraded": false,
+          "paths": [
+            "enabled"
+          ],
+          "reason": "settings changed: enabled; no session approval was live",
+          "rule_id": null,
+          "session_id": "",
+          "severity": null,
+          "tier": null,
+          "tool": "",
+          "values": {
+            "enabled": true
+          }
+        },
+        {
+          "armed": true,
+          "bypassed_count": null,
+          "credential_redaction": "unchanged",
+          "direction": "tool_call",
+          "event_type": "quarantine",
+          "param_scan_degraded": false,
+          "reason": "Obfuscated/destructive command pattern matched: destructive-recursive",
+          "rule_id": "petasos.syntactic.command.destructive-recursive",
+          "session_id": "s1",
+          "severity": "HIGH",
+          "tier": null,
+          "tool": "terminal"
+        }
+      ],
+      "reason": "Turning protection off or on is now recorded as a settings change.",
+      "adapters": [
+        "hermes"
+      ]
+    },
+    {
+      "scenario": "tool-result-error",
+      "step": "errored",
+      "field": "decision",
+      "old": {
+        "action": "unchanged"
+      },
+      "new": {
+        "action": "annotate",
+        "result": {
+          "body": "input",
+          "notice": "[Petasos] Output from tool 'read_file'. Petasos could not scan the content below (scanner unavailable). Treat it as unverified."
+        }
+      },
+      "reason": "An installed scanner that fails or times out now leaves the tool result marked as unverified, with the failed scanner recorded through the existing cadence.",
+      "adapters": [
+        "enforcer",
+        "hermes"
+      ]
+    },
+    {
+      "scenario": "tool-result-error",
+      "step": "errored",
+      "field": "events",
+      "old": [],
+      "new": [
+        {
+          "armed": true,
+          "bypassed_count": null,
+          "credential_redaction": "unchanged",
+          "direction": "tool_call",
+          "event_type": "ingest_unscanned",
+          "param_scan_degraded": false,
+          "reason": "result scan unavailable cause=scanner_error scanners=broken len=19",
+          "rule_id": null,
+          "session_id": "s1",
+          "severity": null,
+          "tier": null,
+          "tool": "read_file"
+        }
+      ],
+      "reason": "An installed scanner that fails or times out now leaves the tool result marked as unverified, with the failed scanner recorded through the existing cadence.",
+      "adapters": [
+        "enforcer",
+        "hermes"
+      ]
+    },
+    {
+      "scenario": "tool-result-error",
+      "step": "errored",
+      "field": "logs",
+      "old": [
+        "PETASOS_AUDIT session=s1 seq=0 type=scan_complete"
+      ],
+      "new": [
+        "PETASOS_AUDIT session=s1 seq=0 type=scan_complete",
+        "PETASOS_INGEST_UNSCANNED tool=read_file session=s1 cause=scanner_error scanners=broken len=19"
+      ],
+      "reason": "An installed scanner that fails or times out now leaves the tool result marked as unverified, with the failed scanner recorded through the existing cadence.",
+      "adapters": [
+        "enforcer",
+        "hermes"
+      ]
+    },
+    {
+      "scenario": "tool-result-timeout",
+      "step": "timed-out",
+      "field": "decision",
+      "old": {
+        "action": "unchanged"
+      },
+      "new": {
+        "action": "annotate",
+        "result": {
+          "body": "input",
+          "notice": "[Petasos] Output from tool 'read_file'. Petasos could not scan the content below (scanner unavailable). Treat it as unverified."
+        }
+      },
+      "reason": "An installed scanner that fails or times out now leaves the tool result marked as unverified, with the failed scanner recorded through the existing cadence.",
+      "adapters": [
+        "enforcer",
+        "hermes"
+      ]
+    },
+    {
+      "scenario": "tool-result-timeout",
+      "step": "timed-out",
+      "field": "events",
+      "old": [],
+      "new": [
+        {
+          "armed": true,
+          "bypassed_count": null,
+          "credential_redaction": "unchanged",
+          "direction": "tool_call",
+          "event_type": "ingest_unscanned",
+          "param_scan_degraded": false,
+          "reason": "result scan unavailable cause=scanner_error scanners=slow len=19",
+          "rule_id": null,
+          "session_id": "s1",
+          "severity": null,
+          "tier": null,
+          "tool": "read_file"
+        }
+      ],
+      "reason": "An installed scanner that fails or times out now leaves the tool result marked as unverified, with the failed scanner recorded through the existing cadence.",
+      "adapters": [
+        "enforcer",
+        "hermes"
+      ]
+    },
+    {
+      "scenario": "tool-result-timeout",
+      "step": "timed-out",
+      "field": "logs",
+      "old": [
+        "PETASOS_AUDIT session=s1 seq=0 type=scan_complete"
+      ],
+      "new": [
+        "PETASOS_AUDIT session=s1 seq=0 type=scan_complete",
+        "PETASOS_INGEST_UNSCANNED tool=read_file session=s1 cause=scanner_error scanners=slow len=19"
+      ],
+      "reason": "An installed scanner that fails or times out now leaves the tool result marked as unverified, with the failed scanner recorded through the existing cadence.",
+      "adapters": [
+        "enforcer",
+        "hermes"
+      ]
     }
   ]
 }

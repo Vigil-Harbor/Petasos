@@ -1,14 +1,15 @@
 """Per-enforcer counters, latches, and rate-limited operator logs.
 
-Every map is bounded. Dropping the oldest entry can repeat a line. It does
-not silence one. The clocks come from the enforcer, so a test opens a window
-by advancing time.
+Counter maps are capped; agent identities live only as long as their objects.
+Dropping the oldest counter entry can repeat a line. It does not silence one.
+The clocks come from the enforcer, so a test opens a window by advancing time.
 """
 
 from __future__ import annotations
 
 import threading
 import uuid
+import weakref
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
@@ -82,7 +83,7 @@ class Book:
         self.cold_fail = Cadence(clock, interval)
         self.ingest_unscanned = KeyCadence(clock, interval, _MAX_SESSIONS)
         self._bypass: dict[str, int] = {}
-        self._agents: dict[int, str] = {}
+        self._agents: dict[int, tuple[weakref.ReferenceType[object], str]] = {}
         self._cold: dict[tuple[str, str], None] = {}
         self._cold_anon_degraded = False
         self._cold_anon_failed = False
@@ -96,17 +97,44 @@ class Book:
         self._fallback: threading.local = threading.local()
 
     def session_id(self, task_id: str, agent: object | None) -> str:
-        """The id enforcement stores under. A fresh anonymous id when neither is set."""
+        """Use a task id, a live weak-referenceable agent, or a fresh anonymous id.
+
+        Opaque agents that cannot be weakly referenced are uncorrelated. Their
+        addresses cannot safely identify a conversation after they are freed.
+        """
         if task_id:
             return task_id
         if agent is not None:
             key = id(agent)
             with self._lock:
                 found = self._agents.get(key)
-                if found is None:
-                    found = f"desktop-{uuid.uuid4().hex[:12]}"
-                    self._agents[key] = found
-                return found
+                if found is not None and found[0]() is agent:
+                    return found[1]
+                owner = weakref.ref(self)
+
+                def forget(reference: weakref.ReferenceType[object]) -> None:
+                    book = owner()
+                    if book is not None:
+                        with book._lock:
+                            current = book._agents.get(key)
+                            if current is not None and current[0] is reference:
+                                del book._agents[key]
+
+                try:
+                    reference = weakref.ref(agent, forget)
+                except TypeError:
+                    # An opaque object gives us no lifetime notification. Never
+                    # retain it or trust its reusable address as a conversation.
+                    reference = None
+                if reference is not None:
+                    session = f"desktop-{uuid.uuid4().hex[:12]}"
+                    self._agents[key] = (reference, session)
+                    return session
+            if self.claim_uncorrelated("uncorrelatable"):
+                self._logger.warning(
+                    "PETASOS_INGEST_UNCORRELATED cause=agent_not_weak_referenceable "
+                    "-- session risk cannot be accumulated for this agent"
+                )
         return f"anon-{uuid.uuid4().hex[:8]}"
 
     def bump_bypass(self, session_id: str) -> int:

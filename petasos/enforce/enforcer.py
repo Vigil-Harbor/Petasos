@@ -56,6 +56,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("petasos.enforce")
 
+_CLOSED_CALL = Block("Petasos could not evaluate this tool call.")
+
 
 class Enforcer:
     """Stateful enforcement for one host process.
@@ -121,12 +123,13 @@ class Enforcer:
     def tool_call(self, call: ToolCall) -> Decision:
         """Decide a tool call that is about to run. Never raises."""
         if self._core._closed:
-            return Allow()
+            return _CLOSED_CALL
         try:
-            return decide(self._core, call)
+            decision = decide(self._core, call)
         except Exception as exc:
             logger.error("Petasos tool_call failed: %s", exc, exc_info=True)
-            return self._failed_call(call)
+            decision = self._failed_call(call)
+        return _CLOSED_CALL if self._core._closed else decision
 
     def tool_result(self, call: ToolCall, result: object) -> str | None:
         """Annotate a tool result, or return ``None`` to leave it unchanged.
@@ -200,22 +203,9 @@ class Enforcer:
         if self._core._closed:
             return
         try:
-            self._core.observe(announce=False)
-            snap = self._core._pending
-            engine = self._core.engine
-            if snap is None or snap.config is None or snap.error or engine is None:
-                return
-            if snap.token == self._core._token:
-                return
-            from petasos.enforce.engine import apply_snapshot
-            from petasos.enforce.guardrail import record_applied_settings
-
-            before = engine.config
-            apply_snapshot(engine, snap.config, snap.secrets, logger, origin=snap.origin)
-            record_applied_settings(self._core, before)
-            self._core._token = snap.token
-            self._core.fail_mode = engine.fail_mode()
-            self._core._install_secret(engine.secrets)
+            with self._core._settings_lock:
+                self._core.observe(announce=False)
+                self._core.apply_pending(announce=False)
         except Exception as exc:
             self._core.book.log_reload_failure(f"apply failed: {exc}")
 
