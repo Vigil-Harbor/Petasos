@@ -1263,6 +1263,22 @@ to make that transition. There is no protection between those commands.
 After a build containing refresh is loaded, later updates use refresh
 without turning the plugin off.
 
+**Observed on 2026-11-18** on the live install, after the same steps in a
+sandbox home: the transition above, from a loaded build without refresh.
+Install from the checkout's environment saved the new wheel and offered
+refresh; the loaded build answered that refresh is not a `hermes petasos`
+command. Disable then enable took 11 seconds together. Enable reported
+that the running gateway reloaded its plugins. In the same second the
+profile's error log has a process failing to import Petasos, with Hermes's
+warning that a running process never switches environment. Which process
+logged it was not established. The running gateway was therefore without
+Petasos for at least the 6 seconds between the two commands and at most
+about 20 seconds, until the service was reloaded with `launchctl`. No
+worker was running. Afterwards `hermes petasos refresh` exists, reports that Hermes
+already runs the declared build, and has removed both older wheels,
+including the flat one left since 2026-11-16. Every profile config and the
+service definition were byte-identical before and after.
+
 ## 18. Beside Tirith, 2026-11-15
 
 Hermes source: tag `v0.23.1`, commit
