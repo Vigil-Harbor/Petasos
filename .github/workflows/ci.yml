@@ -1,14 +1,26 @@
 name: CI
 
+# Pull requests only. The master ruleset requires lint, typecheck and every test
+# cell, on a branch that is up to date with master, so the tree a merge lands is
+# the tree these jobs passed on. A run on the merge commit would repeat it.
 on:
-  push:
-    branches: [master]
   pull_request:
     branches: [master]
 
+permissions:
+  contents: read
+
+# A newer push to the same pull request replaces the run still in progress.
+concurrency:
+  group: ${{ github.workflow }}-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+# Each timeout-minutes is a billing stop about three times the slowest measured
+# job, so a hang does not run to the six-hour default. It is not a test deadline.
 jobs:
   lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -23,6 +35,7 @@ jobs:
 
   typecheck:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -33,8 +46,12 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     strategy:
       matrix:
+        # The master ruleset requires each cell by its check name, `test (3.11)`
+        # and so on. Change the ruleset together with this list, or a renamed
+        # cell blocks every pull request.
         python-version: ["3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v6
