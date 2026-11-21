@@ -1,14 +1,6 @@
-"""Direct PromptGuard 2 scanner on torch and transformers (PET-242).
+"""Share bounded PromptGuard inference across scanner copies without eager ML imports.
 
-Module-level imports are stdlib plus ``petasos._types``. torch and transformers
-import locally inside ``_load`` and ``_score``, so ``import petasos.scanners``
-stays ML-free. ``_score`` holds every torch use in the inference path, which lets
-the default test lane replace it and test the rest of the scanner without torch.
-
-The loaded model is module state, not instance state. One multiplexed Hermes
-gateway builds a scanner list per guarded profile home, and every copy imports
-this one module, so N copies share one model in memory.
-"""
+See docs/architecture/rationale.md, "PromptGuard loading and sharing"."""
 
 from __future__ import annotations
 
@@ -24,7 +16,7 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-from petasos._types import (
+from petasos.model import (
     AVAILABILITY_CAUSE_ABSENT,
     AVAILABILITY_CAUSE_LOAD_FAILED,
     AvailabilityCause,
@@ -88,8 +80,7 @@ def _reset_for_tests() -> None:
 
 
 def _hf_home() -> str:
-    # expanduser: llamafirewall sets HF_HOME to a literal "~/.cache/huggingface"
-    # and the two backends can share a process during migration.
+    # HF_HOME may be stored as a literal "~/..." path.
     home = os.environ.get("HF_HOME", "")
     return os.path.expanduser(home) if home else os.path.expanduser("~/.cache/huggingface")
 
@@ -260,6 +251,27 @@ def _load(*, local_files_only: bool) -> tuple[Any, Any]:
     return model, tokenizer
 
 
+def would_download() -> bool:
+    """True when the next scan would fetch model weights.
+
+    Does not import the model and does not use the network. A model already
+    in memory, a complete snapshot, offline mode, a missing token, or a
+    missing package is False.
+    """
+    if _MODEL is not None or _snapshot_complete():
+        return False
+    if _offline() or not _has_token():
+        return False
+    for pkg in _REQUIRED_PACKAGES:
+        try:
+            spec = importlib.util.find_spec(pkg)
+        except Exception:
+            return False
+        if spec is None or spec.origin is None:
+            return False
+    return True
+
+
 def _availability() -> tuple[bool, str | None, AvailabilityCause | None]:
     if _MODEL is not None:
         return (True, None, None)
@@ -319,7 +331,9 @@ def _ensure_model() -> None:
         _LOAD_LOCK.release()
 
 
-def _map_score(score: float, duration_ms: float) -> ScanResult:
+def _map_score(
+    score: float, duration_ms: float, threshold: float = _BLOCK_THRESHOLD
+) -> ScanResult:
     """Score to verdict. Pure, so the default test lane exercises it without torch."""
     if not math.isfinite(score):
         # upstream's `score >= threshold` is false for NaN, so a broken model
@@ -331,7 +345,7 @@ def _map_score(score: float, duration_ms: float) -> ScanResult:
             error=f"prompt_guard produced a non-finite score ({score})",
         )
     findings: tuple[ScanFinding, ...] = ()
-    if score >= _BLOCK_THRESHOLD:
+    if score >= threshold:
         findings = (
             ScanFinding(
                 rule_id=_RULE_ID,
@@ -379,10 +393,9 @@ def _scan_sync(text: str, cancelled: threading.Event) -> float | None:
         finally:
             _INFER_LOCK.release()
     if not cancelled.is_set():
-        # pipeline.py imports petasos.scanners, so this import stays local. The
-        # prefix makes a miss count toward the breaker; a plain error would clear
+        # The shared prefix makes a miss count toward the breaker; a plain error would clear
         # the streak and a wedged forward would cost every call this wait forever.
-        from petasos.pipeline import _TIMEOUT_ERROR_PREFIX
+        from petasos.model import _TIMEOUT_ERROR_PREFIX
 
         raise _ScanRefused(
             f"{_TIMEOUT_ERROR_PREFIX}: prompt_guard inference lock not acquired "
@@ -392,8 +405,18 @@ def _scan_sync(text: str, cancelled: threading.Event) -> float | None:
 
 
 class PromptGuardScanner:
+    """Detect injection with bounded, shared PromptGuard inference."""
+
+    def __init__(self, *, threshold: float = _BLOCK_THRESHOLD) -> None:
+        """Report injection when the score is at least ``threshold``.
+
+        Omitting ``threshold`` uses the module cutoff.
+        """
+        self._threshold = threshold
+
     @property
     def name(self) -> str:
+        """Return the stable scanner id."""
         return "prompt_guard"
 
     def availability(self) -> tuple[bool, str | None, AvailabilityCause | None]:
@@ -409,7 +432,7 @@ class PromptGuardScanner:
     ) -> ScanResult:
         """Scan ``text`` and return a ScanResult (never raises).
 
-        Both directions score identically, as the LlamaFirewall wrapper does.
+        Both directions score identically.
 
         Load and inference run in a worker thread, so ``asyncio.wait_for`` in the
         pipeline can return during a slow load. Cancellation abandons queued
@@ -427,7 +450,7 @@ class PromptGuardScanner:
             score = await asyncio.to_thread(_scan_sync, text, cancelled)
             if score is None:
                 return ScanResult(scanner_name=self.name, findings=(), duration_ms=elapsed())
-            return _map_score(score, elapsed())
+            return _map_score(score, elapsed(), self._threshold)
         except Exception as exc:
             return ScanResult(
                 scanner_name=self.name,

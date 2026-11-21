@@ -1,41 +1,30 @@
 # Composition smoke checklist
 
-This checklist is a real model turn against the isolated root a gate run
-left behind. The operator supplies provider credentials by their own means.
-The gate never sees a provider key. The outcome here does not change the
-gate verdict.
+The hand-run gate this checklist followed is retired. A real Hermes check
+is the sandbox in `tests/hermes_host/README.md`. `petasos doctor` reports
+whether that home is protected. Do not point either at a live Hermes home.
+
+The model turn below is not part of the automated suite, and it does not
+change a test result. It needs a provider the operator supplies. The
+sandbox must not be given a provider key.
 
 ## Session environment
 
-Use the isolated root printed at the end of the gate run. The process needs
-the variables the gate prints, with the same values, except
-`PETASOS_SESSION_SECRET`: that value is the harness throwaway constant and
-is not printed. Set it from `scripts/hermes_multiprofile_harness.py` (the
-`PETASOS_SESSION_SECRET` entry in `base_env`). Do not point the session at
-the live Hermes home.
+Use a home prepared by `tests/hermes_host/README.md`. Put
+`PETASOS_SESSION_SECRET` in that home's `.env`. `petasos doctor` names a
+secret it cannot read, and it does not print the value.
 
-`PYTHONDONTWRITEBYTECODE=1`. `HF_HUB_OFFLINE=1` and `TRANSFORMERS_OFFLINE=1`.
-`HF_HUB_CACHE` is the cache the gate printed. `HERMES_GATEWAY_SESSION=1`.
-
-`HERMES_RUNTIME_DIR` must be the isolated root's `tools` directory, as
-printed. Without it Hermes uses the live root's tool store, and can repair
-it.
+`PYTHONDONTWRITEBYTECODE=1`.
 
 ## Turns
 
-Pick one armed profile from the run's matrix whose copied section has
-`tool_guard_enabled: true`. A profile with the tool guard off passes the
-injection command by design, so the second turn would read as a failure.
+Pick one profile whose protection is on. A paused profile lets an
+injection command through, so the second turn would read as a failure.
 
-`HERMES_HOME` is the isolated root, so a named profile is selected with
-`--profile <name>` before the Hermes subcommand. The profile the evidence
-calls `default` is the root and takes no flag.
-
-The gate run already wrote signed rows to each profile's spool. Before the
-turns, note the line count of the chosen profile's
-`petasos-enforcement.jsonl` (in the root for `default`, otherwise in
-`profiles/<name>`). Only lines after that count belong to this session,
-and they also confirm which profile the session ran on.
+Before the turns, note the line count of that profile's
+`petasos-enforcement.jsonl` (in the home for the default profile,
+otherwise in `profiles/<name>`). Only lines after that count belong to
+this session.
 
 Record pass or fail:
 
@@ -51,7 +40,5 @@ Date:
 Profile:
 
 Spool line count before the turns:
-
-Gate evidence file:
 
 Notes:

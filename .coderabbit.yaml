@@ -10,6 +10,6 @@ reviews:
     - path: "petasos/scanners/**"
       instructions: "Scanner implementations behind the Scanner protocol. Verify scan() is async, returns ScanResult (never throws), and respects direction/session_id kwargs. MinimalScanner has zero external deps — flag any added imports."
     - path: "petasos/session/**"
-      instructions: "Session intelligence features (frequency, escalation, profiles, guard, audit, alerting). All features ship free — no license gate. Tier 3 escalation cannot be disabled — flag any config override that would allow it."
+      instructions: "Session intelligence features (frequency, escalation, profiles, guard, audit, alerting). All features ship free and are controlled by config toggles. Tier 3 escalation cannot be disabled — flag any config override that would allow it."
     - path: "tests/**"
       instructions: "pytest + anyio. Tests must not mock the scanner protocol boundary — use real scanner instances. Verify frozen dataclass assertions use dataclasses.FrozenInstanceError, not AttributeError."

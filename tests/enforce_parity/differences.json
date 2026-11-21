@@ -1,0 +1,403 @@
+{
+  "differences": [
+    {
+      "scenario": "*",
+      "step": "*",
+      "field": "logs",
+      "old": "PETASOS_RECONFIGURED: live config.yaml change applied to the running session",
+      "new": null,
+      "reason": "The plugin logs a reconfigure on the first armed call because its reload cache starts empty. The enforcer applies the snapshot during initialisation and logs only when the token later changes. The line is removed only when it is the first log of the step, so a later real change that also carries the line stays pinned.",
+      "adapters": [
+        "enforcer",
+        "hermes"
+      ]
+    },
+    {
+      "scenario": "settings-while-running",
+      "step": "still-blocked",
+      "field": "logs",
+      "old": "PETASOS_RELOAD_FAILED: build failed: egress_sink_tools must be an iterable of tool names, not a string, got 'send_email'; keeping last-good config",
+      "new": "PETASOS_RELOAD_FAILED: build failed: overrides.egress.sink_tools: must be a list of text values, not a single text value, got \"send_email\"; keeping last-good config",
+      "reason": "Invalid settings are reported with the config tree's schema error (redesign section 3). The flat config's wording is not reproduced. The decision is unchanged: the previous good configuration stays in force.",
+      "adapters": [
+        "enforcer",
+        "hermes"
+      ]
+    },
+    {
+      "scenario": "settings-while-running",
+      "step": "allowed",
+      "field": "logs",
+      "old": null,
+      "new": "PETASOS_RECONFIGURED: live config.yaml change applied to the running session",
+      "reason": "The plugin's empty-cache log on the first call consumed the 30s attribution window, so this real change was silent. The enforcer did not emit that first log, so the window is open and the change that applied is logged.",
+      "adapters": [
+        "enforcer",
+        "hermes"
+      ]
+    },
+    {
+      "scenario": "arm-mid-session",
+      "step": "blocked-again",
+      "field": "logs",
+      "old": null,
+      "new": "PETASOS_RECONFIGURED: live config.yaml change applied to the running session",
+      "reason": "The plugin's empty-cache log on the first call consumed the 30s attribution window, so re-arming was silent. The enforcer oracle's token is a counter, so re-arming counts as a change and is logged. The Hermes token is the four settings: re-arming restores the same values, the switch is applied, and there is no second configuration change to log.",
+      "adapters": [
+        "enforcer"
+      ]
+    },
+    {
+      "scenario": "profile-and-arm",
+      "step": "bad-profile",
+      "field": "logs",
+      "old": "PETASOS_PROFILE_CHANGE name='nope'",
+      "new": null,
+      "reason": "Hermes v0.23.1 has no profile-change event, and nothing in the host fires one. The old plugin logged this by a handler that was only reached when a test called it directly. The enforcer never emitted it. The Hermes adapter does not either: a relative home is not a settings change on the active profile.",
+      "adapters": [
+        "enforcer",
+        "hermes"
+      ]
+    },
+    {
+      "scenario": "profile-and-arm",
+      "step": "bad-profile",
+      "field": "logs",
+      "old": "PETASOS_REBIND_SKIPPED reason=non-absolute profile_home 'relative/nope'",
+      "new": null,
+      "reason": "Rejecting a relative profile home was that unreachable handler. Hermes does not deliver the event, so neither adapter logs a skip. The active profile's settings stay as they were.",
+      "adapters": [
+        "enforcer",
+        "hermes"
+      ]
+    },
+    {
+      "scenario": "profile-and-arm",
+      "step": "swap",
+      "field": "logs",
+      "old": "PETASOS_PROFILE_CHANGE name='coding'",
+      "new": null,
+      "reason": "Hermes v0.23.1 has no profile-change event. The old handler logged the name only when called directly, and it has never run under the host. The step's settings are applied as the active profile's settings. Neither adapter logs a profile-change line.",
+      "adapters": [
+        "enforcer",
+        "hermes"
+      ]
+    },
+    {
+      "scenario": "profile-and-arm",
+      "step": "swap",
+      "field": "logs",
+      "old": "PETASOS_ARMED_RESOLUTION tier=profile path=<home>/profiles/coding/config.yaml",
+      "new": null,
+      "reason": "That resolution line was the unreachable profile-change handler naming a directory the host did not switch to. Hermes reads the active profile's settings at call time. Neither adapter logs a profile path for this step.",
+      "adapters": [
+        "enforcer",
+        "hermes"
+      ]
+    },
+    {
+      "scenario": "profile-and-arm",
+      "step": "swap",
+      "field": "logs",
+      "old": null,
+      "new": "restart required: scanners.prompt_guard.enabled, scanners.presidio.enabled",
+      "reason": "Those enabled flags are restart settings. The swapped profile turns the scanners on after they were off. The enforcer reports restart-only changes and does not rebuild scanners, which is the redesign's live-apply rule. The plugin dropped the change silently.",
+      "adapters": [
+        "enforcer",
+        "hermes"
+      ]
+    },
+    {
+      "scenario": "profile-without-section",
+      "step": "empty",
+      "field": "logs",
+      "old": "PETASOS_PROFILE_CHANGE name='empty'",
+      "new": null,
+      "reason": "Hermes v0.23.1 has no profile-change event. The old handler logged the name only when a test called it directly. An empty settings object is not a new configuration, so neither adapter logs a profile change and the previous settings stay in force.",
+      "adapters": [
+        "enforcer",
+        "hermes"
+      ]
+    },
+    {
+      "scenario": "profile-without-section",
+      "step": "empty",
+      "field": "logs",
+      "old": "PETASOS_ARMED_RESOLUTION tier=profile path=<home>/profiles/empty/config.yaml",
+      "new": null,
+      "reason": "That line was the unreachable handler naming a profile directory. The host does not switch homes for this step, and neither adapter logs one.",
+      "adapters": [
+        "enforcer",
+        "hermes"
+      ]
+    },
+    {
+      "scenario": "profile-without-section",
+      "step": "empty",
+      "field": "logs",
+      "old": "PETASOS_REBIND_CONFIG_STALE path=<home>/profiles/empty/config.yaml: no petasos: section at new profile; keeping last-good policy",
+      "new": null,
+      "reason": "The stale-policy line was the unreachable handler. Hermes has no such event. An empty settings object leaves the active profile's settings unchanged, so neither adapter logs a rebind.",
+      "adapters": [
+        "enforcer",
+        "hermes"
+      ]
+    },
+    {
+      "scenario": "self-modification",
+      "step": "write-config",
+      "field": "decision",
+      "old": {"action": "allow"},
+      "new": {
+        "action": "block",
+        "message": "[BLOCKED by Petasos] Tool 'write_file' was NOT executed. Changing Petasos or Hermes guardrails needs a person to approve it, and nobody can be asked. The change was refused."
+      },
+      "reason": "Guardrail integrity (docs/architecture/guardrail-integrity.md): a write to the profile config is a guardrail change. tools.self_change defaults to approve, and this host cannot ask a person (approve_directive is false), so the call is blocked. The previous record allowed it below tier 2.",
+      "adapters": ["enforcer", "hermes"]
+    },
+    {
+      "scenario": "self-modification",
+      "step": "write-config",
+      "field": "events",
+      "op": "append",
+      "new": {
+        "armed": true,
+        "bypassed_count": null,
+        "credential_redaction": "unchanged",
+        "decision": "unattended",
+        "direction": "tool_call",
+        "event_type": "guardrail",
+        "kind": "settings",
+        "param_scan_degraded": false,
+        "reason": "guardrail unattended (settings): <config>",
+        "rule_id": null,
+        "scope": null,
+        "session_id": "s1",
+        "severity": "critical",
+        "target": "<config>",
+        "tier": null,
+        "tool": "write_file",
+        "until": null
+      },
+      "reason": "The block is recorded as its own guardrail event (decision unattended) after the existing selfmod_attempt. The attempt event is unchanged.",
+      "adapters": ["enforcer", "hermes"]
+    },
+    {
+      "scenario": "self-modification",
+      "step": "write-config",
+      "field": "logs",
+      "old": null,
+      "new": "PETASOS_GUARDRAIL decision=unattended tool=write_file session=s1 kind=settings",
+      "reason": "The enforcer logs the guardrail decision. The call is the config write that is now blocked because nobody can be asked.",
+      "adapters": ["enforcer", "hermes"]
+    },
+    {
+      "scenario": "settings-while-running",
+      "step": "allowed",
+      "field": "events",
+      "op": "append",
+      "new": {
+        "approval_live": false,
+        "armed": true,
+        "bypassed_count": null,
+        "credential_redaction": "unchanged",
+        "direction": "tool_call",
+        "event_type": "settings_changed",
+        "param_scan_degraded": false,
+        "paths": ["egress.sink_tools"],
+        "reason": "settings changed: egress.sink_tools; no session approval was live",
+        "rule_id": null,
+        "session_id": "",
+        "severity": null,
+        "tier": null,
+        "tool": "",
+        "values": {"egress.sink_tools": []}
+      },
+      "reason": "Guardrail integrity records every settings change the enforcer applies, including whether a self-change approval was live. This step clears the egress sinks. No session approval was live. The decision stays allow.",
+      "adapters": ["enforcer", "hermes"]
+    },
+    {
+      "scenario": "profile-and-arm",
+      "step": "swap",
+      "field": "events",
+      "op": "append",
+      "new": {
+        "approval_live": false,
+        "armed": true,
+        "bypassed_count": null,
+        "credential_redaction": "unchanged",
+        "direction": "tool_call",
+        "event_type": "settings_changed",
+        "param_scan_degraded": false,
+        "paths": [
+          "rules.confidence_floor",
+          "rules.injection_floor_scope",
+          "rules.severity_overrides.petasos.promptguard.injection",
+          "rules.suppress",
+          "tools.dangerous_posture"
+        ],
+        "reason": "settings changed: rules.confidence_floor, rules.injection_floor_scope, rules.severity_overrides.petasos.promptguard.injection, rules.suppress, tools.dangerous_posture; no session approval was live",
+        "rule_id": null,
+        "session_id": "",
+        "severity": null,
+        "tier": null,
+        "tool": "",
+        "values": {
+          "rules.confidence_floor": 0.6,
+          "rules.injection_floor_scope": "inbound",
+          "rules.severity_overrides.petasos.promptguard.injection": "low",
+          "rules.suppress": [
+            "petasos.syntactic.encoding.invisible-chars",
+            "petasos.syntactic.encoding.base64-in-text",
+            "petasos.syntactic.encoding.homoglyph-substitution",
+            "petasos.syntactic.encoding.rtl-override",
+            "petasos.syntactic.command.pipe-to-shell",
+            "petasos.syntactic.injection.ignore-previous",
+            "petasos.syntactic.injection.ignore-all",
+            "petasos.syntactic.injection.disregard",
+            "petasos.syntactic.injection.new-instructions",
+            "petasos.syntactic.injection.system-override",
+            "petasos.syntactic.injection.system-prefix",
+            "petasos.syntactic.injection.inst-delimiter",
+            "petasos.syntactic.injection.you-are-now",
+            "petasos.syntactic.injection.role-switch-capability",
+            "petasos.syntactic.injection.role-switch-only",
+            "petasos.syntactic.injection.agent-directed-fetch"
+          ],
+          "tools.dangerous_posture": "approve"
+        }
+      },
+      "reason": "Swapping to the coding role applies that role's rule and posture fields. The enforcer records the paths and the new values. No self-change approval was live. The step still has no tool-call decision.",
+      "adapters": ["enforcer", "hermes"]
+    },
+    {
+      "scenario": "tool-results",
+      "step": "finding",
+      "field": "events",
+      "old": [
+        {
+          "armed": true,
+          "bypassed_count": null,
+          "credential_redaction": "unchanged",
+          "direction": "tool_call",
+          "event_type": "ingest_flagged",
+          "param_scan_degraded": false,
+          "reason": "Injection pattern matched: ignore-previous (tool result len=32, coverage=full, scanned=32)",
+          "rule_id": "petasos.syntactic.injection.ignore-previous",
+          "session_id": "s1",
+          "severity": "HIGH",
+          "tier": null,
+          "tool": "read_file"
+        }
+      ],
+      "new": [
+        {
+          "armed": true,
+          "bypassed_count": null,
+          "credential_redaction": "unchanged",
+          "direction": "tool_call",
+          "event_type": "ingest_flagged",
+          "param_scan_degraded": false,
+          "reason": "Injection pattern matched: ignore-previous (tool result len=32, coverage=full, scanned=32)",
+          "rule_id": "petasos.syntactic.injection.ignore-previous",
+          "score": 3.8,
+          "session_id": "s1",
+          "severity": "HIGH",
+          "tier": "none",
+          "tool": "read_file"
+        }
+      ],
+      "reason": "PET-267: a flag records the conversation's risk score after the scan, rounded to one decimal, and the tier that score maps to. The decision, message and logs are unchanged.",
+      "adapters": [
+        "enforcer",
+        "hermes"
+      ]
+    },
+    {
+      "scenario": "tool-results",
+      "step": "credential",
+      "field": "events",
+      "old": [
+        {
+          "armed": true,
+          "bypassed_count": null,
+          "credential_redaction": "unchanged",
+          "direction": "tool_call",
+          "event_type": "ingest_flagged",
+          "param_scan_degraded": false,
+          "reason": "aws access key (tool result len=36, coverage=full, scanned=36)",
+          "rule_id": "petasos.credential.aws_access_key",
+          "session_id": "s1",
+          "severity": "HIGH",
+          "tier": null,
+          "tool": "web_extract"
+        }
+      ],
+      "new": [
+        {
+          "armed": true,
+          "bypassed_count": null,
+          "credential_redaction": "unchanged",
+          "direction": "tool_call",
+          "event_type": "ingest_flagged",
+          "param_scan_degraded": false,
+          "reason": "aws access key (tool result len=36, coverage=full, scanned=36)",
+          "rule_id": "petasos.credential.aws_access_key",
+          "score": 3.7,
+          "session_id": "s1",
+          "severity": "HIGH",
+          "tier": "none",
+          "tool": "web_extract"
+        }
+      ],
+      "reason": "PET-267: a flag records the conversation's risk score after the scan, rounded to one decimal, and the tier that score maps to. The decision, message and logs are unchanged.",
+      "adapters": [
+        "enforcer",
+        "hermes"
+      ]
+    },
+    {
+      "scenario": "tool-results",
+      "step": "unmatched",
+      "field": "events",
+      "old": [
+        {
+          "armed": true,
+          "bypassed_count": null,
+          "credential_redaction": "unchanged",
+          "direction": "tool_call",
+          "event_type": "ingest_flagged",
+          "param_scan_degraded": false,
+          "reason": "Injection pattern matched: ignore-previous (tool result len=32, coverage=full, scanned=32)",
+          "rule_id": "petasos.syntactic.injection.ignore-previous",
+          "session_id": "s-other",
+          "severity": "HIGH",
+          "tier": null,
+          "tool": "read_file"
+        }
+      ],
+      "new": [
+        {
+          "armed": true,
+          "bypassed_count": null,
+          "credential_redaction": "unchanged",
+          "direction": "tool_call",
+          "event_type": "ingest_flagged",
+          "param_scan_degraded": false,
+          "reason": "Injection pattern matched: ignore-previous (tool result len=32, coverage=full, scanned=32)",
+          "rule_id": "petasos.syntactic.injection.ignore-previous",
+          "score": 3.8,
+          "session_id": "s-other",
+          "severity": "HIGH",
+          "tier": "none",
+          "tool": "read_file"
+        }
+      ],
+      "reason": "PET-267: a flag records the conversation's risk score after the scan, rounded to one decimal, and the tier that score maps to. The decision, message and logs are unchanged.",
+      "adapters": [
+        "enforcer",
+        "hermes"
+      ]
+    }
+  ]
+}

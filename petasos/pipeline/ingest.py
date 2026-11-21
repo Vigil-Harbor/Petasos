@@ -1,0 +1,295 @@
+"""Scan a bounded result with an inspection head and an overlapping syntactic sweep.
+
+Callers needing result-wide syntactic coverage use this helper rather than
+a one-shot Pipeline.inspect call."""
+
+from __future__ import annotations
+
+import asyncio
+from dataclasses import dataclass, replace
+from typing import TYPE_CHECKING, Literal
+
+from petasos.coverage import FrozenCoverageMapping
+from petasos.model import Direction, PipelineResult, Position, ScanFinding, ScanResult
+from petasos.scanners.minimal import MinimalScanner
+from petasos.scanners.minimal.decode import _DECODE_MAX_BYTES
+from petasos.scanners.semgrep.adapter import PreparedSemgrepScan
+
+if TYPE_CHECKING:
+    import threading
+    from collections.abc import Mapping
+
+    from petasos.coverage import ScanCoverage
+    from petasos.pipeline import Pipeline
+from petasos.limits import HEAD_CHARS
+from petasos.limits import MAX_PARAM_TEXT_LEN as _MAX_PARAM_TEXT_LEN
+
+_PREPARE_HERE = object()
+
+CHUNK_CHARS = 65_536
+CHUNK_OVERLAP_CHARS = _DECODE_MAX_BYTES  # 8_192
+_STRIDE = CHUNK_CHARS - CHUNK_OVERLAP_CHARS
+
+IngestionRegime = Literal["full", "ceiling"]
+
+
+@dataclass(frozen=True)
+class IngestionCoverage:
+    """Report bounded ingestion coverage and any incomplete examination."""
+
+    regime: IngestionRegime
+    scanned_chars: int
+    total_chars: int
+    head_chars: int
+    chunk_count: int
+
+
+@dataclass(frozen=True)
+class IngestionScanResult:
+    """Scan findings and the requested coverage, with failures kept separately.
+
+    Nonempty ``errors`` invalidate any complete-coverage claim, even when
+    successful windows produced findings. Hosts must surface scan unavailability.
+    ``inspect_failed`` means the head ``inspect()`` call raised. Hosts must not
+    report that flag as ``boundary``.
+    """
+
+    findings: tuple[ScanFinding, ...]
+    coverage: IngestionCoverage
+    head: PipelineResult | None
+    errors: tuple[str, ...]
+    inspect_failed: bool = False
+    backend_coverage: Mapping[str, ScanCoverage] | None = None
+
+    def __post_init__(self) -> None:
+        if self.backend_coverage is not None:
+            object.__setattr__(
+                self, "backend_coverage", FrozenCoverageMapping(self.backend_coverage)
+            )
+
+
+def _chunk_origins(length: int) -> tuple[int, ...]:
+    """Inclusive-origin list for a covered prefix of ``length`` characters.
+
+    First origin is always 0. Consecutive origins differ by ``_STRIDE`` until the
+    last window, which may be short. ``length <= 0`` still yields ``(0,)`` so the
+    origin arithmetic is defined for the empty-string pin.
+    """
+    covered = min(max(length, 0), _MAX_PARAM_TEXT_LEN)
+    if covered <= 0:
+        return (0,)
+    origins: list[int] = []
+    origin = 0
+    while origin < covered:
+        origins.append(origin)
+        nxt = origin + _STRIDE
+        if nxt >= covered:
+            break
+        origin = nxt
+    return tuple(origins)
+
+
+def _map_finding(finding: ScanFinding, origin: int) -> ScanFinding:
+    if finding.position is None or origin == 0:
+        return finding
+    return replace(
+        finding,
+        position=Position(finding.position.start + origin, finding.position.end + origin),
+    )
+
+
+def _coverage_for(text: str, chunk_count: int) -> IngestionCoverage:
+    total = len(text)
+    scanned = min(total, _MAX_PARAM_TEXT_LEN)
+    regime: IngestionRegime = "full" if total <= _MAX_PARAM_TEXT_LEN else "ceiling"
+    return IngestionCoverage(
+        regime=regime,
+        scanned_chars=scanned,
+        total_chars=total,
+        head_chars=min(HEAD_CHARS, scanned),
+        chunk_count=chunk_count,
+    )
+
+
+async def _acquire_inspect_lock(lock: threading.Lock) -> None:
+    """Poll a non-blocking acquire so waiters can honour cancellation.
+
+    Shared cancel-safe acquire for the ingest head and the two plugin waiters
+    (``_evaluate_with_inspect_lock``, ``_apply_reconfigure``). A blocking
+    ``Lock.acquire()`` freezes this event loop, so the scan budget cannot fire
+    while another holder (guard evaluate / reconfigure / ingest head) has the
+    mutex. ``asyncio.to_thread(Lock.acquire)`` is cancel-unsafe: the worker can
+    still acquire after this coroutine is cancelled and leak the lock.
+    Cancellation is delivered at an ``await`` that has not yet acquired. Poll
+    interval stays ``0.01``.
+    """
+    while not lock.acquire(blocking=False):
+        await asyncio.sleep(0.01)
+
+
+async def scan_ingestion_result(
+    pipeline: Pipeline,
+    text: str,
+    *,
+    direction: Direction = "inbound",
+    session_id: str | None = None,
+    weight_cap: float | None = None,
+    inspect_lock: threading.Lock | None = None,
+    upstream_total_chars: int | None = None,
+    _semgrep_prepared: object = _PREPARE_HERE,
+) -> IngestionScanResult:
+    """Scan an ingesting tool result with no unscanned gap below the 1e6 ceiling.
+
+    Scan failures are returned; task cancellation propagates. One
+    ``pipeline.inspect`` on the ML-sized head, then overlapping
+    ``MinimalScanner.scan`` chunks over the covered prefix. Finding positions are
+    original-result coordinates. The inspect mutex, when provided, is held only
+    around the head ``inspect()``.
+    """
+    from petasos.pipeline.findings import merge_findings
+
+    errors: list[str] = []
+    head: PipelineResult | None = None
+    inspect_failed = False
+    prepared: PreparedSemgrepScan | None = None
+    try:
+        if _semgrep_prepared is _PREPARE_HERE:
+            prepare = getattr(pipeline, "_prepare_semgrep", None)
+            if prepare is not None:
+                prepared = await prepare(text, upstream_total_chars=upstream_total_chars)
+        elif _semgrep_prepared is None or isinstance(_semgrep_prepared, PreparedSemgrepScan):
+            if _semgrep_prepared is not None and not _semgrep_prepared.matches_input(
+                pipeline, text
+            ):
+                raise ValueError("semgrep.prepared_invalid")
+            prepared = _semgrep_prepared
+        else:
+            raise ValueError("semgrep.prepared_invalid")
+        covered = text[:_MAX_PARAM_TEXT_LEN]
+        try:
+            normalization = getattr(pipeline.config, "normalization", None)
+            if normalization is not None:
+                decode_flag = bool(normalization.decode_payloads)
+            else:
+                decode_flag = bool(getattr(pipeline.config, "decode_encoded_payloads", True))
+        except Exception as exc:
+            errors.append(f"{type(exc).__name__}: {exc}")
+            decode_flag = True
+
+        async def _inspect_head() -> PipelineResult:
+            if prepared is not None or (
+                _semgrep_prepared is None and hasattr(pipeline, "_inspect_with_prepared_semgrep")
+            ):
+                return await pipeline._inspect_with_prepared_semgrep(
+                    covered[:HEAD_CHARS],
+                    prepared,
+                    direction=direction,
+                    session_id=session_id,
+                    weight_cap=weight_cap,
+                )
+            return await pipeline.inspect(
+                covered[:HEAD_CHARS],
+                direction=direction,
+                session_id=session_id,
+                weight_cap=weight_cap,
+            )
+
+        acquired = False
+        try:
+            if inspect_lock is not None:
+                await _acquire_inspect_lock(inspect_lock)
+                acquired = True
+        except Exception as exc:
+            errors.append(f"{type(exc).__name__}: {exc}")
+        else:
+            try:
+                head = await _inspect_head()
+            except Exception as exc:
+                errors.append(f"{type(exc).__name__}: {exc}")
+                head = None
+                inspect_failed = True
+            else:
+                try:
+                    errors.extend(
+                        result.error
+                        for result in head.scanner_results
+                        if result.scanner_name == "minimal" and result.error is not None
+                    )
+                except Exception as exc:
+                    errors.append(f"{type(exc).__name__}: {exc}")
+                    head = None
+        finally:
+            if acquired and inspect_lock is not None:
+                inspect_lock.release()
+
+        # inspect() catches BaseException and can turn our wait_for cancellation
+        # into a PipelineResult. Restore it after releasing the mutex so the
+        # expired budget cannot fall through into an unbounded syntactic sweep.
+        task = asyncio.current_task()
+        if task is not None and task.cancelling():
+            raise asyncio.CancelledError
+        if head is not None and any(
+            error == "CancelledError" or error.startswith("CancelledError:")
+            for error in head.errors
+        ):
+            return IngestionScanResult(
+                findings=head.findings,
+                coverage=_coverage_for(text, 0),
+                head=head,
+                errors=(*errors, *head.errors),
+                inspect_failed=inspect_failed,
+                backend_coverage=dict(head.backend_coverage)
+                if head and head.backend_coverage
+                else None,
+            )
+
+        origins = _chunk_origins(len(text))
+        scanner = MinimalScanner(decode_encoded_payloads=decode_flag)
+        mapped: list[ScanFinding] = []
+        for origin in origins:
+            chunk = covered[origin : origin + CHUNK_CHARS]
+            try:
+                # MinimalScanner.scan() never awaits; yield so wait_for can stop
+                # the sweep between chunks instead of after the last one.
+                await asyncio.sleep(0)
+                result = await scanner.scan(chunk, direction=direction)
+            except Exception as exc:
+                errors.append(f"{type(exc).__name__}: {exc}")
+                continue
+            if result.error is not None:
+                errors.append(result.error)
+            mapped.extend(_map_finding(f, origin) for f in result.findings)
+
+        head_findings: tuple[ScanFinding, ...] = () if head is None else head.findings
+        merged = merge_findings(
+            (
+                ScanResult(scanner_name="ingest-head", findings=head_findings),
+                ScanResult(scanner_name="ingest-sweep", findings=tuple(mapped)),
+            )
+        )
+        return IngestionScanResult(
+            findings=merged,
+            coverage=_coverage_for(text, len(origins)),
+            head=head,
+            errors=tuple(errors),
+            inspect_failed=inspect_failed,
+            backend_coverage=dict(head.backend_coverage)
+            if head and head.backend_coverage
+            else None,
+        )
+    except Exception as exc:
+        errors.append(f"{type(exc).__name__}: {exc}")
+        return IngestionScanResult(
+            findings=(),
+            coverage=_coverage_for(text, 0),
+            head=head,
+            errors=tuple(errors),
+            inspect_failed=inspect_failed,
+            backend_coverage=dict(head.backend_coverage)
+            if head and head.backend_coverage
+            else None,
+        )
+
+    finally:
+        if prepared is not None:
+            await prepared.discard()

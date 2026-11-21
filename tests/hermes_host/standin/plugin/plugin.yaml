@@ -1,0 +1,36 @@
+name: standin-hostfacts
+version: "0.1.0"
+description: "Stand-in directory plugin that fronts the standin-hostfacts wheel"
+provides_hooks:
+  - pre_tool_call
+  - post_tool_call
+  - transform_tool_result
+  - on_session_start
+  - subagent_start
+  - subagent_stop
+  - pre_approval_request
+  - post_approval_response
+config_schema:
+  enabled:
+    type: bool
+    default: true
+    description: Master switch
+  role:
+    type: string
+    choices: [research, admin]
+    default: research
+  level:
+    type: string
+    enum: [relaxed, balanced, strict]
+    default: balanced
+  overrides:
+    type: dict
+    default: {}
+    description: Free-form overrides
+  session_secret:
+    type: secret
+    env: PETASOS_SESSION_SECRET
+    description: Session HMAC secret
+  hash_key:
+    type: secret
+    description: Hash key

@@ -1,0 +1,655 @@
+"""Read the enforcement spool for one home.
+
+The reader never writes. A large file is read from the end, a partial last
+line is left unread, and a bad line is skipped. Rotation, truncation, and a
+file that is still being appended do not raise.
+"""
+
+from __future__ import annotations
+
+import base64
+import json
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
+
+from petasos.enforce.approvals import redact_display_text
+from petasos.enforce.events import classify_integrity_failure, verify_event
+from petasos.hermes.dashboard.errors import ApiError, envelope
+from petasos.hermes.dashboard.words import (
+    MATCHED_TEXT_NOTE,
+    REVIEW_CURRENT_SETTINGS,
+    SIGNATURE_LIMIT_LABEL,
+    SIGNATURE_MEANING,
+    describe_event,
+    flag_risk_sentence,
+    kind_label,
+    outcome,
+    rule_sentence,
+    selfmod_note,
+    selfmod_target,
+    severity_label,
+)
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+DEFAULT_LIMIT = 50
+MAX_LIMIT = 100
+MAX_PAGE_BYTES = 1_000_000
+MAX_SUMMARY_BYTES = 4_000_000
+_DISPLAY_LIMIT = 500
+_MAX_TEXT = 200
+# Events Petasos writes for one tool call land within this many seconds.
+_SAME_CALL_S = 5.0
+# Event types for a call stopped by the conversation's risk score.
+_RISK_KINDS = frozenset({"block", "tier3"})
+# Outcomes that mean the tool call did not run.
+_BLOCKED_OUTCOMES = frozenset({"blocked", "stopped", "attempt_blocked"})
+
+# Outcome figures for the overview, in the order they are offered. Codes that
+# share a label are one figure. ``not_stopped`` is a finding, not a figure;
+# its events are counted under Other so the figures still add up to the total.
+_FIGURES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    ("blocked", "Blocked", ("blocked", "attempt_blocked")),
+    ("stopped", "Conversation stopped", ("stopped",)),
+    ("asked", "Asked a person", ("asked", "attempt_asked")),
+    ("flagged", "Flagged to the agent", ("flagged",)),
+    ("allowed", "Let through while paused", ("allowed",)),
+    ("declined", "Person said no", ("declined",)),
+    ("approved", "Person said yes", ("approved",)),
+    ("deferred", "Left for another check", ("deferred",)),
+    ("answered", "Answered", ("answered",)),
+    ("unchecked", "Not checked", ("unchecked",)),
+    ("degraded", "Basic checks only", ("degraded",)),
+    ("recorded", "Recorded", ("recorded",)),
+)
+_FIGURED = frozenset(code for _key, _label, members in _FIGURES for code in members)
+
+_KEEP = frozenset(
+    {
+        "armed",
+        "choice",
+        "credential_redaction",
+        "decided_by",
+        "direction",
+        "event_type",
+        "item_id",
+        "param_scan_degraded",
+        "phase",
+        "rule_id",
+        "score",
+        "scan_id",
+        "session_id",
+        "session_key",
+        "severity",
+        "sig",
+        "surface",
+        "tier",
+        "timestamp",
+        "tool",
+        "tool_call_id",
+        "turn_id",
+    }
+)
+
+_Redactor = Callable[..., str]
+
+
+@dataclass(frozen=True, slots=True)
+class ActivityQuery:
+    """Filters for one read. Times are unix seconds. Empty strings are ignored.
+
+    ``text`` matches an event id exactly or by its start, or any of the event's
+    words (its sentence, tool, conversation, rule, kind and reason), ignoring case.
+    ``outcomes`` keeps events whose outcome code is one of these.
+    """
+
+    since: float | None = None
+    until: float | None = None
+    kind: str | None = None
+    tool: str | None = None
+    session: str | None = None
+    severity: str | None = None
+    text: str | None = None
+    outcomes: tuple[str, ...] = ()
+    limit: int = DEFAULT_LIMIT
+
+
+@dataclass(frozen=True, slots=True)
+class _Located:
+    record: dict[str, Any]
+    source: str
+    offset: int
+    corrupt: bool
+
+
+def read_page(
+    spool: Path,
+    rotated: Path,
+    *,
+    key: bytes | None,
+    verification: str,
+    query: ActivityQuery,
+    cursor: str | None = None,
+    redactor: _Redactor | None = None,
+    max_bytes: int = MAX_PAGE_BYTES,
+) -> dict[str, Any]:
+    """One page of events, newest first.
+
+    ``cursor`` is opaque. A cursor that points past a file that has shrunk
+    starts again at the newest event and sets ``cursor_reset``.
+    """
+    limit = query.limit
+    if limit < 1 or limit > MAX_LIMIT:
+        raise ApiError("invalid_query", f"Ask for between 1 and {MAX_LIMIT} events.")
+    parsed = _decode_cursor(cursor) if cursor else None
+    if cursor and parsed is None:
+        raise ApiError("invalid_cursor", "That page marker is not valid. Refresh the list.")
+    reset = _cursor_reset(spool, rotated, parsed)
+    located, complete = _collect(spool, rotated, max_bytes, None if reset else parsed)
+    followers = _followers(located)
+    matched = [
+        item
+        for item in located
+        if not item.corrupt and _matches(item.record, query, followers.get(id(item)))
+    ]
+    skipped = sum(1 for item in located if item.corrupt)
+    page = matched[:limit]
+    more = len(matched) > limit or not complete
+    next_cursor = None
+    if more and page:
+        last = page[-1]
+        next_cursor = _encode_cursor(last.source, last.offset)
+    events = [_event(item.record, key, redactor, followers.get(id(item))) for item in page]
+    return envelope(
+        events=events,
+        next_cursor=next_cursor,
+        cursor_reset=reset,
+        complete=complete and not more,
+        skipped_lines=skipped,
+        integrity=_integrity(events, key, verification),
+    )
+
+
+def read_event(
+    spool: Path,
+    rotated: Path,
+    scan_id: str,
+    *,
+    key: bytes | None,
+    verification: str,
+    redactor: _Redactor | None = None,
+    max_bytes: int = MAX_SUMMARY_BYTES,
+) -> dict[str, Any]:
+    """One event by ``scan_id``, or an error when it is not in the scanned range."""
+    if not scan_id or "/" in scan_id or len(scan_id) > 80:
+        raise ApiError("not_found", "That event was not found.", status=404)
+    located, complete = _collect(spool, rotated, max_bytes, None)
+    followers = _followers(located)
+    for item in located:
+        if item.corrupt:
+            continue
+        if item.record.get("scan_id") == scan_id:
+            event = _event(item.record, key, redactor, followers.get(id(item)))
+            return envelope(
+                event=event,
+                complete=complete,
+                integrity=_integrity([event], key, verification),
+            )
+    if not complete:
+        raise ApiError(
+            "not_found",
+            "That event was not found in the recent record. "
+            "The older part of the spool was not read.",
+            status=404,
+        )
+    raise ApiError("not_found", "That event was not found.", status=404)
+
+
+def summarize(
+    spool: Path,
+    rotated: Path,
+    *,
+    key: bytes | None,
+    verification: str,
+    query: ActivityQuery,
+    max_bytes: int = MAX_SUMMARY_BYTES,
+) -> dict[str, Any]:
+    """Counts over the events that match ``query``.
+
+    ``total`` is the number of matching events, the rows a list shows.
+    ``blocked`` is the number of tool calls among them that did not run. An
+    attempt to change the guardrails that was blocked is written together with
+    the block that stopped it; the call counts once when both match, and once
+    when only the attempt does (a search for its words, say).
+
+    A spool larger than ``max_bytes`` sets ``complete`` false. The counts then
+    cover the newest bytes only.
+    """
+    located, complete = _collect(spool, rotated, max_bytes, None)
+    followers = _followers(located)
+    counts: dict[str, int] = {}
+    severities: dict[str, int] = {}
+    tools: dict[str, int] = {}
+    sessions: dict[str, int] = {}
+    outcomes: dict[str, int] = {}
+    blocked = 0
+    failed = 0
+    checked = 0
+    shown = 0
+    matched = [
+        item
+        for item in located
+        if not item.corrupt and _matches(item.record, query, followers.get(id(item)))
+    ]
+    matched_records = {id(item.record) for item in matched}
+    for item in matched:
+        follower = followers.get(id(item))
+        shown += 1
+        kind = item.record.get("event_type")
+        if isinstance(kind, str) and kind:
+            counts[kind] = counts.get(kind, 0) + 1
+        severity = item.record.get("severity")
+        if isinstance(severity, str) and severity:
+            folded = severity.lower()
+            severities[folded] = severities.get(folded, 0) + 1
+        _count(tools, item.record.get("tool"))
+        _count(sessions, item.record.get("session_id"))
+        code = outcome(item.record, follower)["code"]
+        _count(outcomes, code)
+        if code in _BLOCKED_OUTCOMES and not (
+            code == "attempt_blocked" and follower is not None and id(follower) in matched_records
+        ):
+            blocked += 1
+        if key is not None:
+            checked += 1
+            if not verify_event(item.record, key):
+                failed += 1
+    figures, finding = _figures(outcomes)
+    return envelope(
+        total=shown,
+        blocked=blocked,
+        by_kind=counts,
+        by_severity=severities,
+        by_tool=tools,
+        by_session=sessions,
+        by_outcome=outcomes,
+        figures=figures,
+        finding=finding,
+        kind_labels={kind: kind_label(kind) for kind in counts},
+        complete=complete,
+        integrity=_integrity_body(key, verification, checked, failed),
+    )
+
+
+def _figures(outcomes: dict[str, int]) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+    """One figure per outcome that occurred, and the guardrail finding.
+
+    Every event is in exactly one figure. ``not_stopped`` is not an outcome
+    figure: those events are the finding, and they are counted in Other so
+    the figures add up to the event total. A figure's ``outcomes`` are the
+    codes the activity list filters on.
+    """
+    rows: list[dict[str, Any]] = []
+    for code, label, members in _FIGURES:
+        count = sum(outcomes.get(member, 0) for member in members)
+        if not count:
+            continue
+        rows.append(
+            {
+                "code": code,
+                "label": label,
+                "count": count,
+                "outcomes": [member for member in members if outcomes.get(member, 0)],
+            }
+        )
+    other_codes = [code for code, count in outcomes.items() if count and code not in _FIGURED]
+    other = sum(outcomes.get(code, 0) for code in other_codes)
+    if other:
+        rows.append(
+            {
+                "code": "other",
+                "label": "Other",
+                "count": other,
+                "outcomes": sorted(other_codes),
+            }
+        )
+    missed = outcomes.get("not_stopped", 0)
+    if not missed:
+        return rows, None
+    if missed == 1:
+        lead = "1 attempt to change settings was not stopped."
+    else:
+        lead = f"{missed} attempts to change settings were not stopped."
+    return rows, {
+        "count": missed,
+        "sentence": f"{lead} The record cannot show whether a change took effect.",
+        "action": REVIEW_CURRENT_SETTINGS,
+    }
+
+
+def _count(counts: dict[str, int], value: object) -> None:
+    if isinstance(value, str) and value:
+        counts[value] = counts.get(value, 0) + 1
+
+
+def _collect(
+    spool: Path,
+    rotated: Path,
+    max_bytes: int,
+    cursor: tuple[str, int] | None,
+) -> tuple[list[_Located], bool]:
+    """Newest records first, reading at most ``max_bytes`` from the end or the cursor."""
+    if cursor is None or cursor[0] == "live":
+        end = None if cursor is None else cursor[1]
+        live_rows, live_done, used = _window(spool, "live", end, max_bytes)
+        if not live_done:
+            return live_rows, False
+        rot_budget = max_bytes - used
+        if rot_budget <= 0:
+            return live_rows, _size(rotated) == 0
+        rot_rows, rot_done, _used = _window(rotated, "rot", None, rot_budget)
+        return live_rows + rot_rows, rot_done
+    rot_rows, rot_done, _used = _window(rotated, "rot", cursor[1], max_bytes)
+    return rot_rows, rot_done
+
+
+def _window(
+    path: Path,
+    source: str,
+    end: int | None,
+    budget: int,
+) -> tuple[list[_Located], bool, int]:
+    """Records with offset below ``end``, newest first.
+
+    The second value is True when the read reached the start of the file.
+    The third is how many bytes were read. A trailing partial line is not a
+    record: a writer may still be appending it.
+    """
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return [], True, 0
+    stop = size if end is None else min(end, size)
+    if stop <= 0 or budget <= 0:
+        return [], True, 0
+    take = min(stop, budget)
+    start = stop - take
+    try:
+        with path.open("rb") as handle:
+            handle.seek(start)
+            data = handle.read(take)
+    except OSError:
+        return [], True, 0
+    if start > 0:
+        newline = data.find(b"\n")
+        if newline < 0:
+            return [], False, len(data)
+        start += newline + 1
+        data = data[newline + 1 :]
+    if data.endswith(b"\n"):
+        body = data[:-1]
+        closed = True
+    else:
+        cut = data.rfind(b"\n")
+        if cut < 0:
+            return [], start == 0, len(data)
+        body = data[:cut]
+        closed = False
+    rows: list[_Located] = []
+    offset = start
+    for raw in body.split(b"\n"):
+        line_at = offset
+        offset += len(raw) + 1
+        if not raw.strip():
+            continue
+        try:
+            parsed = json.loads(raw.decode("utf-8"))
+        except Exception:
+            rows.append(_Located({}, source, line_at, True))
+            continue
+        if not isinstance(parsed, dict):
+            rows.append(_Located({}, source, line_at, True))
+            continue
+        rows.append(_Located(parsed, source, line_at, False))
+    rows.reverse()
+    return rows, start == 0 and closed, take
+
+
+def _followers(located: list[_Located]) -> dict[int, dict[str, Any]]:
+    """For each attempt to change the guardrails, the event written right after it.
+
+    ``located`` is newest first, so the event written next is the one before
+    it in the list. It counts only when it is for the same conversation and
+    tool and was written within a few seconds: that is the same tool call.
+    """
+    found: dict[int, dict[str, Any]] = {}
+    for index, item in enumerate(located):
+        if item.corrupt or item.record.get("event_type") != "selfmod_attempt" or index == 0:
+            continue
+        newer = located[index - 1]
+        if newer.corrupt or newer.source != item.source:
+            continue
+        record = item.record
+        other = newer.record
+        if other.get("session_id") != record.get("session_id"):
+            continue
+        if other.get("tool") != record.get("tool"):
+            continue
+        first = record.get("timestamp")
+        second = other.get("timestamp")
+        if not isinstance(first, (int, float)) or not isinstance(second, (int, float)):
+            continue
+        if abs(second - first) > _SAME_CALL_S:
+            continue
+        found[id(item)] = other
+    return found
+
+
+def _matches(
+    record: Mapping[str, Any],
+    query: ActivityQuery,
+    follower: Mapping[str, Any] | None = None,
+) -> bool:
+    stamp = record.get("timestamp")
+    if query.since is not None and (not isinstance(stamp, (int, float)) or stamp < query.since):
+        return False
+    if query.until is not None and (not isinstance(stamp, (int, float)) or stamp > query.until):
+        return False
+    if query.kind and record.get("event_type") != query.kind:
+        return False
+    if query.tool and record.get("tool") != query.tool:
+        return False
+    if query.session and record.get("session_id") != query.session:
+        return False
+    if query.severity:
+        severity = record.get("severity")
+        if not isinstance(severity, str) or severity.lower() != query.severity.lower():
+            return False
+    if query.outcomes and outcome(record, follower)["code"] not in query.outcomes:
+        return False
+    if query.text:
+        return _text_matches(record, query.text, follower)
+    return True
+
+
+def _text_matches(
+    record: Mapping[str, Any],
+    text: str,
+    follower: Mapping[str, Any] | None,
+) -> bool:
+    needle = text.strip().casefold()[:_MAX_TEXT]
+    if not needle:
+        return True
+    scan_id = record.get("scan_id")
+    if isinstance(scan_id, str) and scan_id.casefold().startswith(needle):
+        return True
+    kind = record.get("event_type")
+    words = [
+        describe_event(record, follower),
+        kind_label(kind) if isinstance(kind, str) else "",
+    ]
+    for name in ("tool", "session_id", "rule_id", "reason", "event_type", "severity"):
+        value = record.get(name)
+        if isinstance(value, str):
+            words.append(value)
+    words.append(severity_label(record))
+    return any(needle in word.casefold() for word in words)
+
+
+def _event(
+    record: Mapping[str, Any],
+    key: bytes | None,
+    redactor: _Redactor | None,
+    follower: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    shown = _redact_record(record, redactor)
+    shown["summary"] = describe_event(record, follower)
+    if record.get("event_type") == "ingest_flagged":
+        shown["risk_sentence"] = flag_risk_sentence(record)
+    shown["outcome"] = outcome(record, follower)
+    shown["severity_label"] = severity_label(record)
+    kind = record.get("event_type")
+    if shown["outcome"]["code"] == "not_stopped" or kind == "settings_changed":
+        shown["review_action"] = REVIEW_CURRENT_SETTINGS
+    shown["kind_label"] = kind_label(kind, record) if isinstance(kind, str) else ""
+    rule = record.get("rule_id")
+    shown["rule_sentence"] = rule_sentence(rule) if isinstance(rule, str) else ""
+    shown["matched_note"] = MATCHED_TEXT_NOTE if isinstance(rule, str) and rule else ""
+    # True when the call was stopped by the conversation's risk score, which
+    # earlier warnings in the same conversation built up, not by one rule.
+    then = follower.get("event_type") if follower is not None else None
+    shown["risk_block"] = kind in _RISK_KINDS or (
+        kind == "selfmod_attempt" and then in _RISK_KINDS
+    )
+    if kind == "selfmod_attempt":
+        target = selfmod_target(record)
+        shown["target"] = _redact(target, redactor) if target else ""
+        shown["outcome_note"] = selfmod_note(record, follower)
+    shown["integrity"] = _one(record, key)
+    return shown
+
+
+def _redact_record(record: Mapping[str, Any], redactor: _Redactor | None) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in record.items():
+        name = str(key)
+        if name in _KEEP:
+            result[name] = value
+            continue
+        result[name] = _redact(value, redactor)
+    return result
+
+
+def _redact(value: object, redactor: _Redactor | None) -> object:
+    if isinstance(value, str):
+        shown, _status = redact_display_text(value, _DISPLAY_LIMIT, redact=redactor)
+        return shown
+    if isinstance(value, list):
+        return [_redact(item, redactor) for item in value]
+    if isinstance(value, Mapping):
+        return {str(key): _redact(item, redactor) for key, item in value.items()}
+    return value
+
+
+def _one(record: Mapping[str, Any], key: bytes | None) -> dict[str, str]:
+    if key is None:
+        return {"status": "off", "meaning": SIGNATURE_MEANING["off"]}
+    if verify_event(record, key):
+        return {"status": "verified", "meaning": SIGNATURE_MEANING["verified"]}
+    failure = classify_integrity_failure(record)
+    if failure == "sig-missing":
+        sentence = "This event has no signature."
+    else:
+        sentence = "This event's signature does not match."
+    return {"status": "failed", "reason": sentence, "meaning": SIGNATURE_MEANING["failed"]}
+
+
+def _integrity(
+    events: list[dict[str, Any]],
+    key: bytes | None,
+    verification: str,
+) -> dict[str, Any]:
+    failed = sum(1 for event in events if event.get("integrity", {}).get("status") == "failed")
+    checked = len(events) if key is not None else 0
+    return _integrity_body(key, verification, checked, failed)
+
+
+def _integrity_body(
+    key: bytes | None,
+    verification: str,
+    checked: int,
+    failed: int,
+) -> dict[str, Any]:
+    """The list badge, and, when every signature matched, what that does not prove."""
+    mode = _mode(key, checked, failed)
+    body: dict[str, Any] = {
+        "mode": mode,
+        "reason": verification if key is None else "",
+        "checked": checked,
+        "failed": failed,
+        "label": _integrity_label(mode, checked, failed),
+    }
+    if mode == "verified":
+        body["limit"] = SIGNATURE_MEANING["verified"]
+        body["limit_label"] = SIGNATURE_LIMIT_LABEL
+    return body
+
+
+def _integrity_label(mode: str, checked: int, failed: int) -> str:
+    if mode == "verified":
+        noun = "signature" if checked == 1 else "signatures"
+        return f"{checked} {noun} verified"
+    if mode == "mixed":
+        return f"{failed} of {checked} do not match"
+    if mode == "failed":
+        return "Signatures do not match"
+    return "Not signed"
+
+
+def _mode(key: bytes | None, checked: int, failed: int) -> str:
+    if key is None:
+        return "off"
+    if failed and failed == checked:
+        return "failed"
+    if failed:
+        return "mixed"
+    return "verified"
+
+
+def _encode_cursor(source: str, offset: int) -> str:
+    raw = json.dumps({"source": source, "before": offset}, separators=(",", ":")).encode("utf-8")
+    return base64.urlsafe_b64encode(raw).decode("ascii")
+
+
+def _decode_cursor(token: str) -> tuple[str, int] | None:
+    try:
+        padded = token + "=" * (-len(token) % 4)
+        parsed = json.loads(base64.urlsafe_b64decode(padded.encode("ascii")))
+    except Exception:
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    source = parsed.get("source")
+    before = parsed.get("before")
+    if source not in {"live", "rot"} or type(before) is not int or before < 0:
+        return None
+    return source, before
+
+
+def _cursor_reset(
+    spool: Path,
+    rotated: Path,
+    cursor: tuple[str, int] | None,
+) -> bool:
+    if cursor is None:
+        return False
+    return cursor[1] > _size(spool if cursor[0] == "live" else rotated)
+
+
+def _size(path: Path) -> int:
+    try:
+        return path.stat().st_size
+    except OSError:
+        return 0

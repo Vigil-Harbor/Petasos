@@ -1,9 +1,11 @@
+"""Normalize canonical text while retaining separate match-only evasion views."""
+
 from __future__ import annotations
 
 import re
 import unicodedata
 
-from petasos._types import NormalizedText
+from petasos.model import NormalizedText
 
 RTL_OVERRIDES = frozenset(
     [
@@ -19,7 +21,7 @@ RTL_OVERRIDES = frozenset(
     ]
 )
 
-# vestigial: superseded by INVISIBLE_NON_CF for stripping; retained only for test imports
+# Tests import this vocabulary; stripping uses INVISIBLE_NON_CF and Unicode categories.
 INVISIBLE_CHARS = frozenset(
     [
         "­",  # soft hyphen
@@ -49,31 +51,10 @@ INVISIBLE_CHARS = frozenset(
 
 _STRIP_CATEGORIES: frozenset[str] = frozenset({"Cf"})
 
-# Canonical enumeration of invisible non-Cf code points (PET-90; relocated from
-# petasos/console/_validation.py where PET-85 introduced it as
-# _INVISIBLE_PRINTABLE). Invisible/zero-width code points that
-# str.isprintable() returns True for and NFKC does not remove. Enumerated, not
-# predicate-derived: CPython's unicodedata exposes no
-# Default_Ignorable_Code_Point accessor (only category()), and the residue
-# spans Mn/Lo/So, so no single category test isolates it — contrast NORM-01
-# (PET-43) where category()=="Cf" WAS the semantic predicate. Three groups:
-#   1. The assigned-non-Cf Default_Ignorable residue (isprintable() already
-#      rejects every Cf and unassigned-Cn Default_Ignorable, leaving only this
-#      small, slow-growing set). Source: DerivedCoreProperties.txt (Unicode 14+).
-#      U+180F (FVS4) is unassigned (Cn) before Unicode 14.0; included by code
-#      point, stripped regardless of UCD version.
-#   2. Non-DI zero-glyph fillers Unicode chose not to mark Default_Ignorable
-#      but which still render no glyph (PET-85 round-3 finding).
-#   3. Zero-glyph/space renderers formerly enumerated here as _EXTRA_INVISIBLE.
-#      U+180E is intentionally triply covered (Cf category test + group-1
-#      Mongolian range + this group) — do not "clean up" the dup; the console
-#      set-identity guarantee depends on verbatim membership.
-# Extend a group if a future Unicode version adds a member;
-# test_default_ignorable_sweep_normalize and test_default_ignorable_rejected
-# (independently derived) guard group 1.
+# See docs/architecture/rationale.md, "Normalization views".
 INVISIBLE_NON_CF: frozenset[str] = frozenset(
     {
-        # Group 1 — assigned-non-Cf Default_Ignorable residue
+        # Assigned non-Cf Default_Ignorable residue.
         chr(0x034F),  # COMBINING GRAPHEME JOINER (Mn)
         chr(0x115F),  # HANGUL CHOSEONG FILLER (Lo)
         chr(0x1160),  # HANGUL JUNGSEONG FILLER (Lo)
@@ -81,10 +62,10 @@ INVISIBLE_NON_CF: frozenset[str] = frozenset(
         chr(0x17B5),  # KHMER VOWEL INHERENT AA (Mn)
         chr(0x3164),  # HANGUL FILLER (Lo; NFKC → U+1160)
         chr(0xFFA0),  # HALFWIDTH HANGUL FILLER (Lo; NFKC → U+1160)
-        # Group 2 — non-DI zero-glyph fillers
+        # Non-default-ignorable zero-glyph fillers.
         chr(0x16FE4),  # KHITAN SMALL SCRIPT FILLER (Mn; non-DI zero-glyph)
         chr(0x1BC9D),  # DUPLOYAN THICK LETTER SELECTOR (Mn; non-DI zero-glyph)
-        # Group 3 — zero-glyph/space renderers (former _EXTRA_INVISIBLE)
+        # Blank and space renderers.
         chr(0x2800),  # BRAILLE PATTERN BLANK (So)
         chr(0x202F),  # NARROW NO-BREAK SPACE (Zs)
         chr(0x180E),  # MONGOLIAN VOWEL SEPARATOR (Cf — belt-and-suspenders)
@@ -168,72 +149,44 @@ _HOMOGLYPH_TABLE = str.maketrans(
     }
 )
 
-# Relocated from petasos/session/guard.py (PET-118): single definition, shared by
-# ToolCallGuard's normalizer and the reference plugin's classification. Strips a
-# SINGLE leading namespace prefix — `mcp__<ns>__` or `hermes__`. Co-located with
-# _HOMOGLYPH_TABLE because canonicalize_tool_name composes both.
+# See docs/architecture/rationale.md, "Hermes tool-name shapes".
 _NAMESPACE_PREFIX_RE = re.compile(r"^(?:mcp__[a-zA-Z0-9_]+?__|hermes__)")
 
-# PET-121: split at a TRUE camel boundary only — a lowercase/digit immediately followed
-# by an uppercase. Boundary-guarded, NOT Hermes's naive `(?<!^)(?=[A-Z])` (which mangles
-# all-caps/snake-with-capital names: SEND_EMAIL -> s_e_n_d__e_m_a_i_l). Hermes survives its
-# own naive split because it is one candidate in a registry-guarded set; Petasos emits a
-# SINGLE canonical form and has no registry, so it must reproduce Hermes's *resolved
-# outcome* for snake tools without mangling (D-CAMEL).
+# See docs/architecture/rationale.md, "Hermes tool-name shapes".
 _CAMEL_BOUNDARY_RE = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 
 
 def _strip_tool_suffix(name: str) -> str:
-    """PET-121 (D-SUFFIX): strip a trailing ``_tool`` / ``-tool``, looped twice to mirror
-    Hermes's ``range(2)`` (``TodoTool_tool`` -> ``todo``). The empty-guard never strips to
-    ``""`` (Hermes guards via ``if c``). Bare ``tool`` (no separator) is deliberately NOT
-    stripped: Hermes only strips it when the result is a registered tool, and Petasos has no
-    registry — an unconditional strip would over-canonicalize (``dbtool`` -> ``db``) and
-    break PET-118's ``mcp__mcp__tool`` -> ``tool`` fixtures. ``name`` is already casefolded
-    and namespace-stripped here."""
+    """Strip up to two separated tool suffixes without returning an empty name.
+
+    See docs/architecture/rationale.md, "Hermes tool-name shapes"."""
     for _ in range(2):
         for suffix in ("_tool", "-tool"):
             if name.endswith(suffix):
                 stripped = name[: -len(suffix)].rstrip("_-")
-                if stripped:  # empty-guard: never strip to "" (keeps prior value)
+                if stripped:
                     name = stripped
                 break
         else:
-            break  # no separator-suffix matched this pass -> done
+            break
     return name
 
 
 def canonicalize_tool_name(name: str) -> str:
-    """Alias-free canonical form for tool-name matching, shared by ToolCallGuard's
-    normalizer (under its alias layer) and the reference plugin's classification.
+    """Return one alias-free tool name shared by classification and guard matching.
 
-    Mirrors the deterministic shapes Hermes resolves at dispatch (PET-121): a
-    boundary-guarded CamelCase->snake split (BEFORE casefold — the case info is
-    load-bearing) and a trailing _tool/-tool suffix strip. It does NOT reproduce
-    Hermes's naive single-regex camel (which mangles all-caps names as a single
-    form), its registry-guarded bare-`tool` strip, its single-underscore mcp_
-    namespace stripping, or its fuzzy fallback — see D-CAMEL/D-SUFFIX/D-NS/D-FUZZY.
-
-    Strips a SINGLE leading namespace prefix (matching the guard's existing behavior,
-    D-EQUIV / D6) — not a fixed-point loop. Stacked/alternate prefix shapes remain a D6
-    coverage item gated on the verified Hermes grammar (D-VERIFY)."""
+    See docs/architecture/rationale.md, "Hermes tool-name shapes"."""
     name = name.strip()
     name = unicodedata.normalize("NFKC", name)
     name = name.translate(_HOMOGLYPH_TABLE)
-    name = _CAMEL_BOUNDARY_RE.sub("_", name)  # PET-121 D-CAMEL/D1: BEFORE casefold
+    name = _CAMEL_BOUNDARY_RE.sub("_", name)  # Case boundaries disappear after casefolding.
     name = name.casefold()
     name = _NAMESPACE_PREFIX_RE.sub("", name)
-    name = _strip_tool_suffix(name)  # PET-121 D-SUFFIX: after ns-strip
+    name = _strip_tool_suffix(name)
     return name.strip()
 
 
-# Leet-fold tables (PET-97). Common ASCII digit/symbol→letter substitutions,
-# decoded onto match-only candidate views — never onto ``normalized`` itself:
-# digits are ubiquitous in benign text, so folding in place would corrupt the
-# canonical output for every downstream consumer (ML input, PII spans, audit).
-# ``1`` is ambiguous ("i" in 1gn0r3, "l" in 411) and str.translate is
-# one-to-one, so two variant tables produce a candidate set instead of
-# guessing.
+# See docs/architecture/rationale.md, "Normalization views".
 _LEET_COMMON = {
     ord("0"): "o",
     ord("3"): "e",
@@ -251,7 +204,7 @@ _LEET_TABLE_L = str.maketrans({**_LEET_COMMON, ord("1"): "l"})
 
 
 def _leet_fold(text: str) -> tuple[str, ...]:
-    """Apply the PET-97 I-then-L tables. Empty when no foldable character."""
+    """Return distinct i-then-l leet views, or none when no character folds."""
     view_i = text.translate(_LEET_TABLE_I)
     if view_i == text:
         return ()
@@ -268,37 +221,9 @@ def normalize(
     detect_rtl: bool = True,
     fold_leet: bool = True,
 ) -> NormalizedText:
-    """Normalize text for pattern matching.
+    """Return canonical text, applied transformations and independent match-only views.
 
-    Each stage is independently gated (PIPE-05): disabling one toggle (e.g.
-    ``nfkc=False``) does not suppress the others, and ``transformations_applied``
-    reflects only the stages that actually ran. The five flags map 1:1 to the
-    ``normalize_nfkc`` / ``strip_zero_width`` / ``map_homoglyphs`` /
-    ``detect_rtl_override`` / ``fold_leet`` config toggles. The post-NFKC
-    re-strip (NORM-02) rides on ``strip_zero_width`` and combining-mark removal
-    (NORM-04) rides on ``nfkc``, since each is only meaningful when its parent
-    stage runs.
-
-    The leet fold (PET-97) is a side channel, not a transform: it emits
-    length-preserving decoded candidate views into ``leet_views`` for the
-    injection pass to match against, leaves ``normalized`` untouched, and
-    records no ``transformations_applied`` entry (digit-bearing benign text
-    would flag on every input — the observability carrier is the injection
-    finding's message instead).
-
-    The separator view (PET-198) is also a side channel: when invisible
-    characters were stripped, it emits a match-only space-restored candidate
-    into ``separator_views`` for injection and the named ``\\s+`` families
-    (role-switch, command, agent-directive), leaves ``normalized``
-    concatenating, and records no ``transformations_applied`` entry. Empty
-    when nothing was stripped, stripping is off, or the finished view equals
-    ``normalized``.
-
-    Composed views (PET-201) are the leet fold of that one separator string
-    (at most two candidates). Match-only, not length-preserving, empty when
-    ``fold_leet`` is off, there is no separator view, or the fold equals an
-    already-emitted string. No ``transformations_applied`` entry.
-    """
+    See docs/architecture/rationale.md, "Normalization views"."""
     if not text:
         return NormalizedText(
             original=text,
@@ -309,12 +234,11 @@ def normalize(
     original = text
     transforms: list[str] = []
 
-    # Step 1: RTL override detection (before stripping)
+    # RTL detection precedes stripping so removed controls remain observable.
     rtl_detected = detect_rtl and bool(RTL_OVERRIDES & set(text))
     if rtl_detected:
         transforms.append("rtl_override_detected")
 
-    # Step 2: Invisible character stripping (category-based)
     stripped_count = 0
     if strip_zero_width:
         stripped_count = sum(1 for ch in text if _is_strippable(ch))
@@ -326,7 +250,6 @@ def normalize(
     else:
         text_after_strip = text
 
-    # Step 3: NFKC normalization
     if nfkc:
         text_after_nfkc = unicodedata.normalize("NFKC", text_after_strip)
         if text_after_nfkc != text_after_strip:
@@ -334,8 +257,7 @@ def normalize(
     else:
         text_after_nfkc = text_after_strip
 
-    # Step 4: Re-strip after NFKC (NORM-02) — only when both stripping and NFKC
-    # ran, since NFKC is what can reintroduce a strippable char.
+    # NFKC can introduce strippable characters, requiring a second stripping pass.
     if strip_zero_width and nfkc:
         restrip_count = sum(1 for ch in text_after_nfkc if _is_strippable(ch))
         if restrip_count > 0:
@@ -347,7 +269,6 @@ def normalize(
     else:
         text_after_restrip = text_after_nfkc
 
-    # Step 5: Combining mark removal (NORM-04) — normalization-family, gated on nfkc
     if nfkc:
         text_nfd = unicodedata.normalize("NFD", text_after_restrip)
         mn_count = sum(1 for ch in text_nfd if unicodedata.category(ch) == "Mn")
@@ -360,7 +281,6 @@ def normalize(
     else:
         text_after_mn = text_after_restrip
 
-    # Step 6: Homoglyph mapping (expanded table, NORM-03)
     if map_homoglyphs:
         text_after_homoglyph = text_after_mn.translate(_HOMOGLYPH_TABLE)
         if text_after_homoglyph != text_after_mn:
@@ -370,17 +290,10 @@ def normalize(
 
     confusables = text_after_homoglyph != text_after_mn
 
-    # Step 7: Leet fold (PET-97) — match-only candidate views. Runs on the
-    # final normalized text so homoglyph+leet compositions decode correctly.
-    # ``view_l`` can only differ from the base when ``view_i`` does (both
-    # tables map the identical character set), so the equality check in
-    # ``_leet_fold`` doubles as the no-foldable-chars early-out.
+    # See docs/architecture/rationale.md, "Normalization views".
     leet_views: tuple[str, ...] = _leet_fold(text_after_homoglyph) if fold_leet else ()
 
-    # Match-only separator view (PET-198): each maximal strippable run in
-    # original becomes one U+0020, then the same later stages as the concat
-    # path. Not recorded in transformations_applied. Composed views (PET-201)
-    # are the leet fold of this one string, dropping duplicates.
+    # See docs/architecture/rationale.md, "Normalization views".
     separator_views: tuple[str, ...] = ()
     composed_views: tuple[str, ...] = ()
     if stripped_count > 0:

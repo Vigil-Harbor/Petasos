@@ -4,9 +4,9 @@ import asyncio
 import time
 from unittest.mock import patch
 
-from petasos.scanners import _semgrep_runtime as rt
-from petasos.scanners._semgrep_engine import result_for
 from petasos.scanners.semgrep import SemgrepLifecycleOwner, SemgrepScanner
+from petasos.scanners.semgrep import runtime as rt
+from petasos.scanners.semgrep.engine import result_for
 
 
 async def fake_job(runtime: rt.Runtime, job: rt.Job) -> None:
@@ -16,7 +16,7 @@ async def fake_job(runtime: rt.Runtime, job: rt.Job) -> None:
     else:
         while not job.cancelled.is_set():
             await asyncio.sleep(0.002)
-        await asyncio.sleep(0.15)  # deterministic owned cleanup, no abandoned task
+        await asyncio.sleep(0.15)
         result = result_for(job.selection, error="semgrep.cancelled")
     with runtime.lock:
         runtime.active.discard(job)
@@ -29,8 +29,8 @@ async def fake_job(runtime: rt.Runtime, job: rt.Job) -> None:
 
 async def main() -> None:
     with (
-        patch("petasos.scanners.semgrep.supported_platform", return_value=True),
-        patch("petasos.scanners.semgrep.monitor_available", return_value=True),
+        patch("petasos.scanners.semgrep.adapter.supported_platform", return_value=True),
+        patch("petasos.scanners.semgrep.adapter.monitor_available", return_value=True),
         patch.object(rt.Runtime, "_execute", fake_job),
     ):
         async with SemgrepLifecycleOwner() as owner:

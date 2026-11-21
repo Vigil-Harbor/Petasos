@@ -1,26 +1,6 @@
-"""Per-namespace source-taint egress store (PET-134).
+"""Retain bounded source spans per session for outbound relay checks.
 
-A bounded, thread-safe, per-session set of normalized content spans that a tool
-in an operator-declared **source namespace** returned. The reference plugin
-captures spans at ``post_tool_call`` (``capture``) and, at ``pre_tool_call``,
-asks whether an outbound argument to an ``egress_sink_tools`` tool **contains**
-any live tainted span (``tainted_source``). A match blocks the relay regardless
-of whether the content matches a PII pattern — the structural hole the PII
-matcher cannot close (a non-PII bank balance / amount / merchant relayed
-off-box).
-
-The store delivers the brief's guarantee (no cross-session leak; memory bounded)
-without a session-end hook (the reference plugin registers none): isolation by
-``session_id`` key, a per-session span cap (evict-oldest), and a global session
-LRU cap (evict the least-recently-active session whole). Total memory is
-hard-bounded at ``_TAINT_MAX_SESSIONS * _TAINT_MAX_SPANS_PER_SESSION *
-_MAX_TAINT_SPAN_LEN``.
-
-Mirrors ``LineageRegistry``'s bounded-store + ``apply_config`` discipline
-(PET-126): the false-positive floor (``taint_min_span_length``) is cached at
-construction and re-read live under the same lock ``apply_config`` rebinds it
-through, so a live reconfigure is the happens-before for the next floor read.
-"""
+See docs/architecture/rationale.md, "Source taint bounds"."""
 
 from __future__ import annotations
 
@@ -34,36 +14,21 @@ from typing import TYPE_CHECKING, Any
 from petasos.normalize import normalize
 
 if TYPE_CHECKING:
-    from petasos.config import PetasosConfig
+    from petasos.config.sections import PetasosConfig
 
-# Internal DoS-safety ceilings (NOT config — they mirror _events.py's SPOOL_CAP_BYTES:
-# a safety bound with no operational tuning need). The operator surface is kept to the
-# two levers that are actually turned (which namespaces, and the FP floor).
-_TAINT_MAX_SPANS_PER_SESSION = 256  # per-session span cap, evict-oldest
-_TAINT_MAX_SESSIONS = 1024  # global session LRU cap, evict least-recently-active
+# Internal safety ceilings bound hostile input independently of operator settings.
+_TAINT_MAX_SPANS_PER_SESSION = 256
+_TAINT_MAX_SESSIONS = 1024
 _MAX_TAINT_SPAN_LEN = 4096  # never store a leaf longer than this (raw codepoints)
-_MAX_SCAN_TEXT = 100_000  # cap text fed to normalize() (matches the plugin fallback cap)
-_MAX_SCAN_LEAVES = 2048  # cap leaves walked per capture (bounds the dict/list path)
-_MAX_TAINT_DEPTH = 64  # cap leaf-walk recursion depth (a hostile deeply-nested payload
-# past this is a documented walk-miss, never a RecursionError)
+_MAX_SCAN_TEXT = 100_000
+_MAX_SCAN_LEAVES = 2048
+_MAX_TAINT_DEPTH = 64
 
 
 def _iter_leaf_strings(obj: object, _depth: int = 0) -> Iterator[str]:
-    """Yield the leaf string candidates of an arbitrary JSON-ish value.
+    """Yield JSON-leaf strings with bounded depth and JSON-wire scalar forms.
 
-    Recurses ``Mapping`` values and ``list``/``tuple`` items. ``str`` leaves are
-    yielded as-is; non-string scalar leaves (``int`` / ``float`` / ``bool``) are
-    stringified via ``json.dumps(v, default=str)`` — the JSON-wire form a relayed
-    value carries (``json.dumps(True)`` -> ``"true"``, not ``str(True)``'s
-    ``"True"``) — so capture and check see one canonical leaf shape. ``None`` is
-    skipped. ``default=str`` matches the house never-raise idiom (``_events.py``
-    / the plugin's ``json.dumps(..., default=str)``).
-
-    Recursion is bounded by ``_MAX_TAINT_DEPTH``: a hostile deeply-nested payload
-    (in a tool result or in outbound args) is a documented walk-miss past the cap,
-    never a ``RecursionError`` — preserving the never-raise invariant on both the
-    post-call capture and the pre-call enforcement path.
-    """
+    See docs/architecture/rationale.md, "Source taint bounds"."""
     if _depth > _MAX_TAINT_DEPTH:
         return
     if obj is None:
@@ -79,8 +44,7 @@ def _iter_leaf_strings(obj: object, _depth: int = 0) -> Iterator[str]:
         for item in obj:
             yield from _iter_leaf_strings(item, _depth + 1)
         return
-    # Non-string scalar (int/float/bool) or any other leaf: stringify to the
-    # JSON-wire form. Never raise — fall back to str() on an unserializable leaf.
+    # JSON-wire scalars keep capture and outbound matching in the same representation.
     try:
         yield json.dumps(obj, default=str)
     except (TypeError, ValueError):
@@ -102,10 +66,7 @@ def _result_leaf_strings(result: object) -> Iterator[str]:
         try:
             parsed = json.loads(capped)
         except (ValueError, TypeError, RecursionError):
-            # JSONDecodeError (ValueError) for malformed/truncated input; RecursionError
-            # for a hostile deeply-nested JSON string (json's own recursion guard). Either
-            # way, treat the capped text as one leaf (then dropped if over
-            # _MAX_TAINT_SPAN_LEN) rather than propagating — the never-raise invariant.
+            # See docs/architecture/rationale.md, "Source taint bounds".
             yield capped
             return
         yield from _iter_leaf_strings(parsed)
@@ -117,27 +78,24 @@ class SessionTaintStore:
     """Thread-safe per-session store of normalized tainted spans -> source namespace."""
 
     def __init__(self, config: PetasosConfig) -> None:
-        self._min_span_len = config.taint_min_span_length
+        self._config = config
+        self._min_span_len = config.egress.taint_min_span_length
         self._lock = threading.Lock()
         # session_id -> ordered { normalized span -> source namespace it came from }.
         # The outer OrderedDict is the global session LRU; the inner one is the
         # per-session insertion-ordered span set (front = oldest).
         self._store: OrderedDict[str, OrderedDict[str, str]] = OrderedDict()
 
-    def apply_config(self, new_config: PetasosConfig) -> None:
-        """PET-126: rebind the cached FP floor in place under the store lock.
+    @property
+    def config(self) -> PetasosConfig:
+        """The config tree this store reads."""
+        return self._config
 
-        Only rebinds an already-validated scalar (no fallible work), so it cannot
-        raise on a phase-1-validated ``cfg`` — preserving ``_apply_reconfigure``'s
-        commit-phase no-raise invariant, the same contract
-        ``LineageRegistry.apply_config`` honors. The change applies to **future
-        captures only**: already-stored spans are not re-filtered and
-        already-rejected spans are not retroactively admitted. The rebind runs
-        under the lock ``capture`` reads the floor through, the happens-before for
-        the next floor read.
-        """
+    def apply_config(self, new_config: PetasosConfig) -> None:
+        """Apply the normalized-span floor to future captures under the store lock."""
         with self._lock:
-            self._min_span_len = new_config.taint_min_span_length
+            self._config = new_config
+            self._min_span_len = new_config.egress.taint_min_span_length
 
     def capture(self, session_id: str, result: object, source_ns: str) -> None:
         """Taint each floor-clearing leaf of ``result`` for ``session_id``.
@@ -149,30 +107,30 @@ class SessionTaintStore:
         raises (the caller wraps this too, but the store is the floor).
         """
         with self._lock:
-            min_span_len = self._min_span_len  # read under the lock (apply_config HB)
+            min_span_len = self._min_span_len
             spans = self._store.get(session_id)
             if spans is None:
                 spans = OrderedDict()
-                self._store[session_id] = spans  # new session -> MRU (inserted at end)
+                self._store[session_id] = spans
             else:
-                self._store.move_to_end(session_id)  # touched -> MRU
+                self._store.move_to_end(session_id)
 
             for index, leaf in enumerate(_result_leaf_strings(result)):
                 if index >= _MAX_SCAN_LEAVES:
-                    break  # bound per-call work (documented capture-miss past the cap)
+                    break  # Content beyond the leaf budget is unexamined.
                 if len(leaf) > _MAX_TAINT_SPAN_LEN:
-                    continue  # drop over-max leaf rather than store a giant span
+                    continue
                 span = self._normalize(leaf)
                 if len(span) < min_span_len:
-                    continue  # FP floor, measured on the NORMALIZED span
+                    continue  # The false-positive floor applies after normalization.
                 if span in spans:
-                    continue  # first-source-wins: keep original ns + insertion order
+                    continue  # The first source retains attribution and insertion order.
                 spans[span] = source_ns
                 if len(spans) > _TAINT_MAX_SPANS_PER_SESSION:
-                    spans.popitem(last=False)  # evict oldest span
+                    spans.popitem(last=False)
 
             while len(self._store) > _TAINT_MAX_SESSIONS:
-                self._store.popitem(last=False)  # evict least-recently-active session whole
+                self._store.popitem(last=False)
 
     def tainted_source(self, session_id: str, args: dict[str, Any]) -> str | None:
         """Return the source namespace of the first live span an ``args`` leaf carries.
@@ -198,7 +156,7 @@ class SessionTaintStore:
             spans = self._store.get(session_id)
             if not spans:
                 return None
-            self._store.move_to_end(session_id)  # active -> MRU
+            self._store.move_to_end(session_id)
             for span, source_ns in spans.items():
                 for candidate in candidates:
                     if span in candidate:

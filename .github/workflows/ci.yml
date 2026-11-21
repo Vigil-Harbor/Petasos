@@ -1,14 +1,26 @@
 name: CI
 
+# Pull requests only. The master ruleset requires lint, typecheck and every test
+# cell, on a branch that is up to date with master, so the tree a merge lands is
+# the tree these jobs passed on. A run on the merge commit would repeat it.
 on:
-  push:
-    branches: [master]
   pull_request:
     branches: [master]
 
+permissions:
+  contents: read
+
+# A newer push to the same pull request replaces the run still in progress.
+concurrency:
+  group: ${{ github.workflow }}-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+# Each timeout-minutes is a billing stop about three times the slowest measured
+# job, so a hang does not run to the six-hour default. It is not a test deadline.
 jobs:
   lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -23,6 +35,7 @@ jobs:
 
   typecheck:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -33,31 +46,20 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     strategy:
       matrix:
+        # The master ruleset requires each cell by its check name, `test (3.11)`
+        # and so on. Change the ruleset together with this list, or a renamed
+        # cell blocks every pull request.
         python-version: ["3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
-      # PET-153: install the `console` extra so the fastapi-dependent standalone
-      # console suites run unskipped. `console` is a non-scanner extra (PET-106
-      # _NON_SCANNER_EXTRAS), so it needs no extras-console.yml lane; fastapi/uvicorn
-      # are pure-Python and add no ML weight, so this lane stays fast and ML-free.
-      - run: pip install -e ".[dev,console]"
+      # FastAPI is in the dev extra. The dashboard tests import it; Hermes
+      # supplies it in a real install. There is no Node job: the tab's script
+      # is tested from Python.
+      - run: pip install -e ".[dev]"
       - run: pytest tests/ -v --tb=short
-
-  # PET-82: console frontend unit test (zero npm deps; node:test built-in
-  # runner). First non-Python job — no npm install, no cache (no lockfile).
-  js-test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
-        with:
-          node-version: "22"
-      # PET-103: glob so every tests/js/*.test.mjs file runs (richtext + the new
-      # scanner-health suite). node --test treats each glob match as a test file,
-      # so any non-test helper added under tests/js/ must NOT carry .test.mjs.
-      - run: node --test tests/js/*.test.mjs

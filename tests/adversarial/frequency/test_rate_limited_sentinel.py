@@ -1,10 +1,12 @@
-"""PET-75 FREQ-04: RATE_LIMITED_RESULT distinguishable from DISABLED_RESULT."""
+"""Pin a rate-limited update result distinct from disabled tracking."""
 
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import patch
 
-from petasos.config import PetasosConfig
+from petasos.config.schema import from_mapping, merge
+from petasos.config.sections import PetasosConfig
 from petasos.session.frequency import (
     DISABLED_RESULT,
     RATE_LIMITED_RESULT,
@@ -12,13 +14,14 @@ from petasos.session.frequency import (
 )
 
 
-def _cfg(**overrides: object) -> PetasosConfig:
-    defaults: dict[str, object] = {
-        "frequency_enabled": True,
-        "escalation_enabled": True,
+def _cfg(changes: dict[str, Any] | None = None) -> PetasosConfig:
+    document: dict[str, Any] = {
+        "frequency": {"enabled": True},
+        "escalation": {"enabled": True},
     }
-    defaults.update(overrides)
-    return PetasosConfig(**defaults)  # type: ignore[arg-type]
+    if changes:
+        document = merge(document, changes)
+    return from_mapping(PetasosConfig, document)
 
 
 class TestRateLimitedSentinel:
@@ -42,7 +45,7 @@ class TestRateLimitedSentinel:
         assert DISABLED_RESULT.previous_score == 0.0
 
     def test_update_returns_rate_limited_at_cap(self) -> None:
-        cfg = _cfg(max_sessions=2, max_new_sessions_per_minute=2)
+        cfg = _cfg({"sessions": {"max": 2, "max_new_per_minute": 2}})
         tracker = FrequencyTracker(cfg)
         t0 = 1000.0
 

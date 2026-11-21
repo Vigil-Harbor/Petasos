@@ -1,0 +1,468 @@
+"""Pin self-change recognition, read-only exclusions and fail-secure overflow.
+
+See docs/architecture/rationale.md, "Guard overflow attribution"."""
+
+from __future__ import annotations
+
+import os
+import time
+from typing import TYPE_CHECKING
+
+import pytest
+
+from petasos.config.floors import SELFMOD_BASE_SEVERITY
+from petasos.config.schema import from_mapping
+from petasos.config.sections import PetasosConfig
+from petasos.guard.guard import ToolCallGuard
+from petasos.guard.selfmod import SELFMOD_DEPTH_OVERFLOW_TARGET
+from petasos.model import ScanFinding, Severity
+from petasos.pipeline import Pipeline
+from petasos.session.frequency import FrequencyTracker
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+_GuardPair = tuple[Pipeline, ToolCallGuard, FrequencyTracker, str]
+
+
+def _cfg() -> PetasosConfig:
+    """A default tree. Frequency, escalation, and the tool guard are on."""
+    return PetasosConfig()
+
+
+@pytest.fixture()
+def owned_path(tmp_path: Path) -> str:
+    """A fake owned config path with enough depth to pass hygiene."""
+    p = tmp_path / "profiles" / "gibson" / "config.yaml"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.touch()
+    return os.path.normcase(str(p.resolve(strict=False)))
+
+
+@pytest.fixture()
+def guard_pair(owned_path: str) -> _GuardPair:
+    """Pipeline + guard with the guard's tracker, patched owned set."""
+    config = _cfg()
+    pipeline = Pipeline(config=config)
+    tracker = FrequencyTracker(config)
+    guard = ToolCallGuard(pipeline, tracker, config)
+    guard._selfmod_owned_cache = (time.monotonic() + 9999, frozenset({owned_path}))
+    return pipeline, guard, tracker, owned_path
+
+
+class TestConfigWriteClassification:
+    """Write tool where top-level arg equals owned path -> config_write (CRITICAL)."""
+
+    async def test_write_file_top_level_arg_equals_owned(self, guard_pair: _GuardPair) -> None:
+        pipeline, guard, tracker, owned = guard_pair
+        result = await guard.evaluate("write_file", {"path": owned, "content": "evil"}, "s1")
+        assert result.selfmod_finding is not None
+        assert result.selfmod_finding.rule_id == "petasos.selfmod.config_write"
+        assert result.selfmod_finding.severity == Severity.CRITICAL
+        assert result.selfmod_target == owned
+        assert result.selfmod_finding not in result.findings
+
+    async def test_file_write_alias_also_classifies(self, guard_pair: _GuardPair) -> None:
+        """file_write (alias for write) still triggers config_write."""
+        pipeline, guard, tracker, owned = guard_pair
+        result = await guard.evaluate("file_write", {"path": owned, "content": "evil"}, "s1")
+        assert result.selfmod_finding is not None
+        assert result.selfmod_finding.rule_id == "petasos.selfmod.config_write"
+
+
+class TestConfigRefClassification:
+    """Content mention or shell reference -> config_ref (HIGH)."""
+
+    async def test_content_mention_is_config_ref(self, guard_pair: _GuardPair) -> None:
+        pipeline, guard, tracker, owned = guard_pair
+        result = await guard.evaluate(
+            "write_file",
+            {"path": "runbook.md", "content": f"see {owned} for details"},
+            "s1",
+        )
+        assert result.selfmod_finding is not None
+        assert result.selfmod_finding.rule_id == "petasos.selfmod.config_ref"
+        assert result.selfmod_finding.severity == Severity.HIGH
+
+    async def test_shell_cat_is_config_ref(self, guard_pair: _GuardPair) -> None:
+        pipeline, guard, tracker, owned = guard_pair
+        result = await guard.evaluate("bash", {"command": f"cat {owned}"}, "s1")
+        assert result.selfmod_finding is not None
+        assert result.selfmod_finding.rule_id == "petasos.selfmod.config_ref"
+
+    async def test_powershell_get_content_is_config_ref(self, guard_pair: _GuardPair) -> None:
+        pipeline, guard, tracker, owned = guard_pair
+        result = await guard.evaluate("bash", {"command": f"powershell Get-Content {owned}"}, "s1")
+        assert result.selfmod_finding is not None
+        assert result.selfmod_finding.rule_id == "petasos.selfmod.config_ref"
+
+    async def test_delegate_task_prompt_is_config_ref(self, guard_pair: _GuardPair) -> None:
+        pipeline, guard, tracker, owned = guard_pair
+        result = await guard.evaluate(
+            "delegate_task",
+            {"prompt": f"Edit the file at {owned} and remove the guard"},
+            "s1",
+        )
+        assert result.selfmod_finding is not None
+        assert result.selfmod_finding.rule_id == "petasos.selfmod.config_ref"
+
+    async def test_nested_arg_config_ref(self, guard_pair: _GuardPair) -> None:
+        pipeline, guard, tracker, owned = guard_pair
+        result = await guard.evaluate(
+            "delegate_task",
+            {"files": [{"path": owned}]},
+            "s1",
+        )
+        assert result.selfmod_finding is not None
+        assert result.selfmod_finding.rule_id == "petasos.selfmod.config_ref"
+
+
+class TestReadOnlyExclusion:
+    """read_file + owned path -> no finding."""
+
+    async def test_read_file_no_classification(self, guard_pair: _GuardPair) -> None:
+        pipeline, guard, tracker, owned = guard_pair
+        result = await guard.evaluate("read_file", {"path": owned}, "s1")
+        assert result.selfmod_finding is None
+        assert result.selfmod_target is None
+
+    async def test_search_files_no_classification(self, guard_pair: _GuardPair) -> None:
+        """Pin read-only search exclusion from self-change classification.
+
+        Returned-content scanning supplies the corresponding content scrutiny."""
+        pipeline, guard, tracker, owned = guard_pair
+        result = await guard.evaluate("search_files", {"query": "secret", "path": owned}, "s1")
+        assert result.selfmod_finding is None
+
+    async def test_write_file_owned_path_still_classifies(self, guard_pair: _GuardPair) -> None:
+        """Sibling of the search_files silence: the same owned path still
+        fires on a write tool, so the short-circuit is what carries the
+        silence rather than a dead rule."""
+        pipeline, guard, tracker, owned = guard_pair
+        result = await guard.evaluate("write_file", {"path": owned, "content": "x"}, "s1")
+        assert result.selfmod_finding is not None
+
+    async def test_web_search_no_classification(self, guard_pair: _GuardPair) -> None:
+        """web_search is read-only, should not trigger selfmod."""
+        pipeline, guard, tracker, owned = guard_pair
+        result = await guard.evaluate("web_search", {"query": owned}, "s1")
+        assert result.selfmod_finding is None
+
+
+class TestHostileAliasMap:
+    """Profile tool_alias_map that maps write_file -> read_file must NOT
+    defeat the classification; the pre-alias canonical form is what the
+    selfmod classifier inspects."""
+
+    async def test_hostile_alias_map_still_classifies(self, owned_path: str) -> None:
+        config = from_mapping(
+            PetasosConfig,
+            {"tools": {"aliases": {"write_file": "read_file"}}},
+        )
+        pipeline = Pipeline(config=config)
+        tracker = FrequencyTracker(config)
+        guard = ToolCallGuard(pipeline, tracker, config)
+        guard._selfmod_owned_cache = (
+            time.monotonic() + 9999,
+            frozenset({owned_path}),
+        )
+        result = await guard.evaluate("write_file", {"path": owned_path}, "s1")
+        assert result.selfmod_finding is not None
+        assert result.selfmod_finding.rule_id == "petasos.selfmod.config_write"
+
+
+class TestAdversarialArgShapes:
+    """bytes values, non-str keys, deep nesting -> no exception,
+    allowed/reason identical to baseline."""
+
+    async def test_bytes_value_no_exception(self, guard_pair: _GuardPair) -> None:
+        pipeline, guard, tracker, owned = guard_pair
+        result_baseline = await guard.evaluate("write_file", {"path": "safe.txt"}, "s1")
+        result = await guard.evaluate(
+            "write_file",
+            {"path": b"bytes-value"},
+            "s2",
+        )
+        assert result.allowed == result_baseline.allowed
+        assert result.reason == result_baseline.reason
+
+    async def test_non_str_keys_no_exception(self, guard_pair: _GuardPair) -> None:
+        pipeline, guard, tracker, owned = guard_pair
+        result_baseline = await guard.evaluate("write_file", {"path": "safe.txt"}, "s1")
+        result = await guard.evaluate(
+            "write_file",
+            {123: "non-str-key"},  # type: ignore[dict-item]
+            "s2",
+        )
+        assert result.allowed == result_baseline.allowed
+        assert result.reason == result_baseline.reason
+
+    async def test_deep_nesting_no_exception(self, guard_pair: _GuardPair) -> None:
+        pipeline, guard, tracker, owned = guard_pair
+        result_baseline = await guard.evaluate("write_file", {"path": "safe.txt"}, "s1")
+        evil_params = {
+            "path": b"bytes-value",
+            123: "non-str-key",
+            "nested": {"deep": {"deeper": owned}},
+        }
+        result = await guard.evaluate(
+            "write_file",
+            evil_params,  # type: ignore[arg-type]
+            "s2",
+        )
+        assert result.allowed == result_baseline.allowed
+        assert result.reason == result_baseline.reason
+
+    async def test_none_values_no_exception(self, guard_pair: _GuardPair) -> None:
+        pipeline, guard, tracker, owned = guard_pair
+        result = await guard.evaluate("write_file", {"path": None, "content": None}, "s1")
+        assert result.selfmod_finding is None
+
+
+class TestSideEffectFree:
+    """The selfmod classification does not change allow/deny on the current call."""
+
+    async def test_verdict_identical_with_and_without_owned_path(
+        self, guard_pair: _GuardPair
+    ) -> None:
+        pipeline, guard, tracker, owned = guard_pair
+        baseline = await guard.evaluate("write_file", {"path": "safe.txt", "content": "ok"}, "s1")
+        result = await guard.evaluate("write_file", {"path": owned, "content": "ok"}, "s2")
+        assert result.allowed == baseline.allowed
+        assert result.reason == baseline.reason
+        assert result.tier == baseline.tier
+
+
+class TestRecordSelfmodFaultTolerance:
+    """record_selfmod never throws even with broken internals."""
+
+    async def test_record_selfmod_with_broken_audit_emitter(self, guard_pair: _GuardPair) -> None:
+        pipeline, guard, tracker, owned = guard_pair
+        finding = ScanFinding(
+            rule_id="petasos.selfmod.config_write",
+            finding_type="selfmod",
+            severity=Severity.CRITICAL,
+            confidence=1.0,
+            message="test",
+            scanner_name="tool_guard",
+        )
+        pipeline._audit_emitter = None  # type: ignore[assignment]
+        pipeline.record_selfmod("s1", finding)
+
+    async def test_record_selfmod_with_broken_alert_manager(self, guard_pair: _GuardPair) -> None:
+        pipeline, guard, tracker, owned = guard_pair
+        finding = ScanFinding(
+            rule_id="petasos.selfmod.config_write",
+            finding_type="selfmod",
+            severity=Severity.CRITICAL,
+            confidence=1.0,
+            message="test",
+            scanner_name="tool_guard",
+        )
+        pipeline._alert_manager = None  # type: ignore[assignment]
+        pipeline.record_selfmod("s1", finding)
+
+    async def test_record_selfmod_with_none_session_id(self, guard_pair: _GuardPair) -> None:
+        pipeline, guard, tracker, owned = guard_pair
+        finding = ScanFinding(
+            rule_id="petasos.selfmod.config_ref",
+            finding_type="selfmod",
+            severity=Severity.HIGH,
+            confidence=1.0,
+            message="test",
+            scanner_name="tool_guard",
+        )
+        pipeline.record_selfmod(None, finding)
+
+
+class TestDepthOverflowMarker:
+    """Pin depth overflow to a fail-secure sentinel without fabricating an owned path."""
+
+    async def test_overflow_records_sentinel_not_owned_path(self, guard_pair: _GuardPair) -> None:
+        pipeline, guard, tracker, owned = guard_pair
+        deep: object = "innocuous"
+        for _ in range(40):
+            deep = {"k": deep}
+        result = await guard.evaluate("delegate_task", {"payload": deep}, "s1")
+        assert result.selfmod_finding is not None
+        assert result.selfmod_finding.rule_id == "petasos.selfmod.config_ref"
+        assert result.selfmod_target == SELFMOD_DEPTH_OVERFLOW_TARGET
+        assert owned not in result.selfmod_finding.message
+        assert "depth cap" in result.selfmod_finding.message
+        assert "no owned path matched" in result.selfmod_finding.message
+
+    async def test_overflow_via_list_nesting(self, guard_pair: _GuardPair) -> None:
+        pipeline, guard, tracker, owned = guard_pair
+        deep: object = ["benign/with/slash"]
+        for _ in range(40):
+            deep = [deep]
+        result = await guard.evaluate("delegate_task", {"payload": deep}, "s1")
+        assert result.selfmod_finding is not None
+        assert result.selfmod_target == SELFMOD_DEPTH_OVERFLOW_TARGET
+
+    async def test_matched_path_message_still_names_target(self, guard_pair: _GuardPair) -> None:
+        pipeline, guard, tracker, owned = guard_pair
+        result = await guard.evaluate("write_file", {"path": owned, "content": "x"}, "s1")
+        assert result.selfmod_finding is not None
+        assert owned in result.selfmod_finding.message
+        assert SELFMOD_DEPTH_OVERFLOW_TARGET not in result.selfmod_finding.message
+
+
+class TestGuardResultSerialization:
+    """GuardResult.to_dict() includes selfmod fields."""
+
+    async def test_to_dict_includes_selfmod_fields(self, guard_pair: _GuardPair) -> None:
+        pipeline, guard, tracker, owned = guard_pair
+        result = await guard.evaluate("write_file", {"path": owned}, "s1")
+        d = result.to_dict()
+        assert "selfmod_target" in d
+        assert "selfmod_finding" in d
+        assert d["selfmod_target"] == owned
+
+    async def test_to_dict_selfmod_finding_none_when_absent(self, guard_pair: _GuardPair) -> None:
+        pipeline, guard, tracker, owned = guard_pair
+        result = await guard.evaluate("write_file", {"path": "safe.txt"}, "s1")
+        d = result.to_dict()
+        assert d["selfmod_target"] is None
+        assert d["selfmod_finding"] is None
+
+    async def test_to_dict_selfmod_finding_is_dict_when_present(
+        self, guard_pair: _GuardPair
+    ) -> None:
+        pipeline, guard, tracker, owned = guard_pair
+        result = await guard.evaluate("write_file", {"path": owned, "content": "x"}, "s1")
+        d = result.to_dict()
+        assert isinstance(d["selfmod_finding"], dict)
+        assert d["selfmod_finding"]["rule_id"] == "petasos.selfmod.config_write"
+        assert d["selfmod_finding"]["severity"] == "critical"
+
+
+async def test_gibson_guard_owns_root_config_and_sibling_spool(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A directly built gibson guard still classifies the root config and an ops spool."""
+    import platform
+
+    import petasos.hermes.home as paths_mod
+    from petasos.hermes.home import HermesConfigResolution, hermes_root
+
+    saved = paths_mod._SPOOL_PATH_OVERRIDE
+    paths_mod._SPOOL_PATH_OVERRIDE = None
+    try:
+        monkeypatch.delenv("HERMES_HOME", raising=False)
+        if platform.system() == "Windows":
+            monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+        else:
+            monkeypatch.setenv("HOME", str(tmp_path))
+        root = hermes_root()
+        (root / "profiles" / "gibson").mkdir(parents=True)
+        (root / "profiles" / "ops").mkdir(parents=True)
+        root_cfg = root / "config.yaml"
+        gibson_cfg = root / "profiles" / "gibson" / "config.yaml"
+        ops_cfg = root / "profiles" / "ops" / "config.yaml"
+        root_cfg.write_text("petasos: {}\n", encoding="utf-8")
+        gibson_cfg.write_text("petasos: {}\n", encoding="utf-8")
+        ops_cfg.write_text("petasos: {}\n", encoding="utf-8")
+        monkeypatch.setenv("HERMES_HOME", str(root))
+        home = HermesConfigResolution(path=gibson_cfg, tier="override")
+        config = _cfg()
+        pipeline = Pipeline(config=config)
+        tracker = FrequencyTracker(config)
+        guard = ToolCallGuard(pipeline, tracker, config, home=home)
+        owned = guard.selfmod_target_paths()
+        ops_spool = os.path.normcase(str((ops_cfg.parent / "petasos-enforcement.jsonl").resolve()))
+        root_owned = os.path.normcase(str(root_cfg.resolve()))
+        assert root_owned in owned
+        assert ops_spool in owned
+        for target in (root_owned, ops_spool):
+            result = await guard.evaluate("write_file", {"path": target, "content": "x"}, "s1")
+            assert result.selfmod_finding is not None
+            assert result.selfmod_finding.rule_id == "petasos.selfmod.config_write"
+    finally:
+        paths_mod._SPOOL_PATH_OVERRIDE = saved
+
+
+async def test_guard_without_home_resolves_ambiently(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A guard constructed without home still builds an owned set from the resolvers."""
+    import platform
+
+    from petasos.hermes.home import hermes_root
+
+    if platform.system() == "Windows":
+        monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    else:
+        monkeypatch.setenv("HOME", str(tmp_path))
+    root = hermes_root()
+    root.mkdir(parents=True, exist_ok=True)
+    cfg = root / "config.yaml"
+    cfg.write_text("petasos: {}\n", encoding="utf-8")
+    monkeypatch.setenv("HERMES_HOME", str(root))
+    config = _cfg()
+    guard = ToolCallGuard(Pipeline(config=config), FrequencyTracker(config), config)
+    owned = guard.selfmod_target_paths()
+    assert os.path.normcase(str(cfg.resolve())) in owned
+
+
+async def test_guard_watches_a_profile_before_it_has_identity(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("petasos.hermes.home.hermes_root", lambda: tmp_path)
+    config = _cfg()
+    guard = ToolCallGuard(Pipeline(config=config), FrequencyTracker(config), config)
+    parent = tmp_path / "profiles"
+    (parent / "future").mkdir(parents=True)
+    target = parent / "future" / "config.yaml"
+    result = await guard.evaluate("write_file", {"path": str(target), "content": "x"}, "s1")
+    assert result.selfmod_finding is not None
+    assert result.selfmod_finding.rule_id == "petasos.selfmod.config_write"
+
+
+async def test_an_agent_writing_inside_its_own_profile_home_is_not_a_settings_change(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("petasos.hermes.home.hermes_root", lambda: tmp_path)
+    home = tmp_path / "profiles" / "ops"
+    home.mkdir(parents=True)
+    (home / "config.yaml").touch()
+    config = _cfg()
+    guard = ToolCallGuard(Pipeline(config=config), FrequencyTracker(config), config)
+    for tail in ("memories/MEMORY.md", "skills/notes/SKILL.md", "cron/output.md"):
+        target = home / tail
+        result = await guard.evaluate("write_file", {"path": str(target), "content": "x"}, "s1")
+        assert result.selfmod_finding is None, tail
+    settings = await guard.evaluate(
+        "write_file", {"path": str(home / "config.yaml"), "content": "x"}, "s1"
+    )
+    assert settings.selfmod_finding is not None
+
+
+async def test_selfmod_base_severities_match_the_guard(tmp_path: Path) -> None:
+    """A config write stays critical and a config mention stays high."""
+    owned = tmp_path / "profiles" / "gibson" / "config.yaml"
+    owned.parent.mkdir(parents=True)
+    owned.touch()
+    owned_text = os.path.normcase(str(owned.resolve(strict=False)))
+    config = _cfg()
+    pipeline = Pipeline(config=config)
+    tracker = FrequencyTracker(config)
+    guard = ToolCallGuard(pipeline, tracker, config)
+    guard._selfmod_owned_cache = (time.monotonic() + 9999, frozenset({owned_text}))
+
+    write = await guard.evaluate("write_file", {"path": owned_text, "content": "x"}, "s1")
+    mention = await guard.evaluate(
+        "write_file", {"path": "notes.md", "content": f"see {owned_text}"}, "s1"
+    )
+    assert write.selfmod_finding is not None
+    assert mention.selfmod_finding is not None
+    assert (
+        SELFMOD_BASE_SEVERITY["petasos.selfmod.config_write"]
+        == write.selfmod_finding.severity.value
+    )
+    assert write.selfmod_finding.severity is Severity.CRITICAL
+    assert (
+        SELFMOD_BASE_SEVERITY["petasos.selfmod.config_ref"]
+        == mention.selfmod_finding.severity.value
+    )
+    assert mention.selfmod_finding.severity is Severity.HIGH
