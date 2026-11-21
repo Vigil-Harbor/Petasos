@@ -6,9 +6,21 @@ on:
   pull_request:
     branches: [master]
 
+permissions:
+  contents: read
+
+# A newer push to the same pull request replaces the run still in progress.
+# A push to master has no pull request number, so its run is never cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+# Each timeout-minutes is a billing stop about three times the slowest measured
+# job, so a hang does not run to the six-hour default. It is not a test deadline.
 jobs:
   lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -23,6 +35,7 @@ jobs:
 
   typecheck:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -33,6 +46,7 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     strategy:
       matrix:
         python-version: ["3.11", "3.12", "3.13"]

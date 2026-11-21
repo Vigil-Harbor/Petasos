@@ -22,6 +22,11 @@ on:
   schedule:
     - cron: "13 4 * * 1" # Mondays 04:13 UTC — off-peak, off-minute, distinct from the other extras lanes
   workflow_dispatch:
+# A newer push to the same pull request replaces the run still in progress.
+# Scheduled and manual runs have no pull request number and are never cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
 jobs:
   scanner-tests:
     runs-on: ubuntu-latest
