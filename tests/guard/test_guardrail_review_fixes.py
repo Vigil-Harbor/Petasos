@@ -106,3 +106,34 @@ def test_powershell_text_the_first_tokenizer_misread(tmp_path: Path, script: str
 )
 def test_a_writer_inside_a_comment_is_not_a_change(tmp_path: Path, script: str) -> None:
     assert _recognize(tmp_path, f"powershell -NoProfile -c '{script}'") is None
+
+
+def test_a_native_shell_inside_a_nested_script_is_read_before_a_later_starter(
+    tmp_path: Path,
+) -> None:
+    """At any depth, not only at the top of the line."""
+    command = (
+        "bash -c 'xargs -a /dev/null powershell -c \"hermes plugins disable petasos; #\" python'"
+    )
+    hit = _recognize(tmp_path, command)
+    assert hit is not None
+    assert hit.kind == "plugin"
+
+
+def test_a_long_repetitive_line_is_worked_out_once_per_distinct_word(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The line is judged from several starting words. The path work must not repeat."""
+    from petasos.guard import paths
+
+    worked = 0
+    find = paths._find_path
+
+    def counting(*args: object, **kwargs: object) -> object:
+        nonlocal worked
+        worked += 1
+        return find(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(paths, "_find_path", counting)
+    assert _recognize(tmp_path, "x powershell -c x bash -c nope " * 344) is None
+    assert worked < 100

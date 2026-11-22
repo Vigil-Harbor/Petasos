@@ -7,7 +7,7 @@ import os
 import posixpath
 import re
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -34,6 +34,11 @@ class _Owned:
 
     paths: Mapping[str, str]
     roots: tuple[str, ...]
+    # Answers already worked out during one recognition. A long line is
+    # judged from several starting words, and the same words come round again.
+    seen: dict[tuple[str, str, bool, bool], GuardrailHit | None] = field(
+        default_factory=dict, compare=False, repr=False
+    )
 
 
 def normalize_path_text(text: str) -> str:
@@ -143,6 +148,21 @@ def _match_path(
     path, and a wildcard there that covers one, against the working
     directory only.
     """
+    key = (raw, cwd, above, hedge)
+    if key not in owned.seen:
+        owned.seen[key] = _find_path(raw, owned, env, cwd, above=above, hedge=hedge)
+    return owned.seen[key]
+
+
+def _find_path(
+    raw: str,
+    owned: _Owned,
+    env: Mapping[str, str],
+    cwd: str,
+    *,
+    above: bool,
+    hedge: bool,
+) -> GuardrailHit | None:
     if not raw.strip():
         return None
     for variant in _brace_variants(raw):
