@@ -237,8 +237,9 @@ def _grant_unattended(core: Core) -> bool:
 
 
 def _always(core: Core, rule_key: str) -> bool:
+    # A finding is dropped only on an explicit True. Any other answer keeps it.
     try:
-        return bool(core.host.rule_always_approved(rule_key))
+        return core.host.rule_always_approved(rule_key) is True
     except Exception:
         return False
 

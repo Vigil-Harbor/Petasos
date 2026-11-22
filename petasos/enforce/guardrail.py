@@ -355,8 +355,10 @@ def _cannot_ask(core: Core) -> bool:
 
 
 def _always(core: Core, rule_key: str) -> bool:
+    # A key is handed out only on an explicit False. Any other answer may be
+    # a rule the host grants without asking.
     try:
-        return bool(core.host.rule_always_approved(rule_key))
+        return core.host.rule_always_approved(rule_key) is not False
     except Exception:
         return True
 
