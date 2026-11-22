@@ -646,3 +646,17 @@ comes from an override. Resolution
 provenance, carried through initialisation and live changes, decides this;
 matching a built-in number is not evidence of a built-in source. Direct
 library configurations without provenance still receive diagnostics.
+
+## Missing and malformed Hermes settings (PET-295)
+
+After one good load, a settings block that is gone or malformed is a rejected
+reload: the last good settings stay in force and `PETASOS_RELOAD_FAILED` is
+logged. Hermes Desktop's model switcher is known to wipe config sections on
+Windows, and a wipe or a typo must not quietly loosen a strict profile. Only a
+first start with no block uses the defaults. The accepted cost is that deleting
+the block no longer resets a running Hermes; the operator restarts or writes the
+values. A block that stores only some keys still loads, because an absent key
+is the layer below it. `get_config` answers one key at a time and cannot list
+the block, so a misspelt key is seen only when it hides all four; reading
+`config.yaml` directly was not used, because Petasos's path resolution can name
+a different file from the one Hermes reads and misses the managed overlay.

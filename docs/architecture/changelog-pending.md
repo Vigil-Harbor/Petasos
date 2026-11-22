@@ -304,6 +304,18 @@ to `petasos.model._TIMEOUT_ERROR_PREFIX`. The ingestion head length moves from
   Several writes timed between the reads can still produce a blend; Hermes
   has no read of the whole settings group.
 
+- PET-295: once the Hermes settings block has loaded, a block that is
+  removed, or that stores a value of the wrong type such as
+  `overrides: null`, is a rejected reload: the last good settings stay in
+  force and `PETASOS_RELOAD_FAILED` is logged. Before, a missing block or a
+  null `overrides` quietly gave the defaults and could loosen a strict
+  profile. A first start with no block still uses the defaults, and a block
+  that stores only some of the four keys still loads. Deleting the block no
+  longer resets a running Hermes; restart it or write the values. A stored
+  `overrides: null` is now rejected at first start too. Doctor says a
+  running Petasos keeps the last settings it accepted. A misspelt key beside
+  correctly spelt ones is still not detected.
+
 - PET-296: every profile's own copy of the Petasos plugin
   (`profiles/<name>/plugins/petasos`) under a shared Hermes home is now a
   protected path, like the running profile's copy. Other files in a

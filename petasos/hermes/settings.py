@@ -41,6 +41,11 @@ HASH_ENV = "PETASOS_HASH_KEY"
 _SECRET_KEYS = frozenset({"session_secret", "hash_key"})
 # How many times the four settings are read while waiting for two passes to agree.
 _READ_PASSES = 4
+_KEYS = ("enabled", "role", "level", "overrides")
+_DEFAULTS: Mapping[str, object] = {"enabled": True, "role": "general", "level": "balanced"}
+# What the context returns for a key that is not stored. A stored null is ``None``.
+_ABSENT = object()
+_MISSING_BLOCK = "build failed: the Petasos settings block is missing"
 
 
 class ConfigStore(Protocol):
@@ -203,20 +208,26 @@ def _four_from_mapping(values: Mapping[str, object]) -> tuple[object, object, ob
 
 
 def _read_pass(ctx: ConfigStore) -> tuple[object, object, object, object]:
-    enabled = ctx.get_config("enabled", True)
-    role = ctx.get_config("role", "general")
-    level = ctx.get_config("level", "balanced")
-    overrides = ctx.get_config("overrides", None)
+    enabled, role, level, overrides = (ctx.get_config(key, _ABSENT) for key in _KEYS)
     if isinstance(overrides, Mapping):
         overrides = _plain(overrides)
-    elif overrides is None:
-        overrides = {}
+    return enabled, role, level, overrides
+
+
+def _with_defaults(
+    four: tuple[object, object, object, object],
+) -> tuple[object, object, object, object]:
+    enabled, role, level, overrides = (
+        _DEFAULTS.get(key, {}) if value is _ABSENT else value
+        for key, value in zip(_KEYS, four, strict=True)
+    )
     return enabled, role, level, overrides
 
 
 def _spelled(four: tuple[object, object, object, object]) -> str:
     """One pass as text, so ``True`` and ``1`` are different settings."""
-    return json.dumps(_plain(four), sort_keys=True, separators=(",", ":"), default=str)
+    marked = [{"absent": True} if value is _ABSENT else {"value": value} for value in four]
+    return json.dumps(_plain(marked), sort_keys=True, separators=(",", ":"), default=str)
 
 
 def _four_from_store(ctx: ConfigStore) -> tuple[object, object, object, object]:
@@ -283,11 +294,16 @@ class HermesSettings:
 
     ``bind_profile`` points later calls at a profile directory the host named,
     so a profile switch is visible before the process home changes.
+
+    Once a stored block has loaded, a read that finds none of the four keys
+    is an error snapshot, so the enforcer keeps the last good settings. Only
+    a source that has never loaded a block falls back to the defaults.
     """
 
     def __init__(self, ctx: ConfigStore) -> None:
         self._ctx = ctx
         self._profile: Path | None = None
+        self._loaded_block = False
 
     def bind_profile(self, home: Path | None) -> None:
         """Read later snapshots from ``home``."""
@@ -341,7 +357,23 @@ class HermesSettings:
                 )
             enabled, role, level, overrides = _four_from_mapping(settings)
         else:
-            enabled, role, level, overrides = _four_from_store(self._ctx)
+            four = _four_from_store(self._ctx)
+            stored = any(value is not _ABSENT for value in four)
+            if not stored and self._loaded_block:
+                secrets, invalid = self._secret_pair(home)
+                return SettingsSnapshot(
+                    armed=True,
+                    config=None,
+                    secrets=secrets,
+                    token=("missing",),
+                    error=_MISSING_BLOCK,
+                    secret_invalid=invalid,
+                )
+            enabled, role, level, overrides = _with_defaults(four)
+            snap = _snapshot(enabled, role, level, overrides, *self._secret_pair(home))
+            if stored and snap.error is None:
+                self._loaded_block = True
+            return snap
         secrets, invalid = self._secret_pair(home)
         return _snapshot(enabled, role, level, overrides, secrets, invalid)
 

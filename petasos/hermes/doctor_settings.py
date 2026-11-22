@@ -15,6 +15,7 @@ from petasos.hermes.doctor_support import (
     expansions,
     legacy_present,
     migrate_command,
+    plugin_settings,
     sentence,
     settings_mapping,
 )
@@ -141,7 +142,10 @@ def settings_check(
             Check(
                 id="settings",
                 status="warn",
-                summary="The settings were rejected, so Petasos falls back to its usual settings.",
+                summary=(
+                    "The settings were rejected. A running Petasos keeps the last settings "
+                    "it accepted, and a new start uses its usual settings."
+                ),
                 meaning=meaning,
                 next_step=" Then ".join(steps),
             ),
@@ -164,6 +168,12 @@ def settings_check(
         purpose = role.description.partition(".")[0]
         lines.append(f"{purpose}, with {_LEVEL_PLAIN[resolved.settings.level]}.")
         detail.extend((role.description, level, *extra_lines(resolved)))
+    if plugin_settings(document, PLUGIN_ID) is None and not legacy:
+        lines.append(
+            "No Petasos settings are stored, so a new start uses the usual settings. "
+            "If they were removed while Hermes was running, Petasos keeps the last "
+            "settings it accepted until Hermes restarts."
+        )
     if not resolved.settings.enabled:
         status = "fail"
         lines.append("Tool calls are not checked until protection is turned on.")

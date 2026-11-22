@@ -236,3 +236,122 @@ def test_settings_that_keep_changing_are_a_rejected_read() -> None:
     assert snap.error is not None
     assert snap.armed is True
     assert store.calls <= 16
+
+
+_NEVER = {"tools": {"self_change": "never"}}
+_DISARM = "hermes plugins disable petasos"
+
+
+def _guarded(store: _Store) -> Any:
+    from petasos.enforce import ApprovalGrant, Enforcer, HostInfo
+    from petasos.hermes.guardrail import hermes_surface
+
+    host = HostInfo(
+        approve_directive=True,
+        approval_grant=ApprovalGrant,
+        subagent_hooks=False,
+        guardrail_surface=lambda: hermes_surface(()),
+    )
+    enforcer = Enforcer(HermesSettings(store), host=host, registry=())
+    enforcer.start()
+    assert enforcer.settle()
+    return enforcer
+
+
+def _disarm(enforcer: Any) -> object:
+    from petasos.enforce import ToolCall
+
+    return enforcer.tool_call(ToolCall(tool="terminal", args={"command": _DISARM}, session="s"))
+
+
+@pytest.mark.parametrize(
+    "stored",
+    [
+        pytest.param({}, id="block-removed"),
+        pytest.param({"overrides": None}, id="overrides-null"),
+        pytest.param({"overides": _NEVER}, id="misspelt-key"),
+        pytest.param({"enabled": "yes", "overrides": {}}, id="enabled-text"),
+        pytest.param({"role": 7, "overrides": {}}, id="role-number"),
+        pytest.param({"level": "nope", "enabled": False}, id="unknown-level"),
+    ],
+)
+def test_a_lost_or_malformed_block_keeps_the_last_good_settings(
+    stored: dict[str, Any], caplog: pytest.LogCaptureFixture
+) -> None:
+    """After one good load, a wiped or broken block is a rejected reload."""
+    from petasos.enforce import Approve, Block
+
+    store = _Store({"overrides": _NEVER})
+    with closing(_guarded(store)) as enforcer:
+        assert isinstance(_disarm(enforcer), Block)
+        store.values = dict(stored)
+        caplog.clear()
+        with caplog.at_level("WARNING"):
+            enforcer.refresh()
+            decision = _disarm(enforcer)
+        assert isinstance(decision, Block)
+        assert enforcer.status().armed is True
+        assert any("PETASOS_RELOAD_FAILED" in record.getMessage() for record in caplog.records)
+        store.values = {"overrides": {"tools": {"self_change": "approve"}}}
+        enforcer.refresh()
+        assert isinstance(_disarm(enforcer), Approve)
+
+
+def test_a_first_start_with_no_block_is_armed_with_the_defaults(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """With no block ever seen, the defaults are the settings and nothing is rejected."""
+    store = _Store()
+    source = HermesSettings(store)
+    with caplog.at_level("WARNING"):
+        first = source()
+        again = source()
+        with closing(_guarded(store)) as enforcer:
+            enforcer.refresh()
+            assert enforcer.status().armed is True
+    assert first.error is None
+    assert first.armed is True
+    assert first.config == resolve({}).config
+    assert again.error is None
+    assert again.token == first.token
+    assert not any("PETASOS_RELOAD_FAILED" in record.getMessage() for record in caplog.records)
+
+
+def test_a_removed_block_is_an_error_only_after_a_good_load() -> None:
+    """The source rejects a missing block once it has read a good one, not before."""
+    store = _Store()
+    source = HermesSettings(store)
+    assert source().error is None
+    store.values = {"role": "coding"}
+    assert source().error is None
+    store.values = {}
+    missing = source()
+    assert missing.config is None
+    assert missing.error is not None
+    assert "missing" in missing.error
+    store.values = {"level": "strict"}
+    assert source().error is None
+
+
+@pytest.mark.parametrize(
+    "stored",
+    [{"role": "coding"}, {"overrides": _NEVER}, {"enabled": False}],
+    ids=["only-role", "only-overrides", "only-enabled"],
+)
+def test_a_partial_block_still_loads_after_a_good_load(stored: dict[str, Any]) -> None:
+    """An absent key is the layer below it, not an error, while any key is stored."""
+    store = _Store({"role": "support", "level": "strict", "overrides": {}})
+    source = HermesSettings(store)
+    assert source().error is None
+    store.values = dict(stored)
+    snap = source()
+    assert snap.error is None
+    assert snap.config == resolve(stored).config
+
+
+def test_null_overrides_is_malformed_even_at_first_start() -> None:
+    """A stored null is not an empty group. It is reported, and the enforcer keeps its floor."""
+    snap = HermesSettings(_Store({"overrides": None}))()
+    assert snap.config is None
+    assert snap.error is not None
+    assert "overrides" in snap.error

@@ -700,6 +700,8 @@ usable. `SettingsSource` is a callable returning that snapshot. The enforcer
 reads it on each call. A new token is applied through `apply_live` and the
 pipeline and guard reconfigure paths. Restart-only fields are left as they are
 and logged. An error keeps the last good tree and logs `PETASOS_RELOAD_FAILED`.
+For the Hermes source a missing or malformed settings block is such an error
+once a block has loaded (section 7.2).
 Arming is the snapshot's switch, checked on every call.
 
 `HostInfo` is what the host can answer: `host_id`; `approve_directive`;
@@ -836,6 +838,15 @@ Rules the host imposes:
   values plus a digest of each secret, because the enforcer applies secrets
   only when the token changes. The digest is not the secret. Re-arming to
   the same four values is not a new configuration.
+- Each of the four is read with a default that marks it as not stored, so a
+  stored `null` is a value and is validated like one (`overrides: null` is
+  rejected, not read as `{}`). An absent key is the layer below it: a block
+  with only `overrides` stores the general role at the balanced level. When
+  none of the four is stored, a source that has never loaded a block uses
+  the defaults; once one has loaded, it is a rejected reload, and the last
+  good settings stay in force until a block is written again or Hermes
+  restarts. The context cannot list the block's keys, so a misspelt key
+  beside correctly spelt ones is not seen.
 - Nothing but Hermes writes `config.yaml`. The plugin uses `ctx.set_config`;
   the console and the CLI use Hermes's own writer. A plain YAML dump by another
   process has already misplaced keys once on this machine.
