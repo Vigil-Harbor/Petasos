@@ -185,3 +185,54 @@ def test_explicit_thresholds_warn_even_when_they_match_a_level(
         caplog.clear()
         enforcer.tool_result(call, "hello")
         assert not [record for record in caplog.records if record.name == "petasos.session.guard"]
+
+
+class _RewrittenStore:
+    """A store whose whole document is replaced after ``switch_after`` reads."""
+
+    def __init__(self, before: dict[str, Any], after: dict[str, Any], switch_after: int) -> None:
+        self._before = before
+        self._after = after
+        self._switch_after = switch_after
+        self.calls = 0
+
+    def get_config(self, key: str, default: object = None) -> object:
+        document = self._before if self.calls < self._switch_after else self._after
+        self.calls += 1
+        return document.get(key, default)
+
+
+@pytest.mark.parametrize("switch_after", [1, 2, 3])
+def test_a_write_between_reads_never_yields_a_mixed_document(switch_after: int) -> None:
+    """A settings write that lands mid-read gives one stored document, not a blend."""
+    before = {"role": "general", "overrides": {"tools": {"self_change": "never"}}}
+    after = {"role": "support", "overrides": {}}
+    stored = [resolve(before).config, resolve(after).config]
+    assert all(config.tools.self_change == "never" for config in stored)
+
+    snap = HermesSettings(_RewrittenStore(before, after, switch_after))()
+
+    assert snap.error is None
+    assert snap.config in stored
+
+
+def test_settings_that_keep_changing_are_a_rejected_read() -> None:
+    """A store rewritten on every read gives an error snapshot and no config to apply."""
+
+    class _Churning:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def get_config(self, key: str, default: object = None) -> object:
+            self.calls += 1
+            if key == "overrides":
+                return {"tools": {"self_change_minutes": self.calls}}
+            return default
+
+    store = _Churning()
+    snap = HermesSettings(store)()
+
+    assert snap.config is None
+    assert snap.error is not None
+    assert snap.armed is True
+    assert store.calls <= 16

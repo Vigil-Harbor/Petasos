@@ -39,6 +39,8 @@ PINNED_REFUSAL = (
 SESSION_ENV = "PETASOS_SESSION_SECRET"
 HASH_ENV = "PETASOS_HASH_KEY"
 _SECRET_KEYS = frozenset({"session_secret", "hash_key"})
+# How many times the four settings are read while waiting for two passes to agree.
+_READ_PASSES = 4
 
 
 class ConfigStore(Protocol):
@@ -200,7 +202,7 @@ def _four_from_mapping(values: Mapping[str, object]) -> tuple[object, object, ob
     return enabled, role, level, overrides
 
 
-def _four_from_store(ctx: ConfigStore) -> tuple[object, object, object, object]:
+def _read_pass(ctx: ConfigStore) -> tuple[object, object, object, object]:
     enabled = ctx.get_config("enabled", True)
     role = ctx.get_config("role", "general")
     level = ctx.get_config("level", "balanced")
@@ -210,6 +212,28 @@ def _four_from_store(ctx: ConfigStore) -> tuple[object, object, object, object]:
     elif overrides is None:
         overrides = {}
     return enabled, role, level, overrides
+
+
+def _spelled(four: tuple[object, object, object, object]) -> str:
+    """One pass as text, so ``True`` and ``1`` are different settings."""
+    return json.dumps(_plain(four), sort_keys=True, separators=(",", ":"), default=str)
+
+
+def _four_from_store(ctx: ConfigStore) -> tuple[object, object, object, object]:
+    """The four settings as one stored document held them.
+
+    Hermes reads one key per call and has no read of the whole mapping, so a
+    write can land between two of the four reads and mix two documents. A
+    pass counts only when the next pass reads the same values. Settings that
+    never hold still raise, which the caller reports as an unusable read.
+    """
+    seen = _read_pass(ctx)
+    for _ in range(_READ_PASSES - 1):
+        again = _read_pass(ctx)
+        if _spelled(again) == _spelled(seen):
+            return again
+        seen = again
+    raise RuntimeError("the settings kept changing while they were read")
 
 
 def _snapshot(

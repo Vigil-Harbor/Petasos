@@ -296,3 +296,8 @@ to `petasos.model._TIMEOUT_ERROR_PREFIX`. The ingestion head length moves from
   Failed guardrail recognition refuses write-capable calls under closed or
   degraded failure policy and logs the cause once per retained session. Open
   failure policy and read-only tools keep their existing content checks.
+
+- PET-294: the Hermes settings source reads the four settings until two
+  passes agree, so a settings write that lands mid-read can no longer give
+  the enforcer a blend of two documents. Settings that never hold still are
+  a rejected reload, and the last good settings stay in force.
