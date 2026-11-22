@@ -64,4 +64,6 @@ def profile_home(base: Path, name: str) -> Path:
 def _single_segment(name: str) -> bool:
     if name in {"", ".", ".."}:
         return False
-    return "/" not in name and "\\" not in name and "\x00" not in name
+    # A colon is a drive letter on Windows: "D:elsewhere" joined to
+    # profiles/ is a path on drive D, outside the Hermes home.
+    return not any(mark in name for mark in ("/", "\\", "\x00", ":"))
