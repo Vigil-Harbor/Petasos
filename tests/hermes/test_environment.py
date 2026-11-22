@@ -200,3 +200,42 @@ def test_a_recorded_wheel_that_is_gone_is_unknown(tmp_path: Path) -> None:
     gone = tmp_path / "generation" / "petasos.whl"
     direct = json.dumps({"url": gone.as_uri(), "archive_info": {}})
     assert Probe(ok=True, direct_url=direct).matches_wheel(source) is None
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows file addresses")
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        ("file:///C:/Users/x/petasos.whl", "C:/Users/x/petasos.whl"),
+        ("file://localhost/C:/Users/x/petasos.whl", "C:/Users/x/petasos.whl"),
+        ("file://LOCALHOST/C:/Users/x/petasos.whl", "C:/Users/x/petasos.whl"),
+        ("file:///C:/dir%20with%20space/p.whl", "C:/dir with space/p.whl"),
+        ("file://server/share/p.whl", "//server/share/p.whl"),
+    ],
+)
+def test_a_windows_file_address(url: str, expected: str) -> None:
+    assert file_url_path(url) == Path(expected)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="off Windows the path part is the path")
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        ("file:///tmp/p.whl", "/tmp/p.whl"),
+        ("file://localhost/tmp/p.whl", "/tmp/p.whl"),
+        ("file://server/share/p.whl", "/share/p.whl"),
+        ("file:////localhost/tmp/x", "//localhost/tmp/x"),
+        ("file:///tmp/dir%20x/p.whl", "/tmp/dir x/p.whl"),
+    ],
+)
+def test_a_file_address_off_windows_is_its_path_part(url: str, expected: str) -> None:
+    """What the code returned before it learned Windows addresses, on every Python version."""
+    assert str(file_url_path(url)) == expected
+
+
+def test_a_malformed_file_address_is_not_a_match(tmp_path: Path) -> None:
+    source = tmp_path / "build.whl"
+    source.write_bytes(b"new")
+    tail = source.as_posix().split(":", 1)[-1]
+    direct = json.dumps({"url": "file:abc:" + tail})
+    assert Probe(ok=True, direct_url=direct).matches_wheel(source) is None

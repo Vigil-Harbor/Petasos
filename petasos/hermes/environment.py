@@ -10,11 +10,14 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from urllib.parse import urlparse
-from urllib.request import url2pathname
+from urllib.parse import unquote, urlparse
+
+# The path part of ``file:///C:/x``.
+_DRIVE_LOCATION = re.compile(r"/[A-Za-z]:(?:/|$)")
 
 _PROBE = (
     "import json, importlib.metadata\n"
@@ -83,14 +86,20 @@ def file_url_path(url: str) -> Path | None:
 
     Windows writes ``file:///C:/x``, whose path part is ``/C:/x``, and a
     share as ``file://server/share/x``. Elsewhere the path part is the path.
+    The conversion is done here, not by ``url2pathname``, whose answers
+    differ between Python versions.
     """
     parsed = urlparse(url)
     if parsed.scheme != "file":
         return None
-    location = parsed.path
-    if os.name == "nt" and parsed.netloc not in {"", "localhost"}:
-        location = f"//{parsed.netloc}{location}"
-    return Path(url2pathname(location))
+    location = unquote(parsed.path)
+    if os.name != "nt":
+        return Path(location)
+    if parsed.netloc.casefold() not in {"", "localhost"}:
+        return Path(f"//{parsed.netloc}{location}")
+    if _DRIVE_LOCATION.match(location):
+        location = location[1:]
+    return Path(location)
 
 
 def runtime_python(home: Path) -> Runtime | None:
