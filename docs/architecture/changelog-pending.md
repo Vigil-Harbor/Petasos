@@ -301,3 +301,8 @@ to `petasos.model._TIMEOUT_ERROR_PREFIX`. The ingestion head length moves from
   passes agree, so a settings write that lands mid-read can no longer give
   the enforcer a blend of two documents. Settings that never hold still are
   a rejected reload, and the last good settings stay in force.
+
+- PET-296: every profile's own copy of the Petasos plugin
+  (`profiles/<name>/plugins/petasos`) under a shared Hermes home is now a
+  protected path, like the running profile's copy. Other files in a
+  profile's `plugins` directory are not.
