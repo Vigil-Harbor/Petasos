@@ -146,18 +146,18 @@ def _match_path(
     if not raw.strip():
         return None
     for variant in _brace_variants(raw):
-        candidates = _expand_path(variant, env, cwd)
-        for candidate in candidates if hedge else candidates[:1]:
+        for candidate in _expand_path(variant, env, cwd, hedge=hedge):
             located = _kind_of(candidate, owned)
             if located is not None:
                 return GuardrailHit(*located)
         if not above:
             continue
-        kind = _holds(candidates[0], owned)
-        if kind is None and _GLOB.search(variant):
-            kind = _glob_kind(candidates[0], owned)
-        if kind is not None:
-            return GuardrailHit(kind, candidates[0])
+        for candidate in _expand_path(variant, env, cwd, hedge=False):
+            kind = _holds(candidate, owned)
+            if kind is None and _GLOB.search(variant):
+                kind = _glob_kind(candidate, owned)
+            if kind is not None:
+                return GuardrailHit(kind, candidate)
     return None
 
 
@@ -231,7 +231,14 @@ def _kind_of(candidate: str, owned: _Owned) -> tuple[str, str] | None:
     return None
 
 
-def _expand_path(raw: str, env: Mapping[str, str], cwd: str) -> list[str]:
+def _expand_path(raw: str, env: Mapping[str, str], cwd: str, *, hedge: bool = True) -> list[str]:
+    """Every path ``raw`` may name.
+
+    A relative name is read against the working directory, and with ``hedge``
+    against ``HERMES_HOME`` and ``HOME`` as well. On Windows each of those has
+    two readings, the native one and Git Bash's, so the working directory
+    alone can give two paths. The last of them is the shell's own reading.
+    """
     text = raw.strip()
     if len(text) >= 2 and text[0] == text[-1] and text[0] in {"'", '"'}:
         text = text[1:-1]
@@ -253,13 +260,14 @@ def _expand_path(raw: str, env: Mapping[str, str], cwd: str) -> list[str]:
     bases = [text]
     if not os.path.isabs(text):
         roots = [cwd]
-        roots.extend(
-            root for root in (env.get(key, "") for key in ("HERMES_HOME", "HOME")) if root
-        )
+        if hedge:
+            roots.extend(
+                root for root in (env.get(key, "") for key in ("HERMES_HOME", "HOME")) if root
+            )
         bases = [os.path.join(root, text) for root in roots]
         if os.name == "nt" and not _DRIVE_PREFIX.match(text):
             # A native program and the shell read ``..`` differently, so both
-            # readings are candidates. The native ones stay first.
+            # readings are candidates.
             bases.extend(_bash_join(root, text) for root in roots)
     return [normalize_path_text(item) for item in bases]
 

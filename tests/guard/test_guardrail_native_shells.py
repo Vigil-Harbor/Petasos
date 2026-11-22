@@ -265,8 +265,10 @@ def test_powershell_environment_forms() -> None:
     env = {"HERMES_HOME": "/h", "USERPROFILE": "/u"}
     text = "a $env:HERMES_HOME/x \"${env:hermes_home}/y\" '$env:HERMES_HOME' $HOME/z ~/w $env:NOPE"
     assert _argvs(text, "powershell", env) == [
-        ("a", "/h/x", "/h/y", "$env:HERMES_HOME", "/u/z", "/u/w", "$env:NOPE")
+        ("a", "/h/x", "/h/y", "$env:HERMES_HOME", "/u/z", "/u/w")
     ]
+    # A variable that is not set expands to nothing, as PowerShell does it.
+    assert _argvs('a "${env:NOPE}config.yaml"', "powershell", env) == [("a", "config.yaml")]
 
 
 def test_cmd_quoting_and_environment() -> None:

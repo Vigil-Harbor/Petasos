@@ -81,7 +81,13 @@ def _each_command(
     return None
 
 
-def _after_cd(command: _Simple, env: Mapping[str, str], cwd: str) -> str:
+def _after_cd(command: _Simple, env: Mapping[str, str], cwd: str, *, native: bool = False) -> str:
+    """The working directory after ``command``, when it is a ``cd``.
+
+    On Windows a relative directory has two readings. Git Bash's own ``cd``
+    takes the shell's, and ``cd`` inside a PowerShell or cmd script
+    (``native``) takes the system's.
+    """
     argv, _assignments = _strip_wrappers(command.argv)
     if not argv or _program(argv[0]) not in {"cd", "pushd"}:
         return cwd
@@ -90,7 +96,8 @@ def _after_cd(command: _Simple, env: Mapping[str, str], cwd: str) -> str:
         return env.get("HOME") or cwd
     if len(targets) != 1 or targets[0] == "-":
         return cwd
-    return _expand_path(targets[0], env, cwd)[0]
+    readings = _expand_path(targets[0], env, cwd, hedge=False)
+    return readings[0] if native else readings[-1]
 
 
 def _heredoc_hit(
@@ -222,15 +229,22 @@ def _started(
     """A command that this one starts, such as ``timeout 5 hermes ...``.
 
     The rest of the line is judged again from the first later word that is a
-    program the rules name, a wrapper, a shell, ``python`` or ``eval``.
+    program the rules name, a wrapper, a shell, ``python`` or ``eval``. When
+    that finds nothing, it is judged from the first later PowerShell or cmd,
+    so reading those never hides a command the first pass would have found.
     """
     starters = {rule.words[0].casefold() for rule in rules}
     starters.update(flag.program.casefold() for flag in surface.flags)
     starters.update(_WRAPPERS, _SHELLS, {"python", "eval"})
-    for index in range(1, len(argv)):
-        if _program(argv[index]) in starters or _native_shell(argv[index]) is not None:
-            rest = _Simple(argv[index:], (), ())
-            return _one_command(rest, owned, surface, rules, env, cwd, depth=depth + 1)
+    first = next((i for i in range(1, len(argv)) if _program(argv[i]) in starters), None)
+    native = next((i for i in range(1, len(argv)) if _native_shell(argv[i]) is not None), None)
+    for index in (first, native):
+        if index is None:
+            continue
+        rest = _Simple(argv[index:], (), ())
+        hit = _one_command(rest, owned, surface, rules, env, cwd, depth=depth + 1)
+        if hit is not None:
+            return hit
     return None
 
 
@@ -276,7 +290,7 @@ def _native(
                 hit = _native(rest, shell, owned, surface, rules, env, cwd, depth + 1)
             if hit is not None:
                 return hit
-            cwd = _after_cd(command, env, cwd)
+            cwd = _after_cd(command, env, cwd, native=True)
     return None
 
 

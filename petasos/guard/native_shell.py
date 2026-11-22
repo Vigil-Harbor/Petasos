@@ -269,11 +269,21 @@ def _native_parse(text: str, shell: str, env: Mapping[str, str]) -> list[_Pipeli
             started = True
             index += 1
             continue
+        if ps and text.startswith("<#", index):
+            # A block comment ends at ``#>``, and what follows it still runs.
+            finish_word()
+            end = text.find("#>", index + 2)
+            index = length if end < 0 else end + 2
+            continue
         if ps and char == "#" and not started:
             while index < length and text[index] != "\n":
                 index += 1
             continue
-        if char in " \t\r," or (not ps and char in ";="):
+        if (
+            char in " \t\r,"
+            or (not ps and char in ";=")
+            or (ps and char != "\n" and char.isspace())
+        ):
             finish_word()
             index += 1
             continue
@@ -324,8 +334,12 @@ def _ps_special(text: str, index: int, buf: list[str], env: Mapping[str, str]) -
         buf.append("$")
         return index + 1
     name = match.group(1) or match.group(2)
-    value = _lookup(env, name) if name else _home(env)
-    buf.append(match.group(0) if value is None else value)
+    if name:
+        # PowerShell expands a variable that is not set to nothing.
+        buf.append(_lookup(env, name) or "")
+        return match.end()
+    home = _home(env)
+    buf.append(match.group(0) if home is None else home)
     return match.end()
 
 
