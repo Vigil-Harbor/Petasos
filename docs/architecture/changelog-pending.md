@@ -311,3 +311,8 @@ to `petasos.model._TIMEOUT_ERROR_PREFIX`. The ingestion head length moves from
   false. The tool guard derives the tier before it answers that the feature
   is off, so tier 3 has no off switch. Conversations that are not terminated
   get the feature-off result as before.
+
+- PET-300: only an explicit "attended" answer from the host counts as a
+  person being attached. A missing or non-boolean answer is treated as
+  unattended, so a flagged command or a guardrail change is refused rather
+  than handed to an approval nobody may be there to give.

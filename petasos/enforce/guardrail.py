@@ -347,8 +347,9 @@ def _minutes(core: Core) -> int:
 def _cannot_ask(core: Core) -> bool:
     if not core.host.approve_directive:
         return True
+    # Only an explicit False is a person attached. Any other answer is not.
     try:
-        return bool(core.host.approval_grant().unattended)
+        return core.host.approval_grant().unattended is not False
     except Exception:
         return True
 

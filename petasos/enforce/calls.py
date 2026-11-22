@@ -229,8 +229,9 @@ def _posture(core: Core) -> str:
 
 
 def _grant_unattended(core: Core) -> bool:
+    # Only an explicit False is a person attached. Any other answer is not.
     try:
-        return bool(core.host.approval_grant().unattended)
+        return core.host.approval_grant().unattended is not False
     except Exception:
         return True
 
