@@ -180,8 +180,9 @@ def test_administrator_route_only_prepares_system_commands(
     assert [line[0] for line in commands] == ["mkdir", "install"]
     source = Path(commands[1][-2])
     assert json.loads(source.read_text())["plugins"]["enabled"] == ["petasos", "other"]
-    assert source.stat().st_mode & 0o777 == 0o600
-    assert source.parent.stat().st_mode & 0o777 == 0o700
+    if os.name != "nt":
+        assert source.stat().st_mode & 0o777 == 0o600
+        assert source.parent.stat().st_mode & 0o777 == 0o700
     assert commands[1][-1] == str(scope.directory / "config.yaml")
 
 

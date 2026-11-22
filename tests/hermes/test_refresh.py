@@ -21,6 +21,13 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
+def _hint(home: Path, command: str) -> str:
+    """A command for ``home`` as the product words it on this system."""
+    if os.name == "nt":
+        return f"{command}, with HERMES_HOME set to {home}"
+    return f"HERMES_HOME='{home}' {command}"
+
+
 def _saved(home: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     healthy_home(home, monkeypatch)
     target = home / "plugins" / "petasos"
@@ -220,11 +227,11 @@ def test_install_reports_the_profile_state_and_whether_hermes_was_asked(
         assert result.exit_code == 1
         assert "still checking tool calls" in result.text
         assert "tool calls are not checked yet" not in result.text
-        assert f"HERMES_HOME='{home}' hermes petasos refresh" in result.text
+        assert _hint(home, "hermes petasos refresh") in result.text
     else:
         assert result.exit_code == 2
         assert "tool calls are not checked yet" in result.text
-        assert f"HERMES_HOME='{home}' hermes plugins enable petasos" in result.text
+        assert _hint(home, "hermes plugins enable petasos") in result.text
 
 
 def test_install_without_hermes_stops_offering_refresh_once_the_build_runs(
@@ -281,7 +288,7 @@ def test_refresh_does_not_prune_a_shared_wheel_directory(
     project = home / "plugins" / "petasos" / "pyproject.toml"
     project.write_text(
         install.render_project(f"new/{saved.name}").replace(
-            f"wheels/new/{saved.name}", str(current)
+            f"wheels/new/{saved.name}", current.as_posix()
         )
     )
     monkeypatch.setattr(install, "probe_petasos", lambda python: _probe(current))

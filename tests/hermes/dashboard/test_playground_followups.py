@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
@@ -13,6 +13,9 @@ from petasos.hermes.dashboard.playground import try_input
 from petasos.model import Direction, Position, ScanFinding, ScanResult, Severity
 from petasos.scanners.registry import ScannerSpec
 from petasos.session.frequency import FrequencyTracker
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class _PersonalInformation:
@@ -264,11 +267,12 @@ def test_a_tool_without_text_did_not_run_the_personal_information_check() -> Non
     )
 
 
-def test_the_score_reaches_a_named_stage_using_the_librarys_weights() -> None:
+def test_the_score_reaches_a_named_stage_using_the_librarys_weights(tmp_path: Path) -> None:
+    guarded = str(tmp_path / "guarded" / "settings.json")
     body = _run(
         tool="write_file",
-        arguments={"path": "/tmp/guarded/settings.json", "content": "hi"},
-        protected_paths=lambda: ("/tmp/guarded/settings.json",),
+        arguments={"path": guarded, "content": "hi"},
+        protected_paths=lambda: (guarded,),
         candidate={
             "overrides": {
                 "frequency": {"weights": {"petasos.selfmod.config_write": 35}},
