@@ -333,7 +333,6 @@ to `petasos.model._TIMEOUT_ERROR_PREFIX`. The ingestion head length moves from
   are read as the bare program name. On every system a backslash inside
   double quotes is now kept as a shell keeps it, so `"con\fig.yaml"` and
   `"h\ermes"` are no longer read as `config.yaml` and `hermes`.
-  Not covered: a script handed to PowerShell or `cmd` as one quoted argument.
 
 - PET-302: on Windows, install, refresh and doctor now read a `file:` address
   such as `file:///C:/Users/x/petasos.whl` as the path it names. When the
@@ -341,3 +340,14 @@ to `petasos.model._TIMEOUT_ERROR_PREFIX`. The ingestion head length moves from
   hash, the match with the saved wheel was always unknown: refresh reported
   that it could not confirm the new build, and an unchanged install rebuilt
   every time. Other systems are unchanged.
+
+- PET-301: the guardrail check now reads a script handed to PowerShell or
+  cmd as one argument (`powershell -Command "..."`, `pwsh -c '...'`,
+  `cmd //c "..."`), with that shell's quoting, separators, redirects and
+  environment variables, and judges each command in it. A Hermes command
+  inside the script is recognised too. Reads stay reads, and the PowerShell
+  and cmd reader names keep no exemption in ordinary bash commands. On
+  Windows a path through a drive's administrative share on this machine
+  (`\\localhost\C$\...`) is read as the drive path. Not covered:
+  `-EncodedCommand`, `-File`, and paths or commands built at runtime inside
+  the script.

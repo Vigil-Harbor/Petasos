@@ -1487,9 +1487,44 @@ checkout the rest of this file uses. Nothing here was run through Hermes.
 What Petasos does with this is in `petasos/guard/paths.py` (`_native_drive`)
 and `tests/guard/test_guardrail_windows.py`.
 
-**Not covered.** A script handed to PowerShell or `cmd` as one quoted
-argument (`powershell -Command "..."`, `cmd /c "..."`) is not read, and a
-path through an administrative share (`\\localhost\C$\...`) is not matched.
+**A script handed to PowerShell or `cmd`.** From Git Bash an agent can run
+`powershell -Command "..."`, `pwsh -c '...'` or `cmd //c "..."` (MSYS turns
+a lone `/c` into `C:/`, so Git Bash users double the slash). Petasos reads
+that script with the shell's own rules in `petasos/guard/native_shell.py`,
+and judges each command in it as it judges a nested `bash -c` script. Checked
+against `powershell.exe` 5.1 and `cmd.exe` on Windows 11, run from Git Bash:
+
+- PowerShell takes any prefix of `-Command` (`-c`, `-co`, `-com`), in any
+  case, written with `-` or `/`. The script is every later word, joined by
+  spaces. Without `-Command`, Windows PowerShell runs the first word that is
+  not an option as a command. `pwsh` runs it as a file, which Petasos does
+  not read.
+- In PowerShell a backslash is an ordinary character. Single quotes are
+  literal and `''` is one quote. Double quotes take backtick escapes and
+  `$env:NAME`. `-Path:value` passes `value`, `,` separates words, and `#`
+  at the start of a word begins a comment.
+- cmd takes `/c`, `/k` and `/r` in any case, also glued to the script
+  (`/cdel x`). `^` escapes the next character outside quotes, `%NAME%` is
+  replaced before the line is read, and `,`, `;` and `=` separate words.
+
+Inside such a script the PowerShell read cmdlets and the cmd readers (`type`,
+`dir`, `findstr`, `more`, `where` and a few others) only read, unless they
+redirect into a protected file. A PowerShell reader whose objects go on to a
+cmdlet that is not a reader, or a reader inside brackets such as
+`(Get-Item x).Delete()`, counts as a change. Outside such a script these
+names are other programs and get no exemption. A path through the
+administrative share of a drive on this machine (`\\localhost\C$\...`,
+`\\127.0.0.1\C$\...`) is read as the drive path.
+
+**Not covered.** `-EncodedCommand` and `-File` give no script text to read. A
+path or a command held in a PowerShell variable, built with `Join-Path` or
+string operators, or passed through `Start-Process -ArgumentList` is not
+seen. An environment variable set in PowerShell (`$env:NAME = ...`) or cmd
+(`set NAME=...`) is not judged as a guardrail setting. `Set-Location` does
+not move the directory later relative names are read against. A copy that
+only reads a protected file counts as a change inside these scripts. An
+administrative share reached by the machine's own name or another of its
+addresses is not matched.
 
 ## What was not run
 

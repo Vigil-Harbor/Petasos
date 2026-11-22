@@ -290,6 +290,10 @@ it got in.
     relative name is also tried against `HERMES_HOME` and `HOME`, so writing
     a relative `config.yaml` or `.env` asks wherever it is.
   - Nested braces (`{a,{b,c}}`), and a wildcard after `shopt -s dotglob`.
+  - In a script handed to PowerShell or cmd (`powershell -Command "..."`,
+    `cmd /c "..."`), which is read with that shell's rules: `-EncodedCommand`,
+    `-File`, and a path or command built at runtime inside the script. See
+    `hermes-host-facts.md`, section 19.
   - Anything past the first 64 commands or the first 100,000 characters of
     one tool call. The rest is not read, so padding hides a change. The
     limits bound the time a check takes, which is mostly resolving paths.
