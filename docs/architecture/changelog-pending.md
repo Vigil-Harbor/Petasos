@@ -334,3 +334,10 @@ to `petasos.model._TIMEOUT_ERROR_PREFIX`. The ingestion head length moves from
   double quotes is now kept as a shell keeps it, so `"con\fig.yaml"` and
   `"h\ermes"` are no longer read as `config.yaml` and `hermes`.
   Not covered: a script handed to PowerShell or `cmd` as one quoted argument.
+
+- PET-302: on Windows, install, refresh and doctor now read a `file:` address
+  such as `file:///C:/Users/x/petasos.whl` as the path it names. When the
+  record of the build Hermes runs named its wheel that way and carried no
+  hash, the match with the saved wheel was always unknown: refresh reported
+  that it could not confirm the new build, and an unchanged install rebuilt
+  every time. Other systems are unchanged.

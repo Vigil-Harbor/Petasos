@@ -13,7 +13,8 @@ import os
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from urllib.parse import unquote, urlparse
+from urllib.parse import urlparse
+from urllib.request import url2pathname
 
 _PROBE = (
     "import json, importlib.metadata\n"
@@ -66,9 +67,8 @@ class Probe:
                 digest = archive["hash"].removeprefix("sha256=")
             if isinstance(digest, str) and digest:
                 return hashlib.sha256(source.read_bytes()).hexdigest() == digest
-            parsed = urlparse(direct.get("url", ""))
-            if parsed.scheme == "file":
-                installed = Path(unquote(parsed.path))
+            installed = file_url_path(direct.get("url", ""))
+            if installed is not None:
                 if installed.resolve() == source.resolve():
                     return True
                 if installed.is_file():
@@ -76,6 +76,21 @@ class Probe:
         except (OSError, ValueError, AttributeError, TypeError):
             pass
         return None
+
+
+def file_url_path(url: str) -> Path | None:
+    """The local path a ``file:`` URL names, or None for any other URL.
+
+    Windows writes ``file:///C:/x``, whose path part is ``/C:/x``, and a
+    share as ``file://server/share/x``. Elsewhere the path part is the path.
+    """
+    parsed = urlparse(url)
+    if parsed.scheme != "file":
+        return None
+    location = parsed.path
+    if os.name == "nt" and parsed.netloc not in {"", "localhost"}:
+        location = f"//{parsed.netloc}{location}"
+    return Path(url2pathname(location))
 
 
 def runtime_python(home: Path) -> Runtime | None:
