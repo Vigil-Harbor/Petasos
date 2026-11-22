@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import difflib
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -76,10 +77,30 @@ _HOME_TEXT_CASES = (
     "g0186",
 )
 _HOME_TEXT_SELFMOD = ["petasos.selfmod.config_ref", "high"]
+# Reported because their arguments nest too deeply to read, whatever the paths.
+_NESTING_CASES = ("g0002", "g0131")
 
 
 def _expected_on_this_platform(expected: dict[str, Any]) -> dict[str, Any]:
-    """The record, with the free-text cases set for a platform that does not link ``/tmp``."""
+    """The record, with the free-text cases set for a platform that does not link ``/tmp``.
+
+    On Windows the parity home has no drive letter, so it is not an absolute
+    path and the guard does not own it. A case that names it reports no
+    self-change there. The two cases reported for how deeply their arguments
+    nest still do, and every other part of each verdict is still compared.
+    """
+    if os.name == "nt":
+        for cases in expected["tool"].values():
+            for case_id, recorded in cases.items():
+                if recorded["selfmod"] is not None and case_id not in _NESTING_CASES:
+                    cases[case_id] = {**recorded, "selfmod": None}
+        for sessions in expected["session"].values():
+            for case_id, steps in sessions.items():
+                sessions[case_id] = [
+                    {**step, "selfmod": None} if step.get("selfmod") is not None else step
+                    for step in steps
+                ]
+        return expected
     if Path(_HOME_TEXT).resolve().as_posix() != _HOME_TEXT:
         return expected
     for cases in expected["tool"].values():
