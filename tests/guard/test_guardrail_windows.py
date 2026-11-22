@@ -26,7 +26,12 @@ BACKSLASH = "\\"
 
 
 def _recognize(
-    tmp_path: Path, tool: str, params: dict[str, object], *, cwd: str | None = None
+    tmp_path: Path,
+    tool: str,
+    params: dict[str, object],
+    *,
+    cwd: str | None = None,
+    environ: dict[str, str] | None = None,
 ) -> GuardrailHit | None:
     home = tmp_path / "hermes"
     (home / "plugins" / "petasos").mkdir(parents=True, exist_ok=True)
@@ -41,7 +46,7 @@ def _recognize(
         protected=(str(home / "config.yaml"),),
         surface=surface,
         package=(str(package),),
-        environ={"HERMES_HOME": str(home), "HOME": str(tmp_path)},
+        environ={"HERMES_HOME": str(home), "HOME": str(tmp_path)} if environ is None else environ,
         cwd=str(tmp_path) if cwd is None else cwd,
     )
 
@@ -80,11 +85,23 @@ def test_double_quotes_keep_a_backslash_before_an_ordinary_character() -> None:
     assert _parse('echo "' + BACKSLASH + '$HOME"')[0].argv == ("echo", "$HOME")
 
 
+@windows_only
 @pytest.mark.parametrize("name", ["hermes.exe", "HERMES.EXE", "hermes.cmd", "hermes.bat"])
 def test_an_executable_suffix_is_the_same_program(name: str) -> None:
     assert _program(name) == "hermes"
 
 
+@pytest.mark.skipif(os.name == "nt", reason="the suffix names the same program on Windows")
+@pytest.mark.parametrize("command", ["cat.exe {config}", "echo.bat {config}", "cp.com {config} x"])
+def test_a_suffixed_name_is_another_program_off_windows(tmp_path: Path, command: str) -> None:
+    """Off Windows ``cat.exe`` is not ``cat``, so it gets no reader's exemption."""
+    config = (tmp_path / "hermes" / "config.yaml").as_posix()
+    hit = _recognize(tmp_path, "terminal", {"command": command.format(config=config)})
+    assert hit is not None
+    assert hit.kind == "settings"
+
+
+@windows_only
 @pytest.mark.parametrize(
     "command",
     [
@@ -179,12 +196,50 @@ def test_a_file_tool_path_names_the_config(tmp_path: Path, form: str) -> None:
 
 @windows_only
 def test_a_relative_name_under_a_git_bash_working_directory(tmp_path: Path) -> None:
-    """Hermes reports the working directory the way ``pwd`` prints it."""
+    """Hermes reports the working directory the way ``pwd`` prints it.
+
+    The environment is empty so only the working directory can supply the hit.
+    """
     hit = _recognize(
         tmp_path,
         "terminal",
         {"command": "rm config.yaml"},
         cwd=_bash_form(tmp_path / "hermes"),
+        environ={},
     )
     assert hit is not None
     assert hit.kind == "settings"
+
+
+@windows_only
+@pytest.mark.parametrize("cwd_form", ["bash", "native"])
+def test_dots_that_climb_out_of_the_drive_directory(tmp_path: Path, cwd_form: str) -> None:
+    """In Git Bash ``..`` from ``/c/x`` reaches ``/``, where ``c`` is the drive again."""
+    home = tmp_path / "hermes"
+    config = _bash_form(home / "config.yaml")
+    climb = "../" * len(_bash_form(home).strip("/").split("/"))
+    hit = _recognize(
+        tmp_path,
+        "terminal",
+        {"command": f"rm {climb}{config.lstrip('/')}"},
+        cwd=_bash_form(home) if cwd_form == "bash" else str(home),
+        environ={},
+    )
+    assert hit is not None
+    assert hit.kind == "settings"
+
+    absolute = f"{_bash_form(home)}/plugins/../config.yaml"
+    again = _recognize(tmp_path, "terminal", {"command": f"rm {absolute}"}, environ={})
+    assert again is not None
+
+
+@windows_only
+def test_a_sibling_reached_with_dots_is_not_the_config(tmp_path: Path) -> None:
+    hit = _recognize(
+        tmp_path,
+        "terminal",
+        {"command": "rm ../notes.txt"},
+        cwd=_bash_form(tmp_path / "hermes" / "plugins"),
+        environ={},
+    )
+    assert hit is None

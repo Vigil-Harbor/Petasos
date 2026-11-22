@@ -92,8 +92,9 @@ def _assignment(word: str) -> tuple[str | None, str | None, bool]:
 
 def _program(token: str) -> str:
     base = os.path.basename(_expand_vars(token, {})).casefold()
-    # Windows runs "hermes.exe" and "hermes" as the same program.
-    if base.endswith(_EXECUTABLE_SUFFIXES):
+    # Windows runs "hermes.exe" and "hermes" as the same program. Elsewhere
+    # the suffix is part of the name of some other program.
+    if os.name == "nt" and base.endswith(_EXECUTABLE_SUFFIXES):
         base = base.rsplit(".", 1)[0]
     if base.startswith("pip"):
         return "pip"

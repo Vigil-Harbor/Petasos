@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import fnmatch
 import os
+import posixpath
 import re
 import sys
 from dataclasses import dataclass
@@ -20,6 +21,7 @@ _MAX_BRACES = 64
 _GLOB = re.compile(r"[*?\[]")
 _BRACES = re.compile(r"\{([^{}]*,[^{}]*)\}")
 _BASH_DRIVE = re.compile(r"/(?:(?:cygdrive|mnt)/)?([A-Za-z])(/.*)?")
+_DRIVE_PREFIX = re.compile(r"[A-Za-z]:")
 
 
 @dataclass(frozen=True, slots=True)
@@ -237,15 +239,33 @@ def _expand_path(raw: str, env: Mapping[str, str], cwd: str) -> list[str]:
         text = os.path.expanduser(text)
     if os.name == "nt":
         # Before the absolute test: Windows reads "/c/x" as a path on the current drive.
-        text = _native_drive(text.replace("\\", "/"))
+        text = text.replace("\\", "/")
+        if text.startswith("/") and not text.startswith("//"):
+            text = posixpath.normpath(text)
+        text = _native_drive(text)
     bases = [text]
     if not os.path.isabs(text):
-        bases = [os.path.join(cwd, text)]
+        bases = [_under(cwd, text)]
         for key in ("HERMES_HOME", "HOME"):
             root = env.get(key, "")
             if root:
-                bases.append(os.path.join(root, text))
+                bases.append(_under(root, text))
     return [normalize_path_text(item) for item in bases]
+
+
+def _under(root: str, text: str) -> str:
+    """The relative ``text`` under ``root``.
+
+    On Windows the join follows Git Bash, where ``..`` climbs out of a
+    drive's directory: from ``/c/work``, ``../../c/x`` is ``/c/x``.
+    """
+    if os.name != "nt" or _DRIVE_PREFIX.match(text):
+        return os.path.join(root, text)
+    base = root.replace("\\", "/")
+    drive = _DRIVE_PREFIX.match(base)
+    if drive is not None:
+        base = "/" + base[0] + base[2:]
+    return _native_drive(posixpath.normpath(posixpath.join(base, text)))
 
 
 def _expand_vars(text: str, env: Mapping[str, str]) -> str:
