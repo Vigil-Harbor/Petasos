@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import subprocess
 import sys
@@ -79,7 +80,8 @@ def _pair(
 
 @pytest.fixture
 def history(tmp_path: Path) -> Path:
-    path = tmp_path / "state ?# copy.db"
+    # Characters a URI treats specially. Windows does not allow ? in a file name.
+    path = tmp_path / ("state # copy.db" if os.name == "nt" else "state ?# copy.db")
     with closing(sqlite3.connect(path)) as store:
         store.executescript(_SCHEMA)
         _pair(store, "benign", 1000, "read_file", {"path": "/private/notes.md"}, _PRIVATE)

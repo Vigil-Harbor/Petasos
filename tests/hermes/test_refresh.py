@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
@@ -71,7 +72,8 @@ def test_refresh_never_enables_a_plugin(
     result = _run(tmp_path)
     assert result.exit_code != 0
     assert "hermes plugins enable petasos" in result.text
-    assert f"HERMES_HOME={tmp_path}" in result.text
+    home_named = f"HERMES_HOME set to {tmp_path}" if os.name == "nt" else f"HERMES_HOME={tmp_path}"
+    assert home_named in result.text
     assert _snapshot(tmp_path) == before
 
 

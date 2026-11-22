@@ -483,7 +483,7 @@ def test_json_and_verbose_carry_the_detail(
     assert payload["home"] == str(home)
     assert payload["home_reason"] == "the home you named with --home"
     assert any(row["id"] == "guardrail" for row in payload["checks"])
-    assert "plugins/petasos" in " ".join(payload["protected_paths"])
+    assert "plugins/petasos" in " ".join(payload["protected_paths"]).replace("\\", "/")
     origins = {row["path"]: row["origin"] for row in payload["detail"]["resolved"]}
     assert origins["tools.dangerous_posture"] == "role"
 
