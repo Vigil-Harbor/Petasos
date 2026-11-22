@@ -229,16 +229,21 @@ def _started(
     """A command that this one starts, such as ``timeout 5 hermes ...``.
 
     The rest of the line is judged again from the first later word that is a
-    program the rules name, a wrapper, a shell, ``python`` or ``eval``. When
-    that finds nothing, it is judged from the first later PowerShell or cmd,
-    so reading those never hides a command the first pass would have found.
+    program the rules name, a wrapper, a shell, ``python`` or ``eval``. That
+    pass comes first, so reading PowerShell and cmd never hides a command it
+    would have found. A PowerShell or cmd is judged when there is no such
+    word, or at the top level when it stands before that word. One further
+    in is reached by the first pass, and the limit keeps the work bounded.
     """
     starters = {rule.words[0].casefold() for rule in rules}
     starters.update(flag.program.casefold() for flag in surface.flags)
     starters.update(_WRAPPERS, _SHELLS, {"python", "eval"})
     first = next((i for i in range(1, len(argv)) if _program(argv[i]) in starters), None)
     native = next((i for i in range(1, len(argv)) if _native_shell(argv[i]) is not None), None)
-    for index in (first, native):
+    second = (
+        native if first is None or (native is not None and native < first and depth == 0) else None
+    )
+    for index in (first, second):
         if index is None:
             continue
         rest = _Simple(argv[index:], (), ())
