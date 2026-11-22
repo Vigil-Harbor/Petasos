@@ -306,3 +306,8 @@ to `petasos.model._TIMEOUT_ERROR_PREFIX`. The ingestion head length moves from
   (`profiles/<name>/plugins/petasos`) under a shared Hermes home is now a
   protected path, like the running profile's copy. Other files in a
   profile's `plugins` directory are not.
+
+- PET-298: a terminated conversation stays blocked when `tools.enabled` is
+  false. The tool guard derives the tier before it answers that the feature
+  is off, so tier 3 has no off switch. Conversations that are not terminated
+  get the feature-off result as before.

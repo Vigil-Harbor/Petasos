@@ -72,6 +72,23 @@ class TestFeatureGate:
         assert result.allowed is True
         assert result.reason == "feature disabled"
 
+    async def test_feature_disabled_does_not_release_a_terminated_session(self) -> None:
+        """Tier 3 has no off switch: only a live conversation gets the disabled result."""
+        cfg = _cfg({"tools": {"enabled": False}})
+        pipe = Pipeline(config=cfg)
+        tracker = FrequencyTracker(cfg)
+        tracker.terminate_session("s1")
+        g = ToolCallGuard(pipe, tracker, cfg)
+
+        ended = await g.evaluate("read", {}, "s1")
+        live = await g.evaluate("read", {}, "s2")
+
+        assert tracker.is_terminated("s1")
+        assert ended.allowed is False
+        assert ended.tier == "tier3"
+        assert live.allowed is True
+        assert live.reason == "feature disabled"
+
     async def test_feature_disabled_is_singleton(self) -> None:
         cfg = _cfg(
             {

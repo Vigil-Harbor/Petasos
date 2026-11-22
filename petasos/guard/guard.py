@@ -84,6 +84,14 @@ _FEATURE_DISABLED = GuardResult(
     param_scan_unsafe=False,
 )
 
+_TERMINATED = GuardResult(
+    allowed=False,
+    reason="session terminated (tier3)",
+    findings=(),
+    tier="tier3",
+    param_scan_unsafe=False,
+)
+
 
 # See docs/architecture/rationale.md, "Scan contribution calibration".
 _SCAN_WEIGHT_CAP_DIVISOR: float = 4.0
@@ -287,6 +295,9 @@ class ToolCallGuard:
     ) -> GuardResult:
         """Return a tool-call decision with guardrail, tier and parameter findings."""
         if not self._pipeline.is_feature_enabled("tool_guard"):
+            # Tier 3 has no off switch: a terminated conversation stays blocked.
+            if self._derive_tier(session_id) == "tier3":
+                return _TERMINATED
             return _FEATURE_DISABLED
 
         canon_pre_alias = canonicalize_tool_name(tool_name)
@@ -357,15 +368,7 @@ class ToolCallGuard:
         tier = self._derive_tier(session_id)
 
         if tier == "tier3":
-            return _finish(
-                GuardResult(
-                    allowed=False,
-                    reason="session terminated (tier3)",
-                    findings=(),
-                    tier="tier3",
-                    param_scan_unsafe=False,
-                )
-            )
+            return _finish(_TERMINATED)
 
         if self._config.tools.fanout.enabled and normalized_name in self._delegate_tool_names:
             cap = self._fanout_cap(tier)

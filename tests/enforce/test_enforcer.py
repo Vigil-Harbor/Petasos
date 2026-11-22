@@ -327,6 +327,36 @@ def test_a_settings_change_during_calls_keeps_a_decision(tmp_path: Path) -> None
         enforcer.close()
 
 
+def test_turning_the_tool_guard_off_does_not_release_a_terminated_conversation(
+    tmp_path: Path,
+) -> None:
+    """A refresh that sets tools.enabled false leaves a terminated session blocked."""
+    source = _Source(_snapshot())
+    enforcer = _enforcer(tmp_path, source)
+    enforcer.start()
+    assert enforcer.settle(10)
+    engine = enforcer._core.engine
+    assert engine is not None
+    try:
+        engine.tracker.terminate_session("s")
+        before = enforcer.tool_call(_call())
+        config = PetasosConfig()
+        source.snapshot = replace(
+            _snapshot(token=2), config=replace(config, tools=replace(config.tools, enabled=False))
+        )
+        enforcer.refresh()
+        assert engine.config.tools.enabled is False
+        after = enforcer.tool_call(_call())
+        other = enforcer.tool_call(_call(session="live"))
+        assert engine.tracker.is_terminated("s")
+    finally:
+        enforcer.close()
+    assert isinstance(before, Block)
+    assert isinstance(after, Block)
+    assert after.message.strip()
+    assert isinstance(other, Allow)
+
+
 def _capture() -> _Lines:
     handler = _Lines()
     logger = logging.getLogger("petasos")
