@@ -228,9 +228,41 @@ def test_dots_that_climb_out_of_the_drive_directory(tmp_path: Path, cwd_form: st
     assert hit is not None
     assert hit.kind == "settings"
 
-    absolute = f"{_bash_form(home)}/plugins/../config.yaml"
+    absolute = f"{_bash_form(home)}/{climb}{config.lstrip('/')}"
     again = _recognize(tmp_path, "terminal", {"command": f"rm {absolute}"}, environ={})
     assert again is not None
+
+
+@windows_only
+@pytest.mark.parametrize("cwd_form", ["bash", "native"])
+@pytest.mark.parametrize(
+    "template",
+    ["rm {name}", "python -c \"open('{name}', 'w').write('x')\""],
+)
+def test_dots_that_stop_at_the_drive_as_a_native_program_reads_them(
+    tmp_path: Path, cwd_form: str, template: str
+) -> None:
+    """Windows stops ``..`` at the drive: ``../../Users/x`` from ``C:/a/b`` is ``C:/Users/x``."""
+    home = tmp_path / "hermes"
+    below_drive = (home / "config.yaml").as_posix()[3:]
+    climb = "../" * (len(_bash_form(home).strip("/").split("/")) - 1)
+    hit = _recognize(
+        tmp_path,
+        "terminal",
+        {"command": template.format(name=climb + below_drive)},
+        cwd=_bash_form(home) if cwd_form == "bash" else str(home),
+        environ={},
+    )
+    assert hit is not None
+    assert hit.kind == "settings"
+
+
+@pytest.mark.skipif(os.name == "nt", reason="a drive letter is part of the path on Windows")
+def test_a_drive_letter_does_not_hide_a_path_in_program_text_off_windows(tmp_path: Path) -> None:
+    config = (tmp_path / "hermes" / "config.yaml").as_posix()
+    hit = _recognize(tmp_path, "terminal", {"command": f"sed 'w C:{config}' /tmp/input"})
+    assert hit is not None
+    assert hit.kind == "settings"
 
 
 @windows_only

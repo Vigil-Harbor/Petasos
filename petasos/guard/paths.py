@@ -245,22 +245,24 @@ def _expand_path(raw: str, env: Mapping[str, str], cwd: str) -> list[str]:
         text = _native_drive(text)
     bases = [text]
     if not os.path.isabs(text):
-        bases = [_under(cwd, text)]
-        for key in ("HERMES_HOME", "HOME"):
-            root = env.get(key, "")
-            if root:
-                bases.append(_under(root, text))
+        roots = [cwd]
+        roots.extend(
+            root for root in (env.get(key, "") for key in ("HERMES_HOME", "HOME")) if root
+        )
+        bases = [os.path.join(root, text) for root in roots]
+        if os.name == "nt" and not _DRIVE_PREFIX.match(text):
+            # A native program and the shell read ``..`` differently, so both
+            # readings are candidates. The native ones stay first.
+            bases.extend(_bash_join(root, text) for root in roots)
     return [normalize_path_text(item) for item in bases]
 
 
-def _under(root: str, text: str) -> str:
-    """The relative ``text`` under ``root``.
+def _bash_join(root: str, text: str) -> str:
+    """The relative ``text`` under ``root`` as Git Bash joins it.
 
-    On Windows the join follows Git Bash, where ``..`` climbs out of a
-    drive's directory: from ``/c/work``, ``../../c/x`` is ``/c/x``.
+    There ``..`` climbs out of a drive's directory: from ``/c/work``,
+    ``../../c/x`` is ``/c/x``. Windows itself stops at the drive.
     """
-    if os.name != "nt" or _DRIVE_PREFIX.match(text):
-        return os.path.join(root, text)
     base = root.replace("\\", "/")
     drive = _DRIVE_PREFIX.match(base)
     if drive is not None:
