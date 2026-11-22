@@ -231,17 +231,16 @@ def _started(
     The rest of the line is judged again from the first later word that is a
     program the rules name, a wrapper, a shell, ``python`` or ``eval``. That
     pass comes first, so reading PowerShell and cmd never hides a command it
-    would have found. A PowerShell or cmd is judged as well when it stands
-    before that word, or when there is no such word. One further in is
-    reached by the first pass.
+    would have found. Then it is judged from the first later PowerShell or
+    cmd. Each word's path is worked out once for the whole line, so the
+    second pass costs little.
     """
     starters = {rule.words[0].casefold() for rule in rules}
     starters.update(flag.program.casefold() for flag in surface.flags)
     starters.update(_WRAPPERS, _SHELLS, {"python", "eval"})
     first = next((i for i in range(1, len(argv)) if _program(argv[i]) in starters), None)
     native = next((i for i in range(1, len(argv)) if _native_shell(argv[i]) is not None), None)
-    second = native if first is None or (native is not None and native < first) else None
-    for index in (first, second):
+    for index in (first, native):
         if index is None:
             continue
         rest = _Simple(argv[index:], (), ())

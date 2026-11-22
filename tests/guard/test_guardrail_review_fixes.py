@@ -137,3 +137,30 @@ def test_a_long_repetitive_line_is_worked_out_once_per_distinct_word(
     monkeypatch.setattr(paths, "_find_path", counting)
     assert _recognize(tmp_path, "x powershell -c x bash -c nope " * 344) is None
     assert worked < 100
+
+
+def test_a_native_shell_after_a_run_of_ordinary_starters_is_still_read(tmp_path: Path) -> None:
+    """The first pass runs out of depth here, and only the second reaches the PowerShell."""
+    command = (
+        'a bash -c x b bash -c x c bash -c x d powershell -c "hermes plugins disable petasos"'
+    )
+    hit = _recognize(tmp_path, command)
+    assert hit is not None
+    assert hit.kind == "plugin"
+
+
+def test_a_remembered_answer_does_not_outlive_a_changed_variable(tmp_path: Path) -> None:
+    """Within one recognition a variable that changes is a new question."""
+    from petasos.guard import paths
+
+    home = tmp_path / "owned"
+    home.mkdir()
+    config = home / "config.yaml"
+    owned = paths._Owned({paths.normalize_path_text(str(config)): "settings"}, ())
+    env = {"TARGET": str(tmp_path / "elsewhere.txt")}
+    assert paths._match_path("$TARGET", owned, env, str(tmp_path)) is None
+    env["TARGET"] = str(config)
+    assert paths._match_path("$TARGET", owned, env, str(tmp_path)) is not None
+    env["HOME"] = str(home)
+    assert paths._match_path("elsewhere.txt", owned, env, str(tmp_path)) is None
+    assert paths._match_path("config.yaml", owned, env, str(tmp_path)) is not None

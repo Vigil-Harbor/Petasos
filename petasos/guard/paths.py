@@ -36,7 +36,7 @@ class _Owned:
     roots: tuple[str, ...]
     # Answers already worked out during one recognition. A long line is
     # judged from several starting words, and the same words come round again.
-    seen: dict[tuple[str, str, bool, bool], GuardrailHit | None] = field(
+    seen: dict[tuple[str, str, str, str, bool, bool], GuardrailHit | None] = field(
         default_factory=dict, compare=False, repr=False
     )
 
@@ -148,7 +148,15 @@ def _match_path(
     path, and a wildcard there that covers one, against the working
     directory only.
     """
-    key = (raw, cwd, above, hedge)
+    # Everything the answer is worked out from, so a changed variable is a new question.
+    key = (
+        _expand_vars(raw, env),
+        cwd,
+        env.get("HERMES_HOME", ""),
+        env.get("HOME", ""),
+        above,
+        hedge,
+    )
     if key not in owned.seen:
         owned.seen[key] = _find_path(raw, owned, env, cwd, above=above, hedge=hedge)
     return owned.seen[key]
