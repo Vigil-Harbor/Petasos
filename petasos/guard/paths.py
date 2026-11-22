@@ -22,6 +22,10 @@ _GLOB = re.compile(r"[*?\[]")
 _BRACES = re.compile(r"\{([^{}]*,[^{}]*)\}")
 _BASH_DRIVE = re.compile(r"/(?:(?:cygdrive|mnt)/)?([A-Za-z])(/.*)?")
 _DRIVE_PREFIX = re.compile(r"[A-Za-z]:")
+# A drive's administrative share on this machine: //localhost/C$/x is C:/x.
+_ADMIN_SHARE = re.compile(
+    r"(?://\?/UNC/|//)(?:localhost|127(?:\.\d{1,3}){3})/([A-Za-z])\$(/.*)?", re.IGNORECASE
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,6 +48,9 @@ def normalize_path_text(text: str) -> str:
         # The long-path and device prefixes name the same file as the plain drive path.
         if cleaned.startswith(("//?/", "//./")) and cleaned[5:6] == ":":
             cleaned = cleaned[4:]
+        share = _ADMIN_SHARE.fullmatch(cleaned)
+        if share is not None:
+            cleaned = f"{share.group(1)}:{share.group(2) or '/'}"
         cleaned = _native_drive(cleaned)
     cleaned = os.path.normcase(cleaned.replace("/", os.sep))
     try:

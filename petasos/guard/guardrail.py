@@ -16,8 +16,9 @@ the text names is a change. Python is not treated as read-only.
 
 Recognition is the plain forms and the cheap disguises: quotes joined inside
 a word, a backslash before an ordinary character, an environment-variable
-prefix, ``sh -c``, ``eval``, a program started by another (``timeout 5 hermes
-...``), a relative path, a ``cd`` earlier in the same command, ``~``,
+prefix, ``sh -c``, ``eval``, a script handed to PowerShell or cmd, a program
+started by another (``timeout 5 hermes ...``), a relative path, a ``cd``
+earlier in the same command, ``~``,
 ``$HERMES_HOME``, a subshell, and commands chained with ``&&``, ``||``, ``;``,
 ``&`` or ``|``. It is not a sandbox. Encoded payloads, aliases, command
 substitution inside double quotes, and a path assembled at runtime from
