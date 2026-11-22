@@ -346,7 +346,10 @@ def test_disabled_pin_is_loud(scope: SimpleNamespace, change: str) -> None:
 def test_profile_differences_and_nullable_leaf_are_named(scope: SimpleNamespace) -> None:
     change_pin(scope.home, write=True)
     scope.profile["plugins"]["entries"]["petasos"]["settings"].update(
-        {"level": "relaxed", "overrides": {"scanners": {"semgrep": {"engine_path": "/changed"}}}}
+        {
+            "level": "relaxed",
+            "overrides": {"scanners": {"semgrep": {"engine_path": os.path.abspath("/changed")}}},
+        }
     )
     checks, facts, _ = pin_report(scope.profile)
     assert facts["profile_differences"]

@@ -19,7 +19,12 @@ from petasos.config.schema import leaves, to_mapping
 from petasos.config.sections import PetasosConfig
 from petasos.enforce import Enforcer, EvaluationFault, InitGate, ManualClock
 from petasos.hermes import plugin as plugin_mod
-from tests.enforce_parity.enforcer_adapter import _read_spool, _StubScanner, snapshot_from_section
+from tests.enforce_parity.enforcer_adapter import (
+    _read_spool,
+    _StubScanner,
+    absolute_engine_path,
+    snapshot_from_section,
+)
 from tests.enforce_parity.load import bind_paths, scrub_event, scrub_known
 
 _ISOLATED_ENV = (
@@ -163,7 +168,7 @@ def _overrides_matching(role: str, level: str, target: PetasosConfig) -> dict[st
 
 def settings_document(section: dict[str, Any]) -> dict[str, Any]:
     """The four Hermes settings whose resolution matches the enforcer snapshot."""
-    migrated = migrate(section)
+    migrated = migrate(absolute_engine_path(section))
     raw = migrated.settings
     document = {
         "enabled": raw.get("enabled", True),

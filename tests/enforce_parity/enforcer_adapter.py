@@ -213,6 +213,18 @@ def _defang(config: PetasosConfig, secrets: Secrets) -> PetasosConfig:
     return config
 
 
+def absolute_engine_path(section: dict[str, Any]) -> dict[str, Any]:
+    """The section with its Semgrep engine path absolute on this system.
+
+    A scenario writes ``/tmp/...``. That has no drive on Windows, where newer
+    Pythons no longer call it absolute, and the settings then fail to build.
+    """
+    engine = section.get("semgrep_engine_path")
+    if not isinstance(engine, str):
+        return section
+    return {**section, "semgrep_engine_path": os.path.abspath(engine)}
+
+
 def snapshot_from_section(
     section: dict[str, Any],
     token: int,
@@ -227,7 +239,7 @@ def snapshot_from_section(
         armed_value = armed
     secrets, invalid = _secrets(section)
     try:
-        migrated = migrate(section)
+        migrated = migrate(absolute_engine_path(section))
         resolved = resolve(migrated.settings).config
         config = _defang(_force_registered(resolved, _disabled(section)), secrets)
     except Exception as exc:
