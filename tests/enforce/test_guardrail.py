@@ -74,9 +74,10 @@ def _enforcer(
     tiers: tuple[float, float, float] | None = None,
     surface: GuardrailSurface | None = None,
     posture: str = "block",
+    tools_enabled: bool = True,
 ) -> tuple[Enforcer, _Source, str]:
     path = _path(tmp_path)
-    config = _config(self_change=mode, dangerous_posture=posture)
+    config = _config(self_change=mode, dangerous_posture=posture, enabled=tools_enabled)
     if tiers is not None:
         one, two, three = tiers
         config = replace(
@@ -152,6 +153,44 @@ def test_approve_asks_when_a_person_can_answer(tmp_path: Path) -> None:
         event["decision"] for event in sink.events if event.get("event_type") == "guardrail"
     ]
     assert decisions == ["held"]
+
+
+@pytest.mark.parametrize("tools_enabled", [True, False])
+@pytest.mark.parametrize(
+    ("mode", "grant", "expected", "named"),
+    [
+        ("never", None, Block, "refused"),
+        ("approve", None, Approve, "held"),
+        ("approve", ApprovalGrant(yolo=True), Block, "unattended"),
+    ],
+)
+def test_the_tool_guard_switch_does_not_turn_off_self_protection(
+    tmp_path: Path,
+    tools_enabled: bool,
+    mode: str,
+    grant: ApprovalGrant | None,
+    expected: type,
+    named: str,
+) -> None:
+    """A guardrail change is decided the same way with tools.enabled off (PET-305)."""
+    sink = _Sink()
+    enforcer, _source, path = _enforcer(
+        tmp_path, sink, mode=mode, grant=grant, tools_enabled=tools_enabled
+    )
+    try:
+        decision = enforcer.tool_call(_write(path))
+        elsewhere = enforcer.tool_call(_write(str(tmp_path / "notes.md"), session="s2"))
+        score = _score(enforcer)
+    finally:
+        enforcer.close()
+
+    assert isinstance(decision, expected)
+    assert isinstance(elsewhere, Allow)
+    assert score > 0
+    guardrail = [event for event in sink.events if event.get("event_type") == "guardrail"]
+    assert [event["decision"] for event in guardrail] == [named]
+    assert guardrail[0]["kind"] == "settings"
+    assert _kinds(sink).count("selfmod_attempt") == 1
 
 
 @pytest.mark.parametrize(

@@ -293,16 +293,16 @@ class ToolCallGuard:
         tool_params: dict[str, Any],
         session_id: str,
     ) -> GuardResult:
-        """Return a tool-call decision with guardrail, tier and parameter findings."""
-        if not self._pipeline.is_feature_enabled("tool_guard"):
-            # Tier 3 has no off switch: a terminated conversation stays blocked.
-            if self._derive_tier(session_id) == "tier3":
-                return _TERMINATED
-            return _FEATURE_DISABLED
+        """Return a tool-call decision with guardrail, tier and parameter findings.
 
+        ``tools.enabled`` off skips the parameter scan, tiers 1 and 2 and the
+        fan-out limit. Tier 3 and guardrail-change recognition still run.
+        See docs/architecture/rationale.md, "Self-protection has no off switch".
+        """
+        enabled = self._pipeline.is_feature_enabled("tool_guard")
         canon_pre_alias = canonicalize_tool_name(tool_name)
         normalized_name = self._normalize_tool_name(tool_name)
-        if not normalized_name:
+        if enabled and not normalized_name:
             return GuardResult(
                 allowed=False,
                 reason="invalid tool name: empty after normalization",
@@ -369,6 +369,9 @@ class ToolCallGuard:
 
         if tier == "tier3":
             return _finish(_TERMINATED)
+
+        if not enabled:
+            return _finish(_FEATURE_DISABLED)
 
         if self._config.tools.fanout.enabled and normalized_name in self._delegate_tool_names:
             cap = self._fanout_cap(tier)

@@ -660,3 +660,21 @@ is the layer below it. `get_config` answers one key at a time and cannot list
 the block, so a misspelt key is seen only when it hides all four; reading
 `config.yaml` directly was not used, because Petasos's path resolution can name
 a different file from the one Hermes reads and misses the managed overlay.
+
+## Self-protection has no off switch (PET-305)
+
+The owner ruled on 2026-11-22 that an agent can never rewrite its own settings
+or plugin, whatever `tools.enabled` says. With the switch off the guard still
+derives tier 3 and still recognises a guardrail change, so the enforcer's
+`tools.self_change` floor runs as it does with the switch on: `never` refuses,
+`approve` asks, an unattended host or an auto-approved key refuses, and a live
+session grant covers. A recognition failure follows the same failure policy.
+The switch still turns off what it was for: the parameter scan, tiers 1 and 2,
+and the fan-out limit. A call that is not a guardrail change gets the
+feature-off result unchanged.
+
+The attempt adds its self-change weight to the conversation's risk score with
+the switch off too. Tier 3 still applies with the switch off and is reached
+by that score, and an agent trying to change its own guardrails is the
+strongest signal the guard sees. Leaving the score untouched would let an
+agent repeat the attempt with no path to termination while the switch is off.

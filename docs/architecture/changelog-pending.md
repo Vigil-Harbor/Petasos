@@ -363,3 +363,11 @@ to `petasos.model._TIMEOUT_ERROR_PREFIX`. The ingestion head length moves from
   (`\\localhost\C$\...`) is read as the drive path. Not covered:
   `-EncodedCommand`, `-File`, and paths or commands built at runtime inside
   the script.
+
+- PET-305: turning `tools.enabled` off no longer turns off self-protection.
+  A tool call that changes Petasos's or Hermes's settings or plugin is still
+  recognised, refused under `tools.self_change: never`, held for a person
+  under `approve` (and refused when nobody can be asked), recorded, and
+  added to the conversation's risk score. The switch still turns off the
+  parameter scan, the tier 1 and 2 steps and the fan-out limit; a
+  terminated conversation stays blocked.

@@ -957,6 +957,7 @@ A recognised guardrail change is no longer allowed below tier 2. `tools.self_cha
 is `approve` by default and `never` for the support role. `approve` holds the
 call for a person, with a session-scoped rule key that expires after
 `tools.self_change_minutes` (default 30, at most 24 hours). `never` refuses it.
+`tools.enabled` does not turn any of this off (PET-305).
 The Hermes adapter supplies the host paths and command patterns through
 `HostInfo.guardrail_surface`. Petasos's own package files and commands are
 recognised in the library. The pin commands store those settings in

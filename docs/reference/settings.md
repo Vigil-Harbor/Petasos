@@ -419,7 +419,7 @@ Section. Audience: advanced. Restart: No.
 
 ### `tools.enabled` — Check tool calls
 
-Check each tool call before it runs, and block tool calls once a conversation's risk score is too high.
+Check each tool call before it runs, and block tool calls once a conversation's risk score is too high. Off skips the check of what a tool call passes in, the warning and blocking steps as risk rises, and the limit on starting sub-agents. Off never lets a conversation Petasos has ended call tools again, and never lets the agent change Petasos's or Hermes's settings or plugins unchecked: those changes are still refused or held for a person, as 'When the agent tries to change its own guardrails' says.
 
 | Type | Default | Nullable | Restart | Audience | Bounds |
 |---|---|---|---|---|---|
