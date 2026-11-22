@@ -298,9 +298,11 @@ to `petasos.model._TIMEOUT_ERROR_PREFIX`. The ingestion head length moves from
   failure policy and read-only tools keep their existing content checks.
 
 - PET-294: the Hermes settings source reads the four settings until two
-  passes agree, so a settings write that lands mid-read can no longer give
-  the enforcer a blend of two documents. Settings that never hold still are
-  a rejected reload, and the last good settings stay in force.
+  passes agree, so a single settings write that lands mid-read no longer
+  gives the enforcer a blend of two documents. Settings that never hold
+  still are a rejected reload, and the last good settings stay in force.
+  Several writes timed between the reads can still produce a blend; Hermes
+  has no read of the whole settings group.
 
 - PET-296: every profile's own copy of the Petasos plugin
   (`profiles/<name>/plugins/petasos`) under a shared Hermes home is now a
@@ -315,7 +317,10 @@ to `petasos.model._TIMEOUT_ERROR_PREFIX`. The ingestion head length moves from
 - PET-300: only an explicit "attended" answer from the host counts as a
   person being attached. A missing or non-boolean answer is treated as
   unattended, so a flagged command or a guardrail change is refused rather
-  than handed to an approval nobody may be there to give.
+  than handed to an approval nobody may be there to give. The "is this rule
+  always approved" answer is read the same way: only an explicit yes drops a
+  command finding, only an explicit no lets a guardrail approval be asked,
+  and a failing lookup is no longer reported as no.
 
 - PET-297: `--profile` refuses a name with a colon. On Windows a name such
   as `D:elsewhere` selected a directory outside the Hermes home.
@@ -323,6 +328,9 @@ to `petasos.model._TIMEOUT_ERROR_PREFIX`. The ingestion head length moves from
 - PET-301: on Windows the guardrail check recognises a protected path the
   way Git Bash writes it (`/c/Users/...`, and the `/cygdrive/c` and `/mnt/c`
   forms), a backslash path inside double quotes, a drive path in program
-  text, and the long-path prefix. `hermes.exe`, `bash.exe` and the `.cmd`,
-  `.bat` and `.com` forms are read as the bare program name on every system.
+  text, the long-path prefix, and `..` that climbs out of a drive's
+  directory. `hermes.exe`, `bash.exe` and the `.cmd`, `.bat` and `.com` forms
+  are read as the bare program name. On every system a backslash inside
+  double quotes is now kept as a shell keeps it, so `"con\fig.yaml"` and
+  `"h\ermes"` are no longer read as `config.yaml` and `hermes`.
   Not covered: a script handed to PowerShell or `cmd` as one quoted argument.
