@@ -316,3 +316,13 @@ to `petasos.model._TIMEOUT_ERROR_PREFIX`. The ingestion head length moves from
   person being attached. A missing or non-boolean answer is treated as
   unattended, so a flagged command or a guardrail change is refused rather
   than handed to an approval nobody may be there to give.
+
+- PET-297: `--profile` refuses a name with a colon. On Windows a name such
+  as `D:elsewhere` selected a directory outside the Hermes home.
+
+- PET-301: on Windows the guardrail check recognises a protected path the
+  way Git Bash writes it (`/c/Users/...`, and the `/cygdrive/c` and `/mnt/c`
+  forms), a backslash path inside double quotes, a drive path in program
+  text, and the long-path prefix. `hermes.exe`, `bash.exe` and the `.cmd`,
+  `.bat` and `.com` forms are read as the bare program name on every system.
+  Not covered: a script handed to PowerShell or `cmd` as one quoted argument.
