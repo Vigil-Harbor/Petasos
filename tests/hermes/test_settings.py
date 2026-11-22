@@ -355,3 +355,45 @@ def test_null_overrides_is_malformed_even_at_first_start() -> None:
     assert snap.config is None
     assert snap.error is not None
     assert "overrides" in snap.error
+
+
+_STRICT_FILE = "plugins:\n  entries:\n    petasos:\n      settings:\n        level: strict\n"
+_EMPTY_FILE = "plugins:\n  entries:\n    petasos:\n      settings: {}\n"
+
+
+def test_a_bound_profile_whose_block_empties_is_not_a_reset(tmp_path: Path) -> None:
+    """The rule for a lost block holds for a named profile, not only for the context."""
+    config = tmp_path / "config.yaml"
+    config.write_text(_STRICT_FILE, encoding="utf-8")
+    source = HermesSettings(_Store())
+    source.bind_profile(tmp_path)
+    assert source().error is None
+    config.write_text(_EMPTY_FILE, encoding="utf-8")
+    emptied = source()
+    assert emptied.config is None
+    assert emptied.error is not None
+
+
+def test_unbinding_to_an_empty_context_is_not_a_reset(tmp_path: Path) -> None:
+    (tmp_path / "config.yaml").write_text(_STRICT_FILE, encoding="utf-8")
+    source = HermesSettings(_Store())
+    source.bind_profile(tmp_path)
+    assert source().error is None
+    source.bind_profile(None)
+    unbound = source()
+    assert unbound.config is None
+    assert "missing" in (unbound.error or "")
+
+
+def test_removing_a_pin_over_an_empty_context_is_not_a_reset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from petasos.hermes import settings as module
+
+    monkeypatch.setattr(module, "pinned_settings", lambda: {"level": "strict"})
+    source = HermesSettings(_Store())
+    assert source().error is None
+    monkeypatch.setattr(module, "pinned_settings", lambda: None)
+    unpinned = source()
+    assert unpinned.config is None
+    assert "missing" in (unpinned.error or "")

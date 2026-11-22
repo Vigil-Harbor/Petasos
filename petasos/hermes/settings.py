@@ -342,40 +342,36 @@ class HermesSettings:
         if pinned is not None:
             # Before the profile is read at all: a missing or damaged profile
             # file does not unpin anything.
-            enabled, role, level, overrides = _four_from_mapping(pinned)
+            four, stored = _four_from_mapping(pinned), True
         elif home is not None:
             kind, settings = profile_binding(home / "config.yaml")
             if kind == "broken" or settings is None:
-                secrets, invalid = self._secret_pair(home)
-                return SettingsSnapshot(
-                    armed=True,
-                    config=None,
-                    secrets=secrets,
-                    token=("unreadable", str(home)),
-                    error="build failed: malformed settings",
-                    secret_invalid=invalid,
+                return self._unusable(
+                    home, ("unreadable", str(home)), "build failed: malformed settings"
                 )
-            enabled, role, level, overrides = _four_from_mapping(settings)
+            four, stored = _four_from_mapping(settings), any(key in settings for key in _KEYS)
         else:
-            four = _four_from_store(self._ctx)
-            stored = any(value is not _ABSENT for value in four)
-            if not stored and self._loaded_block:
-                secrets, invalid = self._secret_pair(home)
-                return SettingsSnapshot(
-                    armed=True,
-                    config=None,
-                    secrets=secrets,
-                    token=("missing",),
-                    error=_MISSING_BLOCK,
-                    secret_invalid=invalid,
-                )
-            enabled, role, level, overrides = _with_defaults(four)
-            snap = _snapshot(enabled, role, level, overrides, *self._secret_pair(home))
-            if stored and snap.error is None:
-                self._loaded_block = True
-            return snap
+            read = _four_from_store(self._ctx)
+            four, stored = _with_defaults(read), any(value is not _ABSENT for value in read)
+        # One rule for the pin, a named profile and the plugin context: once a
+        # stored block has loaded by any of them, finding none is not a reset.
+        if not stored and self._loaded_block:
+            return self._unusable(home, ("missing",), _MISSING_BLOCK)
+        snap = _snapshot(*four, *self._secret_pair(home))
+        if stored and snap.error is None:
+            self._loaded_block = True
+        return snap
+
+    def _unusable(self, home: Path | None, token: tuple[str, ...], error: str) -> SettingsSnapshot:
         secrets, invalid = self._secret_pair(home)
-        return _snapshot(enabled, role, level, overrides, secrets, invalid)
+        return SettingsSnapshot(
+            armed=True,
+            config=None,
+            secrets=secrets,
+            token=token,
+            error=error,
+            secret_invalid=invalid,
+        )
 
 
 def write_settings(
