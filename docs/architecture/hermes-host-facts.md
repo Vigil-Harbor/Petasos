@@ -1462,6 +1462,35 @@ annotation path until that exists or a separate terminal supplement is
 explicitly designed; do not move session scanning and its record to this
 narrower hook. This task changes no result-annotation hook.
 
+## 19. Windows: the shell is Git Bash, source read 2026-11-22
+
+Read on a Windows install at `v0.22.5-6-g5019bf7067`, not on the `v0.23.1`
+checkout the rest of this file uses. Nothing here was run through Hermes.
+
+- **The terminal runs bash.** `_find_bash` (`tools/environments/local.py`,
+  line 543) resolves the bundled bash and raises without one: "Hermes needs
+  bash (Git for Windows on Windows)". No Windows command runs through `cmd`
+  or PowerShell unless the agent starts one from bash.
+- **Drive C is the directory `/c`.** `_windows_to_msys_path` (line 170) turns
+  `C:\Users\x` into `/c/Users/x` for `cd`, and the working directory comes
+  back from `pwd -P` in that form.
+- **Hermes accepts three spellings for a drive.** `_msys_to_windows_path`
+  (line 136) maps `/c/...`, `/cygdrive/c/...` and `/mnt/c/...` to the native
+  path, because the bash it finds can be Git Bash, Cygwin or MSYS2.
+- **File tools go through the same shell.** `_escape_shell_arg` in
+  `tools/file_operations.py` rewrites a native path to the `/c/` form before
+  quoting it, so a file tool given `/c/Users/x/config.yaml` writes
+  `C:\Users\x\config.yaml`.
+- **Bash removes an unquoted backslash.** `rm C:\Users\x\f` names no real
+  file. Inside double quotes the backslash stays.
+
+What Petasos does with this is in `petasos/guard/paths.py` (`_native_drive`)
+and `tests/guard/test_guardrail_windows.py`.
+
+**Not covered.** A script handed to PowerShell or `cmd` as one quoted
+argument (`powershell -Command "..."`, `cmd /c "..."`) is not read, and a
+path through an administrative share (`\\localhost\C$\...`) is not matched.
+
 ## What was not run
 
 - No Hermes gateway, no messaging platform, no model provider, and no

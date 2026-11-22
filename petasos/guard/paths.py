@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 _MAX_BRACES = 64
 _GLOB = re.compile(r"[*?\[]")
 _BRACES = re.compile(r"\{([^{}]*,[^{}]*)\}")
+_BASH_DRIVE = re.compile(r"/(?:(?:cygdrive|mnt)/)?([A-Za-z])(/.*)?")
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,8 +37,13 @@ def normalize_path_text(text: str) -> str:
     self-modification check uses, and this function stays identical to it.
     """
     cleaned = re.sub(r"\\u([0-9a-fA-F]{4})", lambda match: chr(int(match.group(1), 16)), text)
-    cleaned = cleaned.replace("\\\\", "/").replace("\\", "/").replace("/", os.sep)
-    cleaned = os.path.normcase(cleaned)
+    cleaned = cleaned.replace("\\\\", "/").replace("\\", "/")
+    if os.name == "nt":
+        # The long-path and device prefixes name the same file as the plain drive path.
+        if cleaned.startswith(("//?/", "//./")) and cleaned[5:6] == ":":
+            cleaned = cleaned[4:]
+        cleaned = _native_drive(cleaned)
+    cleaned = os.path.normcase(cleaned.replace("/", os.sep))
     try:
         path = Path(cleaned)
         if path.is_absolute():
@@ -45,6 +51,19 @@ def normalize_path_text(text: str) -> str:
     except (OSError, ValueError, RuntimeError):
         pass
     return cleaned
+
+
+def _native_drive(text: str) -> str:
+    """``/c/Users/x`` as ``c:/Users/x``. Anything else is returned unchanged.
+
+    Hermes runs its Windows terminal and file tools through Git Bash, where
+    drive C is the directory ``/c``. Cygwin and WSL spell it ``/cygdrive/c``
+    and ``/mnt/c``. Applied on Windows only.
+    """
+    match = _BASH_DRIVE.fullmatch(text)
+    if match is None:
+        return text
+    return f"{match.group(1)}:{match.group(2) or '/'}"
 
 
 def _owned(
@@ -216,6 +235,9 @@ def _expand_path(raw: str, env: Mapping[str, str], cwd: str) -> list[str]:
             text = os.path.expanduser(text)
     elif text.startswith("~"):
         text = os.path.expanduser(text)
+    if os.name == "nt":
+        # Before the absolute test: Windows reads "/c/x" as a path on the current drive.
+        text = _native_drive(text.replace("\\", "/"))
     bases = [text]
     if not os.path.isabs(text):
         bases = [os.path.join(cwd, text)]
