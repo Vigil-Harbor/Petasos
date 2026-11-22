@@ -371,3 +371,10 @@ to `petasos.model._TIMEOUT_ERROR_PREFIX`. The ingestion head length moves from
   added to the conversation's risk score. The switch still turns off the
   parameter scan, the tier 1 and 2 steps and the fan-out limit; a
   terminated conversation stays blocked.
+
+- PET-299: under `fail_mode: open`, a blocking finding the scan has already
+  made now blocks even when a later step fails, such as the source-taint
+  check on an egress tool. Before, any internal error after the scan
+  allowed the call. A guard denial and a recognised guardrail change are
+  kept the same way. With no blocking finding in hand, an internal error
+  under `open` still allows. `degraded` and `closed` are unchanged.

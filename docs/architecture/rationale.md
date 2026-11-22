@@ -678,3 +678,20 @@ the switch off too. Tier 3 still applies with the switch off and is reached
 by that score, and an agent trying to change its own guardrails is the
 strongest signal the guard sees. Leaving the score untouched would let an
 agent repeat the attempt with no path to termination while the switch is off.
+
+## A finding in hand blocks under open (PET-299)
+
+The owner ruled on 2026-11-22 that `fail_mode: open` covers scanners that are
+missing or that fail. A finding already made still blocks, whatever fails
+after it. When the decision after a successful guard evaluation raises under
+`open`, the enforcer rebuilds the block from the guard result it already
+holds: a guard denial or tier 3 keeps its block, a recognised guardrail change
+is refused, and a dangerous tool with a high or critical non-PII finding, or a
+PII finding on an egress sink, is blocked naming that finding. Without such a
+finding the call is allowed, as before. A command finding is held even where
+the full decision would have asked a person or deferred to the host, because
+the failure means that decision cannot be trusted; the block is the stricter
+answer. Failures before the result exists keep their existing paths: a failed
+evaluation and a failed syntactic fallback both block every dangerous tool
+under `open`, because only a clean scan allows one. `degraded` and `closed`
+are unchanged.

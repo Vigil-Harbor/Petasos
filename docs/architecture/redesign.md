@@ -743,8 +743,9 @@ initialisation finishes, and whose syntactic scan was clean, continues on the
 live pipeline. A non-clean scan stays on the fallback.
 
 No host-facing method raises. `tool_call` turns an internal failure into
-`Allow` or `Block` under `fail_mode`, with an event and a log line. A block
-always has a message. `tool_result` returns `None` when the text is unchanged
+`Allow` or `Block` under `fail_mode`, with an event and a log line. Under
+`open` a failure after the scan made a blocking finding still blocks on that
+finding (PET-299). A block always has a message. `tool_result` returns `None` when the text is unchanged
 or the scan fails, which is the host's signal to keep the original string. A
 value that is not text is not scanned.
 

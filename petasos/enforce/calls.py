@@ -23,13 +23,21 @@ from petasos.enforce.decisions import (
     Approve,
     Block,
     Decision,
+    blocks,
     dangerous_tool_decision,
     guard_denial,
     is_dangerous,
     is_egress_sink,
 )
 from petasos.enforce.fallback import fallback_decision, scan_fallback, tier3_unavailable_block
-from petasos.enforce.guardrail import hit_for, note_blocked, note_covered, ruling_for
+from petasos.enforce.guardrail import (
+    hit_for,
+    note_blocked,
+    note_covered,
+    refused_message,
+    ruling_for,
+)
+from petasos.enforce.messages import format_block_message, format_content_block
 from petasos.guard.guardrail import CheckFailure, unavailable_message
 from petasos.guard.tools import READ_ONLY_TOOLS
 from petasos.normalize import canonicalize_tool_name
@@ -351,6 +359,55 @@ def decide(core: Core, call: ToolCall) -> Decision:
             ),
         )
 
+    try:
+        return _decide_evaluated(core, call, session_id, result)
+    except Exception:
+        held = _held_finding(core, call, result) if core.fail_mode == "open" else None
+        if held is None:
+            raise
+        logger.error(
+            "Petasos tool_call failed after a blocking finding tool=%s session=%s;"
+            " the finding still blocks",
+            call.tool,
+            session_id,
+            exc_info=True,
+        )
+        core.emit(
+            session_id=session_id,
+            tool=call.tool,
+            event_type="quarantine",
+            reason="enforcer internal error after a blocking finding",
+        )
+        return held
+
+
+def _held_finding(core: Core, call: ToolCall, result: Any) -> Block | None:
+    """The block a finding already in hand makes, or ``None``.
+
+    See docs/architecture/rationale.md, "A finding in hand blocks under open".
+    """
+    if result.tier == "tier3" or not result.allowed:
+        return Block(format_block_message(result, call.tool))
+    if result.guardrail_kind:
+        return Block(refused_message(call.tool))
+    try:
+        dangerous = _dangerous(call.tool)
+    except Exception:
+        dangerous = True
+    if not dangerous:
+        return None
+    blocking = [f for f in result.findings if blocks(f.severity)]
+    other = tuple(f for f in blocking if f.finding_type != "pii")
+    if other:
+        return Block(format_content_block("non_pii_param", call.tool, other))
+    pii = tuple(f for f in blocking if f.finding_type == "pii")
+    engine = core.engine
+    if pii and (engine is None or is_egress_sink(call.tool, engine.egress)):
+        return Block(format_content_block("pii_egress", call.tool, pii))
+    return None
+
+
+def _decide_evaluated(core: Core, call: ToolCall, session_id: str, result: Any) -> Decision:
     target = getattr(result, "selfmod_target", None)
     if target is not None:
         try:
