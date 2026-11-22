@@ -100,7 +100,9 @@ def test_package_file_write_is_a_package_change(tmp_path: Path) -> None:
 def test_reading_a_protected_file_is_not_a_change(tmp_path: Path) -> None:
     home, *_rest = _home(tmp_path)
     assert _hit(tmp_path, "read_file", {"path": str(home / "config.yaml")}) is None
-    assert _hit(tmp_path, "terminal", {"command": f"cat {home / 'config.yaml'}"}) is None
+    assert (
+        _hit(tmp_path, "terminal", {"command": f"cat {(home / 'config.yaml').as_posix()}"}) is None
+    )
     assert _hit(tmp_path, "terminal", {"command": "hermes plugins list"}) is None
     assert _hit(tmp_path, "terminal", {"command": "hermes config get plugins.enabled"}) is None
     assert _hit(tmp_path, "terminal", {"command": "petasos doctor"}) is None
@@ -187,7 +189,7 @@ def test_the_listed_commands(tmp_path: Path, command: str, kind: str) -> None:
 
 def test_shell_path_disguises(tmp_path: Path) -> None:
     home, package, surface, env = _home(tmp_path)
-    config = str(home / "config.yaml")
+    config = (home / "config.yaml").as_posix()
 
     def hit(command: str, cwd: str | None = None) -> GuardrailHit | None:
         return recognize(
@@ -212,7 +214,7 @@ def test_shell_path_disguises(tmp_path: Path) -> None:
     assert kind_of("rm ~/hermes/config.yaml") == "settings"
     assert kind_of('rm "$HERMES_HOME/config.yaml"') == "settings"
     assert kind_of(f"cat {config}") is None
-    assert kind_of(f"cp {config} {tmp_path / 'copy.yaml'}") is None
+    assert kind_of(f"cp {config} {(tmp_path / 'copy.yaml').as_posix()}") is None
 
 
 def test_a_different_plugin_and_a_mention_do_not_match(tmp_path: Path) -> None:
@@ -237,14 +239,14 @@ def test_normalize_path_text_matches_the_guard() -> None:
 
 def test_sed_in_place_edits_the_config(tmp_path: Path) -> None:
     home, *_rest = _home(tmp_path)
-    command = f"sed -i 's/enabled: true/enabled: false/' {home / 'config.yaml'}"
+    command = f"sed -i 's/enabled: true/enabled: false/' {(home / 'config.yaml').as_posix()}"
     hit = _hit(tmp_path, "terminal", {"command": command})
     assert hit is not None and hit.kind == "settings"
 
 
 def test_execute_code_open_writes_the_config(tmp_path: Path) -> None:
     home, *_rest = _home(tmp_path)
-    code = f"open('{home / 'config.yaml'}','w').write('x')"
+    code = f"open('{(home / 'config.yaml').as_posix()}','w').write('x')"
     hit = _hit(tmp_path, "execute_code", {"code": code})
     assert hit is not None and hit.kind == "settings"
 
@@ -285,46 +287,60 @@ def test_plugins_update_and_install_replace_the_plugin(tmp_path: Path) -> None:
 
 def test_perl_in_place_edits_the_config(tmp_path: Path) -> None:
     home, *_rest = _home(tmp_path)
-    command = f"perl -i -pe 's/a/b/' {home / 'config.yaml'}"
+    command = f"perl -i -pe 's/a/b/' {(home / 'config.yaml').as_posix()}"
     hit = _hit(tmp_path, "terminal", {"command": command})
     assert hit is not None and hit.kind == "settings"
 
 
 def test_append_redirect_writes_the_config(tmp_path: Path) -> None:
     home, *_rest = _home(tmp_path)
-    hit = _hit(tmp_path, "terminal", {"command": f"echo x >> {home / 'config.yaml'}"})
+    hit = _hit(tmp_path, "terminal", {"command": f"echo x >> {(home / 'config.yaml').as_posix()}"})
     assert hit is not None and hit.kind == "settings"
 
 
 def test_tee_append_writes_the_config(tmp_path: Path) -> None:
     home, *_rest = _home(tmp_path)
-    hit = _hit(tmp_path, "terminal", {"command": f"echo x | tee -a {home / 'config.yaml'}"})
+    hit = _hit(
+        tmp_path, "terminal", {"command": f"echo x | tee -a {(home / 'config.yaml').as_posix()}"}
+    )
     assert hit is not None and hit.kind == "settings"
 
 
 def test_install_mode_writes_the_config(tmp_path: Path) -> None:
     home, *_rest = _home(tmp_path)
-    command = f"install -m 644 /tmp/other.yaml {home / 'config.yaml'}"
+    command = f"install -m 644 /tmp/other.yaml {(home / 'config.yaml').as_posix()}"
     hit = _hit(tmp_path, "terminal", {"command": command})
     assert hit is not None and hit.kind == "settings"
 
 
 def test_symlink_force_replaces_the_config(tmp_path: Path) -> None:
     home, *_rest = _home(tmp_path)
-    hit = _hit(tmp_path, "terminal", {"command": f"ln -sf /tmp/other {home / 'config.yaml'}"})
+    hit = _hit(
+        tmp_path, "terminal", {"command": f"ln -sf /tmp/other {(home / 'config.yaml').as_posix()}"}
+    )
     assert hit is not None and hit.kind == "settings"
 
 
 def test_moving_the_plugin_directory_is_a_change(tmp_path: Path) -> None:
     home, *_rest = _home(tmp_path)
-    hit = _hit(tmp_path, "terminal", {"command": f"mv {home / 'plugins' / 'petasos'} /tmp/away"})
+    hit = _hit(
+        tmp_path,
+        "terminal",
+        {"command": f"mv {(home / 'plugins' / 'petasos').as_posix()} /tmp/away"},
+    )
     assert hit is not None and hit.kind == "plugin"
 
 
 def test_truncate_and_chmod_recursive_change_a_protected_path(tmp_path: Path) -> None:
     home, *_rest = _home(tmp_path)
-    truncated = _hit(tmp_path, "terminal", {"command": f"truncate -s 0 {home / 'config.yaml'}"})
-    chmod = _hit(tmp_path, "terminal", {"command": f"chmod -R a+r {home / 'plugins' / 'petasos'}"})
+    truncated = _hit(
+        tmp_path, "terminal", {"command": f"truncate -s 0 {(home / 'config.yaml').as_posix()}"}
+    )
+    chmod = _hit(
+        tmp_path,
+        "terminal",
+        {"command": f"chmod -R a+r {(home / 'plugins' / 'petasos').as_posix()}"},
+    )
     assert truncated is not None and truncated.kind == "settings"
     assert chmod is not None and chmod.kind == "plugin"
 
@@ -333,7 +349,10 @@ def test_a_symlink_and_a_parent_directory_still_name_the_config(tmp_path: Path) 
     home, package, surface, env = _home(tmp_path)
     config = home / "config.yaml"
     link = tmp_path / "via-link.yaml"
-    link.symlink_to(config)
+    try:
+        link.symlink_to(config)
+    except OSError:
+        pytest.skip("symlink not permitted")
     nested = home / "nested"
     nested.mkdir()
 
@@ -366,13 +385,13 @@ def test_code_names_the_config_through_home_and_the_environment(tmp_path: Path) 
 
 def test_a_comment_that_names_the_config_is_not_a_change(tmp_path: Path) -> None:
     home, *_rest = _home(tmp_path)
-    code = f"# see {home / 'config.yaml'}\nprint('ok')\n"
+    code = f"# see {(home / 'config.yaml').as_posix()}\nprint('ok')\n"
     assert _hit(tmp_path, "execute_code", {"code": code}) is None
 
 
 def test_powershell_get_content_reads_and_set_content_writes(tmp_path: Path) -> None:
     home, *_rest = _home(tmp_path)
-    config = home / "config.yaml"
+    config = (home / "config.yaml").as_posix()
     assert _hit(tmp_path, "terminal", {"command": f"powershell Get-Content {config}"}) is None
     written = _hit(tmp_path, "terminal", {"command": f"powershell Set-Content {config} x"})
     assert written is not None and written.kind == "settings"
@@ -380,7 +399,7 @@ def test_powershell_get_content_reads_and_set_content_writes(tmp_path: Path) -> 
 
 def test_echo_and_printf_do_not_act_on_a_path_argument(tmp_path: Path) -> None:
     home, *_rest = _home(tmp_path)
-    config = home / "config.yaml"
+    config = (home / "config.yaml").as_posix()
     assert _hit(tmp_path, "terminal", {"command": f"echo see {config}"}) is None
     assert _hit(tmp_path, "terminal", {"command": f"printf '%s' {config}"}) is None
     redirected = _hit(tmp_path, "terminal", {"command": f"echo see > {config}"})
@@ -512,19 +531,28 @@ def test_reads_and_other_plugins_are_not_changes(tmp_path: Path, command: str) -
 
 def test_a_note_that_mentions_the_config_is_not_a_change(tmp_path: Path) -> None:
     home, *_rest = _home(tmp_path)
-    quoted = f"echo 'see {home / 'config.yaml'}' > /tmp/notes"
+    quoted = f"echo 'see {(home / 'config.yaml').as_posix()}' > /tmp/notes"
     assert _hit(tmp_path, "terminal", {"command": quoted}) is None
-    assert _hit(tmp_path, "terminal", {"command": f"grep enabled {home / 'config.yaml'}"}) is None
-    copied = f"cp {home / 'config.yaml'} /tmp/backup.yaml"
+    assert (
+        _hit(
+            tmp_path, "terminal", {"command": f"grep enabled {(home / 'config.yaml').as_posix()}"}
+        )
+        is None
+    )
+    copied = f"cp {(home / 'config.yaml').as_posix()} /tmp/backup.yaml"
     assert _hit(tmp_path, "terminal", {"command": copied}) is None
     assert _hit(tmp_path, "read_file", {"path": str(home / "config.yaml")}) is None
-    assert _hit(tmp_path, "terminal", {"command": f"cat {home / 'config.yaml'}"}) is None
+    assert (
+        _hit(tmp_path, "terminal", {"command": f"cat {(home / 'config.yaml').as_posix()}"}) is None
+    )
 
 
 def _at(tmp_path: Path, command: str, cwd: Path | None = None) -> GuardrailHit | None:
     """Judge a terminal command. ``{home}`` and ``{config}`` are filled in."""
     home, package, surface, env = _home(tmp_path)
-    text = command.replace("{home}", str(home)).replace("{config}", str(home / "config.yaml"))
+    text = command.replace("{home}", home.as_posix()).replace(
+        "{config}", (home / "config.yaml").as_posix()
+    )
     return recognize(
         "terminal",
         {"command": text},
