@@ -48,6 +48,8 @@ if TYPE_CHECKING:
     from petasos.guard.guard import GuardResult
 
 logger = logging.getLogger("petasos.enforce")
+# What a held finding becomes when it cannot be read to say why.
+_UNREADABLE_RESULT = Block("Petasos could not evaluate this tool call.")
 
 _READ_ONLY = frozenset(
     canon for canon in (canonicalize_tool_name(name) for name in READ_ONLY_TOOLS) if canon
@@ -385,15 +387,25 @@ def _held_finding(core: Core, call: ToolCall, result: Any) -> Block | None:
     """The block a finding already in hand makes, or ``None``.
 
     See docs/architecture/rationale.md, "A finding in hand blocks under open".
+    Reading the result can fail for the reason the decision failed, such as a
+    finding a scanner built wrongly. Then the answer is a plain block, unless
+    the tool only reads.
     """
-    if result.tier == "tier3" or not result.allowed:
-        return Block(format_block_message(result, call.tool))
-    if result.guardrail_kind:
-        return Block(refused_message(call.tool))
     try:
         dangerous = _dangerous(call.tool)
     except Exception:
         dangerous = True
+    try:
+        return _held_block(core, call, result, dangerous=dangerous)
+    except Exception:
+        return _UNREADABLE_RESULT if dangerous else None
+
+
+def _held_block(core: Core, call: ToolCall, result: Any, *, dangerous: bool) -> Block | None:
+    if result.tier == "tier3" or not result.allowed:
+        return Block(format_block_message(result, call.tool))
+    if result.guardrail_kind:
+        return Block(refused_message(call.tool))
     if not dangerous:
         return None
     blocking = [f for f in result.findings if blocks(f.severity)]
