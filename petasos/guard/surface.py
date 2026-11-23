@@ -50,6 +50,10 @@ class CommandRule:
     unless_flags: tuple[str, ...] = ()
     # Also match an unknown program carrying these verbs and a guarded tail.
     unknown_program: bool = False
+    # A help flag means the command only prints its usage. A host turns this
+    # off for a command that writes its configuration: a word read as a help
+    # flag is not trusted to stop that write.
+    help_clears: bool = True
 
     def __post_init__(self) -> None:
         if self.kind not in _KINDS:

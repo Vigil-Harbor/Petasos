@@ -20,7 +20,8 @@ _PLUGIN_TAILS = (
     "plugins.hook_callback_timeout",
     "plugins.auto_apply",
 )
-_SETTINGS_TAILS = ("plugins.entries.petasos", "command_allowlist")
+# ``approvals`` holds Hermes's approval settings (mode, timeout, deny list).
+_SETTINGS_TAILS = ("plugins.entries.petasos", "command_allowlist", "approvals")
 # Hermes's top-level options whose next word is a value, rather than a verb
 # (tools/approval_config_set.py). Other option words stand alone.
 _GLOBAL_VALUES = frozenset(
@@ -56,13 +57,16 @@ def hermes_surface(paths: Iterable[str], roots: Iterable[str] = ()) -> Guardrail
     for raw in paths:
         labelled[_kind(str(raw))].add(str(raw))
     commands: list[CommandRule] = []
-    for verb in ("disable", "enable", "remove", "rm", "uninstall"):
+    # Enabling the plugin turns enforcement on, so it is not a change.
+    # A command marked ``help_clears=False`` writes Hermes's configuration.
+    for verb in ("disable", "remove", "rm", "uninstall"):
         commands.append(
             CommandRule(
                 "plugin",
                 ("hermes", "plugins", verb),
                 f"hermes plugins {verb}",
                 name=_PLUGIN,
+                help_clears=False,
             )
         )
     commands.append(
@@ -139,14 +143,25 @@ def hermes_surface(paths: Iterable[str], roots: Iterable[str] = ()) -> Guardrail
                 ("hermes", "profile", "update"),
                 "hermes profile update --force-config",
                 requires_flag="--force-config"[:length],
+                help_clears=False,
             )
         )
-    commands.append(CommandRule("settings", ("hermes", "config", "edit"), "hermes config edit"))
-    commands.append(CommandRule("settings", ("hermes", "import"), "hermes import"))
+    commands.append(
+        CommandRule(
+            "settings", ("hermes", "config", "edit"), "hermes config edit", help_clears=False
+        )
+    )
+    commands.append(
+        CommandRule("settings", ("hermes", "import"), "hermes import", help_clears=False)
+    )
     for flag in ("--res", "--rese", "--reset"):
         commands.append(
             CommandRule(
-                "settings", ("hermes", "setup"), "hermes setup --reset", requires_flag=flag
+                "settings",
+                ("hermes", "setup"),
+                "hermes setup --reset",
+                requires_flag=flag,
+                help_clears=False,
             )
         )
     for flag in ("--f", "--fo", "--for", "--forc", "--force"):
@@ -156,10 +171,16 @@ def hermes_surface(paths: Iterable[str], roots: Iterable[str] = ()) -> Guardrail
                 ("hermes", "profile", "install"),
                 "hermes profile install --force",
                 requires_flag=flag,
+                help_clears=False,
             )
         )
     commands.append(
-        CommandRule("settings", ("hermes", "config", "migrate"), "hermes config migrate")
+        CommandRule(
+            "settings",
+            ("hermes", "config", "migrate"),
+            "hermes config migrate",
+            help_clears=False,
+        )
     )
     # argparse accepts every unambiguous abbreviation, with a separate or
     # equals-joined value. Without --apply this command only proposes entries.
@@ -170,6 +191,7 @@ def hermes_surface(paths: Iterable[str], roots: Iterable[str] = ()) -> Guardrail
                 ("hermes", "approvals", "suggest"),
                 "hermes approvals suggest --apply",
                 requires_flag=flag,
+                help_clears=False,
             )
         )
     for verb in ("set", "unset"):
@@ -181,6 +203,7 @@ def hermes_surface(paths: Iterable[str], roots: Iterable[str] = ()) -> Guardrail
                     f"hermes config {verb} {tail}",
                     tail=tail,
                     unknown_program=True,
+                    help_clears=False,
                 )
             )
         for tail in _SETTINGS_TAILS:
@@ -191,6 +214,7 @@ def hermes_surface(paths: Iterable[str], roots: Iterable[str] = ()) -> Guardrail
                     f"hermes config {verb} {tail}",
                     tail=tail,
                     unknown_program=True,
+                    help_clears=False,
                 )
             )
     return GuardrailSurface(

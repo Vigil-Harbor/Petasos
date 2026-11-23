@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import time
 from typing import TYPE_CHECKING
 
 import pytest
@@ -123,8 +124,9 @@ def test_words_written_to_another_file_are_not_a_change(tmp_path: Path) -> None:
     "command",
     [
         "hermes plugins disable petasos",
-        "hermes plugins enable petasos",
         "hermes plugins remove petasos",
+        "hermes plugins rm petasos",
+        "hermes plugins uninstall petasos",
         "hermes plugins disable --all",
         "hermes plugins disable -a",
         'hermes plugins disable "petasos"',
@@ -503,6 +505,7 @@ def test_each_enumerated_hermes_command(tmp_path: Path, command: str, kind: str)
         "hermes config get plugins.enabled",
         "petasos doctor",
         "hermes plugins disable kanban",
+        "hermes plugins enable petasos",
         "pip install requests",
         "hermes config set display.theme teal",
         "git commit -m 'docs: hermes gateway restart steps'",
@@ -725,6 +728,9 @@ def test_a_here_document_that_only_reads_is_not_a_change(tmp_path: Path) -> None
         "hermes config unset command_allowlist",
         "hermes config set command_allowlist.0 replacement",
         "hermes config unset command_allowlist.0",
+        "hermes config set approvals.timeout 120",
+        "hermes config set approvals.mode off",
+        "hermes config unset approvals",
         "hermes config set --force command_allowlist '[ordinary]'",
         'hermes config set command_allowlist "$(printf hidden)"',
         "hermes approvals suggest --apply 1,2",
@@ -749,6 +755,7 @@ def test_permanent_approval_list_changes(tmp_path: Path, command: str) -> None:
     "command",
     [
         "hermes config get command_allowlist",
+        "hermes config get approvals.mode",
         "hermes approvals suggest",
         "hermes approvals suggest --json --days 1",
         "hermes approvals test -- echo ok",
@@ -776,6 +783,8 @@ def test_permanent_approval_list_reads(tmp_path: Path, command: str) -> None:
         "python3.11 -m hermes_cli config unset command_allowlist",
         "/opt/venv/bin/python -mhermes_cli.main setup --reset",
         "H=hermes; $H config set command_allowlist '[]'",
+        "$H config set approvals.mode off",
+        "$H config unset approvals",
         "alias h=hermes; h config set command_allowlist '[]'",
     ],
 )
@@ -854,6 +863,8 @@ def test_hermes_global_options_consume_their_values(tmp_path: Path, option: str)
     [
         "command_allowlist",
         "command_allowlist.0",
+        "approvals",
+        "approvals.timeout",
         "plugins.entries.petasos",
         "plugins.entries.petasos.settings.enabled",
         "plugins.enabled",
@@ -891,12 +902,81 @@ def test_unknown_program_only_guards_listed_config_keys(
         "h config set model x",
         "h config set command_allowlist_backup x",
         "h config set plugins.entries.petasos_other x",
+        "h config set approvals_backup x",
         "h config get command_allowlist",
-        "ai.hermes plugins disable petasos --help",
-        "python -m hermes_cli.main plugins disable petasos --help",
     ],
 )
 def test_invocation_recognition_leaves_reads_and_unrelated_programs(
     tmp_path: Path, command: str
 ) -> None:
     assert _hit(tmp_path, "terminal", {"command": command}) is None
+
+
+@pytest.mark.parametrize(
+    ("command", "kind"),
+    [
+        ("hermes config set command_allowlist x # --help", "settings"),
+        ("hermes config set command_allowlist x #-h", "settings"),
+        ("hermes config set command_allowlist -- --help", "settings"),
+        ("hermes config edit --help", "settings"),
+        ("hermes config edit -h", "settings"),
+        ("hermes config migrate --help", "settings"),
+        ("hermes config set approvals.mode off --help", "settings"),
+        ("hermes import x.zip -h", "settings"),
+        ("hermes setup --reset --help", "settings"),
+        ("hermes approvals suggest --apply --help", "settings"),
+        ("hermes profile install /tmp/profile --force --help", "settings"),
+        ("hermes config set plugins.enabled x --help", "plugin"),
+        ("hermes plugins disable petasos --help", "plugin"),
+        ("ai.hermes plugins disable petasos --help", "plugin"),
+        ("python -m hermes_cli.main plugins disable petasos --help", "plugin"),
+        ("hermes plugins uninstall petasos -h", "plugin"),
+    ],
+)
+def test_a_help_flag_does_not_clear_a_configuration_write(
+    tmp_path: Path, command: str, kind: str
+) -> None:
+    hit = _hit(tmp_path, "terminal", {"command": command})
+    assert hit is not None and hit.kind == kind, command
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "hermes plugins update petasos # --help",
+        "hermes plugins update -- --help",
+        "petasos config set x # --help",
+        "HERMES_HOME=/tmp/other hermes chat # -h",
+    ],
+)
+def test_a_help_word_after_a_comment_or_operands_is_not_help(tmp_path: Path, command: str) -> None:
+    assert _hit(tmp_path, "terminal", {"command": command}) is not None, command
+
+
+def test_naming_the_config_in_written_content_is_not_a_write(tmp_path: Path) -> None:
+    home, *_rest = _home(tmp_path)
+    config = str(home / "config.yaml")
+    for key in ("content", "new_string", "text"):
+        params = {"path": str(tmp_path / "notes.md"), key: config}
+        assert _hit(tmp_path, "write_file", params) is None, key
+    hit = _hit(tmp_path, "write_file", {"path": config, "content": config})
+    assert hit is not None and hit.kind == "settings"
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "echo " + "config " * 20000,
+        "; ".join(["echo config"] * 100000),
+        "; ".join(["h config"] * 100000),
+        "! " * 50000 + "hermes",
+        "{ " * 50000 + "hermes",
+        "env " + "-u X " * 20000,
+    ],
+    ids=["config-words", "echo-segments", "unknown-segments", "bang", "brace", "env-options"],
+)
+def test_recognition_cost_stays_linear_in_command_length(tmp_path: Path, command: str) -> None:
+    # A quadratic step takes several seconds on these at the length cap.
+    start = time.perf_counter()
+    _hit(tmp_path, "terminal", {"command": command})
+    assert time.perf_counter() - start < 2.0

@@ -28,6 +28,25 @@ class _SelfmodMatch(NamedTuple):
 
 # See docs/architecture/rationale.md, "Guard overflow attribution".
 SELFMOD_DEPTH_OVERFLOW_TARGET = "<argument-depth-overflow>"
+# Write-tool parameters that carry file content or prose, not the file written.
+# A protected path in one of them is a reference, not a write.
+_CONTENT_KEYS = frozenset(
+    {
+        "body",
+        "content",
+        "contents",
+        "data",
+        "description",
+        "diff",
+        "message",
+        "new_string",
+        "new_text",
+        "old_string",
+        "old_text",
+        "patch",
+        "text",
+    }
+)
 
 
 def _owned_paths(raw_entries: list[str]) -> frozenset[str]:
@@ -152,11 +171,12 @@ def _classify_selfmod(
 
         top_level_strs: list[str] = []
         all_parts: list[str] = []
-        for value in tool_params.values():
+        for key, value in tool_params.items():
             if value is None:
                 continue
             if isinstance(value, str):
-                top_level_strs.append(value)
+                if key not in _CONTENT_KEYS:
+                    top_level_strs.append(value)
                 all_parts.append(value)
             else:
                 all_parts.extend(self._extract_leaf_strings(value))

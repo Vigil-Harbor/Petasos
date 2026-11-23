@@ -32,11 +32,12 @@ happened:
   its two secrets in the profile's env file.
 - Whether the plugin runs: the plugin directory, Hermes's enabled and disabled
   plugin lists, safe mode, the hook timeout, the profile pointer, and the
-  commands that change them (`hermes plugins disable|enable|remove`,
+  commands that change them (`hermes plugins disable|remove|uninstall`,
   `--safe-mode`, `hermes gateway restart`, `hermes config set` on those keys).
+  Enabling the plugin is not a change.
 - The Petasos package itself (uninstalling it, editing its installed files).
 - Hermes's permanent approval list where an entry would pre-approve a Petasos
-  rule.
+  rule, and Hermes's approval settings (`approvals`).
 - The evidence: the event spool and scan history.
 
 Reading settings is not a change. Reading the secrets is a separate concern,
@@ -325,7 +326,11 @@ it got in.
     `read_text`, `read_bytes`, `exists`, `is_file` or `stat`. A write or
     append mode, a mode that is not a literal, the path assigned to a name,
     or the path passed to any other call is a change. `hermes` or `petasos`
-    with `--help` or `-h` is not a change.
+    with `--help` or `-h` is not a change, unless the command writes
+    Hermes's configuration (`hermes config set|unset|edit|migrate`,
+    `hermes import`, `hermes plugins disable petasos` and the other
+    settings commands), which is a change with or without one. A help word
+    after `--` or after a word that starts with `#` is not counted.
 
   Reads that are not on the reader list now ask. That includes `sed` and
   `perl` even without `-i`, `awk`, editors (including a read-only `vim -R`),

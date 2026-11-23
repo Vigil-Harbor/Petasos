@@ -178,18 +178,18 @@ def _one_command(
     prepared, assignments = _strip_wrappers(command.argv)
     prepared = _invocation(prepared, surface)
     program = _program(prepared[0]) if prepared else ""
-    helping = program in {"hermes", "petasos"} and bool(_HELP_FLAGS.intersection(prepared))
+    helping = program in {"hermes", "petasos"} and _asks_help(prepared)
     if not helping:
         for name, value in (*command.assignments, *assignments):
             hit = _env_hit(name, value, surface.env, program=program or None, exporting=False)
             if hit is not None:
                 return hit
-    if helping or not prepared:
-        # Nothing that changes a guardrail runs, but a redirect still writes.
+    if not prepared:
         return _mutation((), command.redirects, owned, env, cwd)
-    for flag in surface.flags:
-        if program == flag.program.casefold() and _carries(prepared, flag.flag):
-            return GuardrailHit(flag.kind, flag.label)
+    if not helping:
+        for flag in surface.flags:
+            if program == flag.program.casefold() and _carries(prepared, flag.flag):
+                return GuardrailHit(flag.kind, flag.label)
     rule_argv = _without_global_options(prepared, surface)
     unknown = (
         not known_program
@@ -199,12 +199,17 @@ def _one_command(
         and not any(program == flag.program.casefold() for flag in surface.flags)
     )
     for command_rule in rules:
+        if helping and command_rule.help_clears:
+            continue
         candidate = rule_argv
         fallback = unknown and command_rule.unknown_program and command_rule.tail is not None
         if fallback:
             candidate = (command_rule.words[0], *prepared[1:])
         if _rule_matches(candidate, command_rule, unknown_program=fallback):
             return GuardrailHit(command_rule.kind, command_rule.label)
+    if helping:
+        # Nothing else that changes a guardrail runs, but a redirect still writes.
+        return _mutation((), command.redirects, owned, env, cwd)
     exported = _export_hit(prepared, surface)
     if exported is not None:
         return exported
@@ -237,6 +242,20 @@ def _one_command(
     if found is not None or program in _TEXT_ONLY or program in _READERS:
         return found
     return _started(prepared, owned, surface, rules, env, cwd, depth)
+
+
+def _asks_help(argv: tuple[str, ...]) -> bool:
+    """True when a help flag comes before ``--`` and before a word that starts with ``#``.
+
+    After ``--`` the word is an operand. A word starting with ``#`` may begin a
+    comment the program never receives, so nothing after it counts.
+    """
+    for word in argv[1:]:
+        if word == "--" or word.startswith("#"):
+            return False
+        if word in _HELP_FLAGS:
+            return True
+    return False
 
 
 def _python_module(argv: tuple[str, ...]) -> tuple[str, ...] | None:

@@ -84,6 +84,24 @@ class TestConfigRefClassification:
         assert result.selfmod_finding.rule_id == "petasos.selfmod.config_ref"
         assert result.selfmod_finding.severity == Severity.HIGH
 
+    @pytest.mark.parametrize("key", ["content", "new_string", "text", "body"])
+    async def test_content_equal_to_owned_path_is_config_ref(
+        self, guard_pair: _GuardPair, key: str
+    ) -> None:
+        """A content field that is exactly the path names it; the path key is elsewhere."""
+        pipeline, guard, tracker, owned = guard_pair
+        result = await guard.evaluate("write_file", {"path": "runbook.md", key: owned}, "s1")
+        assert result.selfmod_finding is not None
+        assert result.selfmod_finding.rule_id == "petasos.selfmod.config_ref"
+        assert result.guardrail_kind is None
+
+    async def test_path_equal_to_owned_is_still_config_write(self, guard_pair: _GuardPair) -> None:
+        pipeline, guard, tracker, owned = guard_pair
+        for params in ({"path": owned, "content": owned}, {"target": owned, "body": "x"}):
+            result = await guard.evaluate("write_file", params, "s1")
+            assert result.selfmod_finding is not None
+            assert result.selfmod_finding.rule_id == "petasos.selfmod.config_write"
+
     async def test_shell_cat_is_config_ref(self, guard_pair: _GuardPair) -> None:
         pipeline, guard, tracker, owned = guard_pair
         result = await guard.evaluate("bash", {"command": f"cat {owned}"}, "s1")

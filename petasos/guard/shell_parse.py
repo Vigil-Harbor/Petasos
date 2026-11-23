@@ -58,27 +58,29 @@ def _strip_wrappers(
     argv: tuple[str, ...],
 ) -> tuple[tuple[str, ...], tuple[tuple[str, str], ...]]:
     assignments: list[tuple[str, str]] = []
-    words = list(argv)
-    while words:
-        name, value, consumed = _assignment(words[0])
+    # An index, not a shorter copy per word: a long chain of wrappers stays linear.
+    index = 0
+    while index < len(argv):
+        name, value, consumed = _assignment(argv[index])
         if consumed:
             if name is not None and value is not None:
                 assignments.append((name, value))
-            words = words[1:]
+            index += 1
             continue
-        program = _program(words[0])
+        program = _program(argv[index])
         if program not in _WRAPPERS:
             break
-        words = words[1:]
+        index += 1
         valued = _WRAPPER_VALUES.get(program, frozenset())
-        while words and words[0].startswith("-") and words[0] != "-c":
-            flag = words.pop(0)
-            if flag in valued and words:
-                words.pop(0)
-        if program == "timeout" and words:
+        while index < len(argv) and argv[index].startswith("-") and argv[index] != "-c":
+            flag = argv[index]
+            index += 1
+            if flag in valued and index < len(argv):
+                index += 1
+        if program == "timeout" and index < len(argv):
             # The duration.
-            words.pop(0)
-    return tuple(words), tuple(assignments)
+            index += 1
+    return argv[index:], tuple(assignments)
 
 
 def _assignment(word: str) -> tuple[str | None, str | None, bool]:

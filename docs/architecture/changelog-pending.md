@@ -398,3 +398,15 @@ to `petasos.model._TIMEOUT_ERROR_PREFIX`. The ingestion head length moves from
   allowed the call. A guard denial and a recognised guardrail change are
   kept the same way. With no blocking finding in hand, an internal error
   under `open` still allows. `degraded` and `closed` are unchanged.
+
+- The guardrail check now treats `hermes config set|unset approvals`
+  (Hermes's approval settings, such as `approvals.mode` and
+  `approvals.timeout`) as a settings change, as it does
+  `command_allowlist`, also when the program word cannot be resolved.
+  `hermes plugins enable petasos` is no longer a change; disable, remove
+  and uninstall still are. A help flag no longer clears a command that
+  writes Hermes's configuration, and a help word after `--` or after a
+  word starting with `#` is not read as help. A write tool whose content
+  field is exactly a protected path is recorded as a reference to it, not
+  as a write; the path parameter still decides what is written. A long
+  chain of wrapper words (`! ! ! ... hermes`) is read in linear time.

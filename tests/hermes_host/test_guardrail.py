@@ -312,6 +312,11 @@ commands = [
     "hermes config unset command_allowlist",
     "hermes config set command_allowlist.0 plugin_rule:petasos.degraded",
     "hermes config unset command_allowlist.0",
+    "hermes config set approvals.timeout 120",
+    "hermes config set approvals.mode off",
+    "hermes config unset approvals",
+    "hermes config set command_allowlist '[]' # --help",
+    "hermes config edit --help",
     "hermes approvals suggest --apply=1",
     "hermes setup --reset --non-interactive",
     "hermes import /tmp/backup.zip --force",
@@ -330,7 +335,7 @@ for index, command in enumerate(commands):
         subprocess.run(
             [
                 str(root / "bin/with-sandbox"), str(root / "venv/bin/hermes"),
-                *shlex.split(command)[1:],
+                *shlex.split(command, comments=True)[1:],
             ],
             env={**os.environ, "PETASOS_HERMES_HOME": str(home)},
             capture_output=True, check=False, timeout=60,
