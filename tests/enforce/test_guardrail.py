@@ -522,6 +522,10 @@ def test_initial_snapshot_is_not_a_settings_change(armed: bool) -> None:
         "hermes setup --reset --non-interactive",
         "hermes import /tmp/backup.zip --force",
         "hermes profile install /tmp/profile --force",
+        "python -m hermes_cli.main config set command_allowlist '[]'",
+        "ai.hermes import x.zip",
+        "hermes --json approvals suggest --apply",
+        "alias h=hermes; h config unset command_allowlist",
     ],
 )
 def test_list_changes_follow_self_change_policy(tmp_path: Path, mode: str, command: str) -> None:

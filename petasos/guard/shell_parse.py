@@ -154,6 +154,12 @@ def _parse(text: str) -> list[_Simple]:
             continue
         if char == "\\" and index + 1 < length:
             nxt = text[index + 1]
+            # A pasted Windows drive path is also a possible program word on
+            # other hosts. Keep its separators rather than joining its parts.
+            if len(buf) >= 2 and buf[0].isalpha() and buf[1] == ":" and nxt.isalnum():
+                buf.append(char)
+                index += 1
+                continue
             if nxt != "\n":
                 buf.append(nxt)
             index += 2

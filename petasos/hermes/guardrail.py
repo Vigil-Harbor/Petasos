@@ -8,7 +8,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from petasos.guard.surface import CommandRule, EnvRule, FlagRule, GuardrailSurface
+from petasos.guard.surface import CommandProgram, CommandRule, EnvRule, FlagRule, GuardrailSurface
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -21,6 +21,30 @@ _PLUGIN_TAILS = (
     "plugins.auto_apply",
 )
 _SETTINGS_TAILS = ("plugins.entries.petasos", "command_allowlist")
+# Hermes's top-level options whose next word is a value, rather than a verb
+# (tools/approval_config_set.py). Other option words stand alone.
+_GLOBAL_VALUES = frozenset(
+    {
+        "--profile",
+        "-p",
+        "--config",
+        "--model",
+        "-m",
+        "--provider",
+        "--reasoning",
+        "--toolsets",
+        "-t",
+        "--resume",
+        "-r",
+        "--skills",
+        "-s",
+        "--oneshot",
+        "-z",
+        "--usage-file",
+        "--in",
+        "--cpu-profile",
+    }
+)
 # ``hermes update`` restarts the processes that run agents unless the flag
 # makes the invocation read-only. See hermes-host-facts.md.
 _UPDATE_READS = ("--check", "--plan", "--list-venv-holders", "--install-id")
@@ -156,6 +180,7 @@ def hermes_surface(paths: Iterable[str], roots: Iterable[str] = ()) -> Guardrail
                     ("hermes", "config", verb),
                     f"hermes config {verb} {tail}",
                     tail=tail,
+                    unknown_program=True,
                 )
             )
         for tail in _SETTINGS_TAILS:
@@ -165,12 +190,21 @@ def hermes_surface(paths: Iterable[str], roots: Iterable[str] = ()) -> Guardrail
                     ("hermes", "config", verb),
                     f"hermes config {verb} {tail}",
                     tail=tail,
+                    unknown_program=True,
                 )
             )
     return GuardrailSurface(
         paths={kind: frozenset(values) for kind, values in labelled.items()},
         roots=frozenset(str(root) for root in roots),
         commands=tuple(commands),
+        programs=(
+            CommandProgram(
+                "hermes",
+                aliases=("ai.hermes", "hermes.exe"),
+                modules=("hermes_cli", "hermes_cli.main"),
+                value_options=_GLOBAL_VALUES,
+            ),
+        ),
         flags=(
             FlagRule("plugin", "hermes", "--safe-mode", "hermes --safe-mode"),
             FlagRule("plugin", "hermes", "--ignore-user-config", "hermes --ignore-user-config"),

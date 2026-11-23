@@ -136,6 +136,38 @@ print(json.dumps({"block": block, "enabled": enabled()}))
     assert result["enabled"] is True
 
 
+def test_module_commands_follow_self_change_policy(installed: Sandbox) -> None:
+    """Module spellings reach the real hook; commands remain unevaluated strings."""
+    result = _run(
+        installed,
+        r"""
+commands = [
+    "python -m hermes_cli.main config unset command_allowlist",
+    "python3.11 -m hermes_cli plugins disable petasos",
+    "/opt/venv/bin/python -mhermes_cli.main setup --reset",
+]
+save("never")
+before = config.read_bytes()
+blocks = [dispatch("terminal", {"command": command}, f"module-{i}", f"module-{i}")
+          for i, command in enumerate(commands)]
+unchanged = config.read_bytes() == before
+save("approve")
+asks = [directive("terminal", {"command": command}, f"ask-{i}", f"ask-{i}")
+        for i, command in enumerate(commands)]
+print(json.dumps({"blocks": blocks, "unchanged": unchanged, "asks": asks,
+                  "enabled": enabled()}))
+""",
+    )
+    blocks = result["blocks"]
+    assert isinstance(blocks, list) and len(blocks) == 3
+    assert all(isinstance(block, str) and "refused" in block for block in blocks)
+    asks = result["asks"]
+    assert isinstance(asks, list) and len(asks) == 3
+    assert all(isinstance(ask, dict) and ask["action"] == "approve" for ask in asks)
+    assert result["unchanged"] is True
+    assert result["enabled"] is True
+
+
 def test_under_approve_with_nobody_to_ask_both_are_blocked(installed: Sandbox) -> None:
     """Approve, with no person attached, still blocks the write and the disable."""
     result = _run(
