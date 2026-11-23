@@ -32,12 +32,46 @@
     "<code>degraded</code>: last scan errored or timeout streak. " +
     "<code>circuit_open</code>: consecutive timeout breaker tripped. " +
     "<code>unavailable</code>: backend not installed or prerequisites missing. " +
-    "<code>error</code>: backend installed but failed to load. See the error detail.";
+    "<code>error</code>: backend installed but failed to load. See the error detail. " +
+    "A pill that reads <code>failed</code> or <code>missing</code> is a startup-build outcome " +
+    "for a backend that was requested and is not registered, and the line under that row " +
+    "says why and repeats the reason token.";
 
-  Pet.scannerHealthRows = function (scanners) {
+  function startupExplanation(reason) {
+    if (reason === "semgrep.host_lifecycle_unavailable") {
+      return "Semgrep was turned on, but this console has no lifecycle owner, so it was not started. " +
+        "Shown from the startup build; a config change applies at the next restart.";
+    }
+    if (reason === "semgrep.unsupported_platform") {
+      return "Semgrep was turned on, but this platform cannot run it, so it was not started. " +
+        "Shown from the startup build; a config change applies at the next restart.";
+    }
+    if (reason === "semgrep.construction_failed") {
+      return "Semgrep was turned on, but it failed to start and was not registered. " +
+        "Shown from the startup build; a config change applies at the next restart.";
+    }
+    return "This scanner was requested and is not registered. " +
+      "Shown from the startup build; a config change applies at the next restart.";
+  }
+
+  // A supplied record is available:true with a statuses array. Anything else is none.
+  function suppliedStartupRecord(value) {
+    if (!value || typeof value !== "object") return null;
+    if (value.available !== true || !Array.isArray(value.statuses)) return null;
+    return value;
+  }
+
+  Pet.adoptScannerBuild = function (health) {
+    var record = (health && typeof health === "object") ? suppliedStartupRecord(health.scanner_build) : null;
+    Pet.state.scannerBuild = record;
+  };
+
+  Pet.scannerHealthRows = function (scanners, scannerBuild) {
     if (!scanners || !scanners.length) {
       return Pet.h("div", { className: "mono", style: { color: "var(--tx-faint)", fontSize: "12px" } }, "scanner status unavailable: health fetch failed");
     }
+    // Same placeholder the registered rows use when last_ms is null.
+    var absentMs = "\u2014";
     var table = Pet.h("div", { style: { display: "flex", flexDirection: "column", gap: "6px" } });
     for (var i = 0; i < scanners.length; i++) {
       var s = scanners[i];
@@ -51,7 +85,7 @@
       else if (s.status === "unavailable" || s.status === "circuit_open" || s.status === "error") pillCls = "pill err";
       var pill = Pet.h("span", { className: pillCls }, s.status || "unknown");
       var nameEl = Pet.h("span", { className: "mono", style: { fontSize: "12px", color: "var(--tx)", minWidth: "120px", display: "inline-block", overflowWrap: "anywhere" } }, s.name);
-      var latency = Pet.h("span", { className: "mono", style: { fontSize: "11px", color: "var(--tx-faint)", minWidth: "60px", display: "inline-block" } }, s.last_ms != null ? (s.last_ms.toFixed(1) + "ms") : "—");
+      var latency = Pet.h("span", { className: "mono", style: { fontSize: "11px", color: "var(--tx-faint)", minWidth: "60px", display: "inline-block" } }, s.last_ms != null ? (s.last_ms.toFixed(1) + "ms") : absentMs);
       var row = Pet.h("div", { style: { display: "flex", alignItems: "center", gap: "8px" } });
       row.appendChild(nameEl);
       row.appendChild(pill);
@@ -79,6 +113,52 @@
         cell.appendChild(errEl);
       }
       table.appendChild(cell);
+    }
+    // PET-264: one added row per startup status that was requested and is not registered.
+    var record = suppliedStartupRecord(scannerBuild);
+    if (record) {
+      function detailLine(text) {
+        return Pet.h("div", {
+          className: "mono",
+          style: {
+            fontSize: "11px", color: "var(--tx-faint)",
+            whiteSpace: "pre-wrap", wordBreak: "break-word",
+            maxHeight: "120px", overflowY: "auto", marginTop: "2px",
+            userSelect: "text", cursor: "text"
+          }
+        }, text);
+      }
+      function registeredName(id) {
+        for (var n = 0; n < scanners.length; n++) {
+          var known = scanners[n];
+          if (known && known.name === id) return true;
+        }
+        return false;
+      }
+      var statuses = record.statuses;
+      for (var k = 0; k < statuses.length; k++) {
+        var entry = statuses[k];
+        if (!entry || typeof entry !== "object") continue;
+        if (entry.outcome !== "failed" && entry.outcome !== "missing") continue;
+        if (typeof entry.scanner_id !== "string" || registeredName(entry.scanner_id)) continue;
+        var label = (typeof entry.display_name === "string" && entry.display_name.length > 0)
+          ? entry.display_name
+          : entry.scanner_id;
+        var addedName = Pet.h("span", { className: "mono", style: { fontSize: "12px", color: "var(--tx)", minWidth: "120px", display: "inline-block", overflowWrap: "anywhere" } }, label);
+        var addedPill = Pet.h("span", { className: "pill err" }, entry.outcome);
+        var addedLatency = Pet.h("span", { className: "mono", style: { fontSize: "11px", color: "var(--tx-faint)", minWidth: "60px", display: "inline-block" } }, absentMs);
+        var addedRow = Pet.h("div", { style: { display: "flex", alignItems: "center", gap: "8px" } });
+        addedRow.appendChild(addedName);
+        addedRow.appendChild(addedPill);
+        addedRow.appendChild(addedLatency);
+        var addedCell = Pet.h("div", { style: { display: "flex", flexDirection: "column", gap: "2px" } });
+        addedCell.appendChild(addedRow);
+        addedCell.appendChild(detailLine(startupExplanation(entry.reason)));
+        if (typeof entry.reason === "string" && entry.reason.length > 0) {
+          addedCell.appendChild(detailLine(entry.reason));
+        }
+        table.appendChild(addedCell);
+      }
     }
     return table;
   };

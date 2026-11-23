@@ -338,7 +338,7 @@
       // unique [style*='padding: 12px'] match.
       content: Pet.h("div", { style: { padding: "12px" } },
         Pet._runtime.healthLoaded
-          ? Pet.scannerHealthRows(Pet.state.scannerHealth)
+          ? Pet.scannerHealthRows(Pet.state.scannerHealth, Pet.state.scannerBuild)
           : Pet.h("div", { role: "status", ariaBusy: true, ariaLabel: "Loading scanner status" },
               Pet.skelRows(3, { h: "16px" }))
       ),
@@ -576,10 +576,11 @@
         // null->set transition only.
         var hadHealth = Pet.state.pipelineHealth !== null;
         Pet.state.scannerHealth = d.scanners || [];
+        Pet.adoptScannerBuild(d);
         Pet.state.pipelineHealth = d.pipeline || null;
         Pet.state.integrityHealth = d.integrity || null; // PET-157: mirror pipelineHealth (cold-mount settle)
         Pet.adoptSelfmodTotal(Pet.state.pipelineHealth); // PET-165: seed the tile count on cold mount
-        var rows = Pet.scannerHealthRows(Pet.state.scannerHealth);
+        var rows = Pet.scannerHealthRows(Pet.state.scannerHealth, Pet.state.scannerBuild);
         var contentEl = healthPanel.querySelector("[style*='padding: 12px']") || healthPanel.querySelector("div > div");
         if (contentEl) { contentEl.innerHTML = ""; contentEl.appendChild(rows); }
         // PET-144 cold-mount: this in-render fetch only patches the scanner-health

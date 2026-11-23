@@ -27,6 +27,15 @@ fails config validation, because an older release rejects the unknown id.
 
 ### Added
 
+- **Console health shows a scanner the startup build refused (PET-264).**
+  `GET /api/health` and the embedded plugin health route gain `scanner_build`,
+  the full startup build record. `scanners` and `scanner_count` stay the
+  registered scanners. The scanner list adds a row for each backend the build
+  was asked for that is not registered, with a plain-language explanation and
+  the reason token, and it says those outcomes are from the startup build. A
+  host that hands the console a ready pipeline and no build record keeps
+  working, and the response says no record is available.
+
 - **Opt-in isolated Semgrep library scanner (PET-254, package S).** Adds explicit
   `SemgrepLifecycleOwner`, bounded shared engine ownership, original-coordinate
   findings, and additive coverage metadata. Prepared scans compose once through
