@@ -37,6 +37,16 @@ def test_manifest_keeps_the_version_floor() -> None:
     assert ">=0.5.0" in str(petasos.specifier)
 
 
+def test_petasos_requirement_skips_android() -> None:
+    # Hermes locks one workspace for every platform. torch has no Android wheel, so
+    # an unmarked requirement fails that lock and Hermes drops the plugin everywhere.
+    petasos = next(r for r in _requirements() if r.name == "petasos")
+    assert petasos.marker is not None
+    assert not petasos.marker.evaluate({"sys_platform": "android"})
+    assert petasos.marker.evaluate({"sys_platform": "win32"})
+    assert petasos.marker.evaluate({"sys_platform": "darwin"})
+
+
 def test_no_requirement_carries_a_url() -> None:
     assert [r.name for r in _requirements() if r.url] == []
 

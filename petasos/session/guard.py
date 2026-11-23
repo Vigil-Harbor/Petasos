@@ -33,6 +33,7 @@ import logging
 import math
 import os
 import re
+import shlex
 import threading
 import time
 from collections import deque
@@ -468,6 +469,177 @@ class _SelfmodMatch(NamedTuple):
 SELFMOD_DEPTH_OVERFLOW_TARGET = "<argument-depth-overflow>"
 
 
+# Hermes's top-level options that take a separate value (``--profile work``),
+# so that value is not read as the subcommand.
+_HERMES_VALUE_OPTIONS = frozenset(
+    {
+        "--profile", "-p", "--config", "--model", "-m", "--provider", "--reasoning",
+        "--toolsets", "-t", "--resume", "-r", "--skills", "-s", "--oneshot", "-z",
+        "--usage-file", "--in", "--cpu-profile",
+    }
+)  # fmt: skip
+_HERMES_PROGRAMS = frozenset({"hermes", "ai.hermes", "hermes.exe", "ai.hermes.exe"})
+_HERMES_MODULES = frozenset({"hermes_cli", "hermes_cli.main"})
+# ``hermes config set|unset`` keys that hold a guardrail: the permanent approval
+# list, Hermes's approval settings, Petasos's own settings, and which plugins
+# Hermes loads.
+_HERMES_GUARDRAIL_KEYS = ("command_allowlist", "approvals", "petasos", "plugins")
+# Keys matched whatever program runs ``config set|unset`` (see _keyed_config_change).
+_KEYED_GUARDRAIL_KEYS = ("command_allowlist", "approvals", "petasos")
+_HERMES_PLUGIN_VERBS = frozenset({"disable", "remove", "rm", "uninstall"})
+# Upper bound on argument words examined per command, so a long command line
+# costs linear time. Reaching it is treated as a configuration change.
+_HERMES_SCAN_BUDGET = 100_000
+_HERMES_FLAG_ROUTES = (
+    (("approvals", "suggest"), "--apply", 3),
+    (("setup",), "--reset", 5),
+    (("profile", "install"), "--force", 3),
+    (("profile", "update"), "--force-config", 3),
+)
+_SHELL_BREAKS = ";&|()\n"
+# Write-tool parameters that carry file content or prose, not the file written.
+_SELFMOD_CONTENT_KEYS = frozenset(
+    {
+        "content", "contents", "text", "body", "data", "message", "new_string",
+        "old_string", "new_text", "old_text", "patch", "diff", "description",
+    }
+)  # fmt: skip
+
+
+def _hermes_invocation(words: list[str], index: int) -> bool:
+    """Whether the word at ``index`` starts a Hermes command line."""
+    word = words[index].strip("`").replace("\\", "/")
+    if word.rsplit("/", 1)[-1].casefold() in _HERMES_PROGRAMS:
+        return True
+    # ``python -m hermes_cli.main``, also written ``-mhermes_cli.main``.
+    if word in _HERMES_MODULES:
+        # ``-m`` alone, or as the last letter of a cluster such as ``-um``.
+        before = words[index - 1] if index > 0 else ""
+        return before.startswith("-") and before.endswith("m") and before[1:].isalpha()
+    return word.startswith("-m") and word[2:] in _HERMES_MODULES
+
+
+def _hermes_route(args: list[str]) -> str | None:
+    """Name the configuration change one Hermes command line makes, or None.
+
+    Global options are set aside first, so ``hermes -p work config set`` reads
+    as ``config set``; ``-p`` is also accepted after the subcommand.
+    """
+    positionals: list[str] = []
+    options: list[str] = []
+    skip = False
+    for arg in args:
+        arg = arg.strip("`")
+        if skip:
+            skip = False
+        elif arg in _HERMES_VALUE_OPTIONS:
+            skip = True
+        elif arg.startswith("-") and arg != "-":
+            options.append(arg.partition("=")[0])
+        elif arg:
+            positionals.append(arg)
+    # A help flag is not exempted: without a shell parser, a ``--help`` word in a
+    # comment or another command cannot be told from one Hermes receives.
+    head = [word.casefold() for word in positionals[:3]]
+    if head[:2] in (["config", "edit"], ["config", "migrate"]):
+        return "hermes " + " ".join(head[:2])
+    if head[:1] == ["import"]:
+        return "hermes import"
+    if head[:2] in (["config", "set"], ["config", "unset"]) and len(positionals) > 2:
+        key = positionals[2].casefold()
+        for guarded in _HERMES_GUARDRAIL_KEYS:
+            if key == guarded or key.startswith(guarded + "."):
+                return f"hermes config {head[1]} {guarded}"
+    if (
+        head[:1] == ["plugins"]
+        and len(head) > 1
+        and head[1] in _HERMES_PLUGIN_VERBS
+        and any(word.casefold() == "petasos" for word in positionals[2:])
+    ):
+        return f"hermes plugins {head[1]} petasos"
+    for route, flag, minimum in _HERMES_FLAG_ROUTES:
+        if tuple(head[: len(route)]) == route and any(
+            len(option) >= minimum and flag.startswith(option) for option in options
+        ):
+            return "hermes " + " ".join(route) + " " + flag
+    return None
+
+
+def _keyed_config_change(args: list[str]) -> str | None:
+    """``config set|unset`` on an approval or Petasos setting, whatever program runs it.
+
+    A program word this release cannot resolve (``$H config set ...``, an alias)
+    still names these keys. Only these keys are matched this way: they are
+    specific enough that another program's ``config set`` rarely carries them.
+    Another program that does (``git config set petasos.x``) is flagged too,
+    because exempting a program by name would let an alias of that name through.
+    """
+    positionals = [arg.strip("`") for arg in args if arg and not arg.startswith("-")]
+    if len(positionals) < 2 or positionals[0].casefold() not in ("set", "unset"):
+        return None
+    key = positionals[1].casefold()
+    for guarded in _KEYED_GUARDRAIL_KEYS:
+        if key == guarded or key.startswith(guarded + "."):
+            return f"config {positionals[0].casefold()} {guarded}"
+    return None
+
+
+def _hermes_config_change(command: str) -> str | None:
+    """Conservatively recognise CLI writers without executing or resolving shell text.
+
+    This release has no shell parser. Inspect words at every position (including
+    command chains and environment prefixes), and re-tokenise quoted command
+    strings such as sh -c payloads. This can also flag command text passed as data.
+    It does not resolve executable variables, aliases, or generated command text.
+    Targets describe the operation, never its potentially sensitive value.
+    """
+    pending = [(command, 0)]
+    budget = _HERMES_SCAN_BUDGET
+    joined = command.replace("\\\n", "")
+    if "\\" in joined:
+        # Windows paths: after the command as written, read it once more with
+        # its backslashes as separators.
+        pending.insert(0, (joined.replace("\\", "/"), 0))
+    while pending:
+        text, depth = pending.pop()
+        if depth > 32:
+            return "hermes configuration (shell nesting exceeded)"
+        lexer = shlex.shlex(text.replace("\\\n", ""), posix=True, punctuation_chars=_SHELL_BREAKS)
+        lexer.whitespace_split = True
+        lexer.whitespace = " \t\r"
+        lexer.commenters = ""
+        try:
+            words = list(lexer)
+        except ValueError:
+            # A partial shell fragment may still occur inside a larger command.
+            words = text.split()
+        for index, word in enumerate(words):
+            folded = word.casefold()
+            if (
+                ("hermes" in folded or "config" in folded)
+                and any(char.isspace() for char in word)
+                and word != text
+            ):
+                pending.append((word, depth + 1))
+            hermes = _hermes_invocation(words, index)
+            if not hermes and word.strip("`").casefold() != "config":
+                continue
+            tail: list[str] = []
+            # Index, not a slice: a slice would copy every remaining word per candidate.
+            for position in range(index + 1, len(words)):
+                arg = words[position]
+                if arg and all(char in _SHELL_BREAKS for char in arg):
+                    break
+                budget -= 1
+                if budget < 0:
+                    return "hermes configuration (command too long to inspect)"
+                tail.append(arg)
+            route = _hermes_route(tail) if hermes else _keyed_config_change(tail)
+            if route is not None:
+                return route
+    return None
+
+
 DEFAULT_TOOL_ALIASES: MappingProxyType[str, str] = MappingProxyType(
     {
         "bash": "exec",
@@ -802,6 +974,12 @@ class ToolCallGuard:
         try:
             if canon_pre_alias in _READ_ONLY_CANON:
                 return None
+            if canon_pre_alias in {"terminal", "bash", "shell", "exec"}:
+                command = tool_params.get("command")
+                if isinstance(command, str):
+                    target = _hermes_config_change(command)
+                    if target is not None:
+                        return _SelfmodMatch(rule_id="petasos.selfmod.config_write", target=target)
             owned = self.selfmod_target_paths()
             if not owned:
                 return None
@@ -811,11 +989,14 @@ class ToolCallGuard:
 
             top_level_strs: list[str] = []
             all_parts: list[str] = []
-            for value in tool_params.values():
+            for key, value in tool_params.items():
                 if value is None:
                     continue
                 if isinstance(value, str):
-                    top_level_strs.append(value)
+                    # A content field that holds the path names it; it does not
+                    # write it. It still counts as a reference below.
+                    if key not in _SELFMOD_CONTENT_KEYS:
+                        top_level_strs.append(value)
                     all_parts.append(value)
                 else:
                     all_parts.extend(self._extract_leaf_strings(value))

@@ -80,7 +80,7 @@ def test_builder_and_self_init_agree(
 
     caplog.clear()
     with caplog.at_level(logging.INFO, logger=_DASHBOARD_LOGGER):
-        builder_pipeline = build_dashboard_pipeline({})
+        builder_pipeline, _ = build_dashboard_pipeline({})
     builder_logs = _dashboard_logs(caplog)
 
     assert builder_pipeline.host_id == "dashboard"
@@ -90,7 +90,7 @@ def test_builder_and_self_init_agree(
 
     captured: dict[str, Any] = {}
 
-    def _capture(pipeline: Any) -> None:
+    def _capture(pipeline: Any, *, scanner_build: Any = None) -> None:
         captured["pipeline"] = pipeline
 
     monkeypatch.setattr(plugin_api, "_load_config", lambda: {})
@@ -122,7 +122,7 @@ def test_builder_attestation_on_with_valid_secret(monkeypatch: pytest.MonkeyPatc
     secret = base64.b64encode(b"\x01" * 32).decode()
     monkeypatch.setenv("PETASOS_SESSION_SECRET", secret)
 
-    pipeline = build_dashboard_pipeline({})
+    pipeline, _ = build_dashboard_pipeline({})
     assert pipeline.config.session_secret is not None
 
 
@@ -135,7 +135,7 @@ def test_builder_attestation_off_with_invalid_secret(
     monkeypatch.setenv("PETASOS_SESSION_SECRET", "a")
 
     with caplog.at_level(logging.WARNING, logger=_DASHBOARD_LOGGER):
-        pipeline = build_dashboard_pipeline({})
+        pipeline, _ = build_dashboard_pipeline({})
 
     assert pipeline.config.session_secret is None
     assert any("not valid base64" in line for line in _dashboard_logs(caplog))
@@ -149,7 +149,8 @@ def test_builder_attestation_off_with_invalid_secret(
 def test_routes_mounted_not_404() -> None:
     """``create_app(build_dashboard_pipeline({}))`` mounts the data routes: a mounted
     route answers 200/422, never 404. Distinguishes "mounted" from a bare miss."""
-    tc = _client(create_app(build_dashboard_pipeline({})))
+    pipeline, _ = build_dashboard_pipeline({})
+    tc = _client(create_app(pipeline))
 
     assert tc.get("/api/health").status_code != 404
     assert tc.get("/api/config").status_code != 404
@@ -159,7 +160,8 @@ def test_routes_mounted_not_404() -> None:
 
 def test_index_and_every_declared_console_script_are_served() -> None:
     """PET-183: standalone HTML and each ordered static module are reachable."""
-    tc = _client(create_app(build_dashboard_pipeline({})))
+    pipeline, _ = build_dashboard_pipeline({})
+    tc = _client(create_app(pipeline))
     response = tc.get("/")
     assert response.status_code == 200
     scripts = re.findall(r'<script src="([^"]+\.js)"></script>', response.text)
@@ -185,7 +187,8 @@ def test_auth_parity_token_set() -> None:
     """With a token set, an unauthenticated ``/api/*`` call to the decoupled server
     is rejected (401), not silently served on 127.0.0.1; an authenticated call is
     served; and the static index stays ungated (D1 'not silently served')."""
-    tc = _client(create_app(build_dashboard_pipeline({}), auth_token="t"))
+    pipeline, _ = build_dashboard_pipeline({})
+    tc = _client(create_app(pipeline, auth_token="t"))
 
     assert tc.get("/api/config").status_code == 401
     assert tc.get("/api/config", headers={"Authorization": "Bearer t"}).status_code == 200
@@ -196,7 +199,8 @@ def test_blank_token_runs_auth_off_with_warning(caplog: pytest.LogCaptureFixture
     """A set-but-blank token disables auth with one PET-125 WARNING (the
     misconfiguration the runbook cautions against)."""
     with caplog.at_level(logging.WARNING, logger="petasos.console.server"):
-        tc = _client(create_app(build_dashboard_pipeline({}), auth_token=""))
+        pipeline, _ = build_dashboard_pipeline({})
+        tc = _client(create_app(pipeline, auth_token=""))
         assert tc.get("/api/config").status_code == 200
 
     assert any("set but blank" in r.message for r in caplog.records)
@@ -205,7 +209,8 @@ def test_blank_token_runs_auth_off_with_warning(caplog: pytest.LogCaptureFixture
 def test_auth_off_when_unset() -> None:
     """No token (env unset) leaves ``/api/*`` reachable on localhost, parity with the
     in-tab plugin-API bypass."""
-    tc = _client(create_app(build_dashboard_pipeline({})))
+    pipeline, _ = build_dashboard_pipeline({})
+    tc = _client(create_app(pipeline))
     assert tc.get("/api/config").status_code == 200
 
 

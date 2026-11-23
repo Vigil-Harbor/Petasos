@@ -42,6 +42,15 @@ fails config validation, because an older release rejects the unknown id.
 
 ### Added
 
+- **Console health shows a scanner the startup build refused (PET-264).**
+  `GET /api/health` and the embedded plugin health route gain `scanner_build`,
+  the full startup build record. `scanners` and `scanner_count` stay the
+  registered scanners. The scanner list adds a row for each backend the build
+  was asked for that is not registered, with a plain-language explanation and
+  the reason token, and it says those outcomes are from the startup build. A
+  host that hands the console a ready pipeline and no build record keeps
+  working, and the response says no record is available.
+
 - **Opt-in isolated Semgrep library scanner (PET-254, package S).** Adds explicit
   `SemgrepLifecycleOwner`, bounded shared engine ownership, original-coordinate
   findings, and additive coverage metadata. Prepared scans compose once through
@@ -80,7 +89,9 @@ fails config validation, because an older release rejects the unknown id.
 - **Reference plugin dependency manifest (PET-242).**
   `docs/deployment/reference_plugin/pyproject.toml` declares `petasos[presidio,prompt-guard]>=0.5.0`
   and the spaCy model, for Hermes generations, which have no pip. It assumes
-  0.5.0 is the next release number.
+  0.5.0 is the next release number. The requirement excludes Android, where torch
+  has no wheel: Hermes locks every platform at once, and an unmarked requirement
+  failed that lock and left the plugin disabled on every platform (PET-263).
 
 - **Hermes approval decisions observed as enforcement events (PET-222).**
   The reference plugin records every `pre_approval_request` and

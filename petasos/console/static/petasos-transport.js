@@ -149,6 +149,7 @@
           if (Pet.responseOk(h)) {
             Pet._runtime.healthLoaded = true;
             Pet.state.scannerHealth = h.scanners || [];
+            Pet.adoptScannerBuild(h);
             Pet.state.pipelineHealth = h.pipeline || null;
             Pet.state.integrityHealth = h.integrity || null; // PET-157: mirror pipelineHealth
             Pet.adoptSelfmodTotal(Pet.state.pipelineHealth); // PET-165: re-sync the tile count
@@ -608,6 +609,7 @@
           Pet._runtime.healthLoaded = true;  // PET-127: a poll settle that beats a slow in-render fetch flips the gate, not the skeleton
           Pet._scope.adoptRead(d);    // PET-166 D19: health 200s are a readScope writer
           Pet.state.scannerHealth = d.scanners || [];
+          Pet.adoptScannerBuild(d);
           Pet.state.pipelineHealth = d.pipeline || null;
           Pet.state.integrityHealth = d.integrity || null; // PET-157: mirror pipelineHealth (recurring poll)
           Pet.adoptSelfmodTotal(Pet.state.pipelineHealth); // PET-165: re-sync the tile count

@@ -2705,7 +2705,12 @@ def _dangerous_tool_directive(
             "message": format_content_block("pii_egress", tool_name, tuple(pii)),
         }
 
-    if result.param_scan_degraded:
+    selfmod = result.selfmod_finding
+    selfmod_write = selfmod is not None and selfmod.rule_id == "petasos.selfmod.config_write"
+    # Writes use the existing posture without permanent content-rule waivers.
+    # References remain record-only. The caller emits selfmod_attempt; the guard
+    # records audit, alerts and risk independently of this decision.
+    if result.param_scan_degraded and not selfmod_write:
         if _always_approved("petasos.degraded"):
             pass
         elif not approve_effective:
@@ -2735,16 +2740,23 @@ def _dangerous_tool_directive(
                 _approval_command_excerpt(args, result),
             )
 
-    remaining = [f for f in command if not _always_approved(f.rule_id)]
+    remaining = (
+        [selfmod] if selfmod_write else [f for f in command if not _always_approved(f.rule_id)]
+    )
     if remaining:
         worst = _worst(remaining)
         if approve_effective:
-            return _approve_return(
+            directive = _approve_return(
                 tool_name,
                 session_id,
                 worst.rule_id,
                 _approval_command_excerpt(args, result),
             )
+            if selfmod_write:
+                # Hermes also checks plugin_rule keys at its approval boundary.
+                # An earlier "always" answer must not waive another write.
+                directive["rule_key"] = f"{worst.rule_id}:{uuid.uuid4().hex}"
+            return directive
         logger.warning(
             "PETASOS_QUARANTINE tool=%s session=%s — %s finding: %s",
             tool_name,

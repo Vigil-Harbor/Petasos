@@ -30,12 +30,16 @@ _handlers: Any = None
 _VALID_DIRECTIONS = frozenset({"inbound", "outbound"})
 
 
-def init_handlers(pipeline: Any) -> None:
-    """Wire a Pipeline instance into the dashboard API."""
+def init_handlers(pipeline: Any, *, scanner_build: Any = None) -> None:
+    """Wire a Pipeline instance into the dashboard API.
+
+    *scanner_build* is the optional startup build record. The shared-pipeline
+    path omits it: that pipeline was not built here, so no record is available.
+    """
     global _handlers  # noqa: PLW0603
     from petasos.console.server import ConsoleHandlers
 
-    _handlers = ConsoleHandlers(pipeline)
+    _handlers = ConsoleHandlers(pipeline, scanner_build=scanner_build)
     # PET-166 (D20): mark the handlers as embedded so the shared
     # PETASOS_SCOPE_UNSCOPED_READ tripwire can fire only through this bridge —
     # build_app never sets this, so the standalone console (which legitimately
@@ -69,8 +73,8 @@ def _self_init() -> None:
     from petasos.console._standalone import build_dashboard_pipeline
 
     raw_config = _load_config()
-    pipeline = build_dashboard_pipeline(raw_config)
-    init_handlers(pipeline)
+    pipeline, scanner_build = build_dashboard_pipeline(raw_config)
+    init_handlers(pipeline, scanner_build=scanner_build)
 
 
 def _require_handlers() -> Any:

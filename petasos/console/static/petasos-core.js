@@ -401,6 +401,7 @@
     alerts: [],
     auditLog: [],
     scannerHealth: [],
+    scannerBuild: null, // PET-264: startup build from /health; null until a supplied record is adopted
     pipelineHealth: null,
     integrityHealth: null, // PET-157: additive get_health `integrity` payload for the obs panel
     profiles: [],

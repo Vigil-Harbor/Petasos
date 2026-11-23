@@ -143,3 +143,203 @@ test("existing statuses keep their established pill variants", () => {
   assert.match(unknown, /\bpill\b/);
   assert.doesNotMatch(unknown, /\b(ok|warn|err)\b/);
 });
+
+// Regression for PET-264: a refused Semgrep startup status renders as its own row.
+
+const LIFECYCLE =
+  "Semgrep was turned on, but this console has no lifecycle owner, so it was not started. " +
+  "Shown from the startup build; a config change applies at the next restart.";
+const UNSUPPORTED =
+  "Semgrep was turned on, but this platform cannot run it, so it was not started. " +
+  "Shown from the startup build; a config change applies at the next restart.";
+const CONSTRUCTION =
+  "Semgrep was turned on, but it failed to start and was not registered. " +
+  "Shown from the startup build; a config change applies at the next restart.";
+const GENERIC =
+  "This scanner was requested and is not registered. " +
+  "Shown from the startup build; a config change applies at the next restart.";
+
+function allEls(node, pred, out) {
+  if (!out) out = [];
+  for (const child of node.childNodes || []) {
+    if (child.nodeType === 1) {
+      if (pred(child)) out.push(child);
+      allEls(child, pred, out);
+    }
+  }
+  return out;
+}
+
+function minimalRow() {
+  return { name: "minimal", status: "healthy", last_ms: 3.5, last_error: null };
+}
+
+function semgrepStatus(outcome, reason, extra = {}) {
+  return {
+    scanner_id: "semgrep",
+    display_name: "Semgrep",
+    outcome,
+    reason,
+    ...extra,
+  };
+}
+
+function refusedBuild(statuses) {
+  return { available: true, statuses };
+}
+
+test("adopted refused Semgrep row shows the lifecycle explanation and token", () => {
+  const kept = [{ name: "kept" }];
+  Pet.state.scannerHealth = kept;
+  const health = {
+    scanners: [minimalRow()],
+    scanner_build: refusedBuild([
+      semgrepStatus("failed", "semgrep.host_lifecycle_unavailable"),
+    ]),
+  };
+  Pet.adoptScannerBuild(health);
+  assert.equal(Pet.state.scannerBuild, health.scanner_build);
+  assert.equal(Pet.state.scannerHealth, kept);
+
+  const tree = Pet.scannerHealthRows(health.scanners, Pet.state.scannerBuild);
+  const text = tree.textContent;
+  assert.ok(text.includes("Semgrep"));
+  assert.ok(text.includes(LIFECYCLE));
+  assert.ok(text.includes("semgrep.host_lifecycle_unavailable"));
+  assert.ok(text.includes("3.5ms"));
+  assert.ok(text.includes("\u2014"));
+
+  const failed = allEls(tree, isPill).find((el) => el.textContent === "failed");
+  assert.ok(failed, "failed pill not found");
+  assert.match(failed.className, /\berr\b/);
+
+  const blocks = allEls(tree, isErrorBlock);
+  assert.deepEqual(
+    blocks.map((el) => el.textContent),
+    [LIFECYCLE, "semgrep.host_lifecycle_unavailable"],
+  );
+  assert.match(Pet.SCANNER_HEALTH_HELP, /<code>failed<\/code> or <code>missing<\/code>/);
+  assert.ok(Pet.SCANNER_HEALTH_HELP.includes("startup-build outcome"));
+  assert.ok(!Pet.SCANNER_HEALTH_HELP.includes("\u2014"));
+});
+
+test("startup rows follow the record rules and skip bad entries", () => {
+  const scanners = [minimalRow()];
+
+  Pet.adoptScannerBuild({
+    scanners,
+    scanner_build: { available: false, statuses: null },
+  });
+  assert.equal(Pet.state.scannerBuild, null);
+  let tree = Pet.scannerHealthRows(scanners, Pet.state.scannerBuild);
+  assert.ok(!tree.textContent.includes(LIFECYCLE));
+  assert.ok(!tree.textContent.includes(GENERIC));
+
+  Pet.adoptScannerBuild({ scanners });
+  assert.equal(Pet.state.scannerBuild, null);
+  tree = Pet.scannerHealthRows(scanners, Pet.state.scannerBuild);
+  assert.ok(!tree.textContent.includes(LIFECYCLE));
+
+  assert.doesNotThrow(() => Pet.adoptScannerBuild(null));
+  assert.equal(Pet.state.scannerBuild, null);
+  assert.doesNotThrow(() => Pet.adoptScannerBuild(undefined));
+  Pet.adoptScannerBuild({ scanner_build: { available: true, statuses: "nope" } });
+  assert.equal(Pet.state.scannerBuild, null);
+
+  tree = Pet.scannerHealthRows(
+    scanners,
+    refusedBuild([semgrepStatus("disabled", "disabled by config")]),
+  );
+  assert.ok(!tree.textContent.includes(LIFECYCLE));
+  assert.ok(!tree.textContent.includes("disabled by config"));
+  assert.ok(!tree.textContent.includes(GENERIC));
+
+  const registered = [
+    minimalRow(),
+    { name: "semgrep", status: "error", last_ms: null, last_error: "probe blew up" },
+  ];
+  tree = Pet.scannerHealthRows(
+    registered,
+    refusedBuild([semgrepStatus("failed", "semgrep.host_lifecycle_unavailable")]),
+  );
+  assert.ok(!tree.textContent.includes(LIFECYCLE));
+  assert.ok(!tree.textContent.includes("semgrep.host_lifecycle_unavailable"));
+  assert.ok(tree.textContent.includes("probe blew up"));
+
+  tree = Pet.scannerHealthRows(
+    scanners,
+    refusedBuild([semgrepStatus("failed", "semgrep.unsupported_platform")]),
+  );
+  assert.ok(tree.textContent.includes(UNSUPPORTED));
+  assert.ok(tree.textContent.includes("semgrep.unsupported_platform"));
+
+  tree = Pet.scannerHealthRows(
+    scanners,
+    refusedBuild([semgrepStatus("failed", "semgrep.construction_failed")]),
+  );
+  assert.ok(tree.textContent.includes(CONSTRUCTION));
+  assert.ok(tree.textContent.includes("semgrep.construction_failed"));
+
+  tree = Pet.scannerHealthRows(
+    scanners,
+    refusedBuild([
+      {
+        scanner_id: "presidio",
+        display_name: "Presidio",
+        outcome: "missing",
+        reason: "No module named presidio",
+      },
+    ]),
+  );
+  assert.ok(tree.textContent.includes("Presidio"));
+  assert.ok(tree.textContent.includes(GENERIC));
+  assert.ok(tree.textContent.includes("No module named presidio"));
+  const missing = allEls(tree, isPill).find((el) => el.textContent === "missing");
+  assert.ok(missing, "missing pill not found");
+  assert.match(missing.className, /\berr\b/);
+
+  tree = Pet.scannerHealthRows(
+    scanners,
+    refusedBuild([
+      semgrepStatus("verified", null),
+      semgrepStatus("degraded", "no model"),
+    ]),
+  );
+  assert.ok(!tree.textContent.includes(GENERIC));
+  assert.ok(!tree.textContent.includes("no model"));
+
+  tree = Pet.scannerHealthRows(
+    scanners,
+    refusedBuild([
+      { scanner_id: "extra", display_name: "", outcome: "failed", reason: "" },
+    ]),
+  );
+  assert.ok(tree.textContent.includes("extra"));
+  assert.deepEqual(
+    allEls(tree, isErrorBlock).map((el) => el.textContent),
+    [GENERIC],
+  );
+
+  const empty = Pet.scannerHealthRows(
+    [],
+    refusedBuild([semgrepStatus("failed", "semgrep.host_lifecycle_unavailable")]),
+  );
+  assert.equal(empty.textContent, "scanner status unavailable: health fetch failed");
+  assert.ok(!empty.textContent.includes(LIFECYCLE));
+
+  assert.doesNotThrow(() => {
+    Pet.scannerHealthRows(scanners, refusedBuild([
+      null,
+      "bad",
+      1,
+      { outcome: "failed" },
+      { outcome: "failed", scanner_id: 3 },
+      semgrepStatus("failed", "semgrep.host_lifecycle_unavailable"),
+    ]));
+  });
+  tree = Pet.scannerHealthRows(scanners, refusedBuild([
+    null,
+    semgrepStatus("failed", "semgrep.host_lifecycle_unavailable"),
+  ]));
+  assert.ok(tree.textContent.includes(LIFECYCLE));
+});

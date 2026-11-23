@@ -89,7 +89,7 @@ def main(argv: list[str] | None = None) -> int:
     from petasos.console.hermes import plugin_api
 
     raw_config = plugin_api._load_config()
-    pipeline = build_dashboard_pipeline(raw_config)
+    pipeline, scanner_build = build_dashboard_pipeline(raw_config)
 
     # Startup self-check (greppable tripwire). Both flags are sourced from EFFECTIVE
     # state, not raw env presence, so a blank-token or malformed-secret slip is
@@ -110,7 +110,7 @@ def main(argv: list[str] | None = None) -> int:
         "on" if attestation_on else "off",
     )
     try:
-        serve(pipeline, port=port)
+        serve(pipeline, port=port, scanner_build=scanner_build)
     except (OSError, SystemExit) as exc:
         logger.error(
             "%s: console failed to start on 127.0.0.1:%s: %s",
