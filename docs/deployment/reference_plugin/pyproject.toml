@@ -3,7 +3,9 @@ name = "petasos-hermes-plugin"
 version = "1.0.0"
 requires-python = ">=3.11"
 dependencies = [
-    "petasos[presidio,prompt-guard]>=0.5.0",
+    # Hermes locks every platform at once and torch has no Android wheel. Without the
+    # marker that lock fails and Hermes disables this plugin on every platform.
+    "petasos[presidio,prompt-guard]>=0.5.0; sys_platform != 'android'",
     "pyyaml==6.0.3",
     "en-core-web-lg",
 ]
