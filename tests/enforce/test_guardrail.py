@@ -140,6 +140,23 @@ def test_never_blocks_and_the_score_rises(tmp_path: Path) -> None:
     assert "selfmod_attempt" in _kinds(sink)
 
 
+@pytest.mark.parametrize("mode", ["approve", "never"])
+def test_naming_the_config_in_content_stays_a_recorded_reference(
+    tmp_path: Path, mode: str
+) -> None:
+    sink = _Sink()
+    enforcer, _source, path = _enforcer(tmp_path, sink, mode=mode)
+    note = ToolCall(
+        tool="write_file", args={"path": str(tmp_path / "notes.md"), "content": path}, session="s1"
+    )
+    decisions = [enforcer.tool_call(note) for _ in range(5)]
+
+    assert all(isinstance(decision, Allow) for decision in decisions)
+    attempts = [event for event in sink.events if event.get("event_type") == "selfmod_attempt"]
+    assert attempts and {event["rule_id"] for event in attempts} == {"petasos.selfmod.config_ref"}
+    assert not any(event.get("event_type") == "guardrail" for event in sink.events)
+
+
 def test_approve_asks_when_a_person_can_answer(tmp_path: Path) -> None:
     sink = _Sink()
     enforcer, _source, path = _enforcer(tmp_path, sink)
@@ -518,6 +535,9 @@ def test_initial_snapshot_is_not_a_settings_change(armed: bool) -> None:
         "hermes config unset command_allowlist",
         "hermes config set command_allowlist.0 ordinary",
         "hermes config unset command_allowlist.0",
+        "hermes config set approvals.timeout 120",
+        "hermes config unset approvals",
+        "hermes config edit --help",
         "hermes approvals suggest --apply=1",
         "hermes setup --reset --non-interactive",
         "hermes import /tmp/backup.zip --force",

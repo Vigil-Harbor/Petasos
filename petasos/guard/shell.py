@@ -64,11 +64,19 @@ def _command_change(
     surface: GuardrailSurface,
     env: Mapping[str, str],
     cwd: str,
+    *,
+    plain: tuple[str, ...] | None = None,
 ) -> GuardrailHit | None:
+    """The first guardrail change ``text`` makes when a shell runs it.
+
+    ``plain`` is the whole tool call's command text read as one plain
+    command (see ``recognize``), or ``None``. Only a rule's ``except_exact``
+    consults it.
+    """
     if len(text) > _MAX_CHARS:
         text = text[:_MAX_CHARS]
     rules = library_rules() + surface.commands
-    hit = _each_command(_parse(text), owned, surface, rules, env, cwd, depth=0)
+    hit = _each_command(_parse(text), owned, surface, rules, env, cwd, depth=0, plain=plain)
     if hit is not None:
         return hit
     return _heredoc_hit(text, owned, surface, env, cwd)
@@ -83,10 +91,11 @@ def _each_command(
     cwd: str,
     *,
     depth: int,
+    plain: tuple[str, ...] | None = None,
 ) -> GuardrailHit | None:
     """Judge commands in order. A ``cd`` moves the directory the later ones run in."""
     for command in commands[:_MAX_COMMANDS]:
-        hit = _one_command(command, owned, surface, rules, env, cwd, depth=depth)
+        hit = _one_command(command, owned, surface, rules, env, cwd, depth=depth, plain=plain)
         if hit is not None:
             return hit
         cwd = _after_cd(command, env, cwd)
@@ -174,22 +183,23 @@ def _one_command(
     *,
     depth: int,
     known_program: bool = False,
+    plain: tuple[str, ...] | None = None,
 ) -> GuardrailHit | None:
     prepared, assignments = _strip_wrappers(command.argv)
     prepared = _invocation(prepared, surface)
     program = _program(prepared[0]) if prepared else ""
-    helping = program in {"hermes", "petasos"} and bool(_HELP_FLAGS.intersection(prepared))
+    helping = program in {"hermes", "petasos"} and _asks_help(prepared)
     if not helping:
         for name, value in (*command.assignments, *assignments):
             hit = _env_hit(name, value, surface.env, program=program or None, exporting=False)
             if hit is not None:
                 return hit
-    if helping or not prepared:
-        # Nothing that changes a guardrail runs, but a redirect still writes.
+    if not prepared:
         return _mutation((), command.redirects, owned, env, cwd)
-    for flag in surface.flags:
-        if program == flag.program.casefold() and _carries(prepared, flag.flag):
-            return GuardrailHit(flag.kind, flag.label)
+    if not helping:
+        for flag in surface.flags:
+            if program == flag.program.casefold() and _carries(prepared, flag.flag):
+                return GuardrailHit(flag.kind, flag.label)
     rule_argv = _without_global_options(prepared, surface)
     unknown = (
         not known_program
@@ -199,12 +209,19 @@ def _one_command(
         and not any(program == flag.program.casefold() for flag in surface.flags)
     )
     for command_rule in rules:
+        if helping and command_rule.help_clears:
+            continue
+        if command_rule.except_exact and plain == command_rule.except_exact:
+            continue
         candidate = rule_argv
         fallback = unknown and command_rule.unknown_program and command_rule.tail is not None
         if fallback:
             candidate = (command_rule.words[0], *prepared[1:])
-        if _rule_matches(candidate, command_rule, unknown_program=fallback):
+        if _rule_matches(candidate, command_rule):
             return GuardrailHit(command_rule.kind, command_rule.label)
+    if helping:
+        # Nothing else that changes a guardrail runs, but a redirect still writes.
+        return _mutation((), command.redirects, owned, env, cwd)
     exported = _export_hit(prepared, surface)
     if exported is not None:
         return exported
@@ -237,6 +254,22 @@ def _one_command(
     if found is not None or program in _TEXT_ONLY or program in _READERS:
         return found
     return _started(prepared, owned, surface, rules, env, cwd, depth)
+
+
+def _asks_help(argv: tuple[str, ...]) -> bool:
+    """True when a help flag comes before ``--`` and before a word that starts with ``#``.
+
+    After ``--`` the word is an operand. The parser does not model comments
+    and keeps every word, so a word starting with ``#`` may begin a comment
+    the program never receives. A help word after it does not count, which
+    can only keep a command from being cleared.
+    """
+    for word in argv[1:]:
+        if word == "--" or word.startswith("#"):
+            return False
+        if word in _HELP_FLAGS:
+            return True
+    return False
 
 
 def _python_module(argv: tuple[str, ...]) -> tuple[str, ...] | None:
@@ -400,9 +433,7 @@ def _c_argument(argv: tuple[str, ...]) -> str | None:
     return None
 
 
-def _rule_matches(
-    argv: tuple[str, ...], rule: CommandRule, *, unknown_program: bool = False
-) -> bool:
+def _rule_matches(argv: tuple[str, ...], rule: CommandRule) -> bool:
     if len(argv) < len(rule.words):
         return False
     for index, expected in enumerate(rule.words):
@@ -417,12 +448,10 @@ def _rule_matches(
         return False
     rest = argv[len(rule.words) :]
     positionals = [word for word in rest if not word.startswith("-")]
-    if rule.tail is not None and (
-        not positionals or not positionals[0].casefold().startswith(rule.tail.casefold())
-    ):
-        return False
-    if unknown_program and rule.tail is not None:
-        key, tail = positionals[0].casefold(), rule.tail.casefold()
+    if rule.tail is not None:
+        # Hermes splits a key at each ``.``: ``approvals_backup`` is another key.
+        key = positionals[0].casefold() if positionals else ""
+        tail = rule.tail.casefold()
         if key != tail and not key.startswith(tail + "."):
             return False
     if rule.one_of:
@@ -433,7 +462,21 @@ def _rule_matches(
         return True
     if any(_names_plugin(word, rule.name) for word in rest):
         return True
-    return rule.bare and not positionals
+    return rule.bare and not _targets(positionals)
+
+
+def _targets(positionals: list[str]) -> list[str]:
+    """The positionals before the first word that starts with ``#``.
+
+    The parser does not model comments and keeps every word, so such a word
+    may begin a comment that holds the rest. Neither it nor what follows is
+    taken as naming a target. This only decides whether a command with no
+    target matches; a word anywhere that names the plugin still matches.
+    """
+    for index, word in enumerate(positionals):
+        if word.startswith("#"):
+            return positionals[:index]
+    return positionals
 
 
 def _names_plugin(word: str, name: str) -> bool:
@@ -449,11 +492,32 @@ def _names_plugin(word: str, name: str) -> bool:
         return True
     if "#" in word and word.rsplit("#", 1)[-1].strip("/").casefold() == wanted:
         return True
-    for piece in (folded, folded.rstrip("/").rsplit("/", 1)[-1]):
+    for piece in (folded, folded.rstrip("/").rsplit("/", 1)[-1], *_repository(folded)):
         head = _NAME_END.split(piece, maxsplit=1)[0].removesuffix(".git")
         if head == wanted or re.match(re.escape(wanted) + r"-\d", head):
             return True
     return False
+
+
+def _repository(source: str) -> tuple[str, str]:
+    """The last part of a source's repository path, with its revision set aside.
+
+    A revision follows the repository after ``@`` or ``#`` and may itself
+    hold ``/`` (``.../petasos@feature/x``). The path starts after a URL's
+    host or an scp-style ``host:``, so a user before the host is not taken
+    for a revision. Both the first ``@`` or ``#`` in the path and pip's
+    reading, the fragment and then the last ``@``, are tried.
+    """
+    scheme = source.find("://")
+    if scheme >= 0:
+        slash = source.find("/", scheme + 3)
+        path = source[slash:] if slash >= 0 else ""
+    else:
+        colon, slash = source.find(":"), source.find("/")
+        path = source[colon + 1 :] if colon >= 0 and (slash < 0 or colon < slash) else source
+    first = re.split(r"[@#]", path, maxsplit=1)[0]
+    last = path.split("#", 1)[0].rsplit("@", 1)[0]
+    return first.rstrip("/").rsplit("/", 1)[-1], last.rstrip("/").rsplit("/", 1)[-1]
 
 
 def _env_hit(

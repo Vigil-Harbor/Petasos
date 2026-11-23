@@ -32,11 +32,17 @@ happened:
   its two secrets in the profile's env file.
 - Whether the plugin runs: the plugin directory, Hermes's enabled and disabled
   plugin lists, safe mode, the hook timeout, the profile pointer, and the
-  commands that change them (`hermes plugins disable|enable|remove`,
+  commands that change them (`hermes plugins disable|remove|uninstall`,
   `--safe-mode`, `hermes gateway restart`, `hermes config set` on those keys).
+  Enabling the plugin with exactly `hermes plugins enable petasos`, as the
+  tool call's whole command text, is not a change, unless the same command grants or revokes its tool-override
+  permission (`--allow-tool-override`, `--no-allow-tool-override`), which
+  Hermes writes into Petasos's entry. Any other `enable` that names the
+  plugin or everything (`all`, a version, a source, another plugin beside
+  it, `--force`, a global option) is a change.
 - The Petasos package itself (uninstalling it, editing its installed files).
 - Hermes's permanent approval list where an entry would pre-approve a Petasos
-  rule.
+  rule, and Hermes's approval settings (`approvals`).
 - The evidence: the event spool and scan history.
 
 Reading settings is not a change. Reading the secrets is a separate concern,
@@ -325,7 +331,27 @@ it got in.
     `read_text`, `read_bytes`, `exists`, `is_file` or `stat`. A write or
     append mode, a mode that is not a literal, the path assigned to a name,
     or the path passed to any other call is a change. `hermes` or `petasos`
-    with `--help` or `-h` is not a change.
+    with `--help` or `-h` is not a change, unless the command writes
+    Hermes's configuration (`hermes config set|unset|edit|migrate`,
+    `hermes import`, `hermes plugins disable petasos`, any
+    `hermes plugins enable` that names the plugin or everything,
+    `hermes plugins install petasos --enable`,
+    `hermes plugins auto-update on|off`, `hermes plugins pack install` and
+    the other settings commands), which is a change with or without one. A
+    help word after `--` is not counted.
+
+    The recogniser does not parse shell comments, and text it cannot fully
+    model never removes a match. A word that starts with `#` stays a word,
+    and so do the words after it, on the same line and on later lines, in
+    shell text and in an argument list joined into text. Because a shell
+    may read such a word as the start of a comment, it can only stop later
+    words from loosening a decision: a help word after it does not count as
+    help, and it and the positionals after it do not name a target, so
+    `hermes plugins update # note` and `$(hermes plugins update # note)`
+    update every plugin. A word after it that names Petasos, or a flag such
+    as `--apply`, still counts. A configuration key matches a guarded key
+    only as a whole dotted segment, so `approvals_backup` is not
+    `approvals`.
 
   Reads that are not on the reader list now ask. That includes `sed` and
   `perl` even without `-i`, `awk`, editors (including a read-only `vim -R`),

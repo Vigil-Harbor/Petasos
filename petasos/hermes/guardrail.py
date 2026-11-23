@@ -20,7 +20,8 @@ _PLUGIN_TAILS = (
     "plugins.hook_callback_timeout",
     "plugins.auto_apply",
 )
-_SETTINGS_TAILS = ("plugins.entries.petasos", "command_allowlist")
+# ``approvals`` holds Hermes's approval settings (mode, timeout, deny list).
+_SETTINGS_TAILS = ("plugins.entries.petasos", "command_allowlist", "approvals")
 # Hermes's top-level options whose next word is a value, rather than a verb
 # (tools/approval_config_set.py). Other option words stand alone.
 _GLOBAL_VALUES = frozenset(
@@ -56,15 +57,50 @@ def hermes_surface(paths: Iterable[str], roots: Iterable[str] = ()) -> Guardrail
     for raw in paths:
         labelled[_kind(str(raw))].add(str(raw))
     commands: list[CommandRule] = []
-    for verb in ("disable", "enable", "remove", "rm", "uninstall"):
+    # A command marked ``help_clears=False`` writes Hermes's configuration.
+    for verb in ("disable", "remove", "rm", "uninstall"):
         commands.append(
             CommandRule(
                 "plugin",
                 ("hermes", "plugins", verb),
                 f"hermes plugins {verb}",
                 name=_PLUGIN,
+                help_clears=False,
             )
         )
+    # Enabling still writes the plugin's entry when it grants or revokes
+    # the tool-override permission (plugins.entries.petasos.allow_tool_override).
+    for full, shortest in (
+        ("--allow-tool-override", "--a"),
+        ("--no-allow-tool-override", "--n"),
+    ):
+        for flag in _prefixes(full, shortest):
+            commands.append(
+                CommandRule(
+                    "settings",
+                    ("hermes", "plugins", "enable"),
+                    f"hermes plugins enable {full}",
+                    name=_PLUGIN,
+                    requires_flag=flag,
+                    help_clears=False,
+                )
+            )
+    # Enabling the plugin by its plain name only turns enforcement on. Every
+    # other spelling that names it or everything (``all``, ``-a``, ``*``, a
+    # version, an extra, a source or a built file, another plugin beside it,
+    # ``--force``, another case, a global option) may install different code
+    # or enable more, so it is a change. Enabling writes ``plugins.enabled``,
+    # so a help flag does not clear it.
+    commands.append(
+        CommandRule(
+            "plugin",
+            ("hermes", "plugins", "enable"),
+            "hermes plugins enable",
+            name=_PLUGIN,
+            help_clears=False,
+            except_exact=("hermes", "plugins", "enable", _PLUGIN),
+        )
+    )
     commands.append(
         CommandRule(
             "plugin",
@@ -73,6 +109,18 @@ def hermes_surface(paths: Iterable[str], roots: Iterable[str] = ()) -> Guardrail
             name=_PLUGIN,
         )
     )
+    # ``--enable`` adds the installed plugin to Hermes's enabled list.
+    for flag in _prefixes("--enable", "--e"):
+        commands.append(
+            CommandRule(
+                "plugin",
+                ("hermes", "plugins", "install"),
+                "hermes plugins install --enable",
+                name=_PLUGIN,
+                requires_flag=flag,
+                help_clears=False,
+            )
+        )
     # No name updates every installed plugin.
     commands.append(
         CommandRule(
@@ -99,13 +147,16 @@ def hermes_surface(paths: Iterable[str], roots: Iterable[str] = ()) -> Guardrail
                 ("hermes", "plugins", verb),
                 f"hermes plugins {verb}",
                 one_of=("on", "off"),
+                help_clears=False,
             )
         )
+    # A pack may seed plugins.entries for the plugins it installs.
     commands.append(
         CommandRule(
             "plugin",
             ("hermes", "plugins", "pack", "install"),
             "hermes plugins pack install",
+            help_clears=False,
         )
     )
     commands.append(
@@ -139,14 +190,25 @@ def hermes_surface(paths: Iterable[str], roots: Iterable[str] = ()) -> Guardrail
                 ("hermes", "profile", "update"),
                 "hermes profile update --force-config",
                 requires_flag="--force-config"[:length],
+                help_clears=False,
             )
         )
-    commands.append(CommandRule("settings", ("hermes", "config", "edit"), "hermes config edit"))
-    commands.append(CommandRule("settings", ("hermes", "import"), "hermes import"))
+    commands.append(
+        CommandRule(
+            "settings", ("hermes", "config", "edit"), "hermes config edit", help_clears=False
+        )
+    )
+    commands.append(
+        CommandRule("settings", ("hermes", "import"), "hermes import", help_clears=False)
+    )
     for flag in ("--res", "--rese", "--reset"):
         commands.append(
             CommandRule(
-                "settings", ("hermes", "setup"), "hermes setup --reset", requires_flag=flag
+                "settings",
+                ("hermes", "setup"),
+                "hermes setup --reset",
+                requires_flag=flag,
+                help_clears=False,
             )
         )
     for flag in ("--f", "--fo", "--for", "--forc", "--force"):
@@ -156,10 +218,16 @@ def hermes_surface(paths: Iterable[str], roots: Iterable[str] = ()) -> Guardrail
                 ("hermes", "profile", "install"),
                 "hermes profile install --force",
                 requires_flag=flag,
+                help_clears=False,
             )
         )
     commands.append(
-        CommandRule("settings", ("hermes", "config", "migrate"), "hermes config migrate")
+        CommandRule(
+            "settings",
+            ("hermes", "config", "migrate"),
+            "hermes config migrate",
+            help_clears=False,
+        )
     )
     # argparse accepts every unambiguous abbreviation, with a separate or
     # equals-joined value. Without --apply this command only proposes entries.
@@ -170,6 +238,7 @@ def hermes_surface(paths: Iterable[str], roots: Iterable[str] = ()) -> Guardrail
                 ("hermes", "approvals", "suggest"),
                 "hermes approvals suggest --apply",
                 requires_flag=flag,
+                help_clears=False,
             )
         )
     for verb in ("set", "unset"):
@@ -181,6 +250,7 @@ def hermes_surface(paths: Iterable[str], roots: Iterable[str] = ()) -> Guardrail
                     f"hermes config {verb} {tail}",
                     tail=tail,
                     unknown_program=True,
+                    help_clears=False,
                 )
             )
         for tail in _SETTINGS_TAILS:
@@ -191,6 +261,7 @@ def hermes_surface(paths: Iterable[str], roots: Iterable[str] = ()) -> Guardrail
                     f"hermes config {verb} {tail}",
                     tail=tail,
                     unknown_program=True,
+                    help_clears=False,
                 )
             )
     return GuardrailSurface(
@@ -224,6 +295,11 @@ def hermes_surface(paths: Iterable[str], roots: Iterable[str] = ()) -> Guardrail
             ),
         ),
     )
+
+
+def _prefixes(flag: str, shortest: str) -> tuple[str, ...]:
+    """``flag`` and each abbreviation argparse accepts for it, from ``shortest`` up."""
+    return tuple(flag[:length] for length in range(len(shortest), len(flag) + 1))
 
 
 def _kind(path: str) -> str:

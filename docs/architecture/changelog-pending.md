@@ -398,3 +398,39 @@ to `petasos.model._TIMEOUT_ERROR_PREFIX`. The ingestion head length moves from
   allowed the call. A guard denial and a recognised guardrail change are
   kept the same way. With no blocking finding in hand, an internal error
   under `open` still allows. `degraded` and `closed` are unchanged.
+
+- The guardrail check now treats `hermes config set|unset approvals`
+  (Hermes's approval settings, such as `approvals.mode` and
+  `approvals.timeout`) as a settings change, as it does
+  `command_allowlist`, also when the program word cannot be resolved.
+  `hermes plugins enable petasos`, written exactly so, is no longer a
+  change, unless it grants or revokes the plugin's tool-override
+  permission; disable, remove and uninstall still are. Any other `enable`
+  that names the plugin or everything is still a change: `all`, `-a`,
+  `*`, a version, an extra, a source or a built file, another plugin
+  beside it, `--force`, another case, or a global option such as `-v` or
+  `-p`. The plain command must also be the tool call's whole command
+  text, given as text, with only surrounding blanks and newlines removed;
+  the program may be an absolute path to `hermes` (on Windows also a
+  drive path such as `C:\Tools\hermes`). After `cd` or beside any other
+  command, in a function, a group or a subshell, through `sh -c`, `eval`,
+  a substitution or a here-document, with a comment, quoting or extra
+  spaces, as an argument list or in program code, it is a change. A help
+  flag no longer clears a command that writes
+  Hermes's configuration, including `hermes plugins enable` (`hermes
+  plugins enable all --help` is a change), `hermes plugins auto-update
+  on|off`, `hermes plugins install petasos --enable` and `hermes plugins
+  pack install`, and a help word after `--` is not read as help. Shell
+  comments are not parsed: a word starting with `#` and every word after
+  it are still read, so a command after a `#` is still recognised. Such a
+  word can only stop later words from loosening a decision: a help word
+  after it is not read as help, and it and the words after it do not name
+  a plugin to update, so `hermes plugins update # note`,
+  `$(hermes plugins update # note)` and `hermes plugins update '#name'`
+  update every plugin. A configuration key
+  matches a guarded key only as a whole dotted segment
+  (`approvals_backup` is not `approvals`). When a `write_file` call's
+  `content`, or a `patch` call's `old_string`, `new_string` or `patch`, is
+  exactly a protected path, it is recorded as a reference to it, not as a
+  write; the path parameter still decides what is written. A long chain of
+  wrapper words (`! ! ! ... hermes`) is read in linear time.

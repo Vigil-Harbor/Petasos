@@ -2,13 +2,20 @@
 
 from __future__ import annotations
 
+import ntpath
 import os
+import time
+from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
 import pytest
 
+from petasos.guard import guardrail, shell_parse
+from petasos.guard.bounds import _MAX_CHARS
 from petasos.guard.guardrail import recognize
 from petasos.guard.paths import normalize_path_text
+from petasos.guard.shell_parse import _parse
+from petasos.guard.surface import CommandRule
 from petasos.hermes.guardrail import hermes_surface
 
 if TYPE_CHECKING:
@@ -123,8 +130,9 @@ def test_words_written_to_another_file_are_not_a_change(tmp_path: Path) -> None:
     "command",
     [
         "hermes plugins disable petasos",
-        "hermes plugins enable petasos",
         "hermes plugins remove petasos",
+        "hermes plugins rm petasos",
+        "hermes plugins uninstall petasos",
         "hermes plugins disable --all",
         "hermes plugins disable -a",
         'hermes plugins disable "petasos"',
@@ -503,6 +511,9 @@ def test_each_enumerated_hermes_command(tmp_path: Path, command: str, kind: str)
         "hermes config get plugins.enabled",
         "petasos doctor",
         "hermes plugins disable kanban",
+        "hermes plugins enable petasos",
+        "/opt/hermes/bin/hermes plugins enable petasos",
+        "hermes plugins enable kanban",
         "pip install requests",
         "hermes config set display.theme teal",
         "git commit -m 'docs: hermes gateway restart steps'",
@@ -725,6 +736,9 @@ def test_a_here_document_that_only_reads_is_not_a_change(tmp_path: Path) -> None
         "hermes config unset command_allowlist",
         "hermes config set command_allowlist.0 replacement",
         "hermes config unset command_allowlist.0",
+        "hermes config set approvals.timeout 120",
+        "hermes config set approvals.mode off",
+        "hermes config unset approvals",
         "hermes config set --force command_allowlist '[ordinary]'",
         'hermes config set command_allowlist "$(printf hidden)"',
         "hermes approvals suggest --apply 1,2",
@@ -749,6 +763,7 @@ def test_permanent_approval_list_changes(tmp_path: Path, command: str) -> None:
     "command",
     [
         "hermes config get command_allowlist",
+        "hermes config get approvals.mode",
         "hermes approvals suggest",
         "hermes approvals suggest --json --days 1",
         "hermes approvals test -- echo ok",
@@ -776,6 +791,8 @@ def test_permanent_approval_list_reads(tmp_path: Path, command: str) -> None:
         "python3.11 -m hermes_cli config unset command_allowlist",
         "/opt/venv/bin/python -mhermes_cli.main setup --reset",
         "H=hermes; $H config set command_allowlist '[]'",
+        "$H config set approvals.mode off",
+        "$H config unset approvals",
         "alias h=hermes; h config set command_allowlist '[]'",
     ],
 )
@@ -854,6 +871,8 @@ def test_hermes_global_options_consume_their_values(tmp_path: Path, option: str)
     [
         "command_allowlist",
         "command_allowlist.0",
+        "approvals",
+        "approvals.timeout",
         "plugins.entries.petasos",
         "plugins.entries.petasos.settings.enabled",
         "plugins.enabled",
@@ -891,12 +910,518 @@ def test_unknown_program_only_guards_listed_config_keys(
         "h config set model x",
         "h config set command_allowlist_backup x",
         "h config set plugins.entries.petasos_other x",
+        "h config set approvals_backup x",
         "h config get command_allowlist",
-        "ai.hermes plugins disable petasos --help",
-        "python -m hermes_cli.main plugins disable petasos --help",
     ],
 )
 def test_invocation_recognition_leaves_reads_and_unrelated_programs(
     tmp_path: Path, command: str
 ) -> None:
     assert _hit(tmp_path, "terminal", {"command": command}) is None
+
+
+@pytest.mark.parametrize(
+    ("command", "kind"),
+    [
+        ("hermes config set command_allowlist x # --help", "settings"),
+        ("hermes config set command_allowlist x #-h", "settings"),
+        ("hermes config set command_allowlist -- --help", "settings"),
+        ("hermes config edit --help", "settings"),
+        ("hermes config edit -h", "settings"),
+        ("hermes config migrate --help", "settings"),
+        ("hermes config set approvals.mode off --help", "settings"),
+        ("hermes import x.zip -h", "settings"),
+        ("hermes setup --reset --help", "settings"),
+        ("hermes approvals suggest --apply --help", "settings"),
+        ("hermes profile install /tmp/profile --force --help", "settings"),
+        ("hermes config set plugins.enabled x --help", "plugin"),
+        ("hermes plugins disable petasos --help", "plugin"),
+        ("ai.hermes plugins disable petasos --help", "plugin"),
+        ("python -m hermes_cli.main plugins disable petasos --help", "plugin"),
+        ("hermes plugins uninstall petasos -h", "plugin"),
+        ("hermes plugins auto-update on --help", "plugin"),
+        ("hermes plugins autoupdate off -h", "plugin"),
+        ("hermes plugins install petasos --enable --help", "plugin"),
+        ("hermes plugins install petasos --en -h", "plugin"),
+        ("hermes plugins pack install /tmp/pack.yaml --help", "plugin"),
+        ("hermes plugins enable petasos --allow-tool-override --help", "settings"),
+    ],
+)
+def test_a_help_flag_does_not_clear_a_configuration_write(
+    tmp_path: Path, command: str, kind: str
+) -> None:
+    hit = _hit(tmp_path, "terminal", {"command": command})
+    assert hit is not None and hit.kind == kind, command
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "hermes plugins update petasos # --help",
+        "hermes plugins update -- --help",
+        "petasos config set x # --help",
+        "HERMES_HOME=/tmp/other hermes chat # -h",
+        "hermes gateway restart #note --help",
+    ],
+)
+def test_a_help_word_after_a_comment_or_operands_is_not_help(tmp_path: Path, command: str) -> None:
+    assert _hit(tmp_path, "terminal", {"command": command}) is not None, command
+
+
+@pytest.mark.parametrize(
+    ("command", "flag"),
+    [
+        ("hermes plugins enable petasos --allow-tool-override", "--allow-tool-override"),
+        ("hermes plugins enable petasos --no-allow-tool-override", "--no-allow-tool-override"),
+        ("hermes plugins enable --allow-tool petasos", "--allow-tool-override"),
+        ("hermes plugins enable petasos --a", "--allow-tool-override"),
+        ("hermes plugins enable petasos --no-a", "--no-allow-tool-override"),
+    ],
+)
+def test_granting_or_revoking_tool_override_on_enable_is_a_change(
+    tmp_path: Path, command: str, flag: str
+) -> None:
+    hit = _hit(tmp_path, "terminal", {"command": command})
+    assert hit is not None and hit.kind == "settings", command
+    # A revocation is reported as one, not as the grant.
+    assert hit.target == f"hermes plugins enable {flag}", command
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "hermes plugins enable all",
+        "hermes plugins enable --all",
+        "hermes plugins enable -a",
+        "hermes plugins enable '*'",
+        "hermes plugins enable petasos==1",
+        "hermes plugins enable 'petasos[all]'",
+        "hermes plugins enable git+https://example.com/org/petasos.git",
+        "hermes plugins enable git+https://example.com/org/petasos.git@main",
+        "hermes plugins enable ./dist/petasos-0.1-py3-none-any.whl",
+        "hermes plugins enable /tmp/petasos-0.1.tar.gz",
+        "hermes plugins enable petasos kanban",
+        "hermes plugins enable kanban petasos",
+        "hermes plugins enable petasos --force",
+        "hermes plugins enable --force petasos",
+        "hermes plugins enable Petasos",
+        "hermes plugins enable PETASOS",
+        "hermes plugins ENABLE petasos",
+        "hermes -v plugins enable petasos",
+        "hermes -p work plugins enable petasos",
+        "hermes --verbose plugins enable petasos",
+        "ai.hermes plugins enable petasos",
+        "python -m hermes_cli plugins enable petasos",
+    ],
+)
+def test_enable_beyond_the_plain_plugin_name_is_a_change(tmp_path: Path, command: str) -> None:
+    # ``--all`` is also an abbreviation of ``--allow-tool-override``.
+    assert _hit(tmp_path, "terminal", {"command": command}) is not None, command
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "sudo hermes plugins enable petasos",
+        "timeout 5 hermes plugins enable petasos",
+        "env hermes plugins enable petasos",
+        "nice hermes plugins enable petasos",
+        "PIP_INDEX_URL=https://example.test/simple hermes plugins enable petasos",
+        "HERMES plugins enable petasos",
+        "Hermes plugins enable petasos",
+        "hermes plugins enable petasos ''",
+        "hermes plugins enable git+https://example.test/org/petasos@feature/x",
+    ],
+)
+def test_enable_counts_as_plain_only_when_written_plainly(tmp_path: Path, command: str) -> None:
+    assert _hit(tmp_path, "terminal", {"command": command}) is not None, command
+
+
+@pytest.mark.parametrize(
+    "command",
+    ["hermes.exe plugins enable petasos", "C:/Hermes/hermes.exe plugins enable petasos"],
+)
+def test_suffixed_enable_is_a_change_where_the_suffix_names_hermes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, command: str
+) -> None:
+    """On Windows ``hermes.exe`` runs Hermes; that spelling is still not the plain one."""
+    monkeypatch.setattr(shell_parse, "os", SimpleNamespace(name="nt", path=os.path))
+    assert shell_parse._program("hermes.exe") == "hermes"
+    assert _hit(tmp_path, "terminal", {"command": command}) is not None, command
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "hermes plugins enable petasos",
+        "/opt/hermes/bin/hermes plugins enable petasos",
+        "/hermes plugins enable petasos",
+        "  hermes plugins enable petasos  ",
+        "  /opt/hermes/bin/hermes plugins enable petasos\t",
+        "hermes plugins enable petasos\n",
+        "\nhermes plugins enable petasos\n\n",
+    ],
+)
+def test_plain_enable_as_the_whole_command_is_not_a_change(tmp_path: Path, command: str) -> None:
+    assert _hit(tmp_path, "terminal", {"command": command}) is None, command
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cd /tmp && hermes plugins enable petasos",
+        "cd /tmp; hermes plugins enable petasos",
+        "hermes plugins list\nhermes plugins enable petasos",
+        "hermes plugins enable petasos\nhermes plugins list",
+        "hermes plugins enable petasos; true",
+        "hermes plugins enable petasos &",
+        "hermes plugins enable petasos | cat",
+        "cat <<EOF\nnote\nEOF\nhermes plugins enable petasos",
+        "hermes  plugins enable petasos",
+        "hermes plugins  enable petasos",
+        "hermes plugins enable\tpetasos",
+        "hermes plugins enable petasos # note",
+        "hermes plugins enable petasos\r",
+        "'hermes' plugins enable petasos",
+        "hermes plugins enable \\petasos",
+        "~/bin/hermes plugins enable petasos",
+        "bin/hermes plugins enable petasos",
+        "./hermes plugins enable petasos",
+        "/opt//hermes plugins enable petasos",
+        "/opt/$HOME/hermes plugins enable petasos",
+        "/opt/hermes/bin/hermes.exe plugins enable petasos",
+        "/opt/hermes/bin/Hermes plugins enable petasos",
+    ],
+)
+def test_plain_enable_with_anything_else_is_a_change(tmp_path: Path, command: str) -> None:
+    """Only the whole command text, written plainly, is the plain enable."""
+    assert _hit(tmp_path, "terminal", {"command": command}) is not None, command
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "bash -c 'hermes plugins enable petasos'",
+        "sh -c 'hermes plugins enable petasos'",
+        "sh -c 'true; hermes plugins enable petasos'",
+        "eval hermes plugins enable petasos",
+        "eval 'hermes plugins enable petasos'",
+        'eval "hermes plugins enable petasos"',
+        "echo $(hermes plugins enable petasos)",
+        "echo $(true; hermes plugins enable petasos; true)",
+        "echo `hermes plugins enable petasos`",
+        "cat <(hermes plugins enable petasos)",
+        "(hermes plugins enable petasos)",
+        "sudo $(true) hermes plugins enable petasos",
+        "bash <<EOF\nhermes plugins enable petasos\nEOF",
+        "bash <<EOF\nhermes plugins enable petasos",
+        "python -c \"import os; os.system('hermes plugins enable petasos')\"",
+        "python -c \"import subprocess; subprocess.run(['hermes','plugins','enable','petasos'])\"",
+        "f() {\nhermes plugins enable petasos\n}\nf",
+        "f()\n{\n  hermes plugins enable petasos\n}",
+        "{ hermes plugins enable petasos; }",
+        "{\nhermes plugins enable petasos\n}",
+        "bash <<EOF \nhermes plugins enable petasos\nEOF \nhermes plugins enable petasos",
+        "bash <<'EOF'\nhermes plugins enable petasos\n EOF\nhermes plugins enable petasos",
+        "bash <<'-'\nhermes plugins enable petasos\n-",
+        "bash <<.\nhermes plugins enable petasos\n.",
+        "# (\nhermes plugins enable petasos",
+        "true # (\nhermes plugins enable petasos",
+        "cat <<EOF\n(\nEOF\nhermes plugins enable petasos",
+        "cat <<EOF\n`\nEOF\nhermes plugins enable petasos",
+    ],
+)
+def test_plain_enable_read_again_is_a_change(tmp_path: Path, command: str) -> None:
+    """A script, a body or a document that runs the plain command is a change."""
+    assert _hit(tmp_path, "terminal", {"command": command}) is not None, command
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["hermes", "plugins", "enable", "petasos"],
+        ["hermes plugins enable petasos"],
+        ("hermes", "plugins", "enable", "petasos"),
+    ],
+)
+def test_plain_enable_as_an_argument_list_is_a_change(tmp_path: Path, argv: object) -> None:
+    assert _hit(tmp_path, "terminal", {"command": argv}) is not None
+
+
+def test_plain_enable_cut_at_the_length_bound_is_a_change(tmp_path: Path) -> None:
+    plain = "hermes plugins enable petasos"
+    command = " " * (_MAX_CHARS - len(plain)) + plain + "-other"
+    assert len(command) > _MAX_CHARS
+    assert command[:_MAX_CHARS].endswith("hermes plugins enable petasos")
+    assert _hit(tmp_path, "terminal", {"command": command}) is not None
+
+
+def _windows_host(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(shell_parse, "os", SimpleNamespace(name="nt", path=ntpath))
+    monkeypatch.setattr(guardrail, "os", SimpleNamespace(name="nt", environ=os.environ))
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        r"C:\Tools\hermes plugins enable petasos",
+        "C:/Tools/hermes plugins enable petasos",
+    ],
+)
+def test_windows_drive_path_is_not_plain_on_posix(tmp_path: Path, command: str) -> None:
+    if os.name == "nt":
+        pytest.skip("this host is Windows")
+    assert _hit(tmp_path, "terminal", {"command": command}) is not None, command
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        r"C:\Tools\hermes plugins enable petasos",
+        "C:/Tools/hermes plugins enable petasos",
+        r"d:\hermes plugins enable petasos",
+        "hermes plugins enable petasos",
+        "/opt/hermes/bin/hermes plugins enable petasos",
+    ],
+)
+def test_windows_drive_path_is_plain_on_windows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, command: str
+) -> None:
+    _windows_host(monkeypatch)
+    assert _hit(tmp_path, "terminal", {"command": command}) is None, command
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "C:hermes plugins enable petasos",
+        r"C:Tools\hermes plugins enable petasos",
+        r"C:\Tools\hermes.exe plugins enable petasos",
+        r"C:\Tools\Hermes plugins enable petasos",
+        r"C:\Tools/hermes plugins enable petasos",
+        r"C:\Tools\hermes plugins enable petasos & ver",
+    ],
+)
+def test_other_windows_program_words_are_a_change_on_windows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, command: str
+) -> None:
+    _windows_host(monkeypatch)
+    assert _hit(tmp_path, "terminal", {"command": command}) is not None, command
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "hermes plugins enable all --help",
+        "hermes plugins enable all -h",
+        "hermes plugins enable petasos==1 --help",
+        "hermes plugins enable petasos --help",
+        "hermes plugins enable -a -h",
+        "hermes plugins enable petasos other --help",
+    ],
+)
+def test_help_does_not_clear_enable(tmp_path: Path, command: str) -> None:
+    hit = _hit(tmp_path, "terminal", {"command": command})
+    assert hit is not None and hit.target == "hermes plugins enable", command
+
+
+def test_help_with_the_override_flag_is_still_the_override_write(tmp_path: Path) -> None:
+    for flag in ("--allow-tool-override", "--no-allow-tool-override"):
+        command = f"hermes plugins enable all {flag} --help"
+        hit = _hit(tmp_path, "terminal", {"command": command})
+        assert hit is not None and hit.target == f"hermes plugins enable {flag}", command
+
+
+def test_a_very_long_command_is_not_plain(tmp_path: Path) -> None:
+    padding = " ".join(["x"] * 3000)
+    text = f"hermes plugins enable petasos {padding}"
+    assert guardrail._plain_command(text, windows=False) is None
+    assert _hit(tmp_path, "terminal", {"command": text}) is not None
+
+
+def test_a_very_long_text_is_not_split_for_the_plain_check() -> None:
+    class _NoSplit(str):
+        def strip(self, chars: str | None = None) -> str:
+            return _NoSplit(str.strip(self, chars))
+
+        def split(self, sep: str | None = None, maxsplit: int = -1) -> list[str]:
+            raise AssertionError("split called on long text")
+
+    long_text = _NoSplit("hermes plugins enable petasos " + "y " * 5000)
+    assert guardrail._plain_command(long_text, windows=False) is None
+
+
+def test_command_rule_fields_keep_their_positions() -> None:
+    rule = CommandRule(
+        "settings",
+        ("hermes", "x"),
+        "label",
+        "name",
+        "tail",
+        True,
+        ("on",),
+        "--flag",
+        ("--check",),
+        True,
+        False,
+    )
+    assert rule.kind == "settings"
+    assert rule.words == ("hermes", "x")
+    assert rule.label == "label"
+    assert rule.name == "name"
+    assert rule.tail == "tail"
+    assert rule.bare is True
+    assert rule.one_of == ("on",)
+    assert rule.requires_flag == "--flag"
+    assert rule.unless_flags == ("--check",)
+    assert rule.unknown_program is True
+    assert rule.help_clears is False
+    assert rule.except_exact == ()
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "hermes config set approvals_backup example",
+        "hermes config set command_allowlist_backup x",
+        "hermes config unset plugins.enabled_extra",
+        r"hermes config set 'plugins.entries.petasos\.x' y",
+        r"h config set 'plugins.entries.petasos\.x' y",
+    ],
+)
+def test_a_config_key_matches_only_at_a_segment_boundary(tmp_path: Path, command: str) -> None:
+    assert _hit(tmp_path, "terminal", {"command": command}) is None, command
+
+
+@pytest.mark.parametrize(
+    ("command", "kind"),
+    [
+        ("hermes plugins update # note", "plugin"),
+        ("hermes plugins update #note", "plugin"),
+        ("hermes plugins update\t# note", "plugin"),
+        ("hermes plugins update kanban # petasos", "plugin"),
+        ("hermes approvals suggest --help # --apply", "settings"),
+        ("hermes config get approvals # hermes config set command_allowlist x", "settings"),
+        ("echo hi # note\nhermes plugins disable petasos", "plugin"),
+        ("echo hi # note; hermes plugins disable petasos", "plugin"),
+        ("echo hi # note && hermes plugins disable petasos", "plugin"),
+        ("hermes plugins disable a#b petasos", "plugin"),
+        ("hermes plugins disable '#x' petasos", "plugin"),
+        ('hermes plugins disable "# x" petasos', "plugin"),
+        ("hermes plugins disable \\#x petasos", "plugin"),
+        ("hermes plugins disable ''#x petasos", "plugin"),
+        ("echo `hermes plugins disable #x petasos`", "plugin"),
+        ("echo $(hermes plugins disable #x petasos)", "plugin"),
+        ("echo $( (true); hermes plugins disable #x petasos)", "plugin"),
+    ],
+)
+def test_a_hash_word_hides_no_word_after_it(tmp_path: Path, command: str, kind: str) -> None:
+    # Comments are not parsed: a word starting with ``#`` and the words after
+    # it are read like any others, so they can still make a change.
+    hit = _hit(tmp_path, "terminal", {"command": command})
+    assert hit is not None and hit.kind == kind, command
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "echo $(true) # hermes config set approvals x",
+        "echo `true` # hermes config set approvals x",
+        "# hermes plugins disable petasos",
+    ],
+)
+def test_a_command_written_after_a_hash_still_counts(tmp_path: Path, command: str) -> None:
+    assert _hit(tmp_path, "terminal", {"command": command}) is not None, command
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        'echo hi # say "a; b"\nhermes plugins disable petasos',
+        "echo hi # note 'a; b'\nhermes plugins disable petasos",
+    ],
+)
+def test_a_quoted_separator_after_a_hash_hides_no_later_line(tmp_path: Path, command: str) -> None:
+    hit = _hit(tmp_path, "terminal", {"command": command})
+    assert hit is not None and hit.kind == "plugin", command
+    assert ("hermes", "plugins", "disable", "petasos") in [s.argv for s in _parse(command)]
+
+
+@pytest.mark.parametrize(
+    ("argv", "kind"),
+    [
+        (["hermes", "plugins", "disable", "#x", "petasos"], "plugin"),
+        (["hermes", "approvals", "suggest", "#x", "--apply"], "settings"),
+    ],
+)
+def test_a_hash_argument_in_an_argv_list_is_kept(
+    tmp_path: Path, argv: list[str], kind: str
+) -> None:
+    assert [s.argv for s in _parse(" ".join(argv))] == [tuple(argv)]
+    hit = _hit(tmp_path, "terminal", {"command": argv})
+    assert hit is not None and hit.kind == kind, argv
+    words = ", ".join(repr(word) for word in argv)
+    script = f'python -c "import subprocess; subprocess.run([{words}])"'
+    hit = _hit(tmp_path, "terminal", {"command": script})
+    assert hit is not None and hit.kind == kind, script
+
+
+@pytest.mark.parametrize(
+    "command",
+    ["hermes plugins disable ''\\\n#x petasos", "hermes plugins disable '' \\\n#x petasos"],
+)
+def test_a_line_continuation_before_a_hash_word_keeps_it(tmp_path: Path, command: str) -> None:
+    assert [s.argv for s in _parse(command)] == [("hermes", "plugins", "disable", "#x", "petasos")]
+    hit = _hit(tmp_path, "terminal", {"command": command})
+    assert hit is not None and hit.kind == "plugin", command
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "echo $(hermes plugins update # note)",
+        "echo `hermes plugins update # note`",
+        "echo $(hermes plugins update #note)",
+        "echo `hermes plugins update #`",
+    ],
+)
+def test_a_hash_word_inside_a_substitution_is_not_a_plugin_name(
+    tmp_path: Path, command: str
+) -> None:
+    # A shell may read ``#`` there as a comment, so no plugin is named and
+    # every installed plugin is updated.
+    hit = _hit(tmp_path, "terminal", {"command": command})
+    assert hit is not None and hit.kind == "plugin", command
+
+
+def test_a_named_plugin_update_still_names_only_that_plugin(tmp_path: Path) -> None:
+    assert _hit(tmp_path, "terminal", {"command": "hermes plugins update kanban"}) is None
+    assert _hit(tmp_path, "terminal", {"command": "echo $(hermes plugins update kanban)"}) is None
+
+
+def test_a_quoted_name_starting_with_a_hash(tmp_path: Path) -> None:
+    # Quoting is gone by the time a word is judged, so ``'#weird'`` reads as
+    # a possible comment. Disabling it names no plugin of ours either way.
+    assert _hit(tmp_path, "terminal", {"command": "hermes plugins disable '#weird'"}) is None
+    # Updating it reads as updating every plugin.
+    hit = _hit(tmp_path, "terminal", {"command": "hermes plugins update '#weird'"})
+    assert hit is not None and hit.kind == "plugin"
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "echo " + "config " * 20000,
+        "; ".join(["echo config"] * 100000),
+        "; ".join(["h config"] * 100000),
+        "! " * 50000 + "hermes",
+        "{ " * 50000 + "hermes",
+        "env " + "-u X " * 20000,
+    ],
+    ids=["config-words", "echo-segments", "unknown-segments", "bang", "brace", "env-options"],
+)
+def test_recognition_cost_stays_linear_in_command_length(tmp_path: Path, command: str) -> None:
+    # A quadratic step takes several seconds on these at the length cap.
+    start = time.perf_counter()
+    _hit(tmp_path, "terminal", {"command": command})
+    assert time.perf_counter() - start < 2.0
