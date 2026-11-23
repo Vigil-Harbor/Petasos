@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ntpath
 import os
 import time
 from types import SimpleNamespace
@@ -10,6 +11,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from petasos.guard import shell_parse
+from petasos.guard.bounds import _MAX_CHARS
 from petasos.guard.guardrail import recognize
 from petasos.guard.paths import normalize_path_text
 from petasos.guard.shell_parse import _parse
@@ -1058,6 +1060,76 @@ def test_suffixed_enable_is_a_change_where_the_suffix_names_hermes(
     ],
 )
 def test_plain_enable_written_directly_is_not_a_change(tmp_path: Path, command: str) -> None:
+    assert _hit(tmp_path, "terminal", {"command": command}) is None, command
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cd /tmp && hermes plugins enable petasos",
+        "cd /tmp; hermes plugins enable petasos",
+        "hermes plugins list\nhermes plugins enable petasos",
+        "cat <<EOF\nnote\nEOF\nhermes plugins enable petasos",
+    ],
+)
+def test_plain_enable_after_a_separator_is_not_a_change(tmp_path: Path, command: str) -> None:
+    assert _hit(tmp_path, "terminal", {"command": command}) is None, command
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "bash -c 'hermes plugins enable petasos'",
+        "sh -c 'hermes plugins enable petasos'",
+        "sh -c 'true; hermes plugins enable petasos'",
+        "eval hermes plugins enable petasos",
+        "eval 'hermes plugins enable petasos'",
+        'eval "hermes plugins enable petasos"',
+        "echo $(hermes plugins enable petasos)",
+        "echo $(true; hermes plugins enable petasos; true)",
+        "echo `hermes plugins enable petasos`",
+        "cat <(hermes plugins enable petasos)",
+        "(hermes plugins enable petasos)",
+        "sudo $(true) hermes plugins enable petasos",
+        "bash <<EOF\nhermes plugins enable petasos\nEOF",
+        "bash <<EOF\nhermes plugins enable petasos",
+        "python -c \"import os; os.system('hermes plugins enable petasos')\"",
+        "python -c \"import subprocess; subprocess.run(['hermes','plugins','enable','petasos'])\"",
+    ],
+)
+def test_plain_enable_read_again_is_a_change(tmp_path: Path, command: str) -> None:
+    """Only a command written in the call's own shell text is the plain one."""
+    assert _hit(tmp_path, "terminal", {"command": command}) is not None, command
+
+
+def test_plain_enable_as_an_argument_list_is_a_change(tmp_path: Path) -> None:
+    argv = ["hermes", "plugins", "enable", "petasos"]
+    assert _hit(tmp_path, "terminal", {"command": argv}) is not None
+
+
+def test_plain_enable_cut_at_the_length_bound_is_a_change(tmp_path: Path) -> None:
+    plain = "hermes plugins enable petasos"
+    command = " " * (_MAX_CHARS - len(plain)) + plain + "-other"
+    assert len(command) > _MAX_CHARS
+    assert command[:_MAX_CHARS].endswith("hermes plugins enable petasos")
+    assert _hit(tmp_path, "terminal", {"command": command}) is not None
+
+
+def test_windows_drive_path_is_not_plain_on_posix(tmp_path: Path) -> None:
+    command = r"C:\Tools\hermes plugins enable petasos"
+    if os.name == "nt":
+        pytest.skip("a POSIX host reads a backslash as part of the name")
+    assert _hit(tmp_path, "terminal", {"command": command}) is not None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [r"C:\Tools\hermes plugins enable petasos", "C:/Tools/hermes plugins enable petasos"],
+)
+def test_windows_drive_path_is_plain_on_windows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, command: str
+) -> None:
+    monkeypatch.setattr(shell_parse, "os", SimpleNamespace(name="nt", path=ntpath))
     assert _hit(tmp_path, "terminal", {"command": command}) is None, command
 
 

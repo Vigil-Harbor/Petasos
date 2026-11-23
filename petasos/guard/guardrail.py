@@ -149,7 +149,7 @@ def recognize(
     work = os.getcwd() if cwd is None else cwd
     owned = _owned(protected, host, package if package is not None else package_roots())
     if _is_code_tool(tool):
-        for text in _command_texts(params):
+        for text, _written in _command_texts(params):
             hit = _judge_code(text, owned, host, env, work)
             if hit is not None:
                 return hit
@@ -159,8 +159,8 @@ def recognize(
         return path_hit
     if _program(tool) not in host.command_tools and tool not in host.command_tools:
         return None
-    for text in _command_texts(params):
-        hit = _command_change(text, owned, host, env, work)
+    for text, written in _command_texts(params):
+        hit = _command_change(text, owned, host, env, work, direct=written)
         if hit is not None:
             return hit
     return None
@@ -186,13 +186,17 @@ def _path_change(
     return None
 
 
-def _command_texts(params: Mapping[str, object]) -> list[str]:
-    texts: list[str] = []
+def _command_texts(params: Mapping[str, object]) -> list[tuple[str, bool]]:
+    """Each command text, and whether it is shell text as the call wrote it.
+
+    An argument list is joined into text, which is not how it was written.
+    """
+    texts: list[tuple[str, bool]] = []
     for key, value in params.items():
         if key not in _COMMAND_KEYS:
             continue
         if isinstance(value, str):
-            texts.append(value)
+            texts.append((value, True))
         elif isinstance(value, (list, tuple)) and all(isinstance(item, str) for item in value):
-            texts.append(" ".join(value))
+            texts.append((" ".join(value), False))
     return texts

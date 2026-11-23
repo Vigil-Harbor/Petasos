@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import bisect
 import os
 import re
 from dataclasses import dataclass
@@ -45,6 +46,7 @@ _WRAPPER_VALUES = {
 
 _DQ_ESCAPED = frozenset({"$", "`", '"', "\\", "\n"})
 _EXECUTABLE_SUFFIXES = (".exe", ".cmd", ".bat", ".com")
+_HEREDOC_OPEN = re.compile(r"""<<-?[ \t]*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1""")
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,6 +57,10 @@ class _Simple:
     # The command's text as written, from its first word to its end, without
     # surrounding blanks. Empty for a command this module did not read.
     source: str = ""
+    # True only for a command of its own in a tool call's top-level shell
+    # text: not inside a substitution, a subshell or a here-document, and not
+    # read again from a script, ``eval``, an argument list or program code.
+    direct: bool = False
 
 
 def _strip_wrappers(
@@ -95,6 +101,11 @@ def _assignment(word: str) -> tuple[str | None, str | None, bool]:
     return name, value, True
 
 
+def _file_name(word: str) -> str:
+    """The last part of ``word`` as a path, by this host's separators."""
+    return os.path.basename(word)
+
+
 def _program(token: str) -> str:
     base = os.path.basename(_expand_vars(token, {})).casefold()
     # Windows runs "hermes.exe" and "hermes" as the same program. Elsewhere
@@ -108,7 +119,15 @@ def _program(token: str) -> str:
     return base
 
 
-def _parse(text: str) -> list[_Simple]:
+def _parse(text: str, *, top: bool = False) -> list[_Simple]:
+    """Read ``text`` into simple commands.
+
+    ``top`` says ``text`` is a tool call's own shell text. Only then may a
+    command be marked direct, and only when separators that the shell reads
+    between commands surround it (the start or end of the text, a newline,
+    ``;``, ``&``, ``|``, ``&&`` or ``||``), no ``(``, ``$(`` or backquote is
+    open around it and it does not start inside a here-document's body.
+    """
     commands: list[_Simple] = []
     words: list[str] = []
     redirects: list[str] = []
@@ -119,6 +138,16 @@ def _parse(text: str) -> list[_Simple]:
     length = len(text)
     # Where the current command's text begins, once it has a word or redirect.
     start: int | None = None
+    # Open parentheses and backquote, and whether a separator came before
+    # the current command.
+    depth = 0
+    backquote = False
+    separated = True
+    begins, ends = _heredoc_bodies(text) if top and "<<" in text else ([], [])
+
+    def in_body(offset: int) -> bool:
+        at = bisect.bisect_right(begins, offset) - 1
+        return at >= 0 and offset < ends[at]
 
     def finish_word() -> None:
         nonlocal redirect
@@ -132,17 +161,29 @@ def _parse(text: str) -> list[_Simple]:
             return
         words.append(word)
 
-    def finish_command() -> None:
-        nonlocal redirect, start
+    def finish_command(*, separator: bool) -> None:
+        nonlocal redirect, start, separated
         finish_word()
         if words or redirects:
             assignments, argv = _leading_assignments(words)
             source = text[start:index].strip() if start is not None else ""
-            commands.append(_Simple(tuple(argv), tuple(redirects), tuple(assignments), source))
+            direct = (
+                top
+                and separated
+                and separator
+                and depth == 0
+                and not backquote
+                and start is not None
+                and not in_body(start)
+            )
+            commands.append(
+                _Simple(tuple(argv), tuple(redirects), tuple(assignments), source, direct)
+            )
         words.clear()
         redirects.clear()
         redirect = False
         start = None
+        separated = separator
 
     while index < length and len(commands) < _MAX_COMMANDS:
         char = text[index]
@@ -184,15 +225,25 @@ def _parse(text: str) -> list[_Simple]:
             index += 1
             continue
         if char == "\n":
-            finish_command()
+            finish_command(separator=True)
             index += 1
             continue
         if text.startswith("&&", index) or text.startswith("||", index):
-            finish_command()
+            finish_command(separator=True)
             index += 2
             continue
-        if char in {";", "|", "&", "(", ")", "`"}:
-            finish_command()
+        if char in {";", "|", "&"}:
+            finish_command(separator=True)
+            index += 1
+            continue
+        if char in {"(", ")", "`"}:
+            finish_command(separator=False)
+            if char == "(":
+                depth += 1
+            elif char == ")":
+                depth = max(depth - 1, 0)
+            else:
+                backquote = not backquote
             index += 1
             continue
         if char in {">", "<"}:
@@ -205,8 +256,40 @@ def _parse(text: str) -> list[_Simple]:
         index += 1
     if quote:
         finish_word()
-    finish_command()
+    finish_command(separator=True)
     return commands
+
+
+def _heredoc_bodies(text: str) -> tuple[list[int], list[int]]:
+    """Where here-document bodies lie in ``text``: sorted begin and end offsets.
+
+    Every opener line counts, with no bound on how many, and the bodies of
+    several documents opened on one line are taken together. A body with no
+    closing line runs to the end of the text. An opener the shell would not
+    read, such as one inside quotes, only widens what is taken as a body.
+    """
+    lines = text.split("\n")
+    offsets = [0]
+    for line in lines[:-1]:
+        offsets.append(offsets[-1] + len(line) + 1)
+    begins: list[int] = []
+    ends: list[int] = []
+    index = 0
+    while index < len(lines):
+        tags = [opened.group(2) for opened in _HEREDOC_OPEN.finditer(lines[index])]
+        if not tags:
+            index += 1
+            continue
+        end = index
+        for tag in tags:
+            end += 1
+            while end < len(lines) and lines[end].strip() != tag:
+                end += 1
+        if index + 1 < len(lines):
+            begins.append(offsets[index + 1])
+            ends.append(offsets[end] if end < len(lines) else len(text))
+        index = end + 1
+    return begins, ends
 
 
 def _leading_assignments(
