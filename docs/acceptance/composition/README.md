@@ -87,8 +87,8 @@ that fail. That behaviour is read from the Hermes 0.22.5 source. The first
 gating run is the first time the override is exercised.
 
 One live read belongs to the operator, not to the gate. Run-procedure step 3
-reads the store-Python path from `installs/<key>/facts.json` under the live
-root. The gate never opens that file.
+reads the store-Python path from `tools/facts.json` (`packages.python.entry`)
+under the live root. The gate never opens that file.
 
 ## Secret-free rule
 
