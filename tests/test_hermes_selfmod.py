@@ -152,7 +152,10 @@ async def test_flag_abbreviations(
         "hermes plugins disable other-plugin",
         "hermes plugins list petasos",
         "python -m hermes_cli.main config show",
-        "python -m other_cli config set command_allowlist '[]'",
+        "git config set core.editor vim",
+        "npm config set registry https://registry.example.test",
+        "h config set model.default some-model",
+        "h config get command_allowlist",
         "hermes approvals test -- echo ok",
         "hermes approvals suggest",
         "hermes approvals suggest --json --days 1",
@@ -163,7 +166,7 @@ async def test_flag_abbreviations(
         "hermes profile install profile.zip",
         "hermes profile update demo",
         "hermes backup --quick",
-        "other-hermes config set command_allowlist '[]'",
+        "other-hermes config set other_key '[]'",
     ],
 )
 async def test_read_only_and_unrelated_commands(guard: ToolCallGuard, command: str) -> None:
@@ -368,6 +371,14 @@ _VARIANT_COMMANDS = [
     "hermes plugins disable petasos",
     "hermes -p work plugins uninstall petasos",
     "hermes plugins remove --yes petasos",
+    # A Windows path to the program.
+    "C:\\Tools\\hermes.exe config set command_allowlist x",
+    # A program word this release cannot resolve still names the guarded key.
+    "H=hermes; $H config set command_allowlist x",
+    "alias h=hermes; h config set command_allowlist x",
+    "$HERMES_BIN -p work config unset command_allowlist",
+    "h config set petasos.tool_guard_enabled false",
+    "other-hermes config set command_allowlist '[]'",
 ]
 
 

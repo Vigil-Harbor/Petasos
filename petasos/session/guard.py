@@ -548,6 +548,23 @@ def _hermes_route(args: list[str]) -> str | None:
     return None
 
 
+def _keyed_config_change(args: list[str]) -> str | None:
+    """``config set|unset`` on the approval list or Petasos's settings, whatever runs it.
+
+    A program word this release cannot resolve (``$H config set ...``, an alias)
+    still names these keys. Only these two keys are matched this way: they are
+    specific enough that another program's ``config set`` does not carry them.
+    """
+    positionals = [arg.strip("`") for arg in args if arg and not arg.startswith("-")]
+    if len(positionals) < 2 or positionals[0].casefold() not in ("set", "unset"):
+        return None
+    key = positionals[1].casefold()
+    for guarded in ("command_allowlist", "petasos"):
+        if key == guarded or key.startswith(guarded + "."):
+            return f"config {positionals[0].casefold()} {guarded}"
+    return None
+
+
 def _hermes_config_change(command: str) -> str | None:
     """Conservatively recognise CLI writers without executing or resolving shell text.
 
@@ -558,6 +575,11 @@ def _hermes_config_change(command: str) -> str | None:
     Targets describe the operation, never its potentially sensitive value.
     """
     pending = [(command, 0)]
+    joined = command.replace("\\\n", "")
+    if "\\" in joined:
+        # Windows paths: after the command as written, read it once more with
+        # its backslashes as separators.
+        pending.insert(0, (joined.replace("\\", "/"), 0))
     while pending:
         text, depth = pending.pop()
         if depth > 32:
@@ -572,20 +594,22 @@ def _hermes_config_change(command: str) -> str | None:
             # A partial shell fragment may still occur inside a larger command.
             words = text.split()
         for index, word in enumerate(words):
+            folded = word.casefold()
             if (
-                "hermes" in word.casefold()
+                ("hermes" in folded or "config" in folded)
                 and any(char.isspace() for char in word)
                 and word != text
             ):
                 pending.append((word, depth + 1))
-            if not _hermes_invocation(words, index):
+            hermes = _hermes_invocation(words, index)
+            if not hermes and word.strip("`").casefold() != "config":
                 continue
             tail: list[str] = []
             for arg in words[index + 1 :]:
                 if arg and all(char in _SHELL_BREAKS for char in arg):
                     break
                 tail.append(arg)
-            route = _hermes_route(tail)
+            route = _hermes_route(tail) if hermes else _keyed_config_change(tail)
             if route is not None:
                 return route
     return None
