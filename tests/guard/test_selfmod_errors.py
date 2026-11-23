@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
@@ -13,6 +13,9 @@ from petasos.guard.guard import ToolCallGuard
 from petasos.guard.guardrail import CheckFailure
 from petasos.pipeline import Pipeline
 from petasos.scanners.minimal import MinimalScanner
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class _BoomParams:
@@ -36,15 +39,20 @@ def test_a_classifier_error_does_not_raise() -> None:
 
 @pytest.mark.parametrize("mode", ["closed", "degraded", "open"])
 async def test_a_failing_classifier_refuses_writes_and_logs_once(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, mode: str
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    tmp_path: Path,
+    mode: str,
 ) -> None:
     config = from_mapping(PetasosConfig, {"fail_mode": mode})
     pipe = Pipeline(scanners=[MinimalScanner()], config=config)
+    # An absolute path on every system: "/owned/config.yaml" has no drive on Windows.
+    owned = str(tmp_path / "owned" / "config.yaml")
     guard = ToolCallGuard(
         pipe,
         pipe._frequency_tracker,
         config,
-        protected_paths=lambda: ["/owned/config.yaml"],
+        protected_paths=lambda: [owned],
     )
 
     def fail(value: object, depth: int = 0) -> list[str]:

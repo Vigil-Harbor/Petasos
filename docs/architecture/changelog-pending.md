@@ -296,3 +296,85 @@ to `petasos.model._TIMEOUT_ERROR_PREFIX`. The ingestion head length moves from
   Failed guardrail recognition refuses write-capable calls under closed or
   degraded failure policy and logs the cause once per retained session. Open
   failure policy and read-only tools keep their existing content checks.
+
+- PET-294: the Hermes settings source reads the four settings until two
+  passes agree, so a single settings write that lands mid-read no longer
+  gives the enforcer a blend of two documents. Settings that never hold
+  still are a rejected reload, and the last good settings stay in force.
+  Several writes timed between the reads can still produce a blend; Hermes
+  has no read of the whole settings group.
+
+- PET-295: once the Hermes settings block has loaded, a block that is
+  removed, or that stores a value of the wrong type such as
+  `overrides: null`, is a rejected reload: the last good settings stay in
+  force and `PETASOS_RELOAD_FAILED` is logged. Before, a missing block or a
+  null `overrides` quietly gave the defaults and could loosen a strict
+  profile. A first start with no block still uses the defaults, and a block
+  that stores only some of the four keys still loads. Deleting the block no
+  longer resets a running Hermes; restart it or write the values. A stored
+  `overrides: null` is now rejected at first start too. Doctor says a
+  running Petasos keeps the last settings it accepted. A misspelt key beside
+  correctly spelt ones is still not detected.
+
+- PET-296: every profile's own copy of the Petasos plugin
+  (`profiles/<name>/plugins/petasos`) under a shared Hermes home is now a
+  protected path, like the running profile's copy. Other files in a
+  profile's `plugins` directory are not.
+
+- PET-298: a terminated conversation stays blocked when `tools.enabled` is
+  false. The tool guard derives the tier before it answers that the feature
+  is off, so tier 3 has no off switch. Conversations that are not terminated
+  get the feature-off result as before.
+
+- PET-300: only an explicit "attended" answer from the host counts as a
+  person being attached. A missing or non-boolean answer is treated as
+  unattended, so a flagged command or a guardrail change is refused rather
+  than handed to an approval nobody may be there to give. The "is this rule
+  always approved" answer is read the same way: only an explicit yes drops a
+  command finding, only an explicit no lets a guardrail approval be asked,
+  and a failing lookup is no longer reported as no.
+
+- PET-297: `--profile` refuses a name with a colon. On Windows a name such
+  as `D:elsewhere` selected a directory outside the Hermes home.
+
+- PET-301: on Windows the guardrail check recognises a protected path the
+  way Git Bash writes it (`/c/Users/...`, and the `/cygdrive/c` and `/mnt/c`
+  forms), a backslash path inside double quotes, a drive path in program
+  text, the long-path prefix, and `..` that climbs out of a drive's
+  directory. `hermes.exe`, `bash.exe` and the `.cmd`, `.bat` and `.com` forms
+  are read as the bare program name. On every system a backslash inside
+  double quotes is now kept as a shell keeps it, so `"con\fig.yaml"` and
+  `"h\ermes"` are no longer read as `config.yaml` and `hermes`.
+
+- PET-302: on Windows, install, refresh and doctor now read a `file:` address
+  such as `file:///C:/Users/x/petasos.whl` as the path it names. When the
+  record of the build Hermes runs named its wheel that way and carried no
+  hash, the match with the saved wheel was always unknown: refresh reported
+  that it could not confirm the new build, and an unchanged install rebuilt
+  every time. Other systems are unchanged.
+
+- PET-301: the guardrail check now reads a script handed to PowerShell or
+  cmd as one argument (`powershell -Command "..."`, `pwsh -c '...'`,
+  `cmd //c "..."`), with that shell's quoting, separators, redirects and
+  environment variables, and judges each command in it. A Hermes command
+  inside the script is recognised too. Reads stay reads, and the PowerShell
+  and cmd reader names keep no exemption in ordinary bash commands. On
+  Windows a path through a drive's administrative share on this machine
+  (`\\localhost\C$\...`) is read as the drive path. Not covered:
+  `-EncodedCommand`, `-File`, and paths or commands built at runtime inside
+  the script.
+
+- PET-305: turning `tools.enabled` off no longer turns off self-protection.
+  A tool call that changes Petasos's or Hermes's settings or plugin is still
+  recognised, refused under `tools.self_change: never`, held for a person
+  under `approve` (and refused when nobody can be asked), recorded, and
+  added to the conversation's risk score. The switch still turns off the
+  parameter scan, the tier 1 and 2 steps and the fan-out limit; a
+  terminated conversation stays blocked.
+
+- PET-299: under `fail_mode: open`, a blocking finding the scan has already
+  made now blocks even when a later step fails, such as the source-taint
+  check on an egress tool. Before, any internal error after the scan
+  allowed the call. A guard denial and a recognised guardrail change are
+  kept the same way. With no blocking finding in hand, an internal error
+  under `open` still allows. `degraded` and `closed` are unchanged.

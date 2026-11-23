@@ -115,7 +115,10 @@ def test_profile_identity_markers(
             target.touch()
         elif kind == "cycle":
             target = profile / marker
-        (profile / marker).symlink_to(target)
+        try:
+            (profile / marker).symlink_to(target)
+        except OSError:
+            pytest.skip("symlink not permitted")
     assert [p["name"] for p in list_hermes_profiles()] == (
         [] if kind == "directory" else ["alpha"]
     )
@@ -337,7 +340,8 @@ def test_a_bad_profile_pointer_falls_back_to_root(
     from petasos.hermes.home import read_active_profile, resolve_active_profile_dir
 
     assert read_active_profile(root) is None
-    (root / "active_profile").write_bytes(b"\xff")
+    # Not text in UTF-8, and not in the Windows default encoding either.
+    (root / "active_profile").write_bytes(b"\x81")
     assert read_active_profile(root) is None
     (root / "active_profile").write_text("ghost", encoding="utf-8")
     res = resolve_hermes_config_path(use_override=False)

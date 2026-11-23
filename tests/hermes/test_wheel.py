@@ -4,12 +4,10 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
-from typing import TYPE_CHECKING
+
+import pytest
 
 from petasos.hermes import wheel
-
-if TYPE_CHECKING:
-    import pytest
 
 
 def test_content_addressed_wheels(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -86,7 +84,10 @@ def test_pruning_does_not_follow_symlinks_outside_the_plugin(tmp_path: Path) -> 
     shared.mkdir()
     other = shared / wheel.wheel_filename()
     other.write_bytes(b"other")
-    (directory / "linked").symlink_to(shared, target_is_directory=True)
+    try:
+        (directory / "linked").symlink_to(shared, target_is_directory=True)
+    except OSError:
+        pytest.skip("symlink not permitted")
     wheel.prune_wheels(current, plugin_dir=directory.parent)
     assert other.read_bytes() == b"other"
     assert current.read_bytes() == b"current"

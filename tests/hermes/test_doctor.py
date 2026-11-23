@@ -102,8 +102,21 @@ def test_two_problems_are_both_named(
     assert "switched-off list" in out
     assert "hermes plugins enable petasos" in out
     assert "nope" in out
-    assert "falls back to its usual settings" in out
+    assert "keeps the last settings it accepted" in out
     assert "general, coding, research, support, or admin" in out
+
+
+def test_a_missing_settings_block_says_a_running_petasos_keeps_its_last_settings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """No stored block is still protected, and the report says what a running copy uses."""
+    home = healthy_home(tmp_path, monkeypatch)
+    write_config(home, "plugins:\n  enabled:\n    - petasos\n")
+    code, out = _run(monkeypatch, ["doctor", "--home", str(home), "--verbose"], capsys)
+
+    assert code == 0
+    assert "No Petasos settings are stored" in out
+    assert "keeps the last settings it accepted" in out
 
 
 def test_manifest_mismatch_is_a_warning(
@@ -483,7 +496,7 @@ def test_json_and_verbose_carry_the_detail(
     assert payload["home"] == str(home)
     assert payload["home_reason"] == "the home you named with --home"
     assert any(row["id"] == "guardrail" for row in payload["checks"])
-    assert "plugins/petasos" in " ".join(payload["protected_paths"])
+    assert "plugins/petasos" in " ".join(payload["protected_paths"]).replace("\\", "/")
     origins = {row["path"]: row["origin"] for row in payload["detail"]["resolved"]}
     assert origins["tools.dangerous_posture"] == "role"
 

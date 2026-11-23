@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -34,9 +35,13 @@ def _is_code_tool(tool: str) -> bool:
 
 
 _QUOTED_STRING = re.compile(r"""(?s)(?:'''(.*?)'''|\"\"\"(.*?)\"\"\"|'([^']*)'|\"([^\"]*)\")""")
-# An absolute path, a ~/path, or a $VAR/path. The prefix is optional so
-# ``/tmp/config.yaml`` matches, not only ``~/tmp`` and ``//tmp``.
-_BARE_PATH = re.compile(r"""(?:~|\$\{?[A-Za-z_][A-Za-z0-9_]*\}?)?(?:/[^\s'\"`,;)\]}<>]+)+""")
+# An absolute path, a ~/path, a $VAR/path, or on Windows a drive path such
+# as C:/x. The prefix is optional so ``/tmp/config.yaml`` matches, not only
+# ``~/tmp`` and ``//tmp``.
+_DRIVE = r"|(?<![A-Za-z0-9_])[A-Za-z]:" if os.name == "nt" else ""
+_BARE_PATH = re.compile(
+    r"""(?:~|\$\{?[A-Za-z_][A-Za-z0-9_]*\}?""" + _DRIVE + r""")?(?:/[^\s'\"`,;)\]}<>]+)+"""
+)
 _HOME_JOIN = re.compile(r"""(?:pathlib\.)?Path\.home\(\)((?:\s*/\s*(['"])([^'"]+)\2)+)""")
 _EXPANDUSER = re.compile(r"""(?:os\.path\.)?expanduser\(\s*(['"])([^'"]+)\1\s*\)""")
 _ENV_LOOKUP = re.compile(

@@ -477,3 +477,42 @@ def test_hook_that_passed_registration_check_is_refused_after_close(
         proceed.set()
         worker.join(timeout=1.0)
         close()
+
+
+def test_another_profiles_plugin_copy_is_protected_and_its_neighbours_are_not(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A second profile's Petasos plugin directory is guarded like the running one."""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    alpha = tmp_path / "profiles" / "alpha"
+    (alpha / "plugins" / "petasos").mkdir(parents=True)
+    (alpha / "plugins" / "other").mkdir()
+    ctx = _Ctx(
+        values={
+            "enabled": True,
+            "role": "general",
+            "level": "balanced",
+            "overrides": {"tools": {"self_change": "never"}},
+        }
+    )
+
+    def write(path: Path) -> object:
+        return ctx.callbacks("pre_tool_call")[0](
+            tool_name="write_file", args={"path": str(path), "content": "x = 1"}, task_id="s"
+        )
+
+    try:
+        register(ctx)
+        assert plugin_mod._registrations[""].enforcer.settle(30)
+        own = write(tmp_path / "plugins" / "petasos" / "__init__.py")
+        settings = write(alpha / "config.yaml")
+        copy = write(alpha / "plugins" / "petasos" / "__init__.py")
+        other_plugin = write(alpha / "plugins" / "other" / "__init__.py")
+        notes = write(alpha / "plugins" / "notes.md")
+    finally:
+        close()
+    for refused in (own, settings, copy):
+        assert isinstance(refused, dict)
+        assert refused["action"] == "block"
+    assert other_plugin is None
+    assert notes is None

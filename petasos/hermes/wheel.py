@@ -17,9 +17,9 @@ import tempfile
 import tomllib
 import zipfile
 from pathlib import Path
-from urllib.parse import unquote, urlparse
 
 import petasos
+from petasos.hermes.environment import file_url_path
 
 _WHEEL_NAME = f"petasos-{petasos.__version__}-py3-none-any.whl"
 
@@ -117,11 +117,8 @@ def _existing_wheel() -> Path | None:
     url = payload.get("url") if isinstance(payload, dict) else None
     if not isinstance(url, str):
         return None
-    parsed = urlparse(url)
-    if parsed.scheme != "file":
-        return None
-    path = Path(unquote(parsed.path))
-    if path.is_file() and path.suffix == ".whl":
+    path = file_url_path(url)
+    if path is not None and path.is_file() and path.suffix == ".whl":
         return path
     return None
 
@@ -142,11 +139,9 @@ def _source_root() -> Path | None:
             url = payload.get("url")
             editable = isinstance(info, dict) and info.get("editable") is True
             if editable and isinstance(url, str):
-                parsed = urlparse(url)
-                if parsed.scheme == "file":
-                    root = Path(unquote(parsed.path))
-                    if (root / "pyproject.toml").is_file():
-                        return root
+                root = file_url_path(url)
+                if root is not None and (root / "pyproject.toml").is_file():
+                    return root
     here = Path(petasos.__file__).resolve().parent
     for parent in (here.parent, *here.parents):
         project = parent / "pyproject.toml"

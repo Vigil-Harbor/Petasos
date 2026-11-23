@@ -194,8 +194,7 @@ def _written_as_path(word: str) -> bool:
 
 def _powershell_reads(program: str, argv: tuple[str, ...]) -> bool:
     """True when ``powershell`` or ``pwsh`` is only running a read cmdlet."""
-    name = program[:-4] if program.endswith(".exe") else program
-    if name not in {"powershell", "pwsh"}:
+    if program not in {"powershell", "pwsh"}:
         return False
     words = [word.casefold() for word in argv[1:]]
     if any(word in _PS_WRITES for word in words):

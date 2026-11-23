@@ -301,14 +301,15 @@ def _already_covered(approval: object, command: str) -> bool:
 
 
 def rule_always_approved(rule_key: str) -> bool:
-    """True when ``plugin_rule:<rule_key>`` is on the permanent allow-list."""
+    """True when ``plugin_rule:<rule_key>`` is on the permanent allow-list.
+
+    A failing lookup raises. The two callers fall to opposite sides, so the
+    failure is theirs to read, not this function's.
+    """
     module = _approval()
     if module is None:
         return False
-    try:
-        return bool(module.is_approved("", "plugin_rule:" + rule_key))
-    except Exception:
-        return False
+    return bool(module.is_approved("", "plugin_rule:" + rule_key))
 
 
 def read_env(name: str) -> str | None:

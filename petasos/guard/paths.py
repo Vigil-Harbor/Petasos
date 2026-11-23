@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import fnmatch
 import os
+import posixpath
 import re
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -19,6 +20,19 @@ if TYPE_CHECKING:
 _MAX_BRACES = 64
 _GLOB = re.compile(r"[*?\[]")
 _BRACES = re.compile(r"\{([^{}]*,[^{}]*)\}")
+_BASH_DRIVE = re.compile(r"/(?:(?:cygdrive|mnt)/)?([A-Za-z])(/.*)?")
+_DRIVE_PREFIX = re.compile(r"[A-Za-z]:")
+# A drive's administrative share on this machine: //localhost/C$/x is C:/x.
+_ADMIN_SHARE = re.compile(
+    r"(?://\?/UNC/|//)(?:localhost|127(?:\.\d{1,3}){3})/([A-Za-z])\$(/.*)?", re.IGNORECASE
+)
+
+# A variable a word names, written $NAME or ${NAME}.
+_VAR_NAME = re.compile(r"\$\{?([A-Za-z_][A-Za-z0-9_]*)")
+
+# The word as written, the values of the variables it names, the working
+# directory, HERMES_HOME, HOME, ``above`` and ``hedge``.
+_SeenKey = tuple[str, tuple[tuple[str, str | None], ...], str, str, str, bool, bool]
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,6 +41,11 @@ class _Owned:
 
     paths: Mapping[str, str]
     roots: tuple[str, ...]
+    # Answers already worked out during one recognition. A long line is
+    # judged from several starting words, and the same words come round again.
+    seen: dict[_SeenKey, GuardrailHit | None] = field(
+        default_factory=dict, compare=False, repr=False
+    )
 
 
 def normalize_path_text(text: str) -> str:
@@ -36,8 +55,16 @@ def normalize_path_text(text: str) -> str:
     self-modification check uses, and this function stays identical to it.
     """
     cleaned = re.sub(r"\\u([0-9a-fA-F]{4})", lambda match: chr(int(match.group(1), 16)), text)
-    cleaned = cleaned.replace("\\\\", "/").replace("\\", "/").replace("/", os.sep)
-    cleaned = os.path.normcase(cleaned)
+    cleaned = cleaned.replace("\\\\", "/").replace("\\", "/")
+    if os.name == "nt":
+        # The long-path and device prefixes name the same file as the plain drive path.
+        if cleaned.startswith(("//?/", "//./")) and cleaned[5:6] == ":":
+            cleaned = cleaned[4:]
+        share = _ADMIN_SHARE.fullmatch(cleaned)
+        if share is not None:
+            cleaned = f"{share.group(1)}:{share.group(2) or '/'}"
+        cleaned = _native_drive(cleaned)
+    cleaned = os.path.normcase(cleaned.replace("/", os.sep))
     try:
         path = Path(cleaned)
         if path.is_absolute():
@@ -45,6 +72,19 @@ def normalize_path_text(text: str) -> str:
     except (OSError, ValueError, RuntimeError):
         pass
     return cleaned
+
+
+def _native_drive(text: str) -> str:
+    """``/c/Users/x`` as ``c:/Users/x``. Anything else is returned unchanged.
+
+    Hermes runs its Windows terminal and file tools through Git Bash, where
+    drive C is the directory ``/c``. Cygwin and WSL spell it ``/cygdrive/c``
+    and ``/mnt/c``. Applied on Windows only.
+    """
+    match = _BASH_DRIVE.fullmatch(text)
+    if match is None:
+        return text
+    return f"{match.group(1)}:{match.group(2) or '/'}"
 
 
 def _owned(
@@ -115,21 +155,50 @@ def _match_path(
     path, and a wildcard there that covers one, against the working
     directory only.
     """
+    # Everything the answer is worked out from, so a changed variable is a new
+    # question. The word stays as written: braces and quotes are read before its
+    # variables, so two words that expand alike can still name different paths.
+    # A brace group can join a name to the text after it, so names are read from
+    # each brace reading.
+    named = {name for variant in _brace_variants(raw) for name in _VAR_NAME.findall(variant)}
+    key: _SeenKey = (
+        raw,
+        tuple(sorted((name, env.get(name)) for name in named)),
+        cwd,
+        env.get("HERMES_HOME", ""),
+        env.get("HOME", ""),
+        above,
+        hedge,
+    )
+    if key not in owned.seen:
+        owned.seen[key] = _find_path(raw, owned, env, cwd, above=above, hedge=hedge)
+    return owned.seen[key]
+
+
+def _find_path(
+    raw: str,
+    owned: _Owned,
+    env: Mapping[str, str],
+    cwd: str,
+    *,
+    above: bool,
+    hedge: bool,
+) -> GuardrailHit | None:
     if not raw.strip():
         return None
     for variant in _brace_variants(raw):
-        candidates = _expand_path(variant, env, cwd)
-        for candidate in candidates if hedge else candidates[:1]:
+        for candidate in _expand_path(variant, env, cwd, hedge=hedge):
             located = _kind_of(candidate, owned)
             if located is not None:
                 return GuardrailHit(*located)
         if not above:
             continue
-        kind = _holds(candidates[0], owned)
-        if kind is None and _GLOB.search(variant):
-            kind = _glob_kind(candidates[0], owned)
-        if kind is not None:
-            return GuardrailHit(kind, candidates[0])
+        for candidate in _expand_path(variant, env, cwd, hedge=False):
+            kind = _holds(candidate, owned)
+            if kind is None and _GLOB.search(variant):
+                kind = _glob_kind(candidate, owned)
+            if kind is not None:
+                return GuardrailHit(kind, candidate)
     return None
 
 
@@ -203,7 +272,14 @@ def _kind_of(candidate: str, owned: _Owned) -> tuple[str, str] | None:
     return None
 
 
-def _expand_path(raw: str, env: Mapping[str, str], cwd: str) -> list[str]:
+def _expand_path(raw: str, env: Mapping[str, str], cwd: str, *, hedge: bool = True) -> list[str]:
+    """Every path ``raw`` may name.
+
+    A relative name is read against the working directory, and with ``hedge``
+    against ``HERMES_HOME`` and ``HOME`` as well. On Windows each of those has
+    two readings, the native one and Git Bash's, so the working directory
+    alone can give two paths. The last of them is the shell's own reading.
+    """
     text = raw.strip()
     if len(text) >= 2 and text[0] == text[-1] and text[0] in {"'", '"'}:
         text = text[1:-1]
@@ -216,14 +292,38 @@ def _expand_path(raw: str, env: Mapping[str, str], cwd: str) -> list[str]:
             text = os.path.expanduser(text)
     elif text.startswith("~"):
         text = os.path.expanduser(text)
+    if os.name == "nt":
+        # Before the absolute test: Windows reads "/c/x" as a path on the current drive.
+        text = text.replace("\\", "/")
+        if text.startswith("/") and not text.startswith("//"):
+            text = posixpath.normpath(text)
+        text = _native_drive(text)
     bases = [text]
     if not os.path.isabs(text):
-        bases = [os.path.join(cwd, text)]
-        for key in ("HERMES_HOME", "HOME"):
-            root = env.get(key, "")
-            if root:
-                bases.append(os.path.join(root, text))
+        roots = [cwd]
+        if hedge:
+            roots.extend(
+                root for root in (env.get(key, "") for key in ("HERMES_HOME", "HOME")) if root
+            )
+        bases = [os.path.join(root, text) for root in roots]
+        if os.name == "nt" and not _DRIVE_PREFIX.match(text):
+            # A native program and the shell read ``..`` differently, so both
+            # readings are candidates.
+            bases.extend(_bash_join(root, text) for root in roots)
     return [normalize_path_text(item) for item in bases]
+
+
+def _bash_join(root: str, text: str) -> str:
+    """The relative ``text`` under ``root`` as Git Bash joins it.
+
+    There ``..`` climbs out of a drive's directory: from ``/c/work``,
+    ``../../c/x`` is ``/c/x``. Windows itself stops at the drive.
+    """
+    base = root.replace("\\", "/")
+    drive = _DRIVE_PREFIX.match(base)
+    if drive is not None:
+        base = "/" + base[0] + base[2:]
+    return _native_drive(posixpath.normpath(posixpath.join(base, text)))
 
 
 def _expand_vars(text: str, env: Mapping[str, str]) -> str:

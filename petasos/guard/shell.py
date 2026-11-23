@@ -14,6 +14,7 @@ from petasos.guard.mutations import (
     _mutation,
     _operands,
 )
+from petasos.guard.native_shell import _native_parse, _native_reads, _native_script, _native_shell
 from petasos.guard.paths import _expand_path, _Owned
 from petasos.guard.program import _code_names_path, _embedded, _strip_python_comments
 from petasos.guard.shell_parse import (
@@ -80,7 +81,13 @@ def _each_command(
     return None
 
 
-def _after_cd(command: _Simple, env: Mapping[str, str], cwd: str) -> str:
+def _after_cd(command: _Simple, env: Mapping[str, str], cwd: str, *, native: bool = False) -> str:
+    """The working directory after ``command``, when it is a ``cd``.
+
+    On Windows a relative directory has two readings. Git Bash's own ``cd``
+    takes the shell's, and ``cd`` inside a PowerShell or cmd script
+    (``native``) takes the system's.
+    """
     argv, _assignments = _strip_wrappers(command.argv)
     if not argv or _program(argv[0]) not in {"cd", "pushd"}:
         return cwd
@@ -89,7 +96,8 @@ def _after_cd(command: _Simple, env: Mapping[str, str], cwd: str) -> str:
         return env.get("HOME") or cwd
     if len(targets) != 1 or targets[0] == "-":
         return cwd
-    return _expand_path(targets[0], env, cwd)[0]
+    readings = _expand_path(targets[0], env, cwd, hedge=False)
+    return readings[0] if native else readings[-1]
 
 
 def _heredoc_hit(
@@ -194,6 +202,10 @@ def _one_command(
             found = _nested(script, owned, surface, rules, env, cwd, depth)
     elif program == "eval":
         found = _nested(" ".join(prepared[1:]), owned, surface, rules, env, cwd, depth)
+    elif (shell := _native_shell(prepared[0])) is not None:
+        script = _native_script(shell, prepared)
+        if script is not None:
+            found = _native(script, shell, owned, surface, rules, env, cwd, depth)
     if found is not None or program in _TEXT_ONLY or program in _READERS:
         return found
     return _started(prepared, owned, surface, rules, env, cwd, depth)
@@ -217,15 +229,24 @@ def _started(
     """A command that this one starts, such as ``timeout 5 hermes ...``.
 
     The rest of the line is judged again from the first later word that is a
-    program the rules name, a wrapper, a shell, ``python`` or ``eval``.
+    program the rules name, a wrapper, a shell, ``python`` or ``eval``. That
+    pass comes first, so reading PowerShell and cmd never hides a command it
+    would have found. Then it is judged from the first later PowerShell or
+    cmd. Each word's path is worked out once for the whole line, so the
+    second pass costs little.
     """
     starters = {rule.words[0].casefold() for rule in rules}
     starters.update(flag.program.casefold() for flag in surface.flags)
     starters.update(_WRAPPERS, _SHELLS, {"python", "eval"})
-    for index in range(1, len(argv)):
-        if _program(argv[index]) in starters:
-            rest = _Simple(argv[index:], (), ())
-            return _one_command(rest, owned, surface, rules, env, cwd, depth=depth + 1)
+    first = next((i for i in range(1, len(argv)) if _program(argv[i]) in starters), None)
+    native = next((i for i in range(1, len(argv)) if _native_shell(argv[i]) is not None), None)
+    for index in (first, native):
+        if index is None:
+            continue
+        rest = _Simple(argv[index:], (), ())
+        hit = _one_command(rest, owned, surface, rules, env, cwd, depth=depth + 1)
+        if hit is not None:
+            return hit
     return None
 
 
@@ -239,6 +260,40 @@ def _nested(
     depth: int,
 ) -> GuardrailHit | None:
     return _each_command(_parse(script), owned, surface, rules, env, cwd, depth=depth + 1)
+
+
+def _native(
+    script: str,
+    shell: str,
+    owned: _Owned,
+    surface: GuardrailSurface,
+    rules: tuple[CommandRule, ...],
+    env: Mapping[str, str],
+    cwd: str,
+    depth: int,
+) -> GuardrailHit | None:
+    """A script given to PowerShell or cmd, judged command by command.
+
+    A reader of that shell is judged by its redirects only. ``Invoke-Expression``
+    is PowerShell's ``eval``.
+    """
+    for pipeline in _native_parse(script, shell, env):
+        for index, (command, plain) in enumerate(pipeline):
+            argv = command.argv
+            if plain and _native_reads(shell, argv, pipeline[index + 1 :]):
+                hit = _mutation((), command.redirects, owned, env, cwd)
+            else:
+                hit = _one_command(command, owned, surface, rules, env, cwd, depth=depth + 1)
+            evaluates = (
+                shell != "cmd" and bool(argv) and _program(argv[0]) in {"iex", "invoke-expression"}
+            )
+            if hit is None and evaluates and depth + 1 < 3:
+                rest = " ".join(argv[1:])
+                hit = _native(rest, shell, owned, surface, rules, env, cwd, depth + 1)
+            if hit is not None:
+                return hit
+            cwd = _after_cd(command, env, cwd, native=True)
+    return None
 
 
 def _c_argument(argv: tuple[str, ...]) -> str | None:

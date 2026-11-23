@@ -185,3 +185,215 @@ def test_explicit_thresholds_warn_even_when_they_match_a_level(
         caplog.clear()
         enforcer.tool_result(call, "hello")
         assert not [record for record in caplog.records if record.name == "petasos.session.guard"]
+
+
+class _RewrittenStore:
+    """A store whose whole document is replaced after ``switch_after`` reads."""
+
+    def __init__(self, before: dict[str, Any], after: dict[str, Any], switch_after: int) -> None:
+        self._before = before
+        self._after = after
+        self._switch_after = switch_after
+        self.calls = 0
+
+    def get_config(self, key: str, default: object = None) -> object:
+        document = self._before if self.calls < self._switch_after else self._after
+        self.calls += 1
+        return document.get(key, default)
+
+
+@pytest.mark.parametrize("switch_after", [1, 2, 3])
+def test_a_write_between_reads_never_yields_a_mixed_document(switch_after: int) -> None:
+    """A settings write that lands mid-read gives one stored document, not a blend."""
+    before = {"role": "general", "overrides": {"tools": {"self_change": "never"}}}
+    after = {"role": "support", "overrides": {}}
+    stored = [resolve(before).config, resolve(after).config]
+    assert all(config.tools.self_change == "never" for config in stored)
+
+    snap = HermesSettings(_RewrittenStore(before, after, switch_after))()
+
+    assert snap.error is None
+    assert snap.config in stored
+
+
+def test_settings_that_keep_changing_are_a_rejected_read() -> None:
+    """A store rewritten on every read gives an error snapshot and no config to apply."""
+
+    class _Churning:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def get_config(self, key: str, default: object = None) -> object:
+            self.calls += 1
+            if key == "overrides":
+                return {"tools": {"self_change_minutes": self.calls}}
+            return default
+
+    store = _Churning()
+    snap = HermesSettings(store)()
+
+    assert snap.config is None
+    assert snap.error is not None
+    assert snap.armed is True
+    assert store.calls <= 16
+
+
+_NEVER = {"tools": {"self_change": "never"}}
+_DISARM = "hermes plugins disable petasos"
+
+
+def _guarded(store: _Store) -> Any:
+    from petasos.enforce import ApprovalGrant, Enforcer, HostInfo
+    from petasos.hermes.guardrail import hermes_surface
+
+    host = HostInfo(
+        approve_directive=True,
+        approval_grant=ApprovalGrant,
+        subagent_hooks=False,
+        guardrail_surface=lambda: hermes_surface(()),
+    )
+    enforcer = Enforcer(HermesSettings(store), host=host, registry=())
+    enforcer.start()
+    assert enforcer.settle()
+    return enforcer
+
+
+def _disarm(enforcer: Any) -> object:
+    from petasos.enforce import ToolCall
+
+    return enforcer.tool_call(ToolCall(tool="terminal", args={"command": _DISARM}, session="s"))
+
+
+@pytest.mark.parametrize(
+    "stored",
+    [
+        pytest.param({}, id="block-removed"),
+        pytest.param({"overrides": None}, id="overrides-null"),
+        pytest.param({"overides": _NEVER}, id="misspelt-key"),
+        pytest.param({"enabled": "yes", "overrides": {}}, id="enabled-text"),
+        pytest.param({"role": 7, "overrides": {}}, id="role-number"),
+        pytest.param({"level": "nope", "enabled": False}, id="unknown-level"),
+    ],
+)
+def test_a_lost_or_malformed_block_keeps_the_last_good_settings(
+    stored: dict[str, Any], caplog: pytest.LogCaptureFixture
+) -> None:
+    """After one good load, a wiped or broken block is a rejected reload."""
+    from petasos.enforce import Approve, Block
+
+    store = _Store({"overrides": _NEVER})
+    with closing(_guarded(store)) as enforcer:
+        assert isinstance(_disarm(enforcer), Block)
+        store.values = dict(stored)
+        caplog.clear()
+        with caplog.at_level("WARNING"):
+            enforcer.refresh()
+            decision = _disarm(enforcer)
+        assert isinstance(decision, Block)
+        assert enforcer.status().armed is True
+        assert any("PETASOS_RELOAD_FAILED" in record.getMessage() for record in caplog.records)
+        store.values = {"overrides": {"tools": {"self_change": "approve"}}}
+        enforcer.refresh()
+        assert isinstance(_disarm(enforcer), Approve)
+
+
+def test_a_first_start_with_no_block_is_armed_with_the_defaults(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """With no block ever seen, the defaults are the settings and nothing is rejected."""
+    store = _Store()
+    source = HermesSettings(store)
+    with caplog.at_level("WARNING"):
+        first = source()
+        again = source()
+        with closing(_guarded(store)) as enforcer:
+            enforcer.refresh()
+            assert enforcer.status().armed is True
+    assert first.error is None
+    assert first.armed is True
+    assert first.config == resolve({}).config
+    assert again.error is None
+    assert again.token == first.token
+    assert not any("PETASOS_RELOAD_FAILED" in record.getMessage() for record in caplog.records)
+
+
+def test_a_removed_block_is_an_error_only_after_a_good_load() -> None:
+    """The source rejects a missing block once it has read a good one, not before."""
+    store = _Store()
+    source = HermesSettings(store)
+    assert source().error is None
+    store.values = {"role": "coding"}
+    assert source().error is None
+    store.values = {}
+    missing = source()
+    assert missing.config is None
+    assert missing.error is not None
+    assert "missing" in missing.error
+    store.values = {"level": "strict"}
+    assert source().error is None
+
+
+@pytest.mark.parametrize(
+    "stored",
+    [{"role": "coding"}, {"overrides": _NEVER}, {"enabled": False}],
+    ids=["only-role", "only-overrides", "only-enabled"],
+)
+def test_a_partial_block_still_loads_after_a_good_load(stored: dict[str, Any]) -> None:
+    """An absent key is the layer below it, not an error, while any key is stored."""
+    store = _Store({"role": "support", "level": "strict", "overrides": {}})
+    source = HermesSettings(store)
+    assert source().error is None
+    store.values = dict(stored)
+    snap = source()
+    assert snap.error is None
+    assert snap.config == resolve(stored).config
+
+
+def test_null_overrides_is_malformed_even_at_first_start() -> None:
+    """A stored null is not an empty group. It is reported, and the enforcer keeps its floor."""
+    snap = HermesSettings(_Store({"overrides": None}))()
+    assert snap.config is None
+    assert snap.error is not None
+    assert "overrides" in snap.error
+
+
+_STRICT_FILE = "plugins:\n  entries:\n    petasos:\n      settings:\n        level: strict\n"
+_EMPTY_FILE = "plugins:\n  entries:\n    petasos:\n      settings: {}\n"
+
+
+def test_a_bound_profile_whose_block_empties_is_not_a_reset(tmp_path: Path) -> None:
+    """The rule for a lost block holds for a named profile, not only for the context."""
+    config = tmp_path / "config.yaml"
+    config.write_text(_STRICT_FILE, encoding="utf-8")
+    source = HermesSettings(_Store())
+    source.bind_profile(tmp_path)
+    assert source().error is None
+    config.write_text(_EMPTY_FILE, encoding="utf-8")
+    emptied = source()
+    assert emptied.config is None
+    assert emptied.error is not None
+
+
+def test_unbinding_to_an_empty_context_is_not_a_reset(tmp_path: Path) -> None:
+    (tmp_path / "config.yaml").write_text(_STRICT_FILE, encoding="utf-8")
+    source = HermesSettings(_Store())
+    source.bind_profile(tmp_path)
+    assert source().error is None
+    source.bind_profile(None)
+    unbound = source()
+    assert unbound.config is None
+    assert "missing" in (unbound.error or "")
+
+
+def test_removing_a_pin_over_an_empty_context_is_not_a_reset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from petasos.hermes import settings as module
+
+    monkeypatch.setattr(module, "pinned_settings", lambda: {"level": "strict"})
+    source = HermesSettings(_Store())
+    assert source().error is None
+    monkeypatch.setattr(module, "pinned_settings", lambda: None)
+    unpinned = source()
+    assert unpinned.config is None
+    assert "missing" in (unpinned.error or "")

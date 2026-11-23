@@ -10,10 +10,14 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import unquote, urlparse
+
+# The path part of ``file:///C:/x``.
+_DRIVE_LOCATION = re.compile(r"/[A-Za-z]:(?:/|$)")
 
 _PROBE = (
     "import json, importlib.metadata\n"
@@ -66,9 +70,8 @@ class Probe:
                 digest = archive["hash"].removeprefix("sha256=")
             if isinstance(digest, str) and digest:
                 return hashlib.sha256(source.read_bytes()).hexdigest() == digest
-            parsed = urlparse(direct.get("url", ""))
-            if parsed.scheme == "file":
-                installed = Path(unquote(parsed.path))
+            installed = file_url_path(direct.get("url", ""))
+            if installed is not None:
                 if installed.resolve() == source.resolve():
                     return True
                 if installed.is_file():
@@ -76,6 +79,27 @@ class Probe:
         except (OSError, ValueError, AttributeError, TypeError):
             pass
         return None
+
+
+def file_url_path(url: str) -> Path | None:
+    """The local path a ``file:`` URL names, or None for any other URL.
+
+    Windows writes ``file:///C:/x``, whose path part is ``/C:/x``, and a
+    share as ``file://server/share/x``. Elsewhere the path part is the path.
+    The conversion is done here, not by ``url2pathname``, whose answers
+    differ between Python versions.
+    """
+    parsed = urlparse(url)
+    if parsed.scheme != "file":
+        return None
+    location = unquote(parsed.path)
+    if os.name != "nt":
+        return Path(location)
+    if parsed.netloc.casefold() not in {"", "localhost"}:
+        return Path(f"//{parsed.netloc}{location}")
+    if _DRIVE_LOCATION.match(location):
+        location = location[1:]
+    return Path(location)
 
 
 def runtime_python(home: Path) -> Runtime | None:

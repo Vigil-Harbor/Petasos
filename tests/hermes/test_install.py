@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from typing import TYPE_CHECKING
 
 import pytest
@@ -19,6 +20,13 @@ from petasos.hermes.wheel import wheel_source
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+
+def _enable_hint(home: Path) -> str:
+    """The command that turns the plugin on, as the product words it on this system."""
+    if os.name == "nt":
+        return f"hermes plugins enable petasos, with HERMES_HOME set to {home}"
+    return f"HERMES_HOME={home} hermes plugins enable petasos"
 
 
 @pytest.fixture(autouse=True)
@@ -62,7 +70,7 @@ def test_install_is_idempotent(tmp_path: Path, capsys: pytest.CaptureFixture[str
     first, out = _run(["hermes", "install", "--home", str(tmp_path)], capsys)
     assert "Wrote the plugin files." in out
     assert "does not edit Hermes's config file" in out or "not turned on" in out
-    assert f"Next: HERMES_HOME={tmp_path} hermes plugins enable petasos" in out
+    assert f"Next: {_enable_hint(tmp_path)}" in out
     written = _files(tmp_path)
     assert written["plugin.yaml"] == render_manifest()
     assert written["__init__.py"] == "from petasos.hermes.plugin import register\n"
@@ -151,7 +159,7 @@ def test_install_then_doctor_names_the_missing_switch(
     assert code == 2
 
     _code, report = _run(["doctor", "--home", str(tmp_path)], capsys)
-    assert f"Next: HERMES_HOME={tmp_path} hermes plugins enable petasos" in report
+    assert f"Next: {_enable_hint(tmp_path)}" in report
     assert "Next: petasos hermes install" not in report
 
 

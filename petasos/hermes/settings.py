@@ -39,6 +39,13 @@ PINNED_REFUSAL = (
 SESSION_ENV = "PETASOS_SESSION_SECRET"
 HASH_ENV = "PETASOS_HASH_KEY"
 _SECRET_KEYS = frozenset({"session_secret", "hash_key"})
+# How many times the four settings are read while waiting for two passes to agree.
+_READ_PASSES = 4
+_KEYS = ("enabled", "role", "level", "overrides")
+_DEFAULTS: Mapping[str, object] = {"enabled": True, "role": "general", "level": "balanced"}
+# What the context returns for a key that is not stored. A stored null is ``None``.
+_ABSENT = object()
+_MISSING_BLOCK = "build failed: the Petasos settings block is missing"
 
 
 class ConfigStore(Protocol):
@@ -200,16 +207,44 @@ def _four_from_mapping(values: Mapping[str, object]) -> tuple[object, object, ob
     return enabled, role, level, overrides
 
 
-def _four_from_store(ctx: ConfigStore) -> tuple[object, object, object, object]:
-    enabled = ctx.get_config("enabled", True)
-    role = ctx.get_config("role", "general")
-    level = ctx.get_config("level", "balanced")
-    overrides = ctx.get_config("overrides", None)
+def _read_pass(ctx: ConfigStore) -> tuple[object, object, object, object]:
+    enabled, role, level, overrides = (ctx.get_config(key, _ABSENT) for key in _KEYS)
     if isinstance(overrides, Mapping):
         overrides = _plain(overrides)
-    elif overrides is None:
-        overrides = {}
     return enabled, role, level, overrides
+
+
+def _with_defaults(
+    four: tuple[object, object, object, object],
+) -> tuple[object, object, object, object]:
+    enabled, role, level, overrides = (
+        _DEFAULTS.get(key, {}) if value is _ABSENT else value
+        for key, value in zip(_KEYS, four, strict=True)
+    )
+    return enabled, role, level, overrides
+
+
+def _spelled(four: tuple[object, object, object, object]) -> str:
+    """One pass as text, so ``True`` and ``1`` are different settings."""
+    marked = [{"absent": True} if value is _ABSENT else {"value": value} for value in four]
+    return json.dumps(_plain(marked), sort_keys=True, separators=(",", ":"), default=str)
+
+
+def _four_from_store(ctx: ConfigStore) -> tuple[object, object, object, object]:
+    """The four settings as one stored document held them.
+
+    Hermes reads one key per call and has no read of the whole mapping, so a
+    write can land between two of the four reads and mix two documents. A
+    pass counts only when the next pass reads the same values. Settings that
+    never hold still raise, which the caller reports as an unusable read.
+    """
+    seen = _read_pass(ctx)
+    for _ in range(_READ_PASSES - 1):
+        again = _read_pass(ctx)
+        if _spelled(again) == _spelled(seen):
+            return again
+        seen = again
+    raise RuntimeError("the settings kept changing while they were read")
 
 
 def _snapshot(
@@ -259,11 +294,16 @@ class HermesSettings:
 
     ``bind_profile`` points later calls at a profile directory the host named,
     so a profile switch is visible before the process home changes.
+
+    Once a stored block has loaded, a read that finds none of the four keys
+    is an error snapshot, so the enforcer keeps the last good settings. Only
+    a source that has never loaded a block falls back to the defaults.
     """
 
     def __init__(self, ctx: ConfigStore) -> None:
         self._ctx = ctx
         self._profile: Path | None = None
+        self._loaded_block = False
 
     def bind_profile(self, home: Path | None) -> None:
         """Read later snapshots from ``home``."""
@@ -302,24 +342,36 @@ class HermesSettings:
         if pinned is not None:
             # Before the profile is read at all: a missing or damaged profile
             # file does not unpin anything.
-            enabled, role, level, overrides = _four_from_mapping(pinned)
+            four, stored = _four_from_mapping(pinned), True
         elif home is not None:
             kind, settings = profile_binding(home / "config.yaml")
             if kind == "broken" or settings is None:
-                secrets, invalid = self._secret_pair(home)
-                return SettingsSnapshot(
-                    armed=True,
-                    config=None,
-                    secrets=secrets,
-                    token=("unreadable", str(home)),
-                    error="build failed: malformed settings",
-                    secret_invalid=invalid,
+                return self._unusable(
+                    home, ("unreadable", str(home)), "build failed: malformed settings"
                 )
-            enabled, role, level, overrides = _four_from_mapping(settings)
+            four, stored = _four_from_mapping(settings), any(key in settings for key in _KEYS)
         else:
-            enabled, role, level, overrides = _four_from_store(self._ctx)
+            read = _four_from_store(self._ctx)
+            four, stored = _with_defaults(read), any(value is not _ABSENT for value in read)
+        # One rule for the pin, a named profile and the plugin context: once a
+        # stored block has loaded by any of them, finding none is not a reset.
+        if not stored and self._loaded_block:
+            return self._unusable(home, ("missing",), _MISSING_BLOCK)
+        snap = _snapshot(*four, *self._secret_pair(home))
+        if stored and snap.error is None:
+            self._loaded_block = True
+        return snap
+
+    def _unusable(self, home: Path | None, token: tuple[str, ...], error: str) -> SettingsSnapshot:
         secrets, invalid = self._secret_pair(home)
-        return _snapshot(enabled, role, level, overrides, secrets, invalid)
+        return SettingsSnapshot(
+            armed=True,
+            config=None,
+            secrets=secrets,
+            token=token,
+            error=error,
+            secret_invalid=invalid,
+        )
 
 
 def write_settings(

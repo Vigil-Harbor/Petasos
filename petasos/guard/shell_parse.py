@@ -43,6 +43,10 @@ _WRAPPER_VALUES = {
 }
 
 
+_DQ_ESCAPED = frozenset({"$", "`", '"', "\\", "\n"})
+_EXECUTABLE_SUFFIXES = (".exe", ".cmd", ".bat", ".com")
+
+
 @dataclass(frozen=True, slots=True)
 class _Simple:
     argv: tuple[str, ...]
@@ -88,6 +92,10 @@ def _assignment(word: str) -> tuple[str | None, str | None, bool]:
 
 def _program(token: str) -> str:
     base = os.path.basename(_expand_vars(token, {})).casefold()
+    # Windows runs "hermes.exe" and "hermes" as the same program. Elsewhere
+    # the suffix is part of the name of some other program.
+    if os.name == "nt" and base.endswith(_EXECUTABLE_SUFFIXES):
+        base = base.rsplit(".", 1)[0]
     if base.startswith("pip"):
         return "pip"
     if base.startswith("python"):
@@ -134,8 +142,11 @@ def _parse(text: str) -> list[_Simple]:
                 quote = ""
                 index += 1
                 continue
-            if quote == '"' and char == "\\" and index + 1 < length:
-                buf.append(text[index + 1])
+            # Inside double quotes a backslash escapes only these characters.
+            # Before anything else the shell keeps it, as in "C:\Users\name".
+            if quote == '"' and char == "\\" and text[index + 1 : index + 2] in _DQ_ESCAPED:
+                if text[index + 1] != "\n":
+                    buf.append(text[index + 1])
                 index += 2
                 continue
             buf.append(char)

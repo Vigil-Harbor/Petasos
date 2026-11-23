@@ -63,3 +63,24 @@ jobs:
       # is tested from Python.
       - run: pip install -e ".[dev]"
       - run: pytest tests/ -v --tb=short
+
+  # Hermes Desktop runs on Windows, where paths, the shell and the clock all
+  # differ. A separate job, so the check names the master ruleset requires
+  # above do not change. It does not block a merge until `test-windows (3.11)`
+  # and `test-windows (3.14)` are added to that ruleset.
+  test-windows:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.11 is the oldest supported Python. 3.14 is the one Hermes runs on
+        # Windows, and from 3.13 a path with no drive is no longer absolute.
+        python-version: ["3.11", "3.14"]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: pip install -e ".[dev]"
+      - run: pytest tests/ -v --tb=short

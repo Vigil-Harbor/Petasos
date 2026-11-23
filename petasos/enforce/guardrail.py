@@ -155,7 +155,7 @@ def ruling_for(
             session_id,
             kind,
         )
-        return Ruling(Block(_refused(call.tool)), "refused", kind=kind, target=shown)
+        return Ruling(Block(refused_message(call.tool)), "refused", kind=kind, target=shown)
     if _cannot_ask(core):
         _emit(core, call, session_id, name="unattended", kind=kind, target=shown)
         logger.info(
@@ -347,15 +347,18 @@ def _minutes(core: Core) -> int:
 def _cannot_ask(core: Core) -> bool:
     if not core.host.approve_directive:
         return True
+    # Only an explicit False is a person attached. Any other answer is not.
     try:
-        return bool(core.host.approval_grant().unattended)
+        return core.host.approval_grant().unattended is not False
     except Exception:
         return True
 
 
 def _always(core: Core, rule_key: str) -> bool:
+    # A key is handed out only on an explicit False. Any other answer may be
+    # a rule the host grants without asking.
     try:
-        return bool(core.host.rule_always_approved(rule_key))
+        return core.host.rule_always_approved(rule_key) is not False
     except Exception:
         return True
 
@@ -371,7 +374,8 @@ def _shown(core: Core, target: str) -> str:
     return shown or text[:160]
 
 
-def _refused(tool: str) -> str:
+def refused_message(tool: str) -> str:
+    """The refusal for a guardrail change the agent may not make."""
     return (
         f"{_PREFIX} Tool '{tool}' was NOT executed. "
         "Changing Petasos or Hermes guardrails from the agent was refused. "

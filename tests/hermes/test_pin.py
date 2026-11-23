@@ -180,8 +180,9 @@ def test_administrator_route_only_prepares_system_commands(
     assert [line[0] for line in commands] == ["mkdir", "install"]
     source = Path(commands[1][-2])
     assert json.loads(source.read_text())["plugins"]["enabled"] == ["petasos", "other"]
-    assert source.stat().st_mode & 0o777 == 0o600
-    assert source.parent.stat().st_mode & 0o777 == 0o700
+    if os.name != "nt":
+        assert source.stat().st_mode & 0o777 == 0o600
+        assert source.parent.stat().st_mode & 0o777 == 0o700
     assert commands[1][-1] == str(scope.directory / "config.yaml")
 
 
@@ -345,7 +346,10 @@ def test_disabled_pin_is_loud(scope: SimpleNamespace, change: str) -> None:
 def test_profile_differences_and_nullable_leaf_are_named(scope: SimpleNamespace) -> None:
     change_pin(scope.home, write=True)
     scope.profile["plugins"]["entries"]["petasos"]["settings"].update(
-        {"level": "relaxed", "overrides": {"scanners": {"semgrep": {"engine_path": "/changed"}}}}
+        {
+            "level": "relaxed",
+            "overrides": {"scanners": {"semgrep": {"engine_path": os.path.abspath("/changed")}}},
+        }
     )
     checks, facts, _ = pin_report(scope.profile)
     assert facts["profile_differences"]

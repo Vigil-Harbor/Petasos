@@ -646,3 +646,52 @@ comes from an override. Resolution
 provenance, carried through initialisation and live changes, decides this;
 matching a built-in number is not evidence of a built-in source. Direct
 library configurations without provenance still receive diagnostics.
+
+## Missing and malformed Hermes settings (PET-295)
+
+After one good load, a settings block that is gone or malformed is a rejected
+reload: the last good settings stay in force and `PETASOS_RELOAD_FAILED` is
+logged. Hermes Desktop's model switcher is known to wipe config sections on
+Windows, and a wipe or a typo must not quietly loosen a strict profile. Only a
+first start with no block uses the defaults. The accepted cost is that deleting
+the block no longer resets a running Hermes; the operator restarts or writes the
+values. A block that stores only some keys still loads, because an absent key
+is the layer below it. `get_config` answers one key at a time and cannot list
+the block, so a misspelt key is seen only when it hides all four; reading
+`config.yaml` directly was not used, because Petasos's path resolution can name
+a different file from the one Hermes reads and misses the managed overlay.
+
+## Self-protection has no off switch (PET-305)
+
+The owner ruled on 2026-11-22 that an agent can never rewrite its own settings
+or plugin, whatever `tools.enabled` says. With the switch off the guard still
+derives tier 3 and still recognises a guardrail change, so the enforcer's
+`tools.self_change` floor runs as it does with the switch on: `never` refuses,
+`approve` asks, an unattended host or an auto-approved key refuses, and a live
+session grant covers. A recognition failure follows the same failure policy.
+The switch still turns off what it was for: the parameter scan, tiers 1 and 2,
+and the fan-out limit. A call that is not a guardrail change gets the
+feature-off result unchanged.
+
+The attempt adds its self-change weight to the conversation's risk score with
+the switch off too. Tier 3 still applies with the switch off and is reached
+by that score, and an agent trying to change its own guardrails is the
+strongest signal the guard sees. Leaving the score untouched would let an
+agent repeat the attempt with no path to termination while the switch is off.
+
+## A finding in hand blocks under open (PET-299)
+
+The owner ruled on 2026-11-22 that `fail_mode: open` covers scanners that are
+missing or that fail. A finding already made still blocks, whatever fails
+after it. When the decision after a successful guard evaluation raises under
+`open`, the enforcer rebuilds the block from the guard result it already
+holds: a guard denial or tier 3 keeps its block, a recognised guardrail change
+is refused, and a dangerous tool with a high or critical non-PII finding, or a
+PII finding on an egress sink, is blocked naming that finding. Without such a
+finding the call is allowed, as before. A command finding is held even where
+the full decision would have asked a person or deferred to the host, because
+the failure means that decision cannot be trusted; the block is the stricter
+answer. Failures before the result exists keep their existing paths: a failed
+evaluation and a failed syntactic fallback both block every dangerous tool
+under `open`, because only a clean scan allows one. `degraded` and `closed`
+are unchanged.

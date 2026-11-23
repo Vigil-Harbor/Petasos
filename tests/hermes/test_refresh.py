@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
@@ -18,6 +19,13 @@ from tests.hermes.test_install import _install, _probe
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+
+def _hint(home: Path, command: str) -> str:
+    """A command for ``home`` as the product words it on this system."""
+    if os.name == "nt":
+        return f"{command}, with HERMES_HOME set to {home}"
+    return f"HERMES_HOME='{home}' {command}"
 
 
 def _saved(home: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
@@ -71,7 +79,8 @@ def test_refresh_never_enables_a_plugin(
     result = _run(tmp_path)
     assert result.exit_code != 0
     assert "hermes plugins enable petasos" in result.text
-    assert f"HERMES_HOME={tmp_path}" in result.text
+    home_named = f"HERMES_HOME set to {tmp_path}" if os.name == "nt" else f"HERMES_HOME={tmp_path}"
+    assert home_named in result.text
     assert _snapshot(tmp_path) == before
 
 
@@ -218,11 +227,11 @@ def test_install_reports_the_profile_state_and_whether_hermes_was_asked(
         assert result.exit_code == 1
         assert "still checking tool calls" in result.text
         assert "tool calls are not checked yet" not in result.text
-        assert f"HERMES_HOME='{home}' hermes petasos refresh" in result.text
+        assert _hint(home, "hermes petasos refresh") in result.text
     else:
         assert result.exit_code == 2
         assert "tool calls are not checked yet" in result.text
-        assert f"HERMES_HOME='{home}' hermes plugins enable petasos" in result.text
+        assert _hint(home, "hermes plugins enable petasos") in result.text
 
 
 def test_install_without_hermes_stops_offering_refresh_once_the_build_runs(
@@ -279,7 +288,7 @@ def test_refresh_does_not_prune_a_shared_wheel_directory(
     project = home / "plugins" / "petasos" / "pyproject.toml"
     project.write_text(
         install.render_project(f"new/{saved.name}").replace(
-            f"wheels/new/{saved.name}", str(current)
+            f"wheels/new/{saved.name}", current.as_posix()
         )
     )
     monkeypatch.setattr(install, "probe_petasos", lambda python: _probe(current))

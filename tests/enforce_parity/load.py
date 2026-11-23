@@ -14,6 +14,7 @@ of the file:
 from __future__ import annotations
 
 import json
+import os
 import re
 from pathlib import Path
 from typing import Any, cast
@@ -108,6 +109,10 @@ def scrub_known(text: str, *, homes: list[str], configs: list[str]) -> str:
     """
     rewritten = text
     ordered = [(path, "<config>") for path in configs] + [(path, "<home>") for path in homes]
+    # The library reports a path the way it compares it. On Windows that is
+    # lower case, so the same path appears in two spellings.
+    folded = [(os.path.normcase(path), token) for path, token in ordered]
+    ordered += [pair for pair in folded if pair not in ordered]
     ordered.sort(key=lambda item: len(item[0]), reverse=True)
     for path, token in ordered:
         if path:
