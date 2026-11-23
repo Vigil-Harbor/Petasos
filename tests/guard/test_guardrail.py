@@ -11,6 +11,7 @@ import pytest
 from petasos.guard.guardrail import recognize
 from petasos.guard.paths import normalize_path_text
 from petasos.guard.shell_parse import _parse
+from petasos.guard.surface import CommandRule
 from petasos.hermes.guardrail import hermes_surface
 
 if TYPE_CHECKING:
@@ -507,6 +508,8 @@ def test_each_enumerated_hermes_command(tmp_path: Path, command: str, kind: str)
         "petasos doctor",
         "hermes plugins disable kanban",
         "hermes plugins enable petasos",
+        "/opt/hermes/bin/hermes plugins enable petasos",
+        "hermes plugins enable kanban",
         "pip install requests",
         "hermes config set display.theme teal",
         "git commit -m 'docs: hermes gateway restart steps'",
@@ -978,6 +981,74 @@ def test_granting_or_revoking_tool_override_on_enable_is_a_change(
     assert hit is not None and hit.kind == "settings", command
     # A revocation is reported as one, not as the grant.
     assert hit.target == f"hermes plugins enable {flag}", command
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "hermes plugins enable all",
+        "hermes plugins enable --all",
+        "hermes plugins enable -a",
+        "hermes plugins enable '*'",
+        "hermes plugins enable petasos==1",
+        "hermes plugins enable 'petasos[all]'",
+        "hermes plugins enable git+https://example.com/org/petasos.git",
+        "hermes plugins enable git+https://example.com/org/petasos.git@main",
+        "hermes plugins enable ./dist/petasos-0.1-py3-none-any.whl",
+        "hermes plugins enable /tmp/petasos-0.1.tar.gz",
+        "hermes plugins enable petasos kanban",
+        "hermes plugins enable kanban petasos",
+        "hermes plugins enable petasos --force",
+        "hermes plugins enable --force petasos",
+        "hermes plugins enable Petasos",
+        "hermes plugins enable PETASOS",
+        "hermes plugins ENABLE petasos",
+        "hermes -v plugins enable petasos",
+        "hermes -p work plugins enable petasos",
+        "hermes --verbose plugins enable petasos",
+        "ai.hermes plugins enable petasos",
+        "python -m hermes_cli plugins enable petasos",
+    ],
+)
+def test_enable_beyond_the_plain_plugin_name_is_a_change(tmp_path: Path, command: str) -> None:
+    # ``--all`` is also an abbreviation of ``--allow-tool-override``.
+    assert _hit(tmp_path, "terminal", {"command": command}) is not None, command
+
+
+def test_enable_is_cleared_by_help_unless_it_writes_the_override(tmp_path: Path) -> None:
+    assert _hit(tmp_path, "terminal", {"command": "hermes plugins enable all --help"}) is None
+    for flag in ("--allow-tool-override", "--no-allow-tool-override"):
+        command = f"hermes plugins enable all {flag} --help"
+        hit = _hit(tmp_path, "terminal", {"command": command})
+        assert hit is not None and hit.target == f"hermes plugins enable {flag}", command
+
+
+def test_command_rule_fields_keep_their_positions() -> None:
+    rule = CommandRule(
+        "settings",
+        ("hermes", "x"),
+        "label",
+        "name",
+        "tail",
+        True,
+        ("on",),
+        "--flag",
+        ("--check",),
+        True,
+        False,
+    )
+    assert rule.kind == "settings"
+    assert rule.words == ("hermes", "x")
+    assert rule.label == "label"
+    assert rule.name == "name"
+    assert rule.tail == "tail"
+    assert rule.bare is True
+    assert rule.one_of == ("on",)
+    assert rule.requires_flag == "--flag"
+    assert rule.unless_flags == ("--check",)
+    assert rule.unknown_program is True
+    assert rule.help_clears is False
+    assert rule.except_exact == ()
 
 
 @pytest.mark.parametrize(

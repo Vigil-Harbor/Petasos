@@ -318,6 +318,8 @@ commands = [
     "hermes config set command_allowlist '[]' # --help",
     "hermes config edit --help",
     "hermes plugins enable petasos --allow-tool-override",
+    "hermes plugins enable all",
+    "hermes plugins enable 'petasos[all]' --force",
     "hermes plugins auto-update on --help",
     "hermes plugins update # note",
     "hermes approvals suggest --apply=1",

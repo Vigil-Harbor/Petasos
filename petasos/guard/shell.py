@@ -175,8 +175,8 @@ def _one_command(
     depth: int,
     known_program: bool = False,
 ) -> GuardrailHit | None:
-    prepared, assignments = _strip_wrappers(command.argv)
-    prepared = _invocation(prepared, surface)
+    stripped, assignments = _strip_wrappers(command.argv)
+    prepared = _invocation(stripped, surface)
     program = _program(prepared[0]) if prepared else ""
     helping = program in {"hermes", "petasos"} and _asks_help(prepared)
     if not helping:
@@ -200,6 +200,8 @@ def _one_command(
     )
     for command_rule in rules:
         if helping and command_rule.help_clears:
+            continue
+        if command_rule.except_exact and _exactly(stripped, command_rule.except_exact):
             continue
         candidate = rule_argv
         fallback = unknown and command_rule.unknown_program and command_rule.tail is not None
@@ -242,6 +244,21 @@ def _one_command(
     if found is not None or program in _TEXT_ONLY or program in _READERS:
         return found
     return _started(prepared, owned, surface, rules, env, cwd, depth)
+
+
+def _exactly(argv: tuple[str, ...], words: tuple[str, ...]) -> bool:
+    """True when ``argv`` is ``words`` and nothing else.
+
+    ``argv`` is the command as written, before a host program form is
+    canonicalised, so ``python -m`` and other aliases never match. The
+    program is compared by its file name; every later word must be equal,
+    case included.
+    """
+    return (
+        len(argv) == len(words)
+        and _program(argv[0]) == words[0].casefold()
+        and argv[1:] == words[1:]
+    )
 
 
 def _asks_help(argv: tuple[str, ...]) -> bool:

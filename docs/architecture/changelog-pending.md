@@ -403,9 +403,13 @@ to `petasos.model._TIMEOUT_ERROR_PREFIX`. The ingestion head length moves from
   (Hermes's approval settings, such as `approvals.mode` and
   `approvals.timeout`) as a settings change, as it does
   `command_allowlist`, also when the program word cannot be resolved.
-  `hermes plugins enable petasos` is no longer a change, unless it grants
-  or revokes the plugin's tool-override permission; disable, remove and
-  uninstall still are. A help flag no longer clears a command that writes
+  `hermes plugins enable petasos`, written exactly so, is no longer a
+  change, unless it grants or revokes the plugin's tool-override
+  permission; disable, remove and uninstall still are. Any other `enable`
+  that names the plugin or everything is still a change: `all`, `-a`,
+  `*`, a version, an extra, a source or a built file, another plugin
+  beside it, `--force`, another case, or a global option such as `-v` or
+  `-p`. A help flag no longer clears a command that writes
   Hermes's configuration, including `hermes plugins auto-update on|off`,
   `hermes plugins install petasos --enable` and `hermes plugins pack
   install`, and a help word after `--` is not read as help. Shell

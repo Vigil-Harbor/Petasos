@@ -57,7 +57,6 @@ def hermes_surface(paths: Iterable[str], roots: Iterable[str] = ()) -> Guardrail
     for raw in paths:
         labelled[_kind(str(raw))].add(str(raw))
     commands: list[CommandRule] = []
-    # Enabling the plugin turns enforcement on, so it is not a change.
     # A command marked ``help_clears=False`` writes Hermes's configuration.
     for verb in ("disable", "remove", "rm", "uninstall"):
         commands.append(
@@ -86,6 +85,20 @@ def hermes_surface(paths: Iterable[str], roots: Iterable[str] = ()) -> Guardrail
                     help_clears=False,
                 )
             )
+    # Enabling the plugin by its plain name only turns enforcement on. Every
+    # other spelling that names it or everything (``all``, ``-a``, ``*``, a
+    # version, an extra, a source or a built file, another plugin beside it,
+    # ``--force``, another case, a global option) may install different code
+    # or enable more, so it is a change.
+    commands.append(
+        CommandRule(
+            "plugin",
+            ("hermes", "plugins", "enable"),
+            "hermes plugins enable",
+            name=_PLUGIN,
+            except_exact=("hermes", "plugins", "enable", _PLUGIN),
+        )
+    )
     commands.append(
         CommandRule(
             "plugin",
