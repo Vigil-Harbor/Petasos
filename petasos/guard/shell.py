@@ -449,7 +449,20 @@ def _rule_matches(argv: tuple[str, ...], rule: CommandRule) -> bool:
         return True
     if any(_names_plugin(word, rule.name) for word in rest):
         return True
-    return rule.bare and not positionals
+    return rule.bare and not _targets(positionals)
+
+
+def _targets(positionals: list[str]) -> list[str]:
+    """The positionals before the first word that starts with ``#``.
+
+    The parser drops a shell comment, so such a word was quoted or sat inside
+    a substitution, where a shell may read it and the rest as a comment.
+    Neither it nor what follows is taken as naming a target.
+    """
+    for index, word in enumerate(positionals):
+        if word.startswith("#"):
+            return positionals[:index]
+    return positionals
 
 
 def _names_plugin(word: str, name: str) -> bool:

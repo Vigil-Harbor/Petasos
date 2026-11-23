@@ -1034,6 +1034,38 @@ def test_words_in_a_shell_comment_are_not_read(tmp_path: Path, command: str) -> 
 @pytest.mark.parametrize(
     "command",
     [
+        "echo $(hermes plugins update # note)",
+        "echo `hermes plugins update # note`",
+        "echo $(hermes plugins update #note)",
+        "echo `hermes plugins update #`",
+    ],
+)
+def test_a_comment_inside_a_substitution_is_not_a_plugin_name(
+    tmp_path: Path, command: str
+) -> None:
+    # A shell reads ``#`` there as a comment, so no plugin is named and
+    # every installed plugin is updated.
+    hit = _hit(tmp_path, "terminal", {"command": command})
+    assert hit is not None and hit.kind == "plugin", command
+
+
+def test_a_named_plugin_update_still_names_only_that_plugin(tmp_path: Path) -> None:
+    assert _hit(tmp_path, "terminal", {"command": "hermes plugins update kanban"}) is None
+    assert _hit(tmp_path, "terminal", {"command": "echo $(hermes plugins update kanban)"}) is None
+
+
+def test_a_quoted_name_starting_with_a_hash(tmp_path: Path) -> None:
+    # Quoting is gone by the time a word is judged, so ``'#weird'`` reads as
+    # a possible comment. Disabling it names no plugin of ours either way.
+    assert _hit(tmp_path, "terminal", {"command": "hermes plugins disable '#weird'"}) is None
+    # Updating it reads as updating every plugin.
+    hit = _hit(tmp_path, "terminal", {"command": "hermes plugins update '#weird'"})
+    assert hit is not None and hit.kind == "plugin"
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
         "echo " + "config " * 20000,
         "; ".join(["echo config"] * 100000),
         "; ".join(["h config"] * 100000),

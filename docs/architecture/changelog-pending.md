@@ -411,7 +411,10 @@ to `petasos.model._TIMEOUT_ERROR_PREFIX`. The ingestion head length moves from
   install`, and a help word after `--` or after a word starting with `#`
   is not read as help. On a shell line, a word starting with `#` begins a
   comment that runs to the end of the line or the next command separator,
-  unless it is quoted or inside a substitution. A configuration key
+  unless it is quoted or inside a substitution. There, a word starting
+  with `#` and the words after it do not name a plugin to update, so
+  `$(hermes plugins update # note)` updates every plugin; a quoted
+  `hermes plugins update '#name'` reads the same way. A configuration key
   matches a guarded key only as a whole dotted segment
   (`approvals_backup` is not `approvals`). When a `write_file` call's
   `content`, or a `patch` call's `old_string`, `new_string` or `patch`, is
