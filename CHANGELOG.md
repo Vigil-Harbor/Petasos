@@ -65,7 +65,9 @@ fails config validation, because an older release rejects the unknown id.
 - **Reference plugin dependency manifest (PET-242).**
   `docs/deployment/reference_plugin/pyproject.toml` declares `petasos[presidio,prompt-guard]>=0.5.0`
   and the spaCy model, for Hermes generations, which have no pip. It assumes
-  0.5.0 is the next release number.
+  0.5.0 is the next release number. The requirement excludes Android, where torch
+  has no wheel: Hermes locks every platform at once, and an unmarked requirement
+  failed that lock and left the plugin disabled on every platform (PET-263).
 
 - **Hermes approval decisions observed as enforcement events (PET-222).**
   The reference plugin records every `pre_approval_request` and

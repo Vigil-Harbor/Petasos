@@ -37,10 +37,11 @@ import zipfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-try:
+if __package__:
     from scripts import hermes_multiprofile_harness as harness
-except ImportError:
-    # Probe or driver started as a file: the repository root is deliberately not on sys.path.
+else:
+    # Probe or driver started as a file: take the harness beside this script. A ``scripts``
+    # package from another checkout (an editable install) must not stand in for it.
     import hermes_multiprofile_harness as harness  # type: ignore[import-not-found,no-redef]
 
 if TYPE_CHECKING:
@@ -482,6 +483,25 @@ def copy_section(raw: Mapping[str, Any]) -> dict[str, Any]:
         overrides[key] = [raw.get(key, None), test_value]
         copied[key] = test_value
     return {"section": copied, "overrides": overrides, "withheld_keys": withheld}
+
+
+def publish_home(home: Mapping[str, Any]) -> dict[str, Any]:
+    """What the evidence says about one matrix profile: a digest, never the settings."""
+    canonical = json.dumps(home["section"], sort_keys=True, separators=(",", ":"), default=str)
+    return {
+        "name": home["name"],
+        "section_sha256": hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
+        "overridden": sorted(home.get("overrides") or {}),
+        "withheld_key_count": len(home.get("withheld_keys") or ()),
+    }
+
+
+def publish_excluded(excluded: Iterable[Mapping[str, str]]) -> dict[str, int]:
+    """Excluded profiles as a count per reason. Their names stay on the host."""
+    counts: dict[str, int] = {}
+    for item in excluded:
+        counts[item["reason"]] = counts.get(item["reason"], 0) + 1
+    return dict(sorted(counts.items()))
 
 
 def isolated_config(section: Mapping[str, Any]) -> dict[str, Any]:
@@ -2388,6 +2408,8 @@ def _git(tree: Path, *args: str) -> str:
         capture_output=True,
         text=True,
         check=False,
+        # A status call must not refresh the index of a checkout the gate may only read.
+        env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"},
     )
     if result.returncode != 0:
         detail = (result.stderr or result.stdout or "").strip()
@@ -2884,6 +2906,10 @@ def _payload(
             "commit": _git(live / "hermes-agent", "rev-parse", "HEAD").strip(),
             "base_version": stamp.get("baseVersion"),
             "display_version": stamp.get("displayVersion"),
+            # The stamp calls an untracked file dirty. This says whether the commit is the code.
+            "tracked_clean": not _git(
+                live / "hermes-agent", "status", "--porcelain", "--untracked-files=no"
+            ).strip(),
         },
         "release_commit": _git(tree, "rev-parse", "HEAD").strip(),
         "origin_master": _git(tree, "rev-parse", "origin/master").strip(),
@@ -2897,8 +2923,8 @@ def _payload(
             "plugin_verify": sha256_file(plugin / "verify.py"),
             "plugin_pyproject": sha256_file(plugin / "pyproject.toml"),
         },
-        "matrix": [dict(home) for home in homes],
-        "excluded": [dict(item) for item in excluded],
+        "matrix": [publish_home(home) for home in homes],
+        "excluded": publish_excluded(excluded),
         "stages": dict(stages),
         "checks": [dict(item) for item in checks],
         "spools": _collect_spools(root, homes),
