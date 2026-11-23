@@ -1,0 +1,3820 @@
+{
+ "schema": "petasos-composition-gate/v1",
+ "label": "run5",
+ "host": {
+  "os": "Windows",
+  "os_release": "10",
+  "python": "3.11.14",
+  "cpu_count": 16
+ },
+ "hermes": {
+  "commit": "5019bf706732a85a6bb2af8ec083bf82b6f94c5f",
+  "base_version": "0.22.5",
+  "display_version": "0.22.5+6.g5019bf7.dirty",
+  "tracked_clean": true
+ },
+ "release_commit": "5acfbb95b55496b85bffea84eaa7a508b662b717",
+ "origin_master": "91428bc007d3b324b81db52fa83e85e21668ced5",
+ "wheel_sha256": "98cd3c2898d13bbcb1f3326eb9b8914ab4e85f4d035c74e51c332ef6dd086148",
+ "hashes": {
+  "gate": "28ca7c2c0a25ec432c6bffe45356a8cf73eaecfc4bd3e8513fe0dec2899d46ac",
+  "harness": "d0b18a288e29b53db43c13559b635dcec82e8f271ef7add14f403bacd4120d2c",
+  "corpus": "e4d493b67ae1660cf8e60336e00cc8aefb27ca76a8ba1ebe94aebe8eeba23da8",
+  "plugin_init": "25f40e2b1363443e0f5d18c15cfad82a143c43ad9a74e23e32f7f81a8c87f8ad",
+  "plugin_yaml": "81bea58b7edece14d1e3940129717ea0b30b44821d0152f1be67b8d5825d9a60",
+  "plugin_verify": "0f694386590a26c864f09a5d82d27129dd7632b40996790a3df67d39b73a030f",
+  "plugin_pyproject": "fe3b8e31f1a311526a452c2dd017018c8b09d082b41640ecf889b19b1ef1e67d"
+ },
+ "matrix": [
+  {
+   "name": "default",
+   "section_sha256": "a19165ee17b754919aa08814819190a70be9456493688d98ba4a718583fdc7ec",
+   "overridden": [
+    "enabled",
+    "semgrep_enabled"
+   ],
+   "withheld_key_count": 0
+  },
+  {
+   "name": "gibson",
+   "section_sha256": "5e7a780c1d1977415340c222c6df51f8811b87c9eff5499600fe9b7dce6a911d",
+   "overridden": [
+    "enabled",
+    "semgrep_enabled"
+   ],
+   "withheld_key_count": 0
+  },
+  {
+   "name": "ops",
+   "section_sha256": "bdeae3616bce48969ba1e162f571575f5e581a6caf440dbc633b502e35d1f23a",
+   "overridden": [
+    "enabled",
+    "semgrep_enabled"
+   ],
+   "withheld_key_count": 0
+  }
+ ],
+ "excluded": {
+  "no_plugin_copy": 4,
+  "no_section": 3
+ },
+ "stages": {
+  "stage1": "passed",
+  "hooks": "passed",
+  "cold": "passed",
+  "negative": "passed",
+  "dash": "passed"
+ },
+ "checks": [
+  {
+   "check": "stage1.bootstrap",
+   "ok": true,
+   "detail": 0
+  },
+  {
+   "check": "stage1.plugin_kept",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "stage1.store_isolated",
+   "ok": true,
+   "detail": "<root>\\tools\\python-3.14.9+20261021-win32-x64\\python.exe"
+  },
+  {
+   "check": "provenance.root_not_live",
+   "ok": true,
+   "detail": "<root>"
+  },
+  {
+   "check": "provenance.deps_from_fake_root",
+   "ok": true,
+   "detail": "<root>\\installs\\71a9617b07b47200\\environments\\3f5a8b8f6a8a4b4e8e15666434ed5524\\venv\\Lib\\site-packages\\yaml\\__init__.py"
+  },
+  {
+   "check": "provenance.petasos_under_installs",
+   "ok": true,
+   "detail": "<root>\\installs\\71a9617b07b47200\\environments\\3f5a8b8f6a8a4b4e8e15666434ed5524\\venv\\Lib\\site-packages\\petasos\\__init__.py"
+  },
+  {
+   "check": "provenance.version",
+   "ok": true,
+   "detail": "0.5.0"
+  },
+  {
+   "check": "provenance.hermes_is_live_checkout",
+   "ok": true,
+   "detail": "<live>\\hermes-agent\\hermes_constants.py"
+  },
+  {
+   "check": "stage1.version",
+   "ok": true,
+   "detail": "0.5.0"
+  },
+  {
+   "check": "stage1.file_under_installs",
+   "ok": true,
+   "detail": "<root>\\installs\\71a9617b07b47200\\environments\\3f5a8b8f6a8a4b4e8e15666434ed5524\\venv\\Lib\\site-packages\\petasos\\__init__.py"
+  },
+  {
+   "check": "stage1.wheel_members",
+   "ok": true,
+   "detail": []
+  },
+  {
+   "check": "stage1.packages",
+   "ok": true,
+   "detail": []
+  },
+  {
+   "check": "stage1.completed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "provenance.root_not_live",
+   "ok": true,
+   "detail": "<root>"
+  },
+  {
+   "check": "provenance.deps_from_fake_root",
+   "ok": true,
+   "detail": "<root>\\installs\\71a9617b07b47200\\environments\\3f5a8b8f6a8a4b4e8e15666434ed5524\\venv\\Lib\\site-packages\\yaml\\__init__.py"
+  },
+  {
+   "check": "provenance.petasos_under_installs",
+   "ok": true,
+   "detail": "<root>\\installs\\71a9617b07b47200\\environments\\3f5a8b8f6a8a4b4e8e15666434ed5524\\venv\\Lib\\site-packages\\petasos\\__init__.py"
+  },
+  {
+   "check": "provenance.version",
+   "ok": true,
+   "detail": "0.5.0"
+  },
+  {
+   "check": "provenance.hermes_is_live_checkout",
+   "ok": true,
+   "detail": "<live>\\hermes-agent\\hermes_constants.py"
+  },
+  {
+   "check": "snapshot.complete",
+   "ok": true,
+   "detail": "<hf_cache>"
+  },
+  {
+   "check": "config.valid.default",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "build.names.default",
+   "ok": true,
+   "detail": [
+    [
+     "minimal",
+     "presidio",
+     "prompt_guard"
+    ],
+    [
+     "minimal",
+     "presidio",
+     "prompt_guard"
+    ]
+   ]
+  },
+  {
+   "check": "build.differential.default",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "build.llm_guard.default",
+   "ok": true,
+   "detail": {
+    "outcome": "disabled",
+    "reason": "disabled by config"
+   }
+  },
+  {
+   "check": "build.llama_firewall.default",
+   "ok": true,
+   "detail": {
+    "outcome": "disabled",
+    "reason": "disabled by config"
+   }
+  },
+  {
+   "check": "build.presidio.default",
+   "ok": true,
+   "detail": {
+    "outcome": "verified",
+    "reason": null
+   }
+  },
+  {
+   "check": "build.prompt_guard.default",
+   "ok": true,
+   "detail": {
+    "outcome": "verified",
+    "reason": null
+   }
+  },
+  {
+   "check": "build.semgrep.default",
+   "ok": true,
+   "detail": {
+    "outcome": "failed",
+    "reason": "semgrep.host_lifecycle_unavailable"
+   }
+  },
+  {
+   "check": "build.semgrep_unregistered.default",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "config.valid.gibson",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "build.names.gibson",
+   "ok": true,
+   "detail": [
+    [
+     "minimal",
+     "presidio",
+     "prompt_guard"
+    ],
+    [
+     "minimal",
+     "presidio",
+     "prompt_guard"
+    ]
+   ]
+  },
+  {
+   "check": "build.differential.gibson",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "build.llm_guard.gibson",
+   "ok": true,
+   "detail": {
+    "outcome": "disabled",
+    "reason": "disabled by config"
+   }
+  },
+  {
+   "check": "build.llama_firewall.gibson",
+   "ok": true,
+   "detail": {
+    "outcome": "disabled",
+    "reason": "disabled by config"
+   }
+  },
+  {
+   "check": "build.presidio.gibson",
+   "ok": true,
+   "detail": {
+    "outcome": "verified",
+    "reason": null
+   }
+  },
+  {
+   "check": "build.prompt_guard.gibson",
+   "ok": true,
+   "detail": {
+    "outcome": "verified",
+    "reason": null
+   }
+  },
+  {
+   "check": "build.semgrep.gibson",
+   "ok": true,
+   "detail": {
+    "outcome": "failed",
+    "reason": "semgrep.host_lifecycle_unavailable"
+   }
+  },
+  {
+   "check": "build.semgrep_unregistered.gibson",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "config.valid.ops",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "build.names.ops",
+   "ok": true,
+   "detail": [
+    [
+     "minimal",
+     "presidio",
+     "prompt_guard"
+    ],
+    [
+     "minimal",
+     "presidio",
+     "prompt_guard"
+    ]
+   ]
+  },
+  {
+   "check": "build.differential.ops",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "build.llm_guard.ops",
+   "ok": true,
+   "detail": {
+    "outcome": "disabled",
+    "reason": "disabled by config"
+   }
+  },
+  {
+   "check": "build.llama_firewall.ops",
+   "ok": true,
+   "detail": {
+    "outcome": "disabled",
+    "reason": "disabled by config"
+   }
+  },
+  {
+   "check": "build.presidio.ops",
+   "ok": true,
+   "detail": {
+    "outcome": "verified",
+    "reason": null
+   }
+  },
+  {
+   "check": "build.prompt_guard.ops",
+   "ok": true,
+   "detail": {
+    "outcome": "verified",
+    "reason": null
+   }
+  },
+  {
+   "check": "build.semgrep.ops",
+   "ok": true,
+   "detail": {
+    "outcome": "failed",
+    "reason": "semgrep.host_lifecycle_unavailable"
+   }
+  },
+  {
+   "check": "build.semgrep_unregistered.ops",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "load.plugin.default",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "load.plugin.gibson",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "load.plugin.ops",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "info.semgrep_refusal_log_lines",
+   "ok": true,
+   "detail": 3
+  },
+  {
+   "check": "config.validation_log",
+   "ok": true,
+   "detail": []
+  },
+  {
+   "check": "hooks.bound.cold-first-ops-3-call",
+   "ok": true,
+   "detail": {
+    "stage": "cold-first",
+    "elapsed": 0.10381739994045347,
+    "message": null
+   }
+  },
+  {
+   "check": "hooks.bound.cold-first-ops-6-call",
+   "ok": true,
+   "detail": {
+    "stage": "cold-first",
+    "elapsed": 0.1038401999976486,
+    "message": null
+   }
+  },
+  {
+   "check": "cold_first.ops.2",
+   "ok": true,
+   "detail": {
+    "outcome": "pass",
+    "allowed": true,
+    "reason": ""
+   }
+  },
+  {
+   "check": "cold_first.ops.5",
+   "ok": true,
+   "detail": {
+    "outcome": "pass",
+    "allowed": true,
+    "reason": ""
+   }
+  },
+  {
+   "check": "timing.cold_first.2",
+   "ok": true,
+   "detail": 0.10381739994045347
+  },
+  {
+   "check": "timing.cold_first.5",
+   "ok": true,
+   "detail": 0.1038401999976486
+  },
+  {
+   "check": "hooks.bound.cold-first-default-7-call",
+   "ok": true,
+   "detail": {
+    "stage": "cold-first",
+    "elapsed": 6.396516399923712,
+    "message": null
+   }
+  },
+  {
+   "check": "hooks.bound.cold-first-gibson-1-call",
+   "ok": true,
+   "detail": {
+    "stage": "cold-first",
+    "elapsed": 6.397442799992859,
+    "message": "[BLOCKED by Petasos] Tool 'terminal' was NOT executed. Parameter scan unavailable (scanner degraded); blocked by fail-mode policy."
+   }
+  },
+  {
+   "check": "cold_first.default.6",
+   "ok": true,
+   "detail": {
+    "outcome": "pass",
+    "allowed": true,
+    "reason": ""
+   }
+  },
+  {
+   "check": "timing.cold_first.6",
+   "ok": true,
+   "detail": 6.396516399923712
+  },
+  {
+   "check": "cold_first.gibson.7",
+   "ok": true,
+   "detail": {
+    "outcome": "fail_mode_block",
+    "allowed": true,
+    "reason": "param scan degraded"
+   }
+  },
+  {
+   "check": "timing.cold_first.7",
+   "ok": true,
+   "detail": 6.397442799992859
+  },
+  {
+   "check": "hooks.bound.cold-first-gibson-5-call",
+   "ok": true,
+   "detail": {
+    "stage": "cold-first",
+    "elapsed": 6.470183900091797,
+    "message": null
+   }
+  },
+  {
+   "check": "cold_first.gibson.4",
+   "ok": true,
+   "detail": {
+    "outcome": "pass",
+    "allowed": true,
+    "reason": ""
+   }
+  },
+  {
+   "check": "timing.cold_first.4",
+   "ok": true,
+   "detail": 6.470183900091797
+  },
+  {
+   "check": "hooks.bound.cold-first-default-4-call",
+   "ok": true,
+   "detail": {
+    "stage": "cold-first",
+    "elapsed": 6.515060200006701,
+    "message": null
+   }
+  },
+  {
+   "check": "cold_first.default.3",
+   "ok": true,
+   "detail": {
+    "outcome": "pass",
+    "allowed": true,
+    "reason": ""
+   }
+  },
+  {
+   "check": "timing.cold_first.3",
+   "ok": true,
+   "detail": 6.515060200006701
+  },
+  {
+   "check": "hooks.bound.cold-first-gibson-8-call",
+   "ok": true,
+   "detail": {
+    "stage": "cold-first",
+    "elapsed": 6.5659274000208825,
+    "message": null
+   }
+  },
+  {
+   "check": "cold_first.gibson.1",
+   "ok": true,
+   "detail": {
+    "outcome": "pass",
+    "allowed": true,
+    "reason": ""
+   }
+  },
+  {
+   "check": "timing.cold_first.1",
+   "ok": true,
+   "detail": 6.5659274000208825
+  },
+  {
+   "check": "hooks.bound.cold-first-default-2-call",
+   "ok": true,
+   "detail": {
+    "stage": "cold-first",
+    "elapsed": 6.614642599946819,
+    "message": null
+   }
+  },
+  {
+   "check": "cold_first.default.0",
+   "ok": true,
+   "detail": {
+    "outcome": "pass",
+    "allowed": true,
+    "reason": ""
+   }
+  },
+  {
+   "check": "timing.cold_first.0",
+   "ok": true,
+   "detail": 6.614642599946819
+  },
+  {
+   "check": "cold_first.no_worker_raised",
+   "ok": true,
+   "detail": []
+  },
+  {
+   "check": "cold_first.completed_calls",
+   "ok": true,
+   "detail": 8
+  },
+  {
+   "check": "cold_first.foreign.default",
+   "ok": true,
+   "detail": []
+  },
+  {
+   "check": "cold_first.foreign.gibson",
+   "ok": true,
+   "detail": []
+  },
+  {
+   "check": "cold_first.foreign.ops",
+   "ok": true,
+   "detail": []
+  },
+  {
+   "check": "hooks.bound.warmup-default-9-call",
+   "ok": true,
+   "detail": {
+    "stage": "warmup",
+    "elapsed": 0.05643819994293153,
+    "message": null
+   }
+  },
+  {
+   "check": "hooks.bound.warmup-default-10-call",
+   "ok": true,
+   "detail": {
+    "stage": "warmup",
+    "elapsed": 0.07832239998970181,
+    "message": null
+   }
+  },
+  {
+   "check": "warmup.default",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "hooks.bound.warmup-gibson-11-call",
+   "ok": true,
+   "detail": {
+    "stage": "warmup",
+    "elapsed": 0.05453590000979602,
+    "message": null
+   }
+  },
+  {
+   "check": "hooks.bound.warmup-gibson-12-call",
+   "ok": true,
+   "detail": {
+    "stage": "warmup",
+    "elapsed": 0.06668899999931455,
+    "message": null
+   }
+  },
+  {
+   "check": "warmup.gibson",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "hooks.bound.warmup-ops-13-call",
+   "ok": true,
+   "detail": {
+    "stage": "warmup",
+    "elapsed": 0.008073799894191325,
+    "message": null
+   }
+  },
+  {
+   "check": "hooks.bound.warmup-ops-14-call",
+   "ok": true,
+   "detail": {
+    "stage": "warmup",
+    "elapsed": 0.7990465000038967,
+    "message": null
+   }
+  },
+  {
+   "check": "warmup.ops",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "health.names.default",
+   "ok": true,
+   "detail": [
+    "minimal",
+    "presidio",
+    "prompt_guard"
+   ]
+  },
+  {
+   "check": "health.llm_guard.default",
+   "ok": true,
+   "detail": {
+    "status": null,
+    "ground": "disabled"
+   }
+  },
+  {
+   "check": "health.llama_firewall.default",
+   "ok": true,
+   "detail": {
+    "status": null,
+    "ground": "disabled"
+   }
+  },
+  {
+   "check": "health.presidio.default",
+   "ok": true,
+   "detail": {
+    "status": "healthy",
+    "ground": "usable"
+   }
+  },
+  {
+   "check": "health.prompt_guard.default",
+   "ok": true,
+   "detail": {
+    "status": "healthy",
+    "ground": "usable"
+   }
+  },
+  {
+   "check": "health.semgrep.default",
+   "ok": true,
+   "detail": {
+    "status": null,
+    "ground": "semgrep_refused"
+   }
+  },
+  {
+   "check": "health.names.gibson",
+   "ok": true,
+   "detail": [
+    "minimal",
+    "presidio",
+    "prompt_guard"
+   ]
+  },
+  {
+   "check": "health.llm_guard.gibson",
+   "ok": true,
+   "detail": {
+    "status": null,
+    "ground": "disabled"
+   }
+  },
+  {
+   "check": "health.llama_firewall.gibson",
+   "ok": true,
+   "detail": {
+    "status": null,
+    "ground": "disabled"
+   }
+  },
+  {
+   "check": "health.presidio.gibson",
+   "ok": true,
+   "detail": {
+    "status": "healthy",
+    "ground": "usable"
+   }
+  },
+  {
+   "check": "health.prompt_guard.gibson",
+   "ok": true,
+   "detail": {
+    "status": "healthy",
+    "ground": "usable"
+   }
+  },
+  {
+   "check": "health.semgrep.gibson",
+   "ok": true,
+   "detail": {
+    "status": null,
+    "ground": "semgrep_refused"
+   }
+  },
+  {
+   "check": "health.names.ops",
+   "ok": true,
+   "detail": [
+    "minimal",
+    "presidio",
+    "prompt_guard"
+   ]
+  },
+  {
+   "check": "health.llm_guard.ops",
+   "ok": true,
+   "detail": {
+    "status": null,
+    "ground": "disabled"
+   }
+  },
+  {
+   "check": "health.llama_firewall.ops",
+   "ok": true,
+   "detail": {
+    "status": null,
+    "ground": "disabled"
+   }
+  },
+  {
+   "check": "health.presidio.ops",
+   "ok": true,
+   "detail": {
+    "status": "healthy",
+    "ground": "usable"
+   }
+  },
+  {
+   "check": "health.prompt_guard.ops",
+   "ok": true,
+   "detail": {
+    "status": "healthy",
+    "ground": "usable"
+   }
+  },
+  {
+   "check": "health.semgrep.ops",
+   "ok": true,
+   "detail": {
+    "status": null,
+    "ground": "semgrep_refused"
+   }
+  },
+  {
+   "check": "corpus.margin.C04.default",
+   "ok": true,
+   "detail": 0.9993705153465271
+  },
+  {
+   "check": "corpus.margin.C04.gibson",
+   "ok": true,
+   "detail": 0.9993705153465271
+  },
+  {
+   "check": "corpus.margin.C04.ops",
+   "ok": true,
+   "detail": 0.9993705153465271
+  },
+  {
+   "check": "corpus.margin.C05.default",
+   "ok": true,
+   "detail": 0.9993959665298462
+  },
+  {
+   "check": "corpus.margin.C05.gibson",
+   "ok": true,
+   "detail": 0.9993959665298462
+  },
+  {
+   "check": "corpus.margin.C05.ops",
+   "ok": true,
+   "detail": 0.9993959665298462
+  },
+  {
+   "check": "corpus.margin.C06.default",
+   "ok": true,
+   "detail": 1.0
+  },
+  {
+   "check": "corpus.margin.C06.gibson",
+   "ok": true,
+   "detail": 1.0
+  },
+  {
+   "check": "corpus.margin.C06.ops",
+   "ok": true,
+   "detail": 1.0
+  },
+  {
+   "check": "corpus.margin.R02.default",
+   "ok": true,
+   "detail": 0.9993119239807129
+  },
+  {
+   "check": "corpus.margin.R02.gibson",
+   "ok": true,
+   "detail": 0.9993119239807129
+  },
+  {
+   "check": "corpus.margin.R02.ops",
+   "ok": true,
+   "detail": 0.9993119239807129
+  },
+  {
+   "check": "corpus.margin.R03.default",
+   "ok": true,
+   "detail": 0.9993705153465271
+  },
+  {
+   "check": "corpus.margin.R03.gibson",
+   "ok": true,
+   "detail": 0.9993705153465271
+  },
+  {
+   "check": "corpus.margin.R03.ops",
+   "ok": true,
+   "detail": 0.9993705153465271
+  },
+  {
+   "check": "corpus.assumes.default",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "hooks.bound.corpus-default-15-call",
+   "ok": true,
+   "detail": {
+    "stage": "corpus",
+    "elapsed": 0.0601989000570029,
+    "message": null
+   }
+  },
+  {
+   "check": "corpus.default.C01",
+   "ok": true,
+   "detail": "ok"
+  },
+  {
+   "check": "hooks.bound.corpus-default-16-call",
+   "ok": true,
+   "detail": {
+    "stage": "corpus",
+    "elapsed": 0.052766399923712015,
+    "message": null
+   }
+  },
+  {
+   "check": "corpus.default.C02",
+   "ok": true,
+   "detail": "ok"
+  },
+  {
+   "check": "hooks.bound.corpus-default-17-call",
+   "ok": true,
+   "detail": {
+    "stage": "corpus",
+    "elapsed": 0.05436269997153431,
+    "message": null
+   }
+  },
+  {
+   "check": "corpus.default.C03",
+   "ok": true,
+   "detail": "ok"
+  },
+  {
+   "check": "hooks.bound.corpus-default-18-call",
+   "ok": true,
+   "detail": {
+    "stage": "corpus",
+    "elapsed": 0.051365400082431734,
+    "message": "[BLOCKED by Petasos] Tool 'terminal' was NOT executed. Unsafe content detected in the tool parameters. Top finding: petasos.promptguard.injection (HIGH) \u2014 \"PromptGuard 2 injection score 0.999\"."
+   }
+  },
+  {
+   "check": "corpus.default.C04",
+   "ok": true,
+   "detail": "ok"
+  },
+  {
+   "check": "hooks.bound.corpus-default-19-call",
+   "ok": true,
+   "detail": {
+    "stage": "corpus",
+    "elapsed": 0.05133869999554008,
+    "message": "[BLOCKED by Petasos] Tool 'terminal' was NOT executed. Unsafe content detected in the tool parameters. Top finding: injection.ignore-previous (HIGH) \u2014 \"Injection pattern matched: ignore-previous\". (+1 additional finding)"
+   }
+  },
+  {
+   "check": "corpus.default.C05",
+   "ok": true,
+   "detail": "ok"
+  },
+  {
+   "check": "hooks.bound.corpus-default-20-call",
+   "ok": true,
+   "detail": {
+    "stage": "corpus",
+    "elapsed": 0.043140699970535934,
+    "message": "[BLOCKED by Petasos] Tool 'send_email' was NOT executed. Sensitive data (PII) was about to leave via this tool; the call was stopped. Top finding: petasos.presidio.email_address (HIGH) \u2014 \"PII detected: EMAIL_ADDRESS\"."
+   }
+  },
+  {
+   "check": "corpus.default.C06",
+   "ok": true,
+   "detail": "ok"
+  },
+  {
+   "check": "hooks.bound.corpus-default-21-call",
+   "ok": true,
+   "detail": {
+    "stage": "corpus",
+    "elapsed": 0.05147579999174923,
+    "message": null
+   }
+  },
+  {
+   "check": "corpus.default.C07",
+   "ok": true,
+   "detail": "ok"
+  },
+  {
+   "check": "hooks.bound.corpus-default-22-call",
+   "ok": true,
+   "detail": {
+    "stage": "corpus",
+    "elapsed": 0.05128129990771413,
+    "message": "[BLOCKED by Petasos] Tool 'terminal' was NOT executed. Unsafe content detected in the tool parameters. Top finding: command.fetch-exec (HIGH) \u2014 \"Obfuscated/destructive command pattern matched: fetch-exec\"."
+   }
+  },
+  {
+   "check": "corpus.default.C08",
+   "ok": true,
+   "detail": "ok"
+  },
+  {
+   "check": "hooks.bound.corpus-default-23-call",
+   "ok": true,
+   "detail": {
+    "stage": "corpus",
+    "elapsed": 0.04783169995062053,
+    "message": null
+   }
+  },
+  {
+   "check": "corpus.default.R01",
+   "ok": true,
+   "detail": "ok"
+  },
+  {
+   "check": "hooks.bound.corpus-default-24-call",
+   "ok": true,
+   "detail": {
+    "stage": "corpus",
+    "elapsed": 0.05139220005366951,
+    "message": null
+   }
+  },
+  {
+   "check": "corpus.default.R02",
+   "ok": true,
+   "detail": "ok"
+  },
+  {
+   "check": "hooks.bound.corpus-default-25-call",
+   "ok": true,
+   "detail": {
+    "stage": "corpus",
+    "elapsed": 0.05167239997535944,
+    "message": null
+   }
+  },
+  {
+   "check": "corpus.default.R03",
+   "ok": true,
+   "detail": "ok"
+  },
+  {
+   "check": "hooks.bound.corpus-default-26-call",
+   "ok": true,
+   "detail": {
+    "stage": "corpus",
+    "elapsed": 0.2595759000396356,
+    "message": null
+   }
+  },
+  {
+   "check": "corpus.default.R04",
+   "ok": true,
+   "detail": "ok"
+  },
+  {
+   "check": "hooks.bound.corpus-default-27-call",
+   "ok": true,
+   "detail": {
+    "stage": "corpus",
+    "elapsed": 0.045989600010216236,
+    "message": null
+   }
+  },
+  {
+   "check": "corpus.default.R05",
+   "ok": true,
+   "detail": "ok"
+  },
+  {
+   "check": "hooks.bound.corpus-default-28-call",
+   "ok": true,
+   "detail": {
+    "stage": "corpus",
+    "elapsed": 0.001293900073505938,
+    "message": null
+   }
+  },
+  {
+   "check": "corpus.default.R06",
+   "ok": true,
+   "detail": "ok"
+  },
+  {
+   "check": "corpus.assumes.gibson",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "hooks.bound.corpus-gibson-29-call",
+   "ok": true,
+   "detail": {
+    "stage": "corpus",
+    "elapsed": 0.05201069999020547,
+    "message": null
+   }
+  },
+  {
+   "check": "corpus.gibson.C01",
+   "ok": true,
+   "detail": "ok"
+  },
+  {
+   "check": "hooks.bound.corpus-gibson-30-call",
+   "ok": true,
+   "detail": {
+    "stage": "corpus",
+    "elapsed": 0.052569500054232776,
+    "message": null
+   }
+  },
+  {
+   "check": "corpus.gibson.C02",
+   "ok": true,
+   "detail": "ok"
+  },
+  {
+   "check": "hooks.bound.corpus-gibson-31-call",
+   "ok": true,
+   "detail": {
+    "stage": "corpus",
+    "elapsed": 0.05637500004377216,
+    "message": null
+   }
+  },
+  {
+   "check": "corpus.gibson.C03",
+   "ok": true,
+   "detail": "ok"
+  },
+  {
+   "check": "hooks.bound.corpus-gibson-32-call",
+   "ok": true,
+   "detail": {
+    "stage": "corpus",
+    "elapsed": 0.0655519999563694,
+    "message": "[BLOCKED by Petasos] Tool 'terminal' was NOT executed. Unsafe content detected in the tool parameters. Top finding: petasos.promptguard.injection (HIGH) \u2014 \"PromptGuard 2 injection score 0.999\"."
+   }
+  },
+  {
+   "check": "corpus.gibson.C04",
+   "ok": true,
+   "detail": "ok"
+  },
+  {
+   "check": "hooks.bound.corpus-gibson-33-call",
+   "ok": true,
+   "detail": {
+    "stage": "corpus",
+    "elapsed": 0.05566650000400841,
+    "message": "[BLOCKED by Petasos] Tool 'terminal' was NOT executed. Unsafe content detected in the tool parameters. Top finding: injection.ignore-previous (HIGH) \u2014 \"Injection pattern matched: ignore-previous\". (+1 additional finding)"
+   }
+  },
+  {
+   "check": "corpus.gibson.C05",
+   "ok": true,
+   "detail": "ok"
+  },
+  {
+   "check": "hooks.bound.corpus-gibson-34-call",
+   "ok": true,
+   "detail": {
+    "stage": "corpus",
+    "elapsed": 0.05359139991924167,
+    "message": "[BLOCKED by Petasos] Tool 'send_email' was NOT executed. Sensitive data (PII) was about to leave via this tool; the call was stopped. Top finding: petasos.presidio.email_address (HIGH) \u2014 \"PII detected: EMAIL_ADDRESS\"."
+   }
+  },
+  {
+   "check": "corpus.gibson.C06",
+   "ok": true,
+   "detail": "ok"
+  },
+  {
+   "check": "hooks.bound.corpus-gibson-35-call",
+   "ok": true,
+   "detail": {
+    "stage": "corpus",
+    "elapsed": 0.05819120001979172,
+    "message": null
+   }
+  },
+  {
+   "check": "corpus.gibson.C07",
+   "ok": true,
+   "detail": "ok"
+  },
+  {
+   "check": "hooks.bound.corpus-gibson-36-call",
+   "ok": true,
+   "detail": {
+    "stage": "corpus",
+    "elapsed": 0.05353889998514205,
+    "message": "[BLOCKED by Petasos] Tool 'terminal' was NOT executed. Unsafe content detected in the tool parameters. Top finding: command.fetch-exec (HIGH) \u2014 \"Obfuscated/destructive command pattern matched: fetch-exec\"."
+   }
+  },
+  {
+   "check": "corpus.gibson.C08",
+   "ok": true,
+   "detail": "ok"
+  },
+  {
+   "check": "hooks.bound.corpus-gibson-37-call",
+   "ok": true,
+   "detail": {
+    "stage": "corpus",
+    "elapsed": 0.052868800004944205,
+    "message": null
+   }
+  },
+  {
+   "check": "corpus.gibson.R01",
+   "ok": true,
+   "detail": "ok"
+  },
+  {
+   "check": "hooks.bound.corpus-gibson-38-call",
+   "ok": true,
+   "detail": {
+    "stage": "corpus",
+    "elapsed": 0.05694729997776449,
+    "message": null
+   }
+  },
+  {
+   "check": "corpus.gibson.R02",
+   "ok": true,
+   "detail": "ok"
+  },
+  {
+   "check": "hooks.bound.corpus-gibson-39-call",
+   "ok": true,
+   "detail": {
+    "stage": "corpus",
+    "elapsed": 0.05533830006606877,
+    "message": null
+   }
+  },
+  {
+   "check": "corpus.gibson.R03",
+   "ok": true,
+   "detail": "ok"
+  },
+  {
+   "check": "hooks.bound.corpus-gibson-40-call",
+   "ok": true,
+   "detail": {
+    "stage": "corpus",
+    "elapsed": 0.2510496999602765,
+    "message": null
+   }
+  },
+  {
+   "check": "corpus.gibson.R04",
+   "ok": true,
+   "detail": "ok"
+  },
+  {
+   "check": "hooks.bound.corpus-gibson-41-call",
+   "ok": true,
+   "detail": {
+    "stage": "corpus",
+    "elapsed": 0.04540059994906187,
+    "message": null
+   }
+  },
+  {
+   "check": "corpus.gibson.R05",
+   "ok": true,
+   "detail": "ok"
+  },
+  {
+   "check": "hooks.bound.corpus-gibson-42-call",
+   "ok": true,
+   "detail": {
+    "stage": "corpus",
+    "elapsed": 0.0015959999291226268,
+    "message": null
+   }
+  },
+  {
+   "check": "corpus.gibson.R06",
+   "ok": true,
+   "detail": "ok"
+  },
+  {
+   "check": "corpus.assumes.ops",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "hooks.bound.corpus-ops-43-call",
+   "ok": true,
+   "detail": {
+    "stage": "corpus",
+    "elapsed": 0.005645599914714694,
+    "message": null
+   }
+  },
+  {
+   "check": "corpus.ops.C01",
+   "ok": true,
+   "detail": "ok"
+  },
+  {
+   "check": "hooks.bound.corpus-ops-44-call",
+   "ok": true,
+   "detail": {
+    "stage": "corpus",
+    "elapsed": 0.0011557999532669783,
+    "message": null
+   }
+  },
+  {
+   "check": "corpus.ops.C02",
+   "ok": true,
+   "detail": "ok"
+  },
+  {
+   "check": "hooks.bound.corpus-ops-45-call",
+   "ok": true,
+   "detail": {
+    "stage": "corpus",
+    "elapsed": 0.0010939999483525753,
+    "message": null
+   }
+  },
+  {
+   "check": "corpus.ops.C03",
+   "ok": true,
+   "detail": "ok"
+  },
+  {
+   "check": "hooks.bound.corpus-ops-46-call",
+   "ok": true,
+   "detail": {
+    "stage": "corpus",
+    "elapsed": 0.0010842999909073114,
+    "message": null
+   }
+  },
+  {
+   "check": "corpus.ops.C04",
+   "ok": true,
+   "detail": "ok"
+  },
+  {
+   "check": "hooks.bound.corpus-ops-47-call",
+   "ok": true,
+   "detail": {
+    "stage": "corpus",
+    "elapsed": 0.00111109996214509,
+    "message": null
+   }
+  },
+  {
+   "check": "corpus.ops.C05",
+   "ok": true,
+   "detail": "ok"
+  },
+  {
+   "check": "hooks.bound.corpus-ops-48-call",
+   "ok": true,
+   "detail": {
+    "stage": "corpus",
+    "elapsed": 0.0014044999843463302,
+    "message": null
+   }
+  },
+  {
+   "check": "corpus.ops.C06",
+   "ok": true,
+   "detail": "ok"
+  },
+  {
+   "check": "hooks.bound.corpus-ops-49-call",
+   "ok": true,
+   "detail": {
+    "stage": "corpus",
+    "elapsed": 0.0013475000159814954,
+    "message": null
+   }
+  },
+  {
+   "check": "corpus.ops.C07",
+   "ok": true,
+   "detail": "ok"
+  },
+  {
+   "check": "hooks.bound.corpus-ops-50-call",
+   "ok": true,
+   "detail": {
+    "stage": "corpus",
+    "elapsed": 0.0012241000076755881,
+    "message": null
+   }
+  },
+  {
+   "check": "corpus.ops.C08",
+   "ok": true,
+   "detail": "ok"
+  },
+  {
+   "check": "hooks.bound.corpus-ops-51-call",
+   "ok": true,
+   "detail": {
+    "stage": "corpus",
+    "elapsed": 0.04950459999963641,
+    "message": null
+   }
+  },
+  {
+   "check": "corpus.ops.R01",
+   "ok": true,
+   "detail": "ok"
+  },
+  {
+   "check": "hooks.bound.corpus-ops-52-call",
+   "ok": true,
+   "detail": {
+    "stage": "corpus",
+    "elapsed": 0.0580238999100402,
+    "message": null
+   }
+  },
+  {
+   "check": "corpus.ops.R02",
+   "ok": true,
+   "detail": "ok"
+  },
+  {
+   "check": "hooks.bound.corpus-ops-53-call",
+   "ok": true,
+   "detail": {
+    "stage": "corpus",
+    "elapsed": 0.05413320008665323,
+    "message": null
+   }
+  },
+  {
+   "check": "corpus.ops.R03",
+   "ok": true,
+   "detail": "ok"
+  },
+  {
+   "check": "hooks.bound.corpus-ops-54-call",
+   "ok": true,
+   "detail": {
+    "stage": "corpus",
+    "elapsed": 0.23403310007415712,
+    "message": null
+   }
+  },
+  {
+   "check": "corpus.ops.R04",
+   "ok": true,
+   "detail": "ok"
+  },
+  {
+   "check": "hooks.bound.corpus-ops-55-call",
+   "ok": true,
+   "detail": {
+    "stage": "corpus",
+    "elapsed": 0.04635929991491139,
+    "message": null
+   }
+  },
+  {
+   "check": "corpus.ops.R05",
+   "ok": true,
+   "detail": "ok"
+  },
+  {
+   "check": "hooks.bound.corpus-ops-56-call",
+   "ok": true,
+   "detail": {
+    "stage": "corpus",
+    "elapsed": 0.0012298999354243279,
+    "message": null
+   }
+  },
+  {
+   "check": "corpus.ops.R06",
+   "ok": true,
+   "detail": "ok"
+  },
+  {
+   "check": "info.approval",
+   "ok": true,
+   "detail": {
+    "exercised": false,
+    "reason": "no matrix profile uses the approve posture"
+   }
+  },
+  {
+   "check": "hooks.bound.load-ops-60-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 0.01233269996009767,
+    "message": null
+   }
+  },
+  {
+   "check": "load.pre.5.0",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-ops-58-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 0.017951700021512806,
+    "message": null
+   }
+  },
+  {
+   "check": "load.pre.2.0",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-gibson-57-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 0.06971349997911602,
+    "message": null
+   }
+  },
+  {
+   "check": "load.pre.7.0",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-default-59-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 0.1184175000526011,
+    "message": null
+   }
+  },
+  {
+   "check": "load.pre.3.0",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-gibson-62-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 0.16726759995799512,
+    "message": null
+   }
+  },
+  {
+   "check": "load.pre.1.0",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-default-61-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 0.21822909999173135,
+    "message": null
+   }
+  },
+  {
+   "check": "load.pre.0.0",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-gibson-63-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 0.26736880000680685,
+    "message": null
+   }
+  },
+  {
+   "check": "load.pre.4.0",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-default-64-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 0.3176977999974042,
+    "message": null
+   }
+  },
+  {
+   "check": "load.pre.6.0",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-ops-66-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 0.006795899942517281,
+    "message": null
+   }
+  },
+  {
+   "check": "hooks.bound.load-ops-68-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 0.00944970001000911,
+    "message": null
+   }
+  },
+  {
+   "check": "load.pre.2.1",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "load.pre.5.1",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-default-65-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 0.06271540001034737,
+    "message": null
+   }
+  },
+  {
+   "check": "load.pre.6.1",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-gibson-69-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 0.11198410007636994,
+    "message": null
+   }
+  },
+  {
+   "check": "load.pre.7.1",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-default-67-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 0.1616478000069037,
+    "message": null
+   }
+  },
+  {
+   "check": "load.pre.0.1",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-gibson-70-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 0.210192900034599,
+    "message": null
+   }
+  },
+  {
+   "check": "load.pre.1.1",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-default-72-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 0.26064280001446605,
+    "message": null
+   }
+  },
+  {
+   "check": "load.pre.3.1",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-gibson-71-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 0.31154350005090237,
+    "message": null
+   }
+  },
+  {
+   "check": "load.pre.4.1",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-ops-74-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 0.015431599924340844,
+    "message": null
+   }
+  },
+  {
+   "check": "load.pre.2.2",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-ops-78-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 0.02099709992762655,
+    "message": null
+   }
+  },
+  {
+   "check": "load.pre.5.2",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-default-73-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 0.07747429993469268,
+    "message": null
+   }
+  },
+  {
+   "check": "load.pre.3.2",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-gibson-75-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 0.12594800000078976,
+    "message": null
+   }
+  },
+  {
+   "check": "load.pre.7.2",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-default-76-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 0.17833180003799498,
+    "message": null
+   }
+  },
+  {
+   "check": "load.pre.0.2",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-gibson-77-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 0.22752840002067387,
+    "message": null
+   }
+  },
+  {
+   "check": "load.pre.4.2",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-default-79-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 0.277320499997586,
+    "message": null
+   }
+  },
+  {
+   "check": "load.pre.6.2",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-gibson-80-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 0.32426349993329495,
+    "message": null
+   }
+  },
+  {
+   "check": "load.pre.1.2",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-ops-82-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 0.007527199923060834,
+    "message": null
+   }
+  },
+  {
+   "check": "load.pre.2.3",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-ops-88-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 0.015226199990138412,
+    "message": null
+   }
+  },
+  {
+   "check": "load.pre.5.3",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-gibson-81-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 0.06459590001031756,
+    "message": null
+   }
+  },
+  {
+   "check": "load.pre.1.3",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-default-84-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 0.11425500002223998,
+    "message": null
+   }
+  },
+  {
+   "check": "load.pre.6.3",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-gibson-86-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 0.1633756998926401,
+    "message": null
+   }
+  },
+  {
+   "check": "load.pre.4.3",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-default-87-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 0.21225039998535067,
+    "message": null
+   }
+  },
+  {
+   "check": "load.pre.3.3",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-gibson-83-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 0.262199200107716,
+    "message": null
+   }
+  },
+  {
+   "check": "load.pre.7.3",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-default-85-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 0.3074690999928862,
+    "message": null
+   }
+  },
+  {
+   "check": "load.pre.0.3",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-ops-89-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 0.005258899996988475,
+    "message": null
+   }
+  },
+  {
+   "check": "load.pre.5.4",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-ops-92-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 0.029374699923209846,
+    "message": null
+   }
+  },
+  {
+   "check": "load.pre.2.4",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-gibson-90-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 0.09396979992743582,
+    "message": null
+   }
+  },
+  {
+   "check": "load.pre.4.4",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-default-94-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 0.14500249992124736,
+    "message": null
+   }
+  },
+  {
+   "check": "load.pre.3.4",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-gibson-91-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 0.195109200081788,
+    "message": null
+   }
+  },
+  {
+   "check": "load.pre.1.4",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-default-93-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 0.24085880001075566,
+    "message": null
+   }
+  },
+  {
+   "check": "load.pre.0.4",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-gibson-96-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 0.2901687999255955,
+    "message": null
+   }
+  },
+  {
+   "check": "load.pre.7.4",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-default-95-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 0.3371099999640137,
+    "message": null
+   }
+  },
+  {
+   "check": "load.pre.6.4",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-default-97-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 0.312772799981758,
+    "message": null
+   }
+  },
+  {
+   "check": "load.result.6.0",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-ops-98-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 0.5586800000164658,
+    "message": null
+   }
+  },
+  {
+   "check": "load.result.5.0",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-default-99-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 0.8124207999790087,
+    "message": null
+   }
+  },
+  {
+   "check": "load.result.3.0",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-gibson-100-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 1.0654289000667632,
+    "message": null
+   }
+  },
+  {
+   "check": "load.result.7.0",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-default-102-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 1.329071699990891,
+    "message": null
+   }
+  },
+  {
+   "check": "load.result.0.0",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-ops-101-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 1.5724221999989823,
+    "message": null
+   }
+  },
+  {
+   "check": "load.result.2.0",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-gibson-103-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 1.835104800062254,
+    "message": null
+   }
+  },
+  {
+   "check": "load.result.4.0",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-gibson-104-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 2.087052599992603,
+    "message": null
+   }
+  },
+  {
+   "check": "load.result.1.0",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-gibson-106-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 0.31365160003770143,
+    "message": null
+   }
+  },
+  {
+   "check": "load.result.4.1",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-ops-105-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 0.5594366999575868,
+    "message": null
+   }
+  },
+  {
+   "check": "load.result.2.1",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-gibson-109-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 0.8144619000377133,
+    "message": null
+   }
+  },
+  {
+   "check": "load.result.7.1",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-default-108-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 1.077489799936302,
+    "message": null
+   }
+  },
+  {
+   "check": "load.result.3.1",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-ops-107-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 1.326197599992156,
+    "message": null
+   }
+  },
+  {
+   "check": "load.result.5.1",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-gibson-111-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 1.567414200049825,
+    "message": null
+   }
+  },
+  {
+   "check": "load.result.1.1",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-default-110-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 1.8049775999970734,
+    "message": null
+   }
+  },
+  {
+   "check": "load.result.0.1",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-default-112-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 2.055838399915956,
+    "message": null
+   }
+  },
+  {
+   "check": "load.result.6.1",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-gibson-114-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 0.3070535999722779,
+    "message": null
+   }
+  },
+  {
+   "check": "load.result.7.2",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-default-113-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 0.5607770999195054,
+    "message": null
+   }
+  },
+  {
+   "check": "load.result.6.2",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-ops-115-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 0.8078559000277892,
+    "message": null
+   }
+  },
+  {
+   "check": "load.result.5.2",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-default-116-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 1.054799500037916,
+    "message": null
+   }
+  },
+  {
+   "check": "load.result.0.2",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-ops-118-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 1.2946221000747755,
+    "message": null
+   }
+  },
+  {
+   "check": "load.result.2.2",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-default-119-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 1.5421703000320122,
+    "message": null
+   }
+  },
+  {
+   "check": "load.result.3.2",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-gibson-117-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 1.785454099997878,
+    "message": null
+   }
+  },
+  {
+   "check": "load.result.1.2",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-gibson-120-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 2.042412900016643,
+    "message": null
+   }
+  },
+  {
+   "check": "load.result.4.2",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-ops-121-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 0.30912470002658665,
+    "message": null
+   }
+  },
+  {
+   "check": "load.result.5.3",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-default-123-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 0.563396199955605,
+    "message": null
+   }
+  },
+  {
+   "check": "load.result.0.3",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-gibson-124-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 0.810912900022231,
+    "message": null
+   }
+  },
+  {
+   "check": "load.result.1.3",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-default-125-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 1.0646715000038967,
+    "message": null
+   }
+  },
+  {
+   "check": "load.result.6.3",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-gibson-126-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 1.3183816000819206,
+    "message": null
+   }
+  },
+  {
+   "check": "load.result.4.3",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-default-127-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 1.5753741000080481,
+    "message": null
+   }
+  },
+  {
+   "check": "load.result.3.3",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-ops-122-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 1.8149055999238044,
+    "message": null
+   }
+  },
+  {
+   "check": "load.result.2.3",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-gibson-128-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 2.0628880000440404,
+    "message": null
+   }
+  },
+  {
+   "check": "load.result.7.3",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-default-129-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 0.2995969000039622,
+    "message": null
+   }
+  },
+  {
+   "check": "load.result.0.4",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-gibson-130-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 0.5513537999941036,
+    "message": null
+   }
+  },
+  {
+   "check": "load.result.7.4",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-ops-132-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 0.8021938999881968,
+    "message": null
+   }
+  },
+  {
+   "check": "load.result.5.4",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-default-133-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 1.0497545000398532,
+    "message": null
+   }
+  },
+  {
+   "check": "load.result.6.4",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-ops-136-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 1.3091111000394449,
+    "message": null
+   }
+  },
+  {
+   "check": "load.result.2.4",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-gibson-131-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 1.5462011999916285,
+    "message": null
+   }
+  },
+  {
+   "check": "load.result.1.4",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-default-134-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 1.7985745000187308,
+    "message": null
+   }
+  },
+  {
+   "check": "load.result.3.4",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "hooks.bound.load-gibson-135-call",
+   "ok": true,
+   "detail": {
+    "stage": "load",
+    "elapsed": 2.040722700068727,
+    "message": null
+   }
+  },
+  {
+   "check": "load.result.4.4",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "load.no_worker_raised",
+   "ok": true,
+   "detail": []
+  },
+  {
+   "check": "load.completed_calls",
+   "ok": true,
+   "detail": 80
+  },
+  {
+   "check": "timing.load.pre",
+   "ok": true,
+   "detail": {
+    "min": 0.005258899996988475,
+    "mean": 0.1513749349891441,
+    "p95": 0.3176977999974042,
+    "max": 0.3371099999640137,
+    "n": 40
+   }
+  },
+  {
+   "check": "timing.load.result",
+   "ok": true,
+   "detail": {
+    "min": 0.2995969000039622,
+    "mean": 1.1851182575075654,
+    "p95": 2.055838399915956,
+    "max": 2.087052599992603,
+    "n": 40
+   }
+  },
+  {
+   "check": "timing.health.default",
+   "ok": true,
+   "detail": {
+    "presidio": 78.86269991286099,
+    "prompt_guard": 746.9354000641033
+   }
+  },
+  {
+   "check": "timing.health.gibson",
+   "ok": true,
+   "detail": {
+    "presidio": 80.45380003750324,
+    "prompt_guard": 493.69589996058494
+   }
+  },
+  {
+   "check": "timing.health.ops",
+   "ok": true,
+   "detail": {
+    "presidio": 81.87120000366122,
+    "prompt_guard": 506.1596999876201
+   }
+  },
+  {
+   "check": "spool.malformed.default",
+   "ok": true,
+   "detail": []
+  },
+  {
+   "check": "spool.verified.default",
+   "ok": true,
+   "detail": 7
+  },
+  {
+   "check": "spool.sessions.default",
+   "ok": true,
+   "detail": []
+  },
+  {
+   "check": "spool.malformed.gibson",
+   "ok": true,
+   "detail": []
+  },
+  {
+   "check": "spool.verified.gibson",
+   "ok": true,
+   "detail": 8
+  },
+  {
+   "check": "spool.sessions.gibson",
+   "ok": true,
+   "detail": []
+  },
+  {
+   "check": "spool.malformed.ops",
+   "ok": true,
+   "detail": []
+  },
+  {
+   "check": "spool.verified.ops",
+   "ok": true,
+   "detail": 3
+  },
+  {
+   "check": "spool.sessions.ops",
+   "ok": true,
+   "detail": []
+  },
+  {
+   "check": "spool.cross_home.gibson",
+   "ok": true,
+   "detail": []
+  },
+  {
+   "check": "spool.cross_home.default",
+   "ok": true,
+   "detail": []
+  },
+  {
+   "check": "spool.cross_home.ops",
+   "ok": true,
+   "detail": []
+  },
+  {
+   "check": "semgrep.no_rule.default",
+   "ok": true,
+   "detail": []
+  },
+  {
+   "check": "semgrep.no_rule.gibson",
+   "ok": true,
+   "detail": []
+  },
+  {
+   "check": "semgrep.no_rule.ops",
+   "ok": true,
+   "detail": []
+  },
+  {
+   "check": "hooks.no_host_skip.cold-first",
+   "ok": true,
+   "detail": []
+  },
+  {
+   "check": "hooks.no_host_skip.warmup",
+   "ok": true,
+   "detail": []
+  },
+  {
+   "check": "hooks.no_host_skip.corpus",
+   "ok": true,
+   "detail": []
+  },
+  {
+   "check": "hooks.no_host_skip.approval",
+   "ok": true,
+   "detail": []
+  },
+  {
+   "check": "hooks.no_host_skip.load",
+   "ok": true,
+   "detail": []
+  },
+  {
+   "check": "hooks.no_host_skip.setup",
+   "ok": true,
+   "detail": []
+  },
+  {
+   "check": "hooks.no_host_skip.load-plugins",
+   "ok": true,
+   "detail": []
+  },
+  {
+   "check": "hooks.completed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "provenance.root_not_live",
+   "ok": true,
+   "detail": "<root>"
+  },
+  {
+   "check": "provenance.deps_from_fake_root",
+   "ok": true,
+   "detail": "<root>\\installs\\71a9617b07b47200\\environments\\3f5a8b8f6a8a4b4e8e15666434ed5524\\venv\\Lib\\site-packages\\yaml\\__init__.py"
+  },
+  {
+   "check": "provenance.petasos_under_installs",
+   "ok": true,
+   "detail": "<root>\\installs\\71a9617b07b47200\\environments\\3f5a8b8f6a8a4b4e8e15666434ed5524\\venv\\Lib\\site-packages\\petasos\\__init__.py"
+  },
+  {
+   "check": "provenance.version",
+   "ok": true,
+   "detail": "0.5.0"
+  },
+  {
+   "check": "provenance.hermes_is_live_checkout",
+   "ok": true,
+   "detail": "<live>\\hermes-agent\\hermes_constants.py"
+  },
+  {
+   "check": "cold.no_backend",
+   "ok": true,
+   "detail": "default"
+  },
+  {
+   "check": "cold.presidio_timeout",
+   "ok": true,
+   "detail": 0.05294470000080764
+  },
+  {
+   "check": "timing.cold.presidio_delivery",
+   "ok": true,
+   "detail": 0.05294470000080764
+  },
+  {
+   "check": "cold.presidio_follow",
+   "ok": true,
+   "detail": {
+    "error": null,
+    "rules": [
+     "petasos.presidio.email_address"
+    ]
+   }
+  },
+  {
+   "check": "cold.prompt_guard_timeout",
+   "ok": true,
+   "detail": 0.2683120999718085
+  },
+  {
+   "check": "timing.cold.prompt_guard_delivery",
+   "ok": true,
+   "detail": 0.2683120999718085
+  },
+  {
+   "check": "cold.prompt_guard_follow",
+   "ok": true,
+   "detail": [
+    "petasos.promptguard.injection"
+   ]
+  },
+  {
+   "check": "cold.cancel",
+   "ok": true,
+   "detail": {
+    "elapsed": 0.09765550005249679,
+    "cancel": true
+   }
+  },
+  {
+   "check": "cold.cancel_follow",
+   "ok": true,
+   "detail": null
+  },
+  {
+   "check": "cold.completed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "provenance.root_not_live",
+   "ok": true,
+   "detail": "<root>"
+  },
+  {
+   "check": "provenance.deps_from_fake_root",
+   "ok": true,
+   "detail": "<root>\\installs\\71a9617b07b47200\\environments\\3f5a8b8f6a8a4b4e8e15666434ed5524\\venv\\Lib\\site-packages\\yaml\\__init__.py"
+  },
+  {
+   "check": "provenance.petasos_under_installs",
+   "ok": true,
+   "detail": "<root>\\installs\\71a9617b07b47200\\environments\\3f5a8b8f6a8a4b4e8e15666434ed5524\\venv\\Lib\\site-packages\\petasos\\__init__.py"
+  },
+  {
+   "check": "provenance.version",
+   "ok": true,
+   "detail": "0.5.0"
+  },
+  {
+   "check": "provenance.hermes_is_live_checkout",
+   "ok": true,
+   "detail": "<live>\\hermes-agent\\hermes_constants.py"
+  },
+  {
+   "check": "negative.loaded.default",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "negative.loaded.gibson",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "negative.loaded.ops",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "hooks.bound.negative-default-1-call",
+   "ok": true,
+   "detail": {
+    "stage": "negative",
+    "elapsed": 5.074391299975105,
+    "message": "[BLOCKED by Petasos] Tool 'terminal' was NOT executed. Parameter scan unavailable (scanner degraded); blocked by fail-mode policy."
+   }
+  },
+  {
+   "check": "hooks.bound.negative-default-2-call",
+   "ok": true,
+   "detail": {
+    "stage": "negative",
+    "elapsed": 0.012509900028817356,
+    "message": "[BLOCKED by Petasos] Tool 'terminal' was NOT executed. Parameter scan unavailable (scanner degraded); blocked by fail-mode policy."
+   }
+  },
+  {
+   "check": "negative.default",
+   "ok": true,
+   "detail": {
+    "why": "ok",
+    "before": 0
+   }
+  },
+  {
+   "check": "negative.health.default",
+   "ok": true,
+   "detail": {
+    "name": "prompt_guard",
+    "status": "unavailable",
+    "last_ms": 0.2221000613644719,
+    "consecutive_timeouts": 0,
+    "last_error": "PromptGuard model unavailable: revision a8ded8e697ce7c355e395a0df51f94adb4a2fd27 of meta-llama/Llama-Prompt-Guard-2-86M is not fully cached and cannot be downloaded (no Hugging Face token, or offline). Accept the model license, then run: hf download meta-llama/Llama-Prompt-Guard-2-86M --revision a8ded8e697ce7c355e395a0df51f94adb4a2fd27. On a multiplexed gateway a token in profiles/<name>/.env is not seen; see docs/deployment/hermes-desktop.md (\"PromptGuard model prerequisites\")"
+   }
+  },
+  {
+   "check": "hooks.bound.negative-gibson-3-call",
+   "ok": true,
+   "detail": {
+    "stage": "negative",
+    "elapsed": 0.6869016999844462,
+    "message": "[BLOCKED by Petasos] Tool 'terminal' was NOT executed. Parameter scan unavailable (scanner degraded); blocked by fail-mode policy."
+   }
+  },
+  {
+   "check": "hooks.bound.negative-gibson-4-call",
+   "ok": true,
+   "detail": {
+    "stage": "negative",
+    "elapsed": 0.006228399928659201,
+    "message": "[BLOCKED by Petasos] Tool 'terminal' was NOT executed. Parameter scan unavailable (scanner degraded); blocked by fail-mode policy."
+   }
+  },
+  {
+   "check": "negative.gibson",
+   "ok": true,
+   "detail": {
+    "why": "ok",
+    "before": 0
+   }
+  },
+  {
+   "check": "negative.health.gibson",
+   "ok": true,
+   "detail": {
+    "name": "prompt_guard",
+    "status": "unavailable",
+    "last_ms": 0.4007999086752534,
+    "consecutive_timeouts": 0,
+    "last_error": "PromptGuard model unavailable: revision a8ded8e697ce7c355e395a0df51f94adb4a2fd27 of meta-llama/Llama-Prompt-Guard-2-86M is not fully cached and cannot be downloaded (no Hugging Face token, or offline). Accept the model license, then run: hf download meta-llama/Llama-Prompt-Guard-2-86M --revision a8ded8e697ce7c355e395a0df51f94adb4a2fd27. On a multiplexed gateway a token in profiles/<name>/.env is not seen; see docs/deployment/hermes-desktop.md (\"PromptGuard model prerequisites\")"
+   }
+  },
+  {
+   "check": "hooks.bound.negative-ops-5-call",
+   "ok": true,
+   "detail": {
+    "stage": "negative",
+    "elapsed": 0.029451800044625998,
+    "message": null
+   }
+  },
+  {
+   "check": "hooks.bound.negative-ops-6-call",
+   "ok": true,
+   "detail": {
+    "stage": "negative",
+    "elapsed": 0.0013605999993160367,
+    "message": null
+   }
+  },
+  {
+   "check": "negative.ops",
+   "ok": true,
+   "detail": {
+    "why": "ok",
+    "before": 0,
+    "recorded_as": "guard_disabled"
+   }
+  },
+  {
+   "check": "negative.health.ops",
+   "ok": true,
+   "detail": {
+    "name": "prompt_guard",
+    "status": "unavailable",
+    "last_ms": null,
+    "consecutive_timeouts": 0,
+    "last_error": "PromptGuard model unavailable: revision a8ded8e697ce7c355e395a0df51f94adb4a2fd27 of meta-llama/Llama-Prompt-Guard-2-86M is not fully cached and cannot be downloaded (no Hugging Face token, or offline). Accept the model license, then run: hf download meta-llama/Llama-Prompt-Guard-2-86M --revision a8ded8e697ce7c355e395a0df51f94adb4a2fd27. On a multiplexed gateway a token in profiles/<name>/.env is not seen; see docs/deployment/hermes-desktop.md (\"PromptGuard model prerequisites\")"
+   }
+  },
+  {
+   "check": "negative.block_shown",
+   "ok": true,
+   "detail": [
+    {
+     "fail_mode": "closed",
+     "blocked": true,
+     "c01_matched": true,
+     "c04_matched": true
+    },
+    {
+     "fail_mode": "closed",
+     "blocked": true,
+     "c01_matched": true,
+     "c04_matched": true
+    },
+    {
+     "fail_mode": "open",
+     "blocked": false,
+     "c01_matched": true,
+     "c04_matched": true
+    }
+   ]
+  },
+  {
+   "check": "spool.malformed.default",
+   "ok": true,
+   "detail": []
+  },
+  {
+   "check": "spool.verified.default",
+   "ok": true,
+   "detail": 2
+  },
+  {
+   "check": "spool.sessions.default",
+   "ok": true,
+   "detail": []
+  },
+  {
+   "check": "spool.malformed.gibson",
+   "ok": true,
+   "detail": []
+  },
+  {
+   "check": "spool.verified.gibson",
+   "ok": true,
+   "detail": 2
+  },
+  {
+   "check": "spool.sessions.gibson",
+   "ok": true,
+   "detail": []
+  },
+  {
+   "check": "spool.malformed.ops",
+   "ok": true,
+   "detail": []
+  },
+  {
+   "check": "spool.verified.ops",
+   "ok": true,
+   "detail": 0
+  },
+  {
+   "check": "spool.sessions.ops",
+   "ok": true,
+   "detail": []
+  },
+  {
+   "check": "spool.cross_home.default",
+   "ok": true,
+   "detail": []
+  },
+  {
+   "check": "spool.cross_home.gibson",
+   "ok": true,
+   "detail": []
+  },
+  {
+   "check": "spool.cross_home.ops",
+   "ok": true,
+   "detail": []
+  },
+  {
+   "check": "hooks.no_host_skip.negative",
+   "ok": true,
+   "detail": []
+  },
+  {
+   "check": "negative.completed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "provenance.root_not_live",
+   "ok": true,
+   "detail": "<root>"
+  },
+  {
+   "check": "provenance.deps_from_fake_root",
+   "ok": true,
+   "detail": "<root>\\installs\\71a9617b07b47200\\environments\\3f5a8b8f6a8a4b4e8e15666434ed5524\\venv\\Lib\\site-packages\\yaml\\__init__.py"
+  },
+  {
+   "check": "provenance.petasos_under_installs",
+   "ok": true,
+   "detail": "<root>\\installs\\71a9617b07b47200\\environments\\3f5a8b8f6a8a4b4e8e15666434ed5524\\venv\\Lib\\site-packages\\petasos\\__init__.py"
+  },
+  {
+   "check": "provenance.version",
+   "ok": true,
+   "detail": "0.5.0"
+  },
+  {
+   "check": "provenance.hermes_is_live_checkout",
+   "ok": true,
+   "detail": "<live>\\hermes-agent\\hermes_constants.py"
+  },
+  {
+   "check": "console.http.default",
+   "ok": true,
+   "detail": 200
+  },
+  {
+   "check": "console.llm_guard.default",
+   "ok": true,
+   "detail": {
+    "status": null,
+    "ground": "disabled"
+   }
+  },
+  {
+   "check": "console.llama_firewall.default",
+   "ok": true,
+   "detail": {
+    "status": null,
+    "ground": "disabled"
+   }
+  },
+  {
+   "check": "console.presidio.default",
+   "ok": true,
+   "detail": {
+    "status": "healthy",
+    "ground": "usable"
+   }
+  },
+  {
+   "check": "console.prompt_guard.default",
+   "ok": true,
+   "detail": {
+    "status": "healthy",
+    "ground": "usable"
+   }
+  },
+  {
+   "check": "console.semgrep_refusal.default",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "console.http.gibson",
+   "ok": true,
+   "detail": 200
+  },
+  {
+   "check": "console.llm_guard.gibson",
+   "ok": true,
+   "detail": {
+    "status": null,
+    "ground": "disabled"
+   }
+  },
+  {
+   "check": "console.llama_firewall.gibson",
+   "ok": true,
+   "detail": {
+    "status": null,
+    "ground": "disabled"
+   }
+  },
+  {
+   "check": "console.presidio.gibson",
+   "ok": true,
+   "detail": {
+    "status": "healthy",
+    "ground": "usable"
+   }
+  },
+  {
+   "check": "console.prompt_guard.gibson",
+   "ok": true,
+   "detail": {
+    "status": "healthy",
+    "ground": "usable"
+   }
+  },
+  {
+   "check": "console.semgrep_refusal.gibson",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "console.http.ops",
+   "ok": true,
+   "detail": 200
+  },
+  {
+   "check": "console.llm_guard.ops",
+   "ok": true,
+   "detail": {
+    "status": null,
+    "ground": "disabled"
+   }
+  },
+  {
+   "check": "console.llama_firewall.ops",
+   "ok": true,
+   "detail": {
+    "status": null,
+    "ground": "disabled"
+   }
+  },
+  {
+   "check": "console.presidio.ops",
+   "ok": true,
+   "detail": {
+    "status": "healthy",
+    "ground": "usable"
+   }
+  },
+  {
+   "check": "console.prompt_guard.ops",
+   "ok": true,
+   "detail": {
+    "status": "healthy",
+    "ground": "usable"
+   }
+  },
+  {
+   "check": "console.semgrep_refusal.ops",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "dash.lines.gibson",
+   "ok": true,
+   "detail": 1
+  },
+  {
+   "check": "dash.child.gibson",
+   "ok": true,
+   "detail": {
+    "pid": 38844,
+    "version": "0.5.0"
+   }
+  },
+  {
+   "check": "dash.lines.ops",
+   "ok": true,
+   "detail": 1
+  },
+  {
+   "check": "dash.child.ops",
+   "ok": true,
+   "detail": {
+    "pid": 45516,
+    "version": "0.5.0"
+   }
+  },
+  {
+   "check": "hooks.no_host_skip.dash",
+   "ok": true,
+   "detail": []
+  },
+  {
+   "check": "dash.completed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "info.dash.host_stop",
+   "ok": true,
+   "detail": [
+    "gibson",
+    "ops"
+   ]
+  },
+  {
+   "check": "snapshot.listing",
+   "ok": true,
+   "detail": {
+    "before": 14,
+    "after": 14
+   }
+  }
+ ],
+ "spools": {
+  "default": [
+   {
+    "session_id": "case-default-C04",
+    "tool": "terminal",
+    "event_type": "quarantine",
+    "tier": null,
+    "rule_id": "petasos.promptguard.injection",
+    "severity": "HIGH",
+    "reason": "PromptGuard 2 injection score 0.999",
+    "credential_redaction": "unchanged",
+    "param_scan_degraded": false,
+    "direction": "tool_call",
+    "armed": true,
+    "bypassed_count": null,
+    "scan_id": "e-86c942a09f5b4d97a91fd4a273cb311c",
+    "timestamp": 1795440126.6028705,
+    "sig_verified": true
+   },
+   {
+    "session_id": "case-default-C05",
+    "tool": "terminal",
+    "event_type": "quarantine",
+    "tier": null,
+    "rule_id": "petasos.syntactic.injection.ignore-previous",
+    "severity": "HIGH",
+    "reason": "Injection pattern matched: ignore-previous",
+    "credential_redaction": "unchanged",
+    "param_scan_degraded": false,
+    "direction": "tool_call",
+    "armed": true,
+    "bypassed_count": null,
+    "scan_id": "e-af9ea7da08b0463e867651d1c5751e07",
+    "timestamp": 1795440126.6610706,
+    "sig_verified": true
+   },
+   {
+    "session_id": "case-default-C06",
+    "tool": "send_email",
+    "event_type": "quarantine",
+    "tier": null,
+    "rule_id": "petasos.presidio.email_address",
+    "severity": "HIGH",
+    "reason": "PII detected: EMAIL_ADDRESS",
+    "credential_redaction": "unchanged",
+    "param_scan_degraded": false,
+    "direction": "tool_call",
+    "armed": true,
+    "bypassed_count": null,
+    "scan_id": "e-62bf71a2c19a42d7b2f4ba7e3f97cf87",
+    "timestamp": 1795440126.7106903,
+    "sig_verified": true
+   },
+   {
+    "session_id": "case-default-C08",
+    "tool": "terminal",
+    "event_type": "quarantine",
+    "tier": null,
+    "rule_id": "petasos.syntactic.command.fetch-exec",
+    "severity": "HIGH",
+    "reason": "Obfuscated/destructive command pattern matched: fetch-exec",
+    "credential_redaction": "unchanged",
+    "param_scan_degraded": false,
+    "direction": "tool_call",
+    "armed": true,
+    "bypassed_count": null,
+    "scan_id": "e-4c6d5f2981284310a8a6e2687018ca87",
+    "timestamp": 1795440126.822337,
+    "sig_verified": true
+   },
+   {
+    "session_id": "case-default-R02",
+    "tool": "read_file",
+    "event_type": "ingest_flagged",
+    "tier": null,
+    "rule_id": "petasos.syntactic.injection.ignore-previous",
+    "severity": "HIGH",
+    "reason": "Injection pattern matched: ignore-previous (tool result len=75, coverage=full, scanned=75)",
+    "credential_redaction": "unchanged",
+    "param_scan_degraded": false,
+    "direction": "tool_call",
+    "armed": true,
+    "bypassed_count": null,
+    "scan_id": "e-7673912d95574133b5521a23f044c3aa",
+    "timestamp": 1795440126.9294393,
+    "sig_verified": true
+   },
+   {
+    "session_id": "case-default-R03",
+    "tool": "read_file",
+    "event_type": "ingest_flagged",
+    "tier": null,
+    "rule_id": "petasos.promptguard.injection",
+    "severity": "HIGH",
+    "reason": "PromptGuard 2 injection score 0.999 (tool result len=90, coverage=full, scanned=90)",
+    "credential_redaction": "unchanged",
+    "param_scan_degraded": false,
+    "direction": "tool_call",
+    "armed": true,
+    "bypassed_count": null,
+    "scan_id": "e-ec335c943d224cd1b29becd85a844804",
+    "timestamp": 1795440126.988153,
+    "sig_verified": true
+   },
+   {
+    "session_id": "case-default-R04",
+    "tool": "read_file",
+    "event_type": "ingest_flagged",
+    "tier": null,
+    "rule_id": "petasos.syntactic.injection.ignore-previous",
+    "severity": "HIGH",
+    "reason": "Injection pattern matched: ignore-previous (tool result len=4171, coverage=full, scanned=4171)",
+    "credential_redaction": "unchanged",
+    "param_scan_degraded": false,
+    "direction": "tool_call",
+    "armed": true,
+    "bypassed_count": null,
+    "scan_id": "e-7d8b20f72dce4984bb8b206841a6e3bd",
+    "timestamp": 1795440127.25532,
+    "sig_verified": true
+   },
+   {
+    "session_id": "neg-default-prime",
+    "tool": "terminal",
+    "event_type": "quarantine",
+    "tier": null,
+    "rule_id": null,
+    "severity": null,
+    "reason": "param scan degraded",
+    "credential_redaction": "unchanged",
+    "param_scan_degraded": true,
+    "direction": "tool_call",
+    "armed": true,
+    "bypassed_count": null,
+    "scan_id": "e-1e1d13f34e2042eea39863c4240b89e4",
+    "timestamp": 1795440161.5979745,
+    "sig_verified": true
+   },
+   {
+    "session_id": "neg-default",
+    "tool": "terminal",
+    "event_type": "quarantine",
+    "tier": null,
+    "rule_id": null,
+    "severity": null,
+    "reason": "param scan degraded",
+    "credential_redaction": "unchanged",
+    "param_scan_degraded": true,
+    "direction": "tool_call",
+    "armed": true,
+    "bypassed_count": null,
+    "scan_id": "e-51e22bf9ea644c7188541fc069aba33a",
+    "timestamp": 1795440161.6156497,
+    "sig_verified": true
+   }
+  ],
+  "gibson": [
+   {
+    "session_id": "cold-7",
+    "tool": "terminal",
+    "event_type": "quarantine",
+    "tier": null,
+    "rule_id": null,
+    "severity": null,
+    "reason": "param scan degraded",
+    "credential_redaction": "unchanged",
+    "param_scan_degraded": true,
+    "direction": "tool_call",
+    "armed": true,
+    "bypassed_count": null,
+    "scan_id": "e-7923f3aee2a44a1f8eaddcd7b50e56e4",
+    "timestamp": 1795440124.3150287,
+    "sig_verified": true
+   },
+   {
+    "session_id": "case-gibson-C04",
+    "tool": "terminal",
+    "event_type": "quarantine",
+    "tier": null,
+    "rule_id": "petasos.promptguard.injection",
+    "severity": "HIGH",
+    "reason": "PromptGuard 2 injection score 0.999",
+    "credential_redaction": "unchanged",
+    "param_scan_degraded": false,
+    "direction": "tool_call",
+    "armed": true,
+    "bypassed_count": null,
+    "scan_id": "e-e48c87bf2a3a46aa82bd5da6b0b3234f",
+    "timestamp": 1795440127.5346458,
+    "sig_verified": true
+   },
+   {
+    "session_id": "case-gibson-C05",
+    "tool": "terminal",
+    "event_type": "quarantine",
+    "tier": null,
+    "rule_id": "petasos.syntactic.injection.ignore-previous",
+    "severity": "HIGH",
+    "reason": "Injection pattern matched: ignore-previous",
+    "credential_redaction": "unchanged",
+    "param_scan_degraded": false,
+    "direction": "tool_call",
+    "armed": true,
+    "bypassed_count": null,
+    "scan_id": "e-e487cca0b5a449598cb65cd67b51173b",
+    "timestamp": 1795440127.606547,
+    "sig_verified": true
+   },
+   {
+    "session_id": "case-gibson-C06",
+    "tool": "send_email",
+    "event_type": "quarantine",
+    "tier": null,
+    "rule_id": "petasos.presidio.email_address",
+    "severity": "HIGH",
+    "reason": "PII detected: EMAIL_ADDRESS",
+    "credential_redaction": "unchanged",
+    "param_scan_degraded": false,
+    "direction": "tool_call",
+    "armed": true,
+    "bypassed_count": null,
+    "scan_id": "e-3903fe08112541a1963c0a697b7664f2",
+    "timestamp": 1795440127.6682222,
+    "sig_verified": true
+   },
+   {
+    "session_id": "case-gibson-C08",
+    "tool": "terminal",
+    "event_type": "quarantine",
+    "tier": null,
+    "rule_id": "petasos.syntactic.command.fetch-exec",
+    "severity": "HIGH",
+    "reason": "Obfuscated/destructive command pattern matched: fetch-exec",
+    "credential_redaction": "unchanged",
+    "param_scan_degraded": false,
+    "direction": "tool_call",
+    "armed": true,
+    "bypassed_count": null,
+    "scan_id": "e-9dc4204cebe1429a9bd9c1cf1ec625d3",
+    "timestamp": 1795440127.7886147,
+    "sig_verified": true
+   },
+   {
+    "session_id": "case-gibson-R02",
+    "tool": "read_file",
+    "event_type": "ingest_flagged",
+    "tier": null,
+    "rule_id": "petasos.syntactic.injection.ignore-previous",
+    "severity": "HIGH",
+    "reason": "Injection pattern matched: ignore-previous (tool result len=75, coverage=full, scanned=75)",
+    "credential_redaction": "unchanged",
+    "param_scan_degraded": false,
+    "direction": "tool_call",
+    "armed": true,
+    "bypassed_count": null,
+    "scan_id": "e-da1e9b699d0c485aa4a19c21b3000299",
+    "timestamp": 1795440127.9079664,
+    "sig_verified": true
+   },
+   {
+    "session_id": "case-gibson-R03",
+    "tool": "read_file",
+    "event_type": "ingest_flagged",
+    "tier": null,
+    "rule_id": "petasos.promptguard.injection",
+    "severity": "HIGH",
+    "reason": "PromptGuard 2 injection score 0.999 (tool result len=90, coverage=full, scanned=90)",
+    "credential_redaction": "unchanged",
+    "param_scan_degraded": false,
+    "direction": "tool_call",
+    "armed": true,
+    "bypassed_count": null,
+    "scan_id": "e-e1fd4efb0b5c4b59bd863362187a82c0",
+    "timestamp": 1795440127.9708874,
+    "sig_verified": true
+   },
+   {
+    "session_id": "case-gibson-R04",
+    "tool": "read_file",
+    "event_type": "ingest_flagged",
+    "tier": null,
+    "rule_id": "petasos.syntactic.injection.ignore-previous",
+    "severity": "HIGH",
+    "reason": "Injection pattern matched: ignore-previous (tool result len=4171, coverage=full, scanned=4171)",
+    "credential_redaction": "unchanged",
+    "param_scan_degraded": false,
+    "direction": "tool_call",
+    "armed": true,
+    "bypassed_count": null,
+    "scan_id": "e-2c8dd68ea0fa440886a5dc6e8515590d",
+    "timestamp": 1795440128.2287648,
+    "sig_verified": true
+   },
+   {
+    "session_id": "neg-gibson-prime",
+    "tool": "terminal",
+    "event_type": "quarantine",
+    "tier": null,
+    "rule_id": null,
+    "severity": null,
+    "reason": "param scan degraded",
+    "credential_redaction": "unchanged",
+    "param_scan_degraded": true,
+    "direction": "tool_call",
+    "armed": true,
+    "bypassed_count": null,
+    "scan_id": "e-6032aa9db3e14f4aa7be155d90e1d6ab",
+    "timestamp": 1795440162.3080938,
+    "sig_verified": true
+   },
+   {
+    "session_id": "neg-gibson",
+    "tool": "terminal",
+    "event_type": "quarantine",
+    "tier": null,
+    "rule_id": null,
+    "severity": null,
+    "reason": "param scan degraded",
+    "credential_redaction": "unchanged",
+    "param_scan_degraded": true,
+    "direction": "tool_call",
+    "armed": true,
+    "bypassed_count": null,
+    "scan_id": "e-9d8ded980330458fb37c30823a9fab6a",
+    "timestamp": 1795440162.3201203,
+    "sig_verified": true
+   }
+  ],
+  "ops": [
+   {
+    "session_id": "case-ops-R02",
+    "tool": "read_file",
+    "event_type": "ingest_flagged",
+    "tier": null,
+    "rule_id": "petasos.syntactic.injection.ignore-previous",
+    "severity": "HIGH",
+    "reason": "Injection pattern matched: ignore-previous (tool result len=75, coverage=full, scanned=75)",
+    "credential_redaction": "unchanged",
+    "param_scan_degraded": false,
+    "direction": "tool_call",
+    "armed": true,
+    "bypassed_count": null,
+    "scan_id": "e-53c86a393a474e33b62eb484cdd70697",
+    "timestamp": 1795440128.4158356,
+    "sig_verified": true
+   },
+   {
+    "session_id": "case-ops-R03",
+    "tool": "read_file",
+    "event_type": "ingest_flagged",
+    "tier": null,
+    "rule_id": "petasos.promptguard.injection",
+    "severity": "HIGH",
+    "reason": "PromptGuard 2 injection score 0.999 (tool result len=90, coverage=full, scanned=90)",
+    "credential_redaction": "unchanged",
+    "param_scan_degraded": false,
+    "direction": "tool_call",
+    "armed": true,
+    "bypassed_count": null,
+    "scan_id": "e-fe4789f24ae84702a3a093e45eec04db",
+    "timestamp": 1795440128.476861,
+    "sig_verified": true
+   },
+   {
+    "session_id": "case-ops-R04",
+    "tool": "read_file",
+    "event_type": "ingest_flagged",
+    "tier": null,
+    "rule_id": "petasos.syntactic.injection.ignore-previous",
+    "severity": "HIGH",
+    "reason": "Injection pattern matched: ignore-previous (tool result len=4171, coverage=full, scanned=4171)",
+    "credential_redaction": "unchanged",
+    "param_scan_degraded": false,
+    "direction": "tool_call",
+    "armed": true,
+    "bypassed_count": null,
+    "scan_id": "e-cca25e99af4243d6b39ff4915b9ac87a",
+    "timestamp": 1795440128.718768,
+    "sig_verified": true
+   }
+  ]
+ },
+ "snapshot_listing": [
+  [
+   ".no_exist/a8ded8e697ce7c355e395a0df51f94adb4a2fd27/added_tokens.json",
+   0
+  ],
+  [
+   ".no_exist/a8ded8e697ce7c355e395a0df51f94adb4a2fd27/chat_template.jinja",
+   0
+  ],
+  [
+   ".no_exist/a8ded8e697ce7c355e395a0df51f94adb4a2fd27/spm.model",
+   0
+  ],
+  [
+   "refs/main",
+   40
+  ],
+  [
+   "snapshots/a8ded8e697ce7c355e395a0df51f94adb4a2fd27/.gitattributes",
+   1570
+  ],
+  [
+   "snapshots/a8ded8e697ce7c355e395a0df51f94adb4a2fd27/LICENSE",
+   7554
+  ],
+  [
+   "snapshots/a8ded8e697ce7c355e395a0df51f94adb4a2fd27/README.md",
+   19046
+  ],
+  [
+   "snapshots/a8ded8e697ce7c355e395a0df51f94adb4a2fd27/USE_POLICY.md",
+   5796
+  ],
+  [
+   "snapshots/a8ded8e697ce7c355e395a0df51f94adb4a2fd27/checklist.chk",
+   261
+  ],
+  [
+   "snapshots/a8ded8e697ce7c355e395a0df51f94adb4a2fd27/config.json",
+   871
+  ],
+  [
+   "snapshots/a8ded8e697ce7c355e395a0df51f94adb4a2fd27/model.safetensors",
+   1115268200
+  ],
+  [
+   "snapshots/a8ded8e697ce7c355e395a0df51f94adb4a2fd27/special_tokens_map.json",
+   286
+  ],
+  [
+   "snapshots/a8ded8e697ce7c355e395a0df51f94adb4a2fd27/tokenizer.json",
+   16351353
+  ],
+  [
+   "snapshots/a8ded8e697ce7c355e395a0df51f94adb4a2fd27/tokenizer_config.json",
+   19674
+  ]
+ ],
+ "approval": {
+  "exercised": false,
+  "reason": "no matrix profile uses the approve posture"
+ },
+ "verdict": "go",
+ "failed": [],
+ "not_shown": [
+  "first-time gated download",
+  "abandoned-text analysis",
+  "a live profile's plugins.enabled",
+  "macOS",
+  "latency budgets",
+  "session escalation",
+  "the approval path when no matrix profile uses the approve posture",
+  "a real model turn (smoke checklist)",
+  "memory use",
+  "that nothing is anonymized beyond the copied sections leaving anonymize unset"
+ ],
+ "driver_imports": "petasos.console._paths.hermes_root from the gate checkout, not a probe process",
+ "env_set": [
+  "HERMES_HOME",
+  "LOCALAPPDATA",
+  "USERPROFILE",
+  "HOME",
+  "APPDATA",
+  "PYTHONPATH",
+  "PYTHONDONTWRITEBYTECODE",
+  "HF_HUB_CACHE",
+  "HF_HUB_OFFLINE",
+  "TRANSFORMERS_OFFLINE",
+  "HERMES_GATEWAY_SESSION",
+  "UV_FIND_LINKS",
+  "PETASOS_SESSION_SECRET (harness throwaway constant)"
+ ],
+ "paths_rewritten": {
+  "root": "<root>",
+  "live": "<live>",
+  "tree": "<tree>",
+  "workdir": "<workdir>",
+  "hf_cache": "<hf_cache>"
+ }
+}
